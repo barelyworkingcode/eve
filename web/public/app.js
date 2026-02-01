@@ -7,6 +7,7 @@ class EveWorkspaceClient {
     this.currentAssistantMessage = null;
     this.attachedFiles = [];
     this.models = [];
+    this.confirmCallback = null;
 
     this.initElements();
     this.initEventListeners();
@@ -49,7 +50,11 @@ class EveWorkspaceClient {
       attachedFiles: document.getElementById('attachedFiles'),
       contextStat: document.getElementById('contextStat'),
       costStat: document.getElementById('costStat'),
-      sessionStats: document.getElementById('sessionStats')
+      sessionStats: document.getElementById('sessionStats'),
+      confirmModal: document.getElementById('confirmModal'),
+      confirmMessage: document.getElementById('confirmMessage'),
+      confirmDelete: document.getElementById('confirmDelete'),
+      cancelConfirm: document.getElementById('cancelConfirm')
     };
   }
 
@@ -130,6 +135,11 @@ class EveWorkspaceClient {
 
     // Project select - update directory input requirement
     this.elements.projectSelect.addEventListener('change', () => this.updateDirectoryInputRequirement());
+
+    // Confirmation modal
+    this.elements.cancelConfirm.addEventListener('click', () => this.hideConfirmModal());
+    this.elements.confirmModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideConfirmModal());
+    this.elements.confirmDelete.addEventListener('click', () => this.handleConfirm());
   }
 
   updateDirectoryInputRequirement() {
@@ -698,16 +708,28 @@ class EveWorkspaceClient {
   }
 
   async deleteProject(projectId) {
-    if (!confirm('Delete this project? Sessions will become ungrouped.')) return;
+    const project = this.projects.get(projectId);
+    if (!project) return;
 
-    try {
-      await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
-      this.projects.delete(projectId);
-      this.renderProjectList();
-      this.updateProjectSelect();
-    } catch (err) {
-      console.error('Failed to delete project:', err);
-    }
+    // Count sessions in this project
+    const sessionCount = Array.from(this.sessions.values()).filter(
+      s => s.projectId === projectId
+    ).length;
+
+    const message = sessionCount > 0
+      ? `Delete '${project.name}'? ${sessionCount} session(s) will become ungrouped.`
+      : `Delete '${project.name}'?`;
+
+    this.showConfirmModal(message, async () => {
+      try {
+        await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+        this.projects.delete(projectId);
+        this.renderProjectList();
+        this.updateProjectSelect();
+      } catch (err) {
+        console.error('Failed to delete project:', err);
+      }
+    });
   }
 
   showProjectModal() {
@@ -723,6 +745,25 @@ class EveWorkspaceClient {
     if (this.models.length > 0) {
       this.elements.projectModelSelect.value = this.models[0].value;
     }
+  }
+
+  showConfirmModal(message, callback) {
+    this.elements.confirmMessage.textContent = message;
+    this.confirmCallback = callback;
+    this.elements.confirmModal.classList.remove('hidden');
+    this.elements.confirmDelete.focus();
+  }
+
+  hideConfirmModal() {
+    this.elements.confirmModal.classList.add('hidden');
+    this.confirmCallback = null;
+  }
+
+  handleConfirm() {
+    if (this.confirmCallback) {
+      this.confirmCallback();
+    }
+    this.hideConfirmModal();
   }
 
   updateProjectSelect() {
@@ -745,15 +786,28 @@ class EveWorkspaceClient {
     }
   }
 
-  showModal() {
+  showModal(projectId = null) {
     this.elements.modal.classList.remove('hidden');
+
+    if (projectId && this.projects.has(projectId)) {
+      // Pre-select project
+      this.elements.projectSelect.value = projectId;
+
+      // Pre-fill directory with project path
+      const project = this.projects.get(projectId);
+      this.elements.directoryInput.value = project.path || '';
+    }
+
     this.updateDirectoryInputRequirement();
     this.elements.directoryInput.focus();
+    this.elements.directoryInput.select();
   }
 
   hideModal() {
     this.elements.modal.classList.add('hidden');
     this.elements.directoryInput.value = '';
+    this.elements.projectSelect.value = '';
+    this.updateDirectoryInputRequirement();
     this.toggleSidebar(false); // Close sidebar on mobile
   }
 
@@ -804,6 +858,7 @@ class EveWorkspaceClient {
           <span class="project-name">${this.escapeHtml(project.name)}</span>
           <span class="project-model">${project.model || 'haiku'}</span>
           ${disabledNote}
+          <button class="project-quick-add" title="New session in this project">+</button>
           <button class="project-delete" title="Delete project">&times;</button>
         </div>
         <ul class="project-sessions"></ul>
@@ -812,13 +867,22 @@ class EveWorkspaceClient {
       const header = projectEl.querySelector('.project-header');
       const toggle = projectEl.querySelector('.project-toggle');
       const sessionsList = projectEl.querySelector('.project-sessions');
+      const quickAddBtn = projectEl.querySelector('.project-quick-add');
       const deleteBtn = projectEl.querySelector('.project-delete');
 
       // Toggle collapse (disabled for disabled projects)
       header.addEventListener('click', (e) => {
-        if (e.target === deleteBtn || project.disabled) return;
+        if (e.target === deleteBtn || e.target === quickAddBtn || project.disabled) return;
         projectEl.classList.toggle('collapsed');
         toggle.textContent = projectEl.classList.contains('collapsed') ? '&#9656;' : '&#9662;';
+      });
+
+      // Quick add session
+      quickAddBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!project.disabled) {
+          this.showModal(projectId);
+        }
       });
 
       // Delete project

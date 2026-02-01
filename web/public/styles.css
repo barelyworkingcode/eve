@@ -198,6 +198,31 @@ html, body {
   color: var(--danger);
 }
 
+.project-quick-add {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+  transition: opacity 0.15s, color 0.15s;
+  margin-left: auto;
+}
+
+.project-header:hover .project-quick-add {
+  opacity: 1;
+}
+
+.project-quick-add:hover {
+  color: var(--accent);
+}
+
+.project-delete {
+  margin-left: 0;
+}
+
 .project-sessions {
   list-style: none;
   padding-left: 20px;
@@ -749,6 +774,13 @@ html, body {
 .modal-content h3 {
   font-size: 16px;
   font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.confirm-message {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
   margin-bottom: 16px;
 }
 
