@@ -359,7 +359,13 @@ class EveWorkspaceClient {
 
       case 'session_joined':
         this.currentSessionId = data.sessionId;
+        this.elements.messages.innerHTML = '';
         this.showChatScreen(data.metadata || data.directory);
+
+        if (data.history && data.history.length > 0) {
+          this.renderHistory(data.history);
+        }
+
         this.renderProjectList();
         break;
 
@@ -571,6 +577,30 @@ class EveWorkspaceClient {
       </div>
     `;
     this.elements.messages.appendChild(messageEl);
+    this.scrollToBottom();
+  }
+
+  renderHistory(messages) {
+    this.elements.messages.innerHTML = '';
+    this.currentAssistantMessage = null;
+
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        this.appendUserMessage(msg.content, msg.files || []);
+      } else if (msg.role === 'assistant') {
+        if (Array.isArray(msg.content)) {
+          for (const block of msg.content) {
+            if (block.type === 'text' && block.text) {
+              this.startAssistantMessage(block.text);
+              this.finishAssistantMessage();
+            } else if (block.type === 'tool_use') {
+              this.appendToolUse(block.name, block.input);
+            }
+          }
+        }
+      }
+    }
+
     this.scrollToBottom();
   }
 

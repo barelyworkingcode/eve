@@ -7,6 +7,7 @@ class LMStudioProvider extends LLMProvider {
   constructor(session) {
     super(session);
     this.conversationHistory = [];
+    this.currentAssistantMessage = null;
     this.loadConfig();
   }
 
@@ -111,6 +112,18 @@ class LMStudioProvider extends LLMProvider {
                 if (delta.content) {
                   assistantMessage += delta.content;
 
+                  // Initialize assistant message on first content
+                  if (!this.currentAssistantMessage) {
+                    this.currentAssistantMessage = {
+                      timestamp: new Date().toISOString(),
+                      role: 'assistant',
+                      content: [{ type: 'text', text: '' }]
+                    };
+                  }
+
+                  // Accumulate content
+                  this.currentAssistantMessage.content[0].text += delta.content;
+
                   // Send content delta event
                   this.sendEvent({
                     type: 'assistant',
@@ -128,6 +141,15 @@ class LMStudioProvider extends LLMProvider {
                     role: 'assistant',
                     content: assistantMessage
                   });
+
+                  // Save assistant message to session history
+                  if (this.currentAssistantMessage) {
+                    this.session.messages.push(this.currentAssistantMessage);
+                    this.currentAssistantMessage = null;
+                    if (this.session.saveHistory) {
+                      this.session.saveHistory();
+                    }
+                  }
 
                   // Update stats if available
                   if (data.usage) {

@@ -8,6 +8,7 @@ const fs = require('fs');
 const ClaudeProvider = require('./providers/claude-provider');
 const GeminiProvider = require('./providers/gemini-provider');
 const LMStudioProvider = require('./providers/lmstudio-provider');
+const SessionStore = require('./session-store');
 
 const app = express();
 const server = createServer(app);
@@ -17,6 +18,9 @@ const wss = new WebSocketServer({ server });
 const DATA_DIR = path.join(__dirname, 'data');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+
+// Session persistence
+const sessionStore = new SessionStore(DATA_DIR);
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -79,6 +83,21 @@ function saveProjects() {
 // Load settings and projects on startup
 loadSettings();
 loadProjects();
+
+// Load saved sessions on startup
+const savedSessions = sessionStore.loadAll();
+for (const sessionData of savedSessions) {
+  const session = {
+    ...sessionData,
+    ws: null,
+    provider: null,
+    processing: false,
+    messages: [],
+    saveHistory: null
+  };
+  session.saveHistory = () => sessionStore.save(session);
+  sessions.set(sessionData.sessionId, session);
+}
 
 // Determine which provider a model uses
 function getProviderForModel(model) {
@@ -232,6 +251,8 @@ function createSession(ws, directory, projectId = null) {
     provider: null,
     processing: false,
     model,
+    createdAt: new Date().toISOString(),
+    messages: [],
     stats: {
       inputTokens: 0,
       outputTokens: 0,
@@ -239,7 +260,8 @@ function createSession(ws, directory, projectId = null) {
       cacheCreationTokens: 0,
       contextWindow: 200000,
       costUsd: 0
-    }
+    },
+    saveHistory: () => sessionStore.save(session)
   };
 
   sessions.set(sessionId, session);
@@ -269,7 +291,40 @@ function createSession(ws, directory, projectId = null) {
 }
 
 function joinSession(ws, sessionId) {
-  const session = sessions.get(sessionId);
+  let session = sessions.get(sessionId);
+
+  // If session not in memory, try to load from disk
+  if (!session) {
+    const savedSession = sessionStore.load(sessionId);
+    if (savedSession) {
+      // Recreate session from saved state
+      session = {
+        ...savedSession,
+        ws: null,
+        provider: null,
+        processing: false,
+        saveHistory: () => sessionStore.save(session)
+      };
+
+      // Instantiate the correct provider
+      const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
+      if (session.model.startsWith('gemini')) {
+        session.provider = new GeminiProvider(session);
+      } else if (lmStudioModels.includes(session.model)) {
+        session.provider = new LMStudioProvider(session);
+      } else {
+        session.provider = new ClaudeProvider(session);
+      }
+
+      // Start the provider process
+      if (session.provider.startProcess) {
+        session.provider.startProcess();
+      }
+
+      sessions.set(sessionId, session);
+    }
+  }
+
   if (!session) {
     ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }));
     return null;
@@ -280,7 +335,8 @@ function joinSession(ws, sessionId) {
     type: 'session_joined',
     sessionId,
     directory: session.directory,
-    metadata: session.provider?.getMetadata() || session.directory
+    metadata: session.provider?.getMetadata() || session.directory,
+    history: session.messages || []
   }));
 
   // Send current stats
@@ -358,6 +414,7 @@ function handleSlashCommand(sessionId, text) {
       if (session.provider) {
         session.provider.kill();
       }
+      session.messages = [];
       session.stats = {
         inputTokens: 0,
         outputTokens: 0,
@@ -366,6 +423,7 @@ function handleSlashCommand(sessionId, text) {
         contextWindow: 200000,
         costUsd: 0
       };
+      sessionStore.save(session);
       session.provider.startProcess();
       session.ws?.send(JSON.stringify({
         type: 'system_message',
@@ -417,6 +475,16 @@ function sendMessage(sessionId, text, files = []) {
     return;
   }
 
+  // Save user message to history
+  const userMessage = {
+    timestamp: new Date().toISOString(),
+    role: 'user',
+    content: text,
+    files: files || []
+  };
+  session.messages.push(userMessage);
+  sessionStore.save(session);
+
   if (session.provider) {
     session.provider.sendMessage(text, files);
   }
@@ -425,6 +493,7 @@ function sendMessage(sessionId, text, files = []) {
 function endSession(sessionId) {
   const session = sessions.get(sessionId);
   if (session) {
+    sessionStore.save(session);
     if (session.provider) {
       session.provider.kill();
     }

@@ -7,6 +7,7 @@ class GeminiProvider extends LLMProvider {
     this.geminiProcess = null;
     this.buffer = '';
     this.geminiSessionId = null;
+    this.currentAssistantMessage = null;
   }
 
   startProcess() {
@@ -170,6 +171,27 @@ class GeminiProvider extends LLMProvider {
   handleEvent(event) {
     console.log('[Gemini] handleEvent:', event.type);
 
+    // Start tracking assistant message (normalized format from normalizeEvent)
+    if (event.type === 'assistant' && !this.currentAssistantMessage) {
+      this.currentAssistantMessage = {
+        timestamp: new Date().toISOString(),
+        role: 'assistant',
+        content: [{ type: 'text', text: '' }]
+      };
+    }
+
+    // Accumulate assistant message content deltas
+    if (event.type === 'assistant' && event.delta && this.currentAssistantMessage) {
+      if (event.delta.type === 'text_delta' && event.delta.text) {
+        let textBlock = this.currentAssistantMessage.content.find(b => b.type === 'text');
+        if (!textBlock) {
+          textBlock = { type: 'text', text: '' };
+          this.currentAssistantMessage.content.push(textBlock);
+        }
+        textBlock.text += event.delta.text;
+      }
+    }
+
     // Capture session ID from init event
     if (event.type === 'init' && event.session_id) {
       this.geminiSessionId = event.session_id;
@@ -206,6 +228,16 @@ class GeminiProvider extends LLMProvider {
 
     if (event.type === 'result') {
       this.session.processing = false;
+
+      // Save assistant message to history
+      if (this.currentAssistantMessage) {
+        this.session.messages.push(this.currentAssistantMessage);
+        this.currentAssistantMessage = null;
+        if (this.session.saveHistory) {
+          this.session.saveHistory();
+        }
+      }
+
       if (this.session.ws && this.session.ws.readyState === 1) {
         this.session.ws.send(JSON.stringify({
           type: 'message_complete',
