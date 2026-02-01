@@ -2,6 +2,264 @@
 
 Multi-provider LLM web interface with persistent sessions, project grouping, and real-time stats.
 
+## Enterprise Development Standards
+
+This project follows enterprise software engineering practices. All code changes must meet production-grade standards.
+
+### Code Quality Requirements
+
+**No Overengineering**
+- Solve the specific problem, nothing more
+- Don't create abstractions for single use cases
+- Don't add "future-proofing" features that aren't needed now
+- Three similar lines are better than premature abstraction
+- Delete unused code completely—no comments, no `_unused` variables
+
+**Critical Review**
+- Challenge requirements if they don't make sense
+- Identify issues before they become problems
+- Propose better approaches when you see them
+- Question patterns that add complexity without value
+- Push back on unnecessary features
+
+**Concrete Implementation**
+- Show working code, not theoretical explanations
+- Provide specific examples with actual values
+- Debug systematically from root cause, not symptoms
+- Use real error messages, not hypothetical scenarios
+
+### Security Standards
+
+**Input Validation**
+- Validate at system boundaries (user input, external APIs)
+- Trust internal code and framework guarantees
+- Don't validate data that can't be invalid
+- Sanitize user content for XSS (use `escapeHtml()` pattern)
+- Never execute user input as code
+
+**Authentication & Authorization**
+- No client-side security decisions
+- Validate permissions server-side
+- Never trust client-provided IDs without verification
+
+**Data Protection**
+- Never log sensitive data (tokens, credentials)
+- Use environment variables for secrets, not config files
+- Sanitize error messages sent to client
+
+### Error Handling
+
+**Client-Side**
+- Catch WebSocket errors and attempt reconnection
+- Display user-friendly error messages
+- Log detailed errors to console for debugging
+- Never leave UI in broken state after error
+- Always provide recovery path (reload, retry, etc.)
+
+**Server-Side**
+- Catch provider process crashes and log
+- Send user-friendly errors via WebSocket
+- Clean up resources (kill processes) on error
+- Don't crash server on session failures
+- Log stack traces for debugging
+
+**Pattern**
+```javascript
+try {
+  await riskyOperation();
+  this.updateUI();
+} catch (err) {
+  console.error('Operation failed:', err);
+  this.showError('Something went wrong. Please try again.');
+  this.resetState();
+}
+```
+
+### Testing Philosophy
+
+**Manual Testing Required**
+Every feature must be manually tested across:
+1. Happy path - feature works as intended
+2. Error cases - handles failures gracefully
+3. Edge cases - empty states, disabled providers, missing data
+4. Mobile viewport - touch interactions, responsive layout
+5. Browser compatibility - Chrome, Safari, Firefox
+
+**Integration Points**
+Test WebSocket reconnection:
+- Stop server while client connected
+- Verify auto-reconnect and state recovery
+
+Test provider switching:
+- Disable provider in settings
+- Verify UI updates (grayed out projects)
+- Verify cannot create sessions
+
+Test concurrent sessions:
+- Create multiple sessions
+- Verify stats isolation
+- Verify switching preserves state
+
+### State Management Standards
+
+**Single Source of Truth**
+- Client: `EveWorkspaceClient` instance owns all state
+- Server: `sessions` Map owns session state
+- Never duplicate state across components
+- Always derive UI from authoritative state
+
+**State Update Pattern**
+```javascript
+// Always: Update state → Re-render UI
+this.sessions.set(id, session);
+this.renderProjectList();  // Required
+
+// Never: Update UI without updating state
+document.querySelector('.session').classList.add('active');  // Wrong
+```
+
+**Immutability Where It Matters**
+- Don't mutate WebSocket message objects
+- Clone before modifying shared objects
+- Use `.set()` / `.delete()` for Maps (don't mutate entries)
+
+### Performance Standards
+
+**Acceptable Trade-offs**
+- Full re-render of project list on changes (< 100 projects)
+- No virtualization for message list (cleared per session)
+- Synchronous file reads for attachments (< 10MB typical)
+
+**Unacceptable Patterns**
+- N+1 queries in rendering loops
+- Memory leaks (unreleased WebSocket listeners)
+- Blocking main thread > 100ms
+- Process spawns per message (use persistent processes)
+
+**Resource Cleanup**
+```javascript
+// Always clean up
+session.provider.kill();  // Kill process
+ws.close();               // Close WebSocket
+this.sessions.delete(id); // Remove from Map
+```
+
+### Code Organization
+
+**File Length Limits**
+- Single file should not exceed 1000 lines
+- Break into logical modules at 800+ lines
+- Exception: `app.js` is 900 lines but well-organized by section
+
+**Function Length**
+- Keep functions under 50 lines
+- Extract complex logic into helper methods
+- One level of abstraction per function
+
+**Naming Conventions**
+- `camelCase` for variables and methods
+- `PascalCase` for classes
+- `UPPER_CASE` for constants
+- Descriptive names over comments: `isDisabled` not `disabled`
+
+### Documentation Standards
+
+**When to Document**
+- Complex algorithms - explain the "why"
+- Provider-specific quirks - flag non-obvious behavior
+- Security considerations - mark validation points
+- Public APIs - if creating reusable modules
+
+**When NOT to Document**
+- Self-explanatory code
+- Obvious patterns (getters/setters)
+- Temporary debugging code
+- Code that comments would just repeat
+
+### Git Practices
+
+**Commit Standards**
+- One logical change per commit
+- Present tense: "Add feature" not "Added feature"
+- Reference what changed, not how: "Add quick session button" not "Update renderProjectList"
+- No "WIP", "fix", "updates" commits in main branch
+
+**CRITICAL: Never Auto-Commit**
+- Only create commits when explicitly requested by user
+- Do not commit after completing features unless asked
+- Do not commit "to save progress" proactively
+- Always wait for explicit instruction: "commit this" or "create a commit"
+- When in doubt, ask before committing
+
+**Code Review Checklist**
+- [ ] No unused variables, imports, or functions
+- [ ] Error handling on all async operations
+- [ ] UI state updated after data changes
+- [ ] Mobile responsive (test at 375px width)
+- [ ] No console errors in browser
+- [ ] WebSocket reconnection tested
+- [ ] Works with disabled providers
+
+### Dependency Management
+
+**Adding Dependencies**
+- Justify why existing code can't solve it
+- Check bundle size impact
+- Verify maintenance status (last update < 6 months)
+- Prefer standard library over npm when possible
+- No dependencies for trivial operations
+
+**Current Philosophy**
+This project intentionally has minimal dependencies:
+- No frontend framework (vanilla JS)
+- No build tooling (direct browser execution)
+- No UI library (custom CSS)
+Keep it that way unless absolutely necessary.
+
+### Debugging Standards
+
+**Test-Driven Debugging**
+Before fixing a bug:
+1. Create a minimal test case that reproduces the issue
+2. Verify the test fails with current code
+3. Fix the bug
+4. Verify the test passes with the fix
+5. Test edge cases around the fix
+
+Example workflow:
+```javascript
+// 1. Create test case
+async function testProjectDeletion() {
+  const project = { id: '123', name: 'Test' };
+  const session = { id: 'abc', projectId: '123' };
+  // Expect: deletion shows session count in message
+}
+
+// 2. Run test → fails (native confirm used, no count)
+// 3. Implement custom modal with session count
+// 4. Run test → passes
+// 5. Test edge cases: 0 sessions, disabled project, etc.
+```
+
+**Systematic Approach**
+1. Reproduce the issue reliably
+2. Identify root cause, not symptoms
+3. Fix the cause, not the symptom
+4. Verify fix across all affected paths
+5. Add safeguards to prevent recurrence
+
+**Debugging Tools**
+- Browser DevTools Network tab for WebSocket messages
+- Console for client-side errors and state inspection
+- Server logs for provider process output
+- `curl` for testing HTTP endpoints directly
+
+**Common Issues**
+- "Session not found" → Check WebSocket reconnection
+- "Process exited" → Check provider available in PATH
+- "Stats not updating" → Check provider emits stats events
+- "UI not updating" → Check render called after state change
+
 ## Project Architecture
 
 ### Core Components

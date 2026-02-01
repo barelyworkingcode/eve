@@ -6,6 +6,7 @@ class ClaudeProvider extends LLMProvider {
     super(session);
     this.claudeProcess = null;
     this.buffer = '';
+    this.currentAssistantMessage = null;
   }
 
   startProcess() {
@@ -161,6 +162,31 @@ ${f.content}
   handleEvent(event) {
     console.log('[Claude] handleEvent:', event.type);
 
+    // Start tracking assistant message
+    if (event.type === 'assistant' && event.message) {
+      this.currentAssistantMessage = {
+        timestamp: new Date().toISOString(),
+        role: 'assistant',
+        content: event.message.content || []
+      };
+    }
+
+    // Accumulate assistant message content deltas
+    if (event.type === 'assistant' && event.delta && this.currentAssistantMessage) {
+      if (event.delta.type === 'text_delta' && event.delta.text) {
+        // Find or create text block
+        let textBlock = this.currentAssistantMessage.content.find(b => b.type === 'text');
+        if (!textBlock) {
+          textBlock = { type: 'text', text: '' };
+          this.currentAssistantMessage.content.push(textBlock);
+        }
+        textBlock.text += event.delta.text;
+      } else if (event.delta.type === 'tool_use') {
+        // Add tool use block
+        this.currentAssistantMessage.content.push(event.delta);
+      }
+    }
+
     if (event.type === 'user' && event.message?.content) {
       const content = event.message.content;
       const match = content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
@@ -214,6 +240,16 @@ ${f.content}
 
     if (event.type === 'result') {
       this.session.processing = false;
+
+      // Save assistant message to history
+      if (this.currentAssistantMessage) {
+        this.session.messages.push(this.currentAssistantMessage);
+        this.currentAssistantMessage = null;
+        if (this.session.saveHistory) {
+          this.session.saveHistory();
+        }
+      }
+
       if (this.session.ws && this.session.ws.readyState === 1) {
         this.session.ws.send(JSON.stringify({
           type: 'message_complete',
