@@ -52,6 +52,21 @@ html, body {
   z-index: 50;
 }
 
+.sidebar-resizer {
+  width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 51;
+  transition: background-color 0.2s;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer.resizing {
+  background: var(--accent);
+}
+
 .sidebar-header {
   padding: 16px;
   border-bottom: 1px solid var(--border-color);
@@ -881,6 +896,10 @@ html, body {
 
   .sidebar.open {
     transform: translateX(0);
+  }
+
+  .sidebar-resizer {
+    display: none;
   }
 
   .menu-toggle {

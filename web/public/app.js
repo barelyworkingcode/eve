@@ -11,6 +11,7 @@ class EveWorkspaceClient {
 
     this.initElements();
     this.initEventListeners();
+    this.initSidebarResize();
     this.loadModels();
     this.connect();
   }
@@ -43,6 +44,7 @@ class EveWorkspaceClient {
       inputPrompt: document.getElementById('inputPrompt'),
       promptText: document.getElementById('promptText'),
       sidebar: document.getElementById('sidebar'),
+      sidebarResizer: document.getElementById('sidebarResizer'),
       openSidebar: document.getElementById('openSidebar'),
       closeSidebar: document.getElementById('closeSidebar'),
       attachBtn: document.getElementById('attachBtn'),
@@ -140,6 +142,59 @@ class EveWorkspaceClient {
     this.elements.cancelConfirm.addEventListener('click', () => this.hideConfirmModal());
     this.elements.confirmModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideConfirmModal());
     this.elements.confirmDelete.addEventListener('click', () => this.handleConfirm());
+  }
+
+  initSidebarResize() {
+    const minWidth = 200;
+    const maxWidth = 600;
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    // Load saved width from localStorage
+    const savedWidth = localStorage.getItem('sidebarWidth');
+    if (savedWidth) {
+      this.setSidebarWidth(parseInt(savedWidth));
+    }
+
+    const startResize = (e) => {
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = this.elements.sidebar.offsetWidth;
+      this.elements.sidebarResizer.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    };
+
+    const resize = (e) => {
+      if (!isResizing) return;
+
+      const delta = e.clientX - startX;
+      const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
+      this.setSidebarWidth(newWidth);
+    };
+
+    const stopResize = () => {
+      if (!isResizing) return;
+
+      isResizing = false;
+      this.elements.sidebarResizer.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      // Save to localStorage
+      const width = this.elements.sidebar.offsetWidth;
+      localStorage.setItem('sidebarWidth', width.toString());
+    };
+
+    this.elements.sidebarResizer.addEventListener('mousedown', startResize);
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('mouseup', stopResize);
+  }
+
+  setSidebarWidth(width) {
+    document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
   }
 
   updateDirectoryInputRequirement() {
