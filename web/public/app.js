@@ -1052,7 +1052,7 @@ class EveWorkspaceClient {
       const disabledNote = project.disabled ? '<span class="disabled-note">(provider disabled)</span>' : '';
       projectEl.innerHTML = `
         <div class="project-header">
-          <span class="project-toggle">&#9662;</span>
+          <span class="project-toggle">▼</span>
           <span class="project-name">${this.escapeHtml(project.name)}</span>
           <span class="project-model">${project.model || 'haiku'}</span>
           ${disabledNote}
@@ -1076,7 +1076,7 @@ class EveWorkspaceClient {
       header.addEventListener('click', (e) => {
         if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || project.disabled) return;
         projectEl.classList.toggle('collapsed');
-        toggle.textContent = projectEl.classList.contains('collapsed') ? '&#9656;' : '&#9662;';
+        toggle.textContent = projectEl.classList.contains('collapsed') ? '▶' : '▼';
       });
 
       // Toggle files
