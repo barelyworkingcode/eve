@@ -1076,6 +1076,33 @@ html, body {
   text-overflow: ellipsis;
 }
 
+/* Terminal Content */
+.terminal-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #000;
+}
+
+.terminal-content.hidden {
+  display: none;
+}
+
+.terminal-container {
+  flex: 1;
+  min-height: 0;
+  padding: 4px;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+}
+
+.terminal-container .xterm-viewport {
+  overflow-y: auto;
+}
+
 /* Utility */
 .hidden {
   display: none !important;

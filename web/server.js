@@ -4,6 +4,7 @@ const { createServer } = require('http');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
+const pty = require('node-pty');
 
 const ClaudeProvider = require('./providers/claude-provider');
 const GeminiProvider = require('./providers/gemini-provider');
@@ -45,6 +46,9 @@ const projects = new Map();
 
 // Session storage: sessionId -> { ws, directory, provider, processing, stats, projectId }
 const sessions = new Map();
+
+// Terminal storage: terminalId -> { ws, pty, directory, command }
+const terminals = new Map();
 
 // Load settings from disk
 function loadSettings() {
@@ -136,6 +140,9 @@ const VALID_MODELS = getAllModels().map(m => m.value);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/monaco', express.static(path.join(__dirname, 'node_modules/monaco-editor/min')));
+app.use('/xterm', express.static(path.join(__dirname, 'node_modules/@xterm/xterm')));
+app.use('/xterm-addon-fit', express.static(path.join(__dirname, 'node_modules/@xterm/addon-fit')));
+app.use('/xterm-addon-web-links', express.static(path.join(__dirname, 'node_modules/@xterm/addon-web-links')));
 app.use(express.json({ limit: '50mb' }));
 
 // API to list all models
@@ -252,6 +259,22 @@ wss.on('connection', (ws) => {
         case 'write_file':
           handleWriteFile(ws, message);
           break;
+
+        case 'terminal_create':
+          createTerminal(ws, message.directory, message.command);
+          break;
+
+        case 'terminal_input':
+          handleTerminalInput(message.terminalId, message.data);
+          break;
+
+        case 'terminal_resize':
+          handleTerminalResize(message.terminalId, message.cols, message.rows);
+          break;
+
+        case 'terminal_close':
+          closeTerminal(message.terminalId);
+          break;
       }
     } catch (err) {
       ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -261,6 +284,14 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (currentSessionId && sessions.has(currentSessionId)) {
       sessions.get(currentSessionId).ws = null;
+    }
+
+    // Clean up terminals owned by this WebSocket
+    for (const [terminalId, terminal] of terminals) {
+      if (terminal.ws === ws) {
+        terminal.pty.kill();
+        terminals.delete(terminalId);
+      }
     }
   });
 });
@@ -482,7 +513,30 @@ function handleSlashCommand(sessionId, text) {
 /cost - Show usage/billing info (provider-specific)
 /context - Show context window usage (provider-specific)
 /compact - Compact conversation history (provider-specific)
+/zsh - Open terminal in session directory
+/claude - Open Claude CLI in session directory
 /help - Show this help message`
+      }));
+      return true;
+    }
+
+    case 'zsh':
+    case 'bash': {
+      session.ws?.send(JSON.stringify({
+        type: 'terminal_request',
+        sessionId,
+        directory: session.directory,
+        command: 'shell'
+      }));
+      return true;
+    }
+
+    case 'claude': {
+      session.ws?.send(JSON.stringify({
+        type: 'terminal_request',
+        sessionId,
+        directory: session.directory,
+        command: 'claude'
       }));
       return true;
     }
@@ -646,6 +700,84 @@ async function handleWriteFile(ws, message) {
       path: relativePath,
       error: err.message
     }));
+  }
+}
+
+// Terminal management functions
+function createTerminal(ws, directory, command) {
+  const terminalId = uuidv4();
+  const shell = process.env.SHELL || '/bin/zsh';
+
+  let cmd, args;
+  if (command === 'claude') {
+    cmd = 'claude';
+    args = [];
+  } else {
+    cmd = shell;
+    args = [];
+  }
+
+  const ptyProcess = pty.spawn(cmd, args, {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd: directory || process.env.HOME,
+    env: process.env
+  });
+
+  const terminal = {
+    ws,
+    pty: ptyProcess,
+    directory,
+    command
+  };
+
+  terminals.set(terminalId, terminal);
+
+  ptyProcess.onData((data) => {
+    ws.send(JSON.stringify({
+      type: 'terminal_output',
+      terminalId,
+      data
+    }));
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    ws.send(JSON.stringify({
+      type: 'terminal_exit',
+      terminalId,
+      exitCode
+    }));
+    terminals.delete(terminalId);
+  });
+
+  ws.send(JSON.stringify({
+    type: 'terminal_created',
+    terminalId,
+    directory,
+    command
+  }));
+}
+
+function handleTerminalInput(terminalId, data) {
+  const terminal = terminals.get(terminalId);
+  if (terminal) {
+    terminal.pty.write(data);
+  }
+}
+
+function handleTerminalResize(terminalId, cols, rows) {
+  const terminal = terminals.get(terminalId);
+  if (terminal) {
+    terminal.pty.resize(cols, rows);
+  }
+}
+
+function closeTerminal(terminalId) {
+  const terminal = terminals.get(terminalId);
+  if (terminal) {
+    terminal.pty.kill();
+    terminals.delete(terminalId);
   }
 }
 

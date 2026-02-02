@@ -1,7 +1,7 @@
 class TabManager {
   constructor(client) {
     this.client = client;
-    this.tabs = []; // [{ id, type: 'session'|'file', label, projectId, path?, modified? }]
+    this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
     this.activeTabId = null;
 
     this.initElements();
@@ -12,6 +12,7 @@ class TabManager {
     this.tabBar = document.getElementById('tabBar');
     this.chatContent = document.getElementById('chat');
     this.editorContent = document.getElementById('editor');
+    this.terminalContent = document.getElementById('terminal');
   }
 
   initEventListeners() {
@@ -92,6 +93,30 @@ class TabManager {
   }
 
   /**
+   * Opens a terminal as a tab
+   */
+  openTerminal(terminalId, label, directory) {
+    // Check if tab already exists
+    const existingTab = this.tabs.find(t => t.id === terminalId);
+    if (existingTab) {
+      this.switchToTab(terminalId);
+      return;
+    }
+
+    // Create new tab
+    const tab = {
+      id: terminalId,
+      type: 'terminal',
+      label,
+      directory
+    };
+
+    this.tabs.push(tab);
+    this.switchToTab(terminalId);
+    this.render();
+  }
+
+  /**
    * Switches active tab
    */
   switchToTab(tabId) {
@@ -103,21 +128,31 @@ class TabManager {
     // Ensure chat screen is visible (hides welcome screen)
     this.client.showChatScreen();
 
+    // Hide all content containers first
+    this.chatContent.classList.add('hidden');
+    this.editorContent.classList.add('hidden');
+    this.terminalContent.classList.add('hidden');
+
     // Show appropriate content container
     if (tab.type === 'session') {
       this.chatContent.classList.remove('hidden');
-      this.editorContent.classList.add('hidden');
 
       // Update current session in client
       this.client.currentSessionId = tab.id;
       this.client.renderMessages();
     } else if (tab.type === 'file') {
-      this.chatContent.classList.add('hidden');
       this.editorContent.classList.remove('hidden');
 
       // Notify file editor to show this file
       if (this.client.fileEditor) {
         this.client.fileEditor.showFile(tab.projectId, tab.path);
+      }
+    } else if (tab.type === 'terminal') {
+      this.terminalContent.classList.remove('hidden');
+
+      // Show terminal in container
+      if (this.client.terminalManager) {
+        this.client.terminalManager.showTerminal(tab.id);
       }
     }
 
@@ -140,6 +175,11 @@ class TabManager {
       }
     }
 
+    // Clean up terminal if closing terminal tab
+    if (tab.type === 'terminal' && this.client.terminalManager) {
+      this.client.terminalManager.closeTerminal(tab.id);
+    }
+
     // Remove tab
     this.tabs.splice(tabIndex, 1);
 
@@ -154,6 +194,7 @@ class TabManager {
         this.activeTabId = null;
         this.chatContent.style.display = 'none';
         this.editorContent.style.display = 'none';
+        this.terminalContent.style.display = 'none';
       }
     }
 
