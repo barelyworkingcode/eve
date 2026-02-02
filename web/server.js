@@ -135,6 +135,7 @@ function getAllModels() {
 const VALID_MODELS = getAllModels().map(m => m.value);
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/monaco', express.static(path.join(__dirname, 'node_modules/monaco-editor/min')));
 app.use(express.json({ limit: '50mb' }));
 
 // API to list all models
@@ -204,6 +205,7 @@ wss.on('connection', (ws) => {
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data.toString());
+      console.log('[Server] Received message:', message.type);
 
       switch (message.type) {
         case 'create_session':
@@ -235,6 +237,7 @@ wss.on('connection', (ws) => {
           break;
 
         case 'read_file':
+          console.log('[Server] read_file request:', message.projectId, message.path);
           handleReadFile(ws, message);
           break;
 

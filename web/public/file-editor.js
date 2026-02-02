@@ -33,31 +33,31 @@ class FileEditor {
   }
 
   initMonaco() {
-    // Monaco will be loaded from CDN
-    if (typeof require === 'undefined') {
-      // Load Monaco
-      this.loadMonaco();
-    }
+    // Load Monaco editor module
+    this.loadMonaco();
   }
 
   loadMonaco() {
+    console.log('[FileEditor] loadMonaco called, window.require:', typeof window.require);
     if (!window.require) {
-      console.error('Monaco loader not found');
+      console.error('[FileEditor] Monaco loader not found');
       this.showEditorError('Monaco editor failed to load');
       return;
     }
 
     require.config({
       paths: {
-        'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs'
+        'vs': '/monaco/vs'
       }
     });
 
+    console.log('[FileEditor] Loading Monaco editor...');
     require(['vs/editor/editor.main'], () => {
+      console.log('[FileEditor] Monaco editor loaded, creating editor');
       this.createEditor();
     }, (err) => {
-      console.error('Monaco editor failed to load:', err);
-      this.showEditorError('Monaco editor failed to load. Check your internet connection.');
+      console.error('[FileEditor] Monaco editor failed to load:', err);
+      this.showEditorError('Monaco editor failed to load.');
     });
   }
 
@@ -70,6 +70,7 @@ class FileEditor {
   }
 
   createEditor() {
+    console.log('[FileEditor] createEditor called, container:', this.editorContainer);
     this.editor = monaco.editor.create(this.editorContainer, {
       value: '',
       language: 'plaintext',
@@ -84,6 +85,8 @@ class FileEditor {
       renderWhitespace: 'selection',
       lineNumbers: 'on'
     });
+
+    console.log('[FileEditor] Editor created:', !!this.editor);
 
     // Listen for content changes
     this.editor.onDidChangeModelContent(() => {
@@ -105,18 +108,47 @@ class FileEditor {
    * Opens a file in the editor
    */
   openFile(projectId, path, content) {
-    if (!this.editor) {
-      // Monaco not ready yet, retry later
-      setTimeout(() => this.openFile(projectId, path, content), 100);
-      return;
-    }
+    console.log('[FileEditor] openFile called:', projectId, path);
 
+    // Set currentFile immediately to prevent duplicate requests from showFile
     this.currentFile = {
       projectId,
       path,
       content,
       originalContent: content
     };
+    console.log('[FileEditor] currentFile set to:', this.currentFile.projectId, this.currentFile.path);
+
+    if (!this.editor) {
+      // Monaco not ready yet, retry later to actually load content
+      console.log('[FileEditor] Monaco not ready, retrying in 100ms');
+      setTimeout(() => this.loadContentIntoEditor(), 100);
+      return;
+    }
+
+    this.loadContentIntoEditor();
+  }
+
+  /**
+   * Loads the current file content into Monaco editor
+   */
+  loadContentIntoEditor() {
+    console.log('[FileEditor] loadContentIntoEditor called, editor:', !!this.editor);
+
+    if (!this.editor) {
+      // Monaco still not ready, retry
+      console.log('[FileEditor] Editor not ready, retrying in 100ms');
+      setTimeout(() => this.loadContentIntoEditor(), 100);
+      return;
+    }
+
+    if (!this.currentFile) {
+      console.log('[FileEditor] No currentFile to load');
+      return;
+    }
+
+    const { path, content } = this.currentFile;
+    console.log('[FileEditor] Setting editor content for:', path, 'length:', content?.length);
 
     // Set editor content
     this.editor.setValue(content);
@@ -137,11 +169,16 @@ class FileEditor {
    * Shows a specific file (called by tab manager)
    */
   showFile(projectId, path) {
+    console.log('[FileEditor] showFile called:', projectId, path);
+    console.log('[FileEditor] currentFile:', this.currentFile);
+
     if (this.currentFile?.projectId === projectId && this.currentFile?.path === path) {
       // File already loaded
+      console.log('[FileEditor] File already loaded, skipping request');
       return;
     }
 
+    console.log('[FileEditor] Requesting file from server');
     // Request file content from server if not already loaded
     this.client.ws.send(JSON.stringify({
       type: 'read_file',

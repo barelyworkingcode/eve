@@ -523,12 +523,14 @@ class EveWorkspaceClient {
 
   handleFileContent(projectId, path, content) {
     const filename = path.split('/').pop();
-    this.tabManager.openFile(projectId, path, filename);
 
-    // Store file content for editor (will be implemented in Phase 4)
+    // Load content into editor FIRST (marks file as loaded)
     if (this.fileEditor) {
       this.fileEditor.openFile(projectId, path, content);
     }
+
+    // Then open tab (which will call showFile, but file is already loaded)
+    this.tabManager.openFile(projectId, path, filename);
   }
 
   handleFileSaved(projectId, path) {
