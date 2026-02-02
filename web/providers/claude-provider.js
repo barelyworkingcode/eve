@@ -2,11 +2,137 @@ const { spawn } = require('child_process');
 const LLMProvider = require('./llm-provider');
 
 class ClaudeProvider extends LLMProvider {
-  constructor(session) {
+  constructor(session, config = {}) {
     super(session);
     this.claudeProcess = null;
     this.buffer = '';
     this.currentAssistantMessage = null;
+
+    // Provider configuration (from settings.json or defaults)
+    this.config = {
+      path: config.path || null, // null means use env var or default
+      responseTimeout: config.responseTimeout || 120000,
+      debug: config.debug || false
+    };
+
+    // Retry configuration
+    this.retryCount = 0;
+    this.maxRetries = 5;
+    this.baseRetryDelay = 100; // ms
+    this.maxRetryDelay = 2000; // ms
+    this.fatalError = null; // Set when process fails to spawn (e.g., CLI not found)
+
+    // Health monitoring
+    this.lastActivityTime = null;
+    this.responseTimeoutMs = this.config.responseTimeout;
+    this.activityCheckInterval = null;
+    this.activityCheckFrequency = 10000; // Check every 10 seconds
+
+    if (this.config.debug) {
+      console.log('[Claude] Initialized with config:', this.config);
+    }
+  }
+
+  startActivityMonitor() {
+    this.stopActivityMonitor(); // Clear any existing monitor
+    this.lastActivityTime = Date.now();
+
+    this.activityCheckInterval = setInterval(() => {
+      if (!this.session.processing || !this.claudeProcess) {
+        return; // Only monitor during active processing
+      }
+
+      const elapsed = Date.now() - this.lastActivityTime;
+      if (elapsed > this.responseTimeoutMs) {
+        console.log(`[Claude] Response timeout after ${elapsed}ms, process may be hung`);
+        this.session.ws?.send(JSON.stringify({
+          type: 'warning',
+          sessionId: this.session.sessionId,
+          message: `No response from Claude CLI for ${Math.round(elapsed / 1000)} seconds. The process may be hung.`
+        }));
+        // Don't auto-kill - user might be doing complex operations
+        // Just warn and let user decide
+      }
+    }, this.activityCheckFrequency);
+  }
+
+  stopActivityMonitor() {
+    if (this.activityCheckInterval) {
+      clearInterval(this.activityCheckInterval);
+      this.activityCheckInterval = null;
+    }
+  }
+
+  recordActivity() {
+    this.lastActivityTime = Date.now();
+  }
+
+  // File validation configuration
+  static MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
+  static MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB total
+  static SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+  validateFiles(files) {
+    if (!files || files.length === 0) {
+      return { valid: true, files };
+    }
+
+    const errors = [];
+    let totalSize = 0;
+    const validFiles = [];
+
+    for (const file of files) {
+      // Calculate file size
+      let fileSize;
+      if (file.type === 'image' && file.content.startsWith('data:')) {
+        // Base64 data URL - extract and calculate size
+        const base64Match = file.content.match(/^data:([^;]+);base64,(.+)$/);
+        if (base64Match) {
+          const mediaType = base64Match[1];
+          const base64Data = base64Match[2];
+          fileSize = Math.ceil(base64Data.length * 0.75); // Base64 is ~33% larger than binary
+
+          // Validate image type
+          if (!ClaudeProvider.SUPPORTED_IMAGE_TYPES.includes(mediaType)) {
+            errors.push(`Unsupported image type '${mediaType}' for ${file.name}. Supported: ${ClaudeProvider.SUPPORTED_IMAGE_TYPES.join(', ')}`);
+            continue;
+          }
+        } else {
+          errors.push(`Invalid image format for ${file.name}`);
+          continue;
+        }
+      } else {
+        // Text file - use string length as byte approximation
+        fileSize = new TextEncoder().encode(file.content).length;
+      }
+
+      // Check individual file size
+      if (fileSize > ClaudeProvider.MAX_FILE_SIZE) {
+        const sizeMB = (fileSize / (1024 * 1024)).toFixed(1);
+        const maxMB = (ClaudeProvider.MAX_FILE_SIZE / (1024 * 1024)).toFixed(0);
+        errors.push(`File '${file.name}' is too large (${sizeMB}MB). Maximum: ${maxMB}MB`);
+        continue;
+      }
+
+      totalSize += fileSize;
+      validFiles.push(file);
+    }
+
+    // Check total size
+    if (totalSize > ClaudeProvider.MAX_TOTAL_SIZE) {
+      const totalMB = (totalSize / (1024 * 1024)).toFixed(1);
+      const maxMB = (ClaudeProvider.MAX_TOTAL_SIZE / (1024 * 1024)).toFixed(0);
+      return {
+        valid: false,
+        errors: [`Total attachment size (${totalMB}MB) exceeds maximum (${maxMB}MB). Remove some files.`]
+      };
+    }
+
+    if (errors.length > 0) {
+      return { valid: false, errors };
+    }
+
+    return { valid: true, files: validFiles };
   }
 
   startProcess() {
@@ -18,9 +144,14 @@ class ClaudeProvider extends LLMProvider {
       '--model', this.session.model
     ];
 
-    const claudePath = process.env.CLAUDE_PATH ||
+    // Priority: config path > env var > default locations
+    const claudePath = this.config.path ||
+      process.env.CLAUDE_PATH ||
       (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : 'claude');
 
+    if (this.config.debug) {
+      console.log('[Claude] Using path:', claudePath);
+    }
     console.log('[SPAWN]', claudePath, args.join(' '));
 
     this.claudeProcess = spawn(claudePath, args, {
@@ -33,6 +164,7 @@ class ClaudeProvider extends LLMProvider {
       const chunk = data.toString();
       console.log('[STDOUT]', chunk);
       this.buffer += chunk;
+      this.recordActivity(); // Track activity for health monitoring
 
       const lines = this.buffer.split('\n');
       this.buffer = lines.pop();
@@ -57,6 +189,7 @@ class ClaudeProvider extends LLMProvider {
 
     this.claudeProcess.stderr.on('data', (data) => {
       console.log('[STDERR]', data.toString());
+      this.recordActivity(); // Track activity for health monitoring
       if (this.session.ws && this.session.ws.readyState === 1) {
         this.session.ws.send(JSON.stringify({
           type: 'stderr',
@@ -69,7 +202,38 @@ class ClaudeProvider extends LLMProvider {
     this.claudeProcess.on('close', (code) => {
       console.log('[EXIT]', 'Provider process exited with code:', code);
       this.claudeProcess = null;
+      this.stopActivityMonitor();
+
+      // Save partial message if process crashed mid-response
+      if (this.currentAssistantMessage && this.session.processing) {
+        const textBlock = this.currentAssistantMessage.content.find(b => b.type === 'text');
+        if (textBlock && textBlock.text) {
+          // Mark message as incomplete and save it
+          this.currentAssistantMessage.incomplete = true;
+          this.session.messages.push(this.currentAssistantMessage);
+          if (this.session.saveHistory) {
+            this.session.saveHistory();
+          }
+          console.log('[Claude] Saved partial response:', textBlock.text.substring(0, 100));
+
+          // Notify user
+          if (this.session.ws && this.session.ws.readyState === 1) {
+            this.session.ws.send(JSON.stringify({
+              type: 'warning',
+              sessionId: this.session.sessionId,
+              message: 'Response was interrupted. Partial content has been saved.'
+            }));
+          }
+        }
+        this.currentAssistantMessage = null;
+      }
+
       this.session.processing = false;
+
+      // Reset retry count on clean exit (allows restart)
+      if (code === 0) {
+        this.retryCount = 0;
+      }
 
       if (this.session.ws && this.session.ws.readyState === 1) {
         this.session.ws.send(JSON.stringify({
@@ -84,11 +248,20 @@ class ClaudeProvider extends LLMProvider {
       console.error('[ERROR]', err);
       this.claudeProcess = null;
       this.session.processing = false;
+
+      // Mark fatal errors that shouldn't be retried (e.g., CLI not found)
+      if (err.code === 'ENOENT') {
+        this.fatalError = `Claude CLI not found. Ensure 'claude' is installed and in PATH, or set CLAUDE_PATH environment variable.`;
+      } else if (err.code === 'EACCES') {
+        this.fatalError = `Permission denied executing Claude CLI. Check file permissions.`;
+      }
+
+      const errorMessage = this.fatalError || err.message;
       if (this.session.ws && this.session.ws.readyState === 1) {
         this.session.ws.send(JSON.stringify({
           type: 'error',
           sessionId: this.session.sessionId,
-          message: err.message
+          message: errorMessage
         }));
       }
     });
@@ -97,26 +270,70 @@ class ClaudeProvider extends LLMProvider {
   sendMessage(text, files = []) {
     console.log('[Claude] sendMessage:', text.substring(0, 100));
 
-    if (!this.claudeProcess) {
-      this.startProcess();
-      setTimeout(() => this.sendMessage(text, files), 500);
+    // Check for fatal error - don't retry if CLI is not available
+    if (this.fatalError) {
+      this.session.ws?.send(JSON.stringify({
+        type: 'error',
+        sessionId: this.session.sessionId,
+        message: this.fatalError
+      }));
       return;
     }
+
+    // Start process if needed with exponential backoff retry
+    if (!this.claudeProcess) {
+      if (this.retryCount >= this.maxRetries) {
+        this.session.ws?.send(JSON.stringify({
+          type: 'error',
+          sessionId: this.session.sessionId,
+          message: `Failed to start Claude CLI after ${this.maxRetries} attempts. Check server logs for details.`
+        }));
+        this.retryCount = 0; // Reset for future attempts
+        return;
+      }
+
+      this.startProcess();
+      this.retryCount++;
+
+      // Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms (capped at 2000ms)
+      const delay = Math.min(this.baseRetryDelay * Math.pow(2, this.retryCount - 1), this.maxRetryDelay);
+      console.log(`[Claude] Process not ready, retry ${this.retryCount}/${this.maxRetries} in ${delay}ms`);
+
+      setTimeout(() => this.sendMessage(text, files), delay);
+      return;
+    }
+
+    // Reset retry count on successful process availability
+    this.retryCount = 0;
 
     if (this.session.processing) {
       this.session.ws?.send(JSON.stringify({
         type: 'error',
+        sessionId: this.session.sessionId,
         message: 'Please wait for the current response to complete'
       }));
       return;
     }
 
+    // Validate files before processing
+    const validation = this.validateFiles(files);
+    if (!validation.valid) {
+      this.session.ws?.send(JSON.stringify({
+        type: 'error',
+        sessionId: this.session.sessionId,
+        message: validation.errors.join('\n')
+      }));
+      return;
+    }
+    const validatedFiles = validation.files || [];
+
     this.session.processing = true;
+    this.startActivityMonitor();
 
     let content;
-    if (files && files.length > 0) {
+    if (validatedFiles && validatedFiles.length > 0) {
       const contentBlocks = [];
-      for (const f of files) {
+      for (const f of validatedFiles) {
         if (f.type === 'image') {
           const base64Match = f.content.match(/^data:([^;]+);base64,(.+)$/);
           if (base64Match) {
@@ -156,7 +373,26 @@ ${f.content}
     });
 
     console.log('[STDIN]', message);
-    this.claudeProcess.stdin.write(message + '\n');
+
+    // Write with error handling
+    try {
+      const writeSuccess = this.claudeProcess.stdin.write(message + '\n');
+      if (!writeSuccess) {
+        // Handle backpressure - wait for drain event
+        this.claudeProcess.stdin.once('drain', () => {
+          console.log('[Claude] stdin drained, write completed');
+        });
+      }
+    } catch (err) {
+      console.error('[Claude] stdin write error:', err.message);
+      this.session.processing = false;
+      this.stopActivityMonitor();
+      this.session.ws?.send(JSON.stringify({
+        type: 'error',
+        sessionId: this.session.sessionId,
+        message: `Failed to send message to Claude CLI: ${err.message}`
+      }));
+    }
   }
 
   handleEvent(event) {
@@ -197,6 +433,7 @@ ${f.content}
           message: match[1].trim()
         }));
         this.session.processing = false;
+        this.stopActivityMonitor();
         this.session.ws?.send(JSON.stringify({
           type: 'message_complete',
           sessionId: this.session.sessionId
@@ -240,6 +477,7 @@ ${f.content}
 
     if (event.type === 'result') {
       this.session.processing = false;
+      this.stopActivityMonitor();
 
       // Save assistant message to history
       if (this.currentAssistantMessage) {
@@ -262,6 +500,7 @@ ${f.content}
   }
 
   kill() {
+    this.stopActivityMonitor();
     if (this.claudeProcess) {
       this.claudeProcess.kill();
     }
