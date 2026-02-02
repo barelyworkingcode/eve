@@ -2,6 +2,8 @@
 
 Multi-provider LLM web interface with persistent sessions, project grouping, and real-time stats.
 
+**See also**: [docs/learned.md](docs/learned.md) - Common pitfalls and patterns discovered during development.
+
 ## Enterprise Development Standards
 
 This project follows enterprise software engineering practices. All code changes must meet production-grade standards.

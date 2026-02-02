@@ -9,6 +9,7 @@ const ClaudeProvider = require('./providers/claude-provider');
 const GeminiProvider = require('./providers/gemini-provider');
 const LMStudioProvider = require('./providers/lmstudio-provider');
 const SessionStore = require('./session-store');
+const FileService = require('./file-service');
 
 const app = express();
 const server = createServer(app);
@@ -21,6 +22,9 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
 // Session persistence
 const sessionStore = new SessionStore(DATA_DIR);
+
+// File service for secure file operations
+const fileService = new FileService();
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -92,7 +96,6 @@ for (const sessionData of savedSessions) {
     ws: null,
     provider: null,
     processing: false,
-    messages: [],
     saveHistory: null
   };
   session.saveHistory = () => sessionStore.save(session);
@@ -212,8 +215,11 @@ wss.on('connection', (ws) => {
           break;
 
         case 'user_input':
+          console.log('[Server] user_input received, currentSessionId:', currentSessionId);
           if (currentSessionId) {
             sendMessage(currentSessionId, message.text, message.files);
+          } else {
+            console.log('[Server] No currentSessionId, message dropped');
           }
           break;
 
@@ -222,6 +228,18 @@ wss.on('connection', (ws) => {
             endSession(currentSessionId);
             currentSessionId = null;
           }
+          break;
+
+        case 'list_directory':
+          handleListDirectory(ws, message);
+          break;
+
+        case 'read_file':
+          handleReadFile(ws, message);
+          break;
+
+        case 'write_file':
+          handleWriteFile(ws, message);
           break;
       }
     } catch (err) {
@@ -305,22 +323,6 @@ function joinSession(ws, sessionId) {
         processing: false,
         saveHistory: () => sessionStore.save(session)
       };
-
-      // Instantiate the correct provider
-      const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
-      if (session.model.startsWith('gemini')) {
-        session.provider = new GeminiProvider(session);
-      } else if (lmStudioModels.includes(session.model)) {
-        session.provider = new LMStudioProvider(session);
-      } else {
-        session.provider = new ClaudeProvider(session);
-      }
-
-      // Start the provider process
-      if (session.provider.startProcess) {
-        session.provider.startProcess();
-      }
-
       sessions.set(sessionId, session);
     }
   }
@@ -328,6 +330,23 @@ function joinSession(ws, sessionId) {
   if (!session) {
     ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }));
     return null;
+  }
+
+  // Create provider if not exists (e.g., after server restart)
+  if (!session.provider) {
+    const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
+    if (session.model.startsWith('gemini')) {
+      session.provider = new GeminiProvider(session);
+    } else if (lmStudioModels.includes(session.model)) {
+      session.provider = new LMStudioProvider(session);
+    } else {
+      session.provider = new ClaudeProvider(session);
+    }
+
+    // Start the provider process
+    if (session.provider.startProcess) {
+      session.provider.startProcess();
+    }
   }
 
   session.ws = ws;
@@ -498,6 +517,102 @@ function endSession(sessionId) {
       session.provider.kill();
     }
     sessions.delete(sessionId);
+  }
+}
+
+async function handleListDirectory(ws, message) {
+  const { projectId, path: relativePath } = message;
+
+  try {
+    const project = projects.get(projectId);
+    if (!project) {
+      return ws.send(JSON.stringify({
+        type: 'file_error',
+        projectId,
+        path: relativePath,
+        error: 'Project not found'
+      }));
+    }
+
+    const entries = await fileService.listDirectory(project.path, relativePath || '/');
+
+    ws.send(JSON.stringify({
+      type: 'directory_listing',
+      projectId,
+      path: relativePath || '/',
+      entries
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({
+      type: 'file_error',
+      projectId,
+      path: relativePath,
+      error: err.message
+    }));
+  }
+}
+
+async function handleReadFile(ws, message) {
+  const { projectId, path: relativePath } = message;
+
+  try {
+    const project = projects.get(projectId);
+    if (!project) {
+      return ws.send(JSON.stringify({
+        type: 'file_error',
+        projectId,
+        path: relativePath,
+        error: 'Project not found'
+      }));
+    }
+
+    const { content, size } = await fileService.readFile(project.path, relativePath);
+
+    ws.send(JSON.stringify({
+      type: 'file_content',
+      projectId,
+      path: relativePath,
+      content,
+      size
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({
+      type: 'file_error',
+      projectId,
+      path: relativePath,
+      error: err.message
+    }));
+  }
+}
+
+async function handleWriteFile(ws, message) {
+  const { projectId, path: relativePath, content } = message;
+
+  try {
+    const project = projects.get(projectId);
+    if (!project) {
+      return ws.send(JSON.stringify({
+        type: 'file_error',
+        projectId,
+        path: relativePath,
+        error: 'Project not found'
+      }));
+    }
+
+    await fileService.writeFile(project.path, relativePath, content);
+
+    ws.send(JSON.stringify({
+      type: 'file_saved',
+      projectId,
+      path: relativePath
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({
+      type: 'file_error',
+      projectId,
+      path: relativePath,
+      error: err.message
+    }));
   }
 }
 
