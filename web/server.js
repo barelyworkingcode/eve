@@ -60,8 +60,9 @@ const projects = new Map();
 // Session storage: sessionId -> { ws, directory, provider, processing, stats, projectId }
 const sessions = new Map();
 
-// Terminal storage: terminalId -> { ws, pty, directory, command }
+// Terminal storage: terminalId -> { ws, pty, directory, command, buffer, exited, exitCode }
 const terminals = new Map();
+const TERMINAL_BUFFER_SIZE = 100000; // ~100KB scrollback per terminal
 
 // Load settings from disk
 function loadSettings() {
@@ -313,6 +314,14 @@ wss.on('connection', (ws) => {
         case 'terminal_close':
           closeTerminal(message.terminalId);
           break;
+
+        case 'terminal_list':
+          handleTerminalList(ws);
+          break;
+
+        case 'terminal_reconnect':
+          handleTerminalReconnect(ws, message.terminalId);
+          break;
       }
     } catch (err) {
       ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -324,11 +333,10 @@ wss.on('connection', (ws) => {
       sessions.get(currentSessionId).ws = null;
     }
 
-    // Clean up terminals owned by this WebSocket
+    // Detach terminals from this WebSocket (but don't kill them - allow reconnect)
     for (const [terminalId, terminal] of terminals) {
       if (terminal.ws === ws) {
-        terminal.pty.kill();
-        terminals.delete(terminalId);
+        terminal.ws = null;
       }
     }
   });
@@ -767,26 +775,45 @@ function createTerminal(ws, directory, command) {
     ws,
     pty: ptyProcess,
     directory,
-    command
+    command,
+    buffer: '',
+    exited: false,
+    exitCode: null
   };
 
   terminals.set(terminalId, terminal);
 
   ptyProcess.onData((data) => {
-    ws.send(JSON.stringify({
-      type: 'terminal_output',
-      terminalId,
-      data
-    }));
+    // Buffer output for reconnection
+    terminal.buffer += data;
+    if (terminal.buffer.length > TERMINAL_BUFFER_SIZE) {
+      terminal.buffer = terminal.buffer.slice(-TERMINAL_BUFFER_SIZE);
+    }
+    // Send to client if connected
+    if (terminal.ws?.readyState === 1) {
+      terminal.ws.send(JSON.stringify({
+        type: 'terminal_output',
+        terminalId,
+        data
+      }));
+    }
   });
 
   ptyProcess.onExit(({ exitCode }) => {
-    ws.send(JSON.stringify({
-      type: 'terminal_exit',
-      terminalId,
-      exitCode
-    }));
-    terminals.delete(terminalId);
+    terminal.exited = true;
+    terminal.exitCode = exitCode;
+    // Add exit message to buffer
+    const exitMsg = `\r\n\x1b[90m[Process Terminated]\x1b[0m\r\n`;
+    terminal.buffer += exitMsg;
+    // Send to client if connected
+    if (terminal.ws?.readyState === 1) {
+      terminal.ws.send(JSON.stringify({
+        type: 'terminal_exit',
+        terminalId,
+        exitCode
+      }));
+    }
+    // Don't delete terminal - keep for reconnect until explicitly closed
   });
 
   ws.send(JSON.stringify({
@@ -814,8 +841,47 @@ function handleTerminalResize(terminalId, cols, rows) {
 function closeTerminal(terminalId) {
   const terminal = terminals.get(terminalId);
   if (terminal) {
-    terminal.pty.kill();
+    if (!terminal.exited) {
+      terminal.pty.kill();
+    }
     terminals.delete(terminalId);
+  }
+}
+
+function handleTerminalList(ws) {
+  const terminalList = [];
+  for (const [id, t] of terminals) {
+    terminalList.push({
+      terminalId: id,
+      directory: t.directory,
+      command: t.command,
+      exited: t.exited,
+      exitCode: t.exitCode
+    });
+  }
+  ws.send(JSON.stringify({ type: 'terminal_list', terminals: terminalList }));
+}
+
+function handleTerminalReconnect(ws, terminalId) {
+  const terminal = terminals.get(terminalId);
+  if (terminal) {
+    terminal.ws = ws;  // Reassign WebSocket
+    // Replay buffered output
+    if (terminal.buffer) {
+      ws.send(JSON.stringify({
+        type: 'terminal_output',
+        terminalId,
+        data: terminal.buffer
+      }));
+    }
+    // If exited, send exit event too
+    if (terminal.exited) {
+      ws.send(JSON.stringify({
+        type: 'terminal_exit',
+        terminalId,
+        exitCode: terminal.exitCode
+      }));
+    }
   }
 }
 

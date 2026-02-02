@@ -1,12 +1,13 @@
 class TerminalManager {
   constructor(client) {
     this.client = client;
-    this.terminals = new Map(); // terminalId -> { term, fitAddon, container }
+    this.terminals = new Map(); // terminalId -> { term, fitAddon, container, directory, command, exited }
     this.activeTerminalId = null;
     this.xtermLoaded = false;
     this.Terminal = null;
     this.FitAddon = null;
     this.WebLinksAddon = null;
+    this.resizeHandler = null;
 
     this.initElements();
     this.loadXterm();
@@ -46,15 +47,9 @@ class TerminalManager {
   }
 
   /**
-   * Called when server confirms terminal creation
+   * Creates xterm instance with standard configuration
    */
-  onTerminalCreated(terminalId, directory, command) {
-    if (!this.xtermLoaded) {
-      console.error('xterm not loaded yet');
-      return;
-    }
-
-    // Create xterm instance
+  createXtermInstance() {
     const term = new this.Terminal({
       theme: {
         background: '#0a0a0a',
@@ -93,12 +88,38 @@ class TerminalManager {
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
 
+    return { term, fitAddon };
+  }
+
+  /**
+   * Called when server confirms terminal creation
+   */
+  onTerminalCreated(terminalId, directory, command) {
+    if (!this.xtermLoaded) {
+      console.error('xterm not loaded yet');
+      return;
+    }
+
+    const { term, fitAddon } = this.createXtermInstance();
+
+    // Create dedicated container for this terminal
+    const containerDiv = document.createElement('div');
+    containerDiv.className = 'terminal-instance';
+    containerDiv.style.display = 'none';
+    this.terminalContainer.appendChild(containerDiv);
+
+    // Open terminal ONCE into its container
+    term.open(containerDiv);
+    fitAddon.fit();
+
     // Store terminal instance
     this.terminals.set(terminalId, {
       term,
       fitAddon,
+      container: containerDiv,
       directory,
-      command
+      command,
+      exited: false
     });
 
     // Handle input from terminal
@@ -136,17 +157,24 @@ class TerminalManager {
 
     this.activeTerminalId = terminalId;
 
-    // Clear container and attach terminal
-    this.terminalContainer.innerHTML = '';
-    terminal.term.open(this.terminalContainer);
+    // Hide all terminal containers
+    for (const t of this.terminals.values()) {
+      t.container.style.display = 'none';
+    }
 
-    // Fit terminal to container
+    // Show active terminal container
+    terminal.container.style.display = 'block';
+
+    // Fit and focus
     requestAnimationFrame(() => {
       terminal.fitAddon.fit();
       terminal.term.focus();
     });
 
-    // Handle window resize
+    // Update resize handler
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+    }
     this.resizeHandler = () => {
       if (this.activeTerminalId === terminalId) {
         terminal.fitAddon.fit();
@@ -171,7 +199,8 @@ class TerminalManager {
   onTerminalExit(terminalId, exitCode) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {
-      terminal.term.write(`\r\n\x1b[90m[Process exited with code ${exitCode}]\x1b[0m\r\n`);
+      terminal.exited = true;
+      // Don't write exit message here - server already added it to buffer
     }
   }
 
@@ -187,13 +216,19 @@ class TerminalManager {
         terminalId
       }));
 
+      // Remove container from DOM
+      terminal.container.remove();
+
       // Dispose xterm
       terminal.term.dispose();
       this.terminals.delete(terminalId);
 
       if (this.activeTerminalId === terminalId) {
         this.activeTerminalId = null;
-        window.removeEventListener('resize', this.resizeHandler);
+        if (this.resizeHandler) {
+          window.removeEventListener('resize', this.resizeHandler);
+          this.resizeHandler = null;
+        }
       }
     }
   }
@@ -211,6 +246,89 @@ class TerminalManager {
         });
       }
     }
+  }
+
+  /**
+   * Request list of existing terminals from server (for reconnection)
+   */
+  requestTerminalList() {
+    this.client.ws.send(JSON.stringify({ type: 'terminal_list' }));
+  }
+
+  /**
+   * Handle terminal list from server (for reconnection after refresh)
+   */
+  onTerminalList(terminalList) {
+    if (!terminalList || terminalList.length === 0) return;
+
+    for (const t of terminalList) {
+      this.reconnectTerminal(t.terminalId, t.directory, t.command, t.exited);
+    }
+  }
+
+  /**
+   * Reconnect to an existing terminal
+   */
+  reconnectTerminal(terminalId, directory, command, exited) {
+    if (!this.xtermLoaded) {
+      console.error('xterm not loaded yet');
+      return;
+    }
+
+    const { term, fitAddon } = this.createXtermInstance();
+
+    // Create dedicated container for this terminal
+    const containerDiv = document.createElement('div');
+    containerDiv.className = 'terminal-instance';
+    containerDiv.style.display = 'none';
+    this.terminalContainer.appendChild(containerDiv);
+
+    // Open terminal into its container
+    term.open(containerDiv);
+
+    // Store terminal instance
+    this.terminals.set(terminalId, {
+      term,
+      fitAddon,
+      container: containerDiv,
+      directory,
+      command,
+      exited
+    });
+
+    // Handle input from terminal (only if not exited)
+    term.onData((data) => {
+      const terminal = this.terminals.get(terminalId);
+      if (terminal && !terminal.exited) {
+        this.client.ws.send(JSON.stringify({
+          type: 'terminal_input',
+          terminalId,
+          data
+        }));
+      }
+    });
+
+    // Handle resize
+    term.onResize(({ cols, rows }) => {
+      this.client.ws.send(JSON.stringify({
+        type: 'terminal_resize',
+        terminalId,
+        cols,
+        rows
+      }));
+    });
+
+    // Create tab label
+    const label = command === 'claude' ? 'Claude CLI' : 'Terminal';
+
+    // Open as tab
+    this.client.tabManager.openTerminal(terminalId, label, directory);
+
+    // Request buffered output replay
+    this.client.ws.send(JSON.stringify({
+      type: 'terminal_reconnect',
+      terminalId
+    }));
   }
 }
 

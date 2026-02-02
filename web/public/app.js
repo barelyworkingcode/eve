@@ -311,6 +311,20 @@ class EveWorkspaceClient {
       console.log('Connected to server');
       this.loadProjects();
       this.loadSessions();
+      // Request terminal list for reconnection after refresh
+      if (this.terminalManager && this.terminalManager.xtermLoaded) {
+        this.terminalManager.requestTerminalList();
+      } else {
+        // Wait for xterm to load, then request terminal list
+        const checkXterm = setInterval(() => {
+          if (this.terminalManager && this.terminalManager.xtermLoaded) {
+            clearInterval(checkXterm);
+            this.terminalManager.requestTerminalList();
+          }
+        }, 100);
+        // Give up after 5 seconds
+        setTimeout(() => clearInterval(checkXterm), 5000);
+      }
     };
 
     this.ws.onmessage = (event) => {
@@ -510,6 +524,10 @@ class EveWorkspaceClient {
 
       case 'terminal_exit':
         this.terminalManager.onTerminalExit(data.terminalId, data.exitCode);
+        break;
+
+      case 'terminal_list':
+        this.terminalManager.onTerminalList(data.terminals);
         break;
     }
   }
