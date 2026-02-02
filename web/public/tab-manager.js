@@ -100,17 +100,20 @@ class TabManager {
 
     this.activeTabId = tabId;
 
+    // Ensure chat screen is visible (hides welcome screen)
+    this.client.showChatScreen();
+
     // Show appropriate content container
     if (tab.type === 'session') {
-      this.chatContent.style.display = 'flex';
-      this.editorContent.style.display = 'none';
+      this.chatContent.classList.remove('hidden');
+      this.editorContent.classList.add('hidden');
 
       // Update current session in client
       this.client.currentSessionId = tab.id;
       this.client.renderMessages();
     } else if (tab.type === 'file') {
-      this.chatContent.style.display = 'none';
-      this.editorContent.style.display = 'flex';
+      this.chatContent.classList.add('hidden');
+      this.editorContent.classList.remove('hidden');
 
       // Notify file editor to show this file
       if (this.client.fileEditor) {
