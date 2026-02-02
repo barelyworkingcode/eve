@@ -17,6 +17,7 @@ class EveWorkspaceClient {
     this.tabManager = new TabManager(this);
     this.fileBrowser = new FileBrowser(this);
     this.fileEditor = new FileEditor(this);
+    this.terminalManager = new TerminalManager(this);
     this.loadModels();
     this.connect();
   }
@@ -492,6 +493,23 @@ class EveWorkspaceClient {
 
       case 'file_saved':
         this.handleFileSaved(data.projectId, data.path);
+        break;
+
+      case 'terminal_request':
+        // Server is requesting we create a terminal (from /zsh or /claude command)
+        this.terminalManager.createTerminal(data.directory, data.command);
+        break;
+
+      case 'terminal_created':
+        this.terminalManager.onTerminalCreated(data.terminalId, data.directory, data.command);
+        break;
+
+      case 'terminal_output':
+        this.terminalManager.onTerminalOutput(data.terminalId, data.data);
+        break;
+
+      case 'terminal_exit':
+        this.terminalManager.onTerminalExit(data.terminalId, data.exitCode);
         break;
     }
   }

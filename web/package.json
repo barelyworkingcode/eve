@@ -9,8 +9,12 @@
     "test": "jest"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
     "express": "^4.18.2",
     "monaco-editor": "^0.45.0",
+    "node-pty": "^1.2.0-beta.10",
     "uuid": "^9.0.0",
     "ws": "^8.16.0"
   },

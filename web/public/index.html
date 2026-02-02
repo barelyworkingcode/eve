@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Eve Workspace</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="/xterm/css/xterm.css">
   <script src="/monaco/vs/loader.js"></script>
 </head>
 <body>
@@ -86,6 +87,11 @@
             <button id="saveFileBtn" class="btn-primary" disabled>Save</button>
           </div>
         </div>
+
+        <!-- Terminal content area -->
+        <div id="terminal" class="terminal-content hidden">
+          <div id="terminalContainer" class="terminal-container"></div>
+        </div>
       </div>
     </main>
   </div>
@@ -163,6 +169,7 @@
   <script src="tab-manager.js"></script>
   <script src="file-browser.js"></script>
   <script src="file-editor.js"></script>
+  <script src="terminal-manager.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
