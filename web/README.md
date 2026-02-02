@@ -19,6 +19,17 @@ A multi-provider LLM web interface that provides a browser-based chat experience
   - Gemini CLI (`gemini` command available in PATH)
   - LM Studio server running locally (HTTP API)
 
+## Authentication
+
+Eve Workspace requires authentication credentials to use LLM providers. See [docs/authentication.md](docs/authentication.md) for detailed setup by provider.
+
+**Quick start:**
+- Claude: Set `ANTHROPIC_API_KEY` environment variable
+- Gemini: Set `GOOGLE_GENAI_API_KEY` environment variable
+- LM Studio: No authentication needed
+
+**Important note:** Anthropic restricts third-party tools from using Claude.ai Pro/Max subscription credentials (as of January 2026). Use an Anthropic API key for Eve Workspace instead.
+
 ## Installation
 
 ```bash
@@ -29,7 +40,7 @@ npm install
 
 ### Provider Settings
 
-Create `data/settings.json` to enable/disable providers:
+Create `data/settings.json` to configure providers:
 
 ```json
 {
@@ -37,11 +48,30 @@ Create `data/settings.json` to enable/disable providers:
     "claude": true,
     "gemini": true,
     "lmstudio": false
-  }
+  },
+  "providerConfig": {
+    "claude": {
+      "path": "/custom/path/to/claude",
+      "responseTimeout": 120000,
+      "debug": false
+    },
+    "gemini": {
+      "path": null,
+      "responseTimeout": 120000,
+      "debug": false
+    }
+  },
+  "debug": false
 }
 ```
 
-Disabled providers will not appear in model dropdowns. Existing projects using a disabled provider will be grayed out in the sidebar and cannot be accessed.
+**Provider options:**
+- `providers` - Enable/disable providers (disabled providers won't appear in model dropdowns)
+- `providerConfig.*.path` - Custom CLI path (overrides `CLAUDE_PATH`/`GEMINI_PATH` env vars)
+- `providerConfig.*.responseTimeout` - Response timeout in ms (default: 120000)
+- `providerConfig.*.debug` - Enable debug logging for the provider
+
+Existing projects using a disabled provider will be grayed out in the sidebar and cannot be accessed.
 
 ### LM Studio
 

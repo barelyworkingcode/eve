@@ -38,7 +38,20 @@ let settings = {
     claude: true,
     gemini: true,
     lmstudio: true
-  }
+  },
+  providerConfig: {
+    claude: {
+      path: null, // Uses CLAUDE_PATH env var or default
+      responseTimeout: 120000, // 2 minutes
+      debug: false
+    },
+    gemini: {
+      path: null, // Uses GEMINI_PATH env var or default
+      responseTimeout: 120000,
+      debug: false
+    }
+  },
+  debug: false
 };
 
 // Project storage: projectId -> { id, name, path, createdAt }
@@ -55,12 +68,37 @@ function loadSettings() {
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
       const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-      settings = { ...settings, ...data };
-      console.log('Loaded settings:', settings);
+
+      // Merge top-level settings
+      if (data.providers) {
+        settings.providers = { ...settings.providers, ...data.providers };
+      }
+      if (data.debug !== undefined) {
+        settings.debug = data.debug;
+      }
+
+      // Deep merge provider config
+      if (data.providerConfig) {
+        for (const provider of ['claude', 'gemini']) {
+          if (data.providerConfig[provider]) {
+            settings.providerConfig[provider] = {
+              ...settings.providerConfig[provider],
+              ...data.providerConfig[provider]
+            };
+          }
+        }
+      }
+
+      console.log('Loaded settings:', JSON.stringify(settings, null, 2));
     }
   } catch (err) {
     console.error('Failed to load settings:', err.message);
   }
+}
+
+// Get provider config for a given provider type
+function getProviderConfig(providerType) {
+  return settings.providerConfig[providerType] || {};
 }
 
 // Load projects from disk
@@ -329,11 +367,11 @@ function createSession(ws, directory, projectId = null) {
   // Instantiate the correct provider based on the model
   const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
   if (model.startsWith('gemini')) {
-    session.provider = new GeminiProvider(session);
+    session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
   } else if (lmStudioModels.includes(model)) {
     session.provider = new LMStudioProvider(session);
   } else {
-    session.provider = new ClaudeProvider(session);
+    session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
   }
 
   // Start the provider process
@@ -378,11 +416,11 @@ function joinSession(ws, sessionId) {
   if (!session.provider) {
     const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
     if (session.model.startsWith('gemini')) {
-      session.provider = new GeminiProvider(session);
+      session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
     } else if (lmStudioModels.includes(session.model)) {
       session.provider = new LMStudioProvider(session);
     } else {
-      session.provider = new ClaudeProvider(session);
+      session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
     }
 
     // Start the provider process
@@ -444,16 +482,16 @@ function handleSlashCommand(sessionId, text) {
           if (session.provider) {
             session.provider.kill();
           }
-          
+
           const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
           if (newModel.startsWith('gemini')) {
-            session.provider = new GeminiProvider(session);
+            session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
           } else if (lmStudioModels.includes(newModel)) {
             session.provider = new LMStudioProvider(session);
           } else {
-            session.provider = new ClaudeProvider(session);
+            session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
           }
-          
+
           session.provider.startProcess();
           session.ws?.send(JSON.stringify({
             type: 'system_message',

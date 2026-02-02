@@ -2,12 +2,23 @@ const { spawn } = require('child_process');
 const LLMProvider = require('./llm-provider');
 
 class GeminiProvider extends LLMProvider {
-  constructor(session) {
+  constructor(session, config = {}) {
     super(session);
     this.geminiProcess = null;
     this.buffer = '';
     this.geminiSessionId = null;
     this.currentAssistantMessage = null;
+
+    // Provider configuration (from settings.json or defaults)
+    this.config = {
+      path: config.path || null, // null means use env var or default
+      responseTimeout: config.responseTimeout || 120000,
+      debug: config.debug || false
+    };
+
+    if (this.config.debug) {
+      console.log('[Gemini] Initialized with config:', this.config);
+    }
   }
 
   startProcess() {
@@ -53,8 +64,12 @@ class GeminiProvider extends LLMProvider {
       args.push('-m', this.session.model);
     }
 
-    const geminiPath = process.env.GEMINI_PATH || 'gemini';
+    // Priority: config path > env var > default
+    const geminiPath = this.config.path || process.env.GEMINI_PATH || 'gemini';
 
+    if (this.config.debug) {
+      console.log('[Gemini] Using path:', geminiPath);
+    }
     const resumeFlag = this.geminiSessionId ? ` --resume ${this.geminiSessionId.substring(0, 8)}...` : '';
     console.log('[SPAWN]', geminiPath, '-o stream-json -p' + resumeFlag);
     console.log('[STDIN]', content.substring(0, 100) + (content.length > 100 ? '...' : ''));
