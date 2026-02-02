@@ -443,7 +443,10 @@ class EveWorkspaceClient {
         break;
 
       case 'session_ended':
+        console.log('[Client] Received session_ended for:', data.sessionId);
         this.sessions.delete(data.sessionId);
+        this.sessionHistories.delete(data.sessionId);
+        this.tabManager.closeTab(data.sessionId);
         if (this.currentSessionId === data.sessionId) {
           this.currentSessionId = null;
           this.showWelcomeScreen();
@@ -852,6 +855,19 @@ class EveWorkspaceClient {
     }
   }
 
+  deleteSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    const displayName = session ? this.shortenPath(session.directory) : sessionId;
+
+    this.showConfirmModal(`Delete session "${displayName}"? This will terminate the process and delete all history.`, () => {
+      console.log('[Client] Sending delete_session for:', sessionId);
+      this.ws.send(JSON.stringify({
+        type: 'delete_session',
+        sessionId
+      }));
+    });
+  }
+
   async deleteProject(projectId) {
     const project = this.projects.get(projectId);
     if (!project) return;
@@ -1073,8 +1089,16 @@ class EveWorkspaceClient {
         li.className = `session-item ${session.id === this.currentSessionId ? 'active' : ''}`;
         li.innerHTML = `
           <div class="directory">${this.escapeHtml(this.shortenPath(session.directory))}</div>
-          <div class="status">${session.active ? 'Active' : 'Inactive'}</div>
+          <div class="session-actions">
+            <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
+            <button class="session-delete" title="Delete session">&times;</button>
+          </div>
         `;
+        const deleteBtn = li.querySelector('.session-delete');
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.deleteSession(session.id);
+        });
         if (!project.disabled) {
           li.addEventListener('click', () => {
             this.joinSession(session.id);
@@ -1113,8 +1137,16 @@ class EveWorkspaceClient {
         li.className = `session-item ${session.id === this.currentSessionId ? 'active' : ''}`;
         li.innerHTML = `
           <div class="directory">${this.escapeHtml(this.shortenPath(session.directory))}</div>
-          <div class="status">${session.active ? 'Active' : 'Inactive'}</div>
+          <div class="session-actions">
+            <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
+            <button class="session-delete" title="Delete session">&times;</button>
+          </div>
         `;
+        const deleteBtn = li.querySelector('.session-delete');
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.deleteSession(session.id);
+        });
         li.addEventListener('click', () => {
           this.joinSession(session.id);
           this.toggleSidebar(false);
