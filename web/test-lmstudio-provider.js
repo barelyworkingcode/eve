@@ -11,6 +11,8 @@ class TestSession {
     this.sessionId = 'test-session';
     this.processing = false;
     this.ws = null;
+    this.messages = [];
+    this.saveHistory = () => {};
     this.stats = {
       inputTokens: 0,
       outputTokens: 0,
@@ -35,7 +37,7 @@ class TestSession {
     this.recordEvent(data);
 
     // Capture response text
-    if (data.type === 'lmstudio_event' && data.event?.type === 'content_block_delta') {
+    if (data.type === 'llm_event' && data.event?.type === 'assistant' && data.event?.delta?.text) {
       this.responseText += data.event.delta.text;
     }
 
@@ -55,7 +57,7 @@ class TestSession {
   }
 
   hasResult() {
-    return this.events.some(e => e.type === 'lmstudio_event' && e.event?.type === 'result');
+    return this.events.some(e => e.type === 'llm_event' && e.event?.type === 'result');
   }
 
   clearEvents() {

@@ -88,7 +88,7 @@ class SessionStore {
             model: data.model,
             createdAt: data.createdAt,
             stats: data.stats,
-            messageCount: (data.messages || []).length
+            messages: data.messages || []
           });
         } catch (err) {
           console.error(`Error loading session file ${file}:`, err);

@@ -3,15 +3,20 @@ class EveWorkspaceClient {
     this.ws = null;
     this.currentSessionId = null;
     this.sessions = new Map();
+    this.sessionHistories = new Map(); // sessionId -> messages array
     this.projects = new Map();
     this.currentAssistantMessage = null;
     this.attachedFiles = [];
     this.models = [];
     this.confirmCallback = null;
+    this.isRenderingHistory = false; // Flag to prevent storing during history render
 
     this.initElements();
     this.initEventListeners();
     this.initSidebarResize();
+    this.tabManager = new TabManager(this);
+    this.fileBrowser = new FileBrowser(this);
+    this.fileEditor = new FileEditor(this);
     this.loadModels();
     this.connect();
   }
@@ -24,10 +29,8 @@ class EveWorkspaceClient {
       userInput: document.getElementById('userInput'),
       inputForm: document.getElementById('inputForm'),
       sendBtn: document.getElementById('sendBtn'),
-      currentDirectory: document.getElementById('currentDirectory'),
       newSessionBtn: document.getElementById('newSessionBtn'),
       welcomeNewSession: document.getElementById('welcomeNewSession'),
-      endSessionBtn: document.getElementById('endSessionBtn'),
       modal: document.getElementById('modal'),
       newSessionForm: document.getElementById('newSessionForm'),
       directoryInput: document.getElementById('directoryInput'),
@@ -127,9 +130,6 @@ class EveWorkspaceClient {
       this.elements.userInput.classList.remove('dragover');
       this.handleDroppedFiles(e.dataTransfer.files);
     });
-
-    // End session
-    this.elements.endSessionBtn.addEventListener('click', () => this.endSession());
 
     // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
@@ -407,20 +407,26 @@ class EveWorkspaceClient {
           active: true
         });
         this.currentSessionId = data.sessionId;
-        this.showChatScreen(data.metadata || data.directory);
+        this.sessionHistories.set(data.sessionId, []); // Initialize empty history
+        this.showChatScreen();
+        this.tabManager.openSession(data.sessionId);
         this.renderProjectList();
         this.hideModal();
         break;
 
       case 'session_joined':
         this.currentSessionId = data.sessionId;
-        this.elements.messages.innerHTML = '';
-        this.showChatScreen(data.metadata || data.directory);
 
+        // Store history FIRST (before opening tab which triggers renderMessages)
         if (data.history && data.history.length > 0) {
-          this.renderHistory(data.history);
+          this.sessionHistories.set(data.sessionId, data.history);
+        } else {
+          this.sessionHistories.set(data.sessionId, []);
         }
 
+        this.elements.messages.innerHTML = '';
+        this.showChatScreen();
+        this.tabManager.openSession(data.sessionId);
         this.renderProjectList();
         break;
 
@@ -468,6 +474,22 @@ class EveWorkspaceClient {
       case 'stats_update':
         this.updateStats(data.stats);
         break;
+
+      case 'directory_listing':
+        this.fileBrowser.handleDirectoryListing(data.projectId, data.path, data.entries);
+        break;
+
+      case 'file_content':
+        this.handleFileContent(data.projectId, data.path, data.content);
+        break;
+
+      case 'file_error':
+        this.fileBrowser.handleFileError(data.projectId, data.path, data.error);
+        break;
+
+      case 'file_saved':
+        this.handleFileSaved(data.projectId, data.path);
+        break;
     }
   }
 
@@ -497,6 +519,21 @@ class EveWorkspaceClient {
     if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
     if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
     return n.toString();
+  }
+
+  handleFileContent(projectId, path, content) {
+    const filename = path.split('/').pop();
+    this.tabManager.openFile(projectId, path, filename);
+
+    // Store file content for editor (will be implemented in Phase 4)
+    if (this.fileEditor) {
+      this.fileEditor.openFile(projectId, path, content);
+    }
+  }
+
+  handleFileSaved(projectId, path) {
+    this.tabManager.setFileModified(projectId, path, false);
+    console.log('File saved:', path);
   }
 
   handleLlmEvent(event) {
@@ -573,6 +610,8 @@ class EveWorkspaceClient {
     messageEl.innerHTML = `<div class="message-content">${this.formatText(text)}</div>`;
     this.elements.messages.appendChild(messageEl);
     this.currentAssistantMessage = messageEl.querySelector('.message-content');
+    // Store raw text for history
+    this.currentAssistantMessage.dataset.rawText = text;
     this.scrollToBottom();
   }
 
@@ -599,6 +638,16 @@ class EveWorkspaceClient {
 
   finishAssistantMessage() {
     if (this.currentAssistantMessage) {
+      // Store in session history before clearing (but not when rendering history)
+      const text = this.currentAssistantMessage.dataset.rawText;
+      if (text && this.currentSessionId && !this.isRenderingHistory) {
+        const history = this.sessionHistories.get(this.currentSessionId) || [];
+        history.push({
+          role: 'assistant',
+          content: [{ type: 'text', text }]
+        });
+        this.sessionHistories.set(this.currentSessionId, history);
+      }
       delete this.currentAssistantMessage.dataset.rawText;
       this.currentAssistantMessage = null;
     }
@@ -636,6 +685,7 @@ class EveWorkspaceClient {
   }
 
   renderHistory(messages) {
+    this.isRenderingHistory = true;
     this.elements.messages.innerHTML = '';
     this.currentAssistantMessage = null;
 
@@ -657,6 +707,7 @@ class EveWorkspaceClient {
     }
 
     this.scrollToBottom();
+    this.isRenderingHistory = false;
   }
 
   appendUserMessage(text, files = []) {
@@ -673,6 +724,13 @@ class EveWorkspaceClient {
     messageEl.innerHTML = `<div class="message-content">${filesHtml}${this.escapeHtml(text)}</div>`;
     this.elements.messages.appendChild(messageEl);
     this.scrollToBottom();
+
+    // Store in session history (but not when rendering history)
+    if (this.currentSessionId && !this.isRenderingHistory) {
+      const history = this.sessionHistories.get(this.currentSessionId) || [];
+      history.push({ role: 'user', content: text, files });
+      this.sessionHistories.set(this.currentSessionId, history);
+    }
   }
 
   appendSystemMessage(text, type = '') {
@@ -865,6 +923,12 @@ class EveWorkspaceClient {
     }
   }
 
+  joinSession(sessionId) {
+    // Just send the join request - the session_joined handler will open the tab
+    // after the history is loaded
+    this.ws.send(JSON.stringify({ type: 'join_session', sessionId }));
+  }
+
   endSession() {
     if (this.currentSessionId) {
       this.ws.send(JSON.stringify({ type: 'end_session' }));
@@ -901,15 +965,28 @@ class EveWorkspaceClient {
     this.elements.chatScreen.classList.add('hidden');
   }
 
-  showChatScreen(metadata) {
+  showChatScreen() {
     this.elements.welcomeScreen.classList.add('hidden');
     this.elements.chatScreen.classList.remove('hidden');
-    this.elements.currentDirectory.textContent = metadata;
+  }
+
+  renderMessages() {
+    // Called by tab manager when switching to a session tab
+    console.log('renderMessages for session:', this.currentSessionId);
     this.elements.messages.innerHTML = '';
+    this.currentAssistantMessage = null;
+
+    // Restore history for the current session
+    const history = this.sessionHistories.get(this.currentSessionId);
+    console.log('Session history:', history);
+    if (history && history.length > 0) {
+      console.log('Rendering', history.length, 'messages');
+      this.renderHistory(history);
+    } else {
+      console.log('No history to render');
+    }
+
     this.elements.userInput.focus();
-    // Reset stats display
-    this.elements.contextStat.textContent = '0%';
-    this.elements.costStat.textContent = '$0.00';
   }
 
   renderProjectList() {
@@ -943,23 +1020,35 @@ class EveWorkspaceClient {
           <span class="project-name">${this.escapeHtml(project.name)}</span>
           <span class="project-model">${project.model || 'haiku'}</span>
           ${disabledNote}
+          <button class="project-files-toggle" title="Browse files">📁</button>
           <button class="project-quick-add" title="New session in this project">+</button>
           <button class="project-delete" title="Delete project">&times;</button>
         </div>
+        <div class="file-tree" style="display: none;"></div>
         <ul class="project-sessions"></ul>
       `;
+      projectEl.dataset.projectId = projectId;
 
       const header = projectEl.querySelector('.project-header');
       const toggle = projectEl.querySelector('.project-toggle');
       const sessionsList = projectEl.querySelector('.project-sessions');
+      const filesToggleBtn = projectEl.querySelector('.project-files-toggle');
       const quickAddBtn = projectEl.querySelector('.project-quick-add');
       const deleteBtn = projectEl.querySelector('.project-delete');
 
       // Toggle collapse (disabled for disabled projects)
       header.addEventListener('click', (e) => {
-        if (e.target === deleteBtn || e.target === quickAddBtn || project.disabled) return;
+        if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || project.disabled) return;
         projectEl.classList.toggle('collapsed');
         toggle.textContent = projectEl.classList.contains('collapsed') ? '&#9656;' : '&#9662;';
+      });
+
+      // Toggle files
+      filesToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!project.disabled) {
+          this.fileBrowser.toggleFileTree(projectId);
+        }
       });
 
       // Quick add session
@@ -986,9 +1075,7 @@ class EveWorkspaceClient {
         `;
         if (!project.disabled) {
           li.addEventListener('click', () => {
-            if (session.id !== this.currentSessionId) {
-              this.ws.send(JSON.stringify({ type: 'join_session', sessionId: session.id }));
-            }
+            this.joinSession(session.id);
             this.toggleSidebar(false);
           });
         }
@@ -1027,9 +1114,7 @@ class EveWorkspaceClient {
           <div class="status">${session.active ? 'Active' : 'Inactive'}</div>
         `;
         li.addEventListener('click', () => {
-          if (session.id !== this.currentSessionId) {
-            this.ws.send(JSON.stringify({ type: 'join_session', sessionId: session.id }));
-          }
+          this.joinSession(session.id);
           this.toggleSidebar(false);
         });
         sessionsList.appendChild(li);

@@ -238,6 +238,26 @@ html, body {
   margin-left: 0;
 }
 
+.project-files-toggle {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.project-header:hover .project-files-toggle {
+  opacity: 1;
+}
+
+.project-files-toggle:hover {
+  color: var(--accent);
+}
+
 .project-sessions {
   list-style: none;
   padding-left: 20px;
@@ -257,6 +277,56 @@ html, body {
 
 .project-group.disabled .project-header:hover {
   background: transparent;
+}
+
+/* File Tree */
+.file-tree {
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.file-tree-loading,
+.file-tree-empty {
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 12px;
+}
+
+.file-tree-item:hover {
+  background: var(--bg-hover);
+}
+
+.file-tree-toggle {
+  font-size: 8px;
+  color: var(--text-muted);
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.file-tree-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.file-tree-name {
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
 }
 
 .disabled-note {
@@ -849,6 +919,137 @@ html, body {
   margin-top: 20px;
 }
 
+/* Tab Bar */
+.tab-bar {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 8px;
+  align-items: center;
+  scrollbar-width: thin;
+}
+
+.tab-bar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tab-bar::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+}
+
+.tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.tab-label {
+  font-size: 12px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab.active .tab-label {
+  color: white;
+}
+
+.tab-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s;
+}
+
+.tab-close:hover {
+  color: var(--danger);
+}
+
+.tab.active .tab-close {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.tab.active .tab-close:hover {
+  color: white;
+}
+
+/* Chat Content */
+.chat-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-content.hidden {
+  display: none;
+}
+
+/* Editor Content */
+.editor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.editor-content.hidden {
+  display: none;
+}
+
+.monaco-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  gap: 12px;
+}
+
+.editor-path {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Utility */
 .hidden {
   display: none !important;
@@ -877,6 +1078,33 @@ html, body {
 @media (max-width: 768px) {
   :root {
     --sidebar-width: 100%;
+  }
+
+  .tab-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    min-width: 120px;
+  }
+
+  .tab-label {
+    max-width: 100px;
+  }
+
+  .editor-status {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .editor-path {
+    font-size: 10px;
   }
 
   .app {
