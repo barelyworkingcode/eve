@@ -232,6 +232,14 @@ wss.on('connection', (ws) => {
           }
           break;
 
+        case 'delete_session':
+          console.log('[Server] delete_session received for:', message.sessionId);
+          deleteSession(message.sessionId, ws);
+          if (currentSessionId === message.sessionId) {
+            currentSessionId = null;
+          }
+          break;
+
         case 'list_directory':
           handleListDirectory(ws, message);
           break;
@@ -521,6 +529,28 @@ function endSession(sessionId) {
     }
     sessions.delete(sessionId);
   }
+}
+
+function deleteSession(sessionId, ws) {
+  console.log('[Server] deleteSession called for:', sessionId);
+  const session = sessions.get(sessionId);
+
+  if (session) {
+    console.log('[Server] Found session, killing provider and deleting');
+    if (session.provider) {
+      session.provider.kill();
+    }
+    sessionStore.delete(sessionId);
+    sessions.delete(sessionId);
+  } else {
+    console.log('[Server] Session not found in memory');
+  }
+
+  console.log('[Server] Sending session_ended');
+  ws.send(JSON.stringify({
+    type: 'session_ended',
+    sessionId
+  }));
 }
 
 async function handleListDirectory(ws, message) {

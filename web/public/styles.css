@@ -368,7 +368,33 @@ html, body {
 .session-item .status {
   font-size: 10px;
   color: var(--text-muted);
+}
+
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 2px;
+}
+
+.session-delete {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.session-item:hover .session-delete {
+  opacity: 1;
+}
+
+.session-delete:hover {
+  color: var(--danger);
 }
 
 /* Main Content */
