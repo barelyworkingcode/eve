@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "ssl": "HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem PORT=443 node server.js",
     "test": "jest"
   },
   "dependencies": {
