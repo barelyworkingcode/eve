@@ -11,6 +11,22 @@ class EveWorkspaceClient {
     this.confirmCallback = null;
     this.isRenderingHistory = false; // Flag to prevent storing during history render
 
+    // Check auth before initializing
+    this.authClient = new AuthClient();
+    this.authClient.init();
+
+    // Listen for successful auth
+    window.addEventListener('auth:success', () => this.initApp());
+
+    // Check auth status
+    this.authClient.checkStatus().then(authenticated => {
+      if (authenticated) {
+        this.initApp();
+      }
+    });
+  }
+
+  initApp() {
     this.initElements();
     this.initEventListeners();
     this.initSidebarResize();
@@ -20,6 +36,11 @@ class EveWorkspaceClient {
     this.terminalManager = new TerminalManager(this);
     this.loadModels();
     this.connect();
+  }
+
+  getAuthHeaders() {
+    const token = localStorage.getItem('eve_session');
+    return token ? { 'X-Session-Token': token } : {};
   }
 
   initElements() {
@@ -306,34 +327,37 @@ class EveWorkspaceClient {
   connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     this.ws = new WebSocket(`${protocol}//${window.location.host}`);
+    this.wsAuthenticated = false;
 
     this.ws.onopen = () => {
       console.log('Connected to server');
-      this.loadProjects();
-      this.loadSessions();
-      // Request terminal list for reconnection after refresh
-      if (this.terminalManager && this.terminalManager.xtermLoaded) {
-        this.terminalManager.requestTerminalList();
-      } else {
-        // Wait for xterm to load, then request terminal list
-        const checkXterm = setInterval(() => {
-          if (this.terminalManager && this.terminalManager.xtermLoaded) {
-            clearInterval(checkXterm);
-            this.terminalManager.requestTerminalList();
-          }
-        }, 100);
-        // Give up after 5 seconds
-        setTimeout(() => clearInterval(checkXterm), 5000);
-      }
+      // Send auth token as first message
+      const token = localStorage.getItem('eve_session');
+      this.ws.send(JSON.stringify({ type: 'auth', token: token || null }));
     };
 
     this.ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
+
+      // Handle auth responses
+      if (data.type === 'auth_success') {
+        this.wsAuthenticated = true;
+        this.onWebSocketReady();
+        return;
+      }
+      if (data.type === 'auth_failed') {
+        console.error('WebSocket auth failed:', data.message);
+        localStorage.removeItem('eve_session');
+        window.location.reload();
+        return;
+      }
+
       this.handleServerMessage(data);
     };
 
     this.ws.onclose = () => {
       console.log('Disconnected from server');
+      this.wsAuthenticated = false;
       setTimeout(() => this.connect(), 2000);
     };
 
@@ -342,9 +366,30 @@ class EveWorkspaceClient {
     };
   }
 
+  onWebSocketReady() {
+    this.loadProjects();
+    this.loadSessions();
+    // Request terminal list for reconnection after refresh
+    if (this.terminalManager && this.terminalManager.xtermLoaded) {
+      this.terminalManager.requestTerminalList();
+    } else {
+      // Wait for xterm to load, then request terminal list
+      const checkXterm = setInterval(() => {
+        if (this.terminalManager && this.terminalManager.xtermLoaded) {
+          clearInterval(checkXterm);
+          this.terminalManager.requestTerminalList();
+        }
+      }, 100);
+      // Give up after 5 seconds
+      setTimeout(() => clearInterval(checkXterm), 5000);
+    }
+  }
+
   async loadModels() {
     try {
-      const response = await fetch('/api/models');
+      const response = await fetch('/api/models', {
+        headers: this.getAuthHeaders()
+      });
       this.models = await response.json();
       this.renderModelSelect();
     } catch (err) {
@@ -386,7 +431,9 @@ class EveWorkspaceClient {
 
   async loadProjects() {
     try {
-      const response = await fetch('/api/projects');
+      const response = await fetch('/api/projects', {
+        headers: this.getAuthHeaders()
+      });
       const projects = await response.json();
       this.projects.clear();
       projects.forEach(project => {
@@ -401,7 +448,9 @@ class EveWorkspaceClient {
 
   async loadSessions() {
     try {
-      const response = await fetch('/api/sessions');
+      const response = await fetch('/api/sessions', {
+        headers: this.getAuthHeaders()
+      });
       const sessions = await response.json();
       sessions.forEach(session => {
         this.sessions.set(session.id, session);
@@ -878,7 +927,10 @@ class EveWorkspaceClient {
     try {
       const response = await fetch('/api/projects', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders()
+        },
         body: JSON.stringify({ name, path: projectPath, model })
       });
       const project = await response.json();
@@ -919,7 +971,10 @@ class EveWorkspaceClient {
 
     this.showConfirmModal(message, async () => {
       try {
-        await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+        await fetch(`/api/projects/${projectId}`, {
+          method: 'DELETE',
+          headers: this.getAuthHeaders()
+        });
         this.projects.delete(projectId);
         this.renderProjectList();
         this.updateProjectSelect();

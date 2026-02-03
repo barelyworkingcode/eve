@@ -1,6 +1,7 @@
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const { createServer } = require('http');
+const https = require('https');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
@@ -11,15 +12,30 @@ const GeminiProvider = require('./providers/gemini-provider');
 const LMStudioProvider = require('./providers/lmstudio-provider');
 const SessionStore = require('./session-store');
 const FileService = require('./file-service');
+const AuthService = require('./auth');
 
 const app = express();
-const server = createServer(app);
+
+// HTTPS support for WebAuthn on non-localhost
+const HTTPS_KEY = process.env.HTTPS_KEY;
+const HTTPS_CERT = process.env.HTTPS_CERT;
+
+const server = HTTPS_KEY && HTTPS_CERT
+  ? https.createServer({
+      key: fs.readFileSync(HTTPS_KEY),
+      cert: fs.readFileSync(HTTPS_CERT)
+    }, app)
+  : createServer(app);
+
 const wss = new WebSocketServer({ server });
 
 // Data directory for persistence
 const DATA_DIR = path.join(__dirname, 'data');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+
+// Auth service
+const authService = new AuthService(DATA_DIR);
 
 // Session persistence
 const sessionStore = new SessionStore(DATA_DIR);
@@ -184,13 +200,127 @@ app.use('/xterm-addon-fit', express.static(path.join(__dirname, 'node_modules/@x
 app.use('/xterm-addon-web-links', express.static(path.join(__dirname, 'node_modules/@xterm/addon-web-links')));
 app.use(express.json({ limit: '50mb' }));
 
+// Get client IP for rate limiting
+function getClientIp(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+         req.socket?.remoteAddress ||
+         'unknown';
+}
+
+// Auth routes (unauthenticated)
+app.get('/api/auth/status', (req, res) => {
+  // Skip auth for localhost - it's a dev environment
+  if (authService.isLocalhost(req)) {
+    return res.json({ enrolled: false, authenticated: true, localhost: true });
+  }
+  const enrolled = authService.isEnrolled();
+  const token = req.headers['x-session-token'];
+  const authenticated = enrolled && authService.validateSession(token);
+  res.json({ enrolled, authenticated });
+});
+
+app.post('/api/auth/enroll/start', async (req, res) => {
+  try {
+    const ip = getClientIp(req);
+    if (!authService.checkRateLimit(ip)) {
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+    }
+    if (authService.isEnrolled()) {
+      return res.status(400).json({ error: 'Already enrolled' });
+    }
+    const { options, challengeId } = await authService.generateEnrollmentOptions(req);
+    console.log('[Auth] Enrollment started - rpId:', options.rp.id, 'origin:', authService.getOrigin(req));
+    res.json({ options, challengeId });
+  } catch (err) {
+    console.error('Enrollment start failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/enroll/finish', async (req, res) => {
+  try {
+    const ip = getClientIp(req);
+    if (!authService.checkRateLimit(ip)) {
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+    }
+    if (authService.isEnrolled()) {
+      return res.status(400).json({ error: 'Already enrolled' });
+    }
+    const { response, challengeId } = req.body;
+    if (!response || typeof response !== 'object' || !challengeId || typeof challengeId !== 'string') {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+    console.log('[Auth] Enrollment finish - credential.id from client:', response.id);
+    console.log('[Auth] Enrollment finish - credential.rawId from client:', response.rawId);
+    const token = await authService.verifyEnrollment(req, response, challengeId);
+    res.json({ token });
+  } catch (err) {
+    console.error('Enrollment finish failed:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login/start', async (req, res) => {
+  try {
+    const ip = getClientIp(req);
+    if (!authService.checkRateLimit(ip)) {
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+    }
+    if (!authService.isEnrolled()) {
+      return res.status(400).json({ error: 'Not enrolled' });
+    }
+    const { options, challengeId } = await authService.generateLoginOptions(req);
+    console.log('[Auth] Login started - rpId:', options.rpId, 'origin:', authService.getOrigin(req));
+    console.log('[Auth] Stored credential rpId from auth.json:', authService.loadCredentials()?.rpId || '(not stored)');
+    console.log('[Auth] allowCredentials:', JSON.stringify(options.allowCredentials));
+    res.json({ options, challengeId });
+  } catch (err) {
+    console.error('Login start failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login/finish', async (req, res) => {
+  try {
+    const ip = getClientIp(req);
+    if (!authService.checkRateLimit(ip)) {
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+    }
+    if (!authService.isEnrolled()) {
+      return res.status(400).json({ error: 'Not enrolled' });
+    }
+    const { response, challengeId } = req.body;
+    if (!response || typeof response !== 'object' || !challengeId || typeof challengeId !== 'string') {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+    const token = await authService.verifyLogin(req, response, challengeId);
+    res.json({ token });
+  } catch (err) {
+    console.error('Login finish failed:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Auth middleware for protected routes
+function requireAuth(req, res, next) {
+  // Skip auth if not enrolled, auth disabled, or localhost
+  if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
+    return next();
+  }
+  const token = req.headers['x-session-token'];
+  if (!authService.validateSession(token)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
 // API to list all models
-app.get('/api/models', (req, res) => {
+app.get('/api/models', requireAuth, (req, res) => {
   res.json(getAllModels());
 });
 
 // API to list all projects
-app.get('/api/projects', (req, res) => {
+app.get('/api/projects', requireAuth, (req, res) => {
   const projectsList = Array.from(projects.values()).map(project => {
     const provider = getProviderForModel(project.model);
     const disabled = !settings.providers[provider];
@@ -200,7 +330,7 @@ app.get('/api/projects', (req, res) => {
 });
 
 // API to create a project
-app.post('/api/projects', (req, res) => {
+app.post('/api/projects', requireAuth, (req, res) => {
   const { name, path: projectPath, model } = req.body;
   if (!name || !projectPath) {
     return res.status(400).json({ error: 'Name and path are required' });
@@ -220,7 +350,7 @@ app.post('/api/projects', (req, res) => {
 });
 
 // API to delete a project
-app.delete('/api/projects/:id', (req, res) => {
+app.delete('/api/projects/:id', requireAuth, (req, res) => {
   const { id } = req.params;
   if (!projects.has(id)) {
     return res.status(404).json({ error: 'Project not found' });
@@ -232,7 +362,7 @@ app.delete('/api/projects/:id', (req, res) => {
 });
 
 // API to list active sessions
-app.get('/api/sessions', (req, res) => {
+app.get('/api/sessions', requireAuth, (req, res) => {
   const sessionList = [];
   for (const [id, session] of sessions) {
     sessionList.push({
@@ -245,13 +375,41 @@ app.get('/api/sessions', (req, res) => {
   res.json(sessionList);
 });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  // Track authentication state for this connection
+  // Skip auth for localhost - it's a dev environment
+  const host = (req.headers.host || 'localhost').split(':')[0];
+  const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
+  const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !isLocalhostConnection;
+  let isAuthenticated = !requiresAuth;
   let currentSessionId = null;
 
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data.toString());
       console.log('[Server] Received message:', message.type);
+
+      // Handle auth message first
+      if (message.type === 'auth') {
+        if (!requiresAuth) {
+          ws.send(JSON.stringify({ type: 'auth_success' }));
+          return;
+        }
+        if (authService.validateSession(message.token)) {
+          isAuthenticated = true;
+          ws.send(JSON.stringify({ type: 'auth_success' }));
+        } else {
+          ws.send(JSON.stringify({ type: 'auth_failed', message: 'Invalid or expired token' }));
+          ws.close(4001, 'Unauthorized');
+        }
+        return;
+      }
+
+      // Block all other messages until authenticated
+      if (!isAuthenticated) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Authentication required' }));
+        return;
+      }
 
       switch (message.type) {
         case 'create_session':
@@ -887,5 +1045,11 @@ function handleTerminalReconnect(ws, terminalId) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  const protocol = HTTPS_KEY && HTTPS_CERT ? 'https' : 'http';
+  console.log(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}`);
+  if (authService.isEnrolled()) {
+    console.log('Authentication: enabled (passkey enrolled)');
+  } else {
+    console.log('Authentication: disabled (no passkey enrolled - first visitor will become owner)');
+  }
 });

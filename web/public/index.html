@@ -5,10 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Eve Workspace</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="auth.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
   <script src="/monaco/vs/loader.js"></script>
 </head>
 <body>
+  <!-- Auth Screen -->
+  <div id="authScreen" class="auth-screen hidden">
+    <div class="auth-card">
+      <h2 id="authTitle">Set Up Passkey</h2>
+      <p id="authMessage">Secure your Eve Workspace.</p>
+      <button id="authAction" class="btn-primary">Continue</button>
+      <p id="authError" class="auth-error hidden"></p>
+    </div>
+  </div>
+
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
@@ -166,6 +177,7 @@
     </div>
   </div>
 
+  <script src="auth.js"></script>
   <script src="tab-manager.js"></script>
   <script src="file-browser.js"></script>
   <script src="file-editor.js"></script>
