@@ -221,7 +221,8 @@ class AuthService {
       userDisplayName: 'Eve User',
       attestationType: 'none',
       authenticatorSelection: {
-        residentKey: 'preferred',
+        authenticatorAttachment: 'platform',
+        residentKey: 'required',
         userVerification: 'preferred'
       }
     });
@@ -256,11 +257,11 @@ class AuthService {
 
     const { credential } = verification.registrationInfo;
 
-    // Debug: log what simplewebauthn gives us
-    console.log('[Auth] credential.id type:', typeof credential.id, credential.id instanceof Uint8Array ? 'Uint8Array' : '');
-    console.log('[Auth] credential.id raw:', credential.id);
-    const storedId = Buffer.from(credential.id).toString('base64url');
-    console.log('[Auth] credential.id as base64url:', storedId);
+    // credential.id may be Uint8Array or already base64url string depending on simplewebauthn version
+    const storedId = typeof credential.id === 'string'
+      ? credential.id
+      : Buffer.from(credential.id).toString('base64url');
+    console.log('[Auth] Stored credential ID:', storedId);
 
     const credentialData = {
       rpId: rpId, // Store the RP ID used during enrollment
@@ -288,10 +289,7 @@ class AuthService {
 
     const options = await generateAuthenticationOptions({
       rpID: rpId,
-      allowCredentials: authData.credentials.map(cred => ({
-        id: cred.id,
-        transports: cred.transports
-      })),
+      allowCredentials: [],
       userVerification: 'preferred'
     });
 
@@ -315,6 +313,8 @@ class AuthService {
     }
 
     const credentialId = response.id;
+    console.log('[Auth] Login credential ID from response:', credentialId);
+    console.log('[Auth] Stored credential IDs:', authData.credentials.map(c => c.id));
     const credential = authData.credentials.find(c => c.id === credentialId);
     if (!credential) {
       throw new Error('Unknown credential');
