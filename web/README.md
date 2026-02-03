@@ -4,6 +4,7 @@ A multi-provider LLM web interface that provides a browser-based chat experience
 
 ## Features
 
+- **Passkey authentication** - Secure access with WebAuthn passkeys (first visitor becomes owner)
 - **Projects** - Group sessions under named projects with a default model per project
 - **Persistent provider processes** - Maintains long-running LLM processes per session instead of spawning per message
 - **File attachments** - Drag/drop or click to attach text files to your prompts
@@ -106,6 +107,31 @@ npm run dev
 
 Open http://localhost:3000 in your browser.
 
+## Passkey Authentication
+
+Eve Workspace uses WebAuthn passkeys to secure access. The first person to visit the app enrolls their passkey and becomes the owner. Subsequent visitors must authenticate.
+
+**First visit:** You'll see "Set Up Passkey" - click to enroll using Face ID, Touch ID, or your device PIN.
+
+**Return visits:** You'll see "Sign In" - authenticate with your passkey to continue.
+
+**Reset:** Delete `data/auth.json` to clear enrollment and allow a new owner.
+
+**Disable:** Set `EVE_NO_AUTH=1` environment variable to bypass authentication entirely.
+
+### HTTPS for Mobile/LAN Access
+
+WebAuthn requires a secure context. While `localhost` works with HTTP, accessing from other devices requires HTTPS. See [docs/https-setup.md](docs/https-setup.md) for mkcert setup instructions.
+
+```bash
+# Quick setup
+brew install mkcert && mkcert -install
+mkcert -cert-file ./certs/server.pem -key-file ./certs/server-key.pem localhost 192.168.1.100
+
+# Start with HTTPS
+HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem npm start
+```
+
 ## Projects
 
 Projects let you group related sessions and set a default model. When creating a session under a project, it inherits the project's model setting.
@@ -162,6 +188,7 @@ Files are sent inline with your message wrapped in `<file name="...">` tags. Bin
 
 ```
 server.js          - Express + WebSocket server, session management
+auth.js            - WebAuthn passkey authentication service
 providers/
   llm-provider.js     - Base provider class
   claude-provider.js  - Claude CLI integration
@@ -170,8 +197,10 @@ providers/
 public/
   index.html       - Main page structure
   app.js           - Client-side WebSocket handling and UI
+  auth.js          - Client-side WebAuthn authentication
   styles.css       - Styling
 data/
+  auth.json            - Passkey credentials (created on enrollment)
   settings.json        - Provider enable/disable settings (optional)
   projects.json        - Persisted projects (created automatically)
   lmstudio-config.json - LM Studio configuration (optional)
@@ -195,3 +224,6 @@ Provider selection based on model name:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | 3000 | Server port |
+| `HTTPS_KEY` | - | Path to SSL private key file (enables HTTPS) |
+| `HTTPS_CERT` | - | Path to SSL certificate file (enables HTTPS) |
+| `EVE_NO_AUTH` | - | Set to `1` to disable passkey authentication |
