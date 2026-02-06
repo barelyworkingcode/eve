@@ -2,13 +2,185 @@ class FileBrowser {
   constructor(client) {
     this.client = client;
     this.projectTrees = new Map(); // projectId -> { expanded, entries, loading, expandedPaths }
+    this.dragState = null;      // { projectId, path, type }
+    this.renameState = null;    // { projectId, path, input }
+    this.contextMenuEl = null;  // Shared context menu element
+
+    this.initContextMenu();
+  }
+
+  /**
+   * Creates the shared context menu element
+   */
+  initContextMenu() {
+    this.contextMenuEl = document.createElement('div');
+    this.contextMenuEl.className = 'file-context-menu hidden';
+    this.contextMenuEl.innerHTML = `
+      <button data-action="rename">Rename</button>
+      <button data-action="delete">Delete</button>
+      <button data-action="new-folder">New Folder</button>
+    `;
+    document.body.appendChild(this.contextMenuEl);
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+      if (!this.contextMenuEl.contains(e.target)) {
+        this.hideContextMenu();
+      }
+    });
+
+    // Handle menu actions
+    this.contextMenuEl.addEventListener('click', (e) => {
+      const action = e.target.dataset.action;
+      if (action) {
+        this.handleContextAction(action);
+      }
+    });
+  }
+
+  /**
+   * Shows context menu at position
+   */
+  showContextMenu(x, y, projectId, path, type) {
+    this.contextMenuProjectId = projectId;
+    this.contextMenuPath = path;
+    this.contextMenuType = type;
+
+    this.contextMenuEl.style.left = `${x}px`;
+    this.contextMenuEl.style.top = `${y}px`;
+    this.contextMenuEl.classList.remove('hidden');
+
+    // Adjust if menu goes off screen
+    const rect = this.contextMenuEl.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      this.contextMenuEl.style.left = `${window.innerWidth - rect.width - 8}px`;
+    }
+    if (rect.bottom > window.innerHeight) {
+      this.contextMenuEl.style.top = `${window.innerHeight - rect.height - 8}px`;
+    }
+  }
+
+  /**
+   * Hides context menu
+   */
+  hideContextMenu() {
+    this.contextMenuEl.classList.add('hidden');
+  }
+
+  /**
+   * Handles context menu action
+   */
+  handleContextAction(action) {
+    this.hideContextMenu();
+
+    switch (action) {
+      case 'rename':
+        this.startRename(this.contextMenuProjectId, this.contextMenuPath);
+        break;
+      case 'delete':
+        this.confirmDelete(this.contextMenuProjectId, this.contextMenuPath);
+        break;
+      case 'new-folder':
+        this.promptNewFolder(this.contextMenuProjectId, this.contextMenuPath, this.contextMenuType);
+        break;
+    }
+  }
+
+  /**
+   * Starts inline rename for a file/directory
+   */
+  startRename(projectId, path) {
+    const container = document.querySelector(`[data-project-id="${projectId}"] .file-tree`);
+    if (!container) return;
+
+    const item = container.querySelector(`[data-path="${CSS.escape(path)}"]`);
+    if (!item) return;
+
+    const nameEl = item.querySelector('.file-tree-name');
+    if (!nameEl) return;
+
+    const currentName = nameEl.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'file-rename-input';
+    input.value = currentName;
+
+    this.renameState = { projectId, path, originalName: currentName };
+
+    nameEl.textContent = '';
+    nameEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      const newName = input.value.trim();
+      if (newName && newName !== currentName) {
+        this.client.ws.send(JSON.stringify({
+          type: 'rename_file',
+          projectId,
+          path,
+          newName
+        }));
+      }
+      // Restore name (will be updated by server response)
+      nameEl.textContent = currentName;
+      this.renameState = null;
+    };
+
+    const cancel = () => {
+      nameEl.textContent = currentName;
+      this.renameState = null;
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+    });
+
+    input.addEventListener('blur', commit);
+  }
+
+  /**
+   * Shows delete confirmation
+   */
+  confirmDelete(projectId, path) {
+    const filename = path.split('/').pop();
+    this.client.showConfirmModal(`Delete "${filename}"?`, () => {
+      this.client.ws.send(JSON.stringify({
+        type: 'delete_file',
+        projectId,
+        path
+      }));
+    });
+  }
+
+  /**
+   * Prompts for new folder name
+   */
+  promptNewFolder(projectId, path, type) {
+    // If clicked on a file, use parent directory
+    const parentPath = type === 'directory' ? path : path.substring(0, path.lastIndexOf('/')) || '/';
+
+    const name = prompt('New folder name:');
+    if (name && name.trim()) {
+      this.client.ws.send(JSON.stringify({
+        type: 'create_directory',
+        projectId,
+        parentPath,
+        name: name.trim()
+      }));
+    }
   }
 
   /**
    * Toggles file tree visibility for a project
    */
   toggleFileTree(projectId) {
-    console.log('toggleFileTree called for project:', projectId);
     const tree = this.projectTrees.get(projectId);
 
     if (!tree) {
@@ -17,16 +189,14 @@ class FileBrowser {
         expanded: true,
         entries: null,
         loading: false,
-        expandedPaths: new Set() // Track which subdirectories are expanded
+        expandedPaths: new Set()
       });
 
-      console.log('Loading root directory for project:', projectId);
       // Load root directory
       this.loadDirectory(projectId, '/');
     } else {
       // Toggle visibility
       tree.expanded = !tree.expanded;
-      console.log('Toggling tree visibility to:', tree.expanded);
       this.renderFileTree(projectId);
     }
   }
@@ -52,26 +222,18 @@ class FileBrowser {
    * Handles directory listing response from server
    */
   handleDirectoryListing(projectId, path, entries) {
-    console.log('handleDirectoryListing:', projectId, path, entries);
     const tree = this.projectTrees.get(projectId);
-    if (!tree) {
-      console.warn('No tree state found for project:', projectId);
-      return;
-    }
+    if (!tree) return;
 
     tree.loading = false;
 
     if (path === '/' || path === '') {
-      // Root directory
       tree.entries = entries;
-      console.log('Set root entries:', entries.length, 'items');
     } else {
-      // Subdirectory - need to store in nested structure
       if (!tree.subdirectories) {
         tree.subdirectories = new Map();
       }
       tree.subdirectories.set(path, entries);
-      console.log('Set subdirectory entries for', path, ':', entries.length, 'items');
     }
 
     this.renderFileTree(projectId);
@@ -83,7 +245,6 @@ class FileBrowser {
   handleFileError(projectId, path, error) {
     console.error(`File error for ${projectId}:${path}:`, error);
 
-    // Show error to user
     const project = this.client.projects.get(projectId);
     const projectName = project?.name || 'Unknown project';
     this.client.appendSystemMessage(`File error in ${projectName}: ${error}`, 'error');
@@ -96,20 +257,71 @@ class FileBrowser {
   }
 
   /**
+   * Handles file renamed response
+   */
+  handleFileRenamed(projectId, oldPath, newPath) {
+    // Refresh the parent directory
+    const parentPath = oldPath.substring(0, oldPath.lastIndexOf('/')) || '/';
+    this.refreshDirectory(projectId, parentPath);
+  }
+
+  /**
+   * Handles file moved response
+   */
+  handleFileMoved(projectId, oldPath, newPath) {
+    // Refresh both source and destination directories
+    const oldParent = oldPath.substring(0, oldPath.lastIndexOf('/')) || '/';
+    const newParent = newPath.substring(0, newPath.lastIndexOf('/')) || '/';
+
+    this.refreshDirectory(projectId, oldParent);
+    if (oldParent !== newParent) {
+      this.refreshDirectory(projectId, newParent);
+    }
+  }
+
+  /**
+   * Handles file deleted response
+   */
+  handleFileDeleted(projectId, path) {
+    const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
+    this.refreshDirectory(projectId, parentPath);
+  }
+
+  /**
+   * Handles directory created response
+   */
+  handleDirectoryCreated(projectId, path, name) {
+    const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
+    this.refreshDirectory(projectId, parentPath);
+  }
+
+  /**
+   * Refreshes a directory's contents
+   */
+  refreshDirectory(projectId, path) {
+    const tree = this.projectTrees.get(projectId);
+    if (!tree) return;
+
+    // Clear cached entries for this path
+    if (path === '/' || path === '') {
+      tree.entries = null;
+    } else if (tree.subdirectories) {
+      tree.subdirectories.delete(path);
+    }
+
+    // Reload
+    this.loadDirectory(projectId, path);
+  }
+
+  /**
    * Renders the file tree for a project
    */
   renderFileTree(projectId) {
-    console.log('renderFileTree called for project:', projectId);
     const container = document.querySelector(`[data-project-id="${projectId}"] .file-tree`);
-    console.log('File tree container:', container);
 
-    if (!container) {
-      console.warn(`File tree container not found for project ${projectId}`);
-      return;
-    }
+    if (!container) return;
 
     const tree = this.projectTrees.get(projectId);
-    console.log('Tree state:', tree);
 
     if (!tree) {
       container.style.display = 'none';
@@ -143,6 +355,10 @@ class FileBrowser {
       const item = document.createElement('div');
       item.className = 'file-tree-item';
       item.style.paddingLeft = `${depth * 12 + 8}px`;
+      item.dataset.path = entryPath;
+      item.dataset.projectId = projectId;
+      item.dataset.type = entry.type;
+      item.draggable = true;
 
       if (entry.type === 'directory') {
         const isExpanded = tree.expandedPaths.has(entryPath);
@@ -163,9 +379,35 @@ class FileBrowser {
         item.appendChild(name);
         item.classList.add('folder');
 
+        // Expand/collapse on click
         item.addEventListener('click', (e) => {
           e.stopPropagation();
           this.toggleDirectory(projectId, entryPath);
+        });
+
+        // Drag-drop handlers for directories (drop targets)
+        item.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (this.dragState && this.dragState.path !== entryPath) {
+            item.classList.add('drop-target');
+          }
+        });
+
+        item.addEventListener('dragleave', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          item.classList.remove('drop-target');
+        });
+
+        item.addEventListener('drop', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          item.classList.remove('drop-target');
+          if (this.dragState && this.dragState.projectId === projectId) {
+            this.handleDrop(projectId, this.dragState.path, entryPath);
+          }
+          this.dragState = null;
         });
 
         container.appendChild(item);
@@ -195,7 +437,48 @@ class FileBrowser {
 
         container.appendChild(item);
       }
+
+      // Common drag handlers
+      item.addEventListener('dragstart', (e) => {
+        this.dragState = { projectId, path: entryPath, type: entry.type };
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', entryPath);
+      });
+
+      item.addEventListener('dragend', (e) => {
+        item.classList.remove('dragging');
+        this.dragState = null;
+        // Remove all drop-target classes
+        container.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+      });
+
+      // Context menu
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.showContextMenu(e.clientX, e.clientY, projectId, entryPath, entry.type);
+      });
     }
+  }
+
+  /**
+   * Handles drop of a dragged item onto a directory
+   */
+  handleDrop(projectId, sourcePath, destDirectory) {
+    // Don't move to same directory
+    const sourceParent = sourcePath.substring(0, sourcePath.lastIndexOf('/')) || '/';
+    if (sourceParent === destDirectory) return;
+
+    // Don't move directory into itself or its children
+    if (destDirectory.startsWith(sourcePath + '/')) return;
+
+    this.client.ws.send(JSON.stringify({
+      type: 'move_file',
+      projectId,
+      sourcePath,
+      destDirectory
+    }));
   }
 
   /**
@@ -226,14 +509,11 @@ class FileBrowser {
    * Opens a file in the editor
    */
   openFile(projectId, path, filename) {
-    // Request file content from server
     this.client.ws.send(JSON.stringify({
       type: 'read_file',
       projectId,
       path
     }));
-
-    // Tab will be created when file content is received
   }
 
   /**

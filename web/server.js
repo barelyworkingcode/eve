@@ -457,6 +457,22 @@ wss.on('connection', (ws, req) => {
           handleWriteFile(ws, message);
           break;
 
+        case 'rename_file':
+          handleRenameFile(ws, message);
+          break;
+
+        case 'move_file':
+          handleMoveFile(ws, message);
+          break;
+
+        case 'delete_file':
+          handleDeleteFile(ws, message);
+          break;
+
+        case 'create_directory':
+          handleCreateDirectory(ws, message);
+          break;
+
         case 'terminal_create':
           createTerminal(ws, message.directory, message.command);
           break;
@@ -902,6 +918,133 @@ async function handleWriteFile(ws, message) {
       type: 'file_error',
       projectId,
       path: relativePath,
+      error: err.message
+    }));
+  }
+}
+
+async function handleRenameFile(ws, message) {
+  const { projectId, path: relativePath, newName } = message;
+
+  try {
+    const project = projects.get(projectId);
+    if (!project) {
+      return ws.send(JSON.stringify({
+        type: 'file_error',
+        projectId,
+        path: relativePath,
+        error: 'Project not found'
+      }));
+    }
+
+    const newPath = await fileService.renameFile(project.path, relativePath, newName);
+
+    ws.send(JSON.stringify({
+      type: 'file_renamed',
+      projectId,
+      oldPath: relativePath,
+      newPath: '/' + newPath
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({
+      type: 'file_error',
+      projectId,
+      path: relativePath,
+      error: err.message
+    }));
+  }
+}
+
+async function handleMoveFile(ws, message) {
+  const { projectId, sourcePath, destDirectory } = message;
+
+  try {
+    const project = projects.get(projectId);
+    if (!project) {
+      return ws.send(JSON.stringify({
+        type: 'file_error',
+        projectId,
+        path: sourcePath,
+        error: 'Project not found'
+      }));
+    }
+
+    const newPath = await fileService.moveFile(project.path, sourcePath, destDirectory);
+
+    ws.send(JSON.stringify({
+      type: 'file_moved',
+      projectId,
+      oldPath: sourcePath,
+      newPath: '/' + newPath
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({
+      type: 'file_error',
+      projectId,
+      path: sourcePath,
+      error: err.message
+    }));
+  }
+}
+
+async function handleDeleteFile(ws, message) {
+  const { projectId, path: relativePath } = message;
+
+  try {
+    const project = projects.get(projectId);
+    if (!project) {
+      return ws.send(JSON.stringify({
+        type: 'file_error',
+        projectId,
+        path: relativePath,
+        error: 'Project not found'
+      }));
+    }
+
+    await fileService.deleteFile(project.path, relativePath);
+
+    ws.send(JSON.stringify({
+      type: 'file_deleted',
+      projectId,
+      path: relativePath
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({
+      type: 'file_error',
+      projectId,
+      path: relativePath,
+      error: err.message
+    }));
+  }
+}
+
+async function handleCreateDirectory(ws, message) {
+  const { projectId, parentPath, name } = message;
+
+  try {
+    const project = projects.get(projectId);
+    if (!project) {
+      return ws.send(JSON.stringify({
+        type: 'file_error',
+        projectId,
+        path: parentPath,
+        error: 'Project not found'
+      }));
+    }
+
+    const newPath = await fileService.createDirectory(project.path, parentPath, name);
+
+    ws.send(JSON.stringify({
+      type: 'directory_created',
+      projectId,
+      path: '/' + newPath,
+      name
+    }));
+  } catch (err) {
+    ws.send(JSON.stringify({
+      type: 'file_error',
+      projectId,
+      path: parentPath,
       error: err.message
     }));
   }

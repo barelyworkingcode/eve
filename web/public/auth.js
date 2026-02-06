@@ -26,14 +26,14 @@ class AuthClient {
       const res = await fetch('/api/auth/status', { headers });
       const status = await res.json();
 
-      if (!status.enrolled) {
-        this.showEnrollScreen();
-        return false;
-      }
-
       if (status.authenticated) {
         this.hide();
         return true;
+      }
+
+      if (!status.enrolled) {
+        this.showEnrollScreen();
+        return false;
       }
 
       this.showLoginScreen();

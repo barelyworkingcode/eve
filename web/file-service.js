@@ -158,6 +158,162 @@ class FileService {
       throw err;
     }
   }
+
+  /**
+   * Renames a file or directory
+   */
+  async renameFile(projectPath, relativePath, newName) {
+    const fullPath = this.validatePath(projectPath, relativePath);
+
+    // Reject names with path separators
+    if (newName.includes('/') || newName.includes('\\')) {
+      throw new Error('Name cannot contain path separators');
+    }
+
+    // Check extension for files (not directories)
+    const stats = await fs.stat(fullPath);
+    if (stats.isFile() && !this.isAllowedFile(newName)) {
+      throw new Error('File type not allowed');
+    }
+
+    // Build new path
+    const dir = path.dirname(fullPath);
+    const newPath = path.join(dir, newName);
+
+    // Validate new path is still within project
+    if (!newPath.startsWith(path.resolve(projectPath))) {
+      throw new Error('Path traversal not allowed');
+    }
+
+    // Check if destination already exists
+    try {
+      await fs.access(newPath);
+      throw new Error('A file or directory with that name already exists');
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+
+    try {
+      await fs.rename(fullPath, newPath);
+      // Return the new relative path
+      return path.relative(projectPath, newPath);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        throw new Error('File not found');
+      } else if (err.code === 'EACCES') {
+        throw new Error('Permission denied');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Moves a file or directory to a new location
+   */
+  async moveFile(projectPath, sourcePath, destDirectory) {
+    const fullSourcePath = this.validatePath(projectPath, sourcePath);
+    const fullDestDir = this.validatePath(projectPath, destDirectory);
+
+    // Check destination is a directory
+    const destStats = await fs.stat(fullDestDir);
+    if (!destStats.isDirectory()) {
+      throw new Error('Destination must be a directory');
+    }
+
+    const fileName = path.basename(fullSourcePath);
+    const fullDestPath = path.join(fullDestDir, fileName);
+
+    // Validate destination path is still within project
+    if (!fullDestPath.startsWith(path.resolve(projectPath))) {
+      throw new Error('Path traversal not allowed');
+    }
+
+    // Check if destination already exists
+    try {
+      await fs.access(fullDestPath);
+      throw new Error('A file or directory with that name already exists at destination');
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+
+    // Prevent moving a directory into itself
+    if (fullDestDir.startsWith(fullSourcePath + path.sep)) {
+      throw new Error('Cannot move a directory into itself');
+    }
+
+    try {
+      await fs.rename(fullSourcePath, fullDestPath);
+      // Return the new relative path
+      return path.relative(projectPath, fullDestPath);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        throw new Error('Source file not found');
+      } else if (err.code === 'EACCES') {
+        throw new Error('Permission denied');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Deletes a file or directory (moves to system trash)
+   */
+  async deleteFile(projectPath, relativePath) {
+    const fullPath = this.validatePath(projectPath, relativePath);
+
+    // Prevent deleting the project root
+    if (fullPath === path.resolve(projectPath)) {
+      throw new Error('Cannot delete project root');
+    }
+
+    try {
+      await fs.access(fullPath);
+      // trash is ESM-only, must use dynamic import
+      const { default: trash } = await import('trash');
+      await trash(fullPath);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        throw new Error('File not found');
+      } else if (err.code === 'EACCES') {
+        throw new Error('Permission denied');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Creates a new directory
+   */
+  async createDirectory(projectPath, parentPath, name) {
+    const fullParentPath = this.validatePath(projectPath, parentPath);
+
+    // Reject names with path separators
+    if (name.includes('/') || name.includes('\\')) {
+      throw new Error('Name cannot contain path separators');
+    }
+
+    const fullPath = path.join(fullParentPath, name);
+
+    // Validate new path is still within project
+    if (!fullPath.startsWith(path.resolve(projectPath))) {
+      throw new Error('Path traversal not allowed');
+    }
+
+    try {
+      await fs.mkdir(fullPath);
+      // Return the new relative path
+      return path.relative(projectPath, fullPath);
+    } catch (err) {
+      if (err.code === 'EEXIST') {
+        throw new Error('Directory already exists');
+      } else if (err.code === 'ENOENT') {
+        throw new Error('Parent directory not found');
+      } else if (err.code === 'EACCES') {
+        throw new Error('Permission denied');
+      }
+      throw err;
+    }
+  }
 }
 
 module.exports = FileService;

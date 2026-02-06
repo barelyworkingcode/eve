@@ -184,6 +184,19 @@ Attach files by:
 
 Files are sent inline with your message wrapped in `<file name="...">` tags. Binary files (images, video, audio) are skipped.
 
+## File Browser
+
+Each project has a built-in file browser. Click the folder icon in the project header to expand it.
+
+**Features:**
+- **Browse** - Click folders to expand/collapse, click files to open in the editor
+- **Rename** - Right-click a file or folder and select "Rename", or type directly inline
+- **Delete** - Right-click and select "Delete" (files go to system trash for recovery)
+- **New Folder** - Right-click and select "New Folder" to create a subdirectory
+- **Move** - Drag files or folders onto a directory to move them
+
+The file browser respects a whitelist of editable extensions (code, config, text files) and hides dotfiles.
+
 ## Architecture
 
 ```
