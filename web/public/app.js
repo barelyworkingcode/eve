@@ -558,6 +558,22 @@ class EveWorkspaceClient {
         this.handleFileSaved(data.projectId, data.path);
         break;
 
+      case 'file_renamed':
+        this.fileBrowser.handleFileRenamed(data.projectId, data.oldPath, data.newPath);
+        break;
+
+      case 'file_moved':
+        this.fileBrowser.handleFileMoved(data.projectId, data.oldPath, data.newPath);
+        break;
+
+      case 'file_deleted':
+        this.fileBrowser.handleFileDeleted(data.projectId, data.path);
+        break;
+
+      case 'directory_created':
+        this.fileBrowser.handleDirectoryCreated(data.projectId, data.path, data.name);
+        break;
+
       case 'terminal_request':
         // Server is requesting we create a terminal (from /zsh or /claude command)
         this.terminalManager.createTerminal(data.directory, data.command);
