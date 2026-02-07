@@ -226,10 +226,10 @@ class TabManager {
       } else {
         // No tabs left
         this.activeTabId = null;
-        this.chatContent.style.display = 'none';
-        this.editorContent.style.display = 'none';
-        this.terminalContent.style.display = 'none';
-        this.taskResultContent.style.display = 'none';
+        this.chatContent.classList.add('hidden');
+        this.editorContent.classList.add('hidden');
+        this.terminalContent.classList.add('hidden');
+        this.taskResultContent.classList.add('hidden');
       }
     }
 
