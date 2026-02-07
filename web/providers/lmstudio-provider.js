@@ -254,7 +254,7 @@ class LMStudioProvider extends LLMProvider {
     ];
   }
 
-  handleCommand(command, args, sendSystemMessage) {
+  handleCommand(command, args, sendSystemMessage, rawText) {
     const models = LMStudioProvider.getModels().map(m => m.value);
 
     if (command === 'model') {

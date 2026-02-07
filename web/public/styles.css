@@ -619,8 +619,9 @@ html, body {
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   font-size: 12px;
-  text-align: center;
+  text-align: left;
   padding: 8px 14px;
+  white-space: pre-wrap;
 }
 
 .message.system.permission .message-content {

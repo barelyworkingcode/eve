@@ -35,7 +35,7 @@ class LLMProvider {
 
   // Handle a provider-specific command
   // Returns true if handled, false to pass through to LLM
-  handleCommand(command, args, sendSystemMessage) {
+  handleCommand(command, args, sendSystemMessage, rawText) {
     return false;
   }
 
