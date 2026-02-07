@@ -169,6 +169,7 @@ class TabManager {
       // Update current session in client
       this.client.currentSessionId = tab.id;
       this.client.renderMessages();
+      this.client.updateStatsForSession(tab.id);
     } else if (tab.type === 'file') {
       this.editorContent.classList.remove('hidden');
 
