@@ -77,7 +77,6 @@ class EveWorkspaceClient {
       attachBtn: document.getElementById('attachBtn'),
       fileInput: document.getElementById('fileInput'),
       attachedFiles: document.getElementById('attachedFiles'),
-      contextStat: document.getElementById('contextStat'),
       costStat: document.getElementById('costStat'),
       sessionStats: document.getElementById('sessionStats'),
       confirmModal: document.getElementById('confirmModal'),
@@ -634,29 +633,25 @@ class EveWorkspaceClient {
   updateStats(stats) {
     if (!stats) return;
 
-    // Update context percentage
-    const contextPercent = stats.contextPercent || 0;
-    this.elements.contextStat.textContent = `${contextPercent}%`;
-    this.elements.contextStat.title = `Context: ${contextPercent}% (${this.formatTokens(stats.totalTokens)} / ${this.formatTokens(stats.contextWindow)})`;
-
-    // Color code based on usage
-    this.elements.contextStat.className = 'stat-item';
-    if (contextPercent >= 80) {
-      this.elements.contextStat.classList.add('stat-danger');
-    } else if (contextPercent >= 50) {
-      this.elements.contextStat.classList.add('stat-warning');
+    // Store cost in session for tab switching
+    const cost = stats.costUsd || 0;
+    if (this.currentSessionId) {
+      const session = this.sessions.get(this.currentSessionId);
+      if (session) {
+        session.costUsd = cost;
+      }
     }
 
-    // Update cost
-    const cost = stats.costUsd || 0;
+    // Update cost display
     this.elements.costStat.textContent = `$${cost.toFixed(4)}`;
     this.elements.costStat.title = `Session cost: $${cost.toFixed(6)}`;
   }
 
-  formatTokens(n) {
-    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-    return n.toString();
+  updateStatsForSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    const cost = session?.costUsd ?? 0;
+    this.elements.costStat.textContent = `$${cost.toFixed(4)}`;
+    this.elements.costStat.title = `Session cost: $${cost.toFixed(6)}`;
   }
 
   handleFileContent(projectId, path, content) {
