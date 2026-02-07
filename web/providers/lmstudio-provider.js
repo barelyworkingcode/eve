@@ -255,6 +255,40 @@ class LMStudioProvider extends LLMProvider {
       return [];
     }
   }
+
+  static getCommands() {
+    const models = LMStudioProvider.getModels();
+    const modelNames = models.length > 0 ? models.map(m => m.value).join(', ') : '(none configured)';
+    return [
+      { name: 'model', description: `Switch model (${modelNames})` }
+    ];
+  }
+
+  handleCommand(command, args, sendSystemMessage) {
+    const models = LMStudioProvider.getModels().map(m => m.value);
+
+    if (command === 'model') {
+      if (args.length === 0) {
+        const available = models.length > 0 ? models.join(', ') : '(none configured)';
+        sendSystemMessage(`Current model: ${this.session.model}\nAvailable: ${available}`);
+        return true;
+      }
+
+      const newModel = args[0];
+      if (models.includes(newModel)) {
+        // Update session model and clear conversation history
+        this.session.model = newModel;
+        this.conversationHistory = [];
+        sendSystemMessage(`Model changed to: ${newModel}`);
+      } else {
+        const available = models.length > 0 ? models.join(', ') : '(none configured)';
+        sendSystemMessage(`Invalid model "${newModel}". Available: ${available}`);
+      }
+      return true;
+    }
+
+    return false;
+  }
 }
 
 module.exports = LMStudioProvider;
