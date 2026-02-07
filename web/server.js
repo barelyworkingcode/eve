@@ -13,6 +13,7 @@ const LMStudioProvider = require('./providers/lmstudio-provider');
 const SessionStore = require('./session-store');
 const FileService = require('./file-service');
 const AuthService = require('./auth');
+const TaskScheduler = require('./task-scheduler');
 
 const app = express();
 
@@ -146,6 +147,9 @@ function saveProjects() {
 // Load settings and projects on startup
 loadSettings();
 loadProjects();
+
+// Initialize task scheduler
+const taskScheduler = new TaskScheduler(projects, DATA_DIR);
 
 // Load saved sessions on startup
 const savedSessions = sessionStore.loadAll();
@@ -373,6 +377,41 @@ app.get('/api/sessions', requireAuth, (req, res) => {
     });
   }
   res.json(sessionList);
+});
+
+// API to list all scheduled tasks
+app.get('/api/tasks', requireAuth, (req, res) => {
+  res.json(taskScheduler.getAllTasks());
+});
+
+// API to get task execution history
+app.get('/api/tasks/:projectId/:taskId/history', requireAuth, (req, res) => {
+  const { projectId, taskId } = req.params;
+  const history = taskScheduler.getTaskHistory(projectId, taskId);
+  res.json(history);
+});
+
+// API to manually run a task
+app.post('/api/tasks/:projectId/:taskId/run', requireAuth, (req, res) => {
+  const { projectId, taskId } = req.params;
+  try {
+    taskScheduler.runTaskNow(projectId, taskId);
+    res.json({ success: true, message: 'Task execution started' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// API to update a task (enable/disable)
+app.put('/api/tasks/:projectId/:taskId', requireAuth, (req, res) => {
+  const { projectId, taskId } = req.params;
+  const updates = req.body;
+  try {
+    const task = taskScheduler.updateTask(projectId, taskId, updates);
+    res.json(task);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 wss.on('connection', (ws, req) => {
@@ -1186,6 +1225,159 @@ function handleTerminalReconnect(ws, terminalId) {
   }
 }
 
+// Broadcast message to all connected WebSocket clients
+function broadcast(message) {
+  const data = JSON.stringify(message);
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) { // WebSocket.OPEN
+      client.send(data);
+    }
+  });
+}
+
+// Execute a task in a headless session (no WebSocket)
+async function executeHeadlessTask(project, model, prompt) {
+  return new Promise((resolve, reject) => {
+    const sessionId = `headless-${Date.now()}`;
+    const effectiveModel = model || project.model || 'haiku';
+
+    let responseText = '';
+    let completed = false;
+
+    const complete = (err) => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timeout);
+
+      // Cleanup
+      if (session.provider) {
+        session.provider.kill();
+      }
+
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          response: responseText,
+          stats: session.stats
+        });
+      }
+    };
+
+    // Create a mock WebSocket that captures events
+    const mockWs = {
+      readyState: 1, // WebSocket.OPEN
+      send: (data) => {
+        try {
+          const message = JSON.parse(data);
+          if (message.type === 'message_complete') {
+            complete(null);
+          } else if (message.type === 'error') {
+            complete(new Error(message.message));
+          }
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
+    };
+
+    // Create a mock session for the provider
+    const session = {
+      sessionId,
+      ws: mockWs,
+      directory: project.path,
+      projectId: project.id,
+      provider: null,
+      processing: false,
+      model: effectiveModel,
+      messages: [],
+      stats: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        contextWindow: 200000,
+        costUsd: 0
+      }
+    };
+
+    // Create provider based on model
+    const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
+    if (effectiveModel.startsWith('gemini')) {
+      session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
+    } else if (lmStudioModels.includes(effectiveModel)) {
+      session.provider = new LMStudioProvider(session);
+    } else {
+      session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
+    }
+
+    // Override handleEvent to capture response text
+    const originalHandleEvent = session.provider.handleEvent.bind(session.provider);
+    session.provider.handleEvent = (event) => {
+      if (event.type === 'assistant') {
+        if (event.message?.content) {
+          for (const block of event.message.content) {
+            if (block.type === 'text') {
+              responseText = block.text; // Replace with full text
+            }
+          }
+        } else if (event.content_block?.type === 'text') {
+          responseText = event.content_block.text;
+        } else if (event.delta?.type === 'text_delta') {
+          responseText += event.delta.text;
+        }
+      }
+      // Call original for processing/stats updates
+      originalHandleEvent(event);
+    };
+
+    // Set timeout
+    const timeout = setTimeout(() => {
+      complete(new Error('Task execution timeout (5 minutes)'));
+    }, 5 * 60 * 1000);
+
+    // Start provider and send message
+    session.provider.startProcess();
+
+    // Small delay to let process start
+    setTimeout(() => {
+      session.provider.sendMessage(prompt, []);
+    }, 100);
+  });
+}
+
+// Task scheduler event handlers
+taskScheduler.on('run_task', async ({ projectId, task, callback }) => {
+  const project = projects.get(projectId);
+  if (!project) {
+    callback(new Error('Project not found'));
+    return;
+  }
+
+  try {
+    const result = await executeHeadlessTask(project, task.model, task.prompt);
+    callback(null, result);
+  } catch (err) {
+    callback(err);
+  }
+});
+
+taskScheduler.on('task_started', (execution) => {
+  broadcast({ type: 'task_started', ...execution });
+});
+
+taskScheduler.on('task_completed', (execution) => {
+  broadcast({ type: 'task_completed', ...execution });
+});
+
+taskScheduler.on('task_failed', (execution) => {
+  broadcast({ type: 'task_failed', ...execution });
+});
+
+taskScheduler.on('tasks_updated', (data) => {
+  broadcast({ type: 'tasks_updated', ...data });
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   const protocol = HTTPS_KEY && HTTPS_CERT ? 'https' : 'http';
@@ -1195,4 +1387,7 @@ server.listen(PORT, () => {
   } else {
     console.log('Authentication: disabled (no passkey enrolled - first visitor will become owner)');
   }
+
+  // Start task scheduler
+  taskScheduler.start();
 });

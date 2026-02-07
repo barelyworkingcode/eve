@@ -197,6 +197,35 @@ Each project has a built-in file browser. Click the folder icon in the project h
 
 The file browser respects a whitelist of editable extensions (code, config, text files) and hides dotfiles.
 
+## Scheduled Tasks
+
+Projects can define automated tasks that run prompts on a schedule. Tasks are stored in `.tasks.json` in the project directory.
+
+**Schedule types:**
+- `daily` - Run at a specific time each day
+- `hourly` - Run at a specific minute each hour
+- `interval` - Run every N minutes
+- `weekly` - Run on a specific day and time
+
+**Example `.tasks.json`:**
+```json
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "daily-review",
+      "name": "Daily Code Review",
+      "prompt": "Review recent changes and summarize",
+      "schedule": { "type": "daily", "time": "09:00" },
+      "enabled": true,
+      "createdAt": "2026-02-06T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+The task scheduler watches for file changes and picks up updates automatically. Disabled tasks (`enabled: false`) are skipped.
+
 ## Architecture
 
 ```

@@ -10,6 +10,8 @@ class EveWorkspaceClient {
     this.models = [];
     this.confirmCallback = null;
     this.isRenderingHistory = false; // Flag to prevent storing during history render
+    this.scheduledTasks = []; // All scheduled tasks
+    this.taskHistory = new Map(); // projectId:taskId -> executions
 
     // Check auth before initializing
     this.authClient = new AuthClient();
@@ -81,7 +83,16 @@ class EveWorkspaceClient {
       confirmModal: document.getElementById('confirmModal'),
       confirmMessage: document.getElementById('confirmMessage'),
       confirmDelete: document.getElementById('confirmDelete'),
-      cancelConfirm: document.getElementById('cancelConfirm')
+      cancelConfirm: document.getElementById('cancelConfirm'),
+      tasksModal: document.getElementById('tasksModal'),
+      tasksProjectName: document.getElementById('tasksProjectName'),
+      tasksList: document.getElementById('tasksList'),
+      taskHistorySection: document.getElementById('taskHistorySection'),
+      taskHistoryList: document.getElementById('taskHistoryList'),
+      closeTasksModal: document.getElementById('closeTasksModal'),
+      taskResultName: document.getElementById('taskResultName'),
+      taskResultMeta: document.getElementById('taskResultMeta'),
+      taskResultBody: document.getElementById('taskResultBody')
     };
   }
 
@@ -164,6 +175,12 @@ class EveWorkspaceClient {
     this.elements.cancelConfirm.addEventListener('click', () => this.hideConfirmModal());
     this.elements.confirmModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideConfirmModal());
     this.elements.confirmDelete.addEventListener('click', () => this.handleConfirm());
+
+    // Tasks modal
+    if (this.elements.closeTasksModal) {
+      this.elements.closeTasksModal.addEventListener('click', () => this.hideTasksModal());
+      this.elements.tasksModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideTasksModal());
+    }
   }
 
   initSidebarResize() {
@@ -369,6 +386,7 @@ class EveWorkspaceClient {
   onWebSocketReady() {
     this.loadProjects();
     this.loadSessions();
+    this.loadScheduledTasks();
     // Request terminal list for reconnection after refresh
     if (this.terminalManager && this.terminalManager.xtermLoaded) {
       this.terminalManager.requestTerminalList();
@@ -593,6 +611,22 @@ class EveWorkspaceClient {
 
       case 'terminal_list':
         this.terminalManager.onTerminalList(data.terminals);
+        break;
+
+      case 'task_started':
+        this.handleTaskStarted(data);
+        break;
+
+      case 'task_completed':
+        this.handleTaskCompleted(data);
+        break;
+
+      case 'task_failed':
+        this.handleTaskFailed(data);
+        break;
+
+      case 'tasks_updated':
+        this.loadScheduledTasks();
         break;
     }
   }
@@ -1139,13 +1173,17 @@ class EveWorkspaceClient {
       projectEl.className = project.disabled ? 'project-group disabled' : 'project-group';
 
       const disabledNote = project.disabled ? '<span class="disabled-note">(provider disabled)</span>' : '';
+      const taskCount = this.getTaskCountForProject(projectId);
+      const taskBadge = taskCount > 0 ? `<span class="project-task-count" title="${taskCount} scheduled task${taskCount !== 1 ? 's' : ''}">${taskCount}</span>` : '';
       projectEl.innerHTML = `
         <div class="project-header">
           <span class="project-toggle">▼</span>
           <span class="project-name">${this.escapeHtml(project.name)}</span>
           <span class="project-model">${project.model || 'haiku'}</span>
+          ${taskBadge}
           ${disabledNote}
           <button class="project-files-toggle" title="Browse files">📁</button>
+          <button class="project-tasks-btn" title="Scheduled tasks">&#128337;</button>
           <button class="project-quick-add" title="New session in this project">+</button>
           <button class="project-delete" title="Delete project">&times;</button>
         </div>
@@ -1158,12 +1196,13 @@ class EveWorkspaceClient {
       const toggle = projectEl.querySelector('.project-toggle');
       const sessionsList = projectEl.querySelector('.project-sessions');
       const filesToggleBtn = projectEl.querySelector('.project-files-toggle');
+      const tasksBtn = projectEl.querySelector('.project-tasks-btn');
       const quickAddBtn = projectEl.querySelector('.project-quick-add');
       const deleteBtn = projectEl.querySelector('.project-delete');
 
       // Toggle collapse (disabled for disabled projects)
       header.addEventListener('click', (e) => {
-        if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || project.disabled) return;
+        if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || e.target === tasksBtn || project.disabled) return;
         projectEl.classList.toggle('collapsed');
         toggle.textContent = projectEl.classList.contains('collapsed') ? '▶' : '▼';
       });
@@ -1174,6 +1213,12 @@ class EveWorkspaceClient {
         if (!project.disabled) {
           this.fileBrowser.toggleFileTree(projectId);
         }
+      });
+
+      // Show tasks panel
+      tasksBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.showTasksPanel(projectId);
       });
 
       // Quick add session
@@ -1213,6 +1258,25 @@ class EveWorkspaceClient {
           });
         }
         sessionsList.appendChild(li);
+      }
+
+      // Render tasks for this project
+      const projectTasks = this.scheduledTasks.filter(t => t.projectId === projectId);
+      for (const task of projectTasks) {
+        const taskLi = document.createElement('li');
+        const isActiveTask = this.tabManager && this.tabManager.activeTabId === `task:${projectId}:${task.id}`;
+        taskLi.className = `task-sidebar-item ${isActiveTask ? 'active' : ''}`;
+        const statusInfo = this.getTaskStatusInfo(task);
+        taskLi.innerHTML = `
+          <span class="task-sidebar-icon">&#128337;</span>
+          <span class="task-sidebar-name">${this.escapeHtml(task.name)}</span>
+          <span class="task-sidebar-status ${statusInfo.className}">${statusInfo.label}</span>
+        `;
+        taskLi.addEventListener('click', () => {
+          this.openTaskResult(projectId, task.id, task.name);
+          this.toggleSidebar(false);
+        });
+        sessionsList.appendChild(taskLi);
       }
 
       this.elements.projectList.appendChild(projectEl);
@@ -1277,6 +1341,328 @@ class EveWorkspaceClient {
     const textarea = this.elements.userInput;
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+  }
+
+  // Task scheduler methods
+  async loadScheduledTasks() {
+    try {
+      const response = await fetch('/api/tasks', {
+        headers: this.getAuthHeaders()
+      });
+      this.scheduledTasks = await response.json();
+      this.renderProjectList(); // Update task counts
+    } catch (err) {
+      console.error('Failed to load scheduled tasks:', err);
+    }
+  }
+
+  async loadTaskHistory(projectId, taskId) {
+    try {
+      const response = await fetch(`/api/tasks/${projectId}/${taskId}/history`, {
+        headers: this.getAuthHeaders()
+      });
+      const history = await response.json();
+      this.taskHistory.set(`${projectId}:${taskId}`, history);
+      return history;
+    } catch (err) {
+      console.error('Failed to load task history:', err);
+      return [];
+    }
+  }
+
+  handleTaskStarted(data) {
+    this.appendSystemMessage(`Task started: ${data.taskName} (${data.projectName})`);
+    // Update task status in sidebar
+    const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
+    if (task) {
+      task.lastStatus = 'running';
+      this.renderProjectList();
+    }
+  }
+
+  handleTaskCompleted(data) {
+    this.appendSystemMessage(`Task completed: ${data.taskName}`);
+
+    // Update task status and clear cached history
+    const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
+    if (task) {
+      task.lastStatus = 'success';
+    }
+    this.taskHistory.delete(`${data.projectId}:${data.taskId}`);
+
+    // Refresh result view if this task's tab is open
+    const taskTabId = `task:${data.projectId}:${data.taskId}`;
+    if (this.tabManager && this.tabManager.activeTabId === taskTabId) {
+      this.showTaskResult(data.projectId, data.taskId);
+    }
+
+    // Refresh task list if modal is open
+    if (!this.elements.tasksModal?.classList.contains('hidden')) {
+      this.showTasksPanel(data.projectId);
+    }
+
+    this.renderProjectList();
+  }
+
+  handleTaskFailed(data) {
+    this.appendSystemMessage(`Task failed: ${data.taskName} - ${data.error}`, 'error');
+
+    // Update task status and clear cached history
+    const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
+    if (task) {
+      task.lastStatus = 'error';
+    }
+    this.taskHistory.delete(`${data.projectId}:${data.taskId}`);
+
+    // Refresh result view if this task's tab is open
+    const taskTabId = `task:${data.projectId}:${data.taskId}`;
+    if (this.tabManager && this.tabManager.activeTabId === taskTabId) {
+      this.showTaskResult(data.projectId, data.taskId);
+    }
+
+    this.renderProjectList();
+  }
+
+  getTaskCountForProject(projectId) {
+    return this.scheduledTasks.filter(t => t.projectId === projectId).length;
+  }
+
+  showTasksPanel(projectId) {
+    const project = this.projects.get(projectId);
+    if (!project) return;
+
+    this.currentTasksProjectId = projectId;
+    this.elements.tasksProjectName.textContent = project.name;
+    this.elements.tasksModal.classList.remove('hidden');
+    this.elements.taskHistorySection.classList.add('hidden');
+
+    this.renderTasksPanel(projectId);
+  }
+
+  hideTasksModal() {
+    this.elements.tasksModal.classList.add('hidden');
+    this.currentTasksProjectId = null;
+  }
+
+  renderTasksPanel(projectId) {
+    const tasks = this.scheduledTasks.filter(t => t.projectId === projectId);
+
+    if (tasks.length === 0) {
+      this.elements.tasksList.innerHTML = `
+        <div class="tasks-empty">
+          No scheduled tasks. Create a <code>.tasks.json</code> file in the project root.
+        </div>
+      `;
+      return;
+    }
+
+    this.elements.tasksList.innerHTML = tasks.map(task => `
+      <div class="task-item" data-task-id="${task.id}">
+        <div class="task-info">
+          <div class="task-name">${this.escapeHtml(task.name)}</div>
+          <div class="task-schedule">${this.formatSchedule(task.schedule)}</div>
+          ${task.nextRun ? `<div class="task-next-run">Next: ${this.formatRelativeTime(task.nextRun)}</div>` : ''}
+        </div>
+        <div class="task-actions">
+          <label class="task-toggle">
+            <input type="checkbox" ${task.enabled ? 'checked' : ''} data-action="toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <button class="task-run-btn" data-action="run" title="Run now">&#9654;</button>
+          <button class="task-history-btn" data-action="history" title="View history">&#128337;</button>
+        </div>
+      </div>
+    `).join('');
+
+    // Add event listeners
+    this.elements.tasksList.querySelectorAll('.task-item').forEach(item => {
+      const taskId = item.dataset.taskId;
+
+      item.querySelector('[data-action="toggle"]')?.addEventListener('change', (e) => {
+        this.handleTaskToggle(projectId, taskId, e.target.checked);
+      });
+
+      item.querySelector('[data-action="run"]')?.addEventListener('click', () => {
+        this.handleTaskRun(projectId, taskId);
+      });
+
+      item.querySelector('[data-action="history"]')?.addEventListener('click', () => {
+        this.showTaskHistory(projectId, taskId);
+      });
+    });
+  }
+
+  formatSchedule(schedule) {
+    if (!schedule) return 'No schedule';
+
+    switch (schedule.type) {
+      case 'daily':
+        return `Daily at ${schedule.time || '00:00'}`;
+      case 'hourly':
+        return `Hourly at :${String(schedule.minute || 0).padStart(2, '0')}`;
+      case 'interval':
+        return `Every ${schedule.minutes} minutes`;
+      case 'weekly':
+        return `${schedule.day} at ${schedule.time || '00:00'}`;
+      case 'cron':
+        return `Cron: ${schedule.expression}`;
+      default:
+        return 'Unknown schedule';
+    }
+  }
+
+  formatRelativeTime(isoString) {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = date - now;
+    const diffMins = Math.round(diffMs / 60000);
+
+    if (diffMins < 0) return 'overdue';
+    if (diffMins < 1) return 'less than a minute';
+    if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''}`;
+
+    const diffHours = Math.round(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''}`;
+
+    const diffDays = Math.round(diffHours / 24);
+    return `${diffDays} day${diffDays !== 1 ? 's' : ''}`;
+  }
+
+  async handleTaskToggle(projectId, taskId, enabled) {
+    try {
+      await fetch(`/api/tasks/${projectId}/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders()
+        },
+        body: JSON.stringify({ enabled })
+      });
+      await this.loadScheduledTasks();
+      this.renderTasksPanel(projectId);
+    } catch (err) {
+      console.error('Failed to toggle task:', err);
+    }
+  }
+
+  async handleTaskRun(projectId, taskId) {
+    try {
+      await fetch(`/api/tasks/${projectId}/${taskId}/run`, {
+        method: 'POST',
+        headers: this.getAuthHeaders()
+      });
+      this.appendSystemMessage('Task execution started...');
+    } catch (err) {
+      console.error('Failed to run task:', err);
+      this.appendSystemMessage('Failed to start task', 'error');
+    }
+  }
+
+  async showTaskHistory(projectId, taskId) {
+    const history = await this.loadTaskHistory(projectId, taskId);
+    this.renderTaskHistory(history);
+    this.elements.taskHistorySection.classList.remove('hidden');
+  }
+
+  renderTaskHistory(history) {
+    if (!history || history.length === 0) {
+      this.elements.taskHistoryList.innerHTML = '<div class="task-history-empty">No execution history</div>';
+      return;
+    }
+
+    this.elements.taskHistoryList.innerHTML = history.slice(0, 20).map(exec => `
+      <div class="task-history-item task-status-${exec.status}">
+        <div class="task-history-time">${new Date(exec.startedAt).toLocaleString()}</div>
+        <div class="task-history-status">${exec.status}</div>
+        ${exec.error ? `<div class="task-history-error">${this.escapeHtml(exec.error)}</div>` : ''}
+        ${exec.response ? `<div class="task-history-response">${this.escapeHtml(exec.response.substring(0, 200))}${exec.response.length > 200 ? '...' : ''}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  getTaskStatusInfo(task) {
+    // Check for last execution status
+    const historyKey = `${task.projectId}:${task.id}`;
+    const history = this.taskHistory.get(historyKey);
+
+    if (task.lastStatus === 'running') {
+      return { className: 'status-running', label: 'Running' };
+    }
+
+    if (history && history.length > 0) {
+      const latest = history[0];
+      if (latest.status === 'success') {
+        return { className: 'status-success', label: 'OK' };
+      } else if (latest.status === 'error') {
+        return { className: 'status-error', label: 'Failed' };
+      } else if (latest.status === 'running') {
+        return { className: 'status-running', label: 'Running' };
+      }
+    }
+
+    if (task.lastStatus === 'success') {
+      return { className: 'status-success', label: 'OK' };
+    } else if (task.lastStatus === 'error') {
+      return { className: 'status-error', label: 'Failed' };
+    }
+
+    return { className: 'status-pending', label: 'Pending' };
+  }
+
+  async openTaskResult(projectId, taskId, taskName) {
+    // Load history if not cached
+    const historyKey = `${projectId}:${taskId}`;
+    if (!this.taskHistory.has(historyKey)) {
+      await this.loadTaskHistory(projectId, taskId);
+    }
+
+    // Open the task tab
+    this.tabManager.openTask(projectId, taskId, taskName);
+  }
+
+  showTaskResult(projectId, taskId) {
+    const task = this.scheduledTasks.find(t => t.projectId === projectId && t.id === taskId);
+    const historyKey = `${projectId}:${taskId}`;
+    const history = this.taskHistory.get(historyKey) || [];
+
+    // Set task name
+    this.elements.taskResultName.textContent = task?.name || 'Task';
+
+    if (history.length === 0) {
+      this.elements.taskResultMeta.innerHTML = '';
+      this.elements.taskResultBody.innerHTML = '<div class="task-result-empty">No executions yet</div>';
+      return;
+    }
+
+    const latest = history[0];
+
+    // Render metadata
+    const statusClass = latest.status === 'success' ? 'status-success' :
+                        latest.status === 'error' ? 'status-error' : 'status-running';
+    const startTime = new Date(latest.startedAt).toLocaleString();
+    const endTime = latest.completedAt ? new Date(latest.completedAt).toLocaleString() : 'In progress';
+
+    this.elements.taskResultMeta.innerHTML = `
+      <span class="task-meta-item">
+        <span class="task-meta-status ${statusClass}">${latest.status}</span>
+      </span>
+      <span class="task-meta-item">Started: ${startTime}</span>
+      ${latest.completedAt ? `<span class="task-meta-item">Completed: ${endTime}</span>` : ''}
+    `;
+
+    // Render body
+    let bodyHtml = '';
+    if (latest.error) {
+      bodyHtml += `<div class="task-result-error">${this.escapeHtml(latest.error)}</div>`;
+    }
+    if (latest.response) {
+      bodyHtml += this.escapeHtml(latest.response);
+    }
+    if (!latest.error && !latest.response) {
+      bodyHtml = '<div class="task-result-empty">No output</div>';
+    }
+
+    this.elements.taskResultBody.innerHTML = bodyHtml;
   }
 }
 
