@@ -38,12 +38,12 @@ class TerminalManager {
   /**
    * Creates a new terminal and requests server to spawn pty
    */
-  createTerminal(directory, command) {
-    this.client.ws.send(JSON.stringify({
-      type: 'terminal_create',
-      directory,
-      command
-    }));
+  createTerminal(directory, command, args) {
+    const msg = { type: 'terminal_create', directory, command };
+    if (args) {
+      msg.args = args;
+    }
+    this.client.ws.send(JSON.stringify(msg));
   }
 
   /**
