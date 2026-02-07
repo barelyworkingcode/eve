@@ -7,6 +7,7 @@ class ClaudeProvider extends LLMProvider {
     this.claudeProcess = null;
     this.buffer = '';
     this.currentAssistantMessage = null;
+    this.claudeSessionId = null;
 
     // Provider configuration (from settings.json or defaults)
     this.config = {
@@ -144,6 +145,11 @@ class ClaudeProvider extends LLMProvider {
       '--model', this.session.model
     ];
 
+    // Resume existing session if we have an ID
+    if (this.claudeSessionId) {
+      args.push('--resume', this.claudeSessionId);
+    }
+
     // Priority: config path > env var > default locations
     const claudePath = this.config.path ||
       process.env.CLAUDE_PATH ||
@@ -152,7 +158,8 @@ class ClaudeProvider extends LLMProvider {
     if (this.config.debug) {
       console.log('[Claude] Using path:', claudePath);
     }
-    console.log('[SPAWN]', claudePath, args.join(' '));
+    const resumeFlag = this.claudeSessionId ? ` --resume ${this.claudeSessionId.substring(0, 8)}...` : '';
+    console.log('[SPAWN]', claudePath, args.slice(0, 7).join(' ') + resumeFlag);
 
     this.claudeProcess = spawn(claudePath, args, {
       cwd: this.session.directory,
@@ -398,6 +405,18 @@ ${f.content}
   handleEvent(event) {
     console.log('[Claude] handleEvent:', event.type);
 
+    // Capture session ID from init event
+    if (event.type === 'init' && event.session_id) {
+      this.claudeSessionId = event.session_id;
+      console.log('[Claude] Session ID:', this.claudeSessionId);
+
+      // Persist to session store
+      if (this.session.saveHistory) {
+        this.session.claudeSessionId = this.claudeSessionId;
+        this.session.saveHistory();
+      }
+    }
+
     // Start tracking assistant message
     if (event.type === 'assistant' && event.message) {
       this.currentAssistantMessage = {
@@ -448,29 +467,13 @@ ${f.content}
       this.session.stats.outputTokens += usage.output_tokens || 0;
       this.session.stats.cacheReadTokens += usage.cache_read_input_tokens || 0;
       this.session.stats.cacheCreationTokens += usage.cache_creation_input_tokens || 0;
-
-      if (event.modelUsage) {
-        const modelKey = Object.keys(event.modelUsage)[0];
-        if (modelKey) {
-          this.session.stats.contextWindow = event.modelUsage[modelKey].contextWindow || 200000;
-        }
-      }
-
       this.session.stats.costUsd = event.total_cost_usd || this.session.stats.costUsd;
-
-      const totalTokens = this.session.stats.inputTokens + this.session.stats.outputTokens +
-                          this.session.stats.cacheReadTokens + this.session.stats.cacheCreationTokens;
-      const contextPercent = Math.round((totalTokens / this.session.stats.contextWindow) * 100);
 
       if (this.session.ws && this.session.ws.readyState === 1) {
         this.session.ws.send(JSON.stringify({
           type: 'stats_update',
           sessionId: this.session.sessionId,
-          stats: {
-            ...this.session.stats,
-            contextPercent,
-            totalTokens
-          }
+          stats: this.session.stats
         }));
       }
     }
@@ -478,6 +481,15 @@ ${f.content}
     if (event.type === 'result') {
       this.session.processing = false;
       this.stopActivityMonitor();
+
+      // CLI sometimes returns quick responses directly in result (e.g., invalid commands)
+      if (event.result && !this.currentAssistantMessage) {
+        this.session.ws?.send(JSON.stringify({
+          type: 'system_message',
+          sessionId: this.session.sessionId,
+          message: event.result
+        }));
+      }
 
       // Save assistant message to history
       if (this.currentAssistantMessage) {

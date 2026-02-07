@@ -577,7 +577,6 @@ function createSession(ws, directory, projectId = null) {
       outputTokens: 0,
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
-      contextWindow: 200000,
       costUsd: 0
     },
     saveHistory: () => sessionStore.save(session)
@@ -642,6 +641,10 @@ function joinSession(ws, sessionId) {
       session.provider = new LMStudioProvider(session);
     } else {
       session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
+      // Restore Claude session ID for resume support
+      if (session.claudeSessionId) {
+        session.provider.claudeSessionId = session.claudeSessionId;
+      }
     }
 
     // Start the provider process
@@ -660,18 +663,10 @@ function joinSession(ws, sessionId) {
   }));
 
   // Send current stats
-  const totalTokens = session.stats.inputTokens + session.stats.outputTokens +
-                      session.stats.cacheReadTokens + session.stats.cacheCreationTokens;
-  const contextPercent = Math.round((totalTokens / session.stats.contextWindow) * 100);
-
   ws.send(JSON.stringify({
     type: 'stats_update',
     sessionId,
-    stats: {
-      ...session.stats,
-      contextPercent,
-      totalTokens
-    }
+    stats: session.stats
   }));
 
   return sessionId;
@@ -709,9 +704,13 @@ function handleSlashCommand(sessionId, text) {
         outputTokens: 0,
         cacheReadTokens: 0,
         cacheCreationTokens: 0,
-        contextWindow: 200000,
         costUsd: 0
       };
+      // Clear Claude session ID so we start fresh
+      session.claudeSessionId = null;
+      if (session.provider.claudeSessionId !== undefined) {
+        session.provider.claudeSessionId = null;
+      }
       sessionStore.save(session);
       session.provider.startProcess();
       sendSystemMessage('Conversation history cleared');
@@ -722,7 +721,7 @@ function handleSlashCommand(sessionId, text) {
       session.ws?.send(JSON.stringify({
         type: 'stats_update',
         sessionId,
-        stats: { ...session.stats, contextPercent: 0, totalTokens: 0 }
+        stats: session.stats
       }));
       return true;
     }
@@ -1271,7 +1270,6 @@ async function executeHeadlessTask(project, model, prompt) {
         outputTokens: 0,
         cacheReadTokens: 0,
         cacheCreationTokens: 0,
-        contextWindow: 200000,
         costUsd: 0
       }
     };
