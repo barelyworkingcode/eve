@@ -47,7 +47,8 @@ class SessionStore {
           cacheCreationTokens: 0,
           costUsd: 0
         },
-        claudeSessionId: session.claudeSessionId || null
+        claudeSessionId: session.claudeSessionId || null,
+        customArgs: session.customArgs || []
       };
 
       const filePath = this.getFilePath(session.sessionId);
@@ -89,7 +90,8 @@ class SessionStore {
             createdAt: data.createdAt,
             stats: data.stats,
             messages: data.messages || [],
-            claudeSessionId: data.claudeSessionId || null
+            claudeSessionId: data.claudeSessionId || null,
+            customArgs: data.customArgs || []
           });
         } catch (err) {
           console.error(`Error loading session file ${file}:`, err);

@@ -645,6 +645,10 @@ function joinSession(ws, sessionId) {
       if (session.claudeSessionId) {
         session.provider.claudeSessionId = session.claudeSessionId;
       }
+      // Restore custom CLI args
+      if (session.customArgs && session.customArgs.length > 0) {
+        session.provider.customArgs = session.customArgs;
+      }
     }
 
     // Start the provider process
@@ -774,7 +778,7 @@ function handleSlashCommand(sessionId, text) {
 
   // Delegate to provider for provider-specific commands
   if (session.provider && session.provider.handleCommand) {
-    const handled = session.provider.handleCommand(command, args, sendSystemMessage);
+    const handled = session.provider.handleCommand(command, args, sendSystemMessage, trimmed);
     if (handled) {
       return true;
     }

@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const LLMProvider = require('./llm-provider');
 
 class ClaudeProvider extends LLMProvider {
@@ -8,6 +8,7 @@ class ClaudeProvider extends LLMProvider {
     this.buffer = '';
     this.currentAssistantMessage = null;
     this.claudeSessionId = null;
+    this.customArgs = [];
 
     // Provider configuration (from settings.json or defaults)
     this.config = {
@@ -72,6 +73,11 @@ class ClaudeProvider extends LLMProvider {
   static MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
   static MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB total
   static SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+  // Args managed internally by startProcess() -- cannot be set via /args-edit
+  static PROTECTED_ARGS = new Set([
+    '--print', '--output-format', '--input-format', '--verbose', '--resume', '-p', '-r'
+  ]);
 
   validateFiles(files) {
     if (!files || files.length === 0) {
@@ -144,6 +150,11 @@ class ClaudeProvider extends LLMProvider {
       '--verbose',
       '--model', this.session.model
     ];
+
+    // Append user-configured custom args
+    if (this.customArgs.length > 0) {
+      args.push(...this.customArgs);
+    }
 
     // Resume existing session if we have an ID
     if (this.claudeSessionId) {
@@ -536,11 +547,14 @@ ${f.content}
       { name: 'model', description: `Switch model (${modelNames})` },
       { name: 'compact', description: 'Compact conversation history' },
       { name: 'cost', description: 'Show usage/billing info' },
-      { name: 'context', description: 'Show context window usage' }
+      { name: 'context', description: 'Show context window usage' },
+      { name: 'args', description: 'Show current CLI args' },
+      { name: 'args-edit', description: 'Add/remove CLI args (restarts process)' },
+      { name: 'cli-help', description: 'Show Claude CLI --help output' }
     ];
   }
 
-  handleCommand(command, args, sendSystemMessage) {
+  handleCommand(command, args, sendSystemMessage, rawText) {
     const models = ClaudeProvider.getModels().map(m => m.value);
 
     if (command === 'model') {
@@ -569,8 +583,206 @@ ${f.content}
       return true;
     }
 
+    if (command === 'args') {
+      let lines = [`--model ${this.session.model}`];
+      if (this.customArgs.length > 0) {
+        lines.push(this.formatArgsForDisplay(this.customArgs));
+      } else {
+        lines.push('\nNo custom args. Use /args-edit to add flags.');
+      }
+      sendSystemMessage('Current CLI args:\n' + lines.join('\n'));
+      return true;
+    }
+
+    if (command === 'args-edit') {
+      this.handleArgsEdit(rawText, sendSystemMessage);
+      return true;
+    }
+
+    if (command === 'cli-help') {
+      this.showCliHelp(sendSystemMessage);
+      return true;
+    }
+
     // Let compact/cost/context pass through to the CLI
     return false;
+  }
+
+  // --- /args-edit implementation ---
+
+  handleArgsEdit(rawText, sendSystemMessage) {
+    // Extract everything after "/args-edit"
+    const afterCommand = rawText.replace(/^\/args-edit\s*/, '');
+
+    if (!afterCommand) {
+      sendSystemMessage(
+        'Usage:\n' +
+        '  /args-edit --flag [value]   Add or update a CLI flag\n' +
+        '  /args-edit --remove --flag  Remove a flag\n' +
+        '  /args-edit --clear          Remove all custom args'
+      );
+      return;
+    }
+
+    const parsed = this.parseQuotedArgs(afterCommand);
+
+    // --clear: remove all custom args
+    if (parsed[0] === '--clear') {
+      if (this.customArgs.length === 0) {
+        sendSystemMessage('No custom args to clear.');
+        return;
+      }
+      this.customArgs = [];
+      this.persistCustomArgs();
+      this.restartProcess(sendSystemMessage, 'All custom args cleared.');
+      return;
+    }
+
+    // --remove --flag: remove a specific flag
+    if (parsed[0] === '--remove') {
+      if (parsed.length < 2) {
+        sendSystemMessage('Usage: /args-edit --remove --flag');
+        return;
+      }
+      const flag = parsed[1];
+      const removed = this.removeCustomArg(flag);
+      if (!removed) {
+        sendSystemMessage(`Flag "${flag}" not found in custom args.`);
+        return;
+      }
+      this.persistCustomArgs();
+      this.restartProcess(sendSystemMessage, `Removed ${flag}.`);
+      return;
+    }
+
+    // Add/update: --flag [value...]
+    const flag = parsed[0];
+    if (!flag.startsWith('-')) {
+      sendSystemMessage(`Expected a flag starting with "-", got "${flag}".`);
+      return;
+    }
+
+    // Block protected args
+    if (ClaudeProvider.PROTECTED_ARGS.has(flag)) {
+      sendSystemMessage(`"${flag}" is managed internally and cannot be changed via /args-edit.`);
+      return;
+    }
+
+    // Intercept --model: update session.model instead of customArgs
+    if (flag === '--model') {
+      if (parsed.length < 2) {
+        sendSystemMessage('Usage: /args-edit --model <model-name>');
+        return;
+      }
+      const models = ClaudeProvider.getModels().map(m => m.value);
+      const newModel = parsed[1].toLowerCase();
+      if (!models.includes(newModel)) {
+        sendSystemMessage(`Invalid model "${newModel}". Available: ${models.join(', ')}`);
+        return;
+      }
+      this.session.model = newModel;
+      this.restartProcess(sendSystemMessage, `Model changed to: ${newModel}`);
+      return;
+    }
+
+    const values = parsed.slice(1);
+
+    // Remove existing entry for this flag before adding
+    this.removeCustomArg(flag);
+    this.customArgs.push(flag, ...values);
+    this.persistCustomArgs();
+
+    const display = values.length > 0 ? `${flag} ${values.join(' ')}` : flag;
+    this.restartProcess(sendSystemMessage, `Added ${display}.`);
+  }
+
+  // --- Helper methods ---
+
+  parseQuotedArgs(str) {
+    const result = [];
+    let current = '';
+    let inSingle = false;
+    let inDouble = false;
+
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+
+      if (ch === "'" && !inDouble) {
+        inSingle = !inSingle;
+      } else if (ch === '"' && !inSingle) {
+        inDouble = !inDouble;
+      } else if (/\s/.test(ch) && !inSingle && !inDouble) {
+        if (current.length > 0) {
+          result.push(current);
+          current = '';
+        }
+      } else {
+        current += ch;
+      }
+    }
+    if (current.length > 0) {
+      result.push(current);
+    }
+    return result;
+  }
+
+  formatArgsForDisplay(argsArray) {
+    const lines = [];
+    let i = 0;
+    while (i < argsArray.length) {
+      let entry = argsArray[i];
+      i++;
+      // Collect following non-flag values
+      while (i < argsArray.length && !argsArray[i].startsWith('-')) {
+        entry += ' ' + argsArray[i];
+        i++;
+      }
+      lines.push(entry);
+    }
+    return lines.join('\n');
+  }
+
+  removeCustomArg(flag) {
+    const idx = this.customArgs.indexOf(flag);
+    if (idx === -1) return false;
+
+    // Remove flag and any following non-flag values
+    let end = idx + 1;
+    while (end < this.customArgs.length && !this.customArgs[end].startsWith('-')) {
+      end++;
+    }
+    this.customArgs.splice(idx, end - idx);
+    return true;
+  }
+
+  persistCustomArgs() {
+    this.session.customArgs = this.customArgs;
+    if (this.session.saveHistory) {
+      this.session.saveHistory();
+    }
+  }
+
+  restartProcess(sendSystemMessage, message) {
+    if (this.claudeProcess) {
+      this.claudeProcess.kill();
+      this.claudeProcess = null;
+    }
+    this.startProcess();
+    sendSystemMessage(message + ' Process restarted.');
+  }
+
+  showCliHelp(sendSystemMessage) {
+    const claudePath = this.config.path ||
+      process.env.CLAUDE_PATH ||
+      (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : 'claude');
+
+    execFile(claudePath, ['--help'], { timeout: 5000 }, (err, stdout, stderr) => {
+      if (err) {
+        sendSystemMessage(`Failed to run claude --help: ${err.message}`);
+        return;
+      }
+      sendSystemMessage(stdout || stderr || 'No output from claude --help.');
+    });
   }
 }
 

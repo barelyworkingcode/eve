@@ -282,7 +282,7 @@ class GeminiProvider extends LLMProvider {
     ];
   }
 
-  handleCommand(command, args, sendSystemMessage) {
+  handleCommand(command, args, sendSystemMessage, rawText) {
     const models = GeminiProvider.getModels().map(m => m.value);
 
     if (command === 'model') {

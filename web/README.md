@@ -157,15 +157,55 @@ Messages go to stdin as JSON, responses stream from stdout. Process stays alive 
 
 ## Commands
 
+Commands are split into two layers: **global commands** handled by the server regardless of provider, and **provider-specific commands** defined by each provider. `/help` shows both. Unrecognized commands pass through to the LLM.
+
+### Global
+
 | Command | Description |
 |---------|-------------|
-| `/model` | Show current model |
-| `/model <name>` | Switch model - restarts session |
 | `/clear` | Clear conversation history - restarts session |
-| `/cost` | Show usage/billing info (provider-specific) |
-| `/context` | Show context window usage details (provider-specific) |
-| `/compact` | Compact conversation to reduce context usage (provider-specific) |
+| `/zsh` | Open terminal in session directory |
+| `/claude` | Open Claude CLI in session directory |
 | `/help` | Show available commands |
+
+### Claude
+
+| Command | Description |
+|---------|-------------|
+| `/model [name]` | Show or switch model |
+| `/compact` | Compact conversation to reduce context usage |
+| `/cost` | Show usage/billing info |
+| `/context` | Show context window usage |
+| `/args` | Show current CLI args |
+| `/args-edit` | Add/remove CLI args - restarts process |
+| `/cli-help` | Show `claude --help` output |
+
+### Gemini
+
+| Command | Description |
+|---------|-------------|
+| `/model [name]` | Show or switch model |
+
+### LM Studio
+
+| Command | Description |
+|---------|-------------|
+| `/model [name]` | Show or switch model |
+
+### CLI Args Management (Claude)
+
+Control Claude CLI flags at runtime without leaving the UI:
+
+```
+/args-edit --dangerously-skip-permissions     Add a flag
+/args-edit --max-turns 5                      Add a flag with value
+/args-edit --system-prompt "Be concise"       Quoted values supported
+/args-edit --remove --max-turns               Remove a flag
+/args-edit --clear                            Remove all custom args
+/args-edit --model opus                       Shortcut for model switch
+```
+
+Custom args persist across server restarts. Internal flags (`--print`, `--output-format`, `--input-format`, `--verbose`, `--resume`) are protected and cannot be modified.
 
 ## Stats Display
 
