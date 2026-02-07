@@ -281,6 +281,42 @@ class GeminiProvider extends LLMProvider {
       { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', group: 'Gemini' }
     ];
   }
+
+  static getCommands() {
+    const modelNames = GeminiProvider.getModels().map(m => m.value).join(', ');
+    return [
+      { name: 'model', description: `Switch model (${modelNames})` }
+    ];
+  }
+
+  handleCommand(command, args, sendSystemMessage) {
+    const models = GeminiProvider.getModels().map(m => m.value);
+
+    if (command === 'model') {
+      if (args.length === 0) {
+        sendSystemMessage(`Current model: ${this.session.model}\nAvailable: ${models.join(', ')}`);
+        return true;
+      }
+
+      const newModel = args[0].toLowerCase();
+      if (models.includes(newModel)) {
+        // Kill current process if running
+        if (this.geminiProcess) {
+          this.geminiProcess.kill();
+          this.geminiProcess = null;
+        }
+
+        // Update session model (Gemini spawns new process per message)
+        this.session.model = newModel;
+        sendSystemMessage(`Model changed to: ${newModel}`);
+      } else {
+        sendSystemMessage(`Invalid model "${newModel}". Available: ${models.join(', ')}`);
+      }
+      return true;
+    }
+
+    return false;
+  }
 }
 
 module.exports = GeminiProvider;

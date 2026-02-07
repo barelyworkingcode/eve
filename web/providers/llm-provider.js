@@ -27,6 +27,18 @@ class LLMProvider {
     throw new Error('Not implemented');
   }
 
+  // Returns commands this provider handles
+  // Override in subclasses to define provider-specific commands
+  static getCommands() {
+    return [];
+  }
+
+  // Handle a provider-specific command
+  // Returns true if handled, false to pass through to LLM
+  handleCommand(command, args, sendSystemMessage) {
+    return false;
+  }
+
   // Normalize provider-specific events to common format
   // Default: pass through (for providers already using common format)
   normalizeEvent(event) {

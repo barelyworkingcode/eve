@@ -688,48 +688,17 @@ function handleSlashCommand(sessionId, text) {
   const command = parts[0].toLowerCase();
   const args = parts.slice(1);
 
+  // Helper to send system messages
+  const sendSystemMessage = (message) => {
+    session.ws?.send(JSON.stringify({
+      type: 'system_message',
+      sessionId,
+      message
+    }));
+  };
+
+  // Global commands handled by server
   switch (command) {
-    case 'model': {
-      if (args.length === 0) {
-        session.ws?.send(JSON.stringify({
-          type: 'system_message',
-          sessionId,
-          message: `Current model: ${session.model}`
-        }));
-      } else {
-        const newModel = args[0].toLowerCase();
-        if (VALID_MODELS.includes(newModel)) {
-          session.model = newModel;
-          if (session.provider) {
-            session.provider.kill();
-          }
-
-          const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
-          if (newModel.startsWith('gemini')) {
-            session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
-          } else if (lmStudioModels.includes(newModel)) {
-            session.provider = new LMStudioProvider(session);
-          } else {
-            session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
-          }
-
-          session.provider.startProcess();
-          session.ws?.send(JSON.stringify({
-            type: 'system_message',
-            sessionId,
-            message: `Model changed to: ${newModel} (new session started)`
-          }));
-        } else {
-          session.ws?.send(JSON.stringify({
-            type: 'system_message',
-            sessionId,
-            message: `Invalid model. Valid options: ${VALID_MODELS.join(', ')}`
-          }));
-        }
-      }
-      return true;
-    }
-
     case 'clear': {
       if (session.provider) {
         session.provider.kill();
@@ -745,11 +714,7 @@ function handleSlashCommand(sessionId, text) {
       };
       sessionStore.save(session);
       session.provider.startProcess();
-      session.ws?.send(JSON.stringify({
-        type: 'system_message',
-        sessionId,
-        message: 'Conversation history cleared'
-      }));
+      sendSystemMessage('Conversation history cleared');
       session.ws?.send(JSON.stringify({
         type: 'clear_messages',
         sessionId
@@ -763,16 +728,26 @@ function handleSlashCommand(sessionId, text) {
     }
 
     case 'help': {
-      session.ws?.send(JSON.stringify({
-        type: 'system_message',
-        sessionId,
-        message: `Available commands:
-/model [name] - Show or set model (${VALID_MODELS.join(', ')})
+      // Build help message with global and provider-specific commands
+      let helpText = `Global commands:
 /clear - Clear conversation history
 /zsh - Open terminal in session directory
 /claude - Open Claude CLI in session directory
-/help - Show this help message`
-      }));
+/help - Show this help message`;
+
+      // Get provider-specific commands
+      if (session.provider && session.provider.constructor.getCommands) {
+        const providerCommands = session.provider.constructor.getCommands();
+        if (providerCommands.length > 0) {
+          const providerName = session.provider.constructor.name.replace('Provider', '');
+          helpText += `\n\nProvider commands (${providerName}):`;
+          for (const cmd of providerCommands) {
+            helpText += `\n/${cmd.name} - ${cmd.description}`;
+          }
+        }
+      }
+
+      sendSystemMessage(helpText);
       return true;
     }
 
@@ -796,10 +771,18 @@ function handleSlashCommand(sessionId, text) {
       }));
       return true;
     }
-
-    default:
-      return false;
   }
+
+  // Delegate to provider for provider-specific commands
+  if (session.provider && session.provider.handleCommand) {
+    const handled = session.provider.handleCommand(command, args, sendSystemMessage);
+    if (handled) {
+      return true;
+    }
+  }
+
+  // Not a recognized command - pass through to LLM
+  return false;
 }
 
 function sendMessage(sessionId, text, files = []) {

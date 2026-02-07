@@ -517,6 +517,49 @@ ${f.content}
       { value: 'opus', label: 'Opus (powerful)', group: 'Claude' }
     ];
   }
+
+  static getCommands() {
+    const modelNames = ClaudeProvider.getModels().map(m => m.value).join(', ');
+    return [
+      { name: 'model', description: `Switch model (${modelNames})` },
+      { name: 'compact', description: 'Compact conversation history' },
+      { name: 'cost', description: 'Show usage/billing info' },
+      { name: 'context', description: 'Show context window usage' }
+    ];
+  }
+
+  handleCommand(command, args, sendSystemMessage) {
+    const models = ClaudeProvider.getModels().map(m => m.value);
+
+    if (command === 'model') {
+      if (args.length === 0) {
+        sendSystemMessage(`Current model: ${this.session.model}\nAvailable: ${models.join(', ')}`);
+        return true;
+      }
+
+      const newModel = args[0].toLowerCase();
+      if (models.includes(newModel)) {
+        // Kill current process
+        if (this.claudeProcess) {
+          this.claudeProcess.kill();
+          this.claudeProcess = null;
+        }
+
+        // Update session model
+        this.session.model = newModel;
+
+        // Restart process with new model
+        this.startProcess();
+        sendSystemMessage(`Model changed to: ${newModel}`);
+      } else {
+        sendSystemMessage(`Invalid model "${newModel}". Available: ${models.join(', ')}`);
+      }
+      return true;
+    }
+
+    // Let compact/cost/context pass through to the CLI
+    return false;
+  }
 }
 
 module.exports = ClaudeProvider;
