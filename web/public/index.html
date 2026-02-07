@@ -103,6 +103,15 @@
         <div id="terminal" class="terminal-content hidden">
           <div id="terminalContainer" class="terminal-container"></div>
         </div>
+
+        <!-- Task result content area -->
+        <div id="taskResult" class="task-result-content hidden">
+          <div class="task-result-header">
+            <h2 id="taskResultName"></h2>
+            <div id="taskResultMeta"></div>
+          </div>
+          <div id="taskResultBody"></div>
+        </div>
       </div>
     </main>
   </div>
@@ -173,6 +182,22 @@
       <div class="modal-actions">
         <button type="button" id="cancelConfirm" class="btn-secondary">Cancel</button>
         <button type="button" id="confirmDelete" class="btn-danger">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scheduled Tasks Modal -->
+  <div id="tasksModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-wide">
+      <h3>Scheduled Tasks - <span id="tasksProjectName"></span></h3>
+      <div id="tasksList" class="tasks-list"></div>
+      <div id="taskHistorySection" class="task-history-section hidden">
+        <h4>Execution History</h4>
+        <div id="taskHistoryList" class="task-history-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="closeTasksModal" class="btn-secondary">Close</button>
       </div>
     </div>
   </div>
