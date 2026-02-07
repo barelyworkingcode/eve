@@ -225,18 +225,11 @@ class GeminiProvider extends LLMProvider {
       const outputCost = (stats.output_tokens || 0) * 0.30 / 1000000;
       this.session.stats.costUsd += inputCost + outputCost;
 
-      const totalTokens = this.session.stats.inputTokens + this.session.stats.outputTokens;
-      const contextPercent = Math.round((totalTokens / this.session.stats.contextWindow) * 100);
-
       if (this.session.ws && this.session.ws.readyState === 1) {
         this.session.ws.send(JSON.stringify({
           type: 'stats_update',
           sessionId: this.session.sessionId,
-          stats: {
-            ...this.session.stats,
-            contextPercent,
-            totalTokens
-          }
+          stats: this.session.stats
         }));
       }
     }

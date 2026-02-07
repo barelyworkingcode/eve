@@ -156,21 +156,11 @@ class LMStudioProvider extends LLMProvider {
                     this.session.stats.inputTokens += data.usage.prompt_tokens || 0;
                     this.session.stats.outputTokens += data.usage.completion_tokens || 0;
 
-                    const totalTokens = this.session.stats.inputTokens + this.session.stats.outputTokens;
-                    const modelConfig = this.models.find(m => m.id === this.session.model);
-                    const contextWindow = modelConfig?.contextWindow || 32768;
-                    this.session.stats.contextWindow = contextWindow;
-                    const contextPercent = Math.round((totalTokens / contextWindow) * 100);
-
                     if (this.session.ws && this.session.ws.readyState === 1) {
                       this.session.ws.send(JSON.stringify({
                         type: 'stats_update',
                         sessionId: this.session.sessionId,
-                        stats: {
-                          ...this.session.stats,
-                          contextPercent,
-                          totalTokens
-                        }
+                        stats: this.session.stats
                       }));
                     }
                   }
