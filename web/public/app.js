@@ -592,8 +592,8 @@ class EveWorkspaceClient {
         break;
 
       case 'terminal_request':
-        // Server is requesting we create a terminal (from /zsh or /claude command)
-        this.terminalManager.createTerminal(data.directory, data.command);
+        // Server is requesting we create a terminal (from /zsh, /claude, or /transfer-cli command)
+        this.terminalManager.createTerminal(data.directory, data.command, data.args);
         break;
 
       case 'terminal_created':

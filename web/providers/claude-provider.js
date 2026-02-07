@@ -416,8 +416,8 @@ ${f.content}
   handleEvent(event) {
     console.log('[Claude] handleEvent:', event.type);
 
-    // Capture session ID from init event
-    if (event.type === 'init' && event.session_id) {
+    // Capture session ID from init event (type: "system", subtype: "init")
+    if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
       this.claudeSessionId = event.session_id;
       console.log('[Claude] Session ID:', this.claudeSessionId);
 
@@ -550,7 +550,8 @@ ${f.content}
       { name: 'context', description: 'Show context window usage' },
       { name: 'args', description: 'Show current CLI args' },
       { name: 'args-edit', description: 'Add/remove CLI args (restarts process)' },
-      { name: 'cli-help', description: 'Show Claude CLI --help output' }
+      { name: 'cli-help', description: 'Show Claude CLI --help output' },
+      { name: 'transfer-cli', description: 'Transfer session to Claude CLI terminal' }
     ];
   }
 
@@ -602,6 +603,21 @@ ${f.content}
     if (command === 'cli-help') {
       this.showCliHelp(sendSystemMessage);
       return true;
+    }
+
+    if (command === 'transfer-cli') {
+      if (!this.claudeSessionId) {
+        sendSystemMessage('No active Claude session to transfer. Send a message first to establish a session.');
+        return true;
+      }
+      return {
+        handled: true,
+        transfer: {
+          claudeSessionId: this.claudeSessionId,
+          model: this.session.model,
+          customArgs: [...this.customArgs]
+        }
+      };
     }
 
     // Let compact/cost/context pass through to the CLI

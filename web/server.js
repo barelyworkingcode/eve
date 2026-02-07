@@ -513,7 +513,7 @@ wss.on('connection', (ws, req) => {
           break;
 
         case 'terminal_create':
-          createTerminal(ws, message.directory, message.command);
+          createTerminal(ws, message.directory, message.command, message.args);
           break;
 
         case 'terminal_input':
@@ -632,8 +632,8 @@ function joinSession(ws, sessionId) {
     return null;
   }
 
-  // Create provider if not exists (e.g., after server restart)
-  if (!session.provider) {
+  // Create provider if not exists (e.g., after server restart), but skip if transferred to CLI
+  if (!session.provider && !session.transferred) {
     const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
     if (session.model.startsWith('gemini')) {
       session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
@@ -712,9 +712,22 @@ function handleSlashCommand(sessionId, text) {
       };
       // Clear Claude session ID so we start fresh
       session.claudeSessionId = null;
-      if (session.provider.claudeSessionId !== undefined) {
+      session.transferred = false;
+
+      // Recreate provider if it was destroyed (e.g., after /transfer-cli)
+      if (!session.provider) {
+        const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
+        if (session.model.startsWith('gemini')) {
+          session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
+        } else if (lmStudioModels.includes(session.model)) {
+          session.provider = new LMStudioProvider(session);
+        } else {
+          session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
+        }
+      } else if (session.provider.claudeSessionId !== undefined) {
         session.provider.claudeSessionId = null;
       }
+
       sessionStore.save(session);
       session.provider.startProcess();
       sendSystemMessage('Conversation history cleared');
@@ -778,8 +791,29 @@ function handleSlashCommand(sessionId, text) {
 
   // Delegate to provider for provider-specific commands
   if (session.provider && session.provider.handleCommand) {
-    const handled = session.provider.handleCommand(command, args, sendSystemMessage, trimmed);
-    if (handled) {
+    const result = session.provider.handleCommand(command, args, sendSystemMessage, trimmed);
+    if (result) {
+      if (typeof result === 'object' && result.transfer) {
+        session.provider.kill();
+        session.provider = null;
+        session.transferred = true;
+
+        sendSystemMessage('Session transferred to Claude CLI terminal. Use /clear to start a new web conversation.');
+
+        const transfer = result.transfer;
+        const terminalArgs = ['--resume', transfer.claudeSessionId, '--model', transfer.model];
+        if (transfer.customArgs?.length > 0) {
+          terminalArgs.push(...transfer.customArgs);
+        }
+
+        session.ws?.send(JSON.stringify({
+          type: 'terminal_request',
+          sessionId,
+          directory: session.directory,
+          command: 'claude',
+          args: terminalArgs
+        }));
+      }
       return true;
     }
   }
@@ -793,6 +827,15 @@ function sendMessage(sessionId, text, files = []) {
   if (!session) return;
 
   if (handleSlashCommand(sessionId, text)) {
+    return;
+  }
+
+  if (session.transferred) {
+    session.ws?.send(JSON.stringify({
+      type: 'error',
+      sessionId,
+      message: 'This session was transferred to a CLI terminal. Use /clear to start a new web conversation.'
+    }));
     return;
   }
 
@@ -1068,20 +1111,23 @@ async function handleCreateDirectory(ws, message) {
 }
 
 // Terminal management functions
-function createTerminal(ws, directory, command) {
+function createTerminal(ws, directory, command, terminalArgs) {
   const terminalId = uuidv4();
   const shell = process.env.SHELL || '/bin/zsh';
 
-  let cmd, args;
+  let cmd, cmdArgs;
   if (command === 'claude') {
-    cmd = 'claude';
-    args = [];
+    const claudeConfig = getProviderConfig('claude');
+    cmd = claudeConfig.path ||
+      process.env.CLAUDE_PATH ||
+      (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : 'claude');
+    cmdArgs = terminalArgs || [];
   } else {
     cmd = shell;
-    args = [];
+    cmdArgs = [];
   }
 
-  const ptyProcess = pty.spawn(cmd, args, {
+  const ptyProcess = pty.spawn(cmd, cmdArgs, {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,
