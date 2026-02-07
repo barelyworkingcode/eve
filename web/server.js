@@ -769,9 +769,6 @@ function handleSlashCommand(sessionId, text) {
         message: `Available commands:
 /model [name] - Show or set model (${VALID_MODELS.join(', ')})
 /clear - Clear conversation history
-/cost - Show usage/billing info (provider-specific)
-/context - Show context window usage (provider-specific)
-/compact - Compact conversation history (provider-specific)
 /zsh - Open terminal in session directory
 /claude - Open Claude CLI in session directory
 /help - Show this help message`
@@ -799,11 +796,6 @@ function handleSlashCommand(sessionId, text) {
       }));
       return true;
     }
-
-    case 'cost':
-    case 'context':
-    case 'compact':
-      return false;
 
     default:
       return false;
