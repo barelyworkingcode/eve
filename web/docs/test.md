@@ -72,7 +72,11 @@ const session = createMockSession({ model: 'opus' });
 
 **Terminal management** (`terminal-manager.js`) -- Platform-coupled (node-pty + xterm.js). No pure logic to extract.
 
-**Task scheduler** (`task-scheduler.js`) -- Timer/watcher-heavy. Low ROI given straightforward code.
+**Task scheduler** (`task-scheduler.js`) -- 484 lines with cron parsing, task CRUD, execution history, and EventEmitter wiring. The CRUD and schedule validation logic are testable (mock timers), but not yet covered.
+
+**LM Studio provider** (`providers/lmstudio-provider.js`) -- Has integration tests but no unit tests. Unlike Claude/Gemini providers, its HTTP streaming and event handling logic has zero automated coverage when the LM Studio server isn't running.
+
+**File handlers** (`file-handlers.js`) -- Thin WebSocket-to-FileService adapter. FileService is well-tested; this just routes message types to methods.
 
 ## Adding Tests
 
