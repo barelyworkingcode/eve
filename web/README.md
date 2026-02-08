@@ -107,6 +107,16 @@ npm run dev
 
 Open http://localhost:3000 in your browser.
 
+### Custom Data Directory
+
+All persistent data (projects, settings, sessions, auth) defaults to `./data`. Override with `--data`:
+
+```bash
+node server.js --data /var/eve/data
+node server.js --data ../shared-data
+npm start -- --data /custom/path
+```
+
 ## Passkey Authentication
 
 Eve Workspace uses WebAuthn passkeys to secure access. The first person to visit the app enrolls their passkey and becomes the owner. Subsequent visitors must authenticate.

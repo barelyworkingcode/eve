@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const LLMProvider = require('./llm-provider');
 
+let _dataDir = path.join(__dirname, '..', 'data');
+
 class LMStudioProvider extends LLMProvider {
   constructor(session) {
     super(session);
@@ -11,8 +13,12 @@ class LMStudioProvider extends LLMProvider {
     this.loadConfig();
   }
 
+  static setDataDir(dir) {
+    _dataDir = dir;
+  }
+
   loadConfig() {
-    const configPath = path.join(__dirname, '..', 'data', 'lmstudio-config.json');
+    const configPath = path.join(_dataDir, 'lmstudio-config.json');
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       this.baseUrl = config.baseUrl || 'http://localhost:1234/v1';
@@ -232,7 +238,7 @@ class LMStudioProvider extends LLMProvider {
   }
 
   static getModels() {
-    const configPath = path.join(__dirname, '..', 'data', 'lmstudio-config.json');
+    const configPath = path.join(_dataDir, 'lmstudio-config.json');
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       return (config.models || []).map(m => ({
