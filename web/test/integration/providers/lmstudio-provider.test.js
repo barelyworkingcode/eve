@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-const LMStudioProvider = require('./providers/lmstudio-provider');
+const LMStudioProvider = require('../../../providers/lmstudio-provider');
 const fs = require('fs');
 const path = require('path');
 
 class TestSession {
   constructor() {
     this.model = 'qwen/qwen3-4b-2507';
-    this.directory = __dirname;
+    this.directory = path.join(__dirname, '..', '..', '..');
     this.sessionId = 'test-session';
     this.processing = false;
     this.ws = null;
@@ -111,7 +111,7 @@ async function runTest() {
   session.clearEvents();
   console.log('Test 2: Asking to summarize README.md...');
 
-  const readmePath = path.join(__dirname, 'README.md');
+  const readmePath = path.join(__dirname, '..', '..', '..', 'README.md');
   const readmeContent = fs.readFileSync(readmePath, 'utf8');
 
   await new Promise((resolve) => {
