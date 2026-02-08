@@ -27,10 +27,22 @@ const server = HTTPS_KEY && HTTPS_CERT
 
 const wss = new WebSocketServer({ server });
 
-// Data directory for persistence
-const DATA_DIR = path.join(__dirname, 'data');
+// Data directory for persistence (override with --data <path>)
+function parseDataDir() {
+  const idx = process.argv.indexOf('--data');
+  if (idx !== -1 && process.argv[idx + 1]) {
+    const arg = process.argv[idx + 1];
+    return path.isAbsolute(arg) ? arg : path.resolve(process.cwd(), arg);
+  }
+  return path.join(__dirname, 'data');
+}
+const DATA_DIR = parseDataDir();
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+
+// Configure LM Studio provider data directory
+const LMStudioProvider = require('./providers/lmstudio-provider');
+LMStudioProvider.setDataDir(DATA_DIR);
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
