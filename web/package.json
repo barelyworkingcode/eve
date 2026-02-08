@@ -7,9 +7,11 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "ssl": "HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem PORT=443 node server.js",
-    "test": "jest",
-    "test:unit": "jest test/unit",
-    "test:integration": "jest test/integration"
+    "test": "jest --selectProjects unit",
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration",
+    "test:all": "jest",
+    "test:watch": "jest --selectProjects unit --watch"
   },
   "dependencies": {
     "@simplewebauthn/server": "^13.2.2",
