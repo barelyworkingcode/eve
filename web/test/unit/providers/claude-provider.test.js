@@ -247,6 +247,226 @@ describe('ClaudeProvider', () => {
     });
   });
 
+  describe('handleEvent', () => {
+    let provider, session;
+
+    beforeEach(() => {
+      ({ provider, session } = createTestProvider());
+    });
+
+    it('captures session ID from system init event', () => {
+      provider.handleEvent({ type: 'system', subtype: 'init', session_id: 'sess-abc' });
+
+      expect(provider.claudeSessionId).toBe('sess-abc');
+      expect(session.saveHistory).toHaveBeenCalled();
+    });
+
+    it('ignores system events without init subtype', () => {
+      provider.handleEvent({ type: 'system', subtype: 'other' });
+      expect(provider.claudeSessionId).toBeNull();
+    });
+
+    it('starts tracking assistant message on assistant event with message', () => {
+      provider.handleEvent({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Hello' }] }
+      });
+
+      expect(provider.currentAssistantMessage).not.toBeNull();
+      expect(provider.currentAssistantMessage.role).toBe('assistant');
+      expect(provider.currentAssistantMessage.content).toEqual([{ type: 'text', text: 'Hello' }]);
+    });
+
+    it('accumulates text deltas into current assistant message', () => {
+      // Start a message
+      provider.handleEvent({
+        type: 'assistant',
+        message: { content: [] }
+      });
+
+      // Send text deltas
+      provider.handleEvent({ type: 'assistant', delta: { type: 'text_delta', text: 'Hello' } });
+      provider.handleEvent({ type: 'assistant', delta: { type: 'text_delta', text: ' world' } });
+
+      const textBlock = provider.currentAssistantMessage.content.find(b => b.type === 'text');
+      expect(textBlock.text).toBe('Hello world');
+    });
+
+    it('adds tool use blocks from deltas', () => {
+      provider.handleEvent({
+        type: 'assistant',
+        message: { content: [] }
+      });
+
+      const toolUse = { type: 'tool_use', name: 'read_file', input: { path: '/tmp' } };
+      provider.handleEvent({ type: 'assistant', delta: toolUse });
+
+      expect(provider.currentAssistantMessage.content).toContainEqual(toolUse);
+    });
+
+    it('ignores deltas when no current assistant message', () => {
+      // No crash when delta arrives without a prior message event
+      expect(() => {
+        provider.handleEvent({ type: 'assistant', delta: { type: 'text_delta', text: 'stray' } });
+      }).not.toThrow();
+    });
+
+    it('updates stats from result event with usage', () => {
+      provider.handleEvent({
+        type: 'result',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 10,
+          cache_creation_input_tokens: 5
+        },
+        total_cost_usd: 0.003
+      });
+
+      expect(session.stats.inputTokens).toBe(100);
+      expect(session.stats.outputTokens).toBe(50);
+      expect(session.stats.cacheReadTokens).toBe(10);
+      expect(session.stats.cacheCreationTokens).toBe(5);
+      expect(session.stats.costUsd).toBe(0.003);
+
+      const statsMsg = session.ws.getLastMessage('stats_update');
+      expect(statsMsg).not.toBeNull();
+      expect(statsMsg.stats.inputTokens).toBe(100);
+    });
+
+    it('accumulates stats across multiple result events', () => {
+      provider.handleEvent({
+        type: 'result',
+        usage: { input_tokens: 100, output_tokens: 50 }
+      });
+      provider.handleEvent({
+        type: 'result',
+        usage: { input_tokens: 200, output_tokens: 75 }
+      });
+
+      expect(session.stats.inputTokens).toBe(300);
+      expect(session.stats.outputTokens).toBe(125);
+    });
+
+    it('saves assistant message to history on result', () => {
+      provider.handleEvent({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'response' }] }
+      });
+      provider.handleEvent({ type: 'result' });
+
+      expect(session.messages).toHaveLength(1);
+      expect(session.messages[0].content[0].text).toBe('response');
+      expect(provider.currentAssistantMessage).toBeNull();
+      expect(session.saveHistory).toHaveBeenCalled();
+    });
+
+    it('sends message_complete on result', () => {
+      session.processing = true;
+      provider.handleEvent({ type: 'result' });
+
+      expect(session.processing).toBe(false);
+      const msg = session.ws.getLastMessage('message_complete');
+      expect(msg).not.toBeNull();
+    });
+
+    it('sends system_message for result with direct text and no assistant message', () => {
+      provider.handleEvent({ type: 'result', result: 'Invalid command' });
+
+      const msg = session.ws.getLastMessage('system_message');
+      expect(msg).not.toBeNull();
+      expect(msg.message).toBe('Invalid command');
+    });
+
+    it('does not send system_message for result when assistant message exists', () => {
+      provider.handleEvent({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'real response' }] }
+      });
+      provider.handleEvent({ type: 'result', result: 'some text' });
+
+      const sysMsgs = session.ws.getMessages('system_message');
+      expect(sysMsgs).toHaveLength(0);
+    });
+
+    it('handles user event with local-command-stdout', () => {
+      session.processing = true;
+
+      provider.handleEvent({
+        type: 'user',
+        message: {
+          content: 'prefix<local-command-stdout>command output here</local-command-stdout>suffix'
+        }
+      });
+
+      const sysMsg = session.ws.getLastMessage('system_message');
+      expect(sysMsg.message).toBe('command output here');
+      expect(session.processing).toBe(false);
+
+      const completeMsg = session.ws.getLastMessage('message_complete');
+      expect(completeMsg).not.toBeNull();
+    });
+
+    it('forwards all events via sendEvent', () => {
+      const spy = jest.spyOn(provider, 'sendEvent');
+      const event = { type: 'result' };
+
+      provider.handleEvent(event);
+      expect(spy).toHaveBeenCalledWith(event);
+    });
+  });
+
+  describe('handleCommand', () => {
+    let provider, session;
+
+    beforeEach(() => {
+      ({ provider, session } = createTestProvider());
+    });
+
+    it('shows current model with /model and no args', () => {
+      const messages = [];
+      const send = (msg) => messages.push(msg);
+
+      provider.handleCommand('model', [], send, '/model');
+
+      expect(messages[0]).toMatch(/Current model/);
+      expect(messages[0]).toMatch(/haiku/);
+    });
+
+    it('rejects invalid model names', () => {
+      const messages = [];
+      const send = (msg) => messages.push(msg);
+
+      provider.handleCommand('model', ['invalid-model'], send, '/model invalid-model');
+
+      expect(messages[0]).toMatch(/Invalid model/);
+    });
+
+    it('shows transfer error when no session ID', () => {
+      const messages = [];
+      const send = (msg) => messages.push(msg);
+
+      provider.handleCommand('transfer-cli', [], send, '/transfer-cli');
+
+      expect(messages[0]).toMatch(/No active Claude session/);
+    });
+
+    it('returns transfer object when session ID exists', () => {
+      provider.claudeSessionId = 'sess-123';
+      provider.customArgs = ['--flag'];
+
+      const result = provider.handleCommand('transfer-cli', [], jest.fn(), '/transfer-cli');
+
+      expect(result.transfer.claudeSessionId).toBe('sess-123');
+      expect(result.transfer.customArgs).toEqual(['--flag']);
+    });
+
+    it('returns false for unhandled commands', () => {
+      const result = provider.handleCommand('compact', [], jest.fn(), '/compact');
+      expect(result).toBe(false);
+    });
+  });
+
   describe('session state round-trip', () => {
     it('persists and restores claudeSessionId', () => {
       const { provider } = createTestProvider();
