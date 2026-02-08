@@ -510,6 +510,58 @@ describe('SessionManager', () => {
     });
   });
 
+  describe('renameSession', () => {
+    let manager, ws, sessionStore;
+
+    beforeEach(() => {
+      ws = new MockWebSocket();
+      sessionStore = { save: jest.fn(), load: jest.fn(), delete: jest.fn(), loadAll: jest.fn(() => []) };
+      manager = createTestManager({ sessionStore });
+    });
+
+    it('renames a session and broadcasts', () => {
+      const session = createMockSession({ sessionId: 'sess-1', ws });
+      manager.sessions.set('sess-1', session);
+
+      manager.renameSession('sess-1', 'My Session', ws);
+
+      expect(session.name).toBe('My Session');
+      expect(sessionStore.save).toHaveBeenCalledWith(session);
+
+      const msg = ws.getLastMessage('session_renamed');
+      expect(msg).not.toBeNull();
+      expect(msg.sessionId).toBe('sess-1');
+      expect(msg.name).toBe('My Session');
+    });
+
+    it('trims whitespace and limits to 100 characters', () => {
+      const session = createMockSession({ sessionId: 'sess-1', ws });
+      manager.sessions.set('sess-1', session);
+
+      const longName = 'a'.repeat(150);
+      manager.renameSession('sess-1', `  ${longName}  `, ws);
+
+      expect(session.name).toBe('a'.repeat(100));
+    });
+
+    it('sets name to null for empty string', () => {
+      const session = createMockSession({ sessionId: 'sess-1', ws });
+      session.name = 'Old Name';
+      manager.sessions.set('sess-1', session);
+
+      manager.renameSession('sess-1', '   ', ws);
+
+      expect(session.name).toBeNull();
+    });
+
+    it('sends error for nonexistent session', () => {
+      manager.renameSession('no-such', 'Name', ws);
+
+      const errMsg = ws.getLastMessage('error');
+      expect(errMsg.message).toMatch(/Session not found/);
+    });
+  });
+
   describe('restoreSavedSessions', () => {
     it('loads all sessions from store into memory', () => {
       const sessionStore = {

@@ -75,6 +75,7 @@ class SessionManager {
       ws,
       directory: sessionDirectory,
       projectId,
+      name: null,
       provider: null,
       processing: false,
       model,
@@ -99,6 +100,7 @@ class SessionManager {
       sessionId,
       directory: sessionDirectory,
       projectId,
+      name: null,
       metadata: session.provider.getMetadata()
     }));
 
@@ -137,6 +139,7 @@ class SessionManager {
       type: 'session_joined',
       sessionId,
       directory: session.directory,
+      name: session.name || null,
       metadata: session.provider?.getMetadata() || session.directory,
       history: session.messages || []
     }));
@@ -212,6 +215,24 @@ class SessionManager {
       type: 'session_ended',
       sessionId
     }));
+  }
+
+  renameSession(sessionId, name, ws) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }));
+      return;
+    }
+    const trimmed = (name || '').trim().slice(0, 100);
+    session.name = trimmed || null;
+    this.sessionStore.save(session);
+
+    const msg = JSON.stringify({ type: 'session_renamed', sessionId, name: session.name });
+    for (const [, s] of this.sessions) {
+      if (s.ws && s.ws.readyState === 1) {
+        s.ws.send(msg);
+      }
+    }
   }
 
   // --- Slash commands ---

@@ -35,6 +35,7 @@ class SessionStore {
       const sessionData = {
         sessionId: session.sessionId,
         projectId: session.projectId || null,
+        name: session.name || null,
         directory: session.directory,
         model: session.model,
         createdAt: session.createdAt,
@@ -83,6 +84,7 @@ class SessionStore {
           sessions.push({
             sessionId: data.sessionId,
             projectId: data.projectId,
+            name: data.name || null,
             directory: data.directory,
             model: data.model,
             createdAt: data.createdAt,

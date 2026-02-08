@@ -10,6 +10,7 @@ class EveWorkspaceClient {
     this.models = [];
     this.confirmCallback = null;
     this.isRenderingHistory = false; // Flag to prevent storing during history render
+    this.renamingSessionId = null; // Session currently being renamed inline
     this.scheduledTasks = []; // All scheduled tasks
     this.taskHistory = new Map(); // projectId:taskId -> executions
 
@@ -485,6 +486,7 @@ class EveWorkspaceClient {
           id: data.sessionId,
           directory: data.directory,
           projectId: data.projectId || null,
+          name: data.name || null,
           active: true
         });
         this.currentSessionId = data.sessionId;
@@ -495,8 +497,12 @@ class EveWorkspaceClient {
         this.hideModal();
         break;
 
-      case 'session_joined':
+      case 'session_joined': {
         this.currentSessionId = data.sessionId;
+        const existingSession = this.sessions.get(data.sessionId);
+        if (existingSession && data.name !== undefined) {
+          existingSession.name = data.name || existingSession.name;
+        }
 
         // Store history FIRST (before opening tab which triggers renderMessages)
         if (data.history && data.history.length > 0) {
@@ -510,6 +516,19 @@ class EveWorkspaceClient {
         this.tabManager.openSession(data.sessionId);
         this.renderProjectList();
         break;
+      }
+
+      case 'session_renamed': {
+        const renamedSession = this.sessions.get(data.sessionId);
+        if (renamedSession) renamedSession.name = data.name;
+        if (this.renamingSessionId !== data.sessionId) {
+          this.renderProjectList();
+        }
+        if (this.tabManager) {
+          this.tabManager.updateTabLabel(data.sessionId, data.name || this.getSessionDisplayName(data.sessionId));
+        }
+        break;
+      }
 
       case 'llm_event':
         this.handleLlmEvent(data.event);
@@ -989,8 +1008,7 @@ class EveWorkspaceClient {
   }
 
   deleteSession(sessionId) {
-    const session = this.sessions.get(sessionId);
-    const displayName = session ? this.shortenPath(session.directory) : sessionId;
+    const displayName = this.getSessionDisplayName(sessionId);
 
     this.showConfirmModal(`Delete session "${displayName}"? This will terminate the process and delete all history.`, () => {
       console.log('[Client] Sending delete_session for:', sessionId);
@@ -1144,6 +1162,7 @@ class EveWorkspaceClient {
   }
 
   renderProjectList() {
+    if (this.renamingSessionId) return;
     this.elements.projectList.innerHTML = '';
 
     // Group sessions by project
@@ -1235,12 +1254,19 @@ class EveWorkspaceClient {
         const li = document.createElement('li');
         li.className = `session-item ${session.id === this.currentSessionId ? 'active' : ''}`;
         li.innerHTML = `
-          <div class="directory">${this.escapeHtml(this.shortenPath(session.directory))}</div>
+          <div class="session-name" title="${this.escapeHtml(session.directory)}">${this.escapeHtml(this.getSessionDisplayName(session.id))}</div>
           <div class="session-actions">
             <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
             <button class="session-delete" title="Delete session">&times;</button>
           </div>
         `;
+        const nameEl = li.querySelector('.session-name');
+        let clickTimer = null;
+        nameEl.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          clearTimeout(clickTimer);
+          this.startInlineRename(session.id, nameEl);
+        });
         const deleteBtn = li.querySelector('.session-delete');
         deleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -1248,8 +1274,13 @@ class EveWorkspaceClient {
         });
         if (!project.disabled) {
           li.addEventListener('click', () => {
-            this.joinSession(session.id);
-            this.toggleSidebar(false);
+            if (this.renamingSessionId) return;
+            clearTimeout(clickTimer);
+            clickTimer = setTimeout(() => {
+              if (this.renamingSessionId) return;
+              this.joinSession(session.id);
+              this.toggleSidebar(false);
+            }, 200);
           });
         }
         sessionsList.appendChild(li);
@@ -1302,20 +1333,32 @@ class EveWorkspaceClient {
         const li = document.createElement('li');
         li.className = `session-item ${session.id === this.currentSessionId ? 'active' : ''}`;
         li.innerHTML = `
-          <div class="directory">${this.escapeHtml(this.shortenPath(session.directory))}</div>
+          <div class="session-name" title="${this.escapeHtml(session.directory)}">${this.escapeHtml(this.getSessionDisplayName(session.id))}</div>
           <div class="session-actions">
             <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
             <button class="session-delete" title="Delete session">&times;</button>
           </div>
         `;
+        const nameEl = li.querySelector('.session-name');
+        let clickTimer = null;
+        nameEl.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          clearTimeout(clickTimer);
+          this.startInlineRename(session.id, nameEl);
+        });
         const deleteBtn = li.querySelector('.session-delete');
         deleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           this.deleteSession(session.id);
         });
         li.addEventListener('click', () => {
-          this.joinSession(session.id);
-          this.toggleSidebar(false);
+          if (this.renamingSessionId) return;
+          clearTimeout(clickTimer);
+          clickTimer = setTimeout(() => {
+            if (this.renamingSessionId) return;
+            this.joinSession(session.id);
+            this.toggleSidebar(false);
+          }, 200);
         });
         sessionsList.appendChild(li);
       }
@@ -1330,6 +1373,60 @@ class EveWorkspaceClient {
       return '.../' + parts.slice(-2).join('/');
     }
     return path;
+  }
+
+  getSessionDisplayName(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return sessionId;
+    return session.name || this.shortenPath(session.directory);
+  }
+
+  startInlineRename(sessionId, nameEl) {
+    if (this.renamingSessionId) return;
+    this.renamingSessionId = sessionId;
+
+    const currentName = this.getSessionDisplayName(sessionId);
+    const input = document.createElement('input');
+    input.className = 'session-rename-input';
+    input.maxLength = 100;
+    input.value = currentName;
+
+    nameEl.textContent = '';
+    nameEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      if (!this.renamingSessionId) return;
+      this.renamingSessionId = null;
+      const newName = input.value.trim();
+      this.ws.send(JSON.stringify({
+        type: 'rename_session',
+        sessionId,
+        name: newName
+      }));
+      this.renderProjectList();
+    };
+
+    const cancel = () => {
+      if (!this.renamingSessionId) return;
+      this.renamingSessionId = null;
+      this.renderProjectList();
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      commit();
+    });
   }
 
   autoResizeTextarea() {

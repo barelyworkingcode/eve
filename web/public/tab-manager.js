@@ -42,13 +42,14 @@ class TabManager {
       return;
     }
 
-    // Get project name or directory for label
+    // Get label: prefer custom name, then project name, then directory
     let label;
-    if (session.projectId) {
+    if (session.name) {
+      label = session.name;
+    } else if (session.projectId) {
       const project = this.client.projects.get(session.projectId);
       label = project?.name || session.directory;
     } else {
-      // Use last part of directory path
       label = session.directory.split('/').filter(p => p).pop() || session.directory;
     }
 

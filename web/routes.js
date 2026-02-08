@@ -168,6 +168,7 @@ function registerRoutes(app, { authService, projects, sessions, taskScheduler, s
         id,
         directory: session.directory,
         projectId: session.projectId || null,
+        name: session.name || null,
         active: session.provider !== null
       });
     }
