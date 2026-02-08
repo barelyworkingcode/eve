@@ -513,7 +513,7 @@ wss.on('connection', (ws, req) => {
           break;
 
         case 'terminal_create':
-          createTerminal(ws, message.directory, message.command, message.args);
+          createTerminal(ws, message.directory, message.command, message.args, message.sessionId);
           break;
 
         case 'terminal_input':
@@ -1111,7 +1111,7 @@ async function handleCreateDirectory(ws, message) {
 }
 
 // Terminal management functions
-function createTerminal(ws, directory, command, terminalArgs) {
+function createTerminal(ws, directory, command, terminalArgs, linkedSessionId) {
   const terminalId = uuidv4();
   const shell = process.env.SHELL || '/bin/zsh';
 
@@ -1142,7 +1142,8 @@ function createTerminal(ws, directory, command, terminalArgs) {
     command,
     buffer: '',
     exited: false,
-    exitCode: null
+    exitCode: null,
+    linkedSessionId: linkedSessionId || null
   };
 
   terminals.set(terminalId, terminal);
@@ -1177,6 +1178,40 @@ function createTerminal(ws, directory, command, terminalArgs) {
         exitCode
       }));
     }
+
+    // Reactivate linked session (from /transfer-cli)
+    if (terminal.linkedSessionId) {
+      const session = sessions.get(terminal.linkedSessionId);
+      if (session && session.transferred) {
+        session.transferred = false;
+
+        // Recreate provider so session is immediately usable
+        const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
+        if (session.model.startsWith('gemini')) {
+          session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
+        } else if (lmStudioModels.includes(session.model)) {
+          session.provider = new LMStudioProvider(session);
+        } else {
+          session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
+          if (session.claudeSessionId) {
+            session.provider.claudeSessionId = session.claudeSessionId;
+          }
+          if (session.customArgs?.length > 0) {
+            session.provider.customArgs = session.customArgs;
+          }
+        }
+        if (session.provider.startProcess) {
+          session.provider.startProcess();
+        }
+
+        session.ws?.send(JSON.stringify({
+          type: 'system_message',
+          sessionId: terminal.linkedSessionId,
+          message: 'CLI terminal closed. Web session is active again.'
+        }));
+      }
+    }
+
     // Don't delete terminal - keep for reconnect until explicitly closed
   });
 
