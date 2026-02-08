@@ -27,6 +27,10 @@ class LLMProvider {
     throw new Error('Not implemented');
   }
 
+  // Clear provider-specific state from a session (e.g., before /clear).
+  // Override in subclasses that persist state on the session object.
+  static clearSessionState(session) {}
+
   // Returns commands this provider handles
   // Override in subclasses to define provider-specific commands
   static getCommands() {

@@ -177,6 +177,26 @@ function getProviderForModel(model) {
   }
 }
 
+// Map model name to provider class
+function getProviderClass(model) {
+  const type = getProviderForModel(model);
+  switch (type) {
+    case 'gemini': return GeminiProvider;
+    case 'lmstudio': return LMStudioProvider;
+    default: return ClaudeProvider;
+  }
+}
+
+// Create and start the correct provider for a session based on its model.
+// Provider constructors restore their own persisted state from the session.
+function initProvider(session) {
+  const ProviderClass = getProviderClass(session.model);
+  const config = getProviderConfig(getProviderForModel(session.model));
+  session.provider = new ProviderClass(session, config);
+  session.provider.startProcess();
+  return session.provider;
+}
+
 // Get all available models from enabled providers
 function getAllModels() {
   const allModels = [];
@@ -583,19 +603,7 @@ function createSession(ws, directory, projectId = null) {
   };
 
   sessions.set(sessionId, session);
-
-  // Instantiate the correct provider based on the model
-  const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
-  if (model.startsWith('gemini')) {
-    session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
-  } else if (lmStudioModels.includes(model)) {
-    session.provider = new LMStudioProvider(session);
-  } else {
-    session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
-  }
-
-  // Start the provider process
-  session.provider.startProcess();
+  initProvider(session);
 
   ws.send(JSON.stringify({
     type: 'session_created',
@@ -634,27 +642,7 @@ function joinSession(ws, sessionId) {
 
   // Create provider if not exists (e.g., after server restart), but skip if transferred to CLI
   if (!session.provider && !session.transferred) {
-    const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
-    if (session.model.startsWith('gemini')) {
-      session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
-    } else if (lmStudioModels.includes(session.model)) {
-      session.provider = new LMStudioProvider(session);
-    } else {
-      session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
-      // Restore Claude session ID for resume support
-      if (session.claudeSessionId) {
-        session.provider.claudeSessionId = session.claudeSessionId;
-      }
-      // Restore custom CLI args
-      if (session.customArgs && session.customArgs.length > 0) {
-        session.provider.customArgs = session.customArgs;
-      }
-    }
-
-    // Start the provider process
-    if (session.provider.startProcess) {
-      session.provider.startProcess();
-    }
+    initProvider(session);
   }
 
   session.ws = ws;
@@ -701,6 +689,7 @@ function handleSlashCommand(sessionId, text) {
     case 'clear': {
       if (session.provider) {
         session.provider.kill();
+        session.provider = null;
       }
       session.messages = [];
       session.stats = {
@@ -710,26 +699,11 @@ function handleSlashCommand(sessionId, text) {
         cacheCreationTokens: 0,
         costUsd: 0
       };
-      // Clear Claude session ID so we start fresh
-      session.claudeSessionId = null;
+      getProviderClass(session.model).clearSessionState(session);
       session.transferred = false;
 
-      // Recreate provider if it was destroyed (e.g., after /transfer-cli)
-      if (!session.provider) {
-        const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
-        if (session.model.startsWith('gemini')) {
-          session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
-        } else if (lmStudioModels.includes(session.model)) {
-          session.provider = new LMStudioProvider(session);
-        } else {
-          session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
-        }
-      } else if (session.provider.claudeSessionId !== undefined) {
-        session.provider.claudeSessionId = null;
-      }
-
       sessionStore.save(session);
-      session.provider.startProcess();
+      initProvider(session);
       sendSystemMessage('Conversation history cleared');
       session.ws?.send(JSON.stringify({
         type: 'clear_messages',
@@ -1184,25 +1158,7 @@ function createTerminal(ws, directory, command, terminalArgs, linkedSessionId) {
       const session = sessions.get(terminal.linkedSessionId);
       if (session && session.transferred) {
         session.transferred = false;
-
-        // Recreate provider so session is immediately usable
-        const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
-        if (session.model.startsWith('gemini')) {
-          session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
-        } else if (lmStudioModels.includes(session.model)) {
-          session.provider = new LMStudioProvider(session);
-        } else {
-          session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
-          if (session.claudeSessionId) {
-            session.provider.claudeSessionId = session.claudeSessionId;
-          }
-          if (session.customArgs?.length > 0) {
-            session.provider.customArgs = session.customArgs;
-          }
-        }
-        if (session.provider.startProcess) {
-          session.provider.startProcess();
-        }
+        initProvider(session);
 
         session.ws?.send(JSON.stringify({
           type: 'system_message',
@@ -1359,15 +1315,10 @@ async function executeHeadlessTask(project, model, prompt) {
       }
     };
 
-    // Create provider based on model
-    const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
-    if (effectiveModel.startsWith('gemini')) {
-      session.provider = new GeminiProvider(session, getProviderConfig('gemini'));
-    } else if (lmStudioModels.includes(effectiveModel)) {
-      session.provider = new LMStudioProvider(session);
-    } else {
-      session.provider = new ClaudeProvider(session, getProviderConfig('claude'));
-    }
+    // Create provider without starting (we need to override handleEvent first)
+    const ProviderClass = getProviderClass(effectiveModel);
+    const config = getProviderConfig(getProviderForModel(effectiveModel));
+    session.provider = new ProviderClass(session, config);
 
     // Override handleEvent to capture response text
     const originalHandleEvent = session.provider.handleEvent.bind(session.provider);
