@@ -23,8 +23,7 @@ class SessionStore {
       if (!fs.existsSync(filePath)) {
         return null;
       }
-      const data = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(data);
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
     } catch (err) {
       console.error(`Error loading session ${sessionId}:`, err);
       return null;
@@ -47,8 +46,7 @@ class SessionStore {
           cacheCreationTokens: 0,
           costUsd: 0
         },
-        claudeSessionId: session.claudeSessionId || null,
-        customArgs: session.customArgs || []
+        providerState: session.providerState || null
       };
 
       const filePath = this.getFilePath(session.sessionId);
@@ -90,8 +88,7 @@ class SessionStore {
             createdAt: data.createdAt,
             stats: data.stats,
             messages: data.messages || [],
-            claudeSessionId: data.claudeSessionId || null,
-            customArgs: data.customArgs || []
+            providerState: data.providerState || null
           });
         } catch (err) {
           console.error(`Error loading session file ${file}:`, err);

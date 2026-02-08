@@ -8,9 +8,10 @@ class ClaudeProvider extends LLMProvider {
     this.buffer = '';
     this.currentAssistantMessage = null;
 
-    // Restore persisted state from session (survives server restarts / provider recreation)
-    this.claudeSessionId = session.claudeSessionId || null;
-    this.customArgs = session.customArgs?.length > 0 ? [...session.customArgs] : [];
+    // Restore persisted state from session
+    this.claudeSessionId = null;
+    this.customArgs = [];
+    this.restoreSessionState(session.providerState);
 
     // Provider configuration (from settings.json or defaults)
     this.config = {
@@ -425,7 +426,7 @@ ${f.content}
 
       // Persist to session store
       if (this.session.saveHistory) {
-        this.session.claudeSessionId = this.claudeSessionId;
+        this.session.providerState = this.getSessionState();
         this.session.saveHistory();
       }
     }
@@ -535,9 +536,21 @@ ${f.content}
     return `Claude ${this.session.model} • ${this.session.directory}`;
   }
 
+  getSessionState() {
+    return {
+      claudeSessionId: this.claudeSessionId,
+      customArgs: this.customArgs?.length > 0 ? [...this.customArgs] : []
+    };
+  }
+
+  restoreSessionState(state) {
+    if (!state) return;
+    this.claudeSessionId = state.claudeSessionId || null;
+    this.customArgs = state.customArgs?.length > 0 ? [...state.customArgs] : [];
+  }
+
   static clearSessionState(session) {
-    session.claudeSessionId = null;
-    delete session.customArgs;
+    delete session.providerState;
   }
 
   static getModels() {
@@ -779,7 +792,7 @@ ${f.content}
   }
 
   persistCustomArgs() {
-    this.session.customArgs = this.customArgs;
+    this.session.providerState = this.getSessionState();
     if (this.session.saveHistory) {
       this.session.saveHistory();
     }
