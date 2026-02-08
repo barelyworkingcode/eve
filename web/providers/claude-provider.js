@@ -7,8 +7,10 @@ class ClaudeProvider extends LLMProvider {
     this.claudeProcess = null;
     this.buffer = '';
     this.currentAssistantMessage = null;
-    this.claudeSessionId = null;
-    this.customArgs = [];
+
+    // Restore persisted state from session (survives server restarts / provider recreation)
+    this.claudeSessionId = session.claudeSessionId || null;
+    this.customArgs = session.customArgs?.length > 0 ? [...session.customArgs] : [];
 
     // Provider configuration (from settings.json or defaults)
     this.config = {
@@ -531,6 +533,11 @@ ${f.content}
 
   getMetadata() {
     return `Claude ${this.session.model} • ${this.session.directory}`;
+  }
+
+  static clearSessionState(session) {
+    session.claudeSessionId = null;
+    delete session.customArgs;
   }
 
   static getModels() {
