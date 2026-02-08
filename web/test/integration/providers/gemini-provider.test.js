@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-const GeminiProvider = require('./providers/gemini-provider');
+const GeminiProvider = require('../../../providers/gemini-provider');
 const fs = require('fs');
 const path = require('path');
 
 class TestSession {
   constructor() {
     this.model = 'auto-gemini-2.5';
-    this.directory = __dirname;
+    this.directory = path.join(__dirname, '..', '..', '..');
     this.sessionId = 'test-session';
     this.processing = false;
     this.ws = null;
