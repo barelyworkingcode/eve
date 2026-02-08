@@ -1,196 +1,120 @@
-#!/usr/bin/env node
-
-const LMStudioProvider = require('../../../providers/lmstudio-provider');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const LMStudioProvider = require('../../../providers/lmstudio-provider');
+const { MockWebSocket, createMockSession } = require('../../helpers/mock-session');
 
-class TestSession {
-  constructor() {
-    this.model = 'qwen/qwen3-4b-2507';
-    this.directory = path.join(__dirname, '..', '..', '..');
-    this.sessionId = 'test-session';
-    this.processing = false;
-    this.ws = null;
-    this.messages = [];
-    this.saveHistory = () => {};
-    this.stats = {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-      costUsd: 0,
-      contextWindow: 32768
-    };
-    this.events = [];
-    this.responseText = '';
-    this.messageComplete = false;
+// Check if LM Studio config exists and server is reachable
+let serverAvailable = false;
+const configPath = path.join(__dirname, '..', '..', '..', 'data', 'lmstudio-config.json');
+try {
+  if (fs.existsSync(configPath)) {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const url = new URL(config.baseUrl || 'http://localhost:1234/v1');
+    // Synchronous check: try to connect
+    const { execSync } = require('child_process');
+    execSync(`curl -sf -o /dev/null --max-time 2 ${url.origin}/v1/models`, { stdio: 'ignore' });
+    serverAvailable = true;
   }
-
-  recordEvent(event) {
-    this.events.push(event);
-  }
-
-  send(message) {
-    const data = JSON.parse(message);
-
-    // Record event
-    this.recordEvent(data);
-
-    // Capture response text
-    if (data.type === 'llm_event' && data.event?.type === 'assistant' && data.event?.delta?.text) {
-      this.responseText += data.event.delta.text;
-    }
-
-    // Track message completion
-    if (data.type === 'message_complete') {
-      this.messageComplete = true;
-    }
-
-    // Track stats updates
-    if (data.type === 'stats_update') {
-      Object.assign(this.stats, data.stats);
-    }
-  }
-
-  get readyState() {
-    return 1; // OPEN
-  }
-
-  hasResult() {
-    return this.events.some(e => e.type === 'llm_event' && e.event?.type === 'result');
-  }
-
-  clearEvents() {
-    this.events = [];
-    this.responseText = '';
-    this.messageComplete = false;
-  }
+} catch (e) {
+  // Config not found or server not running
 }
 
-async function runTest() {
-  console.log('Starting LMStudioProvider test...\n');
-  console.log('Prerequisites:');
-  console.log('- LM Studio must be running on http://localhost:1234');
-  console.log('- Model qwen/qwen3-4b-2507 must be loaded\n');
+const describeIfServer = serverAvailable ? describe : describe.skip;
 
-  const session = new TestSession();
-  session.ws = session; // Mock ws as session itself
-  const provider = new LMStudioProvider(session);
+describeIfServer('LMStudioProvider (integration)', () => {
+  let provider;
+  let session;
+  let ws;
+  let config;
 
-  console.log('Config loaded:');
-  console.log('- Base URL:', provider.baseUrl);
-  console.log('- Models:', provider.models.length);
-  console.log();
+  function waitForComplete(timeoutMs = 30000) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for message_complete after ${timeoutMs}ms`));
+      }, timeoutMs);
 
-  // Test 1: Simple hello
-  console.log('Test 1: Sending hello message...');
-  await new Promise((resolve) => {
-    provider.sendMessage('Say hello in one sentence.');
+      const check = setInterval(() => {
+        if (ws.getMessages('message_complete').length > 0) {
+          clearInterval(check);
+          clearTimeout(timeout);
+          resolve();
+        }
+        // Also check for errors
+        const errors = ws.getMessages('error');
+        if (errors.length > 0) {
+          clearInterval(check);
+          clearTimeout(timeout);
+          reject(new Error(errors[0].message));
+        }
+      }, 100);
+    });
+  }
 
-    const checkComplete = setInterval(() => {
-      if (session.hasResult()) {
-        clearInterval(checkComplete);
-        console.log('Response:', session.responseText.substring(0, 100));
-        console.log('✓ Test 1 passed - got valid response\n');
-        resolve();
+  function getTextContent() {
+    let text = '';
+    for (const msg of ws.sentMessages) {
+      if (msg.type === 'llm_event' && msg.event?.type === 'assistant' && msg.event?.delta?.text) {
+        text += msg.event.delta.text;
       }
-    }, 100);
+    }
+    return text;
+  }
 
-    // Timeout after 30 seconds
-    setTimeout(() => {
-      if (!session.hasResult()) {
-        clearInterval(checkComplete);
-        console.error('✗ Test 1 failed - timeout waiting for response');
-        console.error('Is LM Studio running with the model loaded?');
-        process.exit(1);
-      }
-    }, 30000);
+  beforeEach(() => {
+    ws = new MockWebSocket();
+    config = JSON.parse(fs.readFileSync(
+      path.join(__dirname, '..', '..', '..', 'data', 'lmstudio-config.json'), 'utf8'
+    ));
+    const modelId = config.models?.[0]?.id;
+    if (!modelId) {
+      throw new Error('No models configured in lmstudio-config.json');
+    }
+
+    session = createMockSession({
+      ws,
+      model: modelId,
+      directory: path.join(__dirname, '..', '..', '..')
+    });
+    provider = new LMStudioProvider(session);
   });
 
-  // Test 2: File attachment
-  session.clearEvents();
-  console.log('Test 2: Asking to summarize README.md...');
+  afterEach(() => {
+    provider.kill();
+  });
 
-  const readmePath = path.join(__dirname, '..', '..', '..', 'README.md');
-  const readmeContent = fs.readFileSync(readmePath, 'utf8');
+  it('responds to a simple message', async () => {
+    provider.sendMessage('Say hello in one sentence.');
+    await waitForComplete();
 
-  await new Promise((resolve) => {
+    const content = getTextContent();
+    expect(content.length).toBeGreaterThan(0);
+  });
+
+  it('handles file attachment', async () => {
+    const readmePath = path.join(__dirname, '..', '..', '..', 'README.md');
+    const readmeContent = fs.readFileSync(readmePath, 'utf8');
+
     provider.sendMessage(
       'Summarize this file in one sentence.',
       [{ name: 'README.md', content: readmeContent, type: 'text' }]
     );
+    await waitForComplete();
 
-    const checkComplete = setInterval(() => {
-      if (session.hasResult()) {
-        clearInterval(checkComplete);
-        console.log('Response:', session.responseText.substring(0, 100));
-        console.log('✓ Test 2 passed - got valid response\n');
-        resolve();
-      }
-    }, 100);
-
-    // Timeout after 30 seconds
-    setTimeout(() => {
-      if (!session.hasResult()) {
-        clearInterval(checkComplete);
-        console.error('✗ Test 2 failed - timeout waiting for response');
-        process.exit(1);
-      }
-    }, 30000);
+    const content = getTextContent();
+    expect(content.length).toBeGreaterThan(0);
   });
 
-  // Test 3: Conversation continuity
-  session.clearEvents();
-  console.log('Test 3: Testing conversation history...');
+  it('maintains conversation history', async () => {
+    provider.sendMessage('Say hello in one sentence.');
+    await waitForComplete();
 
-  await new Promise((resolve) => {
+    ws.clear();
     provider.sendMessage('What was the first thing I asked you?');
+    await waitForComplete();
 
-    const checkComplete = setInterval(() => {
-      if (session.hasResult()) {
-        clearInterval(checkComplete);
-        const response = session.responseText.toLowerCase();
-        const hasHelloRef = response.includes('hello') || response.includes('first');
-        console.log('Response:', session.responseText.substring(0, 100));
-
-        if (hasHelloRef) {
-          console.log('✓ Test 3 passed - conversation history maintained\n');
-        } else {
-          console.log('⚠ Test 3 warning - response may not reference history correctly\n');
-        }
-        resolve();
-      }
-    }, 100);
-
-    // Timeout after 30 seconds
-    setTimeout(() => {
-      if (!session.hasResult()) {
-        clearInterval(checkComplete);
-        console.error('✗ Test 3 failed - timeout waiting for response');
-        process.exit(1);
-      }
-    }, 30000);
+    const content = getTextContent();
+    expect(content.length).toBeGreaterThan(0);
+    expect(provider.conversationHistory.length).toBeGreaterThanOrEqual(4); // 2 user + 2 assistant
   });
-
-  // Summary
-  console.log('=== Test Summary ===');
-  console.log(`Total input tokens: ${session.stats.inputTokens}`);
-  console.log(`Total output tokens: ${session.stats.outputTokens}`);
-  console.log(`Context window: ${session.stats.contextWindow}`);
-  console.log(`Conversation length: ${provider.conversationHistory.length} messages`);
-  console.log('\n✓ All tests passed');
-
-  provider.kill();
-  process.exit(0);
-}
-
-// Handle errors
-process.on('unhandledRejection', (err) => {
-  console.error('Test failed:', err);
-  process.exit(1);
-});
-
-runTest().catch((err) => {
-  console.error('Test failed:', err);
-  process.exit(1);
 });

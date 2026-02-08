@@ -1,34 +1,44 @@
-#!/usr/bin/env node
-
-const ClaudeProvider = require('../../../providers/claude-provider');
+const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const ClaudeProvider = require('../../../providers/claude-provider');
+const { createMockSession } = require('../../helpers/mock-session');
 
-class TestSession {
-  constructor() {
-    this.model = 'haiku';
-    this.directory = path.join(__dirname, '..', '..', '..');
-    this.sessionId = 'test-session';
-    this.processing = false;
-    this.ws = null;
-    this.stats = {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-      costUsd: 0,
-      contextWindow: 200000
-    };
-    this.events = [];
+// Check if Claude CLI is available
+let cliAvailable = false;
+try {
+  execSync('which claude', { stdio: 'ignore' });
+  cliAvailable = true;
+} catch (e) {
+  // CLI not found
+}
+
+const describeIfCli = cliAvailable ? describe : describe.skip;
+
+describeIfCli('ClaudeProvider (integration)', () => {
+  let provider;
+  let session;
+  let events;
+
+  function waitForResult(timeoutMs = 30000) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for result after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      const check = setInterval(() => {
+        if (events.some(e => e.type === 'result')) {
+          clearInterval(check);
+          clearTimeout(timeout);
+          resolve();
+        }
+      }, 100);
+    });
   }
 
-  recordEvent(event) {
-    this.events.push(event);
-  }
-
-  getTextContent() {
+  function getTextContent() {
     let text = '';
-    for (const event of this.events) {
+    for (const event of events) {
       if (event.type === 'assistant' && event.message?.content) {
         for (const block of event.message.content) {
           if (block.type === 'text') {
@@ -40,86 +50,46 @@ class TestSession {
     return text;
   }
 
-  hasResult() {
-    return this.events.some(e => e.type === 'result');
-  }
+  beforeEach(() => {
+    events = [];
+    session = createMockSession({
+      model: 'haiku',
+      directory: path.join(__dirname, '..', '..', '..')
+    });
+    provider = new ClaudeProvider(session);
 
-  clearEvents() {
-    this.events = [];
-  }
-}
-
-async function runTest() {
-  console.log('Starting ClaudeProvider test...\n');
-
-  const session = new TestSession();
-  const provider = new ClaudeProvider(session);
-
-  // Override handleEvent to capture events
-  const originalHandleEvent = provider.handleEvent.bind(provider);
-  provider.handleEvent = (event) => {
-    session.recordEvent(event);
-    originalHandleEvent(event);
-  };
-
-  // Test 1: Simple hello
-  console.log('Test 1: Sending hello message...');
-  await new Promise((resolve) => {
-    provider.sendMessage('Say hello in one sentence.');
-
-    const checkComplete = setInterval(() => {
-      if (session.hasResult()) {
-        clearInterval(checkComplete);
-        const content = session.getTextContent();
-        console.log('Response:', content.substring(0, 100));
-        console.log('✓ Test 1 passed - got valid response\n');
-        resolve();
-      }
-    }, 100);
+    const originalHandleEvent = provider.handleEvent.bind(provider);
+    provider.handleEvent = (event) => {
+      events.push(event);
+      originalHandleEvent(event);
+    };
   });
 
-  // Test 2: Summarize README
-  session.clearEvents();
-  console.log('Test 2: Asking to summarize README.md...');
+  afterEach(async () => {
+    provider.kill();
+    // Wait for process to fully exit to avoid log-after-test warnings
+    await new Promise(resolve => setTimeout(resolve, 500));
+  });
 
-  const readmePath = path.join(__dirname, '..', '..', '..', 'README.md');
-  const readmeContent = fs.readFileSync(readmePath, 'utf8');
+  it('responds to a simple message', async () => {
+    provider.sendMessage('Say hello in one sentence.');
+    await waitForResult();
 
-  await new Promise((resolve) => {
+    const content = getTextContent();
+    expect(content.length).toBeGreaterThan(0);
+  });
+
+  it('handles file attachment', async () => {
+    const readmePath = path.join(__dirname, '..', '..', '..', 'README.md');
+    const readmeContent = fs.readFileSync(readmePath, 'utf8');
+
     provider.sendMessage(
       'Summarize this file in one sentence.',
       [{ name: 'README.md', content: readmeContent, type: 'text' }]
     );
+    await waitForResult();
 
-    const checkComplete = setInterval(() => {
-      if (session.hasResult()) {
-        clearInterval(checkComplete);
-        const content = session.getTextContent();
-        console.log('Response:', content.substring(0, 100));
-        console.log('✓ Test 2 passed - got valid response\n');
-        resolve();
-      }
-    }, 100);
+    const content = getTextContent();
+    expect(content.length).toBeGreaterThan(0);
   });
-
-  // Summary
-  console.log('=== Test Summary ===');
-  console.log(`Total input tokens: ${session.stats.inputTokens}`);
-  console.log(`Total output tokens: ${session.stats.outputTokens}`);
-  console.log(`Total cost: $${session.stats.costUsd.toFixed(4)}`);
-  console.log('\n✓ All tests passed');
-
-  provider.kill();
-  process.exit(0);
-}
-
-// Handle errors
-process.on('unhandledRejection', (err) => {
-  console.error('Test failed:', err);
-  process.exit(1);
-});
-
-runTest().catch((err) => {
-  console.error('Test failed:', err);
-  process.exit(1);
 });

@@ -1,139 +1,88 @@
-#!/usr/bin/env node
-
-const GeminiProvider = require('../../../providers/gemini-provider');
-const fs = require('fs');
+const { execSync } = require('child_process');
 const path = require('path');
+const GeminiProvider = require('../../../providers/gemini-provider');
+const { MockWebSocket, createMockSession } = require('../../helpers/mock-session');
 
-class TestSession {
-  constructor() {
-    this.model = 'auto-gemini-2.5';
-    this.directory = path.join(__dirname, '..', '..', '..');
-    this.sessionId = 'test-session';
-    this.processing = false;
-    this.ws = null;
-    this.stats = {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-      costUsd: 0,
-      contextWindow: 200000
-    };
-    this.events = [];
-    this.completed = false;
+// Check if Gemini CLI is available
+let cliAvailable = false;
+try {
+  execSync('which gemini', { stdio: 'ignore' });
+  cliAvailable = true;
+} catch (e) {
+  // CLI not found
+}
+
+const describeIfCli = cliAvailable ? describe : describe.skip;
+
+describeIfCli('GeminiProvider (integration)', () => {
+  let provider;
+  let session;
+  let ws;
+  let events;
+
+  function waitForResult(timeoutMs = 30000) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for result after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      const check = setInterval(() => {
+        if (events.some(e => e.type === 'result')) {
+          clearInterval(check);
+          clearTimeout(timeout);
+          resolve();
+        }
+      }, 100);
+    });
   }
 
-  recordEvent(event) {
-    this.events.push(event);
-  }
-
-  getTextContent() {
+  function getTextContent() {
+    // Gemini sends streaming events via ws.send, look for llm_event messages
     let text = '';
-    for (const event of this.events) {
-      if (event.type === 'message' && event.role === 'assistant' && event.content) {
-        text += event.content;
+    for (const msg of ws.sentMessages) {
+      if (msg.type === 'llm_event' && msg.event?.type === 'assistant' && msg.event?.delta?.text) {
+        text += msg.event.delta.text;
       }
     }
     return text;
   }
 
-  hasResult() {
-    return this.completed;
-  }
+  beforeEach(() => {
+    events = [];
+    ws = new MockWebSocket();
+    session = createMockSession({
+      ws,
+      model: 'auto-gemini-2.5',
+      directory: path.join(__dirname, '..', '..', '..')
+    });
+    provider = new GeminiProvider(session);
 
-  clearEvents() {
-    this.events = [];
-    this.completed = false;
-  }
-}
+    const originalHandleEvent = provider.handleEvent.bind(provider);
+    provider.handleEvent = (event) => {
+      events.push(event);
+      originalHandleEvent(event);
+    };
+  });
 
-async function runTest() {
-  console.log('Starting GeminiProvider test...\n');
+  afterEach(async () => {
+    provider.kill();
+    // Wait for process to fully exit to avoid log-after-test warnings
+    await new Promise(resolve => setTimeout(resolve, 500));
+  });
 
-  const session = new TestSession();
-  const provider = new GeminiProvider(session);
-
-  // Override handleEvent to capture events
-  const originalHandleEvent = provider.handleEvent.bind(provider);
-  provider.handleEvent = (event) => {
-    session.recordEvent(event);
-    originalHandleEvent(event);
-    if (event.type === 'result' && event.status === 'success') {
-      session.completed = true;
-    }
-  };
-
-  // Test 1: Simple hello
-  console.log('Test 1: Sending hello message...');
-  await new Promise((resolve) => {
+  it('responds to a simple message', async () => {
     provider.sendMessage('Say hello in one sentence.');
+    await waitForResult();
 
-    const checkComplete = setInterval(() => {
-      if (session.hasResult()) {
-        clearInterval(checkComplete);
-        const content = session.getTextContent();
-        console.log('Response:', content.substring(0, 100));
-        console.log('✓ Test 1 passed - got valid response\n');
-        resolve();
-      }
-    }, 100);
-
-    // Timeout after 20 seconds
-    setTimeout(() => {
-      clearInterval(checkComplete);
-      console.error('✗ Test 1 timed out');
-      console.log('Events received:', JSON.stringify(session.events, null, 2));
-      process.exit(1);
-    }, 20000);
+    const content = getTextContent();
+    expect(content.length).toBeGreaterThan(0);
   });
 
-  // Test 2: Simple calculation
-  session.clearEvents();
-  console.log('Test 2: Asking for a calculation...');
-
-  await new Promise((resolve) => {
+  it('responds to a calculation', async () => {
     provider.sendMessage('What is 2 + 2? Answer with just the number.');
+    await waitForResult();
 
-    const checkComplete = setInterval(() => {
-      if (session.hasResult()) {
-        clearInterval(checkComplete);
-        const content = session.getTextContent();
-        console.log('Response:', content.substring(0, 100));
-        console.log('✓ Test 2 passed - got valid response\n');
-        resolve();
-      }
-    }, 100);
-
-    // Timeout after 20 seconds
-    setTimeout(() => {
-      clearInterval(checkComplete);
-      console.error('✗ Test 2 timed out');
-      console.log('Events received:', JSON.stringify(session.events, null, 2));
-      process.exit(1);
-    }, 20000);
+    const content = getTextContent();
+    expect(content.length).toBeGreaterThan(0);
   });
-
-  // Note: Session resume works (verified manually), but Test 3 has timing issues in automated tests
-  console.log('Note: Session resume verified manually - session ID is maintained across messages\n');
-
-  // Summary
-  console.log('=== Test Summary ===');
-  console.log(`Total input tokens: ${session.stats.inputTokens}`);
-  console.log(`Total output tokens: ${session.stats.outputTokens}`);
-  console.log(`Total cost: $${session.stats.costUsd.toFixed(4)}`);
-  console.log('\n✓ All tests passed');
-
-  provider.kill();
-  process.exit(0);
-}
-
-// Handle errors
-process.on('unhandledRejection', (err) => {
-  console.error('Test failed:', err);
-  process.exit(1);
-});
-
-runTest().catch((err) => {
-  console.error('Test failed:', err);
-  process.exit(1);
 });

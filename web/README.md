@@ -117,6 +117,16 @@ node server.js --data ../shared-data
 npm start -- --data /custom/path
 ```
 
+## Testing
+
+```bash
+npm test                  # Unit tests (no external deps required)
+npm run test:integration  # Integration tests (needs CLI tools / LM Studio)
+npm run test:all          # Both suites
+```
+
+Integration tests auto-skip when the required CLI (`claude`, `gemini`) or server (LM Studio) is unavailable.
+
 ## Passkey Authentication
 
 Eve Workspace uses WebAuthn passkeys to secure access. The first person to visit the app enrolls their passkey and becomes the owner. Subsequent visitors must authenticate.

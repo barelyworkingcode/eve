@@ -262,6 +262,29 @@ async function testProjectDeletion() {
 - "Stats not updating" → Check provider emits stats events
 - "UI not updating" → Check render called after state change
 
+### Automated Testing
+
+**Commands**
+```bash
+npm test              # Unit tests only (fast, no external deps)
+npm run test:unit     # Same as above
+npm run test:integration  # Integration tests (needs CLI/servers)
+npm run test:all      # Both suites
+npm run test:watch    # Unit tests in watch mode
+```
+
+**Structure**
+```
+test/
+  helpers/mock-session.js  - Shared MockWebSocket + createMockSession
+  unit/                    - Pure logic tests (no external deps)
+  integration/             - Tests against real CLIs/servers (auto-skip if unavailable)
+```
+
+**Adding tests**: Place unit tests in `test/unit/`, mirroring source structure. Use `createMockSession()` from helpers. Integration tests go in `test/integration/` with conditional skip via `describe.skip` when CLIs are unavailable.
+
+**Rule**: Run `npm test` before committing to catch regressions.
+
 ## Project Architecture
 
 ### Core Components
