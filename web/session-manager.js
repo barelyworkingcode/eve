@@ -3,6 +3,18 @@ const ClaudeProvider = require('./providers/claude-provider');
 const GeminiProvider = require('./providers/gemini-provider');
 const LMStudioProvider = require('./providers/lmstudio-provider');
 
+// Provider registry - order matters: first match wins in getProviderForModel()
+// Claude must be last as the catch-all fallback
+const providerRegistry = [];
+
+function registerProvider(key, ProviderClass, matchModel) {
+  providerRegistry.push({ key, ProviderClass, matchModel });
+}
+
+registerProvider('gemini', GeminiProvider, m => m.startsWith('gemini'));
+registerProvider('lmstudio', LMStudioProvider, m => LMStudioProvider.getModels().some(mod => mod.value === m));
+registerProvider('claude', ClaudeProvider, () => true);
+
 class SessionManager {
   constructor({ sessions, projects, settings, sessionStore }) {
     this.sessions = sessions;
@@ -14,23 +26,14 @@ class SessionManager {
   // --- Provider management ---
 
   getProviderForModel(model) {
-    const lmStudioModels = LMStudioProvider.getModels().map(m => m.value);
-    if (model.startsWith('gemini')) {
-      return 'gemini';
-    } else if (lmStudioModels.includes(model)) {
-      return 'lmstudio';
-    } else {
-      return 'claude';
-    }
+    const entry = providerRegistry.find(p => p.matchModel(model));
+    return entry?.key || 'claude';
   }
 
   getProviderClass(model) {
     const type = this.getProviderForModel(model);
-    switch (type) {
-      case 'gemini': return GeminiProvider;
-      case 'lmstudio': return LMStudioProvider;
-      default: return ClaudeProvider;
-    }
+    const entry = providerRegistry.find(p => p.key === type);
+    return entry?.ProviderClass || ClaudeProvider;
   }
 
   getProviderConfig(providerType) {
@@ -51,14 +54,10 @@ class SessionManager {
 
   getAllModels() {
     const allModels = [];
-    if (this.settings.providers.claude) {
-      allModels.push(...ClaudeProvider.getModels());
-    }
-    if (this.settings.providers.gemini) {
-      allModels.push(...GeminiProvider.getModels());
-    }
-    if (this.settings.providers.lmstudio) {
-      allModels.push(...LMStudioProvider.getModels());
+    for (const { key, ProviderClass } of providerRegistry) {
+      if (this.settings.providers[key]) {
+        allModels.push(...ProviderClass.getModels());
+      }
     }
     return allModels;
   }
