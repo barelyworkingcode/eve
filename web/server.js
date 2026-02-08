@@ -249,6 +249,10 @@ wss.on('connection', (ws, req) => {
           }
           break;
 
+        case 'rename_session':
+          sessionManager.renameSession(message.sessionId, message.name, ws);
+          break;
+
         case 'list_directory':
           fileHandlers.listDirectory(ws, message);
           break;

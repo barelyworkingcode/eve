@@ -62,6 +62,33 @@ describe('SessionStore', () => {
       expect(loaded.stats.costUsd).toBe(0.01);
     });
 
+    it('preserves name field', () => {
+      const session = makeSession({ name: 'My Custom Name' });
+      store.save(session);
+
+      const loaded = store.load('sess-1');
+      expect(loaded.name).toBe('My Custom Name');
+    });
+
+    it('saves null name when not set', () => {
+      const session = makeSession();
+      store.save(session);
+
+      const loaded = store.load('sess-1');
+      expect(loaded.name).toBeNull();
+    });
+
+    it('includes name in loadAll results', () => {
+      store.save(makeSession({ sessionId: 'sess-1', name: 'Named' }));
+      store.save(makeSession({ sessionId: 'sess-2' }));
+
+      const all = store.loadAll();
+      const named = all.find(s => s.sessionId === 'sess-1');
+      const unnamed = all.find(s => s.sessionId === 'sess-2');
+      expect(named.name).toBe('Named');
+      expect(unnamed.name).toBeNull();
+    });
+
     it('preserves providerState', () => {
       const session = makeSession({
         providerState: { claudeSessionId: 'abc', customArgs: ['--flag'] }
