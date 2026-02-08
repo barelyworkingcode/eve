@@ -207,5 +207,349 @@ describe('SessionManager', () => {
         'model', ['opus'], expect.any(Function), '/model opus'
       );
     });
+
+    it('handles transfer command from provider', () => {
+      session.provider.handleCommand.mockReturnValue({
+        handled: true,
+        transfer: {
+          claudeSessionId: 'sess-123',
+          model: 'haiku',
+          customArgs: ['--flag']
+        }
+      });
+
+      const result = manager.handleSlashCommand(session.sessionId, '/transfer-cli');
+      expect(result).toBe(true);
+      expect(session.transferred).toBe(true);
+      expect(session.provider).toBeNull();
+
+      const termReq = ws.getLastMessage('terminal_request');
+      expect(termReq.command).toBe('claude');
+      expect(termReq.args).toContain('--resume');
+      expect(termReq.args).toContain('sess-123');
+    });
+  });
+
+  describe('createSession', () => {
+    let manager, ws, sessionStore;
+
+    beforeEach(() => {
+      ws = new MockWebSocket();
+      sessionStore = {
+        save: jest.fn(),
+        load: jest.fn(),
+        delete: jest.fn(),
+        loadAll: jest.fn(() => [])
+      };
+      manager = createTestManager({ sessionStore });
+
+      jest.spyOn(manager, 'initProvider').mockImplementation((s) => {
+        s.provider = {
+          kill: jest.fn(),
+          startProcess: jest.fn(),
+          getMetadata: jest.fn(() => 'Claude haiku • /tmp')
+        };
+        return s.provider;
+      });
+    });
+
+    it('creates a session and sends session_created', () => {
+      const sessionId = manager.createSession(ws, '/tmp/project');
+
+      expect(sessionId).toBeDefined();
+      expect(manager.sessions.has(sessionId)).toBe(true);
+
+      const session = manager.sessions.get(sessionId);
+      expect(session.directory).toBe('/tmp/project');
+      expect(session.model).toBe('haiku');
+
+      const msg = ws.getLastMessage('session_created');
+      expect(msg).not.toBeNull();
+      expect(msg.sessionId).toBe(sessionId);
+    });
+
+    it('uses project model and path when projectId provided', () => {
+      const projects = new Map();
+      projects.set('proj-1', { model: 'opus', path: '/projects/myapp' });
+      manager.projects = projects;
+
+      const sessionId = manager.createSession(ws, '/tmp/default', 'proj-1');
+
+      const session = manager.sessions.get(sessionId);
+      expect(session.model).toBe('opus');
+      expect(session.directory).toBe('/projects/myapp');
+      expect(session.projectId).toBe('proj-1');
+    });
+
+    it('initializes provider for new session', () => {
+      const sessionId = manager.createSession(ws, '/tmp');
+      const session = manager.sessions.get(sessionId);
+
+      expect(manager.initProvider).toHaveBeenCalledWith(session);
+      expect(session.provider).not.toBeNull();
+    });
+
+    it('sets up saveHistory function', () => {
+      const sessionId = manager.createSession(ws, '/tmp');
+      const session = manager.sessions.get(sessionId);
+
+      session.saveHistory();
+      expect(sessionStore.save).toHaveBeenCalledWith(session);
+    });
+  });
+
+  describe('joinSession', () => {
+    let manager, ws, sessionStore;
+
+    beforeEach(() => {
+      ws = new MockWebSocket();
+      sessionStore = {
+        save: jest.fn(),
+        load: jest.fn(),
+        delete: jest.fn(),
+        loadAll: jest.fn(() => [])
+      };
+      manager = createTestManager({ sessionStore });
+
+      jest.spyOn(manager, 'initProvider').mockImplementation((s) => {
+        s.provider = {
+          kill: jest.fn(),
+          startProcess: jest.fn(),
+          getMetadata: jest.fn(() => 'test metadata')
+        };
+        return s.provider;
+      });
+    });
+
+    it('joins an existing in-memory session', () => {
+      // Pre-populate a session
+      const existing = createMockSession({ sessionId: 'existing-1' });
+      existing.provider = {
+        kill: jest.fn(),
+        getMetadata: jest.fn(() => 'existing metadata')
+      };
+      manager.sessions.set('existing-1', existing);
+
+      const result = manager.joinSession(ws, 'existing-1');
+
+      expect(result).toBe('existing-1');
+      expect(existing.ws).toBe(ws);
+
+      const msg = ws.getLastMessage('session_joined');
+      expect(msg).not.toBeNull();
+      expect(msg.sessionId).toBe('existing-1');
+    });
+
+    it('restores session from store if not in memory', () => {
+      sessionStore.load.mockReturnValue({
+        sessionId: 'saved-1',
+        model: 'sonnet',
+        directory: '/tmp',
+        messages: [{ role: 'user', content: 'hi' }],
+        stats: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 }
+      });
+
+      const result = manager.joinSession(ws, 'saved-1');
+
+      expect(result).toBe('saved-1');
+      expect(manager.sessions.has('saved-1')).toBe(true);
+      expect(manager.initProvider).toHaveBeenCalled();
+
+      const joinMsg = ws.getLastMessage('session_joined');
+      expect(joinMsg.history).toHaveLength(1);
+    });
+
+    it('sends error for nonexistent session', () => {
+      sessionStore.load.mockReturnValue(null);
+
+      const result = manager.joinSession(ws, 'no-such-session');
+
+      expect(result).toBeNull();
+      const errMsg = ws.getLastMessage('error');
+      expect(errMsg.message).toMatch(/Session not found/);
+    });
+
+    it('sends stats_update after joining', () => {
+      const existing = createMockSession({ sessionId: 'sess-1' });
+      existing.provider = { getMetadata: jest.fn(() => 'meta') };
+      existing.stats.inputTokens = 500;
+      manager.sessions.set('sess-1', existing);
+
+      manager.joinSession(ws, 'sess-1');
+
+      const statsMsg = ws.getLastMessage('stats_update');
+      expect(statsMsg).not.toBeNull();
+      expect(statsMsg.stats.inputTokens).toBe(500);
+    });
+  });
+
+  describe('sendMessage', () => {
+    let manager, ws, session, sessionStore;
+
+    beforeEach(() => {
+      ws = new MockWebSocket();
+      sessionStore = { save: jest.fn(), load: jest.fn(), delete: jest.fn(), loadAll: jest.fn(() => []) };
+      session = createMockSession({ ws });
+      session.provider = {
+        kill: jest.fn(),
+        sendMessage: jest.fn(),
+        handleCommand: jest.fn(() => false)
+      };
+      const sessions = new Map();
+      sessions.set(session.sessionId, session);
+
+      manager = createTestManager({ sessions, sessionStore });
+    });
+
+    it('saves user message and delegates to provider', () => {
+      manager.sendMessage(session.sessionId, 'hello');
+
+      expect(session.messages).toHaveLength(1);
+      expect(session.messages[0].role).toBe('user');
+      expect(session.messages[0].content).toBe('hello');
+      expect(sessionStore.save).toHaveBeenCalledWith(session);
+      expect(session.provider.sendMessage).toHaveBeenCalledWith('hello', []);
+    });
+
+    it('passes files to provider', () => {
+      const files = [{ name: 'test.js', content: 'code', type: 'text' }];
+      manager.sendMessage(session.sessionId, 'review this', files);
+
+      expect(session.provider.sendMessage).toHaveBeenCalledWith('review this', files);
+      expect(session.messages[0].files).toEqual(files);
+    });
+
+    it('does nothing for nonexistent session', () => {
+      manager.sendMessage('no-such-session', 'hello');
+      expect(sessionStore.save).not.toHaveBeenCalled();
+    });
+
+    it('intercepts slash commands instead of sending to provider', () => {
+      jest.spyOn(manager, 'handleSlashCommand').mockReturnValue(true);
+
+      manager.sendMessage(session.sessionId, '/help');
+
+      expect(session.provider.sendMessage).not.toHaveBeenCalled();
+      expect(session.messages).toHaveLength(0);
+    });
+
+    it('blocks messages on transferred sessions', () => {
+      session.transferred = true;
+
+      manager.sendMessage(session.sessionId, 'hello');
+
+      expect(session.provider.sendMessage).not.toHaveBeenCalled();
+      const errMsg = ws.getLastMessage('error');
+      expect(errMsg.message).toMatch(/transferred/);
+    });
+  });
+
+  describe('endSession', () => {
+    let manager, sessionStore;
+
+    beforeEach(() => {
+      sessionStore = { save: jest.fn(), load: jest.fn(), delete: jest.fn(), loadAll: jest.fn(() => []) };
+      manager = createTestManager({ sessionStore });
+    });
+
+    it('kills provider, saves, and removes session', () => {
+      const session = createMockSession({ sessionId: 'sess-1' });
+      session.provider = { kill: jest.fn() };
+      manager.sessions.set('sess-1', session);
+
+      manager.endSession('sess-1');
+
+      expect(session.provider.kill).toHaveBeenCalled();
+      expect(sessionStore.save).toHaveBeenCalledWith(session);
+      expect(manager.sessions.has('sess-1')).toBe(false);
+    });
+
+    it('handles session without provider', () => {
+      const session = createMockSession({ sessionId: 'sess-1' });
+      session.provider = null;
+      manager.sessions.set('sess-1', session);
+
+      expect(() => manager.endSession('sess-1')).not.toThrow();
+      expect(manager.sessions.has('sess-1')).toBe(false);
+    });
+
+    it('does nothing for nonexistent session', () => {
+      expect(() => manager.endSession('no-such')).not.toThrow();
+    });
+  });
+
+  describe('deleteSession', () => {
+    let manager, ws, sessionStore;
+
+    beforeEach(() => {
+      ws = new MockWebSocket();
+      sessionStore = { save: jest.fn(), load: jest.fn(), delete: jest.fn(), loadAll: jest.fn(() => []) };
+      manager = createTestManager({ sessionStore });
+    });
+
+    it('kills provider, deletes from store and memory, sends session_ended', () => {
+      const session = createMockSession({ sessionId: 'sess-1' });
+      session.provider = { kill: jest.fn() };
+      manager.sessions.set('sess-1', session);
+
+      manager.deleteSession('sess-1', ws);
+
+      expect(session.provider.kill).toHaveBeenCalled();
+      expect(sessionStore.delete).toHaveBeenCalledWith('sess-1');
+      expect(manager.sessions.has('sess-1')).toBe(false);
+
+      const msg = ws.getLastMessage('session_ended');
+      expect(msg.sessionId).toBe('sess-1');
+    });
+
+    it('sends session_ended even if session not in memory', () => {
+      manager.deleteSession('nonexistent', ws);
+
+      const msg = ws.getLastMessage('session_ended');
+      expect(msg.sessionId).toBe('nonexistent');
+    });
+  });
+
+  describe('restoreSavedSessions', () => {
+    it('loads all sessions from store into memory', () => {
+      const sessionStore = {
+        save: jest.fn(),
+        load: jest.fn(),
+        delete: jest.fn(),
+        loadAll: jest.fn(() => [
+          { sessionId: 's1', model: 'haiku', directory: '/tmp', messages: [], stats: {} },
+          { sessionId: 's2', model: 'opus', directory: '/tmp', messages: [], stats: {} }
+        ])
+      };
+      const manager = createTestManager({ sessionStore });
+
+      const count = manager.restoreSavedSessions();
+
+      expect(count).toBe(2);
+      expect(manager.sessions.has('s1')).toBe(true);
+      expect(manager.sessions.has('s2')).toBe(true);
+    });
+
+    it('restored sessions have no active provider', () => {
+      const sessionStore = {
+        save: jest.fn(),
+        load: jest.fn(),
+        delete: jest.fn(),
+        loadAll: jest.fn(() => [
+          { sessionId: 's1', model: 'haiku', directory: '/tmp', messages: [], stats: {} }
+        ])
+      };
+      const manager = createTestManager({ sessionStore });
+      manager.restoreSavedSessions();
+
+      const session = manager.sessions.get('s1');
+      expect(session.provider).toBeNull();
+      expect(session.processing).toBe(false);
+    });
+
+    it('returns 0 when no saved sessions', () => {
+      const manager = createTestManager();
+      expect(manager.restoreSavedSessions()).toBe(0);
+    });
   });
 });
