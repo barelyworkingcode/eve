@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "todo-review",
+      "name": "Daily Todo Review",
+      "prompt": "Review todo.md and check for items that are overdue or due today. Summarize the status and flag anything that needs immediate attention.",
+      "schedule": {
+        "type": "daily",
+        "time": "09:00"
+      },
+      "enabled": true,
+      "model": null,
+      "createdAt": "2026-01-25T08:00:00.000Z"
+    },
+    {
+      "id": "board-prep",
+      "name": "Weekly Board Prep",
+      "prompt": "Review Board/ directory for recent updates. Cross-reference action items against todo.md and flag any items approaching their due dates. Summarize what the CEO needs to prepare for the next board meeting.",
+      "schedule": {
+        "type": "weekly",
+        "day": "tuesday",
+        "time": "08:00"
+      },
+      "enabled": true,
+      "model": null,
+      "createdAt": "2026-01-28T10:00:00.000Z"
+    }
+  ]
+}

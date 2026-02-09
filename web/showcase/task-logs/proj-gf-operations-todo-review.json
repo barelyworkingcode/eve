@@ -1,0 +1,19 @@
+[
+  {
+    "taskId": "todo-review",
+    "taskName": "Daily Todo Review",
+    "projectId": "proj-gf-operations",
+    "projectName": "Greenfield Operations",
+    "startedAt": "2026-02-07T09:00:01.000Z",
+    "status": "success",
+    "completedAt": "2026-02-07T09:00:18.000Z",
+    "response": "## Daily Todo Review -- February 7, 2026\n\n### Overdue Items\n- **Acme Corp MOU renewal** (David Kim) -- Due Jan 31. No update. Escalate immediately.\n\n### Due Today\n- **Customer retention analysis** (Priya Patel) -- Due Feb 10 but flagged as at-risk. Priya has partial data; needs engineering support for churn metrics.\n\n### Upcoming This Week\n- **Series A term sheet review** (Sarah Chen) -- Due Feb 15. In progress.\n- **Board meeting agenda finalization** (Sarah Chen) -- Due Feb 14.\n\n### Summary\n1 overdue item requires immediate escalation. 1 item at risk of missing deadline. 2 items on track for next week.",
+    "stats": {
+      "inputTokens": 900,
+      "outputTokens": 420,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "costUsd": 0
+    }
+  }
+]

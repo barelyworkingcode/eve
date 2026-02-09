@@ -1,0 +1,37 @@
+[
+  {
+    "taskId": "board-prep",
+    "taskName": "Weekly Board Prep",
+    "projectId": "proj-gf-operations",
+    "projectName": "Greenfield Operations",
+    "startedAt": "2026-02-04T08:00:01.000Z",
+    "status": "success",
+    "completedAt": "2026-02-04T08:00:35.000Z",
+    "response": "## Weekly Board Prep Summary -- February 4, 2026\n\n### Action Items Status\n- 5 open action items from January board meeting\n- 1 overdue: Acme Corp MOU renewal (David Kim, due Jan 31)\n- 2 in progress: Series A term sheet, SOC 2 gap assessment\n- 2 pending: Engineering hiring plan, customer retention analysis\n\n### Upcoming Board Meeting: February 18\nCEO should prepare:\n1. Series A update -- term sheet decision may be needed at this meeting\n2. Engineering hiring plan presentation (Marcus owes this)\n3. Customer pipeline review -- currently at 34/50 enterprise target\n\n### Documents Updated Since Last Review\n- Finance/2026-Annual-Budget.md -- Updated with Q4 actuals\n- Board/Strategic-Plan-2026.md -- No changes\n\n### Flags\n- Acme Corp MOU requires immediate attention\n- February board meeting falls during Series A term sheet deadline",
+    "stats": {
+      "inputTokens": 1100,
+      "outputTokens": 520,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "costUsd": 0
+    }
+  },
+  {
+    "taskId": "board-prep",
+    "taskName": "Weekly Board Prep",
+    "projectId": "proj-gf-operations",
+    "projectName": "Greenfield Operations",
+    "startedAt": "2026-01-28T08:00:01.000Z",
+    "status": "error",
+    "completedAt": "2026-01-28T08:00:05.000Z",
+    "response": "",
+    "error": "connect ECONNREFUSED 127.0.0.1:1234",
+    "stats": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "costUsd": 0
+    }
+  }
+]

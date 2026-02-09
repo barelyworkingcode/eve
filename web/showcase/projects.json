@@ -1,0 +1,18 @@
+{
+  "projects": [
+    {
+      "id": "proj-gf-platform",
+      "name": "Greenfield Platform",
+      "path": "showcase/projects/greenfield-platform",
+      "model": "sonnet",
+      "createdAt": "2026-01-15T09:00:00.000Z"
+    },
+    {
+      "id": "proj-gf-operations",
+      "name": "Greenfield Operations",
+      "path": "showcase/projects/greenfield-operations",
+      "model": "deepseek-coder-v2-lite",
+      "createdAt": "2026-01-20T14:00:00.000Z"
+    }
+  ]
+}
