@@ -6,6 +6,6 @@
 **/.vscode
 *.log
 
-web/data/
-
-
+data/
+certs/
+coverage/
