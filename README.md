@@ -2,6 +2,14 @@
 
 A multi-provider LLM web interface that provides a browser-based chat experience with persistent sessions, project grouping, integrated file editing, and a built-in terminal.
 
+![Overview](showcase/screenshots/Overview%201.png)
+
+![Chat with Claude](showcase/screenshots/Embedded%20Claude.png)
+
+![File Editor](showcase/screenshots/Monico%20Editor.png)
+
+![Scheduled Tasks](showcase/screenshots/Scheduled%20Tasks.png)
+
 ## Features
 
 - **Multi-provider support** - Claude CLI, Gemini CLI, and LM Studio (local HTTP) with persistent processes per session
