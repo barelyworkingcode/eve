@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "dep-audit",
+      "name": "Dependency Audit",
+      "prompt": "Run npm audit and review package.json for outdated or vulnerable dependencies. Report any critical or high severity issues with recommended actions.",
+      "schedule": {
+        "type": "weekly",
+        "day": "monday",
+        "time": "08:00"
+      },
+      "enabled": true,
+      "model": null,
+      "createdAt": "2026-01-20T10:00:00.000Z"
+    },
+    {
+      "id": "api-docs-check",
+      "name": "API Docs Sync",
+      "prompt": "Compare the route definitions in src/routes/ against the API documentation. Flag any endpoints that are undocumented or where the docs don't match the implementation.",
+      "schedule": {
+        "type": "daily",
+        "time": "06:00"
+      },
+      "enabled": true,
+      "model": null,
+      "createdAt": "2026-01-22T14:00:00.000Z"
+    },
+    {
+      "id": "dead-code-scan",
+      "name": "Dead Code Scan",
+      "prompt": "Scan the codebase for unused exports, unreachable code, and unused variables. Report files and line numbers.",
+      "schedule": {
+        "type": "weekly",
+        "day": "friday",
+        "time": "17:00"
+      },
+      "enabled": false,
+      "model": null,
+      "createdAt": "2026-01-25T09:00:00.000Z"
+    }
+  ]
+}

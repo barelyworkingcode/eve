@@ -1,0 +1,66 @@
+{
+  "sessionId": "sess-board-prep",
+  "projectId": "proj-gf-operations",
+  "name": "Board Meeting Prep",
+  "directory": "showcase/projects/greenfield-operations",
+  "model": "deepseek-coder-v2-lite",
+  "createdAt": "2026-02-07T08:00:00.000Z",
+  "messages": [
+    {
+      "timestamp": "2026-02-07T08:00:30.000Z",
+      "role": "user",
+      "content": "Review the Q1 board minutes and the strategic plan. Summarize the open action items and draft agenda items for the February board meeting.",
+      "files": []
+    },
+    {
+      "timestamp": "2026-02-07T08:01:15.000Z",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "## Open Action Items from Q1 Board Minutes\n\n| # | Action Item | Owner | Due | Status |\n|---|------------|-------|-----|--------|\n| 1 | Finalize Series A term sheet review | Sarah Chen (CEO) | Feb 15 | In Progress |\n| 2 | Present revised hiring plan for engineering | Marcus Webb (CTO) | Feb Board Meeting | Pending |\n| 3 | Deliver customer retention analysis | Priya Patel (VP Sales) | Feb 10 | Pending |\n| 4 | Complete SOC 2 Type II gap assessment | Marcus Webb (CTO) | Mar 1 | In Progress |\n| 5 | Negotiate renewal terms with Acme Corp | David Kim (Partnerships) | Jan 31 | Overdue |\n\n**Item #5 is overdue** -- the Acme Corp MOU renewal was due January 31st. The current MOU in our files still shows the original terms. This needs immediate attention.\n\n## Strategic Plan Cross-Reference\n\nThe strategic plan identifies three priorities for H1 2026:\n1. **Close Series A** -- Action item #1 aligns. On track.\n2. **Reach 50 enterprise customers** -- Action item #3 (retention analysis) supports this. Currently at 34 customers.\n3. **Achieve SOC 2 certification** -- Action item #4 aligns. Gap assessment in progress.\n\n## Draft Agenda for February Board Meeting\n\n**Greenfield Ventures -- Board of Directors Meeting**\n**February 18, 2026 | 2:00 PM PT | Virtual**\n\n1. **Call to Order & Approval of January Minutes** (5 min)\n\n2. **CEO Update** -- Sarah Chen (15 min)\n   - Series A fundraising status and term sheet update\n   - Key metrics dashboard review\n\n3. **Action Item Review** (10 min)\n   - Status of all open items from January meeting\n   - Escalation: Acme Corp MOU renewal (overdue)\n\n4. **Engineering Hiring Plan** -- Marcus Webb (15 min)\n   - Revised headcount plan per board request\n   - Contractor-to-FTE conversion proposal\n   - Infrastructure cost separation (per budget review)\n\n5. **Customer & Revenue Update** -- Priya Patel (15 min)\n   - Retention analysis findings\n   - Pipeline review: path to 50 enterprise customers\n   - CAC trends and channel mix optimization\n\n6. **Compliance & Security** -- Marcus Webb (10 min)\n   - SOC 2 Type II gap assessment progress\n   - Timeline to certification\n\n7. **Financial Review** -- CFO (10 min)\n   - Q4 2025 actuals vs budget\n   - 2026 budget adjustments (infrastructure line item)\n\n8. **New Business & Adjournment** (10 min)\n\nWant me to refine any section or add supporting details?"
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-02-07T08:03:00.000Z",
+      "role": "user",
+      "content": "For the Acme Corp MOU -- pull the key terms from the current agreement and summarize what needs to be renegotiated.",
+      "files": []
+    },
+    {
+      "timestamp": "2026-02-07T08:03:30.000Z",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "## Acme Corp MOU Summary\n\n**Current Agreement**: Signed June 15, 2025 | Expires June 14, 2026\n\n### Key Terms\n\n| Term | Current | Notes |\n|------|---------|-------|\n| Revenue Share | 15% of joint customer revenue | Below market (typical: 20-25%) |\n| Data Sharing | Aggregated analytics only | No PII exchange |\n| Exclusivity | Non-exclusive | Either party can partner with competitors |\n| Integration | API access to Acme's customer data pipeline | Rate-limited to 10K requests/day |\n| Support | Dedicated integration engineer from each side | Currently Marcus is covering this |\n| Renewal | 30-day written notice required | **Notice period passed without action** |\n\n### Renegotiation Points\n\n**1. Revenue Share (Priority: High)**\nThe 15% rate was set when we had no leverage. With 34 enterprise customers now using the joint integration, we should push for 20% or a tiered structure based on volume.\n\n**2. API Rate Limits (Priority: High)**\nThe 10K/day limit is constraining. Several enterprise customers have hit it. Need minimum 50K/day or usage-based scaling.\n\n**3. Auto-Renewal Clause (Priority: Medium)**\nAdd auto-renewal language to avoid this situation again. Standard: 1-year auto-renewal with 90-day opt-out notice.\n\n**4. Dedicated Support (Priority: Medium)**\nMarcus shouldn't be the integration engineer. Either Acme provides dedicated support or we hire for it (budget in engineering plan).\n\n**5. Exclusivity (Priority: Low)**\nConsider requesting a 6-month exclusivity window for new verticals we jointly enter. Gives us first-mover advantage.\n\n### Immediate Action Needed\n\nSince the 30-day notice period has passed without either party acting, the agreement technically auto-continues on current terms month-to-month (per Section 8.2). David Kim should send a formal amendment request letter this week to begin renegotiation while the existing terms remain in effect."
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-02-07T08:05:00.000Z",
+      "role": "user",
+      "content": "Add the Acme Corp renegotiation as a separate agenda item. Also check if there's anything in the investor email thread that should be on the board's radar.",
+      "files": []
+    },
+    {
+      "timestamp": "2026-02-07T08:05:30.000Z",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "## Updated Agenda Items\n\n**Add after Item 5:**\n\n> **5a. Acme Corp Partnership Renewal** -- David Kim (10 min)\n>    - Current MOU status (overdue renewal notice)\n>    - Proposed renegotiation terms: revenue share, API limits, support model\n>    - Board approval for amendment request\n>    - Timeline: send formal letter by Feb 21\n\n## Investor Thread Highlights\n\nFrom the February 7 investor email thread, two items warrant board attention:\n\n**1. Series A Lead Investor Concern -- Market Timing**\nThe lead investor (Ridge Capital) flagged concern about enterprise SaaS valuations compressing in Q1 2026. They're suggesting we consider closing at a lower valuation ($18M) faster rather than holding out for the $22M target. Sarah should brief the board on this trade-off.\n\n**Suggested agenda addition to Item 2 (CEO Update):**\n> - Series A valuation discussion: speed vs. target valuation\n> - Ridge Capital's market timing analysis\n\n**2. Follow-on Investor Interest**\nClearwater Ventures expressed interest in participating in the round after seeing our Q4 metrics. This could increase the round size but may complicate the cap table.\n\n**Suggested agenda addition to Item 2 (CEO Update):**\n> - Clearwater Ventures participation: round size implications\n\nBoth of these are time-sensitive given the February 15 term sheet deadline. The board should be prepared to make a decision on valuation target at this meeting."
+        }
+      ]
+    }
+  ],
+  "stats": {
+    "inputTokens": 4800,
+    "outputTokens": 2600,
+    "cacheReadTokens": 0,
+    "cacheCreationTokens": 0,
+    "costUsd": 0
+  },
+  "providerState": null
+}

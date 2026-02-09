@@ -1,0 +1,19 @@
+[
+  {
+    "taskId": "api-docs-check",
+    "taskName": "API Docs Sync",
+    "projectId": "proj-gf-platform",
+    "projectName": "Greenfield Platform",
+    "startedAt": "2026-02-07T06:00:01.000Z",
+    "status": "success",
+    "completedAt": "2026-02-07T06:00:22.000Z",
+    "response": "## API Documentation Sync Check\n\n**Routes scanned**: 12 endpoints across 3 route files\n**Documentation file**: docs/api.md\n\n### Undocumented Endpoints\n- `PUT /users/:id` -- Added in recent security review, not yet documented\n- `GET /users/search` -- Missing from docs entirely\n\n### Mismatched Documentation\n- `POST /register` -- Docs show `username` field, code expects `name`\n- `GET /users/:id` -- Docs show `password_hash` in response, code now strips it via `sanitizeUser()`\n\n**Action**: Update docs/api.md to reflect the 4 discrepancies above.",
+    "stats": {
+      "inputTokens": 1400,
+      "outputTokens": 480,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "costUsd": 0.007
+    }
+  }
+]

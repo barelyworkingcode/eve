@@ -1,0 +1,66 @@
+{
+  "sessionId": "sess-api-security",
+  "projectId": "proj-gf-platform",
+  "name": "API Security Review",
+  "directory": "showcase/projects/greenfield-platform",
+  "model": "sonnet",
+  "createdAt": "2026-02-05T10:30:00.000Z",
+  "messages": [
+    {
+      "timestamp": "2026-02-05T10:30:15.000Z",
+      "role": "user",
+      "content": "Review src/routes/users.js for security vulnerabilities. Focus on authentication, input validation, and data exposure risks.",
+      "files": []
+    },
+    {
+      "timestamp": "2026-02-05T10:30:45.000Z",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I'll review `src/routes/users.js` for security issues.\n\nI found several critical vulnerabilities:\n\n### 1. No Input Validation on User Registration (Line 12-25)\nThe `/register` endpoint accepts `req.body` fields directly without validation. An attacker could inject arbitrary fields, including `role: \"admin\"`, to escalate privileges.\n\n```javascript\n// VULNERABLE: No validation\nconst user = await db.createUser(req.body);\n```\n\n### 2. Sensitive Data Leakage (Line 31-38)\nThe `GET /users/:id` endpoint returns the full user object including `password_hash`, `email`, `internal_notes`, and `api_key`. These should never be exposed to the client.\n\n```javascript\n// VULNERABLE: Exposes everything\nres.json(user);\n```\n\n### 3. No Rate Limiting on Login (Line 42-58)\nThe `/login` endpoint has no rate limiting or account lockout mechanism. This makes it vulnerable to brute-force attacks.\n\n### 4. SQL Injection in Search (Line 65-72)\nThe `/users/search` endpoint interpolates `req.query.q` directly into the query string rather than using parameterized queries.\n\n```javascript\n// VULNERABLE: String interpolation\nconst results = await db.query(`SELECT * FROM users WHERE name LIKE '%${req.query.q}%'`);\n```\n\n### 5. Missing Authorization Checks (Line 78-85)\nThe `PUT /users/:id` endpoint allows any authenticated user to update any other user's profile. There's no check that `req.user.id === req.params.id`.\n\n### Risk Summary\n| Issue | Severity | Effort to Fix |\n|-------|----------|---------------|\n| Mass assignment on registration | Critical | Low |\n| Sensitive data leakage | High | Low |\n| No rate limiting on login | High | Medium |\n| SQL injection in search | Critical | Low |\n| Missing authorization | High | Low |"
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-02-05T10:32:00.000Z",
+      "role": "user",
+      "content": "Fix the mass assignment and data leakage issues first. Show me the corrected code.",
+      "files": []
+    },
+    {
+      "timestamp": "2026-02-05T10:32:30.000Z",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Here are the fixes for the two highest-priority issues:\n\n### Fix 1: Input Validation on Registration\n\nAdd a whitelist of allowed fields and validate input before creating the user:\n\n```javascript\nrouter.post('/register', async (req, res) => {\n  const { name, email, password } = req.body;\n\n  if (!name || !email || !password) {\n    return res.status(400).json({ error: 'Name, email, and password are required' });\n  }\n\n  if (!isValidEmail(email)) {\n    return res.status(400).json({ error: 'Invalid email format' });\n  }\n\n  if (password.length < 8) {\n    return res.status(400).json({ error: 'Password must be at least 8 characters' });\n  }\n\n  const user = await db.createUser({ name, email, password });\n  res.status(201).json(sanitizeUser(user));\n});\n```\n\n### Fix 2: Sanitize User Output\n\nCreate a `sanitizeUser` helper that strips sensitive fields:\n\n```javascript\nfunction sanitizeUser(user) {\n  const { password_hash, api_key, internal_notes, ...safe } = user;\n  return safe;\n}\n\nrouter.get('/users/:id', auth, async (req, res) => {\n  const user = await db.getUserById(req.params.id);\n  if (!user) return res.status(404).json({ error: 'User not found' });\n  res.json(sanitizeUser(user));\n});\n```\n\nApply `sanitizeUser()` to every endpoint that returns user data, including the search and list endpoints.\n\nI've also added the `auth` middleware to ensure only authenticated users can look up profiles. Want me to proceed with the SQL injection and rate limiting fixes next?"
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-02-05T10:33:45.000Z",
+      "role": "user",
+      "content": "Yes, fix the SQL injection too. For rate limiting, just recommend a package -- we'll implement that separately.",
+      "files": []
+    },
+    {
+      "timestamp": "2026-02-05T10:34:15.000Z",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "### Fix 3: SQL Injection in Search\n\nReplace string interpolation with parameterized queries:\n\n```javascript\nrouter.get('/users/search', auth, async (req, res) => {\n  const { q } = req.query;\n  if (!q || q.length < 2) {\n    return res.status(400).json({ error: 'Search query must be at least 2 characters' });\n  }\n\n  const results = await db.query(\n    'SELECT id, name, email, created_at FROM users WHERE name LIKE $1',\n    [`%${q}%`]\n  );\n  res.json(results);\n});\n```\n\nNote two changes:\n1. Using `$1` parameterized query instead of string interpolation\n2. Selecting only specific columns instead of `SELECT *` to avoid leaking sensitive fields at the query level\n\n### Rate Limiting Recommendation\n\nFor the login endpoint, I recommend `express-rate-limit`:\n\n```javascript\nconst rateLimit = require('express-rate-limit');\n\nconst loginLimiter = rateLimit({\n  windowMs: 15 * 60 * 1000, // 15 minutes\n  max: 5,\n  message: { error: 'Too many login attempts. Try again in 15 minutes.' },\n  standardHeaders: true,\n  keyGenerator: (req) => req.body.email || req.ip\n});\n\nrouter.post('/login', loginLimiter, async (req, res) => { ... });\n```\n\nUsing `email` as the key ensures lockout is per-account, not per-IP. This prevents distributed brute-force attacks while avoiding blocking legitimate users behind shared IPs."
+        }
+      ]
+    }
+  ],
+  "stats": {
+    "inputTokens": 4250,
+    "outputTokens": 2180,
+    "cacheReadTokens": 1200,
+    "cacheCreationTokens": 800,
+    "costUsd": 0.032
+  },
+  "providerState": null
+}
