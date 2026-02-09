@@ -1,16 +1,23 @@
 # Eve Workspace
 
-A multi-provider LLM web interface that provides a browser-based chat experience with persistent sessions.
+A multi-provider LLM web interface that provides a browser-based chat experience with persistent sessions, project grouping, integrated file editing, and a built-in terminal.
 
 ## Features
 
+- **Multi-provider support** - Claude CLI, Gemini CLI, and LM Studio (local HTTP) with persistent processes per session
+- **Projects** - Group sessions under named projects with a default model, directory path, and scheduled tasks
+- **File browser & editor** - Browse project files, edit with Monaco editor, rename/delete/move via context menu
+- **Integrated terminal** - Open a shell in the project directory directly from the UI
 - **Passkey authentication** - Secure access with WebAuthn passkeys (first visitor becomes owner)
-- **Projects** - Group sessions under named projects with a default model per project
-- **Persistent provider processes** - Maintains long-running LLM processes per session instead of spawning per message
-- **File attachments** - Drag/drop or click to attach text files to your prompts
-- **Session stats** - Real-time display of context usage % and session cost
-- **Multi-session support** - Create and switch between multiple concurrent sessions
+- **Session persistence** - Sessions survive server restarts; conversation state stored to disk
+- **File attachments** - Drag/drop, click, or paste files and images into prompts
+- **Scheduled tasks** - Define recurring prompts per project (daily, hourly, weekly, interval)
+- **Session stats** - Real-time context usage % and cost display
 - **Model switching** - Change models mid-session with `/model` command
+
+## Demo
+
+The `showcase/` directory contains sample projects, sessions, screenshots, and configuration files demonstrating the application. Copy `showcase/` to `data/` to explore the UI with pre-populated content.
 
 ## Requirements
 
@@ -22,7 +29,7 @@ A multi-provider LLM web interface that provides a browser-based chat experience
 
 ## Authentication
 
-Eve Workspace requires authentication credentials to use LLM providers. See [docs/authentication.md](docs/authentication.md) for detailed setup by provider.
+See [docs/authentication.md](docs/authentication.md) for detailed setup by provider.
 
 **Quick start:**
 - Claude: Set `ANTHROPIC_API_KEY` environment variable
@@ -249,13 +256,18 @@ Files are sent inline with your message wrapped in `<file name="...">` tags. Bin
 Each project has a built-in file browser. Click the folder icon in the project header to expand it.
 
 **Features:**
-- **Browse** - Click folders to expand/collapse, click files to open in the editor
+- **Browse** - Click folders to expand/collapse, click files to open in the Monaco editor
+- **Edit** - Monaco editor with syntax highlighting, inline save
 - **Rename** - Right-click a file or folder and select "Rename", or type directly inline
 - **Delete** - Right-click and select "Delete" (files go to system trash for recovery)
 - **New Folder** - Right-click and select "New Folder" to create a subdirectory
 - **Move** - Drag files or folders onto a directory to move them
 
 The file browser respects a whitelist of editable extensions (code, config, text files) and hides dotfiles.
+
+## Integrated Terminal
+
+Projects can open an interactive terminal directly in the UI. Click the terminal icon in the project header or use `/zsh` to launch a shell in the project directory. Powered by xterm.js on the client and node-pty on the server.
 
 ## Scheduled Tasks
 
@@ -289,23 +301,41 @@ The task scheduler watches for file changes and picks up updates automatically. 
 ## Architecture
 
 ```
-server.js          - Express + WebSocket server, session management
-auth.js            - WebAuthn passkey authentication service
+server.js              - Express + WebSocket server, HTTP/WS setup
+session-manager.js     - Session lifecycle, provider routing, command dispatch
+session-store.js       - Session persistence to disk
+routes.js              - HTTP route handlers
+auth.js                - WebAuthn passkey authentication
+file-service.js        - File I/O with path traversal protection
+file-handlers.js       - WebSocket adapter for file operations
+terminal-manager.js    - Server-side terminal management (node-pty)
+task-scheduler.js      - Recurring task execution engine
+
 providers/
-  llm-provider.js     - Base provider class
-  claude-provider.js  - Claude CLI integration
-  gemini-provider.js  - Gemini CLI integration
-  lmstudio-provider.js - LM Studio HTTP API integration
+  llm-provider.js        - Base provider class
+  claude-provider.js     - Claude CLI integration
+  gemini-provider.js     - Gemini CLI integration
+  lmstudio-provider.js   - LM Studio HTTP API integration
+
 public/
-  index.html       - Main page structure
-  app.js           - Client-side WebSocket handling and UI
-  auth.js          - Client-side WebAuthn authentication
-  styles.css       - Styling
-data/
-  auth.json            - Passkey credentials (created on enrollment)
-  settings.json        - Provider enable/disable settings (optional)
-  projects.json        - Persisted projects (created automatically)
-  lmstudio-config.json - LM Studio configuration (optional)
+  index.html             - Main page structure
+  app.js                 - Client application (WebSocket, UI state, rendering)
+  styles.css             - Styling
+  auth.js                - Client-side WebAuthn authentication
+  auth.css               - Authentication styling
+  tab-manager.js         - Sidebar tab management
+  file-browser.js        - File explorer UI
+  file-editor.js         - Monaco editor integration
+  terminal-manager.js    - xterm.js terminal UI
+
+test/
+  helpers/               - Shared mocks (MockWebSocket, createMockSession)
+  unit/                  - Pure logic tests (no external deps)
+  integration/           - Tests against real CLIs/servers (auto-skip if unavailable)
+
+docs/                    - Additional documentation (auth, HTTPS, tasks, provider guide)
+showcase/                - Sample projects, sessions, screenshots, and config for demo
+data/                    - Runtime data (gitignored): projects, sessions, settings, auth
 ```
 
 ### Provider System
@@ -320,6 +350,8 @@ Provider selection based on model name:
 - Models starting with "gemini" → GeminiProvider
 - Models in `lmstudio-config.json` → LMStudioProvider
 - All others → ClaudeProvider
+
+See [docs/adding a new provider.md](docs/adding%20a%20new%20provider.md) for implementation guide.
 
 ## Environment Variables
 
