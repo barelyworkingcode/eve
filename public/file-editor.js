@@ -3,6 +3,8 @@ class FileEditor {
     this.client = client;
     this.editor = null;
     this.currentFile = null; // { projectId, path, content, originalContent }
+    this.viewMode = 'split';
+    this._previewDebounce = null;
 
     this.initMonaco();
     this.initElements();
@@ -13,6 +15,11 @@ class FileEditor {
     this.editorContainer = document.getElementById('monacoEditor');
     this.saveBtn = document.getElementById('saveFileBtn');
     this.editorPath = document.getElementById('editorPath');
+    this.editorContentEl = document.getElementById('editor');
+    this.editorPanes = this.editorContentEl.querySelector('.editor-panes');
+    this.markdownPreview = document.getElementById('markdownPreview');
+    this.splitDivider = this.editorContentEl.querySelector('.editor-split-divider');
+    this.viewModeToggle = document.getElementById('viewModeToggle');
   }
 
   initEventListeners() {
@@ -30,6 +37,96 @@ class FileEditor {
         }
       }
     });
+
+    // View mode toggle buttons
+    this.viewModeToggle.addEventListener('click', (e) => {
+      const btn = e.target.closest('.view-mode-btn');
+      if (!btn) return;
+      this.setViewMode(btn.dataset.mode);
+    });
+
+    this.initSplitResize();
+  }
+
+  initSplitResize() {
+    let startX, startLeftWidth, startRightWidth;
+
+    const onMouseMove = (e) => {
+      const dx = e.clientX - startX;
+      const panesWidth = this.editorPanes.offsetWidth - this.splitDivider.offsetWidth;
+      let leftWidth = startLeftWidth + dx;
+      let rightWidth = startRightWidth - dx;
+
+      // Enforce minimums
+      if (leftWidth < 200) { leftWidth = 200; rightWidth = panesWidth - leftWidth; }
+      if (rightWidth < 200) { rightWidth = 200; leftWidth = panesWidth - rightWidth; }
+
+      this.editorContainer.style.flex = 'none';
+      this.editorContainer.style.width = leftWidth + 'px';
+      this.markdownPreview.style.flex = 'none';
+      this.markdownPreview.style.width = rightWidth + 'px';
+
+      if (this.editor) this.editor.layout();
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      this.splitDivider.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    this.splitDivider.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startLeftWidth = this.editorContainer.offsetWidth;
+      startRightWidth = this.markdownPreview.offsetWidth;
+      this.splitDivider.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+  }
+
+  isMarkdownFile() {
+    if (!this.currentFile) return false;
+    return /\.md$/i.test(this.currentFile.path);
+  }
+
+  setViewMode(mode) {
+    this.viewMode = mode;
+    this.editorContentEl.setAttribute('data-view-mode', mode);
+
+    // Update toggle button active states
+    this.viewModeToggle.querySelectorAll('.view-mode-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+
+    // Reset custom split widths when changing mode
+    this.editorContainer.style.flex = '';
+    this.editorContainer.style.width = '';
+    this.markdownPreview.style.flex = '';
+    this.markdownPreview.style.width = '';
+
+    // Layout editor when it becomes visible
+    if (mode !== 'preview' && this.editor) {
+      this.editor.layout();
+    }
+
+    // Update preview when it becomes visible
+    if (mode !== 'edit') {
+      this.updatePreview();
+    }
+  }
+
+  updatePreview() {
+    if (!this.currentFile || !this.editor) return;
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return;
+
+    const content = this.editor.getValue();
+    this.markdownPreview.innerHTML = DOMPurify.sanitize(marked.parse(content));
   }
 
   initMonaco() {
@@ -100,6 +197,12 @@ class FileEditor {
           this.currentFile.path,
           isModified
         );
+
+        // Debounced markdown preview update
+        if (this.isMarkdownFile() && this.viewMode !== 'edit') {
+          clearTimeout(this._previewDebounce);
+          this._previewDebounce = setTimeout(() => this.updatePreview(), 150);
+        }
       }
     });
   }
@@ -163,6 +266,20 @@ class FileEditor {
     // Update UI
     this.editorPath.textContent = path;
     this.saveBtn.disabled = true;
+
+    // Configure view mode based on file type
+    if (this.isMarkdownFile()) {
+      this.viewModeToggle.classList.remove('hidden');
+      this.setViewMode(this.viewMode);
+    } else {
+      this.viewModeToggle.classList.add('hidden');
+      this.editorContentEl.removeAttribute('data-view-mode');
+      // Reset any custom split widths
+      this.editorContainer.style.flex = '';
+      this.editorContainer.style.width = '';
+      this.markdownPreview.style.flex = '';
+      this.markdownPreview.style.width = '';
+    }
   }
 
   /**
