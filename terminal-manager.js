@@ -144,6 +144,15 @@ class TerminalManager {
     }
   }
 
+  killAll() {
+    for (const [id, terminal] of this.terminals) {
+      if (!terminal.exited) {
+        terminal.pty.kill();
+      }
+    }
+    this.terminals.clear();
+  }
+
   detachAll(ws) {
     for (const [terminalId, terminal] of this.terminals) {
       if (terminal.ws === ws) {
