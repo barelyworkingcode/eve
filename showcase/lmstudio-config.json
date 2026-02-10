@@ -2,9 +2,9 @@
   "baseUrl": "http://localhost:1234/v1",
   "models": [
     {
-      "id": "deepseek-coder-v2-lite",
-      "label": "DeepSeek Coder V2 Lite",
-      "contextWindow": 65536
+      "id": "qwen/qwen3-4b-2507",
+      "label": "Qwen 3 4B",
+      "contextWindow": 128000
     }
   ]
 }
