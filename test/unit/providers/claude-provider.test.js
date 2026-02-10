@@ -407,12 +407,78 @@ describe('ClaudeProvider', () => {
       expect(completeMsg).not.toBeNull();
     });
 
+    it('handles user event with array content (tool_result) without crashing', () => {
+      const spy = jest.spyOn(provider, 'sendEvent');
+
+      const event = {
+        type: 'user',
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 'tu_1', content: 'result text' }
+          ]
+        }
+      };
+
+      expect(() => provider.handleEvent(event)).not.toThrow();
+      // Should still forward the event via sendEvent
+      expect(spy).toHaveBeenCalledWith(event);
+      // Should not send system_message (no local-command-stdout match)
+      const sysMsg = session.ws.getLastMessage('system_message');
+      expect(sysMsg).toBeNull();
+    });
+
     it('forwards all events via sendEvent', () => {
       const spy = jest.spyOn(provider, 'sendEvent');
       const event = { type: 'result' };
 
       provider.handleEvent(event);
       expect(spy).toHaveBeenCalledWith(event);
+    });
+  });
+
+  describe('processLine', () => {
+    let provider, session;
+
+    beforeEach(() => {
+      ({ provider, session } = createTestProvider());
+    });
+
+    it('sends raw_output for non-JSON lines', () => {
+      provider.processLine('not valid json');
+
+      const msg = session.ws.getLastMessage('raw_output');
+      expect(msg).not.toBeNull();
+      expect(msg.text).toBe('not valid json');
+    });
+
+    it('does not send raw_output when handleEvent throws', () => {
+      jest.spyOn(provider, 'handleEvent').mockImplementation(() => {
+        throw new Error('simulated crash');
+      });
+
+      const validJson = JSON.stringify({ type: 'assistant', message: { content: [] } });
+      provider.processLine(validJson);
+
+      const rawMsgs = session.ws.getMessages('raw_output');
+      expect(rawMsgs).toHaveLength(0);
+    });
+
+    it('logs error to console when handleEvent throws', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      jest.spyOn(provider, 'handleEvent').mockImplementation(() => {
+        throw new Error('simulated crash');
+      });
+
+      const validJson = JSON.stringify({ type: 'user', message: { content: [] } });
+      provider.processLine(validJson);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[Claude] handleEvent error:',
+        'simulated crash',
+        'event type:',
+        'user'
+      );
+      consoleSpy.mockRestore();
     });
   });
 
