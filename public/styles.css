@@ -696,6 +696,34 @@ html, body {
   word-break: break-all;
 }
 
+/* Processing indicator */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  animation: fadeIn 0.2s ease;
+  align-self: flex-start;
+}
+
+.thinking-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.thinking-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* Input Area */
 .input-area {
   padding: 12px 16px;

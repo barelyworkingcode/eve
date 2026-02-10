@@ -555,10 +555,12 @@ class EveWorkspaceClient {
         break;
 
       case 'process_exited':
+        this.hideThinkingIndicator();
         this.appendSystemMessage('Provider process exited. Will restart on next message.');
         break;
 
       case 'error':
+        this.hideThinkingIndicator();
         this.appendSystemMessage(data.message, 'error');
         break;
 
@@ -571,6 +573,7 @@ class EveWorkspaceClient {
         break;
 
       case 'message_complete':
+        this.hideThinkingIndicator();
         this.finishAssistantMessage();
         break;
 
@@ -761,6 +764,7 @@ class EveWorkspaceClient {
   }
 
   startAssistantMessage(text) {
+    this.hideThinkingIndicator();
     this.finishAssistantMessage();
 
     const messageEl = document.createElement('div');
@@ -812,6 +816,7 @@ class EveWorkspaceClient {
   }
 
   appendToolUse(toolName, input) {
+    this.hideThinkingIndicator();
     this.finishAssistantMessage();
 
     const messageEl = document.createElement('div');
@@ -955,6 +960,21 @@ class EveWorkspaceClient {
     this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
   }
 
+  showThinkingIndicator() {
+    this.hideThinkingIndicator();
+    const el = document.createElement('div');
+    el.className = 'thinking-indicator';
+    el.id = 'thinkingIndicator';
+    el.innerHTML = '<div class="thinking-spinner"></div><span class="thinking-text">Thinking...</span>';
+    this.elements.messages.appendChild(el);
+    this.scrollToBottom();
+  }
+
+  hideThinkingIndicator() {
+    const el = document.getElementById('thinkingIndicator');
+    if (el) el.remove();
+  }
+
   handleSubmit(e) {
     e.preventDefault();
     const text = this.elements.userInput.value.trim();
@@ -971,6 +991,7 @@ class EveWorkspaceClient {
     this.autoResizeTextarea();
     this.hideInputPrompt();
     this.finishAssistantMessage();
+    this.showThinkingIndicator();
   }
 
   handleNewSession(e) {

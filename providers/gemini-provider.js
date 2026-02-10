@@ -99,10 +99,11 @@ class GeminiProvider extends LLMProvider {
 
       for (const line of lines) {
         if (line.trim()) {
+          let event;
           try {
-            const event = JSON.parse(line);
-            this.handleEvent(event);
+            event = JSON.parse(line);
           } catch (e) {
+            // Genuine non-JSON output
             if (this.session.ws && this.session.ws.readyState === 1) {
               this.session.ws.send(JSON.stringify({
                 type: 'raw_output',
@@ -110,6 +111,12 @@ class GeminiProvider extends LLMProvider {
                 text: line
               }));
             }
+            continue;
+          }
+          try {
+            this.handleEvent(event);
+          } catch (e) {
+            console.error('[Gemini] handleEvent error:', e.message, 'event type:', event.type);
           }
         }
       }
