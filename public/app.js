@@ -610,6 +610,10 @@ class EveWorkspaceClient {
         this.fileBrowser.handleDirectoryCreated(data.projectId, data.path, data.name);
         break;
 
+      case 'file_uploaded':
+        this.fileBrowser.handleFileUploaded(data.projectId, data.destDirectory, data.fileName);
+        break;
+
       case 'terminal_request':
         // Server is requesting we create a terminal (from /zsh, /claude, or /transfer-cli command)
         this.terminalManager.createTerminal(data.directory, data.command, data.args, data.sessionId);

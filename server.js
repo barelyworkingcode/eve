@@ -279,6 +279,10 @@ wss.on('connection', (ws, req) => {
           fileHandlers.deleteFile(ws, message);
           break;
 
+        case 'upload_file':
+          fileHandlers.uploadFile(ws, message);
+          break;
+
         case 'create_directory':
           fileHandlers.createDirectory(ws, message);
           break;
