@@ -168,6 +168,8 @@ app.use('/monaco', express.static(path.join(__dirname, 'node_modules/monaco-edit
 app.use('/xterm', express.static(path.join(__dirname, 'node_modules/@xterm/xterm')));
 app.use('/xterm-addon-fit', express.static(path.join(__dirname, 'node_modules/@xterm/addon-fit')));
 app.use('/xterm-addon-web-links', express.static(path.join(__dirname, 'node_modules/@xterm/addon-web-links')));
+app.use('/marked', express.static(path.join(__dirname, 'node_modules/marked')));
+app.use('/dompurify', express.static(path.join(__dirname, 'node_modules/dompurify/dist')));
 app.use(express.json({ limit: '50mb' }));
 
 // Register HTTP routes

@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
+  <script src="/marked/lib/marked.umd.js"></script>
+  <script src="/dompurify/purify.min.js"></script>
   <script src="/monaco/vs/loader.js"></script>
 </head>
 <body>
@@ -91,9 +93,18 @@
 
         <!-- Editor content area -->
         <div id="editor" class="editor-content hidden">
-          <div id="monacoEditor" class="monaco-editor"></div>
+          <div class="editor-panes">
+            <div id="monacoEditor" class="monaco-editor"></div>
+            <div class="editor-split-divider"></div>
+            <div id="markdownPreview" class="markdown-preview"></div>
+          </div>
           <div class="editor-status">
             <span id="editorPath" class="editor-path"></span>
+            <div id="viewModeToggle" class="view-mode-toggle hidden">
+              <button class="view-mode-btn active" data-mode="edit" title="Editor only">Edit</button>
+              <button class="view-mode-btn" data-mode="split" title="Split view">Split</button>
+              <button class="view-mode-btn" data-mode="preview" title="Preview only">Preview</button>
+            </div>
             <button id="saveFileBtn" class="btn-primary" disabled>Save</button>
           </div>
         </div>
