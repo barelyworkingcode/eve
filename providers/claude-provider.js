@@ -196,18 +196,7 @@ class ClaudeProvider extends LLMProvider {
 
       for (const line of lines) {
         if (line.trim()) {
-          try {
-            const event = JSON.parse(line);
-            this.handleEvent(event);
-          } catch (e) {
-            if (this.session.ws && this.session.ws.readyState === 1) {
-              this.session.ws.send(JSON.stringify({
-                type: 'raw_output',
-                sessionId: this.session.sessionId,
-                text: line
-              }));
-            }
-          }
+          this.processLine(line);
         }
       }
     });
@@ -422,6 +411,28 @@ ${f.content}
     }
   }
 
+  processLine(line) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (e) {
+      // Genuine non-JSON output
+      if (this.session.ws && this.session.ws.readyState === 1) {
+        this.session.ws.send(JSON.stringify({
+          type: 'raw_output',
+          sessionId: this.session.sessionId,
+          text: line
+        }));
+      }
+      return;
+    }
+    try {
+      this.handleEvent(event);
+    } catch (e) {
+      console.error('[Claude] handleEvent error:', e.message, 'event type:', event.type);
+    }
+  }
+
   handleEvent(event) {
     console.log('[Claude] handleEvent:', event.type);
 
@@ -462,7 +473,7 @@ ${f.content}
       }
     }
 
-    if (event.type === 'user' && event.message?.content) {
+    if (event.type === 'user' && typeof event.message?.content === 'string') {
       const content = event.message.content;
       const match = content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
       if (match) {
