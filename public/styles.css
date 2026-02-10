@@ -340,7 +340,8 @@ html, body {
   opacity: 0.5;
 }
 
-.file-tree-item.drop-target {
+.file-tree-item.drop-target,
+.file-tree.drop-target {
   outline: 2px dashed var(--accent);
   background: rgba(59, 130, 246, 0.1);
   border-radius: 4px;
