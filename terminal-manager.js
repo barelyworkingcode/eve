@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const pty = require('node-pty');
+const pidRegistry = require('./pid-registry');
 
 const TERMINAL_BUFFER_SIZE = 100000; // ~100KB scrollback per terminal
 
@@ -32,6 +33,8 @@ class TerminalManager {
       env: process.env
     });
 
+    pidRegistry.add(ptyProcess.pid);
+
     const terminal = {
       ws,
       pty: ptyProcess,
@@ -60,6 +63,7 @@ class TerminalManager {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
+      pidRegistry.remove(ptyProcess.pid);
       terminal.exited = true;
       terminal.exitCode = exitCode;
       const exitMsg = `\r\n\x1b[90m[Process Terminated]\x1b[0m\r\n`;
@@ -102,6 +106,7 @@ class TerminalManager {
   close(terminalId) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {
+      pidRegistry.remove(terminal.pty.pid);
       if (!terminal.exited) {
         terminal.pty.kill();
       }
@@ -146,6 +151,7 @@ class TerminalManager {
 
   killAll() {
     for (const [id, terminal] of this.terminals) {
+      pidRegistry.remove(terminal.pty.pid);
       if (!terminal.exited) {
         terminal.pty.kill();
       }

@@ -1,5 +1,6 @@
 const { spawn } = require('child_process');
 const LLMProvider = require('./llm-provider');
+const pidRegistry = require('../pid-registry');
 
 class GeminiProvider extends LLMProvider {
   constructor(session, config = {}) {
@@ -80,6 +81,9 @@ class GeminiProvider extends LLMProvider {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
+    const spawnedPid = this.geminiProcess.pid;
+    pidRegistry.add(spawnedPid);
+
     // Write content to stdin (add newline if not present)
     const contentWithNewline = content.endsWith('\n') ? content : content + '\n';
     this.geminiProcess.stdin.write(contentWithNewline);
@@ -140,6 +144,7 @@ class GeminiProvider extends LLMProvider {
         this.buffer = '';
       }
 
+      pidRegistry.remove(spawnedPid);
       this.geminiProcess = null;
 
       if (this.session.ws && this.session.ws.readyState === 1) {
@@ -153,6 +158,7 @@ class GeminiProvider extends LLMProvider {
 
     this.geminiProcess.on('error', (err) => {
       console.error('[ERROR]', err);
+      pidRegistry.remove(spawnedPid);
       this.geminiProcess = null;
       this.session.processing = false;
       if (this.session.ws && this.session.ws.readyState === 1) {
