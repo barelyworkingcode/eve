@@ -342,6 +342,35 @@ class FileBrowser {
 
     container.innerHTML = '';
     this.renderDirectoryContents(container, projectId, '/', tree.entries, 0);
+
+    // Attach root-level drop handlers for external file drops (once per container)
+    if (!container.dataset.dropInitialized) {
+      container.dataset.dropInitialized = 'true';
+
+      container.addEventListener('dragover', (e) => {
+        // Only handle external file drops on the container itself (not bubbled from children)
+        if (e.target !== container) return;
+        if (!this.dragState && e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          container.classList.add('drop-target');
+        }
+      });
+
+      container.addEventListener('dragleave', (e) => {
+        if (e.target !== container) return;
+        container.classList.remove('drop-target');
+      });
+
+      container.addEventListener('drop', (e) => {
+        if (e.target !== container) return;
+        e.preventDefault();
+        container.classList.remove('drop-target');
+        if (!this.dragState && e.dataTransfer.files.length > 0) {
+          this.handleExternalDrop(projectId, '/', e.dataTransfer.files);
+        }
+      });
+    }
   }
 
   /**
@@ -390,6 +419,10 @@ class FileBrowser {
           e.preventDefault();
           e.stopPropagation();
           if (this.dragState && this.dragState.path !== entryPath) {
+            e.dataTransfer.dropEffect = 'move';
+            item.classList.add('drop-target');
+          } else if (!this.dragState && e.dataTransfer.types.includes('Files')) {
+            e.dataTransfer.dropEffect = 'copy';
             item.classList.add('drop-target');
           }
         });
@@ -406,8 +439,10 @@ class FileBrowser {
           item.classList.remove('drop-target');
           if (this.dragState && this.dragState.projectId === projectId) {
             this.handleDrop(projectId, this.dragState.path, entryPath);
+            this.dragState = null;
+          } else if (!this.dragState && e.dataTransfer.files.length > 0) {
+            this.handleExternalDrop(projectId, entryPath, e.dataTransfer.files);
           }
-          this.dragState = null;
         });
 
         container.appendChild(item);
@@ -479,6 +514,83 @@ class FileBrowser {
       sourcePath,
       destDirectory
     }));
+  }
+
+  /**
+   * Handles files dropped from an external source (e.g. Finder)
+   */
+  async handleExternalDrop(projectId, destDirectory, fileList) {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+
+    for (const file of fileList) {
+      if (file.size > maxSize) {
+        const project = this.client.projects.get(projectId);
+        const projectName = project?.name || 'Unknown project';
+        this.client.appendSystemMessage(
+          `Skipped "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)}MB exceeds 10MB limit)`,
+          'error'
+        );
+        continue;
+      }
+
+      try {
+        const { data, encoding } = await this.readFileForUpload(file);
+        this.client.ws.send(JSON.stringify({
+          type: 'upload_file',
+          projectId,
+          destDirectory,
+          fileName: file.name,
+          content: data,
+          encoding
+        }));
+      } catch (err) {
+        this.client.appendSystemMessage(`Failed to read "${file.name}": ${err.message}`, 'error');
+      }
+    }
+  }
+
+  /**
+   * Reads a File object for upload. Returns { data, encoding }.
+   * Text files are read as UTF-8, binary files as base64.
+   */
+  readFileForUpload(file) {
+    const textTypes = [
+      'text/', 'application/json', 'application/xml', 'application/javascript',
+      'application/typescript', 'application/x-yaml', 'application/x-sh'
+    ];
+    const textExtensions = new Set([
+      'txt', 'md', 'json', 'yaml', 'yml', 'js', 'ts', 'jsx', 'tsx',
+      'css', 'scss', 'html', 'xml', 'svg', 'py', 'rb', 'go', 'rs',
+      'java', 'c', 'cpp', 'h', 'hpp', 'sh', 'bash', 'sql', 'toml',
+      'ini', 'conf', 'config', 'log', 'csv', 'env', 'gitignore', 'lock'
+    ]);
+
+    const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+    const isText = textTypes.some(t => file.type.startsWith(t)) || textExtensions.has(ext);
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('FileReader error'));
+
+      if (isText) {
+        reader.onload = (e) => resolve({ data: e.target.result, encoding: 'utf8' });
+        reader.readAsText(file);
+      } else {
+        reader.onload = (e) => {
+          // Strip the data URL prefix to get raw base64
+          const base64 = e.target.result.split(',')[1];
+          resolve({ data: base64, encoding: 'base64' });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+
+  /**
+   * Handles successful file upload response from server
+   */
+  handleFileUploaded(projectId, destDirectory, fileName) {
+    this.refreshDirectory(projectId, destDirectory);
   }
 
   /**

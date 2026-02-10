@@ -1,5 +1,6 @@
 const { spawn, execFile } = require('child_process');
 const LLMProvider = require('./llm-provider');
+const pidRegistry = require('../pid-registry');
 
 class ClaudeProvider extends LLMProvider {
   constructor(session, config = {}) {
@@ -181,6 +182,9 @@ class ClaudeProvider extends LLMProvider {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
+    const spawnedPid = this.claudeProcess.pid;
+    pidRegistry.add(spawnedPid);
+
     this.claudeProcess.stdout.on('data', (data) => {
       const chunk = data.toString();
       console.log('[STDOUT]', chunk);
@@ -222,6 +226,7 @@ class ClaudeProvider extends LLMProvider {
 
     this.claudeProcess.on('close', (code) => {
       console.log('[EXIT]', 'Provider process exited with code:', code);
+      pidRegistry.remove(spawnedPid);
       this.claudeProcess = null;
       this.stopActivityMonitor();
 
@@ -267,6 +272,7 @@ class ClaudeProvider extends LLMProvider {
 
     this.claudeProcess.on('error', (err) => {
       console.error('[ERROR]', err);
+      pidRegistry.remove(spawnedPid);
       this.claudeProcess = null;
       this.session.processing = false;
 
@@ -527,9 +533,35 @@ ${f.content}
 
   kill() {
     this.stopActivityMonitor();
-    if (this.claudeProcess) {
-      this.claudeProcess.kill();
+    if (!this.claudeProcess) return;
+
+    const proc = this.claudeProcess;
+
+    // Persist partial response and session state before killing
+    if (this.currentAssistantMessage) {
+      const textBlock = this.currentAssistantMessage.content.find(b => b.type === 'text');
+      if (textBlock && textBlock.text) {
+        this.currentAssistantMessage.incomplete = true;
+        this.session.messages.push(this.currentAssistantMessage);
+      }
+      this.currentAssistantMessage = null;
     }
+
+    this.session.providerState = this.getSessionState();
+    if (this.session.saveHistory) {
+      this.session.saveHistory();
+    }
+
+    // Close stdin first -- EOF is the cleanest signal for a pipe-based CLI
+    try { proc.stdin.end(); } catch (e) { /* already closed */ }
+
+    // SIGTERM, then SIGKILL after 3s if it doesn't exit
+    proc.kill('SIGTERM');
+    const killTimeout = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch (e) { /* already dead */ }
+    }, 3000);
+
+    proc.once('close', () => clearTimeout(killTimeout));
   }
 
   getMetadata() {
