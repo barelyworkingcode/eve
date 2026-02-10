@@ -527,9 +527,35 @@ ${f.content}
 
   kill() {
     this.stopActivityMonitor();
-    if (this.claudeProcess) {
-      this.claudeProcess.kill();
+    if (!this.claudeProcess) return;
+
+    const proc = this.claudeProcess;
+
+    // Persist partial response and session state before killing
+    if (this.currentAssistantMessage) {
+      const textBlock = this.currentAssistantMessage.content.find(b => b.type === 'text');
+      if (textBlock && textBlock.text) {
+        this.currentAssistantMessage.incomplete = true;
+        this.session.messages.push(this.currentAssistantMessage);
+      }
+      this.currentAssistantMessage = null;
     }
+
+    this.session.providerState = this.getSessionState();
+    if (this.session.saveHistory) {
+      this.session.saveHistory();
+    }
+
+    // Close stdin first -- EOF is the cleanest signal for a pipe-based CLI
+    try { proc.stdin.end(); } catch (e) { /* already closed */ }
+
+    // SIGTERM, then SIGKILL after 3s if it doesn't exit
+    proc.kill('SIGTERM');
+    const killTimeout = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch (e) { /* already dead */ }
+    }, 3000);
+
+    proc.once('close', () => clearTimeout(killTimeout));
   }
 
   getMetadata() {

@@ -2,6 +2,7 @@ const express = require('express');
 const { WebSocketServer } = require('ws');
 const { createServer } = require('http');
 const https = require('https');
+const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const SessionStore = require('./session-store');
@@ -372,4 +373,92 @@ server.listen(PORT, () => {
   }
 
   taskScheduler.start();
+  cleanupOrphanedProcesses();
+});
+
+// --- Startup orphan cleanup ---
+// Safety net for hard crashes (SIGKILL, OOM) where signal handlers didn't run.
+function cleanupOrphanedProcesses() {
+  const cliNames = ['claude', 'gemini'];
+  for (const name of cliNames) {
+    try {
+      // Find processes whose parent PID is 1 (orphaned after parent crash)
+      const output = execSync(
+        `pgrep -f "^.*/${name}\\b" -P 1 2>/dev/null || true`,
+        { encoding: 'utf8', timeout: 5000 }
+      ).trim();
+      if (!output) continue;
+
+      const pids = output.split('\n').filter(Boolean);
+      for (const pid of pids) {
+        try {
+          process.kill(parseInt(pid, 10), 'SIGTERM');
+          console.log(`[Cleanup] Killed orphaned ${name} process (PID ${pid})`);
+        } catch (e) {
+          // Process may have already exited
+        }
+      }
+    } catch (e) {
+      // pgrep not available or failed -- not critical
+    }
+  }
+}
+
+// --- Graceful shutdown ---
+let shuttingDown = false;
+
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n[Shutdown] ${signal} received, cleaning up...`);
+
+  // Force exit after 5s if graceful shutdown hangs
+  const forceExitTimeout = setTimeout(() => {
+    console.error('[Shutdown] Timed out, forcing exit');
+    process.exit(1);
+  }, 5000);
+  forceExitTimeout.unref();
+
+  // Kill all session providers and save state
+  for (const [id, session] of sessions) {
+    try {
+      if (session.provider) {
+        session.provider.kill();
+      }
+      sessionStore.save(session);
+    } catch (e) {
+      console.error(`[Shutdown] Error cleaning session ${id}:`, e.message);
+    }
+  }
+
+  // Kill all terminal PTY processes
+  try {
+    terminalManager.killAll();
+  } catch (e) {
+    console.error('[Shutdown] Error killing terminals:', e.message);
+  }
+
+  // Close all WebSocket connections
+  for (const client of wss.clients) {
+    try { client.close(1001, 'Server shutting down'); } catch (e) { /* ignore */ }
+  }
+
+  // Close HTTP server
+  server.close(() => {
+    console.log('[Shutdown] Complete');
+    process.exit(0);
+  });
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('uncaughtException', (err) => {
+  console.error('[Fatal] Uncaught exception:', err);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Warning] Unhandled rejection:', reason);
+  // Log but don't crash -- matches Node default behavior
 });
