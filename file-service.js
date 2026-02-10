@@ -282,6 +282,64 @@ class FileService {
   }
 
   /**
+   * Uploads a file (any type) to a directory.
+   * Unlike writeFile, does not enforce allowedExtensions.
+   */
+  async uploadFile(projectPath, destDirectory, fileName, content, encoding) {
+    const fullDestDir = this.validatePath(projectPath, destDirectory);
+
+    // Reject path separators in fileName
+    if (fileName.includes('/') || fileName.includes('\\')) {
+      throw new Error('File name cannot contain path separators');
+    }
+
+    // Reject dotfiles
+    if (fileName.startsWith('.')) {
+      throw new Error('Cannot upload dotfiles');
+    }
+
+    const fullPath = path.join(fullDestDir, fileName);
+
+    // Validate resolved path is within project
+    if (!fullPath.startsWith(path.resolve(projectPath))) {
+      throw new Error('Path traversal not allowed');
+    }
+
+    // Size limit (10MB, accounting for base64 ~33% overhead)
+    const maxUploadSize = this.maxFileSize;
+    const rawSize = encoding === 'base64'
+      ? Math.ceil(content.length * 3 / 4)
+      : Buffer.byteLength(content, 'utf8');
+    if (rawSize > maxUploadSize) {
+      throw new Error(`File too large (max ${maxUploadSize / 1024 / 1024}MB)`);
+    }
+
+    // Reject if file already exists
+    try {
+      await fs.access(fullPath);
+      throw new Error('A file with that name already exists');
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+
+    // Write file
+    try {
+      if (encoding === 'base64') {
+        await fs.writeFile(fullPath, Buffer.from(content, 'base64'));
+      } else {
+        await fs.writeFile(fullPath, content, 'utf8');
+      }
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        throw new Error('Destination directory not found');
+      } else if (err.code === 'EACCES') {
+        throw new Error('Permission denied');
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Creates a new directory
    */
   async createDirectory(projectPath, parentPath, name) {

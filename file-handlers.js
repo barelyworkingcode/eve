@@ -92,6 +92,19 @@ class FileHandlers {
     }
   }
 
+  async uploadFile(ws, message) {
+    const { projectId, destDirectory, fileName, content, encoding } = message;
+    const project = this._resolveProject(projectId);
+    if (!project) return this._sendError(ws, projectId, destDirectory, 'Project not found');
+
+    try {
+      await this.fileService.uploadFile(project.path, destDirectory, fileName, content, encoding);
+      ws.send(JSON.stringify({ type: 'file_uploaded', projectId, destDirectory, fileName }));
+    } catch (err) {
+      this._sendError(ws, projectId, destDirectory, err.message);
+    }
+  }
+
   async createDirectory(ws, message) {
     const { projectId, parentPath, name } = message;
     const project = this._resolveProject(projectId);
