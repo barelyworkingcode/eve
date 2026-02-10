@@ -1,5 +1,6 @@
 const { spawn, execFile } = require('child_process');
 const LLMProvider = require('./llm-provider');
+const pidRegistry = require('../pid-registry');
 
 class ClaudeProvider extends LLMProvider {
   constructor(session, config = {}) {
@@ -181,6 +182,9 @@ class ClaudeProvider extends LLMProvider {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
+    const spawnedPid = this.claudeProcess.pid;
+    pidRegistry.add(spawnedPid);
+
     this.claudeProcess.stdout.on('data', (data) => {
       const chunk = data.toString();
       console.log('[STDOUT]', chunk);
@@ -222,6 +226,7 @@ class ClaudeProvider extends LLMProvider {
 
     this.claudeProcess.on('close', (code) => {
       console.log('[EXIT]', 'Provider process exited with code:', code);
+      pidRegistry.remove(spawnedPid);
       this.claudeProcess = null;
       this.stopActivityMonitor();
 
@@ -267,6 +272,7 @@ class ClaudeProvider extends LLMProvider {
 
     this.claudeProcess.on('error', (err) => {
       console.error('[ERROR]', err);
+      pidRegistry.remove(spawnedPid);
       this.claudeProcess = null;
       this.session.processing = false;
 

@@ -2,7 +2,6 @@ const express = require('express');
 const { WebSocketServer } = require('ws');
 const { createServer } = require('http');
 const https = require('https');
-const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const SessionStore = require('./session-store');
@@ -12,6 +11,7 @@ const TerminalManager = require('./terminal-manager');
 const FileHandlers = require('./file-handlers');
 const SessionManager = require('./session-manager');
 const registerRoutes = require('./routes');
+const pidRegistry = require('./pid-registry');
 
 const app = express();
 
@@ -377,31 +377,39 @@ server.listen(PORT, () => {
 });
 
 // --- Startup orphan cleanup ---
-// Safety net for hard crashes (SIGKILL, OOM) where signal handlers didn't run.
+// Kill only processes that Eve previously spawned (tracked via pid-registry).
 function cleanupOrphanedProcesses() {
-  const cliNames = ['claude', 'gemini'];
-  for (const name of cliNames) {
-    try {
-      // Find processes whose parent PID is 1 (orphaned after parent crash)
-      const output = execSync(
-        `pgrep -f "^.*/${name}\\b" -P 1 2>/dev/null || true`,
-        { encoding: 'utf8', timeout: 5000 }
-      ).trim();
-      if (!output) continue;
+  const pids = pidRegistry.getAll();
+  if (!pids.length) return;
 
-      const pids = output.split('\n').filter(Boolean);
-      for (const pid of pids) {
-        try {
-          process.kill(parseInt(pid, 10), 'SIGTERM');
-          console.log(`[Cleanup] Killed orphaned ${name} process (PID ${pid})`);
-        } catch (e) {
-          // Process may have already exited
-        }
-      }
+  console.log(`[Cleanup] Found ${pids.length} tracked PIDs from previous run`);
+  const alive = [];
+
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      alive.push(pid);
+      console.log(`[Cleanup] Sent SIGTERM to orphaned process (PID ${pid})`);
     } catch (e) {
-      // pgrep not available or failed -- not critical
+      // ESRCH = process doesn't exist, already gone
     }
   }
+
+  if (alive.length) {
+    setTimeout(() => {
+      for (const pid of alive) {
+        try {
+          process.kill(pid, 0); // check if still alive
+          process.kill(pid, 'SIGKILL');
+          console.log(`[Cleanup] Force-killed process (PID ${pid})`);
+        } catch (e) {
+          // Already exited after SIGTERM
+        }
+      }
+    }, 2000);
+  }
+
+  pidRegistry.clear();
 }
 
 // --- Graceful shutdown ---
@@ -437,6 +445,9 @@ function gracefulShutdown(signal) {
   } catch (e) {
     console.error('[Shutdown] Error killing terminals:', e.message);
   }
+
+  // Clear PID registry -- all tracked processes have been killed above
+  pidRegistry.clear();
 
   // Close all WebSocket connections
   for (const client of wss.clients) {
