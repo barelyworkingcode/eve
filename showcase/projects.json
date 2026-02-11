@@ -4,14 +4,14 @@
       "id": "proj-gf-platform",
       "name": "Greenfield Platform",
       "path": "showcase/projects/greenfield-platform",
-      "model": "sonnet",
+      "model": "haiku",
       "createdAt": "2026-01-15T09:00:00.000Z"
     },
     {
       "id": "proj-gf-operations",
       "name": "Greenfield Operations",
       "path": "showcase/projects/greenfield-operations",
-      "model": "deepseek-coder-v2-lite",
+      "model": "qwen/qwen3-4b-2507",
       "createdAt": "2026-01-20T14:00:00.000Z"
     }
   ]
