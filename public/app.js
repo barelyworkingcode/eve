@@ -1278,6 +1278,7 @@ class EveWorkspaceClient {
       for (const session of sessions) {
         const li = document.createElement('li');
         li.className = `session-item ${session.id === this.currentSessionId ? 'active' : ''}`;
+        li.dataset.sessionId = session.id;
         li.innerHTML = `
           <div class="session-name" title="${this.escapeHtml(session.directory)}">${this.escapeHtml(this.getSessionDisplayName(session.id))}</div>
           <div class="session-actions">
@@ -1357,6 +1358,7 @@ class EveWorkspaceClient {
       for (const session of ungroupedSessions) {
         const li = document.createElement('li');
         li.className = `session-item ${session.id === this.currentSessionId ? 'active' : ''}`;
+        li.dataset.sessionId = session.id;
         li.innerHTML = `
           <div class="session-name" title="${this.escapeHtml(session.directory)}">${this.escapeHtml(this.getSessionDisplayName(session.id))}</div>
           <div class="session-actions">
@@ -1425,6 +1427,9 @@ class EveWorkspaceClient {
       if (!this.renamingSessionId) return;
       this.renamingSessionId = null;
       const newName = input.value.trim();
+      // Optimistic update: apply name locally before server round-trip
+      const session = this.sessions.get(sessionId);
+      if (session) session.name = newName || null;
       this.ws.send(JSON.stringify({
         type: 'rename_session',
         sessionId,
