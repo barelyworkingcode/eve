@@ -9,3 +9,6 @@
 data/
 certs/
 coverage/
+e2e/.test-env.json
+test-results/
+playwright-report/

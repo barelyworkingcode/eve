@@ -11,7 +11,9 @@
     "test:unit": "jest --selectProjects unit",
     "test:integration": "jest --selectProjects integration",
     "test:all": "jest",
-    "test:watch": "jest --selectProjects unit --watch"
+    "test:watch": "jest --selectProjects unit --watch",
+    "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
+    "test:e2e:video": "npx playwright test --config e2e/playwright.video.config.ts"
   },
   "dependencies": {
     "@simplewebauthn/server": "^13.2.2",
@@ -28,6 +30,7 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "jest": "^30.2.0"
   }
 }

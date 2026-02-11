@@ -270,6 +270,7 @@ class TabManager {
     for (const tab of this.tabs) {
       const tabEl = document.createElement('div');
       tabEl.className = 'tab';
+      tabEl.dataset.tabId = tab.id;
       if (tab.id === this.activeTabId) {
         tabEl.classList.add('active');
       }
