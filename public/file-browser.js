@@ -335,14 +335,6 @@ class FileBrowser {
       return;
     }
 
-    if (!tree.entries || tree.entries.length === 0) {
-      container.innerHTML = '<div class="file-tree-empty">Empty directory</div>';
-      return;
-    }
-
-    container.innerHTML = '';
-    this.renderDirectoryContents(container, projectId, '/', tree.entries, 0);
-
     // Attach root-level drop handlers for external file drops (once per container)
     if (!container.dataset.dropInitialized) {
       container.dataset.dropInitialized = 'true';
@@ -371,6 +363,14 @@ class FileBrowser {
         }
       });
     }
+
+    if (!tree.entries || tree.entries.length === 0) {
+      container.innerHTML = '<div class="file-tree-empty">Empty directory</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    this.renderDirectoryContents(container, projectId, '/', tree.entries, 0);
   }
 
   /**

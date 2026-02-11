@@ -3,6 +3,7 @@
 Multi-provider LLM web interface with persistent sessions, project grouping, and real-time stats.
 
 **See also**: [docs/learned.md](docs/learned.md) - Common pitfalls and patterns discovered during development.
+**Test index**: [docs/testindex.md](docs/testindex.md) - Quick-reference index of all unit, integration, and E2E tests.
 
 ## Enterprise Development Standards
 
