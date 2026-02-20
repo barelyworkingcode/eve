@@ -132,6 +132,16 @@ node server.js --data ../shared-data
 npm start -- --data /custom/path
 ```
 
+## Relay Registration
+
+Register Eve as a [Relay](https://relay.app) service so it launches automatically:
+
+```bash
+npm run register
+```
+
+This requires the Relay macOS app installed at `/Applications/Relay.app`. The service registers with autostart enabled on `http://localhost:3000`.
+
 ## Testing
 
 ```bash

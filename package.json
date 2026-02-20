@@ -13,7 +13,8 @@
     "test:all": "jest",
     "test:watch": "jest --selectProjects unit --watch",
     "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
-    "test:e2e:video": "npx playwright test --config e2e/playwright.video.config.ts"
+    "test:e2e:video": "npx playwright test --config e2e/playwright.video.config.ts",
+    "register": "/Applications/Relay.app/Contents/MacOS/relay service register --name Eve --command node --args server.js --workdir . --url http://localhost:3000 --autostart"
   },
   "dependencies": {
     "@simplewebauthn/server": "^13.2.2",
