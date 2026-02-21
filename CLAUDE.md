@@ -337,6 +337,7 @@ this.sessions              // Map of all sessions
 this.projects              // Map of all projects
 this.attachedFiles         // Pending file attachments
 this.confirmCallback       // Current confirmation modal callback
+this.editingTask           // { projectId, taskId } when editing a task
 ```
 
 ### UI Patterns
@@ -345,6 +346,8 @@ this.confirmCallback       // Current confirmation modal callback
 - Session creation modal (`#modal`)
 - Project creation modal (`#projectModal`)
 - Confirmation modal (`#confirmModal`)
+- Tasks list modal (`#tasksModal`)
+- Task create/edit modal (`#taskFormModal`)
 - All follow same pattern: backdrop click closes, focus management, hidden class toggle
 
 **Sidebar Hierarchy**

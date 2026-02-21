@@ -345,7 +345,7 @@ taskScheduler.on('run_task', async ({ projectId, task, callback }) => {
   }
 
   try {
-    const result = await sessionManager.executeHeadlessTask(project, task.model, task.prompt);
+    const result = await sessionManager.executeHeadlessTask(project, task.model, task.prompt, task.args || []);
     callback(null, result);
   } catch (err) {
     callback(err);

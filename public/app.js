@@ -13,6 +13,7 @@ class EveWorkspaceClient {
     this.renamingSessionId = null; // Session currently being renamed inline
     this.scheduledTasks = []; // All scheduled tasks
     this.taskHistory = new Map(); // projectId:taskId -> executions
+    this.editingTask = null; // { projectId, taskId } when editing
 
     // Check auth before initializing
     this.authClient = new AuthClient();
@@ -92,7 +93,20 @@ class EveWorkspaceClient {
       closeTasksModal: document.getElementById('closeTasksModal'),
       taskResultName: document.getElementById('taskResultName'),
       taskResultMeta: document.getElementById('taskResultMeta'),
-      taskResultBody: document.getElementById('taskResultBody')
+      taskResultBody: document.getElementById('taskResultBody'),
+      newTaskBtn: document.getElementById('newTaskBtn'),
+      taskFormModal: document.getElementById('taskFormModal'),
+      taskFormTitle: document.getElementById('taskFormTitle'),
+      taskForm: document.getElementById('taskForm'),
+      taskNameInput: document.getElementById('taskNameInput'),
+      taskPromptInput: document.getElementById('taskPromptInput'),
+      taskScheduleType: document.getElementById('taskScheduleType'),
+      taskScheduleConfig: document.getElementById('taskScheduleConfig'),
+      taskModelSelect: document.getElementById('taskModelSelect'),
+      taskArgsInput: document.getElementById('taskArgsInput'),
+      taskEnabledCheck: document.getElementById('taskEnabledCheck'),
+      taskDeleteBtn: document.getElementById('taskDeleteBtn'),
+      cancelTaskForm: document.getElementById('cancelTaskForm')
     };
   }
 
@@ -180,6 +194,24 @@ class EveWorkspaceClient {
     if (this.elements.closeTasksModal) {
       this.elements.closeTasksModal.addEventListener('click', () => this.hideTasksModal());
       this.elements.tasksModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideTasksModal());
+    }
+
+    // Task form modal
+    if (this.elements.newTaskBtn) {
+      this.elements.newTaskBtn.addEventListener('click', () => this.showTaskForm());
+    }
+    if (this.elements.cancelTaskForm) {
+      this.elements.cancelTaskForm.addEventListener('click', () => this.hideTaskForm());
+      this.elements.taskFormModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideTaskForm());
+    }
+    if (this.elements.taskForm) {
+      this.elements.taskForm.addEventListener('submit', (e) => this.handleTaskFormSubmit(e));
+    }
+    if (this.elements.taskScheduleType) {
+      this.elements.taskScheduleType.addEventListener('change', () => this.renderScheduleConfig());
+    }
+    if (this.elements.taskDeleteBtn) {
+      this.elements.taskDeleteBtn.addEventListener('click', () => this.handleTaskDelete());
     }
   }
 
@@ -1566,21 +1598,221 @@ class EveWorkspaceClient {
     this.currentTasksProjectId = null;
   }
 
+  showTaskForm(task = null) {
+    this.populateTaskModelSelect();
+
+    if (task) {
+      // Edit mode
+      this.editingTask = { projectId: this.currentTasksProjectId, taskId: task.id };
+      this.elements.taskFormTitle.textContent = 'Edit Task';
+      this.elements.taskNameInput.value = task.name;
+      this.elements.taskPromptInput.value = task.prompt || '';
+      this.elements.taskScheduleType.value = task.schedule?.type || 'daily';
+      this.elements.taskModelSelect.value = task.model || '';
+      this.elements.taskArgsInput.value = (task.args || []).join(' ');
+      this.elements.taskEnabledCheck.checked = task.enabled !== false;
+      this.elements.taskDeleteBtn.classList.remove('hidden');
+    } else {
+      // Create mode
+      this.editingTask = null;
+      this.elements.taskFormTitle.textContent = 'New Task';
+      this.elements.taskNameInput.value = '';
+      this.elements.taskPromptInput.value = '';
+      this.elements.taskScheduleType.value = 'daily';
+      this.elements.taskModelSelect.value = '';
+      this.elements.taskArgsInput.value = '';
+      this.elements.taskEnabledCheck.checked = true;
+      this.elements.taskDeleteBtn.classList.add('hidden');
+    }
+
+    this.renderScheduleConfig(task?.schedule);
+    this.elements.taskFormModal.classList.remove('hidden');
+    this.elements.taskNameInput.focus();
+  }
+
+  hideTaskForm() {
+    this.elements.taskFormModal.classList.add('hidden');
+    this.editingTask = null;
+  }
+
+  populateTaskModelSelect() {
+    const select = this.elements.taskModelSelect;
+    select.innerHTML = '<option value="">Use project default</option>';
+
+    const groups = {};
+    for (const model of this.models) {
+      if (!groups[model.group]) groups[model.group] = [];
+      groups[model.group].push(model);
+    }
+
+    for (const [groupName, models] of Object.entries(groups)) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = groupName;
+      for (const model of models) {
+        const option = document.createElement('option');
+        option.value = model.value;
+        option.textContent = model.label;
+        optgroup.appendChild(option);
+      }
+      select.appendChild(optgroup);
+    }
+  }
+
+  renderScheduleConfig(schedule = null) {
+    const type = this.elements.taskScheduleType.value;
+    const container = this.elements.taskScheduleConfig;
+
+    switch (type) {
+      case 'daily':
+        container.innerHTML = `
+          <label for="taskScheduleTime">Time (HH:MM)</label>
+          <input type="time" id="taskScheduleTime" value="${schedule?.time || '09:00'}">
+        `;
+        break;
+      case 'hourly':
+        container.innerHTML = `
+          <label for="taskScheduleMinute">Minute of hour</label>
+          <input type="number" id="taskScheduleMinute" min="0" max="59" value="${schedule?.minute ?? 0}">
+        `;
+        break;
+      case 'interval':
+        container.innerHTML = `
+          <label for="taskScheduleMinutes">Every N minutes</label>
+          <input type="number" id="taskScheduleMinutes" min="1" value="${schedule?.minutes || 60}">
+        `;
+        break;
+      case 'weekly':
+        container.innerHTML = `
+          <label for="taskScheduleDay">Day of week</label>
+          <select id="taskScheduleDay">
+            ${['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d =>
+              `<option value="${d.toLowerCase()}" ${(schedule?.day || 'monday') === d.toLowerCase() ? 'selected' : ''}>${d}</option>`
+            ).join('')}
+          </select>
+          <label for="taskScheduleTime">Time (HH:MM)</label>
+          <input type="time" id="taskScheduleTime" value="${schedule?.time || '09:00'}">
+        `;
+        break;
+      case 'cron':
+        container.innerHTML = `
+          <label for="taskScheduleCron">Cron expression (min hour day month weekday)</label>
+          <input type="text" id="taskScheduleCron" placeholder="0 9 * * *" value="${schedule?.expression || ''}">
+        `;
+        break;
+    }
+  }
+
+  getScheduleFromForm() {
+    const type = this.elements.taskScheduleType.value;
+    switch (type) {
+      case 'daily':
+        return { type: 'daily', time: document.getElementById('taskScheduleTime')?.value || '09:00' };
+      case 'hourly':
+        return { type: 'hourly', minute: parseInt(document.getElementById('taskScheduleMinute')?.value || '0') };
+      case 'interval':
+        return { type: 'interval', minutes: parseInt(document.getElementById('taskScheduleMinutes')?.value || '60') };
+      case 'weekly':
+        return {
+          type: 'weekly',
+          day: document.getElementById('taskScheduleDay')?.value || 'monday',
+          time: document.getElementById('taskScheduleTime')?.value || '09:00'
+        };
+      case 'cron':
+        return { type: 'cron', expression: document.getElementById('taskScheduleCron')?.value || '' };
+      default:
+        return { type: 'daily', time: '09:00' };
+    }
+  }
+
+  parseArgsString(str) {
+    if (!str || !str.trim()) return [];
+    const args = [];
+    const regex = /(?:[^\s"']+|"[^"]*"|'[^']*')+/g;
+    let match;
+    while ((match = regex.exec(str)) !== null) {
+      let val = match[0];
+      // Strip surrounding quotes
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      args.push(val);
+    }
+    return args;
+  }
+
+  async handleTaskFormSubmit(e) {
+    e.preventDefault();
+    const projectId = this.currentTasksProjectId;
+    if (!projectId) return;
+
+    const taskData = {
+      name: this.elements.taskNameInput.value.trim(),
+      prompt: this.elements.taskPromptInput.value.trim(),
+      schedule: this.getScheduleFromForm(),
+      model: this.elements.taskModelSelect.value || null,
+      args: this.parseArgsString(this.elements.taskArgsInput.value),
+      enabled: this.elements.taskEnabledCheck.checked
+    };
+
+    try {
+      if (this.editingTask) {
+        // Update existing task
+        await fetch(`/api/tasks/${projectId}/${this.editingTask.taskId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
+          body: JSON.stringify(taskData)
+        });
+      } else {
+        // Create new task
+        await fetch(`/api/tasks/${projectId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
+          body: JSON.stringify(taskData)
+        });
+      }
+
+      this.hideTaskForm();
+      await this.loadScheduledTasks();
+      this.renderTasksPanel(projectId);
+    } catch (err) {
+      console.error('Failed to save task:', err);
+    }
+  }
+
+  handleTaskDelete() {
+    if (!this.editingTask) return;
+    const { projectId, taskId } = this.editingTask;
+
+    this.hideTaskForm();
+    this.showConfirmModal('Delete this task? This cannot be undone.', async () => {
+      try {
+        await fetch(`/api/tasks/${projectId}/${taskId}`, {
+          method: 'DELETE',
+          headers: this.getAuthHeaders()
+        });
+        await this.loadScheduledTasks();
+        this.renderTasksPanel(projectId);
+      } catch (err) {
+        console.error('Failed to delete task:', err);
+      }
+    });
+  }
+
   renderTasksPanel(projectId) {
     const tasks = this.scheduledTasks.filter(t => t.projectId === projectId);
 
     if (tasks.length === 0) {
       this.elements.tasksList.innerHTML = `
         <div class="tasks-empty">
-          No scheduled tasks. Create a <code>.tasks.json</code> file in the project root.
+          No scheduled tasks. Click "New Task" to create one.
         </div>
       `;
       return;
     }
 
     this.elements.tasksList.innerHTML = tasks.map(task => `
-      <div class="task-item" data-task-id="${task.id}">
-        <div class="task-info">
+      <div class="task-item task-item-clickable" data-task-id="${task.id}">
+        <div class="task-info" data-action="edit">
           <div class="task-name">${this.escapeHtml(task.name)}</div>
           <div class="task-schedule">${this.formatSchedule(task.schedule)}</div>
           ${task.nextRun ? `<div class="task-next-run">Next: ${this.formatRelativeTime(task.nextRun)}</div>` : ''}
@@ -1599,6 +1831,11 @@ class EveWorkspaceClient {
     // Add event listeners
     this.elements.tasksList.querySelectorAll('.task-item').forEach(item => {
       const taskId = item.dataset.taskId;
+      const task = tasks.find(t => t.id === taskId);
+
+      item.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
+        if (task) this.showTaskForm(task);
+      });
 
       item.querySelector('[data-action="toggle"]')?.addEventListener('change', (e) => {
         this.handleTaskToggle(projectId, taskId, e.target.checked);

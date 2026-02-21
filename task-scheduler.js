@@ -391,6 +391,7 @@ class TaskScheduler extends EventEmitter {
             schedule: task.schedule,
             enabled: task.enabled !== false,
             model: task.model,
+            args: task.args || [],
             createdAt: task.createdAt,
             projectId,
             projectName: project.name,
@@ -430,6 +431,75 @@ class TaskScheduler extends EventEmitter {
 
     // File watcher will reload tasks
     return data.tasks[taskIndex];
+  }
+
+  createTask(projectId, taskData) {
+    const project = this.projects.get(projectId);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const tasksFile = path.join(project.path, TASKS_FILENAME);
+    let data = { tasks: [] };
+
+    if (fs.existsSync(tasksFile)) {
+      data = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+      if (!Array.isArray(data.tasks)) data.tasks = [];
+    }
+
+    // Generate id from name: slugify and dedupe
+    let baseId = taskData.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    if (!baseId) baseId = 'task';
+
+    let id = baseId;
+    let counter = 1;
+    while (data.tasks.some(t => t.id === id)) {
+      id = `${baseId}-${++counter}`;
+    }
+
+    const task = {
+      id,
+      name: taskData.name,
+      prompt: taskData.prompt,
+      schedule: taskData.schedule,
+      enabled: taskData.enabled !== false,
+      model: taskData.model || null,
+      args: Array.isArray(taskData.args) ? taskData.args : [],
+      createdAt: new Date().toISOString()
+    };
+
+    data.tasks.push(task);
+    fs.writeFileSync(tasksFile, JSON.stringify(data, null, 2));
+
+    // File watcher will reload tasks
+    return task;
+  }
+
+  deleteTask(projectId, taskId) {
+    const project = this.projects.get(projectId);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const tasksFile = path.join(project.path, TASKS_FILENAME);
+    if (!fs.existsSync(tasksFile)) {
+      throw new Error('No tasks file found');
+    }
+
+    const data = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+
+    if (taskIndex === -1) {
+      throw new Error('Task not found');
+    }
+
+    data.tasks.splice(taskIndex, 1);
+    fs.writeFileSync(tasksFile, JSON.stringify(data, null, 2));
+
+    // File watcher will reload tasks
   }
 
   runTaskNow(projectId, taskId) {

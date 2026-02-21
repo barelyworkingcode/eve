@@ -2033,6 +2033,54 @@ html, body {
   margin-bottom: 12px;
 }
 
+/* Task form */
+.task-prompt-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+  margin-bottom: 12px;
+}
+
+.task-prompt-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.task-form-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.task-form-toggle > label:first-child {
+  margin-bottom: 0;
+}
+
+.task-item-clickable {
+  cursor: pointer;
+}
+
+.task-item-clickable:hover {
+  background: var(--bg-hover);
+}
+
+#taskScheduleConfig {
+  margin-bottom: 12px;
+}
+
+#taskScheduleConfig input,
+#taskScheduleConfig select {
+  margin-top: 6px;
+}
+
 /* Small mobile */
 @media (max-width: 380px) {
   .chat-header {
