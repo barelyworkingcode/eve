@@ -134,7 +134,7 @@ npm start -- --data /custom/path
 
 ## Relay Registration
 
-Register Eve as a [Relay](https://relay.app) service so it launches automatically:
+Register Eve as a [Relay](https://github.com/barelyworkingcode/relay) service so it launches automatically:
 
 ```bash
 npm run register
@@ -379,6 +379,13 @@ See [docs/adding a new provider.md](docs/adding%20a%20new%20provider.md) for imp
 | `HTTPS_KEY` | - | Path to SSL private key file (enables HTTPS) |
 | `HTTPS_CERT` | - | Path to SSL certificate file (enables HTTPS) |
 | `EVE_NO_AUTH` | - | Set to `1` to disable passkey authentication |
+
+## Related Projects
+
+Eve is part of a trio of projects that combine to give LLMs secure access to macOS. Each works independently, but together they form a complete stack: **Eve** provides the LLM chat interface, **Relay** handles orchestration and security, and **macMCP** exposes native macOS capabilities. With all three running, an LLM session in Eve can read your mail, check your calendar, or send an iMessage -- with Relay controlling which projects get access to which tools.
+
+- **[Relay](https://github.com/barelyworkingcode/relay)** -- MCP orchestrator for macOS with token-based security and per-tool permissions. Eve registers as a Relay service for automatic launch (see [Relay Registration](#relay-registration) above).
+- **[macMCP](https://github.com/barelyworkingcode/macMCP)** -- Standalone Swift MCP server with 41 macOS-native tools (Calendar, Contacts, Mail, Messages, etc.). Registers with Relay to make native tools available to Eve's LLM sessions.
 
 ## License
 
