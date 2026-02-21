@@ -173,7 +173,7 @@ app.use('/dompurify', express.static(path.join(__dirname, 'node_modules/dompurif
 app.use(express.json({ limit: '50mb' }));
 
 // Register HTTP routes
-registerRoutes(app, {
+const { resolvePermission } = registerRoutes(app, {
   authService,
   projects,
   sessions,
@@ -311,6 +311,10 @@ wss.on('connection', (ws, req) => {
 
         case 'terminal_reconnect':
           terminalManager.reconnect(ws, message.terminalId);
+          break;
+
+        case 'permission_response':
+          resolvePermission(message.permissionId, message.approved ? 'allow' : 'deny', message.reason || '');
           break;
       }
     } catch (err) {

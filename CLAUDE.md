@@ -317,14 +317,24 @@ Models are routed to providers based on naming:
 
 **Session Lifecycle**
 1. Client creates session via WebSocket
-2. Server spawns provider process (CLI) or initializes HTTP client
-3. Process/client persists for entire session lifetime
-4. Session ends → process killed, state cleared
+2. Server ensures PreToolUse hook config in project's `.claude/settings.local.json`
+3. Server spawns provider process (CLI) or initializes HTTP client
+4. Claude CLI spawned with `EVE_HOOK_URL`, `EVE_SESSION_ID`, `EVE_AUTH_TOKEN` env vars
+5. Process/client persists for entire session lifetime
+6. Session ends → process killed, state cleared
 
 **Project Grouping**
-- Projects have: name, path, default model
+- Projects have: name, path, default model, allowedTools
 - Sessions optionally belong to one project
 - Disabling a provider grays out projects using that provider's models
+
+**Permission Forwarding**
+- Claude CLI PreToolUse hook (`scripts/permission-hook.js`) POSTs to `/api/permission`
+- Server holds HTTP response open, forwards to browser via WebSocket (`permission_request`)
+- Browser shows permission modal, user clicks Allow/Deny
+- Client sends `permission_response` via WebSocket, server resolves held HTTP response
+- Hook outputs decision JSON to stdout for Claude CLI
+- 60s timeout auto-denies; network errors fail-open (allow)
 
 ## Client Architecture
 
@@ -338,16 +348,19 @@ this.projects              // Map of all projects
 this.attachedFiles         // Pending file attachments
 this.confirmCallback       // Current confirmation modal callback
 this.editingTask           // { projectId, taskId } when editing a task
+this.editingProjectId      // projectId when editing a project
+this.pendingPermissionId   // permissionId for pending permission request
 ```
 
 ### UI Patterns
 
 **Modals**
 - Session creation modal (`#modal`)
-- Project creation modal (`#projectModal`)
+- Project create/edit modal (`#projectModal`) - shared for create and edit via `editingProjectId`
 - Confirmation modal (`#confirmModal`)
 - Tasks list modal (`#tasksModal`)
 - Task create/edit modal (`#taskFormModal`)
+- Permission request modal (`#permissionModal`) - approve/deny Claude CLI tool use
 - All follow same pattern: backdrop click closes, focus management, hidden class toggle
 
 **Sidebar Hierarchy**
@@ -363,6 +376,7 @@ Ungrouped (implicit section)
 
 **Hover Actions**
 Buttons appear on hover in project headers:
+- Edit button (pencil) - opens project modal in edit mode
 - Quick add button (`+`) - creates session in project
 - Delete button (`×`) - removes project
 
@@ -392,6 +406,10 @@ Server sends typed messages:
 - `llm_event` - LLM response streaming
 - `stats_update` - Context/cost updates
 - `error` - Display error to user
+- `permission_request` - Claude CLI tool needs user approval
+
+Client sends:
+- `permission_response` - User's allow/deny decision for a pending permission request
 
 ### Adding Features to Server
 
@@ -478,6 +496,13 @@ Stats flow: Provider → Server → WebSocket → Client
 - Sidebar slides in as overlay on <768px
 - Closes automatically after session selection
 - Touch targets increased for buttons
+
+**Permission forwarding**
+- Hook no-ops when `EVE_HOOK_URL` not set (normal CLI usage unaffected)
+- Server restart during pending permission → hook gets network error, fails open (allows)
+- Multiple concurrent sessions each have own `EVE_SESSION_ID` — no conflicts
+- 60s timeout auto-denies if user doesn't respond
+- `.claude/settings.local.json` is gitignored by Claude Code — won't pollute repos
 
 ## Testing Workflow
 

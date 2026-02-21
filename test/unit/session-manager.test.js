@@ -285,7 +285,7 @@ describe('SessionManager', () => {
       const sessionId = manager.createSession(ws, '/tmp');
       const session = manager.sessions.get(sessionId);
 
-      expect(manager.initProvider).toHaveBeenCalledWith(session);
+      expect(manager.initProvider).toHaveBeenCalledWith(session, []);
       expect(session.provider).not.toBeNull();
     });
 

@@ -127,11 +127,26 @@ function registerRoutes(app, { authService, projects, sessions, taskScheduler, s
     res.json(projectsList);
   });
 
+  // Validate allowedTools field: must be array of non-empty strings if provided
+  function validateAllowedTools(allowedTools) {
+    if (allowedTools === undefined || allowedTools === null) return [];
+    if (!Array.isArray(allowedTools)) return null;
+    for (const t of allowedTools) {
+      if (typeof t !== 'string' || !t.trim()) return null;
+    }
+    return allowedTools.map(t => t.trim());
+  }
+
   // API to create a project
   app.post('/api/projects', requireAuth, (req, res) => {
-    const { name, path: projectPath, model } = req.body;
+    const { name, path: projectPath, model, allowedTools } = req.body;
     if (!name || !projectPath) {
       return res.status(400).json({ error: 'Name and path are required' });
+    }
+
+    const validatedTools = validateAllowedTools(allowedTools);
+    if (validatedTools === null) {
+      return res.status(400).json({ error: 'allowedTools must be an array of non-empty strings' });
     }
 
     const validModels = getAllModels().map(m => m.value);
@@ -140,10 +155,53 @@ function registerRoutes(app, { authService, projects, sessions, taskScheduler, s
       name,
       path: projectPath,
       model: validModels.includes(model) ? model : 'haiku',
+      allowedTools: validatedTools,
       createdAt: new Date().toISOString()
     };
 
     projects.set(project.id, project);
+    saveProjects();
+    res.json(project);
+  });
+
+  // API to update a project
+  app.put('/api/projects/:id', requireAuth, (req, res) => {
+    const { id } = req.params;
+    const project = projects.get(id);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const { name, path: projectPath, model, allowedTools } = req.body;
+
+    if (name !== undefined) {
+      if (!name || typeof name !== 'string') {
+        return res.status(400).json({ error: 'Name must be a non-empty string' });
+      }
+      project.name = name.trim();
+    }
+
+    if (projectPath !== undefined) {
+      if (!projectPath || typeof projectPath !== 'string') {
+        return res.status(400).json({ error: 'Path must be a non-empty string' });
+      }
+      project.path = projectPath.trim();
+    }
+
+    if (model !== undefined) {
+      const validModels = getAllModels().map(m => m.value);
+      project.model = validModels.includes(model) ? model : project.model;
+    }
+
+    if (allowedTools !== undefined) {
+      const validatedTools = validateAllowedTools(allowedTools);
+      if (validatedTools === null) {
+        return res.status(400).json({ error: 'allowedTools must be an array of non-empty strings' });
+      }
+      project.allowedTools = validatedTools;
+    }
+
+    projects.set(id, project);
     saveProjects();
     res.json(project);
   });
@@ -246,6 +304,69 @@ function registerRoutes(app, { authService, projects, sessions, taskScheduler, s
       res.status(400).json({ error: err.message });
     }
   });
+
+  // --- Permission forwarding (PreToolUse hook) ---
+
+  // Pending permission requests: permissionId -> { res, timeout }
+  const pendingPermissions = new Map();
+
+  // Summarize tool input for display in the browser
+  function summarizeToolInput(toolName, toolInput) {
+    if (!toolInput) return '';
+    if (typeof toolInput === 'string') return toolInput.substring(0, 500);
+
+    // Show the most relevant field for common tools
+    if (toolInput.command) return toolInput.command.substring(0, 500);
+    if (toolInput.file_path) return toolInput.file_path;
+    if (toolInput.pattern) return toolInput.pattern;
+
+    // For edits, show file path and a snippet
+    if (toolInput.file_path && toolInput.old_string) {
+      return `${toolInput.file_path}\n--- old ---\n${toolInput.old_string.substring(0, 200)}\n--- new ---\n${(toolInput.new_string || '').substring(0, 200)}`;
+    }
+
+    return JSON.stringify(toolInput).substring(0, 500);
+  }
+
+  // Hook script POSTs here; response is held until the user approves/denies in the browser
+  app.post('/api/permission', requireAuth, (req, res) => {
+    const { sessionId, toolName, toolInput, toolUseId } = req.body;
+    const permissionId = toolUseId || `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const session = sessions.get(sessionId);
+    if (!session?.ws || session.ws.readyState !== 1) {
+      // No active client to ask -- allow by default
+      return res.json({ decision: 'allow', reason: 'No active client' });
+    }
+
+    // Forward to browser
+    session.ws.send(JSON.stringify({
+      type: 'permission_request',
+      sessionId,
+      permissionId,
+      toolName,
+      toolInput: summarizeToolInput(toolName, toolInput)
+    }));
+
+    // Hold HTTP connection open until user responds or timeout
+    const timeout = setTimeout(() => {
+      pendingPermissions.delete(permissionId);
+      res.json({ decision: 'deny', reason: 'Permission request timed out' });
+    }, 60000);
+
+    pendingPermissions.set(permissionId, { res, timeout });
+  });
+
+  // Called by WebSocket handler when user responds to a permission request
+  function resolvePermission(permissionId, decision, reason) {
+    const pending = pendingPermissions.get(permissionId);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    pendingPermissions.delete(permissionId);
+    pending.res.json({ decision, reason });
+  }
+
+  return { resolvePermission };
 }
 
 module.exports = registerRoutes;
