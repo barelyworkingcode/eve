@@ -365,7 +365,7 @@ class SessionManager {
 
   // --- Headless task execution ---
 
-  async executeHeadlessTask(project, model, prompt) {
+  async executeHeadlessTask(project, model, prompt, args = []) {
     return new Promise((resolve, reject) => {
       const sessionId = `headless-${Date.now()}`;
       const effectiveModel = model || project.model || 'haiku';
@@ -429,6 +429,10 @@ class SessionManager {
       const ProviderClass = this.getProviderClass(effectiveModel);
       const config = this.getProviderConfig(this.getProviderForModel(effectiveModel));
       session.provider = new ProviderClass(session, config);
+
+      if (args.length > 0 && 'customArgs' in session.provider) {
+        session.provider.customArgs = [...args];
+      }
 
       const originalHandleEvent = session.provider.handleEvent.bind(session.provider);
       session.provider.handleEvent = (event) => {

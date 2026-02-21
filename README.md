@@ -19,7 +19,7 @@ A multi-provider LLM web interface that provides a browser-based chat experience
 - **Passkey authentication** - Secure access with WebAuthn passkeys (first visitor becomes owner)
 - **Session persistence** - Sessions survive server restarts; conversation state stored to disk
 - **File attachments** - Drag/drop, click, or paste files and images into prompts
-- **Scheduled tasks** - Define recurring prompts per project (daily, hourly, weekly, interval)
+- **Scheduled tasks** - Create, edit, and delete recurring prompts per project from the web UI or `.tasks.json`
 - **Session stats** - Real-time context usage % and cost display
 - **Model switching** - Change models mid-session with `/model` command
 
@@ -289,18 +289,20 @@ Projects can open an interactive terminal directly in the UI. Click the terminal
 
 ## Scheduled Tasks
 
-Projects can define automated tasks that run prompts on a schedule. Tasks are stored in `.tasks.json` in the project directory.
+Projects can define automated tasks that run prompts on a schedule. Create, edit, and delete tasks from the web UI (click the clock icon on a project header), or edit `.tasks.json` directly in the project directory.
 
 **Schedule types:**
 - `daily` - Run at a specific time each day
 - `hourly` - Run at a specific minute each hour
 - `interval` - Run every N minutes
 - `weekly` - Run on a specific day and time
+- `cron` - Cron expression (minute hour day month weekday)
+
+**Per-task CLI arguments:** Tasks support an optional `args` array to pass CLI flags (e.g. `--allowedTools`, `--max-turns`) to the provider process. Non-Claude providers silently ignore this field.
 
 **Example `.tasks.json`:**
 ```json
 {
-  "version": 1,
   "tasks": [
     {
       "id": "daily-review",
@@ -308,6 +310,8 @@ Projects can define automated tasks that run prompts on a schedule. Tasks are st
       "prompt": "Review recent changes and summarize",
       "schedule": { "type": "daily", "time": "09:00" },
       "enabled": true,
+      "model": null,
+      "args": ["--allowedTools", "Read", "Glob", "Grep"],
       "createdAt": "2026-02-06T10:00:00.000Z"
     }
   ]

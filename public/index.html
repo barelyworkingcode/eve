@@ -207,8 +207,56 @@
         <div id="taskHistoryList" class="task-history-list"></div>
       </div>
       <div class="modal-actions">
+        <button type="button" id="newTaskBtn" class="btn-primary">New Task</button>
         <button type="button" id="closeTasksModal" class="btn-secondary">Close</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Task Form Modal (Create/Edit) -->
+  <div id="taskFormModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-wide">
+      <h3 id="taskFormTitle">New Task</h3>
+      <form id="taskForm">
+        <label for="taskNameInput">Task Name</label>
+        <input type="text" id="taskNameInput" placeholder="e.g. Daily code review" required>
+
+        <label for="taskPromptInput">Prompt</label>
+        <textarea id="taskPromptInput" class="task-prompt-textarea" placeholder="What should the AI do?" required rows="4"></textarea>
+
+        <label for="taskScheduleType">Schedule</label>
+        <select id="taskScheduleType">
+          <option value="daily">Daily</option>
+          <option value="hourly">Hourly</option>
+          <option value="interval">Interval</option>
+          <option value="weekly">Weekly</option>
+          <option value="cron">Cron</option>
+        </select>
+        <div id="taskScheduleConfig"></div>
+
+        <label for="taskModelSelect">Model (optional override)</label>
+        <select id="taskModelSelect">
+          <option value="">Use project default</option>
+        </select>
+
+        <label for="taskArgsInput">CLI Arguments (optional)</label>
+        <input type="text" id="taskArgsInput" placeholder='e.g. --allowedTools Edit Read'>
+
+        <div class="task-form-toggle">
+          <label for="taskEnabledCheck">Enabled</label>
+          <label class="task-toggle">
+            <input type="checkbox" id="taskEnabledCheck" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" id="taskDeleteBtn" class="btn-danger hidden">Delete</button>
+          <button type="button" id="cancelTaskForm" class="btn-secondary">Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
+        </div>
+      </form>
     </div>
   </div>
 
