@@ -151,11 +151,11 @@
     </div>
   </div>
 
-  <!-- New Project Modal -->
+  <!-- New/Edit Project Modal -->
   <div id="projectModal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
-      <h3>New Project</h3>
+      <h3 id="projectModalTitle">New Project</h3>
       <form id="newProjectForm">
         <label for="projectNameInput">Project Name</label>
         <input
@@ -175,9 +175,16 @@
         <select id="projectModelSelect">
           <!-- Models loaded dynamically from /api/models -->
         </select>
+        <label for="projectAllowedToolsInput">Allowed Tools (optional)</label>
+        <input
+          type="text"
+          id="projectAllowedToolsInput"
+          placeholder='e.g. Read Glob Grep "Bash(git:*)"'
+        >
+        <span class="field-hint">Space-separated. Pre-approves these tools without prompting.</span>
         <div class="modal-actions">
           <button type="button" id="cancelProjectModal" class="btn-secondary">Cancel</button>
-          <button type="submit" class="btn-primary">Create Project</button>
+          <button type="submit" id="projectSubmitBtn" class="btn-primary">Create Project</button>
         </div>
       </form>
     </div>
@@ -257,6 +264,28 @@
           <button type="submit" class="btn-primary">Save</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Permission Request Modal -->
+  <div id="permissionModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <h3>Permission Request</h3>
+      <div class="permission-details">
+        <div class="permission-tool">
+          <span class="permission-label">Tool:</span>
+          <span id="permissionToolName" class="permission-value"></span>
+        </div>
+        <div class="permission-input-section">
+          <span class="permission-label">Details:</span>
+          <pre id="permissionToolInput" class="permission-input-preview"></pre>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="permissionDeny" class="btn-danger">Deny</button>
+        <button type="button" id="permissionAllow" class="btn-primary">Allow</button>
+      </div>
     </div>
   </div>
 

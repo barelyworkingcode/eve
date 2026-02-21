@@ -13,7 +13,8 @@ A multi-provider LLM web interface that provides a browser-based chat experience
 ## Features
 
 - **Multi-provider support** - Claude CLI, Gemini CLI, and LM Studio (local HTTP) with persistent processes per session
-- **Projects** - Group sessions under named projects with a default model, directory path, and scheduled tasks
+- **Projects** - Group sessions under named projects with a default model, directory path, allowed tools, and scheduled tasks
+- **Permission forwarding** - Claude CLI permission prompts forwarded to the browser for approve/deny instead of blocking silently
 - **File browser & editor** - Browse project files, edit with Monaco editor, rename/delete/move via context menu
 - **Integrated terminal** - Open a shell in the project directory directly from the UI
 - **Passkey authentication** - Secure access with WebAuthn passkeys (first visitor becomes owner)
@@ -185,8 +186,29 @@ To create a project:
 1. Click the **+** button next to "Projects" in the sidebar
 2. Enter a name and directory path
 3. Select the default model (haiku, sonnet, or opus)
+4. Optionally configure allowed tools (space-separated, e.g. `Read Glob Grep "Bash(git:*)"`)
+
+To edit a project, click the pencil icon in the project header.
+
+**Allowed tools** pre-approve Claude CLI tools via `--allowedTools` so they execute without prompting. Tools not in the allowed list trigger the permission forwarding flow (see below).
 
 Projects persist to `data/projects.json` and survive server restarts. Sessions can optionally be associated with a project when created.
+
+## Permission Forwarding
+
+When Claude CLI encounters a tool that isn't pre-approved via `--allowedTools`, it normally blocks with a terminal prompt the user can't see from the browser. Eve solves this with a PreToolUse hook that forwards permission decisions to the browser.
+
+**How it works:**
+1. Eve configures a PreToolUse hook in `.claude/settings.local.json` in each project directory
+2. When Claude CLI needs permission, the hook POSTs to Eve's server
+3. Eve forwards the request to the browser via WebSocket
+4. A permission modal shows the tool name and input details
+5. The user clicks Allow or Deny
+6. The decision flows back through the hook to Claude CLI
+
+**Behavior outside Eve:** The hook script checks for `EVE_HOOK_URL` (set automatically when Eve spawns Claude). When absent, the hook exits immediately -- normal CLI usage is unaffected.
+
+**Timeout:** If no response within 60 seconds, the request is auto-denied. On network errors (e.g. Eve server restart), the hook fails open (allows the tool).
 
 ## How It Works
 
@@ -338,6 +360,9 @@ providers/
   claude-provider.js     - Claude CLI integration
   gemini-provider.js     - Gemini CLI integration
   lmstudio-provider.js   - LM Studio HTTP API integration
+
+scripts/
+  permission-hook.js     - PreToolUse hook for permission forwarding
 
 public/
   index.html             - Main page structure

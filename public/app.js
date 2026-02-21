@@ -14,6 +14,8 @@ class EveWorkspaceClient {
     this.scheduledTasks = []; // All scheduled tasks
     this.taskHistory = new Map(); // projectId:taskId -> executions
     this.editingTask = null; // { projectId, taskId } when editing
+    this.editingProjectId = null; // projectId when editing a project
+    this.pendingPermissionId = null; // permissionId for pending permission request
 
     // Check auth before initializing
     this.authClient = new AuthClient();
@@ -106,7 +108,15 @@ class EveWorkspaceClient {
       taskArgsInput: document.getElementById('taskArgsInput'),
       taskEnabledCheck: document.getElementById('taskEnabledCheck'),
       taskDeleteBtn: document.getElementById('taskDeleteBtn'),
-      cancelTaskForm: document.getElementById('cancelTaskForm')
+      cancelTaskForm: document.getElementById('cancelTaskForm'),
+      projectModalTitle: document.getElementById('projectModalTitle'),
+      projectSubmitBtn: document.getElementById('projectSubmitBtn'),
+      projectAllowedToolsInput: document.getElementById('projectAllowedToolsInput'),
+      permissionModal: document.getElementById('permissionModal'),
+      permissionToolName: document.getElementById('permissionToolName'),
+      permissionToolInput: document.getElementById('permissionToolInput'),
+      permissionAllow: document.getElementById('permissionAllow'),
+      permissionDeny: document.getElementById('permissionDeny')
     };
   }
 
@@ -212,6 +222,17 @@ class EveWorkspaceClient {
     }
     if (this.elements.taskDeleteBtn) {
       this.elements.taskDeleteBtn.addEventListener('click', () => this.handleTaskDelete());
+    }
+
+    // Permission modal
+    if (this.elements.permissionAllow) {
+      this.elements.permissionAllow.addEventListener('click', () => this.respondToPermission(true));
+    }
+    if (this.elements.permissionDeny) {
+      this.elements.permissionDeny.addEventListener('click', () => this.respondToPermission(false));
+    }
+    if (this.elements.permissionModal) {
+      this.elements.permissionModal.querySelector('.modal-backdrop').addEventListener('click', () => this.respondToPermission(false));
     }
   }
 
@@ -685,6 +706,10 @@ class EveWorkspaceClient {
       case 'tasks_updated':
         this.loadScheduledTasks();
         break;
+
+      case 'permission_request':
+        this.showPermissionModal(data);
+        break;
     }
   }
 
@@ -1043,16 +1068,21 @@ class EveWorkspaceClient {
     const name = this.elements.projectNameInput.value.trim();
     const projectPath = this.elements.projectPathInput.value.trim();
     const model = this.elements.projectModelSelect.value;
+    const allowedTools = this.parseArgsString(this.elements.projectAllowedToolsInput.value);
     if (!name || !projectPath) return;
 
     try {
-      const response = await fetch('/api/projects', {
-        method: 'POST',
+      const isEdit = !!this.editingProjectId;
+      const url = isEdit ? `/api/projects/${this.editingProjectId}` : '/api/projects';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           ...this.getAuthHeaders()
         },
-        body: JSON.stringify({ name, path: projectPath, model })
+        body: JSON.stringify({ name, path: projectPath, model, allowedTools })
       });
       const project = await response.json();
       this.projects.set(project.id, project);
@@ -1060,7 +1090,7 @@ class EveWorkspaceClient {
       this.updateProjectSelect();
       this.hideProjectModal();
     } catch (err) {
-      console.error('Failed to create project:', err);
+      console.error('Failed to save project:', err);
     }
   }
 
@@ -1104,16 +1134,39 @@ class EveWorkspaceClient {
     });
   }
 
-  showProjectModal() {
+  showProjectModal(projectId = null) {
+    this.editingProjectId = projectId;
+
+    if (projectId) {
+      const project = this.projects.get(projectId);
+      if (!project) return;
+      this.elements.projectModalTitle.textContent = 'Edit Project';
+      this.elements.projectSubmitBtn.textContent = 'Save';
+      this.elements.projectNameInput.value = project.name;
+      this.elements.projectPathInput.value = project.path;
+      this.elements.projectModelSelect.value = project.model || 'haiku';
+      this.elements.projectAllowedToolsInput.value = (project.allowedTools || []).join(' ');
+    } else {
+      this.elements.projectModalTitle.textContent = 'New Project';
+      this.elements.projectSubmitBtn.textContent = 'Create Project';
+      this.elements.projectNameInput.value = '';
+      this.elements.projectPathInput.value = '';
+      this.elements.projectAllowedToolsInput.value = '';
+      if (this.models.length > 0) {
+        this.elements.projectModelSelect.value = this.models[0].value;
+      }
+    }
+
     this.elements.projectModal.classList.remove('hidden');
     this.elements.projectNameInput.focus();
   }
 
   hideProjectModal() {
     this.elements.projectModal.classList.add('hidden');
+    this.editingProjectId = null;
     this.elements.projectNameInput.value = '';
     this.elements.projectPathInput.value = '';
-    // Reset to first model if available
+    this.elements.projectAllowedToolsInput.value = '';
     if (this.models.length > 0) {
       this.elements.projectModelSelect.value = this.models[0].value;
     }
@@ -1246,15 +1299,18 @@ class EveWorkspaceClient {
       const disabledNote = project.disabled ? '<span class="disabled-note">(provider disabled)</span>' : '';
       const taskCount = this.getTaskCountForProject(projectId);
       const taskBadge = taskCount > 0 ? `<span class="project-task-count" title="${taskCount} scheduled task${taskCount !== 1 ? 's' : ''}">${taskCount}</span>` : '';
+      const toolsBadge = project.allowedTools?.length > 0 ? `<span class="project-tools-badge" title="${this.escapeHtml(project.allowedTools.join(', '))}">${project.allowedTools.length} tools</span>` : '';
       projectEl.innerHTML = `
         <div class="project-header">
           <span class="project-toggle">▼</span>
           <span class="project-name">${this.escapeHtml(project.name)}</span>
           <span class="project-model">${project.model || 'haiku'}</span>
           ${taskBadge}
+          ${toolsBadge}
           ${disabledNote}
           <button class="project-files-toggle" title="Browse files">📁</button>
           <button class="project-tasks-btn" title="Scheduled tasks">&#128337;</button>
+          <button class="project-edit" title="Edit project">&#9998;</button>
           <button class="project-quick-add" title="New session in this project">+</button>
           <button class="project-delete" title="Delete project">&times;</button>
         </div>
@@ -1268,12 +1324,13 @@ class EveWorkspaceClient {
       const sessionsList = projectEl.querySelector('.project-sessions');
       const filesToggleBtn = projectEl.querySelector('.project-files-toggle');
       const tasksBtn = projectEl.querySelector('.project-tasks-btn');
+      const editBtn = projectEl.querySelector('.project-edit');
       const quickAddBtn = projectEl.querySelector('.project-quick-add');
       const deleteBtn = projectEl.querySelector('.project-delete');
 
       // Toggle collapse (disabled for disabled projects)
       header.addEventListener('click', (e) => {
-        if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || e.target === tasksBtn || project.disabled) return;
+        if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || e.target === tasksBtn || e.target === editBtn || project.disabled) return;
         projectEl.classList.toggle('collapsed');
         toggle.textContent = projectEl.classList.contains('collapsed') ? '▶' : '▼';
       });
@@ -1290,6 +1347,12 @@ class EveWorkspaceClient {
       tasksBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.showTasksPanel(projectId);
+      });
+
+      // Edit project
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.showProjectModal(projectId);
       });
 
       // Quick add session
@@ -1977,6 +2040,30 @@ class EveWorkspaceClient {
 
     // Open the task tab
     this.tabManager.openTask(projectId, taskId, taskName);
+  }
+
+  // Permission modal methods
+  showPermissionModal(data) {
+    this.pendingPermissionId = data.permissionId;
+    this.elements.permissionToolName.textContent = data.toolName || 'Unknown';
+    this.elements.permissionToolInput.textContent = data.toolInput || '';
+    this.elements.permissionModal.classList.remove('hidden');
+    this.elements.permissionAllow.focus();
+  }
+
+  hidePermissionModal() {
+    this.elements.permissionModal.classList.add('hidden');
+    this.pendingPermissionId = null;
+  }
+
+  respondToPermission(approved) {
+    if (!this.pendingPermissionId) return;
+    this.ws.send(JSON.stringify({
+      type: 'permission_response',
+      permissionId: this.pendingPermissionId,
+      approved
+    }));
+    this.hidePermissionModal();
   }
 
   showTaskResult(projectId, taskId) {

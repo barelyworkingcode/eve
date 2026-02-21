@@ -1,4 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
 const ClaudeProvider = require('./providers/claude-provider');
 const GeminiProvider = require('./providers/gemini-provider');
 const LMStudioProvider = require('./providers/lmstudio-provider');
@@ -44,10 +46,13 @@ class SessionManager {
     return this.settings.providers[provider];
   }
 
-  initProvider(session) {
+  initProvider(session, extraArgs = []) {
     const ProviderClass = this.getProviderClass(session.model);
     const config = this.getProviderConfig(this.getProviderForModel(session.model));
     session.provider = new ProviderClass(session, config);
+    if (extraArgs.length > 0 && 'customArgs' in session.provider) {
+      session.provider.customArgs.push(...extraArgs);
+    }
     session.provider.startProcess();
     return session.provider;
   }
@@ -60,6 +65,50 @@ class SessionManager {
       }
     }
     return allModels;
+  }
+
+  // --- Hook configuration ---
+
+  ensureHookConfig(projectDir) {
+    if (!projectDir) return;
+
+    const settingsDir = path.join(projectDir, '.claude');
+    const settingsFile = path.join(settingsDir, 'settings.local.json');
+    const hookCommand = `node ${path.resolve(__dirname, 'scripts/permission-hook.js')}`;
+
+    let settings = {};
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    } catch {
+      // File doesn't exist or is invalid -- start fresh
+    }
+
+    // Check if our hook is already present
+    const hooks = settings.hooks?.PreToolUse || [];
+    const eveHookExists = hooks.some(h =>
+      h.hooks?.some(hh => hh.command?.includes('permission-hook.js'))
+    );
+    if (eveHookExists) return;
+
+    // Add Eve's PreToolUse hook
+    if (!settings.hooks) settings.hooks = {};
+    if (!settings.hooks.PreToolUse) settings.hooks.PreToolUse = [];
+    settings.hooks.PreToolUse.push({
+      matcher: '',
+      hooks: [{
+        type: 'command',
+        command: hookCommand,
+        timeout: 120
+      }]
+    });
+
+    try {
+      fs.mkdirSync(settingsDir, { recursive: true });
+      fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
+      console.log(`[Hook] Configured PreToolUse hook in ${settingsFile}`);
+    } catch (err) {
+      console.error(`[Hook] Failed to write settings: ${err.message}`);
+    }
   }
 
   // --- Session lifecycle ---
@@ -93,7 +142,15 @@ class SessionManager {
     session.saveHistory = () => this.sessionStore.save(session);
 
     this.sessions.set(sessionId, session);
-    this.initProvider(session);
+
+    // Ensure the PreToolUse hook is configured in the project directory
+    this.ensureHookConfig(sessionDirectory);
+
+    const extraArgs = [];
+    if (project?.allowedTools?.length > 0) {
+      extraArgs.push('--allowedTools', ...project.allowedTools);
+    }
+    this.initProvider(session, extraArgs);
 
     ws.send(JSON.stringify({
       type: 'session_created',

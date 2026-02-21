@@ -178,7 +178,12 @@ class ClaudeProvider extends LLMProvider {
 
     this.claudeProcess = spawn(claudePath, args, {
       cwd: this.session.directory,
-      env: { ...process.env },
+      env: {
+        ...process.env,
+        EVE_HOOK_URL: `http://localhost:${process.env.PORT || 3000}`,
+        EVE_SESSION_ID: this.session.sessionId,
+        EVE_AUTH_TOKEN: process.env.AUTH_TOKEN || ''
+      },
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
