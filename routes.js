@@ -293,6 +293,7 @@ function registerRoutes(app, { authService, projects, sessions, sessionManager, 
 
     // Reinitialize provider if dead
     if (!session.provider) {
+      sessionManager.ensureHookConfig(session.directory);
       const project = projects.get(session.projectId);
       const extraArgs = [];
       if (project?.allowedTools?.length > 0) {
@@ -305,8 +306,11 @@ function registerRoutes(app, { authService, projects, sessions, sessionManager, 
     let completed = false;
 
     const cleanup = () => {
-      // Restore previous ws (or null)
+      clearTimeout(timeout);
       session.ws = previousWs;
+      if (session.provider) {
+        session.provider.handleEvent = originalHandleEvent;
+      }
     };
 
     // Save and replace the WebSocket with a collecting mock
@@ -367,13 +371,6 @@ function registerRoutes(app, { authService, projects, sessions, sessionManager, 
 
     // Send the message
     sessionManager.sendMessage(sessionId, text, files || []);
-
-    // Clean up timeout when response completes
-    const origEnd = res.end.bind(res);
-    res.end = function(...args) {
-      clearTimeout(timeout);
-      return origEnd(...args);
-    };
   });
 
   // API to list all scheduled tasks
