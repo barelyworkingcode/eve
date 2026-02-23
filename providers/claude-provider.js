@@ -182,7 +182,8 @@ class ClaudeProvider extends LLMProvider {
         ...process.env,
         EVE_HOOK_URL: `http://localhost:${process.env.PORT || 3000}`,
         EVE_SESSION_ID: this.session.sessionId,
-        EVE_AUTH_TOKEN: process.env.AUTH_TOKEN || ''
+        EVE_AUTH_TOKEN: process.env.AUTH_TOKEN || '',
+        EVE_SKIP_PERMISSIONS: this.customArgs.includes('--dangerously-skip-permissions') ? '1' : ''
       },
       stdio: ['pipe', 'pipe', 'pipe']
     });
