@@ -17,6 +17,9 @@ const authToken = process.env.EVE_AUTH_TOKEN;
 // No-op when not running under Eve
 if (!hookUrl) process.exit(0);
 
+// Auto-allow when --dangerously-skip-permissions is set
+if (process.env.EVE_SKIP_PERMISSIONS === '1') process.exit(0);
+
 let input = '';
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
