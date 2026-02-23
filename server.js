@@ -177,6 +177,7 @@ const { resolvePermission } = registerRoutes(app, {
   authService,
   projects,
   sessions,
+  sessionManager,
   taskScheduler,
   saveProjects,
   getAllModels: () => sessionManager.getAllModels(),

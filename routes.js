@@ -6,7 +6,7 @@ function getClientIp(req) {
          'unknown';
 }
 
-function registerRoutes(app, { authService, projects, sessions, taskScheduler, saveProjects, getAllModels, getProviderForModel, settings }) {
+function registerRoutes(app, { authService, projects, sessions, sessionManager, taskScheduler, saveProjects, getAllModels, getProviderForModel, settings }) {
   // Auth middleware for protected routes
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
@@ -231,6 +231,149 @@ function registerRoutes(app, { authService, projects, sessions, taskScheduler, s
       });
     }
     res.json(sessionList);
+  });
+
+  // API to create a session programmatically (for external channel adapters)
+  app.post('/api/sessions', requireAuth, (req, res) => {
+    const { projectId, name } = req.body;
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+    const project = projects.get(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const mockWs = { readyState: 1, send: () => {} };
+    const sessionId = sessionManager.createSession(mockWs, project.path, projectId);
+    const session = sessions.get(sessionId);
+
+    if (name) {
+      session.name = name.trim().slice(0, 100);
+      sessionManager.sessionStore.save(session);
+    }
+
+    res.json({ sessionId, projectId, model: session.model });
+  });
+
+  // API to send a message and get complete response (for external channel adapters)
+  app.post('/api/sessions/:sessionId/message', requireAuth, async (req, res) => {
+    const { sessionId } = req.params;
+    const { text, files } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ error: 'text is required' });
+    }
+
+    let session = sessions.get(sessionId);
+
+    // Try loading from disk if not in memory
+    if (!session) {
+      const saved = sessionManager.sessionStore.load(sessionId);
+      if (saved) {
+        session = {
+          ...saved,
+          ws: null,
+          provider: null,
+          processing: false,
+          saveHistory: null
+        };
+        session.saveHistory = () => sessionManager.sessionStore.save(session);
+        sessions.set(sessionId, session);
+      }
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.processing) {
+      return res.status(409).json({ error: 'Session is busy processing another message' });
+    }
+
+    // Reinitialize provider if dead
+    if (!session.provider) {
+      const project = projects.get(session.projectId);
+      const extraArgs = [];
+      if (project?.allowedTools?.length > 0) {
+        extraArgs.push('--allowedTools', ...project.allowedTools);
+      }
+      sessionManager.initProvider(session, extraArgs);
+    }
+
+    let responseText = '';
+    let completed = false;
+
+    const cleanup = () => {
+      // Restore previous ws (or null)
+      session.ws = previousWs;
+    };
+
+    // Save and replace the WebSocket with a collecting mock
+    const previousWs = session.ws;
+    const mockWs = {
+      readyState: 1,
+      send: (data) => {
+        try {
+          const message = JSON.parse(data);
+          if (message.type === 'message_complete' && !completed) {
+            completed = true;
+            cleanup();
+            res.json({ response: responseText, stats: session.stats });
+          } else if (message.type === 'system_message' && !completed) {
+            // Slash commands (e.g. /help, /clear) send system_message instead of going through the provider
+            completed = true;
+            cleanup();
+            res.json({ response: message.message, stats: session.stats });
+          } else if (message.type === 'error' && !completed) {
+            completed = true;
+            cleanup();
+            res.status(500).json({ error: message.message || 'Provider error' });
+          }
+        } catch (e) {
+          // Ignore parse errors from streaming events
+        }
+      }
+    };
+    session.ws = mockWs;
+
+    // Intercept provider events to capture response text
+    const originalHandleEvent = session.provider.handleEvent.bind(session.provider);
+    session.provider.handleEvent = (event) => {
+      if (event.type === 'assistant') {
+        if (event.message?.content) {
+          for (const block of event.message.content) {
+            if (block.type === 'text') {
+              responseText = block.text;
+            }
+          }
+        } else if (event.content_block?.type === 'text') {
+          responseText = event.content_block.text;
+        } else if (event.delta?.type === 'text_delta') {
+          responseText += event.delta.text;
+        }
+      }
+      originalHandleEvent(event);
+    };
+
+    // Timeout after 5 minutes
+    const timeout = setTimeout(() => {
+      if (!completed) {
+        completed = true;
+        cleanup();
+        res.status(504).json({ error: 'Response timeout (5 minutes)' });
+      }
+    }, 5 * 60 * 1000);
+
+    // Send the message
+    sessionManager.sendMessage(sessionId, text, files || []);
+
+    // Clean up timeout when response completes
+    const origEnd = res.end.bind(res);
+    res.end = function(...args) {
+      clearTimeout(timeout);
+      return origEnd(...args);
+    };
   });
 
   // API to list all scheduled tasks
