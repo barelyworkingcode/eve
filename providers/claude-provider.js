@@ -1,6 +1,7 @@
-const { spawn, execFile } = require('child_process');
+const { execFile } = require('child_process');
 const LLMProvider = require('./llm-provider');
-const pidRegistry = require('../pid-registry');
+const ClaudeProcess = require('./claude-process');
+const ClaudeArgsManager = require('./claude-args-manager');
 
 class ClaudeProvider extends LLMProvider {
   constructor(session, config = {}) {
@@ -14,9 +15,8 @@ class ClaudeProvider extends LLMProvider {
     this.customArgs = [];
     this.restoreSessionState(session.providerState);
 
-    // Provider configuration (from settings.json or defaults)
     this.config = {
-      path: config.path || null, // null means use env var or default
+      path: config.path || null,
       responseTimeout: config.responseTimeout || 120000,
       debug: config.debug || false
     };
@@ -24,29 +24,33 @@ class ClaudeProvider extends LLMProvider {
     // Retry configuration
     this.retryCount = 0;
     this.maxRetries = 5;
-    this.baseRetryDelay = 100; // ms
-    this.maxRetryDelay = 2000; // ms
-    this.fatalError = null; // Set when process fails to spawn (e.g., CLI not found)
+    this.baseRetryDelay = 100;
+    this.maxRetryDelay = 2000;
+    this.fatalError = null;
 
     // Health monitoring
     this.lastActivityTime = null;
     this.responseTimeoutMs = this.config.responseTimeout;
     this.activityCheckInterval = null;
-    this.activityCheckFrequency = 10000; // Check every 10 seconds
+    this.activityCheckFrequency = 10000;
+
+    // Delegates
+    this._process = new ClaudeProcess(this);
+    this._argsManager = new ClaudeArgsManager(this);
 
     if (this.config.debug) {
       console.log('[Claude] Initialized with config:', this.config);
     }
   }
 
+  // --- Activity monitoring ---
+
   startActivityMonitor() {
-    this.stopActivityMonitor(); // Clear any existing monitor
+    this.stopActivityMonitor();
     this.lastActivityTime = Date.now();
 
     this.activityCheckInterval = setInterval(() => {
-      if (!this.session.processing || !this.claudeProcess) {
-        return; // Only monitor during active processing
-      }
+      if (!this.session.processing || !this.claudeProcess) return;
 
       const elapsed = Date.now() - this.lastActivityTime;
       if (elapsed > this.responseTimeoutMs) {
@@ -56,8 +60,6 @@ class ClaudeProvider extends LLMProvider {
           sessionId: this.session.sessionId,
           message: `No response from Claude CLI for ${Math.round(elapsed / 1000)} seconds. The process may be hung.`
         }));
-        // Don't auto-kill - user might be doing complex operations
-        // Just warn and let user decide
       }
     }, this.activityCheckFrequency);
   }
@@ -73,37 +75,27 @@ class ClaudeProvider extends LLMProvider {
     this.lastActivityTime = Date.now();
   }
 
-  // File validation configuration
-  static MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
-  static MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB total
+  // --- File validation ---
+
+  static MAX_FILE_SIZE = 10 * 1024 * 1024;
+  static MAX_TOTAL_SIZE = 50 * 1024 * 1024;
   static SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
-  // Args managed internally by startProcess() -- cannot be set via /args-edit
-  static PROTECTED_ARGS = new Set([
-    '--print', '--output-format', '--input-format', '--verbose', '--resume', '-p', '-r'
-  ]);
-
   validateFiles(files) {
-    if (!files || files.length === 0) {
-      return { valid: true, files };
-    }
+    if (!files || files.length === 0) return { valid: true, files };
 
     const errors = [];
     let totalSize = 0;
     const validFiles = [];
 
     for (const file of files) {
-      // Calculate file size
       let fileSize;
       if (file.type === 'image' && file.content.startsWith('data:')) {
-        // Base64 data URL - extract and calculate size
         const base64Match = file.content.match(/^data:([^;]+);base64,(.+)$/);
         if (base64Match) {
           const mediaType = base64Match[1];
           const base64Data = base64Match[2];
-          fileSize = Math.ceil(base64Data.length * 0.75); // Base64 is ~33% larger than binary
-
-          // Validate image type
+          fileSize = Math.ceil(base64Data.length * 0.75);
           if (!ClaudeProvider.SUPPORTED_IMAGE_TYPES.includes(mediaType)) {
             errors.push(`Unsupported image type '${mediaType}' for ${file.name}. Supported: ${ClaudeProvider.SUPPORTED_IMAGE_TYPES.join(', ')}`);
             continue;
@@ -113,11 +105,9 @@ class ClaudeProvider extends LLMProvider {
           continue;
         }
       } else {
-        // Text file - use string length as byte approximation
         fileSize = new TextEncoder().encode(file.content).length;
       }
 
-      // Check individual file size
       if (fileSize > ClaudeProvider.MAX_FILE_SIZE) {
         const sizeMB = (fileSize / (1024 * 1024)).toFixed(1);
         const maxMB = (ClaudeProvider.MAX_FILE_SIZE / (1024 * 1024)).toFixed(0);
@@ -129,170 +119,31 @@ class ClaudeProvider extends LLMProvider {
       validFiles.push(file);
     }
 
-    // Check total size
     if (totalSize > ClaudeProvider.MAX_TOTAL_SIZE) {
       const totalMB = (totalSize / (1024 * 1024)).toFixed(1);
       const maxMB = (ClaudeProvider.MAX_TOTAL_SIZE / (1024 * 1024)).toFixed(0);
-      return {
-        valid: false,
-        errors: [`Total attachment size (${totalMB}MB) exceeds maximum (${maxMB}MB). Remove some files.`]
-      };
+      return { valid: false, errors: [`Total attachment size (${totalMB}MB) exceeds maximum (${maxMB}MB). Remove some files.`] };
     }
 
-    if (errors.length > 0) {
-      return { valid: false, errors };
-    }
-
+    if (errors.length > 0) return { valid: false, errors };
     return { valid: true, files: validFiles };
   }
 
+  // --- Process lifecycle (delegated) ---
+
   startProcess() {
-    const args = [
-      '--print',
-      '--output-format', 'stream-json',
-      '--input-format', 'stream-json',
-      '--verbose',
-      '--model', this.session.model
-    ];
-
-    // Append user-configured custom args
-    if (this.customArgs.length > 0) {
-      args.push(...this.customArgs);
-    }
-
-    // Resume existing session if we have an ID
-    if (this.claudeSessionId) {
-      args.push('--resume', this.claudeSessionId);
-    }
-
-    // Priority: config path > env var > default locations
-    const claudePath = this.config.path ||
-      process.env.CLAUDE_PATH ||
-      (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : 'claude');
-
-    if (this.config.debug) {
-      console.log('[Claude] Using path:', claudePath);
-    }
-    const resumeFlag = this.claudeSessionId ? ` --resume ${this.claudeSessionId.substring(0, 8)}...` : '';
-    console.log('[SPAWN]', claudePath, args.slice(0, 7).join(' ') + resumeFlag);
-
-    this.claudeProcess = spawn(claudePath, args, {
-      cwd: this.session.directory,
-      env: {
-        ...process.env,
-        EVE_HOOK_URL: `http://localhost:${process.env.PORT || 3000}`,
-        EVE_SESSION_ID: this.session.sessionId,
-        EVE_AUTH_TOKEN: process.env.AUTH_TOKEN || '',
-        EVE_SKIP_PERMISSIONS: this.customArgs.includes('--dangerously-skip-permissions') ? '1' : ''
-      },
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    const spawnedPid = this.claudeProcess.pid;
-    pidRegistry.add(spawnedPid);
-
-    this.claudeProcess.stdout.on('data', (data) => {
-      const chunk = data.toString();
-      console.log('[STDOUT]', chunk);
-      this.buffer += chunk;
-      this.recordActivity(); // Track activity for health monitoring
-
-      const lines = this.buffer.split('\n');
-      this.buffer = lines.pop();
-
-      for (const line of lines) {
-        if (line.trim()) {
-          this.processLine(line);
-        }
-      }
-    });
-
-    this.claudeProcess.stderr.on('data', (data) => {
-      console.log('[STDERR]', data.toString());
-      this.recordActivity(); // Track activity for health monitoring
-      if (this.session.ws && this.session.ws.readyState === 1) {
-        this.session.ws.send(JSON.stringify({
-          type: 'stderr',
-          sessionId: this.session.sessionId,
-          text: data.toString()
-        }));
-      }
-    });
-
-    this.claudeProcess.on('close', (code) => {
-      console.log('[EXIT]', 'Provider process exited with code:', code);
-      pidRegistry.remove(spawnedPid);
-      this.claudeProcess = null;
-      this.stopActivityMonitor();
-
-      // Save partial message if process crashed mid-response
-      if (this.currentAssistantMessage && this.session.processing) {
-        const textBlock = this.currentAssistantMessage.content.find(b => b.type === 'text');
-        if (textBlock && textBlock.text) {
-          // Mark message as incomplete and save it
-          this.currentAssistantMessage.incomplete = true;
-          this.session.messages.push(this.currentAssistantMessage);
-          if (this.session.saveHistory) {
-            this.session.saveHistory();
-          }
-          console.log('[Claude] Saved partial response:', textBlock.text.substring(0, 100));
-
-          // Notify user
-          if (this.session.ws && this.session.ws.readyState === 1) {
-            this.session.ws.send(JSON.stringify({
-              type: 'warning',
-              sessionId: this.session.sessionId,
-              message: 'Response was interrupted. Partial content has been saved.'
-            }));
-          }
-        }
-        this.currentAssistantMessage = null;
-      }
-
-      this.session.processing = false;
-
-      // Reset retry count on clean exit (allows restart)
-      if (code === 0) {
-        this.retryCount = 0;
-      }
-
-      if (this.session.ws && this.session.ws.readyState === 1) {
-        this.session.ws.send(JSON.stringify({
-          type: 'process_exited',
-          sessionId: this.session.sessionId,
-          code
-        }));
-      }
-    });
-
-    this.claudeProcess.on('error', (err) => {
-      console.error('[ERROR]', err);
-      pidRegistry.remove(spawnedPid);
-      this.claudeProcess = null;
-      this.session.processing = false;
-
-      // Mark fatal errors that shouldn't be retried (e.g., CLI not found)
-      if (err.code === 'ENOENT') {
-        this.fatalError = `Claude CLI not found. Ensure 'claude' is installed and in PATH, or set CLAUDE_PATH environment variable.`;
-      } else if (err.code === 'EACCES') {
-        this.fatalError = `Permission denied executing Claude CLI. Check file permissions.`;
-      }
-
-      const errorMessage = this.fatalError || err.message;
-      if (this.session.ws && this.session.ws.readyState === 1) {
-        this.session.ws.send(JSON.stringify({
-          type: 'error',
-          sessionId: this.session.sessionId,
-          message: errorMessage
-        }));
-      }
-    });
+    this._process.startProcess();
   }
+
+  kill() {
+    this._process.kill();
+  }
+
+  // --- Message sending ---
 
   sendMessage(text, files = []) {
     console.log('[Claude] sendMessage:', text.substring(0, 100));
 
-    // Check for fatal error - don't retry if CLI is not available
     if (this.fatalError) {
       this.session.ws?.send(JSON.stringify({
         type: 'error',
@@ -302,7 +153,6 @@ class ClaudeProvider extends LLMProvider {
       return;
     }
 
-    // Start process if needed with exponential backoff retry
     if (!this.claudeProcess) {
       if (this.retryCount >= this.maxRetries) {
         this.session.ws?.send(JSON.stringify({
@@ -310,14 +160,13 @@ class ClaudeProvider extends LLMProvider {
           sessionId: this.session.sessionId,
           message: `Failed to start Claude CLI after ${this.maxRetries} attempts. Check server logs for details.`
         }));
-        this.retryCount = 0; // Reset for future attempts
+        this.retryCount = 0;
         return;
       }
 
       this.startProcess();
       this.retryCount++;
 
-      // Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms (capped at 2000ms)
       const delay = Math.min(this.baseRetryDelay * Math.pow(2, this.retryCount - 1), this.maxRetryDelay);
       console.log(`[Claude] Process not ready, retry ${this.retryCount}/${this.maxRetries} in ${delay}ms`);
 
@@ -325,7 +174,6 @@ class ClaudeProvider extends LLMProvider {
       return;
     }
 
-    // Reset retry count on successful process availability
     this.retryCount = 0;
 
     if (this.session.processing) {
@@ -337,7 +185,6 @@ class ClaudeProvider extends LLMProvider {
       return;
     }
 
-    // Validate files before processing
     const validation = this.validateFiles(files);
     if (!validation.valid) {
       this.session.ws?.send(JSON.stringify({
@@ -353,7 +200,7 @@ class ClaudeProvider extends LLMProvider {
     this.startActivityMonitor();
 
     let content;
-    if (validatedFiles && validatedFiles.length > 0) {
+    if (validatedFiles.length > 0) {
       const contentBlocks = [];
       for (const f of validatedFiles) {
         if (f.type === 'image') {
@@ -361,26 +208,14 @@ class ClaudeProvider extends LLMProvider {
           if (base64Match) {
             contentBlocks.push({
               type: 'image',
-              source: {
-                type: 'base64',
-                media_type: base64Match[1],
-                data: base64Match[2]
-              }
+              source: { type: 'base64', media_type: base64Match[1], data: base64Match[2] }
             });
           }
         } else {
-          contentBlocks.push({
-            type: 'text',
-            text: `<file name="${f.name}">
-${f.content}
-</file>`
-          });
+          contentBlocks.push({ type: 'text', text: `<file name="${f.name}">\n${f.content}\n</file>` });
         }
       }
-      contentBlocks.push({
-        type: 'text',
-        text: text
-      });
+      contentBlocks.push({ type: 'text', text });
       content = contentBlocks;
     } else {
       content = text;
@@ -388,19 +223,14 @@ ${f.content}
 
     const message = JSON.stringify({
       type: 'user',
-      message: {
-        role: 'user',
-        content: content
-      }
+      message: { role: 'user', content }
     });
 
     console.log('[STDIN]', message);
 
-    // Write with error handling
     try {
       const writeSuccess = this.claudeProcess.stdin.write(message + '\n');
       if (!writeSuccess) {
-        // Handle backpressure - wait for drain event
         this.claudeProcess.stdin.once('drain', () => {
           console.log('[Claude] stdin drained, write completed');
         });
@@ -417,12 +247,13 @@ ${f.content}
     }
   }
 
+  // --- Event handling ---
+
   processLine(line) {
     let event;
     try {
       event = JSON.parse(line);
     } catch (e) {
-      // Genuine non-JSON output
       if (this.session.ws && this.session.ws.readyState === 1) {
         this.session.ws.send(JSON.stringify({
           type: 'raw_output',
@@ -442,19 +273,15 @@ ${f.content}
   handleEvent(event) {
     console.log('[Claude] handleEvent:', event.type);
 
-    // Capture session ID from init event (type: "system", subtype: "init")
     if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
       this.claudeSessionId = event.session_id;
       console.log('[Claude] Session ID:', this.claudeSessionId);
-
-      // Persist to session store
       if (this.session.saveHistory) {
         this.session.providerState = this.getSessionState();
         this.session.saveHistory();
       }
     }
 
-    // Start tracking assistant message
     if (event.type === 'assistant' && event.message) {
       this.currentAssistantMessage = {
         timestamp: new Date().toISOString(),
@@ -463,10 +290,8 @@ ${f.content}
       };
     }
 
-    // Accumulate assistant message content deltas
     if (event.type === 'assistant' && event.delta && this.currentAssistantMessage) {
       if (event.delta.type === 'text_delta' && event.delta.text) {
-        // Find or create text block
         let textBlock = this.currentAssistantMessage.content.find(b => b.type === 'text');
         if (!textBlock) {
           textBlock = { type: 'text', text: '' };
@@ -474,7 +299,6 @@ ${f.content}
         }
         textBlock.text += event.delta.text;
       } else if (event.delta.type === 'tool_use') {
-        // Add tool use block
         this.currentAssistantMessage.content.push(event.delta);
       }
     }
@@ -519,7 +343,6 @@ ${f.content}
       this.session.processing = false;
       this.stopActivityMonitor();
 
-      // CLI sometimes returns quick responses directly in result (e.g., invalid commands)
       if (event.result && !this.currentAssistantMessage) {
         this.session.ws?.send(JSON.stringify({
           type: 'system_message',
@@ -528,13 +351,10 @@ ${f.content}
         }));
       }
 
-      // Save assistant message to history
       if (this.currentAssistantMessage) {
         this.session.messages.push(this.currentAssistantMessage);
         this.currentAssistantMessage = null;
-        if (this.session.saveHistory) {
-          this.session.saveHistory();
-        }
+        if (this.session.saveHistory) this.session.saveHistory();
       }
 
       if (this.session.ws && this.session.ws.readyState === 1) {
@@ -548,38 +368,7 @@ ${f.content}
     this.sendEvent(event);
   }
 
-  kill() {
-    this.stopActivityMonitor();
-    if (!this.claudeProcess) return;
-
-    const proc = this.claudeProcess;
-
-    // Persist partial response and session state before killing
-    if (this.currentAssistantMessage) {
-      const textBlock = this.currentAssistantMessage.content.find(b => b.type === 'text');
-      if (textBlock && textBlock.text) {
-        this.currentAssistantMessage.incomplete = true;
-        this.session.messages.push(this.currentAssistantMessage);
-      }
-      this.currentAssistantMessage = null;
-    }
-
-    this.session.providerState = this.getSessionState();
-    if (this.session.saveHistory) {
-      this.session.saveHistory();
-    }
-
-    // Close stdin first -- EOF is the cleanest signal for a pipe-based CLI
-    try { proc.stdin.end(); } catch (e) { /* already closed */ }
-
-    // SIGTERM, then SIGKILL after 3s if it doesn't exit
-    proc.kill('SIGTERM');
-    const killTimeout = setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch (e) { /* already dead */ }
-    }, 3000);
-
-    proc.once('close', () => clearTimeout(killTimeout));
-  }
+  // --- Metadata and state ---
 
   getMetadata() {
     return `Claude ${this.session.model} • ${this.session.directory}`;
@@ -624,6 +413,8 @@ ${f.content}
     ];
   }
 
+  // --- Command handling ---
+
   handleCommand(command, args, sendSystemMessage, rawText) {
     const models = ClaudeProvider.getModels().map(m => m.value);
 
@@ -632,19 +423,13 @@ ${f.content}
         sendSystemMessage(`Current model: ${this.session.model}\nAvailable: ${models.join(', ')}`);
         return true;
       }
-
       const newModel = args[0].toLowerCase();
       if (models.includes(newModel)) {
-        // Kill current process
         if (this.claudeProcess) {
           this.claudeProcess.kill();
           this.claudeProcess = null;
         }
-
-        // Update session model
         this.session.model = newModel;
-
-        // Restart process with new model
         this.startProcess();
         sendSystemMessage(`Model changed to: ${newModel}`);
       } else {
@@ -656,7 +441,7 @@ ${f.content}
     if (command === 'args') {
       let lines = [`--model ${this.session.model}`];
       if (this.customArgs.length > 0) {
-        lines.push(this.formatArgsForDisplay(this.customArgs));
+        lines.push(this._argsManager.formatArgsForDisplay(this.customArgs));
       } else {
         lines.push('\nNo custom args. Use /args-edit to add flags.');
       }
@@ -665,7 +450,7 @@ ${f.content}
     }
 
     if (command === 'args-edit') {
-      this.handleArgsEdit(rawText, sendSystemMessage);
+      this._argsManager.handleArgsEdit(rawText, sendSystemMessage);
       return true;
     }
 
@@ -689,172 +474,13 @@ ${f.content}
       };
     }
 
-    // Let compact/cost/context pass through to the CLI
     return false;
   }
 
-  // --- /args-edit implementation ---
-
-  handleArgsEdit(rawText, sendSystemMessage) {
-    // Extract everything after "/args-edit"
-    const afterCommand = rawText.replace(/^\/args-edit\s*/, '');
-
-    if (!afterCommand) {
-      sendSystemMessage(
-        'Usage:\n' +
-        '  /args-edit --flag [value]   Add or update a CLI flag\n' +
-        '  /args-edit --remove --flag  Remove a flag\n' +
-        '  /args-edit --clear          Remove all custom args'
-      );
-      return;
-    }
-
-    const parsed = this.parseQuotedArgs(afterCommand);
-
-    // --clear: remove all custom args
-    if (parsed[0] === '--clear') {
-      if (this.customArgs.length === 0) {
-        sendSystemMessage('No custom args to clear.');
-        return;
-      }
-      this.customArgs = [];
-      this.persistCustomArgs();
-      this.restartProcess(sendSystemMessage, 'All custom args cleared.');
-      return;
-    }
-
-    // --remove --flag: remove a specific flag
-    if (parsed[0] === '--remove') {
-      if (parsed.length < 2) {
-        sendSystemMessage('Usage: /args-edit --remove --flag');
-        return;
-      }
-      const flag = parsed[1];
-      const removed = this.removeCustomArg(flag);
-      if (!removed) {
-        sendSystemMessage(`Flag "${flag}" not found in custom args.`);
-        return;
-      }
-      this.persistCustomArgs();
-      this.restartProcess(sendSystemMessage, `Removed ${flag}.`);
-      return;
-    }
-
-    // Add/update: --flag [value...]
-    const flag = parsed[0];
-    if (!flag.startsWith('-')) {
-      sendSystemMessage(`Expected a flag starting with "-", got "${flag}".`);
-      return;
-    }
-
-    // Block protected args
-    if (ClaudeProvider.PROTECTED_ARGS.has(flag)) {
-      sendSystemMessage(`"${flag}" is managed internally and cannot be changed via /args-edit.`);
-      return;
-    }
-
-    // Intercept --model: update session.model instead of customArgs
-    if (flag === '--model') {
-      if (parsed.length < 2) {
-        sendSystemMessage('Usage: /args-edit --model <model-name>');
-        return;
-      }
-      const models = ClaudeProvider.getModels().map(m => m.value);
-      const newModel = parsed[1].toLowerCase();
-      if (!models.includes(newModel)) {
-        sendSystemMessage(`Invalid model "${newModel}". Available: ${models.join(', ')}`);
-        return;
-      }
-      this.session.model = newModel;
-      this.restartProcess(sendSystemMessage, `Model changed to: ${newModel}`);
-      return;
-    }
-
-    const values = parsed.slice(1);
-
-    // Remove existing entry for this flag before adding
-    this.removeCustomArg(flag);
-    this.customArgs.push(flag, ...values);
-    this.persistCustomArgs();
-
-    const display = values.length > 0 ? `${flag} ${values.join(' ')}` : flag;
-    this.restartProcess(sendSystemMessage, `Added ${display}.`);
-  }
-
-  // --- Helper methods ---
-
-  parseQuotedArgs(str) {
-    const result = [];
-    let current = '';
-    let inSingle = false;
-    let inDouble = false;
-
-    for (let i = 0; i < str.length; i++) {
-      const ch = str[i];
-
-      if (ch === "'" && !inDouble) {
-        inSingle = !inSingle;
-      } else if (ch === '"' && !inSingle) {
-        inDouble = !inDouble;
-      } else if (/\s/.test(ch) && !inSingle && !inDouble) {
-        if (current.length > 0) {
-          result.push(current);
-          current = '';
-        }
-      } else {
-        current += ch;
-      }
-    }
-    if (current.length > 0) {
-      result.push(current);
-    }
-    return result;
-  }
-
-  formatArgsForDisplay(argsArray) {
-    const lines = [];
-    let i = 0;
-    while (i < argsArray.length) {
-      let entry = argsArray[i];
-      i++;
-      // Collect following non-flag values
-      while (i < argsArray.length && !argsArray[i].startsWith('-')) {
-        entry += ' ' + argsArray[i];
-        i++;
-      }
-      lines.push(entry);
-    }
-    return lines.join('\n');
-  }
-
-  removeCustomArg(flag) {
-    const idx = this.customArgs.indexOf(flag);
-    if (idx === -1) return false;
-
-    // Remove flag and any following non-flag values
-    let end = idx + 1;
-    while (end < this.customArgs.length && !this.customArgs[end].startsWith('-')) {
-      end++;
-    }
-    this.customArgs.splice(idx, end - idx);
-    return true;
-  }
-
-  persistCustomArgs() {
-    this.session.providerState = this.getSessionState();
-    if (this.session.saveHistory) {
-      this.session.saveHistory();
-    }
-  }
-
-  restartProcess(sendSystemMessage, message) {
-    if (this.claudeProcess) {
-      this.claudeProcess.kill();
-      this.claudeProcess = null;
-    }
-    this.startProcess();
-    sendSystemMessage(message + ' Process restarted.');
-  }
+  // Delegated to ArgsManager for backward compatibility with tests
+  parseQuotedArgs(str) { return this._argsManager.parseQuotedArgs(str); }
+  formatArgsForDisplay(argsArray) { return this._argsManager.formatArgsForDisplay(argsArray); }
+  removeCustomArg(flag) { return this._argsManager.removeCustomArg(flag); }
 
   showCliHelp(sendSystemMessage) {
     const claudePath = this.config.path ||
