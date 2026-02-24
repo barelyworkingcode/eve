@@ -22,7 +22,6 @@ class LMStudioProvider extends LLMProvider {
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       this.baseUrl = config.baseUrl || 'http://localhost:1234/v1';
-      this.models = config.models || [];
 
       const url = new URL(this.baseUrl);
       this.hostname = url.hostname;
@@ -34,7 +33,6 @@ class LMStudioProvider extends LLMProvider {
       this.hostname = 'localhost';
       this.port = 1234;
       this.basePath = '/v1';
-      this.models = [];
     }
   }
 

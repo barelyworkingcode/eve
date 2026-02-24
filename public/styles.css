@@ -239,10 +239,6 @@ html, body {
   color: var(--accent);
 }
 
-.project-delete {
-  margin-left: 0;
-}
-
 .project-files-toggle {
   opacity: 0;
   background: none;
@@ -667,11 +663,6 @@ html, body {
   white-space: pre-wrap;
 }
 
-.message.system.permission .message-content {
-  border-color: var(--warning);
-  background: rgba(245, 158, 11, 0.1);
-}
-
 .message.system.error .message-content {
   border-color: var(--danger);
   background: rgba(239, 68, 68, 0.1);
@@ -697,14 +688,6 @@ html, body {
 
 .message-content code {
   font-size: 12px;
-}
-
-.message-content p {
-  margin-bottom: 8px;
-}
-
-.message-content p:last-child {
-  margin-bottom: 0;
 }
 
 /* Tool usage indicator */
@@ -1717,9 +1700,6 @@ html, body {
     font-size: 11px;
   }
 
-  .input-area {
-    padding: 10px 12px;
-  }
 }
 
 /* Scheduled Tasks */

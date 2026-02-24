@@ -1,16 +1,17 @@
 const express = require('express');
 
-function summarizeToolInput(toolName, toolInput) {
+function summarizeToolInput(toolInput) {
   if (!toolInput) return '';
   if (typeof toolInput === 'string') return toolInput.substring(0, 500);
 
   if (toolInput.command) return toolInput.command.substring(0, 500);
-  if (toolInput.file_path) return toolInput.file_path;
-  if (toolInput.pattern) return toolInput.pattern;
 
   if (toolInput.file_path && toolInput.old_string) {
     return `${toolInput.file_path}\n--- old ---\n${toolInput.old_string.substring(0, 200)}\n--- new ---\n${(toolInput.new_string || '').substring(0, 200)}`;
   }
+
+  if (toolInput.file_path) return toolInput.file_path;
+  if (toolInput.pattern) return toolInput.pattern;
 
   return JSON.stringify(toolInput).substring(0, 500);
 }
@@ -33,7 +34,7 @@ function createPermissionRoutes({ sessions, requireAuth }) {
       sessionId,
       permissionId,
       toolName,
-      toolInput: summarizeToolInput(toolName, toolInput)
+      toolInput: summarizeToolInput(toolInput)
     }));
 
     const timeout = setTimeout(() => {

@@ -35,27 +35,6 @@ class TaskScheduler extends EventEmitter {
     console.log('[TaskScheduler] Started');
   }
 
-  stop() {
-    if (!this.running) return;
-    this.running = false;
-
-    // Clear all scheduled timeouts
-    for (const [key, scheduled] of this.scheduledTasks) {
-      if (scheduled.timeoutId) {
-        clearTimeout(scheduled.timeoutId);
-      }
-    }
-    this.scheduledTasks.clear();
-
-    // Close all file watchers
-    for (const [projectId, watcher] of this.watchers) {
-      watcher.close();
-    }
-    this.watchers.clear();
-
-    console.log('[TaskScheduler] Stopped');
-  }
-
   loadProjectTasks(projectId, projectPath) {
     const tasksFile = path.join(projectPath, TASKS_FILENAME);
 
@@ -333,24 +312,6 @@ class TaskScheduler extends EventEmitter {
     }
   }
 
-  getScheduledTasks() {
-    const tasks = [];
-    for (const [key, scheduled] of this.scheduledTasks) {
-      const project = this.projects.get(scheduled.projectId);
-      tasks.push({
-        id: scheduled.task.id,
-        name: scheduled.task.name,
-        prompt: scheduled.task.prompt,
-        schedule: scheduled.task.schedule,
-        enabled: scheduled.task.enabled !== false,
-        projectId: scheduled.projectId,
-        projectName: project?.name || 'Unknown',
-        nextRun: scheduled.nextRun?.toISOString()
-      });
-    }
-    return tasks;
-  }
-
   getTaskHistory(projectId, taskId) {
     const logFile = path.join(this.logsDir, `${projectId}-${taskId}.json`);
 
@@ -524,31 +485,6 @@ class TaskScheduler extends EventEmitter {
     this.executeTask(projectId, task);
   }
 
-  // Called when a new project is added
-  addProject(projectId, project) {
-    this.loadProjectTasks(projectId, project.path);
-    this.watchTasksFile(projectId, project.path);
-  }
-
-  // Called when a project is removed
-  removeProject(projectId) {
-    // Clear scheduled tasks for this project
-    for (const [key] of this.scheduledTasks) {
-      if (key.startsWith(`${projectId}:`)) {
-        const scheduled = this.scheduledTasks.get(key);
-        if (scheduled?.timeoutId) {
-          clearTimeout(scheduled.timeoutId);
-        }
-        this.scheduledTasks.delete(key);
-      }
-    }
-
-    // Close file watcher
-    if (this.watchers.has(projectId)) {
-      this.watchers.get(projectId).close();
-      this.watchers.delete(projectId);
-    }
-  }
 }
 
 module.exports = TaskScheduler;

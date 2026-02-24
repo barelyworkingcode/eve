@@ -6,7 +6,7 @@ class FileEditor {
     this.viewMode = 'split';
     this._previewDebounce = null;
 
-    this.initMonaco();
+    this.loadMonaco();
     this.initElements();
     this.initEventListeners();
   }
@@ -127,11 +127,6 @@ class FileEditor {
 
     const content = this.editor.getValue();
     this.markdownPreview.innerHTML = DOMPurify.sanitize(marked.parse(content));
-  }
-
-  initMonaco() {
-    // Load Monaco editor module
-    this.loadMonaco();
   }
 
   loadMonaco() {

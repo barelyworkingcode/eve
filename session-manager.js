@@ -43,10 +43,6 @@ class SessionManager {
     return this.settings.providerConfig[providerType] || {};
   }
 
-  isProviderEnabled(provider) {
-    return this.settings.providers[provider];
-  }
-
   initProvider(session, extraArgs = []) {
     const ProviderClass = this.getProviderClass(session.model);
     const config = this.getProviderConfig(this.getProviderForModel(session.model));
