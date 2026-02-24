@@ -3,7 +3,6 @@
 class AuthClient {
   constructor() {
     this.elements = null;
-    this.challengeId = null;
   }
 
   init() {

@@ -233,21 +233,6 @@ class TerminalManager {
   }
 
   /**
-   * Re-fits the active terminal (call after tab switch)
-   */
-  refitActiveTerminal() {
-    if (this.activeTerminalId) {
-      const terminal = this.terminals.get(this.activeTerminalId);
-      if (terminal) {
-        requestAnimationFrame(() => {
-          terminal.fitAddon.fit();
-          terminal.term.focus();
-        });
-      }
-    }
-  }
-
-  /**
    * Request list of existing terminals from server (for reconnection)
    */
   requestTerminalList() {

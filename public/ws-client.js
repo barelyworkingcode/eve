@@ -5,7 +5,6 @@ class WsClient {
   constructor(app) {
     this.app = app;
     this.ws = null;
-    this.wsAuthenticated = false;
   }
 
   connect() {
@@ -25,7 +24,6 @@ class WsClient {
       const data = JSON.parse(event.data);
 
       if (data.type === 'auth_success') {
-        this.wsAuthenticated = true;
         this.app.onWebSocketReady();
         return;
       }
@@ -41,7 +39,6 @@ class WsClient {
 
     this.ws.onclose = () => {
       console.log('Disconnected from server');
-      this.wsAuthenticated = false;
       if (this.app.elements?.connectionStatus) {
         this.app.elements.connectionStatus.classList.remove('hidden');
       }

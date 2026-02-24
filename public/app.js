@@ -811,10 +811,6 @@ class EveWorkspaceClient {
     this.modalManager.showConfirmModal(message, callback);
   }
 
-  escapeHtml(text) {
-    return this.messageRenderer.escapeHtml(text);
-  }
-
   // Delegated to TaskUI for display
   showTaskResult(projectId, taskId) {
     this.taskUI.showTaskResult(projectId, taskId);
