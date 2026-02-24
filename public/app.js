@@ -16,6 +16,7 @@ class EveWorkspaceClient {
     this.editingTask = null; // { projectId, taskId } when editing
     this.editingProjectId = null; // projectId when editing a project
     this.pendingPermissionId = null; // permissionId for pending permission request
+    this.currentToolBlock = null; // Currently active tool-use element
 
     // Check auth before initializing
     this.authClient = new AuthClient();
@@ -40,6 +41,7 @@ class EveWorkspaceClient {
     this.fileBrowser = new FileBrowser(this);
     this.fileEditor = new FileEditor(this);
     this.terminalManager = new TerminalManager(this);
+    this.initSwipeGesture();
     this.loadModels();
     this.connect();
   }
@@ -116,7 +118,9 @@ class EveWorkspaceClient {
       permissionToolName: document.getElementById('permissionToolName'),
       permissionToolInput: document.getElementById('permissionToolInput'),
       permissionAllow: document.getElementById('permissionAllow'),
-      permissionDeny: document.getElementById('permissionDeny')
+      permissionDeny: document.getElementById('permissionDeny'),
+      connectionStatus: document.getElementById('connectionStatus'),
+      welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar')
     };
   }
 
@@ -190,6 +194,7 @@ class EveWorkspaceClient {
 
     // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
+    this.elements.welcomeOpenSidebar.addEventListener('click', () => this.toggleSidebar(true));
     this.elements.closeSidebar.addEventListener('click', () => this.toggleSidebar(false));
 
     // Project select - update directory input requirement
@@ -394,6 +399,38 @@ class EveWorkspaceClient {
     }
   }
 
+  initSwipeGesture() {
+    let startX = 0;
+    let startY = 0;
+
+    document.addEventListener('touchstart', (e) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+      const endX = e.changedTouches[0].clientX;
+      const endY = e.changedTouches[0].clientY;
+      const deltaX = endX - startX;
+      const deltaY = Math.abs(endY - startY);
+
+      // Only trigger if horizontal swipe is dominant
+      if (deltaY > Math.abs(deltaX)) return;
+
+      const sidebarOpen = this.elements.sidebar.classList.contains('open');
+
+      // Swipe right from left edge to open sidebar
+      if (!sidebarOpen && startX < 30 && deltaX > 60) {
+        this.toggleSidebar(true);
+      }
+
+      // Swipe left while sidebar is open to close it
+      if (sidebarOpen && deltaX < -60) {
+        this.toggleSidebar(false);
+      }
+    }, { passive: true });
+  }
+
   connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     this.ws = new WebSocket(`${protocol}//${window.location.host}`);
@@ -401,6 +438,9 @@ class EveWorkspaceClient {
 
     this.ws.onopen = () => {
       console.log('Connected to server');
+      if (this.elements?.connectionStatus) {
+        this.elements.connectionStatus.classList.add('hidden');
+      }
       // Send auth token as first message
       const token = localStorage.getItem('eve_session');
       this.ws.send(JSON.stringify({ type: 'auth', token: token || null }));
@@ -428,6 +468,9 @@ class EveWorkspaceClient {
     this.ws.onclose = () => {
       console.log('Disconnected from server');
       this.wsAuthenticated = false;
+      if (this.elements?.connectionStatus) {
+        this.elements.connectionStatus.classList.remove('hidden');
+      }
       setTimeout(() => this.connect(), 2000);
     };
 
@@ -710,6 +753,10 @@ class EveWorkspaceClient {
       case 'permission_request':
         this.showPermissionModal(data);
         break;
+
+      case 'warning':
+        this.appendSystemMessage(data.message, 'warning');
+        break;
     }
   }
 
@@ -822,6 +869,7 @@ class EveWorkspaceClient {
 
   startAssistantMessage(text) {
     this.hideThinkingIndicator();
+    this.markToolComplete();
     this.finishAssistantMessage();
 
     const messageEl = document.createElement('div');
@@ -856,6 +904,7 @@ class EveWorkspaceClient {
   }
 
   finishAssistantMessage() {
+    this.markToolComplete();
     if (this.currentAssistantMessage) {
       // Store in session history before clearing (but not when rendering history)
       const text = this.currentAssistantMessage.dataset.rawText;
@@ -894,13 +943,16 @@ class EveWorkspaceClient {
 
     messageEl.innerHTML = `
       <div class="message-content">
-        <div class="tool-use">
+        <div class="tool-use tool-active">
+          <div class="tool-spinner"></div>
           <span class="tool-name">${this.escapeHtml(toolName)}</span>
           ${inputSummary ? `<span class="tool-input">${this.escapeHtml(inputSummary)}</span>` : ''}
         </div>
       </div>
     `;
     this.elements.messages.appendChild(messageEl);
+    this.currentToolBlock = messageEl.querySelector('.tool-use');
+    this.updateThinkingIndicator(`Running ${toolName}...`);
     this.scrollToBottom();
   }
 
@@ -1017,19 +1069,39 @@ class EveWorkspaceClient {
     this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
   }
 
-  showThinkingIndicator() {
+  showThinkingIndicator(text = 'Thinking...') {
     this.hideThinkingIndicator();
     const el = document.createElement('div');
     el.className = 'thinking-indicator';
     el.id = 'thinkingIndicator';
-    el.innerHTML = '<div class="thinking-spinner"></div><span class="thinking-text">Thinking...</span>';
+    el.innerHTML = `<div class="thinking-spinner"></div><span class="thinking-text">${this.escapeHtml(text)}</span>`;
     this.elements.messages.appendChild(el);
     this.scrollToBottom();
   }
 
+  updateThinkingIndicator(text) {
+    const el = document.getElementById('thinkingIndicator');
+    if (el) {
+      const textEl = el.querySelector('.thinking-text');
+      if (textEl) textEl.textContent = text;
+    } else {
+      this.showThinkingIndicator(text);
+    }
+  }
+
   hideThinkingIndicator() {
+    this.markToolComplete();
     const el = document.getElementById('thinkingIndicator');
     if (el) el.remove();
+  }
+
+  markToolComplete() {
+    if (this.currentToolBlock) {
+      this.currentToolBlock.classList.remove('tool-active');
+      const spinner = this.currentToolBlock.querySelector('.tool-spinner');
+      if (spinner) spinner.remove();
+      this.currentToolBlock = null;
+    }
   }
 
   handleSubmit(e) {
@@ -1346,12 +1418,14 @@ class EveWorkspaceClient {
       // Show tasks panel
       tasksBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        this.toggleSidebar(false);
         this.showTasksPanel(projectId);
       });
 
       // Edit project
       editBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        this.toggleSidebar(false);
         this.showProjectModal(projectId);
       });
 
@@ -1359,6 +1433,7 @@ class EveWorkspaceClient {
       quickAddBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (!project.disabled) {
+          this.toggleSidebar(false);
           this.showModal(projectId);
         }
       });
