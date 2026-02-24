@@ -18,6 +18,7 @@ const app = express();
 // HTTPS support for WebAuthn on non-localhost
 const HTTPS_KEY = process.env.HTTPS_KEY;
 const HTTPS_CERT = process.env.HTTPS_CERT;
+const DUAL_LISTEN = process.env.DUAL_LISTEN === 'true';
 
 const server = HTTPS_KEY && HTTPS_CERT
   ? https.createServer({
@@ -26,7 +27,21 @@ const server = HTTPS_KEY && HTTPS_CERT
     }, app)
   : createServer(app);
 
-const wss = new WebSocketServer({ server });
+// Optional HTTP server for localhost when running HTTPS as primary
+const httpServer = (HTTPS_KEY && HTTPS_CERT && DUAL_LISTEN)
+  ? createServer(app)
+  : null;
+
+const wss = new WebSocketServer({ noServer: true });
+
+// Route upgrades from both servers to the same WebSocket handler
+function handleUpgrade(req, socket, head) {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+}
+server.on('upgrade', handleUpgrade);
+if (httpServer) httpServer.on('upgrade', handleUpgrade);
 
 // Data directory for persistence (override with --data <path>)
 function parseDataDir() {
@@ -374,6 +389,8 @@ taskScheduler.on('tasks_updated', (data) => {
 });
 
 const PORT = process.env.PORT || 3000;
+const HTTP_PORT = process.env.HTTP_PORT || 3000;
+
 server.listen(PORT, () => {
   const protocol = HTTPS_KEY && HTTPS_CERT ? 'https' : 'http';
   console.log(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}`);
@@ -386,6 +403,12 @@ server.listen(PORT, () => {
   taskScheduler.start();
   cleanupOrphanedProcesses();
 });
+
+if (httpServer) {
+  httpServer.listen(HTTP_PORT, () => {
+    console.log(`HTTP server listening on http://localhost:${HTTP_PORT}`);
+  });
+}
 
 // --- Startup orphan cleanup ---
 // Kill only processes that Eve previously spawned (tracked via pid-registry).
