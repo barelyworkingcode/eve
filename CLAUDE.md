@@ -152,7 +152,6 @@ this.sessions.delete(id); // Remove from Map
 **File Length Limits**
 - Single file should not exceed 1000 lines
 - Break into logical modules at 800+ lines
-- Exception: `app.js` is 900 lines but well-organized by section
 
 **Function Length**
 - Keep functions under 50 lines
@@ -290,20 +289,35 @@ test/
 
 ### Core Components
 
-**Server** (`server.js`)
-- Express HTTP + WebSocket server
-- Session management (Map of sessionId → session state)
-- Project persistence to `data/projects.json`
-- Provider abstraction layer
+**Server**
+- `server.js` - Startup, service wiring, middleware, shutdown
+- `ws-handler.js` - WebSocket message dispatch to services
+- `routes/index.js` - Registers all HTTP route groups
+- `routes/auth.js` - WebAuthn enrollment/login
+- `routes/projects.js` - Project CRUD
+- `routes/sessions.js` - Session list, create, message API
+- `routes/tasks.js` - Scheduled task CRUD, run, history
+- `routes/permissions.js` - PreToolUse hook forwarding
+- `session-manager.js` - Session lifecycle, provider init, slash commands
+- `response-collector.js` - Captures LLM responses for REST API and headless tasks
 
-**Client** (`public/app.js`)
-- Vanilla JavaScript WebSocket client
-- Single `EveWorkspaceClient` class managing all state
-- No framework dependencies
+**Client** (`public/`)
+- `app.js` - Thin orchestrator wiring modules, state owner
+- `ws-client.js` - WebSocket connection, auth, reconnection
+- `message-renderer.js` - Chat messages, tool use, thinking indicator, formatting
+- `modal-manager.js` - All modal show/hide, confirmation flow, permission prompts
+- `task-ui.js` - Task scheduling UI (CRUD, schedule config, history)
+- `sidebar-renderer.js` - Project list, session items, inline rename
+- `tab-manager.js` - Tab bar for sessions, files, terminals, tasks
+- `file-browser.js` - Directory tree in sidebar
+- `file-editor.js` - Monaco editor integration
+- `terminal-manager.js` - xterm.js terminal tabs
 
 **Providers** (`providers/`)
 - `llm-provider.js` - Base class for all providers
-- `claude-provider.js` - Claude CLI integration (persistent process)
+- `claude-provider.js` - Claude CLI integration point
+- `claude-process.js` - CLI process spawn, stdio, kill, retry
+- `claude-args-manager.js` - Custom arg parsing, /args-edit command
 - `gemini-provider.js` - Gemini CLI integration (persistent process)
 - `lmstudio-provider.js` - LM Studio HTTP API integration (stateless)
 
@@ -338,32 +352,27 @@ Models are routed to providers based on naming:
 
 ## Client Architecture
 
-### State Management
-All state lives in `EveWorkspaceClient` instance:
-```javascript
-this.ws                    // WebSocket connection
-this.currentSessionId      // Active session ID
-this.sessions              // Map of all sessions
-this.projects              // Map of all projects
-this.attachedFiles         // Pending file attachments
-this.confirmCallback       // Current confirmation modal callback
-this.editingTask           // { projectId, taskId } when editing a task
-this.editingProjectId      // projectId when editing a project
-this.pendingPermissionId   // permissionId for pending permission request
-```
+### Module Responsibilities
+The client is split into focused modules, each receiving a reference to the `app` (EveWorkspaceClient) instance:
+
+| Module | Owns | Key methods |
+|--------|------|-------------|
+| `app.js` | `sessions`, `projects`, `currentSessionId`, `attachedFiles` | `handleServerMessage()`, `handleSubmit()`, data loading |
+| `wsClient` (WsClient) | `ws` connection | `connect()`, `send()` |
+| `messageRenderer` (MessageRenderer) | `currentAssistantMessage` | `startAssistantMessage()`, `appendToolUse()`, `formatText()` |
+| `modalManager` (ModalManager) | `confirmCallback`, `editingProjectId`, `pendingPermissionId` | show/hide for all 7 modals |
+| `taskUI` (TaskUI) | `scheduledTasks`, `taskHistory`, `editingTask` | task CRUD, schedule config, history |
+| `sidebarRenderer` (SidebarRenderer) | `renamingSessionId` | `renderProjectList()`, `renderSessionItem()` |
+
+Existing modules (TabManager, FileBrowser, FileEditor, TerminalManager) access the WebSocket via `this.client.ws`, which is a getter proxy to `wsClient.ws`.
 
 ### UI Patterns
 
-**Modals**
-- Session creation modal (`#modal`)
-- Project create/edit modal (`#projectModal`) - shared for create and edit via `editingProjectId`
-- Confirmation modal (`#confirmModal`)
-- Tasks list modal (`#tasksModal`)
-- Task create/edit modal (`#taskFormModal`)
-- Permission request modal (`#permissionModal`) - approve/deny Claude CLI tool use
+**Modals** (managed by `ModalManager`)
+- Session creation, project create/edit, confirmation, tasks list, task form, permission request
 - All follow same pattern: backdrop click closes, focus management, hidden class toggle
 
-**Sidebar Hierarchy**
+**Sidebar Hierarchy** (rendered by `SidebarRenderer`)
 ```
 Projects (section)
   ├── Project 1
@@ -391,10 +400,10 @@ this.sessions.set(id, session);
 
 // Good
 this.sessions.set(id, session);
-this.renderProjectList();
+this.sidebarRenderer.renderProjectList();
 ```
 
-**Modal workflow**
+**Modal workflow** (methods live in `ModalManager`)
 1. Show modal with pre-filled data
 2. User submits or cancels
 3. Hide modal and reset form state
@@ -414,12 +423,13 @@ Client sends:
 ### Adding Features to Server
 
 **Provider implementation checklist**
-1. Extend `LLMProvider` base class
+1. Extend `LLMProvider` base class in `providers/`
 2. Implement `startProcess()` or HTTP setup
 3. Implement `sendMessage(text, files)`
 4. Implement `handleEvent(event)` for responses
-5. Add to `getProviderForModel()` routing logic
-6. Add model list to `getAllModels()`
+5. Register in `session-manager.js` via `registerProvider(key, Class, matchFn)`
+6. Add model list via static `getModels()` method
+7. For complex providers, extract process management and arg handling into separate files (see `claude-process.js`, `claude-args-manager.js`)
 
 **Session safety**
 - Always check session exists before sending
@@ -436,30 +446,41 @@ data/
   lmstudio-config.json  - Optional, user-created
 ```
 
-**Client code organization** (app.js ~900 lines)
-1. Constructor & initialization (1-133)
-2. File handling (145-230)
-3. WebSocket connection (240-263)
-4. Server message handling (335-400)
-5. UI rendering (450-650)
-6. Modal management (700-800)
-7. Project/session rendering (776-891)
+**Client code organization** (modular)
+- `app.js` (~900 lines) - Orchestrator: init, elements, event listeners, message dispatch, data loading, file handling, UI helpers
+- `ws-client.js` (~60 lines) - WebSocket lifecycle
+- `message-renderer.js` (~220 lines) - Chat rendering and formatting
+- `modal-manager.js` (~200 lines) - Modal show/hide, confirm flow
+- `task-ui.js` (~510 lines) - Task scheduling UI
+- `sidebar-renderer.js` (~265 lines) - Project/session/task sidebar
+- `tab-manager.js`, `file-browser.js`, `file-editor.js`, `terminal-manager.js` - Feature-specific modules
+
+**Server code organization** (modular)
+- `server.js` (~325 lines) - Startup, service wiring, shutdown
+- `ws-handler.js` (~145 lines) - WebSocket message dispatch
+- `routes/` - Domain-specific HTTP route files (auth, projects, sessions, tasks, permissions)
+- `response-collector.js` (~95 lines) - LLM response capture for REST API
 
 ## Common Tasks
 
 ### Adding a new modal
 1. Add HTML structure in `index.html`
 2. Add CSS following existing `.modal*` patterns
-3. Add element refs in `initElements()`
-4. Add show/hide methods
-5. Add event listeners in `initEventListeners()`
+3. Add element refs in `app.js` `initElements()`
+4. Add show/hide methods in `modal-manager.js`
+5. Add event listeners in `ModalManager.initEventListeners()`
 
 ### Adding a button to project headers
-1. Update `renderProjectList()` HTML template
+1. Update `SidebarRenderer.renderProjectGroup()` HTML template in `sidebar-renderer.js`
 2. Add CSS (hidden by default, show on `.project-header:hover`)
 3. Query element after innerHTML set
 4. Add click handler with `e.stopPropagation()`
 5. Check for disabled projects if needed
+
+### Adding a new HTTP route
+1. Create `routes/<domain>.js` exporting a factory function that takes dependencies and returns an Express router
+2. Register it in `routes/index.js` with `app.use('/api/<path>', createRoutes({ ...deps }))`
+3. Pass only the dependencies the route needs (not the full bag)
 
 ### Updating stats display
 Stats flow: Provider → Server → WebSocket → Client

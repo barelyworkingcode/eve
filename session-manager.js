@@ -4,6 +4,7 @@ const path = require('path');
 const ClaudeProvider = require('./providers/claude-provider');
 const GeminiProvider = require('./providers/gemini-provider');
 const LMStudioProvider = require('./providers/lmstudio-provider');
+const ResponseCollector = require('./response-collector');
 
 // Provider registry - order matters: first match wins in getProviderForModel()
 // Claude must be last as the catch-all fallback
@@ -427,47 +428,10 @@ class SessionManager {
       const sessionId = `headless-${Date.now()}`;
       const effectiveModel = model || project.model || 'haiku';
 
-      let responseText = '';
-      let completed = false;
-
-      const complete = (err) => {
-        if (completed) return;
-        completed = true;
-        clearTimeout(timeout);
-
-        if (session.provider) {
-          session.provider.kill();
-        }
-
-        if (err) {
-          reject(err);
-        } else {
-          resolve({
-            response: responseText,
-            stats: session.stats
-          });
-        }
-      };
-
-      const mockWs = {
-        readyState: 1,
-        send: (data) => {
-          try {
-            const message = JSON.parse(data);
-            if (message.type === 'message_complete') {
-              complete(null);
-            } else if (message.type === 'error') {
-              complete(new Error(message.message));
-            }
-          } catch (e) {
-            // Ignore parse errors
-          }
-        }
-      };
-
+      // Headless session with a no-op WebSocket (ResponseCollector will replace it)
       const session = {
         sessionId,
-        ws: mockWs,
+        ws: { readyState: 1, send: () => {} },
         directory: project.path,
         projectId: project.id,
         provider: null,
@@ -491,27 +455,12 @@ class SessionManager {
         session.provider.customArgs = [...args];
       }
 
-      const originalHandleEvent = session.provider.handleEvent.bind(session.provider);
-      session.provider.handleEvent = (event) => {
-        if (event.type === 'assistant') {
-          if (event.message?.content) {
-            for (const block of event.message.content) {
-              if (block.type === 'text') {
-                responseText = block.text;
-              }
-            }
-          } else if (event.content_block?.type === 'text') {
-            responseText = event.content_block.text;
-          } else if (event.delta?.type === 'text_delta') {
-            responseText += event.delta.text;
-          }
-        }
-        originalHandleEvent(event);
-      };
-
-      const timeout = setTimeout(() => {
-        complete(new Error('Task execution timeout (5 minutes)'));
-      }, 5 * 60 * 1000);
+      const collector = new ResponseCollector(session);
+      collector.install((err, result) => {
+        if (session.provider) session.provider.kill();
+        if (err) reject(err);
+        else resolve(result);
+      });
 
       session.provider.startProcess();
 

@@ -1,49 +1,56 @@
+/**
+ * EveWorkspaceClient - thin orchestrator wiring together focused modules.
+ *
+ * Modules (loaded via <script> tags before this file):
+ *   WsClient, MessageRenderer, ModalManager, TaskUI,
+ *   SidebarRenderer, TabManager, FileBrowser, FileEditor, TerminalManager
+ */
 class EveWorkspaceClient {
   constructor() {
-    this.ws = null;
     this.currentSessionId = null;
     this.sessions = new Map();
-    this.sessionHistories = new Map(); // sessionId -> messages array
+    this.sessionHistories = new Map();
     this.projects = new Map();
-    this.currentAssistantMessage = null;
     this.attachedFiles = [];
     this.models = [];
-    this.confirmCallback = null;
-    this.isRenderingHistory = false; // Flag to prevent storing during history render
-    this.renamingSessionId = null; // Session currently being renamed inline
-    this.scheduledTasks = []; // All scheduled tasks
-    this.taskHistory = new Map(); // projectId:taskId -> executions
-    this.editingTask = null; // { projectId, taskId } when editing
-    this.editingProjectId = null; // projectId when editing a project
-    this.pendingPermissionId = null; // permissionId for pending permission request
-    this.currentToolBlock = null; // Currently active tool-use element
+    this.isRenderingHistory = false;
 
-    // Check auth before initializing
     this.authClient = new AuthClient();
     this.authClient.init();
 
-    // Listen for successful auth
     window.addEventListener('auth:success', () => this.initApp());
 
-    // Check auth status
     this.authClient.checkStatus().then(authenticated => {
-      if (authenticated) {
-        this.initApp();
-      }
+      if (authenticated) this.initApp();
     });
   }
 
   initApp() {
     this.initElements();
-    this.initEventListeners();
-    this.initSidebarResize();
+
+    // Initialize modules
+    this.wsClient = new WsClient(this);
+    this.messageRenderer = new MessageRenderer(this);
+    this.modalManager = new ModalManager(this);
+    this.taskUI = new TaskUI(this);
+    this.sidebarRenderer = new SidebarRenderer(this);
     this.tabManager = new TabManager(this);
     this.fileBrowser = new FileBrowser(this);
     this.fileEditor = new FileEditor(this);
     this.terminalManager = new TerminalManager(this);
+
+    this.initEventListeners();
+    this.modalManager.initEventListeners();
+    this.taskUI.initEventListeners();
+    this.initSidebarResize();
     this.initSwipeGesture();
     this.loadModels();
-    this.connect();
+    this.wsClient.connect();
+  }
+
+  // Proxy for existing modules that reference client.ws directly
+  get ws() {
+    return this.wsClient?.ws;
   }
 
   getAuthHeaders() {
@@ -126,19 +133,15 @@ class EveWorkspaceClient {
 
   initEventListeners() {
     // New session buttons
-    this.elements.newSessionBtn.addEventListener('click', () => this.showModal());
-    this.elements.welcomeNewSession.addEventListener('click', () => this.showModal());
+    this.elements.newSessionBtn.addEventListener('click', () => this.modalManager.showSessionModal());
+    this.elements.welcomeNewSession.addEventListener('click', () => this.modalManager.showSessionModal());
 
-    // Session Modal
-    this.elements.cancelModal.addEventListener('click', () => this.hideModal());
-    this.elements.modal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideModal());
-    this.elements.newSessionForm.addEventListener('submit', (e) => this.handleNewSession(e));
-
-    // Project Modal
-    this.elements.newProjectBtn.addEventListener('click', () => this.showProjectModal());
-    this.elements.cancelProjectModal.addEventListener('click', () => this.hideProjectModal());
-    this.elements.projectModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideProjectModal());
+    // Project modal
+    this.elements.newProjectBtn.addEventListener('click', () => this.modalManager.showProjectModal());
     this.elements.newProjectForm.addEventListener('submit', (e) => this.handleNewProject(e));
+
+    // Session form
+    this.elements.newSessionForm.addEventListener('submit', (e) => this.handleNewSession(e));
 
     // Chat input
     this.elements.inputForm.addEventListener('submit', (e) => this.handleSubmit(e));
@@ -154,17 +157,15 @@ class EveWorkspaceClient {
     this.elements.attachBtn.addEventListener('click', () => this.elements.fileInput.click());
     this.elements.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
 
-    // Paste images from clipboard
+    // Paste images
     this.elements.userInput.addEventListener('paste', (e) => {
       const items = e.clipboardData?.items;
       if (!items) return;
-
       for (const item of items) {
         if (item.type.startsWith('image/')) {
           e.preventDefault();
           const file = item.getAsFile();
           if (file) {
-            // Generate a name for pasted images
             const ext = item.type.split('/')[1] || 'png';
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
             file.customName = `pasted-${timestamp}.${ext}`;
@@ -189,7 +190,7 @@ class EveWorkspaceClient {
       e.preventDefault();
       e.stopPropagation();
       this.elements.userInput.classList.remove('dragover');
-      this.handleDroppedFiles(e.dataTransfer.files);
+      this.addFiles(Array.from(e.dataTransfer.files));
     });
 
     // Mobile sidebar toggle
@@ -197,383 +198,31 @@ class EveWorkspaceClient {
     this.elements.welcomeOpenSidebar.addEventListener('click', () => this.toggleSidebar(true));
     this.elements.closeSidebar.addEventListener('click', () => this.toggleSidebar(false));
 
-    // Project select - update directory input requirement
+    // Project select
     this.elements.projectSelect.addEventListener('change', () => this.updateDirectoryInputRequirement());
-
-    // Confirmation modal
-    this.elements.cancelConfirm.addEventListener('click', () => this.hideConfirmModal());
-    this.elements.confirmModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideConfirmModal());
-    this.elements.confirmDelete.addEventListener('click', () => this.handleConfirm());
-
-    // Tasks modal
-    if (this.elements.closeTasksModal) {
-      this.elements.closeTasksModal.addEventListener('click', () => this.hideTasksModal());
-      this.elements.tasksModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideTasksModal());
-    }
-
-    // Task form modal
-    if (this.elements.newTaskBtn) {
-      this.elements.newTaskBtn.addEventListener('click', () => this.showTaskForm());
-    }
-    if (this.elements.cancelTaskForm) {
-      this.elements.cancelTaskForm.addEventListener('click', () => this.hideTaskForm());
-      this.elements.taskFormModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideTaskForm());
-    }
-    if (this.elements.taskForm) {
-      this.elements.taskForm.addEventListener('submit', (e) => this.handleTaskFormSubmit(e));
-    }
-    if (this.elements.taskScheduleType) {
-      this.elements.taskScheduleType.addEventListener('change', () => this.renderScheduleConfig());
-    }
-    if (this.elements.taskDeleteBtn) {
-      this.elements.taskDeleteBtn.addEventListener('click', () => this.handleTaskDelete());
-    }
-
-    // Permission modal
-    if (this.elements.permissionAllow) {
-      this.elements.permissionAllow.addEventListener('click', () => this.respondToPermission(true));
-    }
-    if (this.elements.permissionDeny) {
-      this.elements.permissionDeny.addEventListener('click', () => this.respondToPermission(false));
-    }
-    if (this.elements.permissionModal) {
-      this.elements.permissionModal.querySelector('.modal-backdrop').addEventListener('click', () => this.respondToPermission(false));
-    }
   }
 
-  initSidebarResize() {
-    const minWidth = 200;
-    const maxWidth = 600;
-    let isResizing = false;
-    let startX = 0;
-    let startWidth = 0;
-
-    // Load saved width from localStorage
-    const savedWidth = localStorage.getItem('sidebarWidth');
-    if (savedWidth) {
-      this.setSidebarWidth(parseInt(savedWidth));
-    }
-
-    const startResize = (e) => {
-      isResizing = true;
-      startX = e.clientX;
-      startWidth = this.elements.sidebar.offsetWidth;
-      this.elements.sidebarResizer.classList.add('resizing');
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      e.preventDefault();
-    };
-
-    const resize = (e) => {
-      if (!isResizing) return;
-
-      const delta = e.clientX - startX;
-      const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
-      this.setSidebarWidth(newWidth);
-    };
-
-    const stopResize = () => {
-      if (!isResizing) return;
-
-      isResizing = false;
-      this.elements.sidebarResizer.classList.remove('resizing');
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-
-      // Save to localStorage
-      const width = this.elements.sidebar.offsetWidth;
-      localStorage.setItem('sidebarWidth', width.toString());
-    };
-
-    this.elements.sidebarResizer.addEventListener('mousedown', startResize);
-    document.addEventListener('mousemove', resize);
-    document.addEventListener('mouseup', stopResize);
-  }
-
-  setSidebarWidth(width) {
-    document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
-  }
-
-  updateDirectoryInputRequirement() {
-    const projectSelected = this.elements.projectSelect.value;
-    this.elements.directoryInput.required = !projectSelected;
-    if (projectSelected) {
-      this.elements.directoryInput.placeholder = 'Optional: override project path';
-    } else {
-      this.elements.directoryInput.placeholder = '/path/to/your/project';
-    }
-  }
-
-  handleFileSelect(e) {
-    const files = Array.from(e.target.files);
-    this.addFiles(files);
-    e.target.value = ''; // Reset input
-  }
-
-  handleDroppedFiles(fileList) {
-    const files = Array.from(fileList);
-    this.addFiles(files);
-  }
-
-  async addFiles(files) {
-    for (const file of files) {
-      // Skip video/audio (too large, not supported)
-      if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
-        this.appendSystemMessage(`Skipped unsupported file type: ${file.name}`, 'error');
-        continue;
-      }
-
-      try {
-        const isImage = file.type.startsWith('image/');
-        const content = isImage
-          ? await this.readFileAsDataURL(file)
-          : await this.readFileAsText(file);
-
-        this.attachedFiles.push({
-          name: file.customName || file.name,
-          content: content,
-          type: isImage ? 'image' : 'text',
-          mediaType: file.type
-        });
-      } catch (err) {
-        this.appendSystemMessage(`Failed to read file: ${file.name}`, 'error');
-      }
-    }
-    this.renderAttachedFiles();
-  }
-
-  readFileAsText(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = reject;
-      reader.readAsText(file);
-    });
-  }
-
-  readFileAsDataURL(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  renderAttachedFiles() {
-    if (this.attachedFiles.length === 0) {
-      this.elements.attachedFiles.classList.add('hidden');
-      this.elements.attachedFiles.innerHTML = '';
-      return;
-    }
-
-    this.elements.attachedFiles.classList.remove('hidden');
-    this.elements.attachedFiles.innerHTML = this.attachedFiles.map((f, i) => {
-      const isImage = f.type === 'image';
-      const thumbnail = isImage ? `<img class="file-thumbnail" src="${f.content}" alt="">` : '';
-      const icon = isImage ? '' : '<span class="file-icon">&#128196;</span>';
-      return `
-        <div class="attached-file ${isImage ? 'attached-image' : ''}">
-          ${thumbnail}${icon}
-          <span class="file-name">${this.escapeHtml(f.name)}</span>
-          <button type="button" class="file-remove" data-index="${i}">&times;</button>
-        </div>
-      `;
-    }).join('');
-
-    // Add remove handlers
-    this.elements.attachedFiles.querySelectorAll('.file-remove').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const index = parseInt(e.target.dataset.index);
-        this.attachedFiles.splice(index, 1);
-        this.renderAttachedFiles();
-      });
-    });
-  }
-
-  toggleSidebar(open) {
-    if (open) {
-      this.elements.sidebar.classList.add('open');
-    } else {
-      this.elements.sidebar.classList.remove('open');
-    }
-  }
-
-  initSwipeGesture() {
-    let startX = 0;
-    let startY = 0;
-
-    document.addEventListener('touchstart', (e) => {
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-    }, { passive: true });
-
-    document.addEventListener('touchend', (e) => {
-      const endX = e.changedTouches[0].clientX;
-      const endY = e.changedTouches[0].clientY;
-      const deltaX = endX - startX;
-      const deltaY = Math.abs(endY - startY);
-
-      // Only trigger if horizontal swipe is dominant
-      if (deltaY > Math.abs(deltaX)) return;
-
-      const sidebarOpen = this.elements.sidebar.classList.contains('open');
-
-      // Swipe right from left edge to open sidebar
-      if (!sidebarOpen && startX < 30 && deltaX > 60) {
-        this.toggleSidebar(true);
-      }
-
-      // Swipe left while sidebar is open to close it
-      if (sidebarOpen && deltaX < -60) {
-        this.toggleSidebar(false);
-      }
-    }, { passive: true });
-  }
-
-  connect() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.ws = new WebSocket(`${protocol}//${window.location.host}`);
-    this.wsAuthenticated = false;
-
-    this.ws.onopen = () => {
-      console.log('Connected to server');
-      if (this.elements?.connectionStatus) {
-        this.elements.connectionStatus.classList.add('hidden');
-      }
-      // Send auth token as first message
-      const token = localStorage.getItem('eve_session');
-      this.ws.send(JSON.stringify({ type: 'auth', token: token || null }));
-    };
-
-    this.ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
-      // Handle auth responses
-      if (data.type === 'auth_success') {
-        this.wsAuthenticated = true;
-        this.onWebSocketReady();
-        return;
-      }
-      if (data.type === 'auth_failed') {
-        console.error('WebSocket auth failed:', data.message);
-        localStorage.removeItem('eve_session');
-        window.location.reload();
-        return;
-      }
-
-      this.handleServerMessage(data);
-    };
-
-    this.ws.onclose = () => {
-      console.log('Disconnected from server');
-      this.wsAuthenticated = false;
-      if (this.elements?.connectionStatus) {
-        this.elements.connectionStatus.classList.remove('hidden');
-      }
-      setTimeout(() => this.connect(), 2000);
-    };
-
-    this.ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
-    };
-  }
+  // --- WebSocket ready ---
 
   onWebSocketReady() {
     this.loadProjects();
     this.loadSessions();
-    this.loadScheduledTasks();
-    // Request terminal list for reconnection after refresh
+    this.taskUI.loadScheduledTasks();
+
     if (this.terminalManager && this.terminalManager.xtermLoaded) {
       this.terminalManager.requestTerminalList();
     } else {
-      // Wait for xterm to load, then request terminal list
       const checkXterm = setInterval(() => {
         if (this.terminalManager && this.terminalManager.xtermLoaded) {
           clearInterval(checkXterm);
           this.terminalManager.requestTerminalList();
         }
       }, 100);
-      // Give up after 5 seconds
       setTimeout(() => clearInterval(checkXterm), 5000);
     }
   }
 
-  async loadModels() {
-    try {
-      const response = await fetch('/api/models', {
-        headers: this.getAuthHeaders()
-      });
-      this.models = await response.json();
-      this.renderModelSelect();
-    } catch (err) {
-      console.error('Failed to load models:', err);
-    }
-  }
-
-  renderModelSelect() {
-    const select = this.elements.projectModelSelect;
-    select.innerHTML = '';
-
-    // Group models by their group property
-    const groups = {};
-    for (const model of this.models) {
-      if (!groups[model.group]) {
-        groups[model.group] = [];
-      }
-      groups[model.group].push(model);
-    }
-
-    // Create optgroups
-    for (const [groupName, models] of Object.entries(groups)) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = groupName;
-      for (const model of models) {
-        const option = document.createElement('option');
-        option.value = model.value;
-        option.textContent = model.label;
-        optgroup.appendChild(option);
-      }
-      select.appendChild(optgroup);
-    }
-
-    // Set default to first model if available
-    if (this.models.length > 0) {
-      select.value = this.models[0].value;
-    }
-  }
-
-  async loadProjects() {
-    try {
-      const response = await fetch('/api/projects', {
-        headers: this.getAuthHeaders()
-      });
-      const projects = await response.json();
-      this.projects.clear();
-      projects.forEach(project => {
-        this.projects.set(project.id, project);
-      });
-      this.renderProjectList();
-      this.updateProjectSelect();
-    } catch (err) {
-      console.error('Failed to load projects:', err);
-    }
-  }
-
-  async loadSessions() {
-    try {
-      const response = await fetch('/api/sessions', {
-        headers: this.getAuthHeaders()
-      });
-      const sessions = await response.json();
-      sessions.forEach(session => {
-        this.sessions.set(session.id, session);
-      });
-      this.renderProjectList();
-    } catch (err) {
-      console.error('Failed to load sessions:', err);
-    }
-  }
+  // --- Server message dispatch ---
 
   handleServerMessage(data) {
     switch (data.type) {
@@ -586,11 +235,11 @@ class EveWorkspaceClient {
           active: true
         });
         this.currentSessionId = data.sessionId;
-        this.sessionHistories.set(data.sessionId, []); // Initialize empty history
+        this.sessionHistories.set(data.sessionId, []);
         this.showChatScreen();
         this.tabManager.openSession(data.sessionId);
-        this.renderProjectList();
-        this.hideModal();
+        this.sidebarRenderer.renderProjectList();
+        this.modalManager.hideSessionModal();
         break;
 
       case 'session_joined': {
@@ -599,26 +248,23 @@ class EveWorkspaceClient {
         if (existingSession && data.name !== undefined) {
           existingSession.name = data.name || existingSession.name;
         }
-
-        // Store history FIRST (before opening tab which triggers renderMessages)
         if (data.history && data.history.length > 0) {
           this.sessionHistories.set(data.sessionId, data.history);
         } else {
           this.sessionHistories.set(data.sessionId, []);
         }
-
         this.elements.messages.innerHTML = '';
         this.showChatScreen();
         this.tabManager.openSession(data.sessionId);
-        this.renderProjectList();
+        this.sidebarRenderer.renderProjectList();
         break;
       }
 
       case 'session_renamed': {
         const renamedSession = this.sessions.get(data.sessionId);
         if (renamedSession) renamedSession.name = data.name;
-        if (this.renamingSessionId !== data.sessionId) {
-          this.renderProjectList();
+        if (this.sidebarRenderer.renamingSessionId !== data.sessionId) {
+          this.sidebarRenderer.renderProjectList();
         }
         if (this.tabManager) {
           this.tabManager.updateTabLabel(data.sessionId, data.name || this.getSessionDisplayName(data.sessionId));
@@ -631,15 +277,14 @@ class EveWorkspaceClient {
         break;
 
       case 'raw_output':
-        this.appendRawOutput(data.text);
+        this.messageRenderer.appendRawOutput(data.text);
         break;
 
       case 'stderr':
-        this.appendSystemMessage(data.text, 'error');
+        this.messageRenderer.appendSystemMessage(data.text, 'error');
         break;
 
       case 'session_ended':
-        console.log('[Client] Received session_ended for:', data.sessionId);
         this.sessions.delete(data.sessionId);
         this.sessionHistories.delete(data.sessionId);
         this.tabManager.closeTab(data.sessionId);
@@ -647,21 +292,21 @@ class EveWorkspaceClient {
           this.currentSessionId = null;
           this.showWelcomeScreen();
         }
-        this.renderProjectList();
+        this.sidebarRenderer.renderProjectList();
         break;
 
       case 'process_exited':
-        this.hideThinkingIndicator();
-        this.appendSystemMessage('Provider process exited. Will restart on next message.');
+        this.messageRenderer.hideThinkingIndicator();
+        this.messageRenderer.appendSystemMessage('Provider process exited. Will restart on next message.');
         break;
 
       case 'error':
-        this.hideThinkingIndicator();
-        this.appendSystemMessage(data.message, 'error');
+        this.messageRenderer.hideThinkingIndicator();
+        this.messageRenderer.appendSystemMessage(data.message, 'error');
         break;
 
       case 'system_message':
-        this.appendSystemMessage(data.message);
+        this.messageRenderer.appendSystemMessage(data.message);
         break;
 
       case 'clear_messages':
@@ -669,8 +314,8 @@ class EveWorkspaceClient {
         break;
 
       case 'message_complete':
-        this.hideThinkingIndicator();
-        this.finishAssistantMessage();
+        this.messageRenderer.hideThinkingIndicator();
+        this.messageRenderer.finishAssistantMessage();
         break;
 
       case 'stats_update':
@@ -714,7 +359,6 @@ class EveWorkspaceClient {
         break;
 
       case 'terminal_request':
-        // Server is requesting we create a terminal (from /zsh, /claude, or /transfer-cli command)
         this.terminalManager.createTerminal(data.directory, data.command, data.args, data.sessionId);
         break;
 
@@ -735,44 +379,98 @@ class EveWorkspaceClient {
         break;
 
       case 'task_started':
-        this.handleTaskStarted(data);
+        this.taskUI.handleTaskStarted(data);
         break;
 
       case 'task_completed':
-        this.handleTaskCompleted(data);
+        this.taskUI.handleTaskCompleted(data);
         break;
 
       case 'task_failed':
-        this.handleTaskFailed(data);
+        this.taskUI.handleTaskFailed(data);
         break;
 
       case 'tasks_updated':
-        this.loadScheduledTasks();
+        this.taskUI.loadScheduledTasks();
         break;
 
       case 'permission_request':
-        this.showPermissionModal(data);
+        this.modalManager.showPermissionModal(data);
         break;
 
       case 'warning':
-        this.appendSystemMessage(data.message, 'warning');
+        this.messageRenderer.appendSystemMessage(data.message, 'warning');
         break;
     }
   }
 
+  // --- LLM event handling ---
+
+  handleLlmEvent(event) {
+    switch (event.type) {
+      case 'user':
+        break;
+      case 'assistant':
+        this.handleAssistantEvent(event);
+        break;
+      case 'result':
+        this.handleResultEvent(event);
+        break;
+      case 'system':
+        this.handleSystemEvent(event);
+        break;
+    }
+  }
+
+  handleAssistantEvent(event) {
+    if (event.message) {
+      if (event.message.content) {
+        for (const block of event.message.content) {
+          if (block.type === 'text') {
+            this.messageRenderer.startAssistantMessage(block.text);
+          } else if (block.type === 'tool_use') {
+            this.messageRenderer.appendToolUse(block.name, block.input);
+          }
+        }
+      }
+    } else if (event.content_block) {
+      if (event.content_block.type === 'text') {
+        this.messageRenderer.updateAssistantMessage(event.content_block.text);
+      } else if (event.content_block.type === 'tool_use') {
+        this.messageRenderer.appendToolUse(event.content_block.name, event.content_block.input);
+      }
+    } else if (event.delta) {
+      if (event.delta.type === 'text_delta') {
+        this.messageRenderer.appendToAssistantMessage(event.delta.text);
+      }
+    }
+  }
+
+  handleResultEvent(event) {
+    if (event.subtype === 'error') {
+      this.messageRenderer.appendSystemMessage(`Tool error: ${event.error}`, 'error');
+    }
+  }
+
+  handleSystemEvent(event) {
+    if (event.subtype === 'permission_request') {
+      this.modalManager.showPermissionPrompt(event.message || 'Permission requested');
+    } else if (event.subtype === 'question') {
+      this.modalManager.showInputPrompt(event.message || 'Assistant is asking a question');
+    } else if (event.message) {
+      this.messageRenderer.appendSystemMessage(event.message);
+    }
+  }
+
+  // --- Stats ---
+
   updateStats(stats) {
     if (!stats) return;
-
-    // Store cost in session for tab switching
     const cost = stats.costUsd || 0;
     if (this.currentSessionId) {
       const session = this.sessions.get(this.currentSessionId);
-      if (session) {
-        session.costUsd = cost;
-      }
+      if (session) session.costUsd = cost;
     }
-
-    // Update cost display
     this.elements.costStat.textContent = `$${cost.toFixed(4)}`;
     this.elements.costStat.title = `Session cost: $${cost.toFixed(6)}`;
   }
@@ -784,998 +482,21 @@ class EveWorkspaceClient {
     this.elements.costStat.title = `Session cost: $${cost.toFixed(6)}`;
   }
 
-  handleFileContent(projectId, path, content) {
-    const filename = path.split('/').pop();
+  // --- Data loading ---
 
-    // Load content into editor FIRST (marks file as loaded)
-    if (this.fileEditor) {
-      this.fileEditor.openFile(projectId, path, content);
-    }
-
-    // Then open tab (which will call showFile, but file is already loaded)
-    this.tabManager.openFile(projectId, path, filename);
-  }
-
-  handleFileSaved(projectId, path) {
-    this.tabManager.setFileModified(projectId, path, false);
-    console.log('File saved:', path);
-  }
-
-  handleLlmEvent(event) {
-    switch (event.type) {
-      case 'user':
-        // User message echo - already displayed
-        break;
-
-      case 'assistant':
-        this.handleAssistantEvent(event);
-        break;
-
-      case 'result':
-        this.handleResultEvent(event);
-        break;
-
-      case 'system':
-        this.handleSystemEvent(event);
-        break;
-    }
-  }
-
-  handleAssistantEvent(event) {
-    if (event.message) {
-      // Start of a new assistant message
-      if (event.message.content) {
-        for (const block of event.message.content) {
-          if (block.type === 'text') {
-            this.startAssistantMessage(block.text);
-          } else if (block.type === 'tool_use') {
-            this.appendToolUse(block.name, block.input);
-          }
-        }
-      }
-    } else if (event.content_block) {
-      // Streaming content block
-      if (event.content_block.type === 'text') {
-        this.updateAssistantMessage(event.content_block.text);
-      } else if (event.content_block.type === 'tool_use') {
-        this.appendToolUse(event.content_block.name, event.content_block.input);
-      }
-    } else if (event.delta) {
-      // Streaming delta
-      if (event.delta.type === 'text_delta') {
-        this.appendToAssistantMessage(event.delta.text);
-      }
-    }
-  }
-
-  handleResultEvent(event) {
-    // Tool result - could show success/failure
-    if (event.subtype === 'success') {
-      // Tool completed successfully
-    } else if (event.subtype === 'error') {
-      this.appendSystemMessage(`Tool error: ${event.error}`, 'error');
-    }
-  }
-
-  handleSystemEvent(event) {
-    if (event.subtype === 'permission_request') {
-      this.showPermissionPrompt(event.message || 'Permission requested');
-    } else if (event.subtype === 'question') {
-      this.showInputPrompt(event.message || 'Assistant is asking a question');
-    } else if (event.message) {
-      this.appendSystemMessage(event.message);
-    }
-  }
-
-  startAssistantMessage(text) {
-    this.hideThinkingIndicator();
-    this.markToolComplete();
-    this.finishAssistantMessage();
-
-    const messageEl = document.createElement('div');
-    messageEl.className = 'message assistant';
-    messageEl.innerHTML = `<div class="message-content">${this.formatText(text)}</div>`;
-    this.elements.messages.appendChild(messageEl);
-    this.currentAssistantMessage = messageEl.querySelector('.message-content');
-    // Store raw text for history
-    this.currentAssistantMessage.dataset.rawText = text;
-    this.scrollToBottom();
-  }
-
-  updateAssistantMessage(text) {
-    if (!this.currentAssistantMessage) {
-      this.startAssistantMessage(text);
-    } else {
-      this.currentAssistantMessage.innerHTML = this.formatText(text);
-      this.scrollToBottom();
-    }
-  }
-
-  appendToAssistantMessage(text) {
-    if (!this.currentAssistantMessage) {
-      this.startAssistantMessage(text);
-    } else {
-      const currentText = this.currentAssistantMessage.dataset.rawText || '';
-      const newText = currentText + text;
-      this.currentAssistantMessage.dataset.rawText = newText;
-      this.currentAssistantMessage.innerHTML = this.formatText(newText);
-      this.scrollToBottom();
-    }
-  }
-
-  finishAssistantMessage() {
-    this.markToolComplete();
-    if (this.currentAssistantMessage) {
-      // Store in session history before clearing (but not when rendering history)
-      const text = this.currentAssistantMessage.dataset.rawText;
-      if (text && this.currentSessionId && !this.isRenderingHistory) {
-        const history = this.sessionHistories.get(this.currentSessionId) || [];
-        history.push({
-          role: 'assistant',
-          content: [{ type: 'text', text }]
-        });
-        this.sessionHistories.set(this.currentSessionId, history);
-      }
-      delete this.currentAssistantMessage.dataset.rawText;
-      this.currentAssistantMessage = null;
-    }
-  }
-
-  appendToolUse(toolName, input) {
-    this.hideThinkingIndicator();
-    this.finishAssistantMessage();
-
-    const messageEl = document.createElement('div');
-    messageEl.className = 'message assistant';
-
-    let inputSummary = '';
-    if (input) {
-      if (typeof input === 'string') {
-        inputSummary = input.substring(0, 100);
-      } else if (input.command) {
-        inputSummary = input.command.substring(0, 100);
-      } else if (input.file_path) {
-        inputSummary = input.file_path;
-      } else if (input.pattern) {
-        inputSummary = input.pattern;
-      }
-    }
-
-    messageEl.innerHTML = `
-      <div class="message-content">
-        <div class="tool-use tool-active">
-          <div class="tool-spinner"></div>
-          <span class="tool-name">${this.escapeHtml(toolName)}</span>
-          ${inputSummary ? `<span class="tool-input">${this.escapeHtml(inputSummary)}</span>` : ''}
-        </div>
-      </div>
-    `;
-    this.elements.messages.appendChild(messageEl);
-    this.currentToolBlock = messageEl.querySelector('.tool-use');
-    this.updateThinkingIndicator(`Running ${toolName}...`);
-    this.scrollToBottom();
-  }
-
-  renderHistory(messages) {
-    this.isRenderingHistory = true;
-    this.elements.messages.innerHTML = '';
-    this.currentAssistantMessage = null;
-
-    for (const msg of messages) {
-      if (msg.role === 'user') {
-        this.appendUserMessage(msg.content, msg.files || []);
-      } else if (msg.role === 'assistant') {
-        if (Array.isArray(msg.content)) {
-          for (const block of msg.content) {
-            if (block.type === 'text' && block.text) {
-              this.startAssistantMessage(block.text);
-              this.finishAssistantMessage();
-            } else if (block.type === 'tool_use') {
-              this.appendToolUse(block.name, block.input);
-            }
-          }
-        }
-      }
-    }
-
-    this.scrollToBottom();
-    this.isRenderingHistory = false;
-  }
-
-  appendUserMessage(text, files = []) {
-    const messageEl = document.createElement('div');
-    messageEl.className = 'message user';
-
-    let filesHtml = '';
-    if (files.length > 0) {
-      filesHtml = `<div class="message-files">${files.map(f =>
-        `<span class="message-file">${this.escapeHtml(f.name)}</span>`
-      ).join('')}</div>`;
-    }
-
-    messageEl.innerHTML = `<div class="message-content">${filesHtml}${this.escapeHtml(text)}</div>`;
-    this.elements.messages.appendChild(messageEl);
-    this.scrollToBottom();
-
-    // Store in session history (but not when rendering history)
-    if (this.currentSessionId && !this.isRenderingHistory) {
-      const history = this.sessionHistories.get(this.currentSessionId) || [];
-      history.push({ role: 'user', content: text, files });
-      this.sessionHistories.set(this.currentSessionId, history);
-    }
-  }
-
-  appendSystemMessage(text, type = '') {
-    const messageEl = document.createElement('div');
-    messageEl.className = `message system ${type}`;
-    messageEl.innerHTML = `<div class="message-content">${this.escapeHtml(text)}</div>`;
-    this.elements.messages.appendChild(messageEl);
-    this.scrollToBottom();
-  }
-
-  appendRawOutput(text) {
-    // For non-JSON output, append to current message or create new one
-    if (this.currentAssistantMessage) {
-      this.appendToAssistantMessage(text);
-    } else {
-      this.startAssistantMessage(text);
-    }
-  }
-
-  showPermissionPrompt(message) {
-    this.elements.inputPrompt.classList.remove('hidden');
-    this.elements.promptText.textContent = message;
-    this.elements.userInput.placeholder = 'Type yes/no or your response...';
-    this.elements.userInput.focus();
-  }
-
-  showInputPrompt(message) {
-    this.elements.inputPrompt.classList.remove('hidden');
-    this.elements.promptText.textContent = message;
-    this.elements.userInput.focus();
-  }
-
-  hideInputPrompt() {
-    this.elements.inputPrompt.classList.add('hidden');
-    this.elements.userInput.placeholder = 'Type your message...';
-  }
-
-  formatText(text) {
-    // Basic markdown-like formatting
-    let formatted = this.escapeHtml(text);
-
-    // Code blocks
-    formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-
-    // Inline code
-    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Bold
-    formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-    // Line breaks
-    formatted = formatted.replace(/\n/g, '<br>');
-
-    return formatted;
-  }
-
-  escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  scrollToBottom() {
-    this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
-  }
-
-  showThinkingIndicator(text = 'Thinking...') {
-    this.hideThinkingIndicator();
-    const el = document.createElement('div');
-    el.className = 'thinking-indicator';
-    el.id = 'thinkingIndicator';
-    el.innerHTML = `<div class="thinking-spinner"></div><span class="thinking-text">${this.escapeHtml(text)}</span>`;
-    this.elements.messages.appendChild(el);
-    this.scrollToBottom();
-  }
-
-  updateThinkingIndicator(text) {
-    const el = document.getElementById('thinkingIndicator');
-    if (el) {
-      const textEl = el.querySelector('.thinking-text');
-      if (textEl) textEl.textContent = text;
-    } else {
-      this.showThinkingIndicator(text);
-    }
-  }
-
-  hideThinkingIndicator() {
-    this.markToolComplete();
-    const el = document.getElementById('thinkingIndicator');
-    if (el) el.remove();
-  }
-
-  markToolComplete() {
-    if (this.currentToolBlock) {
-      this.currentToolBlock.classList.remove('tool-active');
-      const spinner = this.currentToolBlock.querySelector('.tool-spinner');
-      if (spinner) spinner.remove();
-      this.currentToolBlock = null;
-    }
-  }
-
-  handleSubmit(e) {
-    e.preventDefault();
-    const text = this.elements.userInput.value.trim();
-    if (!text || !this.currentSessionId) return;
-
-    const files = [...this.attachedFiles];
-    this.appendUserMessage(text, files);
-    this.ws.send(JSON.stringify({ type: 'user_input', text, files }));
-
-    // Clear input and files
-    this.elements.userInput.value = '';
-    this.attachedFiles = [];
-    this.renderAttachedFiles();
-    this.autoResizeTextarea();
-    this.hideInputPrompt();
-    this.finishAssistantMessage();
-    this.showThinkingIndicator();
-  }
-
-  handleNewSession(e) {
-    e.preventDefault();
-    const projectId = this.elements.projectSelect.value || null;
-    const directory = this.elements.directoryInput.value.trim();
-
-    if (!projectId && !directory) {
-      return;
-    }
-
-    this.ws.send(JSON.stringify({ type: 'create_session', directory, projectId }));
-  }
-
-  async handleNewProject(e) {
-    e.preventDefault();
-    const name = this.elements.projectNameInput.value.trim();
-    const projectPath = this.elements.projectPathInput.value.trim();
-    const model = this.elements.projectModelSelect.value;
-    const allowedTools = this.parseArgsString(this.elements.projectAllowedToolsInput.value);
-    if (!name || !projectPath) return;
-
+  async loadModels() {
     try {
-      const isEdit = !!this.editingProjectId;
-      const url = isEdit ? `/api/projects/${this.editingProjectId}` : '/api/projects';
-      const method = isEdit ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...this.getAuthHeaders()
-        },
-        body: JSON.stringify({ name, path: projectPath, model, allowedTools })
-      });
-      const project = await response.json();
-      this.projects.set(project.id, project);
-      this.renderProjectList();
-      this.updateProjectSelect();
-      this.hideProjectModal();
+      const response = await fetch('/api/models', { headers: this.getAuthHeaders() });
+      this.models = await response.json();
+      this.renderModelSelect();
     } catch (err) {
-      console.error('Failed to save project:', err);
+      console.error('Failed to load models:', err);
     }
   }
 
-  deleteSession(sessionId) {
-    const displayName = this.getSessionDisplayName(sessionId);
-
-    this.showConfirmModal(`Delete session "${displayName}"? This will terminate the process and delete all history.`, () => {
-      console.log('[Client] Sending delete_session for:', sessionId);
-      this.ws.send(JSON.stringify({
-        type: 'delete_session',
-        sessionId
-      }));
-    });
-  }
-
-  async deleteProject(projectId) {
-    const project = this.projects.get(projectId);
-    if (!project) return;
-
-    // Count sessions in this project
-    const sessionCount = Array.from(this.sessions.values()).filter(
-      s => s.projectId === projectId
-    ).length;
-
-    const message = sessionCount > 0
-      ? `Delete '${project.name}'? ${sessionCount} session(s) will become ungrouped.`
-      : `Delete '${project.name}'?`;
-
-    this.showConfirmModal(message, async () => {
-      try {
-        await fetch(`/api/projects/${projectId}`, {
-          method: 'DELETE',
-          headers: this.getAuthHeaders()
-        });
-        this.projects.delete(projectId);
-        this.renderProjectList();
-        this.updateProjectSelect();
-      } catch (err) {
-        console.error('Failed to delete project:', err);
-      }
-    });
-  }
-
-  showProjectModal(projectId = null) {
-    this.editingProjectId = projectId;
-
-    if (projectId) {
-      const project = this.projects.get(projectId);
-      if (!project) return;
-      this.elements.projectModalTitle.textContent = 'Edit Project';
-      this.elements.projectSubmitBtn.textContent = 'Save';
-      this.elements.projectNameInput.value = project.name;
-      this.elements.projectPathInput.value = project.path;
-      this.elements.projectModelSelect.value = project.model || 'haiku';
-      this.elements.projectAllowedToolsInput.value = (project.allowedTools || []).join(' ');
-    } else {
-      this.elements.projectModalTitle.textContent = 'New Project';
-      this.elements.projectSubmitBtn.textContent = 'Create Project';
-      this.elements.projectNameInput.value = '';
-      this.elements.projectPathInput.value = '';
-      this.elements.projectAllowedToolsInput.value = '';
-      if (this.models.length > 0) {
-        this.elements.projectModelSelect.value = this.models[0].value;
-      }
-    }
-
-    this.elements.projectModal.classList.remove('hidden');
-    this.elements.projectNameInput.focus();
-  }
-
-  hideProjectModal() {
-    this.elements.projectModal.classList.add('hidden');
-    this.editingProjectId = null;
-    this.elements.projectNameInput.value = '';
-    this.elements.projectPathInput.value = '';
-    this.elements.projectAllowedToolsInput.value = '';
-    if (this.models.length > 0) {
-      this.elements.projectModelSelect.value = this.models[0].value;
-    }
-  }
-
-  showConfirmModal(message, callback) {
-    this.elements.confirmMessage.textContent = message;
-    this.confirmCallback = callback;
-    this.elements.confirmModal.classList.remove('hidden');
-    this.elements.confirmDelete.focus();
-  }
-
-  hideConfirmModal() {
-    this.elements.confirmModal.classList.add('hidden');
-    this.confirmCallback = null;
-  }
-
-  handleConfirm() {
-    if (this.confirmCallback) {
-      this.confirmCallback();
-    }
-    this.hideConfirmModal();
-  }
-
-  updateProjectSelect() {
-    const select = this.elements.projectSelect;
-    select.innerHTML = '<option value="">No project</option>';
-    for (const [id, project] of this.projects) {
-      if (project.disabled) {
-        continue; // Skip disabled projects in dropdown
-      }
-      const option = document.createElement('option');
-      option.value = id;
-      option.textContent = project.name;
-      select.appendChild(option);
-    }
-  }
-
-  joinSession(sessionId) {
-    // Just send the join request - the session_joined handler will open the tab
-    // after the history is loaded
-    this.ws.send(JSON.stringify({ type: 'join_session', sessionId }));
-  }
-
-  endSession() {
-    if (this.currentSessionId) {
-      this.ws.send(JSON.stringify({ type: 'end_session' }));
-    }
-  }
-
-  showModal(projectId = null) {
-    this.elements.modal.classList.remove('hidden');
-
-    if (projectId && this.projects.has(projectId)) {
-      // Pre-select project
-      this.elements.projectSelect.value = projectId;
-
-      // Pre-fill directory with project path
-      const project = this.projects.get(projectId);
-      this.elements.directoryInput.value = project.path || '';
-    }
-
-    this.updateDirectoryInputRequirement();
-    this.elements.directoryInput.focus();
-    this.elements.directoryInput.select();
-  }
-
-  hideModal() {
-    this.elements.modal.classList.add('hidden');
-    this.elements.directoryInput.value = '';
-    this.elements.projectSelect.value = '';
-    this.updateDirectoryInputRequirement();
-    this.toggleSidebar(false); // Close sidebar on mobile
-  }
-
-  showWelcomeScreen() {
-    this.elements.welcomeScreen.classList.remove('hidden');
-    this.elements.chatScreen.classList.add('hidden');
-  }
-
-  showChatScreen() {
-    this.elements.welcomeScreen.classList.add('hidden');
-    this.elements.chatScreen.classList.remove('hidden');
-  }
-
-  renderMessages() {
-    // Called by tab manager when switching to a session tab
-    console.log('renderMessages for session:', this.currentSessionId);
-    this.elements.messages.innerHTML = '';
-    this.currentAssistantMessage = null;
-
-    // Restore history for the current session
-    const history = this.sessionHistories.get(this.currentSessionId);
-    console.log('Session history:', history);
-    if (history && history.length > 0) {
-      console.log('Rendering', history.length, 'messages');
-      this.renderHistory(history);
-    } else {
-      console.log('No history to render');
-    }
-
-    this.elements.userInput.focus();
-  }
-
-  renderProjectList() {
-    if (this.renamingSessionId) return;
-    this.elements.projectList.innerHTML = '';
-
-    // Group sessions by project
-    const projectSessions = new Map();
-    const ungroupedSessions = [];
-
-    for (const [id, session] of this.sessions) {
-      if (session.projectId && this.projects.has(session.projectId)) {
-        if (!projectSessions.has(session.projectId)) {
-          projectSessions.set(session.projectId, []);
-        }
-        projectSessions.get(session.projectId).push({ id, ...session });
-      } else {
-        ungroupedSessions.push({ id, ...session });
-      }
-    }
-
-    // Render projects with their sessions
-    for (const [projectId, project] of this.projects) {
-      const sessions = projectSessions.get(projectId) || [];
-      const projectEl = document.createElement('div');
-      projectEl.className = project.disabled ? 'project-group disabled' : 'project-group';
-
-      const disabledNote = project.disabled ? '<span class="disabled-note">(provider disabled)</span>' : '';
-      const taskCount = this.getTaskCountForProject(projectId);
-      const taskBadge = taskCount > 0 ? `<span class="project-task-count" title="${taskCount} scheduled task${taskCount !== 1 ? 's' : ''}">${taskCount}</span>` : '';
-      const toolsBadge = project.allowedTools?.length > 0 ? `<span class="project-tools-badge" title="${this.escapeHtml(project.allowedTools.join(', '))}">${project.allowedTools.length} tools</span>` : '';
-      projectEl.innerHTML = `
-        <div class="project-header">
-          <span class="project-toggle">▼</span>
-          <span class="project-name">${this.escapeHtml(project.name)}</span>
-          <span class="project-model">${project.model || 'haiku'}</span>
-          ${taskBadge}
-          ${toolsBadge}
-          ${disabledNote}
-          <button class="project-files-toggle" title="Browse files">📁</button>
-          <button class="project-tasks-btn" title="Scheduled tasks">&#128337;</button>
-          <button class="project-edit" title="Edit project">&#9998;</button>
-          <button class="project-quick-add" title="New session in this project">+</button>
-          <button class="project-delete" title="Delete project">&times;</button>
-        </div>
-        <div class="file-tree" style="display: none;"></div>
-        <ul class="project-sessions"></ul>
-      `;
-      projectEl.dataset.projectId = projectId;
-
-      const header = projectEl.querySelector('.project-header');
-      const toggle = projectEl.querySelector('.project-toggle');
-      const sessionsList = projectEl.querySelector('.project-sessions');
-      const filesToggleBtn = projectEl.querySelector('.project-files-toggle');
-      const tasksBtn = projectEl.querySelector('.project-tasks-btn');
-      const editBtn = projectEl.querySelector('.project-edit');
-      const quickAddBtn = projectEl.querySelector('.project-quick-add');
-      const deleteBtn = projectEl.querySelector('.project-delete');
-
-      // Toggle collapse (disabled for disabled projects)
-      header.addEventListener('click', (e) => {
-        if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || e.target === tasksBtn || e.target === editBtn || project.disabled) return;
-        projectEl.classList.toggle('collapsed');
-        toggle.textContent = projectEl.classList.contains('collapsed') ? '▶' : '▼';
-      });
-
-      // Toggle files
-      filesToggleBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (!project.disabled) {
-          this.fileBrowser.toggleFileTree(projectId);
-        }
-      });
-
-      // Show tasks panel
-      tasksBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.toggleSidebar(false);
-        this.showTasksPanel(projectId);
-      });
-
-      // Edit project
-      editBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.toggleSidebar(false);
-        this.showProjectModal(projectId);
-      });
-
-      // Quick add session
-      quickAddBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (!project.disabled) {
-          this.toggleSidebar(false);
-          this.showModal(projectId);
-        }
-      });
-
-      // Delete project
-      deleteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.deleteProject(projectId);
-      });
-
-      // Render sessions for this project
-      for (const session of sessions) {
-        const li = document.createElement('li');
-        li.className = `session-item ${session.id === this.currentSessionId ? 'active' : ''}`;
-        li.dataset.sessionId = session.id;
-        li.innerHTML = `
-          <div class="session-name" title="${this.escapeHtml(session.directory)}">${this.escapeHtml(this.getSessionDisplayName(session.id))}</div>
-          <div class="session-actions">
-            <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
-            <button class="session-delete" title="Delete session">&times;</button>
-          </div>
-        `;
-        const nameEl = li.querySelector('.session-name');
-        let clickTimer = null;
-        nameEl.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          clearTimeout(clickTimer);
-          this.startInlineRename(session.id, nameEl);
-        });
-        const deleteBtn = li.querySelector('.session-delete');
-        deleteBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.deleteSession(session.id);
-        });
-        if (!project.disabled) {
-          li.addEventListener('click', () => {
-            if (this.renamingSessionId) return;
-            clearTimeout(clickTimer);
-            clickTimer = setTimeout(() => {
-              if (this.renamingSessionId) return;
-              this.joinSession(session.id);
-              this.toggleSidebar(false);
-            }, 200);
-          });
-        }
-        sessionsList.appendChild(li);
-      }
-
-      // Render tasks for this project
-      const projectTasks = this.scheduledTasks.filter(t => t.projectId === projectId);
-      for (const task of projectTasks) {
-        const taskLi = document.createElement('li');
-        const isActiveTask = this.tabManager && this.tabManager.activeTabId === `task:${projectId}:${task.id}`;
-        taskLi.className = `task-sidebar-item ${isActiveTask ? 'active' : ''}`;
-        const statusInfo = this.getTaskStatusInfo(task);
-        taskLi.innerHTML = `
-          <span class="task-sidebar-icon">&#128337;</span>
-          <span class="task-sidebar-name">${this.escapeHtml(task.name)}</span>
-          <span class="task-sidebar-status ${statusInfo.className}">${statusInfo.label}</span>
-        `;
-        taskLi.addEventListener('click', () => {
-          this.openTaskResult(projectId, task.id, task.name);
-          this.toggleSidebar(false);
-        });
-        sessionsList.appendChild(taskLi);
-      }
-
-      this.elements.projectList.appendChild(projectEl);
-    }
-
-    // Render ungrouped sessions
-    if (ungroupedSessions.length > 0) {
-      const ungroupedEl = document.createElement('div');
-      ungroupedEl.className = 'project-group ungrouped';
-      ungroupedEl.innerHTML = `
-        <div class="project-header">
-          <span class="project-toggle">&#9662;</span>
-          <span class="project-name">Ungrouped</span>
-        </div>
-        <ul class="project-sessions"></ul>
-      `;
-
-      const header = ungroupedEl.querySelector('.project-header');
-      const toggle = ungroupedEl.querySelector('.project-toggle');
-      const sessionsList = ungroupedEl.querySelector('.project-sessions');
-
-      header.addEventListener('click', () => {
-        ungroupedEl.classList.toggle('collapsed');
-        toggle.textContent = ungroupedEl.classList.contains('collapsed') ? '&#9656;' : '&#9662;';
-      });
-
-      for (const session of ungroupedSessions) {
-        const li = document.createElement('li');
-        li.className = `session-item ${session.id === this.currentSessionId ? 'active' : ''}`;
-        li.dataset.sessionId = session.id;
-        li.innerHTML = `
-          <div class="session-name" title="${this.escapeHtml(session.directory)}">${this.escapeHtml(this.getSessionDisplayName(session.id))}</div>
-          <div class="session-actions">
-            <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
-            <button class="session-delete" title="Delete session">&times;</button>
-          </div>
-        `;
-        const nameEl = li.querySelector('.session-name');
-        let clickTimer = null;
-        nameEl.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          clearTimeout(clickTimer);
-          this.startInlineRename(session.id, nameEl);
-        });
-        const deleteBtn = li.querySelector('.session-delete');
-        deleteBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.deleteSession(session.id);
-        });
-        li.addEventListener('click', () => {
-          if (this.renamingSessionId) return;
-          clearTimeout(clickTimer);
-          clickTimer = setTimeout(() => {
-            if (this.renamingSessionId) return;
-            this.joinSession(session.id);
-            this.toggleSidebar(false);
-          }, 200);
-        });
-        sessionsList.appendChild(li);
-      }
-
-      this.elements.projectList.appendChild(ungroupedEl);
-    }
-  }
-
-  shortenPath(path) {
-    const parts = path.split('/');
-    if (parts.length > 3) {
-      return '.../' + parts.slice(-2).join('/');
-    }
-    return path;
-  }
-
-  getSessionDisplayName(sessionId) {
-    const session = this.sessions.get(sessionId);
-    if (!session) return sessionId;
-    return session.name || this.shortenPath(session.directory);
-  }
-
-  startInlineRename(sessionId, nameEl) {
-    if (this.renamingSessionId) return;
-    this.renamingSessionId = sessionId;
-
-    const currentName = this.getSessionDisplayName(sessionId);
-    const input = document.createElement('input');
-    input.className = 'session-rename-input';
-    input.maxLength = 100;
-    input.value = currentName;
-
-    nameEl.textContent = '';
-    nameEl.appendChild(input);
-    input.focus();
-    input.select();
-
-    const commit = () => {
-      if (!this.renamingSessionId) return;
-      this.renamingSessionId = null;
-      const newName = input.value.trim();
-      // Optimistic update: apply name locally before server round-trip
-      const session = this.sessions.get(sessionId);
-      if (session) session.name = newName || null;
-      this.ws.send(JSON.stringify({
-        type: 'rename_session',
-        sessionId,
-        name: newName
-      }));
-      this.renderProjectList();
-    };
-
-    const cancel = () => {
-      if (!this.renamingSessionId) return;
-      this.renamingSessionId = null;
-      this.renderProjectList();
-    };
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        commit();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        cancel();
-      }
-    });
-
-    input.addEventListener('blur', () => {
-      commit();
-    });
-  }
-
-  autoResizeTextarea() {
-    const textarea = this.elements.userInput;
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
-  }
-
-  // Task scheduler methods
-  async loadScheduledTasks() {
-    try {
-      const response = await fetch('/api/tasks', {
-        headers: this.getAuthHeaders()
-      });
-      this.scheduledTasks = await response.json();
-      this.renderProjectList(); // Update task counts
-    } catch (err) {
-      console.error('Failed to load scheduled tasks:', err);
-    }
-  }
-
-  async loadTaskHistory(projectId, taskId) {
-    try {
-      const response = await fetch(`/api/tasks/${projectId}/${taskId}/history`, {
-        headers: this.getAuthHeaders()
-      });
-      const history = await response.json();
-      this.taskHistory.set(`${projectId}:${taskId}`, history);
-      return history;
-    } catch (err) {
-      console.error('Failed to load task history:', err);
-      return [];
-    }
-  }
-
-  handleTaskStarted(data) {
-    this.appendSystemMessage(`Task started: ${data.taskName} (${data.projectName})`);
-    // Update task status in sidebar
-    const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
-    if (task) {
-      task.lastStatus = 'running';
-      this.renderProjectList();
-    }
-  }
-
-  handleTaskCompleted(data) {
-    this.appendSystemMessage(`Task completed: ${data.taskName}`);
-
-    // Update task status and clear cached history
-    const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
-    if (task) {
-      task.lastStatus = 'success';
-    }
-    this.taskHistory.delete(`${data.projectId}:${data.taskId}`);
-
-    // Refresh result view if this task's tab is open
-    const taskTabId = `task:${data.projectId}:${data.taskId}`;
-    if (this.tabManager && this.tabManager.activeTabId === taskTabId) {
-      this.showTaskResult(data.projectId, data.taskId);
-    }
-
-    // Refresh task list if modal is open
-    if (!this.elements.tasksModal?.classList.contains('hidden')) {
-      this.showTasksPanel(data.projectId);
-    }
-
-    this.renderProjectList();
-  }
-
-  handleTaskFailed(data) {
-    this.appendSystemMessage(`Task failed: ${data.taskName} - ${data.error}`, 'error');
-
-    // Update task status and clear cached history
-    const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
-    if (task) {
-      task.lastStatus = 'error';
-    }
-    this.taskHistory.delete(`${data.projectId}:${data.taskId}`);
-
-    // Refresh result view if this task's tab is open
-    const taskTabId = `task:${data.projectId}:${data.taskId}`;
-    if (this.tabManager && this.tabManager.activeTabId === taskTabId) {
-      this.showTaskResult(data.projectId, data.taskId);
-    }
-
-    this.renderProjectList();
-  }
-
-  getTaskCountForProject(projectId) {
-    return this.scheduledTasks.filter(t => t.projectId === projectId).length;
-  }
-
-  showTasksPanel(projectId) {
-    const project = this.projects.get(projectId);
-    if (!project) return;
-
-    this.currentTasksProjectId = projectId;
-    this.elements.tasksProjectName.textContent = project.name;
-    this.elements.tasksModal.classList.remove('hidden');
-    this.elements.taskHistorySection.classList.add('hidden');
-
-    this.renderTasksPanel(projectId);
-  }
-
-  hideTasksModal() {
-    this.elements.tasksModal.classList.add('hidden');
-    this.currentTasksProjectId = null;
-  }
-
-  showTaskForm(task = null) {
-    this.populateTaskModelSelect();
-
-    if (task) {
-      // Edit mode
-      this.editingTask = { projectId: this.currentTasksProjectId, taskId: task.id };
-      this.elements.taskFormTitle.textContent = 'Edit Task';
-      this.elements.taskNameInput.value = task.name;
-      this.elements.taskPromptInput.value = task.prompt || '';
-      this.elements.taskScheduleType.value = task.schedule?.type || 'daily';
-      this.elements.taskModelSelect.value = task.model || '';
-      this.elements.taskArgsInput.value = (task.args || []).join(' ');
-      this.elements.taskEnabledCheck.checked = task.enabled !== false;
-      this.elements.taskDeleteBtn.classList.remove('hidden');
-    } else {
-      // Create mode
-      this.editingTask = null;
-      this.elements.taskFormTitle.textContent = 'New Task';
-      this.elements.taskNameInput.value = '';
-      this.elements.taskPromptInput.value = '';
-      this.elements.taskScheduleType.value = 'daily';
-      this.elements.taskModelSelect.value = '';
-      this.elements.taskArgsInput.value = '';
-      this.elements.taskEnabledCheck.checked = true;
-      this.elements.taskDeleteBtn.classList.add('hidden');
-    }
-
-    this.renderScheduleConfig(task?.schedule);
-    this.elements.taskFormModal.classList.remove('hidden');
-    this.elements.taskNameInput.focus();
-  }
-
-  hideTaskForm() {
-    this.elements.taskFormModal.classList.add('hidden');
-    this.editingTask = null;
-  }
-
-  populateTaskModelSelect() {
-    const select = this.elements.taskModelSelect;
-    select.innerHTML = '<option value="">Use project default</option>';
+  renderModelSelect() {
+    const select = this.elements.projectModelSelect;
+    select.innerHTML = '';
 
     const groups = {};
     for (const model of this.models) {
@@ -1794,72 +515,309 @@ class EveWorkspaceClient {
       }
       select.appendChild(optgroup);
     }
+
+    if (this.models.length > 0) select.value = this.models[0].value;
   }
 
-  renderScheduleConfig(schedule = null) {
-    const type = this.elements.taskScheduleType.value;
-    const container = this.elements.taskScheduleConfig;
-
-    switch (type) {
-      case 'daily':
-        container.innerHTML = `
-          <label for="taskScheduleTime">Time (HH:MM)</label>
-          <input type="time" id="taskScheduleTime" value="${schedule?.time || '09:00'}">
-        `;
-        break;
-      case 'hourly':
-        container.innerHTML = `
-          <label for="taskScheduleMinute">Minute of hour</label>
-          <input type="number" id="taskScheduleMinute" min="0" max="59" value="${schedule?.minute ?? 0}">
-        `;
-        break;
-      case 'interval':
-        container.innerHTML = `
-          <label for="taskScheduleMinutes">Every N minutes</label>
-          <input type="number" id="taskScheduleMinutes" min="1" value="${schedule?.minutes || 60}">
-        `;
-        break;
-      case 'weekly':
-        container.innerHTML = `
-          <label for="taskScheduleDay">Day of week</label>
-          <select id="taskScheduleDay">
-            ${['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d =>
-              `<option value="${d.toLowerCase()}" ${(schedule?.day || 'monday') === d.toLowerCase() ? 'selected' : ''}>${d}</option>`
-            ).join('')}
-          </select>
-          <label for="taskScheduleTime">Time (HH:MM)</label>
-          <input type="time" id="taskScheduleTime" value="${schedule?.time || '09:00'}">
-        `;
-        break;
-      case 'cron':
-        container.innerHTML = `
-          <label for="taskScheduleCron">Cron expression (min hour day month weekday)</label>
-          <input type="text" id="taskScheduleCron" placeholder="0 9 * * *" value="${schedule?.expression || ''}">
-        `;
-        break;
+  async loadProjects() {
+    try {
+      const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
+      const projects = await response.json();
+      this.projects.clear();
+      projects.forEach(project => this.projects.set(project.id, project));
+      this.sidebarRenderer.renderProjectList();
+      this.updateProjectSelect();
+    } catch (err) {
+      console.error('Failed to load projects:', err);
     }
   }
 
-  getScheduleFromForm() {
-    const type = this.elements.taskScheduleType.value;
-    switch (type) {
-      case 'daily':
-        return { type: 'daily', time: document.getElementById('taskScheduleTime')?.value || '09:00' };
-      case 'hourly':
-        return { type: 'hourly', minute: parseInt(document.getElementById('taskScheduleMinute')?.value || '0') };
-      case 'interval':
-        return { type: 'interval', minutes: parseInt(document.getElementById('taskScheduleMinutes')?.value || '60') };
-      case 'weekly':
-        return {
-          type: 'weekly',
-          day: document.getElementById('taskScheduleDay')?.value || 'monday',
-          time: document.getElementById('taskScheduleTime')?.value || '09:00'
-        };
-      case 'cron':
-        return { type: 'cron', expression: document.getElementById('taskScheduleCron')?.value || '' };
-      default:
-        return { type: 'daily', time: '09:00' };
+  async loadSessions() {
+    try {
+      const response = await fetch('/api/sessions', { headers: this.getAuthHeaders() });
+      const sessions = await response.json();
+      sessions.forEach(session => this.sessions.set(session.id, session));
+      this.sidebarRenderer.renderProjectList();
+    } catch (err) {
+      console.error('Failed to load sessions:', err);
     }
+  }
+
+  // --- Session actions ---
+
+  handleNewSession(e) {
+    e.preventDefault();
+    const projectId = this.elements.projectSelect.value || null;
+    const directory = this.elements.directoryInput.value.trim();
+    if (!projectId && !directory) return;
+    this.wsClient.send({ type: 'create_session', directory, projectId });
+  }
+
+  joinSession(sessionId) {
+    this.wsClient.send({ type: 'join_session', sessionId });
+  }
+
+  endSession() {
+    if (this.currentSessionId) {
+      this.wsClient.send({ type: 'end_session' });
+    }
+  }
+
+  deleteSession(sessionId) {
+    const displayName = this.getSessionDisplayName(sessionId);
+    this.modalManager.showConfirmModal(
+      `Delete session "${displayName}"? This will terminate the process and delete all history.`,
+      () => this.wsClient.send({ type: 'delete_session', sessionId })
+    );
+  }
+
+  // --- Project actions ---
+
+  async handleNewProject(e) {
+    e.preventDefault();
+    const name = this.elements.projectNameInput.value.trim();
+    const projectPath = this.elements.projectPathInput.value.trim();
+    const model = this.elements.projectModelSelect.value;
+    const allowedTools = this.parseArgsString(this.elements.projectAllowedToolsInput.value);
+    if (!name || !projectPath) return;
+
+    try {
+      const isEdit = !!this.modalManager.editingProjectId;
+      const url = isEdit ? `/api/projects/${this.modalManager.editingProjectId}` : '/api/projects';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
+        body: JSON.stringify({ name, path: projectPath, model, allowedTools })
+      });
+      const project = await response.json();
+      this.projects.set(project.id, project);
+      this.sidebarRenderer.renderProjectList();
+      this.updateProjectSelect();
+      this.modalManager.hideProjectModal();
+    } catch (err) {
+      console.error('Failed to save project:', err);
+    }
+  }
+
+  async deleteProject(projectId) {
+    const project = this.projects.get(projectId);
+    if (!project) return;
+
+    const sessionCount = Array.from(this.sessions.values()).filter(s => s.projectId === projectId).length;
+    const message = sessionCount > 0
+      ? `Delete '${project.name}'? ${sessionCount} session(s) will become ungrouped.`
+      : `Delete '${project.name}'?`;
+
+    this.modalManager.showConfirmModal(message, async () => {
+      try {
+        await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers: this.getAuthHeaders() });
+        this.projects.delete(projectId);
+        this.sidebarRenderer.renderProjectList();
+        this.updateProjectSelect();
+      } catch (err) {
+        console.error('Failed to delete project:', err);
+      }
+    });
+  }
+
+  updateProjectSelect() {
+    const select = this.elements.projectSelect;
+    select.innerHTML = '<option value="">No project</option>';
+    for (const [id, project] of this.projects) {
+      if (project.disabled) continue;
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = project.name;
+      select.appendChild(option);
+    }
+  }
+
+  // --- Chat submission ---
+
+  handleSubmit(e) {
+    e.preventDefault();
+    const text = this.elements.userInput.value.trim();
+    if (!text || !this.currentSessionId) return;
+
+    const files = [...this.attachedFiles];
+    this.messageRenderer.appendUserMessage(text, files);
+    this.wsClient.send({ type: 'user_input', text, files });
+
+    this.elements.userInput.value = '';
+    this.attachedFiles = [];
+    this.renderAttachedFiles();
+    this.autoResizeTextarea();
+    this.modalManager.hideInputPrompt();
+    this.messageRenderer.finishAssistantMessage();
+    this.messageRenderer.showThinkingIndicator();
+  }
+
+  // --- File handling ---
+
+  handleFileSelect(e) {
+    this.addFiles(Array.from(e.target.files));
+    e.target.value = '';
+  }
+
+  async addFiles(files) {
+    for (const file of files) {
+      if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
+        this.messageRenderer.appendSystemMessage(`Skipped unsupported file type: ${file.name}`, 'error');
+        continue;
+      }
+      try {
+        const isImage = file.type.startsWith('image/');
+        const content = isImage
+          ? await this.readFileAsDataURL(file)
+          : await this.readFileAsText(file);
+        this.attachedFiles.push({
+          name: file.customName || file.name,
+          content,
+          type: isImage ? 'image' : 'text',
+          mediaType: file.type
+        });
+      } catch (err) {
+        this.messageRenderer.appendSystemMessage(`Failed to read file: ${file.name}`, 'error');
+      }
+    }
+    this.renderAttachedFiles();
+  }
+
+  readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsText(file);
+    });
+  }
+
+  readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  renderAttachedFiles() {
+    if (this.attachedFiles.length === 0) {
+      this.elements.attachedFiles.classList.add('hidden');
+      this.elements.attachedFiles.innerHTML = '';
+      return;
+    }
+
+    this.elements.attachedFiles.classList.remove('hidden');
+    this.elements.attachedFiles.innerHTML = this.attachedFiles.map((f, i) => {
+      const isImage = f.type === 'image';
+      const thumbnail = isImage ? `<img class="file-thumbnail" src="${f.content}" alt="">` : '';
+      const icon = isImage ? '' : '<span class="file-icon">&#128196;</span>';
+      return `
+        <div class="attached-file ${isImage ? 'attached-image' : ''}">
+          ${thumbnail}${icon}
+          <span class="file-name">${this.messageRenderer.escapeHtml(f.name)}</span>
+          <button type="button" class="file-remove" data-index="${i}">&times;</button>
+        </div>
+      `;
+    }).join('');
+
+    this.elements.attachedFiles.querySelectorAll('.file-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt(e.target.dataset.index);
+        this.attachedFiles.splice(index, 1);
+        this.renderAttachedFiles();
+      });
+    });
+  }
+
+  handleFileContent(projectId, path, content) {
+    const filename = path.split('/').pop();
+    if (this.fileEditor) this.fileEditor.openFile(projectId, path, content);
+    this.tabManager.openFile(projectId, path, filename);
+  }
+
+  handleFileSaved(projectId, path) {
+    this.tabManager.setFileModified(projectId, path, false);
+  }
+
+  // --- UI helpers ---
+
+  showWelcomeScreen() {
+    this.elements.welcomeScreen.classList.remove('hidden');
+    this.elements.chatScreen.classList.add('hidden');
+  }
+
+  showChatScreen() {
+    this.elements.welcomeScreen.classList.add('hidden');
+    this.elements.chatScreen.classList.remove('hidden');
+  }
+
+  toggleSidebar(open) {
+    if (open) {
+      this.elements.sidebar.classList.add('open');
+    } else {
+      this.elements.sidebar.classList.remove('open');
+    }
+  }
+
+  renderMessages() {
+    this.elements.messages.innerHTML = '';
+    this.messageRenderer.currentAssistantMessage = null;
+
+    const history = this.sessionHistories.get(this.currentSessionId);
+    if (history && history.length > 0) {
+      this.messageRenderer.renderHistory(history);
+    }
+
+    this.elements.userInput.focus();
+  }
+
+  updateDirectoryInputRequirement() {
+    const projectSelected = this.elements.projectSelect.value;
+    this.elements.directoryInput.required = !projectSelected;
+    this.elements.directoryInput.placeholder = projectSelected
+      ? 'Optional: override project path'
+      : '/path/to/your/project';
+  }
+
+  autoResizeTextarea() {
+    const textarea = this.elements.userInput;
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+  }
+
+  shortenPath(path) {
+    const parts = path.split('/');
+    if (parts.length > 3) return '.../' + parts.slice(-2).join('/');
+    return path;
+  }
+
+  getSessionDisplayName(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return sessionId;
+    return session.name || this.shortenPath(session.directory);
+  }
+
+  // --- Proxy methods for existing modules (file-browser, etc.) ---
+
+  appendSystemMessage(text, type) {
+    this.messageRenderer.appendSystemMessage(text, type);
+  }
+
+  showConfirmModal(message, callback) {
+    this.modalManager.showConfirmModal(message, callback);
+  }
+
+  escapeHtml(text) {
+    return this.messageRenderer.escapeHtml(text);
+  }
+
+  // Delegated to TaskUI for display
+  showTaskResult(projectId, taskId) {
+    this.taskUI.showTaskResult(projectId, taskId);
   }
 
   parseArgsString(str) {
@@ -1869,7 +827,6 @@ class EveWorkspaceClient {
     let match;
     while ((match = regex.exec(str)) !== null) {
       let val = match[0];
-      // Strip surrounding quotes
       if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }
@@ -1878,312 +835,75 @@ class EveWorkspaceClient {
     return args;
   }
 
-  async handleTaskFormSubmit(e) {
-    e.preventDefault();
-    const projectId = this.currentTasksProjectId;
-    if (!projectId) return;
+  // --- Sidebar resize ---
 
-    const taskData = {
-      name: this.elements.taskNameInput.value.trim(),
-      prompt: this.elements.taskPromptInput.value.trim(),
-      schedule: this.getScheduleFromForm(),
-      model: this.elements.taskModelSelect.value || null,
-      args: this.parseArgsString(this.elements.taskArgsInput.value),
-      enabled: this.elements.taskEnabledCheck.checked
+  initSidebarResize() {
+    const minWidth = 200;
+    const maxWidth = 600;
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    const savedWidth = localStorage.getItem('sidebarWidth');
+    if (savedWidth) this.setSidebarWidth(parseInt(savedWidth));
+
+    const startResize = (e) => {
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = this.elements.sidebar.offsetWidth;
+      this.elements.sidebarResizer.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
     };
 
-    try {
-      if (this.editingTask) {
-        // Update existing task
-        await fetch(`/api/tasks/${projectId}/${this.editingTask.taskId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
-          body: JSON.stringify(taskData)
-        });
-      } else {
-        // Create new task
-        await fetch(`/api/tasks/${projectId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
-          body: JSON.stringify(taskData)
-        });
-      }
+    const resize = (e) => {
+      if (!isResizing) return;
+      const delta = e.clientX - startX;
+      this.setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, startWidth + delta)));
+    };
 
-      this.hideTaskForm();
-      await this.loadScheduledTasks();
-      this.renderTasksPanel(projectId);
-    } catch (err) {
-      console.error('Failed to save task:', err);
-    }
+    const stopResize = () => {
+      if (!isResizing) return;
+      isResizing = false;
+      this.elements.sidebarResizer.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      localStorage.setItem('sidebarWidth', this.elements.sidebar.offsetWidth.toString());
+    };
+
+    this.elements.sidebarResizer.addEventListener('mousedown', startResize);
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('mouseup', stopResize);
   }
 
-  handleTaskDelete() {
-    if (!this.editingTask) return;
-    const { projectId, taskId } = this.editingTask;
-
-    this.hideTaskForm();
-    this.showConfirmModal('Delete this task? This cannot be undone.', async () => {
-      try {
-        await fetch(`/api/tasks/${projectId}/${taskId}`, {
-          method: 'DELETE',
-          headers: this.getAuthHeaders()
-        });
-        await this.loadScheduledTasks();
-        this.renderTasksPanel(projectId);
-      } catch (err) {
-        console.error('Failed to delete task:', err);
-      }
-    });
+  setSidebarWidth(width) {
+    document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
   }
 
-  renderTasksPanel(projectId) {
-    const tasks = this.scheduledTasks.filter(t => t.projectId === projectId);
+  // --- Swipe gesture ---
 
-    if (tasks.length === 0) {
-      this.elements.tasksList.innerHTML = `
-        <div class="tasks-empty">
-          No scheduled tasks. Click "New Task" to create one.
-        </div>
-      `;
-      return;
-    }
+  initSwipeGesture() {
+    let startX = 0;
+    let startY = 0;
 
-    this.elements.tasksList.innerHTML = tasks.map(task => `
-      <div class="task-item task-item-clickable" data-task-id="${task.id}">
-        <div class="task-info" data-action="edit">
-          <div class="task-name">${this.escapeHtml(task.name)}</div>
-          <div class="task-schedule">${this.formatSchedule(task.schedule)}</div>
-          ${task.nextRun ? `<div class="task-next-run">Next: ${this.formatRelativeTime(task.nextRun)}</div>` : ''}
-        </div>
-        <div class="task-actions">
-          <label class="task-toggle">
-            <input type="checkbox" ${task.enabled ? 'checked' : ''} data-action="toggle">
-            <span class="toggle-slider"></span>
-          </label>
-          <button class="task-run-btn" data-action="run" title="Run now">&#9654;</button>
-          <button class="task-history-btn" data-action="history" title="View history">&#128337;</button>
-        </div>
-      </div>
-    `).join('');
+    document.addEventListener('touchstart', (e) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    }, { passive: true });
 
-    // Add event listeners
-    this.elements.tasksList.querySelectorAll('.task-item').forEach(item => {
-      const taskId = item.dataset.taskId;
-      const task = tasks.find(t => t.id === taskId);
+    document.addEventListener('touchend', (e) => {
+      const endX = e.changedTouches[0].clientX;
+      const endY = e.changedTouches[0].clientY;
+      const deltaX = endX - startX;
+      const deltaY = Math.abs(endY - startY);
 
-      item.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
-        if (task) this.showTaskForm(task);
-      });
+      if (deltaY > Math.abs(deltaX)) return;
 
-      item.querySelector('[data-action="toggle"]')?.addEventListener('change', (e) => {
-        this.handleTaskToggle(projectId, taskId, e.target.checked);
-      });
-
-      item.querySelector('[data-action="run"]')?.addEventListener('click', () => {
-        this.handleTaskRun(projectId, taskId);
-      });
-
-      item.querySelector('[data-action="history"]')?.addEventListener('click', () => {
-        this.showTaskHistory(projectId, taskId);
-      });
-    });
-  }
-
-  formatSchedule(schedule) {
-    if (!schedule) return 'No schedule';
-
-    switch (schedule.type) {
-      case 'daily':
-        return `Daily at ${schedule.time || '00:00'}`;
-      case 'hourly':
-        return `Hourly at :${String(schedule.minute || 0).padStart(2, '0')}`;
-      case 'interval':
-        return `Every ${schedule.minutes} minutes`;
-      case 'weekly':
-        return `${schedule.day} at ${schedule.time || '00:00'}`;
-      case 'cron':
-        return `Cron: ${schedule.expression}`;
-      default:
-        return 'Unknown schedule';
-    }
-  }
-
-  formatRelativeTime(isoString) {
-    const date = new Date(isoString);
-    const now = new Date();
-    const diffMs = date - now;
-    const diffMins = Math.round(diffMs / 60000);
-
-    if (diffMins < 0) return 'overdue';
-    if (diffMins < 1) return 'less than a minute';
-    if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''}`;
-
-    const diffHours = Math.round(diffMins / 60);
-    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''}`;
-
-    const diffDays = Math.round(diffHours / 24);
-    return `${diffDays} day${diffDays !== 1 ? 's' : ''}`;
-  }
-
-  async handleTaskToggle(projectId, taskId, enabled) {
-    try {
-      await fetch(`/api/tasks/${projectId}/${taskId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...this.getAuthHeaders()
-        },
-        body: JSON.stringify({ enabled })
-      });
-      await this.loadScheduledTasks();
-      this.renderTasksPanel(projectId);
-    } catch (err) {
-      console.error('Failed to toggle task:', err);
-    }
-  }
-
-  async handleTaskRun(projectId, taskId) {
-    try {
-      await fetch(`/api/tasks/${projectId}/${taskId}/run`, {
-        method: 'POST',
-        headers: this.getAuthHeaders()
-      });
-      this.appendSystemMessage('Task execution started...');
-    } catch (err) {
-      console.error('Failed to run task:', err);
-      this.appendSystemMessage('Failed to start task', 'error');
-    }
-  }
-
-  async showTaskHistory(projectId, taskId) {
-    const history = await this.loadTaskHistory(projectId, taskId);
-    this.renderTaskHistory(history);
-    this.elements.taskHistorySection.classList.remove('hidden');
-  }
-
-  renderTaskHistory(history) {
-    if (!history || history.length === 0) {
-      this.elements.taskHistoryList.innerHTML = '<div class="task-history-empty">No execution history</div>';
-      return;
-    }
-
-    this.elements.taskHistoryList.innerHTML = history.slice(0, 20).map(exec => `
-      <div class="task-history-item task-status-${exec.status}">
-        <div class="task-history-time">${new Date(exec.startedAt).toLocaleString()}</div>
-        <div class="task-history-status">${exec.status}</div>
-        ${exec.error ? `<div class="task-history-error">${this.escapeHtml(exec.error)}</div>` : ''}
-        ${exec.response ? `<div class="task-history-response">${this.escapeHtml(exec.response.substring(0, 200))}${exec.response.length > 200 ? '...' : ''}</div>` : ''}
-      </div>
-    `).join('');
-  }
-
-  getTaskStatusInfo(task) {
-    // Check for last execution status
-    const historyKey = `${task.projectId}:${task.id}`;
-    const history = this.taskHistory.get(historyKey);
-
-    if (task.lastStatus === 'running') {
-      return { className: 'status-running', label: 'Running' };
-    }
-
-    if (history && history.length > 0) {
-      const latest = history[0];
-      if (latest.status === 'success') {
-        return { className: 'status-success', label: 'OK' };
-      } else if (latest.status === 'error') {
-        return { className: 'status-error', label: 'Failed' };
-      } else if (latest.status === 'running') {
-        return { className: 'status-running', label: 'Running' };
-      }
-    }
-
-    if (task.lastStatus === 'success') {
-      return { className: 'status-success', label: 'OK' };
-    } else if (task.lastStatus === 'error') {
-      return { className: 'status-error', label: 'Failed' };
-    }
-
-    return { className: 'status-pending', label: 'Pending' };
-  }
-
-  async openTaskResult(projectId, taskId, taskName) {
-    // Load history if not cached
-    const historyKey = `${projectId}:${taskId}`;
-    if (!this.taskHistory.has(historyKey)) {
-      await this.loadTaskHistory(projectId, taskId);
-    }
-
-    // Open the task tab
-    this.tabManager.openTask(projectId, taskId, taskName);
-  }
-
-  // Permission modal methods
-  showPermissionModal(data) {
-    this.pendingPermissionId = data.permissionId;
-    this.elements.permissionToolName.textContent = data.toolName || 'Unknown';
-    this.elements.permissionToolInput.textContent = data.toolInput || '';
-    this.elements.permissionModal.classList.remove('hidden');
-    this.elements.permissionAllow.focus();
-  }
-
-  hidePermissionModal() {
-    this.elements.permissionModal.classList.add('hidden');
-    this.pendingPermissionId = null;
-  }
-
-  respondToPermission(approved) {
-    if (!this.pendingPermissionId) return;
-    this.ws.send(JSON.stringify({
-      type: 'permission_response',
-      permissionId: this.pendingPermissionId,
-      approved
-    }));
-    this.hidePermissionModal();
-  }
-
-  showTaskResult(projectId, taskId) {
-    const task = this.scheduledTasks.find(t => t.projectId === projectId && t.id === taskId);
-    const historyKey = `${projectId}:${taskId}`;
-    const history = this.taskHistory.get(historyKey) || [];
-
-    // Set task name
-    this.elements.taskResultName.textContent = task?.name || 'Task';
-
-    if (history.length === 0) {
-      this.elements.taskResultMeta.innerHTML = '';
-      this.elements.taskResultBody.innerHTML = '<div class="task-result-empty">No executions yet</div>';
-      return;
-    }
-
-    const latest = history[0];
-
-    // Render metadata
-    const statusClass = latest.status === 'success' ? 'status-success' :
-                        latest.status === 'error' ? 'status-error' : 'status-running';
-    const startTime = new Date(latest.startedAt).toLocaleString();
-    const endTime = latest.completedAt ? new Date(latest.completedAt).toLocaleString() : 'In progress';
-
-    this.elements.taskResultMeta.innerHTML = `
-      <span class="task-meta-item">
-        <span class="task-meta-status ${statusClass}">${latest.status}</span>
-      </span>
-      <span class="task-meta-item">Started: ${startTime}</span>
-      ${latest.completedAt ? `<span class="task-meta-item">Completed: ${endTime}</span>` : ''}
-    `;
-
-    // Render body
-    let bodyHtml = '';
-    if (latest.error) {
-      bodyHtml += `<div class="task-result-error">${this.escapeHtml(latest.error)}</div>`;
-    }
-    if (latest.response) {
-      bodyHtml += this.escapeHtml(latest.response);
-    }
-    if (!latest.error && !latest.response) {
-      bodyHtml = '<div class="task-result-empty">No output</div>';
-    }
-
-    this.elements.taskResultBody.innerHTML = bodyHtml;
+      const sidebarOpen = this.elements.sidebar.classList.contains('open');
+      if (!sidebarOpen && startX < 30 && deltaX > 60) this.toggleSidebar(true);
+      if (sidebarOpen && deltaX < -60) this.toggleSidebar(false);
+    }, { passive: true });
   }
 }
 
