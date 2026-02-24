@@ -32,6 +32,7 @@ html, body {
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.5;
+  padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 }
 
 .app {
@@ -494,6 +495,13 @@ html, body {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  position: relative;
+}
+
+.welcome-menu-toggle {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 12px;
 }
 
 .welcome-content {
@@ -528,7 +536,7 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 16px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px 16px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   gap: 12px;
@@ -565,10 +573,27 @@ html, body {
   white-space: nowrap;
 }
 
+.connection-status {
+  font-size: 11px;
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.15);
+  padding: 4px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* Messages */
 .messages {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -653,6 +678,12 @@ html, body {
   color: var(--danger);
 }
 
+.message.system.warning .message-content {
+  border-color: var(--warning);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning);
+}
+
 /* Code blocks in messages */
 .message-content pre {
   background: var(--code-bg);
@@ -700,6 +731,20 @@ html, body {
   word-break: break-all;
 }
 
+.tool-use.tool-active {
+  border-left: 2px solid var(--accent);
+}
+
+.tool-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
 /* Processing indicator */
 @keyframes spin {
   to { transform: rotate(360deg); }
@@ -731,6 +776,7 @@ html, body {
 /* Input Area */
 .input-area {
   padding: 12px 16px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
 }
@@ -1529,7 +1575,14 @@ html, body {
     font-size: 10px;
   }
 
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   .app {
+    position: fixed;
+    inset: 0;
     flex-direction: column;
   }
 
@@ -1542,6 +1595,8 @@ html, body {
     width: 100%;
     transform: translateX(-100%);
     transition: transform 0.3s ease;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .sidebar.open {
@@ -1562,10 +1617,11 @@ html, body {
 
   .main {
     width: 100%;
+    min-height: 0;
   }
 
   .chat-header {
-    padding: 12px;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 12px 12px 12px;
   }
 
   .session-directory {
@@ -1630,11 +1686,39 @@ html, body {
 
   .modal-content {
     padding: 16px;
-    margin: 0 12px;
+    margin: env(safe-area-inset-top, 0px) calc(12px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(12px + env(safe-area-inset-left, 0px));
   }
 
   .modal-content input {
     font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  /* Touch-accessible: always show project action buttons on mobile */
+  .project-delete,
+  .project-quick-add,
+  .project-edit,
+  .project-files-toggle,
+  .project-tasks-btn {
+    opacity: 0.6;
+  }
+
+  .session-delete {
+    opacity: 0.6;
+  }
+
+  /* Smaller tabs on mobile */
+  .tab {
+    min-width: 80px;
+    padding: 6px 8px;
+  }
+
+  .tab-label {
+    max-width: 70px;
+    font-size: 11px;
+  }
+
+  .input-area {
+    padding: 10px 12px;
   }
 }
 
@@ -2167,7 +2251,7 @@ html, body {
 /* Small mobile */
 @media (max-width: 380px) {
   .chat-header {
-    padding: 10px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 10px 10px;
     flex-wrap: wrap;
   }
 
@@ -2192,5 +2276,19 @@ html, body {
 
   .input-area {
     padding: 8px 10px;
+  }
+
+  .input-form {
+    gap: 6px;
+  }
+
+  .btn-attach {
+    width: 32px;
+    height: 32px;
+  }
+
+  .btn-attach svg {
+    width: 16px;
+    height: 16px;
   }
 }

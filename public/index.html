@@ -2,8 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Eve Workspace</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0a0a0a">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
@@ -44,6 +48,7 @@
 
     <main class="main">
       <div id="welcomeScreen" class="welcome-screen">
+        <button id="welcomeOpenSidebar" class="menu-toggle welcome-menu-toggle" title="Open menu">&#9776;</button>
         <div class="welcome-content">
           <h2>Welcome to Eve Workspace</h2>
           <p>Start a new session to begin working with your LLM provider.</p>
@@ -58,6 +63,7 @@
           <div class="session-stats" id="sessionStats">
             <span class="stat-item" id="costStat" title="Session cost">$0.00</span>
           </div>
+          <div id="connectionStatus" class="connection-status hidden">Reconnecting...</div>
         </header>
 
         <!-- Chat content area -->
