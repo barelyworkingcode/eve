@@ -319,7 +319,7 @@ test/
 - `claude-process.js` - CLI process spawn, stdio, kill, retry
 - `claude-args-manager.js` - Custom arg parsing, /args-edit command
 - `gemini-provider.js` - Gemini CLI integration (persistent process)
-- `lmstudio-provider.js` - LM Studio HTTP API integration (stateless)
+- `lmstudio-provider.js` - LM Studio native REST API integration (stateful via responseId)
 
 ### Key Patterns
 
@@ -568,5 +568,8 @@ Manual testing checklist for new features:
 **LM Studio**
 - Requires local server running
 - Models configured in `lmstudio-config.json`
+- Uses native `/api/v1/chat` endpoint (not OpenAI-compatible)
+- Stateful conversations via `responseId` (server-side history)
+- Supports MCP tool calling and reasoning blocks via `integrations` config
 - No persistent process (HTTP only)
 - Limited stats support (no cost tracking)

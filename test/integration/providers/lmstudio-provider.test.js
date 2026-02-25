@@ -10,10 +10,11 @@ const configPath = path.join(__dirname, '..', '..', '..', 'data', 'lmstudio-conf
 try {
   if (fs.existsSync(configPath)) {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const url = new URL(config.baseUrl || 'http://localhost:1234/v1');
+    let baseUrl = (config.baseUrl || 'http://localhost:1234').replace(/\/v1\/?$/, '');
+    const url = new URL(baseUrl);
     // Synchronous check: try to connect
     const { execSync } = require('child_process');
-    execSync(`curl -sf -o /dev/null --max-time 2 ${url.origin}/v1/models`, { stdio: 'ignore' });
+    execSync(`curl -sf -o /dev/null --max-time 2 ${url.origin}`, { stdio: 'ignore' });
     serverAvailable = true;
   }
 } catch (e) {
@@ -105,9 +106,12 @@ describeIfServer('LMStudioProvider (integration)', () => {
     expect(content.length).toBeGreaterThan(0);
   });
 
-  it('maintains conversation history', async () => {
+  it('maintains conversation history via responseId', async () => {
     provider.sendMessage('Say hello in one sentence.');
     await waitForComplete();
+
+    // After first response, responseId should be set
+    expect(provider.responseId).toBeTruthy();
 
     ws.clear();
     provider.sendMessage('What was the first thing I asked you?');
@@ -115,6 +119,7 @@ describeIfServer('LMStudioProvider (integration)', () => {
 
     const content = getTextContent();
     expect(content.length).toBeGreaterThan(0);
-    expect(provider.conversationHistory.length).toBeGreaterThanOrEqual(4); // 2 user + 2 assistant
+    // responseId should still be set (updated to latest)
+    expect(provider.responseId).toBeTruthy();
   });
 });

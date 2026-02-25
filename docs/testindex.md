@@ -303,11 +303,11 @@ Auto-skipped when the required CLI or server is unavailable.
 - responds to a simple message
 - responds to a calculation
 
-### `providers/lmstudio-provider.test.js` — LM Studio HTTP end-to-end
+### `providers/lmstudio-provider.test.js` — LM Studio native API end-to-end
 
 - responds to a simple message
 - handles file attachment
-- maintains conversation history
+- maintains conversation history via responseId
 
 ## E2E Tests (`e2e/specs/`)
 
