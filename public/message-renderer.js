@@ -7,6 +7,7 @@ class MessageRenderer {
     this.app = app;
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
+    this.isStreaming = false;
   }
 
   startAssistantMessage(text) {
@@ -20,6 +21,7 @@ class MessageRenderer {
     this.app.elements.messages.appendChild(messageEl);
     this.currentAssistantMessage = messageEl.querySelector('.message-content');
     this.currentAssistantMessage.dataset.rawText = text;
+    this.isStreaming = true;
     this.scrollToBottom();
   }
 
@@ -55,6 +57,11 @@ class MessageRenderer {
           content: [{ type: 'text', text }]
         });
         this.app.sessionHistories.set(this.app.currentSessionId, history);
+      }
+      // Re-render with isStreaming=false to collapse think blocks
+      if (text) {
+        this.isStreaming = false;
+        this.currentAssistantMessage.innerHTML = this.formatText(text);
       }
       delete this.currentAssistantMessage.dataset.rawText;
       this.currentAssistantMessage = null;
@@ -199,6 +206,28 @@ class MessageRenderer {
 
   formatText(text) {
     let formatted = this.escapeHtml(text);
+
+    // Complete think blocks: <think>content</think>
+    formatted = formatted.replace(
+      /&lt;think&gt;([\s\S]*?)&lt;\/think&gt;/g,
+      (match, content) => {
+        const trimmed = content.trim();
+        if (!trimmed) return '';
+        const openAttr = this.isStreaming ? ' open' : '';
+        return `<details class="think-block"${openAttr}><summary>Thinking</summary><div class="think-content">${trimmed}</div></details>`;
+      }
+    );
+
+    // Unclosed think block (still streaming)
+    formatted = formatted.replace(
+      /&lt;think&gt;([\s\S]*)$/,
+      (match, content) => {
+        const trimmed = content.trim();
+        if (!trimmed) return '';
+        return '<details class="think-block" open><summary>Thinking...</summary><div class="think-content">' + trimmed + '</div></details>';
+      }
+    );
+
     formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
     formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
     formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');

@@ -725,6 +725,38 @@ html, body {
   flex-shrink: 0;
 }
 
+/* Think blocks (collapsible chain-of-thought) */
+.think-block {
+  margin: 6px 0;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.think-block summary {
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 500;
+  user-select: none;
+  list-style: none;
+}
+
+.think-block summary::-webkit-details-marker { display: none; }
+.think-block summary::before { content: '\25B6  '; font-size: 9px; margin-right: 4px; }
+.think-block[open] summary::before { content: '\25BC  '; }
+
+.think-content {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Processing indicator */
 @keyframes spin {
   to { transform: rotate(360deg); }
