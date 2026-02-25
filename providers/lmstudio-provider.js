@@ -13,6 +13,8 @@ class LMStudioProvider extends LLMProvider {
     this.currentAssistantMessage = null;
     this.currentToolCall = null;
     this.integrations = [];
+    this.temperature = 0.7;
+    this.contextLength = null;
     this.loadConfig();
     this.restoreSessionState(session.providerState);
   }
@@ -31,6 +33,9 @@ class LMStudioProvider extends LLMProvider {
       this.baseUrl = baseUrl;
       this.token = config.token || null;
       this.integrations = config.integrations || [];
+      this.contextLength = config.contextLength || null;
+      // Lower temperature improves tool calling reliability
+      this.temperature = config.temperature ?? (this.integrations.length > 0 ? 0.1 : 0.7);
 
       const url = new URL(this.baseUrl);
       this.hostname = url.hostname;
@@ -42,6 +47,7 @@ class LMStudioProvider extends LLMProvider {
       this.baseUrl = 'http://localhost:1234';
       this.token = null;
       this.integrations = [];
+      this.contextLength = null;
       this.hostname = 'localhost';
       this.port = 1234;
       this.basePath = '';
@@ -86,7 +92,7 @@ class LMStudioProvider extends LLMProvider {
       input,
       stream: true,
       store: true,
-      temperature: 0.7
+      temperature: this.temperature
     };
 
     if (this.responseId) {
@@ -94,6 +100,9 @@ class LMStudioProvider extends LLMProvider {
     }
     if (this.integrations.length > 0) {
       body.integrations = this.integrations;
+    }
+    if (this.contextLength) {
+      body.context_length = this.contextLength;
     }
 
     const payload = JSON.stringify(body);

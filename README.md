@@ -96,7 +96,7 @@ Create `data/lmstudio-config.json` to use local LM Studio models:
 
 ```json
 {
-  "baseUrl": "http://localhost:1234/v1",
+  "baseUrl": "http://localhost:1234",
   "token": "lms-...",
   "models": [
     {
@@ -104,14 +104,20 @@ Create `data/lmstudio-config.json` to use local LM Studio models:
       "label": "Llama 3.1 8B",
       "contextWindow": 32768
     }
-  ]
+  ],
+  "integrations": ["mcp/filesystem", "mcp/playwright"],
+  "temperature": 0.1,
+  "contextLength": 8000
 }
 ```
 
 **Fields:**
-- `baseUrl` - LM Studio server URL (default: `http://localhost:1234/v1`)
+- `baseUrl` - LM Studio server URL (default: `http://localhost:1234`)
 - `token` - Optional Bearer token for authenticated LM Studio servers
 - `models` - Array of available models with `id`, `label`, and `contextWindow`
+- `integrations` - MCP servers to enable for tool calling. Use `"mcp/<server_label>"` to reference servers from LM Studio's `mcp.json`, or `{"type": "ephemeral_mcp", "server_url": "https://..."}` for remote servers
+- `temperature` - Model temperature (default: 0.1 when integrations are configured, 0.7 otherwise). Lower values improve tool calling reliability
+- `contextLength` - Token context length sent to LM Studio. Higher values recommended when using MCP tools
 
 Models configured here appear in the model selector grouped under "LM Studio".
 
