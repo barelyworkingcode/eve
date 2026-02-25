@@ -110,10 +110,18 @@ class SessionManager {
 
   // --- Session lifecycle ---
 
-  createSession(ws, directory, projectId = null) {
+  createSession(ws, directory, projectId = null, requestedModel = null) {
     const sessionId = uuidv4();
     const project = projectId ? this.projects.get(projectId) : null;
-    const model = project?.model || 'haiku';
+    const projectDefault = project?.model || 'haiku';
+
+    // Validate requested model against available models; fall back to project default
+    let model = projectDefault;
+    if (requestedModel) {
+      const validValues = this.getAllModels().map(m => m.value);
+      model = validValues.includes(requestedModel) ? requestedModel : projectDefault;
+    }
+
     const sessionDirectory = project?.path || directory;
 
     const session = {
@@ -154,6 +162,7 @@ class SessionManager {
       sessionId,
       directory: sessionDirectory,
       projectId,
+      model,
       name: null,
       metadata: session.provider.getMetadata()
     }));
@@ -193,6 +202,7 @@ class SessionManager {
       type: 'session_joined',
       sessionId,
       directory: session.directory,
+      model: session.model,
       name: session.name || null,
       metadata: session.provider?.getMetadata() || session.directory,
       history: session.messages || []

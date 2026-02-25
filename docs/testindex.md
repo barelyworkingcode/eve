@@ -250,12 +250,17 @@ Quick-reference index of all test cases. Run `npm test` for unit/integration, se
 - uses project model and path when projectId provided
 - initializes provider for new session
 - sets up saveHistory function
+- overrides project model with requestedModel
+- falls back to project model for invalid requestedModel
+- includes model in session_created message
+- uses requestedModel without project when valid
 
 **joinSession**
 - joins an existing in-memory session
 - restores session from store if not in memory
 - sends error for nonexistent session
 - sends stats_update after joining
+- includes model in session_joined message
 
 **sendMessage**
 - saves user message and delegates to provider

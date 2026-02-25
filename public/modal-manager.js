@@ -60,6 +60,9 @@ class ModalManager {
       el.projectSelect.value = projectId;
       const project = this.app.projects.get(projectId);
       el.directoryInput.value = project.path || '';
+      if (project.model) {
+        el.sessionModelSelect.value = project.model;
+      }
     }
 
     this.app.updateDirectoryInputRequirement();
@@ -72,6 +75,9 @@ class ModalManager {
     el.modal.classList.add('hidden');
     el.directoryInput.value = '';
     el.projectSelect.value = '';
+    if (this.app.models.length > 0) {
+      el.sessionModelSelect.value = this.app.models[0].value;
+    }
     this.app.updateDirectoryInputRequirement();
     this.app.toggleSidebar(false);
   }

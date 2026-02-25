@@ -298,7 +298,7 @@ test/
 - `routes/sessions.js` - Session list, create, message API
 - `routes/tasks.js` - Scheduled task CRUD, run, history
 - `routes/permissions.js` - PreToolUse hook forwarding
-- `session-manager.js` - Session lifecycle, provider init, slash commands
+- `session-manager.js` - Session lifecycle, provider init, model validation, slash commands
 - `response-collector.js` - Captures LLM responses for REST API and headless tasks
 
 **Client** (`public/`)
@@ -330,16 +330,17 @@ Models are routed to providers based on naming:
 - Everything else → ClaudeProvider
 
 **Session Lifecycle**
-1. Client creates session via WebSocket
-2. Server ensures PreToolUse hook config in project's `.claude/settings.local.json`
-3. Server spawns provider process (CLI) or initializes HTTP client
-4. Claude CLI spawned with `EVE_HOOK_URL`, `EVE_SESSION_ID`, `EVE_AUTH_TOKEN` env vars
-5. Process/client persists for entire session lifetime
-6. Session ends → process killed, state cleared
+1. Client creates session via WebSocket (includes optional `model` override)
+2. Server validates requested model against available models, falls back to project default
+3. Server ensures PreToolUse hook config in project's `.claude/settings.local.json`
+4. Server spawns provider process (CLI) or initializes HTTP client
+5. Claude CLI spawned with `EVE_HOOK_URL`, `EVE_SESSION_ID`, `EVE_AUTH_TOKEN` env vars
+6. Process/client persists for entire session lifetime
+7. Session ends → process killed, state cleared
 
 **Project Grouping**
 - Projects have: name, path, default model, allowedTools
-- Sessions optionally belong to one project
+- Sessions optionally belong to one project and can override the project's default model
 - Disabling a provider grays out projects using that provider's models
 
 **Permission Forwarding**
@@ -376,12 +377,13 @@ Existing modules (TabManager, FileBrowser, FileEditor, TerminalManager) access t
 ```
 Projects (section)
   ├── Project 1
-  │   ├── Session A
-  │   └── Session B
+  │   ├── Session A [MODEL]
+  │   └── Session B [MODEL]
   └── Project 2
 Ungrouped (implicit section)
-  └── Session C
+  └── Session C [MODEL]
 ```
+Each session item displays its own model badge (`.session-model`), since sessions can override the project default.
 
 **Hover Actions**
 Buttons appear on hover in project headers:
@@ -411,13 +413,15 @@ this.sidebarRenderer.renderProjectList();
 
 **WebSocket messages**
 Server sends typed messages:
-- `session_created` - New session ready
+- `session_created` - New session ready (includes `model`)
+- `session_joined` - Rejoined existing session (includes `model`)
 - `llm_event` - LLM response streaming
 - `stats_update` - Context/cost updates
 - `error` - Display error to user
 - `permission_request` - Claude CLI tool needs user approval
 
 Client sends:
+- `create_session` - Includes optional `model` override
 - `permission_response` - User's allow/deny decision for a pending permission request
 
 ### Adding Features to Server

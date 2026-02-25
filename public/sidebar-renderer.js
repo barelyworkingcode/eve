@@ -56,7 +56,6 @@ class SidebarRenderer {
       <div class="project-header">
         <span class="project-toggle">▼</span>
         <span class="project-name">${escapeHtml(project.name)}</span>
-        <span class="project-model">${project.model || 'haiku'}</span>
         ${taskBadge}
         ${toolsBadge}
         ${disabledNote}
@@ -167,6 +166,7 @@ class SidebarRenderer {
     li.innerHTML = `
       <div class="session-name" title="${escapeHtml(session.directory)}">${escapeHtml(this.app.getSessionDisplayName(session.id))}</div>
       <div class="session-actions">
+        ${session.model ? `<span class="session-model">${escapeHtml(session.model)}</span>` : ''}
         <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
         <button class="session-delete" title="Delete session">&times;</button>
       </div>
