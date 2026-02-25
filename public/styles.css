@@ -672,20 +672,7 @@ html, body {
   color: var(--warning);
 }
 
-/* Code blocks in messages */
-.message-content pre {
-  background: var(--code-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 10px;
-  margin: 8px 0;
-  overflow-x: auto;
-  font-size: 12px;
-}
-
-.message-content code {
-  font-size: 12px;
-}
+/* Code blocks in messages — now handled by shared markdown rules below */
 
 /* Tool usage indicator */
 .tool-use {
@@ -1337,13 +1324,19 @@ html, body {
   flex: 1;
 }
 
-/* Markdown rendered content */
+/* Markdown rendered content (shared by file preview and chat messages) */
 .markdown-preview h1,
 .markdown-preview h2,
 .markdown-preview h3,
 .markdown-preview h4,
 .markdown-preview h5,
-.markdown-preview h6 {
+.markdown-preview h6,
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
   color: var(--text-primary);
   margin: 20px 0 10px;
   font-weight: 600;
@@ -1357,60 +1350,83 @@ html, body {
 .markdown-preview h5 { font-size: 13px; }
 .markdown-preview h6 { font-size: 12px; color: var(--text-secondary); }
 
+/* Chat messages: scaled-down headers, no border */
+.message-content h1 { font-size: 18px; }
+.message-content h2 { font-size: 16px; }
+.message-content h3 { font-size: 14px; }
+.message-content h4 { font-size: 13px; }
+.message-content h5 { font-size: 12px; }
+.message-content h6 { font-size: 12px; color: var(--text-secondary); }
+
 .markdown-preview h1:first-child,
 .markdown-preview h2:first-child,
-.markdown-preview h3:first-child {
+.markdown-preview h3:first-child,
+.message-content h1:first-child,
+.message-content h2:first-child,
+.message-content h3:first-child {
   margin-top: 0;
 }
 
-.markdown-preview p {
+.markdown-preview p,
+.message-content p {
   margin: 0 0 12px;
   line-height: 1.7;
 }
 
-.markdown-preview a {
+.markdown-preview a,
+.message-content a {
   color: var(--accent);
   text-decoration: none;
 }
 
-.markdown-preview a:hover {
+.markdown-preview a:hover,
+.message-content a:hover {
   text-decoration: underline;
 }
 
-.markdown-preview strong {
+.markdown-preview strong,
+.message-content strong {
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.markdown-preview em {
+.markdown-preview em,
+.message-content em {
   font-style: italic;
 }
 
 .markdown-preview ul,
-.markdown-preview ol {
+.markdown-preview ol,
+.message-content ul,
+.message-content ol {
   margin: 0 0 12px;
   padding-left: 24px;
 }
 
-.markdown-preview li {
+.markdown-preview li,
+.message-content li {
   margin-bottom: 4px;
   line-height: 1.6;
 }
 
 .markdown-preview li > ul,
-.markdown-preview li > ol {
+.markdown-preview li > ol,
+.message-content li > ul,
+.message-content li > ol {
   margin-top: 4px;
   margin-bottom: 0;
 }
 
-.markdown-preview code {
+.markdown-preview code,
+.message-content code {
   background: var(--bg-tertiary);
   padding: 2px 5px;
   border-radius: 3px;
   font-size: 12px;
 }
 
-.markdown-preview pre {
+.markdown-preview pre,
+.message-content pre {
   background: var(--code-bg);
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -1421,14 +1437,16 @@ html, body {
   line-height: 1.5;
 }
 
-.markdown-preview pre code {
+.markdown-preview pre code,
+.message-content pre code {
   background: none;
   padding: 0;
   border-radius: 0;
   font-size: inherit;
 }
 
-.markdown-preview blockquote {
+.markdown-preview blockquote,
+.message-content blockquote {
   border-left: 3px solid var(--accent);
   margin: 0 0 12px;
   padding: 8px 16px;
@@ -1437,17 +1455,20 @@ html, body {
   border-radius: 0 4px 4px 0;
 }
 
-.markdown-preview blockquote p:last-child {
+.markdown-preview blockquote p:last-child,
+.message-content blockquote p:last-child {
   margin-bottom: 0;
 }
 
-.markdown-preview hr {
+.markdown-preview hr,
+.message-content hr {
   border: none;
   border-top: 1px solid var(--border-color);
   margin: 20px 0;
 }
 
-.markdown-preview table {
+.markdown-preview table,
+.message-content table {
   width: 100%;
   border-collapse: collapse;
   margin: 0 0 12px;
@@ -1455,33 +1476,45 @@ html, body {
 }
 
 .markdown-preview th,
-.markdown-preview td {
+.markdown-preview td,
+.message-content th,
+.message-content td {
   border: 1px solid var(--border-color);
   padding: 8px 12px;
   text-align: left;
 }
 
-.markdown-preview th {
+.markdown-preview th,
+.message-content th {
   background: var(--bg-tertiary);
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.markdown-preview td {
+.markdown-preview td,
+.message-content td {
   color: var(--text-secondary);
 }
 
-.markdown-preview tr:nth-child(even) td {
+.markdown-preview tr:nth-child(even) td,
+.message-content tr:nth-child(even) td {
   background: rgba(255, 255, 255, 0.02);
 }
 
-.markdown-preview img {
+.markdown-preview img,
+.message-content img {
   max-width: 100%;
   border-radius: 4px;
 }
 
-.markdown-preview input[type="checkbox"] {
+.markdown-preview input[type="checkbox"],
+.message-content input[type="checkbox"] {
   margin-right: 6px;
+}
+
+/* Remove trailing margin on last element in chat messages */
+.message-content > *:last-child {
+  margin-bottom: 0;
 }
 
 /* Terminal Content */
