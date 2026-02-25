@@ -1,10 +1,11 @@
 {
   "baseUrl": "http://localhost:1234/v1",
+  "token": "",
   "models": [
     {
-      "id": "qwen/qwen3-4b-2507",
-      "label": "Qwen 3 4B",
-      "contextWindow": 128000
+      "id": "qwen/qwen3.5-35b-a3b",
+      "label": "Qwen 3.5 35b MoE",
+      "contextWindow": 262144
     }
   ]
 }

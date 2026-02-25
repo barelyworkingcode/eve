@@ -35,10 +35,10 @@ export GOOGLE_GENAI_API_KEY="..."
 
 ### LM Studio
 
-No authentication required:
-- Runs entirely locally
-- No API key or account needed
-- See `docs/` for LM Studio configuration
+Optional token authentication:
+- No authentication required by default
+- Add `"token"` to `data/lmstudio-config.json` to authenticate with a Bearer token
+- Useful for remote or shared LM Studio servers that require auth
 
 ## Important Limitation: Pro/Max Subscriptions
 
@@ -88,7 +88,7 @@ If you authenticate via `claude login` (CLI OAuth):
 1. Download LM Studio from https://lmstudio.ai
 2. Start the LM Studio server
 3. Configure `data/lmstudio-config.json` (see README)
-4. No authentication required
+4. Optionally add `"token": "lms-..."` to config for authenticated servers
 
 ## Billing & Usage
 
