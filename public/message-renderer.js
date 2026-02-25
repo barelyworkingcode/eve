@@ -205,34 +205,56 @@ class MessageRenderer {
   // --- Formatting utilities ---
 
   formatText(text) {
-    let formatted = this.escapeHtml(text);
+    // Fallback if marked/DOMPurify not loaded
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+      let safe = this.escapeHtml(text);
+      safe = safe.replace(/\n/g, '<br>');
+      return safe;
+    }
 
-    // Complete think blocks: <think>content</think>
-    formatted = formatted.replace(
-      /&lt;think&gt;([\s\S]*?)&lt;\/think&gt;/g,
+    // Extract think blocks before markdown parsing
+    const thinkBlocks = [];
+    let processed = text;
+
+    // Complete think blocks
+    processed = processed.replace(
+      /<think>([\s\S]*?)<\/think>/g,
       (match, content) => {
         const trimmed = content.trim();
         if (!trimmed) return '';
+        const idx = thinkBlocks.length;
         const openAttr = this.isStreaming ? ' open' : '';
-        return `<details class="think-block"${openAttr}><summary>Thinking</summary><div class="think-content">${trimmed}</div></details>`;
+        thinkBlocks.push(
+          `<details class="think-block"${openAttr}><summary>Thinking</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
+        );
+        return `\n%%THINK_${idx}%%\n`;
       }
     );
 
     // Unclosed think block (still streaming)
-    formatted = formatted.replace(
-      /&lt;think&gt;([\s\S]*)$/,
+    processed = processed.replace(
+      /<think>([\s\S]*)$/,
       (match, content) => {
         const trimmed = content.trim();
         if (!trimmed) return '';
-        return '<details class="think-block" open><summary>Thinking...</summary><div class="think-content">' + trimmed + '</div></details>';
+        const idx = thinkBlocks.length;
+        thinkBlocks.push(
+          `<details class="think-block" open><summary>Thinking...</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
+        );
+        return `\n%%THINK_${idx}%%\n`;
       }
     );
 
-    formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-    formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    formatted = formatted.replace(/\n/g, '<br>');
-    return formatted;
+    // Parse markdown and sanitize
+    let html = marked.parse(processed, { breaks: true, gfm: true });
+    html = DOMPurify.sanitize(html);
+
+    // Restore think block placeholders
+    for (let i = 0; i < thinkBlocks.length; i++) {
+      html = html.replace(`%%THINK_${i}%%`, thinkBlocks[i]);
+    }
+
+    return html;
   }
 
   escapeHtml(text) {
