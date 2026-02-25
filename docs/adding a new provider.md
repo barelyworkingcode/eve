@@ -158,7 +158,7 @@ No client code changes required. The model selector, project disable logic, and 
 
 - **CLI-based (process per message)**: `gemini-provider.js` — spawns a new process for each `sendMessage()`, parses stream-json stdout
 - **CLI-based (persistent process)**: `claude-provider.js` — keeps a long-running process, writes to stdin
-- **HTTP API**: `lmstudio-provider.js` — stateless HTTP calls, no child process
+- **HTTP API (stateful)**: `lmstudio-provider.js` — native REST API with server-side conversation state via `responseId`, named SSE events, no child process
 
 ## Registration summary
 

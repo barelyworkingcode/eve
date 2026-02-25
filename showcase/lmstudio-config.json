@@ -1,5 +1,5 @@
 {
-  "baseUrl": "http://localhost:1234/v1",
+  "baseUrl": "http://localhost:1234",
   "token": "",
   "models": [
     {
@@ -7,5 +7,6 @@
       "label": "Qwen 3.5 35b MoE",
       "contextWindow": 262144
     }
-  ]
+  ],
+  "integrations": []
 }

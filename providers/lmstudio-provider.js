@@ -9,9 +9,12 @@ let _dataDir = path.join(__dirname, '..', 'data');
 class LMStudioProvider extends LLMProvider {
   constructor(session) {
     super(session);
-    this.conversationHistory = [];
+    this.responseId = null;
     this.currentAssistantMessage = null;
+    this.currentToolCall = null;
+    this.integrations = [];
     this.loadConfig();
+    this.restoreSessionState(session.providerState);
   }
 
   static setDataDir(dir) {
@@ -22,21 +25,26 @@ class LMStudioProvider extends LLMProvider {
     const configPath = path.join(_dataDir, 'lmstudio-config.json');
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      this.baseUrl = config.baseUrl || 'http://localhost:1234/v1';
+      let baseUrl = config.baseUrl || 'http://localhost:1234';
+      // Strip trailing /v1 for backward compat with old configs
+      baseUrl = baseUrl.replace(/\/v1\/?$/, '');
+      this.baseUrl = baseUrl;
       this.token = config.token || null;
+      this.integrations = config.integrations || [];
 
       const url = new URL(this.baseUrl);
       this.hostname = url.hostname;
       this.port = url.port || (url.protocol === 'https:' ? 443 : 1234);
-      this.basePath = url.pathname;
+      this.basePath = url.pathname.replace(/\/$/, '');
       this.protocol = url.protocol;
     } catch (err) {
       console.error('[LMStudio] Failed to load config:', err.message);
-      this.baseUrl = 'http://localhost:1234/v1';
+      this.baseUrl = 'http://localhost:1234';
       this.token = null;
+      this.integrations = [];
       this.hostname = 'localhost';
       this.port = 1234;
-      this.basePath = '/v1';
+      this.basePath = '';
       this.protocol = 'http:';
     }
   }
@@ -58,29 +66,37 @@ class LMStudioProvider extends LLMProvider {
 
     this.session.processing = true;
 
-    // Build message content with files if present
-    let content = text;
+    // Build input with files if present
+    let input = text;
     if (files && files.length > 0) {
       for (const f of files) {
         if (f.type !== 'image') {
-          content = `<file name="${f.name}">\n${f.content}\n</file>\n\n${content}`;
+          input = `<file name="${f.name}">\n${f.content}\n</file>\n\n${input}`;
         }
       }
     }
 
-    // Add message to history
-    this.conversationHistory.push({
-      role: 'user',
-      content: content
-    });
+    this._doRequest(input);
+  }
 
+  _doRequest(input, isRetry = false) {
     // Build request payload
-    const payload = JSON.stringify({
+    const body = {
       model: this.session.model,
-      messages: this.conversationHistory,
+      input,
       stream: true,
+      store: true,
       temperature: 0.7
-    });
+    };
+
+    if (this.responseId) {
+      body.previous_response_id = this.responseId;
+    }
+    if (this.integrations.length > 0) {
+      body.integrations = this.integrations;
+    }
+
+    const payload = JSON.stringify(body);
 
     const headers = {
       'Content-Type': 'application/json',
@@ -93,7 +109,7 @@ class LMStudioProvider extends LLMProvider {
     const options = {
       hostname: this.hostname,
       port: this.port,
-      path: `${this.basePath}/chat/completions`,
+      path: `${this.basePath}/api/v1/chat`,
       method: 'POST',
       headers
     };
@@ -102,11 +118,44 @@ class LMStudioProvider extends LLMProvider {
 
     console.log('[LMStudio] POST', `${this.hostname}:${this.port}${options.path}`);
     console.log('[LMStudio] Model:', this.session.model);
-    console.log('[LMStudio] Messages:', this.conversationHistory.length);
+    if (this.responseId) {
+      console.log('[LMStudio] Continuing conversation:', this.responseId);
+    }
 
     const req = transport.request(options, (res) => {
+      // Handle stale responseId recovery
+      if ((res.statusCode === 400 || res.statusCode === 404) && this.responseId && !isRetry) {
+        console.warn('[LMStudio] Stale responseId, retrying without it');
+        let body = '';
+        res.on('data', (chunk) => { body += chunk.toString(); });
+        res.on('end', () => {
+          console.warn('[LMStudio] Error response:', body.substring(0, 200));
+          this.responseId = null;
+          this._doRequest(input, true);
+        });
+        return;
+      }
+
+      if (res.statusCode !== 200) {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk.toString(); });
+        res.on('end', () => {
+          console.error('[LMStudio] HTTP error:', res.statusCode, body.substring(0, 200));
+          this.session.processing = false;
+          if (this.session.ws && this.session.ws.readyState === 1) {
+            this.session.ws.send(JSON.stringify({
+              type: 'error',
+              sessionId: this.session.sessionId,
+              message: `LM Studio error (${res.statusCode}): ${body.substring(0, 200)}`
+            }));
+          }
+        });
+        return;
+      }
+
       let buffer = '';
-      let assistantMessage = '';
+      let currentEvent = null;
+      let assistantText = '';
 
       res.on('data', (chunk) => {
         buffer += chunk.toString();
@@ -114,106 +163,36 @@ class LMStudioProvider extends LLMProvider {
         buffer = lines.pop();
 
         for (const line of lines) {
-          if (line.trim() === '' || line.trim() === 'data: [DONE]') {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.substring(7).trim();
             continue;
           }
 
           if (line.startsWith('data: ')) {
+            const rawData = line.substring(6);
+            if (rawData === '[DONE]') {
+              continue;
+            }
+
             try {
-              const data = JSON.parse(line.substring(6));
-
-              if (data.choices && data.choices[0]) {
-                const delta = data.choices[0].delta;
-
-                if (delta.content) {
-                  assistantMessage += delta.content;
-
-                  // Initialize assistant message on first content
-                  if (!this.currentAssistantMessage) {
-                    this.currentAssistantMessage = {
-                      timestamp: new Date().toISOString(),
-                      role: 'assistant',
-                      content: [{ type: 'text', text: '' }]
-                    };
-                  }
-
-                  // Accumulate content
-                  this.currentAssistantMessage.content[0].text += delta.content;
-
-                  // Send content delta event
-                  this.sendEvent({
-                    type: 'assistant',
-                    delta: {
-                      type: 'text_delta',
-                      text: delta.content
-                    }
-                  });
-                }
-
-                // Check for finish
-                if (data.choices[0].finish_reason) {
-                  // Add assistant response to history
-                  this.conversationHistory.push({
-                    role: 'assistant',
-                    content: assistantMessage
-                  });
-
-                  // Save assistant message to session history
-                  if (this.currentAssistantMessage) {
-                    this.session.messages.push(this.currentAssistantMessage);
-                    this.currentAssistantMessage = null;
-                    if (this.session.saveHistory) {
-                      this.session.saveHistory();
-                    }
-                  }
-
-                  // Update stats if available
-                  if (data.usage) {
-                    this.session.stats.inputTokens += data.usage.prompt_tokens || 0;
-                    this.session.stats.outputTokens += data.usage.completion_tokens || 0;
-
-                    if (this.session.ws && this.session.ws.readyState === 1) {
-                      this.session.ws.send(JSON.stringify({
-                        type: 'stats_update',
-                        sessionId: this.session.sessionId,
-                        stats: this.session.stats
-                      }));
-                    }
-                  }
-
-                  // Send completion event
-                  this.session.processing = false;
-                  this.sendEvent({
-                    type: 'result'
-                  });
-
-                  if (this.session.ws && this.session.ws.readyState === 1) {
-                    this.session.ws.send(JSON.stringify({
-                      type: 'message_complete',
-                      sessionId: this.session.sessionId
-                    }));
-                  }
-                }
-              }
+              const data = JSON.parse(rawData);
+              assistantText = this._handleSSE(currentEvent, data, assistantText);
             } catch (e) {
               console.error('[LMStudio] Parse error:', e.message);
             }
+            currentEvent = null;
+            continue;
           }
         }
       });
 
       res.on('end', () => {
         if (!this.session.processing) {
-          return; // Already handled
+          return; // Already handled via chat.end
         }
 
-        this.session.processing = false;
-        if (this.session.ws && this.session.ws.readyState === 1) {
-          this.session.ws.send(JSON.stringify({
-            type: 'message_complete',
-            sessionId: this.session.sessionId
-          }));
-        }
+        // Fallback: if stream ended without chat.end, finalize
+        this._finalizeMessage(assistantText);
       });
     });
 
@@ -233,18 +212,190 @@ class LMStudioProvider extends LLMProvider {
     req.end();
   }
 
+  _handleSSE(eventType, data, assistantText) {
+    switch (eventType) {
+      case 'chat.start':
+        // Initialize tracking for new response
+        this.currentToolCall = null;
+        break;
+
+      case 'message.delta': {
+        const text = data.content || '';
+        if (!text) break;
+
+        assistantText += text;
+
+        if (!this.currentAssistantMessage) {
+          this.currentAssistantMessage = {
+            timestamp: new Date().toISOString(),
+            role: 'assistant',
+            content: [{ type: 'text', text: '' }]
+          };
+        }
+
+        this.currentAssistantMessage.content[0].text += text;
+
+        this.sendEvent({
+          type: 'assistant',
+          delta: {
+            type: 'text_delta',
+            text
+          }
+        });
+        break;
+      }
+
+      case 'reasoning.start':
+        this.sendEvent({
+          type: 'assistant',
+          delta: { type: 'text_delta', text: '<think>' }
+        });
+        break;
+
+      case 'reasoning.delta': {
+        const text = data.content || '';
+        if (text) {
+          this.sendEvent({
+            type: 'assistant',
+            delta: { type: 'text_delta', text }
+          });
+        }
+        break;
+      }
+
+      case 'reasoning.end':
+        this.sendEvent({
+          type: 'assistant',
+          delta: { type: 'text_delta', text: '</think>' }
+        });
+        break;
+
+      case 'tool_call.start': {
+        const name = data.name || 'unknown_tool';
+        this.currentToolCall = { name, argumentsBuffer: '' };
+
+        this.sendEvent({
+          type: 'assistant',
+          content_block: {
+            type: 'tool_use',
+            name,
+            input: {}
+          }
+        });
+        break;
+      }
+
+      case 'tool_call.arguments': {
+        if (this.currentToolCall) {
+          this.currentToolCall.argumentsBuffer += (data.content || '');
+        }
+        break;
+      }
+
+      case 'tool_call.success':
+        this.currentToolCall = null;
+        break;
+
+      case 'tool_call.failure': {
+        const errorMsg = data.error || data.message || 'Tool call failed';
+        this.sendEvent({
+          type: 'result',
+          subtype: 'error',
+          error: errorMsg
+        });
+        this.currentToolCall = null;
+        break;
+      }
+
+      case 'chat.end': {
+        const result = data;
+
+        // Store response_id for conversation continuity
+        if (result.response_id) {
+          this.responseId = result.response_id;
+          console.log('[LMStudio] Response ID:', this.responseId);
+        }
+
+        // Update stats
+        if (result.stats) {
+          this.session.stats.inputTokens += result.stats.input_tokens || 0;
+          this.session.stats.outputTokens += result.stats.total_output_tokens || 0;
+
+          if (this.session.ws && this.session.ws.readyState === 1) {
+            this.session.ws.send(JSON.stringify({
+              type: 'stats_update',
+              sessionId: this.session.sessionId,
+              stats: this.session.stats
+            }));
+          }
+        }
+
+        this._finalizeMessage(assistantText);
+        break;
+      }
+
+      default:
+        if (eventType) {
+          console.log('[LMStudio] Unhandled SSE event:', eventType);
+        }
+        break;
+    }
+
+    return assistantText;
+  }
+
+  _finalizeMessage(assistantText) {
+    // Save assistant message to session history
+    if (this.currentAssistantMessage) {
+      this.session.messages.push(this.currentAssistantMessage);
+      this.currentAssistantMessage = null;
+    }
+
+    // Persist provider state
+    this.session.providerState = this.getSessionState();
+    if (this.session.saveHistory) {
+      this.session.saveHistory();
+    }
+
+    // Send completion events
+    this.session.processing = false;
+    this.sendEvent({ type: 'result' });
+
+    if (this.session.ws && this.session.ws.readyState === 1) {
+      this.session.ws.send(JSON.stringify({
+        type: 'message_complete',
+        sessionId: this.session.sessionId
+      }));
+    }
+  }
+
   handleEvent(event) {
     console.log('[LMStudio] handleEvent:', event.type || event);
-    // Events are handled directly in sendMessage for HTTP streaming
+    // Events are handled directly in sendMessage via SSE stream
   }
 
   kill() {
-    // No process to kill - just clear history
-    this.conversationHistory = [];
+    this.responseId = null;
+    this.currentToolCall = null;
   }
 
   getMetadata() {
     return `LM Studio ${this.session.model} • ${this.session.directory}`;
+  }
+
+  getSessionState() {
+    return {
+      responseId: this.responseId
+    };
+  }
+
+  restoreSessionState(state) {
+    if (!state) return;
+    this.responseId = state.responseId || null;
+  }
+
+  static clearSessionState(session) {
+    delete session.providerState;
   }
 
   static getModels() {
@@ -282,9 +433,8 @@ class LMStudioProvider extends LLMProvider {
 
       const newModel = args[0];
       if (models.includes(newModel)) {
-        // Update session model and clear conversation history
         this.session.model = newModel;
-        this.conversationHistory = [];
+        this.responseId = null;
         sendSystemMessage(`Model changed to: ${newModel}`);
       } else {
         const available = models.length > 0 ? models.join(', ') : '(none configured)';
