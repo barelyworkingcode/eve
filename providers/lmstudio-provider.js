@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const LLMProvider = require('./llm-provider');
@@ -22,17 +23,21 @@ class LMStudioProvider extends LLMProvider {
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       this.baseUrl = config.baseUrl || 'http://localhost:1234/v1';
+      this.token = config.token || null;
 
       const url = new URL(this.baseUrl);
       this.hostname = url.hostname;
-      this.port = url.port || 1234;
+      this.port = url.port || (url.protocol === 'https:' ? 443 : 1234);
       this.basePath = url.pathname;
+      this.protocol = url.protocol;
     } catch (err) {
       console.error('[LMStudio] Failed to load config:', err.message);
       this.baseUrl = 'http://localhost:1234/v1';
+      this.token = null;
       this.hostname = 'localhost';
       this.port = 1234;
       this.basePath = '/v1';
+      this.protocol = 'http:';
     }
   }
 
@@ -77,22 +82,29 @@ class LMStudioProvider extends LLMProvider {
       temperature: 0.7
     });
 
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    };
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
     const options = {
       hostname: this.hostname,
       port: this.port,
       path: `${this.basePath}/chat/completions`,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload)
-      }
+      headers
     };
+
+    const transport = this.protocol === 'https:' ? https : http;
 
     console.log('[LMStudio] POST', `${this.hostname}:${this.port}${options.path}`);
     console.log('[LMStudio] Model:', this.session.model);
     console.log('[LMStudio] Messages:', this.conversationHistory.length);
 
-    const req = http.request(options, (res) => {
+    const req = transport.request(options, (res) => {
       let buffer = '';
       let assistantMessage = '';
 

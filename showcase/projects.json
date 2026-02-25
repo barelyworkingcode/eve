@@ -11,7 +11,7 @@
       "id": "proj-gf-operations",
       "name": "Greenfield Operations",
       "path": "showcase/projects/greenfield-operations",
-      "model": "qwen/qwen3-4b-2507",
+      "model": "qwen/qwen3.5-35b-a3b",
       "createdAt": "2026-01-20T14:00:00.000Z"
     }
   ]

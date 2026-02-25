@@ -97,6 +97,7 @@ Create `data/lmstudio-config.json` to use local LM Studio models:
 ```json
 {
   "baseUrl": "http://localhost:1234/v1",
+  "token": "lms-...",
   "models": [
     {
       "id": "llama-3.1-8b",
@@ -107,8 +108,9 @@ Create `data/lmstudio-config.json` to use local LM Studio models:
 }
 ```
 
-**Required fields:**
+**Fields:**
 - `baseUrl` - LM Studio server URL (default: `http://localhost:1234/v1`)
+- `token` - Optional Bearer token for authenticated LM Studio servers
 - `models` - Array of available models with `id`, `label`, and `contextWindow`
 
 Models configured here appear in the model selector grouped under "LM Studio".
