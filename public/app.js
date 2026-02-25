@@ -81,6 +81,7 @@ class EveWorkspaceClient {
       newProjectBtn: document.getElementById('newProjectBtn'),
       projectList: document.getElementById('projectList'),
       projectSelect: document.getElementById('projectSelect'),
+      sessionModelSelect: document.getElementById('sessionModelSelect'),
       inputPrompt: document.getElementById('inputPrompt'),
       promptText: document.getElementById('promptText'),
       sidebar: document.getElementById('sidebar'),
@@ -199,7 +200,16 @@ class EveWorkspaceClient {
     this.elements.closeSidebar.addEventListener('click', () => this.toggleSidebar(false));
 
     // Project select
-    this.elements.projectSelect.addEventListener('change', () => this.updateDirectoryInputRequirement());
+    this.elements.projectSelect.addEventListener('change', () => {
+      this.updateDirectoryInputRequirement();
+      const projectId = this.elements.projectSelect.value;
+      if (projectId) {
+        const project = this.projects.get(projectId);
+        if (project?.model) {
+          this.elements.sessionModelSelect.value = project.model;
+        }
+      }
+    });
   }
 
   // --- WebSocket ready ---
@@ -232,6 +242,7 @@ class EveWorkspaceClient {
           directory: data.directory,
           projectId: data.projectId || null,
           name: data.name || null,
+          model: data.model || null,
           active: true
         });
         this.currentSessionId = data.sessionId;
@@ -245,8 +256,13 @@ class EveWorkspaceClient {
       case 'session_joined': {
         this.currentSessionId = data.sessionId;
         const existingSession = this.sessions.get(data.sessionId);
-        if (existingSession && data.name !== undefined) {
-          existingSession.name = data.name || existingSession.name;
+        if (existingSession) {
+          if (data.name !== undefined) {
+            existingSession.name = data.name || existingSession.name;
+          }
+          if (data.model) {
+            existingSession.model = data.model;
+          }
         }
         if (data.history && data.history.length > 0) {
           this.sessionHistories.set(data.sessionId, data.history);
@@ -488,15 +504,15 @@ class EveWorkspaceClient {
     try {
       const response = await fetch('/api/models', { headers: this.getAuthHeaders() });
       this.models = await response.json();
-      this.renderModelSelect();
+      this.renderModelSelect(this.elements.projectModelSelect);
+      this.renderModelSelect(this.elements.sessionModelSelect);
     } catch (err) {
       console.error('Failed to load models:', err);
     }
   }
 
-  renderModelSelect() {
-    const select = this.elements.projectModelSelect;
-    select.innerHTML = '';
+  renderModelSelect(selectEl) {
+    selectEl.innerHTML = '';
 
     const groups = {};
     for (const model of this.models) {
@@ -513,10 +529,10 @@ class EveWorkspaceClient {
         option.textContent = model.label;
         optgroup.appendChild(option);
       }
-      select.appendChild(optgroup);
+      selectEl.appendChild(optgroup);
     }
 
-    if (this.models.length > 0) select.value = this.models[0].value;
+    if (this.models.length > 0) selectEl.value = this.models[0].value;
   }
 
   async loadProjects() {
@@ -549,8 +565,9 @@ class EveWorkspaceClient {
     e.preventDefault();
     const projectId = this.elements.projectSelect.value || null;
     const directory = this.elements.directoryInput.value.trim();
+    const model = this.elements.sessionModelSelect.value || null;
     if (!projectId && !directory) return;
-    this.wsClient.send({ type: 'create_session', directory, projectId });
+    this.wsClient.send({ type: 'create_session', directory, projectId, model });
   }
 
   joinSession(sessionId) {

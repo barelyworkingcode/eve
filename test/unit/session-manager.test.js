@@ -296,6 +296,45 @@ describe('SessionManager', () => {
       session.saveHistory();
       expect(sessionStore.save).toHaveBeenCalledWith(session);
     });
+
+    it('overrides project model with requestedModel', () => {
+      const projects = new Map();
+      projects.set('proj-1', { model: 'opus', path: '/projects/myapp' });
+      manager.projects = projects;
+
+      const sessionId = manager.createSession(ws, '/tmp', 'proj-1', 'haiku');
+
+      const session = manager.sessions.get(sessionId);
+      expect(session.model).toBe('haiku');
+    });
+
+    it('falls back to project model for invalid requestedModel', () => {
+      const projects = new Map();
+      projects.set('proj-1', { model: 'opus', path: '/projects/myapp' });
+      manager.projects = projects;
+
+      const sessionId = manager.createSession(ws, '/tmp', 'proj-1', 'nonexistent-model');
+
+      const session = manager.sessions.get(sessionId);
+      expect(session.model).toBe('opus');
+    });
+
+    it('includes model in session_created message', () => {
+      const sessionId = manager.createSession(ws, '/tmp');
+
+      const msg = ws.getLastMessage('session_created');
+      expect(msg.model).toBe('haiku');
+    });
+
+    it('uses requestedModel without project when valid', () => {
+      const sessionId = manager.createSession(ws, '/tmp', null, 'sonnet');
+
+      const session = manager.sessions.get(sessionId);
+      expect(session.model).toBe('sonnet');
+
+      const msg = ws.getLastMessage('session_created');
+      expect(msg.model).toBe('sonnet');
+    });
   });
 
   describe('joinSession', () => {
@@ -380,6 +419,18 @@ describe('SessionManager', () => {
       const statsMsg = ws.getLastMessage('stats_update');
       expect(statsMsg).not.toBeNull();
       expect(statsMsg.stats.inputTokens).toBe(500);
+    });
+
+    it('includes model in session_joined message', () => {
+      const existing = createMockSession({ sessionId: 'sess-1' });
+      existing.model = 'opus';
+      existing.provider = { getMetadata: jest.fn(() => 'meta') };
+      manager.sessions.set('sess-1', existing);
+
+      manager.joinSession(ws, 'sess-1');
+
+      const msg = ws.getLastMessage('session_joined');
+      expect(msg.model).toBe('opus');
     });
   });
 

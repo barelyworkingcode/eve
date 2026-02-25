@@ -37,7 +37,7 @@ function createWsHandler({ authService, sessions, sessionManager, fileHandlers, 
 
         switch (message.type) {
           case 'create_session':
-            currentSessionId = sessionManager.createSession(ws, message.directory, message.projectId);
+            currentSessionId = sessionManager.createSession(ws, message.directory, message.projectId, message.model);
             break;
 
           case 'join_session':

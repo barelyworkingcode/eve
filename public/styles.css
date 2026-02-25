@@ -185,7 +185,7 @@ html, body {
   text-overflow: ellipsis;
 }
 
-.project-model {
+.session-model {
   font-size: 10px;
   color: var(--text-muted);
   background: var(--bg-tertiary);
@@ -193,9 +193,6 @@ html, body {
   border-radius: 3px;
   text-transform: uppercase;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
 }
 
 .project-delete {

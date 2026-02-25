@@ -12,6 +12,7 @@ function createSessionRoutes({ sessions, projects, sessionManager, requireAuth }
         directory: session.directory,
         projectId: session.projectId || null,
         name: session.name || null,
+        model: session.model || null,
         active: session.provider !== null
       });
     }
@@ -19,7 +20,7 @@ function createSessionRoutes({ sessions, projects, sessionManager, requireAuth }
   });
 
   router.post('/', requireAuth, (req, res) => {
-    const { projectId, name } = req.body;
+    const { projectId, name, model } = req.body;
     if (!projectId) {
       return res.status(400).json({ error: 'projectId is required' });
     }
@@ -29,7 +30,7 @@ function createSessionRoutes({ sessions, projects, sessionManager, requireAuth }
     }
 
     const mockWs = { readyState: 1, send: () => {} };
-    const sessionId = sessionManager.createSession(mockWs, project.path, projectId);
+    const sessionId = sessionManager.createSession(mockWs, project.path, projectId, model || null);
     const session = sessions.get(sessionId);
 
     if (name) {
