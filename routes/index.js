@@ -3,6 +3,7 @@ const createProjectRoutes = require('./projects');
 const createSessionRoutes = require('./sessions');
 const createTaskRoutes = require('./tasks');
 const createPermissionRoutes = require('./permissions');
+const LMStudioProvider = require('../providers/lmstudio-provider');
 
 function registerRoutes(app, { authService, projects, sessions, sessionManager, taskScheduler, saveProjects, getAllModels, getProviderForModel, settings }) {
   // Shared auth middleware
@@ -22,6 +23,12 @@ function registerRoutes(app, { authService, projects, sessions, sessionManager, 
 
   // Models endpoint
   app.get('/api/models', requireAuth, (req, res) => {
+    res.json(getAllModels());
+  });
+
+  // Refresh models (re-fetch from LM Studio)
+  app.post('/api/models/refresh', requireAuth, async (req, res) => {
+    await LMStudioProvider.fetchModels();
     res.json(getAllModels());
   });
 

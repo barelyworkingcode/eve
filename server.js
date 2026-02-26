@@ -139,6 +139,11 @@ function saveProjects() {
 loadSettings();
 loadProjects();
 
+// Pre-fetch LM Studio models if provider is enabled
+if (settings.providers.lmstudio) {
+  LMStudioProvider.fetchModels();
+}
+
 // Services
 const authService = new AuthService(DATA_DIR);
 const sessionStore = new SessionStore(DATA_DIR);

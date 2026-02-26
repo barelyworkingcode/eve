@@ -143,7 +143,10 @@
           <option value="">No project</option>
         </select>
         <label for="sessionModelSelect">Model</label>
-        <select id="sessionModelSelect"></select>
+        <div class="model-select-row">
+          <select id="sessionModelSelect"></select>
+          <button type="button" id="refreshModelsBtn" class="btn-icon" title="Refresh models">&#x21bb;</button>
+        </div>
         <label for="directoryInput">Working Directory</label>
         <input
           type="text"

@@ -128,7 +128,8 @@ class EveWorkspaceClient {
       permissionAllow: document.getElementById('permissionAllow'),
       permissionDeny: document.getElementById('permissionDeny'),
       connectionStatus: document.getElementById('connectionStatus'),
-      welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar')
+      welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
+      refreshModelsBtn: document.getElementById('refreshModelsBtn')
     };
   }
 
@@ -210,6 +211,9 @@ class EveWorkspaceClient {
         }
       }
     });
+
+    // Refresh models
+    this.elements.refreshModelsBtn.addEventListener('click', () => this.refreshModels());
   }
 
   // --- WebSocket ready ---
@@ -518,6 +522,20 @@ class EveWorkspaceClient {
       this.renderModelSelect(this.elements.sessionModelSelect);
     } catch (err) {
       console.error('Failed to load models:', err);
+    }
+  }
+
+  async refreshModels() {
+    try {
+      const response = await fetch('/api/models/refresh', {
+        method: 'POST',
+        headers: this.getAuthHeaders()
+      });
+      this.models = await response.json();
+      this.renderModelSelect(this.elements.projectModelSelect);
+      this.renderModelSelect(this.elements.sessionModelSelect);
+    } catch (err) {
+      console.error('Failed to refresh models:', err);
     }
   }
 
