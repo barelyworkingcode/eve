@@ -75,11 +75,23 @@ class LMStudioProvider extends LLMProvider {
 
     // Build input with files if present
     let input = text;
-    if (files && files.length > 0) {
+    const hasImages = files && files.some(f => f.type === 'image');
+
+    if (hasImages) {
+      // LM Studio accepts input as array of content parts for multimodal
+      const parts = [];
       for (const f of files) {
-        if (f.type !== 'image') {
+        if (f.type === 'image') {
+          parts.push({ type: 'image', data_url: f.content });
+        } else {
           input = `<file name="${f.name}">\n${f.content}\n</file>\n\n${input}`;
         }
+      }
+      parts.push({ type: 'text', content: input });
+      input = parts;
+    } else if (files && files.length > 0) {
+      for (const f of files) {
+        input = `<file name="${f.name}">\n${f.content}\n</file>\n\n${input}`;
       }
     }
 
