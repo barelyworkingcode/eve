@@ -357,7 +357,7 @@ class LMStudioProvider extends LLMProvider {
       }
 
       case 'chat.end': {
-        const result = data;
+        const result = data.result || data;
 
         // Store response_id for conversation continuity
         if (result.response_id) {

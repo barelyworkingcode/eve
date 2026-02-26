@@ -198,6 +198,50 @@ describe('LMStudioProvider SSE handling', () => {
     });
   });
 
+  describe('chat.end event handling', () => {
+    test('extracts response_id from nested data.result (documented format)', () => {
+      provider._handleSSE('chat.end', {
+        type: 'chat.end',
+        result: {
+          response_id: 'resp_abc123',
+          stats: { input_tokens: 100, total_output_tokens: 50 }
+        }
+      }, '');
+
+      expect(provider.responseId).toBe('resp_abc123');
+    });
+
+    test('extracts stats from nested data.result', () => {
+      provider._handleSSE('chat.end', {
+        type: 'chat.end',
+        result: {
+          response_id: 'resp_abc123',
+          stats: { input_tokens: 100, total_output_tokens: 50 }
+        }
+      }, '');
+
+      expect(session.stats.inputTokens).toBe(100);
+      expect(session.stats.outputTokens).toBe(50);
+
+      const statsMsg = ws.sentMessages.find(m => m.type === 'stats_update');
+      expect(statsMsg).toBeDefined();
+      expect(statsMsg.stats.inputTokens).toBe(100);
+      expect(statsMsg.stats.outputTokens).toBe(50);
+    });
+
+    test('handles flat format for backward compatibility', () => {
+      provider._handleSSE('chat.end', {
+        type: 'chat.end',
+        response_id: 'resp_flat456',
+        stats: { input_tokens: 200, total_output_tokens: 75 }
+      }, '');
+
+      expect(provider.responseId).toBe('resp_flat456');
+      expect(session.stats.inputTokens).toBe(200);
+      expect(session.stats.outputTokens).toBe(75);
+    });
+  });
+
   describe('ignored events', () => {
     test.each([
       'message.start',
