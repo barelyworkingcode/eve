@@ -383,9 +383,55 @@ class LMStudioProvider extends LLMProvider {
         break;
       }
 
+      case 'model_load.start':
+        this.sendEvent({
+          type: 'system',
+          subtype: 'status',
+          message: `Loading model ${data.model || ''}...`.trim()
+        });
+        break;
+
+      case 'model_load.progress': {
+        const pct = typeof data.progress === 'number'
+          ? `${Math.round(data.progress * 100)}%`
+          : '';
+        this.sendEvent({
+          type: 'system',
+          subtype: 'status',
+          message: pct ? `Loading model... ${pct}` : 'Loading model...'
+        });
+        break;
+      }
+
+      case 'model_load.end':
       case 'prompt_processing.start':
-      case 'prompt_processing.progress':
+        this.sendEvent({
+          type: 'system',
+          subtype: 'status',
+          message: 'Processing prompt...'
+        });
+        break;
+
+      case 'prompt_processing.progress': {
+        const promptPct = typeof data.progress === 'number'
+          ? `${Math.round(data.progress * 100)}%`
+          : '';
+        this.sendEvent({
+          type: 'system',
+          subtype: 'status',
+          message: promptPct ? `Processing prompt... ${promptPct}` : 'Processing prompt...'
+        });
+        break;
+      }
+
       case 'prompt_processing.end':
+        this.sendEvent({
+          type: 'system',
+          subtype: 'status',
+          message: ''
+        });
+        break;
+
       case 'message.start':
       case 'message.end':
         // Known events with no client-side action needed

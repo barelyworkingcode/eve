@@ -477,6 +477,12 @@ class EveWorkspaceClient {
       this.modalManager.showPermissionPrompt(event.message || 'Permission requested');
     } else if (event.subtype === 'question') {
       this.modalManager.showInputPrompt(event.message || 'Assistant is asking a question');
+    } else if (event.subtype === 'status') {
+      if (event.message) {
+        this.messageRenderer.updateThinkingIndicator(event.message);
+      } else {
+        this.messageRenderer.hideThinkingIndicator();
+      }
     } else if (event.message) {
       this.messageRenderer.appendSystemMessage(event.message);
     }

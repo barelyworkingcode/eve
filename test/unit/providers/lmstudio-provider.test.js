@@ -200,14 +200,55 @@ describe('LMStudioProvider SSE handling', () => {
 
   describe('ignored events', () => {
     test.each([
-      'prompt_processing.start',
-      'prompt_processing.progress',
-      'prompt_processing.end',
       'message.start',
       'message.end'
     ])('%s is silently ignored', (eventType) => {
       provider._handleSSE(eventType, {}, '');
       expect(getLlmEvents()).toHaveLength(0);
+    });
+  });
+
+  describe('model loading and prompt processing status', () => {
+    test('model_load.start sends status event', () => {
+      provider._handleSSE('model_load.start', { model: 'qwen2.5-7b' }, '');
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Loading model qwen2.5-7b...' });
+    });
+
+    test('model_load.progress sends percentage', () => {
+      provider._handleSSE('model_load.progress', { progress: 0.45 }, '');
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Loading model... 45%' });
+    });
+
+    test('model_load.end transitions to prompt processing', () => {
+      provider._handleSSE('model_load.end', {}, '');
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Processing prompt...' });
+    });
+
+    test('prompt_processing.start sends status event', () => {
+      provider._handleSSE('prompt_processing.start', {}, '');
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Processing prompt...' });
+    });
+
+    test('prompt_processing.progress sends percentage', () => {
+      provider._handleSSE('prompt_processing.progress', { progress: 0.7 }, '');
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Processing prompt... 70%' });
+    });
+
+    test('prompt_processing.end clears status', () => {
+      provider._handleSSE('prompt_processing.end', {}, '');
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: '' });
     });
   });
 });
