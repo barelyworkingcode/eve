@@ -454,6 +454,8 @@ class EveWorkspaceClient {
         this.messageRenderer.updateAssistantMessage(event.content_block.text);
       } else if (event.content_block.type === 'tool_use') {
         this.messageRenderer.appendToolUse(event.content_block.name, event.content_block.input);
+      } else if (event.content_block.type === 'tool_use_input') {
+        this.messageRenderer.updateToolInput(event.content_block.input);
       }
     } else if (event.delta) {
       if (event.delta.type === 'text_delta') {
@@ -465,6 +467,8 @@ class EveWorkspaceClient {
   handleResultEvent(event) {
     if (event.subtype === 'error') {
       this.messageRenderer.appendSystemMessage(`Tool error: ${event.error}`, 'error');
+    } else if (event.subtype === 'tool_result') {
+      this.messageRenderer.markToolComplete();
     }
   }
 

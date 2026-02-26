@@ -168,7 +168,10 @@ class MessageRenderer {
   }
 
   showThinkingIndicator(text = 'Thinking...') {
-    this.hideThinkingIndicator();
+    // Only remove the DOM element — don't call hideThinkingIndicator() which
+    // also calls markToolComplete() and would clear the active tool block.
+    const existing = document.getElementById('thinkingIndicator');
+    if (existing) existing.remove();
     const el = document.createElement('div');
     el.className = 'thinking-indicator';
     el.id = 'thinkingIndicator';
@@ -191,6 +194,33 @@ class MessageRenderer {
     this.markToolComplete();
     const el = document.getElementById('thinkingIndicator');
     if (el) el.remove();
+  }
+
+  updateToolInput(input) {
+    if (!this.currentToolBlock || !input) return;
+    const existing = this.currentToolBlock.querySelector('.tool-input');
+    let summary = '';
+    if (typeof input === 'string') {
+      summary = input.substring(0, 100);
+    } else if (input.command) {
+      summary = input.command.substring(0, 100);
+    } else if (input.file_path) {
+      summary = input.file_path;
+    } else if (input.pattern) {
+      summary = input.pattern;
+    } else {
+      const firstVal = Object.values(input).find(v => typeof v === 'string');
+      if (firstVal) summary = firstVal.substring(0, 100);
+    }
+    if (!summary) return;
+    if (existing) {
+      existing.textContent = summary;
+    } else {
+      const span = document.createElement('span');
+      span.className = 'tool-input';
+      span.textContent = summary;
+      this.currentToolBlock.appendChild(span);
+    }
   }
 
   markToolComplete() {

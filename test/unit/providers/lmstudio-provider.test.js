@@ -1,0 +1,213 @@
+const path = require('path');
+const fs = require('fs');
+const { MockWebSocket, createMockSession } = require('../../helpers/mock-session');
+
+// Set data dir before requiring provider
+const LMStudioProvider = require('../../../providers/lmstudio-provider');
+LMStudioProvider.setDataDir(path.join(__dirname, '..', '..', 'fixtures'));
+
+// Create minimal config fixture
+const fixturesDir = path.join(__dirname, '..', '..', 'fixtures');
+if (!fs.existsSync(fixturesDir)) fs.mkdirSync(fixturesDir, { recursive: true });
+fs.writeFileSync(path.join(fixturesDir, 'lmstudio-config.json'), JSON.stringify({
+  baseUrl: 'http://localhost:1234',
+  models: [{ id: 'test-model', label: 'Test' }]
+}));
+
+describe('LMStudioProvider SSE handling', () => {
+  let provider, session, ws;
+
+  beforeEach(() => {
+    ws = new MockWebSocket();
+    session = createMockSession({ ws, model: 'test-model' });
+    provider = new LMStudioProvider(session);
+  });
+
+  function getLlmEvents() {
+    return ws.sentMessages.filter(m => m.type === 'llm_event').map(m => m.event);
+  }
+
+  describe('tool call events', () => {
+    test('tool_call.start buffers without emitting events', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(0);
+      expect(provider.currentToolCall).toEqual({ name: null, emitted: false });
+    });
+
+    test('tool_call.name emits tool_use immediately for progressive UI', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+      provider._handleSSE('tool_call.name', {
+        type: 'tool_call.name',
+        tool_name: 'fs_read',
+        provider_info: { type: 'plugin', plugin_id: 'mcp/relay' }
+      }, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({
+        type: 'assistant',
+        content_block: { type: 'tool_use', name: 'fs_read', input: {} }
+      });
+      expect(provider.currentToolCall.name).toBe('fs_read');
+      expect(provider.currentToolCall.emitted).toBe(true);
+    });
+
+    test('tool_call.arguments emits tool_use_input to update existing block', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+      provider._handleSSE('tool_call.name', { type: 'tool_call.name', tool_name: 'fs_read' }, '');
+      ws.clear();
+
+      provider._handleSSE('tool_call.arguments', {
+        type: 'tool_call.arguments',
+        tool: 'fs_read',
+        arguments: { file_path: 'todo.md' }
+      }, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({
+        type: 'assistant',
+        content_block: {
+          type: 'tool_use_input',
+          input: { file_path: 'todo.md' }
+        }
+      });
+    });
+
+    test('tool_call.arguments emits tool_use if name event was skipped', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+      provider._handleSSE('tool_call.arguments', {
+        arguments: { file_path: 'todo.md' }
+      }, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({
+        type: 'assistant',
+        content_block: {
+          type: 'tool_use',
+          name: 'unknown_tool',
+          input: { file_path: 'todo.md' }
+        }
+      });
+    });
+
+    test('tool_call.success sends tool_result and clears currentToolCall', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+      provider._handleSSE('tool_call.name', { type: 'tool_call.name', tool_name: 'fs_read' }, '');
+      provider._handleSSE('tool_call.arguments', {
+        arguments: { file_path: 'todo.md' }
+      }, '');
+      ws.clear();
+
+      provider._handleSSE('tool_call.success', {}, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({
+        type: 'result',
+        subtype: 'tool_result',
+        tool: 'fs_read'
+      });
+      expect(provider.currentToolCall).toBeNull();
+    });
+
+    test('tool_call.success handles missing arguments event', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+      provider._handleSSE('tool_call.name', { type: 'tool_call.name', tool_name: 'fs_read' }, '');
+
+      provider._handleSSE('tool_call.success', {}, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(2);
+      // tool_use emitted by name, tool_result by success
+      expect(events[0]).toEqual({
+        type: 'assistant',
+        content_block: { type: 'tool_use', name: 'fs_read', input: {} }
+      });
+      expect(events[1]).toEqual({
+        type: 'result',
+        subtype: 'tool_result',
+        tool: 'fs_read'
+      });
+    });
+
+    test('tool_call.failure emits tool_use if not yet emitted then error', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+      provider._handleSSE('tool_call.name', { type: 'tool_call.name', tool_name: 'fs_read' }, '');
+
+      provider._handleSSE('tool_call.failure', { reason: 'File not found' }, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(2);
+      expect(events[0]).toEqual({
+        type: 'assistant',
+        content_block: { type: 'tool_use', name: 'fs_read', input: {} }
+      });
+      expect(events[1]).toEqual({
+        type: 'result',
+        subtype: 'error',
+        error: 'File not found'
+      });
+      expect(provider.currentToolCall).toBeNull();
+    });
+
+    test('tool_call.failure after arguments does not double-emit tool_use', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+      provider._handleSSE('tool_call.name', { type: 'tool_call.name', tool_name: 'fs_read' }, '');
+      provider._handleSSE('tool_call.arguments', {
+        arguments: { file_path: 'todo.md' }
+      }, '');
+      ws.clear();
+
+      provider._handleSSE('tool_call.failure', { reason: 'File not found' }, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({
+        type: 'result',
+        subtype: 'error',
+        error: 'File not found'
+      });
+    });
+
+    test('full tool call sequence produces correct event order', () => {
+      provider._handleSSE('tool_call.start', { type: 'tool_call.start' }, '');
+      provider._handleSSE('tool_call.name', {
+        type: 'tool_call.name',
+        tool_name: 'fs_read',
+        provider_info: { type: 'plugin', plugin_id: 'mcp/relay' }
+      }, '');
+      provider._handleSSE('tool_call.arguments', {
+        type: 'tool_call.arguments',
+        tool: 'fs_read',
+        arguments: { file_path: 'todo.md' }
+      }, '');
+      provider._handleSSE('tool_call.success', {}, '');
+
+      const events = getLlmEvents();
+      expect(events).toHaveLength(3);
+      expect(events[0].content_block.type).toBe('tool_use');
+      expect(events[0].content_block.name).toBe('fs_read');
+      expect(events[0].content_block.input).toEqual({});
+      expect(events[1].content_block.type).toBe('tool_use_input');
+      expect(events[1].content_block.input).toEqual({ file_path: 'todo.md' });
+      expect(events[2].subtype).toBe('tool_result');
+    });
+  });
+
+  describe('ignored events', () => {
+    test.each([
+      'prompt_processing.start',
+      'prompt_processing.progress',
+      'prompt_processing.end',
+      'message.start',
+      'message.end'
+    ])('%s is silently ignored', (eventType) => {
+      provider._handleSSE(eventType, {}, '');
+      expect(getLlmEvents()).toHaveLength(0);
+    });
+  });
+});
