@@ -6,13 +6,17 @@ const { MockWebSocket, createMockSession } = require('../../helpers/mock-session
 const LMStudioProvider = require('../../../providers/lmstudio-provider');
 LMStudioProvider.setDataDir(path.join(__dirname, '..', '..', 'fixtures'));
 
-// Create minimal config fixture
+// Create minimal config fixture (no models array — fetched dynamically)
 const fixturesDir = path.join(__dirname, '..', '..', 'fixtures');
 if (!fs.existsSync(fixturesDir)) fs.mkdirSync(fixturesDir, { recursive: true });
 fs.writeFileSync(path.join(fixturesDir, 'lmstudio-config.json'), JSON.stringify({
-  baseUrl: 'http://localhost:1234',
-  models: [{ id: 'test-model', label: 'Test' }]
+  baseUrl: 'http://localhost:1234'
 }));
+
+// Inject test models into cache
+LMStudioProvider._setModelsForTest([
+  { value: 'test-model', label: 'Test', group: 'LM Studio' }
+]);
 
 describe('LMStudioProvider SSE handling', () => {
   let provider, session, ws;
@@ -249,6 +253,36 @@ describe('LMStudioProvider SSE handling', () => {
     ])('%s is silently ignored', (eventType) => {
       provider._handleSSE(eventType, {}, '');
       expect(getLlmEvents()).toHaveLength(0);
+    });
+  });
+
+  describe('getModels() and model caching', () => {
+    test('getModels() returns cached models set via _setModelsForTest', () => {
+      const models = LMStudioProvider.getModels();
+      expect(models).toEqual([
+        { value: 'test-model', label: 'Test', group: 'LM Studio' }
+      ]);
+    });
+
+    test('getModels() returns empty array when cache is cleared', () => {
+      const original = LMStudioProvider.getModels();
+      LMStudioProvider._setModelsForTest([]);
+      expect(LMStudioProvider.getModels()).toEqual([]);
+      // Restore for other tests
+      LMStudioProvider._setModelsForTest(original);
+    });
+
+    test('_setModelsForTest replaces entire cache', () => {
+      const newModels = [
+        { value: 'model-a', label: 'A', group: 'LM Studio' },
+        { value: 'model-b', label: 'B', group: 'LM Studio' }
+      ];
+      LMStudioProvider._setModelsForTest(newModels);
+      expect(LMStudioProvider.getModels()).toEqual(newModels);
+      // Restore
+      LMStudioProvider._setModelsForTest([
+        { value: 'test-model', label: 'Test', group: 'LM Studio' }
+      ]);
     });
   });
 

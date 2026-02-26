@@ -1084,6 +1084,18 @@ html, body {
   color: var(--text-primary);
 }
 
+.model-select-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.model-select-row select {
+  flex: 1;
+  margin-bottom: 0;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

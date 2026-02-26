@@ -5,6 +5,7 @@ const path = require('path');
 const LLMProvider = require('./llm-provider');
 
 let _dataDir = path.join(__dirname, '..', 'data');
+let _cachedModels = [];
 
 class LMStudioProvider extends LLMProvider {
   constructor(session) {
@@ -517,34 +518,91 @@ class LMStudioProvider extends LLMProvider {
   }
 
   static getModels() {
-    const configPath = path.join(_dataDir, 'lmstudio-config.json');
+    return _cachedModels;
+  }
+
+  static async fetchModels() {
+    let baseUrl, token;
     try {
+      const configPath = path.join(_dataDir, 'lmstudio-config.json');
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      return (config.models || []).map(m => ({
-        value: m.id,
-        label: m.label,
-        group: 'LM Studio'
-      }));
+      baseUrl = (config.baseUrl || 'http://localhost:1234').replace(/\/v1\/?$/, '');
+      token = config.token || null;
     } catch (err) {
-      console.error('[LMStudio] Failed to load models from config:', err.message);
-      return [];
+      console.error('[LMStudio] Failed to read config for model fetch:', err.message);
+      _cachedModels = [];
+      return _cachedModels;
     }
+
+    try {
+      const url = new URL(baseUrl);
+      const transport = url.protocol === 'https:' ? https : http;
+      const headers = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const data = await new Promise((resolve, reject) => {
+        const req = transport.get(`${baseUrl}/api/v1/models`, { headers, timeout: 5000 }, (res) => {
+          let body = '';
+          res.on('data', (chunk) => { body += chunk.toString(); });
+          res.on('end', () => {
+            if (res.statusCode !== 200) {
+              reject(new Error(`HTTP ${res.statusCode}: ${body.substring(0, 200)}`));
+              return;
+            }
+            try { resolve(JSON.parse(body)); }
+            catch (e) { reject(new Error('Invalid JSON response')); }
+          });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      });
+
+      const models = (data.data || data.models || [])
+        .filter(m => m.type === 'llm')
+        .map(m => ({
+          value: m.id || m.key,
+          label: m.display_name || m.id || m.key,
+          group: 'LM Studio'
+        }));
+
+      _cachedModels = models;
+      const names = models.map(m => m.value).join(', ');
+      console.log(`[LMStudio] Fetched ${models.length} models: ${names || '(none)'}`);
+    } catch (err) {
+      console.error('[LMStudio] Failed to fetch models:', err.message);
+      _cachedModels = [];
+    }
+
+    return _cachedModels;
+  }
+
+  static _setModelsForTest(models) {
+    _cachedModels = models;
   }
 
   static getCommands() {
     const models = LMStudioProvider.getModels();
-    const modelNames = models.length > 0 ? models.map(m => m.value).join(', ') : '(none configured)';
+    const modelNames = models.length > 0 ? models.map(m => m.value).join(', ') : '(none)';
     return [
-      { name: 'model', description: `Switch model (${modelNames})` }
+      { name: 'model', description: `Switch model (${modelNames})` },
+      { name: 'refresh-models', description: 'Re-fetch available models from LM Studio' }
     ];
   }
 
   handleCommand(command, args, sendSystemMessage, rawText) {
+    if (command === 'refresh-models') {
+      LMStudioProvider.fetchModels().then(models => {
+        const names = models.length > 0 ? models.map(m => m.value).join(', ') : '(none)';
+        sendSystemMessage(`Refreshed LM Studio models: ${names}`);
+      });
+      return true;
+    }
+
     const models = LMStudioProvider.getModels().map(m => m.value);
 
     if (command === 'model') {
       if (args.length === 0) {
-        const available = models.length > 0 ? models.join(', ') : '(none configured)';
+        const available = models.length > 0 ? models.join(', ') : '(none)';
         sendSystemMessage(`Current model: ${this.session.model}\nAvailable: ${available}`);
         return true;
       }
@@ -555,7 +613,7 @@ class LMStudioProvider extends LLMProvider {
         this.responseId = null;
         sendSystemMessage(`Model changed to: ${newModel}`);
       } else {
-        const available = models.length > 0 ? models.join(', ') : '(none configured)';
+        const available = models.length > 0 ? models.join(', ') : '(none)';
         sendSystemMessage(`Invalid model "${newModel}". Available: ${available}`);
       }
       return true;
