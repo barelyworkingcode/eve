@@ -281,18 +281,25 @@ describe('LMStudioProvider SSE handling', () => {
       expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Processing prompt...' });
     });
 
-    test('prompt_processing.progress sends percentage', () => {
+    test('prompt_processing.progress sends percentage when under 100%', () => {
       provider._handleSSE('prompt_processing.progress', { progress: 0.7 }, '');
       const events = getLlmEvents();
       expect(events).toHaveLength(1);
       expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Processing prompt... 70%' });
     });
 
-    test('prompt_processing.end clears status', () => {
+    test('prompt_processing.progress at 100% transitions to generating status', () => {
+      provider._handleSSE('prompt_processing.progress', { progress: 1.0 }, '');
+      const events = getLlmEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Generating response...' });
+    });
+
+    test('prompt_processing.end transitions to generating status', () => {
       provider._handleSSE('prompt_processing.end', {}, '');
       const events = getLlmEvents();
       expect(events).toHaveLength(1);
-      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: '' });
+      expect(events[0]).toEqual({ type: 'system', subtype: 'status', message: 'Generating response...' });
     });
   });
 });

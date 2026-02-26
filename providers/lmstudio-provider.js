@@ -393,17 +393,24 @@ class LMStudioProvider extends LLMProvider {
 
       case 'model_load.progress': {
         const pct = typeof data.progress === 'number'
-          ? `${Math.round(data.progress * 100)}%`
-          : '';
+          ? Math.round(data.progress * 100)
+          : null;
         this.sendEvent({
           type: 'system',
           subtype: 'status',
-          message: pct ? `Loading model... ${pct}` : 'Loading model...'
+          message: pct !== null ? `Loading model... ${pct}%` : 'Loading model...'
         });
         break;
       }
 
       case 'model_load.end':
+        this.sendEvent({
+          type: 'system',
+          subtype: 'status',
+          message: 'Processing prompt...'
+        });
+        break;
+
       case 'prompt_processing.start':
         this.sendEvent({
           type: 'system',
@@ -414,13 +421,21 @@ class LMStudioProvider extends LLMProvider {
 
       case 'prompt_processing.progress': {
         const promptPct = typeof data.progress === 'number'
-          ? `${Math.round(data.progress * 100)}%`
-          : '';
-        this.sendEvent({
-          type: 'system',
-          subtype: 'status',
-          message: promptPct ? `Processing prompt... ${promptPct}` : 'Processing prompt...'
-        });
+          ? Math.round(data.progress * 100)
+          : null;
+        if (promptPct !== null && promptPct >= 100) {
+          this.sendEvent({
+            type: 'system',
+            subtype: 'status',
+            message: 'Generating response...'
+          });
+        } else {
+          this.sendEvent({
+            type: 'system',
+            subtype: 'status',
+            message: promptPct !== null ? `Processing prompt... ${promptPct}%` : 'Processing prompt...'
+          });
+        }
         break;
       }
 
@@ -428,7 +443,7 @@ class LMStudioProvider extends LLMProvider {
         this.sendEvent({
           type: 'system',
           subtype: 'status',
-          message: ''
+          message: 'Generating response...'
         });
         break;
 
