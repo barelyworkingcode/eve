@@ -11,4 +11,5 @@ certs/
 coverage/
 e2e/.test-env.json
 test-results/
+test/fixtures/
 playwright-report/

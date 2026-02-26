@@ -221,6 +221,19 @@ class LMStudioProvider extends LLMProvider {
     req.end();
   }
 
+  _emitToolUse() {
+    if (!this.currentToolCall || this.currentToolCall.emitted) return;
+    this.currentToolCall.emitted = true;
+    this.sendEvent({
+      type: 'assistant',
+      content_block: {
+        type: 'tool_use',
+        name: this.currentToolCall.name || 'unknown_tool',
+        input: this.currentToolCall.arguments || {}
+      }
+    });
+  }
+
   _handleSSE(eventType, data, assistantText) {
     switch (eventType) {
       case 'chat.start':
@@ -280,33 +293,60 @@ class LMStudioProvider extends LLMProvider {
         break;
 
       case 'tool_call.start': {
-        const name = data.name || 'unknown_tool';
-        this.currentToolCall = { name, argumentsBuffer: '' };
+        // Buffer tool call info; emit tool_use only once we have name + arguments
+        this.currentToolCall = { name: null, emitted: false };
+        break;
+      }
 
-        this.sendEvent({
-          type: 'assistant',
-          content_block: {
-            type: 'tool_use',
-            name,
-            input: {}
-          }
-        });
+      case 'tool_call.name': {
+        const name = data.tool_name || data.name || data.tool || '';
+        if (name && this.currentToolCall) {
+          this.currentToolCall.name = name;
+          this._emitToolUse();
+        }
         break;
       }
 
       case 'tool_call.arguments': {
         if (this.currentToolCall) {
-          this.currentToolCall.argumentsBuffer += (data.content || '');
+          this.currentToolCall.arguments = data.arguments || {};
+          if (this.currentToolCall.emitted) {
+            // Tool block already visible; update input display
+            this.sendEvent({
+              type: 'assistant',
+              content_block: {
+                type: 'tool_use_input',
+                input: this.currentToolCall.arguments
+              }
+            });
+          } else {
+            // Name event was skipped; create block with full info
+            this._emitToolUse();
+          }
         }
         break;
       }
 
-      case 'tool_call.success':
+      case 'tool_call.success': {
+        if (this.currentToolCall) {
+          if (!this.currentToolCall.emitted) {
+            this._emitToolUse();
+          }
+          this.sendEvent({
+            type: 'result',
+            subtype: 'tool_result',
+            tool: this.currentToolCall.name || 'unknown_tool'
+          });
+        }
         this.currentToolCall = null;
         break;
+      }
 
       case 'tool_call.failure': {
-        const errorMsg = data.error || data.message || 'Tool call failed';
+        if (this.currentToolCall && !this.currentToolCall.emitted) {
+          this._emitToolUse();
+        }
+        const errorMsg = data.reason || data.error || data.message || 'Tool call failed';
         this.sendEvent({
           type: 'result',
           subtype: 'error',
@@ -342,6 +382,14 @@ class LMStudioProvider extends LLMProvider {
         this._finalizeMessage(assistantText);
         break;
       }
+
+      case 'prompt_processing.start':
+      case 'prompt_processing.progress':
+      case 'prompt_processing.end':
+      case 'message.start':
+      case 'message.end':
+        // Known events with no client-side action needed
+        break;
 
       default:
         if (eventType) {
