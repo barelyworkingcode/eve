@@ -61,3 +61,16 @@ element.classList.remove('hidden');  // Works as expected
 ```
 
 Inline styles have higher specificity than classes. Mixing them causes hard-to-debug visibility bugs where content appears blank even after removing the `hidden` class.
+
+## LM Studio Multimodal Input Format
+
+The `/api/v1/chat` endpoint accepts `input` as an array of content parts for multimodal requests. The valid `type` discriminators are `'text'` and `'image'` (not `'message'` despite what the docs may show):
+
+```javascript
+input: [
+  { type: 'image', data_url: 'data:image/png;base64,...' },
+  { type: 'text', content: 'What is in this image?' }
+]
+```
+
+The official docs use `type: 'message'` for text parts, but the actual server rejects it with `invalid_union`. Trust the error response over the docs.
