@@ -222,6 +222,7 @@ class SessionManager {
     if (!session) return;
 
     if (this.handleSlashCommand(sessionId, text)) {
+      session.ws?.send(JSON.stringify({ type: 'message_complete', sessionId }));
       return;
     }
 
