@@ -37,10 +37,10 @@ function registerRoutes(app, { authService, projects, sessions, sessionManager, 
   app.use('/api/sessions', createSessionRoutes({ sessions, projects, sessionManager, requireAuth }));
   app.use('/api/tasks', createTaskRoutes({ taskScheduler, requireAuth }));
 
-  const { router: permissionRouter, resolvePermission } = createPermissionRoutes({ sessions, requireAuth });
+  const { router: permissionRouter, resolvePermission, setAlwaysAllow } = createPermissionRoutes({ sessions, requireAuth });
   app.use('/api/permission', permissionRouter);
 
-  return { resolvePermission };
+  return { resolvePermission, setAlwaysAllow };
 }
 
 module.exports = registerRoutes;

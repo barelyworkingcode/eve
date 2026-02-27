@@ -13,7 +13,14 @@ function summarizeToolInput(toolInput) {
   if (toolInput.file_path) return toolInput.file_path;
   if (toolInput.pattern) return toolInput.pattern;
 
-  return JSON.stringify(toolInput).substring(0, 500);
+  // For objects with a single string value, show that value directly
+  const entries = Object.entries(toolInput).filter(([, v]) => typeof v === 'string' && v.length > 0);
+  if (entries.length === 1) {
+    return entries[0][1].substring(0, 500);
+  }
+
+  // Fallback: pretty-print JSON
+  return JSON.stringify(toolInput, null, 2).substring(0, 500);
 }
 
 function createPermissionRoutes({ sessions, requireAuth }) {
@@ -27,6 +34,11 @@ function createPermissionRoutes({ sessions, requireAuth }) {
     const session = sessions.get(sessionId);
     if (!session?.ws || session.ws.readyState !== 1) {
       return res.json({ decision: 'allow', reason: 'No active client' });
+    }
+
+    // Auto-allow if session has always-allow enabled
+    if (session.alwaysAllowPermissions) {
+      return res.json({ decision: 'allow', reason: 'Always allow enabled' });
     }
 
     session.ws.send(JSON.stringify({
@@ -53,7 +65,14 @@ function createPermissionRoutes({ sessions, requireAuth }) {
     pending.res.json({ decision, reason });
   }
 
-  return { router, resolvePermission };
+  function setAlwaysAllow(sessionId, enabled) {
+    const session = sessions.get(sessionId);
+    if (session) {
+      session.alwaysAllowPermissions = enabled;
+    }
+  }
+
+  return { router, resolvePermission, setAlwaysAllow };
 }
 
 module.exports = createPermissionRoutes;

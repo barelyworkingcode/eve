@@ -126,7 +126,11 @@ class EveWorkspaceClient {
       permissionToolName: document.getElementById('permissionToolName'),
       permissionToolInput: document.getElementById('permissionToolInput'),
       permissionAllow: document.getElementById('permissionAllow'),
+      permissionAlwaysAllow: document.getElementById('permissionAlwaysAllow'),
       permissionDeny: document.getElementById('permissionDeny'),
+      planApprovalBar: document.getElementById('planApprovalBar'),
+      planApprove: document.getElementById('planApprove'),
+      planRevise: document.getElementById('planRevise'),
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
       refreshModelsBtn: document.getElementById('refreshModelsBtn')
@@ -255,6 +259,7 @@ class EveWorkspaceClient {
         this.tabManager.openSession(data.sessionId);
         this.sidebarRenderer.renderProjectList();
         this.modalManager.hideSessionModal();
+        this.modalManager.hidePlanApproval();
         break;
 
       case 'session_joined': {
@@ -277,6 +282,7 @@ class EveWorkspaceClient {
         this.showChatScreen();
         this.tabManager.openSession(data.sessionId);
         this.sidebarRenderer.renderProjectList();
+        this.modalManager.hidePlanApproval();
         break;
       }
 
@@ -416,6 +422,10 @@ class EveWorkspaceClient {
 
       case 'permission_request':
         this.modalManager.showPermissionModal(data);
+        break;
+
+      case 'plan_mode_exit':
+        this.modalManager.showPlanApproval();
         break;
 
       case 'warning':
@@ -695,6 +705,7 @@ class EveWorkspaceClient {
     this.renderAttachedFiles();
     this.autoResizeTextarea();
     this.modalManager.hideInputPrompt();
+    this.modalManager.hidePlanApproval();
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
   }

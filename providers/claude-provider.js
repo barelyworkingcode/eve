@@ -21,6 +21,9 @@ class ClaudeProvider extends LLMProvider {
       debug: config.debug || false
     };
 
+    // Plan mode tracking
+    this.pendingPlanApproval = false;
+
     // Retry configuration
     this.retryCount = 0;
     this.maxRetries = 5;
@@ -288,6 +291,14 @@ class ClaudeProvider extends LLMProvider {
         role: 'assistant',
         content: event.message.content || []
       };
+      // Detect ExitPlanMode in initial message content
+      if (event.message.content) {
+        for (const block of event.message.content) {
+          if (block.type === 'tool_use' && block.name === 'ExitPlanMode') {
+            this.pendingPlanApproval = true;
+          }
+        }
+      }
     }
 
     if (event.type === 'assistant' && event.delta && this.currentAssistantMessage) {
@@ -300,6 +311,10 @@ class ClaudeProvider extends LLMProvider {
         textBlock.text += event.delta.text;
       } else if (event.delta.type === 'tool_use') {
         this.currentAssistantMessage.content.push(event.delta);
+        // Detect ExitPlanMode in streaming delta
+        if (event.delta.name === 'ExitPlanMode') {
+          this.pendingPlanApproval = true;
+        }
       }
     }
 
@@ -362,6 +377,14 @@ class ClaudeProvider extends LLMProvider {
           type: 'message_complete',
           sessionId: this.session.sessionId
         }));
+
+        if (this.pendingPlanApproval) {
+          this.pendingPlanApproval = false;
+          this.session.ws.send(JSON.stringify({
+            type: 'plan_mode_exit',
+            sessionId: this.session.sessionId
+          }));
+        }
       }
     }
 

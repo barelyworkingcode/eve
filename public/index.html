@@ -74,6 +74,13 @@
             <div id="inputPrompt" class="input-prompt hidden">
               <span id="promptText"></span>
             </div>
+            <div id="planApprovalBar" class="plan-approval-bar hidden">
+              <span class="plan-approval-text">Plan ready for review</span>
+              <div class="plan-approval-actions">
+                <button type="button" id="planRevise" class="btn-secondary btn-sm">Revise</button>
+                <button type="button" id="planApprove" class="btn-primary btn-sm">Approve Plan</button>
+              </div>
+            </div>
             <div id="attachedFiles" class="attached-files hidden"></div>
             <form id="inputForm" class="input-form">
               <button type="button" id="attachBtn" class="btn-attach" title="Attach files">
@@ -295,6 +302,7 @@
       </div>
       <div class="modal-actions">
         <button type="button" id="permissionDeny" class="btn-danger">Deny</button>
+        <button type="button" id="permissionAlwaysAllow" class="btn-secondary">Always Allow</button>
         <button type="button" id="permissionAllow" class="btn-primary">Allow</button>
       </div>
     </div>

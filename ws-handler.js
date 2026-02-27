@@ -1,7 +1,7 @@
 /**
  * WebSocket connection handler - dispatches messages to services.
  */
-function createWsHandler({ authService, sessions, sessionManager, fileHandlers, terminalManager, resolvePermission }) {
+function createWsHandler({ authService, sessions, sessionManager, fileHandlers, terminalManager, resolvePermission, setAlwaysAllow }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
@@ -125,6 +125,9 @@ function createWsHandler({ authService, sessions, sessionManager, fileHandlers, 
             break;
 
           case 'permission_response':
+            if (message.alwaysAllow && currentSessionId) {
+              setAlwaysAllow(currentSessionId, true);
+            }
             resolvePermission(message.permissionId, message.approved ? 'allow' : 'deny', message.reason || '');
             break;
         }

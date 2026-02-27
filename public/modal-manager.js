@@ -42,11 +42,22 @@ class ModalManager {
     if (el.permissionAllow) {
       el.permissionAllow.addEventListener('click', () => this.respondToPermission(true));
     }
+    if (el.permissionAlwaysAllow) {
+      el.permissionAlwaysAllow.addEventListener('click', () => this.respondToPermission(true, true));
+    }
     if (el.permissionDeny) {
       el.permissionDeny.addEventListener('click', () => this.respondToPermission(false));
     }
     if (el.permissionModal) {
       el.permissionModal.querySelector('.modal-backdrop').addEventListener('click', () => this.respondToPermission(false));
+    }
+
+    // Plan approval bar
+    if (el.planApprove) {
+      el.planApprove.addEventListener('click', () => this.respondToPlanApproval(true));
+    }
+    if (el.planRevise) {
+      el.planRevise.addEventListener('click', () => this.respondToPlanApproval(false));
     }
   }
 
@@ -172,14 +183,42 @@ class ModalManager {
     this.pendingPermissionId = null;
   }
 
-  respondToPermission(approved) {
+  respondToPermission(approved, alwaysAllow = false) {
     if (!this.pendingPermissionId) return;
-    this.app.wsClient.send({
+    const msg = {
       type: 'permission_response',
       permissionId: this.pendingPermissionId,
       approved
-    });
+    };
+    if (alwaysAllow) msg.alwaysAllow = true;
+    this.app.wsClient.send(msg);
     this.hidePermissionModal();
+  }
+
+  // --- Plan approval ---
+
+  showPlanApproval() {
+    this.app.elements.planApprovalBar.classList.remove('hidden');
+    this.app.elements.planApprove.focus();
+  }
+
+  hidePlanApproval() {
+    if (!this.app.elements.planApprovalBar.classList.contains('hidden')) {
+      this.app.elements.planApprovalBar.classList.add('hidden');
+      this.app.elements.userInput.placeholder = 'Type your message...';
+    }
+  }
+
+  respondToPlanApproval(approved) {
+    this.hidePlanApproval();
+    if (approved) {
+      this.app.messageRenderer.appendUserMessage('Yes, proceed with the plan.');
+      this.app.wsClient.send({ type: 'user_input', text: 'Yes, proceed with the plan.' });
+      this.app.messageRenderer.showThinkingIndicator();
+    } else {
+      this.app.elements.userInput.placeholder = 'Describe what to change in the plan...';
+      this.app.elements.userInput.focus();
+    }
   }
 
   // --- Input prompt ---
