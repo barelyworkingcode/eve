@@ -45,7 +45,7 @@ class SidebarRenderer {
   renderProjectGroup(projectId, project, sessions) {
     const escapeHtml = (t) => this.app.messageRenderer.escapeHtml(t);
     const projectEl = document.createElement('div');
-    projectEl.className = project.disabled ? 'project-group disabled' : 'project-group';
+    projectEl.className = project.disabled ? 'project-group disabled collapsed' : 'project-group collapsed';
 
     const disabledNote = project.disabled ? '<span class="disabled-note">(provider disabled)</span>' : '';
     const taskCount = this.app.taskUI.getTaskCountForProject(projectId);
@@ -54,7 +54,7 @@ class SidebarRenderer {
 
     projectEl.innerHTML = `
       <div class="project-header">
-        <span class="project-toggle">▼</span>
+        <span class="project-toggle">▶</span>
         <span class="project-name">${escapeHtml(project.name)}</span>
         ${taskBadge}
         ${toolsBadge}
@@ -133,10 +133,10 @@ class SidebarRenderer {
 
   renderUngroupedSessions(sessions) {
     const ungroupedEl = document.createElement('div');
-    ungroupedEl.className = 'project-group ungrouped';
+    ungroupedEl.className = 'project-group ungrouped collapsed';
     ungroupedEl.innerHTML = `
       <div class="project-header">
-        <span class="project-toggle">&#9662;</span>
+        <span class="project-toggle">&#9656;</span>
         <span class="project-name">Ungrouped</span>
       </div>
       <ul class="project-sessions"></ul>

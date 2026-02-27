@@ -179,7 +179,7 @@ app.use('/dompurify', express.static(path.join(__dirname, 'node_modules/dompurif
 app.use(express.json({ limit: '50mb' }));
 
 // Register HTTP routes
-const { resolvePermission } = registerRoutes(app, {
+const { resolvePermission, setAlwaysAllow } = registerRoutes(app, {
   authService, projects, sessions, sessionManager, taskScheduler,
   saveProjects,
   getAllModels: () => sessionManager.getAllModels(),
@@ -189,7 +189,7 @@ const { resolvePermission } = registerRoutes(app, {
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
-  authService, sessions, sessionManager, fileHandlers, terminalManager, resolvePermission
+  authService, sessions, sessionManager, fileHandlers, terminalManager, resolvePermission, setAlwaysAllow
 }));
 
 // Broadcast message to all connected WebSocket clients
