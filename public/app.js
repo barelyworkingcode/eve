@@ -223,9 +223,19 @@ class EveWorkspaceClient {
   // --- WebSocket ready ---
 
   onWebSocketReady() {
+    // Clear stale thinking indicator from previous connection
+    this.messageRenderer.hideThinkingIndicator();
+
     this.loadProjects();
     this.loadSessions();
     this.taskUI.loadScheduledTasks();
+
+    // Re-join current session so the server-side WS handler knows which
+    // session to route messages to (its closure-scoped currentSessionId
+    // resets to null on every new WebSocket connection).
+    if (this.currentSessionId) {
+      this.wsClient.send({ type: 'join_session', sessionId: this.currentSessionId });
+    }
 
     if (this.terminalManager && this.terminalManager.xtermLoaded) {
       this.terminalManager.requestTerminalList();

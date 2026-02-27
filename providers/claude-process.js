@@ -24,6 +24,7 @@ class ClaudeProcess {
       '--output-format', 'stream-json',
       '--input-format', 'stream-json',
       '--verbose',
+      '--dangerously-skip-permissions',
       '--model', this.session.model
     ];
 

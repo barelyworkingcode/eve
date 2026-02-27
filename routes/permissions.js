@@ -31,6 +31,13 @@ function createPermissionRoutes({ sessions, requireAuth }) {
     const { sessionId, toolName, toolInput, toolUseId } = req.body;
     const permissionId = toolUseId || `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+    // Only prompt for tools that modify files or run commands.
+    // Everything else (reads, searches, plan mode, meta tools) is auto-allowed.
+    const promptTools = ['Edit', 'Write', 'Bash', 'NotebookEdit'];
+    if (!promptTools.includes(toolName)) {
+      return res.json({ decision: 'allow', reason: 'Read-only tool auto-allowed' });
+    }
+
     const session = sessions.get(sessionId);
     if (!session?.ws || session.ws.readyState !== 1) {
       return res.json({ decision: 'allow', reason: 'No active client' });
