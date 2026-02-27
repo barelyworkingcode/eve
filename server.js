@@ -233,13 +233,13 @@ server.listen(PORT, () => {
   }
   taskScheduler.start();
   cleanupOrphanedProcesses();
-});
 
-if (httpServer) {
-  httpServer.listen(HTTP_PORT, () => {
-    console.log(`HTTP server listening on http://localhost:${HTTP_PORT}`);
-  });
-}
+  if (httpServer) {
+    httpServer.listen(HTTP_PORT, () => {
+      console.log(`HTTP server listening on http://localhost:${HTTP_PORT}`);
+    });
+  }
+});
 
 // --- Startup orphan cleanup ---
 function cleanupOrphanedProcesses() {
@@ -277,18 +277,16 @@ function cleanupOrphanedProcesses() {
 }
 
 // --- Graceful shutdown ---
+// Shutdown must be synchronous (no waiting for server.close callbacks) so the
+// port is released before `node --watch` spawns the replacement process.
+// Without this, the old process holds the port during async drain, the new
+// process gets EADDRINUSE, and the restart fails.
 let shuttingDown = false;
 
 function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\n[Shutdown] ${signal} received, cleaning up...`);
-
-  const forceExitTimeout = setTimeout(() => {
-    console.error('[Shutdown] Timed out, forcing exit');
-    process.exit(1);
-  }, 5000);
-  forceExitTimeout.unref();
 
   for (const [id, session] of sessions) {
     try {
@@ -308,13 +306,16 @@ function gracefulShutdown(signal) {
   pidRegistry.clear();
 
   for (const client of wss.clients) {
-    try { client.close(1001, 'Server shutting down'); } catch (e) { /* ignore */ }
+    try { client.terminate(); } catch (e) { /* ignore */ }
   }
 
-  server.close(() => {
-    console.log('[Shutdown] Complete');
-    process.exit(0);
-  });
+  server.closeAllConnections?.();
+  httpServer?.closeAllConnections?.();
+  server.close();
+  if (httpServer) httpServer.close();
+
+  console.log('[Shutdown] Complete');
+  process.exit(0);
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
