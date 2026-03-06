@@ -1957,10 +1957,17 @@ html, body {
   transition: all 0.15s;
 }
 
-.task-run-btn:hover {
+.task-run-btn:hover:not(:disabled) {
   background: var(--accent);
   border-color: var(--accent);
   color: white;
+}
+
+.task-run-btn.running {
+  color: var(--warning);
+  border-color: var(--warning);
+  cursor: default;
+  animation: spin 1s linear infinite;
 }
 
 .task-history-btn:hover {
@@ -2134,6 +2141,16 @@ html, body {
   font-weight: 600;
   margin-bottom: 8px;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-result-header h2 .task-run-btn {
+  font-size: 10px;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
 }
 
 #taskResultMeta {

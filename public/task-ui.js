@@ -63,17 +63,23 @@ class TaskUI {
     const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
     if (task) {
       task.lastStatus = 'running';
-      this.app.sidebarRenderer.renderProjectList();
     }
+
+    const taskTabId = `task:${data.projectId}:${data.taskId}`;
+    if (this.app.tabManager && this.app.tabManager.activeTabId === taskTabId) {
+      this.showTaskResult(data.projectId, data.taskId);
+    }
+
+    this.app.sidebarRenderer.renderProjectList();
   }
 
-  handleTaskCompleted(data) {
+  async handleTaskCompleted(data) {
     this.app.messageRenderer.appendSystemMessage(`Task completed: ${data.taskName}`);
     const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
     if (task) {
       task.lastStatus = 'success';
     }
-    this.taskHistory.delete(`${data.projectId}:${data.taskId}`);
+    await this.loadTaskHistory(data.projectId, data.taskId);
 
     const taskTabId = `task:${data.projectId}:${data.taskId}`;
     if (this.app.tabManager && this.app.tabManager.activeTabId === taskTabId) {
@@ -87,13 +93,13 @@ class TaskUI {
     this.app.sidebarRenderer.renderProjectList();
   }
 
-  handleTaskFailed(data) {
+  async handleTaskFailed(data) {
     this.app.messageRenderer.appendSystemMessage(`Task failed: ${data.taskName} - ${data.error}`, 'error');
     const task = this.scheduledTasks.find(t => t.projectId === data.projectId && t.id === data.taskId);
     if (task) {
       task.lastStatus = 'error';
     }
-    this.taskHistory.delete(`${data.projectId}:${data.taskId}`);
+    await this.loadTaskHistory(data.projectId, data.taskId);
 
     const taskTabId = `task:${data.projectId}:${data.taskId}`;
     if (this.app.tabManager && this.app.tabManager.activeTabId === taskTabId) {
@@ -420,6 +426,18 @@ class TaskUI {
     const history = this.taskHistory.get(historyKey) || [];
 
     this.app.elements.taskResultName.textContent = task?.name || 'Task';
+
+    // Add run button or running indicator next to the task name
+    const isRunning = task?.lastStatus === 'running';
+    const runBtn = document.createElement('button');
+    runBtn.className = 'task-run-btn' + (isRunning ? ' running' : '');
+    runBtn.title = isRunning ? 'Running...' : 'Run now';
+    runBtn.innerHTML = isRunning ? '&#8635;' : '&#9654;';
+    runBtn.disabled = isRunning;
+    if (!isRunning) {
+      runBtn.addEventListener('click', () => this.handleTaskRun(projectId, taskId));
+    }
+    this.app.elements.taskResultName.appendChild(runBtn);
 
     if (history.length === 0) {
       this.app.elements.taskResultMeta.innerHTML = '';
