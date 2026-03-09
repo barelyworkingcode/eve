@@ -27,13 +27,15 @@ function createTaskRoutes({ taskScheduler, requireAuth }) {
     const { projectId } = req.params;
     const { name, prompt, schedule, model, args, enabled } = req.body;
 
-    if (!name || !prompt || !schedule) {
-      return res.status(400).json({ error: 'name, prompt, and schedule are required' });
+    if (!name || !prompt) {
+      return res.status(400).json({ error: 'name and prompt are required' });
     }
 
-    const validTypes = ['daily', 'hourly', 'interval', 'weekly', 'cron'];
-    if (!schedule.type || !validTypes.includes(schedule.type)) {
-      return res.status(400).json({ error: `schedule.type must be one of: ${validTypes.join(', ')}` });
+    if (schedule) {
+      const validTypes = ['daily', 'hourly', 'interval', 'weekly', 'cron'];
+      if (!schedule.type || !validTypes.includes(schedule.type)) {
+        return res.status(400).json({ error: `schedule.type must be one of: ${validTypes.join(', ')}` });
+      }
     }
 
     if (args !== undefined && !Array.isArray(args)) {
