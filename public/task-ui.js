@@ -136,7 +136,7 @@ class TaskUI {
       el.taskFormTitle.textContent = 'Edit Task';
       el.taskNameInput.value = task.name;
       el.taskPromptInput.value = task.prompt || '';
-      el.taskScheduleType.value = task.schedule?.type || 'daily';
+      el.taskScheduleType.value = task.schedule?.type || 'none';
       el.taskModelSelect.value = task.model || '';
       el.taskArgsInput.value = (task.args || []).join(' ');
       el.taskEnabledCheck.checked = task.enabled !== false;
@@ -186,6 +186,9 @@ class TaskUI {
     const container = this.app.elements.taskScheduleConfig;
 
     switch (type) {
+      case 'none':
+        container.innerHTML = '';
+        break;
       case 'daily':
         container.innerHTML = `
           <label for="taskScheduleTime">Time (HH:MM)</label>
@@ -228,6 +231,8 @@ class TaskUI {
   getScheduleFromForm() {
     const type = this.app.elements.taskScheduleType.value;
     switch (type) {
+      case 'none':
+        return null;
       case 'daily':
         return { type: 'daily', time: document.getElementById('taskScheduleTime')?.value || '09:00' };
       case 'hourly':
@@ -243,7 +248,7 @@ class TaskUI {
       case 'cron':
         return { type: 'cron', expression: document.getElementById('taskScheduleCron')?.value || '' };
       default:
-        return { type: 'daily', time: '09:00' };
+        return null;
     }
   }
 
@@ -310,7 +315,7 @@ class TaskUI {
     if (tasks.length === 0) {
       this.app.elements.tasksList.innerHTML = `
         <div class="tasks-empty">
-          No scheduled tasks. Click "New Task" to create one.
+          No tasks yet. Click "New Task" to create one.
         </div>
       `;
       return;
@@ -497,7 +502,7 @@ class TaskUI {
   // --- Formatting ---
 
   formatSchedule(schedule) {
-    if (!schedule) return 'No schedule';
+    if (!schedule) return 'On-Demand';
     switch (schedule.type) {
       case 'daily': return `Daily at ${schedule.time || '00:00'}`;
       case 'hourly': return `Hourly at :${String(schedule.minute || 0).padStart(2, '0')}`;

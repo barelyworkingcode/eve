@@ -100,6 +100,8 @@ class TaskScheduler extends EventEmitter {
   }
 
   scheduleTask(projectId, task) {
+    if (!task.schedule) return;
+
     const key = `${projectId}:${task.id}`;
     const nextRun = this.calculateNextRun(task.schedule);
 
