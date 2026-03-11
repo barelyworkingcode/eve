@@ -1,6 +1,6 @@
 # Eve Workspace - AI Assistant Context
 
-Browser-based LLM frontend that proxies all LLM concerns to [relayLLM](https://github.com/barelyworkingcode/relay). Eve handles UI, file editing, terminals, and authentication locally.
+Browser-based LLM frontend that proxies all LLM concerns to [relayLLM](https://github.com/barelyworkingcode/relayLLM). Eve handles UI, file editing, terminals, and authentication locally.
 
 **See also**: [docs/learned.md](docs/learned.md) - Common pitfalls and patterns discovered during development.
 **Test index**: [docs/testindex.md](docs/testindex.md) - Quick-reference index of all tests.
@@ -518,3 +518,10 @@ Manual testing checklist for new features:
 - One RelayClient WebSocket per browser connection
 - HTTP proxy requests are pass-through (no processing)
 - File and terminal operations are local (no relay overhead)
+
+## Ecosystem
+
+Eve is part of the Relay ecosystem. It depends on relayLLM for all LLM operations and registers with Relay as a managed service.
+
+- `../relay/` -- MCP orchestrator. Manages Eve as a background service.
+- `../relayLLM/` -- LLM engine. Eve proxies all session/project/permission operations to relayLLM.

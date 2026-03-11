@@ -1,6 +1,6 @@
 # Eve
 
-A browser-based LLM chat interface that proxies to [relayLLM](https://github.com/barelyworkingcode/relay) for all LLM concerns. Eve provides the UI layer: chat, file editing, terminals, and authentication.
+A browser-based LLM chat interface that proxies to [relayLLM](https://github.com/barelyworkingcode/relayLLM) for all LLM concerns. Eve provides the UI layer: chat, file editing, terminals, and authentication.
 
 ![Overview](showcase/screenshots/Overview%201.png)
 
@@ -26,7 +26,7 @@ The `showcase/` directory contains sample projects, sessions, screenshots, and c
 ## Requirements
 
 - Node.js 18+
-- [relayLLM](https://github.com/barelyworkingcode/relay) running (default: `http://localhost:3001`)
+- [relayLLM](https://github.com/barelyworkingcode/relayLLM) running (default: `http://localhost:3001`)
 
 ## Installation
 
@@ -254,12 +254,16 @@ data/                    - Runtime data (gitignored): auth, settings, PIDs
 | `HTTPS_CERT` | - | Path to SSL certificate file (enables HTTPS) |
 | `EVE_NO_AUTH` | - | Set to `1` to disable passkey authentication |
 
-## Related Projects
+## Ecosystem
 
-Eve is part of a trio of projects that combine to give LLMs secure access to macOS. Each works independently, but together they form a complete stack: **Eve** provides the browser UI, **Relay** handles LLM orchestration and security, and **macMCP** exposes native macOS capabilities.
+Eve is part of the Relay ecosystem. Each project works independently, but together they form a complete stack for giving LLMs secure access to macOS.
 
-- **[Relay](https://github.com/barelyworkingcode/relay)** -- MCP orchestrator for macOS with token-based security and per-tool permissions. Includes relayLLM for LLM session management.
-- **[macMCP](https://github.com/barelyworkingcode/macMCP)** -- Standalone Swift MCP server with 41 macOS-native tools (Calendar, Contacts, Mail, Messages, etc.).
+- **[Relay](https://github.com/barelyworkingcode/relay)** -- MCP orchestrator. Manages Eve as a background service with per-token permissions.
+- **[relayLLM](https://github.com/barelyworkingcode/relayLLM)** -- LLM engine. Eve proxies all session, project, and permission operations to relayLLM.
+- **[relayScheduler](https://github.com/barelyworkingcode/relayScheduler)** -- Task scheduler. Runs LLM prompts on schedule via relayLLM.
+- **[relayTelegram](https://github.com/barelyworkingcode/relayTelegram)** -- Telegram bot bridge to relayLLM sessions.
+- **[macMCP](https://github.com/barelyworkingcode/macMCP)** -- Swift MCP server with 41 macOS-native tools.
+- **[fsMCP](https://github.com/barelyworkingcode/fsmcp)** -- File system MCP server (read, write, edit, glob, grep, bash).
 
 ## License
 
