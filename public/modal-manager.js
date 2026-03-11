@@ -8,6 +8,7 @@ class ModalManager {
     this.confirmCallback = null;
     this.editingProjectId = null;
     this.pendingPermissionId = null;
+    this.planApprovalCallback = null;
   }
 
   initEventListeners() {
@@ -25,18 +26,6 @@ class ModalManager {
     el.cancelConfirm.addEventListener('click', () => this.hideConfirmModal());
     el.confirmModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideConfirmModal());
     el.confirmDelete.addEventListener('click', () => this.handleConfirm());
-
-    // Tasks modal
-    if (el.closeTasksModal) {
-      el.closeTasksModal.addEventListener('click', () => this.hideTasksModal());
-      el.tasksModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideTasksModal());
-    }
-
-    // Task form modal
-    if (el.cancelTaskForm) {
-      el.cancelTaskForm.addEventListener('click', () => this.hideTaskForm());
-      el.taskFormModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideTaskForm());
-    }
 
     // Permission modal
     if (el.permissionAllow) {
@@ -108,12 +97,14 @@ class ModalManager {
       el.projectPathInput.value = project.path;
       el.projectModelSelect.value = project.model || 'haiku';
       el.projectAllowedToolsInput.value = (project.allowedTools || []).join(' ');
+      el.projectIntegrationsInput.value = (project.integrations || []).join(' ');
     } else {
       el.projectModalTitle.textContent = 'New Project';
       el.projectSubmitBtn.textContent = 'Create Project';
       el.projectNameInput.value = '';
       el.projectPathInput.value = '';
       el.projectAllowedToolsInput.value = '';
+      el.projectIntegrationsInput.value = '';
       if (this.app.models.length > 0) {
         el.projectModelSelect.value = this.app.models[0].value;
       }
@@ -130,6 +121,7 @@ class ModalManager {
     el.projectNameInput.value = '';
     el.projectPathInput.value = '';
     el.projectAllowedToolsInput.value = '';
+    el.projectIntegrationsInput.value = '';
     if (this.app.models.length > 0) {
       el.projectModelSelect.value = this.app.models[0].value;
     }
@@ -154,18 +146,6 @@ class ModalManager {
       this.confirmCallback();
     }
     this.hideConfirmModal();
-  }
-
-  // --- Tasks modal ---
-
-  hideTasksModal() {
-    this.app.elements.tasksModal.classList.add('hidden');
-    this.app.taskUI.currentTasksProjectId = null;
-  }
-
-  hideTaskForm() {
-    this.app.elements.taskFormModal.classList.add('hidden');
-    this.app.taskUI.editingTask = null;
   }
 
   // --- Permission modal ---
@@ -197,7 +177,8 @@ class ModalManager {
 
   // --- Plan approval ---
 
-  showPlanApproval() {
+  showPlanApproval(onRespond) {
+    this.planApprovalCallback = onRespond;
     this.app.elements.planApprovalBar.classList.remove('hidden');
     this.app.elements.planApprove.focus();
   }
@@ -207,18 +188,13 @@ class ModalManager {
       this.app.elements.planApprovalBar.classList.add('hidden');
       this.app.elements.userInput.placeholder = 'Type your message...';
     }
+    this.planApprovalCallback = null;
   }
 
   respondToPlanApproval(approved) {
+    const callback = this.planApprovalCallback;
     this.hidePlanApproval();
-    if (approved) {
-      this.app.messageRenderer.appendUserMessage('Yes, proceed with the plan.');
-      this.app.wsClient.send({ type: 'user_input', text: 'Yes, proceed with the plan.' });
-      this.app.messageRenderer.showThinkingIndicator();
-    } else {
-      this.app.elements.userInput.placeholder = 'Describe what to change in the plan...';
-      this.app.elements.userInput.focus();
-    }
+    if (callback) callback(approved);
   }
 
   // --- Input prompt ---

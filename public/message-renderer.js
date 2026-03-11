@@ -141,10 +141,15 @@ class MessageRenderer {
     }
   }
 
-  renderHistory(messages) {
-    this.app.isRenderingHistory = true;
+  clearMessages() {
     this.app.elements.messages.innerHTML = '';
     this.currentAssistantMessage = null;
+    this.currentToolBlock = null;
+  }
+
+  renderHistory(messages) {
+    this.app.isRenderingHistory = true;
+    this.clearMessages();
 
     for (const msg of messages) {
       if (msg.role === 'user') {

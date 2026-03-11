@@ -100,6 +100,11 @@
                   <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
                 </svg>
               </button>
+              <button type="button" class="btn-stop hidden" id="stopBtn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"/>
+                </svg>
+              </button>
             </form>
           </div>
         </div>
@@ -127,14 +132,6 @@
           <div id="terminalContainer" class="terminal-container"></div>
         </div>
 
-        <!-- Task result content area -->
-        <div id="taskResult" class="task-result-content hidden">
-          <div class="task-result-header">
-            <h2 id="taskResultName"></h2>
-            <div id="taskResultMeta"></div>
-          </div>
-          <div id="taskResultBody"></div>
-        </div>
       </div>
     </main>
   </div>
@@ -150,10 +147,7 @@
           <option value="">No project</option>
         </select>
         <label for="sessionModelSelect">Model</label>
-        <div class="model-select-row">
-          <select id="sessionModelSelect"></select>
-          <button type="button" id="refreshModelsBtn" class="btn-icon" title="Refresh models">&#x21bb;</button>
-        </div>
+        <select id="sessionModelSelect"></select>
         <label for="directoryInput">Working Directory</label>
         <input
           type="text"
@@ -200,6 +194,13 @@
           placeholder='e.g. Read Glob Grep "Bash(git:*)"'
         >
         <span class="field-hint">Space-separated. Pre-approves these tools without prompting.</span>
+        <label for="projectIntegrationsInput">MCP Integrations (optional)</label>
+        <input
+          type="text"
+          id="projectIntegrationsInput"
+          placeholder='e.g. mcp/relay mcp/filesystem'
+        >
+        <span class="field-hint">Space-separated. LM Studio MCP server references (from mcp.json).</span>
         <div class="modal-actions">
           <button type="button" id="cancelProjectModal" class="btn-secondary">Cancel</button>
           <button type="submit" id="projectSubmitBtn" class="btn-primary">Create Project</button>
@@ -218,71 +219,6 @@
         <button type="button" id="cancelConfirm" class="btn-secondary">Cancel</button>
         <button type="button" id="confirmDelete" class="btn-danger">Delete</button>
       </div>
-    </div>
-  </div>
-
-  <!-- Scheduled Tasks Modal -->
-  <div id="tasksModal" class="modal hidden">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content modal-wide">
-      <h3>Scheduled Tasks - <span id="tasksProjectName"></span></h3>
-      <div id="tasksList" class="tasks-list"></div>
-      <div id="taskHistorySection" class="task-history-section hidden">
-        <h4>Execution History</h4>
-        <div id="taskHistoryList" class="task-history-list"></div>
-      </div>
-      <div class="modal-actions">
-        <button type="button" id="newTaskBtn" class="btn-primary">New Task</button>
-        <button type="button" id="closeTasksModal" class="btn-secondary">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Task Form Modal (Create/Edit) -->
-  <div id="taskFormModal" class="modal hidden">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content modal-wide">
-      <h3 id="taskFormTitle">New Task</h3>
-      <form id="taskForm">
-        <label for="taskNameInput">Task Name</label>
-        <input type="text" id="taskNameInput" placeholder="e.g. Daily code review" required>
-
-        <label for="taskPromptInput">Prompt</label>
-        <textarea id="taskPromptInput" class="task-prompt-textarea" placeholder="What should the AI do?" required rows="4"></textarea>
-
-        <label for="taskScheduleType">Schedule</label>
-        <select id="taskScheduleType">
-          <option value="none">On-Demand (manual only)</option>
-          <option value="daily">Daily</option>
-          <option value="hourly">Hourly</option>
-          <option value="interval">Interval</option>
-          <option value="weekly">Weekly</option>
-          <option value="cron">Cron</option>
-        </select>
-        <div id="taskScheduleConfig"></div>
-
-        <label for="taskModelSelect">Model (optional override)</label>
-        <select id="taskModelSelect">
-          <option value="">Use project default</option>
-        </select>
-
-        <label for="taskArgsInput">CLI Arguments (optional)</label>
-        <input type="text" id="taskArgsInput" placeholder='e.g. --allowedTools Edit Read'>
-
-        <div class="task-form-toggle">
-          <label for="taskEnabledCheck">Enabled</label>
-          <label class="task-toggle">
-            <input type="checkbox" id="taskEnabledCheck" checked>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" id="taskDeleteBtn" class="btn-danger hidden">Delete</button>
-          <button type="button" id="cancelTaskForm" class="btn-secondary">Cancel</button>
-          <button type="submit" class="btn-primary">Save</button>
-        </div>
-      </form>
     </div>
   </div>
 
@@ -313,12 +249,13 @@
   <script src="ws-client.js"></script>
   <script src="message-renderer.js"></script>
   <script src="modal-manager.js"></script>
-  <script src="task-ui.js"></script>
   <script src="sidebar-renderer.js"></script>
   <script src="tab-manager.js"></script>
   <script src="file-browser.js"></script>
   <script src="file-editor.js"></script>
   <script src="terminal-manager.js"></script>
+  <script src="message-dispatcher.js"></script>
+  <script src="file-attachment-manager.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

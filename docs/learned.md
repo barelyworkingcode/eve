@@ -15,37 +15,6 @@ path.resolve('/Users/project', normalized);
 
 When building file browsers or APIs that accept "relative" paths from clients, always normalize by stripping leading slashes before using `path.resolve()`.
 
-## Test Session Mocks
-
-When mocking session objects for provider tests, include all properties the provider expects:
-
-```javascript
-class TestSession {
-  constructor() {
-    this.messages = [];           // Provider pushes assistant messages here
-    this.saveHistory = () => {};  // Provider calls this after messages
-    this.stats = { /* ... */ };
-    this.processing = false;
-    // ... other properties
-  }
-}
-```
-
-Check the provider code for `this.session.*` references to identify required properties.
-
-## Event Type Consistency
-
-The `LLMProvider` base class sends events as `type: 'llm_event'`. Tests and client code must match this:
-
-```javascript
-// Base class sends:
-{ type: 'llm_event', event: { type: 'assistant', delta: { text: '...' } } }
-
-// NOT provider-specific types like 'lmstudio_event' or 'claude_event'
-```
-
-When adding new providers, use the base class `sendEvent()` method to ensure consistent event types across all providers.
-
 ## CSS Visibility Control
 
 Use `.hidden` class consistently for showing/hiding elements. Never use inline `style.display`:
@@ -61,16 +30,3 @@ element.classList.remove('hidden');  // Works as expected
 ```
 
 Inline styles have higher specificity than classes. Mixing them causes hard-to-debug visibility bugs where content appears blank even after removing the `hidden` class.
-
-## LM Studio Multimodal Input Format
-
-The `/api/v1/chat` endpoint accepts `input` as an array of content parts for multimodal requests. The valid `type` discriminators are `'text'` and `'image'` (not `'message'` despite what the docs may show):
-
-```javascript
-input: [
-  { type: 'image', data_url: 'data:image/png;base64,...' },
-  { type: 'text', content: 'What is in this image?' }
-]
-```
-
-The official docs use `type: 'message'` for text parts, but the actual server rejects it with `invalid_union`. Trust the error response over the docs.

@@ -1,7 +1,7 @@
 class TabManager {
   constructor(client) {
     this.client = client;
-    this.tabs = []; // [{ id, type: 'session'|'file'|'terminal'|'task', label, projectId, path?, modified?, taskId? }]
+    this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
     this.activeTabId = null;
 
     this.initElements();
@@ -13,7 +13,6 @@ class TabManager {
     this.chatContent = document.getElementById('chat');
     this.editorContent = document.getElementById('editor');
     this.terminalContent = document.getElementById('terminal');
-    this.taskResultContent = document.getElementById('taskResult');
   }
 
   initEventListeners() {
@@ -119,33 +118,6 @@ class TabManager {
   }
 
   /**
-   * Opens a task result as a tab
-   */
-  openTask(projectId, taskId, taskName) {
-    const tabId = `task:${projectId}:${taskId}`;
-
-    // Check if tab already exists
-    const existingTab = this.tabs.find(t => t.id === tabId);
-    if (existingTab) {
-      this.switchToTab(tabId);
-      return;
-    }
-
-    // Create new tab
-    const tab = {
-      id: tabId,
-      type: 'task',
-      label: taskName,
-      projectId,
-      taskId
-    };
-
-    this.tabs.push(tab);
-    this.switchToTab(tabId);
-    this.render();
-  }
-
-  /**
    * Switches active tab
    */
   switchToTab(tabId) {
@@ -161,7 +133,6 @@ class TabManager {
     this.chatContent.classList.add('hidden');
     this.editorContent.classList.add('hidden');
     this.terminalContent.classList.add('hidden');
-    this.taskResultContent.classList.add('hidden');
 
     // Show appropriate content container
     if (tab.type === 'session') {
@@ -185,11 +156,6 @@ class TabManager {
       if (this.client.terminalManager) {
         this.client.terminalManager.showTerminal(tab.id);
       }
-    } else if (tab.type === 'task') {
-      this.taskResultContent.classList.remove('hidden');
-
-      // Show task result
-      this.client.showTaskResult(tab.projectId, tab.taskId);
     }
 
     this.render();
@@ -231,7 +197,6 @@ class TabManager {
         this.chatContent.classList.add('hidden');
         this.editorContent.classList.add('hidden');
         this.terminalContent.classList.add('hidden');
-        this.taskResultContent.classList.add('hidden');
       }
     }
 

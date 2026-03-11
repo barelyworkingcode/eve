@@ -150,7 +150,7 @@ class FileBrowser {
    */
   confirmDelete(projectId, path) {
     const filename = path.split('/').pop();
-    this.client.showConfirmModal(`Delete "${filename}"?`, () => {
+    this.client.modalManager.showConfirmModal(`Delete "${filename}"?`, () => {
       this.client.ws.send(JSON.stringify({
         type: 'delete_file',
         projectId,
@@ -247,7 +247,7 @@ class FileBrowser {
 
     const project = this.client.projects.get(projectId);
     const projectName = project?.name || 'Unknown project';
-    this.client.appendSystemMessage(`File error in ${projectName}: ${error}`, 'error');
+    this.client.messageRenderer.appendSystemMessage(`File error in ${projectName}: ${error}`, 'error');
 
     const tree = this.projectTrees.get(projectId);
     if (tree) {
@@ -526,7 +526,7 @@ class FileBrowser {
       if (file.size > maxSize) {
         const project = this.client.projects.get(projectId);
         const projectName = project?.name || 'Unknown project';
-        this.client.appendSystemMessage(
+        this.client.messageRenderer.appendSystemMessage(
           `Skipped "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)}MB exceeds 10MB limit)`,
           'error'
         );
@@ -544,7 +544,7 @@ class FileBrowser {
           encoding
         }));
       } catch (err) {
-        this.client.appendSystemMessage(`Failed to read "${file.name}": ${err.message}`, 'error');
+        this.client.messageRenderer.appendSystemMessage(`Failed to read "${file.name}": ${err.message}`, 'error');
       }
     }
   }

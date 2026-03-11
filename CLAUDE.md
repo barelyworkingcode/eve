@@ -1,9 +1,9 @@
 # Eve Workspace - AI Assistant Context
 
-Multi-provider LLM web interface with persistent sessions, project grouping, and real-time stats.
+Browser-based LLM frontend that proxies all LLM concerns to [relayLLM](https://github.com/barelyworkingcode/relay). Eve handles UI, file editing, terminals, and authentication locally.
 
 **See also**: [docs/learned.md](docs/learned.md) - Common pitfalls and patterns discovered during development.
-**Test index**: [docs/testindex.md](docs/testindex.md) - Quick-reference index of all unit, integration, and E2E tests.
+**Test index**: [docs/testindex.md](docs/testindex.md) - Quick-reference index of all tests.
 
 ## Enterprise Development Standards
 
@@ -60,10 +60,9 @@ This project follows enterprise software engineering practices. All code changes
 - Always provide recovery path (reload, retry, etc.)
 
 **Server-Side**
-- Catch provider process crashes and log
 - Send user-friendly errors via WebSocket
-- Clean up resources (kill processes) on error
-- Don't crash server on session failures
+- Clean up resources on error
+- Don't crash server on relay failures
 - Log stack traces for debugging
 
 **Pattern**
@@ -84,7 +83,7 @@ try {
 Every feature must be manually tested across:
 1. Happy path - feature works as intended
 2. Error cases - handles failures gracefully
-3. Edge cases - empty states, disabled providers, missing data
+3. Edge cases - empty states, relay disconnected
 4. Mobile viewport - touch interactions, responsive layout
 5. Browser compatibility - Chrome, Safari, Firefox
 
@@ -93,21 +92,15 @@ Test WebSocket reconnection:
 - Stop server while client connected
 - Verify auto-reconnect and state recovery
 
-Test provider switching:
-- Disable provider in settings
-- Verify UI updates (grayed out projects)
-- Verify cannot create sessions
-
-Test concurrent sessions:
-- Create multiple sessions
-- Verify stats isolation
-- Verify switching preserves state
+Test relay disconnection:
+- Stop relayLLM while Eve is running
+- Verify error messages and recovery when relay returns
 
 ### State Management Standards
 
 **Single Source of Truth**
-- Client: `EveWorkspaceClient` instance owns all state
-- Server: `sessions` Map owns session state
+- Client: `EveWorkspaceClient` instance owns UI state
+- Server: relayLLM owns session/project state, Eve caches projects in memory
 - Never duplicate state across components
 - Always derive UI from authoritative state
 
@@ -137,14 +130,13 @@ document.querySelector('.session').classList.add('active');  // Wrong
 - N+1 queries in rendering loops
 - Memory leaks (unreleased WebSocket listeners)
 - Blocking main thread > 100ms
-- Process spawns per message (use persistent processes)
 
 **Resource Cleanup**
 ```javascript
 // Always clean up
-session.provider.kill();  // Kill process
-ws.close();               // Close WebSocket
-this.sessions.delete(id); // Remove from Map
+relayClient.close();      // Close relay connection
+ws.close();               // Close browser WebSocket
+terminalManager.killAll(); // Kill terminal processes
 ```
 
 ### Code Organization
@@ -168,7 +160,7 @@ this.sessions.delete(id); // Remove from Map
 
 **When to Document**
 - Complex algorithms - explain the "why"
-- Provider-specific quirks - flag non-obvious behavior
+- Relay protocol quirks - flag non-obvious behavior
 - Security considerations - mark validation points
 - Public APIs - if creating reusable modules
 
@@ -200,7 +192,6 @@ this.sessions.delete(id); // Remove from Map
 - [ ] Mobile responsive (test at 375px width)
 - [ ] No console errors in browser
 - [ ] WebSocket reconnection tested
-- [ ] Works with disabled providers
 
 ### Dependency Management
 
@@ -220,29 +211,6 @@ Keep it that way unless absolutely necessary.
 
 ### Debugging Standards
 
-**Test-Driven Debugging**
-Before fixing a bug:
-1. Create a minimal test case that reproduces the issue
-2. Verify the test fails with current code
-3. Fix the bug
-4. Verify the test passes with the fix
-5. Test edge cases around the fix
-
-Example workflow:
-```javascript
-// 1. Create test case
-async function testProjectDeletion() {
-  const project = { id: '123', name: 'Test' };
-  const session = { id: 'abc', projectId: '123' };
-  // Expect: deletion shows session count in message
-}
-
-// 2. Run test → fails (native confirm used, no count)
-// 3. Implement custom modal with session count
-// 4. Run test → passes
-// 5. Test edge cases: 0 sessions, disabled project, etc.
-```
-
 **Systematic Approach**
 1. Reproduce the issue reliably
 2. Identify root cause, not symptoms
@@ -253,14 +221,13 @@ async function testProjectDeletion() {
 **Debugging Tools**
 - Browser DevTools Network tab for WebSocket messages
 - Console for client-side errors and state inspection
-- Server logs for provider process output
+- Server logs for relay connection issues
 - `curl` for testing HTTP endpoints directly
 
 **Common Issues**
-- "Session not found" → Check WebSocket reconnection
-- "Process exited" → Check provider available in PATH
-- "Stats not updating" → Check provider emits stats events
+- "Relay service unavailable" → Check relayLLM is running on configured URL
 - "UI not updating" → Check render called after state change
+- "Session not found" → Check relay WS connection is alive
 
 ### Automated Testing
 
@@ -268,8 +235,7 @@ async function testProjectDeletion() {
 ```bash
 npm test              # Unit tests only (fast, no external deps)
 npm run test:unit     # Same as above
-npm run test:integration  # Integration tests (needs CLI/servers)
-npm run test:all      # Both suites
+npm run test:all      # All tests
 npm run test:watch    # Unit tests in watch mode
 ```
 
@@ -278,91 +244,90 @@ npm run test:watch    # Unit tests in watch mode
 test/
   helpers/mock-session.js  - Shared MockWebSocket + createMockSession
   unit/                    - Pure logic tests (no external deps)
-  integration/             - Tests against real CLIs/servers (auto-skip if unavailable)
 ```
-
-**Adding tests**: Place unit tests in `test/unit/`, mirroring source structure. Use `createMockSession()` from helpers. Integration tests go in `test/integration/` with conditional skip via `describe.skip` when CLIs are unavailable.
 
 **Rule**: Run `npm test` before committing to catch regressions.
 
 ## Project Architecture
 
+Eve is a relay proxy -- it does not manage LLM providers, sessions, or projects directly. All LLM concerns are delegated to relayLLM via HTTP and WebSocket proxying. Eve handles local concerns: file browsing/editing, terminals, and authentication.
+
+### Communication Flow
+
+```
+Browser ──WS──► Eve (ws-handler) ──WS──► relayLLM    (sessions, messages, permissions)
+Browser ──WS──► Eve (ws-handler) ──local──► FileService  (file ops)
+Browser ──WS──► Eve (ws-handler) ──local──► TerminalMgr  (terminals)
+Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM     (models, projects, sessions list)
+```
+
 ### Core Components
 
 **Server**
-- `server.js` - Startup, service wiring, middleware, shutdown
-- `ws-handler.js` - WebSocket message dispatch to services
-- `routes/index.js` - Registers all HTTP route groups
+- `server.js` - Express + WS setup, relayLLM config, project cache, shutdown
+- `ws-handler.js` - WebSocket message dispatch: relay ops → RelayClient, local ops → file/terminal handlers
+- `relay-client.js` - WS bridge to relayLLM (one instance per browser connection)
+- `slash-command-handler.js` - Local slash commands (/clear, /help, /zsh, /bash, /claude)
+- `routes/index.js` - HTTP proxy to relayLLM (models, projects, sessions) + local auth
 - `routes/auth.js` - WebAuthn enrollment/login
-- `routes/projects.js` - Project CRUD
-- `routes/sessions.js` - Session list, create, message API
-- `routes/tasks.js` - Scheduled task CRUD, run, history
-- `routes/permissions.js` - PreToolUse hook forwarding
-- `session-manager.js` - Session lifecycle, provider init, model validation, slash commands
-- `response-collector.js` - Captures LLM responses for REST API and headless tasks
+- `file-handlers.js` - WebSocket adapter for file operations
+- `file-service.js` - Path validation + file CRUD
+- `terminal-manager.js` - PTY management (node-pty)
+- `auth.js` - WebAuthn service (delegates session tokens to SessionStore)
+- `session-store.js` - Auth session token create/validate/cleanup
 
 **Client** (`public/`)
 - `app.js` - Thin orchestrator wiring modules, state owner
 - `ws-client.js` - WebSocket connection, auth, reconnection
+- `message-dispatcher.js` - Server message routing and LLM event processing
 - `message-renderer.js` - Chat messages, tool use, thinking indicator, formatting
+- `file-attachment-manager.js` - File selection, reading, drag/drop, paste for chat input
 - `modal-manager.js` - All modal show/hide, confirmation flow, permission prompts
-- `task-ui.js` - Task scheduling UI (CRUD, schedule config, history)
 - `sidebar-renderer.js` - Project list, session items, inline rename
-- `tab-manager.js` - Tab bar for sessions, files, terminals, tasks
+- `tab-manager.js` - Tab bar for sessions, files, terminals
 - `file-browser.js` - Directory tree in sidebar
 - `file-editor.js` - Monaco editor integration
 - `terminal-manager.js` - xterm.js terminal tabs
 
-**Providers** (`providers/`)
-- `llm-provider.js` - Base class for all providers
-- `claude-provider.js` - Claude CLI integration point
-- `claude-process.js` - CLI process spawn, stdio, kill, retry
-- `claude-args-manager.js` - Custom arg parsing, /args-edit command
-- `gemini-provider.js` - Gemini CLI integration (persistent process)
-- `lmstudio-provider.js` - LM Studio native REST API integration (stateful via responseId)
-
 ### Key Patterns
 
-**Provider Selection**
-Models are routed to providers based on naming:
-- `gemini*` → GeminiProvider
-- LM Studio config models → LMStudioProvider
-- Everything else → ClaudeProvider
+**Relay Proxy**
+Eve creates one `RelayClient` per browser WebSocket connection. The relay client:
+1. Connects to relayLLM's WebSocket endpoint
+2. Forwards session/message/permission operations from browser → relayLLM
+3. Forwards events (LLM responses, stats, permissions) from relayLLM → browser
+4. Caches session directory for local slash commands
 
-**Session Lifecycle**
-1. Client creates session via WebSocket (includes optional `model` override)
-2. Server validates requested model against available models, falls back to project default
-3. Server ensures PreToolUse hook config in project's `.claude/settings.local.json`
-4. Server spawns provider process (CLI) or initializes HTTP client
-5. Claude CLI spawned with `EVE_HOOK_URL`, `EVE_SESSION_ID`, `EVE_AUTH_TOKEN` env vars
-6. Process/client persists for entire session lifetime
-7. Session ends → process killed, state cleared
+**Session Lifecycle** (via relay)
+1. Client sends `create_session` to Eve
+2. Eve POSTs to relayLLM `/api/sessions`, gets session back
+3. Eve sends `session_created` to browser, joins session on relay WS
+4. Messages flow: browser → Eve → relayLLM → LLM provider
+5. Session end/delete forwarded to relayLLM
 
-**Project Grouping**
-- Projects have: name, path, default model, allowedTools
-- Sessions optionally belong to one project and can override the project's default model
-- Disabling a provider grays out projects using that provider's models
+**Local Slash Commands** (handled by Eve, not relayed)
+- `/clear` - Sends clear to relay
+- `/help` - Shows available commands
+- `/zsh`, `/bash` - Opens local terminal
+- `/claude` - Opens local Claude CLI terminal
 
-**Permission Forwarding**
-- Claude CLI PreToolUse hook (`scripts/permission-hook.js`) POSTs to `/api/permission`
-- Server holds HTTP response open, forwards to browser via WebSocket (`permission_request`)
-- Browser shows permission modal, user clicks Allow/Deny
-- Client sends `permission_response` via WebSocket, server resolves held HTTP response
-- Hook outputs decision JSON to stdout for Claude CLI
-- 60s timeout auto-denies; network errors fail-open (allow)
+All other input is forwarded to relayLLM.
+
+**Project Cache**
+Eve caches project data from relayLLM in memory (`projectCache` Map) for file handler path resolution. Cache is refreshed on project list fetch and after mutations.
 
 ## Client Architecture
 
 ### Module Responsibilities
-The client is split into focused modules, each receiving a reference to the `app` (EveWorkspaceClient) instance:
 
 | Module | Owns | Key methods |
 |--------|------|-------------|
-| `app.js` | `sessions`, `projects`, `currentSessionId`, `attachedFiles` | `handleServerMessage()`, `handleSubmit()`, data loading |
+| `app.js` | `sessions`, `projects`, `currentSessionId` | `handleSubmit()`, data loading |
+| `messageDispatcher` (MessageDispatcher) | - | `dispatch()` - routes server messages to handlers |
+| `fileAttachmentManager` (FileAttachmentManager) | `files` array | `addFiles()`, `consumeFiles()`, `render()` |
 | `wsClient` (WsClient) | `ws` connection | `connect()`, `send()` |
 | `messageRenderer` (MessageRenderer) | `currentAssistantMessage` | `startAssistantMessage()`, `appendToolUse()`, `formatText()` |
-| `modalManager` (ModalManager) | `confirmCallback`, `editingProjectId`, `pendingPermissionId` | show/hide for all 7 modals |
-| `taskUI` (TaskUI) | `scheduledTasks`, `taskHistory`, `editingTask` | task CRUD, schedule config, history |
+| `modalManager` (ModalManager) | `confirmCallback`, `editingProjectId`, `pendingPermissionId` | show/hide for modals |
 | `sidebarRenderer` (SidebarRenderer) | `renamingSessionId` | `renderProjectList()`, `renderSessionItem()` |
 
 Existing modules (TabManager, FileBrowser, FileEditor, TerminalManager) access the WebSocket via `this.client.ws`, which is a getter proxy to `wsClient.ws`.
@@ -370,7 +335,7 @@ Existing modules (TabManager, FileBrowser, FileEditor, TerminalManager) access t
 ### UI Patterns
 
 **Modals** (managed by `ModalManager`)
-- Session creation, project create/edit, confirmation, tasks list, task form, permission request
+- Session creation, project create/edit, confirmation, permission request
 - All follow same pattern: backdrop click closes, focus management, hidden class toggle
 
 **Sidebar Hierarchy** (rendered by `SidebarRenderer`)
@@ -383,7 +348,7 @@ Projects (section)
 Ungrouped (implicit section)
   └── Session C [MODEL]
 ```
-Each session item displays its own model badge (`.session-model`), since sessions can override the project default.
+Each session item displays its own model badge.
 
 **Hover Actions**
 Buttons appear on hover in project headers:
@@ -415,10 +380,10 @@ this.sidebarRenderer.renderProjectList();
 Server sends typed messages:
 - `session_created` - New session ready (includes `model`)
 - `session_joined` - Rejoined existing session (includes `model`)
-- `llm_event` - LLM response streaming
-- `stats_update` - Context/cost updates
+- `llm_event` - LLM response streaming (relayed from relayLLM)
+- `stats_update` - Context/cost updates (relayed from relayLLM)
 - `error` - Display error to user
-- `permission_request` - Claude CLI tool needs user approval
+- `permission_request` - Tool needs user approval (relayed from relayLLM)
 
 Client sends:
 - `create_session` - Includes optional `model` override
@@ -426,44 +391,50 @@ Client sends:
 
 ### Adding Features to Server
 
-**Provider implementation checklist**
-1. Extend `LLMProvider` base class in `providers/`
-2. Implement `startProcess()` or HTTP setup
-3. Implement `sendMessage(text, files)`
-4. Implement `handleEvent(event)` for responses
-5. Register in `session-manager.js` via `registerProvider(key, Class, matchFn)`
-6. Add model list via static `getModels()` method
-7. For complex providers, extract process management and arg handling into separate files (see `claude-process.js`, `claude-args-manager.js`)
+**What lives in Eve vs relayLLM**
+- Eve: file browser, terminals, auth, UI serving, local slash commands
+- relayLLM: providers, sessions, projects, tasks, permissions, model routing
 
-**Session safety**
-- Always check session exists before sending
-- Clean up on disconnect: `session.provider.kill()`
-- Prevent message sends during processing
+**Adding a new local feature**
+1. Add WebSocket message handler in `ws-handler.js`
+2. Create service module if needed
+3. Wire into `createWsHandler()` dependencies
+
+**Adding relay proxy routes**
+1. Add route in `routes/index.js` using the `proxy()` helper
+2. Add `requireAuth` middleware
+3. Refresh `projectCache` if the route mutates project data
 
 ### File Structure Conventions
 
 **Data persistence**
 ```
 data/
-  projects.json         - Generated, committed to .gitignore
-  settings.json         - Optional, user-created
-  lmstudio-config.json  - Optional, user-created
+  auth.json     - WebAuthn enrollment data
+  settings.json - Local Eve settings (claude path)
+
 ```
 
+All session, project, and task data lives in relayLLM.
+
 **Client code organization** (modular)
-- `app.js` (~900 lines) - Orchestrator: init, elements, event listeners, message dispatch, data loading, file handling, UI helpers
-- `ws-client.js` (~60 lines) - WebSocket lifecycle
-- `message-renderer.js` (~220 lines) - Chat rendering and formatting
-- `modal-manager.js` (~200 lines) - Modal show/hide, confirm flow
-- `task-ui.js` (~510 lines) - Task scheduling UI
-- `sidebar-renderer.js` (~265 lines) - Project/session/task sidebar
+- `app.js` - Orchestrator: init, elements, event listeners, data loading, UI helpers
+- `ws-client.js` - WebSocket lifecycle
+- `message-dispatcher.js` - Server message routing, LLM event handling
+- `message-renderer.js` - Chat rendering and formatting
+- `file-attachment-manager.js` - File attach/paste/drag-drop for chat input
+- `modal-manager.js` - Modal show/hide, confirm flow
+- `sidebar-renderer.js` - Project/session sidebar
 - `tab-manager.js`, `file-browser.js`, `file-editor.js`, `terminal-manager.js` - Feature-specific modules
 
 **Server code organization** (modular)
-- `server.js` (~325 lines) - Startup, service wiring, shutdown
-- `ws-handler.js` (~145 lines) - WebSocket message dispatch
-- `routes/` - Domain-specific HTTP route files (auth, projects, sessions, tasks, permissions)
-- `response-collector.js` (~95 lines) - LLM response capture for REST API
+- `server.js` (~200 lines) - Startup, service wiring, shutdown
+- `ws-handler.js` (~200 lines) - WebSocket message dispatch
+- `relay-client.js` (~140 lines) - WS bridge to relayLLM
+- `slash-command-handler.js` (~65 lines) - Local slash command handling
+- `session-store.js` (~70 lines) - Auth session token persistence
+- `routes/index.js` (~77 lines) - HTTP proxy routes
+- `routes/auth.js` (~107 lines) - WebAuthn routes
 
 ## Common Tasks
 
@@ -479,32 +450,29 @@ data/
 2. Add CSS (hidden by default, show on `.project-header:hover`)
 3. Query element after innerHTML set
 4. Add click handler with `e.stopPropagation()`
-5. Check for disabled projects if needed
 
-### Adding a new HTTP route
-1. Create `routes/<domain>.js` exporting a factory function that takes dependencies and returns an Express router
-2. Register it in `routes/index.js` with `app.use('/api/<path>', createRoutes({ ...deps }))`
-3. Pass only the dependencies the route needs (not the full bag)
+### Adding a new HTTP proxy route
+1. Add route in `routes/index.js` using `proxy(req, res, method, relayPath, body)`
+2. Add `requireAuth` middleware
+3. Refresh `projectCache` after mutations if route affects projects
 
 ### Updating stats display
-Stats flow: Provider → Server → WebSocket → Client
-1. Provider emits stats in response
-2. Server forwards as `stats_update` message
+Stats flow: relayLLM → Eve WebSocket → Client
+1. relayLLM sends `stats_update` via WebSocket
+2. Eve's RelayClient forwards to browser
 3. Client `updateStats()` updates DOM
 4. Color coding: <50% green, 50-80% yellow, >80% red
 
 ## Edge Cases & Gotchas
 
-**Disabled providers**
-- Projects using disabled provider models show as grayed out
-- Cannot create sessions in disabled projects
-- Cannot select disabled project in new session dropdown
-- Sessions in disabled projects remain visible but non-interactive
+**Relay disconnection**
+- If relayLLM goes down, Eve sends error to browser
+- RelayClient does not auto-reconnect (browser reconnection triggers new relay connection)
+- File and terminal operations continue working (local)
 
 **Session cleanup**
-- Active sessions tracked in sidebar even if process crashes
-- Process exit sends `process_exited` message
-- New user message restarts crashed process automatically
+- Active sessions tracked in sidebar even if relay disconnects
+- Session state lives in relayLLM, not Eve
 
 **File attachments**
 - Images converted to base64 data URLs
@@ -516,6 +484,7 @@ Stats flow: Provider → Server → WebSocket → Client
 - Shows session count in confirmation message
 - Sessions become ungrouped (not deleted)
 - Confirmation uses custom modal, not native `confirm()`
+- Project cache refreshed after delete
 
 **Mobile behavior**
 - Sidebar slides in as overlay on <768px
@@ -523,21 +492,19 @@ Stats flow: Provider → Server → WebSocket → Client
 - Touch targets increased for buttons
 
 **Permission forwarding**
-- Hook no-ops when `EVE_HOOK_URL` not set (normal CLI usage unaffected)
-- Server restart during pending permission → hook gets network error, fails open (allows)
-- Multiple concurrent sessions each have own `EVE_SESSION_ID` — no conflicts
-- 60s timeout auto-denies if user doesn't respond
-- `.claude/settings.local.json` is gitignored by Claude Code — won't pollute repos
+- Permission requests come from relayLLM via WebSocket
+- Eve forwards to browser, browser responds, Eve relays back
+- `alwaysAllow` flag auto-approves subsequent permissions in same connection
 
 ## Testing Workflow
 
 Manual testing checklist for new features:
 1. Desktop Chrome - full feature set
 2. Mobile viewport - sidebar, touch interactions
-3. Session creation - all paths (project, no project, override directory)
-4. Project creation/deletion - persistence across refresh
+3. Session creation - via relay
+4. Project creation/deletion - via relay proxy
 5. WebSocket reconnection - server restart recovery
-6. Multiple sessions - switching, stats isolation
+6. Relay disconnection - error handling, recovery
 7. File attachments - drag/drop, paste, click
 
 ## Performance Considerations
@@ -548,28 +515,6 @@ Manual testing checklist for new features:
 - WebSocket reconnection auto-retries every 2s
 
 **Server-side**
-- One persistent process per CLI-based session
-- Process reused across messages (warm starts)
-- HTTP providers stateless (no process overhead)
-
-## Provider-Specific Notes
-
-**Claude CLI**
-- Requires `claude` in PATH
-- Uses stream-json I/O format
-- Provides detailed context/cost stats
-- Supports `/compact` command
-
-**Gemini CLI**
-- Requires `gemini` in PATH
-- Stream-json format matching Claude
-- Stats support varies
-
-**LM Studio**
-- Requires local server running
-- Models configured in `lmstudio-config.json`
-- Uses native `/api/v1/chat` endpoint (not OpenAI-compatible)
-- Stateful conversations via `responseId` (server-side history)
-- Supports MCP tool calling and reasoning blocks via `integrations` config
-- No persistent process (HTTP only)
-- Limited stats support (no cost tracking)
+- One RelayClient WebSocket per browser connection
+- HTTP proxy requests are pass-through (no processing)
+- File and terminal operations are local (no relay overhead)

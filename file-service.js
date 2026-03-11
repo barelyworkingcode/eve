@@ -32,6 +32,35 @@ class FileService {
   }
 
   /**
+   * Converts filesystem error codes to user-friendly messages.
+   * Custom overrides can be provided per error code.
+   */
+  _handleFsError(err, overrides = {}) {
+    const messages = {
+      ENOENT: 'File not found',
+      EACCES: 'Permission denied',
+      EISDIR: 'Path is a directory',
+      EEXIST: 'Already exists',
+      ...overrides
+    };
+    const msg = messages[err.code];
+    if (msg) throw new Error(msg);
+    throw err;
+  }
+
+  /**
+   * Throws if the path already exists.
+   */
+  async _assertNotExists(fullPath, message = 'Already exists') {
+    try {
+      await fs.access(fullPath);
+      throw new Error(message);
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+  }
+
+  /**
    * Checks if file extension is allowed for editing
    */
   isAllowedFile(filename) {
@@ -59,9 +88,7 @@ class FileService {
               try {
                 const stats = await fs.stat(itemPath);
                 size = stats.size;
-              } catch (err) {
-                // Ignore stat errors
-              }
+              } catch (_) {}
             }
 
             return {
@@ -82,12 +109,7 @@ class FileService {
 
       return items;
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        throw new Error('Directory not found');
-      } else if (err.code === 'EACCES') {
-        throw new Error('Permission denied');
-      }
-      throw err;
+      this._handleFsError(err, { ENOENT: 'Directory not found' });
     }
   }
 
@@ -105,26 +127,14 @@ class FileService {
     try {
       const stats = await fs.stat(fullPath);
 
-      // Check file size
       if (stats.size > this.maxFileSize) {
         throw new Error(`File too large (max ${this.maxFileSize / 1024 / 1024}MB)`);
       }
 
       const content = await fs.readFile(fullPath, 'utf8');
-
-      return {
-        content,
-        size: stats.size
-      };
+      return { content, size: stats.size };
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        throw new Error('File not found');
-      } else if (err.code === 'EACCES') {
-        throw new Error('Permission denied');
-      } else if (err.code === 'EISDIR') {
-        throw new Error('Path is a directory');
-      }
-      throw err;
+      this._handleFsError(err);
     }
   }
 
@@ -148,14 +158,7 @@ class FileService {
     try {
       await fs.writeFile(fullPath, content, 'utf8');
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        throw new Error('Directory not found');
-      } else if (err.code === 'EACCES') {
-        throw new Error('Permission denied');
-      } else if (err.code === 'EISDIR') {
-        throw new Error('Path is a directory');
-      }
-      throw err;
+      this._handleFsError(err, { ENOENT: 'Directory not found' });
     }
   }
 
@@ -185,25 +188,13 @@ class FileService {
       throw new Error('Path traversal not allowed');
     }
 
-    // Check if destination already exists
-    try {
-      await fs.access(newPath);
-      throw new Error('A file or directory with that name already exists');
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
-    }
+    await this._assertNotExists(newPath, 'A file or directory with that name already exists');
 
     try {
       await fs.rename(fullPath, newPath);
-      // Return the new relative path
       return path.relative(projectPath, newPath);
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        throw new Error('File not found');
-      } else if (err.code === 'EACCES') {
-        throw new Error('Permission denied');
-      }
-      throw err;
+      this._handleFsError(err);
     }
   }
 
@@ -214,7 +205,6 @@ class FileService {
     const fullSourcePath = this.validatePath(projectPath, sourcePath);
     const fullDestDir = this.validatePath(projectPath, destDirectory);
 
-    // Check destination is a directory
     const destStats = await fs.stat(fullDestDir);
     if (!destStats.isDirectory()) {
       throw new Error('Destination must be a directory');
@@ -223,35 +213,21 @@ class FileService {
     const fileName = path.basename(fullSourcePath);
     const fullDestPath = path.join(fullDestDir, fileName);
 
-    // Validate destination path is still within project
     if (!fullDestPath.startsWith(path.resolve(projectPath))) {
       throw new Error('Path traversal not allowed');
     }
 
-    // Check if destination already exists
-    try {
-      await fs.access(fullDestPath);
-      throw new Error('A file or directory with that name already exists at destination');
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
-    }
+    await this._assertNotExists(fullDestPath, 'A file or directory with that name already exists at destination');
 
-    // Prevent moving a directory into itself
     if (fullDestDir.startsWith(fullSourcePath + path.sep)) {
       throw new Error('Cannot move a directory into itself');
     }
 
     try {
       await fs.rename(fullSourcePath, fullDestPath);
-      // Return the new relative path
       return path.relative(projectPath, fullDestPath);
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        throw new Error('Source file not found');
-      } else if (err.code === 'EACCES') {
-        throw new Error('Permission denied');
-      }
-      throw err;
+      this._handleFsError(err, { ENOENT: 'Source file not found' });
     }
   }
 
@@ -268,16 +244,10 @@ class FileService {
 
     try {
       await fs.access(fullPath);
-      // trash is ESM-only, must use dynamic import
       const { default: trash } = await import('trash');
       await trash(fullPath);
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        throw new Error('File not found');
-      } else if (err.code === 'EACCES') {
-        throw new Error('Permission denied');
-      }
-      throw err;
+      this._handleFsError(err);
     }
   }
 
@@ -314,15 +284,8 @@ class FileService {
       throw new Error(`File too large (max ${maxUploadSize / 1024 / 1024}MB)`);
     }
 
-    // Reject if file already exists
-    try {
-      await fs.access(fullPath);
-      throw new Error('A file with that name already exists');
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
-    }
+    await this._assertNotExists(fullPath, 'A file with that name already exists');
 
-    // Write file
     try {
       if (encoding === 'base64') {
         await fs.writeFile(fullPath, Buffer.from(content, 'base64'));
@@ -330,12 +293,7 @@ class FileService {
         await fs.writeFile(fullPath, content, 'utf8');
       }
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        throw new Error('Destination directory not found');
-      } else if (err.code === 'EACCES') {
-        throw new Error('Permission denied');
-      }
-      throw err;
+      this._handleFsError(err, { ENOENT: 'Destination directory not found' });
     }
   }
 
@@ -359,17 +317,12 @@ class FileService {
 
     try {
       await fs.mkdir(fullPath);
-      // Return the new relative path
       return path.relative(projectPath, fullPath);
     } catch (err) {
-      if (err.code === 'EEXIST') {
-        throw new Error('Directory already exists');
-      } else if (err.code === 'ENOENT') {
-        throw new Error('Parent directory not found');
-      } else if (err.code === 'EACCES') {
-        throw new Error('Permission denied');
-      }
-      throw err;
+      this._handleFsError(err, {
+        EEXIST: 'Directory already exists',
+        ENOENT: 'Parent directory not found'
+      });
     }
   }
 }

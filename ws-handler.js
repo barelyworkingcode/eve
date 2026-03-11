@@ -1,15 +1,27 @@
 /**
- * WebSocket connection handler - dispatches messages to services.
+ * WebSocket connection handler - dispatches messages to relay or local services.
  */
-function createWsHandler({ authService, sessions, sessionManager, fileHandlers, terminalManager, resolvePermission, setAlwaysAllow }) {
+const RelayClient = require('./relay-client');
+const SlashCommandHandler = require('./slash-command-handler');
+
+const slashCommandHandler = new SlashCommandHandler();
+
+function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUrl, relayHttpUrl, claudeConfig }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
     const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !isLocalhostConnection;
     let isAuthenticated = !requiresAuth;
-    let currentSessionId = null;
 
-    ws.on('message', (data) => {
+    const relayClient = new RelayClient(relayWsUrl, ws);
+
+    // Connect to relayLLM immediately
+    relayClient.connect().catch(err => {
+      console.error('[WsHandler] Failed to connect to relayLLM:', err.message);
+      ws.send(JSON.stringify({ type: 'error', message: 'Cannot connect to relay service' }));
+    });
+
+    ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
 
@@ -37,37 +49,41 @@ function createWsHandler({ authService, sessions, sessionManager, fileHandlers, 
 
         switch (message.type) {
           case 'create_session':
-            currentSessionId = sessionManager.createSession(ws, message.directory, message.projectId, message.model);
+            await handleCreateSession(ws, relayClient, relayHttpUrl, message);
             break;
 
           case 'join_session':
-            currentSessionId = sessionManager.joinSession(ws, message.sessionId);
+            relayClient.joinSession(message.sessionId);
             break;
 
           case 'user_input':
-            if (currentSessionId) {
-              sessionManager.sendMessage(currentSessionId, message.text, message.files);
-            }
+            handleUserInput(ws, relayClient, message);
             break;
 
           case 'end_session':
-            if (currentSessionId) {
-              sessionManager.endSession(currentSessionId);
-              currentSessionId = null;
-            }
+            relayClient.endSession(relayClient.currentSessionId);
             break;
 
           case 'delete_session':
-            sessionManager.deleteSession(message.sessionId, ws);
-            if (currentSessionId === message.sessionId) {
-              currentSessionId = null;
-            }
+            relayClient.deleteSession(message.sessionId);
             break;
 
           case 'rename_session':
-            sessionManager.renameSession(message.sessionId, message.name, ws);
+            relayClient.renameSession(message.sessionId, message.name);
             break;
 
+          case 'permission_response':
+            if (message.alwaysAllow) {
+              relayClient.setAlwaysAllow(true);
+            }
+            relayClient.sendPermissionResponse(
+              message.permissionId,
+              message.approved,
+              message.reason || ''
+            );
+            break;
+
+          // --- File operations (local) ---
           case 'list_directory':
             fileHandlers.listDirectory(ws, message);
             break;
@@ -100,8 +116,9 @@ function createWsHandler({ authService, sessions, sessionManager, fileHandlers, 
             fileHandlers.createDirectory(ws, message);
             break;
 
+          // --- Terminal operations (local) ---
           case 'terminal_create':
-            terminalManager.createTerminal(ws, message.directory, message.command, message.args, message.sessionId, sessionManager.getProviderConfig('claude'));
+            terminalManager.createTerminal(ws, message.directory, message.command, message.args, claudeConfig);
             break;
 
           case 'terminal_input':
@@ -123,13 +140,6 @@ function createWsHandler({ authService, sessions, sessionManager, fileHandlers, 
           case 'terminal_reconnect':
             terminalManager.reconnect(ws, message.terminalId);
             break;
-
-          case 'permission_response':
-            if (message.alwaysAllow && currentSessionId) {
-              setAlwaysAllow(currentSessionId, true);
-            }
-            resolvePermission(message.permissionId, message.approved ? 'allow' : 'deny', message.reason || '');
-            break;
         }
       } catch (err) {
         ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -137,12 +147,84 @@ function createWsHandler({ authService, sessions, sessionManager, fileHandlers, 
     });
 
     ws.on('close', () => {
-      if (currentSessionId && sessions.has(currentSessionId)) {
-        sessions.get(currentSessionId).ws = null;
-      }
+      relayClient.close();
       terminalManager.detachAll(ws);
     });
   };
+}
+
+/**
+ * Create session via relayLLM HTTP POST, then join via WS.
+ */
+async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
+  try {
+    const response = await fetch(`${relayHttpUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId: message.projectId || '',
+        directory: message.directory || '',
+        name: '',
+        model: message.model || ''
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      ws.send(JSON.stringify({ type: 'error', message: data.error || 'Failed to create session' }));
+      return;
+    }
+
+    // Send session_created to browser
+    ws.send(JSON.stringify({
+      type: 'session_created',
+      sessionId: data.sessionId,
+      directory: data.directory,
+      projectId: data.projectId || null,
+      model: data.model,
+      name: data.name || null,
+      metadata: data.directory
+    }));
+
+    // Suppress the session_joined that relayLLM will send when we join
+    relayClient.setSuppressNextJoin(true);
+    relayClient.currentSessionId = data.sessionId;
+    relayClient.sessionDirectory = data.directory;
+    relayClient.joinSession(data.sessionId);
+
+  } catch (err) {
+    console.error('[WsHandler] Create session failed:', err.message);
+    ws.send(JSON.stringify({ type: 'error', message: 'Failed to create session: relay unavailable' }));
+  }
+}
+
+/**
+ * Handle user input: check for local slash commands first, else relay.
+ */
+function handleUserInput(ws, relayClient, message) {
+  const text = (message.text || '').trim();
+
+  if (slashCommandHandler.handle(ws, relayClient, text)) {
+    return;
+  }
+
+  const files = (message.files || []).map(parseFileAttachment);
+  relayClient.sendMessage(message.text, files);
+}
+
+/**
+ * Convert a client file attachment to the relay format.
+ * Extracts mime type and raw base64 from data URLs.
+ */
+function parseFileAttachment(f) {
+  if (f.type === 'image' && f.content && f.content.startsWith('data:')) {
+    const match = f.content.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      return { name: f.name, mimeType: match[1], data: match[2] };
+    }
+  }
+  return { name: f.name, mimeType: f.mediaType || '', data: f.content || '' };
 }
 
 module.exports = createWsHandler;
