@@ -1,7 +1,0 @@
-{
-  "providers": {
-    "claude": true,
-    "gemini": false,
-    "lmstudio": true
-  }
-}

@@ -1,11 +1,6 @@
 const createAuthRoutes = require('./auth');
-const createProjectRoutes = require('./projects');
-const createSessionRoutes = require('./sessions');
-const createTaskRoutes = require('./tasks');
-const createPermissionRoutes = require('./permissions');
-const LMStudioProvider = require('../providers/lmstudio-provider');
 
-function registerRoutes(app, { authService, projects, sessions, sessionManager, taskScheduler, saveProjects, getAllModels, getProviderForModel, settings }) {
+function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
   // Shared auth middleware
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
@@ -18,29 +13,65 @@ function registerRoutes(app, { authService, projects, sessions, sessionManager, 
     next();
   }
 
-  // Auth routes (no auth middleware needed)
+  // Auth routes (local, no proxy)
   app.use('/api', createAuthRoutes(authService));
 
-  // Models endpoint
+  // Proxy helper: forwards request to relayLLM and returns the response
+  async function proxy(req, res, method, relayPath, body) {
+    try {
+      const url = `${relayUrl}${relayPath}`;
+      const opts = {
+        method,
+        headers: { 'Content-Type': 'application/json' }
+      };
+      if (body !== undefined) {
+        opts.body = JSON.stringify(body);
+      }
+      const response = await fetch(url, opts);
+      const data = await response.json();
+      res.status(response.status).json(data);
+      return data;
+    } catch (err) {
+      console.error(`[Proxy] ${method} ${relayPath} failed:`, err.message);
+      res.status(502).json({ error: 'Relay service unavailable' });
+      return null;
+    }
+  }
+
+  // --- Models (proxy) ---
   app.get('/api/models', requireAuth, (req, res) => {
-    res.json(getAllModels());
+    proxy(req, res, 'GET', '/api/models');
   });
 
-  // Refresh models (re-fetch from LM Studio)
-  app.post('/api/models/refresh', requireAuth, async (req, res) => {
-    await LMStudioProvider.fetchModels();
-    res.json(getAllModels());
+  // --- Projects (proxy, refresh cache on mutations) ---
+  app.get('/api/projects', requireAuth, async (req, res) => {
+    const data = await proxy(req, res, 'GET', '/api/projects');
+    if (data && Array.isArray(data)) refreshProjectCache(data);
   });
 
-  // Domain-specific routes
-  app.use('/api/projects', createProjectRoutes({ projects, saveProjects, getAllModels, getProviderForModel, settings, requireAuth }));
-  app.use('/api/sessions', createSessionRoutes({ sessions, projects, sessionManager, requireAuth }));
-  app.use('/api/tasks', createTaskRoutes({ taskScheduler, requireAuth }));
+  app.post('/api/projects', requireAuth, async (req, res) => {
+    const data = await proxy(req, res, 'POST', '/api/projects', req.body);
+    if (data && data.id) refreshProjectCache();
+  });
 
-  const { router: permissionRouter, resolvePermission, setAlwaysAllow } = createPermissionRoutes({ sessions, requireAuth });
-  app.use('/api/permission', permissionRouter);
+  app.get('/api/projects/:id', requireAuth, (req, res) => {
+    proxy(req, res, 'GET', `/api/projects/${req.params.id}`);
+  });
 
-  return { resolvePermission, setAlwaysAllow };
+  app.put('/api/projects/:id', requireAuth, async (req, res) => {
+    const data = await proxy(req, res, 'PUT', `/api/projects/${req.params.id}`, req.body);
+    if (data && data.id) refreshProjectCache();
+  });
+
+  app.delete('/api/projects/:id', requireAuth, async (req, res) => {
+    await proxy(req, res, 'DELETE', `/api/projects/${req.params.id}`);
+    refreshProjectCache();
+  });
+
+  // --- Sessions (proxy) ---
+  app.get('/api/sessions', requireAuth, (req, res) => {
+    proxy(req, res, 'GET', '/api/sessions');
+  });
 }
 
 module.exports = registerRoutes;

@@ -8,13 +8,8 @@
     "dev": "node --watch server.js",
     "ssl": "HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem PORT=443 node server.js",
     "ssl:dual": "HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem PORT=443 DUAL_LISTEN=true HTTP_PORT=3000 node server.js",
-    "test": "jest --selectProjects unit",
-    "test:unit": "jest --selectProjects unit",
-    "test:integration": "jest --selectProjects integration",
-    "test:all": "jest",
-    "test:watch": "jest --selectProjects unit --watch",
-    "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
-    "test:e2e:video": "npx playwright test --config e2e/playwright.video.config.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
     "register": "/Applications/Relay.app/Contents/MacOS/relay service register --name Eve --command node --args server.js --workdir . --url http://localhost:3000 --autostart"
   },
   "dependencies": {
@@ -32,7 +27,6 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
     "jest": "^30.2.0"
   }
 }

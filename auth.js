@@ -7,9 +7,8 @@ const {
   generateAuthenticationOptions,
   verifyAuthenticationResponse
 } = require('@simplewebauthn/server');
+const SessionStore = require('./session-store');
 
-// Time constants
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
@@ -19,43 +18,18 @@ class AuthService {
   constructor(dataDir) {
     this.dataDir = dataDir;
     this.authFile = path.join(dataDir, 'auth.json');
-    this.sessionsFile = path.join(dataDir, 'sessions.json');
+    this.sessionStore = new SessionStore(dataDir);
     this.challenges = new Map();
     this.rateLimits = new Map();
 
     // RP (Relying Party) settings
     this.rpName = 'Eve Workspace';
 
-    // Load persisted sessions
-    this.sessions = this.loadSessions();
-
     // Start cleanup timer
     this.startCleanupTimer();
   }
 
-  // --- File Operations ---
-
-  loadSessions() {
-    try {
-      if (fs.existsSync(this.sessionsFile)) {
-        const data = JSON.parse(fs.readFileSync(this.sessionsFile, 'utf8'));
-        return new Map(Object.entries(data));
-      }
-    } catch (err) {
-      console.error('Failed to load sessions:', err.message);
-    }
-    return new Map();
-  }
-
-  saveSessions() {
-    try {
-      const data = Object.fromEntries(this.sessions);
-      fs.writeFileSync(this.sessionsFile, JSON.stringify(data, null, 2));
-      this.setSecurePermissions(this.sessionsFile);
-    } catch (err) {
-      console.error('Failed to save sessions:', err.message);
-    }
-  }
+  // --- Credential Persistence ---
 
   setSecurePermissions(filePath) {
     try {
@@ -99,19 +73,8 @@ class AuthService {
 
   cleanup() {
     const now = Date.now();
-    let sessionsChanged = false;
 
-    // Clean expired sessions
-    for (const [token, session] of this.sessions) {
-      if (now > session.expiresAt) {
-        this.sessions.delete(token);
-        sessionsChanged = true;
-      }
-    }
-
-    if (sessionsChanged) {
-      this.saveSessions();
-    }
+    this.sessionStore.cleanup();
 
     // Clean expired challenges
     for (const [id, challenge] of this.challenges) {
@@ -147,26 +110,14 @@ class AuthService {
     return true;
   }
 
-  // --- Session Management ---
+  // --- Session Management (delegates to SessionStore) ---
 
   createSession() {
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = Date.now() + SESSION_TTL_MS;
-    this.sessions.set(token, { expiresAt });
-    this.saveSessions();
-    return token;
+    return this.sessionStore.create();
   }
 
   validateSession(token) {
-    if (!token) return false;
-    const session = this.sessions.get(token);
-    if (!session) return false;
-    if (Date.now() > session.expiresAt) {
-      this.sessions.delete(token);
-      this.saveSessions();
-      return false;
-    }
-    return true;
+    return this.sessionStore.validate(token);
   }
 
   // --- Challenge Management ---
