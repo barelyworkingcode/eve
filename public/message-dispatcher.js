@@ -114,6 +114,10 @@ class MessageDispatcher {
         this.client.fileBrowser.handleFileUploaded(data.projectId, data.destDirectory, data.fileName);
         break;
 
+      case 'file_changed':
+        this.client.handleFileChanged(data.projectId, data.path, data.content);
+        break;
+
       case 'terminal_request':
         this.client.terminalManager.createTerminal(data.directory, data.command, data.args, data.sessionId);
         break;

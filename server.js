@@ -136,7 +136,8 @@ wss.on('connection', createWsHandler({
   authService, fileHandlers, terminalManager,
   relayWsUrl: RELAY_LLM_WS_URL,
   relayHttpUrl: RELAY_LLM_URL,
-  claudeConfig: settings.providerConfig.claude
+  claudeConfig: settings.providerConfig.claude,
+  resolveProject: (id) => projectCache.get(id)
 }));
 
 const PORT = process.env.PORT || 3000;

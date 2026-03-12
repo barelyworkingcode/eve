@@ -3,10 +3,11 @@
  */
 const RelayClient = require('./relay-client');
 const SlashCommandHandler = require('./slash-command-handler');
+const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUrl, relayHttpUrl, claudeConfig }) {
+function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
@@ -14,6 +15,7 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
     let isAuthenticated = !requiresAuth;
 
     const relayClient = new RelayClient(relayWsUrl, ws);
+    const fileWatcher = new FileWatcher(ws, fileHandlers.fileService, resolveProject);
 
     // Connect to relayLLM immediately
     relayClient.connect().catch(err => {
@@ -92,9 +94,17 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
             fileHandlers.readFile(ws, message);
             break;
 
-          case 'write_file':
+          case 'write_file': {
+            const project = resolveProject(message.projectId);
+            if (project) {
+              try {
+                const absPath = fileHandlers.fileService.validatePath(project.path, message.path);
+                fileWatcher.markSelfWrite(absPath);
+              } catch { /* path validation failed, writeFile will handle the error */ }
+            }
             fileHandlers.writeFile(ws, message);
             break;
+          }
 
           case 'rename_file':
             fileHandlers.renameFile(ws, message);
@@ -114,6 +124,14 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
 
           case 'create_directory':
             fileHandlers.createDirectory(ws, message);
+            break;
+
+          case 'watch_file':
+            fileWatcher.watch(message.projectId, message.path);
+            break;
+
+          case 'unwatch_file':
+            fileWatcher.unwatch(message.projectId, message.path);
             break;
 
           // --- Terminal operations (local) ---
@@ -148,6 +166,7 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
 
     ws.on('close', () => {
       relayClient.close();
+      fileWatcher.closeAll();
       terminalManager.detachAll(ws);
     });
   };

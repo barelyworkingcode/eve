@@ -1603,6 +1603,24 @@ html, body {
   margin-bottom: 0;
 }
 
+/* External change notification */
+.external-change-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 1px solid var(--warning);
+  color: var(--warning);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.external-change-actions {
+  display: flex;
+  gap: 6px;
+}
+
 /* Terminal Content */
 .terminal-content {
   flex: 1;
