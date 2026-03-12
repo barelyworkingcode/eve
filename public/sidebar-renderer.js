@@ -62,19 +62,15 @@ class SidebarRenderer {
   renderProjectGroup(projectId, project, sessions) {
     const escapeHtml = (t) => this.app.messageRenderer.escapeHtml(t);
     const projectEl = document.createElement('div');
-    projectEl.className = project.disabled ? 'project-group disabled collapsed' : 'project-group collapsed';
+    projectEl.className = 'project-group collapsed';
 
-    const disabledNote = project.disabled ? '<span class="disabled-note">(provider disabled)</span>' : '';
     const toolsBadge = project.allowedTools?.length > 0 ? `<span class="project-tools-badge" title="${escapeHtml(project.allowedTools.join(', '))}">${project.allowedTools.length} tools</span>` : '';
-    const mcpBadge = project.integrations?.length > 0 ? `<span class="project-tools-badge" title="${escapeHtml(project.integrations.join(', '))}">${project.integrations.length} mcp</span>` : '';
 
     projectEl.innerHTML = `
       <div class="project-header">
         <span class="project-toggle">▶</span>
         <span class="project-name">${escapeHtml(project.name)}</span>
         ${toolsBadge}
-        ${mcpBadge}
-        ${disabledNote}
         <button class="project-files-toggle" title="Browse files">📁</button>
         <button class="project-edit" title="Edit project">&#9998;</button>
         <button class="project-quick-add" title="New session in this project">+</button>
@@ -94,16 +90,14 @@ class SidebarRenderer {
     const deleteBtn = projectEl.querySelector('.project-delete');
 
     header.addEventListener('click', (e) => {
-      if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || e.target === editBtn || project.disabled) return;
+      if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || e.target === editBtn) return;
       projectEl.classList.toggle('collapsed');
       toggle.textContent = projectEl.classList.contains('collapsed') ? '▶' : '▼';
     });
 
     filesToggleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!project.disabled) {
-        this.app.fileBrowser.toggleFileTree(projectId);
-      }
+      this.app.fileBrowser.toggleFileTree(projectId);
     });
 
     editBtn.addEventListener('click', (e) => {
@@ -114,10 +108,8 @@ class SidebarRenderer {
 
     quickAddBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!project.disabled) {
-        this.app.toggleSidebar(false);
-        this.app.modalManager.showSessionModal(projectId);
-      }
+      this.app.toggleSidebar(false);
+      this.app.modalManager.showSessionModal(projectId);
     });
 
     deleteBtn.addEventListener('click', (e) => {
@@ -127,7 +119,7 @@ class SidebarRenderer {
 
     // Render sessions
     for (const session of sessions) {
-      this.renderSessionItem(session, sessionsList, !project.disabled);
+      this.renderSessionItem(session, sessionsList, true);
     }
 
     this.app.elements.projectList.appendChild(projectEl);
