@@ -1514,6 +1514,23 @@ html, body {
   font-size: inherit;
 }
 
+.markdown-preview .mermaid,
+.message-content .mermaid {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 16px;
+  margin: 0 0 12px;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.markdown-preview .mermaid svg,
+.message-content .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .markdown-preview blockquote,
 .message-content blockquote {
   border-left: 3px solid var(--accent);
@@ -1644,6 +1661,66 @@ html, body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* Question options (AskUserQuestion tool) */
+.question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.question-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.question-option:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.question-option.selected {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.question-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.question-option:disabled:not(.selected):hover {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+.question-option-label {
+  font-weight: 500;
+}
+
+.question-option-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.question-option.selected .question-option-desc {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* Mobile Responsive */
@@ -2301,6 +2378,57 @@ html, body {
   color: var(--text-muted);
   margin-top: 4px;
   margin-bottom: 12px;
+}
+
+/* Provider settings in session modal */
+.provider-settings:empty {
+  display: none;
+}
+
+.provider-setting-field {
+  margin-bottom: 12px;
+}
+
+.provider-setting-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.provider-setting-field input[type="number"],
+.provider-setting-field input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.provider-setting-field input[type="number"]:focus,
+.provider-setting-field input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.provider-setting-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.provider-setting-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 /* Allowed tools badge */
