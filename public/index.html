@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/xterm/css/xterm.css">
   <script src="/marked/lib/marked.umd.js"></script>
   <script src="/dompurify/purify.min.js"></script>
+  <script src="/mermaid/mermaid.min.js"></script>
   <script src="/monaco/vs/loader.js"></script>
 </head>
 <body>
@@ -148,6 +149,7 @@
         </select>
         <label for="sessionModelSelect">Model</label>
         <select id="sessionModelSelect"></select>
+        <div id="providerSettings" class="provider-settings"></div>
         <label for="directoryInput">Working Directory</label>
         <input
           type="text"
@@ -183,10 +185,6 @@
           placeholder="/path/to/project"
           required
         >
-        <label for="projectModelSelect">Default Model</label>
-        <select id="projectModelSelect">
-          <!-- Models loaded dynamically from /api/models -->
-        </select>
         <label for="projectAllowedToolsInput">Allowed Tools (optional)</label>
         <input
           type="text"
@@ -194,13 +192,6 @@
           placeholder='e.g. Read Glob Grep "Bash(git:*)"'
         >
         <span class="field-hint">Space-separated. Pre-approves these tools without prompting.</span>
-        <label for="projectIntegrationsInput">MCP Integrations (optional)</label>
-        <input
-          type="text"
-          id="projectIntegrationsInput"
-          placeholder='e.g. mcp/relay mcp/filesystem'
-        >
-        <span class="field-hint">Space-separated. LM Studio MCP server references (from mcp.json).</span>
         <div class="modal-actions">
           <button type="button" id="cancelProjectModal" class="btn-secondary">Cancel</button>
           <button type="submit" id="projectSubmitBtn" class="btn-primary">Create Project</button>

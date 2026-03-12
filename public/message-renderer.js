@@ -62,6 +62,7 @@ class MessageRenderer {
       if (text) {
         this.isStreaming = false;
         this.currentAssistantMessage.innerHTML = this.formatText(text);
+        this.renderMermaidBlocks(this.currentAssistantMessage);
       }
       delete this.currentAssistantMessage.dataset.rawText;
       this.currentAssistantMessage = null;
@@ -168,6 +169,7 @@ class MessageRenderer {
       }
     }
 
+    this.renderMermaidBlocks(this.app.elements.messages);
     this.scrollToBottom();
     this.app.isRenderingHistory = false;
   }
@@ -228,12 +230,70 @@ class MessageRenderer {
     }
   }
 
+  renderQuestionBlock(questions, onSelect) {
+    this.hideThinkingIndicator();
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message assistant';
+
+    let html = '<div class="message-content">';
+    for (const q of questions) {
+      html += `<p>${this.escapeHtml(q.question)}</p>`;
+      html += '<div class="question-options">';
+      for (const opt of (q.options || [])) {
+        html += `<button class="question-option" data-label="${this.escapeHtml(opt.label)}">`;
+        html += `<span class="question-option-label">${this.escapeHtml(opt.label)}</span>`;
+        if (opt.description) {
+          html += `<span class="question-option-desc">${this.escapeHtml(opt.description)}</span>`;
+        }
+        html += '</button>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    messageEl.innerHTML = html;
+
+    // Wire up option buttons
+    messageEl.querySelectorAll('.question-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const label = btn.dataset.label;
+        // Disable all option buttons
+        messageEl.querySelectorAll('.question-option').forEach(b => {
+          b.disabled = true;
+          if (b === btn) b.classList.add('selected');
+        });
+        onSelect(label);
+      });
+    });
+
+    this.app.elements.messages.appendChild(messageEl);
+    this.scrollToBottom();
+  }
+
   markToolComplete() {
     if (this.currentToolBlock) {
       this.currentToolBlock.classList.remove('tool-active');
       const spinner = this.currentToolBlock.querySelector('.tool-spinner');
       if (spinner) spinner.remove();
       this.currentToolBlock = null;
+    }
+  }
+
+  async renderMermaidBlocks(container) {
+    if (typeof mermaid === 'undefined') return;
+    const nodes = container.querySelectorAll('code[class*="mermaid"]');
+    if (nodes.length === 0) return;
+    for (const node of nodes) {
+      const pre = node.parentElement;
+      const div = document.createElement('div');
+      div.className = 'mermaid';
+      div.textContent = node.textContent;
+      pre.replaceWith(div);
+    }
+    try {
+      await mermaid.run({ nodes: container.querySelectorAll('.mermaid') });
+    } catch (err) {
+      console.error('Mermaid render failed:', err);
     }
   }
 

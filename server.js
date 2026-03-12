@@ -125,6 +125,7 @@ app.use('/xterm-addon-fit', express.static(path.join(__dirname, 'node_modules/@x
 app.use('/xterm-addon-web-links', express.static(path.join(__dirname, 'node_modules/@xterm/addon-web-links')));
 app.use('/marked', express.static(path.join(__dirname, 'node_modules/marked')));
 app.use('/dompurify', express.static(path.join(__dirname, 'node_modules/dompurify/dist')));
+app.use('/mermaid', express.static(path.join(__dirname, 'node_modules/mermaid/dist')));
 app.use(express.json({ limit: '50mb' }));
 
 // Register HTTP routes (proxy to relayLLM + local auth)

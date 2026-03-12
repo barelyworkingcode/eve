@@ -127,6 +127,7 @@ class FileEditor {
 
     const content = this.editor.getValue();
     this.markdownPreview.innerHTML = DOMPurify.sanitize(marked.parse(content));
+    this.client.messageRenderer.renderMermaidBlocks(this.markdownPreview);
   }
 
   loadMonaco() {

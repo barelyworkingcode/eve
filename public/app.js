@@ -39,6 +39,14 @@ class EveWorkspaceClient {
     this.messageDispatcher = new MessageDispatcher(this);
     this.fileAttachmentManager = new FileAttachmentManager(this);
 
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'strict',
+      });
+    }
+
     this.initEventListeners();
     this.modalManager.initEventListeners();
     this.initSidebarResize();
@@ -75,7 +83,6 @@ class EveWorkspaceClient {
       newProjectForm: document.getElementById('newProjectForm'),
       projectNameInput: document.getElementById('projectNameInput'),
       projectPathInput: document.getElementById('projectPathInput'),
-      projectModelSelect: document.getElementById('projectModelSelect'),
       cancelProjectModal: document.getElementById('cancelProjectModal'),
       newProjectBtn: document.getElementById('newProjectBtn'),
       projectList: document.getElementById('projectList'),
@@ -99,7 +106,7 @@ class EveWorkspaceClient {
       projectModalTitle: document.getElementById('projectModalTitle'),
       projectSubmitBtn: document.getElementById('projectSubmitBtn'),
       projectAllowedToolsInput: document.getElementById('projectAllowedToolsInput'),
-      projectIntegrationsInput: document.getElementById('projectIntegrationsInput'),
+      providerSettings: document.getElementById('providerSettings'),
       permissionModal: document.getElementById('permissionModal'),
       permissionToolName: document.getElementById('permissionToolName'),
       permissionToolInput: document.getElementById('permissionToolInput'),
@@ -146,13 +153,11 @@ class EveWorkspaceClient {
     // Project select
     this.elements.projectSelect.addEventListener('change', () => {
       this.updateDirectoryInputRequirement();
-      const projectId = this.elements.projectSelect.value;
-      if (projectId) {
-        const project = this.projects.get(projectId);
-        if (project?.model) {
-          this.elements.sessionModelSelect.value = project.model;
-        }
-      }
+    });
+
+    // Model select — render provider-specific settings
+    this.elements.sessionModelSelect.addEventListener('change', () => {
+      this.renderProviderSettings();
     });
 
   }
@@ -212,8 +217,9 @@ class EveWorkspaceClient {
   async loadModels() {
     try {
       const response = await fetch('/api/models', { headers: this.getAuthHeaders() });
-      this.models = await response.json();
-      this.renderModelSelect(this.elements.projectModelSelect);
+      const data = await response.json();
+      this.models = data.models || [];
+      this.providerSettings = data.providerSettings || {};
       this.renderModelSelect(this.elements.sessionModelSelect);
     } catch (err) {
       console.error('Failed to load models:', err);
@@ -276,7 +282,8 @@ class EveWorkspaceClient {
     const directory = this.elements.directoryInput.value.trim();
     const model = this.elements.sessionModelSelect.value || null;
     if (!projectId && !directory) return;
-    this.wsClient.send({ type: 'create_session', directory, projectId, model });
+    const settings = this.collectSettings();
+    this.wsClient.send({ type: 'create_session', directory, projectId, model, settings });
   }
 
   joinSession(sessionId) {
@@ -303,10 +310,7 @@ class EveWorkspaceClient {
     e.preventDefault();
     const name = this.elements.projectNameInput.value.trim();
     const projectPath = this.elements.projectPathInput.value.trim();
-    const model = this.elements.projectModelSelect.value;
     const allowedTools = this.parseArgsString(this.elements.projectAllowedToolsInput.value);
-    const integrationsRaw = this.elements.projectIntegrationsInput.value.trim();
-    const integrations = integrationsRaw ? integrationsRaw.split(/\s+/) : null;
     if (!name || !projectPath) return;
 
     try {
@@ -314,8 +318,7 @@ class EveWorkspaceClient {
       const url = isEdit ? `/api/projects/${this.modalManager.editingProjectId}` : '/api/projects';
       const method = isEdit ? 'PUT' : 'POST';
 
-      const body = { name, path: projectPath, model, allowedTools };
-      if (integrations) body.integrations = integrations;
+      const body = { name, path: projectPath, allowedTools };
 
       const response = await fetch(url, {
         method,
@@ -357,7 +360,6 @@ class EveWorkspaceClient {
     const select = this.elements.projectSelect;
     select.innerHTML = '<option value="">No project</option>';
     for (const [id, project] of this.projects) {
-      if (project.disabled) continue;
       const option = document.createElement('option');
       option.value = id;
       option.textContent = project.name;
@@ -380,6 +382,7 @@ class EveWorkspaceClient {
     this.autoResizeTextarea();
     this.modalManager.hideInputPrompt();
     this.modalManager.hidePlanApproval();
+    document.querySelectorAll('.question-options').forEach(el => el.remove());
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
     this.showStopButton();
@@ -411,6 +414,93 @@ class EveWorkspaceClient {
 
   handleFileSaved(projectId, path) {
     this.tabManager.setFileModified(projectId, path, false);
+  }
+
+  // --- Provider settings ---
+
+  renderProviderSettings() {
+    const container = this.elements.providerSettings;
+    container.innerHTML = '';
+
+    const modelValue = this.elements.sessionModelSelect.value;
+    const model = this.models.find(m => m.value === modelValue);
+    if (!model) return;
+
+    const fields = (this.providerSettings || {})[model.provider] || [];
+    if (fields.length === 0) return;
+
+    for (const field of fields) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'provider-setting-field';
+
+      if (field.type === 'boolean') {
+        wrapper.className += ' provider-setting-checkbox';
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.dataset.settingKey = field.key;
+        if (field.default === true) input.checked = true;
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(' ' + field.label));
+        wrapper.appendChild(label);
+      } else if (field.type === 'number') {
+        const label = document.createElement('label');
+        label.textContent = field.label;
+        wrapper.appendChild(label);
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.dataset.settingKey = field.key;
+        if (field.min != null) input.min = field.min;
+        if (field.max != null) input.max = field.max;
+        if (field.step != null) input.step = field.step;
+        if (field.default != null) input.value = field.default;
+        if (field.placeholder) input.placeholder = field.placeholder;
+        wrapper.appendChild(input);
+      } else {
+        // string or string[]
+        const label = document.createElement('label');
+        label.textContent = field.label;
+        wrapper.appendChild(label);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.dataset.settingKey = field.key;
+        input.dataset.settingType = field.type;
+        if (field.default != null) input.value = field.default;
+        if (field.placeholder) input.placeholder = field.placeholder;
+        wrapper.appendChild(input);
+      }
+
+      if (field.hint) {
+        const hint = document.createElement('span');
+        hint.className = 'field-hint';
+        hint.textContent = field.hint;
+        wrapper.appendChild(hint);
+      }
+
+      container.appendChild(wrapper);
+    }
+  }
+
+  collectSettings() {
+    const container = this.elements.providerSettings;
+    const inputs = container.querySelectorAll('[data-setting-key]');
+    if (inputs.length === 0) return null;
+
+    const settings = {};
+    for (const input of inputs) {
+      const key = input.dataset.settingKey;
+      if (input.type === 'checkbox') {
+        settings[key] = input.checked;
+      } else if (input.type === 'number') {
+        if (input.value !== '') settings[key] = parseFloat(input.value);
+      } else if (input.dataset.settingType === 'string[]') {
+        const val = input.value.trim();
+        if (val) settings[key] = val.split(/\s+/);
+      } else {
+        if (input.value.trim()) settings[key] = input.value.trim();
+      }
+    }
+    return Object.keys(settings).length > 0 ? settings : null;
   }
 
   // --- UI helpers ---
