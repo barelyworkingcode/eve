@@ -184,6 +184,7 @@ class EveWorkspaceClient {
     }
 
     this.terminalManager.onReady(() => this.terminalManager.requestTerminalList());
+    this.tabManager.reestablishFileWatches();
   }
 
   // --- Server message dispatch ---
@@ -414,6 +415,10 @@ class EveWorkspaceClient {
 
   handleFileSaved(projectId, path) {
     this.tabManager.setFileModified(projectId, path, false);
+  }
+
+  handleFileChanged(projectId, path, content) {
+    if (this.fileEditor) this.fileEditor.handleExternalChange(projectId, path, content);
   }
 
   // --- Provider settings ---

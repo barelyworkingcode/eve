@@ -321,6 +321,75 @@ class FileEditor {
   }
 
   /**
+   * Handles an externally-modified file pushed from the server.
+   */
+  handleExternalChange(projectId, path, content) {
+    if (!this.currentFile) return;
+    if (this.currentFile.projectId !== projectId || this.currentFile.path !== path) return;
+
+    const currentContent = this.editor ? this.editor.getValue() : this.currentFile.content;
+    const isClean = currentContent === this.currentFile.originalContent;
+
+    if (isClean) {
+      this._applyExternalContent(content);
+    } else {
+      this._showExternalChangeNotification(content);
+    }
+  }
+
+  /**
+   * Silently applies external content, preserving cursor position.
+   */
+  _applyExternalContent(content) {
+    this.currentFile.content = content;
+    this.currentFile.originalContent = content;
+
+    if (this.editor) {
+      const position = this.editor.getPosition();
+      this.editor.setValue(content);
+      if (position) this.editor.setPosition(position);
+    }
+
+    this.saveBtn.disabled = true;
+    this.client.tabManager.setFileModified(
+      this.currentFile.projectId,
+      this.currentFile.path,
+      false
+    );
+  }
+
+  /**
+   * Shows a notification bar when external changes conflict with local edits.
+   */
+  _showExternalChangeNotification(newContent) {
+    // Remove existing notification if any
+    this.editorContentEl.querySelector('.external-change-bar')?.remove();
+
+    const bar = document.createElement('div');
+    bar.className = 'external-change-bar';
+    bar.innerHTML = `
+      <span>This file has been modified externally.</span>
+      <div class="external-change-actions">
+        <button class="btn-sm btn-primary external-change-reload">Reload</button>
+        <button class="btn-sm btn-secondary external-change-keep">Keep Mine</button>
+      </div>
+    `;
+
+    bar.querySelector('.external-change-reload').addEventListener('click', () => {
+      this._applyExternalContent(newContent);
+      bar.remove();
+    });
+
+    bar.querySelector('.external-change-keep').addEventListener('click', () => {
+      // Update originalContent so saving will overwrite with local version
+      this.currentFile.originalContent = newContent;
+      bar.remove();
+    });
+
+    this.editorContentEl.insertBefore(bar, this.editorContentEl.firstChild);
+  }
+
+  /**
    * Detects language from file extension
    */
   detectLanguage(path) {

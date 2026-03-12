@@ -89,6 +89,14 @@ class TabManager {
     };
 
     this.tabs.push(tab);
+
+    // Register file watcher on server
+    this.client.ws?.send(JSON.stringify({
+      type: 'watch_file',
+      projectId,
+      path: filePath
+    }));
+
     this.switchToTab(tabId);
     this.render();
   }
@@ -177,6 +185,15 @@ class TabManager {
       }
     }
 
+    // Unregister file watcher on server
+    if (tab.type === 'file') {
+      this.client.ws?.send(JSON.stringify({
+        type: 'unwatch_file',
+        projectId: tab.projectId,
+        path: tab.path
+      }));
+    }
+
     // Clean up terminal if closing terminal tab
     if (tab.type === 'terminal' && this.client.terminalManager) {
       this.client.terminalManager.closeTerminal(tab.id);
@@ -223,6 +240,21 @@ class TabManager {
     if (tab) {
       tab.label = newLabel;
       this.render();
+    }
+  }
+
+  /**
+   * Re-registers file watchers after WebSocket reconnection.
+   */
+  reestablishFileWatches() {
+    for (const tab of this.tabs) {
+      if (tab.type === 'file') {
+        this.client.ws?.send(JSON.stringify({
+          type: 'watch_file',
+          projectId: tab.projectId,
+          path: tab.path
+        }));
+      }
     }
   }
 
