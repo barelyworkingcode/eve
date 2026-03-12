@@ -60,12 +60,10 @@ class ModalManager {
       el.projectSelect.value = projectId;
       const project = this.app.projects.get(projectId);
       el.directoryInput.value = project.path || '';
-      if (project.model) {
-        el.sessionModelSelect.value = project.model;
-      }
     }
 
     this.app.updateDirectoryInputRequirement();
+    this.app.renderProviderSettings();
     el.directoryInput.focus();
     el.directoryInput.select();
   }
@@ -78,6 +76,7 @@ class ModalManager {
     if (this.app.models.length > 0) {
       el.sessionModelSelect.value = this.app.models[0].value;
     }
+    el.providerSettings.innerHTML = '';
     this.app.updateDirectoryInputRequirement();
     this.app.toggleSidebar(false);
   }
@@ -95,19 +94,13 @@ class ModalManager {
       el.projectSubmitBtn.textContent = 'Save';
       el.projectNameInput.value = project.name;
       el.projectPathInput.value = project.path;
-      el.projectModelSelect.value = project.model || 'haiku';
       el.projectAllowedToolsInput.value = (project.allowedTools || []).join(' ');
-      el.projectIntegrationsInput.value = (project.integrations || []).join(' ');
     } else {
       el.projectModalTitle.textContent = 'New Project';
       el.projectSubmitBtn.textContent = 'Create Project';
       el.projectNameInput.value = '';
       el.projectPathInput.value = '';
       el.projectAllowedToolsInput.value = '';
-      el.projectIntegrationsInput.value = '';
-      if (this.app.models.length > 0) {
-        el.projectModelSelect.value = this.app.models[0].value;
-      }
     }
 
     el.projectModal.classList.remove('hidden');
@@ -121,10 +114,6 @@ class ModalManager {
     el.projectNameInput.value = '';
     el.projectPathInput.value = '';
     el.projectAllowedToolsInput.value = '';
-    el.projectIntegrationsInput.value = '';
-    if (this.app.models.length > 0) {
-      el.projectModelSelect.value = this.app.models[0].value;
-    }
   }
 
   // --- Confirm modal ---

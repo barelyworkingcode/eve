@@ -5,6 +5,7 @@
 class MessageDispatcher {
   constructor(client) {
     this.client = client;
+    this.pendingInteractiveTool = null;
   }
 
   dispatch(data) {
@@ -58,6 +59,16 @@ class MessageDispatcher {
         break;
 
       case 'message_complete':
+        if (this.pendingInteractiveTool) {
+          const tool = this.pendingInteractiveTool;
+          this.pendingInteractiveTool = null;
+          // If we accumulated raw JSON string, parse it now
+          if (tool._rawInput) {
+            try { Object.assign(tool.input, JSON.parse(tool._rawInput)); } catch {}
+          }
+          this.handleInteractiveTool(tool.name, tool.input);
+          return;
+        }
         this.client.messageRenderer.hideThinkingIndicator();
         this.client.messageRenderer.finishAssistantMessage();
         this.client.hideStopButton();
@@ -125,19 +136,6 @@ class MessageDispatcher {
 
       case 'permission_request':
         this.client.modalManager.showPermissionModal(data);
-        break;
-
-      case 'plan_mode_exit':
-        this.client.modalManager.showPlanApproval((approved) => {
-          if (approved) {
-            this.client.messageRenderer.appendUserMessage('Yes, proceed with the plan.');
-            this.client.wsClient.send({ type: 'user_input', text: 'Yes, proceed with the plan.' });
-            this.client.messageRenderer.showThinkingIndicator();
-          } else {
-            this.client.elements.userInput.placeholder = 'Describe what to change in the plan...';
-            this.client.elements.userInput.focus();
-          }
-        });
         break;
 
       case 'warning':
@@ -243,7 +241,9 @@ class MessageDispatcher {
           if (block.type === 'text') {
             this.client.messageRenderer.startAssistantMessage(block.text);
           } else if (block.type === 'tool_use') {
-            this.client.messageRenderer.appendToolUse(block.name, block.input);
+            if (!this.handleInteractiveTool(block.name, block.input)) {
+              this.client.messageRenderer.appendToolUse(block.name, block.input);
+            }
           }
         }
       }
@@ -251,9 +251,26 @@ class MessageDispatcher {
       if (event.content_block.type === 'text') {
         this.client.messageRenderer.updateAssistantMessage(event.content_block.text);
       } else if (event.content_block.type === 'tool_use') {
-        this.client.messageRenderer.appendToolUse(event.content_block.name, event.content_block.input);
+        if (this.isInteractiveTool(event.content_block.name)) {
+          this.pendingInteractiveTool = { name: event.content_block.name, input: event.content_block.input || {} };
+        } else {
+          this.client.messageRenderer.appendToolUse(event.content_block.name, event.content_block.input);
+        }
       } else if (event.content_block.type === 'tool_use_input') {
-        this.client.messageRenderer.updateToolInput(event.content_block.input);
+        if (this.pendingInteractiveTool) {
+          if (typeof event.content_block.input === 'string') {
+            try {
+              Object.assign(this.pendingInteractiveTool.input, JSON.parse(event.content_block.input));
+            } catch {
+              // partial JSON chunk, accumulate as string
+              this.pendingInteractiveTool._rawInput = (this.pendingInteractiveTool._rawInput || '') + event.content_block.input;
+            }
+          } else if (event.content_block.input && typeof event.content_block.input === 'object') {
+            Object.assign(this.pendingInteractiveTool.input, event.content_block.input);
+          }
+        } else {
+          this.client.messageRenderer.updateToolInput(event.content_block.input);
+        }
       }
     } else if (event.delta) {
       if (event.delta.type === 'text_delta') {
@@ -268,6 +285,56 @@ class MessageDispatcher {
     } else if (event.subtype === 'tool_result') {
       this.client.messageRenderer.markToolComplete();
     }
+  }
+
+  // --- Interactive tool handling ---
+
+  isInteractiveTool(name) {
+    return name === 'ExitPlanMode' || name === 'AskUserQuestion';
+  }
+
+  handleInteractiveTool(name, input) {
+    if (name === 'ExitPlanMode') {
+      this.handleExitPlanMode();
+      return true;
+    }
+    if (name === 'AskUserQuestion') {
+      this.handleAskUserQuestion(input);
+      return true;
+    }
+    return false;
+  }
+
+  handleExitPlanMode() {
+    this.client.messageRenderer.hideThinkingIndicator();
+    this.client.hideStopButton();
+    this.client.modalManager.showPlanApproval((approved) => {
+      if (approved) {
+        this.client.messageRenderer.appendUserMessage('Yes, proceed with the plan.');
+        this.client.wsClient.send({ type: 'user_input', text: 'Yes, proceed with the plan.' });
+        this.client.messageRenderer.showThinkingIndicator();
+        this.client.showStopButton();
+      } else {
+        this.client.elements.userInput.placeholder = 'Describe what to change in the plan...';
+        this.client.elements.userInput.focus();
+      }
+    });
+  }
+
+  handleAskUserQuestion(input) {
+    this.client.messageRenderer.hideThinkingIndicator();
+    this.client.hideStopButton();
+    this.client.messageRenderer.finishAssistantMessage();
+
+    const questions = input && input.questions;
+    if (!questions || !Array.isArray(questions) || questions.length === 0) return;
+
+    this.client.messageRenderer.renderQuestionBlock(questions, (responseText) => {
+      this.client.messageRenderer.appendUserMessage(responseText);
+      this.client.wsClient.send({ type: 'user_input', text: responseText });
+      this.client.messageRenderer.showThinkingIndicator();
+      this.client.showStopButton();
+    });
   }
 
   handleSystemEvent(event) {

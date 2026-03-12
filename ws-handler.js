@@ -165,7 +165,8 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
         projectId: message.projectId || '',
         directory: message.directory || '',
         name: '',
-        model: message.model || ''
+        model: message.model || '',
+        settings: message.settings || null
       })
     });
 
