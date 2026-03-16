@@ -236,9 +236,48 @@
     </div>
   </div>
 
+  <!-- Task Modal -->
+  <div id="taskModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <h3 id="taskModalTitle">New Task</h3>
+      <form id="taskForm">
+        <label for="taskNameInput">Task Name</label>
+        <input type="text" id="taskNameInput" placeholder="Daily summary" required>
+        <label for="taskPromptInput">Prompt</label>
+        <textarea id="taskPromptInput" rows="4" placeholder="Summarize today's activity..." required></textarea>
+        <label for="taskModelSelect">Model</label>
+        <select id="taskModelSelect"></select>
+        <label for="taskScheduleType">Schedule</label>
+        <select id="taskScheduleType">
+          <option value="daily">Daily</option>
+          <option value="hourly">Hourly</option>
+          <option value="interval">Interval</option>
+          <option value="weekly">Weekly</option>
+          <option value="cron">Cron</option>
+          <option value="once">Once</option>
+          <option value="on_demand">On Demand</option>
+        </select>
+        <div id="taskScheduleConfig" class="task-schedule-config"></div>
+        <div class="provider-setting-field provider-setting-checkbox">
+          <label>
+            <input type="checkbox" id="taskEnabledInput" checked>
+            Enabled
+          </label>
+        </div>
+        <div id="taskLastResult"></div>
+        <div class="modal-actions">
+          <button type="button" id="cancelTaskModal" class="btn-secondary">Cancel</button>
+          <button type="submit" id="taskSubmitBtn" class="btn-primary">Create Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="auth.js"></script>
   <script src="ws-client.js"></script>
   <script src="message-renderer.js"></script>
+  <script src="task-manager.js"></script>
   <script src="modal-manager.js"></script>
   <script src="sidebar-renderer.js"></script>
   <script src="tab-manager.js"></script>

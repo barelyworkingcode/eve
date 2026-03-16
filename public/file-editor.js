@@ -263,10 +263,15 @@ class FileEditor {
     this.editorPath.textContent = path;
     this.saveBtn.disabled = true;
 
+    // Configure read-only mode for plan files
+    const isPlan = this.currentFile.projectId === '__plan__';
+    this.editor.updateOptions({ readOnly: isPlan });
+    this.saveBtn.classList.toggle('hidden', isPlan);
+
     // Configure view mode based on file type
     if (this.isMarkdownFile()) {
       this.viewModeToggle.classList.remove('hidden');
-      this.setViewMode(this.viewMode);
+      this.setViewMode(isPlan ? 'preview' : this.viewMode);
     } else {
       this.viewModeToggle.classList.add('hidden');
       this.editorContentEl.removeAttribute('data-view-mode');
@@ -293,11 +298,11 @@ class FileEditor {
 
     console.log('[FileEditor] Requesting file from server');
     // Request file content from server if not already loaded
-    this.client.ws.send(JSON.stringify({
-      type: 'read_file',
-      projectId,
-      path
-    }));
+    if (projectId === '__plan__') {
+      this.client.ws.send(JSON.stringify({ type: 'read_plan_file', path }));
+    } else {
+      this.client.ws.send(JSON.stringify({ type: 'read_file', projectId, path }));
+    }
   }
 
   /**
@@ -305,6 +310,7 @@ class FileEditor {
    */
   saveCurrentFile() {
     if (!this.currentFile) return;
+    if (this.currentFile.projectId === '__plan__') return;
 
     const content = this.editor.getValue();
 

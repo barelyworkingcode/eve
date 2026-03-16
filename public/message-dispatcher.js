@@ -6,6 +6,8 @@ class MessageDispatcher {
   constructor(client) {
     this.client = client;
     this.pendingInteractiveTool = null;
+    this.lastPlanFilePath = null;
+    this._lastNonInteractiveToolName = null;
   }
 
   dispatch(data) {
@@ -86,6 +88,10 @@ class MessageDispatcher {
         this.client.handleFileContent(data.projectId, data.path, data.content);
         break;
 
+      case 'plan_file_content':
+        this.client.handleFileContent('__plan__', data.path, data.content);
+        break;
+
       case 'file_error':
         this.client.fileBrowser.handleFileError(data.projectId, data.path, data.error);
         break;
@@ -145,7 +151,56 @@ class MessageDispatcher {
       case 'warning':
         this.client.messageRenderer.appendSystemMessage(data.message, 'warning');
         break;
+
+      // --- Scheduler task lifecycle events (pushed via WebSocket) ---
+      case 'task_started':
+      case 'task_completed':
+      case 'task_error':
+        this.handleSchedulerTaskEvent(data);
+        break;
+
+      case 'task_status':
+        this.handleSchedulerTaskStatus(data);
+        break;
     }
+  }
+
+  handleSchedulerTaskEvent(data) {
+    const taskManager = this.client.taskManager;
+    if (!taskManager) return;
+
+    taskManager.handleTaskEvent(data);
+    this.client.sidebarRenderer.renderProjectList();
+
+    if (data.type === 'task_completed') {
+      // Auto-join session if this tab triggered the run
+      if (taskManager.userTriggeredRuns.has(data.taskId)) {
+        taskManager.userTriggeredRuns.delete(data.taskId);
+        if (data.sessionId) {
+          this.client.joinSession(data.sessionId);
+        }
+      }
+      // Reload full task state from HTTP to sync
+      taskManager.loadTasks(data.projectId).then(() => {
+        this.client.sidebarRenderer.renderProjectList();
+      });
+    }
+
+    if (data.type === 'task_error') {
+      taskManager.userTriggeredRuns.delete(data.taskId);
+      // Reload full task state from HTTP to sync
+      taskManager.loadTasks(data.projectId).then(() => {
+        this.client.sidebarRenderer.renderProjectList();
+      });
+    }
+  }
+
+  handleSchedulerTaskStatus(data) {
+    const taskManager = this.client.taskManager;
+    if (!taskManager) return;
+
+    taskManager.handleTaskStatus(data);
+    this.client.sidebarRenderer.renderProjectList();
   }
 
   // --- Session event handlers ---
@@ -245,6 +300,9 @@ class MessageDispatcher {
           if (block.type === 'text') {
             this.client.messageRenderer.startAssistantMessage(block.text);
           } else if (block.type === 'tool_use') {
+            if (block.name === 'Write' && block.input?.file_path && /\.claude\/plans\//.test(block.input.file_path)) {
+              this.lastPlanFilePath = block.input.file_path;
+            }
             if (!this.handleInteractiveTool(block.name, block.input)) {
               this.client.messageRenderer.appendToolUse(block.name, block.input);
             }
@@ -258,6 +316,7 @@ class MessageDispatcher {
         if (this.isInteractiveTool(event.content_block.name)) {
           this.pendingInteractiveTool = { name: event.content_block.name, input: event.content_block.input || {} };
         } else {
+          this._lastNonInteractiveToolName = event.content_block.name;
           this.client.messageRenderer.appendToolUse(event.content_block.name, event.content_block.input);
         }
       } else if (event.content_block.type === 'tool_use_input') {
@@ -273,6 +332,14 @@ class MessageDispatcher {
             Object.assign(this.pendingInteractiveTool.input, event.content_block.input);
           }
         } else {
+          // Track plan file path from streaming Write tool input
+          if (this._lastNonInteractiveToolName === 'Write') {
+            const input = event.content_block.input;
+            const filePath = typeof input === 'object' ? input?.file_path : null;
+            if (filePath && /\.claude\/plans\//.test(filePath)) {
+              this.lastPlanFilePath = filePath;
+            }
+          }
           this.client.messageRenderer.updateToolInput(event.content_block.input);
         }
       }
@@ -312,6 +379,13 @@ class MessageDispatcher {
   handleExitPlanMode() {
     this.client.messageRenderer.hideThinkingIndicator();
     this.client.hideStopButton();
+
+    // Open the plan file in the editor if we tracked the path
+    if (this.lastPlanFilePath) {
+      this.client.wsClient.send({ type: 'read_plan_file', path: this.lastPlanFilePath });
+      this.lastPlanFilePath = null;
+    }
+
     this.client.modalManager.showPlanApproval((approved) => {
       if (approved) {
         this.client.messageRenderer.appendUserMessage('Yes, proceed with the plan.');

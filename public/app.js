@@ -30,6 +30,7 @@ class EveWorkspaceClient {
     // Initialize modules
     this.wsClient = new WsClient(this);
     this.messageRenderer = new MessageRenderer(this);
+    this.taskManager = new TaskManager(this);
     this.modalManager = new ModalManager(this);
     this.sidebarRenderer = new SidebarRenderer(this);
     this.tabManager = new TabManager(this);
@@ -118,7 +119,19 @@ class EveWorkspaceClient {
       planRevise: document.getElementById('planRevise'),
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
-      stopBtn: document.getElementById('stopBtn')
+      stopBtn: document.getElementById('stopBtn'),
+      taskModal: document.getElementById('taskModal'),
+      taskModalTitle: document.getElementById('taskModalTitle'),
+      taskForm: document.getElementById('taskForm'),
+      taskNameInput: document.getElementById('taskNameInput'),
+      taskPromptInput: document.getElementById('taskPromptInput'),
+      taskModelSelect: document.getElementById('taskModelSelect'),
+      taskScheduleType: document.getElementById('taskScheduleType'),
+      taskScheduleConfig: document.getElementById('taskScheduleConfig'),
+      taskEnabledInput: document.getElementById('taskEnabledInput'),
+      cancelTaskModal: document.getElementById('cancelTaskModal'),
+      taskSubmitBtn: document.getElementById('taskSubmitBtn'),
+      taskLastResult: document.getElementById('taskLastResult')
     };
   }
 
@@ -160,6 +173,10 @@ class EveWorkspaceClient {
       this.renderProviderSettings();
     });
 
+    // Task form
+    if (this.elements.taskForm) {
+      this.elements.taskForm.addEventListener('submit', (e) => this.handleTaskSubmit(e));
+    }
   }
 
   // --- WebSocket ready ---
@@ -257,11 +274,16 @@ class EveWorkspaceClient {
       const projects = await response.json();
       this.projects.clear();
       projects.forEach(project => this.projects.set(project.id, project));
+      await this.loadAllTasks();
       this.sidebarRenderer.renderProjectList();
       this.updateProjectSelect();
     } catch (err) {
       console.error('Failed to load projects:', err);
     }
+  }
+
+  async loadAllTasks() {
+    await this.taskManager.loadTasks();
   }
 
   async loadSessions() {
@@ -336,17 +358,46 @@ class EveWorkspaceClient {
     }
   }
 
+  async handleTaskSubmit(e) {
+    e.preventDefault();
+    const el = this.elements;
+    const name = el.taskNameInput.value.trim();
+    const prompt = el.taskPromptInput.value.trim();
+    const model = el.taskModelSelect.value || undefined;
+    const enabled = el.taskEnabledInput.checked;
+    const schedule = this.modalManager.collectSchedule();
+    const projectId = this.modalManager.taskProjectId;
+    if (!name || !prompt || !projectId) return;
+
+    const data = { name, prompt, model, enabled, schedule, projectId };
+    const taskId = this.modalManager.editingTaskId;
+
+    if (taskId) {
+      await this.taskManager.updateTask(taskId, data);
+    } else {
+      await this.taskManager.createTask(data);
+    }
+
+    this.modalManager.hideTaskModal();
+    this.sidebarRenderer.renderProjectList();
+  }
+
   async deleteProject(projectId) {
     const project = this.projects.get(projectId);
     if (!project) return;
 
     const sessionCount = Array.from(this.sessions.values()).filter(s => s.projectId === projectId).length;
-    const message = sessionCount > 0
-      ? `Delete '${project.name}'? ${sessionCount} session(s) will become ungrouped.`
+    const taskCount = this.taskManager.getTasksForProject(projectId).length;
+    const parts = [];
+    if (sessionCount > 0) parts.push(`${sessionCount} session(s) will become ungrouped`);
+    if (taskCount > 0) parts.push(`${taskCount} task(s) will be deleted`);
+    const message = parts.length > 0
+      ? `Delete '${project.name}'? ${parts.join(', ')}.`
       : `Delete '${project.name}'?`;
 
     this.modalManager.showConfirmModal(message, async () => {
       try {
+        await this.taskManager.deleteByProject(projectId);
         await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers: this.getAuthHeaders() });
         this.projects.delete(projectId);
         this.sidebarRenderer.renderProjectList();
