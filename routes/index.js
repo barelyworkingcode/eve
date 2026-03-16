@@ -1,6 +1,6 @@
 const createAuthRoutes = require('./auth');
 
-function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
+function registerRoutes(app, { authService, relayUrl, schedulerUrl, refreshProjectCache }) {
   // Shared auth middleware
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
@@ -16,10 +16,10 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
   // Auth routes (local, no proxy)
   app.use('/api', createAuthRoutes(authService));
 
-  // Proxy helper: forwards request to relayLLM and returns the response
-  async function proxy(req, res, method, relayPath, body) {
+  // Proxy helper: forwards request to a backend and returns the response
+  async function proxyTo(req, res, baseUrl, method, path, body) {
     try {
-      const url = `${relayUrl}${relayPath}`;
+      const url = `${baseUrl}${path}`;
       const opts = {
         method,
         headers: { 'Content-Type': 'application/json' }
@@ -32,10 +32,15 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
       res.status(response.status).json(data);
       return data;
     } catch (err) {
-      console.error(`[Proxy] ${method} ${relayPath} failed:`, err.message);
-      res.status(502).json({ error: 'Relay service unavailable' });
+      console.error(`[Proxy] ${method} ${baseUrl}${path} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
       return null;
     }
+  }
+
+  // Shorthand for relayLLM proxy
+  function proxy(req, res, method, relayPath, body) {
+    return proxyTo(req, res, relayUrl, method, relayPath, body);
   }
 
   // --- Models (proxy) ---
@@ -64,6 +69,12 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
   });
 
   app.delete('/api/projects/:id', requireAuth, async (req, res) => {
+    // Cascade: delete tasks for this project in scheduler first
+    try {
+      await fetch(`${schedulerUrl}/api/tasks/by-project/${req.params.id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('[Proxy] Scheduler cascade delete failed:', err.message);
+    }
     await proxy(req, res, 'DELETE', `/api/projects/${req.params.id}`);
     refreshProjectCache();
   });
@@ -71,6 +82,40 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
   // --- Sessions (proxy) ---
   app.get('/api/sessions', requireAuth, (req, res) => {
     proxy(req, res, 'GET', '/api/sessions');
+  });
+
+  // --- Tasks (proxy to scheduler) ---
+  app.get('/api/tasks', requireAuth, (req, res) => {
+    const qs = req.query.projectId ? `?projectId=${req.query.projectId}` : '';
+    proxyTo(req, res, schedulerUrl, 'GET', `/api/tasks${qs}`);
+  });
+
+  app.post('/api/tasks', requireAuth, (req, res) => {
+    proxyTo(req, res, schedulerUrl, 'POST', '/api/tasks', req.body);
+  });
+
+  app.get('/api/tasks/:taskId', requireAuth, (req, res) => {
+    proxyTo(req, res, schedulerUrl, 'GET', `/api/tasks/${req.params.taskId}`);
+  });
+
+  app.put('/api/tasks/:taskId', requireAuth, (req, res) => {
+    proxyTo(req, res, schedulerUrl, 'PUT', `/api/tasks/${req.params.taskId}`, req.body);
+  });
+
+  app.delete('/api/tasks/:taskId', requireAuth, (req, res) => {
+    proxyTo(req, res, schedulerUrl, 'DELETE', `/api/tasks/${req.params.taskId}`);
+  });
+
+  app.delete('/api/tasks/by-project/:projectId', requireAuth, (req, res) => {
+    proxyTo(req, res, schedulerUrl, 'DELETE', `/api/tasks/by-project/${req.params.projectId}`);
+  });
+
+  app.get('/api/tasks/:taskId/history', requireAuth, (req, res) => {
+    proxyTo(req, res, schedulerUrl, 'GET', `/api/tasks/${req.params.taskId}/history`);
+  });
+
+  app.post('/api/tasks/:taskId/run', requireAuth, (req, res) => {
+    proxyTo(req, res, schedulerUrl, 'POST', `/api/tasks/${req.params.taskId}/run`);
   });
 }
 
