@@ -189,11 +189,10 @@ class EveWorkspaceClient {
     // Order matters: task session IDs must be known before sessions load
     // so task sessions are filtered from the sidebar.
     this.loadProjects().then(() => this.loadSessions()).then(() => {
-      // Re-join current session so the server-side WS handler knows which
-      // session to route messages to (its closure-scoped currentSessionId
-      // resets to null on every new WebSocket connection).
-      if (this.currentSessionId) {
-        this.wsClient.send({ type: 'join_session', sessionId: this.currentSessionId });
+      // Re-join ALL open session tabs so relayLLM routes events for each.
+      const sessionTabs = this.tabManager.tabs.filter(t => t.type === 'session');
+      for (const tab of sessionTabs) {
+        this.wsClient.send({ type: 'join_session', sessionId: tab.id });
       }
     });
 
@@ -425,7 +424,7 @@ class EveWorkspaceClient {
 
     const files = this.fileAttachmentManager.consumeFiles();
     this.messageRenderer.appendUserMessage(text, files);
-    this.wsClient.send({ type: 'user_input', text, files });
+    this.wsClient.send({ type: 'user_input', text, files, sessionId: this.currentSessionId });
 
     this.elements.userInput.value = '';
     this.autoResizeTextarea();

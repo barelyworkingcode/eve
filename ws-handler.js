@@ -65,8 +65,12 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
             handleUserInput(ws, relayClient, message);
             break;
 
+          case 'leave_session':
+            relayClient.leaveSession(message.sessionId);
+            break;
+
           case 'end_session':
-            relayClient.endSession(relayClient.currentSessionId);
+            relayClient.endSession(message.sessionId || relayClient.currentSessionId);
             break;
 
           case 'delete_session':
@@ -215,7 +219,7 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
     }));
 
     // Suppress the session_joined that relayLLM will send when we join
-    relayClient.setSuppressNextJoin(true);
+    relayClient.setSuppressNextJoin(data.sessionId);
     relayClient.currentSessionId = data.sessionId;
     relayClient.sessionDirectory = data.directory;
     relayClient.joinSession(data.sessionId);
@@ -237,7 +241,7 @@ function handleUserInput(ws, relayClient, message) {
   }
 
   const files = (message.files || []).map(parseFileAttachment);
-  relayClient.sendMessage(message.text, files);
+  relayClient.sendMessage(message.text, files, message.sessionId);
 }
 
 /**
