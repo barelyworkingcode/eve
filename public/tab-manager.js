@@ -148,10 +148,29 @@ class TabManager {
     if (tab.type === 'session') {
       this.chatContent.classList.remove('hidden');
 
+      // Flush any partial streaming message from the old session to its history
+      const prevSessionId = this.client.currentSessionId;
+      if (prevSessionId && prevSessionId !== tab.id) {
+        this.client.messageRenderer.finishAssistantMessage();
+      }
+
+      // Flush background buffer for the session we're switching to
+      if (this.client.messageDispatcher) {
+        this.client.messageDispatcher.flushBackgroundBuffer(tab.id);
+      }
+
       // Update current session in client
       this.client.currentSessionId = tab.id;
       this.client.renderMessages();
       this.client.updateStatsForSession(tab.id);
+
+      // Restore stop button state based on whether this session is streaming
+      if (this.client.messageDispatcher?.streamingSessions.has(tab.id)) {
+        this.client.showStopButton();
+        this.client.messageRenderer.showThinkingIndicator();
+      } else {
+        this.client.hideStopButton();
+      }
     } else if (tab.type === 'file') {
       this.editorContent.classList.remove('hidden');
 
@@ -194,6 +213,15 @@ class TabManager {
         projectId: tab.projectId,
         path: tab.path
       }));
+    }
+
+    // Send leave_session to unbind from relayLLM when closing a session tab
+    if (tab.type === 'session') {
+      this.client.wsClient.send({ type: 'leave_session', sessionId: tab.id });
+      if (this.client.messageDispatcher) {
+        this.client.messageDispatcher.backgroundBuffers.delete(tab.id);
+        this.client.messageDispatcher.streamingSessions.delete(tab.id);
+      }
     }
 
     // Clean up terminal if closing terminal tab

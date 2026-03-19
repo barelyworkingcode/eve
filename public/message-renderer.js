@@ -172,6 +172,8 @@ class MessageRenderer {
       }
     }
 
+    // Complete any trailing tool block from history
+    this.markToolComplete();
     this.renderMermaidBlocks(this.app.elements.messages);
     this.scrollToBottom();
     this.app.isRenderingHistory = false;

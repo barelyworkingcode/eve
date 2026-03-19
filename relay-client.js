@@ -63,7 +63,7 @@ class RelayClient {
     // browser directly, then joins via relay WS. The relay responds with
     // session_joined which would duplicate the notification, so we suppress it.
     // The flag is set by ws-handler.js handleCreateSession().
-    if (msg.type === 'session_joined' && this.suppressNextJoin) {
+    if (msg.type === 'session_joined' && this.suppressNextJoin === msg.sessionId) {
       this.suppressNextJoin = false;
       if (msg.directory) {
         this.sessionDirectory = msg.directory;
@@ -106,8 +106,12 @@ class RelayClient {
     this._send({ type: 'join_session', sessionId });
   }
 
-  sendMessage(text, files) {
-    this._send({ type: 'send_message', text, files });
+  sendMessage(text, files, sessionId) {
+    this._send({ type: 'send_message', text, files, sessionId });
+  }
+
+  leaveSession(sessionId) {
+    this._send({ type: 'leave_session', sessionId });
   }
 
   endSession(sessionId) {

@@ -8,9 +8,22 @@ class MessageDispatcher {
     this.pendingInteractiveTool = null;
     this.lastPlanFilePath = null;
     this._lastNonInteractiveToolName = null;
+    // Background buffers: sessionId -> { contentBlocks: ContentBlock[] }
+    this.backgroundBuffers = new Map();
+    // Set of sessionIds that are currently streaming
+    this.streamingSessions = new Set();
   }
 
   dispatch(data) {
+    // Route session-scoped events to the correct session.
+    // If the event has a sessionId that doesn't match the current visible session,
+    // buffer it for that session instead of rendering it.
+    const sessionScopedTypes = ['llm_event', 'message_complete', 'stats_update', 'raw_output', 'stderr', 'process_exited', 'error', 'system_message', 'clear_messages'];
+    if (data.sessionId && data.sessionId !== this.client.currentSessionId && sessionScopedTypes.includes(data.type)) {
+      this._handleBackgroundEvent(data);
+      return;
+    }
+
     switch (data.type) {
       case 'session_created':
         this.handleSessionCreated(data);
@@ -25,6 +38,7 @@ class MessageDispatcher {
         break;
 
       case 'llm_event':
+        if (data.sessionId) this.streamingSessions.add(data.sessionId);
         this.handleLlmEvent(data.event);
         break;
 
@@ -41,12 +55,14 @@ class MessageDispatcher {
         break;
 
       case 'process_exited':
+        if (data.sessionId) this.streamingSessions.delete(data.sessionId);
         this.client.messageRenderer.hideThinkingIndicator();
         this.client.messageRenderer.appendSystemMessage('Provider process exited. Will restart on next message.');
         this.client.hideStopButton();
         break;
 
       case 'error':
+        if (data.sessionId) this.streamingSessions.delete(data.sessionId);
         this.client.messageRenderer.hideThinkingIndicator();
         this.client.messageRenderer.appendSystemMessage(data.message, 'error');
         this.client.hideStopButton();
@@ -61,6 +77,7 @@ class MessageDispatcher {
         break;
 
       case 'message_complete':
+        if (data.sessionId) this.streamingSessions.delete(data.sessionId);
         if (this.pendingInteractiveTool) {
           const tool = this.pendingInteractiveTool;
           this.pendingInteractiveTool = null;
@@ -209,6 +226,105 @@ class MessageDispatcher {
 
     taskManager.handleTaskStatus(data);
     this.client.sidebarRenderer.renderProjectList();
+  }
+
+  // --- Background session buffering ---
+
+  _handleBackgroundEvent(data) {
+    const sid = data.sessionId;
+
+    if (data.type === 'stats_update') {
+      // Always update session stats object even for background sessions
+      const session = this.client.sessions.get(sid);
+      if (session && data.stats) {
+        session.costUsd = data.stats.costUsd || 0;
+      }
+      return;
+    }
+
+    if (data.type === 'llm_event') {
+      this.streamingSessions.add(sid);
+      const event = data.event;
+      if (!event) return;
+
+      let buf = this.backgroundBuffers.get(sid);
+      if (!buf) {
+        buf = { contentBlocks: [] };
+        this.backgroundBuffers.set(sid, buf);
+      }
+
+      // Accumulate structured content blocks from streaming events
+      if (event.type === 'assistant') {
+        if (event.message?.content) {
+          for (const block of event.message.content) {
+            if (block.type === 'text') {
+              buf.contentBlocks.push({ type: 'text', text: block.text });
+            } else if (block.type === 'tool_use') {
+              buf.contentBlocks.push({ type: 'tool_use', name: block.name, input: block.input });
+            }
+          }
+        } else if (event.delta?.type === 'text_delta') {
+          const last = buf.contentBlocks[buf.contentBlocks.length - 1];
+          if (last && last.type === 'text') {
+            last.text += event.delta.text;
+          } else {
+            buf.contentBlocks.push({ type: 'text', text: event.delta.text });
+          }
+        } else if (event.content_block?.type === 'text') {
+          buf.contentBlocks.push({ type: 'text', text: event.content_block.text });
+        } else if (event.content_block?.type === 'tool_use') {
+          buf.contentBlocks.push({ type: 'tool_use', name: event.content_block.name, input: event.content_block.input || {} });
+        }
+      } else if (event.type === 'result' && event.subtype === 'tool_result') {
+        // Mark the last tool_use block as completed
+        const last = buf.contentBlocks[buf.contentBlocks.length - 1];
+        if (last && last.type === 'tool_use') {
+          last.completed = true;
+        }
+      }
+      return;
+    }
+
+    if (data.type === 'message_complete') {
+      this.streamingSessions.delete(sid);
+      // Flush accumulated content blocks as a completed assistant message
+      const buf = this.backgroundBuffers.get(sid);
+      if (buf && buf.contentBlocks.length > 0) {
+        const history = this.client.sessionHistories.get(sid);
+        if (history) {
+          history.push({ role: 'assistant', content: buf.contentBlocks });
+        }
+        buf.contentBlocks = [];
+      }
+      return;
+    }
+
+    if (data.type === 'error' || data.type === 'process_exited') {
+      this.streamingSessions.delete(sid);
+      return;
+    }
+
+    // Other background events (stderr, etc.) -- ignore silently
+  }
+
+  /**
+   * Flush any buffered background content for a session when switching to it.
+   * Called by TabManager.switchToTab before renderMessages.
+   */
+  flushBackgroundBuffer(sessionId) {
+    const buf = this.backgroundBuffers.get(sessionId);
+    if (!buf) return;
+
+    // If there are partial content blocks still streaming (no message_complete yet),
+    // save them to history so they render on tab switch.
+    if (buf.contentBlocks.length > 0) {
+      const history = this.client.sessionHistories.get(sessionId);
+      if (history) {
+        history.push({ role: 'assistant', content: buf.contentBlocks });
+      }
+      buf.contentBlocks = [];
+    }
+    this.backgroundBuffers.delete(sessionId);
   }
 
   // --- Session event handlers ---
@@ -409,7 +525,7 @@ class MessageDispatcher {
     this.client.modalManager.showPlanApproval((approved) => {
       if (approved) {
         this.client.messageRenderer.appendUserMessage('Yes, proceed with the plan.');
-        this.client.wsClient.send({ type: 'user_input', text: 'Yes, proceed with the plan.' });
+        this.client.wsClient.send({ type: 'user_input', text: 'Yes, proceed with the plan.', sessionId: this.client.currentSessionId });
         this.client.messageRenderer.showThinkingIndicator();
         this.client.showStopButton();
       } else {
@@ -429,7 +545,7 @@ class MessageDispatcher {
 
     this.client.messageRenderer.renderQuestionBlock(questions, (responseText) => {
       this.client.messageRenderer.appendUserMessage(responseText);
-      this.client.wsClient.send({ type: 'user_input', text: responseText });
+      this.client.wsClient.send({ type: 'user_input', text: responseText, sessionId: this.client.currentSessionId });
       this.client.messageRenderer.showThinkingIndicator();
       this.client.showStopButton();
     });
