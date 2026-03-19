@@ -185,20 +185,17 @@ class EveWorkspaceClient {
     // Clear stale thinking indicator from previous connection
     this.messageRenderer.hideThinkingIndicator();
 
-    this.loadProjects();
-    this.loadSessions();
-
-    // Restore session ID from localStorage if lost (e.g. page refresh).
-    if (!this.currentSessionId) {
-      this.currentSessionId = localStorage.getItem('eve_currentSession');
-    }
-
-    // Re-join current session so the server-side WS handler knows which
-    // session to route messages to (its closure-scoped currentSessionId
-    // resets to null on every new WebSocket connection).
-    if (this.currentSessionId) {
-      this.wsClient.send({ type: 'join_session', sessionId: this.currentSessionId });
-    }
+    // Load projects (and tasks) first, then sessions, then re-join.
+    // Order matters: task session IDs must be known before sessions load
+    // so task sessions are filtered from the sidebar.
+    this.loadProjects().then(() => this.loadSessions()).then(() => {
+      // Re-join current session so the server-side WS handler knows which
+      // session to route messages to (its closure-scoped currentSessionId
+      // resets to null on every new WebSocket connection).
+      if (this.currentSessionId) {
+        this.wsClient.send({ type: 'join_session', sessionId: this.currentSessionId });
+      }
+    });
 
     this.terminalManager.onReady(() => this.terminalManager.requestTerminalList());
     this.tabManager.reestablishFileWatches();

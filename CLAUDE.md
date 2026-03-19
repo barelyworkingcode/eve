@@ -259,16 +259,18 @@ Browser ──WS──► Eve (ws-handler) ──WS──► relayLLM    (sessio
 Browser ──WS──► Eve (ws-handler) ──local──► FileService  (file ops)
 Browser ──WS──► Eve (ws-handler) ──local──► TerminalMgr  (terminals)
 Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM     (models, projects, sessions list)
+Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM ──HTTP──► relayScheduler  (tasks)
+Browser ──WS──► Eve ──WS──► relayLLM ──WS──► relayScheduler  (task events: task_started, task_completed, task_error, task_status)
 ```
 
 ### Core Components
 
 **Server**
 - `server.js` - Express + WS setup, relayLLM config, project cache, shutdown
-- `ws-handler.js` - WebSocket message dispatch: relay ops → RelayClient, local ops → file/terminal handlers
+- `ws-handler.js` - WebSocket message dispatch: relay ops → RelayClient, local ops → file/terminal handlers. Task events forwarded from relayLLM.
 - `relay-client.js` - WS bridge to relayLLM (one instance per browser connection)
 - `slash-command-handler.js` - Local slash commands (/clear, /help, /zsh, /bash, /claude)
-- `routes/index.js` - HTTP proxy to relayLLM (models, projects, sessions) + local auth
+- `routes/index.js` - HTTP proxy to relayLLM (models, projects, sessions, tasks) + local auth
 - `routes/auth.js` - WebAuthn enrollment/login
 - `file-handlers.js` - WebSocket adapter for file operations
 - `file-service.js` - Path validation + file CRUD
@@ -433,7 +435,7 @@ All session, project, and task data lives in relayLLM.
 - `relay-client.js` (~140 lines) - WS bridge to relayLLM
 - `slash-command-handler.js` (~65 lines) - Local slash command handling
 - `session-store.js` (~70 lines) - Auth session token persistence
-- `routes/index.js` (~77 lines) - HTTP proxy routes
+- `routes/index.js` (~85 lines) - HTTP proxy routes (includes task proxy to relayLLM)
 - `routes/auth.js` (~107 lines) - WebAuthn routes
 
 ## Common Tasks
@@ -521,7 +523,7 @@ Manual testing checklist for new features:
 
 ## Ecosystem
 
-Eve is part of the Relay ecosystem. It depends on relayLLM for all LLM operations and registers with Relay as a managed service.
+Eve is part of the Relay ecosystem. It has a single backend dependency (relayLLM), which proxies to relayScheduler for task operations. Eve does not connect to relayScheduler directly.
 
 - `../relay/` -- MCP orchestrator. Manages Eve as a background service.
-- `../relayLLM/` -- LLM engine. Eve proxies all session/project/permission operations to relayLLM.
+- `../relayLLM/` -- LLM engine. Eve's single backend — proxies all session/project/permission/task operations to relayLLM, which in turn proxies tasks to relayScheduler.

@@ -206,6 +206,7 @@ Browser ──WS──► Eve ──WS──► relayLLM       (sessions, messag
 Browser ──WS──► Eve ──local──► FileService  (file ops)
 Browser ──WS──► Eve ──local──► TerminalMgr  (terminals)
 Browser ──HTTP──► Eve ──HTTP──► relayLLM    (models, projects, sessions list)
+Browser ──HTTP──► Eve ──HTTP──► relayLLM ──HTTP──► relayScheduler  (tasks)
 ```
 
 ```
@@ -259,8 +260,8 @@ data/                    - Runtime data (gitignored): auth, settings, PIDs
 Eve is part of the Relay ecosystem. Each project works independently, but together they form a complete stack for giving LLMs secure access to macOS.
 
 - **[Relay](https://github.com/barelyworkingcode/relay)** -- MCP orchestrator. Manages Eve as a background service with per-token permissions.
-- **[relayLLM](https://github.com/barelyworkingcode/relayLLM)** -- LLM engine. Eve proxies all session, project, and permission operations to relayLLM.
-- **[relayScheduler](https://github.com/barelyworkingcode/relayScheduler)** -- Task scheduler. Runs LLM prompts on schedule via relayLLM.
+- **[relayLLM](https://github.com/barelyworkingcode/relayLLM)** -- LLM engine. Eve's single backend — proxies all session, project, permission, and task operations to relayLLM, which in turn proxies tasks to relayScheduler.
+- **[relayScheduler](https://github.com/barelyworkingcode/relayScheduler)** -- Task scheduler. Runs LLM prompts on schedule. Eve reaches it indirectly through relayLLM.
 - **[relayTelegram](https://github.com/barelyworkingcode/relayTelegram)** -- Telegram bot bridge to relayLLM sessions.
 - **[macMCP](https://github.com/barelyworkingcode/macMCP)** -- Swift MCP server with 41 macOS-native tools.
 - **[fsMCP](https://github.com/barelyworkingcode/fsmcp)** -- File system MCP server (read, write, edit, glob, grep, bash).

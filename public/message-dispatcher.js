@@ -177,6 +177,14 @@ class MessageDispatcher {
       if (taskManager.userTriggeredRuns.has(data.taskId)) {
         taskManager.userTriggeredRuns.delete(data.taskId);
         if (data.sessionId) {
+          // Clean up old session tab if we're viewing one for this task
+          const task = taskManager.tasks.get(data.taskId);
+          const oldSessionId = this.client.currentSessionId;
+          if (oldSessionId && task) {
+            this.client.tabManager.closeTab(oldSessionId);
+            this.client.sessions.delete(oldSessionId);
+            this.client.sessionHistories.delete(oldSessionId);
+          }
           this.client.joinSession(data.sessionId);
         }
       }
@@ -215,7 +223,6 @@ class MessageDispatcher {
       active: true
     });
     this.client.currentSessionId = data.sessionId;
-    localStorage.setItem('eve_currentSession', data.sessionId);
     this.client.sessionHistories.set(data.sessionId, []);
     this.client.showChatScreen();
     this.client.tabManager.openSession(data.sessionId);
@@ -226,7 +233,6 @@ class MessageDispatcher {
 
   handleSessionJoined(data) {
     this.client.currentSessionId = data.sessionId;
-    localStorage.setItem('eve_currentSession', data.sessionId);
     const existingSession = this.client.sessions.get(data.sessionId);
     if (existingSession) {
       if (data.name !== undefined) {
@@ -235,7 +241,21 @@ class MessageDispatcher {
       if (data.model) {
         existingSession.model = data.model;
       }
+    } else {
+      this.client.sessions.set(data.sessionId, {
+        id: data.sessionId,
+        directory: data.directory,
+        projectId: data.projectId || null,
+        name: data.name || null,
+        model: data.model || null,
+        active: true
+      });
     }
+
+    if (data.headless && this.client.taskManager) {
+      this.client.taskManager.taskSessionIds.add(data.sessionId);
+    }
+
     if (data.history && data.history.length > 0) {
       this.client.sessionHistories.set(data.sessionId, data.history);
     } else {
@@ -244,6 +264,7 @@ class MessageDispatcher {
     this.client.messageRenderer.clearMessages();
     this.client.showChatScreen();
     this.client.tabManager.openSession(data.sessionId);
+    this.client.renderMessages();
     this.client.sidebarRenderer.renderProjectList();
     this.client.modalManager.hidePlanApproval();
     if (data.stats) {
@@ -268,7 +289,6 @@ class MessageDispatcher {
     this.client.tabManager.closeTab(data.sessionId);
     if (this.client.currentSessionId === data.sessionId) {
       this.client.currentSessionId = null;
-      localStorage.removeItem('eve_currentSession');
       this.client.showWelcomeScreen();
     }
     this.client.sidebarRenderer.renderProjectList();

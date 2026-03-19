@@ -257,17 +257,10 @@ class SidebarRenderer {
       spinner.className = 'task-run-spinner';
       runBtn.appendChild(spinner);
 
-      const oldSessionId = task.lastSessionId;
-      if (oldSessionId) {
-        this.app.tabManager.closeTab(oldSessionId);
-        this.app.sessions.delete(oldSessionId);
-        this.app.sessionHistories.delete(oldSessionId);
-        this.app.wsClient.send({ type: 'delete_session', sessionId: oldSessionId });
-        if (this.app.currentSessionId === oldSessionId) {
-          this.app.currentSessionId = null;
-          this.app.showWelcomeScreen();
-        }
-      }
+      // Don't delete the old session here — the scheduler handles cleanup
+      // (EndSession on old session before creating a new one). The old
+      // session stays visible until task_completed arrives with the new
+      // sessionId, at which point auto-join switches to it.
 
       this.app.taskManager.userTriggeredRuns.add(task.id);
       this.app.taskManager.runTask(task.id);

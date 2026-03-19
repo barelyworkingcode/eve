@@ -49,7 +49,7 @@ class TabManager {
       const project = this.client.projects.get(session.projectId);
       label = project?.name || session.directory;
     } else {
-      label = session.directory.split('/').filter(p => p).pop() || session.directory;
+      label = session.directory?.split('/').filter(p => p).pop() || session.directory || 'Session';
     }
 
     // Create new tab
