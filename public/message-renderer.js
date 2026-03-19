@@ -156,7 +156,10 @@ class MessageRenderer {
       if (msg.role === 'user') {
         this.appendUserMessage(msg.content, msg.files || []);
       } else if (msg.role === 'assistant') {
-        if (Array.isArray(msg.content)) {
+        if (typeof msg.content === 'string') {
+          this.startAssistantMessage(msg.content);
+          this.finishAssistantMessage();
+        } else if (Array.isArray(msg.content)) {
           for (const block of msg.content) {
             if (block.type === 'text' && block.text) {
               this.startAssistantMessage(block.text);

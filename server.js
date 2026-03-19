@@ -88,11 +88,6 @@ const RELAY_LLM_URL = process.env.RELAY_LLM_URL || 'http://localhost:3001';
 const RELAY_LLM_WS_URL = RELAY_LLM_URL.replace(/^http/, 'ws') + '/ws';
 console.log(`relayLLM URL: ${RELAY_LLM_URL} (WS: ${RELAY_LLM_WS_URL})`);
 
-// relayScheduler connection
-const RELAY_SCHEDULER_URL = process.env.RELAY_SCHEDULER_URL || 'http://localhost:3002';
-const RELAY_SCHEDULER_WS_URL = RELAY_SCHEDULER_URL.replace(/^http/, 'ws') + '/ws';
-console.log(`relayScheduler URL: ${RELAY_SCHEDULER_URL} (WS: ${RELAY_SCHEDULER_WS_URL})`);
-
 // Project cache (refreshed from relayLLM via HTTP proxy routes)
 const projectCache = new Map();
 
@@ -134,14 +129,13 @@ app.use('/mermaid', express.static(path.join(__dirname, 'node_modules/mermaid/di
 app.use(express.json({ limit: '50mb' }));
 
 // Register HTTP routes (proxy to relayLLM + scheduler + local auth)
-registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, schedulerUrl: RELAY_SCHEDULER_URL, refreshProjectCache });
+registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache });
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
   authService, fileHandlers, terminalManager,
   relayWsUrl: RELAY_LLM_WS_URL,
   relayHttpUrl: RELAY_LLM_URL,
-  schedulerWsUrl: RELAY_SCHEDULER_WS_URL,
   claudeConfig: settings.providerConfig.claude,
   resolveProject: (id) => projectCache.get(id)
 }));

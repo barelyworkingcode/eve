@@ -5,13 +5,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const RelayClient = require('./relay-client');
-const SchedulerClient = require('./scheduler-client');
 const SlashCommandHandler = require('./slash-command-handler');
 const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUrl, relayHttpUrl, schedulerWsUrl, claudeConfig, resolveProject }) {
+function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
@@ -26,10 +25,6 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
       console.error('[WsHandler] Failed to connect to relayLLM:', err.message);
       ws.send(JSON.stringify({ type: 'error', message: 'Cannot connect to relay service' }));
     });
-
-    // Connect to relayScheduler for task events (non-fatal on failure)
-    const schedulerClient = new SchedulerClient(schedulerWsUrl, ws);
-    schedulerClient.connect();
 
     ws.on('message', async (data) => {
       try {
@@ -178,7 +173,6 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
 
     ws.on('close', () => {
       relayClient.close();
-      schedulerClient.close();
       fileWatcher.closeAll();
       terminalManager.detachAll(ws);
     });

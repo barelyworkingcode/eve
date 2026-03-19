@@ -7,6 +7,7 @@ class TaskManager {
     this.app = app;
     this.tasks = new Map();
     this.userTriggeredRuns = new Set();
+    this.taskSessionIds = new Set();
   }
 
   async loadTasks(projectId) {
@@ -25,6 +26,7 @@ class TaskManager {
       }
       for (const task of tasks) {
         this.tasks.set(task.id, task);
+        if (task.lastSessionId) this.taskSessionIds.add(task.lastSessionId);
       }
     } catch (err) {
       console.error('Failed to load tasks:', err);
@@ -115,11 +117,17 @@ class TaskManager {
     switch (data.type) {
       case 'task_started':
         task.lastStatus = 'running';
-        if (data.sessionId) task.lastSessionId = data.sessionId;
+        if (data.sessionId) {
+          this.taskSessionIds.add(data.sessionId);
+          task.lastSessionId = data.sessionId;
+        }
         break;
       case 'task_completed':
         task.lastStatus = data.status || 'success';
-        if (data.sessionId) task.lastSessionId = data.sessionId;
+        if (data.sessionId) {
+          this.taskSessionIds.add(data.sessionId);
+          task.lastSessionId = data.sessionId;
+        }
         break;
       case 'task_error':
         task.lastStatus = 'error';
@@ -137,17 +145,16 @@ class TaskManager {
       const task = this.tasks.get(item.taskId);
       if (task) {
         task.lastStatus = 'running';
-        if (item.sessionId) task.lastSessionId = item.sessionId;
+        if (item.sessionId) {
+          this.taskSessionIds.add(item.sessionId);
+          task.lastSessionId = item.sessionId;
+        }
       }
     }
   }
 
   getTaskSessionIds() {
-    const ids = new Set();
-    for (const [, task] of this.tasks) {
-      if (task.lastSessionId) ids.add(task.lastSessionId);
-    }
-    return ids;
+    return this.taskSessionIds;
   }
 
   getTasksForProject(projectId) {
