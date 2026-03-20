@@ -264,7 +264,7 @@ class FileEditor {
     this.saveBtn.disabled = true;
 
     // Configure read-only mode for plan files
-    const isPlan = this.currentFile.projectId === '__plan__';
+    const isPlan = isPlanProject(this.currentFile.projectId);
     this.editor.updateOptions({ readOnly: isPlan });
     this.saveBtn.classList.toggle('hidden', isPlan);
 
@@ -298,7 +298,7 @@ class FileEditor {
 
     console.log('[FileEditor] Requesting file from server');
     // Request file content from server if not already loaded
-    if (projectId === '__plan__') {
+    if (isPlanProject(projectId)) {
       this.client.ws.send(JSON.stringify({ type: 'read_plan_file', path }));
     } else {
       this.client.ws.send(JSON.stringify({ type: 'read_file', projectId, path }));
@@ -310,7 +310,7 @@ class FileEditor {
    */
   saveCurrentFile() {
     if (!this.currentFile) return;
-    if (this.currentFile.projectId === '__plan__') return;
+    if (isPlanProject(this.currentFile.projectId)) return;
 
     const content = this.editor.getValue();
 

@@ -16,31 +16,33 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
   // Auth routes (local, no proxy)
   app.use('/api', createAuthRoutes(authService));
 
-  // Proxy helper: forwards request to a backend and returns the response
-  async function proxyTo(req, res, baseUrl, method, path, body) {
-    try {
-      const url = `${baseUrl}${path}`;
-      const opts = {
-        method,
-        headers: { 'Content-Type': 'application/json' }
-      };
-      if (body !== undefined) {
-        opts.body = JSON.stringify(body);
-      }
-      const response = await fetch(url, opts);
-      const data = await response.json();
-      res.status(response.status).json(data);
-      return data;
-    } catch (err) {
-      console.error(`[Proxy] ${method} ${baseUrl}${path} failed:`, err.message);
-      res.status(502).json({ error: 'Service unavailable' });
-      return null;
+  // Fetch from a backend without sending the response (for routes that need pre-response processing)
+  async function relayFetch(method, path, body) {
+    const url = `${relayUrl}${path}`;
+    const opts = {
+      method,
+      headers: { 'Content-Type': 'application/json' }
+    };
+    if (body !== undefined) {
+      opts.body = JSON.stringify(body);
     }
+    const response = await fetch(url, opts);
+    const data = await response.json();
+    return { status: response.status, data };
   }
 
-  // Shorthand for relayLLM proxy
+  // Proxy helper: forwards request to relayLLM and sends the response
   function proxy(req, res, method, relayPath, body) {
-    return proxyTo(req, res, relayUrl, method, relayPath, body);
+    return relayFetch(method, relayPath, body)
+      .then(({ status, data }) => {
+        res.status(status).json(data);
+        return data;
+      })
+      .catch(err => {
+        console.error(`[Proxy] ${method} ${relayUrl}${relayPath} failed:`, err.message);
+        res.status(502).json({ error: 'Service unavailable' });
+        return null;
+      });
   }
 
   // --- Models (proxy) ---
@@ -54,9 +56,17 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
     if (data && Array.isArray(data)) refreshProjectCache(data);
   });
 
+  // Mutation routes: refresh cache BEFORE sending response to prevent race condition
+  // where client acts on response before cache is updated
   app.post('/api/projects', requireAuth, async (req, res) => {
-    const data = await proxy(req, res, 'POST', '/api/projects', req.body);
-    if (data && data.id) refreshProjectCache();
+    try {
+      const { status, data } = await relayFetch('POST', '/api/projects', req.body);
+      if (data && data.id) await refreshProjectCache();
+      res.status(status).json(data);
+    } catch (err) {
+      console.error('[Proxy] POST /api/projects failed:', err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
   });
 
   app.get('/api/projects/:id', requireAuth, (req, res) => {
@@ -64,13 +74,25 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
   });
 
   app.put('/api/projects/:id', requireAuth, async (req, res) => {
-    const data = await proxy(req, res, 'PUT', `/api/projects/${req.params.id}`, req.body);
-    if (data && data.id) refreshProjectCache();
+    try {
+      const { status, data } = await relayFetch('PUT', `/api/projects/${req.params.id}`, req.body);
+      if (data && data.id) await refreshProjectCache();
+      res.status(status).json(data);
+    } catch (err) {
+      console.error(`[Proxy] PUT /api/projects/${req.params.id} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
   });
 
   app.delete('/api/projects/:id', requireAuth, async (req, res) => {
-    await proxy(req, res, 'DELETE', `/api/projects/${req.params.id}`);
-    refreshProjectCache();
+    try {
+      const { status, data } = await relayFetch('DELETE', `/api/projects/${req.params.id}`);
+      await refreshProjectCache();
+      res.status(status).json(data);
+    } catch (err) {
+      console.error(`[Proxy] DELETE /api/projects/${req.params.id} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
   });
 
   // --- Sessions (proxy) ---

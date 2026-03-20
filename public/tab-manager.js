@@ -91,7 +91,7 @@ class TabManager {
     this.tabs.push(tab);
 
     // Register file watcher on server (skip plan files)
-    if (projectId !== '__plan__') {
+    if (!isPlanProject(projectId)) {
       this.client.ws?.send(JSON.stringify({
         type: 'watch_file',
         projectId,
@@ -207,7 +207,7 @@ class TabManager {
     }
 
     // Unregister file watcher on server (skip plan files)
-    if (tab.type === 'file' && tab.projectId !== '__plan__') {
+    if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
       this.client.ws?.send(JSON.stringify({
         type: 'unwatch_file',
         projectId: tab.projectId,
@@ -278,7 +278,7 @@ class TabManager {
    */
   reestablishFileWatches() {
     for (const tab of this.tabs) {
-      if (tab.type === 'file' && tab.projectId !== '__plan__') {
+      if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
         this.client.ws?.send(JSON.stringify({
           type: 'watch_file',
           projectId: tab.projectId,

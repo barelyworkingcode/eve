@@ -106,7 +106,7 @@ class MessageDispatcher {
         break;
 
       case 'plan_file_content':
-        this.client.handleFileContent('__plan__', data.path, data.content);
+        this.client.handleFileContent(PLAN_PROJECT_ID, data.path, data.content);
         break;
 
       case 'file_error':
