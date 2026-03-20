@@ -5,6 +5,7 @@ class WsClient {
   constructor(app) {
     this.app = app;
     this.ws = null;
+    this.reconnectDelay = 2000;
   }
 
   connect() {
@@ -13,6 +14,7 @@ class WsClient {
 
     this.ws.onopen = () => {
       console.log('Connected to server');
+      this.reconnectDelay = 2000;
       if (this.app.elements?.connectionStatus) {
         this.app.elements.connectionStatus.classList.add('hidden');
       }
@@ -38,11 +40,12 @@ class WsClient {
     };
 
     this.ws.onclose = () => {
-      console.log('Disconnected from server');
+      console.log(`Disconnected from server, reconnecting in ${this.reconnectDelay / 1000}s`);
       if (this.app.elements?.connectionStatus) {
         this.app.elements.connectionStatus.classList.remove('hidden');
       }
-      setTimeout(() => this.connect(), 2000);
+      setTimeout(() => this.connect(), this.reconnectDelay);
+      this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
     };
 
     this.ws.onerror = (err) => {
@@ -51,7 +54,7 @@ class WsClient {
   }
 
   send(data) {
-    if (this.ws && this.ws.readyState === 1) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(typeof data === 'string' ? data : JSON.stringify(data));
     }
   }
