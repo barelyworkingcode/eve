@@ -524,8 +524,6 @@ class FileBrowser {
 
     for (const file of fileList) {
       if (file.size > maxSize) {
-        const project = this.client.projects.get(projectId);
-        const projectName = project?.name || 'Unknown project';
         this.client.messageRenderer.appendSystemMessage(
           `Skipped "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)}MB exceeds 10MB limit)`,
           'error'

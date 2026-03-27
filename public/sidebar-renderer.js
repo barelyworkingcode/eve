@@ -155,7 +155,7 @@ class SidebarRenderer {
     ungroupedEl.className = expanded ? 'project-group ungrouped' : 'project-group ungrouped collapsed';
     ungroupedEl.innerHTML = `
       <div class="project-header">
-        <span class="project-toggle">${expanded ? '&#9662;' : '&#9656;'}</span>
+        <span class="project-toggle">${expanded ? '▼' : '▶'}</span>
         <span class="project-name">Ungrouped</span>
       </div>
       <ul class="project-sessions"></ul>
@@ -167,7 +167,7 @@ class SidebarRenderer {
 
     header.addEventListener('click', () => {
       ungroupedEl.classList.toggle('collapsed');
-      toggle.textContent = ungroupedEl.classList.contains('collapsed') ? '&#9656;' : '&#9662;';
+      toggle.textContent = ungroupedEl.classList.contains('collapsed') ? '▶' : '▼';
     });
 
     for (const session of sessions) {

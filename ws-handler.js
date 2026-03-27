@@ -81,6 +81,10 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
             relayClient.renameSession(message.sessionId, message.name);
             break;
 
+          case 'stop_generation':
+            relayClient.stopGeneration(message.sessionId);
+            break;
+
           case 'permission_response':
             if (message.alwaysAllow) {
               relayClient.setAlwaysAllow(true);

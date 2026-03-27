@@ -82,14 +82,14 @@ class TerminalManager {
 
   handleInput(terminalId, data) {
     const terminal = this.terminals.get(terminalId);
-    if (terminal) {
+    if (terminal && !terminal.exited) {
       terminal.pty.write(data);
     }
   }
 
   handleResize(terminalId, cols, rows) {
     const terminal = this.terminals.get(terminalId);
-    if (terminal) {
+    if (terminal && !terminal.exited) {
       terminal.pty.resize(cols, rows);
     }
   }
@@ -140,7 +140,7 @@ class TerminalManager {
   }
 
   killAll() {
-    for (const [id, terminal] of this.terminals) {
+    for (const [, terminal] of this.terminals) {
       if (!terminal.exited) {
         terminal.pty.kill();
       }
@@ -149,7 +149,7 @@ class TerminalManager {
   }
 
   detachAll(ws) {
-    for (const [terminalId, terminal] of this.terminals) {
+    for (const [, terminal] of this.terminals) {
       if (terminal.ws === ws) {
         terminal.ws = null;
       }

@@ -130,6 +130,10 @@ class RelayClient {
     this._send({ type: 'clear_session', sessionId });
   }
 
+  stopGeneration(sessionId) {
+    this._send({ type: 'stop_generation', sessionId });
+  }
+
   sendPermissionResponse(permissionId, approved, reason) {
     this._send({ type: 'permission_response', permissionId, approved, reason });
   }
