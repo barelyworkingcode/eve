@@ -232,6 +232,7 @@ class EveWorkspaceClient {
   async loadModels() {
     try {
       const response = await fetch('/api/models', { headers: this.getAuthHeaders() });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const data = await response.json();
       this.models = data.models || [];
       this.providerSettings = data.providerSettings || {};
@@ -268,6 +269,7 @@ class EveWorkspaceClient {
   async loadProjects() {
     try {
       const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const projects = await response.json();
       this.projects.clear();
       projects.forEach(project => this.projects.set(project.id, project));
@@ -286,6 +288,7 @@ class EveWorkspaceClient {
   async loadSessions() {
     try {
       const response = await fetch('/api/sessions', { headers: this.getAuthHeaders() });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const sessions = await response.json();
       sessions.forEach(session => this.sessions.set(session.id, session));
       this.sidebarRenderer.renderProjectList();
@@ -345,6 +348,7 @@ class EveWorkspaceClient {
         headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
         body: JSON.stringify(body)
       });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const project = await response.json();
       this.projects.set(project.id, project);
       this.sidebarRenderer.renderProjectList();
@@ -396,7 +400,8 @@ class EveWorkspaceClient {
     this.modalManager.showConfirmModal(message, async () => {
       try {
         await this.taskManager.deleteByProject(projectId);
-        await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers: this.getAuthHeaders() });
+        const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers: this.getAuthHeaders() });
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
         this.projects.delete(projectId);
         this.sidebarRenderer.renderProjectList();
         this.updateProjectSelect();

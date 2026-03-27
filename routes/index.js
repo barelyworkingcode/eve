@@ -102,7 +102,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
 
   // --- Tasks (proxy through relayLLM → scheduler) ---
   app.get('/api/tasks', requireAuth, (req, res) => {
-    const qs = req.query.projectId ? `?projectId=${req.query.projectId}` : '';
+    const qs = req.query.projectId ? `?projectId=${encodeURIComponent(req.query.projectId)}` : '';
     proxy(req, res, 'GET', `/api/tasks${qs}`);
   });
 

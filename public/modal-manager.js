@@ -323,7 +323,7 @@ class ModalManager {
 
     // Status badge
     const statusClass = isError ? 'status-error' : 'status-success';
-    html += `<span class="task-result-status ${statusClass}">${last.status || 'unknown'}</span>`;
+    html += `<span class="task-result-status ${statusClass}">${this.escapeHtml(last.status || 'unknown')}</span>`;
 
     // Timestamp
     if (timeStr) {

@@ -96,13 +96,13 @@ async function refreshProjectCache(data) {
     let projects = data;
     if (!projects) {
       const response = await fetch(`${RELAY_LLM_URL}/api/projects`);
+      if (!response.ok) throw new Error(`relayLLM returned ${response.status}`);
       projects = await response.json();
     }
+    if (!Array.isArray(projects)) return;
     projectCache.clear();
-    if (Array.isArray(projects)) {
-      for (const p of projects) {
-        projectCache.set(p.id, p);
-      }
+    for (const p of projects) {
+      projectCache.set(p.id, p);
     }
   } catch (err) {
     console.error('[ProjectCache] Refresh failed:', err.message);

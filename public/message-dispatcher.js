@@ -186,6 +186,10 @@ class MessageDispatcher {
     const taskManager = this.client.taskManager;
     if (!taskManager) return;
 
+    // Capture old session ID before handleTaskEvent overwrites task.lastSessionId
+    const task = taskManager.tasks.get(data.taskId);
+    const oldTaskSessionId = task?.lastSessionId;
+
     taskManager.handleTaskEvent(data);
     this.client.sidebarRenderer.renderProjectList();
 
@@ -194,26 +198,23 @@ class MessageDispatcher {
       if (taskManager.userTriggeredRuns.has(data.taskId)) {
         taskManager.userTriggeredRuns.delete(data.taskId);
         if (data.sessionId) {
-          // Clean up old session tab if we're viewing one for this task
-          const task = taskManager.tasks.get(data.taskId);
-          const oldSessionId = this.client.currentSessionId;
-          if (oldSessionId && task) {
-            this.client.tabManager.closeTab(oldSessionId);
-            this.client.sessions.delete(oldSessionId);
-            this.client.sessionHistories.delete(oldSessionId);
+          // Close the old task session tab (not the current active session)
+          if (oldTaskSessionId) {
+            this.client.tabManager.closeTab(oldTaskSessionId);
+            this.client.sessions.delete(oldTaskSessionId);
+            this.client.sessionHistories.delete(oldTaskSessionId);
           }
           this.client.joinSession(data.sessionId);
         }
       }
-      // Reload full task state from HTTP to sync
-      taskManager.loadTasks(data.projectId).then(() => {
-        this.client.sidebarRenderer.renderProjectList();
-      });
     }
 
     if (data.type === 'task_error') {
       taskManager.userTriggeredRuns.delete(data.taskId);
-      // Reload full task state from HTTP to sync
+    }
+
+    // Reload full task state from HTTP to sync on terminal events
+    if (data.type === 'task_completed' || data.type === 'task_error') {
       taskManager.loadTasks(data.projectId).then(() => {
         this.client.sidebarRenderer.renderProjectList();
       });

@@ -12,7 +12,7 @@ class TaskManager {
 
   async loadTasks(projectId) {
     try {
-      const qs = projectId ? `?projectId=${projectId}` : '';
+      const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
       const response = await fetch(`/api/tasks${qs}`, { headers: this.app.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const tasks = await response.json();
