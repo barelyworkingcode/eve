@@ -14,6 +14,7 @@ class TaskManager {
     try {
       const qs = projectId ? `?projectId=${projectId}` : '';
       const response = await fetch(`/api/tasks${qs}`, { headers: this.app.getAuthHeaders() });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const tasks = await response.json();
       if (!Array.isArray(tasks)) return;
       // If loading for a specific project, only clear that project's tasks
@@ -30,6 +31,7 @@ class TaskManager {
       }
     } catch (err) {
       console.error('Failed to load tasks:', err);
+      this.app.messageRenderer.appendSystemMessage('Failed to load tasks');
     }
   }
 
@@ -40,6 +42,7 @@ class TaskManager {
         headers: { 'Content-Type': 'application/json', ...this.app.getAuthHeaders() },
         body: JSON.stringify(data)
       });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const task = await response.json();
       if (task && task.id) {
         this.tasks.set(task.id, task);
@@ -47,6 +50,7 @@ class TaskManager {
       return task;
     } catch (err) {
       console.error('Failed to create task:', err);
+      this.app.messageRenderer.appendSystemMessage('Failed to create task');
       return null;
     }
   }
@@ -58,6 +62,7 @@ class TaskManager {
         headers: { 'Content-Type': 'application/json', ...this.app.getAuthHeaders() },
         body: JSON.stringify(data)
       });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const task = await response.json();
       if (task && task.id) {
         this.tasks.set(task.id, task);
@@ -65,28 +70,32 @@ class TaskManager {
       return task;
     } catch (err) {
       console.error('Failed to update task:', err);
+      this.app.messageRenderer.appendSystemMessage('Failed to update task');
       return null;
     }
   }
 
   async deleteTask(id) {
     try {
-      await fetch(`/api/tasks/${id}`, {
+      const response = await fetch(`/api/tasks/${id}`, {
         method: 'DELETE',
         headers: this.app.getAuthHeaders()
       });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       this.tasks.delete(id);
     } catch (err) {
       console.error('Failed to delete task:', err);
+      this.app.messageRenderer.appendSystemMessage('Failed to delete task');
     }
   }
 
   async deleteByProject(projectId) {
     try {
-      await fetch(`/api/tasks/by-project/${projectId}`, {
+      const response = await fetch(`/api/tasks/by-project/${projectId}`, {
         method: 'DELETE',
         headers: this.app.getAuthHeaders()
       });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       for (const [id, t] of this.tasks) {
         if (t.projectId === projectId) this.tasks.delete(id);
       }
@@ -97,12 +106,25 @@ class TaskManager {
 
   async runTask(id) {
     try {
-      await fetch(`/api/tasks/${id}/run`, {
+      const response = await fetch(`/api/tasks/${id}/run`, {
         method: 'POST',
         headers: this.app.getAuthHeaders()
       });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
     } catch (err) {
       console.error('Failed to run task:', err);
+      this.app.messageRenderer.appendSystemMessage('Failed to run task');
+    }
+  }
+
+  async loadHistory(taskId) {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/history`, { headers: this.app.getAuthHeaders() });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      return await response.json();
+    } catch (err) {
+      console.error('Failed to load task history:', err);
+      return [];
     }
   }
 

@@ -4,8 +4,6 @@
 
 ```bash
 npm test              # Unit tests only (~0.5s, no external deps)
-npm run test:unit     # Same as above
-npm run test:all      # All tests
 npm run test:watch    # Unit tests in watch mode
 ```
 
@@ -13,30 +11,18 @@ npm run test:watch    # Unit tests in watch mode
 
 ```
 test/
-  helpers/mock-session.js  - MockWebSocket + createMockSession
   unit/                    - Pure logic tests, no external deps
     file-service.test.js   - Path security, extension validation, file I/O
+    file-watcher.test.js   - Debouncing, self-write tracking, cleanup
 ```
 
 One Jest project: `unit` runs fast with zero deps. `npm test` runs unit tests.
 
-## Shared Helpers
-
-```js
-const { MockWebSocket, createMockSession } = require('../helpers/mock-session');
-
-const ws = new MockWebSocket();
-ws.send(JSON.stringify({ type: 'error', message: 'oops' }));
-ws.getMessages('error');     // [{ type: 'error', message: 'oops' }]
-ws.getLastMessage('error');  // { type: 'error', message: 'oops' }
-
-const session = createMockSession({ model: 'opus' });
-// session.ws = MockWebSocket, session.saveHistory = jest.fn(), etc.
-```
-
 ## What We Test
 
 **file-service.test.js** -- Path traversal prevention (security boundary), extension allowlist, plus async file I/O (read, write, list, rename, move, create directory) against temp directories.
+
+**file-watcher.test.js** -- Watch/unwatch lifecycle, self-write tracking with auto-clear, debounced change detection, event coalescing.
 
 ## What We Don't Test
 
@@ -57,6 +43,5 @@ const session = createMockSession({ model: 'opus' });
 ## Adding Tests
 
 1. Place in `test/unit/<module>.test.js`
-2. Use `createMockSession()` and `MockWebSocket` from helpers
-3. For file I/O tests, use temp directories (see `file-service.test.js` patterns)
-4. Run: `npx jest test/unit/my-test.test.js` or `npm test`
+2. For file I/O tests, use temp directories (see `file-service.test.js` patterns)
+3. Run: `npx jest test/unit/my-test.test.js` or `npm test`

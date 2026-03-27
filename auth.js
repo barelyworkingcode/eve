@@ -142,6 +142,18 @@ class AuthService {
     return stored.challenge;
   }
 
+  /**
+   * Get, validate, and consume a challenge in one call.
+   * Throws if the challenge is missing or expired.
+   */
+  consumeChallenge(challengeId) {
+    const challenge = this.getChallenge(challengeId);
+    if (!challenge) {
+      throw new Error('Challenge expired or invalid');
+    }
+    return challenge;
+  }
+
   // --- RP Configuration ---
 
   getRpId(req) {
@@ -187,10 +199,7 @@ class AuthService {
   }
 
   async verifyEnrollment(req, response, challengeId) {
-    const expectedChallenge = this.getChallenge(challengeId);
-    if (!expectedChallenge) {
-      throw new Error('Challenge expired or invalid');
-    }
+    const expectedChallenge = this.consumeChallenge(challengeId);
 
     const rpId = this.getRpId(req);
     const origin = this.getOrigin(req);
@@ -253,10 +262,7 @@ class AuthService {
   }
 
   async verifyLogin(req, response, challengeId) {
-    const expectedChallenge = this.getChallenge(challengeId);
-    if (!expectedChallenge) {
-      throw new Error('Challenge expired or invalid');
-    }
+    const expectedChallenge = this.consumeChallenge(challengeId);
 
     const authData = this.loadCredentials();
     if (!authData) {

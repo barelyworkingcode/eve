@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const pty = require('node-pty');
+const WebSocket = require('ws');
 const TERMINAL_BUFFER_SIZE = 100000; // ~100KB scrollback per terminal
 
 class TerminalManager {
@@ -47,7 +48,7 @@ class TerminalManager {
       if (terminal.buffer.length > TERMINAL_BUFFER_SIZE) {
         terminal.buffer = terminal.buffer.slice(-TERMINAL_BUFFER_SIZE);
       }
-      if (terminal.ws?.readyState === 1) {
+      if (terminal.ws?.readyState === WebSocket.OPEN) {
         terminal.ws.send(JSON.stringify({
           type: 'terminal_output',
           terminalId,
@@ -61,7 +62,7 @@ class TerminalManager {
       terminal.exitCode = exitCode;
       const exitMsg = `\r\n\x1b[90m[Process Terminated]\x1b[0m\r\n`;
       terminal.buffer += exitMsg;
-      if (terminal.ws?.readyState === 1) {
+      if (terminal.ws?.readyState === WebSocket.OPEN) {
         terminal.ws.send(JSON.stringify({
           type: 'terminal_exit',
           terminalId,

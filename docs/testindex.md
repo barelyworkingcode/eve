@@ -65,63 +65,25 @@ Quick-reference index of all test cases. Run `npm test` for unit tests.
 - throws when parent does not exist
 - rejects names with path separators
 
-## E2E Tests (`e2e/specs/`)
+### `file-watcher.test.js` -- File watcher service
 
-Playwright specs. Specs run sequentially -- later specs depend on state created by earlier ones.
+**watch/unwatch**
+- creates a watcher for a valid file
+- does not duplicate watchers for the same file
+- ignores unknown project IDs
+- ignores invalid paths
+- removes watcher on unwatch
+- unwatch is safe for unwatched files
 
-### `01-project-creation.spec.ts` -- Initial setup and project creation
+**markSelfWrite**
+- adds path to selfWrites set
+- auto-clears after 500ms
 
-- welcome screen is visible on first load
-- create E2E Claude Project
-- create E2E LMStudio Project
-- both projects visible in sidebar
+**_onFileChange**
+- debounces and sends file_changed message
+- skips self-written files
+- coalesces multiple rapid events
 
-### `02-session-creation.spec.ts` -- Session creation within projects
-
-- create session in Claude project
-- create session in LM Studio project
-
-### `03-send-messages.spec.ts` -- Message sending and LLM responses
-
-- send message in Claude session and get response
-- send message in LM Studio session and get response
-
-### `04-session-switching.spec.ts` -- Navigation between sessions
-
-- switch between sessions via sidebar and tabs
-
-### `05-session-renaming.spec.ts` -- Session rename and persistence
-
-- rename Claude session
-- rename LM Studio session
-- renamed sessions persist after reload
-
-### `06-shell-and-claude.spec.ts` -- Shell and CLI launch via slash commands
-
-- launch shell via /zsh and interact
-- launch Claude CLI via /claude
-
-### `07-screen-redraw.spec.ts` -- UI stability under rapid switching
-
-- rapid tab switching preserves content
-
-### `08-shell-closing.spec.ts` -- Terminal tab lifecycle
-
-- close shell terminal tab
-- close Claude CLI terminal tab
-- only session tabs remain after closing terminals
-
-### `09-file-manager.spec.ts` -- File browser operations
-
-- open file browser and upload file
-- open file in editor
-- modify and save file
-- switch to split view and see preview
-
-### `10-cleanup.spec.ts` -- Teardown and persistence verification
-
-- delete Claude session
-- delete LM Studio session
-- delete Claude project
-- delete LM Studio project
-- verify cleanup persists after reload
+**closeAll**
+- closes all watchers and clears state
+- is safe to call multiple times

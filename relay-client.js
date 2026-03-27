@@ -88,7 +88,7 @@ class RelayClient {
   }
 
   _sendToBrowser(msg) {
-    if (this.browserWs && this.browserWs.readyState === 1) {
+    if (this.browserWs && this.browserWs.readyState === WebSocket.OPEN) {
       this.browserWs.send(JSON.stringify(msg));
     }
   }

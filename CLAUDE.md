@@ -234,15 +234,12 @@ Keep it that way unless absolutely necessary.
 **Commands**
 ```bash
 npm test              # Unit tests only (fast, no external deps)
-npm run test:unit     # Same as above
-npm run test:all      # All tests
 npm run test:watch    # Unit tests in watch mode
 ```
 
 **Structure**
 ```
 test/
-  helpers/mock-session.js  - Shared MockWebSocket + createMockSession
   unit/                    - Pure logic tests (no external deps)
 ```
 
