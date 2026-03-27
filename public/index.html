@@ -265,6 +265,12 @@
             Enabled
           </label>
         </div>
+        <div class="provider-setting-field provider-setting-checkbox">
+          <label>
+            <input type="checkbox" id="taskCatchUpInput">
+            Catch up missed runs
+          </label>
+        </div>
         <div id="taskLastResult"></div>
         <div class="modal-actions">
           <button type="button" id="cancelTaskModal" class="btn-secondary">Cancel</button>
@@ -274,6 +280,7 @@
     </div>
   </div>
 
+  <script src="constants.js"></script>
   <script src="auth.js"></script>
   <script src="ws-client.js"></script>
   <script src="message-renderer.js"></script>

@@ -272,6 +272,7 @@ class ModalManager {
       el.taskPromptInput.value = task.prompt;
       if (task.model) el.taskModelSelect.value = task.model;
       el.taskEnabledInput.checked = task.enabled;
+      el.taskCatchUpInput.checked = task.catchUp || false;
 
       let schedule = task.schedule;
       if (typeof schedule === 'string') {
@@ -288,6 +289,7 @@ class ModalManager {
       el.taskNameInput.value = '';
       el.taskPromptInput.value = '';
       el.taskEnabledInput.checked = true;
+      el.taskCatchUpInput.checked = false;
       el.taskScheduleType.value = 'daily';
       this.renderScheduleConfig();
     }
@@ -364,9 +366,7 @@ class ModalManager {
   }
 
   escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    return this.app.messageRenderer.escapeHtml(str);
   }
 
   renderScheduleConfig(existingSchedule) {

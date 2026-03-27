@@ -129,6 +129,7 @@ class EveWorkspaceClient {
       taskScheduleType: document.getElementById('taskScheduleType'),
       taskScheduleConfig: document.getElementById('taskScheduleConfig'),
       taskEnabledInput: document.getElementById('taskEnabledInput'),
+      taskCatchUpInput: document.getElementById('taskCatchUpInput'),
       cancelTaskModal: document.getElementById('cancelTaskModal'),
       taskSubmitBtn: document.getElementById('taskSubmitBtn'),
       taskLastResult: document.getElementById('taskLastResult')
@@ -361,11 +362,12 @@ class EveWorkspaceClient {
     const prompt = el.taskPromptInput.value.trim();
     const model = el.taskModelSelect.value || undefined;
     const enabled = el.taskEnabledInput.checked;
+    const catchUp = el.taskCatchUpInput.checked;
     const schedule = this.modalManager.collectSchedule();
     const projectId = this.modalManager.taskProjectId;
     if (!name || !prompt || !projectId) return;
 
-    const data = { name, prompt, model, enabled, schedule, projectId };
+    const data = { name, prompt, model, enabled, catchUp, schedule, projectId };
     const taskId = this.modalManager.editingTaskId;
 
     if (taskId) {

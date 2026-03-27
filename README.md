@@ -2,12 +2,6 @@
 
 A browser-based LLM chat interface that proxies to [relayLLM](https://github.com/barelyworkingcode/relayLLM) for all LLM concerns. Eve provides the UI layer: chat, file editing, terminals, and authentication.
 
-![Overview](showcase/screenshots/Overview%201.png)
-
-![Chat with Claude](showcase/screenshots/Embedded%20Claude.png)
-
-![File Editor](showcase/screenshots/Monico%20Editor.png)
-
 ## Features
 
 - **Multi-provider chat** - Access any LLM provider configured in relayLLM (Claude, Gemini, LM Studio, etc.)
@@ -18,10 +12,7 @@ A browser-based LLM chat interface that proxies to [relayLLM](https://github.com
 - **Passkey authentication** - Secure access with WebAuthn passkeys (first visitor becomes owner)
 - **File attachments** - Drag/drop, click, or paste files and images into prompts
 - **Session stats** - Real-time context usage % and cost display
-
-## Demo
-
-The `showcase/` directory contains sample projects, sessions, screenshots, and configuration files demonstrating the application. Copy `showcase/` to `data/` to explore the UI with pre-populated content.
+- **Scheduled tasks** - Run LLM prompts on a schedule via relayScheduler (daily, hourly, cron, etc.)
 
 ## Requirements
 
@@ -95,7 +86,7 @@ This requires the Relay macOS app installed at `/Applications/Relay.app`. The se
 
 ```bash
 npm test                  # Unit tests (no external deps required)
-npm run test:all          # All tests
+npm run test:watch        # Unit tests in watch mode
 ```
 
 ## Passkey Authentication
@@ -210,39 +201,41 @@ Browser ──HTTP──► Eve ──HTTP──► relayLLM ──HTTP──►
 ```
 
 ```
-server.js              - Express + WebSocket server, relayLLM config, project cache
-ws-handler.js          - WebSocket message dispatch to relay or local handlers
-relay-client.js        - WebSocket bridge to relayLLM (one per browser connection)
-routes/index.js        - HTTP proxy to relayLLM + local auth routes
-routes/auth.js         - WebAuthn enrollment/login
-auth.js                - WebAuthn service
-file-service.js        - File I/O with path traversal protection
-file-handlers.js       - WebSocket adapter for file operations
-terminal-manager.js    - Server-side terminal management (node-pty)
-
+server.js                - Express + WebSocket server, relayLLM config, project cache
+ws-handler.js            - WebSocket message dispatch to relay or local handlers
+relay-client.js          - WebSocket bridge to relayLLM (one per browser connection)
+slash-command-handler.js - Local slash commands (/clear, /help, /zsh, /bash, /claude)
+routes/index.js          - HTTP proxy to relayLLM (models, projects, sessions, tasks)
+routes/auth.js           - WebAuthn enrollment/login routes
+auth.js                  - WebAuthn service
+session-store.js         - Auth session token persistence
+file-service.js          - File I/O with path traversal protection
+file-handlers.js         - WebSocket adapter for file operations
+file-watcher.js          - Event-driven file change detection
+terminal-manager.js      - Server-side terminal management (node-pty)
 
 public/
-  index.html             - Main page structure
-  app.js                 - Client application (WebSocket, UI state, rendering)
-  styles.css             - Styling
-  auth.js                - Client-side WebAuthn authentication
-  auth.css               - Authentication styling
-  ws-client.js           - WebSocket connection management
-  message-renderer.js    - Chat message rendering
-  modal-manager.js       - Modal dialogs
-  sidebar-renderer.js    - Project/session sidebar
-  tab-manager.js         - Session/file/terminal tab bar
-  file-browser.js        - File explorer UI
-  file-editor.js         - Monaco editor integration
-  terminal-manager.js    - xterm.js terminal UI
+  index.html               - Main page structure
+  constants.js             - Shared constants
+  app.js                   - Thin orchestrator wiring modules, state owner
+  ws-client.js             - WebSocket connection management
+  message-dispatcher.js    - Server message routing and LLM event processing
+  message-renderer.js      - Chat message rendering and formatting
+  file-attachment-manager.js - File attach/paste/drag-drop for chat input
+  task-manager.js          - Task CRUD client for relayScheduler
+  modal-manager.js         - Modal dialogs
+  sidebar-renderer.js      - Project/session/task sidebar
+  tab-manager.js           - Session/file/terminal tab bar
+  file-browser.js          - File explorer UI
+  file-editor.js           - Monaco editor integration
+  terminal-manager.js      - xterm.js terminal UI
+  auth.js                  - Client-side WebAuthn authentication
 
 test/
-  helpers/               - Shared mocks (MockWebSocket, createMockSession)
   unit/                  - Pure logic tests (no external deps)
 
-docs/                    - Additional documentation (auth, HTTPS)
-showcase/                - Sample projects, sessions, screenshots for demo
-data/                    - Runtime data (gitignored): auth, settings, PIDs
+docs/                    - Additional documentation (auth, HTTPS, testing)
+data/                    - Runtime data (gitignored): auth, settings
 ```
 
 ## Environment Variables
@@ -253,6 +246,8 @@ data/                    - Runtime data (gitignored): auth, settings, PIDs
 | `RELAY_LLM_URL` | `http://localhost:3001` | relayLLM server URL |
 | `HTTPS_KEY` | - | Path to SSL private key file (enables HTTPS) |
 | `HTTPS_CERT` | - | Path to SSL certificate file (enables HTTPS) |
+| `DUAL_LISTEN` | - | Set to `true` to listen on both HTTPS and HTTP |
+| `HTTP_PORT` | 3000 | HTTP port when `DUAL_LISTEN` is enabled |
 | `EVE_NO_AUTH` | - | Set to `1` to disable passkey authentication |
 
 ## Ecosystem
