@@ -8,6 +8,34 @@ class MessageRenderer {
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.isStreaming = false;
+    this.thinkBlockOpenStates = new Map(); // messageEl -> Set of open indices
+
+    // Delegated mousedown handler for think-block summaries.
+    // Uses mousedown (not click) because during streaming, innerHTML replacement
+    // destroys elements between mousedown and mouseup, preventing click from firing.
+    // The native <details> toggle still works for completed messages via the
+    // normal click path; during streaming, _applyThinkBlockStates() restores
+    // the tracked state after each innerHTML replacement.
+    this.app.elements.messages.addEventListener('mousedown', (e) => {
+      const summary = e.target.closest('.think-block > summary');
+      if (!summary) return;
+      const details = summary.parentElement;
+      const content = details.closest('.message-content');
+      if (!content) return;
+      const blocks = Array.from(content.querySelectorAll('.think-block'));
+      const idx = blocks.indexOf(details);
+      if (idx === -1) return;
+
+      if (!this.thinkBlockOpenStates.has(content)) {
+        this.thinkBlockOpenStates.set(content, new Set());
+      }
+      const openSet = this.thinkBlockOpenStates.get(content);
+      if (openSet.has(idx)) {
+        openSet.delete(idx);
+      } else {
+        openSet.add(idx);
+      }
+    });
   }
 
   startAssistantMessage(text) {
@@ -30,6 +58,7 @@ class MessageRenderer {
       this.startAssistantMessage(text);
     } else {
       this.currentAssistantMessage.innerHTML = this.formatText(text);
+      this._applyThinkBlockStates();
       this.scrollToBottom();
     }
   }
@@ -42,7 +71,18 @@ class MessageRenderer {
       const newText = currentText + text;
       this.currentAssistantMessage.dataset.rawText = newText;
       this.currentAssistantMessage.innerHTML = this.formatText(newText);
+      this._applyThinkBlockStates();
       this.scrollToBottom();
+    }
+  }
+
+  _applyThinkBlockStates() {
+    if (!this.currentAssistantMessage) return;
+    const openSet = this.thinkBlockOpenStates.get(this.currentAssistantMessage);
+    if (!openSet || openSet.size === 0) return;
+    const blocks = this.currentAssistantMessage.querySelectorAll('.think-block');
+    for (const idx of openSet) {
+      if (blocks[idx]) blocks[idx].open = true;
     }
   }
 
@@ -62,8 +102,10 @@ class MessageRenderer {
       if (text) {
         this.isStreaming = false;
         this.currentAssistantMessage.innerHTML = this.formatText(text);
+        this._applyThinkBlockStates();
         this.renderMermaidBlocks(this.currentAssistantMessage);
       }
+      this.thinkBlockOpenStates.delete(this.currentAssistantMessage);
       delete this.currentAssistantMessage.dataset.rawText;
       this.currentAssistantMessage = null;
     }
@@ -323,9 +365,8 @@ class MessageRenderer {
         const trimmed = content.trim();
         if (!trimmed) return '';
         const idx = thinkBlocks.length;
-        const openAttr = this.isStreaming ? ' open' : '';
         thinkBlocks.push(
-          `<details class="think-block"${openAttr}><summary>Thinking</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
+          `<details class="think-block"><summary>Thinking</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
         );
         return `\n%%THINK_${idx}%%\n`;
       }
@@ -338,8 +379,9 @@ class MessageRenderer {
         const trimmed = content.trim();
         if (!trimmed) return '';
         const idx = thinkBlocks.length;
+        const label = this.isStreaming ? 'Thinking...' : 'Thinking';
         thinkBlocks.push(
-          `<details class="think-block" open><summary>Thinking...</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
+          `<details class="think-block"><summary>${label}</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
         );
         return `\n%%THINK_${idx}%%\n`;
       }
