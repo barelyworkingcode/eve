@@ -204,11 +204,19 @@ class MessageDispatcher {
             this.client.sessions.delete(oldTaskSessionId);
             this.client.sessionHistories.delete(oldTaskSessionId);
           }
-          // Delay join to let the server persist the complete history.
-          // Task events stream without sessionId and may still be arriving;
-          // the server needs time to commit the final messages.
+          // Task events stream without sessionId and render live in the
+          // foreground. Join immediately but skip re-render so the visible
+          // content is preserved. A deferred re-join refreshes sessionHistories
+          // with the complete server data for future tab switches.
           const sid = data.sessionId;
-          setTimeout(() => this.client.joinSession(sid), 2000);
+          this._taskCompletionJoin = sid;
+          this.client.joinSession(sid);
+          setTimeout(() => {
+            if (this.client.currentSessionId === sid) {
+              this._silentHistoryRefresh = sid;
+              this.client.joinSession(sid);
+            }
+          }, 2000);
         }
       }
     }
@@ -381,11 +389,28 @@ class MessageDispatcher {
 
     const serverHistory = (data.history && data.history.length > 0) ? data.history : [];
     this.client.sessionHistories.set(data.sessionId, serverHistory);
+
+    // Silent refresh: update stored history without touching the DOM.
+    // Used by the deferred re-join after task completion.
+    if (this._silentHistoryRefresh === data.sessionId) {
+      this._silentHistoryRefresh = null;
+      if (data.stats) this.client.updateStats(data.stats);
+      return;
+    }
+
     this.flushBackgroundBuffer(data.sessionId);
-    this.client.messageRenderer.clearMessages();
     this.client.showChatScreen();
-    this.client.tabManager.openSession(data.sessionId);
-    this.client.renderMessages();
+
+    // Task completion: content is already live-streamed on screen — bind
+    // the session tab without clearing/re-rendering the DOM.
+    if (this._taskCompletionJoin === data.sessionId) {
+      this._taskCompletionJoin = null;
+      this.client.tabManager.openSession(data.sessionId, { skipRender: true });
+    } else {
+      this.client.messageRenderer.clearMessages();
+      this.client.tabManager.openSession(data.sessionId);
+      this.client.renderMessages();
+    }
 
     this.client.sidebarRenderer.renderProjectList();
     this.client.modalManager.hidePlanApproval();
