@@ -204,7 +204,11 @@ class MessageDispatcher {
             this.client.sessions.delete(oldTaskSessionId);
             this.client.sessionHistories.delete(oldTaskSessionId);
           }
-          this.client.joinSession(data.sessionId);
+          // Delay join to let the server persist the complete history.
+          // Task events stream without sessionId and may still be arriving;
+          // the server needs time to commit the final messages.
+          const sid = data.sessionId;
+          setTimeout(() => this.client.joinSession(sid), 2000);
         }
       }
     }
@@ -291,10 +295,12 @@ class MessageDispatcher {
       // Flush accumulated content blocks as a completed assistant message
       const buf = this.backgroundBuffers.get(sid);
       if (buf && buf.contentBlocks.length > 0) {
-        const history = this.client.sessionHistories.get(sid);
-        if (history) {
-          history.push({ role: 'assistant', content: buf.contentBlocks });
+        let history = this.client.sessionHistories.get(sid);
+        if (!history) {
+          history = [];
+          this.client.sessionHistories.set(sid, history);
         }
+        history.push({ role: 'assistant', content: buf.contentBlocks });
         buf.contentBlocks = [];
       }
       return;
@@ -373,15 +379,14 @@ class MessageDispatcher {
       this.client.taskManager.taskSessionIds.add(data.sessionId);
     }
 
-    if (data.history && data.history.length > 0) {
-      this.client.sessionHistories.set(data.sessionId, data.history);
-    } else {
-      this.client.sessionHistories.set(data.sessionId, []);
-    }
+    const serverHistory = (data.history && data.history.length > 0) ? data.history : [];
+    this.client.sessionHistories.set(data.sessionId, serverHistory);
+    this.flushBackgroundBuffer(data.sessionId);
     this.client.messageRenderer.clearMessages();
     this.client.showChatScreen();
     this.client.tabManager.openSession(data.sessionId);
     this.client.renderMessages();
+
     this.client.sidebarRenderer.renderProjectList();
     this.client.modalManager.hidePlanApproval();
     if (data.stats) {
