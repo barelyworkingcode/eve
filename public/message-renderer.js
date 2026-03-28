@@ -50,10 +50,15 @@ class MessageRenderer {
     this.currentAssistantMessage = messageEl.querySelector('.message-content');
     this.currentAssistantMessage.dataset.rawText = text;
     this.isStreaming = true;
+    this._saveStreamingText(text);
     this.scrollToBottom();
   }
 
   updateAssistantMessage(text) {
+    if (this._streamRestoreTimer) {
+      clearTimeout(this._streamRestoreTimer);
+      this._streamRestoreTimer = null;
+    }
     if (!this.currentAssistantMessage) {
       this.startAssistantMessage(text);
     } else {
@@ -64,6 +69,10 @@ class MessageRenderer {
   }
 
   appendToAssistantMessage(text) {
+    if (this._streamRestoreTimer) {
+      clearTimeout(this._streamRestoreTimer);
+      this._streamRestoreTimer = null;
+    }
     if (!this.currentAssistantMessage) {
       this.startAssistantMessage(text);
     } else {
@@ -72,7 +81,22 @@ class MessageRenderer {
       this.currentAssistantMessage.dataset.rawText = newText;
       this.currentAssistantMessage.innerHTML = this.formatText(newText);
       this._applyThinkBlockStates();
+      this._saveStreamingText(newText);
       this.scrollToBottom();
+    }
+  }
+
+  _saveStreamingText(text) {
+    const sid = this.app.currentSessionId;
+    if (sid && !this.app.isRenderingHistory) {
+      try { sessionStorage.setItem(`eve-stream-${sid}`, text); } catch {}
+    }
+  }
+
+  _clearStreamingText() {
+    const sid = this.app.currentSessionId;
+    if (sid && !this.app.isRenderingHistory) {
+      try { sessionStorage.removeItem(`eve-stream-${sid}`); } catch {}
     }
   }
 
@@ -106,6 +130,7 @@ class MessageRenderer {
         this.renderMermaidBlocks(this.currentAssistantMessage);
       }
       this.thinkBlockOpenStates.delete(this.currentAssistantMessage);
+      this._clearStreamingText();
       delete this.currentAssistantMessage.dataset.rawText;
       this.currentAssistantMessage = null;
     }
@@ -188,6 +213,7 @@ class MessageRenderer {
     this.app.elements.messages.innerHTML = '';
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
+    this.thinkBlockOpenStates.clear();
   }
 
   renderHistory(messages) {
@@ -219,6 +245,28 @@ class MessageRenderer {
     this.renderMermaidBlocks(this.app.elements.messages);
     this.scrollToBottom();
     this.app.isRenderingHistory = false;
+
+    // Restore in-progress assistant message saved before page refresh.
+    // Rendered as a started (not finished) message so new streaming deltas
+    // append to it if the model is still running.
+    const sid = this.app.currentSessionId;
+    if (sid) {
+      try {
+        const saved = sessionStorage.getItem(`eve-stream-${sid}`);
+        if (saved) {
+          this.startAssistantMessage(saved);
+          // If model is still running, new deltas or message_complete will
+          // continue/finalize. If model finished while disconnected, finalize
+          // after a short grace period.
+          this._streamRestoreTimer = setTimeout(() => {
+            if (this.currentAssistantMessage &&
+                this.currentAssistantMessage.dataset.rawText === saved) {
+              this.finishAssistantMessage();
+            }
+          }, 5000);
+        }
+      } catch {}
+    }
   }
 
   showThinkingIndicator(text = 'Thinking...') {
@@ -357,6 +405,11 @@ class MessageRenderer {
     // Extract think blocks before markdown parsing
     const thinkBlocks = [];
     let processed = text;
+
+    // Repair lost <think> tag (e.g., page refresh mid-stream loses the opening tag)
+    if (!processed.includes('<think>') && processed.includes('</think>')) {
+      processed = '<think>' + processed;
+    }
 
     // Complete think blocks
     processed = processed.replace(
