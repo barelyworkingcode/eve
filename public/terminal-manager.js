@@ -8,6 +8,7 @@ class TerminalManager {
     this.FitAddon = null;
     this.WebLinksAddon = null;
     this.resizeHandler = null;
+    this._readyCallbacks = [];
 
     this.initElements();
     this.loadXterm();
@@ -30,8 +31,21 @@ class TerminalManager {
       this.WebLinksAddon = webLinksModule.WebLinksAddon;
       this.xtermLoaded = true;
       console.log('xterm loaded successfully');
+      for (const cb of this._readyCallbacks) cb();
+      this._readyCallbacks = [];
     } catch (err) {
       console.error('Failed to load xterm:', err);
+    }
+  }
+
+  /**
+   * Calls fn immediately if xterm is loaded, otherwise queues it.
+   */
+  onReady(fn) {
+    if (this.xtermLoaded) {
+      fn();
+    } else {
+      this._readyCallbacks.push(fn);
     }
   }
 
@@ -94,57 +108,7 @@ class TerminalManager {
    * Called when server confirms terminal creation
    */
   onTerminalCreated(terminalId, directory, command) {
-    if (!this.xtermLoaded) {
-      console.error('xterm not loaded yet');
-      return;
-    }
-
-    const { term, fitAddon } = this.createXtermInstance();
-
-    // Create dedicated container for this terminal
-    const containerDiv = document.createElement('div');
-    containerDiv.className = 'terminal-instance';
-    containerDiv.style.display = 'none';
-    this.terminalContainer.appendChild(containerDiv);
-
-    // Open terminal ONCE into its container
-    term.open(containerDiv);
-    fitAddon.fit();
-
-    // Store terminal instance
-    this.terminals.set(terminalId, {
-      term,
-      fitAddon,
-      container: containerDiv,
-      directory,
-      command,
-      exited: false
-    });
-
-    // Handle input from terminal
-    term.onData((data) => {
-      this.client.ws.send(JSON.stringify({
-        type: 'terminal_input',
-        terminalId,
-        data
-      }));
-    });
-
-    // Handle resize
-    term.onResize(({ cols, rows }) => {
-      this.client.ws.send(JSON.stringify({
-        type: 'terminal_resize',
-        terminalId,
-        cols,
-        rows
-      }));
-    });
-
-    // Create tab label
-    const label = command === 'claude' ? 'Claude CLI' : 'Terminal';
-
-    // Open as tab
-    this.client.tabManager.openTerminal(terminalId, label, directory);
+    this.setupTerminal(terminalId, directory, command, false);
   }
 
   /**
@@ -254,6 +218,19 @@ class TerminalManager {
    * Reconnect to an existing terminal
    */
   reconnectTerminal(terminalId, directory, command, exited) {
+    this.setupTerminal(terminalId, directory, command, exited);
+
+    // Request buffered output replay
+    this.client.ws.send(JSON.stringify({
+      type: 'terminal_reconnect',
+      terminalId
+    }));
+  }
+
+  /**
+   * Shared setup for new and reconnected terminals
+   */
+  setupTerminal(terminalId, directory, command, exited) {
     if (!this.xtermLoaded) {
       console.error('xterm not loaded yet');
       return;
@@ -261,26 +238,23 @@ class TerminalManager {
 
     const { term, fitAddon } = this.createXtermInstance();
 
-    // Create dedicated container for this terminal
     const containerDiv = document.createElement('div');
     containerDiv.className = 'terminal-instance';
     containerDiv.style.display = 'none';
     this.terminalContainer.appendChild(containerDiv);
 
-    // Open terminal into its container
     term.open(containerDiv);
+    if (!exited) fitAddon.fit();
 
-    // Store terminal instance
     this.terminals.set(terminalId, {
       term,
       fitAddon,
       container: containerDiv,
       directory,
       command,
-      exited
+      exited: !!exited
     });
 
-    // Handle input from terminal (only if not exited)
     term.onData((data) => {
       const terminal = this.terminals.get(terminalId);
       if (terminal && !terminal.exited) {
@@ -292,7 +266,6 @@ class TerminalManager {
       }
     });
 
-    // Handle resize
     term.onResize(({ cols, rows }) => {
       this.client.ws.send(JSON.stringify({
         type: 'terminal_resize',
@@ -302,17 +275,8 @@ class TerminalManager {
       }));
     });
 
-    // Create tab label
     const label = command === 'claude' ? 'Claude CLI' : 'Terminal';
-
-    // Open as tab
     this.client.tabManager.openTerminal(terminalId, label, directory);
-
-    // Request buffered output replay
-    this.client.ws.send(JSON.stringify({
-      type: 'terminal_reconnect',
-      terminalId
-    }));
   }
 }
 

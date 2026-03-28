@@ -1,7 +1,7 @@
 class TabManager {
   constructor(client) {
     this.client = client;
-    this.tabs = []; // [{ id, type: 'session'|'file'|'terminal'|'task', label, projectId, path?, modified?, taskId? }]
+    this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
     this.activeTabId = null;
 
     this.initElements();
@@ -13,7 +13,6 @@ class TabManager {
     this.chatContent = document.getElementById('chat');
     this.editorContent = document.getElementById('editor');
     this.terminalContent = document.getElementById('terminal');
-    this.taskResultContent = document.getElementById('taskResult');
   }
 
   initEventListeners() {
@@ -31,13 +30,14 @@ class TabManager {
   /**
    * Opens a session as a tab
    */
-  openSession(sessionId) {
+  openSession(sessionId, { skipRender = false } = {}) {
     const session = this.client.sessions.get(sessionId);
     if (!session) return;
 
     // Check if tab already exists
     const existingTab = this.tabs.find(t => t.type === 'session' && t.id === sessionId);
     if (existingTab) {
+      if (skipRender) return;
       this.switchToTab(existingTab.id);
       return;
     }
@@ -50,7 +50,7 @@ class TabManager {
       const project = this.client.projects.get(session.projectId);
       label = project?.name || session.directory;
     } else {
-      label = session.directory.split('/').filter(p => p).pop() || session.directory;
+      label = session.directory?.split('/').filter(p => p).pop() || session.directory || 'Session';
     }
 
     // Create new tab
@@ -62,8 +62,18 @@ class TabManager {
     };
 
     this.tabs.push(tab);
-    this.switchToTab(sessionId);
-    this.render();
+
+    if (skipRender) {
+      // Make tab active without triggering renderMessages
+      this.activeTabId = sessionId;
+      this.client.showChatScreen();
+      this.chatContent.classList.remove('hidden');
+      this.client.currentSessionId = sessionId;
+      this.render();
+    } else {
+      this.switchToTab(sessionId);
+      this.render();
+    }
   }
 
   /**
@@ -90,6 +100,16 @@ class TabManager {
     };
 
     this.tabs.push(tab);
+
+    // Register file watcher on server (skip plan files)
+    if (!isPlanProject(projectId)) {
+      this.client.ws?.send(JSON.stringify({
+        type: 'watch_file',
+        projectId,
+        path: filePath
+      }));
+    }
+
     this.switchToTab(tabId);
     this.render();
   }
@@ -119,33 +139,6 @@ class TabManager {
   }
 
   /**
-   * Opens a task result as a tab
-   */
-  openTask(projectId, taskId, taskName) {
-    const tabId = `task:${projectId}:${taskId}`;
-
-    // Check if tab already exists
-    const existingTab = this.tabs.find(t => t.id === tabId);
-    if (existingTab) {
-      this.switchToTab(tabId);
-      return;
-    }
-
-    // Create new tab
-    const tab = {
-      id: tabId,
-      type: 'task',
-      label: taskName,
-      projectId,
-      taskId
-    };
-
-    this.tabs.push(tab);
-    this.switchToTab(tabId);
-    this.render();
-  }
-
-  /**
    * Switches active tab
    */
   switchToTab(tabId) {
@@ -161,16 +154,34 @@ class TabManager {
     this.chatContent.classList.add('hidden');
     this.editorContent.classList.add('hidden');
     this.terminalContent.classList.add('hidden');
-    this.taskResultContent.classList.add('hidden');
 
     // Show appropriate content container
     if (tab.type === 'session') {
       this.chatContent.classList.remove('hidden');
 
+      // Flush any partial streaming message from the old session to its history
+      const prevSessionId = this.client.currentSessionId;
+      if (prevSessionId && prevSessionId !== tab.id) {
+        this.client.messageRenderer.finishAssistantMessage();
+      }
+
+      // Flush background buffer for the session we're switching to
+      if (this.client.messageDispatcher) {
+        this.client.messageDispatcher.flushBackgroundBuffer(tab.id);
+      }
+
       // Update current session in client
       this.client.currentSessionId = tab.id;
       this.client.renderMessages();
       this.client.updateStatsForSession(tab.id);
+
+      // Restore stop button state based on whether this session is streaming
+      if (this.client.messageDispatcher?.streamingSessions.has(tab.id)) {
+        this.client.showStopButton();
+        this.client.messageRenderer.showThinkingIndicator();
+      } else {
+        this.client.hideStopButton();
+      }
     } else if (tab.type === 'file') {
       this.editorContent.classList.remove('hidden');
 
@@ -185,11 +196,6 @@ class TabManager {
       if (this.client.terminalManager) {
         this.client.terminalManager.showTerminal(tab.id);
       }
-    } else if (tab.type === 'task') {
-      this.taskResultContent.classList.remove('hidden');
-
-      // Show task result
-      this.client.showTaskResult(tab.projectId, tab.taskId);
     }
 
     this.render();
@@ -208,6 +214,24 @@ class TabManager {
     if (tab.type === 'file' && tab.modified) {
       if (!confirm(`"${tab.label}" has unsaved changes. Close anyway?`)) {
         return;
+      }
+    }
+
+    // Unregister file watcher on server (skip plan files)
+    if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
+      this.client.ws?.send(JSON.stringify({
+        type: 'unwatch_file',
+        projectId: tab.projectId,
+        path: tab.path
+      }));
+    }
+
+    // Send leave_session to unbind from relayLLM when closing a session tab
+    if (tab.type === 'session') {
+      this.client.wsClient.send({ type: 'leave_session', sessionId: tab.id });
+      if (this.client.messageDispatcher) {
+        this.client.messageDispatcher.backgroundBuffers.delete(tab.id);
+        this.client.messageDispatcher.streamingSessions.delete(tab.id);
       }
     }
 
@@ -231,7 +255,6 @@ class TabManager {
         this.chatContent.classList.add('hidden');
         this.editorContent.classList.add('hidden');
         this.terminalContent.classList.add('hidden');
-        this.taskResultContent.classList.add('hidden');
       }
     }
 
@@ -258,6 +281,21 @@ class TabManager {
     if (tab) {
       tab.label = newLabel;
       this.render();
+    }
+  }
+
+  /**
+   * Re-registers file watchers after WebSocket reconnection.
+   */
+  reestablishFileWatches() {
+    for (const tab of this.tabs) {
+      if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
+        this.client.ws?.send(JSON.stringify({
+          type: 'watch_file',
+          projectId: tab.projectId,
+          path: tab.path
+        }));
+      }
     }
   }
 

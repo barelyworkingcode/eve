@@ -8,6 +8,34 @@ class MessageRenderer {
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.isStreaming = false;
+    this.thinkBlockOpenStates = new Map(); // messageEl -> Set of open indices
+
+    // Delegated mousedown handler for think-block summaries.
+    // Uses mousedown (not click) because during streaming, innerHTML replacement
+    // destroys elements between mousedown and mouseup, preventing click from firing.
+    // The native <details> toggle still works for completed messages via the
+    // normal click path; during streaming, _applyThinkBlockStates() restores
+    // the tracked state after each innerHTML replacement.
+    this.app.elements.messages.addEventListener('mousedown', (e) => {
+      const summary = e.target.closest('.think-block > summary');
+      if (!summary) return;
+      const details = summary.parentElement;
+      const content = details.closest('.message-content');
+      if (!content) return;
+      const blocks = Array.from(content.querySelectorAll('.think-block'));
+      const idx = blocks.indexOf(details);
+      if (idx === -1) return;
+
+      if (!this.thinkBlockOpenStates.has(content)) {
+        this.thinkBlockOpenStates.set(content, new Set());
+      }
+      const openSet = this.thinkBlockOpenStates.get(content);
+      if (openSet.has(idx)) {
+        openSet.delete(idx);
+      } else {
+        openSet.add(idx);
+      }
+    });
   }
 
   startAssistantMessage(text) {
@@ -22,19 +50,29 @@ class MessageRenderer {
     this.currentAssistantMessage = messageEl.querySelector('.message-content');
     this.currentAssistantMessage.dataset.rawText = text;
     this.isStreaming = true;
+    this._saveStreamingText(text);
     this.scrollToBottom();
   }
 
   updateAssistantMessage(text) {
+    if (this._streamRestoreTimer) {
+      clearTimeout(this._streamRestoreTimer);
+      this._streamRestoreTimer = null;
+    }
     if (!this.currentAssistantMessage) {
       this.startAssistantMessage(text);
     } else {
       this.currentAssistantMessage.innerHTML = this.formatText(text);
+      this._applyThinkBlockStates();
       this.scrollToBottom();
     }
   }
 
   appendToAssistantMessage(text) {
+    if (this._streamRestoreTimer) {
+      clearTimeout(this._streamRestoreTimer);
+      this._streamRestoreTimer = null;
+    }
     if (!this.currentAssistantMessage) {
       this.startAssistantMessage(text);
     } else {
@@ -42,7 +80,33 @@ class MessageRenderer {
       const newText = currentText + text;
       this.currentAssistantMessage.dataset.rawText = newText;
       this.currentAssistantMessage.innerHTML = this.formatText(newText);
+      this._applyThinkBlockStates();
+      this._saveStreamingText(newText);
       this.scrollToBottom();
+    }
+  }
+
+  _saveStreamingText(text) {
+    const sid = this.app.currentSessionId;
+    if (sid && !this.app.isRenderingHistory) {
+      try { sessionStorage.setItem(`eve-stream-${sid}`, text); } catch {}
+    }
+  }
+
+  _clearStreamingText() {
+    const sid = this.app.currentSessionId;
+    if (sid && !this.app.isRenderingHistory) {
+      try { sessionStorage.removeItem(`eve-stream-${sid}`); } catch {}
+    }
+  }
+
+  _applyThinkBlockStates() {
+    if (!this.currentAssistantMessage) return;
+    const openSet = this.thinkBlockOpenStates.get(this.currentAssistantMessage);
+    if (!openSet || openSet.size === 0) return;
+    const blocks = this.currentAssistantMessage.querySelectorAll('.think-block');
+    for (const idx of openSet) {
+      if (blocks[idx]) blocks[idx].open = true;
     }
   }
 
@@ -62,7 +126,11 @@ class MessageRenderer {
       if (text) {
         this.isStreaming = false;
         this.currentAssistantMessage.innerHTML = this.formatText(text);
+        this._applyThinkBlockStates();
+        this.renderMermaidBlocks(this.currentAssistantMessage);
       }
+      this.thinkBlockOpenStates.delete(this.currentAssistantMessage);
+      this._clearStreamingText();
       delete this.currentAssistantMessage.dataset.rawText;
       this.currentAssistantMessage = null;
     }
@@ -141,16 +209,25 @@ class MessageRenderer {
     }
   }
 
-  renderHistory(messages) {
-    this.app.isRenderingHistory = true;
+  clearMessages() {
     this.app.elements.messages.innerHTML = '';
     this.currentAssistantMessage = null;
+    this.currentToolBlock = null;
+    this.thinkBlockOpenStates.clear();
+  }
+
+  renderHistory(messages) {
+    this.app.isRenderingHistory = true;
+    this.clearMessages();
 
     for (const msg of messages) {
       if (msg.role === 'user') {
         this.appendUserMessage(msg.content, msg.files || []);
       } else if (msg.role === 'assistant') {
-        if (Array.isArray(msg.content)) {
+        if (typeof msg.content === 'string') {
+          this.startAssistantMessage(msg.content);
+          this.finishAssistantMessage();
+        } else if (Array.isArray(msg.content)) {
           for (const block of msg.content) {
             if (block.type === 'text' && block.text) {
               this.startAssistantMessage(block.text);
@@ -163,8 +240,33 @@ class MessageRenderer {
       }
     }
 
+    // Complete any trailing tool block and remove thinking indicator from history
+    this.hideThinkingIndicator();
+    this.renderMermaidBlocks(this.app.elements.messages);
     this.scrollToBottom();
     this.app.isRenderingHistory = false;
+
+    // Restore in-progress assistant message saved before page refresh.
+    // Rendered as a started (not finished) message so new streaming deltas
+    // append to it if the model is still running.
+    const sid = this.app.currentSessionId;
+    if (sid) {
+      try {
+        const saved = sessionStorage.getItem(`eve-stream-${sid}`);
+        if (saved) {
+          this.startAssistantMessage(saved);
+          // If model is still running, new deltas or message_complete will
+          // continue/finalize. If model finished while disconnected, finalize
+          // after a short grace period.
+          this._streamRestoreTimer = setTimeout(() => {
+            if (this.currentAssistantMessage &&
+                this.currentAssistantMessage.dataset.rawText === saved) {
+              this.finishAssistantMessage();
+            }
+          }, 5000);
+        }
+      } catch {}
+    }
   }
 
   showThinkingIndicator(text = 'Thinking...') {
@@ -223,12 +325,70 @@ class MessageRenderer {
     }
   }
 
+  renderQuestionBlock(questions, onSelect) {
+    this.hideThinkingIndicator();
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message assistant';
+
+    let html = '<div class="message-content">';
+    for (const q of questions) {
+      html += `<p>${this.escapeHtml(q.question)}</p>`;
+      html += '<div class="question-options">';
+      for (const opt of (q.options || [])) {
+        html += `<button class="question-option" data-label="${this.escapeHtml(opt.label)}">`;
+        html += `<span class="question-option-label">${this.escapeHtml(opt.label)}</span>`;
+        if (opt.description) {
+          html += `<span class="question-option-desc">${this.escapeHtml(opt.description)}</span>`;
+        }
+        html += '</button>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    messageEl.innerHTML = html;
+
+    // Wire up option buttons
+    messageEl.querySelectorAll('.question-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const label = btn.dataset.label;
+        // Disable all option buttons
+        messageEl.querySelectorAll('.question-option').forEach(b => {
+          b.disabled = true;
+          if (b === btn) b.classList.add('selected');
+        });
+        onSelect(label);
+      });
+    });
+
+    this.app.elements.messages.appendChild(messageEl);
+    this.scrollToBottom();
+  }
+
   markToolComplete() {
     if (this.currentToolBlock) {
       this.currentToolBlock.classList.remove('tool-active');
       const spinner = this.currentToolBlock.querySelector('.tool-spinner');
       if (spinner) spinner.remove();
       this.currentToolBlock = null;
+    }
+  }
+
+  async renderMermaidBlocks(container) {
+    if (typeof mermaid === 'undefined') return;
+    const nodes = container.querySelectorAll('code[class*="mermaid"]');
+    if (nodes.length === 0) return;
+    for (const node of nodes) {
+      const pre = node.parentElement;
+      const div = document.createElement('div');
+      div.className = 'mermaid';
+      div.textContent = node.textContent;
+      pre.replaceWith(div);
+    }
+    try {
+      await mermaid.run({ nodes: container.querySelectorAll('.mermaid') });
+    } catch (err) {
+      console.error('Mermaid render failed:', err);
     }
   }
 
@@ -246,6 +406,11 @@ class MessageRenderer {
     const thinkBlocks = [];
     let processed = text;
 
+    // Repair lost <think> tag (e.g., page refresh mid-stream loses the opening tag)
+    if (!processed.includes('<think>') && processed.includes('</think>')) {
+      processed = '<think>' + processed;
+    }
+
     // Complete think blocks
     processed = processed.replace(
       /<think>([\s\S]*?)<\/think>/g,
@@ -253,9 +418,8 @@ class MessageRenderer {
         const trimmed = content.trim();
         if (!trimmed) return '';
         const idx = thinkBlocks.length;
-        const openAttr = this.isStreaming ? ' open' : '';
         thinkBlocks.push(
-          `<details class="think-block"${openAttr}><summary>Thinking</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
+          `<details class="think-block"><summary>Thinking</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
         );
         return `\n%%THINK_${idx}%%\n`;
       }
@@ -268,8 +432,9 @@ class MessageRenderer {
         const trimmed = content.trim();
         if (!trimmed) return '';
         const idx = thinkBlocks.length;
+        const label = this.isStreaming ? 'Thinking...' : 'Thinking';
         thinkBlocks.push(
-          `<details class="think-block" open><summary>Thinking...</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
+          `<details class="think-block"><summary>${label}</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
         );
         return `\n%%THINK_${idx}%%\n`;
       }
