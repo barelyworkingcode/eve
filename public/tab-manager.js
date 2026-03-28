@@ -30,13 +30,14 @@ class TabManager {
   /**
    * Opens a session as a tab
    */
-  openSession(sessionId) {
+  openSession(sessionId, { skipRender = false } = {}) {
     const session = this.client.sessions.get(sessionId);
     if (!session) return;
 
     // Check if tab already exists
     const existingTab = this.tabs.find(t => t.type === 'session' && t.id === sessionId);
     if (existingTab) {
+      if (skipRender) return;
       this.switchToTab(existingTab.id);
       return;
     }
@@ -61,8 +62,18 @@ class TabManager {
     };
 
     this.tabs.push(tab);
-    this.switchToTab(sessionId);
-    this.render();
+
+    if (skipRender) {
+      // Make tab active without triggering renderMessages
+      this.activeTabId = sessionId;
+      this.client.showChatScreen();
+      this.chatContent.classList.remove('hidden');
+      this.client.currentSessionId = sessionId;
+      this.render();
+    } else {
+      this.switchToTab(sessionId);
+      this.render();
+    }
   }
 
   /**
