@@ -9,26 +9,54 @@ class SidebarRenderer {
   }
 
   renderProjectList() {
-    if (this.renamingSessionId) return;
+    // Capture in-progress rename value before re-rendering
+    const activeRenameId = this.renamingSessionId;
+    let activeRenameValue = null;
+    if (activeRenameId) {
+      const input = this.app.elements.projectList.querySelector('.session-rename-input');
+      if (input) activeRenameValue = input.value;
+    }
+
+    // Capture expanded (non-collapsed) project groups before re-rendering
+    const expandedProjects = new Set();
+    for (const el of this.app.elements.projectList.querySelectorAll('.project-group:not(.collapsed)')) {
+      const key = el.dataset.projectId || (el.classList.contains('ungrouped') ? '__ungrouped' : null);
+      if (key) expandedProjects.add(key);
+    }
+
+    this.renamingSessionId = null;
     this.app.elements.projectList.innerHTML = '';
 
     const { projectSessions, ungroupedSessions } = this.groupSessions();
 
     for (const [projectId, project] of this.app.projects) {
       const sessions = projectSessions.get(projectId) || [];
-      this.renderProjectGroup(projectId, project, sessions);
+      const expanded = expandedProjects.has(projectId);
+      this.renderProjectGroup(projectId, project, sessions, expanded);
     }
 
     if (ungroupedSessions.length > 0) {
-      this.renderUngroupedSessions(ungroupedSessions);
+      const expanded = expandedProjects.has('__ungrouped');
+      this.renderUngroupedSessions(ungroupedSessions, expanded);
+    }
+
+    // Restore in-progress rename after re-render
+    if (activeRenameId) {
+      const nameEl = this.app.elements.projectList
+        .querySelector(`[data-session-id="${activeRenameId}"] .session-name`);
+      if (nameEl) {
+        this.startInlineRename(activeRenameId, nameEl, activeRenameValue);
+      }
     }
   }
 
   groupSessions() {
     const projectSessions = new Map();
     const ungroupedSessions = [];
+    const taskSessionIds = this.app.taskManager ? this.app.taskManager.getTaskSessionIds() : new Set();
 
     for (const [id, session] of this.app.sessions) {
+      if (taskSessionIds.has(id)) continue;
       if (session.projectId && this.app.projects.has(session.projectId)) {
         if (!projectSessions.has(session.projectId)) {
           projectSessions.set(session.projectId, []);
@@ -42,26 +70,25 @@ class SidebarRenderer {
     return { projectSessions, ungroupedSessions };
   }
 
-  renderProjectGroup(projectId, project, sessions) {
+  renderProjectGroup(projectId, project, sessions, expanded = false) {
     const escapeHtml = (t) => this.app.messageRenderer.escapeHtml(t);
     const projectEl = document.createElement('div');
-    projectEl.className = project.disabled ? 'project-group disabled collapsed' : 'project-group collapsed';
+    projectEl.className = expanded ? 'project-group' : 'project-group collapsed';
 
-    const disabledNote = project.disabled ? '<span class="disabled-note">(provider disabled)</span>' : '';
-    const taskCount = this.app.taskUI.getTaskCountForProject(projectId);
-    const taskBadge = taskCount > 0 ? `<span class="project-task-count" title="${taskCount} scheduled task${taskCount !== 1 ? 's' : ''}">${taskCount}</span>` : '';
     const toolsBadge = project.allowedTools?.length > 0 ? `<span class="project-tools-badge" title="${escapeHtml(project.allowedTools.join(', '))}">${project.allowedTools.length} tools</span>` : '';
+
+    const projectTasks = this.app.taskManager ? this.app.taskManager.getTasksForProject(projectId) : [];
+    const taskBadge = projectTasks.length > 0 ? `<span class="project-tasks-badge">${projectTasks.length} task${projectTasks.length !== 1 ? 's' : ''}</span>` : '';
 
     projectEl.innerHTML = `
       <div class="project-header">
-        <span class="project-toggle">▶</span>
+        <span class="project-toggle">${expanded ? '▼' : '▶'}</span>
         <span class="project-name">${escapeHtml(project.name)}</span>
-        ${taskBadge}
         ${toolsBadge}
-        ${disabledNote}
+        ${taskBadge}
         <button class="project-files-toggle" title="Browse files">📁</button>
-        <button class="project-tasks-btn" title="Scheduled tasks">&#128337;</button>
         <button class="project-edit" title="Edit project">&#9998;</button>
+        <button class="project-add-task" title="New task">⏱</button>
         <button class="project-quick-add" title="New session in this project">+</button>
         <button class="project-delete" title="Delete project">&times;</button>
       </div>
@@ -74,42 +101,35 @@ class SidebarRenderer {
     const toggle = projectEl.querySelector('.project-toggle');
     const sessionsList = projectEl.querySelector('.project-sessions');
     const filesToggleBtn = projectEl.querySelector('.project-files-toggle');
-    const tasksBtn = projectEl.querySelector('.project-tasks-btn');
     const editBtn = projectEl.querySelector('.project-edit');
+    const addTaskBtn = projectEl.querySelector('.project-add-task');
     const quickAddBtn = projectEl.querySelector('.project-quick-add');
     const deleteBtn = projectEl.querySelector('.project-delete');
 
     header.addEventListener('click', (e) => {
-      if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || e.target === tasksBtn || e.target === editBtn || project.disabled) return;
+      if (e.target === deleteBtn || e.target === quickAddBtn || e.target === filesToggleBtn || e.target === editBtn || e.target === addTaskBtn) return;
       projectEl.classList.toggle('collapsed');
       toggle.textContent = projectEl.classList.contains('collapsed') ? '▶' : '▼';
     });
 
     filesToggleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!project.disabled) {
-        this.app.fileBrowser.toggleFileTree(projectId);
-      }
-    });
-
-    tasksBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.app.toggleSidebar(false);
-      this.app.taskUI.showTasksPanel(projectId);
+      this.app.fileBrowser.toggleFileTree(projectId);
     });
 
     editBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.app.toggleSidebar(false);
       this.app.modalManager.showProjectModal(projectId);
     });
 
     quickAddBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!project.disabled) {
-        this.app.toggleSidebar(false);
-        this.app.modalManager.showSessionModal(projectId);
-      }
+      this.app.modalManager.showSessionModal(projectId);
+    });
+
+    addTaskBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.app.modalManager.showTaskModal(projectId);
     });
 
     deleteBtn.addEventListener('click', (e) => {
@@ -117,26 +137,25 @@ class SidebarRenderer {
       this.app.deleteProject(projectId);
     });
 
-    // Render sessions
-    for (const session of sessions) {
-      this.renderSessionItem(session, sessionsList, !project.disabled);
+    // Render tasks
+    for (const task of projectTasks) {
+      this.renderTaskItem(task, sessionsList);
     }
 
-    // Render tasks
-    const projectTasks = this.app.taskUI.scheduledTasks.filter(t => t.projectId === projectId);
-    for (const task of projectTasks) {
-      this.renderTaskItem(projectId, task, sessionsList);
+    // Render sessions
+    for (const session of sessions) {
+      this.renderSessionItem(session, sessionsList, true);
     }
 
     this.app.elements.projectList.appendChild(projectEl);
   }
 
-  renderUngroupedSessions(sessions) {
+  renderUngroupedSessions(sessions, expanded = false) {
     const ungroupedEl = document.createElement('div');
-    ungroupedEl.className = 'project-group ungrouped collapsed';
+    ungroupedEl.className = expanded ? 'project-group ungrouped' : 'project-group ungrouped collapsed';
     ungroupedEl.innerHTML = `
       <div class="project-header">
-        <span class="project-toggle">&#9656;</span>
+        <span class="project-toggle">${expanded ? '▼' : '▶'}</span>
         <span class="project-name">Ungrouped</span>
       </div>
       <ul class="project-sessions"></ul>
@@ -148,7 +167,7 @@ class SidebarRenderer {
 
     header.addEventListener('click', () => {
       ungroupedEl.classList.toggle('collapsed');
-      toggle.textContent = ungroupedEl.classList.contains('collapsed') ? '&#9656;' : '&#9662;';
+      toggle.textContent = ungroupedEl.classList.contains('collapsed') ? '▶' : '▼';
     });
 
     for (const session of sessions) {
@@ -168,20 +187,20 @@ class SidebarRenderer {
       <div class="session-actions">
         ${session.model ? `<span class="session-model">${escapeHtml(session.model)}</span>` : ''}
         <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
+        <button class="session-rename" title="Rename session">&#9998;</button>
         <button class="session-delete" title="Delete session">&times;</button>
       </div>
     `;
 
     const nameEl = li.querySelector('.session-name');
-    let clickTimer = null;
+    const renameBtn = li.querySelector('.session-rename');
+    const deleteBtn = li.querySelector('.session-delete');
 
-    nameEl.addEventListener('dblclick', (e) => {
+    renameBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      clearTimeout(clickTimer);
       this.startInlineRename(session.id, nameEl);
     });
 
-    const deleteBtn = li.querySelector('.session-delete');
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.app.deleteSession(session.id);
@@ -190,41 +209,88 @@ class SidebarRenderer {
     if (clickable) {
       li.addEventListener('click', () => {
         if (this.renamingSessionId) return;
-        clearTimeout(clickTimer);
-        clickTimer = setTimeout(() => {
-          if (this.renamingSessionId) return;
-          this.app.joinSession(session.id);
-          this.app.toggleSidebar(false);
-        }, 200);
+        this.app.joinSession(session.id);
       });
     }
 
     parentEl.appendChild(li);
   }
 
-  renderTaskItem(projectId, task, parentEl) {
+  renderTaskItem(task, parentEl) {
     const escapeHtml = (t) => this.app.messageRenderer.escapeHtml(t);
-    const taskLi = document.createElement('li');
-    const isActiveTask = this.app.tabManager && this.app.tabManager.activeTabId === `task:${projectId}:${task.id}`;
-    taskLi.className = `task-sidebar-item ${isActiveTask ? 'active' : ''}`;
-    const statusInfo = this.app.taskUI.getTaskStatusInfo(task);
-    taskLi.innerHTML = `
-      <span class="task-sidebar-icon">&#128337;</span>
-      <span class="task-sidebar-name">${escapeHtml(task.name)}</span>
-      <span class="task-sidebar-status ${statusInfo.className}">${statusInfo.label}</span>
+    const li = document.createElement('li');
+    li.className = 'session-item task-item';
+    const statusIcon = task.enabled ? '⏱' : '⏸';
+    const lastStatus = task.lastStatus === 'error' ? ' err' : task.lastStatus === 'running' ? ' run' : '';
+    const scheduleDesc = this.app.taskManager.formatSchedule(task.schedule);
+    li.innerHTML = `
+      <div class="session-name task-name" title="${escapeHtml(task.prompt)}">
+        <span class="task-icon">${statusIcon}</span>
+        ${escapeHtml(task.name)}
+      </div>
+      <div class="session-actions">
+        <span class="session-model">${escapeHtml(scheduleDesc)}${lastStatus}</span>
+        <button class="task-edit" title="Edit task">&#9998;</button>
+        <button class="task-run" title="Run now">▶</button>
+        <button class="session-delete" title="Delete task">&times;</button>
+      </div>
     `;
-    taskLi.addEventListener('click', () => {
-      this.app.taskUI.openTaskResult(projectId, task.id, task.name);
-      this.app.toggleSidebar(false);
+
+    li.addEventListener('click', (e) => {
+      if (e.target.closest('.task-edit') || e.target.closest('.task-run') || e.target.closest('.session-delete')) return;
+      if (!task.lastSessionId) return;
+      this.app.joinSession(task.lastSessionId);
     });
-    parentEl.appendChild(taskLi);
+
+    li.querySelector('.task-edit').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.app.modalManager.showTaskModal(task.projectId, task.id);
+    });
+
+    const runBtn = li.querySelector('.task-run');
+    runBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (runBtn.classList.contains('running')) return;
+      runBtn.classList.add('running');
+      runBtn.textContent = '';
+      const spinner = document.createElement('span');
+      spinner.className = 'task-run-spinner';
+      runBtn.appendChild(spinner);
+
+      // Don't delete the old session here — the scheduler handles cleanup
+      // (EndSession on old session before creating a new one). The old
+      // session stays visible until task_completed arrives with the new
+      // sessionId, at which point auto-join switches to it.
+
+      this.app.taskManager.userTriggeredRuns.add(task.id);
+      this.app.taskManager.runTask(task.id);
+    });
+
+    // Show spinner if task is currently running (handles page refresh + other-tab runs)
+    if (task.lastStatus === 'running') {
+      runBtn.classList.add('running');
+      runBtn.textContent = '';
+      const spinner = document.createElement('span');
+      spinner.className = 'task-run-spinner';
+      runBtn.appendChild(spinner);
+    }
+
+    li.querySelector('.session-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.app.modalManager.showConfirmModal(`Delete task "${task.name}"?`, async () => {
+        await this.app.taskManager.deleteTask(task.id);
+        this.app.sidebarRenderer.renderProjectList();
+      });
+    });
+
+    parentEl.appendChild(li);
   }
 
-  startInlineRename(sessionId, nameEl) {
+  startInlineRename(sessionId, nameEl, initialValue) {
     if (this.renamingSessionId) return;
     this.renamingSessionId = sessionId;
 
-    const currentName = this.app.getSessionDisplayName(sessionId);
+    const currentName = initialValue ?? this.app.getSessionDisplayName(sessionId);
     const input = document.createElement('input');
     input.className = 'session-rename-input';
     input.maxLength = 100;

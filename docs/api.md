@@ -1,6 +1,6 @@
 # API Reference
 
-Eve exposes HTTP endpoints and a WebSocket interface for real-time communication.
+Eve exposes HTTP endpoints and a WebSocket interface for real-time communication. Most HTTP endpoints are proxied to relayLLM; file and terminal operations are handled locally.
 
 ## Authentication
 
@@ -28,54 +28,31 @@ Get a token via the WebAuthn enrollment or login flow below.
 | POST | `/api/auth/login/start` | Begin login. Returns WebAuthn `options` for `navigator.credentials.get()`. 400 if not enrolled. |
 | POST | `/api/auth/login/finish` | Complete login. Body: `{ response, challengeId }`. Returns `{ token }`. |
 
-### Models
-
-Both return the full merged model list from all enabled providers.
+### Models (proxied to relayLLM)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/models` | List all available models. Each entry has `label` (display name), `value` (model ID), and `provider`. |
-| POST | `/api/models/refresh` | Re-fetch models from LM Studio, then return the updated full list. No-op for CLI-based providers. |
+| GET | `/api/models` | List all available models. Proxied to relayLLM. |
 
-### Projects
+### Projects (proxied to relayLLM)
 
-`allowedTools` is an array of tool name strings passed to the CLI. `disabled` is computed from provider settings (not stored). Invalid `model` values fall back to `haiku`.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/projects` | List all projects. Each includes `id`, `name`, `path`, `model`, `allowedTools`, and `disabled` (true if the project's provider is turned off). |
-| POST | `/api/projects` | Create a project. Body: `{ name, path, model?, allowedTools? }`. `name` and `path` required. Returns the created project with generated `id` and `createdAt`. |
-| PUT | `/api/projects/:id` | Update a project. Body: any subset of `{ name, path, model, allowedTools }`. Omitted fields are unchanged. Returns the updated project. 404 if not found. |
-| DELETE | `/api/projects/:id` | Delete a project. Sessions in the project become ungrouped (not deleted). 404 if not found. |
-
-### Sessions
+Eve proxies project CRUD to relayLLM and caches the results for file handler path resolution.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/sessions` | List all sessions. Each includes `id`, `directory`, `projectId`, `name`, `model`, and `active` (true if provider process is running). |
-| POST | `/api/sessions` | Create a session. Body: `{ projectId, name?, model? }`. `projectId` required (404 if project not found). `model` overrides the project default. Returns `{ sessionId, projectId, model }`. |
-| POST | `/api/sessions/:id/message` | Send a message to an LLM session. Body: `{ text, files? }`. **Synchronous** -- holds the connection open until the LLM finishes. Returns `{ response, stats }`. 404 if session not found (tries disk recovery first). 409 if session is already processing another message. 504 on provider timeout. Auto-restarts the provider if the process died. |
+| GET | `/api/projects` | List all projects. Refreshes Eve's project cache. |
+| POST | `/api/projects` | Create a project. Body: `{ name, path, model?, allowedTools? }`. |
+| GET | `/api/projects/:id` | Get a single project. |
+| PUT | `/api/projects/:id` | Update a project. |
+| DELETE | `/api/projects/:id` | Delete a project. Sessions become ungrouped (not deleted). |
 
-### Tasks
-
-`schedule.type` must be one of: `daily`, `hourly`, `interval`, `weekly`, `cron`. See [tasks.md](tasks.md) for schedule format details.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tasks` | List all tasks grouped by project. Returns `[{ projectId, tasks: [...] }]`. |
-| POST | `/api/tasks/:projectId` | Create a task. Body: `{ name, prompt, schedule, model?, args?, enabled? }`. `name`, `prompt`, and `schedule` required. `args` is an optional array of CLI arguments. Returns the created task. |
-| PUT | `/api/tasks/:projectId/:taskId` | Update a task. Body: partial task fields (any of `name`, `prompt`, `schedule`, `model`, `args`, `enabled`). Returns the updated task. |
-| DELETE | `/api/tasks/:projectId/:taskId` | Delete a task permanently. |
-| POST | `/api/tasks/:projectId/:taskId/run` | Trigger immediate execution of a task (ignores schedule). Returns `{ success, message }`. The task runs asynchronously; subscribe to `task_started`/`task_completed`/`task_failed` WebSocket events for results. |
-| GET | `/api/tasks/:projectId/:taskId/history` | Get execution history for a task. Returns `[{ taskId, startedAt, completedAt, status, response? }]` ordered by most recent. |
-
-### Permissions
-
-Called by the Claude CLI PreToolUse hook (`scripts/permission-hook.js`), not by the browser client directly.
+### Sessions (proxied to relayLLM)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/permission` | Request permission for a tool use. Body: `{ sessionId, toolName, toolInput, toolUseId? }`. Only `Edit`, `Write`, `Bash`, `NotebookEdit` are prompted -- all other tools return `{ decision: 'allow' }` immediately. For prompted tools, the server forwards a `permission_request` to the browser via WebSocket and **holds the HTTP response open** until the user responds or the 60s timeout fires (auto-deny). If the session has `alwaysAllow` enabled, returns allow immediately. Returns `{ decision, reason }` where decision is `allow` or `deny`. |
+| GET | `/api/sessions` | List all sessions. |
+
+Session creation and messaging happen over WebSocket (see below), not HTTP.
 
 ## WebSocket
 

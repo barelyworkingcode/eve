@@ -2,7 +2,7 @@
  * EveWorkspaceClient - thin orchestrator wiring together focused modules.
  *
  * Modules (loaded via <script> tags before this file):
- *   WsClient, MessageRenderer, ModalManager, TaskUI,
+ *   WsClient, MessageRenderer, ModalManager,
  *   SidebarRenderer, TabManager, FileBrowser, FileEditor, TerminalManager
  */
 class EveWorkspaceClient {
@@ -11,7 +11,6 @@ class EveWorkspaceClient {
     this.sessions = new Map();
     this.sessionHistories = new Map();
     this.projects = new Map();
-    this.attachedFiles = [];
     this.models = [];
     this.isRenderingHistory = false;
 
@@ -31,17 +30,26 @@ class EveWorkspaceClient {
     // Initialize modules
     this.wsClient = new WsClient(this);
     this.messageRenderer = new MessageRenderer(this);
+    this.taskManager = new TaskManager(this);
     this.modalManager = new ModalManager(this);
-    this.taskUI = new TaskUI(this);
     this.sidebarRenderer = new SidebarRenderer(this);
     this.tabManager = new TabManager(this);
     this.fileBrowser = new FileBrowser(this);
     this.fileEditor = new FileEditor(this);
     this.terminalManager = new TerminalManager(this);
+    this.messageDispatcher = new MessageDispatcher(this);
+    this.fileAttachmentManager = new FileAttachmentManager(this);
+
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'strict',
+      });
+    }
 
     this.initEventListeners();
     this.modalManager.initEventListeners();
-    this.taskUI.initEventListeners();
     this.initSidebarResize();
     this.initSwipeGesture();
     this.loadModels();
@@ -76,7 +84,6 @@ class EveWorkspaceClient {
       newProjectForm: document.getElementById('newProjectForm'),
       projectNameInput: document.getElementById('projectNameInput'),
       projectPathInput: document.getElementById('projectPathInput'),
-      projectModelSelect: document.getElementById('projectModelSelect'),
       cancelProjectModal: document.getElementById('cancelProjectModal'),
       newProjectBtn: document.getElementById('newProjectBtn'),
       projectList: document.getElementById('projectList'),
@@ -97,31 +104,10 @@ class EveWorkspaceClient {
       confirmMessage: document.getElementById('confirmMessage'),
       confirmDelete: document.getElementById('confirmDelete'),
       cancelConfirm: document.getElementById('cancelConfirm'),
-      tasksModal: document.getElementById('tasksModal'),
-      tasksProjectName: document.getElementById('tasksProjectName'),
-      tasksList: document.getElementById('tasksList'),
-      taskHistorySection: document.getElementById('taskHistorySection'),
-      taskHistoryList: document.getElementById('taskHistoryList'),
-      closeTasksModal: document.getElementById('closeTasksModal'),
-      taskResultName: document.getElementById('taskResultName'),
-      taskResultMeta: document.getElementById('taskResultMeta'),
-      taskResultBody: document.getElementById('taskResultBody'),
-      newTaskBtn: document.getElementById('newTaskBtn'),
-      taskFormModal: document.getElementById('taskFormModal'),
-      taskFormTitle: document.getElementById('taskFormTitle'),
-      taskForm: document.getElementById('taskForm'),
-      taskNameInput: document.getElementById('taskNameInput'),
-      taskPromptInput: document.getElementById('taskPromptInput'),
-      taskScheduleType: document.getElementById('taskScheduleType'),
-      taskScheduleConfig: document.getElementById('taskScheduleConfig'),
-      taskModelSelect: document.getElementById('taskModelSelect'),
-      taskArgsInput: document.getElementById('taskArgsInput'),
-      taskEnabledCheck: document.getElementById('taskEnabledCheck'),
-      taskDeleteBtn: document.getElementById('taskDeleteBtn'),
-      cancelTaskForm: document.getElementById('cancelTaskForm'),
       projectModalTitle: document.getElementById('projectModalTitle'),
       projectSubmitBtn: document.getElementById('projectSubmitBtn'),
       projectAllowedToolsInput: document.getElementById('projectAllowedToolsInput'),
+      providerSettings: document.getElementById('providerSettings'),
       permissionModal: document.getElementById('permissionModal'),
       permissionToolName: document.getElementById('permissionToolName'),
       permissionToolInput: document.getElementById('permissionToolInput'),
@@ -133,7 +119,20 @@ class EveWorkspaceClient {
       planRevise: document.getElementById('planRevise'),
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
-      refreshModelsBtn: document.getElementById('refreshModelsBtn')
+      stopBtn: document.getElementById('stopBtn'),
+      taskModal: document.getElementById('taskModal'),
+      taskModalTitle: document.getElementById('taskModalTitle'),
+      taskForm: document.getElementById('taskForm'),
+      taskNameInput: document.getElementById('taskNameInput'),
+      taskPromptInput: document.getElementById('taskPromptInput'),
+      taskModelSelect: document.getElementById('taskModelSelect'),
+      taskScheduleType: document.getElementById('taskScheduleType'),
+      taskScheduleConfig: document.getElementById('taskScheduleConfig'),
+      taskEnabledInput: document.getElementById('taskEnabledInput'),
+      taskCatchUpInput: document.getElementById('taskCatchUpInput'),
+      cancelTaskModal: document.getElementById('cancelTaskModal'),
+      taskSubmitBtn: document.getElementById('taskSubmitBtn'),
+      taskLastResult: document.getElementById('taskLastResult')
     };
   }
 
@@ -158,46 +157,7 @@ class EveWorkspaceClient {
       }
     });
     this.elements.userInput.addEventListener('input', () => this.autoResizeTextarea());
-
-    // File attachment
-    this.elements.attachBtn.addEventListener('click', () => this.elements.fileInput.click());
-    this.elements.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
-
-    // Paste images
-    this.elements.userInput.addEventListener('paste', (e) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (file) {
-            const ext = item.type.split('/')[1] || 'png';
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            file.customName = `pasted-${timestamp}.${ext}`;
-            this.addFiles([file]);
-          }
-        }
-      }
-    });
-
-    // Drag and drop
-    this.elements.userInput.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.elements.userInput.classList.add('dragover');
-    });
-    this.elements.userInput.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.elements.userInput.classList.remove('dragover');
-    });
-    this.elements.userInput.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.elements.userInput.classList.remove('dragover');
-      this.addFiles(Array.from(e.dataTransfer.files));
-    });
+    this.elements.stopBtn.addEventListener('click', () => this.handleStop());
 
     // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
@@ -207,17 +167,17 @@ class EveWorkspaceClient {
     // Project select
     this.elements.projectSelect.addEventListener('change', () => {
       this.updateDirectoryInputRequirement();
-      const projectId = this.elements.projectSelect.value;
-      if (projectId) {
-        const project = this.projects.get(projectId);
-        if (project?.model) {
-          this.elements.sessionModelSelect.value = project.model;
-        }
-      }
     });
 
-    // Refresh models
-    this.elements.refreshModelsBtn.addEventListener('click', () => this.refreshModels());
+    // Model select — render provider-specific settings
+    this.elements.sessionModelSelect.addEventListener('change', () => {
+      this.renderProviderSettings();
+    });
+
+    // Task form
+    if (this.elements.taskForm) {
+      this.elements.taskForm.addEventListener('submit', (e) => this.handleTaskSubmit(e));
+    }
   }
 
   // --- WebSocket ready ---
@@ -226,290 +186,25 @@ class EveWorkspaceClient {
     // Clear stale thinking indicator from previous connection
     this.messageRenderer.hideThinkingIndicator();
 
-    this.loadProjects();
-    this.loadSessions();
-    this.taskUI.loadScheduledTasks();
+    // Load projects (and tasks) first, then sessions, then re-join.
+    // Order matters: task session IDs must be known before sessions load
+    // so task sessions are filtered from the sidebar.
+    this.loadProjects().then(() => this.loadSessions()).then(() => {
+      // Re-join ALL open session tabs so relayLLM routes events for each.
+      const sessionTabs = this.tabManager.tabs.filter(t => t.type === 'session');
+      for (const tab of sessionTabs) {
+        this.wsClient.send({ type: 'join_session', sessionId: tab.id });
+      }
+    });
 
-    // Re-join current session so the server-side WS handler knows which
-    // session to route messages to (its closure-scoped currentSessionId
-    // resets to null on every new WebSocket connection).
-    if (this.currentSessionId) {
-      this.wsClient.send({ type: 'join_session', sessionId: this.currentSessionId });
-    }
-
-    if (this.terminalManager && this.terminalManager.xtermLoaded) {
-      this.terminalManager.requestTerminalList();
-    } else {
-      const checkXterm = setInterval(() => {
-        if (this.terminalManager && this.terminalManager.xtermLoaded) {
-          clearInterval(checkXterm);
-          this.terminalManager.requestTerminalList();
-        }
-      }, 100);
-      setTimeout(() => clearInterval(checkXterm), 5000);
-    }
+    this.terminalManager.onReady(() => this.terminalManager.requestTerminalList());
+    this.tabManager.reestablishFileWatches();
   }
 
   // --- Server message dispatch ---
 
   handleServerMessage(data) {
-    switch (data.type) {
-      case 'session_created':
-        this.sessions.set(data.sessionId, {
-          id: data.sessionId,
-          directory: data.directory,
-          projectId: data.projectId || null,
-          name: data.name || null,
-          model: data.model || null,
-          active: true
-        });
-        this.currentSessionId = data.sessionId;
-        this.sessionHistories.set(data.sessionId, []);
-        this.showChatScreen();
-        this.tabManager.openSession(data.sessionId);
-        this.sidebarRenderer.renderProjectList();
-        this.modalManager.hideSessionModal();
-        this.modalManager.hidePlanApproval();
-        break;
-
-      case 'session_joined': {
-        this.currentSessionId = data.sessionId;
-        const existingSession = this.sessions.get(data.sessionId);
-        if (existingSession) {
-          if (data.name !== undefined) {
-            existingSession.name = data.name || existingSession.name;
-          }
-          if (data.model) {
-            existingSession.model = data.model;
-          }
-        }
-        if (data.history && data.history.length > 0) {
-          this.sessionHistories.set(data.sessionId, data.history);
-        } else {
-          this.sessionHistories.set(data.sessionId, []);
-        }
-        this.elements.messages.innerHTML = '';
-        this.showChatScreen();
-        this.tabManager.openSession(data.sessionId);
-        this.sidebarRenderer.renderProjectList();
-        this.modalManager.hidePlanApproval();
-        break;
-      }
-
-      case 'session_renamed': {
-        const renamedSession = this.sessions.get(data.sessionId);
-        if (renamedSession) renamedSession.name = data.name;
-        if (this.sidebarRenderer.renamingSessionId !== data.sessionId) {
-          this.sidebarRenderer.renderProjectList();
-        }
-        if (this.tabManager) {
-          this.tabManager.updateTabLabel(data.sessionId, data.name || this.getSessionDisplayName(data.sessionId));
-        }
-        break;
-      }
-
-      case 'llm_event':
-        this.handleLlmEvent(data.event);
-        break;
-
-      case 'raw_output':
-        this.messageRenderer.appendRawOutput(data.text);
-        break;
-
-      case 'stderr':
-        this.messageRenderer.appendSystemMessage(data.text, 'error');
-        break;
-
-      case 'session_ended':
-        this.sessions.delete(data.sessionId);
-        this.sessionHistories.delete(data.sessionId);
-        this.tabManager.closeTab(data.sessionId);
-        if (this.currentSessionId === data.sessionId) {
-          this.currentSessionId = null;
-          this.showWelcomeScreen();
-        }
-        this.sidebarRenderer.renderProjectList();
-        break;
-
-      case 'process_exited':
-        this.messageRenderer.hideThinkingIndicator();
-        this.messageRenderer.appendSystemMessage('Provider process exited. Will restart on next message.');
-        break;
-
-      case 'error':
-        this.messageRenderer.hideThinkingIndicator();
-        this.messageRenderer.appendSystemMessage(data.message, 'error');
-        break;
-
-      case 'system_message':
-        this.messageRenderer.appendSystemMessage(data.message);
-        break;
-
-      case 'clear_messages':
-        this.elements.messages.innerHTML = '';
-        break;
-
-      case 'message_complete':
-        this.messageRenderer.hideThinkingIndicator();
-        this.messageRenderer.finishAssistantMessage();
-        break;
-
-      case 'stats_update':
-        this.updateStats(data.stats);
-        break;
-
-      case 'directory_listing':
-        this.fileBrowser.handleDirectoryListing(data.projectId, data.path, data.entries);
-        break;
-
-      case 'file_content':
-        this.handleFileContent(data.projectId, data.path, data.content);
-        break;
-
-      case 'file_error':
-        this.fileBrowser.handleFileError(data.projectId, data.path, data.error);
-        break;
-
-      case 'file_saved':
-        this.handleFileSaved(data.projectId, data.path);
-        break;
-
-      case 'file_renamed':
-        this.fileBrowser.handleFileRenamed(data.projectId, data.oldPath, data.newPath);
-        break;
-
-      case 'file_moved':
-        this.fileBrowser.handleFileMoved(data.projectId, data.oldPath, data.newPath);
-        break;
-
-      case 'file_deleted':
-        this.fileBrowser.handleFileDeleted(data.projectId, data.path);
-        break;
-
-      case 'directory_created':
-        this.fileBrowser.handleDirectoryCreated(data.projectId, data.path, data.name);
-        break;
-
-      case 'file_uploaded':
-        this.fileBrowser.handleFileUploaded(data.projectId, data.destDirectory, data.fileName);
-        break;
-
-      case 'terminal_request':
-        this.terminalManager.createTerminal(data.directory, data.command, data.args, data.sessionId);
-        break;
-
-      case 'terminal_created':
-        this.terminalManager.onTerminalCreated(data.terminalId, data.directory, data.command);
-        break;
-
-      case 'terminal_output':
-        this.terminalManager.onTerminalOutput(data.terminalId, data.data);
-        break;
-
-      case 'terminal_exit':
-        this.terminalManager.onTerminalExit(data.terminalId, data.exitCode);
-        break;
-
-      case 'terminal_list':
-        this.terminalManager.onTerminalList(data.terminals);
-        break;
-
-      case 'task_started':
-        this.taskUI.handleTaskStarted(data);
-        break;
-
-      case 'task_completed':
-        this.taskUI.handleTaskCompleted(data);
-        break;
-
-      case 'task_failed':
-        this.taskUI.handleTaskFailed(data);
-        break;
-
-      case 'tasks_updated':
-        this.taskUI.loadScheduledTasks();
-        break;
-
-      case 'permission_request':
-        this.modalManager.showPermissionModal(data);
-        break;
-
-      case 'plan_mode_exit':
-        this.modalManager.showPlanApproval();
-        break;
-
-      case 'warning':
-        this.messageRenderer.appendSystemMessage(data.message, 'warning');
-        break;
-    }
-  }
-
-  // --- LLM event handling ---
-
-  handleLlmEvent(event) {
-    switch (event.type) {
-      case 'user':
-        break;
-      case 'assistant':
-        this.handleAssistantEvent(event);
-        break;
-      case 'result':
-        this.handleResultEvent(event);
-        break;
-      case 'system':
-        this.handleSystemEvent(event);
-        break;
-    }
-  }
-
-  handleAssistantEvent(event) {
-    if (event.message) {
-      if (event.message.content) {
-        for (const block of event.message.content) {
-          if (block.type === 'text') {
-            this.messageRenderer.startAssistantMessage(block.text);
-          } else if (block.type === 'tool_use') {
-            this.messageRenderer.appendToolUse(block.name, block.input);
-          }
-        }
-      }
-    } else if (event.content_block) {
-      if (event.content_block.type === 'text') {
-        this.messageRenderer.updateAssistantMessage(event.content_block.text);
-      } else if (event.content_block.type === 'tool_use') {
-        this.messageRenderer.appendToolUse(event.content_block.name, event.content_block.input);
-      } else if (event.content_block.type === 'tool_use_input') {
-        this.messageRenderer.updateToolInput(event.content_block.input);
-      }
-    } else if (event.delta) {
-      if (event.delta.type === 'text_delta') {
-        this.messageRenderer.appendToAssistantMessage(event.delta.text);
-      }
-    }
-  }
-
-  handleResultEvent(event) {
-    if (event.subtype === 'error') {
-      this.messageRenderer.appendSystemMessage(`Tool error: ${event.error}`, 'error');
-    } else if (event.subtype === 'tool_result') {
-      this.messageRenderer.markToolComplete();
-    }
-  }
-
-  handleSystemEvent(event) {
-    if (event.subtype === 'permission_request') {
-      this.modalManager.showPermissionPrompt(event.message || 'Permission requested');
-    } else if (event.subtype === 'question') {
-      this.modalManager.showInputPrompt(event.message || 'Assistant is asking a question');
-    } else if (event.subtype === 'status') {
-      if (event.message) {
-        this.messageRenderer.updateThinkingIndicator(event.message);
-      } else {
-        this.messageRenderer.hideThinkingIndicator();
-      }
-    } else if (event.message) {
-      this.messageRenderer.appendSystemMessage(event.message);
-    }
+    this.messageDispatcher.dispatch(data);
   }
 
   // --- Stats ---
@@ -537,25 +232,13 @@ class EveWorkspaceClient {
   async loadModels() {
     try {
       const response = await fetch('/api/models', { headers: this.getAuthHeaders() });
-      this.models = await response.json();
-      this.renderModelSelect(this.elements.projectModelSelect);
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      const data = await response.json();
+      this.models = data.models || [];
+      this.providerSettings = data.providerSettings || {};
       this.renderModelSelect(this.elements.sessionModelSelect);
     } catch (err) {
       console.error('Failed to load models:', err);
-    }
-  }
-
-  async refreshModels() {
-    try {
-      const response = await fetch('/api/models/refresh', {
-        method: 'POST',
-        headers: this.getAuthHeaders()
-      });
-      this.models = await response.json();
-      this.renderModelSelect(this.elements.projectModelSelect);
-      this.renderModelSelect(this.elements.sessionModelSelect);
-    } catch (err) {
-      console.error('Failed to refresh models:', err);
     }
   }
 
@@ -586,9 +269,11 @@ class EveWorkspaceClient {
   async loadProjects() {
     try {
       const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const projects = await response.json();
       this.projects.clear();
       projects.forEach(project => this.projects.set(project.id, project));
+      await this.loadAllTasks();
       this.sidebarRenderer.renderProjectList();
       this.updateProjectSelect();
     } catch (err) {
@@ -596,9 +281,14 @@ class EveWorkspaceClient {
     }
   }
 
+  async loadAllTasks() {
+    await this.taskManager.loadTasks();
+  }
+
   async loadSessions() {
     try {
       const response = await fetch('/api/sessions', { headers: this.getAuthHeaders() });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const sessions = await response.json();
       sessions.forEach(session => this.sessions.set(session.id, session));
       this.sidebarRenderer.renderProjectList();
@@ -615,7 +305,8 @@ class EveWorkspaceClient {
     const directory = this.elements.directoryInput.value.trim();
     const model = this.elements.sessionModelSelect.value || null;
     if (!projectId && !directory) return;
-    this.wsClient.send({ type: 'create_session', directory, projectId, model });
+    const settings = this.collectSettings();
+    this.wsClient.send({ type: 'create_session', directory, projectId, model, settings });
   }
 
   joinSession(sessionId) {
@@ -642,7 +333,6 @@ class EveWorkspaceClient {
     e.preventDefault();
     const name = this.elements.projectNameInput.value.trim();
     const projectPath = this.elements.projectPathInput.value.trim();
-    const model = this.elements.projectModelSelect.value;
     const allowedTools = this.parseArgsString(this.elements.projectAllowedToolsInput.value);
     if (!name || !projectPath) return;
 
@@ -651,11 +341,14 @@ class EveWorkspaceClient {
       const url = isEdit ? `/api/projects/${this.modalManager.editingProjectId}` : '/api/projects';
       const method = isEdit ? 'PUT' : 'POST';
 
+      const body = { name, path: projectPath, allowedTools };
+
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
-        body: JSON.stringify({ name, path: projectPath, model, allowedTools })
+        body: JSON.stringify(body)
       });
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const project = await response.json();
       this.projects.set(project.id, project);
       this.sidebarRenderer.renderProjectList();
@@ -666,18 +359,49 @@ class EveWorkspaceClient {
     }
   }
 
+  async handleTaskSubmit(e) {
+    e.preventDefault();
+    const el = this.elements;
+    const name = el.taskNameInput.value.trim();
+    const prompt = el.taskPromptInput.value.trim();
+    const model = el.taskModelSelect.value || undefined;
+    const enabled = el.taskEnabledInput.checked;
+    const catchUp = el.taskCatchUpInput.checked;
+    const schedule = this.modalManager.collectSchedule();
+    const projectId = this.modalManager.taskProjectId;
+    if (!name || !prompt || !projectId) return;
+
+    const data = { name, prompt, model, enabled, catchUp, schedule, projectId };
+    const taskId = this.modalManager.editingTaskId;
+
+    if (taskId) {
+      await this.taskManager.updateTask(taskId, data);
+    } else {
+      await this.taskManager.createTask(data);
+    }
+
+    this.modalManager.hideTaskModal();
+    this.sidebarRenderer.renderProjectList();
+  }
+
   async deleteProject(projectId) {
     const project = this.projects.get(projectId);
     if (!project) return;
 
     const sessionCount = Array.from(this.sessions.values()).filter(s => s.projectId === projectId).length;
-    const message = sessionCount > 0
-      ? `Delete '${project.name}'? ${sessionCount} session(s) will become ungrouped.`
+    const taskCount = this.taskManager.getTasksForProject(projectId).length;
+    const parts = [];
+    if (sessionCount > 0) parts.push(`${sessionCount} session(s) will become ungrouped`);
+    if (taskCount > 0) parts.push(`${taskCount} task(s) will be deleted`);
+    const message = parts.length > 0
+      ? `Delete '${project.name}'? ${parts.join(', ')}.`
       : `Delete '${project.name}'?`;
 
     this.modalManager.showConfirmModal(message, async () => {
       try {
-        await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers: this.getAuthHeaders() });
+        await this.taskManager.deleteByProject(projectId);
+        const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers: this.getAuthHeaders() });
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
         this.projects.delete(projectId);
         this.sidebarRenderer.renderProjectList();
         this.updateProjectSelect();
@@ -691,7 +415,6 @@ class EveWorkspaceClient {
     const select = this.elements.projectSelect;
     select.innerHTML = '<option value="">No project</option>';
     for (const [id, project] of this.projects) {
-      if (project.disabled) continue;
       const option = document.createElement('option');
       option.value = id;
       option.textContent = project.name;
@@ -706,97 +429,36 @@ class EveWorkspaceClient {
     const text = this.elements.userInput.value.trim();
     if (!text || !this.currentSessionId) return;
 
-    const files = [...this.attachedFiles];
+    const files = this.fileAttachmentManager.consumeFiles();
     this.messageRenderer.appendUserMessage(text, files);
-    this.wsClient.send({ type: 'user_input', text, files });
+    this.wsClient.send({ type: 'user_input', text, files, sessionId: this.currentSessionId });
 
     this.elements.userInput.value = '';
-    this.attachedFiles = [];
-    this.renderAttachedFiles();
     this.autoResizeTextarea();
     this.modalManager.hideInputPrompt();
     this.modalManager.hidePlanApproval();
+    document.querySelectorAll('.question-options').forEach(el => el.remove());
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
+    this.showStopButton();
   }
 
-  // --- File handling ---
-
-  handleFileSelect(e) {
-    this.addFiles(Array.from(e.target.files));
-    e.target.value = '';
+  handleStop() {
+    if (!this.currentSessionId) return;
+    this.wsClient.send({ type: 'stop_generation', sessionId: this.currentSessionId });
+    this.messageRenderer.hideThinkingIndicator();
+    this.messageRenderer.finishAssistantMessage();
+    this.hideStopButton();
   }
 
-  async addFiles(files) {
-    for (const file of files) {
-      if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
-        this.messageRenderer.appendSystemMessage(`Skipped unsupported file type: ${file.name}`, 'error');
-        continue;
-      }
-      try {
-        const isImage = file.type.startsWith('image/');
-        const content = isImage
-          ? await this.readFileAsDataURL(file)
-          : await this.readFileAsText(file);
-        this.attachedFiles.push({
-          name: file.customName || file.name,
-          content,
-          type: isImage ? 'image' : 'text',
-          mediaType: file.type
-        });
-      } catch (err) {
-        this.messageRenderer.appendSystemMessage(`Failed to read file: ${file.name}`, 'error');
-      }
-    }
-    this.renderAttachedFiles();
+  showStopButton() {
+    this.elements.sendBtn.classList.add('hidden');
+    this.elements.stopBtn.classList.remove('hidden');
   }
 
-  readFileAsText(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = reject;
-      reader.readAsText(file);
-    });
-  }
-
-  readFileAsDataURL(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  renderAttachedFiles() {
-    if (this.attachedFiles.length === 0) {
-      this.elements.attachedFiles.classList.add('hidden');
-      this.elements.attachedFiles.innerHTML = '';
-      return;
-    }
-
-    this.elements.attachedFiles.classList.remove('hidden');
-    this.elements.attachedFiles.innerHTML = this.attachedFiles.map((f, i) => {
-      const isImage = f.type === 'image';
-      const thumbnail = isImage ? `<img class="file-thumbnail" src="${f.content}" alt="">` : '';
-      const icon = isImage ? '' : '<span class="file-icon">&#128196;</span>';
-      return `
-        <div class="attached-file ${isImage ? 'attached-image' : ''}">
-          ${thumbnail}${icon}
-          <span class="file-name">${this.messageRenderer.escapeHtml(f.name)}</span>
-          <button type="button" class="file-remove" data-index="${i}">&times;</button>
-        </div>
-      `;
-    }).join('');
-
-    this.elements.attachedFiles.querySelectorAll('.file-remove').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const index = parseInt(e.target.dataset.index);
-        this.attachedFiles.splice(index, 1);
-        this.renderAttachedFiles();
-      });
-    });
+  hideStopButton() {
+    this.elements.stopBtn.classList.add('hidden');
+    this.elements.sendBtn.classList.remove('hidden');
   }
 
   handleFileContent(projectId, path, content) {
@@ -807,6 +469,97 @@ class EveWorkspaceClient {
 
   handleFileSaved(projectId, path) {
     this.tabManager.setFileModified(projectId, path, false);
+  }
+
+  handleFileChanged(projectId, path, content) {
+    if (this.fileEditor) this.fileEditor.handleExternalChange(projectId, path, content);
+  }
+
+  // --- Provider settings ---
+
+  renderProviderSettings() {
+    const container = this.elements.providerSettings;
+    container.innerHTML = '';
+
+    const modelValue = this.elements.sessionModelSelect.value;
+    const model = this.models.find(m => m.value === modelValue);
+    if (!model) return;
+
+    const fields = (this.providerSettings || {})[model.provider] || [];
+    if (fields.length === 0) return;
+
+    for (const field of fields) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'provider-setting-field';
+
+      if (field.type === 'boolean') {
+        wrapper.className += ' provider-setting-checkbox';
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.dataset.settingKey = field.key;
+        if (field.default === true) input.checked = true;
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(' ' + field.label));
+        wrapper.appendChild(label);
+      } else if (field.type === 'number') {
+        const label = document.createElement('label');
+        label.textContent = field.label;
+        wrapper.appendChild(label);
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.dataset.settingKey = field.key;
+        if (field.min != null) input.min = field.min;
+        if (field.max != null) input.max = field.max;
+        if (field.step != null) input.step = field.step;
+        if (field.default != null) input.value = field.default;
+        if (field.placeholder) input.placeholder = field.placeholder;
+        wrapper.appendChild(input);
+      } else {
+        // string or string[]
+        const label = document.createElement('label');
+        label.textContent = field.label;
+        wrapper.appendChild(label);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.dataset.settingKey = field.key;
+        input.dataset.settingType = field.type;
+        if (field.default != null) input.value = field.default;
+        if (field.placeholder) input.placeholder = field.placeholder;
+        wrapper.appendChild(input);
+      }
+
+      if (field.hint) {
+        const hint = document.createElement('span');
+        hint.className = 'field-hint';
+        hint.textContent = field.hint;
+        wrapper.appendChild(hint);
+      }
+
+      container.appendChild(wrapper);
+    }
+  }
+
+  collectSettings() {
+    const container = this.elements.providerSettings;
+    const inputs = container.querySelectorAll('[data-setting-key]');
+    if (inputs.length === 0) return null;
+
+    const settings = {};
+    for (const input of inputs) {
+      const key = input.dataset.settingKey;
+      if (input.type === 'checkbox') {
+        settings[key] = input.checked;
+      } else if (input.type === 'number') {
+        if (input.value !== '') settings[key] = parseFloat(input.value);
+      } else if (input.dataset.settingType === 'string[]') {
+        const val = input.value.trim();
+        if (val) settings[key] = val.split(/\s+/);
+      } else {
+        if (input.value.trim()) settings[key] = input.value.trim();
+      }
+    }
+    return Object.keys(settings).length > 0 ? settings : null;
   }
 
   // --- UI helpers ---
@@ -830,8 +583,7 @@ class EveWorkspaceClient {
   }
 
   renderMessages() {
-    this.elements.messages.innerHTML = '';
-    this.messageRenderer.currentAssistantMessage = null;
+    this.messageRenderer.clearMessages();
 
     const history = this.sessionHistories.get(this.currentSessionId);
     if (history && history.length > 0) {
@@ -867,21 +619,6 @@ class EveWorkspaceClient {
     return session.name || this.shortenPath(session.directory);
   }
 
-  // --- Proxy methods for existing modules (file-browser, etc.) ---
-
-  appendSystemMessage(text, type) {
-    this.messageRenderer.appendSystemMessage(text, type);
-  }
-
-  showConfirmModal(message, callback) {
-    this.modalManager.showConfirmModal(message, callback);
-  }
-
-  // Delegated to TaskUI for display
-  showTaskResult(projectId, taskId) {
-    this.taskUI.showTaskResult(projectId, taskId);
-  }
-
   parseArgsString(str) {
     if (!str || !str.trim()) return [];
     const args = [];
@@ -897,76 +634,72 @@ class EveWorkspaceClient {
     return args;
   }
 
-  // --- Sidebar resize ---
-
   initSidebarResize() {
-    const minWidth = 200;
-    const maxWidth = 600;
-    let isResizing = false;
-    let startX = 0;
-    let startWidth = 0;
-
-    const savedWidth = localStorage.getItem('sidebarWidth');
-    if (savedWidth) this.setSidebarWidth(parseInt(savedWidth));
-
-    const startResize = (e) => {
-      isResizing = true;
-      startX = e.clientX;
-      startWidth = this.elements.sidebar.offsetWidth;
-      this.elements.sidebarResizer.classList.add('resizing');
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      e.preventDefault();
-    };
-
-    const resize = (e) => {
-      if (!isResizing) return;
-      const delta = e.clientX - startX;
-      this.setSidebarWidth(Math.min(maxWidth, Math.max(minWidth, startWidth + delta)));
-    };
-
-    const stopResize = () => {
-      if (!isResizing) return;
-      isResizing = false;
-      this.elements.sidebarResizer.classList.remove('resizing');
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      localStorage.setItem('sidebarWidth', this.elements.sidebar.offsetWidth.toString());
-    };
-
-    this.elements.sidebarResizer.addEventListener('mousedown', startResize);
-    document.addEventListener('mousemove', resize);
-    document.addEventListener('mouseup', stopResize);
+    initSidebarResize(this.elements.sidebar, this.elements.sidebarResizer);
   }
-
-  setSidebarWidth(width) {
-    document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
-  }
-
-  // --- Swipe gesture ---
 
   initSwipeGesture() {
-    let startX = 0;
-    let startY = 0;
-
-    document.addEventListener('touchstart', (e) => {
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-    }, { passive: true });
-
-    document.addEventListener('touchend', (e) => {
-      const endX = e.changedTouches[0].clientX;
-      const endY = e.changedTouches[0].clientY;
-      const deltaX = endX - startX;
-      const deltaY = Math.abs(endY - startY);
-
-      if (deltaY > Math.abs(deltaX)) return;
-
-      const sidebarOpen = this.elements.sidebar.classList.contains('open');
-      if (!sidebarOpen && startX < 30 && deltaX > 60) this.toggleSidebar(true);
-      if (sidebarOpen && deltaX < -60) this.toggleSidebar(false);
-    }, { passive: true });
+    initSwipeGesture(this.elements.sidebar, (open) => this.toggleSidebar(open));
   }
+}
+
+// --- Standalone UI helpers (no class dependency) ---
+
+function initSidebarResize(sidebar, resizer) {
+  const minWidth = 200;
+  const maxWidth = 600;
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  const setWidth = (w) => document.documentElement.style.setProperty('--sidebar-width', `${w}px`);
+
+  const saved = localStorage.getItem('sidebarWidth');
+  if (saved) setWidth(parseInt(saved));
+
+  resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = sidebar.offsetWidth;
+    resizer.classList.add('resizing');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    setWidth(Math.min(maxWidth, Math.max(minWidth, startWidth + (e.clientX - startX))));
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!isResizing) return;
+    isResizing = false;
+    resizer.classList.remove('resizing');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    localStorage.setItem('sidebarWidth', sidebar.offsetWidth.toString());
+  });
+}
+
+function initSwipeGesture(sidebar, toggleSidebar) {
+  let startX = 0;
+  let startY = 0;
+
+  document.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  document.addEventListener('touchend', (e) => {
+    const deltaX = e.changedTouches[0].clientX - startX;
+    const deltaY = Math.abs(e.changedTouches[0].clientY - startY);
+    if (deltaY > Math.abs(deltaX)) return;
+
+    const open = sidebar.classList.contains('open');
+    if (!open && startX < 30 && deltaX > 60) toggleSidebar(true);
+    if (open && deltaX < -60) toggleSidebar(false);
+  }, { passive: true });
 }
 
 // Initialize

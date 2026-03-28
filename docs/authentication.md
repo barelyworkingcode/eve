@@ -1,113 +1,41 @@
 # Authentication Guide
 
-Eve Workspace supports multiple LLM providers with different authentication methods.
+Eve proxies to relayLLM for all LLM operations. Provider authentication (API keys, CLI logins) is configured in relayLLM, not in Eve.
 
-## Authentication Options
+## Eve Authentication
 
-### Claude CLI
+Eve itself uses WebAuthn passkeys to secure browser access. See the README for passkey setup.
 
-Two authentication methods:
+## Provider Authentication (relayLLM)
 
-**1. API Key (Recommended for Eve Workspace)**
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-- API usage is metered separately and billed to your Anthropic account
-- No special setup required - works out of the box
-- Supports all Claude models
+Provider authentication is configured in relayLLM. Refer to relayLLM documentation for setup details.
 
-**2. CLI OAuth (Local Use)**
-```bash
-claude login
-```
-- Authenticates using your Claude.ai account
-- For **local personal use only** - suitable if you run Eve Workspace on your own machine
-- See important limitation below
-
-### Gemini CLI
-
-API Key only:
-```bash
-export GOOGLE_GENAI_API_KEY="..."
-```
-- Requires API key from Google AI Studio (https://aistudio.google.com)
-- API usage is metered and billed separately
-
-### LM Studio
-
-Optional token authentication:
-- No authentication required by default
-- Add `"token"` to `data/lmstudio-config.json` to authenticate with a Bearer token
-- Useful for remote or shared LM Studio servers that require auth
+Common patterns:
+- **Claude**: `ANTHROPIC_API_KEY` environment variable or `claude login`
+- **Gemini**: `GOOGLE_GENAI_API_KEY` environment variable
+- **LM Studio**: No authentication required by default; token auth available in relayLLM config
 
 ## Important Limitation: Pro/Max Subscriptions
 
-**As of January 2026**, Anthropic restricts third-party tools from using Claude.ai Pro/Max subscription credentials. This applies to all third-party applications, including Eve Workspace.
+**As of January 2026**, Anthropic restricts third-party tools from using Claude.ai Pro/Max subscription credentials. This applies to all third-party applications.
 
 If you authenticate via `claude login` (CLI OAuth):
 - Works for personal local use on your machine
-- Will fail if used via Eve Workspace on a shared server or remote access
-- Anthropic blocks third-party apps from Pro/Max authentication
+- Will fail if used via Eve/relayLLM on a shared server or remote access
 
-**For shared or remote usage**: Use an Anthropic API key instead. API key authentication has no such restrictions.
-
-## Setup by Provider
-
-### Claude with API Key
-
-1. Generate an API key at https://console.anthropic.com/
-2. Set environment variable:
-   ```bash
-   export ANTHROPIC_API_KEY="sk-ant-..."
-   npm start
-   ```
-3. Eve Workspace will use your API key for all Claude models
-
-### Claude with CLI OAuth
-
-1. Run `claude login` in your terminal
-2. Follow prompts to authenticate with your Claude.ai account
-3. Start Eve Workspace:
-   ```bash
-   npm start
-   ```
-4. Works for local personal use only
-
-### Gemini
-
-1. Create API key at https://aistudio.google.com
-2. Set environment variable:
-   ```bash
-   export GOOGLE_GENAI_API_KEY="..."
-   npm start
-   ```
-3. Models starting with "gemini" will use this key
-
-### LM Studio
-
-1. Download LM Studio from https://lmstudio.ai
-2. Start the LM Studio server
-3. Configure `data/lmstudio-config.json` (see README)
-4. Optionally add `"token": "lms-..."` to config for authenticated servers
-
-## Billing & Usage
-
-- **API Key usage**: Metered and billed separately to your Anthropic account
-- **CLI OAuth usage**: Uses your Claude.ai subscription (local only)
-- **LM Studio**: No billing - uses your local GPU/CPU only
-- **Gemini API**: Metered and billed to your Google Cloud account
+**For shared or remote usage**: Use an Anthropic API key instead.
 
 ## Troubleshooting
 
-**"API key not found" error**
-- Check `ANTHROPIC_API_KEY` environment variable is set
-- For Claude OAuth, ensure `claude login` completed successfully
+**"Relay service unavailable"**
+- Check that relayLLM is running on the configured URL
+- Default: `http://localhost:3001`
 
-**"Not authorized for Pro/Max"**
-- You're running Eve Workspace remotely with CLI OAuth authentication
-- Solution: Use an Anthropic API key instead
+**"API key not found" or provider errors**
+- Provider authentication is configured in relayLLM, not Eve
+- Check relayLLM logs for details
 
 **Provider not appearing in model list**
-- Provider may be disabled in `data/settings.json`
-- Check provider authentication is set up (API key or login completed)
-- Restart Eve Workspace after changing authentication
+- Provider may be disabled in relayLLM settings
+- Check provider authentication is set up in relayLLM
+- Restart relayLLM after changing authentication

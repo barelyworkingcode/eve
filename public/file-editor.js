@@ -127,12 +127,11 @@ class FileEditor {
 
     const content = this.editor.getValue();
     this.markdownPreview.innerHTML = DOMPurify.sanitize(marked.parse(content));
+    this.client.messageRenderer.renderMermaidBlocks(this.markdownPreview);
   }
 
   loadMonaco() {
-    console.log('[FileEditor] loadMonaco called, window.require:', typeof window.require);
     if (!window.require) {
-      console.error('[FileEditor] Monaco loader not found');
       this.showEditorError('Monaco editor failed to load');
       return;
     }
@@ -143,9 +142,7 @@ class FileEditor {
       }
     });
 
-    console.log('[FileEditor] Loading Monaco editor...');
     require(['vs/editor/editor.main'], () => {
-      console.log('[FileEditor] Monaco editor loaded, creating editor');
       this.createEditor();
     }, (err) => {
       console.error('[FileEditor] Monaco editor failed to load:', err);
@@ -162,7 +159,6 @@ class FileEditor {
   }
 
   createEditor() {
-    console.log('[FileEditor] createEditor called, container:', this.editorContainer);
     this.editor = monaco.editor.create(this.editorContainer, {
       value: '',
       language: 'plaintext',
@@ -177,8 +173,6 @@ class FileEditor {
       renderWhitespace: 'selection',
       lineNumbers: 'on'
     });
-
-    console.log('[FileEditor] Editor created:', !!this.editor);
 
     // Listen for content changes
     this.editor.onDidChangeModelContent(() => {
@@ -206,8 +200,6 @@ class FileEditor {
    * Opens a file in the editor
    */
   openFile(projectId, path, content) {
-    console.log('[FileEditor] openFile called:', projectId, path);
-
     // Set currentFile immediately to prevent duplicate requests from showFile
     this.currentFile = {
       projectId,
@@ -215,11 +207,9 @@ class FileEditor {
       content,
       originalContent: content
     };
-    console.log('[FileEditor] currentFile set to:', this.currentFile.projectId, this.currentFile.path);
 
     if (!this.editor) {
       // Monaco not ready yet, retry later to actually load content
-      console.log('[FileEditor] Monaco not ready, retrying in 100ms');
       setTimeout(() => this.loadContentIntoEditor(), 100);
       return;
     }
@@ -231,22 +221,14 @@ class FileEditor {
    * Loads the current file content into Monaco editor
    */
   loadContentIntoEditor() {
-    console.log('[FileEditor] loadContentIntoEditor called, editor:', !!this.editor);
-
     if (!this.editor) {
-      // Monaco still not ready, retry
-      console.log('[FileEditor] Editor not ready, retrying in 100ms');
       setTimeout(() => this.loadContentIntoEditor(), 100);
       return;
     }
 
-    if (!this.currentFile) {
-      console.log('[FileEditor] No currentFile to load');
-      return;
-    }
+    if (!this.currentFile) return;
 
     const { path, content } = this.currentFile;
-    console.log('[FileEditor] Setting editor content for:', path, 'length:', content?.length);
 
     // Set editor content
     this.editor.setValue(content);
@@ -262,10 +244,15 @@ class FileEditor {
     this.editorPath.textContent = path;
     this.saveBtn.disabled = true;
 
+    // Configure read-only mode for plan files
+    const isPlan = isPlanProject(this.currentFile.projectId);
+    this.editor.updateOptions({ readOnly: isPlan });
+    this.saveBtn.classList.toggle('hidden', isPlan);
+
     // Configure view mode based on file type
     if (this.isMarkdownFile()) {
       this.viewModeToggle.classList.remove('hidden');
-      this.setViewMode(this.viewMode);
+      this.setViewMode(isPlan ? 'preview' : this.viewMode);
     } else {
       this.viewModeToggle.classList.add('hidden');
       this.editorContentEl.removeAttribute('data-view-mode');
@@ -281,22 +268,16 @@ class FileEditor {
    * Shows a specific file (called by tab manager)
    */
   showFile(projectId, path) {
-    console.log('[FileEditor] showFile called:', projectId, path);
-    console.log('[FileEditor] currentFile:', this.currentFile);
-
     if (this.currentFile?.projectId === projectId && this.currentFile?.path === path) {
-      // File already loaded
-      console.log('[FileEditor] File already loaded, skipping request');
       return;
     }
 
-    console.log('[FileEditor] Requesting file from server');
     // Request file content from server if not already loaded
-    this.client.ws.send(JSON.stringify({
-      type: 'read_file',
-      projectId,
-      path
-    }));
+    if (isPlanProject(projectId)) {
+      this.client.ws.send(JSON.stringify({ type: 'read_plan_file', path }));
+    } else {
+      this.client.ws.send(JSON.stringify({ type: 'read_file', projectId, path }));
+    }
   }
 
   /**
@@ -304,6 +285,7 @@ class FileEditor {
    */
   saveCurrentFile() {
     if (!this.currentFile) return;
+    if (isPlanProject(this.currentFile.projectId)) return;
 
     const content = this.editor.getValue();
 
@@ -317,6 +299,75 @@ class FileEditor {
     // Update original content after save
     this.currentFile.originalContent = content;
     this.saveBtn.disabled = true;
+  }
+
+  /**
+   * Handles an externally-modified file pushed from the server.
+   */
+  handleExternalChange(projectId, path, content) {
+    if (!this.currentFile) return;
+    if (this.currentFile.projectId !== projectId || this.currentFile.path !== path) return;
+
+    const currentContent = this.editor ? this.editor.getValue() : this.currentFile.content;
+    const isClean = currentContent === this.currentFile.originalContent;
+
+    if (isClean) {
+      this._applyExternalContent(content);
+    } else {
+      this._showExternalChangeNotification(content);
+    }
+  }
+
+  /**
+   * Silently applies external content, preserving cursor position.
+   */
+  _applyExternalContent(content) {
+    this.currentFile.content = content;
+    this.currentFile.originalContent = content;
+
+    if (this.editor) {
+      const position = this.editor.getPosition();
+      this.editor.setValue(content);
+      if (position) this.editor.setPosition(position);
+    }
+
+    this.saveBtn.disabled = true;
+    this.client.tabManager.setFileModified(
+      this.currentFile.projectId,
+      this.currentFile.path,
+      false
+    );
+  }
+
+  /**
+   * Shows a notification bar when external changes conflict with local edits.
+   */
+  _showExternalChangeNotification(newContent) {
+    // Remove existing notification if any
+    this.editorContentEl.querySelector('.external-change-bar')?.remove();
+
+    const bar = document.createElement('div');
+    bar.className = 'external-change-bar';
+    bar.innerHTML = `
+      <span>This file has been modified externally.</span>
+      <div class="external-change-actions">
+        <button class="btn-sm btn-primary external-change-reload">Reload</button>
+        <button class="btn-sm btn-secondary external-change-keep">Keep Mine</button>
+      </div>
+    `;
+
+    bar.querySelector('.external-change-reload').addEventListener('click', () => {
+      this._applyExternalContent(newContent);
+      bar.remove();
+    });
+
+    bar.querySelector('.external-change-keep').addEventListener('click', () => {
+      // Update originalContent so saving will overwrite with local version
+      this.currentFile.originalContent = newContent;
+      bar.remove();
+    });
+
+    this.editorContentEl.insertBefore(bar, this.editorContentEl.firstChild);
   }
 
   /**
