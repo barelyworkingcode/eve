@@ -172,8 +172,8 @@ class MessageRenderer {
       }
     }
 
-    // Complete any trailing tool block from history
-    this.markToolComplete();
+    // Complete any trailing tool block and remove thinking indicator from history
+    this.hideThinkingIndicator();
     this.renderMermaidBlocks(this.app.elements.messages);
     this.scrollToBottom();
     this.app.isRenderingHistory = false;
