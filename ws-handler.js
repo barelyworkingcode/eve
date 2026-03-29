@@ -209,7 +209,7 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
       body: JSON.stringify({
         projectId: message.projectId || '',
         directory: message.directory || '',
-        name: '',
+        name: message.name || '',
         model: message.model || '',
         settings: message.settings || null
       })
