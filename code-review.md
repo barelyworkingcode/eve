@@ -1,5 +1,17 @@
 # Code Review Log
 
+## 2026-03-28 — Idle timeout + badge review (exp branch)
+
+### Files reviewed
+terminal-manager.js (allTerminals, getDetachedCountForPath), sidebar/project-tree-item.js (badge)
+
+### No HIGH issues found
+
+### MEDIUM: Case-sensitive path match in `getDetachedCountForPath`
+**Bug**: `startsWith(projectPath)` is case-sensitive. macOS filesystem is case-insensitive, so paths like `/Users/Jonathan` vs `/users/Jonathan` wouldn't match.
+
+**Fix**: Lowercased both sides before comparison.
+
 ## 2026-03-28 — Full UI rewrite review (exp branch)
 
 ### Files reviewed
