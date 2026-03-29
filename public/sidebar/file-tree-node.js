@@ -14,7 +14,6 @@ class FileTreeNode {
     this.expandedPaths = new Map();
     // Drag state
     this.dragState = null;
-    this._contextMenu = null;
   }
 
   init() {
@@ -25,8 +24,7 @@ class FileTreeNode {
     this.bus.on(EVT.FILE_UPLOADED, (data) => this._refreshDir(data.projectId, data.destDirectory));
     this.bus.on(EVT.DIRECTORY_CREATED, (data) => this._refreshDir(data.projectId, data.path));
 
-    // Close context menu on any click
-    document.addEventListener('click', () => this._closeContextMenu());
+    // Close context menu on any click (handled by shared closeContextMenu)
   }
 
   /**
@@ -261,13 +259,6 @@ class FileTreeNode {
   // --- Context menu ---
 
   _showContextMenu(x, y, projectId, path, isDir) {
-    this._closeContextMenu();
-
-    const menu = document.createElement('div');
-    menu.className = 'file-tree__context-menu';
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
-
     const items = [
       { label: 'Rename', action: () => this._startRename(projectId, path) },
       { label: 'Delete', action: () => this._confirmDelete(projectId, path) },
@@ -277,46 +268,15 @@ class FileTreeNode {
       items.unshift(
         { label: 'New File', action: () => this._promptNewItem(projectId, path, 'file') },
         { label: 'New Folder', action: () => this._promptNewItem(projectId, path, 'directory') },
-        { label: 'separator' },
+        { separator: true },
       );
       items.push(
-        { label: 'separator' },
+        { separator: true },
         { label: 'Refresh', action: () => this._refreshDir(projectId, path) },
       );
     }
 
-    for (const item of items) {
-      if (item.label === 'separator') {
-        const sep = document.createElement('div');
-        sep.className = 'file-tree__context-sep';
-        menu.appendChild(sep);
-        continue;
-      }
-      const btn = document.createElement('button');
-      btn.className = 'file-tree__context-item';
-      btn.textContent = item.label;
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._closeContextMenu();
-        item.action();
-      });
-      menu.appendChild(btn);
-    }
-
-    document.body.appendChild(menu);
-    this._contextMenu = menu;
-
-    // Adjust position if off-screen
-    const rect = menu.getBoundingClientRect();
-    if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 8}px`;
-    if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 8}px`;
-  }
-
-  _closeContextMenu() {
-    if (this._contextMenu) {
-      this._contextMenu.remove();
-      this._contextMenu = null;
-    }
+    showContextMenu(x, y, items);
   }
 
   // --- File operations ---
