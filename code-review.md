@@ -1,5 +1,32 @@
 # Code Review Log
 
+## 2026-03-28 — Full UI rewrite review (exp branch)
+
+### Files reviewed
+All new and modified files: core/*.js (5), sidebar/*.js (4), dialogs/*.js (3), layout/mobile-bar.js, app.js, tab-manager.js, message-dispatcher.js, ws-handler.js, index.html, styles.css. Cross-checked against prior reviews — no flip-flopping.
+
+### HIGH: `api-client.js` — `response.json()` throws on empty/204 responses
+**Bug**: Success path called `response.json()` without `.catch()`. DELETE endpoints returning 204 or empty body would throw SyntaxError. Error path already had `.catch(() => ({}))`.
+
+**Fix**: Added `.catch(() => ({}))` to success path.
+
+### HIGH: `mobile-bar.js` — Chat button handler broken
+**Bug**: Used `window.client` global lookup with nonsensical guard (`document.querySelector ? ...`), dead `ws` variable assignment. Fragile, inconsistent with bus/container pattern.
+
+**Fix**: Replaced with `this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId })` — opens shell launcher which has Web Chat. Consistent with shell button pattern.
+
+### MEDIUM: `file-tree-node.js` — Missing `FileReader.onerror` handler
+**Bug**: `_handleExternalDrop` set `reader.onload` but never `reader.onerror`. Failed file reads silently dropped.
+
+**Fix**: Added `reader.onerror` handler with console.error.
+
+### Noted (not fixed — deferred to incremental migration)
+- DRY: model select dropdown built in 3 places (shell-launcher, task-dialog, app.js)
+- DRY: context menu pattern duplicated between FileTreeNode and ProjectTreeItem
+- DRY: icon SVGs duplicated across 3 modules
+- Dual state maps in app.js (this.sessions vs this.state.sessions) — migration artifact
+- Tight coupling via `container.get('app')` in dialogs — acceptable during migration
+
 ## 2026-03-28 — Terminal provider proxy review, second pass (exp branch)
 
 ### Files reviewed

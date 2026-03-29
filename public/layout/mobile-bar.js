@@ -38,12 +38,7 @@ class MobileBar {
     chatBtn.addEventListener('click', () => {
       const projectId = this._getFirstProjectId();
       if (projectId) {
-        // Launch web chat for the first project with default model
-        const ws = this.bus; // We'll emit an event to create session
-        const app = document.querySelector ? window.client : null;
-        if (app?.modalManager) {
-          app.modalManager.showSessionModal(projectId);
-        }
+        this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId });
       }
     });
 
