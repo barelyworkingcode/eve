@@ -50,6 +50,14 @@ class EveWorkspaceClient {
     this.fileBrowser = new FileBrowser(this);
     this.fileEditor = new FileEditor(this);
 
+    // File viewer registry (IoC: viewers register themselves)
+    this.viewerRegistry = new ViewerRegistry();
+    this.viewerRegistry.register(new ImageViewer());
+    this.viewerRegistry.register(new PdfViewer());
+    this.viewerRegistry.register(new VideoViewer());
+    this.viewerRegistry.register(new AudioViewer());
+    this.container.register('viewerRegistry', this.viewerRegistry);
+
     // New sidebar: project tree (Phase 2)
     this.projectTree = new ProjectTree(this.container);
     this.projectTree.init();
@@ -169,7 +177,13 @@ class EveWorkspaceClient {
     // Bridge: new file tree click -> open file via existing read_file flow
     this.bus.on(EVT.FILE_CONTENT, (data) => {
       if (data.requestLoad) {
-        this.wsClient.send({ type: 'read_file', projectId: data.projectId, path: data.path });
+        if (this.viewerRegistry.isViewerFile(data.path)) {
+          // Viewer files load via HTTP, no WebSocket read needed
+          const filename = data.path.split('/').pop();
+          this.tabManager.openFile(data.projectId, data.path, filename);
+        } else {
+          this.wsClient.send({ type: 'read_file', projectId: data.projectId, path: data.path });
+        }
       }
     });
 
@@ -280,7 +294,12 @@ class EveWorkspaceClient {
       const recentFiles = this.tabManager.getRecentFiles();
       for (const file of recentFiles) {
         if (this.projects.has(file.projectId)) {
-          this.wsClient.send({ type: 'read_file', projectId: file.projectId, path: file.path });
+          if (this.viewerRegistry.isViewerFile(file.path)) {
+            const filename = file.path.split('/').pop();
+            this.tabManager.openFile(file.projectId, file.path, filename);
+          } else {
+            this.wsClient.send({ type: 'read_file', projectId: file.projectId, path: file.path });
+          }
         }
       }
     });

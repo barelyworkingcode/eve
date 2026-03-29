@@ -127,7 +127,7 @@ app.use('/mermaid', express.static(path.join(__dirname, 'node_modules/mermaid/di
 app.use(express.json({ limit: '50mb' }));
 
 // Register HTTP routes (proxy to relayLLM + scheduler + local auth)
-registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache });
+registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache, resolveProject: (id) => projectCache.get(id) });
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({

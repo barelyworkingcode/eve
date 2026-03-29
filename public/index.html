@@ -123,6 +123,15 @@
           </div>
         </div>
 
+        <!-- File viewer content area (images, PDFs, video, audio) -->
+        <div id="fileViewer" class="file-viewer-content hidden">
+          <div id="fileViewerCanvas" class="file-viewer__canvas"></div>
+          <div class="file-viewer__status">
+            <span id="fileViewerPath" class="file-viewer__path"></span>
+            <span id="fileViewerInfo" class="file-viewer__info"></span>
+          </div>
+        </div>
+
         <!-- Terminal content area -->
         <div id="terminal" class="terminal-content hidden">
           <div id="terminalContainer" class="terminal-container"></div>
@@ -300,6 +309,13 @@
   <script src="dialogs/dialog-base.js"></script>
   <script src="dialogs/shell-launcher-dialog.js"></script>
   <script src="dialogs/task-dialog.js"></script>
+
+  <!-- Viewer modules -->
+  <script src="viewers/viewer-registry.js"></script>
+  <script src="viewers/image-viewer.js"></script>
+  <script src="viewers/pdf-viewer.js"></script>
+  <script src="viewers/video-viewer.js"></script>
+  <script src="viewers/audio-viewer.js"></script>
 
   <!-- Sidebar modules -->
   <!-- Layout modules -->
