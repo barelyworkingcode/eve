@@ -14,6 +14,28 @@ class TerminalManager {
 
     this.initElements();
     this.loadXterm();
+    this._listenForSettingsChanges();
+  }
+
+  _listenForSettingsChanges() {
+    this.client.bus.on(EVT.SETTINGS_CHANGED, (s) => {
+      const fontStack = this.client.settings.getFontStack();
+      const light = this.client.settings.isLight();
+      for (const t of this.terminals.values()) {
+        const fontChanged = t.term.options.fontSize !== s.fontSize || t.term.options.fontFamily !== fontStack;
+        t.term.options.fontSize = s.fontSize;
+        t.term.options.fontFamily = fontStack;
+        t.term.options.theme = {
+          ...t.term.options.theme,
+          background: s.bgPrimary,
+          foreground: s.textPrimary,
+          cursor: s.textPrimary,
+          cursorAccent: s.bgPrimary,
+          selectionBackground: light ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.3)',
+        };
+        if (fontChanged) t.fitAddon.fit();
+      }
+    });
   }
 
   initElements() {
@@ -158,13 +180,20 @@ class TerminalManager {
   }
 
   createXtermInstance() {
+    const settings = this.client.settings;
+    const bgColor = settings.get('bgPrimary');
+    const fgColor = settings.get('textPrimary');
+    const fontStack = settings.getFontStack();
+    const fontSize = settings.get('fontSize');
+    const light = settings.isLight();
+
     const term = new this.Terminal({
       theme: {
-        background: '#0a0a0a',
-        foreground: '#fafafa',
-        cursor: '#fafafa',
-        cursorAccent: '#0a0a0a',
-        selectionBackground: 'rgba(255, 255, 255, 0.3)',
+        background: bgColor,
+        foreground: fgColor,
+        cursor: fgColor,
+        cursorAccent: bgColor,
+        selectionBackground: light ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.3)',
         black: '#000000',
         red: '#ff5555',
         green: '#50fa7b',
@@ -182,8 +211,8 @@ class TerminalManager {
         brightCyan: '#9aedfe',
         brightWhite: '#e6e6e6'
       },
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: 13,
+      fontFamily: fontStack,
+      fontSize: fontSize,
       lineHeight: 1.2,
       cursorBlink: true,
       cursorStyle: 'block',

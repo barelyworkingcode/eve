@@ -1,0 +1,210 @@
+/**
+ * SettingsDialog - browser theme configuration dialog.
+ * Three tabs: Colors, Typography, Presets.
+ * All changes apply live via SettingsManager.
+ */
+class SettingsDialog extends DialogBase {
+  constructor(container) {
+    super(container, 'settings-dialog');
+    this.settings = container.get('settings');
+  }
+
+  init() {
+    this.bus.on(EVT.DIALOG_SETTINGS, () => {
+      this.render();
+      this.show();
+    });
+  }
+
+  render() {
+    this._panel.innerHTML = '';
+    this._panel.style.maxWidth = '440px';
+
+    // Title bar
+    const titleBar = document.createElement('div');
+    titleBar.className = 'dialog__title-bar';
+
+    const title = document.createElement('h3');
+    title.className = 'dialog__title';
+    title.textContent = 'Settings';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'dialog__close';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', () => this.hide());
+
+    titleBar.appendChild(title);
+    titleBar.appendChild(closeBtn);
+    this._panel.appendChild(titleBar);
+
+    // Tabs
+    const colorsContent = document.createElement('div');
+    colorsContent.className = 'dialog__tab-content';
+    const typographyContent = document.createElement('div');
+    typographyContent.className = 'dialog__tab-content hidden';
+    const presetsContent = document.createElement('div');
+    presetsContent.className = 'dialog__tab-content hidden';
+
+    const tabs = [colorsContent, typographyContent, presetsContent];
+    const { header } = this._createTabs(
+      [
+        { name: 'colors', label: 'Colors' },
+        { name: 'typography', label: 'Typography' },
+        { name: 'presets', label: 'Presets' },
+      ],
+      (tab) => {
+        const map = { colors: 0, typography: 1, presets: 2 };
+        tabs.forEach((t, i) => t.classList.toggle('hidden', i !== map[tab]));
+      }
+    );
+    this._panel.appendChild(header);
+
+    // Build tab contents
+    this._buildColorsTab(colorsContent);
+    this._buildTypographyTab(typographyContent);
+    this._buildPresetsTab(presetsContent);
+
+    this._panel.appendChild(colorsContent);
+    this._panel.appendChild(typographyContent);
+    this._panel.appendChild(presetsContent);
+
+    // Footer with reset
+    const footer = document.createElement('div');
+    footer.className = 'settings-dialog__footer';
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'dialog__btn dialog__btn--secondary';
+    resetBtn.textContent = 'Reset to Defaults';
+    resetBtn.addEventListener('click', () => {
+      this.settings.reset();
+      this.render();
+    });
+    footer.appendChild(resetBtn);
+    this._panel.appendChild(footer);
+  }
+
+  _buildColorsTab(container) {
+    const colors = [
+      { key: 'accentColor', label: 'Accent' },
+      { key: 'bgPrimary', label: 'Background' },
+      { key: 'bgSecondary', label: 'Surface' },
+      { key: 'textPrimary', label: 'Text' },
+      { key: 'textSecondary', label: 'Text Secondary' },
+      { key: 'borderColor', label: 'Borders' },
+      { key: 'dangerColor', label: 'Danger' },
+      { key: 'successColor', label: 'Success' },
+      { key: 'messageUserBg', label: 'User Message' },
+    ];
+
+    for (const { key, label } of colors) {
+      const row = document.createElement('div');
+      row.className = 'settings-dialog__color-row';
+
+      const lbl = document.createElement('span');
+      lbl.className = 'settings-dialog__color-label';
+      lbl.textContent = label;
+
+      const hexSpan = document.createElement('span');
+      hexSpan.className = 'settings-dialog__color-hex';
+      hexSpan.textContent = this.settings.get(key);
+
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.className = 'settings-dialog__color-input';
+      input.value = this.settings.get(key);
+      input.addEventListener('input', () => {
+        hexSpan.textContent = input.value;
+        this.settings.set(key, input.value);
+      });
+
+      row.appendChild(lbl);
+      row.appendChild(hexSpan);
+      row.appendChild(input);
+      container.appendChild(row);
+    }
+  }
+
+  _buildTypographyTab(container) {
+    // Font family
+    const famLabel = document.createElement('label');
+    famLabel.className = 'dialog__label';
+    famLabel.textContent = 'Font Family';
+    container.appendChild(famLabel);
+
+    const famSelect = document.createElement('select');
+    famSelect.className = 'dialog__select';
+    for (const [groupName, keys] of Object.entries(FONT_GROUPS)) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = groupName;
+      for (const key of keys) {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = FONT_PRESET_LABELS[key];
+        if (key === this.settings.get('fontFamily')) opt.selected = true;
+        optgroup.appendChild(opt);
+      }
+      famSelect.appendChild(optgroup);
+    }
+    famSelect.addEventListener('change', () => {
+      this.settings.set('fontFamily', famSelect.value);
+    });
+    container.appendChild(famSelect);
+
+    // Font size
+    const sizeLabel = document.createElement('label');
+    sizeLabel.className = 'dialog__label';
+    sizeLabel.textContent = 'Font Size';
+    container.appendChild(sizeLabel);
+
+    const sizeInput = document.createElement('input');
+    sizeInput.type = 'number';
+    sizeInput.className = 'dialog__input';
+    sizeInput.min = '10';
+    sizeInput.max = '20';
+    sizeInput.step = '1';
+    sizeInput.value = this.settings.get('fontSize');
+    sizeInput.addEventListener('change', () => {
+      const val = Math.max(10, Math.min(20, parseInt(sizeInput.value, 10) || 13));
+      sizeInput.value = val;
+      this.settings.set('fontSize', val);
+    });
+    container.appendChild(sizeInput);
+  }
+
+  _buildPresetsTab(container) {
+    const grid = document.createElement('div');
+    grid.className = 'settings-dialog__preset-grid';
+
+    for (const [name, colors] of Object.entries(THEME_PRESETS)) {
+      const card = document.createElement('button');
+      card.className = 'settings-dialog__preset-card';
+
+      // Color preview swatches
+      const swatches = document.createElement('div');
+      swatches.className = 'settings-dialog__preset-swatches';
+      const previewColors = [colors.bgPrimary, colors.bgSecondary, colors.accentColor, colors.textPrimary];
+      for (const c of previewColors) {
+        const dot = document.createElement('span');
+        dot.className = 'settings-dialog__preset-dot';
+        dot.style.background = c;
+        swatches.appendChild(dot);
+      }
+
+      const label = document.createElement('span');
+      label.className = 'settings-dialog__preset-name';
+      label.textContent = name;
+
+      card.appendChild(swatches);
+      card.appendChild(label);
+
+      card.addEventListener('click', () => {
+        const current = this.settings.getAll();
+        this.settings.setAll({ ...colors, fontFamily: current.fontFamily, fontSize: current.fontSize });
+        this.render();
+      });
+
+      grid.appendChild(card);
+    }
+
+    container.appendChild(grid);
+  }
+}

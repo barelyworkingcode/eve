@@ -8,6 +8,28 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0a0a0a">
+  <script>
+    // Apply saved theme before first paint to prevent flash
+    (function() {
+      try {
+        var s = JSON.parse(localStorage.getItem('eve-settings'));
+        if (s) {
+          var r = document.documentElement.style;
+          if (s.bgPrimary) r.setProperty('--bg-primary', s.bgPrimary);
+          if (s.bgSecondary) { r.setProperty('--bg-secondary', s.bgSecondary); r.setProperty('--message-assistant', s.bgSecondary); }
+          if (s.accentColor) r.setProperty('--accent', s.accentColor);
+          if (s.textPrimary) r.setProperty('--text-primary', s.textPrimary);
+          if (s.textSecondary) r.setProperty('--text-secondary', s.textSecondary);
+          if (s.borderColor) r.setProperty('--border-color', s.borderColor);
+          if (s.dangerColor) r.setProperty('--danger', s.dangerColor);
+          if (s.successColor) r.setProperty('--success', s.successColor);
+          if (s.messageUserBg) r.setProperty('--message-user', s.messageUserBg);
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m && s.bgPrimary) m.content = s.bgPrimary;
+        }
+      } catch(e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
@@ -32,6 +54,7 @@
       <div class="sidebar-header">
         <span class="sidebar-header__title">EXPLORER</span>
         <div class="sidebar-header__actions">
+          <button id="settingsBtn" class="btn-icon" title="Settings"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M3.1 12.9l1.4-1.4M11.5 4.5l1.4-1.4"/></svg></button>
           <button id="newProjectBtn" class="btn-icon" title="New Project">+</button>
           <button id="closeSidebar" class="menu-toggle" title="Close menu">&#x2715;</button>
         </div>
@@ -291,6 +314,7 @@
   <script src="core/state-store.js"></script>
   <script src="core/api-client.js"></script>
   <script src="core/ui-utils.js"></script>
+  <script src="core/settings-manager.js"></script>
 
   <script src="auth.js"></script>
   <script src="ws-client.js"></script>
@@ -309,6 +333,7 @@
   <script src="dialogs/dialog-base.js"></script>
   <script src="dialogs/shell-launcher-dialog.js"></script>
   <script src="dialogs/task-dialog.js"></script>
+  <script src="dialogs/settings-dialog.js"></script>
 
   <!-- Viewer modules -->
   <script src="viewers/viewer-registry.js"></script>
