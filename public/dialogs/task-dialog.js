@@ -116,9 +116,10 @@ class TaskDialog extends DialogBase {
       info.appendChild(schedule);
 
       // Status badge
+      const lastStatus = task.lastStatus || task.lastResult?.status;
       const status = document.createElement('span');
-      status.className = `task-dialog__status task-dialog__status--${task.lastResult?.status || 'none'}`;
-      status.textContent = task.lastResult?.status || (task.enabled ? 'ready' : 'disabled');
+      status.className = `task-dialog__status task-dialog__status--${lastStatus || 'none'}`;
+      status.textContent = lastStatus || (task.enabled ? 'ready' : 'disabled');
 
       // Actions row
       const actions = document.createElement('div');
@@ -127,8 +128,9 @@ class TaskDialog extends DialogBase {
       const runBtn = this._actionBtn('Run', () => this._runTask(task));
       actions.appendChild(runBtn);
 
-      if (task.lastResult?.sessionId) {
-        const joinBtn = this._actionBtn('Join Last', () => this._joinSession(task.lastResult.sessionId));
+      const lastSessionId = task.lastSessionId || task.lastResult?.sessionId;
+      if (lastSessionId) {
+        const joinBtn = this._actionBtn('View Last Run', () => this._joinSession(lastSessionId));
         actions.appendChild(joinBtn);
       }
 
