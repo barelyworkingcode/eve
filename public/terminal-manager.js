@@ -2,6 +2,7 @@ class TerminalManager {
   constructor(client) {
     this.client = client;
     this.terminals = new Map(); // terminalId -> { term, fitAddon, container, directory, templateId, name, exited }
+    this.allTerminals = new Map(); // terminalId -> { id, templateId, name, directory, state } — all known from relayLLM
     this.activeTerminalId = null;
     this.xtermLoaded = false;
     this.Terminal = null;
@@ -305,9 +306,13 @@ class TerminalManager {
   onTerminalList(terminalList) {
     if (!terminalList || terminalList.length === 0) return;
 
+    // Track all known terminals for badge counts.
+    this.allTerminals.clear();
     for (const t of terminalList) {
-      if (this.terminals.has(t.id)) continue;
-      this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped');
+      this.allTerminals.set(t.id, t);
+      if (!this.terminals.has(t.id)) {
+        this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped');
+      }
     }
   }
 
@@ -392,6 +397,25 @@ class TerminalManager {
       bytes[i] = binary.charCodeAt(i);
     }
     return bytes;
+  }
+
+  /**
+   * Count running terminals for a project path that aren't currently in a tab.
+   */
+  getDetachedCountForPath(projectPath) {
+    if (!projectPath) return 0;
+    let count = 0;
+    for (const [id, t] of this.allTerminals) {
+      if (t.state === 'stopped') continue;
+      // Match by directory prefix
+      if (t.directory && t.directory.startsWith(projectPath)) {
+        // Not detached if it's in our local terminals map (has a tab)
+        if (!this.terminals.has(id)) {
+          count++;
+        }
+      }
+    }
+    return count;
   }
 }
 

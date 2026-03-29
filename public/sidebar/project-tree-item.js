@@ -3,6 +3,7 @@
  */
 class ProjectTreeItem {
   constructor(container, projectId, fileTreeNode) {
+    this.container = container;
     this.bus = container.get('bus');
     this.state = container.get('state');
     this.projectId = projectId;
@@ -38,6 +39,17 @@ class ProjectTreeItem {
     // Action icons (right-aligned)
     const actions = document.createElement('span');
     actions.className = 'project-tree__actions';
+
+    // Detached terminal badge
+    const termMgr = this.container?.has('app') ? this.container.get('app').terminalManager : null;
+    const detached = termMgr?.getDetachedCountForPath(project.path) || 0;
+    if (detached > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'project-tree__badge';
+      badge.textContent = detached;
+      badge.title = `${detached} detached terminal${detached > 1 ? 's' : ''}`;
+      actions.appendChild(badge);
+    }
 
     // Shell launcher
     const shellBtn = document.createElement('button');
