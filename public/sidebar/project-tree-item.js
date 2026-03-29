@@ -98,14 +98,10 @@ class ProjectTreeItem {
     if (!parent) return;
     const next = this.el.nextSibling;
     this.el.remove();
-    if (next) {
-      parent.insertBefore(document.createDocumentFragment(), next);
-    }
-    this.render(parent);
-    // Re-insert at correct position
-    if (next && this.el.parentElement !== parent) {
-      parent.insertBefore(this.el, next);
-    }
+    // Build new element into a detached fragment, then insert at original position.
+    const fragment = document.createDocumentFragment();
+    this.render(fragment);
+    parent.insertBefore(fragment, next);
   }
 
   _showProjectMenu(x, y) {
