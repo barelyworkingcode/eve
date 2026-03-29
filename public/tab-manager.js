@@ -1,5 +1,6 @@
 class TabManager {
-  static STORAGE_KEY = 'eve-open-sessions';
+  static SESSION_STORAGE_KEY = 'eve-open-sessions';
+  static FILE_STORAGE_KEY = 'eve-open-files';
   static MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   constructor(client) {
@@ -104,6 +105,7 @@ class TabManager {
     };
 
     this.tabs.push(tab);
+    this._saveFileTab(projectId, filePath);
 
     // Register file watcher on server (skip plan files)
     if (!isPlanProject(projectId)) {
@@ -221,7 +223,10 @@ class TabManager {
       }
     }
 
-    // Unregister file watcher on server (skip plan files)
+    // Remove from localStorage and unregister file watcher
+    if (tab.type === 'file') {
+      this._removeFileTab(tab.projectId, tab.path);
+    }
     if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
       this.client.ws?.send(JSON.stringify({
         type: 'unwatch_file',
@@ -348,47 +353,71 @@ class TabManager {
 
   // --- Session tab persistence (localStorage) ---
 
-  _saveSessionTab(sessionId) {
-    const stored = this._getStoredSessions();
-    stored[sessionId] = Date.now();
-    localStorage.setItem(TabManager.STORAGE_KEY, JSON.stringify(stored));
+  // --- Tab persistence (localStorage, shared helpers) ---
+
+  _saveToStorage(key, id, value) {
+    const stored = this._getStorage(key);
+    stored[id] = value;
+    localStorage.setItem(key, JSON.stringify(stored));
   }
 
-  _removeSessionTab(sessionId) {
-    const stored = this._getStoredSessions();
-    delete stored[sessionId];
-    localStorage.setItem(TabManager.STORAGE_KEY, JSON.stringify(stored));
+  _removeFromStorage(key, id) {
+    const stored = this._getStorage(key);
+    delete stored[id];
+    localStorage.setItem(key, JSON.stringify(stored));
   }
 
-  _getStoredSessions() {
-    try {
-      return JSON.parse(localStorage.getItem(TabManager.STORAGE_KEY)) || {};
-    } catch { return {}; }
+  _getStorage(key) {
+    try { return JSON.parse(localStorage.getItem(key)) || {}; }
+    catch { return {}; }
   }
 
-  /**
-   * Returns session IDs that were open within the last 24 hours.
-   * Prunes expired entries.
-   */
-  getRecentSessionIds() {
-    const stored = this._getStoredSessions();
+  _getRecentEntries(key) {
+    const stored = this._getStorage(key);
     const now = Date.now();
     const valid = {};
     const result = [];
-
-    for (const [id, ts] of Object.entries(stored)) {
-      if (now - ts < TabManager.MAX_AGE_MS) {
-        valid[id] = ts;
-        result.push(id);
+    for (const [id, entry] of Object.entries(stored)) {
+      const ts = typeof entry === 'number' ? entry : entry?.ts;
+      if (ts && now - ts < TabManager.MAX_AGE_MS) {
+        valid[id] = entry;
+        result.push({ id, ...( typeof entry === 'object' ? entry : { ts: entry }) });
       }
     }
-
-    // Prune expired
     if (Object.keys(valid).length !== Object.keys(stored).length) {
-      localStorage.setItem(TabManager.STORAGE_KEY, JSON.stringify(valid));
+      localStorage.setItem(key, JSON.stringify(valid));
     }
-
     return result;
+  }
+
+  // --- Session persistence ---
+
+  _saveSessionTab(sessionId) {
+    this._saveToStorage(TabManager.SESSION_STORAGE_KEY, sessionId, Date.now());
+  }
+
+  _removeSessionTab(sessionId) {
+    this._removeFromStorage(TabManager.SESSION_STORAGE_KEY, sessionId);
+  }
+
+  getRecentSessionIds() {
+    return this._getRecentEntries(TabManager.SESSION_STORAGE_KEY).map(e => e.id);
+  }
+
+  // --- File persistence ---
+
+  _saveFileTab(projectId, filePath) {
+    const key = `${projectId}:${filePath}`;
+    this._saveToStorage(TabManager.FILE_STORAGE_KEY, key, { projectId, path: filePath, ts: Date.now() });
+  }
+
+  _removeFileTab(projectId, filePath) {
+    const key = `${projectId}:${filePath}`;
+    this._removeFromStorage(TabManager.FILE_STORAGE_KEY, key);
+  }
+
+  getRecentFiles() {
+    return this._getRecentEntries(TabManager.FILE_STORAGE_KEY);
   }
 }
 
