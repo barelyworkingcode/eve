@@ -23,7 +23,7 @@ class ApiClient {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || `HTTP ${response.status}`);
     }
-    return response.json();
+    return response.json().catch(() => ({}));
   }
 
   // Projects
