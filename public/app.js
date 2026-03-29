@@ -275,6 +275,14 @@ class EveWorkspaceClient {
           this.wsClient.send({ type: 'join_session', sessionId: tab.id });
         }
       }
+
+      // Restore file tabs from localStorage (files opened in the last 24h).
+      const recentFiles = this.tabManager.getRecentFiles();
+      for (const file of recentFiles) {
+        if (this.projects.has(file.projectId)) {
+          this.wsClient.send({ type: 'read_file', projectId: file.projectId, path: file.path });
+        }
+      }
     });
 
     this.terminalManager.onReady(() => {
