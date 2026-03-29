@@ -151,25 +151,7 @@ class ShellLauncherDialog extends DialogBase {
     modelLabel.textContent = 'Model';
 
     const modelSelect = document.createElement('select');
-    modelSelect.className = 'dialog__select';
-
-    const groups = {};
-    for (const m of this.state.models) {
-      const group = m.group || m.provider || 'Other';
-      if (!groups[group]) groups[group] = [];
-      groups[group].push(m);
-    }
-    for (const [groupName, models] of Object.entries(groups)) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = groupName;
-      for (const m of models) {
-        const opt = document.createElement('option');
-        opt.value = m.value;
-        opt.textContent = m.label;
-        optgroup.appendChild(opt);
-      }
-      modelSelect.appendChild(optgroup);
-    }
+    renderModelSelect(modelSelect, this.state.models, { className: 'dialog__select' });
 
     form.appendChild(modelLabel);
     form.appendChild(modelSelect);
@@ -381,12 +363,9 @@ class ShellLauncherDialog extends DialogBase {
 
   _iconSVG(id) {
     switch (id) {
-      case 'claude-code':
-        return '<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2.5a1 1 0 110 2 1 1 0 010-2zM6.5 7h3l-.5 5h-2L6.5 7z"/></svg>';
-      case 'shell':
-        return '<svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l5 4-5 4"/><line x1="8" y1="13" x2="14" y2="13"/></svg>';
-      default:
-        return '<svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><rect x="1" y="2" width="14" height="12" rx="2"/><path d="M4 6l3 2-3 2"/></svg>';
+      case 'claude-code': return UI_ICONS.chat(20);
+      case 'shell': return UI_ICONS.shell(20);
+      default: return UI_ICONS.terminal(20);
     }
   }
 }

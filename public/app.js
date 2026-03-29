@@ -336,27 +336,7 @@ class EveWorkspaceClient {
   }
 
   renderModelSelect(selectEl) {
-    selectEl.innerHTML = '';
-
-    const groups = {};
-    for (const model of this.models) {
-      if (!groups[model.group]) groups[model.group] = [];
-      groups[model.group].push(model);
-    }
-
-    for (const [groupName, models] of Object.entries(groups)) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = groupName;
-      for (const model of models) {
-        const option = document.createElement('option');
-        option.value = model.value;
-        option.textContent = model.label;
-        optgroup.appendChild(option);
-      }
-      selectEl.appendChild(optgroup);
-    }
-
-    if (this.models.length > 0) selectEl.value = this.models[0].value;
+    renderModelSelect(selectEl, this.models);
   }
 
   async loadProjects() {

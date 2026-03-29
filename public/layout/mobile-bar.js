@@ -19,13 +19,13 @@ class MobileBar {
     this.el.className = 'mobile-bar';
 
     // Menu button
-    const menuBtn = this._createButton('Menu', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>');
+    const menuBtn = this._createButton('Menu', UI_ICONS.menu(20));
     menuBtn.addEventListener('click', () => {
       this.bus.emit(EVT.UI_TOGGLE_SIDEBAR);
     });
 
     // New Shell button
-    const shellBtn = this._createButton('Shell', '<svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l5 4-5 4"/><line x1="8" y1="13" x2="14" y2="13"/></svg>');
+    const shellBtn = this._createButton('Shell', UI_ICONS.shell(20));
     shellBtn.addEventListener('click', () => {
       const projectId = this._getFirstProjectId();
       if (projectId) {
@@ -34,7 +34,7 @@ class MobileBar {
     });
 
     // New Chat button
-    const chatBtn = this._createButton('Chat', '<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2.5a1 1 0 110 2 1 1 0 010-2zM6.5 7h3l-.5 5h-2L6.5 7z"/></svg>');
+    const chatBtn = this._createButton('Chat', UI_ICONS.chat(20));
     chatBtn.addEventListener('click', () => {
       const projectId = this._getFirstProjectId();
       if (projectId) {

@@ -188,15 +188,11 @@ class TaskDialog extends DialogBase {
     modelLabel.textContent = 'Model';
     form.appendChild(modelLabel);
     const modelSelect = document.createElement('select');
-    modelSelect.className = 'dialog__select';
-    modelSelect.name = 'taskModel';
-    for (const m of this.state.models) {
-      const opt = document.createElement('option');
-      opt.value = m.value;
-      opt.textContent = m.label;
-      if (editTask?.model === m.value) opt.selected = true;
-      modelSelect.appendChild(opt);
-    }
+    renderModelSelect(modelSelect, this.state.models, {
+      className: 'dialog__select',
+      name: 'taskModel',
+      selectedValue: editTask?.model,
+    });
     form.appendChild(modelSelect);
 
     // Schedule type

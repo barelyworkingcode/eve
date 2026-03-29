@@ -43,7 +43,7 @@ class ProjectTreeItem {
     const shellBtn = document.createElement('button');
     shellBtn.className = 'project-tree__action-btn';
     shellBtn.title = 'New Shell';
-    shellBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l5 4-5 4"/><line x1="8" y1="13" x2="14" y2="13"/></svg>';
+    shellBtn.innerHTML = UI_ICONS.shell(14);
     shellBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: this.projectId });
@@ -54,7 +54,7 @@ class ProjectTreeItem {
     const taskBtn = document.createElement('button');
     taskBtn.className = 'project-tree__action-btn';
     taskBtn.title = 'Tasks';
-    taskBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12M2 8h12M2 13h12"/><circle cx="13" cy="3" r="1.5" fill="currentColor"/></svg>';
+    taskBtn.innerHTML = UI_ICONS.tasks(14);
     taskBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId });
@@ -65,7 +65,7 @@ class ProjectTreeItem {
     const moreBtn = document.createElement('button');
     moreBtn.className = 'project-tree__action-btn';
     moreBtn.title = 'More';
-    moreBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="8" cy="13" r="1.2"/></svg>';
+    moreBtn.innerHTML = UI_ICONS.more(14);
     moreBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this._showProjectMenu(e.clientX, e.clientY);
@@ -107,41 +107,14 @@ class ProjectTreeItem {
   }
 
   _showProjectMenu(x, y) {
-    // Remove any existing menu
-    document.querySelectorAll('.file-tree__context-menu').forEach(m => m.remove());
-
-    const menu = document.createElement('div');
-    menu.className = 'file-tree__context-menu';
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'file-tree__context-item';
-    editBtn.textContent = 'Edit Project';
-    editBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      menu.remove();
-      this.bus.emit(EVT.DIALOG_PROJECT, { projectId: this.projectId });
-    });
-    menu.appendChild(editBtn);
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'file-tree__context-item file-tree__context-item--danger';
-    deleteBtn.textContent = 'Delete Project';
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      menu.remove();
-      this.bus.emit(EVT.DIALOG_CONFIRM, {
-        message: `Delete project "${this.state.getProject(this.projectId)?.name}"? This cannot be undone.`,
-        onConfirm: () => this.bus.emit(EVT.PROJECT_DELETED, { projectId: this.projectId }),
-      });
-    });
-    menu.appendChild(deleteBtn);
-
-    document.body.appendChild(menu);
-
-    // Close on click outside
-    const close = () => { menu.remove(); document.removeEventListener('click', close); };
-    setTimeout(() => document.addEventListener('click', close), 0);
+    showContextMenu(x, y, [
+      { label: 'Edit Project', action: () => this.bus.emit(EVT.DIALOG_PROJECT, { projectId: this.projectId }) },
+      { label: 'Delete Project', danger: true, action: () => {
+        this.bus.emit(EVT.DIALOG_CONFIRM, {
+          message: `Delete project "${this.state.getProject(this.projectId)?.name}"? This cannot be undone.`,
+          onConfirm: () => this.bus.emit(EVT.PROJECT_DELETED, { projectId: this.projectId }),
+        });
+      }},
+    ]);
   }
 }
