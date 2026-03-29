@@ -215,31 +215,22 @@ class MessageDispatcher {
     taskManager.handleTaskEvent(data);
     this.client.sidebarRenderer.renderProjectList();
 
+    if (data.type === 'task_started') {
+      // Join immediately on start so the user sees output streaming live.
+      if (taskManager.userTriggeredRuns.has(data.taskId) && data.sessionId) {
+        // Close the old task session tab
+        if (oldTaskSessionId) {
+          this.client.tabManager.closeTab(oldTaskSessionId);
+          this.client.sessions.delete(oldTaskSessionId);
+          this.client.sessionHistories.delete(oldTaskSessionId);
+        }
+        this.client.joinSession(data.sessionId);
+      }
+    }
+
     if (data.type === 'task_completed') {
-      // Auto-join session if this tab triggered the run
       if (taskManager.userTriggeredRuns.has(data.taskId)) {
         taskManager.userTriggeredRuns.delete(data.taskId);
-        if (data.sessionId) {
-          // Close the old task session tab (not the current active session)
-          if (oldTaskSessionId) {
-            this.client.tabManager.closeTab(oldTaskSessionId);
-            this.client.sessions.delete(oldTaskSessionId);
-            this.client.sessionHistories.delete(oldTaskSessionId);
-          }
-          // Task events stream without sessionId and render live in the
-          // foreground. Join immediately but skip re-render so the visible
-          // content is preserved. A deferred re-join refreshes sessionHistories
-          // with the complete server data for future tab switches.
-          const sid = data.sessionId;
-          this._taskCompletionJoin = sid;
-          this.client.joinSession(sid);
-          setTimeout(() => {
-            if (this.client.currentSessionId === sid) {
-              this._silentHistoryRefresh = sid;
-              this.client.joinSession(sid);
-            }
-          }, 2000);
-        }
       }
     }
 
@@ -367,14 +358,16 @@ class MessageDispatcher {
   // --- Session event handlers ---
 
   handleSessionCreated(data) {
-    this.client.sessions.set(data.sessionId, {
+    const session = {
       id: data.sessionId,
       directory: data.directory,
       projectId: data.projectId || null,
       name: data.name || null,
       model: data.model || null,
       active: true
-    });
+    };
+    this.client.sessions.set(data.sessionId, session);
+    if (this.client.state) this.client.state.addSession(session);
     this.client.currentSessionId = data.sessionId;
     this.client.sessionHistories.set(data.sessionId, []);
     this.client.showChatScreen();
@@ -395,14 +388,16 @@ class MessageDispatcher {
         existingSession.model = data.model;
       }
     } else {
-      this.client.sessions.set(data.sessionId, {
+      const newSession = {
         id: data.sessionId,
         directory: data.directory,
         projectId: data.projectId || null,
         name: data.name || null,
         model: data.model || null,
         active: true
-      });
+      };
+      this.client.sessions.set(data.sessionId, newSession);
+      if (this.client.state) this.client.state.addSession(newSession);
     }
 
     if (data.headless && this.client.taskManager) {
@@ -455,6 +450,7 @@ class MessageDispatcher {
   handleSessionEnded(data) {
     this.client.sessions.delete(data.sessionId);
     this.client.sessionHistories.delete(data.sessionId);
+    if (this.client.state) this.client.state.removeSession(data.sessionId);
     this.client.tabManager.closeTab(data.sessionId);
     if (this.client.currentSessionId === data.sessionId) {
       this.client.currentSessionId = null;
