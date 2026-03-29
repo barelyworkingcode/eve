@@ -30,22 +30,14 @@
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <h1>Eve Workspace</h1>
-        <button id="closeSidebar" class="menu-toggle" title="Close menu">&#x2715;</button>
-      </div>
-      <div class="sessions-section">
-        <div class="section-header">
-          <span>Projects</span>
+        <span class="sidebar-header__title">EXPLORER</span>
+        <div class="sidebar-header__actions">
           <button id="newProjectBtn" class="btn-icon" title="New Project">+</button>
+          <button id="closeSidebar" class="menu-toggle" title="Close menu">&#x2715;</button>
         </div>
-        <div id="projectList" class="project-list"></div>
-        <div class="section-header">
-          <span>Sessions</span>
-          <div style="display:flex;gap:4px;">
-            <button id="newTerminalBtn" class="btn-icon" title="New Terminal">&#9002;</button>
-            <button id="newSessionBtn" class="btn-icon" title="New Session">+</button>
-          </div>
-        </div>
+      </div>
+      <div class="sidebar-content" id="sidebarContent">
+        <div id="projectTree" class="project-tree"></div>
       </div>
     </aside>
     <div class="sidebar-resizer" id="sidebarResizer"></div>
@@ -283,7 +275,13 @@
     </div>
   </div>
 
-  <script src="constants.js"></script>
+  <!-- Core infrastructure -->
+  <script src="core/event-bus.js"></script>
+  <script src="core/container.js"></script>
+  <script src="core/constants.js"></script>
+  <script src="core/state-store.js"></script>
+  <script src="core/api-client.js"></script>
+
   <script src="auth.js"></script>
   <script src="ws-client.js"></script>
   <script src="message-renderer.js"></script>
@@ -296,6 +294,21 @@
   <script src="terminal-manager.js"></script>
   <script src="message-dispatcher.js"></script>
   <script src="file-attachment-manager.js"></script>
+
+  <!-- Dialog modules -->
+  <script src="dialogs/dialog-base.js"></script>
+  <script src="dialogs/shell-launcher-dialog.js"></script>
+  <script src="dialogs/task-dialog.js"></script>
+
+  <!-- Sidebar modules -->
+  <!-- Layout modules -->
+  <script src="layout/mobile-bar.js"></script>
+
+  <script src="sidebar/file-icons.js"></script>
+  <script src="sidebar/file-tree-node.js"></script>
+  <script src="sidebar/project-tree-item.js"></script>
+  <script src="sidebar/project-tree.js"></script>
+
   <script src="app.js"></script>
 </body>
 </html>

@@ -99,6 +99,8 @@ class MessageDispatcher {
 
       case 'directory_listing':
         this.client.fileBrowser.handleDirectoryListing(data.projectId, data.path, data.entries);
+        // Phase 2: also emit to EventBus for new project tree
+        if (this.client.bus) this.client.bus.emit(EVT.DIRECTORY_LISTING, data);
         break;
 
       case 'file_content':
@@ -119,22 +121,27 @@ class MessageDispatcher {
 
       case 'file_renamed':
         this.client.fileBrowser.handleFileRenamed(data.projectId, data.oldPath, data.newPath);
+        if (this.client.bus) this.client.bus.emit(EVT.FILE_RENAMED, data);
         break;
 
       case 'file_moved':
         this.client.fileBrowser.handleFileMoved(data.projectId, data.oldPath, data.newPath);
+        if (this.client.bus) this.client.bus.emit(EVT.FILE_MOVED, data);
         break;
 
       case 'file_deleted':
         this.client.fileBrowser.handleFileDeleted(data.projectId, data.path);
+        if (this.client.bus) this.client.bus.emit(EVT.FILE_DELETED, data);
         break;
 
       case 'directory_created':
         this.client.fileBrowser.handleDirectoryCreated(data.projectId, data.path, data.name);
+        if (this.client.bus) this.client.bus.emit(EVT.DIRECTORY_CREATED, data);
         break;
 
       case 'file_uploaded':
         this.client.fileBrowser.handleFileUploaded(data.projectId, data.destDirectory, data.fileName);
+        if (this.client.bus) this.client.bus.emit(EVT.FILE_UPLOADED, data);
         break;
 
       case 'file_changed':
@@ -172,6 +179,8 @@ class MessageDispatcher {
           delete this.client.terminalManager._pendingPickerDirectory;
           this.client.terminalManager._showPickerUI(dir);
         }
+        // Phase 3: also emit to EventBus for new shell launcher dialog
+        if (this.client.bus) this.client.bus.emit(EVT.TERMINAL_TEMPLATES, data);
         break;
 
       case 'permission_request':
