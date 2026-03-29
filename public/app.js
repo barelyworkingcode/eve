@@ -14,6 +14,13 @@ class EveWorkspaceClient {
     this.models = [];
     this.isRenderingHistory = false;
 
+    // Core infrastructure (Phase 1) — available for new modules.
+    this.bus = new EventBus();
+    this.container = new Container();
+    this.container.register('bus', this.bus);
+    this.api = new ApiClient();
+    this.container.register('api', this.api);
+
     this.authClient = new AuthClient();
     this.authClient.init();
 
@@ -25,10 +32,16 @@ class EveWorkspaceClient {
   }
 
   initApp() {
+    // Wire state store into infrastructure.
+    this.state = new StateStore(this.bus);
+    this.container.register('state', this.state);
+    this.container.register('app', this); // Legacy bridge: modules can access app via container during migration
+
     this.initElements();
 
     // Initialize modules
     this.wsClient = new WsClient(this);
+    this.container.register('ws', this.wsClient);
     this.messageRenderer = new MessageRenderer(this);
     this.taskManager = new TaskManager(this);
     this.modalManager = new ModalManager(this);
@@ -36,6 +49,20 @@ class EveWorkspaceClient {
     this.tabManager = new TabManager(this);
     this.fileBrowser = new FileBrowser(this);
     this.fileEditor = new FileEditor(this);
+
+    // New sidebar: project tree (Phase 2)
+    this.projectTree = new ProjectTree(this.container);
+    this.projectTree.init();
+
+    // New dialogs (Phase 3)
+    this.shellLauncher = new ShellLauncherDialog(this.container);
+    this.shellLauncher.init();
+    this.taskDialog = new TaskDialog(this.container);
+    this.taskDialog.init();
+
+    // Mobile bar (Phase 5)
+    this.mobileBar = new MobileBar(this.container);
+    this.mobileBar.init();
     this.terminalManager = new TerminalManager(this);
     this.messageDispatcher = new MessageDispatcher(this);
     this.fileAttachmentManager = new FileAttachmentManager(this);
@@ -52,6 +79,7 @@ class EveWorkspaceClient {
     this.modalManager.initEventListeners();
     this.initSidebarResize();
     this.initSwipeGesture();
+    this._initBusListeners();
     this.loadModels();
     this.wsClient.connect();
   }
@@ -137,13 +165,47 @@ class EveWorkspaceClient {
     };
   }
 
+  _initBusListeners() {
+    // Bridge: new file tree click -> open file via existing read_file flow
+    this.bus.on(EVT.FILE_CONTENT, (data) => {
+      if (data.requestLoad) {
+        this.wsClient.send({ type: 'read_file', projectId: data.projectId, path: data.path });
+      }
+    });
+
+    // Bridge: confirm dialog requests from new components
+    this.bus.on(EVT.DIALOG_CONFIRM, (data) => {
+      if (confirm(data.message)) {
+        if (data.onConfirm) data.onConfirm();
+      }
+    });
+
+    // Bridge: project delete from new sidebar
+    this.bus.on(EVT.PROJECT_DELETED, (data) => {
+      this.deleteProject(data.projectId);
+    });
+
+    // Shell launcher and task dialog are handled by their own EventBus subscriptions
+    // (ShellLauncherDialog and TaskDialog listen for DIALOG_SHELL_LAUNCHER / DIALOG_TASK directly)
+
+    // Bridge: project edit from new sidebar
+    this.bus.on(EVT.DIALOG_PROJECT, (data) => {
+      this.modalManager.showProjectModal(data.projectId);
+    });
+
+    // Bridge: sidebar toggle from mobile bar
+    this.bus.on(EVT.UI_TOGGLE_SIDEBAR, () => {
+      this.toggleSidebar();
+    });
+  }
+
   initEventListeners() {
     // New session buttons
-    this.elements.newSessionBtn.addEventListener('click', () => this.modalManager.showSessionModal());
+    this.elements.newSessionBtn?.addEventListener('click', () => this.modalManager.showSessionModal());
     this.elements.welcomeNewSession.addEventListener('click', () => this.modalManager.showSessionModal());
 
-    // Terminal picker
-    this.elements.newTerminalBtn.addEventListener('click', () => {
+    // Terminal picker (legacy button, may not exist in new sidebar)
+    this.elements.newTerminalBtn?.addEventListener('click', () => {
       const dir = this.getCurrentProjectDirectory();
       this.terminalManager.showTemplatePicker(dir);
     });
@@ -283,6 +345,8 @@ class EveWorkspaceClient {
       const projects = await response.json();
       this.projects.clear();
       projects.forEach(project => this.projects.set(project.id, project));
+      // Sync to new StateStore (Phase 2)
+      this.state.setProjects(projects);
       await this.loadAllTasks();
       this.sidebarRenderer.renderProjectList();
       this.updateProjectSelect();
@@ -585,6 +649,9 @@ class EveWorkspaceClient {
   }
 
   toggleSidebar(open) {
+    if (open === undefined) {
+      open = !this.elements.sidebar.classList.contains('open');
+    }
     if (open) {
       this.elements.sidebar.classList.add('open');
     } else {

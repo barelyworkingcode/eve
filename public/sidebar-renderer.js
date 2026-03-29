@@ -9,6 +9,9 @@ class SidebarRenderer {
   }
 
   renderProjectList() {
+    // Guard: the new project tree sidebar replaces this element
+    if (!this.app.elements.projectList) return;
+
     // Capture in-progress rename value before re-rendering
     const activeRenameId = this.renamingSessionId;
     let activeRenameValue = null;
