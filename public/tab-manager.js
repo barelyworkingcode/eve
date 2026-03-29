@@ -16,6 +16,10 @@ class TabManager {
     this.tabBar = document.getElementById('tabBar');
     this.chatContent = document.getElementById('chat');
     this.editorContent = document.getElementById('editor');
+    this.viewerContent = document.getElementById('fileViewer');
+    this.viewerCanvas = document.getElementById('fileViewerCanvas');
+    this.viewerPath = document.getElementById('fileViewerPath');
+    this.viewerInfo = document.getElementById('fileViewerInfo');
     this.terminalContent = document.getElementById('terminal');
   }
 
@@ -107,8 +111,9 @@ class TabManager {
     this.tabs.push(tab);
     this._saveFileTab(projectId, filePath);
 
-    // Register file watcher on server (skip plan files)
-    if (!isPlanProject(projectId)) {
+    // Register file watcher on server (skip plan files and viewer files)
+    const isViewer = this.client.viewerRegistry?.isViewerFile(filePath);
+    if (!isPlanProject(projectId) && !isViewer) {
       this.client.ws?.send(JSON.stringify({
         type: 'watch_file',
         projectId,
@@ -159,7 +164,11 @@ class TabManager {
     // Hide all content containers first
     this.chatContent.classList.add('hidden');
     this.editorContent.classList.add('hidden');
+    this.viewerContent.classList.add('hidden');
     this.terminalContent.classList.add('hidden');
+
+    // Destroy active viewer when switching away (pause media, free memory)
+    this._destroyActiveViewer();
 
     // Show appropriate content container
     if (tab.type === 'session') {
@@ -189,11 +198,17 @@ class TabManager {
         this.client.hideStopButton();
       }
     } else if (tab.type === 'file') {
-      this.editorContent.classList.remove('hidden');
-
-      // Notify file editor to show this file
-      if (this.client.fileEditor) {
-        this.client.fileEditor.showFile(tab.projectId, tab.path);
+      const registry = this.client.viewerRegistry;
+      if (registry && registry.isViewerFile(tab.path)) {
+        // Binary file: render with appropriate viewer
+        this.viewerContent.classList.remove('hidden');
+        this._renderViewer(tab);
+      } else {
+        // Text file: show in Monaco editor
+        this.editorContent.classList.remove('hidden');
+        if (this.client.fileEditor) {
+          this.client.fileEditor.showFile(tab.projectId, tab.path);
+        }
       }
     } else if (tab.type === 'terminal') {
       this.terminalContent.classList.remove('hidden');
@@ -264,7 +279,9 @@ class TabManager {
         this.activeTabId = null;
         this.chatContent.classList.add('hidden');
         this.editorContent.classList.add('hidden');
+        this.viewerContent.classList.add('hidden');
         this.terminalContent.classList.add('hidden');
+        this._destroyActiveViewer();
       }
     }
 
@@ -306,6 +323,37 @@ class TabManager {
           path: tab.path
         }));
       }
+    }
+  }
+
+  /**
+   * Renders a viewer file into the viewer canvas.
+   */
+  _renderViewer(tab) {
+    const registry = this.client.viewerRegistry;
+    const viewer = registry.getViewer(tab.path);
+    if (!viewer) return;
+
+    const url = registry.buildFileUrl(tab.projectId, tab.path);
+    this.viewerPath.textContent = tab.path;
+    this.viewerInfo.textContent = '';
+    this._activeViewer = viewer;
+
+    viewer.render(this.viewerCanvas, {
+      projectId: tab.projectId,
+      path: tab.path,
+      filename: tab.label,
+      url
+    });
+  }
+
+  /**
+   * Destroys the currently active viewer (pause media, clear canvas).
+   */
+  _destroyActiveViewer() {
+    if (this._activeViewer) {
+      this._activeViewer.destroy(this.viewerCanvas);
+      this._activeViewer = null;
     }
   }
 
