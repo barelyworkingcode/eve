@@ -10,7 +10,7 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject }) {
+function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
@@ -145,29 +145,41 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
             fileWatcher.unwatch(message.projectId, message.path);
             break;
 
-          // --- Terminal operations (local) ---
+          // --- Terminal operations (proxied to relayLLM) ---
           case 'terminal_create':
-            terminalManager.createTerminal(ws, message.directory, message.command, message.args, claudeConfig);
+            relayClient.send({ type: 'terminal_create', templateId: message.templateId, name: message.name, directory: message.directory, cols: message.cols, rows: message.rows });
             break;
 
           case 'terminal_input':
-            terminalManager.handleInput(message.terminalId, message.data);
+            relayClient.send({ type: 'terminal_input', terminalId: message.terminalId, data: message.data });
             break;
 
           case 'terminal_resize':
-            terminalManager.handleResize(message.terminalId, message.cols, message.rows);
+            relayClient.send({ type: 'terminal_resize', terminalId: message.terminalId, cols: message.cols, rows: message.rows });
             break;
 
           case 'terminal_close':
-            terminalManager.close(message.terminalId);
+            relayClient.send({ type: 'terminal_close', terminalId: message.terminalId });
             break;
 
           case 'terminal_list':
-            terminalManager.list(ws);
+            relayClient.send({ type: 'terminal_list' });
             break;
 
           case 'terminal_reconnect':
-            terminalManager.reconnect(ws, message.terminalId);
+            relayClient.send({ type: 'terminal_reconnect', terminalId: message.terminalId });
+            break;
+
+          case 'join_terminal':
+            relayClient.send({ type: 'join_terminal', terminalId: message.terminalId });
+            break;
+
+          case 'leave_terminal':
+            relayClient.send({ type: 'leave_terminal', terminalId: message.terminalId });
+            break;
+
+          case 'terminal_templates':
+            relayClient.send({ type: 'terminal_templates' });
             break;
 
           case 'read_plan_file':
@@ -182,7 +194,6 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
     ws.on('close', () => {
       relayClient.close();
       fileWatcher.closeAll();
-      terminalManager.detachAll(ws);
     });
   };
 }

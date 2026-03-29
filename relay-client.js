@@ -81,10 +81,14 @@ class RelayClient {
     this._sendToBrowser(msg);
   }
 
-  _send(msg) {
+  send(msg) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
+  }
+
+  _send(msg) {
+    this.send(msg);
   }
 
   _sendToBrowser(msg) {

@@ -141,12 +141,12 @@ class MessageDispatcher {
         this.client.handleFileChanged(data.projectId, data.path, data.content);
         break;
 
-      case 'terminal_request':
-        this.client.terminalManager.createTerminal(data.directory, data.command, data.args, data.sessionId);
+      case 'terminal_created':
+        this.client.terminalManager.onTerminalCreated(data.terminalId, data.templateId, data.name, data.directory);
         break;
 
-      case 'terminal_created':
-        this.client.terminalManager.onTerminalCreated(data.terminalId, data.directory, data.command);
+      case 'terminal_joined':
+        this.client.terminalManager.onTerminalJoined(data);
         break;
 
       case 'terminal_output':
@@ -157,8 +157,21 @@ class MessageDispatcher {
         this.client.terminalManager.onTerminalExit(data.terminalId, data.exitCode);
         break;
 
+      case 'terminal_closed':
+        this.client.terminalManager.onTerminalExit(data.terminalId, 0);
+        break;
+
       case 'terminal_list':
         this.client.terminalManager.onTerminalList(data.terminals);
+        break;
+
+      case 'terminal_templates':
+        this.client.terminalManager.onTemplates(data.templates);
+        if (this.client.terminalManager._pendingPickerDirectory !== undefined) {
+          const dir = this.client.terminalManager._pendingPickerDirectory;
+          delete this.client.terminalManager._pendingPickerDirectory;
+          this.client.terminalManager._showPickerUI(dir);
+        }
         break;
 
       case 'permission_request':

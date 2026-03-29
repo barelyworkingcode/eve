@@ -1,5 +1,30 @@
 # Code Review Log
 
+## 2026-03-28 — Terminal provider proxy review, second pass (exp branch)
+
+### Files reviewed
+All modified Eve files (terminal-manager.js, message-dispatcher.js, app.js, ws-handler.js, relay-client.js, server.js, index.html, styles.css). Verified prior XSS fix in place. No flip-flopping.
+
+### No issues found
+All prior fixes verified. DOM API used correctly for user data. Base64 encode/decode correct. Proxy forwarding clean. No dead code, no DRY violations, no new security issues.
+
+## 2026-03-28 — Terminal provider proxy review (exp branch)
+
+### Files reviewed
+public/terminal-manager.js, public/message-dispatcher.js, public/app.js, public/index.html, public/styles.css, ws-handler.js, relay-client.js, server.js
+
+### HIGH: XSS via template name/description in picker
+**Bug**: `_showPickerUI` used innerHTML with unescaped `t.name` and `t.description` from relayLLM API. Custom templates could inject arbitrary HTML/JS. Same class as modal-manager.js fix (pass 3).
+
+**Fix**: Replaced innerHTML template interpolation with DOM API (`createElement`/`textContent`). SVG icons remain as innerHTML but are hardcoded literals, not user data.
+
+### No other HIGH issues found
+- Terminal message proxying in `ws-handler.js` correctly forwards all fields without transformation.
+- `relay-client.js` `send()` method is a clean refactor of `_send()`.
+- `server.js` correctly removed local `TerminalManager` dependency.
+- Base64 encode/decode in `terminal-manager.js` handles binary correctly.
+- Template picker lifecycle (create/remove overlay) is clean.
+
 ## 2026-03-26 — Review of uncommitted changes on `newArchitecture`
 
 ### Files reviewed
