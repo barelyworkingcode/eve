@@ -9,6 +9,19 @@ class FileEditor {
     this.loadMonaco();
     this.initElements();
     this.initEventListeners();
+    this._listenForSettingsChanges();
+  }
+
+  _listenForSettingsChanges() {
+    this.client.bus.on(EVT.SETTINGS_CHANGED, () => {
+      if (!this.editor) return;
+      const settings = this.client.settings;
+      monaco.editor.setTheme(settings.isLight() ? 'vs' : 'vs-dark');
+      this.editor.updateOptions({
+        fontSize: settings.get('fontSize'),
+        fontFamily: settings.getFontStack(),
+      });
+    });
   }
 
   initElements() {
@@ -159,13 +172,15 @@ class FileEditor {
   }
 
   createEditor() {
+    const settings = this.client.settings;
+
     this.editor = monaco.editor.create(this.editorContainer, {
       value: '',
       language: 'plaintext',
-      theme: 'vs-dark',
+      theme: settings.isLight() ? 'vs' : 'vs-dark',
       automaticLayout: true,
-      fontSize: 13,
-      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', monospace",
+      fontSize: settings.get('fontSize'),
+      fontFamily: settings.getFontStack(),
       tabSize: 2,
       insertSpaces: true,
       minimap: { enabled: false },

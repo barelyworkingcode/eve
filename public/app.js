@@ -37,6 +37,11 @@ class EveWorkspaceClient {
     this.container.register('state', this.state);
     this.container.register('app', this); // Legacy bridge: modules can access app via container during migration
 
+    // Apply saved settings before any rendering
+    this.settings = new SettingsManager(this.bus);
+    this.container.register('settings', this.settings);
+    this.settings.applyToDOM();
+
     this.initElements();
 
     // Initialize modules
@@ -67,6 +72,8 @@ class EveWorkspaceClient {
     this.shellLauncher.init();
     this.taskDialog = new TaskDialog(this.container);
     this.taskDialog.init();
+    this.settingsDialog = new SettingsDialog(this.container);
+    this.settingsDialog.init();
 
     // Mobile bar (Phase 5)
     this.mobileBar = new MobileBar(this.container);
@@ -222,6 +229,11 @@ class EveWorkspaceClient {
     this.elements.newTerminalBtn?.addEventListener('click', () => {
       const dir = this.getCurrentProjectDirectory();
       this.terminalManager.showTemplatePicker(dir);
+    });
+
+    // Settings
+    document.getElementById('settingsBtn')?.addEventListener('click', () => {
+      this.bus.emit(EVT.DIALOG_SETTINGS, {});
     });
 
     // Project modal

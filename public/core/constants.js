@@ -86,6 +86,10 @@ const EVT = {
   DIALOG_TASK: 'dialog:task',
   DIALOG_PROJECT: 'dialog:project',
   DIALOG_CONFIRM: 'dialog:confirm',
+  DIALOG_SETTINGS: 'dialog:settings',
+
+  // Settings
+  SETTINGS_CHANGED: 'settings:changed',
 };
 
 // Plan file project ID sentinel
