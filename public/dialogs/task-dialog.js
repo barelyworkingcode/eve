@@ -214,6 +214,107 @@ class TaskDialog extends DialogBase {
     }
     form.appendChild(schedSelect);
 
+    // Schedule config (dynamic based on type)
+    const schedConfig = document.createElement('div');
+    schedConfig.className = 'task-dialog__sched-config';
+    form.appendChild(schedConfig);
+
+    const renderScheduleConfig = () => {
+      schedConfig.innerHTML = '';
+      const type = schedSelect.value;
+      const sched = editTask?.schedule || {};
+
+      if (type === 'daily' || type === 'weekly') {
+        const timeLbl = document.createElement('label');
+        timeLbl.className = 'dialog__label';
+        timeLbl.textContent = 'Time';
+        const timeInput = document.createElement('input');
+        timeInput.type = 'time';
+        timeInput.name = 'schedTime';
+        timeInput.value = sched.time || '09:00';
+        timeInput.className = 'dialog__input';
+        schedConfig.appendChild(timeLbl);
+        schedConfig.appendChild(timeInput);
+      }
+
+      if (type === 'weekly') {
+        const dayLbl = document.createElement('label');
+        dayLbl.className = 'dialog__label';
+        dayLbl.textContent = 'Day';
+        const daySelect = document.createElement('select');
+        daySelect.name = 'schedDay';
+        daySelect.className = 'dialog__select';
+        for (const d of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+          const opt = document.createElement('option');
+          opt.value = d;
+          opt.textContent = d.charAt(0).toUpperCase() + d.slice(1);
+          if (sched.day === d) opt.selected = true;
+          daySelect.appendChild(opt);
+        }
+        schedConfig.appendChild(dayLbl);
+        schedConfig.appendChild(daySelect);
+      }
+
+      if (type === 'hourly') {
+        const minLbl = document.createElement('label');
+        minLbl.className = 'dialog__label';
+        minLbl.textContent = 'Minute';
+        const minInput = document.createElement('input');
+        minInput.type = 'number';
+        minInput.name = 'schedMinute';
+        minInput.min = '0';
+        minInput.max = '59';
+        minInput.value = sched.minute || '0';
+        minInput.className = 'dialog__input';
+        schedConfig.appendChild(minLbl);
+        schedConfig.appendChild(minInput);
+      }
+
+      if (type === 'interval') {
+        const intLbl = document.createElement('label');
+        intLbl.className = 'dialog__label';
+        intLbl.textContent = 'Interval (minutes)';
+        const intInput = document.createElement('input');
+        intInput.type = 'number';
+        intInput.name = 'schedMinutes';
+        intInput.min = '1';
+        intInput.value = sched.minutes || '60';
+        intInput.className = 'dialog__input';
+        schedConfig.appendChild(intLbl);
+        schedConfig.appendChild(intInput);
+      }
+
+      if (type === 'cron') {
+        const cronLbl = document.createElement('label');
+        cronLbl.className = 'dialog__label';
+        cronLbl.textContent = 'Cron Expression';
+        const cronInput = document.createElement('input');
+        cronInput.type = 'text';
+        cronInput.name = 'schedExpression';
+        cronInput.value = sched.expression || '';
+        cronInput.placeholder = '0 9 * * *';
+        cronInput.className = 'dialog__input';
+        schedConfig.appendChild(cronLbl);
+        schedConfig.appendChild(cronInput);
+      }
+
+      if (type === 'once') {
+        const dtLbl = document.createElement('label');
+        dtLbl.className = 'dialog__label';
+        dtLbl.textContent = 'Date & Time';
+        const dtInput = document.createElement('input');
+        dtInput.type = 'datetime-local';
+        dtInput.name = 'schedDatetime';
+        dtInput.value = sched.datetime || '';
+        dtInput.className = 'dialog__input';
+        schedConfig.appendChild(dtLbl);
+        schedConfig.appendChild(dtInput);
+      }
+    };
+
+    schedSelect.addEventListener('change', renderScheduleConfig);
+    renderScheduleConfig();
+
     // Enabled checkbox
     const enabledRow = document.createElement('label');
     enabledRow.className = 'dialog__checkbox-row';
@@ -244,12 +345,28 @@ class TaskDialog extends DialogBase {
     submitBtn.className = 'dialog__btn dialog__btn--primary';
     submitBtn.textContent = editTask ? 'Update Task' : 'Create Task';
     submitBtn.addEventListener('click', () => {
+      const schedType = form.querySelector('[name="scheduleType"]').value;
+      const schedule = { type: schedType };
+      // Collect schedule config fields
+      const time = form.querySelector('[name="schedTime"]');
+      if (time) schedule.time = time.value;
+      const day = form.querySelector('[name="schedDay"]');
+      if (day) schedule.day = day.value;
+      const minute = form.querySelector('[name="schedMinute"]');
+      if (minute) schedule.minute = parseInt(minute.value, 10);
+      const minutes = form.querySelector('[name="schedMinutes"]');
+      if (minutes) schedule.minutes = parseInt(minutes.value, 10);
+      const expression = form.querySelector('[name="schedExpression"]');
+      if (expression) schedule.expression = expression.value;
+      const datetime = form.querySelector('[name="schedDatetime"]');
+      if (datetime) schedule.datetime = datetime.value;
+
       const data = {
         name: form.querySelector('[name="taskName"]').value,
         prompt: form.querySelector('[name="taskPrompt"]').value,
         model: form.querySelector('[name="taskModel"]').value,
         projectId: this.projectId,
-        schedule: { type: form.querySelector('[name="scheduleType"]').value },
+        schedule,
         enabled: form.querySelector('[name="taskEnabled"]').checked,
       };
       if (editTask) {
@@ -282,6 +399,9 @@ class TaskDialog extends DialogBase {
 
   async _runTask(task) {
     try {
+      // Mark as user-triggered so auto-join fires on task_completed
+      const app = this.container.get('app');
+      app.taskManager.userTriggeredRuns.add(task.id);
       await this.api.runTask(task.id);
       this.hide();
     } catch (err) {

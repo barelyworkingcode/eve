@@ -308,6 +308,8 @@ class EveWorkspaceClient {
       const data = await response.json();
       this.models = data.models || [];
       this.providerSettings = data.providerSettings || {};
+      // Sync to StateStore for new dialog components
+      this.state.setModels(this.models, this.providerSettings);
       this.renderModelSelect(this.elements.sessionModelSelect);
     } catch (err) {
       console.error('Failed to load models:', err);
@@ -364,7 +366,11 @@ class EveWorkspaceClient {
       const response = await fetch('/api/sessions', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const sessions = await response.json();
-      sessions.forEach(session => this.sessions.set(session.id, session));
+      sessions.forEach(session => {
+        this.sessions.set(session.id, session);
+        // Sync to StateStore for new dialog components
+        this.state.addSession(session);
+      });
       this.sidebarRenderer.renderProjectList();
     } catch (err) {
       console.error('Failed to load sessions:', err);
