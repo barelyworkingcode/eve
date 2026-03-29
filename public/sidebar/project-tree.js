@@ -3,12 +3,15 @@
  * Each project is a top-level expandable tree node with file tree + action icons.
  */
 class ProjectTree {
+  static STORAGE_KEY = 'eve-expanded-projects';
+
   constructor(container) {
     this.container = container;
     this.bus = container.get('bus');
     this.state = container.get('state');
     this.fileTreeNode = null;
     this.projectItems = new Map(); // projectId -> ProjectTreeItem
+    this.expandedProjects = new Set(); // persisted to localStorage
     this.el = null;
   }
 
@@ -17,6 +20,9 @@ class ProjectTree {
     this.fileTreeNode = new FileTreeNode(this.container);
     this.fileTreeNode.init();
     this.fileTreeNode.restoreExpandState();
+
+    // Restore project expand state from localStorage
+    this._restoreExpandState();
 
     // Subscribe to project changes
     this.bus.on(EVT.PROJECTS_LOADED, () => this.render());
@@ -54,12 +60,33 @@ class ProjectTree {
 
     for (const project of projects) {
       const item = new ProjectTreeItem(this.container, project.id, this.fileTreeNode);
-      // Restore expand state, default first project to expanded
+      // Restore from in-memory state (which was loaded from localStorage)
       item.expanded = expandState.has(project.id)
         ? expandState.get(project.id)
-        : projects.indexOf(project) === 0;
+        : this.expandedProjects.has(project.id);
+      item.onToggle = (projectId, expanded) => {
+        if (expanded) {
+          this.expandedProjects.add(projectId);
+        } else {
+          this.expandedProjects.delete(projectId);
+        }
+        this._saveExpandState();
+      };
       item.render(this.el);
       this.projectItems.set(project.id, item);
     }
+  }
+
+  _saveExpandState() {
+    localStorage.setItem(ProjectTree.STORAGE_KEY, JSON.stringify(Array.from(this.expandedProjects)));
+  }
+
+  _restoreExpandState() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(ProjectTree.STORAGE_KEY));
+      if (Array.isArray(stored)) {
+        this.expandedProjects = new Set(stored);
+      }
+    } catch { /* ignore corrupt state */ }
   }
 }

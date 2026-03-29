@@ -8,6 +8,7 @@ class ProjectTreeItem {
     this.projectId = projectId;
     this.fileTreeNode = fileTreeNode;
     this.expanded = false;
+    this.onToggle = null; // callback(projectId, expanded)
     this.el = null;
   }
 
@@ -76,6 +77,7 @@ class ProjectTreeItem {
     // Click header to expand/collapse
     header.addEventListener('click', () => {
       this.expanded = !this.expanded;
+      if (this.onToggle) this.onToggle(this.projectId, this.expanded);
       this._rerender();
     });
 
