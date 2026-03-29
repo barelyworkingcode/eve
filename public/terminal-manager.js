@@ -404,12 +404,12 @@ class TerminalManager {
    */
   getDetachedCountForPath(projectPath) {
     if (!projectPath) return 0;
+    const normPath = projectPath.toLowerCase();
     let count = 0;
     for (const [id, t] of this.allTerminals) {
       if (t.state === 'stopped') continue;
-      // Match by directory prefix
-      if (t.directory && t.directory.startsWith(projectPath)) {
-        // Not detached if it's in our local terminals map (has a tab)
+      // Case-insensitive match for macOS
+      if (t.directory && t.directory.toLowerCase().startsWith(normPath)) {
         if (!this.terminals.has(id)) {
           count++;
         }
