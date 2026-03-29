@@ -5,7 +5,6 @@ const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const AuthService = require('./auth');
-const TerminalManager = require('./terminal-manager');
 const FileHandlers = require('./file-handlers');
 const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
@@ -115,7 +114,6 @@ refreshProjectCache();
 // Services
 const authService = new AuthService(DATA_DIR);
 const fileHandlers = new FileHandlers((id) => projectCache.get(id));
-const terminalManager = new TerminalManager();
 
 // Static middleware
 app.use(express.static(path.join(__dirname, 'public')));
@@ -133,7 +131,7 @@ registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache 
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
-  authService, fileHandlers, terminalManager,
+  authService, fileHandlers,
   relayWsUrl: RELAY_LLM_WS_URL,
   relayHttpUrl: RELAY_LLM_URL,
   claudeConfig: settings.providerConfig.claude,
@@ -166,12 +164,6 @@ function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\n[Shutdown] ${signal} received, cleaning up...`);
-
-  try {
-    terminalManager.killAll();
-  } catch (e) {
-    console.error('[Shutdown] Error killing terminals:', e.message);
-  }
 
   for (const client of wss.clients) {
     try { client.terminate(); } catch (e) { /* ignore */ }

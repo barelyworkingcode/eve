@@ -86,6 +86,7 @@ class EveWorkspaceClient {
       projectPathInput: document.getElementById('projectPathInput'),
       cancelProjectModal: document.getElementById('cancelProjectModal'),
       newProjectBtn: document.getElementById('newProjectBtn'),
+      newTerminalBtn: document.getElementById('newTerminalBtn'),
       projectList: document.getElementById('projectList'),
       projectSelect: document.getElementById('projectSelect'),
       sessionModelSelect: document.getElementById('sessionModelSelect'),
@@ -140,6 +141,12 @@ class EveWorkspaceClient {
     // New session buttons
     this.elements.newSessionBtn.addEventListener('click', () => this.modalManager.showSessionModal());
     this.elements.welcomeNewSession.addEventListener('click', () => this.modalManager.showSessionModal());
+
+    // Terminal picker
+    this.elements.newTerminalBtn.addEventListener('click', () => {
+      const dir = this.getCurrentProjectDirectory();
+      this.terminalManager.showTemplatePicker(dir);
+    });
 
     // Project modal
     this.elements.newProjectBtn.addEventListener('click', () => this.modalManager.showProjectModal());
@@ -197,7 +204,10 @@ class EveWorkspaceClient {
       }
     });
 
-    this.terminalManager.onReady(() => this.terminalManager.requestTerminalList());
+    this.terminalManager.onReady(() => {
+      this.terminalManager.requestTerminalList();
+      this.terminalManager.requestTemplates();
+    });
     this.tabManager.reestablishFileWatches();
   }
 
@@ -611,6 +621,16 @@ class EveWorkspaceClient {
     const parts = path.split('/');
     if (parts.length > 3) return '.../' + parts.slice(-2).join('/');
     return path;
+  }
+
+  getCurrentProjectDirectory() {
+    const session = this.sessions.get(this.currentSessionId);
+    if (session?.directory) return session.directory;
+    // Fall back to the first project path.
+    for (const p of this.projects.values()) {
+      if (p.path) return p.path;
+    }
+    return '';
   }
 
   getSessionDisplayName(sessionId) {
