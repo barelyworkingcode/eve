@@ -1,4 +1,7 @@
 class TabManager {
+  static STORAGE_KEY = 'eve-open-sessions';
+  static MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
   constructor(client) {
     this.client = client;
     this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
@@ -62,6 +65,7 @@ class TabManager {
     };
 
     this.tabs.push(tab);
+    this._saveSessionTab(sessionId);
 
     if (skipRender) {
       // Make tab active without triggering renderMessages
@@ -228,6 +232,7 @@ class TabManager {
 
     // Send leave_session to unbind from relayLLM when closing a session tab
     if (tab.type === 'session') {
+      this._removeSessionTab(tab.id);
       this.client.wsClient.send({ type: 'leave_session', sessionId: tab.id });
       if (this.client.messageDispatcher) {
         this.client.messageDispatcher.backgroundBuffers.delete(tab.id);
@@ -339,6 +344,51 @@ class TabManager {
       tabEl.appendChild(closeBtn);
       this.tabBar.appendChild(tabEl);
     }
+  }
+
+  // --- Session tab persistence (localStorage) ---
+
+  _saveSessionTab(sessionId) {
+    const stored = this._getStoredSessions();
+    stored[sessionId] = Date.now();
+    localStorage.setItem(TabManager.STORAGE_KEY, JSON.stringify(stored));
+  }
+
+  _removeSessionTab(sessionId) {
+    const stored = this._getStoredSessions();
+    delete stored[sessionId];
+    localStorage.setItem(TabManager.STORAGE_KEY, JSON.stringify(stored));
+  }
+
+  _getStoredSessions() {
+    try {
+      return JSON.parse(localStorage.getItem(TabManager.STORAGE_KEY)) || {};
+    } catch { return {}; }
+  }
+
+  /**
+   * Returns session IDs that were open within the last 24 hours.
+   * Prunes expired entries.
+   */
+  getRecentSessionIds() {
+    const stored = this._getStoredSessions();
+    const now = Date.now();
+    const valid = {};
+    const result = [];
+
+    for (const [id, ts] of Object.entries(stored)) {
+      if (now - ts < TabManager.MAX_AGE_MS) {
+        valid[id] = ts;
+        result.push(id);
+      }
+    }
+
+    // Prune expired
+    if (Object.keys(valid).length !== Object.keys(stored).length) {
+      localStorage.setItem(TabManager.STORAGE_KEY, JSON.stringify(valid));
+    }
+
+    return result;
   }
 }
 
