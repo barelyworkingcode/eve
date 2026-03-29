@@ -136,7 +136,7 @@ document.querySelector('.session').classList.add('active');  // Wrong
 // Always clean up
 relayClient.close();      // Close relay connection
 ws.close();               // Close browser WebSocket
-terminalManager.killAll(); // Kill terminal processes
+// Terminal processes live in relayLLM (survive Eve restarts)
 ```
 
 ### Code Organization
@@ -253,8 +253,8 @@ Eve is a relay proxy -- it does not manage LLM providers, sessions, or projects 
 
 ```
 Browser ──WS──► Eve (ws-handler) ──WS──► relayLLM    (sessions, messages, permissions)
+Browser ──WS──► Eve (ws-handler) ──WS──► relayLLM    (terminals: create, I/O, resize, close)
 Browser ──WS──► Eve (ws-handler) ──local──► FileService  (file ops)
-Browser ──WS──► Eve (ws-handler) ──local──► TerminalMgr  (terminals)
 Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM     (models, projects, sessions list)
 Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM ──HTTP──► relayScheduler  (tasks)
 Browser ──WS──► Eve ──WS──► relayLLM ──WS──► relayScheduler  (task events: task_started, task_completed, task_error, task_status)
@@ -271,22 +271,45 @@ Browser ──WS──► Eve ──WS──► relayLLM ──WS──► relay
 - `routes/auth.js` - WebAuthn enrollment/login
 - `file-handlers.js` - WebSocket adapter for file operations
 - `file-service.js` - Path validation + file CRUD
-- `terminal-manager.js` - PTY management (node-pty)
 - `auth.js` - WebAuthn service (delegates session tokens to SessionStore)
 - `session-store.js` - Auth session token create/validate/cleanup
 
 **Client** (`public/`)
-- `app.js` - Thin orchestrator wiring modules, state owner
+
+Core infrastructure:
+- `core/event-bus.js` - Synchronous pub/sub for decoupled module communication
+- `core/container.js` - Lightweight dependency injection container
+- `core/state-store.js` - Centralized state (sessions, projects, models) with change events
+- `core/api-client.js` - HTTP API wrapper for relayLLM endpoints
+- `core/constants.js` - Event name constants (EVT.*) and shared constants
+- `core/ui-utils.js` - Shared UI helpers: SVG icons (UI_ICONS), renderModelSelect(), showContextMenu()
+
+Sidebar (VS Code-style file explorer):
+- `sidebar/project-tree.js` - Top-level project explorer, expand state persistence
+- `sidebar/project-tree-item.js` - Single project: header with action icons + file tree
+- `sidebar/file-tree-node.js` - Recursive file/folder tree with lazy-load, drag-drop, context menu
+- `sidebar/file-icons.js` - Extension-to-SVG icon mapping
+
+Dialogs:
+- `dialogs/dialog-base.js` - Shared modal behavior (backdrop, escape, tabs)
+- `dialogs/shell-launcher-dialog.js` - New/Resume tabs for terminals and web chat
+- `dialogs/task-dialog.js` - Tasks/New tabs for task management
+
+Layout:
+- `layout/mobile-bar.js` - Fixed bottom action bar for mobile (Menu, Shell, Chat)
+
+Legacy (still active, migrating to EventBus):
+- `app.js` - Orchestrator wiring modules, dual state owner (legacy + StateStore)
 - `ws-client.js` - WebSocket connection, auth, reconnection
 - `message-dispatcher.js` - Server message routing and LLM event processing
 - `message-renderer.js` - Chat messages, tool use, thinking indicator, formatting
 - `file-attachment-manager.js` - File selection, reading, drag/drop, paste for chat input
-- `modal-manager.js` - All modal show/hide, confirmation flow, permission prompts
-- `sidebar-renderer.js` - Project list, session items, inline rename
-- `tab-manager.js` - Tab bar for sessions, files, terminals
-- `file-browser.js` - Directory tree in sidebar
+- `modal-manager.js` - Legacy modals (session, project, confirm, permission)
+- `sidebar-renderer.js` - Legacy sidebar (guarded, no-ops with new project tree)
+- `tab-manager.js` - Tab bar with localStorage persistence (24h expiry)
+- `file-browser.js` - Legacy directory tree (still used for file operations)
 - `file-editor.js` - Monaco editor integration
-- `terminal-manager.js` - xterm.js terminal tabs
+- `terminal-manager.js` - xterm.js terminal tabs, proxied to relayLLM via WebSocket
 
 ### Key Patterns
 
@@ -333,27 +356,34 @@ Existing modules (TabManager, FileBrowser, FileEditor, TerminalManager) access t
 
 ### UI Patterns
 
-**Modals** (managed by `ModalManager`)
-- Session creation, project create/edit, confirmation, permission request
-- All follow same pattern: backdrop click closes, focus management, hidden class toggle
+**Dialogs** (new: `DialogBase` + specific dialogs; legacy: `ModalManager`)
+- `ShellLauncherDialog` - New tab (Claude Code, OpenCode, Shell, Web Chat grid) + Resume tab (sessions, running terminals)
+- `TaskDialog` - Tasks tab (list/run/edit/delete) + New tab (create form)
+- Legacy `ModalManager` still handles session, project, confirm, and permission modals
 
-**Sidebar Hierarchy** (rendered by `SidebarRenderer`)
+**Sidebar** (VS Code-style Explorer, rendered by `ProjectTree`)
 ```
-Projects (section)
-  ├── Project 1
-  │   ├── Session A [MODEL]
-  │   └── Session B [MODEL]
-  └── Project 2
-Ungrouped (implicit section)
-  └── Session C [MODEL]
+EXPLORER                    [+]
+▼ BAAQMD          [>_] [≡] [⋮]
+  ▸ branding/
+  ▸ Documents/
+    build-pdf.sh
+    CLAUDE.md
+▸ TBO              [>_] [≡] [⋮]
 ```
-Each session item displays its own model badge.
+Pure file tree. Sessions/tasks accessed via per-project action icons.
+Badge appears next to shell icon when detached terminals are running.
 
-**Hover Actions**
-Buttons appear on hover in project headers:
-- Edit button (pencil) - opens project modal in edit mode
-- Quick add button (`+`) - creates session in project
-- Delete button (`×`) - removes project
+**Hover Actions** on project headers:
+- Shell icon (`>_`) - opens Shell Launcher dialog (2-tap shell launch)
+- Tasks icon (`≡`) - opens Task dialog
+- More icon (`⋮`) - Edit/Delete project menu
+
+**localStorage Persistence** (24h expiry)
+- `eve-open-sessions` - Session tabs auto-restored on refresh
+- `eve-open-files` - File tabs auto-restored on refresh
+- `eve-expanded-projects` - Project expand/collapse state
+- `eve-tree-expand` - File tree expand state (per project)
 
 ## Development Guidelines
 
@@ -391,7 +421,7 @@ Client sends:
 ### Adding Features to Server
 
 **What lives in Eve vs relayLLM**
-- Eve: file browser, terminals, auth, UI serving, local slash commands
+- Eve: file browser, auth, UI serving, local slash commands (terminals proxied to relayLLM)
 - relayLLM: providers, sessions, projects, tasks, permissions, model routing
 
 **Adding a new local feature**
@@ -437,18 +467,18 @@ All session, project, and task data lives in relayLLM.
 
 ## Common Tasks
 
-### Adding a new modal
-1. Add HTML structure in `index.html`
-2. Add CSS following existing `.modal*` patterns
-3. Add element refs in `app.js` `initElements()`
-4. Add show/hide methods in `modal-manager.js`
-5. Add event listeners in `ModalManager.initEventListeners()`
+### Adding a new dialog
+1. Create class extending `DialogBase` in `public/dialogs/`
+2. Add `init()` method that subscribes to bus events
+3. Implement `render()` to build the panel content using DOM APIs (no innerHTML with user data)
+4. Register in `app.js` `initApp()` and call `init()`
+5. Emit bus event from trigger point (e.g. sidebar action button)
 
 ### Adding a button to project headers
-1. Update `SidebarRenderer.renderProjectGroup()` HTML template in `sidebar-renderer.js`
-2. Add CSS (hidden by default, show on `.project-header:hover`)
-3. Query element after innerHTML set
-4. Add click handler with `e.stopPropagation()`
+1. Add button creation in `ProjectTreeItem.render()` in `sidebar/project-tree-item.js`
+2. Use `UI_ICONS` from `core/ui-utils.js` for SVG icons
+3. Add click handler with `e.stopPropagation()` that emits bus event
+4. CSS: show on `.project-tree__header:hover .project-tree__actions`
 
 ### Adding a new HTTP proxy route
 1. Add route in `routes/index.js` using `proxy(req, res, method, relayPath, body)`
