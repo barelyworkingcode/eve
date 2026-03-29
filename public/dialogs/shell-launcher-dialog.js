@@ -348,10 +348,14 @@ class ShellLauncherDialog extends DialogBase {
 
   _launchTerminal(templateId) {
     const project = this.state.getProject(this.projectId);
+    const tmpl = this._templates.find(t => t.id === templateId);
+    const tmplName = tmpl?.name || templateId;
+    const name = project ? `${project.name} - ${tmplName}` : tmplName;
     const ws = this.container.get('ws');
     ws.send({
       type: 'terminal_create',
       templateId,
+      name,
       directory: project?.path || '',
       cols: 80,
       rows: 24,
@@ -360,12 +364,17 @@ class ShellLauncherDialog extends DialogBase {
   }
 
   _launchWebUI(model, settings) {
+    const project = this.state.getProject(this.projectId);
+    const modelInfo = this.state.models.find(m => m.value === model);
+    const modelLabel = modelInfo?.label || model;
+    const name = project ? `${project.name} - ${modelLabel}` : modelLabel;
     const ws = this.container.get('ws');
     ws.send({
       type: 'create_session',
       projectId: this.projectId,
       model,
       settings,
+      name,
     });
     this.hide();
   }
