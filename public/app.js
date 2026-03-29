@@ -259,10 +259,21 @@ class EveWorkspaceClient {
     // Order matters: task session IDs must be known before sessions load
     // so task sessions are filtered from the sidebar.
     this.loadProjects().then(() => this.loadSessions()).then(() => {
-      // Re-join ALL open session tabs so relayLLM routes events for each.
+      // Restore session tabs from localStorage (sessions opened in the last 24h).
+      const recentIds = this.tabManager.getRecentSessionIds();
+      for (const sessionId of recentIds) {
+        // Only restore if the session still exists on the server.
+        if (this.sessions.has(sessionId)) {
+          this.joinSession(sessionId);
+        }
+      }
+
+      // Also re-join any already-open session tabs (e.g. from WebSocket reconnect).
       const sessionTabs = this.tabManager.tabs.filter(t => t.type === 'session');
       for (const tab of sessionTabs) {
-        this.wsClient.send({ type: 'join_session', sessionId: tab.id });
+        if (!recentIds.includes(tab.id)) {
+          this.wsClient.send({ type: 'join_session', sessionId: tab.id });
+        }
       }
     });
 
