@@ -8,6 +8,7 @@ const AuthService = require('./auth');
 const FileHandlers = require('./file-handlers');
 const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
+const TTSService = require('./tts-service');
 
 
 const app = express();
@@ -126,8 +127,14 @@ app.use('/dompurify', express.static(path.join(__dirname, 'node_modules/dompurif
 app.use('/mermaid', express.static(path.join(__dirname, 'node_modules/mermaid/dist')));
 app.use(express.json({ limit: '50mb' }));
 
+// TTS service (connects to Kokoro daemon)
+const ttsService = new TTSService(
+  process.env.TTS_HOST || 'localhost',
+  parseInt(process.env.TTS_PORT || '9997', 10)
+);
+
 // Register HTTP routes (proxy to relayLLM + scheduler + local auth)
-registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache, resolveProject: (id) => projectCache.get(id) });
+registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService });
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
@@ -135,7 +142,8 @@ wss.on('connection', createWsHandler({
   relayWsUrl: RELAY_LLM_WS_URL,
   relayHttpUrl: RELAY_LLM_URL,
   claudeConfig: settings.providerConfig.claude,
-  resolveProject: (id) => projectCache.get(id)
+  resolveProject: (id) => projectCache.get(id),
+  ttsService
 }));
 
 const PORT = process.env.PORT || 3000;

@@ -81,6 +81,7 @@ class EveWorkspaceClient {
     this.terminalManager = new TerminalManager(this);
     this.messageDispatcher = new MessageDispatcher(this);
     this.fileAttachmentManager = new FileAttachmentManager(this);
+    this.ttsManager = new TTSManager(this);
 
     if (typeof mermaid !== 'undefined') {
       mermaid.initialize({
@@ -164,6 +165,8 @@ class EveWorkspaceClient {
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
       stopBtn: document.getElementById('stopBtn'),
+      voiceModeBtn: document.getElementById('voiceModeBtn'),
+      voiceSelect: document.getElementById('voiceSelect'),
       taskModal: document.getElementById('taskModal'),
       taskModalTitle: document.getElementById('taskModalTitle'),
       taskForm: document.getElementById('taskForm'),
@@ -254,6 +257,29 @@ class EveWorkspaceClient {
     this.elements.userInput.addEventListener('input', () => this.autoResizeTextarea());
     this.elements.stopBtn.addEventListener('click', () => this.handleStop());
 
+    // Voice mode toggle + voice selection
+    if (this.elements.voiceModeBtn) {
+      if (this.ttsManager.enabled) {
+        this.elements.voiceModeBtn.classList.add('btn-voice-mode--active');
+      }
+      this.ttsManager.init();
+
+      this.elements.voiceModeBtn.addEventListener('click', () => {
+        this.ttsManager.setEnabled(!this.ttsManager.enabled);
+        this.elements.voiceModeBtn.classList.toggle('btn-voice-mode--active', this.ttsManager.enabled);
+        this.wsClient.send({ type: 'voice_mode', enabled: this.ttsManager.enabled, voice: this.ttsManager.voice });
+      });
+
+      if (this.elements.voiceSelect) {
+        this.elements.voiceSelect.addEventListener('change', (e) => {
+          this.ttsManager.setVoice(e.target.value);
+          if (this.ttsManager.enabled) {
+            this.wsClient.send({ type: 'voice_mode', enabled: true, voice: e.target.value });
+          }
+        });
+      }
+    }
+
     // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
     this.elements.welcomeOpenSidebar.addEventListener('click', () => this.toggleSidebar(true));
@@ -280,6 +306,11 @@ class EveWorkspaceClient {
   onWebSocketReady() {
     // Clear stale thinking indicator from previous connection
     this.messageRenderer.hideThinkingIndicator();
+
+    // Sync voice mode state to server on (re)connect
+    if (this.ttsManager.enabled) {
+      this.wsClient.send({ type: 'voice_mode', enabled: true, voice: this.ttsManager.voice });
+    }
 
     // Load projects (and tasks) first, then sessions, then re-join.
     // Order matters: task session IDs must be known before sessions load
@@ -538,6 +569,11 @@ class EveWorkspaceClient {
     e.preventDefault();
     const text = this.elements.userInput.value.trim();
     if (!text || !this.currentSessionId) return;
+
+    // Stop any in-progress TTS playback
+    if (this.ttsManager.isPlaying) {
+      this.ttsManager.stop();
+    }
 
     const files = this.fileAttachmentManager.consumeFiles();
     this.messageRenderer.appendUserMessage(text, files);
