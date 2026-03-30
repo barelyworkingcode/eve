@@ -179,24 +179,27 @@ class ShellLauncherDialog extends DialogBase {
         if (field.type === 'boolean') {
           const input = document.createElement('input');
           input.type = 'checkbox';
-          input.name = field.name;
+          input.name = field.key;
           if (field.default) input.checked = true;
           row.appendChild(input);
         } else if (field.type === 'number') {
           const input = document.createElement('input');
           input.type = 'number';
-          input.name = field.name;
+          input.name = field.key;
           if (field.default !== undefined) input.value = field.default;
           if (field.min !== undefined) input.min = field.min;
           if (field.max !== undefined) input.max = field.max;
           input.step = field.step || 'any';
+          if (field.placeholder) input.placeholder = field.placeholder;
           input.className = 'dialog__input';
           row.appendChild(input);
         } else {
           const input = document.createElement('input');
           input.type = 'text';
-          input.name = field.name;
+          input.name = field.key;
+          input.dataset.settingType = field.type;
           if (field.default !== undefined) input.value = field.default;
+          if (field.placeholder) input.placeholder = field.placeholder;
           input.className = 'dialog__input';
           row.appendChild(input);
         }
@@ -240,6 +243,9 @@ class ShellLauncherDialog extends DialogBase {
         settings[input.name] = input.checked;
       } else if (input.type === 'number' && input.value) {
         settings[input.name] = parseFloat(input.value);
+      } else if (input.dataset.settingType === 'string[]') {
+        const val = input.value.trim();
+        if (val) settings[input.name] = val.split(/\s+/);
       } else if (input.value) {
         settings[input.name] = input.value;
       }
