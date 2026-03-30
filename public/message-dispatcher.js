@@ -72,6 +72,14 @@ class MessageDispatcher {
         this.client.messageRenderer.appendSystemMessage(data.message);
         break;
 
+      case 'tts_audio':
+        this.client.ttsManager?.enqueueAudio(data.data);
+        break;
+
+      case 'tts_error':
+        console.warn('[TTS] Error:', data.message);
+        break;
+
       case 'clear_messages':
         this.client.messageRenderer.clearMessages();
         break;
