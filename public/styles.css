@@ -2090,6 +2090,16 @@ html, body {
     height: 44px;
   }
 
+  .input-form {
+    flex-wrap: wrap;
+  }
+
+  .voice-select {
+    order: 1;
+    flex-basis: 100%;
+    max-width: none;
+  }
+
   .welcome-content h2 {
     font-size: 18px;
   }
