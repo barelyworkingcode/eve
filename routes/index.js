@@ -1,7 +1,7 @@
 const createAuthRoutes = require('./auth');
 const path = require('path');
 
-function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resolveProject }) {
+function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resolveProject, ttsService }) {
   // Shared auth middleware
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
@@ -133,6 +133,22 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
 
   app.post('/api/tasks/:taskId/run', requireAuth, (req, res) => {
     proxy(req, res, 'POST', `/api/tasks/${req.params.taskId}/run`);
+  });
+
+  // --- TTS voices (cached, refreshes every 5 min) ---
+  let voiceCache = null;
+  let voiceCacheTime = 0;
+  app.get('/api/tts/voices', requireAuth, async (req, res) => {
+    try {
+      if (!voiceCache || Date.now() - voiceCacheTime > 5 * 60 * 1000) {
+        voiceCache = await ttsService.listVoices();
+        voiceCacheTime = Date.now();
+      }
+      res.json(voiceCache);
+    } catch (err) {
+      if (voiceCache) return res.json(voiceCache); // stale cache better than error
+      res.status(503).json({ error: 'TTS service unavailable' });
+    }
   });
 
   // --- Raw file serving (for binary file viewers: images, PDFs, video, audio) ---

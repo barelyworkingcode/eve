@@ -175,6 +175,9 @@ class MessageRenderer {
     const messageEl = document.createElement('div');
     messageEl.className = 'message user';
 
+    // Strip voice mode instruction prefix from display
+    const displayText = text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '');
+
     let filesHtml = '';
     if (files.length > 0) {
       filesHtml = `<div class="message-files">${files.map(f =>
@@ -182,7 +185,7 @@ class MessageRenderer {
       ).join('')}</div>`;
     }
 
-    messageEl.innerHTML = `<div class="message-content">${filesHtml}${this.escapeHtml(text)}</div>`;
+    messageEl.innerHTML = `<div class="message-content">${filesHtml}${this.escapeHtml(displayText)}</div>`;
     this.app.elements.messages.appendChild(messageEl);
     this.scrollToBottom();
 

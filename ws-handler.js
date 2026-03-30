@@ -10,14 +10,14 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject }) {
+function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject, ttsService }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
     const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !isLocalhostConnection;
     let isAuthenticated = !requiresAuth;
 
-    const relayClient = new RelayClient(relayWsUrl, ws);
+    const relayClient = new RelayClient(relayWsUrl, ws, ttsService);
     const fileWatcher = new FileWatcher(ws, fileHandlers.fileService, resolveProject);
 
     // Connect to relayLLM immediately
@@ -182,6 +182,10 @@ function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, 
             relayClient.send({ type: 'terminal_templates' });
             break;
 
+          case 'voice_mode':
+            relayClient.setVoiceMode(message.enabled, message.voice);
+            break;
+
           case 'read_plan_file':
             handleReadPlanFile(ws, message.path);
             break;
@@ -248,6 +252,8 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
 /**
  * Handle user input: check for local slash commands first, else relay.
  */
+const VOICE_MODE_INSTRUCTION = '[VOICE MODE] Respond conversationally for spoken delivery. Avoid markdown, code blocks, tables, bullet lists, URLs, and technical formatting. Use natural language, spell out numbers and abbreviations. Keep responses concise. Use punctuation for natural pauses.';
+
 function handleUserInput(ws, relayClient, message) {
   const text = (message.text || '').trim();
 
@@ -256,7 +262,14 @@ function handleUserInput(ws, relayClient, message) {
   }
 
   const files = (message.files || []).map(parseFileAttachment);
-  relayClient.sendMessage(message.text, files, message.sessionId);
+
+  // Prepend voice mode instruction when voice mode is active
+  let finalText = message.text;
+  if (relayClient.voiceMode) {
+    finalText = VOICE_MODE_INSTRUCTION + '\n\n' + message.text;
+  }
+
+  relayClient.sendMessage(finalText, files, message.sessionId);
 }
 
 /**

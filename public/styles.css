@@ -912,6 +912,63 @@ html, body {
   color: var(--text-primary);
 }
 
+.voice-select {
+  height: 40px;
+  padding: 0 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  max-width: 140px;
+}
+
+.voice-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.btn-voice-mode {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.btn-voice-mode:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-voice-mode--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-voice-mode--active:hover {
+  background: var(--accent-hover);
+  color: #fff;
+}
+
+.btn-voice-mode.tts-speaking {
+  animation: tts-pulse 1s ease-in-out infinite;
+}
+
+@keyframes tts-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .input-form textarea {
   flex: 1;
   padding: 10px 12px;
