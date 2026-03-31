@@ -15,7 +15,7 @@ class STTManager {
     this.timerInterval = null;
     this.available = null; // null = unknown, true/false after check
 
-    this.backend = localStorage.getItem('eve-stt-backend') || 'server';
+    this.backend = localStorage.getItem('eve-stt-backend') || 'browser';
     this.browserBackend = null;
     this.browserBackendLoading = false;
   }
