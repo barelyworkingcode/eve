@@ -87,6 +87,31 @@
 
         <!-- Chat content area -->
         <div id="chat" class="chat-content">
+          <!-- Voice controls pull-down drawer -->
+          <div id="voiceDrawer" class="voice-drawer">
+            <button type="button" id="voiceDrawerToggle" class="voice-drawer__toggle" title="Voice controls">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <div class="voice-drawer__panel hidden" id="voiceDrawerPanel">
+              <select id="voiceSelect" class="voice-drawer__select" title="Select voice"></select>
+              <button type="button" id="voiceModeBtn" class="btn-voice-mode" title="Voice mode (TTS)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+                  <path d="M19.07 4.93a10 10 0 010 14.14"/>
+                  <path d="M15.54 8.46a5 5 0 010 7.07"/>
+                </svg>
+              </button>
+              <button type="button" id="voiceUIBtn" class="btn-voice-ui" title="Switch to Voice UI">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <circle cx="12" cy="12" r="4"/>
+                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+                </svg>
+              </button>
+            </div>
+          </div>
           <div id="messages" class="messages"></div>
 
           <div class="input-area">
@@ -119,12 +144,12 @@
                   <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
                 </svg>
               </button>
-              <select id="voiceSelect" class="voice-select hidden" title="Select voice"></select>
-              <button type="button" id="voiceModeBtn" class="btn-voice-mode" title="Voice mode (TTS)">
+              <button type="button" id="micBtn" class="btn-mic hidden" title="Dictate (Speech-to-Text)">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M11 5L6 9H2v6h4l5 4V5z"/>
-                  <path d="M19.07 4.93a10 10 0 010 14.14"/>
-                  <path d="M15.54 8.46a5 5 0 010 7.07"/>
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
                 </svg>
               </button>
               <button type="button" class="btn-stop hidden" id="stopBtn">
@@ -166,6 +191,45 @@
         <!-- Terminal content area -->
         <div id="terminal" class="terminal-content hidden">
           <div id="terminalContainer" class="terminal-container"></div>
+        </div>
+
+        <!-- Voice Chat content area -->
+        <div id="voiceChat" class="voice-chat-content hidden">
+          <!-- Voice chat pull-down drawer (voice select + switch to text) -->
+          <div id="voiceChatDrawer" class="voice-drawer">
+            <button type="button" id="voiceChatDrawerToggle" class="voice-drawer__toggle" title="Voice controls">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <div class="voice-drawer__panel hidden" id="voiceChatDrawerPanel">
+              <select id="voiceChatVoiceSelect" class="voice-drawer__select"></select>
+              <button id="voiceChatConvert" class="voice-chat__btn voice-chat__btn--convert" title="Switch to text chat" type="button">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="voice-chat__orb-area">
+            <canvas id="voiceOrbCanvas" class="voice-chat__orb-canvas"></canvas>
+          </div>
+          <div class="voice-chat__captions" id="voiceCaptions"></div>
+          <div class="voice-chat__controls">
+            <button id="voiceChatClose" class="voice-chat__btn voice-chat__btn--close" title="End session" type="button">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+            <div class="voice-chat__prompt" id="voiceChatPrompt">Hold spacebar to speak...</div>
+            <button id="voiceChatMic" class="voice-chat__btn voice-chat__btn--mic" title="Hold to record" type="button">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
       </div>
@@ -335,6 +399,8 @@
   <script src="file-editor.js"></script>
   <script src="terminal-manager.js"></script>
   <script src="tts-manager.js"></script>
+  <script src="stt-manager.js"></script>
+  <script src="voice-chat-manager.js"></script>
   <script src="message-dispatcher.js"></script>
   <script src="file-attachment-manager.js"></script>
 

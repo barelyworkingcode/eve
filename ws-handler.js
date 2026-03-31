@@ -10,7 +10,7 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject, ttsService }) {
+function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject, ttsService, sttService }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
@@ -186,6 +186,10 @@ function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, 
             relayClient.setVoiceMode(message.enabled, message.voice);
             break;
 
+          case 'transcribe_audio':
+            handleTranscribeAudio(ws, sttService, message);
+            break;
+
           case 'read_plan_file':
             handleReadPlanFile(ws, message.path);
             break;
@@ -234,8 +238,15 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
       projectId: data.projectId || null,
       model: data.model,
       name: data.name || null,
-      metadata: data.directory
+      metadata: data.directory,
+      sessionType: message.sessionType || null,
+      voice: message.voice || null,
     }));
+
+    // Auto-enable voice mode for voice sessions
+    if (message.sessionType === 'voice') {
+      relayClient.setVoiceMode(true, message.voice || 'af_heart');
+    }
 
     // Suppress the session_joined that relayLLM will send when we join
     relayClient.setSuppressNextJoin(data.sessionId);
@@ -254,6 +265,8 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
  */
 const VOICE_MODE_INSTRUCTION = '[VOICE MODE] Respond conversationally for spoken delivery. Avoid markdown, code blocks, tables, bullet lists, URLs, and technical formatting. Use natural language, spell out numbers and abbreviations. Keep responses concise. Use punctuation for natural pauses.';
 
+const DICTATION_NOTICE = '[DICTATED] The following was spoken aloud and transcribed via speech-to-text. Minor transcription errors may be present; please interpret the intended meaning.\n\n';
+
 function handleUserInput(ws, relayClient, message) {
   const text = (message.text || '').trim();
 
@@ -263,10 +276,16 @@ function handleUserInput(ws, relayClient, message) {
 
   const files = (message.files || []).map(parseFileAttachment);
 
-  // Prepend voice mode instruction when voice mode is active
   let finalText = message.text;
+
+  // Prepend dictation notice for voice-transcribed input
+  if (message.dictated) {
+    finalText = DICTATION_NOTICE + finalText;
+  }
+
+  // Prepend voice mode instruction when voice mode is active
   if (relayClient.voiceMode) {
-    finalText = VOICE_MODE_INSTRUCTION + '\n\n' + message.text;
+    finalText = VOICE_MODE_INSTRUCTION + '\n\n' + finalText;
   }
 
   relayClient.sendMessage(finalText, files, message.sessionId);
@@ -309,6 +328,29 @@ function parseFileAttachment(f) {
     }
   }
   return { name: f.name, mimeType: f.mediaType || '', data: f.content || '' };
+}
+
+/**
+ * Transcribe audio via the Whisper STT daemon.
+ */
+async function handleTranscribeAudio(ws, sttService, message) {
+  try {
+    const { audio, language } = message;
+    if (!audio) {
+      ws.send(JSON.stringify({ type: 'transcription_error', error: 'No audio data' }));
+      return;
+    }
+    const result = await sttService.transcribe(audio, language || null);
+    ws.send(JSON.stringify({
+      type: 'transcription_result',
+      text: result.text,
+      language: result.language,
+      duration: result.duration
+    }));
+  } catch (err) {
+    console.error('[WsHandler] Transcription failed:', err.message);
+    ws.send(JSON.stringify({ type: 'transcription_error', error: err.message }));
+  }
 }
 
 module.exports = createWsHandler;

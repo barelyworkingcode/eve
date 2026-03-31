@@ -136,6 +136,30 @@ class ShellLauncherDialog extends DialogBase {
     webCard.appendChild(webInfo);
     grid.appendChild(webCard);
 
+    // Voice Chat card
+    const voiceCard = document.createElement('button');
+    voiceCard.className = 'shell-launcher__card shell-launcher__card--accent';
+    voiceCard.addEventListener('click', () => this._showVoiceChatForm());
+
+    const voiceIcon = document.createElement('span');
+    voiceIcon.className = 'shell-launcher__card-icon';
+    voiceIcon.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
+
+    const voiceInfo = document.createElement('div');
+    voiceInfo.className = 'shell-launcher__card-info';
+    const voiceName = document.createElement('div');
+    voiceName.className = 'shell-launcher__card-name';
+    voiceName.textContent = 'Voice Chat';
+    const voiceDesc = document.createElement('div');
+    voiceDesc.className = 'shell-launcher__card-desc';
+    voiceDesc.textContent = 'Hands-free voice conversation';
+    voiceInfo.appendChild(voiceName);
+    voiceInfo.appendChild(voiceDesc);
+
+    voiceCard.appendChild(voiceIcon);
+    voiceCard.appendChild(voiceInfo);
+    grid.appendChild(voiceCard);
+
     this._tabContent.appendChild(grid);
   }
 
@@ -156,18 +180,146 @@ class ShellLauncherDialog extends DialogBase {
     form.appendChild(modelLabel);
     form.appendChild(modelSelect);
 
-    // Provider settings container
+    const settingsContainer = this._addProviderSettings(form, modelSelect);
+
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.className = 'dialog__actions';
+
+    const backBtn = document.createElement('button');
+    backBtn.className = 'dialog__btn dialog__btn--secondary';
+    backBtn.textContent = 'Back';
+    backBtn.addEventListener('click', () => this._showTab('new'));
+
+    const startBtn = document.createElement('button');
+    startBtn.className = 'dialog__btn dialog__btn--primary';
+    startBtn.textContent = 'Start Chat';
+    startBtn.addEventListener('click', () => {
+      const model = modelSelect.value;
+      const settings = this._collectSettings(settingsContainer);
+      this._launchWebUI(model, settings);
+    });
+
+    actions.appendChild(backBtn);
+    actions.appendChild(startBtn);
+    form.appendChild(actions);
+
+    this._tabContent.appendChild(form);
+  }
+
+  _showVoiceChatForm() {
+    this._tabContent.innerHTML = '';
+
+    const form = document.createElement('div');
+    form.className = 'shell-launcher__web-form';
+
+    // Model select
+    const modelLabel = document.createElement('label');
+    modelLabel.className = 'dialog__label';
+    modelLabel.textContent = 'Model';
+
+    const modelSelect = document.createElement('select');
+    renderModelSelect(modelSelect, this.state.models, { className: 'dialog__select' });
+
+    form.appendChild(modelLabel);
+    form.appendChild(modelSelect);
+
+    // Voice select
+    const voiceLabel = document.createElement('label');
+    voiceLabel.className = 'dialog__label';
+    voiceLabel.textContent = 'Voice';
+
+    const voiceSelect = document.createElement('select');
+    voiceSelect.className = 'dialog__select';
+
+    // Populate from TTS manager
+    const app = this.container.get('app');
+    const voices = app?.ttsManager?.voices || [];
+    if (voices.length > 0) {
+      const groups = {};
+      for (const v of voices) {
+        const lang = v.language || 'Other';
+        if (!groups[lang]) groups[lang] = [];
+        groups[lang].push(v);
+      }
+      for (const [lang, list] of Object.entries(groups)) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = lang;
+        for (const v of list) {
+          const opt = document.createElement('option');
+          opt.value = v.id;
+          opt.textContent = v.name;
+          if (v.id === (app?.ttsManager?.voice || 'af_heart')) opt.selected = true;
+          optgroup.appendChild(opt);
+        }
+        voiceSelect.appendChild(optgroup);
+      }
+    } else {
+      const opt = document.createElement('option');
+      opt.value = 'af_heart';
+      opt.textContent = 'Heart (F)';
+      voiceSelect.appendChild(opt);
+    }
+
+    form.appendChild(voiceLabel);
+    form.appendChild(voiceSelect);
+
+    const settingsContainer = this._addProviderSettings(form, modelSelect);
+
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.className = 'dialog__actions';
+
+    const backBtn = document.createElement('button');
+    backBtn.className = 'dialog__btn dialog__btn--secondary';
+    backBtn.textContent = 'Back';
+    backBtn.addEventListener('click', () => this._showTab('new'));
+
+    const startBtn = document.createElement('button');
+    startBtn.className = 'dialog__btn dialog__btn--primary';
+    startBtn.textContent = 'Start Voice Chat';
+    startBtn.addEventListener('click', () => {
+      const model = modelSelect.value;
+      const voice = voiceSelect.value;
+      const settings = this._collectSettings(settingsContainer);
+      this._launchVoiceChat(model, voice, settings);
+    });
+
+    actions.appendChild(backBtn);
+    actions.appendChild(startBtn);
+    form.appendChild(actions);
+
+    this._tabContent.appendChild(form);
+  }
+
+  _launchVoiceChat(model, voice, settings) {
+    const project = this.state.getProject(this.projectId);
+    const modelInfo = this.state.models.find(m => m.value === model);
+    const modelLabel = modelInfo?.label || model;
+    const name = project ? `${project.name} - Voice` : `Voice - ${modelLabel}`;
+    const ws = this.container.get('ws');
+    ws.send({
+      type: 'create_session',
+      projectId: this.projectId,
+      model,
+      settings,
+      name,
+      sessionType: 'voice',
+      voice,
+    });
+    this.hide();
+  }
+
+  _addProviderSettings(form, modelSelect) {
     const settingsContainer = document.createElement('div');
     settingsContainer.className = 'shell-launcher__settings';
     form.appendChild(settingsContainer);
 
-    // Render provider settings for selected model
     const renderSettings = () => {
       settingsContainer.innerHTML = '';
       const selectedModel = this.state.models.find(m => m.value === modelSelect.value);
       if (!selectedModel) return;
-      const provider = selectedModel.provider;
-      const fields = this.state.providerSettings[provider] || [];
+      const fields = this.state.providerSettings[selectedModel.provider] || [];
       for (const field of fields) {
         const row = document.createElement('div');
         row.className = 'shell-launcher__setting-row';
@@ -209,30 +361,7 @@ class ShellLauncherDialog extends DialogBase {
 
     modelSelect.addEventListener('change', renderSettings);
     renderSettings();
-
-    // Action buttons
-    const actions = document.createElement('div');
-    actions.className = 'dialog__actions';
-
-    const backBtn = document.createElement('button');
-    backBtn.className = 'dialog__btn dialog__btn--secondary';
-    backBtn.textContent = 'Back';
-    backBtn.addEventListener('click', () => this._showTab('new'));
-
-    const startBtn = document.createElement('button');
-    startBtn.className = 'dialog__btn dialog__btn--primary';
-    startBtn.textContent = 'Start Chat';
-    startBtn.addEventListener('click', () => {
-      const model = modelSelect.value;
-      const settings = this._collectSettings(settingsContainer);
-      this._launchWebUI(model, settings);
-    });
-
-    actions.appendChild(backBtn);
-    actions.appendChild(startBtn);
-    form.appendChild(actions);
-
-    this._tabContent.appendChild(form);
+    return settingsContainer;
   }
 
   _collectSettings(container) {
@@ -266,8 +395,11 @@ class ShellLauncherDialog extends DialogBase {
       container.appendChild(header);
 
       for (const session of sessions) {
-        const item = document.createElement('button');
+        const item = document.createElement('div');
         item.className = 'shell-launcher__resume-item';
+
+        const resumeBtn = document.createElement('button');
+        resumeBtn.className = 'shell-launcher__resume-btn';
 
         const name = document.createElement('span');
         name.className = 'shell-launcher__resume-name';
@@ -277,14 +409,28 @@ class ShellLauncherDialog extends DialogBase {
         badge.className = 'shell-launcher__resume-badge';
         badge.textContent = session.model || '';
 
-        item.appendChild(name);
-        item.appendChild(badge);
-        item.addEventListener('click', () => {
+        resumeBtn.appendChild(name);
+        resumeBtn.appendChild(badge);
+        resumeBtn.addEventListener('click', () => {
           this.hide();
-          // Join session via existing mechanism
           const app = this.container.get('app');
           app.joinSession(session.id);
         });
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'shell-launcher__resume-delete';
+        deleteBtn.title = 'Delete session';
+        deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const app = this.container.get('app');
+          app.deleteSession(session.id);
+          // Re-render resume tab after a short delay for the delete to process
+          setTimeout(() => this._showTab('resume'), 300);
+        });
+
+        item.appendChild(resumeBtn);
+        item.appendChild(deleteBtn);
         container.appendChild(item);
       }
     }

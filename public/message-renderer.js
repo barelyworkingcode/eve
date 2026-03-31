@@ -175,8 +175,8 @@ class MessageRenderer {
     const messageEl = document.createElement('div');
     messageEl.className = 'message user';
 
-    // Strip voice mode instruction prefix from display
-    const displayText = text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '');
+    // Strip voice mode instruction and dictation notice prefixes from display
+    const displayText = text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '').replace(/^\[DICTATED\][^\n]*\n\n/, '');
 
     let filesHtml = '';
     if (files.length > 0) {
