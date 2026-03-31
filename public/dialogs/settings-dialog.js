@@ -251,6 +251,7 @@ class SettingsDialog extends DialogBase {
 
   _getTtsStatus(tts) {
     if (tts.backend === 'server') return 'Using server-side Kokoro TTS daemon.';
+    if (tts.isSafari && tts.backend === 'browser') return 'Warning: On-device TTS is not yet supported on Safari. Use Server.';
     if (tts.browserBackend?.ready) return 'On-device model loaded and ready.';
     if (tts.browserBackendLoading) return 'Loading on-device model...';
     return 'On-device model will download on next voice session.';
