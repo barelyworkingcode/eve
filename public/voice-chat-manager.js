@@ -194,12 +194,8 @@ class VoiceChatManager {
     this._setPrompt('Transcribing...');
     this._vadTranscribing = true;
 
-    // Encode Float32Array as WAV and send to server
-    const base64Wav = VadManager.audioToBase64Wav(audio);
-    this.app.wsClient.send({
-      type: 'transcribe_audio',
-      audio: base64Wav,
-    });
+    // Route through STT manager — handles browser/server backend selection
+    this.app.sttManager.transcribeFloat32(audio);
   }
 
   _onVADMisfire() {

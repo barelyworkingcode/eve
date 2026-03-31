@@ -205,18 +205,61 @@ class SettingsDialog extends DialogBase {
     hint.textContent = 'On-Device downloads an 86MB model on first use, then runs locally.';
     container.appendChild(hint);
 
-    // Status
-    const statusEl = document.createElement('div');
-    statusEl.className = 'field-hint';
-    statusEl.style.marginTop = '12px';
-    statusEl.textContent = this._getTtsStatus(tts);
-    container.appendChild(statusEl);
+    // TTS Status
+    const ttsStatusEl = document.createElement('div');
+    ttsStatusEl.className = 'field-hint';
+    ttsStatusEl.style.marginTop = '12px';
+    ttsStatusEl.textContent = this._getTtsStatus(tts);
+    container.appendChild(ttsStatusEl);
+
+    // --- STT Backend ---
+    const stt = this.container.get('app')?.sttManager;
+    if (!stt) return;
+
+    const sttLabel = document.createElement('label');
+    sttLabel.className = 'dialog__label';
+    sttLabel.style.marginTop = '20px';
+    sttLabel.textContent = 'STT Backend';
+    container.appendChild(sttLabel);
+
+    const sttSelect = document.createElement('select');
+    sttSelect.className = 'dialog__select';
+    for (const [value, label] of [['server', 'Server (Whisper daemon)'], ['browser', 'On-Device (browser)']]) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      if (value === stt.backend) opt.selected = true;
+      sttSelect.appendChild(opt);
+    }
+    sttSelect.addEventListener('change', () => {
+      stt.setBackend(sttSelect.value);
+      sttStatusEl.textContent = this._getSttStatus(stt);
+    });
+    container.appendChild(sttSelect);
+
+    const sttHint = document.createElement('span');
+    sttHint.className = 'field-hint';
+    sttHint.textContent = 'On-Device downloads a 166MB Whisper model on first use.';
+    container.appendChild(sttHint);
+
+    const sttStatusEl = document.createElement('div');
+    sttStatusEl.className = 'field-hint';
+    sttStatusEl.style.marginTop = '12px';
+    sttStatusEl.textContent = this._getSttStatus(stt);
+    container.appendChild(sttStatusEl);
   }
 
   _getTtsStatus(tts) {
     if (tts.backend === 'server') return 'Using server-side Kokoro TTS daemon.';
     if (tts.browserBackend?.ready) return 'On-device model loaded and ready.';
     if (tts.browserBackendLoading) return 'Loading on-device model...';
+    return 'On-device model will download on next voice session.';
+  }
+
+  _getSttStatus(stt) {
+    if (stt.backend === 'server') return 'Using server-side Whisper daemon.';
+    if (stt.browserBackend?.ready) return 'On-device model loaded and ready.';
+    if (stt.browserBackendLoading) return 'Loading on-device model...';
     return 'On-device model will download on next voice session.';
   }
 
