@@ -9,6 +9,7 @@ const FileHandlers = require('./file-handlers');
 const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
 const TTSService = require('./tts-service');
+const STTService = require('./stt-service');
 
 
 const app = express();
@@ -133,8 +134,14 @@ const ttsService = new TTSService(
   parseInt(process.env.TTS_PORT || '9997', 10)
 );
 
+// STT service (connects to Whisper daemon)
+const sttService = new STTService(
+  process.env.STT_HOST || 'localhost',
+  parseInt(process.env.STT_PORT || '9998', 10)
+);
+
 // Register HTTP routes (proxy to relayLLM + scheduler + local auth)
-registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService });
+registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService, sttService });
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
@@ -143,7 +150,8 @@ wss.on('connection', createWsHandler({
   relayHttpUrl: RELAY_LLM_URL,
   claudeConfig: settings.providerConfig.claude,
   resolveProject: (id) => projectCache.get(id),
-  ttsService
+  ttsService,
+  sttService
 }));
 
 const PORT = process.env.PORT || 3000;

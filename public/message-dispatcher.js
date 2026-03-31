@@ -74,10 +74,19 @@ class MessageDispatcher {
 
       case 'tts_audio':
         this.client.ttsManager?.enqueueAudio(data.data);
+        this.client.voiceChatManager?.handleTTSStart();
         break;
 
       case 'tts_error':
         console.warn('[TTS] Error:', data.message);
+        break;
+
+      case 'transcription_result':
+        this.client.sttManager?.handleTranscriptionResult(data.text);
+        break;
+
+      case 'transcription_error':
+        this.client.sttManager?.handleTranscriptionError(data.error);
         break;
 
       case 'clear_messages':
@@ -99,6 +108,7 @@ class MessageDispatcher {
         this.client.messageRenderer.hideThinkingIndicator();
         this.client.messageRenderer.finishAssistantMessage();
         this.client.hideStopButton();
+        this.client.voiceChatManager?.handleResponseComplete();
         break;
 
       case 'stats_update':
@@ -372,7 +382,8 @@ class MessageDispatcher {
       projectId: data.projectId || null,
       name: data.name || null,
       model: data.model || null,
-      active: true
+      active: true,
+      sessionType: data.sessionType || null,
     };
     this.client.sessions.set(data.sessionId, session);
     if (this.client.state) this.client.state.addSession(session);
@@ -383,10 +394,19 @@ class MessageDispatcher {
     this.client.sidebarRenderer.renderProjectList();
     this.client.modalManager.hideSessionModal();
     this.client.modalManager.hidePlanApproval();
+
+    if (data.sessionType === 'voice') {
+      this.client.enableVoiceMode(data.voice);
+    }
   }
 
   handleSessionJoined(data) {
     this.client.currentSessionId = data.sessionId;
+
+    // Restore sessionType from localStorage if not provided by server
+    const savedMeta = this.client.tabManager.getSessionMeta(data.sessionId);
+    const sessionType = data.sessionType || savedMeta?.sessionType || null;
+
     const existingSession = this.client.sessions.get(data.sessionId);
     if (existingSession) {
       if (data.name !== undefined) {
@@ -395,6 +415,9 @@ class MessageDispatcher {
       if (data.model) {
         existingSession.model = data.model;
       }
+      if (sessionType && !existingSession.sessionType) {
+        existingSession.sessionType = sessionType;
+      }
     } else {
       const newSession = {
         id: data.sessionId,
@@ -402,7 +425,8 @@ class MessageDispatcher {
         projectId: data.projectId || null,
         name: data.name || null,
         model: data.model || null,
-        active: true
+        active: true,
+        sessionType,
       };
       this.client.sessions.set(data.sessionId, newSession);
       if (this.client.state) this.client.state.addSession(newSession);
@@ -441,6 +465,10 @@ class MessageDispatcher {
     this.client.modalManager.hidePlanApproval();
     if (data.stats) {
       this.client.updateStats(data.stats);
+    }
+
+    if (sessionType === 'voice') {
+      this.client.enableVoiceMode();
     }
   }
 
@@ -539,6 +567,7 @@ class MessageDispatcher {
     } else if (event.delta) {
       if (event.delta.type === 'text_delta') {
         this.client.messageRenderer.appendToAssistantMessage(event.delta.text);
+        this.client.voiceChatManager?.handleAssistantDelta(event.delta.text);
       }
     }
   }

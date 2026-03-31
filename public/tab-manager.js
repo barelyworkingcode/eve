@@ -1,5 +1,6 @@
 class TabManager {
   static SESSION_STORAGE_KEY = 'eve-open-sessions';
+  static SESSION_META_KEY = 'eve-session-meta';
   static FILE_STORAGE_KEY = 'eve-open-files';
   static MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -21,6 +22,7 @@ class TabManager {
     this.viewerPath = document.getElementById('fileViewerPath');
     this.viewerInfo = document.getElementById('fileViewerInfo');
     this.terminalContent = document.getElementById('terminal');
+    this.voiceChatContent = document.getElementById('voiceChat');
   }
 
   initEventListeners() {
@@ -76,7 +78,12 @@ class TabManager {
       // Make tab active without triggering renderMessages
       this.activeTabId = sessionId;
       this.client.showChatScreen();
-      this.chatContent.classList.remove('hidden');
+      if (session.sessionType === 'voice') {
+        this.voiceChatContent?.classList.remove('hidden');
+        this.client.voiceChatManager?.activateForSession(sessionId);
+      } else {
+        this.chatContent.classList.remove('hidden');
+      }
       this.client.currentSessionId = sessionId;
       this.render();
     } else {
@@ -166,13 +173,22 @@ class TabManager {
     this.editorContent.classList.add('hidden');
     this.viewerContent.classList.add('hidden');
     this.terminalContent.classList.add('hidden');
+    if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
 
     // Destroy active viewer when switching away (pause media, free memory)
     this._destroyActiveViewer();
 
     // Show appropriate content container
     if (tab.type === 'session') {
-      this.chatContent.classList.remove('hidden');
+      const session = this.client.sessions.get(tab.id);
+      if (session?.sessionType === 'voice') {
+        this.voiceChatContent?.classList.remove('hidden');
+        this.client.voiceChatManager?.activateForSession(tab.id);
+      } else {
+        this.chatContent.classList.remove('hidden');
+        this.client.voiceChatManager?.deactivate();
+      }
+      this.client._updateVoiceUIBtnVisibility?.();
 
       // Flush any partial streaming message from the old session to its history
       const prevSessionId = this.client.currentSessionId;
@@ -281,6 +297,8 @@ class TabManager {
         this.editorContent.classList.add('hidden');
         this.viewerContent.classList.add('hidden');
         this.terminalContent.classList.add('hidden');
+        if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
+        this.client.voiceChatManager?.deactivate();
         this._destroyActiveViewer();
       }
     }
@@ -384,12 +402,33 @@ class TabManager {
         this.switchToTab(tab.id);
       });
 
-      // Close button
+      // Close button: tap to close tab, long-press to delete session from server
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
       closeBtn.textContent = '×';
+      let closeLongPress = null;
+      let closeLongFired = false;
+      const startClose = () => {
+        closeLongFired = false;
+        if (tab.type !== 'session') return;
+        closeLongPress = setTimeout(() => {
+          closeLongFired = true;
+          this.client.deleteSession(tab.id);
+        }, 500);
+      };
+      const cancelClose = () => { clearTimeout(closeLongPress); };
+      closeBtn.addEventListener('mousedown', startClose);
+      closeBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startClose(); });
+      closeBtn.addEventListener('mouseup', cancelClose);
+      closeBtn.addEventListener('mouseleave', cancelClose);
+      closeBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        cancelClose();
+        if (!closeLongFired) this.closeTab(tab.id);
+      });
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (closeLongFired) return;
         this.closeTab(tab.id);
       });
 
@@ -442,10 +481,39 @@ class TabManager {
 
   _saveSessionTab(sessionId) {
     this._saveToStorage(TabManager.SESSION_STORAGE_KEY, sessionId, Date.now());
+    // Persist session metadata (sessionType) for reload
+    const session = this.client.sessions.get(sessionId);
+    if (session?.sessionType) {
+      this._saveSessionMeta(sessionId, { sessionType: session.sessionType });
+    }
   }
 
   _removeSessionTab(sessionId) {
     this._removeFromStorage(TabManager.SESSION_STORAGE_KEY, sessionId);
+    this._removeSessionMeta(sessionId);
+  }
+
+  _saveSessionMeta(sessionId, meta) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(TabManager.SESSION_META_KEY) || '{}');
+      stored[sessionId] = meta;
+      localStorage.setItem(TabManager.SESSION_META_KEY, JSON.stringify(stored));
+    } catch { /* ignore */ }
+  }
+
+  _removeSessionMeta(sessionId) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(TabManager.SESSION_META_KEY) || '{}');
+      delete stored[sessionId];
+      localStorage.setItem(TabManager.SESSION_META_KEY, JSON.stringify(stored));
+    } catch { /* ignore */ }
+  }
+
+  getSessionMeta(sessionId) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(TabManager.SESSION_META_KEY) || '{}');
+      return stored[sessionId] || null;
+    } catch { return null; }
   }
 
   getRecentSessionIds() {

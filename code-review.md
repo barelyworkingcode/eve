@@ -1,5 +1,23 @@
 # Code Review Log
 
+## 2026-03-30 — STT + Voice Chat feature review (exp branch)
+
+### Files reviewed
+stt-manager.js (new), voice-chat-manager.js (new), stt-service.js (new), app.js, message-dispatcher.js, tts-manager.js, shell-launcher-dialog.js, tab-manager.js, ws-handler.js, index.html, styles.css
+
+### HIGH: `stt-manager.js:_processRecording` — Missing `FileReader.onerror` handler
+**Bug**: Same class as file-tree-node.js fix (2026-03-28 pass). No `onerror` on FileReader, and `reader.result` could be null causing uncaught TypeError on `.split(',')`. Mic button would stay in "transcribing" state forever on failure.
+
+**Fix**: Added null check on `reader.result` before splitting. Added `reader.onerror` handler with user-facing error message.
+
+### HIGH: `voice-chat-manager.js:handleTranscription` — Manual `sessionHistories.push` bypasses server-managed history
+**Bug**: Directly pushed `{ role: 'user', content, files }` into `app.sessionHistories`, but `app.handleSubmit()` (the established pattern) does NOT do this — history is managed server-side and returned on `session_joined`. This would cause duplicate messages when converting voice->web chat and the server replays history.
+
+**Fix**: Removed the manual `history.push()` call. `appendUserMessage` still renders the message in the hidden chat DOM for immediate display on mode switch.
+
+### No further HIGH issues found
+Checked prior review log — no flip-flopping. Prior simplify pass already addressed: double-fire voiceModeBtn bug, infinite retry loop in _populateVoiceSelect, AudioContext-per-recording mobile limit, voice-enable triplet duplication (4→1), provider settings duplication (2→1), buffer reuse in getAudioLevel, cache-busting cleanup.
+
 ## 2026-03-28 — Idle timeout + badge review (exp branch)
 
 ### Files reviewed

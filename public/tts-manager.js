@@ -81,16 +81,17 @@ class TTSManager {
   }
 
   _updateVoiceSelectVisibility() {
-    const select = this.app.elements.voiceSelect;
-    if (select) {
-      select.classList.toggle('hidden', !this.enabled);
-    }
+    // Voice select is now in the pull-down drawer, always visible there
   }
 
   async enqueueAudio(base64Data) {
     try {
       if (!this.audioContext) {
         this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        this.analyser = this.audioContext.createAnalyser();
+        this.analyser.fftSize = 256;
+        this.analyser.connect(this.audioContext.destination);
+        this._levelBuffer = new Uint8Array(this.analyser.frequencyBinCount);
       }
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
@@ -114,6 +115,7 @@ class TTSManager {
     if (this.queue.length === 0) {
       this.isPlaying = false;
       this._setSpeakingIndicator(false);
+      this.app.voiceChatManager?.handleTTSEnd();
       return;
     }
 
@@ -123,7 +125,7 @@ class TTSManager {
     const audioBuffer = this.queue.shift();
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
-    source.connect(this.audioContext.destination);
+    source.connect(this.analyser);
     source.onended = () => {
       this.currentSource = null;
       this._playNext();
@@ -140,6 +142,16 @@ class TTSManager {
     }
     this.isPlaying = false;
     this._setSpeakingIndicator(false);
+    this.app.voiceChatManager?.handleTTSEnd();
+  }
+
+  /** Returns 0-1 normalized audio level from playback, or 0 if not playing. */
+  getAudioLevel() {
+    if (!this.analyser || !this.isPlaying || !this._levelBuffer) return 0;
+    this.analyser.getByteFrequencyData(this._levelBuffer);
+    let sum = 0;
+    for (let i = 0; i < this._levelBuffer.length; i++) sum += this._levelBuffer[i];
+    return Math.min((sum / this._levelBuffer.length) / 128, 1);
   }
 
   _setSpeakingIndicator(speaking) {
