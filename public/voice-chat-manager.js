@@ -347,8 +347,12 @@ class VoiceChatManager {
 
   handleResponseComplete() {
     if (!this.isVoiceSession) return;
-    // The streaming caption is already up-to-date from handleAssistantDelta;
-    // just reset the accumulator so the next response starts fresh.
+
+    // Browser TTS: speak the accumulated text client-side
+    if (this.app.ttsManager.backend === 'browser' && this.assistantAccum.trim()) {
+      this.app.ttsManager.speakText(this.assistantAccum);
+    }
+
     this.assistantAccum = '';
   }
 

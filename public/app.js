@@ -781,14 +781,19 @@ class EveWorkspaceClient {
     const v = voice || this.ttsManager.voice;
     this.ttsManager.setEnabled(true);
     this.elements.voiceModeBtn?.classList.add('btn-voice-mode--active');
-    this.wsClient.send({ type: 'voice_mode', enabled: true, voice: v });
+    // Only enable server-side TTS if not using browser backend
+    if (this.ttsManager.backend !== 'browser') {
+      this.wsClient.send({ type: 'voice_mode', enabled: true, voice: v });
+    }
     this._updateVoiceUIBtnVisibility();
   }
 
   toggleVoiceMode() {
     this.ttsManager.setEnabled(!this.ttsManager.enabled);
     this.elements.voiceModeBtn?.classList.toggle('btn-voice-mode--active', this.ttsManager.enabled);
-    this.wsClient.send({ type: 'voice_mode', enabled: this.ttsManager.enabled, voice: this.ttsManager.voice });
+    if (this.ttsManager.backend !== 'browser') {
+      this.wsClient.send({ type: 'voice_mode', enabled: this.ttsManager.enabled, voice: this.ttsManager.voice });
+    }
     this._updateVoiceUIBtnVisibility();
   }
 
