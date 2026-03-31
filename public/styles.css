@@ -4029,6 +4029,14 @@ html, body {
   color: var(--text-primary);
 }
 
+.voice-chat__caption--error {
+  align-self: center;
+  background: var(--danger);
+  color: #fff;
+  max-width: 90%;
+  text-align: center;
+}
+
 .voice-chat__caption--fading {
   opacity: 0.4;
 }

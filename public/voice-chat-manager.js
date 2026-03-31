@@ -335,12 +335,12 @@ class VoiceChatManager {
 
   handleError(message) {
     if (!this.isVoiceSession) return;
-    this._addCaption('assistant', `Error: ${message}`);
-    this.orbRenderer?.setState('idle');
+    this._addCaption('error', message);
     if (this.vadManager.isListening) {
       this.orbRenderer?.setState('listening');
       this._setPrompt('Listening...');
     } else {
+      this.orbRenderer?.setState('idle');
       this._setPrompt('Hold spacebar to speak...');
     }
   }
