@@ -41,7 +41,12 @@ class STTManager {
     } catch {
       this.available = false;
     }
-    // Browser backend is always "available" once loaded
+    // Auto-switch to browser backend if server daemon is unavailable
+    if (!this.available && this.backend === 'server') {
+      this.backend = 'browser';
+      localStorage.setItem('eve-stt-backend', 'browser');
+      this._ensureBrowserBackend();
+    }
     if (this.backend === 'browser') this.available = true;
     this._updateButtonVisibility();
   }
