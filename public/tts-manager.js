@@ -97,7 +97,12 @@ class TTSManager {
       if (!res.ok) throw new Error('not ok');
       this.voices = await res.json();
     } catch {
-      // Server daemon unavailable — use built-in list for browser backend
+      // Server daemon unavailable — auto-switch to browser backend
+      if (this.backend === 'server') {
+        this.backend = 'browser';
+        localStorage.setItem('eve-tts-backend', 'browser');
+        this._ensureBrowserBackend();
+      }
       if (this.voices.length === 0) {
         this.voices = KOKORO_VOICES;
       }
