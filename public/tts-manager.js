@@ -304,7 +304,9 @@ class TTSManager {
       const result = await this.browserBackend.generate(cleaned, this.voice);
       await this.enqueueAudio(result.audio);
     } catch (err) {
-      console.error('[TTS] Browser generation failed:', err);
+      console.warn('[TTS] Browser generation failed, disabling browser TTS:', err.message);
+      this.browserBackend = null;
+      this.browserBackendLoading = false;
       this.app.voiceChatManager?.handleTTSEnd();
     }
   }

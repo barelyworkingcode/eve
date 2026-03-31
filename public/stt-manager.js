@@ -265,13 +265,12 @@ class STTManager {
     if (this.browserBackend || this.browserBackendLoading) return;
     this.browserBackendLoading = true;
 
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    const useWebGPU = !isSafari && !!navigator.gpu;
+    const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
     this.browserBackend = new SttBrowserBackend();
     this.browserBackend.init({
       model: 'onnx-community/whisper-small',
-      dtype: useWebGPU ? 'fp32' : 'q8',
-      device: useWebGPU ? 'webgpu' : 'wasm',
+      dtype: hasWebGPU ? 'fp32' : 'q8',
+      device: hasWebGPU ? 'webgpu' : 'wasm',
       onProgress: (data) => {
         if (this.browserBackend?.ready) return;
         const pct = Math.round(data.progress || 0);
