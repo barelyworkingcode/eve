@@ -80,7 +80,7 @@ class VoiceChatManager {
       this._populateVoiceSelect();
       this.voiceSelect.addEventListener('change', (e) => {
         this.app.ttsManager.setVoice(e.target.value);
-        if (this.app.ttsManager.enabled) {
+        if (this.app.ttsManager.enabled && this.app.ttsManager.backend !== 'browser') {
           this.app.wsClient.send({ type: 'voice_mode', enabled: true, voice: e.target.value });
         }
       });
