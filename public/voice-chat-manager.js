@@ -1,6 +1,8 @@
 /**
  * VoiceChatManager - Manages the voice-first chat UI with animated orb,
- * closed-caption text display, and spacebar-driven recording.
+ * closed-caption text display, and two input modes:
+ *   - Conversation mode: always-listening via VAD (Voice Activity Detection)
+ *   - Push-to-talk mode: spacebar/mic button hold to record
  */
 class VoiceChatManager {
   constructor(app) {
@@ -12,6 +14,10 @@ class VoiceChatManager {
     this.maxCaptions = 4;
     this.assistantAccum = '';
     this._spacebarDown = false;
+
+    this.inputMode = localStorage.getItem('eve-voice-input-mode') || 'conversation';
+    this.vadManager = new VadManager();
+    this._vadTranscribing = false;
   }
 
   init() {
@@ -26,24 +32,25 @@ class VoiceChatManager {
     this.drawerToggle = document.getElementById('voiceChatDrawerToggle');
     this.drawerPanel = document.getElementById('voiceChatDrawerPanel');
     this.drawer = document.getElementById('voiceChatDrawer');
+    this.modeToggle = document.getElementById('voiceChatModeToggle');
 
     if (!this.orbCanvas) return;
 
     this.orbRenderer = new VoiceOrbCanvas(this.orbCanvas, this.app);
 
-    // Spacebar handler
+    // Spacebar handler (push-to-talk)
     document.addEventListener('keydown', (e) => this._onKeyDown(e));
     document.addEventListener('keyup', (e) => this._onKeyUp(e));
 
-    // Mic button (mobile fallback + click alternative)
+    // Mic button (push-to-talk fallback + click alternative)
     if (this.micBtn) {
-      this.micBtn.addEventListener('mousedown', () => this._startRecording());
-      this.micBtn.addEventListener('mouseup', () => this._stopRecording());
+      this.micBtn.addEventListener('mousedown', () => this._onMicDown());
+      this.micBtn.addEventListener('mouseup', () => this._onMicUp());
       this.micBtn.addEventListener('mouseleave', () => {
         if (this.isRecording) this._stopRecording();
       });
-      this.micBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this._startRecording(); });
-      this.micBtn.addEventListener('touchend', (e) => { e.preventDefault(); this._stopRecording(); });
+      this.micBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this._onMicDown(); });
+      this.micBtn.addEventListener('touchend', (e) => { e.preventDefault(); this._onMicUp(); });
     }
 
     // Close button - end session
@@ -78,6 +85,12 @@ class VoiceChatManager {
         }
       });
     }
+
+    // Mode toggle button
+    if (this.modeToggle) {
+      this._updateModeToggleUI();
+      this.modeToggle.addEventListener('click', () => this._toggleInputMode());
+    }
   }
 
   activateForSession(sessionId) {
@@ -85,25 +98,134 @@ class VoiceChatManager {
     this.assistantAccum = '';
     this.captions = [];
     this._renderCaptions();
-    this._setPrompt('Hold spacebar to speak...');
     this.orbRenderer?.setState('idle');
     this.orbRenderer?.start();
 
     if (!this.app.ttsManager.enabled) {
       this.app.enableVoiceMode();
     }
+
+    if (this.inputMode === 'conversation') {
+      this._startConversationMode().catch(err => {
+        console.error('[VoiceChat] Conversation mode failed:', err);
+        this._setPrompt('Hold spacebar to speak...');
+      });
+    } else {
+      this._setPrompt('Hold spacebar to speak...');
+    }
   }
 
   deactivate() {
     this.isVoiceSession = false;
     this.isRecording = false;
+    this._vadTranscribing = false;
     // Always release mic and stop playback when leaving voice mode
     this.app.sttManager.stopRecording();
     this.app.ttsManager.stop();
+    this.vadManager.destroy();
     this.orbRenderer?.stop();
   }
 
-  // --- Keyboard handling ---
+  // --- Input mode management ---
+
+  _toggleInputMode() {
+    if (this.inputMode === 'conversation') {
+      this.inputMode = 'push-to-talk';
+      this.vadManager.destroy();
+      this._setPrompt('Hold spacebar to speak...');
+    } else {
+      this.inputMode = 'conversation';
+      if (this.isVoiceSession) {
+        this._startConversationMode();
+      }
+    }
+    localStorage.setItem('eve-voice-input-mode', this.inputMode);
+    this._updateModeToggleUI();
+  }
+
+  _updateModeToggleUI() {
+    if (!this.modeToggle) return;
+    const isConvo = this.inputMode === 'conversation';
+    this.modeToggle.title = isConvo ? 'Switch to push-to-talk' : 'Switch to conversation mode';
+    this.modeToggle.classList.toggle('voice-chat__btn--mode-active', isConvo);
+    // Update mic button visibility — in conversation mode, mic is not the primary input
+    if (this.micBtn) {
+      this.micBtn.classList.toggle('voice-chat__btn--secondary', isConvo);
+    }
+  }
+
+  async _startConversationMode() {
+    this._setPrompt('Starting voice detection...');
+    this.orbRenderer?.setState('idle');
+
+    await this.vadManager.start({
+      onSpeechStart: () => this._onVADSpeechStart(),
+      onSpeechEnd: (audio) => this._onVADSpeechEnd(audio),
+      onVADMisfire: () => this._onVADMisfire(),
+      onError: (err) => {
+        console.error('[VoiceChat] VAD failed:', err);
+        this._setPrompt('Voice detection failed — using push-to-talk');
+        this.inputMode = 'push-to-talk';
+        localStorage.setItem('eve-voice-input-mode', this.inputMode);
+        this._updateModeToggleUI();
+      },
+    });
+
+    if (this.vadManager.isListening) {
+      this.orbRenderer?.setState('listening');
+      this._setPrompt('Listening...');
+    }
+  }
+
+  _onVADSpeechStart() {
+    if (!this.isVoiceSession) return;
+
+    // Barge-in: stop TTS if it's playing
+    if (this.app.ttsManager.isPlaying) {
+      this.app.ttsManager.stop();
+    }
+
+    this.orbRenderer?.setState('listening');
+    this._setPrompt('Listening...');
+  }
+
+  _onVADSpeechEnd(audio) {
+    if (!this.isVoiceSession) return;
+
+    this.orbRenderer?.setState('processing');
+    this._setPrompt('Transcribing...');
+    this._vadTranscribing = true;
+
+    // Encode Float32Array as WAV and send to server
+    const base64Wav = VadManager.audioToBase64Wav(audio);
+    this.app.wsClient.send({
+      type: 'transcribe_audio',
+      audio: base64Wav,
+    });
+  }
+
+  _onVADMisfire() {
+    // Too-short speech burst — return to listening state
+    if (!this.isVoiceSession) return;
+    if (!this._vadTranscribing && !this.app.ttsManager.isPlaying) {
+      this.orbRenderer?.setState('listening');
+      this._setPrompt('Listening...');
+    }
+  }
+
+  // --- Mic button handling (adapts to mode) ---
+
+  _onMicDown() {
+    if (this.inputMode === 'conversation') return;
+    this._startRecording();
+  }
+
+  _onMicUp() {
+    if (this.inputMode === 'conversation') return;
+    this._stopRecording();
+  }
+
+  // --- Keyboard handling (push-to-talk) ---
 
   _onKeyDown(e) {
     if (!this.isVoiceSession) return;
@@ -116,6 +238,10 @@ class VoiceChatManager {
     if (document.querySelector('.dialog:not(.hidden)')) return;
 
     e.preventDefault();
+
+    if (this.inputMode === 'conversation') {
+      this.vadManager.pause();
+    }
     this._spacebarDown = true;
     this._startRecording();
   }
@@ -128,13 +254,18 @@ class VoiceChatManager {
     e.preventDefault();
     this._spacebarDown = false;
     this._stopRecording();
+
+    if (this.inputMode === 'conversation') {
+      // Resume VAD after manual push-to-talk
+      this.vadManager.resume();
+    }
   }
 
   async _startRecording() {
     if (this.isRecording) return;
     this.isRecording = true;
 
-    // Stop any playing TTS
+    // Stop any playing TTS (barge-in)
     this.app.ttsManager.stop();
 
     this.orbRenderer?.setState('listening');
@@ -158,6 +289,7 @@ class VoiceChatManager {
   // --- Transcription + LLM flow ---
 
   handleTranscription(text) {
+    this._vadTranscribing = false;
     this._addCaption('user', text);
 
     this.app.wsClient.send({
@@ -191,8 +323,14 @@ class VoiceChatManager {
 
   handleTTSEnd() {
     if (!this.isVoiceSession) return;
-    this.orbRenderer?.setState('idle');
-    this._setPrompt('Hold spacebar to speak...');
+
+    if (this.vadManager.isListening) {
+      this.orbRenderer?.setState('listening');
+      this._setPrompt('Listening...');
+    } else {
+      this.orbRenderer?.setState('idle');
+      this._setPrompt('Hold spacebar to speak...');
+    }
   }
 
   handleResponseComplete() {

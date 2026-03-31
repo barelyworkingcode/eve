@@ -36,6 +36,9 @@
   <script src="/marked/lib/marked.umd.js"></script>
   <script src="/dompurify/purify.min.js"></script>
   <script src="/mermaid/mermaid.min.js"></script>
+  <!-- VAD: loaded before Monaco's AMD loader to avoid UMD/AMD conflict -->
+  <script src="/onnxruntime-web/ort.min.js"></script>
+  <script src="/vad-web/bundle.min.js"></script>
   <script src="/monaco/vs/loader.js"></script>
 </head>
 <body>
@@ -221,7 +224,13 @@
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
             </button>
-            <div class="voice-chat__prompt" id="voiceChatPrompt">Hold spacebar to speak...</div>
+            <button id="voiceChatModeToggle" class="voice-chat__btn voice-chat__btn--mode" title="Switch voice input mode" type="button">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              </svg>
+            </button>
+            <div class="voice-chat__prompt" id="voiceChatPrompt">Listening...</div>
             <button id="voiceChatMic" class="voice-chat__btn voice-chat__btn--mic" title="Hold to record" type="button">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
@@ -400,6 +409,7 @@
   <script src="terminal-manager.js"></script>
   <script src="tts-manager.js"></script>
   <script src="stt-manager.js"></script>
+  <script src="vad-manager.js"></script>
   <script src="voice-chat-manager.js"></script>
   <script src="message-dispatcher.js"></script>
   <script src="file-attachment-manager.js"></script>
