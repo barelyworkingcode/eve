@@ -274,6 +274,10 @@ class STTManager {
       onReady: () => {
         this.browserBackendLoading = false;
         console.log('[STT] Browser STT ready');
+        const vcm = this.app.voiceChatManager;
+        if (vcm?.isVoiceSession && vcm.vadManager?.isListening) {
+          vcm._setPrompt('Listening...');
+        }
       },
       onError: (msg) => {
         this.browserBackendLoading = false;
