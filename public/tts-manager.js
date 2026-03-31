@@ -28,6 +28,16 @@ class TTSManager {
     if (this.backend === 'browser') {
       this._ensureBrowserBackend();
     }
+    // Pre-warm AudioContext on first user gesture to satisfy autoplay policy
+    const warmUp = () => {
+      this._ensureAudioContext();
+      document.removeEventListener('click', warmUp);
+      document.removeEventListener('touchstart', warmUp);
+      document.removeEventListener('keydown', warmUp);
+    };
+    document.addEventListener('click', warmUp);
+    document.addEventListener('touchstart', warmUp);
+    document.addEventListener('keydown', warmUp);
   }
 
   setEnabled(enabled) {
