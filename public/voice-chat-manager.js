@@ -117,10 +117,10 @@ class VoiceChatManager {
     if (this.inputMode === 'conversation') {
       this._startConversationMode().catch(err => {
         console.error('[VoiceChat] Conversation mode failed:', err);
-        this._setPrompt('Hold spacebar to speak...');
+        this._setPrompt(this._getPushToTalkPrompt());
       });
     } else {
-      this._setPrompt('Hold spacebar to speak...');
+      this._setPrompt(this._getPushToTalkPrompt());
     }
   }
 
@@ -141,7 +141,7 @@ class VoiceChatManager {
     if (this.inputMode === 'conversation') {
       this.inputMode = 'push-to-talk';
       this.vadManager.destroy();
-      this._setPrompt('Hold spacebar to speak...');
+      this._setPrompt(this._getPushToTalkPrompt());
     } else {
       this.inputMode = 'conversation';
       if (this.isVoiceSession) {
@@ -340,7 +340,7 @@ class VoiceChatManager {
       this._setPrompt('Listening...');
     } else {
       this.orbRenderer?.setState('idle');
-      this._setPrompt('Hold spacebar to speak...');
+      this._setPrompt(this._getPushToTalkPrompt());
     }
   }
 
@@ -352,7 +352,7 @@ class VoiceChatManager {
       this._setPrompt('Listening...');
     } else {
       this.orbRenderer?.setState('idle');
-      this._setPrompt('Hold spacebar to speak...');
+      this._setPrompt(this._getPushToTalkPrompt());
     }
   }
 
@@ -465,6 +465,11 @@ class VoiceChatManager {
 
   _setPrompt(text) {
     if (this.promptEl) this.promptEl.textContent = text;
+  }
+
+  _getPushToTalkPrompt() {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    return isMobile ? 'Hold mic to speak...' : 'Hold spacebar to speak...';
   }
 
   _populateVoiceSelect() {
