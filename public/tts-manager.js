@@ -243,11 +243,14 @@ class TTSManager {
     if (this.browserBackend || this.browserBackendLoading) return;
     this.browserBackendLoading = true;
 
-    const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
+    // WebGPU is faster but Safari's implementation has compatibility issues
+    // with ONNX Runtime — use WASM there for reliability
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const useWebGPU = !isSafari && !!navigator.gpu;
     this.browserBackend = new TtsBrowserBackend();
     this.browserBackend.init({
-      dtype: hasWebGPU ? 'fp32' : 'q8',
-      device: hasWebGPU ? 'webgpu' : 'wasm',
+      dtype: useWebGPU ? 'fp32' : 'q8',
+      device: useWebGPU ? 'webgpu' : 'wasm',
       onProgress: (data) => {
         if (this.browserBackend?.ready) return;
         const pct = Math.round(data.progress || 0);
