@@ -126,6 +126,8 @@ app.use('/xterm-addon-web-links', express.static(path.join(__dirname, 'node_modu
 app.use('/marked', express.static(path.join(__dirname, 'node_modules/marked')));
 app.use('/dompurify', express.static(path.join(__dirname, 'node_modules/dompurify/dist')));
 app.use('/mermaid', express.static(path.join(__dirname, 'node_modules/mermaid/dist')));
+app.use('/onnxruntime-web', express.static(path.join(__dirname, 'node_modules/onnxruntime-web/dist')));
+app.use('/vad-web', express.static(path.join(__dirname, 'node_modules/@ricky0123/vad-web/dist')));
 app.use(express.json({ limit: '50mb' }));
 
 // TTS service (connects to Kokoro daemon)
