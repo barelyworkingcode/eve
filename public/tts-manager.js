@@ -60,6 +60,17 @@ class TTSManager {
     }
   }
 
+  /** Whether server-side TTS relay should be active. */
+  get useServerTTS() {
+    return this.backend !== 'browser';
+  }
+
+  /** Send voice_mode state to server if using server TTS backend. */
+  syncVoiceMode(ws) {
+    if (!this.useServerTTS) return;
+    ws.send({ type: 'voice_mode', enabled: this.enabled, voice: this.voice });
+  }
+
   async loadVoices() {
     try {
       const token = localStorage.getItem('eve_session');
