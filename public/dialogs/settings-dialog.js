@@ -44,16 +44,19 @@ class SettingsDialog extends DialogBase {
     typographyContent.className = 'dialog__tab-content hidden';
     const presetsContent = document.createElement('div');
     presetsContent.className = 'dialog__tab-content hidden';
+    const voiceContent = document.createElement('div');
+    voiceContent.className = 'dialog__tab-content hidden';
 
-    const tabs = [colorsContent, typographyContent, presetsContent];
+    const tabs = [colorsContent, typographyContent, presetsContent, voiceContent];
     const { header } = this._createTabs(
       [
         { name: 'colors', label: 'Colors' },
         { name: 'typography', label: 'Typography' },
         { name: 'presets', label: 'Presets' },
+        { name: 'voice', label: 'Voice' },
       ],
       (tab) => {
-        const map = { colors: 0, typography: 1, presets: 2 };
+        const map = { colors: 0, typography: 1, presets: 2, voice: 3 };
         tabs.forEach((t, i) => t.classList.toggle('hidden', i !== map[tab]));
       }
     );
@@ -63,10 +66,12 @@ class SettingsDialog extends DialogBase {
     this._buildColorsTab(colorsContent);
     this._buildTypographyTab(typographyContent);
     this._buildPresetsTab(presetsContent);
+    this._buildVoiceTab(voiceContent);
 
     this._panel.appendChild(colorsContent);
     this._panel.appendChild(typographyContent);
     this._panel.appendChild(presetsContent);
+    this._panel.appendChild(voiceContent);
 
     // Footer with reset
     const footer = document.createElement('div');
@@ -168,6 +173,51 @@ class SettingsDialog extends DialogBase {
       this.settings.set('fontSize', val);
     });
     container.appendChild(sizeInput);
+  }
+
+  _buildVoiceTab(container) {
+    const tts = this.container.get('app')?.ttsManager;
+    if (!tts) return;
+
+    // TTS Backend
+    const backendLabel = document.createElement('label');
+    backendLabel.className = 'dialog__label';
+    backendLabel.textContent = 'TTS Backend';
+    container.appendChild(backendLabel);
+
+    const backendSelect = document.createElement('select');
+    backendSelect.className = 'dialog__select';
+    for (const [value, label] of [['server', 'Server (Kokoro daemon)'], ['browser', 'On-Device (browser)']]) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      if (value === tts.backend) opt.selected = true;
+      backendSelect.appendChild(opt);
+    }
+    backendSelect.addEventListener('change', () => {
+      tts.setBackend(backendSelect.value);
+      statusEl.textContent = this._getTtsStatus(tts);
+    });
+    container.appendChild(backendSelect);
+
+    const hint = document.createElement('span');
+    hint.className = 'field-hint';
+    hint.textContent = 'On-Device downloads an 86MB model on first use, then runs locally.';
+    container.appendChild(hint);
+
+    // Status
+    const statusEl = document.createElement('div');
+    statusEl.className = 'field-hint';
+    statusEl.style.marginTop = '12px';
+    statusEl.textContent = this._getTtsStatus(tts);
+    container.appendChild(statusEl);
+  }
+
+  _getTtsStatus(tts) {
+    if (tts.backend === 'server') return 'Using server-side Kokoro TTS daemon.';
+    if (tts.browserBackend?.ready) return 'On-device model loaded and ready.';
+    if (tts.browserBackendLoading) return 'Loading on-device model...';
+    return 'On-device model will download on next voice session.';
   }
 
   _buildPresetsTab(container) {
