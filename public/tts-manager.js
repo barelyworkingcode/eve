@@ -112,7 +112,11 @@ class TTSManager {
       this._levelBuffer = new Uint8Array(this.analyser.frequencyBinCount);
     }
     if (this.audioContext.state === 'suspended') {
-      await this.audioContext.resume();
+      try {
+        await this.audioContext.resume();
+      } catch {
+        // Autoplay policy — will resume on next user gesture
+      }
     }
   }
 

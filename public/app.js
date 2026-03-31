@@ -301,7 +301,7 @@ class EveWorkspaceClient {
       if (this.elements.voiceSelect) {
         this.elements.voiceSelect.addEventListener('change', (e) => {
           this.ttsManager.setVoice(e.target.value);
-          if (this.ttsManager.enabled) {
+          if (this.ttsManager.enabled && this.ttsManager.backend !== 'browser') {
             this.wsClient.send({ type: 'voice_mode', enabled: true, voice: e.target.value });
           }
         });
@@ -364,8 +364,8 @@ class EveWorkspaceClient {
     // Clear stale thinking indicator from previous connection
     this.messageRenderer.hideThinkingIndicator();
 
-    // Sync voice mode state to server on (re)connect
-    if (this.ttsManager.enabled) {
+    // Sync voice mode state to server on (re)connect (skip if using browser TTS)
+    if (this.ttsManager.enabled && this.ttsManager.backend !== 'browser') {
       this.wsClient.send({ type: 'voice_mode', enabled: true, voice: this.ttsManager.voice });
     }
 
