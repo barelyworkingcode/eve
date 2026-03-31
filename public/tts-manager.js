@@ -189,10 +189,11 @@ class TTSManager {
     if (this.browserBackend || this.browserBackendLoading) return;
     this.browserBackendLoading = true;
 
+    const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
     this.browserBackend = new TtsBrowserBackend();
     this.browserBackend.init({
-      dtype: 'q8',
-      device: 'wasm',
+      dtype: hasWebGPU ? 'fp32' : 'q8',
+      device: hasWebGPU ? 'webgpu' : 'wasm',
       onProgress: (data) => {
         const pct = Math.round(data.progress || 0);
         console.log(`[TTS] Downloading model: ${pct}%`);

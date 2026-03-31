@@ -311,12 +311,18 @@ class VoiceChatManager {
   handleAssistantDelta(text) {
     if (!this.isVoiceSession) return;
     this.assistantAccum += text;
-    // Update the assistant caption with accumulated text
-    this._updateAssistantCaption(this.assistantAccum);
+    // Strip think tags and show clean text in captions
+    const clean = this.assistantAccum
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .replace(/<think>[\s\S]*$/g, '')
+      .trim();
+    if (clean) this._updateAssistantCaption(clean);
   }
 
   handleTTSStart() {
     if (!this.isVoiceSession) return;
+    // Pause VAD while TTS plays to prevent echo/feedback detection
+    this.vadManager.pause();
     this.orbRenderer?.setState('speaking');
     this._setPrompt('Speaking...');
   }
@@ -324,7 +330,9 @@ class VoiceChatManager {
   handleTTSEnd() {
     if (!this.isVoiceSession) return;
 
-    if (this.vadManager.isListening) {
+    // Resume VAD after TTS finishes
+    if (this.inputMode === 'conversation') {
+      this.vadManager.resume();
       this.orbRenderer?.setState('listening');
       this._setPrompt('Listening...');
     } else {
