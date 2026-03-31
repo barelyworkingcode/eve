@@ -321,8 +321,8 @@ class VoiceChatManager {
 
   handleTTSStart() {
     if (!this.isVoiceSession) return;
-    // Pause VAD while TTS plays to prevent echo/feedback detection
-    this.vadManager.pause();
+    // VAD stays active during playback — echo cancellation filters speaker output,
+    // and real user speech triggers barge-in (stops TTS via _onVADSpeechStart)
     this.orbRenderer?.setState('speaking');
     this._setPrompt('Speaking...');
   }
@@ -330,9 +330,7 @@ class VoiceChatManager {
   handleTTSEnd() {
     if (!this.isVoiceSession) return;
 
-    // Resume VAD after TTS finishes
-    if (this.inputMode === 'conversation') {
-      this.vadManager.resume();
+    if (this.vadManager.isListening) {
       this.orbRenderer?.setState('listening');
       this._setPrompt('Listening...');
     } else {
