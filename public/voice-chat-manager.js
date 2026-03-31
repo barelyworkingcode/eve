@@ -103,6 +103,15 @@ class VoiceChatManager {
       this.app.enableVoiceMode();
     }
 
+    // Show permission hint on first voice session
+    if (!localStorage.getItem('eve-voice-hint-dismissed')) {
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      if (isSafari) {
+        this._addCaption('error', 'Tip: In Safari Settings for this site, set Microphone to "Allow" and Auto-Play to "Allow All" for the best experience.');
+      }
+      localStorage.setItem('eve-voice-hint-dismissed', 'true');
+    }
+
     if (this.inputMode === 'conversation') {
       this._startConversationMode().catch(err => {
         console.error('[VoiceChat] Conversation mode failed:', err);
