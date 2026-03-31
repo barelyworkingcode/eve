@@ -35,7 +35,9 @@ class TTSManager {
     this.isPlaying = false;
     this.currentSource = null;
 
-    this.backend = localStorage.getItem('eve-tts-backend') || 'browser';
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    this.isSafari = isSafari;
+    this.backend = localStorage.getItem('eve-tts-backend') || (isSafari ? 'server' : 'browser');
     this.browserBackend = null;
     this.browserBackendLoading = false;
   }
@@ -97,11 +99,16 @@ class TTSManager {
       if (!res.ok) throw new Error('not ok');
       this.voices = await res.json();
     } catch {
-      // Server daemon unavailable — auto-switch to browser backend
-      if (this.backend === 'server') {
+      if (this.backend === 'server' && !this.isSafari) {
+        // Server daemon unavailable on Chrome — auto-switch to browser
         this.backend = 'browser';
         localStorage.setItem('eve-tts-backend', 'browser');
         this._ensureBrowserBackend();
+      } else if (this.backend === 'server' && this.isSafari) {
+        console.warn('[TTS] Server daemon unavailable. On-device TTS is not supported on Safari.');
+        this.app.messageRenderer?.appendSystemMessage(
+          'TTS unavailable: Kokoro daemon is offline and on-device TTS is not yet supported on Safari.', 'error'
+        );
       }
       if (this.voices.length === 0) {
         this.voices = KOKORO_VOICES;
@@ -243,10 +250,7 @@ class TTSManager {
     if (this.browserBackend || this.browserBackendLoading) return;
     this.browserBackendLoading = true;
 
-    // WebGPU is faster but Safari's implementation has compatibility issues
-    // with ONNX Runtime — use WASM there for reliability
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    const useWebGPU = !isSafari && !!navigator.gpu;
+    const useWebGPU = !this.isSafari && !!navigator.gpu;
     this.browserBackend = new TtsBrowserBackend();
     this.browserBackend.init({
       dtype: useWebGPU ? 'fp32' : 'q8',
