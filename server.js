@@ -128,6 +128,7 @@ app.use('/dompurify', express.static(path.join(__dirname, 'node_modules/dompurif
 app.use('/mermaid', express.static(path.join(__dirname, 'node_modules/mermaid/dist')));
 app.use('/onnxruntime-web', express.static(path.join(__dirname, 'node_modules/onnxruntime-web/dist')));
 app.use('/vad-web', express.static(path.join(__dirname, 'node_modules/@ricky0123/vad-web/dist')));
+app.use('/kokoro-js', express.static(path.join(__dirname, 'node_modules/kokoro-js/dist')));
 app.use(express.json({ limit: '50mb' }));
 
 // TTS service (connects to Kokoro daemon)
