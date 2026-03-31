@@ -82,6 +82,8 @@ class EveWorkspaceClient {
     this.messageDispatcher = new MessageDispatcher(this);
     this.fileAttachmentManager = new FileAttachmentManager(this);
     this.ttsManager = new TTSManager(this);
+    this.sttManager = new STTManager(this);
+    this.voiceChatManager = new VoiceChatManager(this);
 
     if (typeof mermaid !== 'undefined') {
       mermaid.initialize({
@@ -165,7 +167,12 @@ class EveWorkspaceClient {
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
       stopBtn: document.getElementById('stopBtn'),
+      micBtn: document.getElementById('micBtn'),
       voiceModeBtn: document.getElementById('voiceModeBtn'),
+      voiceUIBtn: document.getElementById('voiceUIBtn'),
+      voiceDrawer: document.getElementById('voiceDrawer'),
+      voiceDrawerToggle: document.getElementById('voiceDrawerToggle'),
+      voiceDrawerPanel: document.getElementById('voiceDrawerPanel'),
       voiceSelect: document.getElementById('voiceSelect'),
       taskModal: document.getElementById('taskModal'),
       taskModalTitle: document.getElementById('taskModalTitle'),
@@ -264,11 +271,32 @@ class EveWorkspaceClient {
       }
       this.ttsManager.init();
 
-      this.elements.voiceModeBtn.addEventListener('click', () => {
-        this.ttsManager.setEnabled(!this.ttsManager.enabled);
-        this.elements.voiceModeBtn.classList.toggle('btn-voice-mode--active', this.ttsManager.enabled);
-        this.wsClient.send({ type: 'voice_mode', enabled: this.ttsManager.enabled, voice: this.ttsManager.voice });
-      });
+      // Short tap: toggle TTS. Long press (500ms+): switch to voice UI.
+      let voiceBtnTimer = null;
+      let voiceBtnHandled = false;
+      const startLongPress = () => {
+        voiceBtnHandled = false;
+        voiceBtnTimer = setTimeout(() => {
+          voiceBtnHandled = true;
+          if (this.currentSessionId) {
+            this.enableVoiceMode();
+            this.voiceChatManager.convertToVoiceChat();
+          }
+        }, 500);
+      };
+      const cancelLongPress = () => { clearTimeout(voiceBtnTimer); };
+      const shortTap = () => {
+        if (voiceBtnHandled) return;
+        voiceBtnHandled = true;
+        this.toggleVoiceMode();
+      };
+
+      this.elements.voiceModeBtn.addEventListener('mousedown', startLongPress);
+      this.elements.voiceModeBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startLongPress(); });
+      this.elements.voiceModeBtn.addEventListener('mouseup', cancelLongPress);
+      this.elements.voiceModeBtn.addEventListener('mouseleave', cancelLongPress);
+      this.elements.voiceModeBtn.addEventListener('touchend', (e) => { e.preventDefault(); cancelLongPress(); shortTap(); });
+      this.elements.voiceModeBtn.addEventListener('click', (e) => { e.preventDefault(); shortTap(); });
 
       if (this.elements.voiceSelect) {
         this.elements.voiceSelect.addEventListener('change', (e) => {
@@ -278,7 +306,36 @@ class EveWorkspaceClient {
           }
         });
       }
+
     }
+
+    // Voice UI switch button (text chat -> voice chat)
+    if (this.elements.voiceUIBtn) {
+      this.elements.voiceUIBtn.addEventListener('click', () => {
+        this.voiceChatManager.convertToVoiceChat();
+      });
+    }
+
+    // Voice controls drawer toggle
+    if (this.elements.voiceDrawerToggle) {
+      this.elements.voiceDrawerToggle.addEventListener('click', () => {
+        const panel = this.elements.voiceDrawerPanel;
+        const drawer = this.elements.voiceDrawer;
+        panel.classList.toggle('hidden');
+        drawer.classList.toggle('voice-drawer--open');
+      });
+    }
+
+    // Microphone / STT
+    if (this.elements.micBtn) {
+      this.sttManager.init();
+      this.elements.micBtn.addEventListener('click', () => {
+        this.sttManager.toggleRecording();
+      });
+    }
+
+    // Voice Chat Manager
+    this.voiceChatManager.init();
 
     // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
@@ -718,6 +775,28 @@ class EveWorkspaceClient {
   showChatScreen() {
     this.elements.welcomeScreen.classList.add('hidden');
     this.elements.chatScreen.classList.remove('hidden');
+  }
+
+  enableVoiceMode(voice) {
+    const v = voice || this.ttsManager.voice;
+    this.ttsManager.setEnabled(true);
+    this.elements.voiceModeBtn?.classList.add('btn-voice-mode--active');
+    this.wsClient.send({ type: 'voice_mode', enabled: true, voice: v });
+    this._updateVoiceUIBtnVisibility();
+  }
+
+  toggleVoiceMode() {
+    this.ttsManager.setEnabled(!this.ttsManager.enabled);
+    this.elements.voiceModeBtn?.classList.toggle('btn-voice-mode--active', this.ttsManager.enabled);
+    this.wsClient.send({ type: 'voice_mode', enabled: this.ttsManager.enabled, voice: this.ttsManager.voice });
+    this._updateVoiceUIBtnVisibility();
+  }
+
+  _updateVoiceUIBtnVisibility() {
+    const btn = this.elements.voiceUIBtn;
+    if (!btn) return;
+    const session = this.sessions.get(this.currentSessionId);
+    btn.classList.toggle('hidden', session?.sessionType === 'voice');
   }
 
   toggleSidebar(open) {

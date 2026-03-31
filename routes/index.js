@@ -1,7 +1,7 @@
 const createAuthRoutes = require('./auth');
 const path = require('path');
 
-function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resolveProject, ttsService }) {
+function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resolveProject, ttsService, sttService }) {
   // Shared auth middleware
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
@@ -148,6 +148,24 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
     } catch (err) {
       if (voiceCache) return res.json(voiceCache); // stale cache better than error
       res.status(503).json({ error: 'TTS service unavailable' });
+    }
+  });
+
+  // --- STT (Speech-to-Text) ---
+  app.get('/api/stt/status', requireAuth, async (req, res) => {
+    const available = await sttService.isAvailable();
+    res.json({ available });
+  });
+
+  app.post('/api/transcribe', requireAuth, async (req, res) => {
+    try {
+      const { audio, language } = req.body;
+      if (!audio) return res.status(400).json({ error: 'No audio data provided' });
+      const result = await sttService.transcribe(audio, language || null);
+      res.json({ text: result.text, language: result.language });
+    } catch (err) {
+      console.error('[STT] Transcription failed:', err.message);
+      res.status(503).json({ error: 'STT service unavailable' });
     }
   });
 

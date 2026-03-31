@@ -912,20 +912,66 @@ html, body {
   color: var(--text-primary);
 }
 
-.voice-select {
-  height: 40px;
+/* Voice controls pull-down drawer */
+.voice-drawer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.voice-drawer__toggle {
+  width: 100%;
+  height: 20px;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+  opacity: 0.5;
+}
+
+.voice-drawer__toggle:hover {
+  background: var(--bg-tertiary);
+  opacity: 1;
+}
+
+.voice-drawer--open .voice-drawer__toggle svg {
+  transform: rotate(180deg);
+}
+
+.voice-drawer__panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  width: 100%;
+  justify-content: center;
+}
+
+.voice-drawer__panel.hidden {
+  display: none;
+}
+
+.voice-drawer__select {
+  height: 34px;
   padding: 0 8px;
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
-  flex-shrink: 0;
-  max-width: 140px;
+  max-width: 180px;
 }
 
-.voice-select:focus {
+.voice-drawer__select:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -967,6 +1013,70 @@ html, body {
 @keyframes tts-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
+}
+
+/* Mic button (STT) */
+.btn-mic {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.btn-mic:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-mic--recording {
+  background: var(--danger);
+  color: #fff;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+
+.btn-mic--recording:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-mic--transcribing {
+  background: var(--accent);
+  color: #fff;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Voice UI switch button (text -> voice chat) */
+.btn-voice-ui {
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.btn-voice-ui:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .input-form textarea {
@@ -1114,6 +1224,10 @@ html, body {
   justify-content: center;
   z-index: 100;
   padding: 16px;
+}
+
+#confirmModal {
+  z-index: 200;
 }
 
 .modal.hidden {
@@ -2091,13 +2205,12 @@ html, body {
   }
 
   .input-form {
-    flex-wrap: wrap;
+    gap: 6px;
   }
 
-  .voice-select {
-    order: 1;
-    flex-basis: 100%;
-    max-width: none;
+  .btn-mic {
+    width: 36px;
+    height: 36px;
   }
 
   .welcome-content h2 {
@@ -3538,19 +3651,51 @@ html, body {
 .shell-launcher__resume-item {
   display: flex;
   align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+}
+
+.shell-launcher__resume-item:hover { background: var(--bg-hover); }
+
+.shell-launcher__resume-btn {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 10px 12px;
   background: none;
   border: none;
-  border-radius: 4px;
   color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
   text-align: left;
 }
 
-.shell-launcher__resume-item:hover { background: var(--bg-hover); }
+.shell-launcher__resume-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.4;
+  transition: all 0.15s;
+}
+
+.shell-launcher__resume-item:hover .shell-launcher__resume-delete {
+  opacity: 1;
+}
+
+.shell-launcher__resume-delete:hover {
+  color: var(--danger);
+  background: var(--bg-tertiary);
+}
 
 .shell-launcher__resume-badge {
   font-size: 11px;
@@ -3811,4 +3956,166 @@ html, body {
 .settings-dialog__preset-name {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* ============================================
+   Voice Chat UI
+   ============================================ */
+
+.voice-chat-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.voice-chat-content.hidden {
+  display: none;
+}
+
+/* Orb area - centered, takes most of the vertical space */
+.voice-chat__orb-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.voice-chat__orb-canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Closed captions - positioned above controls */
+.voice-chat__captions {
+  padding: 0 24px 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scrollbar-width: none;
+}
+
+.voice-chat__captions::-webkit-scrollbar {
+  display: none;
+}
+
+.voice-chat__caption {
+  padding: 8px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  max-width: 80%;
+  animation: caption-fade-in 0.3s ease;
+}
+
+@keyframes caption-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.voice-chat__caption--user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+}
+
+.voice-chat__caption--assistant {
+  align-self: flex-start;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.voice-chat__caption--fading {
+  opacity: 0.4;
+}
+
+/* Bottom controls bar */
+.voice-chat__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+
+.voice-chat__prompt {
+  flex: 1;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 15px;
+  user-select: none;
+}
+
+.voice-chat__voice-select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  max-width: 130px;
+}
+
+.voice-chat__btn {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.voice-chat__btn--close {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.voice-chat__btn--close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.voice-chat__btn--convert {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.voice-chat__btn--convert:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.voice-chat__btn--mic {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  width: 52px;
+  height: 52px;
+}
+
+.voice-chat__btn--mic:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.voice-chat__btn--mic.voice-chat__btn--recording {
+  background: var(--danger);
+  color: #fff;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .voice-chat__controls {
+    padding: 12px 16px;
+    gap: 8px;
+  }
 }
