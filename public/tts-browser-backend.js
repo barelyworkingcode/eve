@@ -7,7 +7,6 @@ class TtsBrowserBackend {
     this.worker = null;
     this.ready = false;
     this.loading = false;
-    this.voices = [];
     this._pendingCallbacks = new Map();
     this._nextId = 0;
     this._onProgress = null;
@@ -21,7 +20,7 @@ class TtsBrowserBackend {
    * @param {string} [options.dtype='q8'] - Model quantization (q8, fp32, q4)
    * @param {string} [options.device='wasm'] - Backend (wasm, webgpu)
    * @param {Function} [options.onProgress] - Called with { progress, file }
-   * @param {Function} [options.onReady] - Called with voices array when model loaded
+   * @param {Function} [options.onReady] - Called when model loaded
    * @param {Function} [options.onError] - Called with error message
    */
   async init(options = {}) {
@@ -46,9 +45,6 @@ class TtsBrowserBackend {
     });
   }
 
-  /**
-   * Generate audio from text. Returns a promise resolving to base64 WAV.
-   */
   generate(text, voice = 'af_heart') {
     return new Promise((resolve, reject) => {
       if (!this.ready) {
@@ -68,7 +64,6 @@ class TtsBrowserBackend {
     }
     this.ready = false;
     this.loading = false;
-    this.voices = [];
     for (const [, cb] of this._pendingCallbacks) {
       cb.reject(new Error('TTS destroyed'));
     }
@@ -84,9 +79,8 @@ class TtsBrowserBackend {
       case 'ready':
         this.ready = true;
         this.loading = false;
-        this.voices = msg.voices || [];
-        console.log('[TtsBrowser] Model loaded, voices:', this.voices.length);
-        this._onReady?.(this.voices);
+        console.log('[TtsBrowser] Model loaded');
+        this._onReady?.();
         break;
 
       case 'audio': {
@@ -97,10 +91,6 @@ class TtsBrowserBackend {
         }
         break;
       }
-
-      case 'voices_result':
-        this.voices = msg.voices || [];
-        break;
 
       case 'error': {
         const errCb = this._pendingCallbacks.get(msg.id);

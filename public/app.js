@@ -301,9 +301,7 @@ class EveWorkspaceClient {
       if (this.elements.voiceSelect) {
         this.elements.voiceSelect.addEventListener('change', (e) => {
           this.ttsManager.setVoice(e.target.value);
-          if (this.ttsManager.enabled && this.ttsManager.backend !== 'browser') {
-            this.wsClient.send({ type: 'voice_mode', enabled: true, voice: e.target.value });
-          }
+          this.ttsManager.syncVoiceMode(this.wsClient);
         });
       }
 
@@ -364,10 +362,8 @@ class EveWorkspaceClient {
     // Clear stale thinking indicator from previous connection
     this.messageRenderer.hideThinkingIndicator();
 
-    // Sync voice mode state to server on (re)connect (skip if using browser TTS)
-    if (this.ttsManager.enabled && this.ttsManager.backend !== 'browser') {
-      this.wsClient.send({ type: 'voice_mode', enabled: true, voice: this.ttsManager.voice });
-    }
+    // Sync voice mode state to server on (re)connect
+    this.ttsManager.syncVoiceMode(this.wsClient);
 
     // Load projects (and tasks) first, then sessions, then re-join.
     // Order matters: task session IDs must be known before sessions load
@@ -781,19 +777,14 @@ class EveWorkspaceClient {
     const v = voice || this.ttsManager.voice;
     this.ttsManager.setEnabled(true);
     this.elements.voiceModeBtn?.classList.add('btn-voice-mode--active');
-    // Only enable server-side TTS if not using browser backend
-    if (this.ttsManager.backend !== 'browser') {
-      this.wsClient.send({ type: 'voice_mode', enabled: true, voice: v });
-    }
+    this.ttsManager.syncVoiceMode(this.wsClient);
     this._updateVoiceUIBtnVisibility();
   }
 
   toggleVoiceMode() {
     this.ttsManager.setEnabled(!this.ttsManager.enabled);
     this.elements.voiceModeBtn?.classList.toggle('btn-voice-mode--active', this.ttsManager.enabled);
-    if (this.ttsManager.backend !== 'browser') {
-      this.wsClient.send({ type: 'voice_mode', enabled: this.ttsManager.enabled, voice: this.ttsManager.voice });
-    }
+    this.ttsManager.syncVoiceMode(this.wsClient);
     this._updateVoiceUIBtnVisibility();
   }
 

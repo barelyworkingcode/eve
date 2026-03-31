@@ -1,5 +1,22 @@
 # Code Review Log
 
+## 2026-03-31 — On-device voice feature review (feature/on-device-voice branch)
+
+### Files reviewed
+vad-manager.js (new), tts-browser-backend.js (new), tts-worker.js (new), tts-manager.js, voice-chat-manager.js, app.js, message-dispatcher.js, settings-dialog.js, server.js, index.html, styles.css
+
+### HIGH: `app.js` + `voice-chat-manager.js` — Backend check scattered across 5 locations
+**Bug**: The `ttsManager.backend !== 'browser'` guard was repeated in 5 places across 2 files to prevent sending `voice_mode` WebSocket messages when using browser TTS. This already caused a production bug (3 of 5 locations were missed initially, requiring a separate fix commit).
+
+**Fix**: Added `syncVoiceMode(ws)` method to TTSManager that encapsulates the backend check. Replaced all 5 scattered checks with `ttsManager.syncVoiceMode(this.wsClient)`.
+
+### Cleanup: Dead code removed
+- `tts-worker.js`: Removed unused `handleVoices` function and `voices` case in switch (never called)
+- `tts-browser-backend.js`: Removed unused `voices` property and `voices_result` handler (voice IDs come from server daemon)
+
+### No further HIGH issues found
+Checked prior review log — no flip-flopping. Prior passes already addressed: FileReader error handling, session history duplication, XSS in terminal picker, missing response.ok checks, stop_generation forwarding, task auto-join bug.
+
 ## 2026-03-30 — STT + Voice Chat feature review (exp branch)
 
 ### Files reviewed
