@@ -3399,10 +3399,16 @@ html, body {
   margin: 4px 0;
 }
 
-/* Mobile: always show action icons */
+/* Mobile: always show action icons with touch-friendly sizing */
 @media (max-width: 768px) {
   .project-tree__actions {
     opacity: 0.6;
+    gap: 4px;
+  }
+  .project-tree__action-btn {
+    padding: 8px 10px;
+    min-width: 36px;
+    min-height: 36px;
   }
 }
 
