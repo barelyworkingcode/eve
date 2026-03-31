@@ -170,8 +170,11 @@ class TTSManager {
   async enqueueAudio(base64Data) {
     try {
       await this._ensureAudioContext();
-      const response = await fetch(`data:audio/wav;base64,${base64Data}`);
-      const arrayBuffer = await response.arrayBuffer();
+      // Decode base64 directly (Safari doesn't reliably handle data URI fetch)
+      const binary = atob(base64Data);
+      const arrayBuffer = new ArrayBuffer(binary.length);
+      const bytes = new Uint8Array(arrayBuffer);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
 
       this.queue.push(audioBuffer);
@@ -180,7 +183,7 @@ class TTSManager {
         this._playNext();
       }
     } catch (err) {
-      console.error('[TTS] Failed to enqueue audio:', err);
+      console.error('[TTS] Failed to enqueue audio:', err, 'audioContext state:', this.audioContext?.state);
     }
   }
 
