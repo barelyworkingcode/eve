@@ -164,7 +164,31 @@ class STTManager {
     const blob = new Blob(this.audioChunks, { type: mimeType });
     this.audioChunks = [];
 
-    // Convert blob to base64
+    if (this.backend === 'browser' && this.browserBackend?.ready) {
+      // Decode blob to Float32Array and transcribe locally
+      try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioCtx = new OfflineAudioContext(1, 1, 16000);
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        // Resample to 16kHz mono
+        const offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * 16000), 16000);
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offlineCtx.destination);
+        source.start();
+        const rendered = await offlineCtx.startRendering();
+        const float32 = rendered.getChannelData(0);
+        this._showTranscribingIndicator();
+        const result = await this.browserBackend.transcribe(float32);
+        this.handleTranscriptionResult(result.text);
+      } catch (err) {
+        console.error('[STT] Browser transcription of recording failed:', err);
+        this._hideTranscribingIndicator();
+      }
+      return;
+    }
+
+    // Server path: convert blob to base64 and send via WebSocket
     const reader = new FileReader();
     reader.onloadend = () => {
       if (!reader.result) {
