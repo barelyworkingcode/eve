@@ -137,13 +137,16 @@ class STTManager {
    * Falls back to server if browser backend not ready.
    */
   async transcribeFloat32(audio) {
-    if (this.backend === 'browser' && this.browserBackend?.ready) {
+    if (this.backend === 'browser') {
+      if (!this.browserBackend?.ready) {
+        console.log('[STT] Browser model still loading, skipping');
+        return;
+      }
       try {
         const result = await this.browserBackend.transcribe(audio);
         this.handleTranscriptionResult(result.text);
       } catch (err) {
         console.error('[STT] Browser transcription failed:', err);
-        this._transcribeViaServer(audio);
       }
     } else {
       this._transcribeViaServer(audio);
