@@ -65,6 +65,7 @@ class MessageDispatcher {
         if (data.sessionId) this.streamingSessions.delete(data.sessionId);
         this.client.messageRenderer.hideThinkingIndicator();
         this.client.messageRenderer.appendSystemMessage(data.message, 'error');
+        this.client.voiceChatManager?.handleError(data.message);
         this.client.hideStopButton();
         break;
 
