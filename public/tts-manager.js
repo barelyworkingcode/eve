@@ -243,8 +243,7 @@ class TTSManager {
       onProgress: (data) => {
         if (this.browserBackend?.ready) return;
         const pct = Math.round(data.progress || 0);
-        console.log(`[TTS] Downloading model: ${pct}%`);
-        this.app.voiceChatManager?._setPrompt(`Downloading TTS model: ${pct}%`);
+        this.app.voiceChatManager?._setPrompt(`Loading TTS model: ${pct}%`);
       },
       onReady: () => {
         this.browserBackendLoading = false;
