@@ -166,18 +166,13 @@ class TTSManager {
       this._levelBuffer = new Uint8Array(this.analyser.frequencyBinCount);
     }
     if (this.audioContext.state === 'suspended') {
-      try {
-        await this.audioContext.resume();
-      } catch {
-        // Autoplay policy — will resume on next user gesture
-      }
+      await this.audioContext.resume();
     }
   }
 
   async enqueueAudio(base64Data) {
     try {
       await this._ensureAudioContext();
-      // Decode base64 directly (Safari doesn't reliably handle data URI fetch)
       const binary = atob(base64Data);
       const arrayBuffer = new ArrayBuffer(binary.length);
       const bytes = new Uint8Array(arrayBuffer);

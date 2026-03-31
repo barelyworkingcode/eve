@@ -101,6 +101,9 @@ class VoiceChatManager {
     this.orbRenderer?.setState('idle');
     this.orbRenderer?.start();
 
+    // Resume AudioContext now — voice session activation is triggered by user gesture
+    this.app.ttsManager._ensureAudioContext();
+
     if (!this.app.ttsManager.enabled) {
       this.app.enableVoiceMode();
     }
