@@ -15,7 +15,9 @@ class VoiceChatManager {
     this.assistantAccum = '';
     this._spacebarDown = false;
 
-    this.inputMode = localStorage.getItem('eve-voice-input-mode') || 'conversation';
+    // Mobile Safari has VAD AudioWorklet issues — default to push-to-talk
+    const isMobileSafari = /iPhone|iPad|iPod/i.test(navigator.userAgent) && /safari/i.test(navigator.userAgent);
+    this.inputMode = localStorage.getItem('eve-voice-input-mode') || (isMobileSafari ? 'push-to-talk' : 'conversation');
     this.vadManager = new VadManager();
     this._vadTranscribing = false;
   }
