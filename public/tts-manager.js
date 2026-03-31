@@ -6,6 +6,24 @@
  */
 const DEFAULT_TTS_VOICE = 'af_heart';
 
+// Fallback voice list when server daemon is unavailable (browser TTS uses same IDs)
+const KOKORO_VOICES = [
+  { id: 'af_heart', name: 'Heart', lang: 'American English', gender: 'F' },
+  { id: 'af_bella', name: 'Bella', lang: 'American English', gender: 'F' },
+  { id: 'af_nicole', name: 'Nicole', lang: 'American English', gender: 'F' },
+  { id: 'af_nova', name: 'Nova', lang: 'American English', gender: 'F' },
+  { id: 'af_sarah', name: 'Sarah', lang: 'American English', gender: 'F' },
+  { id: 'af_sky', name: 'Sky', lang: 'American English', gender: 'F' },
+  { id: 'am_adam', name: 'Adam', lang: 'American English', gender: 'M' },
+  { id: 'am_echo', name: 'Echo', lang: 'American English', gender: 'M' },
+  { id: 'am_eric', name: 'Eric', lang: 'American English', gender: 'M' },
+  { id: 'am_michael', name: 'Michael', lang: 'American English', gender: 'M' },
+  { id: 'bf_emma', name: 'Emma', lang: 'British English', gender: 'F' },
+  { id: 'bf_lily', name: 'Lily', lang: 'British English', gender: 'F' },
+  { id: 'bm_daniel', name: 'Daniel', lang: 'British English', gender: 'M' },
+  { id: 'bm_george', name: 'George', lang: 'British English', gender: 'M' },
+];
+
 class TTSManager {
   constructor(app) {
     this.app = app;
@@ -76,10 +94,13 @@ class TTSManager {
       const token = localStorage.getItem('eve_session');
       const headers = token ? { 'x-session-token': token } : {};
       const res = await fetch('/api/tts/voices', { headers });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error('not ok');
       this.voices = await res.json();
     } catch {
-      // TTS daemon unavailable
+      // Server daemon unavailable — use built-in list for browser backend
+      if (this.voices.length === 0) {
+        this.voices = KOKORO_VOICES;
+      }
     }
     this._populateVoiceSelect();
   }
