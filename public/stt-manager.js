@@ -15,7 +15,9 @@ class STTManager {
     this.timerInterval = null;
     this.available = null; // null = unknown, true/false after check
 
-    this.backend = localStorage.getItem('eve-stt-backend') || 'browser';
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    this.isSafari = isSafari;
+    this.backend = localStorage.getItem('eve-stt-backend') || (isSafari ? 'server' : 'browser');
     this.browserBackend = null;
     this.browserBackendLoading = false;
   }
@@ -41,8 +43,8 @@ class STTManager {
     } catch {
       this.available = false;
     }
-    // Auto-switch to browser backend if server daemon is unavailable
-    if (!this.available && this.backend === 'server') {
+    // Auto-switch to browser backend if server daemon unavailable (not on Safari — memory issues)
+    if (!this.available && this.backend === 'server' && !this.isSafari) {
       this.backend = 'browser';
       localStorage.setItem('eve-stt-backend', 'browser');
       this._ensureBrowserBackend();
