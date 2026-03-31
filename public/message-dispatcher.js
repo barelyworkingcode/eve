@@ -94,7 +94,7 @@ class MessageDispatcher {
         this.client.messageRenderer.clearMessages();
         break;
 
-      case 'message_complete':
+      case 'message_complete': {
         if (data.sessionId) this.streamingSessions.delete(data.sessionId);
         if (this.pendingInteractiveTool) {
           const tool = this.pendingInteractiveTool;
@@ -106,11 +106,21 @@ class MessageDispatcher {
           this.handleInteractiveTool(tool.name, tool.input);
           return;
         }
+        const hadContent = !!this.client.messageRenderer.currentAssistantMessage;
         this.client.messageRenderer.hideThinkingIndicator();
         this.client.messageRenderer.finishAssistantMessage();
         this.client.hideStopButton();
+        if (!hadContent && !data.error) {
+          const msg = data.errorMessage || 'No response from model';
+          this.client.messageRenderer.appendSystemMessage(msg, 'error');
+          this.client.voiceChatManager?.handleError(msg);
+        } else if (data.error) {
+          this.client.messageRenderer.appendSystemMessage(data.error, 'error');
+          this.client.voiceChatManager?.handleError(data.error);
+        }
         this.client.voiceChatManager?.handleResponseComplete();
         break;
+      }
 
       case 'stats_update':
         this.client.updateStats(data.stats);
