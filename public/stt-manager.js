@@ -1,6 +1,8 @@
 /**
- * STTManager - Microphone recording and speech-to-text via Whisper daemon.
- * Records audio in the browser, sends base64 to Eve backend, receives transcribed text.
+ * STTManager - Microphone recording and speech-to-text.
+ * Supports two backends:
+ *   - 'server': sends audio via WebSocket to Eve backend → Whisper daemon
+ *   - 'browser': transcribes locally via transformers.js Whisper in a Web Worker
  */
 class STTManager {
   constructor(app) {
@@ -12,10 +14,17 @@ class STTManager {
     this.recordingStartTime = null;
     this.timerInterval = null;
     this.available = null; // null = unknown, true/false after check
+
+    this.backend = localStorage.getItem('eve-stt-backend') || 'server';
+    this.browserBackend = null;
+    this.browserBackendLoading = false;
   }
 
   async init() {
     await this.checkAvailability();
+    if (this.backend === 'browser') {
+      this._ensureBrowserBackend();
+    }
   }
 
   async checkAvailability() {
@@ -32,7 +41,23 @@ class STTManager {
     } catch {
       this.available = false;
     }
+    // Browser backend is always "available" once loaded
+    if (this.backend === 'browser') this.available = true;
     this._updateButtonVisibility();
+  }
+
+  setBackend(backend) {
+    this.backend = backend;
+    localStorage.setItem('eve-stt-backend', backend);
+    if (backend === 'browser') {
+      this.available = true;
+      this._updateButtonVisibility();
+      this._ensureBrowserBackend();
+    }
+  }
+
+  get browserReady() {
+    return this.browserBackend?.ready || false;
   }
 
   toggleRecording() {
@@ -107,6 +132,30 @@ class STTManager {
     this._updateUI();
   }
 
+  /**
+   * Transcribe a Float32Array (16kHz mono) from VAD using the browser backend.
+   * Falls back to server if browser backend not ready.
+   */
+  async transcribeFloat32(audio) {
+    if (this.backend === 'browser' && this.browserBackend?.ready) {
+      try {
+        const result = await this.browserBackend.transcribe(audio);
+        this.handleTranscriptionResult(result.text);
+      } catch (err) {
+        console.error('[STT] Browser transcription failed:', err);
+        this._transcribeViaServer(audio);
+      }
+    } else {
+      this._transcribeViaServer(audio);
+    }
+  }
+
+  /** Encode Float32Array as WAV base64 and send to server. */
+  _transcribeViaServer(audio) {
+    const base64Wav = VadManager.audioToBase64Wav(audio);
+    this.app.wsClient.send({ type: 'transcribe_audio', audio: base64Wav });
+  }
+
   async _processRecording() {
     const mimeType = this.mediaRecorder ? this.mediaRecorder.mimeType : 'audio/webm';
     const blob = new Blob(this.audioChunks, { type: mimeType });
@@ -178,7 +227,37 @@ class STTManager {
     return Math.min((sum / this._levelBuffer.length) / 128, 1);
   }
 
-  // -- UI helpers --
+  // --- Browser backend ---
+
+  _ensureBrowserBackend() {
+    if (this.browserBackend || this.browserBackendLoading) return;
+    this.browserBackendLoading = true;
+
+    const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
+    this.browserBackend = new SttBrowserBackend();
+    this.browserBackend.init({
+      model: 'onnx-community/whisper-small',
+      dtype: hasWebGPU ? 'fp32' : 'q8',
+      device: hasWebGPU ? 'webgpu' : 'wasm',
+      onProgress: (data) => {
+        const pct = Math.round(data.progress || 0);
+        console.log(`[STT] Downloading model: ${pct}%`);
+        this.app.voiceChatManager?._setPrompt(`Downloading STT model: ${pct}%`);
+      },
+      onReady: () => {
+        this.browserBackendLoading = false;
+        console.log('[STT] Browser STT ready');
+      },
+      onError: (msg) => {
+        this.browserBackendLoading = false;
+        console.error('[STT] Browser backend failed:', msg);
+        this.backend = 'server';
+        localStorage.setItem('eve-stt-backend', 'server');
+      },
+    });
+  }
+
+  // --- UI helpers ---
 
   _updateButtonVisibility() {
     const btn = this.app.elements.micBtn;
@@ -215,7 +294,6 @@ class STTManager {
   }
 
   _showTranscribingIndicator() {
-    // Reuse the mic button to show transcribing state
     const btn = this.app.elements.micBtn;
     if (btn) {
       btn.classList.add('btn-mic--transcribing');
