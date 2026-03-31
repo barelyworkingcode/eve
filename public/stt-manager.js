@@ -266,9 +266,12 @@ class STTManager {
     this.browserBackendLoading = true;
 
     const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    // Mobile has tighter memory limits — use smaller model to avoid tab crash
+    const model = isMobile ? 'onnx-community/whisper-base' : 'onnx-community/whisper-small';
     this.browserBackend = new SttBrowserBackend();
     this.browserBackend.init({
-      model: 'onnx-community/whisper-small',
+      model,
       dtype: hasWebGPU ? 'fp32' : 'q8',
       device: hasWebGPU ? 'webgpu' : 'wasm',
       onProgress: (data) => {
