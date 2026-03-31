@@ -267,6 +267,7 @@ class STTManager {
       dtype: hasWebGPU ? 'fp32' : 'q8',
       device: hasWebGPU ? 'webgpu' : 'wasm',
       onProgress: (data) => {
+        if (this.browserBackend?.ready) return;
         const pct = Math.round(data.progress || 0);
         console.log(`[STT] Downloading model: ${pct}%`);
         this.app.voiceChatManager?._setPrompt(`Downloading STT model: ${pct}%`);
@@ -274,9 +275,8 @@ class STTManager {
       onReady: () => {
         this.browserBackendLoading = false;
         console.log('[STT] Browser STT ready');
-        const vcm = this.app.voiceChatManager;
-        if (vcm?.isVoiceSession && vcm.vadManager?.isListening) {
-          vcm._setPrompt('Listening...');
+        if (this.app.voiceChatManager?.isVoiceSession) {
+          this.app.voiceChatManager._setPrompt('Listening...');
         }
       },
       onError: (msg) => {
