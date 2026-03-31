@@ -35,7 +35,7 @@ class TTSManager {
     this.isPlaying = false;
     this.currentSource = null;
 
-    this.backend = localStorage.getItem('eve-tts-backend') || 'server';
+    this.backend = localStorage.getItem('eve-tts-backend') || 'browser';
     this.browserBackend = null;
     this.browserBackendLoading = false;
   }
