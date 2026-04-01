@@ -81,6 +81,9 @@ class STTManager {
   }
 
   async startRecording() {
+    if (this.isNativeApp) {
+      return this._startNativeRecording();
+    }
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.audioChunks = [];
@@ -128,6 +131,9 @@ class STTManager {
   }
 
   stopRecording() {
+    if (this.isNativeApp) {
+      return this._stopNativeRecording();
+    }
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
     }
@@ -139,6 +145,37 @@ class STTManager {
       this._micSource.disconnect();
       this._micSource = null;
     }
+    this.isRecording = false;
+    this._stopTimer();
+    this._updateUI();
+  }
+
+  async _startNativeRecording() {
+    try {
+      const cap = window.Capacitor;
+      await cap.nativePromise('EveVoice', 'loadModels', {});
+      // Listen for transcription results
+      this._nativeTranscriptionListener = await cap.addListener('EveVoice', 'transcription', (data) => {
+        if (data.isFinal && data.text?.trim()) {
+          this.handleTranscriptionResult(data.text.trim());
+        }
+      });
+      await cap.nativePromise('EveVoice', 'startListening', {});
+      this.isRecording = true;
+      this.recordingStartTime = Date.now();
+      this._startTimer();
+      this._updateUI();
+    } catch (err) {
+      console.error('[STT] Native recording failed:', err);
+      this.app.messageRenderer.appendSystemMessage('Native STT failed: ' + err.message, 'error');
+    }
+  }
+
+  _stopNativeRecording() {
+    const cap = window.Capacitor;
+    cap?.nativePromise('EveVoice', 'stopListening', {}).catch(() => {});
+    this._nativeTranscriptionListener?.remove?.();
+    this._nativeTranscriptionListener = null;
     this.isRecording = false;
     this._stopTimer();
     this._updateUI();
