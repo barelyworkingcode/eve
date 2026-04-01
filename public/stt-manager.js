@@ -1,8 +1,7 @@
 /**
- * STTManager - Microphone recording and speech-to-text.
- * Supports two backends:
- *   - 'server': sends audio via WebSocket to Eve backend → Whisper daemon
- *   - 'browser': transcribes locally via transformers.js Whisper in a Web Worker
+ * STTManager - Microphone recording and speech-to-text orchestrator.
+ * Delegates transcription to a pluggable backend (browser, server, or native).
+ * Owns shared concerns: mic recording, audio levels, UI indicators, result routing.
  */
 class STTManager {
   constructor(app) {
@@ -14,62 +13,91 @@ class STTManager {
     this.recordingStartTime = null;
     this.timerInterval = null;
     this.available = null; // null = unknown, true/false after check
-
-    this.isSafari = IS_SAFARI;
     this.isNativeApp = IS_NATIVE_APP;
-    this.backend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
-    this.browserBackend = null;
-    this.browserBackendLoading = false;
+
+    const backendName = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
+    this.activeBackend = this._createBackend(backendName);
+  }
+
+  get backend() {
+    return this.activeBackend.name;
+  }
+
+  get browserReady() {
+    return this.activeBackend.name === 'browser' && this.activeBackend.ready;
+  }
+
+  _createBackend(name) {
+    switch (name) {
+      case 'native': return new SttNativeBackend();
+      case 'browser': return new SttBrowserBackend();
+      case 'server':
+      default: return new SttServerBackend();
+    }
   }
 
   async init() {
+    this._initBackend();
     await this.checkAvailability();
-    if (this.backend === 'browser') {
-      this._ensureBrowserBackend();
+  }
+
+  _initBackend() {
+    const context = {
+      app: this.app,
+      wsClient: this.app.wsClient,
+      onProgress: (data) => {
+        if (this.activeBackend.ready) return;
+        const pct = Math.round(data.progress || 0);
+        this.app.voiceChatManager?._setPrompt(`Loading STT model: ${pct}%`);
+      },
+      onReady: () => {
+        console.log(`[STT] ${this.backend} backend ready`);
+        if (this.app.voiceChatManager?.isVoiceSession) {
+          this.app.voiceChatManager._setPrompt('Listening...');
+        }
+      },
+      onError: (msg) => {
+        console.error(`[STT] ${this.backend} backend failed:`, msg);
+        this.app.messageRenderer?.appendSystemMessage(`On-device STT failed to load — falling back to server.`, 'warning');
+        this.switchBackend('server');
+      },
+    };
+
+    if (this.activeBackend.name === 'browser') {
+      const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      context.model = isMobile ? 'onnx-community/whisper-base' : 'onnx-community/whisper-small';
+      context.dtype = hasWebGPU ? 'fp32' : 'q8';
+      context.device = hasWebGPU ? 'webgpu' : 'wasm';
     }
+
+    this.activeBackend.init(context);
   }
 
   async checkAvailability() {
-    if (this.isNativeApp) {
+    this.available = await this.activeBackend.isAvailable();
+    // Auto-switch to browser if server is unavailable (not on Safari — memory issues)
+    if (!this.available && this.backend === 'server' && !IS_SAFARI) {
+      console.warn('[STT] Server daemon unavailable — switching to on-device STT');
+      this.switchBackend('browser');
       this.available = true;
-      this._updateButtonVisibility();
-      return;
-    }
-    try {
-      const token = localStorage.getItem('eve_session');
-      const headers = token ? { 'x-session-token': token } : {};
-      const res = await fetch('/api/stt/status', { headers });
-      if (res.ok) {
-        const data = await res.json();
-        this.available = data.available;
-      } else {
-        this.available = false;
-      }
-    } catch {
-      this.available = false;
-    }
-    // Auto-switch to browser backend if server daemon unavailable (not on Safari — memory issues)
-    if (!this.available && this.backend === 'server' && !this.isSafari) {
-      this.backend = 'browser';
-      localStorage.setItem('eve-stt-backend', 'browser');
-      this._ensureBrowserBackend();
     }
     if (this.backend === 'browser') this.available = true;
     this._updateButtonVisibility();
   }
 
-  setBackend(backend) {
-    this.backend = backend;
-    localStorage.setItem('eve-stt-backend', backend);
-    if (backend === 'browser') {
-      this.available = true;
-      this._updateButtonVisibility();
-      this._ensureBrowserBackend();
-    }
+  switchBackend(name) {
+    this.activeBackend.destroy();
+    this.activeBackend = this._createBackend(name);
+    localStorage.setItem('eve-stt-backend', name);
+    this._initBackend();
+    this._updateButtonVisibility();
   }
 
-  get browserReady() {
-    return this.browserBackend?.ready || false;
+  setBackend(name) {
+    this.switchBackend(name);
+    this.available = true;
+    this._updateButtonVisibility();
   }
 
   toggleRecording() {
@@ -80,10 +108,23 @@ class STTManager {
     }
   }
 
+  // --- Recording (native delegates to backend, browser/server use shared MediaRecorder) ---
+
   async startRecording() {
-    if (this.isNativeApp) {
-      return this._startNativeRecording();
+    if (this.activeBackend.startRecording) {
+      try {
+        await this.activeBackend.startRecording((text) => this.handleTranscriptionResult(text));
+        this.isRecording = true;
+        this.recordingStartTime = Date.now();
+        this._startTimer();
+        this._updateUI();
+      } catch (err) {
+        console.error('[STT] Native recording failed:', err);
+        this.app.messageRenderer.appendSystemMessage('Native STT failed: ' + err.message, 'error');
+      }
+      return;
     }
+
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.audioChunks = [];
@@ -131,9 +172,14 @@ class STTManager {
   }
 
   stopRecording() {
-    if (this.isNativeApp) {
-      return this._stopNativeRecording();
+    if (this.activeBackend.stopRecording) {
+      this.activeBackend.stopRecording();
+      this.isRecording = false;
+      this._stopTimer();
+      this._updateUI();
+      return;
     }
+
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
     }
@@ -150,126 +196,85 @@ class STTManager {
     this._updateUI();
   }
 
-  async _startNativeRecording() {
-    try {
-      const cap = window.Capacitor;
-      await cap.nativePromise('EveVoice', 'loadModels', {});
-      // Listen for transcription results
-      this._nativeTranscriptionListener = await cap.addListener('EveVoice', 'transcription', (data) => {
-        if (data.isFinal && data.text?.trim()) {
-          this.handleTranscriptionResult(data.text.trim());
-        }
-      });
-      await cap.nativePromise('EveVoice', 'startListening', {});
-      this.isRecording = true;
-      this.recordingStartTime = Date.now();
-      this._startTimer();
-      this._updateUI();
-    } catch (err) {
-      console.error('[STT] Native recording failed:', err);
-      this.app.messageRenderer.appendSystemMessage('Native STT failed: ' + err.message, 'error');
-    }
-  }
+  // --- Transcription ---
 
-  _stopNativeRecording() {
-    const cap = window.Capacitor;
-    cap?.nativePromise('EveVoice', 'stopListening', {}).catch(() => {});
-    this._nativeTranscriptionListener?.remove?.();
-    this._nativeTranscriptionListener = null;
-    this.isRecording = false;
-    this._stopTimer();
-    this._updateUI();
+  /**
+   * Transcribe Float32Array audio from VAD. Delegates to active backend.
+   */
+  async transcribeFloat32(audio) {
+    if (!this.activeBackend.ready) {
+      console.warn('[STT] Backend not ready, audio discarded');
+      this.app.voiceChatManager?.handleError('STT model still loading — please wait');
+      return;
+    }
+    try {
+      const result = await this.activeBackend.transcribe(audio);
+      if (result?.text) this.handleTranscriptionResult(result.text);
+      // null result = server backend (result arrives via WS → handleTranscriptionResult)
+    } catch (err) {
+      console.error('[STT] Transcription failed:', err);
+      this.app.voiceChatManager?.handleError('Transcription failed');
+    }
   }
 
   /**
-   * Transcribe a Float32Array (16kHz mono) from VAD using the browser backend.
-   * Falls back to server if browser backend not ready.
+   * Process a push-to-talk recording. Validates then delegates to backend.
    */
-  async transcribeFloat32(audio) {
-    if (this.backend === 'native') {
-      // Native STT: audio capture + transcription handled entirely by EveVoice plugin.
-      // This method shouldn't be called in native mode — VAD is native too.
-      return;
-    } else if (this.backend === 'browser') {
-      if (!this.browserBackend?.ready) {
-        console.log('[STT] Browser model still loading, skipping');
-        return;
-      }
-      try {
-        const result = await this.browserBackend.transcribe(audio);
-        this.handleTranscriptionResult(result.text);
-      } catch (err) {
-        console.error('[STT] Browser transcription failed:', err);
-      }
-    } else {
-      this._transcribeViaServer(audio);
-    }
-  }
-
-  /** Encode Float32Array as WAV base64 and send to server. */
-  _transcribeViaServer(audio) {
-    const base64Wav = VadManager.audioToBase64Wav(audio);
-    this.app.wsClient.send({ type: 'transcribe_audio', audio: base64Wav });
-  }
-
   async _processRecording() {
     const mimeType = this.mediaRecorder ? this.mediaRecorder.mimeType : 'audio/webm';
     const blob = new Blob(this.audioChunks, { type: mimeType });
     this.audioChunks = [];
 
-    if (this.backend === 'browser' && this.browserBackend?.ready) {
-      // Decode blob to Float32Array and transcribe locally
-      try {
-        const arrayBuffer = await blob.arrayBuffer();
-        const audioCtx = new OfflineAudioContext(1, 1, 16000);
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        // Resample to 16kHz mono
-        const offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * 16000), 16000);
-        const source = offlineCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(offlineCtx.destination);
-        source.start();
-        const rendered = await offlineCtx.startRendering();
-        const float32 = rendered.getChannelData(0);
-        this._showTranscribingIndicator();
-        const result = await this.browserBackend.transcribe(float32);
-        this.handleTranscriptionResult(result.text);
-      } catch (err) {
-        console.error('[STT] Browser transcription of recording failed:', err);
-        this._hideTranscribingIndicator();
+    // Skip empty or very short recordings — MediaRecorder produces invalid containers
+    const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0;
+    if (blob.size < 100) {
+      console.warn(`[STT] Empty recording (${blob.size} bytes), skipping`);
+      this.app.voiceChatManager?.handleError('No audio captured');
+      return;
+    }
+    if (duration < 300) {
+      console.warn(`[STT] Recording too short (${duration}ms, ${blob.size} bytes), skipping`);
+      this.app.voiceChatManager?.handleError('Recording too short — hold longer');
+      if (!this.app.voiceChatManager?.isVoiceSession) {
+        this.app.messageRenderer.appendSystemMessage('Recording too short. Hold the button longer to record.', 'warning');
       }
       return;
     }
 
-    // Server path: convert blob to base64 and send via WebSocket
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (!reader.result) {
-        this.app.messageRenderer.appendSystemMessage('Failed to read audio recording.', 'error');
-        return;
-      }
-      const base64 = reader.result.split(',')[1];
-      this.app.wsClient.send({
-        type: 'transcribe_audio',
-        audio: base64,
-      });
+    try {
       this._showTranscribingIndicator();
-    };
-    reader.onerror = () => {
-      console.error('[STT] FileReader error:', reader.error);
-      this.app.messageRenderer.appendSystemMessage('Failed to process audio recording.', 'error');
-    };
-    reader.readAsDataURL(blob);
+      const result = await this.activeBackend.transcribeBlob(blob);
+      if (result?.text) {
+        this.handleTranscriptionResult(result.text);
+      }
+      // null result = server backend (WS response triggers handleTranscriptionResult)
+    } catch (err) {
+      console.error('[STT] Recording transcription failed:', err);
+      this._hideTranscribingIndicator();
+      this.app.voiceChatManager?.handleError('Transcription failed');
+      if (!this.app.voiceChatManager?.isVoiceSession) {
+        this.app.messageRenderer.appendSystemMessage('Transcription failed. Please try again.', 'error');
+      }
+    }
   }
+
+  // --- Result handling (shared across all backends) ---
 
   handleTranscriptionResult(text) {
     this._hideTranscribingIndicator();
 
     if (!text || !text.trim()) return;
 
+    // Filter Whisper artifacts — non-speech annotations like [BLANK_AUDIO], [Crickets chirping], (silence), etc.
+    const cleaned = text.trim();
+    if (/^\[.*\]$/.test(cleaned) || /^\(.*\)$/.test(cleaned)) {
+      console.warn('[STT] Filtered Whisper artifact:', cleaned);
+      return;
+    }
+
     // Route to voice chat manager if active
     if (this.app.voiceChatManager?.isVoiceSession) {
-      this.app.voiceChatManager.handleTranscription(text.trim());
+      this.app.voiceChatManager.handleTranscription(cleaned);
       return;
     }
 
@@ -278,7 +283,7 @@ class STTManager {
     // Append to existing text (in case user typed something)
     const existing = textarea.value;
     const separator = existing && !existing.endsWith(' ') ? ' ' : '';
-    textarea.value = existing + separator + text.trim();
+    textarea.value = existing + separator + cleaned;
     this.app.autoResizeTextarea();
     textarea.focus();
 
@@ -305,42 +310,6 @@ class STTManager {
     let sum = 0;
     for (let i = 0; i < this._levelBuffer.length; i++) sum += this._levelBuffer[i];
     return Math.min((sum / this._levelBuffer.length) / 128, 1);
-  }
-
-  // --- Browser backend ---
-
-  _ensureBrowserBackend() {
-    if (this.browserBackend || this.browserBackendLoading) return;
-    this.browserBackendLoading = true;
-
-    const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    // Mobile has tighter memory limits — use smaller model to avoid tab crash
-    const model = isMobile ? 'onnx-community/whisper-base' : 'onnx-community/whisper-small';
-    this.browserBackend = new SttBrowserBackend();
-    this.browserBackend.init({
-      model,
-      dtype: hasWebGPU ? 'fp32' : 'q8',
-      device: hasWebGPU ? 'webgpu' : 'wasm',
-      onProgress: (data) => {
-        if (this.browserBackend?.ready) return;
-        const pct = Math.round(data.progress || 0);
-        this.app.voiceChatManager?._setPrompt(`Loading STT model: ${pct}%`);
-      },
-      onReady: () => {
-        this.browserBackendLoading = false;
-        console.log('[STT] Browser STT ready');
-        if (this.app.voiceChatManager?.isVoiceSession) {
-          this.app.voiceChatManager._setPrompt('Listening...');
-        }
-      },
-      onError: (msg) => {
-        this.browserBackendLoading = false;
-        console.error('[STT] Browser backend failed:', msg);
-        this.backend = 'server';
-        localStorage.setItem('eve-stt-backend', 'server');
-      },
-    });
   }
 
   // --- UI helpers ---

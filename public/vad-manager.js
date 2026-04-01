@@ -19,19 +19,21 @@ class VadManager {
    */
   async start(callbacks) {
     if (this.micVAD) return;
+    this._destroying = false;
     if (typeof vad === 'undefined' || !vad.MicVAD) {
       console.error('[VAD] vad-web library not loaded');
+      callbacks.onError?.(new Error('Voice detection library failed to load'));
       return;
     }
 
     try {
       console.log('[VAD] Initializing Silero VAD...');
       this.micVAD = await vad.MicVAD.new({
-        positiveSpeechThreshold: 0.6,
-        negativeSpeechThreshold: 0.35,
-        minSpeechFrames: 5,
+        positiveSpeechThreshold: 0.45,
+        negativeSpeechThreshold: 0.25,
+        minSpeechFrames: 2,
         preSpeechPadFrames: 10,
-        redemptionFrames: 25, // ~800ms at 30fps before declaring end of speech
+        redemptionFrames: 20, // ~650ms at 30fps before declaring end of speech
         baseAssetPath: '/vad-web/',
         onnxWASMBasePath: '/onnxruntime-web/',
 

@@ -262,17 +262,17 @@ class SettingsDialog extends DialogBase {
   _getTtsStatus(tts) {
     if (tts.backend === 'native') return 'Using native Kokoro TTS via iOS Neural Engine.';
     if (tts.backend === 'server') return 'Using server-side Kokoro TTS daemon.';
-    if (tts.isSafari && tts.backend === 'browser') return 'Warning: On-device TTS is not yet supported on Safari. Use Server.';
-    if (tts.browserBackend?.ready) return 'On-device model loaded and ready.';
-    if (tts.browserBackendLoading) return 'Loading on-device model...';
+    if (IS_SAFARI && tts.backend === 'browser') return 'Warning: On-device TTS is not yet supported on Safari. Use Server.';
+    if (tts.browserReady) return 'On-device model loaded and ready.';
+    if (tts.activeBackend?.loading) return 'Loading on-device model...';
     return 'On-device model will download on next voice session.';
   }
 
   _getSttStatus(stt) {
     if (stt.backend === 'native') return 'Using native WhisperKit STT via iOS Neural Engine.';
     if (stt.backend === 'server') return 'Using server-side Whisper daemon.';
-    if (stt.browserBackend?.ready) return 'On-device model loaded and ready.';
-    if (stt.browserBackendLoading) return 'Loading on-device model...';
+    if (stt.browserReady) return 'On-device model loaded and ready.';
+    if (stt.activeBackend?.loading) return 'Loading on-device model...';
     return 'On-device model will download on next voice session.';
   }
 

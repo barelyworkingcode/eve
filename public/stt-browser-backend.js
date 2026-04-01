@@ -4,6 +4,7 @@
  */
 class SttBrowserBackend {
   constructor() {
+    this.name = 'browser';
     this.worker = null;
     this.ready = false;
     this.loading = false;
@@ -61,6 +62,27 @@ class SttBrowserBackend {
       this._pendingCallbacks.set(id, { resolve, reject });
       this.worker.postMessage({ type: 'transcribe', audio, id }, [audio.buffer]);
     });
+  }
+
+  /**
+   * Transcribe a push-to-talk recording blob by decoding to Float32Array.
+   */
+  async transcribeBlob(blob) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioCtx = new OfflineAudioContext(1, 1, 16000);
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    const offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * 16000), 16000);
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offlineCtx.destination);
+    source.start();
+    const rendered = await offlineCtx.startRendering();
+    const float32 = rendered.getChannelData(0);
+    return this.transcribe(float32);
+  }
+
+  async isAvailable() {
+    return true; // Browser backend is always available (model loads on demand)
   }
 
   destroy() {

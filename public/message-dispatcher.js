@@ -80,6 +80,10 @@ class MessageDispatcher {
 
       case 'tts_error':
         console.warn('[TTS] Error:', data.message);
+        this.client.voiceChatManager?.handleError(`Speech failed: ${data.message}`);
+        if (!this.client.voiceChatManager?.isVoiceSession) {
+          this.client.messageRenderer.appendSystemMessage(`TTS error: ${data.message}`, 'error');
+        }
         break;
 
       case 'transcription_result':
