@@ -86,8 +86,15 @@ class TTSManager {
 
     if (this.activeBackend.name === 'browser') {
       const useWebGPU = !IS_SAFARI && !!navigator.gpu;
-      context.dtype = useWebGPU ? 'fp32' : 'q4';
-      context.device = useWebGPU ? 'webgpu' : 'wasm';
+      if (IS_SAFARI) {
+        // Safari: WASM has a known TypeError in kokoro-js ONNX runtime.
+        // Try WebGL which uses a different execution provider and may bypass the bug.
+        context.dtype = 'fp32';
+        context.device = 'webgl';
+      } else {
+        context.dtype = useWebGPU ? 'fp32' : 'q4';
+        context.device = useWebGPU ? 'webgpu' : 'wasm';
+      }
     }
 
     this.activeBackend.init(context);
