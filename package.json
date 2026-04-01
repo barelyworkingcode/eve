@@ -13,20 +13,19 @@
     "register": "/Applications/Relay.app/Contents/MacOS/relay service register --name Eve --command node --args server.js --workdir . --url http://localhost:3000 --autostart"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1",
     "@ricky0123/vad-web": "^0.0.30",
     "@simplewebauthn/server": "^13.2.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
     "dompurify": "^3.2.0",
+    "espeak-ng": "^1.0.2",
     "express": "^4.18.2",
-    "kokoro-js": "^1.2.1",
     "marked": "^15.0.0",
     "mermaid": "^11.13.0",
     "monaco-editor": "^0.45.0",
     "node-pty": "^1.2.0-beta.10",
-    "onnxruntime-web": "^1.22.0",
+    "onnxruntime-web": "^1.21.0-dev.20250206-d981b153d3",
     "trash": "^10.1.0",
     "uuid": "^9.0.0",
     "ws": "^8.16.0"
