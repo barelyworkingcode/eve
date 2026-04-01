@@ -85,9 +85,10 @@ class TTSManager {
     };
 
     if (this.activeBackend.name === 'browser') {
-      // Safari: kokoro-js WASM has a known TypeError, WebGPU is the only alternative.
-      // Safari 18+ supports WebGPU — try it if available, otherwise WASM is the only option.
-      const useWebGPU = !!navigator.gpu;
+      // Safari: kokoro-js has a TypeError in the ONNX WASM runtime that fires regardless
+      // of execution provider (WebGPU still loads WASM as fallback). No workaround exists —
+      // Safari must use server TTS. See docs/learned.md for details.
+      const useWebGPU = !IS_SAFARI && !!navigator.gpu;
       context.dtype = useWebGPU ? 'fp32' : 'q4';
       context.device = useWebGPU ? 'webgpu' : 'wasm';
     }
