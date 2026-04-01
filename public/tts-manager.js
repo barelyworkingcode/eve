@@ -1,28 +1,9 @@
 /**
- * TTSManager - Audio playback queue and voice selection for voice mode.
- * Supports two backends:
- *   - 'server': receives base64 WAV chunks via WebSocket from Kokoro daemon
- *   - 'browser': generates audio locally via kokoro-js in a Web Worker
+ * TTSManager - Audio playback and voice mode orchestrator.
+ * Delegates speech generation and voice loading to a pluggable backend (browser, server, or native).
+ * Owns shared concerns: audio playback queue, AudioContext, voice select UI, speaking indicator.
  */
 const DEFAULT_TTS_VOICE = 'af_heart';
-
-// Fallback voice list when server daemon is unavailable (browser TTS uses same IDs)
-const KOKORO_VOICES = [
-  { id: 'af_heart', name: 'Heart', lang: 'American English', gender: 'F' },
-  { id: 'af_bella', name: 'Bella', lang: 'American English', gender: 'F' },
-  { id: 'af_nicole', name: 'Nicole', lang: 'American English', gender: 'F' },
-  { id: 'af_nova', name: 'Nova', lang: 'American English', gender: 'F' },
-  { id: 'af_sarah', name: 'Sarah', lang: 'American English', gender: 'F' },
-  { id: 'af_sky', name: 'Sky', lang: 'American English', gender: 'F' },
-  { id: 'am_adam', name: 'Adam', lang: 'American English', gender: 'M' },
-  { id: 'am_echo', name: 'Echo', lang: 'American English', gender: 'M' },
-  { id: 'am_eric', name: 'Eric', lang: 'American English', gender: 'M' },
-  { id: 'am_michael', name: 'Michael', lang: 'American English', gender: 'M' },
-  { id: 'bf_emma', name: 'Emma', lang: 'British English', gender: 'F' },
-  { id: 'bf_lily', name: 'Lily', lang: 'British English', gender: 'F' },
-  { id: 'bm_daniel', name: 'Daniel', lang: 'British English', gender: 'M' },
-  { id: 'bm_george', name: 'George', lang: 'British English', gender: 'M' },
-];
 
 class TTSManager {
   constructor(app) {
@@ -34,20 +15,39 @@ class TTSManager {
     this.queue = [];
     this.isPlaying = false;
     this.currentSource = null;
-
-    this.isSafari = IS_SAFARI;
     this.isNativeApp = IS_NATIVE_APP;
-    this.backend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
-    this.browserBackend = null;
-    this.browserBackendLoading = false;
+
+    const backendName = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
+    this.activeBackend = this._createBackend(backendName);
+  }
+
+  get backend() {
+    return this.activeBackend.name;
+  }
+
+  get browserReady() {
+    return this.activeBackend.name === 'browser' && this.activeBackend.ready;
+  }
+
+  /** Whether server-side TTS relay should be active. */
+  get useServerTTS() {
+    return this.activeBackend.name === 'server';
+  }
+
+  _createBackend(name) {
+    switch (name) {
+      case 'native': return new TtsNativeBackend();
+      case 'browser': return new TtsBrowserBackend();
+      case 'server':
+      default: return new TtsServerBackend();
+    }
   }
 
   init() {
+    this._initBackend();
     this._updateVoiceSelectVisibility();
     this.loadVoices();
-    if (this.backend === 'browser') {
-      this._ensureBrowserBackend();
-    }
+
     // Pre-warm AudioContext on first user gesture to satisfy autoplay policy
     const warmUp = () => {
       this._ensureAudioContext();
@@ -58,6 +58,55 @@ class TTSManager {
     document.addEventListener('click', warmUp);
     document.addEventListener('touchstart', warmUp);
     document.addEventListener('keydown', warmUp);
+  }
+
+  _initBackend() {
+    const context = {
+      app: this.app,
+      onProgress: (data) => {
+        if (this.activeBackend.ready) return;
+        const pct = Math.round(data.progress || 0);
+        this.app.voiceChatManager?._setPrompt(`Loading TTS model: ${pct}%`);
+      },
+      onReady: () => {
+        console.log(`[TTS] ${this.backend} backend ready`);
+      },
+      onError: (msg) => {
+        console.error(`[TTS] ${this.backend} backend failed:`, msg);
+        this.app.messageRenderer?.appendSystemMessage('On-device TTS failed to load — falling back to server.', 'warning');
+        this.switchBackend('server');
+      },
+    };
+
+    if (this.activeBackend.name === 'browser') {
+      const useWebGPU = !IS_SAFARI && !!navigator.gpu;
+      context.dtype = useWebGPU ? 'fp32' : 'q8';
+      context.device = useWebGPU ? 'webgpu' : 'wasm';
+    }
+
+    this.activeBackend.init(context);
+  }
+
+  switchBackend(name) {
+    const wasServer = this.activeBackend.name === 'server';
+    this.activeBackend.destroy();
+    this.activeBackend = this._createBackend(name);
+    localStorage.setItem('eve-tts-backend', name);
+    this._initBackend();
+
+    // Stop current playback — old backend's audio shouldn't keep playing
+    this.stop();
+
+    // Sync server voice mode: disable if leaving server, enable if joining server
+    const ws = this.app.wsClient;
+    if (wasServer && name !== 'server') {
+      ws.send({ type: 'voice_mode', enabled: false });
+    } else if (!wasServer && name === 'server' && this.enabled) {
+      this.syncVoiceMode(ws);
+    }
+
+    // Reload voices from new backend
+    this.loadVoices();
   }
 
   setEnabled(enabled) {
@@ -72,49 +121,32 @@ class TTSManager {
     localStorage.setItem('eve-voice-preset', voiceId);
   }
 
-  setBackend(backend) {
-    this.backend = backend;
-    localStorage.setItem('eve-tts-backend', backend);
-    if (backend === 'browser') {
-      this._ensureBrowserBackend();
-    }
-  }
-
-  /** Whether server-side TTS relay should be active. */
-  get useServerTTS() {
-    return this.backend === 'server';
+  setBackend(name) {
+    this.switchBackend(name);
   }
 
   /** Send voice_mode state to server if using server TTS backend. */
   syncVoiceMode(ws) {
-    if (!this.useServerTTS) return;
-    ws.send({ type: 'voice_mode', enabled: this.enabled, voice: this.voice });
+    this.activeBackend.syncVoiceMode?.(ws, this.enabled, this.voice);
   }
 
+  // --- Voice loading (delegated to backend) ---
+
   async loadVoices() {
-    if (this.isNativeApp) {
-      this.voices = KOKORO_VOICES;
-      this._populateVoiceSelect();
-      return;
-    }
     try {
-      const token = localStorage.getItem('eve_session');
-      const headers = token ? { 'x-session-token': token } : {};
-      const res = await fetch('/api/tts/voices', { headers });
-      if (!res.ok) throw new Error('not ok');
-      this.voices = await res.json();
+      this.voices = await this.activeBackend.loadVoices();
     } catch {
-      if (this.backend === 'server' && !this.isSafari) {
-        // Server daemon unavailable on Chrome — auto-switch to browser
-        this.backend = 'browser';
-        localStorage.setItem('eve-tts-backend', 'browser');
-        this._ensureBrowserBackend();
-      } else if (this.backend === 'server' && this.isSafari) {
+      // Server unavailable — try switching to browser (not on Safari)
+      if (this.backend === 'server' && !IS_SAFARI) {
+        console.warn('[TTS] Server daemon unavailable — switching to on-device TTS');
+        this.switchBackend('browser');
+      } else if (this.backend === 'server' && IS_SAFARI) {
         console.warn('[TTS] Server daemon unavailable. On-device TTS is not supported on Safari.');
         this.app.messageRenderer?.appendSystemMessage(
           'TTS unavailable: Kokoro daemon is offline and on-device TTS is not yet supported on Safari.', 'error'
         );
       }
+      // Fall back to static voice list
       if (this.voices.length === 0) {
         this.voices = KOKORO_VOICES;
       }
@@ -122,45 +154,42 @@ class TTSManager {
     this._populateVoiceSelect();
   }
 
-  _populateVoiceSelect() {
-    const select = this.app.elements.voiceSelect;
-    if (!select) return;
+  // --- Speech generation (delegated to backend) ---
 
-    select.innerHTML = '';
+  /**
+   * Generate and play TTS for text using the active backend.
+   */
+  async speakText(text) {
+    if (!text.trim()) return;
 
-    if (this.voices.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = this.voice;
-      opt.textContent = this.voice;
-      select.appendChild(opt);
-      return;
-    }
+    const cleaned = this._cleanTextForTTS(text);
+    if (!cleaned) return;
 
-    const groups = {};
-    for (const v of this.voices) {
-      if (!groups[v.lang]) groups[v.lang] = [];
-      groups[v.lang].push(v);
-    }
-
-    for (const [lang, voices] of Object.entries(groups)) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = lang;
-      for (const v of voices) {
-        const opt = document.createElement('option');
-        opt.value = v.id;
-        opt.textContent = `${v.name} (${v.gender})`;
-        if (v.id === this.voice) opt.selected = true;
-        optgroup.appendChild(opt);
+    try {
+      const result = await this.activeBackend.speakText(cleaned, this.voice);
+      if (result?.audio) {
+        this.app.voiceChatManager?.handleTTSStart();
+        await this.enqueueAudio(result.audio);
       }
-      select.appendChild(optgroup);
+      // null result = server backend (audio arrives via WS tts_audio → enqueueAudio)
+      //             = native backend (plugin handles playback directly)
+    } catch (err) {
+      console.warn('[TTS] Speech generation failed:', err.message);
+      this.app.voiceChatManager?.handleError('Speech failed: ' + err.message);
     }
   }
 
-  _updateVoiceSelectVisibility() {
-    // Voice select is now in the pull-down drawer, always visible there
+  _cleanTextForTTS(text) {
+    return text
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .replace(/<think>[\s\S]*$/g, '')
+      .replace(/[*_~`#>]/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\n+/g, ' ')
+      .trim();
   }
 
-  // --- Audio playback (shared by both backends) ---
+  // --- Audio playback queue (shared by all backends) ---
 
   async _ensureAudioContext() {
     if (!this.audioContext) {
@@ -191,6 +220,7 @@ class TTSManager {
       }
     } catch (err) {
       console.error('[TTS] Failed to enqueue audio:', err, 'audioContext state:', this.audioContext?.state);
+      this.app.voiceChatManager?.handleError('Audio playback failed');
     }
   }
 
@@ -244,95 +274,43 @@ class TTSManager {
     }
   }
 
-  // --- Browser backend (on-device TTS) ---
+  // --- Voice select UI (shared) ---
 
-  _ensureBrowserBackend() {
-    if (this.browserBackend || this.browserBackendLoading) return;
-    this.browserBackendLoading = true;
+  _populateVoiceSelect() {
+    const select = this.app.elements.voiceSelect;
+    if (!select) return;
 
-    const useWebGPU = !this.isSafari && !!navigator.gpu;
-    this.browserBackend = new TtsBrowserBackend();
-    this.browserBackend.init({
-      dtype: useWebGPU ? 'fp32' : 'q8',
-      device: useWebGPU ? 'webgpu' : 'wasm',
-      onProgress: (data) => {
-        if (this.browserBackend?.ready) return;
-        const pct = Math.round(data.progress || 0);
-        this.app.voiceChatManager?._setPrompt(`Loading TTS model: ${pct}%`);
-      },
-      onReady: () => {
-        this.browserBackendLoading = false;
-        console.log('[TTS] Browser TTS ready');
-      },
-      onError: (msg) => {
-        this.browserBackendLoading = false;
-        console.error('[TTS] Browser backend failed:', msg);
-        // Fall back to server
-        this.backend = 'server';
-        localStorage.setItem('eve-tts-backend', 'server');
-      },
-    });
-  }
+    select.innerHTML = '';
 
-  /**
-   * Generate and play TTS for text using the selected backend.
-   * Called by relay-client when voice mode is active.
-   */
-  async speakText(text) {
-    if (!text.trim()) return;
-
-    if (this.backend === 'native') {
-      await this._speakViaNative(text);
-    } else if (this.backend === 'browser') {
-      await this._speakViaBrowser(text);
-    }
-    // 'server' path is handled by relay-client → tts-service → enqueueAudio
-  }
-
-  _cleanTextForTTS(text) {
-    return text
-      .replace(/<think>[\s\S]*?<\/think>/g, '')
-      .replace(/<think>[\s\S]*$/g, '')
-      .replace(/[*_~`#>]/g, '')
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/\n+/g, ' ')
-      .trim();
-  }
-
-  async _speakViaNative(text) {
-    const cleaned = this._cleanTextForTTS(text);
-    if (!cleaned) return;
-
-    try {
-      await window.Capacitor.nativePromise('EveVoice', 'speak', { text: cleaned, voice: this.voice });
-    } catch (err) {
-      console.warn('[TTS] Native speak failed:', err.message);
-    }
-  }
-
-  async _speakViaBrowser(text) {
-    if (!this.browserBackend?.ready) {
-      this._ensureBrowserBackend();
+    if (this.voices.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = this.voice;
+      opt.textContent = this.voice;
+      select.appendChild(opt);
       return;
     }
 
-    const cleaned = this._cleanTextForTTS(text);
-    if (!cleaned) return;
+    const groups = {};
+    for (const v of this.voices) {
+      if (!groups[v.lang]) groups[v.lang] = [];
+      groups[v.lang].push(v);
+    }
 
-    try {
-      this.app.voiceChatManager?.handleTTSStart();
-      const result = await this.browserBackend.generate(cleaned, this.voice);
-      await this.enqueueAudio(result.audio);
-    } catch (err) {
-      console.warn('[TTS] Browser generation failed, disabling browser TTS:', err.message);
-      this.browserBackend = null;
-      this.browserBackendLoading = false;
-      this.app.voiceChatManager?.handleTTSEnd();
+    for (const [lang, voices] of Object.entries(groups)) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = lang;
+      for (const v of voices) {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = `${v.name} (${v.gender})`;
+        if (v.id === this.voice) opt.selected = true;
+        optgroup.appendChild(opt);
+      }
+      select.appendChild(optgroup);
     }
   }
 
-  /** Whether the browser backend is loaded and ready. */
-  get browserReady() {
-    return this.browserBackend?.ready || false;
+  _updateVoiceSelectVisibility() {
+    // Voice select is now in the pull-down drawer, always visible there
   }
 }
