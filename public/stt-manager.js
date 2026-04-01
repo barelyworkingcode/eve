@@ -17,6 +17,7 @@ class STTManager {
 
     const backendName = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
     this.activeBackend = this._createBackend(backendName);
+    console.log(`[STT] Using ${backendName} backend`);
   }
 
   get backend() {
@@ -87,11 +88,13 @@ class STTManager {
   }
 
   switchBackend(name) {
+    const prev = this.activeBackend.name;
     this.activeBackend.destroy();
     this.activeBackend = this._createBackend(name);
     localStorage.setItem('eve-stt-backend', name);
     this._initBackend();
     this._updateButtonVisibility();
+    console.log(`[STT] Switched backend: ${prev} → ${name}`);
   }
 
   setBackend(name) {

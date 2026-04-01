@@ -2,8 +2,12 @@
  * TTSManager - Audio playback and voice mode orchestrator.
  * Delegates speech generation and voice loading to a pluggable backend (browser, server, or native).
  * Owns shared concerns: audio playback queue, AudioContext, voice select UI, speaking indicator.
+ *
+ * Idle worker management: browser backend worker is terminated after 5 minutes of inactivity,
+ * then lazily re-created on next speakText() call.
  */
 const DEFAULT_TTS_VOICE = 'af_heart';
+const TTS_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 class TTSManager {
   constructor(app) {
@@ -16,9 +20,11 @@ class TTSManager {
     this.isPlaying = false;
     this.currentSource = null;
     this.isNativeApp = IS_NATIVE_APP;
+    this._idleTimer = null;
 
     const backendName = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
     this.activeBackend = this._createBackend(backendName);
+    console.log(`[TTS] Using ${backendName} backend`);
   }
 
   get backend() {
@@ -80,7 +86,7 @@ class TTSManager {
 
     if (this.activeBackend.name === 'browser') {
       const useWebGPU = !IS_SAFARI && !!navigator.gpu;
-      context.dtype = useWebGPU ? 'fp32' : 'q8';
+      context.dtype = useWebGPU ? 'fp32' : 'q4';
       context.device = useWebGPU ? 'webgpu' : 'wasm';
     }
 
@@ -88,7 +94,8 @@ class TTSManager {
   }
 
   switchBackend(name) {
-    const wasServer = this.activeBackend.name === 'server';
+    const prev = this.activeBackend.name;
+    this._clearIdleTimer();
     this.activeBackend.destroy();
     this.activeBackend = this._createBackend(name);
     localStorage.setItem('eve-tts-backend', name);
@@ -99,11 +106,13 @@ class TTSManager {
 
     // Sync server voice mode: disable if leaving server, enable if joining server
     const ws = this.app.wsClient;
-    if (wasServer && name !== 'server') {
+    if (prev === 'server' && name !== 'server') {
       ws.send({ type: 'voice_mode', enabled: false });
-    } else if (!wasServer && name === 'server' && this.enabled) {
+    } else if (prev !== 'server' && name === 'server' && this.enabled) {
       this.syncVoiceMode(ws);
     }
+
+    console.log(`[TTS] Switched backend: ${prev} → ${name}`);
 
     // Reload voices from new backend
     this.loadVoices();
@@ -165,7 +174,10 @@ class TTSManager {
     const cleaned = this._cleanTextForTTS(text);
     if (!cleaned) return;
 
+    this._clearIdleTimer();
+
     try {
+      console.log(`[TTS] Speaking via ${this.backend} (voice: ${this.voice}, ${cleaned.length} chars)`);
       const result = await this.activeBackend.speakText(cleaned, this.voice);
       if (result?.audio) {
         this.app.voiceChatManager?.handleTTSStart();
@@ -187,6 +199,24 @@ class TTSManager {
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       .replace(/\n+/g, ' ')
       .trim();
+  }
+
+  // --- Idle worker management ---
+
+  _startIdleTimer() {
+    this._clearIdleTimer();
+    if (this.activeBackend.name !== 'browser' || !this.activeBackend.destroyWorker) return;
+    this._idleTimer = setTimeout(() => {
+      console.log(`[TTS] Browser worker idle for ${TTS_IDLE_TIMEOUT_MS / 1000}s — terminating to free memory`);
+      this.activeBackend.destroyWorker();
+    }, TTS_IDLE_TIMEOUT_MS);
+  }
+
+  _clearIdleTimer() {
+    if (this._idleTimer) {
+      clearTimeout(this._idleTimer);
+      this._idleTimer = null;
+    }
   }
 
   // --- Audio playback queue (shared by all backends) ---
@@ -229,6 +259,7 @@ class TTSManager {
       this.isPlaying = false;
       this._setSpeakingIndicator(false);
       this.app.voiceChatManager?.handleTTSEnd();
+      this._startIdleTimer();
       return;
     }
 
