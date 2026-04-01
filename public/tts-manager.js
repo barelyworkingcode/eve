@@ -35,9 +35,9 @@ class TTSManager {
     this.isPlaying = false;
     this.currentSource = null;
 
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    this.isSafari = isSafari;
-    this.backend = localStorage.getItem('eve-tts-backend') || (isSafari ? 'server' : 'browser');
+    this.isSafari = IS_SAFARI;
+    this.isNativeApp = IS_NATIVE_APP;
+    this.backend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
     this.browserBackend = null;
     this.browserBackendLoading = false;
   }
@@ -82,7 +82,7 @@ class TTSManager {
 
   /** Whether server-side TTS relay should be active. */
   get useServerTTS() {
-    return this.backend !== 'browser';
+    return this.backend === 'server';
   }
 
   /** Send voice_mode state to server if using server TTS backend. */
@@ -92,6 +92,11 @@ class TTSManager {
   }
 
   async loadVoices() {
+    if (this.isNativeApp) {
+      this.voices = KOKORO_VOICES;
+      this._populateVoiceSelect();
+      return;
+    }
     try {
       const token = localStorage.getItem('eve_session');
       const headers = token ? { 'x-session-token': token } : {};
@@ -276,10 +281,33 @@ class TTSManager {
   async speakText(text) {
     if (!text.trim()) return;
 
-    if (this.backend === 'browser') {
+    if (this.backend === 'native') {
+      await this._speakViaNative(text);
+    } else if (this.backend === 'browser') {
       await this._speakViaBrowser(text);
     }
     // 'server' path is handled by relay-client → tts-service → enqueueAudio
+  }
+
+  _cleanTextForTTS(text) {
+    return text
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .replace(/<think>[\s\S]*$/g, '')
+      .replace(/[*_~`#>]/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\n+/g, ' ')
+      .trim();
+  }
+
+  async _speakViaNative(text) {
+    const cleaned = this._cleanTextForTTS(text);
+    if (!cleaned) return;
+
+    try {
+      await window.Capacitor.nativePromise('EveVoice', 'speak', { text: cleaned, voice: this.voice });
+    } catch (err) {
+      console.warn('[TTS] Native speak failed:', err.message);
+    }
   }
 
   async _speakViaBrowser(text) {
@@ -288,14 +316,7 @@ class TTSManager {
       return;
     }
 
-    // Clean text (strip markdown, thinking tags)
-    const cleaned = text
-      .replace(/<think>[\s\S]*?<\/think>/g, '')
-      .replace(/<think>[\s\S]*$/g, '')
-      .replace(/[*_~`#>]/g, '')
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/\n+/g, ' ')
-      .trim();
+    const cleaned = this._cleanTextForTTS(text);
     if (!cleaned) return;
 
     try {

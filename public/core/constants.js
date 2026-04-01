@@ -92,6 +92,11 @@ const EVT = {
   SETTINGS_CHANGED: 'settings:changed',
 };
 
+// Platform detection (invariant for page lifetime)
+const IS_NATIVE_APP = !!(window.Capacitor?.isNativePlatform?.());
+const IS_SAFARI = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+const IS_MOBILE_SAFARI = /iPhone|iPad|iPod/i.test(navigator.userAgent) && IS_SAFARI;
+
 // Plan file project ID sentinel
 const PLAN_PROJECT_ID = '__plan__';
 

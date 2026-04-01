@@ -14,10 +14,11 @@ class VoiceChatManager {
     this.maxCaptions = 4;
     this.assistantAccum = '';
     this._spacebarDown = false;
+    this._nativeListeners = [];
+    this.isNativeApp = IS_NATIVE_APP;
 
-    // Mobile Safari has VAD AudioWorklet issues — default to push-to-talk
-    const isMobileSafari = /iPhone|iPad|iPod/i.test(navigator.userAgent) && /safari/i.test(navigator.userAgent);
-    this.inputMode = localStorage.getItem('eve-voice-input-mode') || (isMobileSafari ? 'push-to-talk' : 'conversation');
+    // Native app always uses conversation mode; mobile Safari defaults to push-to-talk (AudioWorklet issues)
+    this.inputMode = IS_NATIVE_APP ? 'conversation' : (localStorage.getItem('eve-voice-input-mode') || (IS_MOBILE_SAFARI ? 'push-to-talk' : 'conversation'));
     this.vadManager = new VadManager();
     this._vadTranscribing = false;
   }
@@ -94,6 +95,13 @@ class VoiceChatManager {
   }
 
   activateForSession(sessionId) {
+    // Clean up any existing voice session (prevents listener leaks on session switch)
+    if (this.isNativeApp && this._nativeListeners.length > 0) {
+      this._stopNativeVoice();
+    } else {
+      this.vadManager.destroy();
+    }
+
     this.isVoiceSession = true;
     this.assistantAccum = '';
     this.captions = [];
@@ -110,14 +118,15 @@ class VoiceChatManager {
 
     // Show permission hint on first voice session
     if (!localStorage.getItem('eve-voice-hint-dismissed')) {
-      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-      if (isSafari) {
+      if (IS_SAFARI) {
         this._addCaption('error', 'Tip: In Safari Settings for this site, set Microphone to "Allow" and Auto-Play to "Allow All" for the best experience.');
       }
       localStorage.setItem('eve-voice-hint-dismissed', 'true');
     }
 
-    if (this.inputMode === 'conversation') {
+    if (this.isNativeApp) {
+      this._startNativeVoice();
+    } else if (this.inputMode === 'conversation') {
       this._startConversationMode().catch(err => {
         console.error('[VoiceChat] Conversation mode failed:', err);
         this._setPrompt(this._getPushToTalkPrompt());
@@ -132,7 +141,11 @@ class VoiceChatManager {
     this.isRecording = false;
     this._vadTranscribing = false;
     // Always release mic and stop playback when leaving voice mode
-    this.app.sttManager.stopRecording();
+    if (this.isNativeApp) {
+      this._stopNativeVoice();
+    } else {
+      this.app.sttManager.stopRecording();
+    }
     this.app.ttsManager.stop();
     this.vadManager.destroy();
     this.orbRenderer?.stop();
@@ -164,6 +177,71 @@ class VoiceChatManager {
     if (this.micBtn) {
       this.micBtn.classList.toggle('voice-chat__btn--secondary', isConvo);
     }
+  }
+
+  // --- Native voice (Capacitor) ---
+
+  async _startNativeVoice() {
+    this._setPrompt('Starting native voice...');
+    this.orbRenderer?.setState('idle');
+
+    const cap = window.Capacitor;
+
+    // Set up event listeners from native plugin
+    this._nativeListeners = [
+      await cap.addListener('EveVoice', 'transcription', (data) => {
+        if (data.isFinal && data.text?.trim()) {
+          this._addCaption('user', data.text.trim());
+          this.app.sttManager.handleTranscriptionResult(data.text.trim());
+        }
+      }),
+      await cap.addListener('EveVoice', 'speechStart', () => {
+        this.orbRenderer?.setState('listening');
+        this._setPrompt('Listening...');
+      }),
+      await cap.addListener('EveVoice', 'speechEnd', () => {
+        this.orbRenderer?.setState('idle');
+      }),
+      await cap.addListener('EveVoice', 'ttsStarted', () => {
+        this.orbRenderer?.setState('speaking');
+        this._setPrompt('Speaking...');
+      }),
+      await cap.addListener('EveVoice', 'ttsFinished', () => {
+        this.orbRenderer?.setState('listening');
+        this._setPrompt('Listening...');
+      }),
+      await cap.addListener('EveVoice', 'audioLevel', (data) => {
+        this.orbRenderer?.setAudioLevel?.(data.level || 0);
+      }),
+      await cap.addListener('EveVoice', 'error', (data) => {
+        console.error('[NativeVoice] Error:', data.message);
+        this._addCaption('error', data.message);
+      }),
+    ];
+
+    // Load models and start listening
+    try {
+      await cap.nativePromise('EveVoice', 'loadModels', {});
+      await cap.nativePromise('EveVoice', 'startListening', {});
+      this.orbRenderer?.setState('listening');
+      this._setPrompt('Listening...');
+    } catch (err) {
+      console.error('[NativeVoice] Failed to start:', err);
+      this._setPrompt('Native voice failed: ' + err.message);
+    }
+  }
+
+  _stopNativeVoice() {
+    const cap = window.Capacitor;
+    if (cap) {
+      cap.nativePromise('EveVoice', 'stopListening', {}).catch(() => {});
+      cap.nativePromise('EveVoice', 'stopSpeaking', {}).catch(() => {});
+    }
+    // Remove all event listeners
+    for (const listener of this._nativeListeners) {
+      listener?.remove?.();
+    }
+    this._nativeListeners = [];
   }
 
   async _startConversationMode() {
@@ -362,8 +440,9 @@ class VoiceChatManager {
   handleResponseComplete() {
     if (!this.isVoiceSession) return;
 
-    // Browser TTS: speak the accumulated text client-side
-    if (this.app.ttsManager.backend === 'browser' && this.assistantAccum.trim()) {
+    // Client-side TTS: speak the accumulated text via browser or native backend
+    const backend = this.app.ttsManager.backend;
+    if ((backend === 'browser' || backend === 'native') && this.assistantAccum.trim()) {
       this.app.ttsManager.speakText(this.assistantAccum);
     }
 
