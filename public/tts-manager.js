@@ -85,10 +85,9 @@ class TTSManager {
     };
 
     if (this.activeBackend.name === 'browser') {
-      // Safari: kokoro-js has a TypeError in the ONNX WASM runtime that fires regardless
-      // of execution provider (WebGPU still loads WASM as fallback). No workaround exists —
-      // Safari must use server TTS. See docs/learned.md for details.
-      const useWebGPU = !IS_SAFARI && !!navigator.gpu;
+      // Use WebGPU with fp32 when available, otherwise WASM with q4 quantization.
+      // Now works on Safari — replaced kokoro-js (broken on Safari) with direct onnxruntime-web.
+      const useWebGPU = !!navigator.gpu;
       context.dtype = useWebGPU ? 'fp32' : 'q4';
       context.device = useWebGPU ? 'webgpu' : 'wasm';
     }
