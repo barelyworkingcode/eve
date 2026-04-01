@@ -119,6 +119,11 @@ class MessageDispatcher {
           this.client.voiceChatManager?.handleError(data.error);
         }
         this.client.voiceChatManager?.handleResponseComplete();
+        // Native TTS for text sessions (voice sessions handled by voiceChatManager)
+        if (this._nativeTTSAccum && !this.client.voiceChatManager?.isVoiceSession) {
+          this.client.ttsManager.speakText(this._nativeTTSAccum);
+        }
+        this._nativeTTSAccum = '';
         break;
       }
 
@@ -579,6 +584,10 @@ class MessageDispatcher {
       if (event.delta.type === 'text_delta') {
         this.client.messageRenderer.appendToAssistantMessage(event.delta.text);
         this.client.voiceChatManager?.handleAssistantDelta(event.delta.text);
+        // Accumulate for native TTS in text sessions
+        if (this.client.ttsManager?.backend === 'native' && this.client.ttsManager?.enabled) {
+          this._nativeTTSAccum = (this._nativeTTSAccum || '') + event.delta.text;
+        }
       }
     }
   }

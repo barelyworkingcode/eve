@@ -15,9 +15,9 @@ class STTManager {
     this.timerInterval = null;
     this.available = null; // null = unknown, true/false after check
 
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    this.isSafari = isSafari;
-    this.backend = localStorage.getItem('eve-stt-backend') || (isSafari ? 'server' : 'browser');
+    this.isSafari = IS_SAFARI;
+    this.isNativeApp = IS_NATIVE_APP;
+    this.backend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
     this.browserBackend = null;
     this.browserBackendLoading = false;
   }
@@ -30,6 +30,11 @@ class STTManager {
   }
 
   async checkAvailability() {
+    if (this.isNativeApp) {
+      this.available = true;
+      this._updateButtonVisibility();
+      return;
+    }
     try {
       const token = localStorage.getItem('eve_session');
       const headers = token ? { 'x-session-token': token } : {};
@@ -144,7 +149,11 @@ class STTManager {
    * Falls back to server if browser backend not ready.
    */
   async transcribeFloat32(audio) {
-    if (this.backend === 'browser') {
+    if (this.backend === 'native') {
+      // Native STT: audio capture + transcription handled entirely by EveVoice plugin.
+      // This method shouldn't be called in native mode — VAD is native too.
+      return;
+    } else if (this.backend === 'browser') {
       if (!this.browserBackend?.ready) {
         console.log('[STT] Browser model still loading, skipping');
         return;

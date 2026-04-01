@@ -44,7 +44,7 @@ function createAuthRoutes(authService) {
   // --- Routes ---
 
   router.get('/auth/status', (req, res) => {
-    if (authService.isLocalhost(req)) {
+    if (authService.isLocalhost(req) || process.env.EVE_NO_AUTH === '1') {
       return res.json({ enrolled: false, authenticated: true, localhost: true });
     }
     const enrolled = authService.isEnrolled();

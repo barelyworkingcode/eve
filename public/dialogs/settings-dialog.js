@@ -187,7 +187,10 @@ class SettingsDialog extends DialogBase {
 
     const backendSelect = document.createElement('select');
     backendSelect.className = 'dialog__select';
-    for (const [value, label] of [['server', 'Server (Kokoro daemon)'], ['browser', 'On-Device (browser)']]) {
+    const ttsOptions = tts.isNativeApp
+      ? [['native', 'Native (on-device)'], ['server', 'Server (Kokoro daemon)']]
+      : [['server', 'Server (Kokoro daemon)'], ['browser', 'On-Device (browser)']];
+    for (const [value, label] of ttsOptions) {
       const opt = document.createElement('option');
       opt.value = value;
       opt.textContent = label;
@@ -202,7 +205,9 @@ class SettingsDialog extends DialogBase {
 
     const hint = document.createElement('span');
     hint.className = 'field-hint';
-    hint.textContent = 'On-Device downloads an 86MB model on first use, then runs locally.';
+    hint.textContent = tts.isNativeApp
+      ? 'Native uses Kokoro TTS via the iOS Neural Engine.'
+      : 'On-Device downloads an 86MB model on first use, then runs locally.';
     container.appendChild(hint);
 
     // TTS Status
@@ -224,7 +229,10 @@ class SettingsDialog extends DialogBase {
 
     const sttSelect = document.createElement('select');
     sttSelect.className = 'dialog__select';
-    for (const [value, label] of [['server', 'Server (Whisper daemon)'], ['browser', 'On-Device (browser)']]) {
+    const sttOptions = stt.isNativeApp
+      ? [['native', 'Native (on-device)'], ['server', 'Server (Whisper daemon)']]
+      : [['server', 'Server (Whisper daemon)'], ['browser', 'On-Device (browser)']];
+    for (const [value, label] of sttOptions) {
       const opt = document.createElement('option');
       opt.value = value;
       opt.textContent = label;
@@ -239,7 +247,9 @@ class SettingsDialog extends DialogBase {
 
     const sttHint = document.createElement('span');
     sttHint.className = 'field-hint';
-    sttHint.textContent = 'On-Device downloads a 166MB Whisper model on first use.';
+    sttHint.textContent = stt.isNativeApp
+      ? 'Native uses WhisperKit STT via the iOS Neural Engine.'
+      : 'On-Device downloads a 166MB Whisper model on first use.';
     container.appendChild(sttHint);
 
     const sttStatusEl = document.createElement('div');
@@ -250,6 +260,7 @@ class SettingsDialog extends DialogBase {
   }
 
   _getTtsStatus(tts) {
+    if (tts.backend === 'native') return 'Using native Kokoro TTS via iOS Neural Engine.';
     if (tts.backend === 'server') return 'Using server-side Kokoro TTS daemon.';
     if (tts.isSafari && tts.backend === 'browser') return 'Warning: On-device TTS is not yet supported on Safari. Use Server.';
     if (tts.browserBackend?.ready) return 'On-device model loaded and ready.';
@@ -258,6 +269,7 @@ class SettingsDialog extends DialogBase {
   }
 
   _getSttStatus(stt) {
+    if (stt.backend === 'native') return 'Using native WhisperKit STT via iOS Neural Engine.';
     if (stt.backend === 'server') return 'Using server-side Whisper daemon.';
     if (stt.browserBackend?.ready) return 'On-device model loaded and ready.';
     if (stt.browserBackendLoading) return 'Loading on-device model...';
