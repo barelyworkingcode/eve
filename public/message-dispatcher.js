@@ -123,11 +123,11 @@ class MessageDispatcher {
           this.client.voiceChatManager?.handleError(data.error);
         }
         this.client.voiceChatManager?.handleResponseComplete();
-        // Native TTS for text sessions (voice sessions handled by voiceChatManager)
-        if (this._nativeTTSAccum && !this.client.voiceChatManager?.isVoiceSession) {
-          this.client.ttsManager.speakText(this._nativeTTSAccum);
+        // Client-side TTS for text sessions (voice sessions handled by voiceChatManager)
+        if (this._clientTTSAccum && !this.client.voiceChatManager?.isVoiceSession) {
+          this.client.ttsManager.speakText(this._clientTTSAccum);
         }
-        this._nativeTTSAccum = '';
+        this._clientTTSAccum = '';
         break;
       }
 
@@ -588,9 +588,10 @@ class MessageDispatcher {
       if (event.delta.type === 'text_delta') {
         this.client.messageRenderer.appendToAssistantMessage(event.delta.text);
         this.client.voiceChatManager?.handleAssistantDelta(event.delta.text);
-        // Accumulate for native TTS in text sessions
-        if (this.client.ttsManager?.backend === 'native' && this.client.ttsManager?.enabled) {
-          this._nativeTTSAccum = (this._nativeTTSAccum || '') + event.delta.text;
+        // Accumulate for client-side TTS in text sessions (browser and native backends)
+        const ttsBackend = this.client.ttsManager?.backend;
+        if ((ttsBackend === 'native' || ttsBackend === 'browser') && this.client.ttsManager?.enabled) {
+          this._clientTTSAccum = (this._clientTTSAccum || '') + event.delta.text;
         }
       }
     }
