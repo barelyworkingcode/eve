@@ -85,16 +85,11 @@ class TTSManager {
     };
 
     if (this.activeBackend.name === 'browser') {
-      const useWebGPU = !IS_SAFARI && !!navigator.gpu;
-      if (IS_SAFARI) {
-        // Safari: WASM has a known TypeError in kokoro-js ONNX runtime.
-        // Try WebGL which uses a different execution provider and may bypass the bug.
-        context.dtype = 'fp32';
-        context.device = 'webgl';
-      } else {
-        context.dtype = useWebGPU ? 'fp32' : 'q4';
-        context.device = useWebGPU ? 'webgpu' : 'wasm';
-      }
+      // Safari: kokoro-js WASM has a known TypeError, WebGPU is the only alternative.
+      // Safari 18+ supports WebGPU — try it if available, otherwise WASM is the only option.
+      const useWebGPU = !!navigator.gpu;
+      context.dtype = useWebGPU ? 'fp32' : 'q4';
+      context.device = useWebGPU ? 'webgpu' : 'wasm';
     }
 
     this.activeBackend.init(context);
