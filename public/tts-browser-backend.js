@@ -4,6 +4,7 @@
  */
 class TtsBrowserBackend {
   constructor() {
+    this.name = 'browser';
     this.worker = null;
     this.ready = false;
     this.loading = false;
@@ -55,6 +56,22 @@ class TtsBrowserBackend {
       this._pendingCallbacks.set(id, { resolve, reject });
       this.worker.postMessage({ type: 'generate', text, voice, id });
     });
+  }
+
+  /**
+   * Generate audio for text. Returns { audio: base64, duration }.
+   * Conforms to the TTS backend interface used by TTSManager.speakText().
+   */
+  async speakText(text, voice) {
+    return this.generate(text, voice);
+  }
+
+  async loadVoices() {
+    return KOKORO_VOICES; // Browser uses same voice IDs as native/server
+  }
+
+  async isAvailable() {
+    return true;
   }
 
   destroy() {

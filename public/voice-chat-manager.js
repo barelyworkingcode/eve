@@ -270,10 +270,8 @@ class VoiceChatManager {
   _onVADSpeechStart() {
     if (!this.isVoiceSession) return;
 
-    // Barge-in: stop TTS if it's playing
-    if (this.app.ttsManager.isPlaying) {
-      this.app.ttsManager.stop();
-    }
+    // Aggressive barge-in: always stop TTS immediately (safe to call even when not playing)
+    this.app.ttsManager.stop();
 
     this.orbRenderer?.setState('listening');
     this._setPrompt('Listening...');

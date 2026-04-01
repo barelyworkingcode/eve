@@ -340,6 +340,12 @@ async function handleTranscribeAudio(ws, sttService, message) {
       ws.send(JSON.stringify({ type: 'transcription_error', error: 'No audio data' }));
       return;
     }
+    const audioBytes = Math.round(audio.length * 3 / 4); // approximate decoded size
+    console.log(`[WsHandler] Transcribing audio: ~${audioBytes} bytes, language=${language || 'auto'}`);
+    if (audioBytes < 100) {
+      ws.send(JSON.stringify({ type: 'transcription_error', error: 'Audio recording too short' }));
+      return;
+    }
     const result = await sttService.transcribe(audio, language || null);
     ws.send(JSON.stringify({
       type: 'transcription_result',
@@ -349,7 +355,12 @@ async function handleTranscribeAudio(ws, sttService, message) {
     }));
   } catch (err) {
     console.error('[WsHandler] Transcription failed:', err.message);
-    ws.send(JSON.stringify({ type: 'transcription_error', error: err.message }));
+    // Strip verbose ffmpeg output — show a clean error to the user
+    let errorMsg = err.message;
+    if (errorMsg.includes('ffmpeg') || errorMsg.includes('EBML') || errorMsg.includes('End of file')) {
+      errorMsg = 'Failed to process audio. The recording may be too short or corrupted.';
+    }
+    ws.send(JSON.stringify({ type: 'transcription_error', error: errorMsg }));
   }
 }
 
