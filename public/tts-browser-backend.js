@@ -1,6 +1,10 @@
 /**
  * TtsBrowserBackend - On-device TTS using kokoro-js via Web Worker.
  * Manages worker lifecycle, model loading, and audio generation.
+ *
+ * Lazy initialization: worker is only created on first speakText() call.
+ * Idle teardown: worker is terminated after IDLE_TIMEOUT_MS of inactivity,
+ * then re-created on next use.
  */
 class TtsBrowserBackend {
   constructor() {
@@ -13,37 +17,59 @@ class TtsBrowserBackend {
     this._onProgress = null;
     this._onReady = null;
     this._onError = null;
+    this._initOptions = null;
+    this._readyPromiseResolvers = [];
   }
 
   /**
-   * Initialize the TTS worker and load the model.
+   * Store init options for lazy worker creation.
+   * Worker is NOT created here — deferred to first speakText() call.
    * @param {Object} options
-   * @param {string} [options.dtype='q8'] - Model quantization (q8, fp32, q4)
+   * @param {string} [options.dtype='q4'] - Model quantization (q4, q8, fp32)
    * @param {string} [options.device='wasm'] - Backend (wasm, webgpu)
    * @param {Function} [options.onProgress] - Called with { progress, file }
    * @param {Function} [options.onReady] - Called when model loaded
    * @param {Function} [options.onError] - Called with error message
    */
-  async init(options = {}) {
-    if (this.ready || this.loading) return;
-    this.loading = true;
+  init(options = {}) {
+    this._initOptions = options;
     this._onProgress = options.onProgress || null;
     this._onReady = options.onReady || null;
     this._onError = options.onError || null;
+    console.log(`[TTS:browser] Initialized (lazy) — dtype=${options.dtype || 'q4'}, device=${options.device || 'wasm'}`);
+  }
+
+  /**
+   * Ensure the worker is running and model is loaded. Creates worker on first call.
+   * Returns a promise that resolves when the backend is ready.
+   */
+  async _ensureWorker() {
+    if (this.ready) return;
+
+    if (this.loading) {
+      // Already loading — wait for it
+      return new Promise((resolve) => this._readyPromiseResolvers.push(resolve));
+    }
+
+    this.loading = true;
+    const opts = this._initOptions || {};
+    console.log(`[TTS:browser] Loading on-device model (dtype=${opts.dtype || 'q4'}, device=${opts.device || 'wasm'})...`);
 
     this.worker = new Worker('tts-worker.js', { type: 'module' });
     this.worker.onmessage = (e) => this._handleMessage(e.data);
     this.worker.onerror = (e) => {
-      console.error('[TtsBrowser] Worker error:', e.message);
+      console.error('[TTS:browser] Worker error:', e.message);
       this.loading = false;
       this._onError?.(e.message);
     };
 
     this.worker.postMessage({
       type: 'init',
-      dtype: options.dtype || 'q8',
-      device: options.device || 'wasm',
+      dtype: opts.dtype || 'q4',
+      device: opts.device || 'wasm',
     });
+
+    return new Promise((resolve) => this._readyPromiseResolvers.push(resolve));
   }
 
   generate(text, voice = 'af_heart') {
@@ -59,10 +85,11 @@ class TtsBrowserBackend {
   }
 
   /**
-   * Generate audio for text. Returns { audio: base64, duration }.
-   * Conforms to the TTS backend interface used by TTSManager.speakText().
+   * Generate audio for text. Ensures worker is loaded first (lazy init).
+   * Returns { audio: base64, duration }.
    */
   async speakText(text, voice) {
+    await this._ensureWorker();
     return this.generate(text, voice);
   }
 
@@ -74,17 +101,27 @@ class TtsBrowserBackend {
     return true;
   }
 
-  destroy() {
+  /**
+   * Terminate the worker but keep the backend alive for re-init.
+   * Called by TTSManager on idle timeout.
+   */
+  destroyWorker() {
     if (this.worker) {
+      console.log('[TTS:browser] Terminating idle worker');
       this.worker.terminate();
       this.worker = null;
     }
     this.ready = false;
     this.loading = false;
     for (const [, cb] of this._pendingCallbacks) {
-      cb.reject(new Error('TTS destroyed'));
+      cb.reject(new Error('TTS worker terminated'));
     }
     this._pendingCallbacks.clear();
+  }
+
+  destroy() {
+    this.destroyWorker();
+    this._initOptions = null;
   }
 
   _handleMessage(msg) {
@@ -96,8 +133,11 @@ class TtsBrowserBackend {
       case 'ready':
         this.ready = true;
         this.loading = false;
-        console.log('[TtsBrowser] Model loaded');
+        console.log('[TTS:browser] On-device model loaded and ready');
         this._onReady?.();
+        // Resolve all waiting promises
+        for (const resolve of this._readyPromiseResolvers) resolve();
+        this._readyPromiseResolvers = [];
         break;
 
       case 'audio': {
@@ -115,7 +155,7 @@ class TtsBrowserBackend {
           this._pendingCallbacks.delete(msg.id);
           errCb.reject(new Error(msg.message));
         } else {
-          console.error('[TtsBrowser] Worker error:', msg.message);
+          console.error('[TTS:browser] Worker error:', msg.message);
           this._onError?.(msg.message);
         }
         break;
