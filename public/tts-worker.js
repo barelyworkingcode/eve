@@ -106,14 +106,16 @@ let espeakFactory = null;
 
 async function loadEspeak() {
   if (espeakFactory) return espeakFactory;
-  // espeak-ng.js is not an ES module — load via fetch + indirect eval into global scope.
-  // Patch import.meta.url (only used as WASM path fallback; we override via locateFile).
+  // espeak-ng.js uses import.meta and export — must stay in ES module context.
+  // Fetch, patch import.meta.url to CDN path, then import via Blob URL.
   const res = await fetch(`${ESPEAK_CDN}/espeak-ng.js`);
   const code = await res.text();
-  const patched = code.replaceAll('import.meta.url', JSON.stringify(`${ESPEAK_CDN}/`))
-    .replaceAll('import.meta', JSON.stringify({ url: `${ESPEAK_CDN}/` }));
-  (0, eval)(patched);
-  espeakFactory = ESpeakNG;
+  const patched = code.replaceAll('import.meta.url', JSON.stringify(`${ESPEAK_CDN}/espeak-ng.js`));
+  const blob = new Blob([patched], { type: 'text/javascript' });
+  const blobUrl = URL.createObjectURL(blob);
+  const mod = await import(blobUrl);
+  URL.revokeObjectURL(blobUrl);
+  espeakFactory = mod.default;
   return espeakFactory;
 }
 
