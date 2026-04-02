@@ -6,8 +6,8 @@
 class SttNativeBackend {
   constructor() {
     this.name = 'native';
-    this.requiresModelLoad = true;
-    this.clientSideTTS = true;
+    this.onDevice = true;
+    
     this.ready = false;
     this.loading = false;
     this._listener = null;
