@@ -10,6 +10,7 @@ class VoiceChatManager {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.bus = container.get('bus');
     this.isVoiceSession = false;
     this.isRecording = false;
     this.orbRenderer = null;
@@ -46,7 +47,7 @@ class VoiceChatManager {
     this.orbRenderer = new VoiceOrbCanvas(this.orbCanvas, this.app);
 
     // Update backend status display and prompt when backends change
-    window.bus?.on(EVT.VOICE_BACKEND_CHANGED, () => {
+    this.bus.on(EVT.VOICE_BACKEND_CHANGED, () => {
       this._updateBackendStatus();
       if (this.isVoiceSession) {
         const mode = this.inputMode;

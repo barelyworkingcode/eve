@@ -9,6 +9,7 @@ class STTManager {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.bus = container.get('bus');
     this.isRecording = false;
     this.mediaRecorder = null;
     this.audioChunks = [];
@@ -57,7 +58,7 @@ class STTManager {
       },
       onReady: () => {
         console.log(`[STT] ${this.backend} backend ready`);
-        window.bus?.emit(EVT.VOICE_BACKEND_CHANGED);
+        this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
       },
       onError: (msg) => {
         console.error(`[STT] ${this.backend} backend failed:`, msg);
@@ -97,7 +98,7 @@ class STTManager {
     this._initBackend();
     this._updateButtonVisibility();
     console.log(`[STT] Switched backend: ${prev} → ${name}`);
-    window.bus?.emit(EVT.VOICE_BACKEND_CHANGED);
+    this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
   }
 
   setBackend(name) {
