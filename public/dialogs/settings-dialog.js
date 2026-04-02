@@ -202,7 +202,7 @@ class SettingsDialog extends DialogBase {
       statusEl.textContent = this._getTtsStatus(tts);
       // Trigger model loading overlay if switching to on-device
       const app = this.container.get('app');
-      if (app?.ttsManager?.activeBackend?.requiresModelLoad) app._showModelLoadingOverlay();
+      if (app?.ttsManager?.activeBackend?.onDevice) app._showModelLoadingOverlay();
     });
     container.appendChild(backendSelect);
 
@@ -247,7 +247,7 @@ class SettingsDialog extends DialogBase {
       sttStatusEl.textContent = this._getSttStatus(stt);
       // Trigger model loading overlay if switching to on-device
       const app = this.container.get('app');
-      if (app?.sttManager?.activeBackend?.requiresModelLoad) app._showModelLoadingOverlay();
+      if (app?.sttManager?.activeBackend?.onDevice) app._showModelLoadingOverlay();
     });
     container.appendChild(sttSelect);
 

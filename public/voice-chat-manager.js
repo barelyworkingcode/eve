@@ -440,7 +440,7 @@ class VoiceChatManager {
 
     // Client-side TTS: speak the accumulated text via browser or native backend
     const backend = this.app.ttsManager.backend;
-    if (this.app.ttsManager.activeBackend.clientSideTTS && this.assistantAccum.trim()) {
+    if (this.app.ttsManager.activeBackend.onDevice && this.assistantAccum.trim()) {
       this.app.ttsManager.speakText(this.assistantAccum);
     }
 
