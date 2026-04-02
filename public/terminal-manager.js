@@ -1,6 +1,9 @@
 class TerminalManager {
-  constructor(client) {
-    this.client = client;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.terminals = new Map(); // terminalId -> { term, fitAddon, container, directory, templateId, name, exited }
     this.allTerminals = new Map(); // terminalId -> { id, templateId, name, directory, state } — all known from relayLLM
     this.activeTerminalId = null;

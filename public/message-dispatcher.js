@@ -3,8 +3,11 @@
  * Extracted from EveWorkspaceClient to separate message dispatch from orchestration.
  */
 class MessageDispatcher {
-  constructor(client) {
-    this.client = client;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.pendingInteractiveTool = null;
     this.lastPlanFilePath = null;
     this._lastNonInteractiveToolName = null;
@@ -12,234 +15,167 @@ class MessageDispatcher {
     this.backgroundBuffers = new Map();
     // Set of sessionIds that are currently streaming
     this.streamingSessions = new Set();
+
+    this._sessionScopedTypes = new Set([
+      'llm_event', 'message_complete', 'stats_update', 'raw_output',
+      'stderr', 'process_exited', 'error', 'system_message', 'clear_messages',
+    ]);
+
+    this._handlers = {
+      session_created:      (d) => this.handleSessionCreated(d),
+      session_joined:       (d) => this.handleSessionJoined(d),
+      session_renamed:      (d) => this.handleSessionRenamed(d),
+      session_ended:        (d) => this.handleSessionEnded(d),
+      llm_event:            (d) => this._handleLlmEventMessage(d),
+      raw_output:           (d) => this.client.messageRenderer.appendRawOutput(d.text),
+      stderr:               (d) => this.client.messageRenderer.appendSystemMessage(d.text, 'error'),
+      process_exited:       (d) => this._handleProcessExited(d),
+      error:                (d) => this._handleError(d),
+      system_message:       (d) => this.client.messageRenderer.appendSystemMessage(d.message),
+      clear_messages:       ()  => this.client.messageRenderer.clearMessages(),
+      message_complete:     (d) => this._handleMessageComplete(d),
+      stats_update:         (d) => this.client.updateStats(d.stats),
+      tts_audio:            (d) => this._handleTtsAudio(d),
+      tts_error:            (d) => this._handleTtsError(d),
+      transcription_result: (d) => this.client.sttManager?.handleTranscriptionResult(d.text),
+      transcription_error:  (d) => this.client.sttManager?.handleTranscriptionError(d.error),
+      directory_listing:    (d) => this._handleDirectoryListing(d),
+      file_content:         (d) => this.client.handleFileContent(d.projectId, d.path, d.content),
+      plan_file_content:    (d) => this.client.handleFileContent(PLAN_PROJECT_ID, d.path, d.content),
+      file_error:           (d) => this.client.fileBrowser.handleFileError(d.projectId, d.path, d.error),
+      file_saved:           (d) => this.client.handleFileSaved(d.projectId, d.path),
+      file_renamed:         (d) => this._handleFileEvent(d, 'handleFileRenamed', [d.projectId, d.oldPath, d.newPath], EVT.FILE_RENAMED),
+      file_moved:           (d) => this._handleFileEvent(d, 'handleFileMoved', [d.projectId, d.oldPath, d.newPath], EVT.FILE_MOVED),
+      file_deleted:         (d) => this._handleFileEvent(d, 'handleFileDeleted', [d.projectId, d.path], EVT.FILE_DELETED),
+      directory_created:    (d) => this._handleFileEvent(d, 'handleDirectoryCreated', [d.projectId, d.path, d.name], EVT.DIRECTORY_CREATED),
+      file_uploaded:        (d) => this._handleFileEvent(d, 'handleFileUploaded', [d.projectId, d.destDirectory, d.fileName], EVT.FILE_UPLOADED),
+      file_changed:         (d) => this.client.handleFileChanged(d.projectId, d.path, d.content),
+      terminal_created:     (d) => this.client.terminalManager.onTerminalCreated(d.terminalId, d.templateId, d.name, d.directory),
+      terminal_joined:      (d) => this.client.terminalManager.onTerminalJoined(d),
+      terminal_output:      (d) => this.client.terminalManager.onTerminalOutput(d.terminalId, d.data),
+      terminal_exit:        (d) => this.client.terminalManager.onTerminalExit(d.terminalId, d.exitCode),
+      terminal_closed:      (d) => this.client.terminalManager.onTerminalExit(d.terminalId, 0),
+      terminal_list:        (d) => this.client.terminalManager.onTerminalList(d.terminals),
+      terminal_templates:   (d) => this._handleTerminalTemplates(d),
+      permission_request:   (d) => this.client.modalManager.showPermissionModal(d),
+      warning:              (d) => this.client.messageRenderer.appendSystemMessage(d.message, 'warning'),
+      task_started:         (d) => this.handleSchedulerTaskEvent(d),
+      task_completed:       (d) => this.handleSchedulerTaskEvent(d),
+      task_error:           (d) => this.handleSchedulerTaskEvent(d),
+      task_status:          (d) => this.handleSchedulerTaskStatus(d),
+    };
   }
 
   dispatch(data) {
     // Route session-scoped events to the correct session.
     // If the event has a sessionId that doesn't match the current visible session,
     // buffer it for that session instead of rendering it.
-    const sessionScopedTypes = ['llm_event', 'message_complete', 'stats_update', 'raw_output', 'stderr', 'process_exited', 'error', 'system_message', 'clear_messages'];
-    if (data.sessionId && data.sessionId !== this.client.currentSessionId && sessionScopedTypes.includes(data.type)) {
+    if (data.sessionId && data.sessionId !== this.client.currentSessionId && this._sessionScopedTypes.has(data.type)) {
       this._handleBackgroundEvent(data);
       return;
     }
 
-    switch (data.type) {
-      case 'session_created':
-        this.handleSessionCreated(data);
-        break;
+    const handler = this._handlers[data.type];
+    if (handler) handler(data);
+  }
 
-      case 'session_joined':
-        this.handleSessionJoined(data);
-        break;
+  // --- Dispatch helpers (extracted from inline switch cases) ---
 
-      case 'session_renamed':
-        this.handleSessionRenamed(data);
-        break;
+  _trackStreaming(sessionId) {
+    if (sessionId) this.streamingSessions.add(sessionId);
+  }
 
-      case 'llm_event':
-        if (data.sessionId) this.streamingSessions.add(data.sessionId);
-        this.handleLlmEvent(data.event);
-        break;
+  _untrackStreaming(sessionId) {
+    if (sessionId) this.streamingSessions.delete(sessionId);
+  }
 
-      case 'raw_output':
-        this.client.messageRenderer.appendRawOutput(data.text);
-        break;
+  _notifyVoiceError(message) {
+    this.client.voiceChatManager?.handleError(message);
+  }
 
-      case 'stderr':
-        this.client.messageRenderer.appendSystemMessage(data.text, 'error');
-        break;
+  _handleLlmEventMessage(data) {
+    this._trackStreaming(data.sessionId);
+    this.handleLlmEvent(data.event);
+  }
 
-      case 'session_ended':
-        this.handleSessionEnded(data);
-        break;
+  _handleProcessExited(data) {
+    this._untrackStreaming(data.sessionId);
+    this.client.messageRenderer.hideThinkingIndicator();
+    this.client.messageRenderer.appendSystemMessage('Provider process exited. Will restart on next message.');
+    this.client.hideStopButton();
+  }
 
-      case 'process_exited':
-        if (data.sessionId) this.streamingSessions.delete(data.sessionId);
-        this.client.messageRenderer.hideThinkingIndicator();
-        this.client.messageRenderer.appendSystemMessage('Provider process exited. Will restart on next message.');
-        this.client.hideStopButton();
-        break;
+  _handleError(data) {
+    this._untrackStreaming(data.sessionId);
+    this.client.messageRenderer.hideThinkingIndicator();
+    this.client.messageRenderer.appendSystemMessage(data.message, 'error');
+    this._notifyVoiceError(data.message);
+    this.client.hideStopButton();
+  }
 
-      case 'error':
-        if (data.sessionId) this.streamingSessions.delete(data.sessionId);
-        this.client.messageRenderer.hideThinkingIndicator();
-        this.client.messageRenderer.appendSystemMessage(data.message, 'error');
-        this.client.voiceChatManager?.handleError(data.message);
-        this.client.hideStopButton();
-        break;
-
-      case 'system_message':
-        this.client.messageRenderer.appendSystemMessage(data.message);
-        break;
-
-      case 'tts_audio':
-        this.client.ttsManager?.enqueueAudio(data.data);
-        this.client.voiceChatManager?.handleTTSStart();
-        break;
-
-      case 'tts_error':
-        console.warn('[TTS] Error:', data.message);
-        this.client.voiceChatManager?.handleError(`Speech failed: ${data.message}`);
-        if (!this.client.voiceChatManager?.isVoiceSession) {
-          this.client.messageRenderer.appendSystemMessage(`TTS error: ${data.message}`, 'error');
-        }
-        break;
-
-      case 'transcription_result':
-        this.client.sttManager?.handleTranscriptionResult(data.text);
-        break;
-
-      case 'transcription_error':
-        this.client.sttManager?.handleTranscriptionError(data.error);
-        break;
-
-      case 'clear_messages':
-        this.client.messageRenderer.clearMessages();
-        break;
-
-      case 'message_complete': {
-        if (data.sessionId) this.streamingSessions.delete(data.sessionId);
-        if (this.pendingInteractiveTool) {
-          const tool = this.pendingInteractiveTool;
-          this.pendingInteractiveTool = null;
-          // If we accumulated raw JSON string, parse it now
-          if (tool._rawInput) {
-            try { Object.assign(tool.input, JSON.parse(tool._rawInput)); } catch {}
-          }
-          this.handleInteractiveTool(tool.name, tool.input);
-          return;
-        }
-        const hadContent = !!this.client.messageRenderer.currentAssistantMessage;
-        this.client.messageRenderer.hideThinkingIndicator();
-        this.client.messageRenderer.finishAssistantMessage();
-        this.client.hideStopButton();
-        if (!hadContent && !data.error) {
-          const msg = data.errorMessage || 'No response from model';
-          this.client.messageRenderer.appendSystemMessage(msg, 'error');
-          this.client.voiceChatManager?.handleError(msg);
-        } else if (data.error) {
-          this.client.messageRenderer.appendSystemMessage(data.error, 'error');
-          this.client.voiceChatManager?.handleError(data.error);
-        }
-        this.client.voiceChatManager?.handleResponseComplete();
-        // Client-side TTS for text sessions (voice sessions handled by voiceChatManager)
-        if (this._clientTTSAccum && !this.client.voiceChatManager?.isVoiceSession) {
-          this.client.ttsManager.speakText(this._clientTTSAccum);
-        }
-        this._clientTTSAccum = '';
-        break;
+  _handleMessageComplete(data) {
+    this._untrackStreaming(data.sessionId);
+    if (this.pendingInteractiveTool) {
+      const tool = this.pendingInteractiveTool;
+      this.pendingInteractiveTool = null;
+      // If we accumulated raw JSON string, parse it now
+      if (tool._rawInput) {
+        try { Object.assign(tool.input, JSON.parse(tool._rawInput)); } catch {}
       }
-
-      case 'stats_update':
-        this.client.updateStats(data.stats);
-        break;
-
-      case 'directory_listing':
-        this.client.fileBrowser.handleDirectoryListing(data.projectId, data.path, data.entries);
-        // Phase 2: also emit to EventBus for new project tree
-        if (this.client.bus) this.client.bus.emit(EVT.DIRECTORY_LISTING, data);
-        break;
-
-      case 'file_content':
-        this.client.handleFileContent(data.projectId, data.path, data.content);
-        break;
-
-      case 'plan_file_content':
-        this.client.handleFileContent(PLAN_PROJECT_ID, data.path, data.content);
-        break;
-
-      case 'file_error':
-        this.client.fileBrowser.handleFileError(data.projectId, data.path, data.error);
-        break;
-
-      case 'file_saved':
-        this.client.handleFileSaved(data.projectId, data.path);
-        break;
-
-      case 'file_renamed':
-        this.client.fileBrowser.handleFileRenamed(data.projectId, data.oldPath, data.newPath);
-        if (this.client.bus) this.client.bus.emit(EVT.FILE_RENAMED, data);
-        break;
-
-      case 'file_moved':
-        this.client.fileBrowser.handleFileMoved(data.projectId, data.oldPath, data.newPath);
-        if (this.client.bus) this.client.bus.emit(EVT.FILE_MOVED, data);
-        break;
-
-      case 'file_deleted':
-        this.client.fileBrowser.handleFileDeleted(data.projectId, data.path);
-        if (this.client.bus) this.client.bus.emit(EVT.FILE_DELETED, data);
-        break;
-
-      case 'directory_created':
-        this.client.fileBrowser.handleDirectoryCreated(data.projectId, data.path, data.name);
-        if (this.client.bus) this.client.bus.emit(EVT.DIRECTORY_CREATED, data);
-        break;
-
-      case 'file_uploaded':
-        this.client.fileBrowser.handleFileUploaded(data.projectId, data.destDirectory, data.fileName);
-        if (this.client.bus) this.client.bus.emit(EVT.FILE_UPLOADED, data);
-        break;
-
-      case 'file_changed':
-        this.client.handleFileChanged(data.projectId, data.path, data.content);
-        break;
-
-      case 'terminal_created':
-        this.client.terminalManager.onTerminalCreated(data.terminalId, data.templateId, data.name, data.directory);
-        break;
-
-      case 'terminal_joined':
-        this.client.terminalManager.onTerminalJoined(data);
-        break;
-
-      case 'terminal_output':
-        this.client.terminalManager.onTerminalOutput(data.terminalId, data.data);
-        break;
-
-      case 'terminal_exit':
-        this.client.terminalManager.onTerminalExit(data.terminalId, data.exitCode);
-        break;
-
-      case 'terminal_closed':
-        this.client.terminalManager.onTerminalExit(data.terminalId, 0);
-        break;
-
-      case 'terminal_list':
-        this.client.terminalManager.onTerminalList(data.terminals);
-        break;
-
-      case 'terminal_templates':
-        this.client.terminalManager.onTemplates(data.templates);
-        if (this.client.terminalManager._pendingPickerDirectory !== undefined) {
-          const dir = this.client.terminalManager._pendingPickerDirectory;
-          delete this.client.terminalManager._pendingPickerDirectory;
-          this.client.terminalManager._showPickerUI(dir);
-        }
-        // Phase 3: also emit to EventBus for new shell launcher dialog
-        if (this.client.bus) this.client.bus.emit(EVT.TERMINAL_TEMPLATES, data);
-        break;
-
-      case 'permission_request':
-        this.client.modalManager.showPermissionModal(data);
-        break;
-
-      case 'warning':
-        this.client.messageRenderer.appendSystemMessage(data.message, 'warning');
-        break;
-
-      // --- Scheduler task lifecycle events (pushed via WebSocket) ---
-      case 'task_started':
-      case 'task_completed':
-      case 'task_error':
-        this.handleSchedulerTaskEvent(data);
-        break;
-
-      case 'task_status':
-        this.handleSchedulerTaskStatus(data);
-        break;
+      this.handleInteractiveTool(tool.name, tool.input);
+      return;
     }
+    const hadContent = !!this.client.messageRenderer.currentAssistantMessage;
+    this.client.messageRenderer.hideThinkingIndicator();
+    this.client.messageRenderer.finishAssistantMessage();
+    this.client.hideStopButton();
+    if (!hadContent && !data.error) {
+      const msg = data.errorMessage || 'No response from model';
+      this.client.messageRenderer.appendSystemMessage(msg, 'error');
+      this._notifyVoiceError(msg);
+    } else if (data.error) {
+      this.client.messageRenderer.appendSystemMessage(data.error, 'error');
+      this._notifyVoiceError(data.error);
+    }
+    this.client.voiceChatManager?.handleResponseComplete();
+    // Client-side TTS for text sessions (voice sessions handled by voiceChatManager)
+    if (this._clientTTSAccum && !this.client.voiceChatManager?.isVoiceSession) {
+      this.client.ttsManager.speakText(this._clientTTSAccum);
+    }
+    this._clientTTSAccum = '';
+  }
+
+  _handleTtsAudio(data) {
+    this.client.ttsManager?.enqueueAudio(data.data);
+    this.client.voiceChatManager?.handleTTSStart();
+  }
+
+  _handleTtsError(data) {
+    console.warn('[TTS] Error:', data.message);
+    this._notifyVoiceError(`Speech failed: ${data.message}`);
+    if (!this.client.voiceChatManager?.isVoiceSession) {
+      this.client.messageRenderer.appendSystemMessage(`TTS error: ${data.message}`, 'error');
+    }
+  }
+
+  _handleDirectoryListing(data) {
+    this.client.fileBrowser.handleDirectoryListing(data.projectId, data.path, data.entries);
+    if (this.client.bus) this.client.bus.emit(EVT.DIRECTORY_LISTING, data);
+  }
+
+  _handleFileEvent(data, fileBrowserMethod, args, busEvent) {
+    this.client.fileBrowser[fileBrowserMethod](...args);
+    if (this.client.bus) this.client.bus.emit(busEvent, data);
+  }
+
+  _handleTerminalTemplates(data) {
+    this.client.terminalManager.onTemplates(data.templates);
+    if (this.client.terminalManager._pendingPickerDirectory !== undefined) {
+      const dir = this.client.terminalManager._pendingPickerDirectory;
+      delete this.client.terminalManager._pendingPickerDirectory;
+      this.client.terminalManager._showPickerUI(dir);
+    }
+    if (this.client.bus) this.client.bus.emit(EVT.TERMINAL_TEMPLATES, data);
   }
 
   handleSchedulerTaskEvent(data) {
@@ -405,8 +341,7 @@ class MessageDispatcher {
       active: true,
       sessionType: data.sessionType || null,
     };
-    this.client.sessions.set(data.sessionId, session);
-    if (this.client.state) this.client.state.addSession(session);
+    this.client.state.addSession(session);
     this.client.currentSessionId = data.sessionId;
     this.client.sessionHistories.set(data.sessionId, []);
     this.client.showChatScreen();
@@ -448,8 +383,7 @@ class MessageDispatcher {
         active: true,
         sessionType,
       };
-      this.client.sessions.set(data.sessionId, newSession);
-      if (this.client.state) this.client.state.addSession(newSession);
+      this.client.state.addSession(newSession);
     }
 
     if (data.headless && this.client.taskManager) {
@@ -504,9 +438,7 @@ class MessageDispatcher {
   }
 
   handleSessionEnded(data) {
-    this.client.sessions.delete(data.sessionId);
-    this.client.sessionHistories.delete(data.sessionId);
-    if (this.client.state) this.client.state.removeSession(data.sessionId);
+    this.client.state.removeSession(data.sessionId);
     this.client.tabManager.closeTab(data.sessionId);
     if (this.client.currentSessionId === data.sessionId) {
       this.client.currentSessionId = null;

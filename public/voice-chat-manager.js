@@ -5,8 +5,11 @@
  *   - Push-to-talk mode: spacebar/mic button hold to record
  */
 class VoiceChatManager {
-  constructor(app) {
-    this.app = app;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.isVoiceSession = false;
     this.isRecording = false;
     this.orbRenderer = null;

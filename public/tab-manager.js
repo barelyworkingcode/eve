@@ -4,8 +4,11 @@ class TabManager {
   static FILE_STORAGE_KEY = 'eve-open-files';
   static MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-  constructor(client) {
-    this.client = client;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
     this.activeTabId = null;
 

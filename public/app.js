@@ -7,12 +7,6 @@
  */
 class EveWorkspaceClient {
   constructor() {
-    this.currentSessionId = null;
-    this.sessions = new Map();
-    this.sessionHistories = new Map();
-    this.projects = new Map();
-    this.models = [];
-    this.isRenderingHistory = false;
 
     // Core infrastructure (Phase 1) — available for new modules.
     this.bus = new EventBus();
@@ -44,16 +38,28 @@ class EveWorkspaceClient {
 
     this.initElements();
 
-    // Initialize modules
-    this.wsClient = new WsClient(this);
+    // Initialize modules — register each in the container immediately after creation
+    // so subsequent modules (and Phase 2+ container-based modules) can resolve them.
+    this.wsClient = new WsClient(this.container, {
+      onReady: () => this.onWebSocketReady(),
+      onMessage: (data) => this.handleServerMessage(data),
+    });
+    this.wsClient.setConnectionStatusEl(this.elements.connectionStatus);
     this.container.register('ws', this.wsClient);
-    this.messageRenderer = new MessageRenderer(this);
-    this.taskManager = new TaskManager(this);
-    this.modalManager = new ModalManager(this);
-    this.sidebarRenderer = new SidebarRenderer(this);
-    this.tabManager = new TabManager(this);
-    this.fileBrowser = new FileBrowser(this);
-    this.fileEditor = new FileEditor(this);
+    this.messageRenderer = new MessageRenderer(this.container);
+    this.container.register('messageRenderer', this.messageRenderer);
+    this.taskManager = new TaskManager(this.container);
+    this.container.register('taskManager', this.taskManager);
+    this.modalManager = new ModalManager(this.container);
+    this.container.register('modalManager', this.modalManager);
+    this.sidebarRenderer = new SidebarRenderer(this.container);
+    this.container.register('sidebarRenderer', this.sidebarRenderer);
+    this.tabManager = new TabManager(this.container);
+    this.container.register('tabManager', this.tabManager);
+    this.fileBrowser = new FileBrowser(this.container);
+    this.container.register('fileBrowser', this.fileBrowser);
+    this.fileEditor = new FileEditor(this.container);
+    this.container.register('fileEditor', this.fileEditor);
 
     // File viewer registry (IoC: viewers register themselves)
     this.viewerRegistry = new ViewerRegistry();
@@ -78,12 +84,18 @@ class EveWorkspaceClient {
     // Mobile bar (Phase 5)
     this.mobileBar = new MobileBar(this.container);
     this.mobileBar.init();
-    this.terminalManager = new TerminalManager(this);
-    this.messageDispatcher = new MessageDispatcher(this);
-    this.fileAttachmentManager = new FileAttachmentManager(this);
-    this.ttsManager = new TTSManager(this);
-    this.sttManager = new STTManager(this);
-    this.voiceChatManager = new VoiceChatManager(this);
+    this.terminalManager = new TerminalManager(this.container);
+    this.container.register('terminalManager', this.terminalManager);
+    this.messageDispatcher = new MessageDispatcher(this.container);
+    this.container.register('messageDispatcher', this.messageDispatcher);
+    this.fileAttachmentManager = new FileAttachmentManager(this.container);
+    this.container.register('fileAttachmentManager', this.fileAttachmentManager);
+    this.ttsManager = new TTSManager(this.container);
+    this.container.register('ttsManager', this.ttsManager);
+    this.sttManager = new STTManager(this.container);
+    this.container.register('sttManager', this.sttManager);
+    this.voiceChatManager = new VoiceChatManager(this.container);
+    this.container.register('voiceChatManager', this.voiceChatManager);
 
     if (typeof mermaid !== 'undefined') {
       mermaid.initialize({
@@ -106,6 +118,21 @@ class EveWorkspaceClient {
   get ws() {
     return this.wsClient?.ws;
   }
+
+  // State delegates — single source of truth is StateStore.
+  // These getters let existing module code (e.g. this.client.sessions.get(...))
+  // work transparently while StateStore owns the data.
+  get sessions() { return this.state.sessions; }
+  get sessionHistories() { return this.state.sessionHistories; }
+  get projects() { return this.state.projects; }
+  get models() { return this.state.models; }
+  set models(value) { this.state.models = value; }
+  get providerSettings() { return this.state.providerSettings; }
+  set providerSettings(value) { this.state.providerSettings = value; }
+  get currentSessionId() { return this.state.currentSessionId; }
+  set currentSessionId(id) { this.state.currentSessionId = id; }
+  get isRenderingHistory() { return this.messageRenderer?.isRenderingHistory ?? false; }
+  set isRenderingHistory(value) { if (this.messageRenderer) this.messageRenderer.isRenderingHistory = value; }
 
   getAuthHeaders() {
     const token = localStorage.getItem('eve_session');
@@ -443,10 +470,7 @@ class EveWorkspaceClient {
       const response = await fetch('/api/models', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const data = await response.json();
-      this.models = data.models || [];
-      this.providerSettings = data.providerSettings || {};
-      // Sync to StateStore for new dialog components
-      this.state.setModels(this.models, this.providerSettings);
+      this.state.setModels(data.models || [], data.providerSettings || {});
       this.renderModelSelect(this.elements.sessionModelSelect);
     } catch (err) {
       console.error('Failed to load models:', err);
@@ -462,9 +486,6 @@ class EveWorkspaceClient {
       const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const projects = await response.json();
-      this.projects.clear();
-      projects.forEach(project => this.projects.set(project.id, project));
-      // Sync to new StateStore (Phase 2)
       this.state.setProjects(projects);
       await this.loadAllTasks();
       this.sidebarRenderer.renderProjectList();
@@ -483,11 +504,7 @@ class EveWorkspaceClient {
       const response = await fetch('/api/sessions', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const sessions = await response.json();
-      sessions.forEach(session => {
-        this.sessions.set(session.id, session);
-        // Sync to StateStore for new dialog components
-        this.state.addSession(session);
-      });
+      sessions.forEach(session => this.state.addSession(session));
       this.sidebarRenderer.renderProjectList();
     } catch (err) {
       console.error('Failed to load sessions:', err);

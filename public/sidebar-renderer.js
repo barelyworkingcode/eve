@@ -3,8 +3,11 @@
  * inline rename, ungrouped sessions.
  */
 class SidebarRenderer {
-  constructor(app) {
-    this.app = app;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.renamingSessionId = null;
   }
 
