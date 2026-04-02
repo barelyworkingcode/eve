@@ -888,10 +888,10 @@ class EveWorkspaceClient {
     const ttsBrowser = this.ttsManager.backend === 'browser';
     if (!sttBrowser && !ttsBrowser) return;
 
-    // If both are already ready (cached), skip overlay
-    const sttReady = !sttBrowser || this.sttManager.activeBackend.ready;
-    const ttsReady = !ttsBrowser || this.ttsManager.activeBackend.ready;
-    if (sttReady && ttsReady) return;
+    // Check what actually needs loading
+    const sttNeedsLoad = sttBrowser && !this.sttManager.activeBackend.ready;
+    const ttsNeedsLoad = ttsBrowser && !this.ttsManager.activeBackend.ready;
+    if (!sttNeedsLoad && !ttsNeedsLoad) return;
 
     const overlay = document.getElementById('modelLoadingOverlay');
     const sttItem = document.getElementById('sttLoadingItem');
@@ -903,23 +903,26 @@ class EveWorkspaceClient {
 
     if (!overlay) return;
 
-    // Hide items for backends that aren't browser
-    if (!sttBrowser && sttItem) sttItem.style.display = 'none';
-    if (!ttsBrowser && ttsItem) ttsItem.style.display = 'none';
+    // Reset and show only items that need loading
+    if (sttItem) sttItem.style.display = sttNeedsLoad ? '' : 'none';
+    if (ttsItem) ttsItem.style.display = ttsNeedsLoad ? '' : 'none';
+    if (sttFill) { sttFill.style.width = '0%'; }
+    if (ttsFill) { ttsFill.style.width = '0%'; }
+    if (sttPct) sttPct.textContent = 'waiting...';
+    if (ttsPct) ttsPct.textContent = 'waiting...';
 
     overlay.classList.remove('hidden');
 
-    // Poll for progress updates
     const checkDone = () => {
-      const sDone = !sttBrowser || this.sttManager.activeBackend.ready;
-      const tDone = !ttsBrowser || this.ttsManager.activeBackend.ready;
+      const sDone = !sttNeedsLoad || this.sttManager.activeBackend.ready;
+      const tDone = !ttsNeedsLoad || this.ttsManager.activeBackend.ready;
 
-      if (sttBrowser && sttFill) {
+      if (sttNeedsLoad && sttFill) {
         const pct = sDone ? 100 : (this._sttLoadPct || 0);
         sttFill.style.width = pct + '%';
         sttPct.textContent = sDone ? 'ready' : pct + '%';
       }
-      if (ttsBrowser && ttsFill) {
+      if (ttsNeedsLoad && ttsFill) {
         const pct = tDone ? 100 : (this._ttsLoadPct || 0);
         ttsFill.style.width = pct + '%';
         ttsPct.textContent = tDone ? 'ready' : pct + '%';
