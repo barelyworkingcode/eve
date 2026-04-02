@@ -140,9 +140,25 @@ async function getVoice(voiceId) {
   if (voiceCache.has(voiceId)) return voiceCache.get(voiceId);
 
   const url = `${HF_VOICES}/${voiceId}.bin`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch voice: ${voiceId}`);
-  const buffer = await res.arrayBuffer();
+  let buffer;
+  try {
+    const cache = await caches.open(MODEL_CACHE_NAME);
+    const cached = await cache.match(url);
+    if (cached) {
+      buffer = await cached.arrayBuffer();
+    } else {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed to fetch voice: ${voiceId}`);
+      const clone = res.clone();
+      buffer = await res.arrayBuffer();
+      await cache.put(url, clone);
+    }
+  } catch {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch voice: ${voiceId}`);
+    buffer = await res.arrayBuffer();
+  }
+
   const flat = new Float32Array(buffer);
 
   // Reshape to [numChunks, 1, 256]
@@ -238,15 +254,29 @@ const MODEL_MAP = {
   'fp32': 'model',
 };
 
-async function loadModel(dtype, device) {
-  const modelId = MODEL_MAP[dtype] || MODEL_MAP['q4'];
-  const provider = device === 'webgpu' ? 'webgpu' : 'cpu';
+const MODEL_CACHE_NAME = 'eve-tts-models';
 
-  self.postMessage({ type: 'init_progress', progress: 10 });
+/**
+ * Fetch a model with Cache API persistence.
+ * Safari sends Cache-Control: no-cache on page reload, bypassing HTTP cache.
+ * The Cache API is unaffected by reload behavior and gives reliable local caching.
+ * Keyed by stable HuggingFace URL (redirect targets have unique signed params).
+ */
+async function fetchModelWithCache(modelUrl) {
+  const cache = await caches.open(MODEL_CACHE_NAME);
+  const cached = await cache.match(modelUrl);
 
-  const modelUrl = `${HF_MODELS}/${modelId}.onnx`;
+  if (cached) {
+    const buffer = await cached.arrayBuffer();
+    self.postMessage({ type: 'init_progress', progress: 90 });
+    return new Uint8Array(buffer);
+  }
+
   const response = await fetch(modelUrl);
   if (!response.ok) throw new Error(`Failed to fetch model: ${modelUrl}`);
+
+  // Clone before consuming body — clone goes into cache without extra buffer copy
+  const responseForCache = response.clone();
 
   const contentLength = response.headers.get('content-length');
   const total = contentLength ? parseInt(contentLength) : 0;
@@ -271,6 +301,24 @@ async function loadModel(dtype, device) {
     modelBuffer.set(chunk, offset);
     offset += chunk.length;
   }
+
+  try {
+    await cache.put(modelUrl, responseForCache);
+  } catch (cacheErr) {
+    console.warn('[TTS:worker] Failed to cache model:', cacheErr.message);
+  }
+
+  return modelBuffer;
+}
+
+async function loadModel(dtype, device) {
+  const modelId = MODEL_MAP[dtype] || MODEL_MAP['q4'];
+  const provider = device === 'webgpu' ? 'webgpu' : 'cpu';
+
+  self.postMessage({ type: 'init_progress', progress: 10 });
+
+  const modelUrl = `${HF_MODELS}/${modelId}.onnx`;
+  const modelBuffer = await fetchModelWithCache(modelUrl);
 
   self.postMessage({ type: 'init_progress', progress: 95 });
 
