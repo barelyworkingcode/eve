@@ -35,7 +35,7 @@ class VadManager {
         preSpeechPadFrames: 10,
         redemptionFrames: 20, // ~650ms at 30fps before declaring end of speech
         baseAssetPath: '/vad-web/',
-        onnxWASMBasePath: '/onnxruntime-web/',
+        onnxWASMBasePath: '/vad-onnx/',
 
         onSpeechStart: () => {
           if (this._destroying) return;
