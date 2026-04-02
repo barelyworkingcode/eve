@@ -15,6 +15,7 @@ class TTSManager {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.bus = container.get('bus');
     this.enabled = localStorage.getItem('eve-voice-mode') === 'true';
     this.voice = localStorage.getItem('eve-voice-preset') || DEFAULT_TTS_VOICE;
     this.voices = [];
@@ -80,7 +81,7 @@ class TTSManager {
       },
       onReady: () => {
         console.log(`[TTS] ${this.backend} backend ready`);
-        window.bus?.emit(EVT.VOICE_BACKEND_CHANGED);
+        this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
       },
       onError: (msg) => {
         console.error(`[TTS] ${this.backend} backend failed:`, msg);
@@ -120,7 +121,7 @@ class TTSManager {
     }
 
     console.log(`[TTS] Switched backend: ${prev} → ${name}`);
-    window.bus?.emit(EVT.VOICE_BACKEND_CHANGED);
+    this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
 
     // Reload voices from new backend
     this.loadVoices();
