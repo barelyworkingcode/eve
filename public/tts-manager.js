@@ -77,6 +77,10 @@ class TTSManager {
       },
       onReady: () => {
         console.log(`[TTS] ${this.backend} backend ready`);
+        if (this.app.voiceChatManager?.isVoiceSession) {
+          const mode = this.app.voiceChatManager.inputMode;
+          this.app.voiceChatManager._setPrompt(mode === 'conversation' ? 'Listening...' : this.app.voiceChatManager._getPushToTalkPrompt());
+        }
       },
       onError: (msg) => {
         console.error(`[TTS] ${this.backend} backend failed:`, msg);
