@@ -86,7 +86,7 @@ class TTSManager {
       onError: (msg) => {
         console.error(`[TTS] ${this.backend} backend failed:`, msg);
         this.app.messageRenderer?.appendSystemMessage('On-device TTS failed to load — falling back to server.', 'warning');
-        this.switchBackend('server');
+        this.switchBackend('server', { persist: false });
       },
     };
 
@@ -101,12 +101,12 @@ class TTSManager {
     this.activeBackend.init(context);
   }
 
-  switchBackend(name) {
+  switchBackend(name, { persist = true } = {}) {
     const prev = this.activeBackend.name;
     this._clearIdleTimer();
     this.activeBackend.destroy();
     this.activeBackend = this._createBackend(name);
-    localStorage.setItem('eve-tts-backend', name);
+    if (persist) localStorage.setItem('eve-tts-backend', name);
     this._initBackend();
 
     // Stop current playback — old backend's audio shouldn't keep playing
@@ -154,10 +154,11 @@ class TTSManager {
     try {
       this.voices = await this.activeBackend.loadVoices();
     } catch {
-      // Server unavailable — try switching to browser (not on Safari)
+      // Server unavailable — fall back to browser at runtime (not on Safari).
+      // Don't persist: user's explicit choice should survive reload.
       if (this.backend === 'server' && !IS_SAFARI) {
-        console.warn('[TTS] Server daemon unavailable — switching to on-device TTS');
-        this.switchBackend('browser');
+        console.warn('[TTS] Server daemon unavailable — falling back to on-device TTS (runtime only)');
+        this.switchBackend('browser', { persist: false });
       } else if (this.backend === 'server' && IS_SAFARI) {
         console.warn('[TTS] Server daemon unavailable. On-device TTS is not supported on Safari.');
         this.app.messageRenderer?.appendSystemMessage(

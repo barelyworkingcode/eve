@@ -63,7 +63,7 @@ class STTManager {
       onError: (msg) => {
         console.error(`[STT] ${this.backend} backend failed:`, msg);
         this.app.messageRenderer?.appendSystemMessage(`On-device STT failed to load — falling back to server.`, 'warning');
-        this.switchBackend('server');
+        this.switchBackend('server', { persist: false });
       },
     };
 
@@ -82,19 +82,19 @@ class STTManager {
     this.available = await this.activeBackend.isAvailable();
     // Auto-switch to browser if server is unavailable (not on Safari — memory issues)
     if (!this.available && this.backend === 'server' && !IS_SAFARI) {
-      console.warn('[STT] Server daemon unavailable — switching to on-device STT');
-      this.switchBackend('browser');
+      console.warn('[STT] Server daemon unavailable — falling back to on-device STT (runtime only)');
+      this.switchBackend('browser', { persist: false });
       this.available = true;
     }
     if (this.backend === 'browser') this.available = true;
     this._updateButtonVisibility();
   }
 
-  switchBackend(name) {
+  switchBackend(name, { persist = true } = {}) {
     const prev = this.activeBackend.name;
     this.activeBackend.destroy();
     this.activeBackend = this._createBackend(name);
-    localStorage.setItem('eve-stt-backend', name);
+    if (persist) localStorage.setItem('eve-stt-backend', name);
     this._initBackend();
     this._updateButtonVisibility();
     console.log(`[STT] Switched backend: ${prev} → ${name}`);
