@@ -24,8 +24,8 @@ const KOKORO_VOICES = [
 class TtsNativeBackend {
   constructor() {
     this.name = 'native';
-    this.requiresModelLoad = true;
-    this.clientSideTTS = true;
+    this.onDevice = true;
+    
     this.ready = false;
     this.loading = false;
   }
