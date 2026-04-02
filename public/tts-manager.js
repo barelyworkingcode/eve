@@ -85,11 +85,10 @@ class TTSManager {
     };
 
     if (this.activeBackend.name === 'browser') {
-      // Use WebGPU with fp32 when available, otherwise WASM with q4 quantization.
-      // Now works on Safari — replaced kokoro-js (broken on Safari) with direct onnxruntime-web.
-      const useWebGPU = !!navigator.gpu;
-      context.dtype = useWebGPU ? 'fp32' : 'q4';
-      context.device = useWebGPU ? 'webgpu' : 'wasm';
+      // Default to q4/wasm (86MB model, CPU) — works everywhere including Safari/mobile.
+      // WebGPU + fp32 (163MB) available on desktop Chrome but too heavy for mobile.
+      context.dtype = 'q4';
+      context.device = 'wasm';
     }
 
     this.activeBackend.init(context);
