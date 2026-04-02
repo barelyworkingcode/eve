@@ -6,15 +6,28 @@
 class SttNativeBackend {
   constructor() {
     this.name = 'native';
-    this.ready = true;
+    this.ready = false;
     this.loading = false;
     this._listener = null;
     this._onTranscription = null;
   }
 
-  init(context) {
+  async init(context) {
     this._app = context.app;
-    context.onReady?.();
+    this.loading = true;
+
+    try {
+      console.log('[STT:native] Loading models via EveVoice plugin...');
+      await window.Capacitor.nativePromise('EveVoice', 'loadModels', {});
+      this.ready = true;
+      this.loading = false;
+      console.log('[STT:native] Models loaded');
+      context.onReady?.();
+    } catch (err) {
+      this.loading = false;
+      console.error('[STT:native] Model loading failed:', err.message);
+      context.onError?.(err.message);
+    }
   }
 
   /**
@@ -33,12 +46,12 @@ class SttNativeBackend {
 
   /**
    * Start native recording via Capacitor plugin.
+   * Models are already loaded from init() — no need to call loadModels again.
    * @param {Function} onTranscription - Called with transcribed text
    */
   async startRecording(onTranscription) {
     this._onTranscription = onTranscription;
     const cap = window.Capacitor;
-    await cap.nativePromise('EveVoice', 'loadModels', {});
     this._listener = await cap.addListener('EveVoice', 'transcription', (data) => {
       if (data.isFinal && data.text?.trim()) {
         this._onTranscription?.(data.text.trim());
