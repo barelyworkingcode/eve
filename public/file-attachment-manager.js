@@ -3,8 +3,11 @@
  * and rendering of attached files for chat input.
  */
 class FileAttachmentManager {
-  constructor(client) {
-    this.client = client;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.files = [];
     this.initEventListeners();
   }

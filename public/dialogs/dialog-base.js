@@ -71,6 +71,32 @@ class DialogBase {
   }
 
   /**
+   * Helper to create a title bar with title, badge, and close button.
+   */
+  _createTitleBar(titleText, badgeText) {
+    const bar = document.createElement('div');
+    bar.className = 'dialog__title-bar';
+
+    const title = document.createElement('h3');
+    title.className = 'dialog__title';
+    title.textContent = titleText;
+
+    const badge = document.createElement('span');
+    badge.className = 'dialog__badge';
+    badge.textContent = badgeText;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'dialog__close';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', () => this.hide());
+
+    bar.appendChild(title);
+    bar.appendChild(badge);
+    bar.appendChild(closeBtn);
+    return bar;
+  }
+
+  /**
    * Helper to create tabbed header.
    * Returns { header, setActiveTab } where setActiveTab(name) updates the UI.
    */

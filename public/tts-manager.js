@@ -10,8 +10,11 @@ const DEFAULT_TTS_VOICE = 'af_heart';
 const TTS_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 class TTSManager {
-  constructor(app) {
-    this.app = app;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.enabled = localStorage.getItem('eve-voice-mode') === 'true';
     this.voice = localStorage.getItem('eve-voice-preset') || DEFAULT_TTS_VOICE;
     this.voices = [];
