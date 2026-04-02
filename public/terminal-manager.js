@@ -3,7 +3,7 @@ class TerminalManager {
    * @param {Container} container - DI container
    */
   constructor(container) {
-    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.terminals = new Map(); // terminalId -> { term, fitAddon, container, directory, templateId, name, exited }
     this.allTerminals = new Map(); // terminalId -> { id, templateId, name, directory, state } — all known from relayLLM
     this.activeTerminalId = null;
@@ -21,9 +21,9 @@ class TerminalManager {
   }
 
   _listenForSettingsChanges() {
-    this.client.bus.on(EVT.SETTINGS_CHANGED, (s) => {
-      const fontStack = this.client.settings.getFontStack();
-      const light = this.client.settings.isLight();
+    this.app.bus.on(EVT.SETTINGS_CHANGED, (s) => {
+      const fontStack = this.app.settings.getFontStack();
+      const light = this.app.settings.isLight();
       for (const t of this.terminals.values()) {
         const fontChanged = t.term.options.fontSize !== s.fontSize || t.term.options.fontFamily !== fontStack;
         t.term.options.fontSize = s.fontSize;
@@ -77,7 +77,7 @@ class TerminalManager {
    * Request available terminal templates from relayLLM.
    */
   requestTemplates() {
-    this.client.wsClient.send({ type: 'terminal_templates' });
+    this.app.wsClient.send({ type: 'terminal_templates' });
   }
 
   /**
@@ -173,7 +173,7 @@ class TerminalManager {
    * Creates a new terminal via relayLLM.
    */
   createTerminal(templateId, directory) {
-    this.client.wsClient.send({
+    this.app.wsClient.send({
       type: 'terminal_create',
       templateId,
       directory: directory || '',
@@ -183,7 +183,7 @@ class TerminalManager {
   }
 
   createXtermInstance() {
-    const settings = this.client.settings;
+    const settings = this.app.settings;
     const bgColor = settings.get('bgPrimary');
     const fgColor = settings.get('textPrimary');
     const fontStack = settings.getFontStack();
@@ -312,7 +312,7 @@ class TerminalManager {
   closeTerminal(terminalId) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {
-      this.client.wsClient.send({ type: 'terminal_close', terminalId });
+      this.app.wsClient.send({ type: 'terminal_close', terminalId });
 
       terminal.container.remove();
       terminal.term.dispose();
@@ -329,7 +329,7 @@ class TerminalManager {
   }
 
   requestTerminalList() {
-    this.client.wsClient.send({ type: 'terminal_list' });
+    this.app.wsClient.send({ type: 'terminal_list' });
   }
 
   /**
@@ -352,7 +352,7 @@ class TerminalManager {
     this.setupTerminal(terminalId, templateId, name, directory, exited);
 
     // Request scrollback replay via reconnect.
-    this.client.wsClient.send({ type: 'terminal_reconnect', terminalId });
+    this.app.wsClient.send({ type: 'terminal_reconnect', terminalId });
   }
 
   setupTerminal(terminalId, templateId, name, directory, exited) {
@@ -388,7 +388,7 @@ class TerminalManager {
     term.onData((data) => {
       const terminal = this.terminals.get(terminalId);
       if (terminal && !terminal.exited) {
-        this.client.wsClient.send({
+        this.app.wsClient.send({
           type: 'terminal_input',
           terminalId,
           data: this._encodeBase64(data)
@@ -397,7 +397,7 @@ class TerminalManager {
     });
 
     term.onResize(({ cols, rows }) => {
-      this.client.wsClient.send({
+      this.app.wsClient.send({
         type: 'terminal_resize',
         terminalId,
         cols,
@@ -406,7 +406,7 @@ class TerminalManager {
     });
 
     const label = name || templateId || 'Terminal';
-    this.client.tabManager.openTerminal(terminalId, label, directory);
+    this.app.tabManager.openTerminal(terminalId, label, directory);
   }
 
   /**

@@ -3,7 +3,7 @@ class FileEditor {
    * @param {Container} container - DI container
    */
   constructor(container) {
-    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.editor = null;
     this.currentFile = null; // { projectId, path, content, originalContent }
     this.viewMode = 'split';
@@ -16,9 +16,9 @@ class FileEditor {
   }
 
   _listenForSettingsChanges() {
-    this.client.bus.on(EVT.SETTINGS_CHANGED, () => {
+    this.app.bus.on(EVT.SETTINGS_CHANGED, () => {
       if (!this.editor) return;
-      const settings = this.client.settings;
+      const settings = this.app.settings;
       monaco.editor.setTheme(settings.isLight() ? 'vs' : 'vs-dark');
       this.editor.updateOptions({
         fontSize: settings.get('fontSize'),
@@ -143,7 +143,7 @@ class FileEditor {
 
     const content = this.editor.getValue();
     this.markdownPreview.innerHTML = DOMPurify.sanitize(marked.parse(content));
-    this.client.messageRenderer.renderMermaidBlocks(this.markdownPreview);
+    this.app.messageRenderer.renderMermaidBlocks(this.markdownPreview);
   }
 
   loadMonaco() {
@@ -175,7 +175,7 @@ class FileEditor {
   }
 
   createEditor() {
-    const settings = this.client.settings;
+    const settings = this.app.settings;
 
     this.editor = monaco.editor.create(this.editorContainer, {
       value: '',
@@ -199,7 +199,7 @@ class FileEditor {
         const isModified = currentContent !== this.currentFile.originalContent;
 
         this.saveBtn.disabled = !isModified;
-        this.client.tabManager.setFileModified(
+        this.app.tabManager.setFileModified(
           this.currentFile.projectId,
           this.currentFile.path,
           isModified
@@ -292,9 +292,9 @@ class FileEditor {
 
     // Request file content from server if not already loaded
     if (isPlanProject(projectId)) {
-      this.client.ws.send(JSON.stringify({ type: 'read_plan_file', path }));
+      this.app.ws.send(JSON.stringify({ type: 'read_plan_file', path }));
     } else {
-      this.client.ws.send(JSON.stringify({ type: 'read_file', projectId, path }));
+      this.app.ws.send(JSON.stringify({ type: 'read_file', projectId, path }));
     }
   }
 
@@ -307,7 +307,7 @@ class FileEditor {
 
     const content = this.editor.getValue();
 
-    this.client.ws.send(JSON.stringify({
+    this.app.ws.send(JSON.stringify({
       type: 'write_file',
       projectId: this.currentFile.projectId,
       path: this.currentFile.path,
@@ -350,7 +350,7 @@ class FileEditor {
     }
 
     this.saveBtn.disabled = true;
-    this.client.tabManager.setFileModified(
+    this.app.tabManager.setFileModified(
       this.currentFile.projectId,
       this.currentFile.path,
       false

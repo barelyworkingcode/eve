@@ -7,13 +7,13 @@ class FileAttachmentManager {
    * @param {Container} container - DI container
    */
   constructor(container) {
-    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.files = [];
     this.initEventListeners();
   }
 
   initEventListeners() {
-    const els = this.client.elements;
+    const els = this.app.elements;
 
     els.attachBtn.addEventListener('click', () => els.fileInput.click());
     els.fileInput.addEventListener('change', (e) => {
@@ -61,7 +61,7 @@ class FileAttachmentManager {
   async addFiles(files) {
     for (const file of files) {
       if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
-        this.client.messageRenderer.appendSystemMessage(`Skipped unsupported file type: ${file.name}`, 'error');
+        this.app.messageRenderer.appendSystemMessage(`Skipped unsupported file type: ${file.name}`, 'error');
         continue;
       }
       try {
@@ -76,7 +76,7 @@ class FileAttachmentManager {
           mediaType: file.type
         });
       } catch (err) {
-        this.client.messageRenderer.appendSystemMessage(`Failed to read file: ${file.name}`, 'error');
+        this.app.messageRenderer.appendSystemMessage(`Failed to read file: ${file.name}`, 'error');
       }
     }
     this.render();
@@ -101,7 +101,7 @@ class FileAttachmentManager {
   }
 
   render() {
-    const container = this.client.elements.attachedFiles;
+    const container = this.app.elements.attachedFiles;
     if (this.files.length === 0) {
       container.classList.add('hidden');
       container.innerHTML = '';
@@ -116,7 +116,7 @@ class FileAttachmentManager {
       return `
         <div class="attached-file ${isImage ? 'attached-image' : ''}">
           ${thumbnail}${icon}
-          <span class="file-name">${this.client.messageRenderer.escapeHtml(f.name)}</span>
+          <span class="file-name">${this.app.messageRenderer.escapeHtml(f.name)}</span>
           <button type="button" class="file-remove" data-index="${i}">&times;</button>
         </div>
       `;
