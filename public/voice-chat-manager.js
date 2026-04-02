@@ -36,10 +36,20 @@ class VoiceChatManager {
     this.drawerPanel = document.getElementById('voiceChatDrawerPanel');
     this.drawer = document.getElementById('voiceChatDrawer');
     this.modeToggle = document.getElementById('voiceChatModeToggle');
+    this.backendStatusEl = document.getElementById('voiceChatBackendStatus');
 
     if (!this.orbCanvas) return;
 
     this.orbRenderer = new VoiceOrbCanvas(this.orbCanvas, this.app);
+
+    // Update backend status display and prompt when backends change
+    window.bus?.on(EVT.VOICE_BACKEND_CHANGED, () => {
+      this._updateBackendStatus();
+      if (this.isVoiceSession) {
+        const mode = this.inputMode;
+        this._setPrompt(mode === 'conversation' ? 'Listening...' : this._getPushToTalkPrompt());
+      }
+    });
 
     // Spacebar handler (push-to-talk)
     document.addEventListener('keydown', (e) => this._onKeyDown(e));
@@ -106,6 +116,7 @@ class VoiceChatManager {
     this.assistantAccum = '';
     this.captions = [];
     this._renderCaptions();
+    this._updateBackendStatus();
     this.orbRenderer?.setState('idle');
     this.orbRenderer?.start();
 
@@ -545,6 +556,15 @@ class VoiceChatManager {
 
   _setPrompt(text) {
     if (this.promptEl) this.promptEl.textContent = text;
+  }
+
+  _updateBackendStatus() {
+    if (!this.backendStatusEl) return;
+    const tts = this.app.ttsManager;
+    const stt = this.app.sttManager;
+    const ttsLabel = tts.activeBackend.onDevice ? 'on-device' : 'server';
+    const sttLabel = stt.activeBackend.onDevice ? 'on-device' : 'server';
+    this.backendStatusEl.textContent = `TTS: ${ttsLabel}  ·  STT: ${sttLabel}`;
   }
 
   _getPushToTalkPrompt() {

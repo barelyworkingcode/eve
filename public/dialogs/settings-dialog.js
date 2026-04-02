@@ -199,7 +199,7 @@ class SettingsDialog extends DialogBase {
     }
     backendSelect.addEventListener('change', () => {
       tts.setBackend(backendSelect.value);
-      statusEl.textContent = this._getTtsStatus(tts);
+      ttsStatusEl.textContent = this._getTtsStatus(tts);
       // Trigger model loading overlay if switching to on-device
       const app = this.container.get('app');
       if (app?.ttsManager?.activeBackend?.onDevice) app._showModelLoadingOverlay();
