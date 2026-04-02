@@ -18,11 +18,9 @@ class VoiceChatManager {
     this.maxCaptions = 4;
     this.assistantAccum = '';
     this._spacebarDown = false;
-    this._nativeListeners = [];
-    this.isNativeApp = IS_NATIVE_APP;
 
-    // Native app always uses conversation mode; mobile Safari defaults to push-to-talk (AudioWorklet issues)
-    this.inputMode = IS_NATIVE_APP ? 'conversation' : (localStorage.getItem('eve-voice-input-mode') || (IS_MOBILE_SAFARI ? 'push-to-talk' : 'conversation'));
+    // Capacitor WebView defaults to conversation mode (like desktop); mobile Safari defaults to push-to-talk (AudioWorklet issues)
+    this.inputMode = (IS_NATIVE_APP || !IS_MOBILE_SAFARI) ? 'conversation' : (localStorage.getItem('eve-voice-input-mode') || 'push-to-talk');
     this.vadManager = new VadManager();
     this._vadTranscribing = false;
   }
@@ -110,11 +108,7 @@ class VoiceChatManager {
 
   activateForSession(sessionId) {
     // Clean up any existing voice session (prevents listener leaks on session switch)
-    if (this.isNativeApp && this._nativeListeners.length > 0) {
-      this._stopNativeVoice();
-    } else {
-      this.vadManager.destroy();
-    }
+    this.vadManager.destroy();
 
     this.isVoiceSession = true;
     this.assistantAccum = '';
@@ -139,9 +133,7 @@ class VoiceChatManager {
       localStorage.setItem('eve-voice-hint-dismissed', 'true');
     }
 
-    if (this.isNativeApp) {
-      this._startNativeVoice();
-    } else if (this.inputMode === 'conversation') {
+    if (this.inputMode === 'conversation') {
       this._startConversationMode().catch(err => {
         console.error('[VoiceChat] Conversation mode failed:', err);
         this._setPrompt(this._getPushToTalkPrompt());
@@ -155,12 +147,7 @@ class VoiceChatManager {
     this.isVoiceSession = false;
     this.isRecording = false;
     this._vadTranscribing = false;
-    // Always release mic and stop playback when leaving voice mode
-    if (this.isNativeApp) {
-      this._stopNativeVoice();
-    } else {
-      this.app.sttManager.stopRecording();
-    }
+    this.app.sttManager.stopRecording();
     this.app.ttsManager.stop();
     this.vadManager.destroy();
     this.orbRenderer?.stop();
@@ -192,71 +179,6 @@ class VoiceChatManager {
     if (this.micBtn) {
       this.micBtn.classList.toggle('voice-chat__btn--secondary', isConvo);
     }
-  }
-
-  // --- Native voice (Capacitor) ---
-
-  async _startNativeVoice() {
-    this._setPrompt('Starting native voice...');
-    this.orbRenderer?.setState('idle');
-
-    const cap = window.Capacitor;
-
-    // Set up event listeners from native plugin
-    this._nativeListeners = [
-      await cap.addListener('EveVoice', 'transcription', (data) => {
-        if (data.isFinal && data.text?.trim()) {
-          this._addCaption('user', data.text.trim());
-          this.app.sttManager.handleTranscriptionResult(data.text.trim());
-        }
-      }),
-      await cap.addListener('EveVoice', 'speechStart', () => {
-        this.orbRenderer?.setState('listening');
-        this._setPrompt('Listening...');
-      }),
-      await cap.addListener('EveVoice', 'speechEnd', () => {
-        this.orbRenderer?.setState('idle');
-      }),
-      await cap.addListener('EveVoice', 'ttsStarted', () => {
-        this.orbRenderer?.setState('speaking');
-        this._setPrompt('Speaking...');
-      }),
-      await cap.addListener('EveVoice', 'ttsFinished', () => {
-        this.orbRenderer?.setState('listening');
-        this._setPrompt('Listening...');
-      }),
-      await cap.addListener('EveVoice', 'audioLevel', (data) => {
-        this.orbRenderer?.setAudioLevel?.(data.level || 0);
-      }),
-      await cap.addListener('EveVoice', 'error', (data) => {
-        console.error('[NativeVoice] Error:', data.message);
-        this._addCaption('error', data.message);
-      }),
-    ];
-
-    // Load models and start listening
-    try {
-      await cap.nativePromise('EveVoice', 'loadModels', {});
-      await cap.nativePromise('EveVoice', 'startListening', {});
-      this.orbRenderer?.setState('listening');
-      this._setPrompt('Listening...');
-    } catch (err) {
-      console.error('[NativeVoice] Failed to start:', err);
-      this._setPrompt('Native voice failed: ' + err.message);
-    }
-  }
-
-  _stopNativeVoice() {
-    const cap = window.Capacitor;
-    if (cap) {
-      cap.nativePromise('EveVoice', 'stopListening', {}).catch(() => {});
-      cap.nativePromise('EveVoice', 'stopSpeaking', {}).catch(() => {});
-    }
-    // Remove all event listeners
-    for (const listener of this._nativeListeners) {
-      listener?.remove?.();
-    }
-    this._nativeListeners = [];
   }
 
   async _startConversationMode() {
