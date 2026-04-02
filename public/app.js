@@ -884,8 +884,8 @@ class EveWorkspaceClient {
    * Hides automatically when all active browser backends report ready.
    */
   _showModelLoadingOverlay() {
-    const sttOnDevice = this.sttManager.backend === 'browser' || this.sttManager.backend === 'native';
-    const ttsOnDevice = this.ttsManager.backend === 'browser' || this.ttsManager.backend === 'native';
+    const sttOnDevice = this.sttManager.activeBackend.requiresModelLoad;
+    const ttsOnDevice = this.ttsManager.activeBackend.requiresModelLoad;
     if (!sttOnDevice && !ttsOnDevice) return;
 
     // Check what actually needs loading

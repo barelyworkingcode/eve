@@ -7,6 +7,8 @@
 class TtsServerBackend {
   constructor() {
     this.name = 'server';
+    this.requiresModelLoad = false;
+    this.clientSideTTS = false;
     this.ready = true;
     this.loading = false;
   }

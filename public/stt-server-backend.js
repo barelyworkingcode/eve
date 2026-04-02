@@ -7,7 +7,9 @@
 class SttServerBackend {
   constructor() {
     this.name = 'server';
-    this.ready = true; // Server is "ready" immediately — availability checked separately
+    this.requiresModelLoad = false;
+    this.clientSideTTS = false;
+    this.ready = true;
     this.loading = false;
   }
 
