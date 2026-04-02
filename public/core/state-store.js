@@ -22,16 +22,14 @@ class StateStore {
   }
 
   addSession(session) {
-    this.sessions.set(session.id || session.sessionId, {
-      id: session.id || session.sessionId,
-      projectId: session.projectId || null,
-      name: session.name || null,
-      directory: session.directory,
-      model: session.model || null,
+    const id = session.id || session.sessionId;
+    this.sessions.set(id, {
+      ...session,
+      id,
       active: session.active !== undefined ? session.active : true,
-      costUsd: 0,
+      costUsd: session.costUsd || 0,
     });
-    this.bus.emit(EVT.SESSION_UPDATED, { sessionId: session.id || session.sessionId });
+    this.bus.emit(EVT.SESSION_UPDATED, { sessionId: id });
   }
 
   getSession(id) {

@@ -1,6 +1,9 @@
 class FileBrowser {
-  constructor(client) {
-    this.client = client;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.projectTrees = new Map(); // projectId -> { expanded, entries, loading, expandedPaths }
     this.dragState = null;      // { projectId, path, type }
     this.renameState = null;    // { projectId, path, input }

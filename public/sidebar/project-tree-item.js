@@ -41,7 +41,7 @@ class ProjectTreeItem {
     actions.className = 'project-tree__actions';
 
     // Detached terminal badge
-    const termMgr = this.container?.has('app') ? this.container.get('app').terminalManager : null;
+    const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
     const detached = termMgr?.getDetachedCountForPath(project.path) || 0;
     if (detached > 0) {
       const badge = document.createElement('span');
@@ -51,38 +51,12 @@ class ProjectTreeItem {
       actions.appendChild(badge);
     }
 
-    // Shell launcher
-    const shellBtn = document.createElement('button');
-    shellBtn.className = 'project-tree__action-btn';
-    shellBtn.title = 'New Shell';
-    shellBtn.innerHTML = UI_ICONS.shell(14);
-    shellBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: this.projectId });
-    });
-    actions.appendChild(shellBtn);
-
-    // Task manager
-    const taskBtn = document.createElement('button');
-    taskBtn.className = 'project-tree__action-btn';
-    taskBtn.title = 'Tasks';
-    taskBtn.innerHTML = UI_ICONS.tasks(14);
-    taskBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId });
-    });
-    actions.appendChild(taskBtn);
-
-    // More menu (edit/delete)
-    const moreBtn = document.createElement('button');
-    moreBtn.className = 'project-tree__action-btn';
-    moreBtn.title = 'More';
-    moreBtn.innerHTML = UI_ICONS.more(14);
-    moreBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._showProjectMenu(e.clientX, e.clientY);
-    });
-    actions.appendChild(moreBtn);
+    actions.appendChild(this._actionBtn('New Shell', UI_ICONS.shell(14), () =>
+      this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: this.projectId })));
+    actions.appendChild(this._actionBtn('Tasks', UI_ICONS.tasks(14), () =>
+      this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId })));
+    actions.appendChild(this._actionBtn('More', UI_ICONS.more(14), (e) =>
+      this._showProjectMenu(e.clientX, e.clientY)));
 
     header.appendChild(actions);
 
@@ -116,6 +90,15 @@ class ProjectTreeItem {
     const fragment = document.createDocumentFragment();
     this.render(fragment);
     parent.insertBefore(fragment, next);
+  }
+
+  _actionBtn(title, iconHtml, onClick) {
+    const btn = document.createElement('button');
+    btn.className = 'project-tree__action-btn';
+    btn.title = title;
+    btn.innerHTML = iconHtml;
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(e); });
+    return btn;
   }
 
   _showProjectMenu(x, y) {

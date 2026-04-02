@@ -3,8 +3,11 @@
  * confirmation flow, permission prompts, input prompts.
  */
 class ModalManager {
-  constructor(app) {
-    this.app = app;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.confirmCallback = null;
     this.editingProjectId = null;
     this.editingTaskId = null;

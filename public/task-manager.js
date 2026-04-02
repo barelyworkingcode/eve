@@ -3,8 +3,11 @@
  * Task lifecycle events (started/completed/error) arrive via WebSocket push.
  */
 class TaskManager {
-  constructor(app) {
-    this.app = app;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.tasks = new Map();
     this.userTriggeredRuns = new Set();
     this.taskSessionIds = new Set();

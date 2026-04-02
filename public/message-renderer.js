@@ -3,11 +3,16 @@
  * system messages, thinking indicator, text formatting.
  */
 class MessageRenderer {
-  constructor(app) {
-    this.app = app;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.messagesEl = this.app.elements.messages;
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.isStreaming = false;
+    this.isRenderingHistory = false;
     this.thinkBlockOpenStates = new Map(); // messageEl -> Set of open indices
 
     // Delegated mousedown handler for think-block summaries.
@@ -16,7 +21,7 @@ class MessageRenderer {
     // The native <details> toggle still works for completed messages via the
     // normal click path; during streaming, _applyThinkBlockStates() restores
     // the tracked state after each innerHTML replacement.
-    this.app.elements.messages.addEventListener('mousedown', (e) => {
+    this.messagesEl.addEventListener('mousedown', (e) => {
       const summary = e.target.closest('.think-block > summary');
       if (!summary) return;
       const details = summary.parentElement;
@@ -46,7 +51,7 @@ class MessageRenderer {
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant';
     messageEl.innerHTML = `<div class="message-content">${this.formatText(text)}</div>`;
-    this.app.elements.messages.appendChild(messageEl);
+    this.messagesEl.appendChild(messageEl);
     this.currentAssistantMessage = messageEl.querySelector('.message-content');
     this.currentAssistantMessage.dataset.rawText = text;
     this.isStreaming = true;
@@ -87,15 +92,15 @@ class MessageRenderer {
   }
 
   _saveStreamingText(text) {
-    const sid = this.app.currentSessionId;
-    if (sid && !this.app.isRenderingHistory) {
+    const sid = this.app.state.currentSessionId;
+    if (sid && !this.isRenderingHistory) {
       try { sessionStorage.setItem(`eve-stream-${sid}`, text); } catch {}
     }
   }
 
   _clearStreamingText() {
-    const sid = this.app.currentSessionId;
-    if (sid && !this.app.isRenderingHistory) {
+    const sid = this.app.state.currentSessionId;
+    if (sid && !this.isRenderingHistory) {
       try { sessionStorage.removeItem(`eve-stream-${sid}`); } catch {}
     }
   }
@@ -114,13 +119,13 @@ class MessageRenderer {
     this.markToolComplete();
     if (this.currentAssistantMessage) {
       const text = this.currentAssistantMessage.dataset.rawText;
-      if (text && this.app.currentSessionId && !this.app.isRenderingHistory) {
-        const history = this.app.sessionHistories.get(this.app.currentSessionId) || [];
+      if (text && this.app.state.currentSessionId && !this.isRenderingHistory) {
+        const history = this.app.state.sessionHistories.get(this.app.state.currentSessionId) || [];
         history.push({
           role: 'assistant',
           content: [{ type: 'text', text }]
         });
-        this.app.sessionHistories.set(this.app.currentSessionId, history);
+        this.app.state.sessionHistories.set(this.app.state.currentSessionId, history);
       }
       // Re-render with isStreaming=false to collapse think blocks
       if (text) {
@@ -165,7 +170,7 @@ class MessageRenderer {
         </div>
       </div>
     `;
-    this.app.elements.messages.appendChild(messageEl);
+    this.messagesEl.appendChild(messageEl);
     this.currentToolBlock = messageEl.querySelector('.tool-use');
     this.updateThinkingIndicator(`Running ${toolName}...`);
     this.scrollToBottom();
@@ -186,13 +191,13 @@ class MessageRenderer {
     }
 
     messageEl.innerHTML = `<div class="message-content">${filesHtml}${this.escapeHtml(displayText)}</div>`;
-    this.app.elements.messages.appendChild(messageEl);
+    this.messagesEl.appendChild(messageEl);
     this.scrollToBottom();
 
-    if (this.app.currentSessionId && !this.app.isRenderingHistory) {
-      const history = this.app.sessionHistories.get(this.app.currentSessionId) || [];
+    if (this.app.state.currentSessionId && !this.isRenderingHistory) {
+      const history = this.app.state.sessionHistories.get(this.app.state.currentSessionId) || [];
       history.push({ role: 'user', content: text, files });
-      this.app.sessionHistories.set(this.app.currentSessionId, history);
+      this.app.state.sessionHistories.set(this.app.state.currentSessionId, history);
     }
   }
 
@@ -200,7 +205,7 @@ class MessageRenderer {
     const messageEl = document.createElement('div');
     messageEl.className = `message system ${type}`;
     messageEl.innerHTML = `<div class="message-content">${this.escapeHtml(text)}</div>`;
-    this.app.elements.messages.appendChild(messageEl);
+    this.messagesEl.appendChild(messageEl);
     this.scrollToBottom();
   }
 
@@ -213,14 +218,14 @@ class MessageRenderer {
   }
 
   clearMessages() {
-    this.app.elements.messages.innerHTML = '';
+    this.messagesEl.innerHTML = '';
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.thinkBlockOpenStates.clear();
   }
 
   renderHistory(messages) {
-    this.app.isRenderingHistory = true;
+    this.isRenderingHistory = true;
     this.clearMessages();
 
     for (const msg of messages) {
@@ -245,14 +250,14 @@ class MessageRenderer {
 
     // Complete any trailing tool block and remove thinking indicator from history
     this.hideThinkingIndicator();
-    this.renderMermaidBlocks(this.app.elements.messages);
+    this.renderMermaidBlocks(this.messagesEl);
     this.scrollToBottom();
-    this.app.isRenderingHistory = false;
+    this.isRenderingHistory = false;
 
     // Restore in-progress assistant message saved before page refresh.
     // Rendered as a started (not finished) message so new streaming deltas
     // append to it if the model is still running.
-    const sid = this.app.currentSessionId;
+    const sid = this.app.state.currentSessionId;
     if (sid) {
       try {
         const saved = sessionStorage.getItem(`eve-stream-${sid}`);
@@ -281,7 +286,7 @@ class MessageRenderer {
     el.className = 'thinking-indicator';
     el.id = 'thinkingIndicator';
     el.innerHTML = `<div class="thinking-spinner"></div><span class="thinking-text">${this.escapeHtml(text)}</span>`;
-    this.app.elements.messages.appendChild(el);
+    this.messagesEl.appendChild(el);
     this.scrollToBottom();
   }
 
@@ -364,7 +369,7 @@ class MessageRenderer {
       });
     });
 
-    this.app.elements.messages.appendChild(messageEl);
+    this.messagesEl.appendChild(messageEl);
     this.scrollToBottom();
   }
 
@@ -462,6 +467,6 @@ class MessageRenderer {
   }
 
   scrollToBottom() {
-    this.app.elements.messages.scrollTop = this.app.elements.messages.scrollHeight;
+    this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
   }
 }

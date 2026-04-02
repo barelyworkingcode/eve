@@ -39,27 +39,7 @@ class TaskDialog extends DialogBase {
     this._panel.innerHTML = '';
     this._panel.style.maxWidth = '520px';
 
-    // Header
-    const titleBar = document.createElement('div');
-    titleBar.className = 'dialog__title-bar';
-
-    const title = document.createElement('h3');
-    title.className = 'dialog__title';
-    title.textContent = 'Tasks';
-
-    const badge = document.createElement('span');
-    badge.className = 'dialog__badge';
-    badge.textContent = projectName;
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'dialog__close';
-    closeBtn.innerHTML = '&times;';
-    closeBtn.addEventListener('click', () => this.hide());
-
-    titleBar.appendChild(title);
-    titleBar.appendChild(badge);
-    titleBar.appendChild(closeBtn);
-    this._panel.appendChild(titleBar);
+    this._panel.appendChild(this._createTitleBar('Tasks', projectName));
 
     // Tabs
     const { header, setActiveTab } = this._createTabs(
@@ -398,8 +378,7 @@ class TaskDialog extends DialogBase {
   async _runTask(task) {
     try {
       // Mark as user-triggered so auto-join fires on task_completed
-      const app = this.container.get('app');
-      app.taskManager.userTriggeredRuns.add(task.id);
+      this.container.get('taskManager').userTriggeredRuns.add(task.id);
       await this.api.runTask(task.id);
       this.hide();
     } catch (err) {
@@ -409,8 +388,7 @@ class TaskDialog extends DialogBase {
 
   _joinSession(sessionId) {
     this.hide();
-    const app = this.container.get('app');
-    app.joinSession(sessionId);
+    this.container.get('app').joinSession(sessionId);
   }
 
   async _deleteTask(task) {

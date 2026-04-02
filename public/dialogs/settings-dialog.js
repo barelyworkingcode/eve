@@ -176,7 +176,7 @@ class SettingsDialog extends DialogBase {
   }
 
   _buildVoiceTab(container) {
-    const tts = this.container.get('app')?.ttsManager;
+    const tts = this.container.has('ttsManager') ? this.container.get('ttsManager') : null;
     if (!tts) return;
 
     // TTS Backend
@@ -201,8 +201,7 @@ class SettingsDialog extends DialogBase {
       tts.setBackend(backendSelect.value);
       ttsStatusEl.textContent = this._getTtsStatus(tts);
       // Trigger model loading overlay if switching to on-device
-      const app = this.container.get('app');
-      if (app?.ttsManager?.activeBackend?.onDevice) app._showModelLoadingOverlay();
+      if (tts.activeBackend?.onDevice) this.container.get('app')._showModelLoadingOverlay();
     });
     container.appendChild(backendSelect);
 
@@ -221,7 +220,7 @@ class SettingsDialog extends DialogBase {
     container.appendChild(ttsStatusEl);
 
     // --- STT Backend ---
-    const stt = this.container.get('app')?.sttManager;
+    const stt = this.container.has('sttManager') ? this.container.get('sttManager') : null;
     if (!stt) return;
 
     const sttLabel = document.createElement('label');
@@ -246,8 +245,7 @@ class SettingsDialog extends DialogBase {
       stt.setBackend(sttSelect.value);
       sttStatusEl.textContent = this._getSttStatus(stt);
       // Trigger model loading overlay if switching to on-device
-      const app = this.container.get('app');
-      if (app?.sttManager?.activeBackend?.onDevice) app._showModelLoadingOverlay();
+      if (stt.activeBackend?.onDevice) this.container.get('app')._showModelLoadingOverlay();
     });
     container.appendChild(sttSelect);
 
