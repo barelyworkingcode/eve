@@ -101,17 +101,32 @@ function segmentText(text) {
 
 // --- Phonemizer (espeak-ng WASM) ---
 
+const ESPEAK_CDN = 'https://cdn.jsdelivr.net/npm/espeak-ng@1.0.2/dist';
+let espeakFactory = null;
+
+async function loadEspeak() {
+  if (espeakFactory) return espeakFactory;
+  // espeak-ng.js is not an ES module — load via fetch + indirect eval into global scope.
+  // Patch import.meta.url (only used as WASM path fallback; we override via locateFile).
+  const res = await fetch(`${ESPEAK_CDN}/espeak-ng.js`);
+  const code = await res.text();
+  const patched = code.replace('import.meta.url', JSON.stringify(`${ESPEAK_CDN}/`));
+  (0, eval)(patched);
+  espeakFactory = ESpeakNG;
+  return espeakFactory;
+}
+
 async function phonemize(text, lang = 'en-us') {
   const normalized = text
-    .replace(/'/g, "'").replace(/'/g, "'")
-    .replace(/«/g, '(').replace(/»/g, ')')
+    .replace(/\u2018/g, "'").replace(/\u2019/g, "'")
+    .replace(/\u00AB/g, '(').replace(/\u00BB/g, ')')
     .replace(/\u201C/g, '"').replace(/\u201D/g, '"')
     .replace(/\n/g, '  ').replace(/\t/g, '  ')
     .trim();
 
-  const { default: ESpeakNg } = await import('/espeak-ng/espeak-ng.js');
-  const espeak = await ESpeakNg({
-    locateFile: () => '/espeak-ng/espeak-ng.wasm',
+  const factory = await loadEspeak();
+  const espeak = await factory({
+    locateFile: () => `${ESPEAK_CDN}/espeak-ng.wasm`,
     arguments: ['--phonout', 'generated', '-q', '--ipa', '-v', lang, normalized],
   });
 
