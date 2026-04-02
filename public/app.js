@@ -86,8 +86,6 @@ class EveWorkspaceClient {
     this.mobileBar.init();
     this.terminalManager = new TerminalManager(this.container);
     this.container.register('terminalManager', this.terminalManager);
-    this.messageDispatcher = new MessageDispatcher(this.container);
-    this.container.register('messageDispatcher', this.messageDispatcher);
     this.fileAttachmentManager = new FileAttachmentManager(this.container);
     this.container.register('fileAttachmentManager', this.fileAttachmentManager);
     this.ttsManager = new TTSManager(this.container);
@@ -96,6 +94,9 @@ class EveWorkspaceClient {
     this.container.register('sttManager', this.sttManager);
     this.voiceChatManager = new VoiceChatManager(this.container);
     this.container.register('voiceChatManager', this.voiceChatManager);
+    // MessageDispatcher must be created after all services it depends on
+    this.messageDispatcher = new MessageDispatcher(this.container);
+    this.container.register('messageDispatcher', this.messageDispatcher);
 
     if (typeof mermaid !== 'undefined') {
       mermaid.initialize({
@@ -120,7 +121,7 @@ class EveWorkspaceClient {
   }
 
   // State delegates — single source of truth is StateStore.
-  // These getters let existing module code (e.g. this.client.sessions.get(...))
+  // These getters let module code (e.g. this.app.sessions.get(...))
   // work transparently while StateStore owns the data.
   get sessions() { return this.state.sessions; }
   get sessionHistories() { return this.state.sessionHistories; }

@@ -8,7 +8,7 @@ class TabManager {
    * @param {Container} container - DI container
    */
   constructor(container) {
-    this.client = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
     this.activeTabId = null;
 
@@ -44,7 +44,7 @@ class TabManager {
    * Opens a session as a tab
    */
   openSession(sessionId, { skipRender = false } = {}) {
-    const session = this.client.sessions.get(sessionId);
+    const session = this.app.sessions.get(sessionId);
     if (!session) return;
 
     // Check if tab already exists
@@ -60,7 +60,7 @@ class TabManager {
     if (session.name) {
       label = session.name;
     } else if (session.projectId) {
-      const project = this.client.projects.get(session.projectId);
+      const project = this.app.projects.get(session.projectId);
       label = project?.name || session.directory;
     } else {
       label = session.directory?.split('/').filter(p => p).pop() || session.directory || 'Session';
@@ -80,14 +80,14 @@ class TabManager {
     if (skipRender) {
       // Make tab active without triggering renderMessages
       this.activeTabId = sessionId;
-      this.client.showChatScreen();
+      this.app.showChatScreen();
       if (session.sessionType === 'voice') {
         this.voiceChatContent?.classList.remove('hidden');
-        this.client.voiceChatManager?.activateForSession(sessionId);
+        this.app.voiceChatManager?.activateForSession(sessionId);
       } else {
         this.chatContent.classList.remove('hidden');
       }
-      this.client.currentSessionId = sessionId;
+      this.app.currentSessionId = sessionId;
       this.render();
     } else {
       this.switchToTab(sessionId);
@@ -122,9 +122,9 @@ class TabManager {
     this._saveFileTab(projectId, filePath);
 
     // Register file watcher on server (skip plan files and viewer files)
-    const isViewer = this.client.viewerRegistry?.isViewerFile(filePath);
+    const isViewer = this.app.viewerRegistry?.isViewerFile(filePath);
     if (!isPlanProject(projectId) && !isViewer) {
-      this.client.ws?.send(JSON.stringify({
+      this.app.ws?.send(JSON.stringify({
         type: 'watch_file',
         projectId,
         path: filePath
@@ -169,7 +169,7 @@ class TabManager {
     this.activeTabId = tabId;
 
     // Ensure chat screen is visible (hides welcome screen)
-    this.client.showChatScreen();
+    this.app.showChatScreen();
 
     // Hide all content containers first
     this.chatContent.classList.add('hidden');
@@ -183,41 +183,41 @@ class TabManager {
 
     // Show appropriate content container
     if (tab.type === 'session') {
-      const session = this.client.sessions.get(tab.id);
+      const session = this.app.sessions.get(tab.id);
       if (session?.sessionType === 'voice') {
         this.voiceChatContent?.classList.remove('hidden');
-        this.client.voiceChatManager?.activateForSession(tab.id);
+        this.app.voiceChatManager?.activateForSession(tab.id);
       } else {
         this.chatContent.classList.remove('hidden');
-        this.client.voiceChatManager?.deactivate();
+        this.app.voiceChatManager?.deactivate();
       }
-      this.client._updateVoiceUIBtnVisibility?.();
+      this.app._updateVoiceUIBtnVisibility?.();
 
       // Flush any partial streaming message from the old session to its history
-      const prevSessionId = this.client.currentSessionId;
+      const prevSessionId = this.app.currentSessionId;
       if (prevSessionId && prevSessionId !== tab.id) {
-        this.client.messageRenderer.finishAssistantMessage();
+        this.app.messageRenderer.finishAssistantMessage();
       }
 
       // Flush background buffer for the session we're switching to
-      if (this.client.messageDispatcher) {
-        this.client.messageDispatcher.flushBackgroundBuffer(tab.id);
+      if (this.app.messageDispatcher) {
+        this.app.messageDispatcher.flushBackgroundBuffer(tab.id);
       }
 
       // Update current session in client
-      this.client.currentSessionId = tab.id;
-      this.client.renderMessages();
-      this.client.updateStatsForSession(tab.id);
+      this.app.currentSessionId = tab.id;
+      this.app.renderMessages();
+      this.app.updateStatsForSession(tab.id);
 
       // Restore stop button state based on whether this session is streaming
-      if (this.client.messageDispatcher?.streamingSessions.has(tab.id)) {
-        this.client.showStopButton();
-        this.client.messageRenderer.showThinkingIndicator();
+      if (this.app.messageDispatcher?.streamingSessions.has(tab.id)) {
+        this.app.showStopButton();
+        this.app.messageRenderer.showThinkingIndicator();
       } else {
-        this.client.hideStopButton();
+        this.app.hideStopButton();
       }
     } else if (tab.type === 'file') {
-      const registry = this.client.viewerRegistry;
+      const registry = this.app.viewerRegistry;
       if (registry && registry.isViewerFile(tab.path)) {
         // Binary file: render with appropriate viewer
         this.viewerContent.classList.remove('hidden');
@@ -225,16 +225,16 @@ class TabManager {
       } else {
         // Text file: show in Monaco editor
         this.editorContent.classList.remove('hidden');
-        if (this.client.fileEditor) {
-          this.client.fileEditor.showFile(tab.projectId, tab.path);
+        if (this.app.fileEditor) {
+          this.app.fileEditor.showFile(tab.projectId, tab.path);
         }
       }
     } else if (tab.type === 'terminal') {
       this.terminalContent.classList.remove('hidden');
 
       // Show terminal in container
-      if (this.client.terminalManager) {
-        this.client.terminalManager.showTerminal(tab.id);
+      if (this.app.terminalManager) {
+        this.app.terminalManager.showTerminal(tab.id);
       }
     }
 
@@ -262,7 +262,7 @@ class TabManager {
       this._removeFileTab(tab.projectId, tab.path);
     }
     if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
-      this.client.ws?.send(JSON.stringify({
+      this.app.ws?.send(JSON.stringify({
         type: 'unwatch_file',
         projectId: tab.projectId,
         path: tab.path
@@ -272,16 +272,16 @@ class TabManager {
     // Send leave_session to unbind from relayLLM when closing a session tab
     if (tab.type === 'session') {
       this._removeSessionTab(tab.id);
-      this.client.wsClient.send({ type: 'leave_session', sessionId: tab.id });
-      if (this.client.messageDispatcher) {
-        this.client.messageDispatcher.backgroundBuffers.delete(tab.id);
-        this.client.messageDispatcher.streamingSessions.delete(tab.id);
+      this.app.wsClient.send({ type: 'leave_session', sessionId: tab.id });
+      if (this.app.messageDispatcher) {
+        this.app.messageDispatcher.backgroundBuffers.delete(tab.id);
+        this.app.messageDispatcher.streamingSessions.delete(tab.id);
       }
     }
 
     // Clean up terminal if closing terminal tab
-    if (tab.type === 'terminal' && this.client.terminalManager) {
-      this.client.terminalManager.closeTerminal(tab.id);
+    if (tab.type === 'terminal' && this.app.terminalManager) {
+      this.app.terminalManager.closeTerminal(tab.id);
     }
 
     // Remove tab
@@ -301,7 +301,7 @@ class TabManager {
         this.viewerContent.classList.add('hidden');
         this.terminalContent.classList.add('hidden');
         if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
-        this.client.voiceChatManager?.deactivate();
+        this.app.voiceChatManager?.deactivate();
         this._destroyActiveViewer();
       }
     }
@@ -338,7 +338,7 @@ class TabManager {
   reestablishFileWatches() {
     for (const tab of this.tabs) {
       if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
-        this.client.ws?.send(JSON.stringify({
+        this.app.ws?.send(JSON.stringify({
           type: 'watch_file',
           projectId: tab.projectId,
           path: tab.path
@@ -351,7 +351,7 @@ class TabManager {
    * Renders a viewer file into the viewer canvas.
    */
   _renderViewer(tab) {
-    const registry = this.client.viewerRegistry;
+    const registry = this.app.viewerRegistry;
     const viewer = registry.getViewer(tab.path);
     if (!viewer) return;
 
@@ -416,7 +416,7 @@ class TabManager {
         if (tab.type !== 'session') return;
         closeLongPress = setTimeout(() => {
           closeLongFired = true;
-          this.client.deleteSession(tab.id);
+          this.app.deleteSession(tab.id);
         }, 500);
       };
       const cancelClose = () => { clearTimeout(closeLongPress); };
@@ -485,7 +485,7 @@ class TabManager {
   _saveSessionTab(sessionId) {
     this._saveToStorage(TabManager.SESSION_STORAGE_KEY, sessionId, Date.now());
     // Persist session metadata (sessionType) for reload
-    const session = this.client.sessions.get(sessionId);
+    const session = this.app.sessions.get(sessionId);
     if (session?.sessionType) {
       this._saveSessionMeta(sessionId, { sessionType: session.sessionType });
     }
