@@ -110,7 +110,8 @@ async function loadEspeak() {
   // Patch import.meta.url (only used as WASM path fallback; we override via locateFile).
   const res = await fetch(`${ESPEAK_CDN}/espeak-ng.js`);
   const code = await res.text();
-  const patched = code.replace('import.meta.url', JSON.stringify(`${ESPEAK_CDN}/`));
+  const patched = code.replaceAll('import.meta.url', JSON.stringify(`${ESPEAK_CDN}/`))
+    .replaceAll('import.meta', JSON.stringify({ url: `${ESPEAK_CDN}/` }));
   (0, eval)(patched);
   espeakFactory = ESpeakNG;
   return espeakFactory;
