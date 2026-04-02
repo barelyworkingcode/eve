@@ -405,8 +405,8 @@ class VoiceChatManager {
 
   handleTTSStart() {
     if (!this.isVoiceSession) return;
-    // VAD stays active during playback — echo cancellation filters speaker output,
-    // and real user speech triggers barge-in (stops TTS via _onVADSpeechStart)
+    // VAD stays active during playback for voice barge-in.
+    // Echo cancellation + higher thresholds filter speaker output.
     this.orbRenderer?.setState('speaking');
     this._setPrompt('Speaking...');
   }
