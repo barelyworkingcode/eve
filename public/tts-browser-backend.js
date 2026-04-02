@@ -36,7 +36,8 @@ class TtsBrowserBackend {
     this._onProgress = options.onProgress || null;
     this._onReady = options.onReady || null;
     this._onError = options.onError || null;
-    console.log(`[TTS:browser] Initialized (lazy) — dtype=${options.dtype || 'q4'}, device=${options.device || 'wasm'}`);
+    // Start loading immediately (eager init for startup overlay)
+    this._ensureWorker();
   }
 
   /**

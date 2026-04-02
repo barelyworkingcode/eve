@@ -98,16 +98,16 @@ function segmentText(text) {
 
 // --- Phonemizer (espeak-ng WASM) ---
 
-const ESPEAK_CDN = 'https://cdn.jsdelivr.net/npm/espeak-ng@1.0.2/dist';
+const ESPEAK_BASE = '/espeak-ng';
 let espeakFactory = null;
 
 async function loadEspeak() {
   if (espeakFactory) return espeakFactory;
   // espeak-ng.js uses import.meta and export — must stay in ES module context.
-  // Fetch, patch import.meta.url to CDN path, then import via Blob URL.
-  const res = await fetch(`${ESPEAK_CDN}/espeak-ng.js`);
+  // Fetch, patch import.meta.url to local server path, then import via Blob URL.
+  const res = await fetch(`${ESPEAK_BASE}/espeak-ng.js`);
   const code = await res.text();
-  const patched = code.replaceAll('import.meta.url', JSON.stringify(`${ESPEAK_CDN}/espeak-ng.js`));
+  const patched = code.replaceAll('import.meta.url', JSON.stringify(`${ESPEAK_BASE}/espeak-ng.js`));
   const blob = new Blob([patched], { type: 'text/javascript' });
   const blobUrl = URL.createObjectURL(blob);
   const mod = await import(blobUrl);
@@ -126,7 +126,7 @@ async function phonemize(text, lang = 'en-us') {
 
   const factory = await loadEspeak();
   const espeak = await factory({
-    locateFile: () => `${ESPEAK_CDN}/espeak-ng.wasm`,
+    locateFile: () => `${ESPEAK_BASE}/espeak-ng.wasm`,
     arguments: ['--phonout', 'generated', '-q', '--ipa', '-v', lang, normalized],
   });
 

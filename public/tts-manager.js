@@ -72,6 +72,7 @@ class TTSManager {
       onProgress: (data) => {
         if (this.activeBackend.ready) return;
         const pct = Math.round(data.progress || 0);
+        this.app._ttsLoadPct = pct;
         this.app.voiceChatManager?._setPrompt(`Loading TTS model: ${pct}%`);
       },
       onReady: () => {

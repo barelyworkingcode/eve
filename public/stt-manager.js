@@ -49,6 +49,7 @@ class STTManager {
       onProgress: (data) => {
         if (this.activeBackend.ready) return;
         const pct = Math.round(data.progress || 0);
+        this.app._sttLoadPct = pct;
         this.app.voiceChatManager?._setPrompt(`Loading STT model: ${pct}%`);
       },
       onReady: () => {
