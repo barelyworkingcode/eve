@@ -54,9 +54,7 @@ class STTManager {
       },
       onReady: () => {
         console.log(`[STT] ${this.backend} backend ready`);
-        if (this.app.voiceChatManager?.isVoiceSession) {
-          this.app.voiceChatManager._setPrompt('Listening...');
-        }
+        window.bus?.emit(EVT.VOICE_BACKEND_CHANGED);
       },
       onError: (msg) => {
         console.error(`[STT] ${this.backend} backend failed:`, msg);
@@ -96,6 +94,7 @@ class STTManager {
     this._initBackend();
     this._updateButtonVisibility();
     console.log(`[STT] Switched backend: ${prev} → ${name}`);
+    window.bus?.emit(EVT.VOICE_BACKEND_CHANGED);
   }
 
   setBackend(name) {

@@ -90,6 +90,9 @@ const EVT = {
 
   // Settings
   SETTINGS_CHANGED: 'settings:changed',
+
+  // Voice
+  VOICE_BACKEND_CHANGED: 'voice:backendChanged',
 };
 
 // Platform detection (invariant for page lifetime)
