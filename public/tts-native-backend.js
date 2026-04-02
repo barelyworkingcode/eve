@@ -50,11 +50,12 @@ class TtsNativeBackend {
 
   /**
    * Speak text via the native Capacitor plugin.
-   * Returns void — native plugin handles playback directly.
+   * Returns { audio: base64, duration } — same contract as TtsBrowserBackend.
+   * JS handles playback via AudioContext (standard path).
    */
   async speakText(text, voice) {
-    await window.Capacitor.nativePromise('EveVoice', 'speak', { text, voice });
-    return null;
+    const result = await window.Capacitor.nativePromise('EveVoice', 'speak', { text, voice });
+    return { audio: result.audio, duration: result.duration };
   }
 
   /**

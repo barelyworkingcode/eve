@@ -1,26 +1,25 @@
 /**
  * SttNativeBackend - Native STT via Capacitor EveVoice plugin.
- * Audio capture and transcription are handled entirely by the native plugin.
- * Results arrive via Capacitor event listeners managed by this backend.
+ * Follows the same pattern as SttBrowserBackend:
+ *   - transcribe(audio) accepts Float32Array, returns { text }
+ *   - transcribeBlob(blob) decodes to Float32 then calls transcribe()
+ * Audio capture and VAD are handled by JS — this backend only transcribes.
  */
 class SttNativeBackend {
   constructor() {
     this.name = 'native';
     this.onDevice = true;
-    
+
     this.ready = false;
     this.loading = false;
-    this._listener = null;
-    this._onTranscription = null;
   }
 
   async init(context) {
-    this._app = context.app;
     this.loading = true;
 
     try {
       console.log('[STT:native] Loading models via EveVoice plugin...');
-      await window.Capacitor.nativePromise('EveVoice', 'loadModels', {});
+      await window.Capacitor.nativePromise('EveVoice', 'loadSTTModels', {});
       this.ready = true;
       this.loading = false;
       console.log('[STT:native] Models loaded');
@@ -33,48 +32,42 @@ class SttNativeBackend {
   }
 
   /**
-   * Not used in native mode — VAD + STT are handled entirely by the native plugin.
+   * Transcribe Float32Array audio (16kHz mono) via native ASR engine.
+   * Returns { text } — same contract as SttBrowserBackend.transcribe().
    */
-  transcribe() {
-    return null;
+  async transcribe(audio) {
+    if (!this.ready) throw new Error('STT not ready');
+
+    // Encode Float32Array as base64 for Capacitor bridge
+    const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+
+    const result = await window.Capacitor.nativePromise('EveVoice', 'transcribe', { audio: base64 });
+    return { text: result.text };
   }
 
   /**
-   * Not used in native mode — recording is handled by startRecording/stopRecording.
+   * Transcribe a push-to-talk recording blob by decoding to Float32Array.
+   * Same approach as SttBrowserBackend.transcribeBlob().
    */
-  transcribeBlob() {
-    return null;
-  }
-
-  /**
-   * Start native recording via Capacitor plugin.
-   * Models are already loaded from init() — no need to call loadModels again.
-   * @param {Function} onTranscription - Called with transcribed text
-   */
-  async startRecording(onTranscription) {
-    this._onTranscription = onTranscription;
-    const cap = window.Capacitor;
-    this._listener = await cap.addListener('EveVoice', 'transcription', (data) => {
-      if (data.isFinal && data.text?.trim()) {
-        this._onTranscription?.(data.text.trim());
-      }
-    });
-    await cap.nativePromise('EveVoice', 'startListening', {});
-  }
-
-  stopRecording() {
-    const cap = window.Capacitor;
-    cap?.nativePromise('EveVoice', 'stopListening', {}).catch(() => {});
-    this._listener?.remove?.();
-    this._listener = null;
+  async transcribeBlob(blob) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioCtx = new OfflineAudioContext(1, 1, 16000);
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    const offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * 16000), 16000);
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offlineCtx.destination);
+    source.start();
+    const rendered = await offlineCtx.startRendering();
+    return this.transcribe(rendered.getChannelData(0));
   }
 
   async isAvailable() {
     return true;
   }
 
-  destroy() {
-    this.stopRecording();
-    this._app = null;
-  }
+  destroy() {}
 }
