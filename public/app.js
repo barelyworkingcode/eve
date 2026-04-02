@@ -335,6 +335,9 @@ class EveWorkspaceClient {
     // Voice Chat Manager
     this.voiceChatManager.init();
 
+    // Show model loading overlay if browser backends need to download models
+    this._showModelLoadingOverlay();
+
     // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
     this.elements.welcomeOpenSidebar.addEventListener('click', () => this.toggleSidebar(true));
@@ -934,6 +937,62 @@ function initSwipeGesture(sidebar, toggleSidebar) {
     if (!open && startX < 30 && deltaX > 60) toggleSidebar(true);
     if (open && deltaX < -60) toggleSidebar(false);
   }, { passive: true });
+}
+
+  /**
+   * Show a blocking overlay while browser STT/TTS models are downloading.
+   * Hides automatically when all active browser backends report ready.
+   */
+  _showModelLoadingOverlay() {
+    const sttBrowser = this.sttManager.backend === 'browser';
+    const ttsBrowser = this.ttsManager.backend === 'browser';
+    if (!sttBrowser && !ttsBrowser) return;
+
+    // If both are already ready (cached), skip overlay
+    const sttReady = !sttBrowser || this.sttManager.activeBackend.ready;
+    const ttsReady = !ttsBrowser || this.ttsManager.activeBackend.ready;
+    if (sttReady && ttsReady) return;
+
+    const overlay = document.getElementById('modelLoadingOverlay');
+    const sttItem = document.getElementById('sttLoadingItem');
+    const ttsItem = document.getElementById('ttsLoadingItem');
+    const sttFill = document.getElementById('sttLoadingFill');
+    const ttsFill = document.getElementById('ttsLoadingFill');
+    const sttPct = document.getElementById('sttLoadingPct');
+    const ttsPct = document.getElementById('ttsLoadingPct');
+
+    if (!overlay) return;
+
+    // Hide items for backends that aren't browser
+    if (!sttBrowser && sttItem) sttItem.style.display = 'none';
+    if (!ttsBrowser && ttsItem) ttsItem.style.display = 'none';
+
+    overlay.classList.remove('hidden');
+
+    // Poll for progress updates
+    const checkDone = () => {
+      const sDone = !sttBrowser || this.sttManager.activeBackend.ready;
+      const tDone = !ttsBrowser || this.ttsManager.activeBackend.ready;
+
+      if (sttBrowser && sttFill) {
+        const pct = sDone ? 100 : (this._sttLoadPct || 0);
+        sttFill.style.width = pct + '%';
+        sttPct.textContent = sDone ? 'ready' : pct + '%';
+      }
+      if (ttsBrowser && ttsFill) {
+        const pct = tDone ? 100 : (this._ttsLoadPct || 0);
+        ttsFill.style.width = pct + '%';
+        ttsPct.textContent = tDone ? 'ready' : pct + '%';
+      }
+
+      if (sDone && tDone) {
+        overlay.classList.add('hidden');
+      } else {
+        requestAnimationFrame(checkDone);
+      }
+    };
+    requestAnimationFrame(checkDone);
+  }
 }
 
 // Initialize
