@@ -9,6 +9,8 @@
 class TtsBrowserBackend {
   constructor() {
     this.name = 'browser';
+    this.requiresModelLoad = true;
+    this.clientSideTTS = true;
     this.worker = null;
     this.ready = false;
     this.loading = false;

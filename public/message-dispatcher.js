@@ -589,8 +589,7 @@ class MessageDispatcher {
         this.client.messageRenderer.appendToAssistantMessage(event.delta.text);
         this.client.voiceChatManager?.handleAssistantDelta(event.delta.text);
         // Accumulate for client-side TTS in text sessions (browser and native backends)
-        const ttsBackend = this.client.ttsManager?.backend;
-        if ((ttsBackend === 'native' || ttsBackend === 'browser') && this.client.ttsManager?.enabled) {
+        if (this.client.ttsManager?.activeBackend?.clientSideTTS && this.client.ttsManager?.enabled) {
           this._clientTTSAccum = (this._clientTTSAccum || '') + event.delta.text;
         }
       }
