@@ -18,6 +18,8 @@ ort.env.wasm.wasmPaths = '/onnxruntime-web/';
 const SAMPLE_RATE = 24000;
 const MODEL_CONTEXT_WINDOW = 512;
 const HF_BASE = 'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main';
+const HF_MODELS = `${HF_BASE}/onnx`;
+const HF_VOICES = `${HF_BASE}/voices`;
 
 // --- State ---
 let session = null;
@@ -122,7 +124,7 @@ async function phonemize(text, lang = 'en-us') {
 async function getVoice(voiceId) {
   if (voiceCache.has(voiceId)) return voiceCache.get(voiceId);
 
-  const url = `${HF_BASE}/${voiceId}.bin`;
+  const url = `${HF_VOICES}/${voiceId}.bin`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch voice: ${voiceId}`);
   const buffer = await res.arrayBuffer();
@@ -227,7 +229,7 @@ async function loadModel(dtype, device) {
 
   self.postMessage({ type: 'init_progress', progress: 10 });
 
-  const modelUrl = `${HF_BASE}/${modelId}.onnx`;
+  const modelUrl = `${HF_MODELS}/${modelId}.onnx`;
   const response = await fetch(modelUrl);
   if (!response.ok) throw new Error(`Failed to fetch model: ${modelUrl}`);
 
