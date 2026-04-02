@@ -85,10 +85,11 @@ class TTSManager {
     };
 
     if (this.activeBackend.name === 'browser') {
-      // Default to q4/wasm (86MB model, CPU) — works everywhere including Safari/mobile.
-      // WebGPU + fp32 (163MB) available on desktop Chrome but too heavy for mobile.
-      context.dtype = 'q4';
-      context.device = 'wasm';
+      // WebGPU + fp32 for capable devices, q4/wasm fallback.
+      // Mobile Safari can't handle on-device TTS (memory limits) — uses native or server backend.
+      const useWebGPU = !!navigator.gpu;
+      context.dtype = useWebGPU ? 'fp32' : 'q4';
+      context.device = useWebGPU ? 'webgpu' : 'wasm';
     }
 
     this.activeBackend.init(context);
