@@ -884,13 +884,13 @@ class EveWorkspaceClient {
    * Hides automatically when all active browser backends report ready.
    */
   _showModelLoadingOverlay() {
-    const sttBrowser = this.sttManager.backend === 'browser';
-    const ttsBrowser = this.ttsManager.backend === 'browser';
-    if (!sttBrowser && !ttsBrowser) return;
+    const sttOnDevice = this.sttManager.backend === 'browser' || this.sttManager.backend === 'native';
+    const ttsOnDevice = this.ttsManager.backend === 'browser' || this.ttsManager.backend === 'native';
+    if (!sttOnDevice && !ttsOnDevice) return;
 
     // Check what actually needs loading
-    const sttNeedsLoad = sttBrowser && !this.sttManager.activeBackend.ready;
-    const ttsNeedsLoad = ttsBrowser && !this.ttsManager.activeBackend.ready;
+    const sttNeedsLoad = sttOnDevice && !this.sttManager.activeBackend.ready;
+    const ttsNeedsLoad = ttsOnDevice && !this.ttsManager.activeBackend.ready;
     if (!sttNeedsLoad && !ttsNeedsLoad) return;
 
     const overlay = document.getElementById('modelLoadingOverlay');
@@ -919,13 +919,13 @@ class EveWorkspaceClient {
 
       if (sttNeedsLoad && sttFill) {
         const pct = sDone ? 100 : (this._sttLoadPct || 0);
-        sttFill.style.width = pct + '%';
-        sttPct.textContent = sDone ? 'ready' : pct + '%';
+        sttFill.style.width = (pct || (this.sttManager.activeBackend.loading ? 50 : 0)) + '%';
+        sttPct.textContent = sDone ? 'ready' : (pct ? pct + '%' : 'loading...');
       }
       if (ttsNeedsLoad && ttsFill) {
         const pct = tDone ? 100 : (this._ttsLoadPct || 0);
-        ttsFill.style.width = pct + '%';
-        ttsPct.textContent = tDone ? 'ready' : pct + '%';
+        ttsFill.style.width = (pct || (this.ttsManager.activeBackend.loading ? 50 : 0)) + '%';
+        ttsPct.textContent = tDone ? 'ready' : (pct ? pct + '%' : 'loading...');
       }
 
       if (sDone && tDone) {

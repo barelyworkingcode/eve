@@ -24,12 +24,26 @@ const KOKORO_VOICES = [
 class TtsNativeBackend {
   constructor() {
     this.name = 'native';
-    this.ready = true;
+    this.ready = false;
     this.loading = false;
   }
 
-  init(context) {
-    context.onReady?.();
+  async init(context) {
+    this.loading = true;
+
+    try {
+      // loadModels is shared between STT and TTS — idempotent if already loaded.
+      console.log('[TTS:native] Loading models via EveVoice plugin...');
+      await window.Capacitor.nativePromise('EveVoice', 'loadModels', {});
+      this.ready = true;
+      this.loading = false;
+      console.log('[TTS:native] Models loaded');
+      context.onReady?.();
+    } catch (err) {
+      this.loading = false;
+      console.error('[TTS:native] Model loading failed:', err.message);
+      context.onError?.(err.message);
+    }
   }
 
   /**

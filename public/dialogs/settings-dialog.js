@@ -200,9 +200,9 @@ class SettingsDialog extends DialogBase {
     backendSelect.addEventListener('change', () => {
       tts.setBackend(backendSelect.value);
       statusEl.textContent = this._getTtsStatus(tts);
-      // Trigger model download overlay if switching to on-device
+      // Trigger model loading overlay if switching to on-device
       const app = this.container.get('app');
-      if (backendSelect.value === 'browser') app?._showModelLoadingOverlay();
+      if (backendSelect.value === 'browser' || backendSelect.value === 'native') app?._showModelLoadingOverlay();
     });
     container.appendChild(backendSelect);
 
@@ -245,9 +245,9 @@ class SettingsDialog extends DialogBase {
     sttSelect.addEventListener('change', () => {
       stt.setBackend(sttSelect.value);
       sttStatusEl.textContent = this._getSttStatus(stt);
-      // Trigger model download overlay if switching to on-device
+      // Trigger model loading overlay if switching to on-device
       const app = this.container.get('app');
-      if (sttSelect.value === 'browser') app?._showModelLoadingOverlay();
+      if (sttSelect.value === 'browser' || sttSelect.value === 'native') app?._showModelLoadingOverlay();
     });
     container.appendChild(sttSelect);
 
