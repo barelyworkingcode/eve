@@ -276,6 +276,19 @@ class STTManager {
       return;
     }
 
+    // Filter Whisper hallucinations on background noise — short repetitive phrases it produces
+    // when processing non-speech audio (fan noise, keyboard clicks, ambient sounds)
+    const lower = cleaned.toLowerCase();
+    const HALLUCINATIONS = [
+      'thank you', 'thanks for watching', 'thanks for listening',
+      'you', 'bye', 'the end', 'hmm', 'mm',
+      'subscribe', 'like and subscribe',
+    ];
+    if (HALLUCINATIONS.includes(lower) || lower.replace(/\./g, '').trim().length < 2) {
+      console.warn('[STT] Filtered likely hallucination:', cleaned);
+      return;
+    }
+
     // Route to voice chat manager if active
     if (this.app.voiceChatManager?.isVoiceSession) {
       this.app.voiceChatManager.handleTranscription(cleaned);

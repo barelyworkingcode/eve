@@ -29,11 +29,11 @@ class VadManager {
     try {
       console.log('[VAD] Initializing Silero VAD...');
       this.micVAD = await vad.MicVAD.new({
-        positiveSpeechThreshold: 0.45,
-        negativeSpeechThreshold: 0.25,
-        minSpeechFrames: 2,
+        positiveSpeechThreshold: 0.7,
+        negativeSpeechThreshold: 0.4,
+        minSpeechFrames: 5,
         preSpeechPadFrames: 10,
-        redemptionFrames: 20, // ~650ms at 30fps before declaring end of speech
+        redemptionFrames: 25, // ~800ms at 30fps before declaring end of speech
         baseAssetPath: '/vad-web/',
         onnxWASMBasePath: '/vad-onnx/',
 
