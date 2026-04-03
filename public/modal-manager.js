@@ -31,8 +31,6 @@ class ModalManager {
         this.hideTaskModal();
       } else if (!el.modal.classList.contains('hidden')) {
         this.hideSessionModal();
-      } else if (!el.projectModal.classList.contains('hidden')) {
-        this.hideProjectModal();
       } else {
         return;
       }
@@ -43,10 +41,6 @@ class ModalManager {
     // Session Modal
     el.cancelModal.addEventListener('click', () => this.hideSessionModal());
     el.modal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideSessionModal());
-
-    // Project Modal
-    el.cancelProjectModal.addEventListener('click', () => this.hideProjectModal());
-    el.projectModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideProjectModal());
 
     // Confirmation modal
     el.cancelConfirm.addEventListener('click', () => this.hideConfirmModal());
@@ -115,41 +109,6 @@ class ModalManager {
     }
     el.providerSettings.innerHTML = '';
     this.app.updateDirectoryInputRequirement();
-  }
-
-  // --- Project modal ---
-
-  showProjectModal(projectId = null) {
-    const el = this.app.elements;
-    this.editingProjectId = projectId;
-
-    if (projectId) {
-      const project = this.app.projects.get(projectId);
-      if (!project) return;
-      el.projectModalTitle.textContent = 'Edit Project';
-      el.projectSubmitBtn.textContent = 'Save';
-      el.projectNameInput.value = project.name;
-      el.projectPathInput.value = project.path;
-      el.projectAllowedToolsInput.value = (project.allowedTools || []).join(' ');
-    } else {
-      el.projectModalTitle.textContent = 'New Project';
-      el.projectSubmitBtn.textContent = 'Create Project';
-      el.projectNameInput.value = '';
-      el.projectPathInput.value = '';
-      el.projectAllowedToolsInput.value = '';
-    }
-
-    el.projectModal.classList.remove('hidden');
-    el.projectNameInput.focus();
-  }
-
-  hideProjectModal() {
-    const el = this.app.elements;
-    el.projectModal.classList.add('hidden');
-    this.editingProjectId = null;
-    el.projectNameInput.value = '';
-    el.projectPathInput.value = '';
-    el.projectAllowedToolsInput.value = '';
   }
 
   // --- Confirm modal ---
