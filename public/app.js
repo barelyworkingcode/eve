@@ -7,12 +7,13 @@
  */
 class EveWorkspaceClient {
   constructor() {
-    this.currentSessionId = null;
-    this.sessions = new Map();
-    this.sessionHistories = new Map();
-    this.projects = new Map();
-    this.models = [];
-    this.isRenderingHistory = false;
+
+    // Core infrastructure (Phase 1) — available for new modules.
+    this.bus = new EventBus();
+    this.container = new Container();
+    this.container.register('bus', this.bus);
+    this.api = new ApiClient();
+    this.container.register('api', this.api);
 
     this.authClient = new AuthClient();
     this.authClient.init();
@@ -25,20 +26,79 @@ class EveWorkspaceClient {
   }
 
   initApp() {
+    // Wire state store into infrastructure.
+    this.state = new StateStore(this.bus);
+    this.container.register('state', this.state);
+    this.container.register('app', this); // Legacy bridge: modules can access app via container during migration
+
+    // Apply saved settings before any rendering
+    this.settings = new SettingsManager(this.bus);
+    this.container.register('settings', this.settings);
+    this.settings.applyToDOM();
+
     this.initElements();
 
-    // Initialize modules
-    this.wsClient = new WsClient(this);
-    this.messageRenderer = new MessageRenderer(this);
-    this.taskManager = new TaskManager(this);
-    this.modalManager = new ModalManager(this);
-    this.sidebarRenderer = new SidebarRenderer(this);
-    this.tabManager = new TabManager(this);
-    this.fileBrowser = new FileBrowser(this);
-    this.fileEditor = new FileEditor(this);
-    this.terminalManager = new TerminalManager(this);
-    this.messageDispatcher = new MessageDispatcher(this);
-    this.fileAttachmentManager = new FileAttachmentManager(this);
+    // Initialize modules — register each in the container immediately after creation
+    // so subsequent modules (and Phase 2+ container-based modules) can resolve them.
+    this.wsClient = new WsClient(this.container, {
+      onReady: () => this.onWebSocketReady(),
+      onMessage: (data) => this.handleServerMessage(data),
+    });
+    this.wsClient.setConnectionStatusEl(this.elements.connectionStatus);
+    this.container.register('ws', this.wsClient);
+    this.messageRenderer = new MessageRenderer(this.container);
+    this.container.register('messageRenderer', this.messageRenderer);
+    this.taskManager = new TaskManager(this.container);
+    this.container.register('taskManager', this.taskManager);
+    this.modalManager = new ModalManager(this.container);
+    this.container.register('modalManager', this.modalManager);
+    this.sidebarRenderer = new SidebarRenderer(this.container);
+    this.container.register('sidebarRenderer', this.sidebarRenderer);
+    this.tabManager = new TabManager(this.container);
+    this.container.register('tabManager', this.tabManager);
+    this.fileBrowser = new FileBrowser(this.container);
+    this.container.register('fileBrowser', this.fileBrowser);
+    this.fileEditor = new FileEditor(this.container);
+    this.container.register('fileEditor', this.fileEditor);
+
+    // File viewer registry (IoC: viewers register themselves)
+    this.viewerRegistry = new ViewerRegistry();
+    this.viewerRegistry.register(new ImageViewer());
+    this.viewerRegistry.register(new PdfViewer());
+    this.viewerRegistry.register(new VideoViewer());
+    this.viewerRegistry.register(new AudioViewer());
+    this.container.register('viewerRegistry', this.viewerRegistry);
+
+    // New sidebar: project tree (Phase 2)
+    this.projectTree = new ProjectTree(this.container);
+    this.projectTree.init();
+
+    // New dialogs (Phase 3)
+    this.shellLauncher = new ShellLauncherDialog(this.container);
+    this.shellLauncher.init();
+    this.taskDialog = new TaskDialog(this.container);
+    this.taskDialog.init();
+    this.settingsDialog = new SettingsDialog(this.container);
+    this.settingsDialog.init();
+    this.projectDialog = new ProjectDialog(this.container);
+    this.projectDialog.init();
+
+    // Mobile bar (Phase 5)
+    this.mobileBar = new MobileBar(this.container);
+    this.mobileBar.init();
+    this.terminalManager = new TerminalManager(this.container);
+    this.container.register('terminalManager', this.terminalManager);
+    this.fileAttachmentManager = new FileAttachmentManager(this.container);
+    this.container.register('fileAttachmentManager', this.fileAttachmentManager);
+    this.ttsManager = new TTSManager(this.container);
+    this.container.register('ttsManager', this.ttsManager);
+    this.sttManager = new STTManager(this.container);
+    this.container.register('sttManager', this.sttManager);
+    this.voiceChatManager = new VoiceChatManager(this.container);
+    this.container.register('voiceChatManager', this.voiceChatManager);
+    // MessageDispatcher must be created after all services it depends on
+    this.messageDispatcher = new MessageDispatcher(this.container);
+    this.container.register('messageDispatcher', this.messageDispatcher);
 
     if (typeof mermaid !== 'undefined') {
       mermaid.initialize({
@@ -52,6 +112,7 @@ class EveWorkspaceClient {
     this.modalManager.initEventListeners();
     this.initSidebarResize();
     this.initSwipeGesture();
+    this._initBusListeners();
     this.loadModels();
     this.wsClient.connect();
   }
@@ -60,6 +121,21 @@ class EveWorkspaceClient {
   get ws() {
     return this.wsClient?.ws;
   }
+
+  // State delegates — single source of truth is StateStore.
+  // These getters let module code (e.g. this.app.sessions.get(...))
+  // work transparently while StateStore owns the data.
+  get sessions() { return this.state.sessions; }
+  get sessionHistories() { return this.state.sessionHistories; }
+  get projects() { return this.state.projects; }
+  get models() { return this.state.models; }
+  set models(value) { this.state.models = value; }
+  get providerSettings() { return this.state.providerSettings; }
+  set providerSettings(value) { this.state.providerSettings = value; }
+  get currentSessionId() { return this.state.currentSessionId; }
+  set currentSessionId(id) { this.state.currentSessionId = id; }
+  get isRenderingHistory() { return this.messageRenderer?.isRenderingHistory ?? false; }
+  set isRenderingHistory(value) { if (this.messageRenderer) this.messageRenderer.isRenderingHistory = value; }
 
   getAuthHeaders() {
     const token = localStorage.getItem('eve_session');
@@ -80,12 +156,8 @@ class EveWorkspaceClient {
       newSessionForm: document.getElementById('newSessionForm'),
       directoryInput: document.getElementById('directoryInput'),
       cancelModal: document.getElementById('cancelModal'),
-      projectModal: document.getElementById('projectModal'),
-      newProjectForm: document.getElementById('newProjectForm'),
-      projectNameInput: document.getElementById('projectNameInput'),
-      projectPathInput: document.getElementById('projectPathInput'),
-      cancelProjectModal: document.getElementById('cancelProjectModal'),
       newProjectBtn: document.getElementById('newProjectBtn'),
+      newTerminalBtn: document.getElementById('newTerminalBtn'),
       projectList: document.getElementById('projectList'),
       projectSelect: document.getElementById('projectSelect'),
       sessionModelSelect: document.getElementById('sessionModelSelect'),
@@ -104,9 +176,6 @@ class EveWorkspaceClient {
       confirmMessage: document.getElementById('confirmMessage'),
       confirmDelete: document.getElementById('confirmDelete'),
       cancelConfirm: document.getElementById('cancelConfirm'),
-      projectModalTitle: document.getElementById('projectModalTitle'),
-      projectSubmitBtn: document.getElementById('projectSubmitBtn'),
-      projectAllowedToolsInput: document.getElementById('projectAllowedToolsInput'),
       providerSettings: document.getElementById('providerSettings'),
       permissionModal: document.getElementById('permissionModal'),
       permissionToolName: document.getElementById('permissionToolName'),
@@ -120,6 +189,13 @@ class EveWorkspaceClient {
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
       stopBtn: document.getElementById('stopBtn'),
+      micBtn: document.getElementById('micBtn'),
+      voiceModeBtn: document.getElementById('voiceModeBtn'),
+      voiceUIBtn: document.getElementById('voiceUIBtn'),
+      voiceDrawer: document.getElementById('voiceDrawer'),
+      voiceDrawerToggle: document.getElementById('voiceDrawerToggle'),
+      voiceDrawerPanel: document.getElementById('voiceDrawerPanel'),
+      voiceSelect: document.getElementById('voiceSelect'),
       taskModal: document.getElementById('taskModal'),
       taskModalTitle: document.getElementById('taskModalTitle'),
       taskForm: document.getElementById('taskForm'),
@@ -136,14 +212,65 @@ class EveWorkspaceClient {
     };
   }
 
+  _initBusListeners() {
+    // Bridge: new file tree click -> open file via existing read_file flow
+    this.bus.on(EVT.FILE_CONTENT, (data) => {
+      if (data.requestLoad) {
+        if (this.viewerRegistry.isViewerFile(data.path)) {
+          // Viewer files load via HTTP, no WebSocket read needed
+          const filename = data.path.split('/').pop();
+          this.tabManager.openFile(data.projectId, data.path, filename);
+        } else {
+          this.wsClient.send({ type: 'read_file', projectId: data.projectId, path: data.path });
+        }
+      }
+    });
+
+    // Bridge: confirm dialog requests from new components
+    this.bus.on(EVT.DIALOG_CONFIRM, (data) => {
+      if (confirm(data.message)) {
+        if (data.onConfirm) data.onConfirm();
+      }
+    });
+
+    // Bridge: project delete from new sidebar
+    this.bus.on(EVT.PROJECT_DELETED, (data) => {
+      this.deleteProject(data.projectId);
+    });
+
+    // Shell launcher and task dialog are handled by their own EventBus subscriptions
+    // (ShellLauncherDialog and TaskDialog listen for DIALOG_SHELL_LAUNCHER / DIALOG_TASK directly)
+
+    // Keep legacy project select in sync when projects change
+    this.bus.on(EVT.PROJECTS_LOADED, () => {
+      this.sidebarRenderer.renderProjectList();
+      this.updateProjectSelect();
+    });
+
+    // Bridge: sidebar toggle from mobile bar
+    this.bus.on(EVT.UI_TOGGLE_SIDEBAR, () => {
+      this.toggleSidebar();
+    });
+  }
+
   initEventListeners() {
     // New session buttons
-    this.elements.newSessionBtn.addEventListener('click', () => this.modalManager.showSessionModal());
+    this.elements.newSessionBtn?.addEventListener('click', () => this.modalManager.showSessionModal());
     this.elements.welcomeNewSession.addEventListener('click', () => this.modalManager.showSessionModal());
 
-    // Project modal
-    this.elements.newProjectBtn.addEventListener('click', () => this.modalManager.showProjectModal());
-    this.elements.newProjectForm.addEventListener('submit', (e) => this.handleNewProject(e));
+    // Terminal picker (legacy button, may not exist in new sidebar)
+    this.elements.newTerminalBtn?.addEventListener('click', () => {
+      const dir = this.getCurrentProjectDirectory();
+      this.terminalManager.showTemplatePicker(dir);
+    });
+
+    // Settings
+    document.getElementById('settingsBtn')?.addEventListener('click', () => {
+      this.bus.emit(EVT.DIALOG_SETTINGS, {});
+    });
+
+    // Project dialog (via EventBus — ProjectDialog handles it)
+    this.elements.newProjectBtn.addEventListener('click', () => this.bus.emit(EVT.DIALOG_PROJECT, {}));
 
     // Session form
     this.elements.newSessionForm.addEventListener('submit', (e) => this.handleNewSession(e));
@@ -158,6 +285,80 @@ class EveWorkspaceClient {
     });
     this.elements.userInput.addEventListener('input', () => this.autoResizeTextarea());
     this.elements.stopBtn.addEventListener('click', () => this.handleStop());
+
+    // Voice mode toggle + voice selection
+    if (this.elements.voiceModeBtn) {
+      if (this.ttsManager.enabled) {
+        this.elements.voiceModeBtn.classList.add('btn-voice-mode--active');
+      }
+      this.ttsManager.init();
+
+      // Short tap: toggle TTS. Long press (500ms+): switch to voice UI.
+      let voiceBtnTimer = null;
+      let voiceBtnHandled = false;
+      const startLongPress = () => {
+        voiceBtnHandled = false;
+        voiceBtnTimer = setTimeout(() => {
+          voiceBtnHandled = true;
+          if (this.currentSessionId) {
+            this.enableVoiceMode();
+            this.voiceChatManager.convertToVoiceChat();
+          }
+        }, 500);
+      };
+      const cancelLongPress = () => { clearTimeout(voiceBtnTimer); };
+      const shortTap = () => {
+        if (voiceBtnHandled) return;
+        voiceBtnHandled = true;
+        this.toggleVoiceMode();
+      };
+
+      this.elements.voiceModeBtn.addEventListener('mousedown', startLongPress);
+      this.elements.voiceModeBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startLongPress(); });
+      this.elements.voiceModeBtn.addEventListener('mouseup', cancelLongPress);
+      this.elements.voiceModeBtn.addEventListener('mouseleave', cancelLongPress);
+      this.elements.voiceModeBtn.addEventListener('touchend', (e) => { e.preventDefault(); cancelLongPress(); shortTap(); });
+      this.elements.voiceModeBtn.addEventListener('click', (e) => { e.preventDefault(); shortTap(); });
+
+      if (this.elements.voiceSelect) {
+        this.elements.voiceSelect.addEventListener('change', (e) => {
+          this.ttsManager.setVoice(e.target.value);
+          this.ttsManager.syncVoiceMode(this.wsClient);
+        });
+      }
+
+    }
+
+    // Voice UI switch button (text chat -> voice chat)
+    if (this.elements.voiceUIBtn) {
+      this.elements.voiceUIBtn.addEventListener('click', () => {
+        this.voiceChatManager.convertToVoiceChat();
+      });
+    }
+
+    // Voice controls drawer toggle
+    if (this.elements.voiceDrawerToggle) {
+      this.elements.voiceDrawerToggle.addEventListener('click', () => {
+        const panel = this.elements.voiceDrawerPanel;
+        const drawer = this.elements.voiceDrawer;
+        panel.classList.toggle('hidden');
+        drawer.classList.toggle('voice-drawer--open');
+      });
+    }
+
+    // Microphone / STT
+    if (this.elements.micBtn) {
+      this.sttManager.init();
+      this.elements.micBtn.addEventListener('click', () => {
+        this.sttManager.toggleRecording();
+      });
+    }
+
+    // Voice Chat Manager
+    this.voiceChatManager.init();
+
+    // Show model loading overlay if browser backends need to download models
+    this._showModelLoadingOverlay();
 
     // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
@@ -186,18 +387,48 @@ class EveWorkspaceClient {
     // Clear stale thinking indicator from previous connection
     this.messageRenderer.hideThinkingIndicator();
 
+    // Sync voice mode state to server on (re)connect
+    this.ttsManager.syncVoiceMode(this.wsClient);
+
     // Load projects (and tasks) first, then sessions, then re-join.
     // Order matters: task session IDs must be known before sessions load
     // so task sessions are filtered from the sidebar.
     this.loadProjects().then(() => this.loadSessions()).then(() => {
-      // Re-join ALL open session tabs so relayLLM routes events for each.
+      // Restore session tabs from localStorage (sessions opened in the last 24h).
+      const recentIds = this.tabManager.getRecentSessionIds();
+      for (const sessionId of recentIds) {
+        // Only restore if the session still exists on the server.
+        if (this.sessions.has(sessionId)) {
+          this.joinSession(sessionId);
+        }
+      }
+
+      // Also re-join any already-open session tabs (e.g. from WebSocket reconnect).
       const sessionTabs = this.tabManager.tabs.filter(t => t.type === 'session');
       for (const tab of sessionTabs) {
-        this.wsClient.send({ type: 'join_session', sessionId: tab.id });
+        if (!recentIds.includes(tab.id)) {
+          this.wsClient.send({ type: 'join_session', sessionId: tab.id });
+        }
+      }
+
+      // Restore file tabs from localStorage (files opened in the last 24h).
+      const recentFiles = this.tabManager.getRecentFiles();
+      for (const file of recentFiles) {
+        if (this.projects.has(file.projectId)) {
+          if (this.viewerRegistry.isViewerFile(file.path)) {
+            const filename = file.path.split('/').pop();
+            this.tabManager.openFile(file.projectId, file.path, filename);
+          } else {
+            this.wsClient.send({ type: 'read_file', projectId: file.projectId, path: file.path });
+          }
+        }
       }
     });
 
-    this.terminalManager.onReady(() => this.terminalManager.requestTerminalList());
+    this.terminalManager.onReady(() => {
+      this.terminalManager.requestTerminalList();
+      this.terminalManager.requestTemplates();
+    });
     this.tabManager.reestablishFileWatches();
   }
 
@@ -234,8 +465,7 @@ class EveWorkspaceClient {
       const response = await fetch('/api/models', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const data = await response.json();
-      this.models = data.models || [];
-      this.providerSettings = data.providerSettings || {};
+      this.state.setModels(data.models || [], data.providerSettings || {});
       this.renderModelSelect(this.elements.sessionModelSelect);
     } catch (err) {
       console.error('Failed to load models:', err);
@@ -243,27 +473,7 @@ class EveWorkspaceClient {
   }
 
   renderModelSelect(selectEl) {
-    selectEl.innerHTML = '';
-
-    const groups = {};
-    for (const model of this.models) {
-      if (!groups[model.group]) groups[model.group] = [];
-      groups[model.group].push(model);
-    }
-
-    for (const [groupName, models] of Object.entries(groups)) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = groupName;
-      for (const model of models) {
-        const option = document.createElement('option');
-        option.value = model.value;
-        option.textContent = model.label;
-        optgroup.appendChild(option);
-      }
-      selectEl.appendChild(optgroup);
-    }
-
-    if (this.models.length > 0) selectEl.value = this.models[0].value;
+    renderModelSelect(selectEl, this.models);
   }
 
   async loadProjects() {
@@ -271,11 +481,8 @@ class EveWorkspaceClient {
       const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const projects = await response.json();
-      this.projects.clear();
-      projects.forEach(project => this.projects.set(project.id, project));
+      this.state.setProjects(projects); // emits PROJECTS_LOADED → renders sidebar + updates select
       await this.loadAllTasks();
-      this.sidebarRenderer.renderProjectList();
-      this.updateProjectSelect();
     } catch (err) {
       console.error('Failed to load projects:', err);
     }
@@ -290,7 +497,7 @@ class EveWorkspaceClient {
       const response = await fetch('/api/sessions', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const sessions = await response.json();
-      sessions.forEach(session => this.sessions.set(session.id, session));
+      sessions.forEach(session => this.state.addSession(session));
       this.sidebarRenderer.renderProjectList();
     } catch (err) {
       console.error('Failed to load sessions:', err);
@@ -328,36 +535,6 @@ class EveWorkspaceClient {
   }
 
   // --- Project actions ---
-
-  async handleNewProject(e) {
-    e.preventDefault();
-    const name = this.elements.projectNameInput.value.trim();
-    const projectPath = this.elements.projectPathInput.value.trim();
-    const allowedTools = this.parseArgsString(this.elements.projectAllowedToolsInput.value);
-    if (!name || !projectPath) return;
-
-    try {
-      const isEdit = !!this.modalManager.editingProjectId;
-      const url = isEdit ? `/api/projects/${this.modalManager.editingProjectId}` : '/api/projects';
-      const method = isEdit ? 'PUT' : 'POST';
-
-      const body = { name, path: projectPath, allowedTools };
-
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
-      const project = await response.json();
-      this.projects.set(project.id, project);
-      this.sidebarRenderer.renderProjectList();
-      this.updateProjectSelect();
-      this.modalManager.hideProjectModal();
-    } catch (err) {
-      console.error('Failed to save project:', err);
-    }
-  }
 
   async handleTaskSubmit(e) {
     e.preventDefault();
@@ -428,6 +605,11 @@ class EveWorkspaceClient {
     e.preventDefault();
     const text = this.elements.userInput.value.trim();
     if (!text || !this.currentSessionId) return;
+
+    // Stop any in-progress TTS playback
+    if (this.ttsManager.isPlaying) {
+      this.ttsManager.stop();
+    }
 
     const files = this.fileAttachmentManager.consumeFiles();
     this.messageRenderer.appendUserMessage(text, files);
@@ -574,7 +756,32 @@ class EveWorkspaceClient {
     this.elements.chatScreen.classList.remove('hidden');
   }
 
+  enableVoiceMode(voice) {
+    const v = voice || this.ttsManager.voice;
+    this.ttsManager.setEnabled(true);
+    this.elements.voiceModeBtn?.classList.add('btn-voice-mode--active');
+    this.ttsManager.syncVoiceMode(this.wsClient);
+    this._updateVoiceUIBtnVisibility();
+  }
+
+  toggleVoiceMode() {
+    this.ttsManager.setEnabled(!this.ttsManager.enabled);
+    this.elements.voiceModeBtn?.classList.toggle('btn-voice-mode--active', this.ttsManager.enabled);
+    this.ttsManager.syncVoiceMode(this.wsClient);
+    this._updateVoiceUIBtnVisibility();
+  }
+
+  _updateVoiceUIBtnVisibility() {
+    const btn = this.elements.voiceUIBtn;
+    if (!btn) return;
+    const session = this.sessions.get(this.currentSessionId);
+    btn.classList.toggle('hidden', session?.sessionType === 'voice');
+  }
+
   toggleSidebar(open) {
+    if (open === undefined) {
+      open = !this.elements.sidebar.classList.contains('open');
+    }
     if (open) {
       this.elements.sidebar.classList.add('open');
     } else {
@@ -613,6 +820,16 @@ class EveWorkspaceClient {
     return path;
   }
 
+  getCurrentProjectDirectory() {
+    const session = this.sessions.get(this.currentSessionId);
+    if (session?.directory) return session.directory;
+    // Fall back to the first project path.
+    for (const p of this.projects.values()) {
+      if (p.path) return p.path;
+    }
+    return '';
+  }
+
   getSessionDisplayName(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return sessionId;
@@ -640,6 +857,64 @@ class EveWorkspaceClient {
 
   initSwipeGesture() {
     initSwipeGesture(this.elements.sidebar, (open) => this.toggleSidebar(open));
+  }
+
+  /**
+   * Show a blocking overlay while browser STT/TTS models are downloading.
+   * Hides automatically when all active browser backends report ready.
+   */
+  _showModelLoadingOverlay() {
+    const sttOnDevice = this.sttManager.activeBackend.onDevice;
+    const ttsOnDevice = this.ttsManager.activeBackend.onDevice;
+    if (!sttOnDevice && !ttsOnDevice) return;
+
+    // Check what actually needs loading
+    const sttNeedsLoad = sttOnDevice && !this.sttManager.activeBackend.ready;
+    const ttsNeedsLoad = ttsOnDevice && !this.ttsManager.activeBackend.ready;
+    if (!sttNeedsLoad && !ttsNeedsLoad) return;
+
+    const overlay = document.getElementById('modelLoadingOverlay');
+    const sttItem = document.getElementById('sttLoadingItem');
+    const ttsItem = document.getElementById('ttsLoadingItem');
+    const sttFill = document.getElementById('sttLoadingFill');
+    const ttsFill = document.getElementById('ttsLoadingFill');
+    const sttPct = document.getElementById('sttLoadingPct');
+    const ttsPct = document.getElementById('ttsLoadingPct');
+
+    if (!overlay) return;
+
+    // Reset and show only items that need loading
+    if (sttItem) sttItem.style.display = sttNeedsLoad ? '' : 'none';
+    if (ttsItem) ttsItem.style.display = ttsNeedsLoad ? '' : 'none';
+    if (sttFill) { sttFill.style.width = '0%'; }
+    if (ttsFill) { ttsFill.style.width = '0%'; }
+    if (sttPct) sttPct.textContent = 'waiting...';
+    if (ttsPct) ttsPct.textContent = 'waiting...';
+
+    overlay.classList.remove('hidden');
+
+    const checkDone = () => {
+      const sDone = !sttNeedsLoad || this.sttManager.activeBackend.ready;
+      const tDone = !ttsNeedsLoad || this.ttsManager.activeBackend.ready;
+
+      if (sttNeedsLoad && sttFill) {
+        const pct = sDone ? 100 : (this._sttLoadPct || 0);
+        sttFill.style.width = (pct || (this.sttManager.activeBackend.loading ? 50 : 0)) + '%';
+        sttPct.textContent = sDone ? 'ready' : (pct ? pct + '%' : 'loading...');
+      }
+      if (ttsNeedsLoad && ttsFill) {
+        const pct = tDone ? 100 : (this._ttsLoadPct || 0);
+        ttsFill.style.width = (pct || (this.ttsManager.activeBackend.loading ? 50 : 0)) + '%';
+        ttsPct.textContent = tDone ? 'ready' : (pct ? pct + '%' : 'loading...');
+      }
+
+      if (sDone && tDone) {
+        overlay.classList.add('hidden');
+      } else {
+        requestAnimationFrame(checkDone);
+      }
+    };
+    requestAnimationFrame(checkDone);
   }
 }
 

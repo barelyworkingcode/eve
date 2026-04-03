@@ -2,10 +2,22 @@
  * WebSocket connection management: connect, authenticate, reconnect.
  */
 class WsClient {
-  constructor(app) {
-    this.app = app;
+  /**
+   * @param {Container} container - DI container
+   * @param {Object} callbacks - { onReady, onMessage }
+   */
+  constructor(container, callbacks) {
+    this.bus = container.get('bus');
+    this._connectionStatusEl = null;
+    this._onReady = callbacks.onReady;
+    this._onMessage = callbacks.onMessage;
     this.ws = null;
     this.reconnectDelay = 2000;
+  }
+
+  /** Set the connection status DOM element (called after initElements). */
+  setConnectionStatusEl(el) {
+    this._connectionStatusEl = el;
   }
 
   connect() {
@@ -15,8 +27,8 @@ class WsClient {
     this.ws.onopen = () => {
       console.log('Connected to server');
       this.reconnectDelay = 2000;
-      if (this.app.elements?.connectionStatus) {
-        this.app.elements.connectionStatus.classList.add('hidden');
+      if (this._connectionStatusEl) {
+        this._connectionStatusEl.classList.add('hidden');
       }
       const token = localStorage.getItem('eve_session');
       this.ws.send(JSON.stringify({ type: 'auth', token: token || null }));
@@ -26,7 +38,7 @@ class WsClient {
       const data = JSON.parse(event.data);
 
       if (data.type === 'auth_success') {
-        this.app.onWebSocketReady();
+        this._onReady();
         return;
       }
       if (data.type === 'auth_failed') {
@@ -36,13 +48,13 @@ class WsClient {
         return;
       }
 
-      this.app.handleServerMessage(data);
+      this._onMessage(data);
     };
 
     this.ws.onclose = () => {
       console.log(`Disconnected from server, reconnecting in ${this.reconnectDelay / 1000}s`);
-      if (this.app.elements?.connectionStatus) {
-        this.app.elements.connectionStatus.classList.remove('hidden');
+      if (this._connectionStatusEl) {
+        this._connectionStatusEl.classList.remove('hidden');
       }
       setTimeout(() => this.connect(), this.reconnectDelay);
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);

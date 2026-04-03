@@ -1,11 +1,13 @@
 const WebSocket = require('ws');
 
+const DEFAULT_TTS_VOICE = 'af_heart';
+
 /**
  * RelayClient - one instance per browser WS connection.
  * Manages a WebSocket connection to relayLLM and forwards events to the browser.
  */
 class RelayClient {
-  constructor(relayWsUrl, browserWs) {
+  constructor(relayWsUrl, browserWs, ttsService) {
     this.relayWsUrl = relayWsUrl;
     this.browserWs = browserWs;
     this.ws = null;
@@ -13,6 +15,12 @@ class RelayClient {
     this.suppressNextJoin = false;
     this.sessionDirectory = null; // cached for slash command use
     this.currentSessionId = null;
+
+    this.ttsService = ttsService || null;
+    this.voiceMode = false;
+    this.voicePreset = DEFAULT_TTS_VOICE;
+    this.ttsTextAccumulator = '';
+    this.ttsPending = 0;
   }
 
   connect() {
@@ -77,14 +85,22 @@ class RelayClient {
       this.currentSessionId = msg.sessionId;
     }
 
+    if (this.voiceMode && this.ttsService) {
+      this._handleTTSAccumulation(msg);
+    }
+
     // Forward everything else to browser
     this._sendToBrowser(msg);
   }
 
-  _send(msg) {
+  send(msg) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
+  }
+
+  _send(msg) {
+    this.send(msg);
   }
 
   _sendToBrowser(msg) {
@@ -136,6 +152,73 @@ class RelayClient {
 
   sendPermissionResponse(permissionId, approved, reason) {
     this._send({ type: 'permission_response', permissionId, approved, reason });
+  }
+
+  setVoiceMode(enabled, voice) {
+    this.voiceMode = enabled;
+    if (voice) this.voicePreset = voice;
+    this.ttsTextAccumulator = '';
+    this.ttsPending = 0;
+  }
+
+  _handleTTSAccumulation(msg) {
+    if (msg.type === 'llm_event' && msg.event?.type === 'assistant') {
+      const event = msg.event;
+
+      if (event.delta?.type === 'text_delta' && event.delta.text) {
+        this.ttsTextAccumulator += event.delta.text;
+      }
+
+      // Full message content (some providers send complete blocks instead of deltas)
+      if (event.message?.content) {
+        for (const block of event.message.content) {
+          if (block.type === 'text' && block.text) {
+            this.ttsTextAccumulator += block.text;
+          }
+        }
+      }
+
+      if (event.content_block?.type === 'text' && event.content_block.text) {
+        this.ttsTextAccumulator += event.content_block.text;
+      }
+    }
+
+    if (msg.type === 'message_complete') {
+      const text = this.ttsTextAccumulator.trim();
+      this.ttsTextAccumulator = '';
+      if (text) this._sendToTTS(text);
+    }
+  }
+
+  async _sendToTTS(text) {
+    const cleaned = text
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .replace(/<think>[\s\S]*$/g, '')
+      .replace(/[*_~`#>]/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\n+/g, ' ')
+      .trim();
+
+    if (!cleaned) return;
+
+    this.ttsPending++;
+    try {
+      const result = await this.ttsService.synthesize(cleaned, this.voicePreset);
+      this._sendToBrowser({
+        type: 'tts_audio',
+        data: result.audio_base64,
+        sessionId: this.currentSessionId,
+      });
+    } catch (err) {
+      console.error(`[RelayClient] TTS error: ${err.message}`);
+      this._sendToBrowser({
+        type: 'tts_error',
+        message: err.message,
+        sessionId: this.currentSessionId,
+      });
+    } finally {
+      this.ttsPending--;
+    }
   }
 
   close() {

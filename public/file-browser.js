@@ -1,6 +1,9 @@
 class FileBrowser {
-  constructor(client) {
-    this.client = client;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.projectTrees = new Map(); // projectId -> { expanded, entries, loading, expandedPaths }
     this.dragState = null;      // { projectId, path, type }
     this.renameState = null;    // { projectId, path, input }
@@ -115,7 +118,7 @@ class FileBrowser {
     const commit = () => {
       const newName = input.value.trim();
       if (newName && newName !== currentName) {
-        this.client.ws.send(JSON.stringify({
+        this.app.ws.send(JSON.stringify({
           type: 'rename_file',
           projectId,
           path,
@@ -150,8 +153,8 @@ class FileBrowser {
    */
   confirmDelete(projectId, path) {
     const filename = path.split('/').pop();
-    this.client.modalManager.showConfirmModal(`Delete "${filename}"?`, () => {
-      this.client.ws.send(JSON.stringify({
+    this.app.modalManager.showConfirmModal(`Delete "${filename}"?`, () => {
+      this.app.ws.send(JSON.stringify({
         type: 'delete_file',
         projectId,
         path
@@ -168,7 +171,7 @@ class FileBrowser {
 
     const name = prompt('New folder name:');
     if (name && name.trim()) {
-      this.client.ws.send(JSON.stringify({
+      this.app.ws.send(JSON.stringify({
         type: 'create_directory',
         projectId,
         parentPath,
@@ -211,7 +214,7 @@ class FileBrowser {
     tree.loading = true;
     this.renderFileTree(projectId);
 
-    this.client.ws.send(JSON.stringify({
+    this.app.ws.send(JSON.stringify({
       type: 'list_directory',
       projectId,
       path
@@ -245,9 +248,9 @@ class FileBrowser {
   handleFileError(projectId, path, error) {
     console.error(`File error for ${projectId}:${path}:`, error);
 
-    const project = this.client.projects.get(projectId);
+    const project = this.app.projects.get(projectId);
     const projectName = project?.name || 'Unknown project';
-    this.client.messageRenderer.appendSystemMessage(`File error in ${projectName}: ${error}`, 'error');
+    this.app.messageRenderer.appendSystemMessage(`File error in ${projectName}: ${error}`, 'error');
 
     const tree = this.projectTrees.get(projectId);
     if (tree) {
@@ -508,7 +511,7 @@ class FileBrowser {
     // Don't move directory into itself or its children
     if (destDirectory.startsWith(sourcePath + '/')) return;
 
-    this.client.ws.send(JSON.stringify({
+    this.app.ws.send(JSON.stringify({
       type: 'move_file',
       projectId,
       sourcePath,
@@ -524,7 +527,7 @@ class FileBrowser {
 
     for (const file of fileList) {
       if (file.size > maxSize) {
-        this.client.messageRenderer.appendSystemMessage(
+        this.app.messageRenderer.appendSystemMessage(
           `Skipped "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)}MB exceeds 10MB limit)`,
           'error'
         );
@@ -533,7 +536,7 @@ class FileBrowser {
 
       try {
         const { data, encoding } = await this.readFileForUpload(file);
-        this.client.ws.send(JSON.stringify({
+        this.app.ws.send(JSON.stringify({
           type: 'upload_file',
           projectId,
           destDirectory,
@@ -542,7 +545,7 @@ class FileBrowser {
           encoding
         }));
       } catch (err) {
-        this.client.messageRenderer.appendSystemMessage(`Failed to read "${file.name}": ${err.message}`, 'error');
+        this.app.messageRenderer.appendSystemMessage(`Failed to read "${file.name}": ${err.message}`, 'error');
       }
     }
   }
@@ -619,7 +622,7 @@ class FileBrowser {
    * Opens a file in the editor
    */
   openFile(projectId, path, filename) {
-    this.client.ws.send(JSON.stringify({
+    this.app.ws.send(JSON.stringify({
       type: 'read_file',
       projectId,
       path
