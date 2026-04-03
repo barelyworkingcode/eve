@@ -60,6 +60,23 @@ class ShellLauncherDialog extends DialogBase {
     const grid = document.createElement('div');
     grid.className = 'shell-launcher__grid';
 
+    // Chat templates from project (rendered first, mixed into grid)
+    const project = this.state.getProject(this.projectId);
+    const chatTemplates = project?.chatTemplates || [];
+    for (const tmpl of chatTemplates) {
+      const isVoice = tmpl.mode === 'voice';
+      const modelInfo = this.state.models.find(m => m.value === tmpl.model);
+      grid.appendChild(this._createCard({
+        className: 'shell-launcher__card--template',
+        iconHtml: isVoice
+          ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>'
+          : UI_ICONS.chat(20),
+        name: tmpl.name,
+        description: modelInfo?.label || tmpl.model || '',
+        onClick: () => this._launchFromTemplate(tmpl),
+      }));
+    }
+
     // Terminal templates (Claude Code, OpenCode, Shell, custom)
     const templates = this._templates.length > 0 ? this._templates : [
       { id: 'claude-code', name: 'Claude Code', description: 'Claude Code CLI agent', icon: 'claude-code' },
@@ -123,7 +140,7 @@ class ShellLauncherDialog extends DialogBase {
   _showWebUIForm() {
     this._showModelForm({
       buttonText: 'Start Chat',
-      onSubmit: (model, settings) => this._launchWebUI(model, settings),
+      onSubmit: (model, settings, voice, appendClaudeMd) => this._launchWebUI(model, settings, appendClaudeMd),
     });
   }
 
@@ -131,7 +148,7 @@ class ShellLauncherDialog extends DialogBase {
     this._showModelForm({
       buttonText: 'Start Voice Chat',
       showVoice: true,
-      onSubmit: (model, settings, voice) => this._launchVoiceChat(model, voice, settings),
+      onSubmit: (model, settings, voice, appendClaudeMd) => this._launchVoiceChat(model, voice, settings, appendClaudeMd),
     });
   }
 
@@ -167,6 +184,27 @@ class ShellLauncherDialog extends DialogBase {
 
     const settingsContainer = this._addProviderSettings(form, modelSelect);
 
+    // Append CLAUDE.md checkbox (non-Claude models only)
+    const claudeMdWrapper = document.createElement('div');
+    claudeMdWrapper.className = 'shell-launcher__claudemd-row';
+    const claudeMdCheck = document.createElement('input');
+    claudeMdCheck.type = 'checkbox';
+    claudeMdCheck.id = 'launcher-append-claudemd';
+    const claudeMdLabel = document.createElement('label');
+    claudeMdLabel.htmlFor = 'launcher-append-claudemd';
+    claudeMdLabel.textContent = 'Append CLAUDE.md';
+    claudeMdWrapper.appendChild(claudeMdCheck);
+    claudeMdWrapper.appendChild(claudeMdLabel);
+    form.appendChild(claudeMdWrapper);
+
+    const updateClaudeMdVisibility = () => {
+      const selectedModel = this.state.models.find(m => m.value === modelSelect.value);
+      const isClaude = selectedModel?.provider === 'claude';
+      claudeMdWrapper.style.display = isClaude ? 'none' : '';
+    };
+    modelSelect.addEventListener('change', updateClaudeMdVisibility);
+    updateClaudeMdVisibility();
+
     // Action buttons
     const actions = document.createElement('div');
     actions.className = 'dialog__actions';
@@ -182,7 +220,7 @@ class ShellLauncherDialog extends DialogBase {
     startBtn.addEventListener('click', () => {
       const model = modelSelect.value;
       const settings = this._collectSettings(settingsContainer);
-      onSubmit(model, settings, voiceSelect?.value);
+      onSubmit(model, settings, voiceSelect?.value, claudeMdCheck.checked);
     });
 
     actions.appendChild(backBtn);
@@ -192,128 +230,45 @@ class ShellLauncherDialog extends DialogBase {
     this._tabContent.appendChild(form);
   }
 
-  _createVoiceSelect() {
-    const select = document.createElement('select');
-    select.className = 'dialog__select';
-
-    const ttsManager = this.container.has('ttsManager') ? this.container.get('ttsManager') : null;
-    const voices = ttsManager?.voices || [];
-    if (voices.length > 0) {
-      const groups = {};
-      for (const v of voices) {
-        const lang = v.language || 'Other';
-        if (!groups[lang]) groups[lang] = [];
-        groups[lang].push(v);
-      }
-      for (const [lang, list] of Object.entries(groups)) {
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = lang;
-        for (const v of list) {
-          const opt = document.createElement('option');
-          opt.value = v.id;
-          opt.textContent = v.name;
-          if (v.id === (ttsManager?.voice || 'af_heart')) opt.selected = true;
-          optgroup.appendChild(opt);
-        }
-        select.appendChild(optgroup);
-      }
-    } else {
-      const opt = document.createElement('option');
-      opt.value = 'af_heart';
-      opt.textContent = 'Heart (F)';
-      select.appendChild(opt);
-    }
-    return select;
-  }
-
-  _launchVoiceChat(model, voice, settings) {
+  _launchSession({ model, settings, systemPrompt, appendClaudeMd, voice, sessionType, nameSuffix }) {
     const project = this.state.getProject(this.projectId);
-    const modelInfo = this.state.models.find(m => m.value === model);
-    const modelLabel = modelInfo?.label || model;
-    const name = project ? `${project.name} - Voice` : `Voice - ${modelLabel}`;
-    const ws = this.container.get('ws');
-    ws.send({
+    const name = project ? `${project.name} - ${nameSuffix}` : nameSuffix;
+    const msg = {
       type: 'create_session',
       projectId: this.projectId,
       model,
-      settings,
+      settings: settings || null,
       name,
-      sessionType: 'voice',
-      voice,
-    });
+    };
+    if (systemPrompt) msg.systemPrompt = systemPrompt;
+    if (appendClaudeMd) msg.appendClaudeMd = true;
+    if (sessionType === 'voice' || voice) {
+      msg.sessionType = 'voice';
+      msg.voice = voice || 'af_heart';
+    }
+    this.container.get('ws').send(msg);
     this.hide();
   }
 
-  _addProviderSettings(form, modelSelect) {
-    const settingsContainer = document.createElement('div');
-    settingsContainer.className = 'shell-launcher__settings';
-    form.appendChild(settingsContainer);
-
-    const renderSettings = () => {
-      settingsContainer.innerHTML = '';
-      const selectedModel = this.state.models.find(m => m.value === modelSelect.value);
-      if (!selectedModel) return;
-      const fields = this.state.providerSettings[selectedModel.provider] || [];
-      for (const field of fields) {
-        const row = document.createElement('div');
-        row.className = 'shell-launcher__setting-row';
-        const lbl = document.createElement('label');
-        lbl.className = 'dialog__label';
-        lbl.textContent = field.label || field.name;
-        row.appendChild(lbl);
-
-        if (field.type === 'boolean') {
-          const input = document.createElement('input');
-          input.type = 'checkbox';
-          input.name = field.key;
-          if (field.default) input.checked = true;
-          row.appendChild(input);
-        } else if (field.type === 'number') {
-          const input = document.createElement('input');
-          input.type = 'number';
-          input.name = field.key;
-          if (field.default !== undefined) input.value = field.default;
-          if (field.min !== undefined) input.min = field.min;
-          if (field.max !== undefined) input.max = field.max;
-          input.step = field.step || 'any';
-          if (field.placeholder) input.placeholder = field.placeholder;
-          input.className = 'dialog__input';
-          row.appendChild(input);
-        } else {
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.name = field.key;
-          input.dataset.settingType = field.type;
-          if (field.default !== undefined) input.value = field.default;
-          if (field.placeholder) input.placeholder = field.placeholder;
-          input.className = 'dialog__input';
-          row.appendChild(input);
-        }
-        settingsContainer.appendChild(row);
-      }
-    };
-
-    modelSelect.addEventListener('change', renderSettings);
-    renderSettings();
-    return settingsContainer;
+  _launchFromTemplate(template) {
+    this._launchSession({
+      model: template.model,
+      settings: template.settings,
+      systemPrompt: template.systemPrompt,
+      appendClaudeMd: template.appendClaudeMd,
+      voice: template.mode === 'voice' ? (template.voice || 'af_heart') : undefined,
+      sessionType: template.mode === 'voice' ? 'voice' : undefined,
+      nameSuffix: template.name,
+    });
   }
 
-  _collectSettings(container) {
-    const settings = {};
-    for (const input of container.querySelectorAll('input, select')) {
-      if (!input.name) continue;
-      if (input.type === 'checkbox') {
-        settings[input.name] = input.checked;
-      } else if (input.type === 'number' && input.value) {
-        settings[input.name] = parseFloat(input.value);
-      } else if (input.dataset.settingType === 'string[]') {
-        const val = input.value.trim();
-        if (val) settings[input.name] = val.split(/\s+/);
-      } else if (input.value) {
-        settings[input.name] = input.value;
-      }
-    }
-    return Object.keys(settings).length > 0 ? settings : null;
+  _launchVoiceChat(model, voice, settings, appendClaudeMd) {
+    const modelInfo = this.state.models.find(m => m.value === model);
+    this._launchSession({
+      model, settings, appendClaudeMd, voice,
+      sessionType: 'voice',
+      nameSuffix: `Voice - ${modelInfo?.label || model}`,
+    });
   }
 
   _renderResumeTab() {
@@ -396,7 +351,7 @@ class ShellLauncherDialog extends DialogBase {
         item.appendChild(badge);
         item.addEventListener('click', () => {
           this.hide();
-          app.tabManager.switchToTab(tid);
+          this.container.get('tabManager').switchToTab(tid);
         });
         container.appendChild(item);
       }
@@ -429,20 +384,12 @@ class ShellLauncherDialog extends DialogBase {
     this.hide();
   }
 
-  _launchWebUI(model, settings) {
-    const project = this.state.getProject(this.projectId);
+  _launchWebUI(model, settings, appendClaudeMd) {
     const modelInfo = this.state.models.find(m => m.value === model);
-    const modelLabel = modelInfo?.label || model;
-    const name = project ? `${project.name} - ${modelLabel}` : modelLabel;
-    const ws = this.container.get('ws');
-    ws.send({
-      type: 'create_session',
-      projectId: this.projectId,
-      model,
-      settings,
-      name,
+    this._launchSession({
+      model, settings, appendClaudeMd,
+      nameSuffix: modelInfo?.label || model,
     });
-    this.hide();
   }
 
   _iconSVG(id) {

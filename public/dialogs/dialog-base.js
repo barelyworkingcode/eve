@@ -132,4 +132,131 @@ class DialogBase {
       }
     };
   }
+
+  /**
+   * Create a voice selection dropdown, optionally pre-selecting a voice.
+   */
+  _createVoiceSelect(selectedVoice) {
+    const select = document.createElement('select');
+    select.className = 'dialog__select';
+
+    const ttsManager = this.container.has('ttsManager') ? this.container.get('ttsManager') : null;
+    const voices = ttsManager?.voices || [];
+    if (voices.length > 0) {
+      const groups = {};
+      for (const v of voices) {
+        const lang = v.language || 'Other';
+        if (!groups[lang]) groups[lang] = [];
+        groups[lang].push(v);
+      }
+      for (const [lang, list] of Object.entries(groups)) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = lang;
+        for (const v of list) {
+          const opt = document.createElement('option');
+          opt.value = v.id;
+          opt.textContent = v.name;
+          if (v.id === (selectedVoice || ttsManager?.voice || 'af_heart')) opt.selected = true;
+          optgroup.appendChild(opt);
+        }
+        select.appendChild(optgroup);
+      }
+    } else {
+      const opt = document.createElement('option');
+      opt.value = 'af_heart';
+      opt.textContent = 'Heart (F)';
+      select.appendChild(opt);
+    }
+    return select;
+  }
+
+  /**
+   * Add dynamic provider settings fields based on the selected model.
+   * @param {HTMLElement} form - Parent form element.
+   * @param {HTMLSelectElement} modelSelect - Model select dropdown.
+   * @param {Object|null} existingSettings - Pre-existing settings to populate (for editing).
+   * @returns {HTMLElement} The settings container element.
+   */
+  _addProviderSettings(form, modelSelect, existingSettings) {
+    const state = this.container.get('state');
+    const settingsContainer = document.createElement('div');
+    settingsContainer.className = 'dialog__settings';
+    form.appendChild(settingsContainer);
+
+    const parsed = existingSettings && typeof existingSettings === 'string'
+      ? JSON.parse(existingSettings)
+      : existingSettings || {};
+
+    const renderSettings = () => {
+      settingsContainer.innerHTML = '';
+      const selectedModel = state.models.find(m => m.value === modelSelect.value);
+      if (!selectedModel) return;
+      const fields = state.providerSettings[selectedModel.provider] || [];
+      for (const field of fields) {
+        const row = document.createElement('div');
+        row.className = 'dialog__setting-row';
+        const lbl = document.createElement('label');
+        lbl.className = 'dialog__label';
+        lbl.textContent = field.label || field.name;
+        row.appendChild(lbl);
+
+        if (field.type === 'boolean') {
+          const input = document.createElement('input');
+          input.type = 'checkbox';
+          input.name = field.key;
+          input.checked = parsed[field.key] !== undefined ? parsed[field.key] : !!field.default;
+          row.appendChild(input);
+        } else if (field.type === 'number') {
+          const input = document.createElement('input');
+          input.type = 'number';
+          input.name = field.key;
+          input.value = parsed[field.key] !== undefined ? parsed[field.key] : (field.default ?? '');
+          if (field.min !== undefined) input.min = field.min;
+          if (field.max !== undefined) input.max = field.max;
+          input.step = field.step || 'any';
+          if (field.placeholder) input.placeholder = field.placeholder;
+          input.className = 'dialog__input';
+          row.appendChild(input);
+        } else {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.name = field.key;
+          input.dataset.settingType = field.type;
+          const val = parsed[field.key];
+          input.value = val !== undefined
+            ? (Array.isArray(val) ? val.join(' ') : val)
+            : (field.default ?? '');
+          if (field.placeholder) input.placeholder = field.placeholder;
+          input.className = 'dialog__input';
+          row.appendChild(input);
+        }
+        settingsContainer.appendChild(row);
+      }
+    };
+
+    modelSelect.addEventListener('change', renderSettings);
+    renderSettings();
+    return settingsContainer;
+  }
+
+  /**
+   * Collect settings values from a provider settings container.
+   */
+  _collectSettings(container) {
+    const settings = {};
+    for (const input of container.querySelectorAll('input, select')) {
+      if (!input.name) continue;
+      if (input.type === 'checkbox') {
+        settings[input.name] = input.checked;
+      } else if (input.type === 'number' && input.value) {
+        settings[input.name] = parseFloat(input.value);
+      } else if (input.dataset.settingType === 'string[]') {
+        const val = input.value.trim();
+        if (val) settings[input.name] = val.split(/\s+/);
+      } else if (input.value) {
+        settings[input.name] = input.value;
+      }
+    }
+    return Object.keys(settings).length > 0 ? settings : null;
+  }
 }

@@ -219,7 +219,9 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
         directory: message.directory || '',
         name: message.name || '',
         model: message.model || '',
-        settings: message.settings || null
+        settings: message.settings || null,
+        systemPrompt: message.systemPrompt || '',
+        appendClaudeMd: message.appendClaudeMd || false,
       })
     });
 

@@ -3548,6 +3548,14 @@ html, body {
   cursor: pointer;
 }
 
+.dialog__settings {
+  margin-top: 4px;
+}
+
+.dialog__setting-row {
+  margin-top: 8px;
+}
+
 .dialog__actions {
   display: flex;
   gap: 8px;
@@ -3635,9 +3643,6 @@ html, body {
   padding-top: 4px;
 }
 
-.shell-launcher__setting-row {
-  margin-top: 8px;
-}
 
 /* Shell launcher resume tab */
 
@@ -3721,6 +3726,185 @@ html, body {
   font-size: 13px;
   padding: 16px 0;
   text-align: center;
+}
+
+/* Shell launcher: chat template card accent */
+
+.shell-launcher__card--template {
+  border-color: rgba(168, 85, 247, 0.35);
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, rgba(168, 85, 247, 0.06) 100%);
+}
+
+.shell-launcher__card--template:hover {
+  border-color: rgba(168, 85, 247, 0.6);
+}
+
+.shell-launcher__claudemd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.shell-launcher__claudemd-row input[type="checkbox"] {
+  margin: 0;
+}
+
+/* Project dialog */
+
+.project-dialog__form {
+  padding-top: 4px;
+}
+
+.project-dialog__templates {
+  padding-top: 4px;
+}
+
+.project-dialog__empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 16px 0;
+  text-align: center;
+}
+
+.project-dialog__add-btn {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.project-dialog__template-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: var(--bg-tertiary);
+}
+
+.project-dialog__template-item:hover {
+  border-color: var(--accent);
+}
+
+.project-dialog__template-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-dialog__template-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.project-dialog__template-badges {
+  display: flex;
+  gap: 4px;
+}
+
+.project-dialog__badge {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.project-dialog__badge--voice {
+  color: rgba(168, 85, 247, 0.9);
+  background: rgba(168, 85, 247, 0.1);
+}
+
+.project-dialog__template-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.project-dialog__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.project-dialog__icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.project-dialog__icon-btn--danger:hover {
+  color: var(--danger);
+}
+
+.project-dialog__template-form {
+  padding-top: 4px;
+}
+
+.project-dialog__mode-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
+.project-dialog__radio-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.project-dialog__textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.project-dialog__checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.project-dialog__checkbox-row input[type="checkbox"] {
+  margin-top: 2px;
+}
+
+.project-dialog__checkbox-row label {
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.project-dialog__checkbox-row .field-hint {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.project-dialog__voice-wrapper {
+  margin-bottom: 4px;
+}
+
+.project-dialog__error {
+  color: var(--danger);
+  font-size: 13px;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 4px;
+  margin-bottom: 8px;
 }
 
 /* Task dialog */
