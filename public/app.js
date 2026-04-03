@@ -251,6 +251,18 @@ class EveWorkspaceClient {
     this.bus.on(EVT.UI_TOGGLE_SIDEBAR, () => {
       this.toggleSidebar();
     });
+
+    // Auto-close sidebar on mobile after actions that leave the sidebar context
+    const sidebarCloseEvents = [
+      EVT.FILE_CONTENT,
+      EVT.DIALOG_SHELL_LAUNCHER,
+      EVT.DIALOG_TASK,
+      EVT.DIALOG_PROJECT,
+      EVT.DIALOG_SETTINGS,
+    ];
+    sidebarCloseEvents.forEach(evt => {
+      this.bus.on(evt, () => this.closeSidebarOnMobile());
+    });
   }
 
   initEventListeners() {
@@ -786,6 +798,12 @@ class EveWorkspaceClient {
       this.elements.sidebar.classList.add('open');
     } else {
       this.elements.sidebar.classList.remove('open');
+    }
+  }
+
+  closeSidebarOnMobile() {
+    if (window.innerWidth <= 768) {
+      this.toggleSidebar(false);
     }
   }
 
