@@ -1,6 +1,14 @@
 class TabManager {
-  constructor(client) {
-    this.client = client;
+  static SESSION_STORAGE_KEY = 'eve-open-sessions';
+  static SESSION_META_KEY = 'eve-session-meta';
+  static FILE_STORAGE_KEY = 'eve-open-files';
+  static MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
     this.activeTabId = null;
 
@@ -12,7 +20,12 @@ class TabManager {
     this.tabBar = document.getElementById('tabBar');
     this.chatContent = document.getElementById('chat');
     this.editorContent = document.getElementById('editor');
+    this.viewerContent = document.getElementById('fileViewer');
+    this.viewerCanvas = document.getElementById('fileViewerCanvas');
+    this.viewerPath = document.getElementById('fileViewerPath');
+    this.viewerInfo = document.getElementById('fileViewerInfo');
     this.terminalContent = document.getElementById('terminal');
+    this.voiceChatContent = document.getElementById('voiceChat');
   }
 
   initEventListeners() {
@@ -31,7 +44,7 @@ class TabManager {
    * Opens a session as a tab
    */
   openSession(sessionId, { skipRender = false } = {}) {
-    const session = this.client.sessions.get(sessionId);
+    const session = this.app.sessions.get(sessionId);
     if (!session) return;
 
     // Check if tab already exists
@@ -47,7 +60,7 @@ class TabManager {
     if (session.name) {
       label = session.name;
     } else if (session.projectId) {
-      const project = this.client.projects.get(session.projectId);
+      const project = this.app.projects.get(session.projectId);
       label = project?.name || session.directory;
     } else {
       label = session.directory?.split('/').filter(p => p).pop() || session.directory || 'Session';
@@ -62,13 +75,19 @@ class TabManager {
     };
 
     this.tabs.push(tab);
+    this._saveSessionTab(sessionId);
 
     if (skipRender) {
       // Make tab active without triggering renderMessages
       this.activeTabId = sessionId;
-      this.client.showChatScreen();
-      this.chatContent.classList.remove('hidden');
-      this.client.currentSessionId = sessionId;
+      this.app.showChatScreen();
+      if (session.sessionType === 'voice') {
+        this.voiceChatContent?.classList.remove('hidden');
+        this.app.voiceChatManager?.activateForSession(sessionId);
+      } else {
+        this.chatContent.classList.remove('hidden');
+      }
+      this.app.currentSessionId = sessionId;
       this.render();
     } else {
       this.switchToTab(sessionId);
@@ -100,10 +119,12 @@ class TabManager {
     };
 
     this.tabs.push(tab);
+    this._saveFileTab(projectId, filePath);
 
-    // Register file watcher on server (skip plan files)
-    if (!isPlanProject(projectId)) {
-      this.client.ws?.send(JSON.stringify({
+    // Register file watcher on server (skip plan files and viewer files)
+    const isViewer = this.app.viewerRegistry?.isViewerFile(filePath);
+    if (!isPlanProject(projectId) && !isViewer) {
+      this.app.ws?.send(JSON.stringify({
         type: 'watch_file',
         projectId,
         path: filePath
@@ -148,53 +169,72 @@ class TabManager {
     this.activeTabId = tabId;
 
     // Ensure chat screen is visible (hides welcome screen)
-    this.client.showChatScreen();
+    this.app.showChatScreen();
 
     // Hide all content containers first
     this.chatContent.classList.add('hidden');
     this.editorContent.classList.add('hidden');
+    this.viewerContent.classList.add('hidden');
     this.terminalContent.classList.add('hidden');
+    if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
+
+    // Destroy active viewer when switching away (pause media, free memory)
+    this._destroyActiveViewer();
 
     // Show appropriate content container
     if (tab.type === 'session') {
-      this.chatContent.classList.remove('hidden');
+      const session = this.app.sessions.get(tab.id);
+      if (session?.sessionType === 'voice') {
+        this.voiceChatContent?.classList.remove('hidden');
+        this.app.voiceChatManager?.activateForSession(tab.id);
+      } else {
+        this.chatContent.classList.remove('hidden');
+        this.app.voiceChatManager?.deactivate();
+      }
+      this.app._updateVoiceUIBtnVisibility?.();
 
       // Flush any partial streaming message from the old session to its history
-      const prevSessionId = this.client.currentSessionId;
+      const prevSessionId = this.app.currentSessionId;
       if (prevSessionId && prevSessionId !== tab.id) {
-        this.client.messageRenderer.finishAssistantMessage();
+        this.app.messageRenderer.finishAssistantMessage();
       }
 
       // Flush background buffer for the session we're switching to
-      if (this.client.messageDispatcher) {
-        this.client.messageDispatcher.flushBackgroundBuffer(tab.id);
+      if (this.app.messageDispatcher) {
+        this.app.messageDispatcher.flushBackgroundBuffer(tab.id);
       }
 
       // Update current session in client
-      this.client.currentSessionId = tab.id;
-      this.client.renderMessages();
-      this.client.updateStatsForSession(tab.id);
+      this.app.currentSessionId = tab.id;
+      this.app.renderMessages();
+      this.app.updateStatsForSession(tab.id);
 
       // Restore stop button state based on whether this session is streaming
-      if (this.client.messageDispatcher?.streamingSessions.has(tab.id)) {
-        this.client.showStopButton();
-        this.client.messageRenderer.showThinkingIndicator();
+      if (this.app.messageDispatcher?.streamingSessions.has(tab.id)) {
+        this.app.showStopButton();
+        this.app.messageRenderer.showThinkingIndicator();
       } else {
-        this.client.hideStopButton();
+        this.app.hideStopButton();
       }
     } else if (tab.type === 'file') {
-      this.editorContent.classList.remove('hidden');
-
-      // Notify file editor to show this file
-      if (this.client.fileEditor) {
-        this.client.fileEditor.showFile(tab.projectId, tab.path);
+      const registry = this.app.viewerRegistry;
+      if (registry && registry.isViewerFile(tab.path)) {
+        // Binary file: render with appropriate viewer
+        this.viewerContent.classList.remove('hidden');
+        this._renderViewer(tab);
+      } else {
+        // Text file: show in Monaco editor
+        this.editorContent.classList.remove('hidden');
+        if (this.app.fileEditor) {
+          this.app.fileEditor.showFile(tab.projectId, tab.path);
+        }
       }
     } else if (tab.type === 'terminal') {
       this.terminalContent.classList.remove('hidden');
 
       // Show terminal in container
-      if (this.client.terminalManager) {
-        this.client.terminalManager.showTerminal(tab.id);
+      if (this.app.terminalManager) {
+        this.app.terminalManager.showTerminal(tab.id);
       }
     }
 
@@ -217,9 +257,12 @@ class TabManager {
       }
     }
 
-    // Unregister file watcher on server (skip plan files)
+    // Remove from localStorage and unregister file watcher
+    if (tab.type === 'file') {
+      this._removeFileTab(tab.projectId, tab.path);
+    }
     if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
-      this.client.ws?.send(JSON.stringify({
+      this.app.ws?.send(JSON.stringify({
         type: 'unwatch_file',
         projectId: tab.projectId,
         path: tab.path
@@ -228,16 +271,17 @@ class TabManager {
 
     // Send leave_session to unbind from relayLLM when closing a session tab
     if (tab.type === 'session') {
-      this.client.wsClient.send({ type: 'leave_session', sessionId: tab.id });
-      if (this.client.messageDispatcher) {
-        this.client.messageDispatcher.backgroundBuffers.delete(tab.id);
-        this.client.messageDispatcher.streamingSessions.delete(tab.id);
+      this._removeSessionTab(tab.id);
+      this.app.wsClient.send({ type: 'leave_session', sessionId: tab.id });
+      if (this.app.messageDispatcher) {
+        this.app.messageDispatcher.backgroundBuffers.delete(tab.id);
+        this.app.messageDispatcher.streamingSessions.delete(tab.id);
       }
     }
 
     // Clean up terminal if closing terminal tab
-    if (tab.type === 'terminal' && this.client.terminalManager) {
-      this.client.terminalManager.closeTerminal(tab.id);
+    if (tab.type === 'terminal' && this.app.terminalManager) {
+      this.app.terminalManager.closeTerminal(tab.id);
     }
 
     // Remove tab
@@ -254,7 +298,11 @@ class TabManager {
         this.activeTabId = null;
         this.chatContent.classList.add('hidden');
         this.editorContent.classList.add('hidden');
+        this.viewerContent.classList.add('hidden');
         this.terminalContent.classList.add('hidden');
+        if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
+        this.app.voiceChatManager?.deactivate();
+        this._destroyActiveViewer();
       }
     }
 
@@ -290,12 +338,43 @@ class TabManager {
   reestablishFileWatches() {
     for (const tab of this.tabs) {
       if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
-        this.client.ws?.send(JSON.stringify({
+        this.app.ws?.send(JSON.stringify({
           type: 'watch_file',
           projectId: tab.projectId,
           path: tab.path
         }));
       }
+    }
+  }
+
+  /**
+   * Renders a viewer file into the viewer canvas.
+   */
+  _renderViewer(tab) {
+    const registry = this.app.viewerRegistry;
+    const viewer = registry.getViewer(tab.path);
+    if (!viewer) return;
+
+    const url = registry.buildFileUrl(tab.projectId, tab.path);
+    this.viewerPath.textContent = tab.path;
+    this.viewerInfo.textContent = '';
+    this._activeViewer = viewer;
+
+    viewer.render(this.viewerCanvas, {
+      projectId: tab.projectId,
+      path: tab.path,
+      filename: tab.label,
+      url
+    });
+  }
+
+  /**
+   * Destroys the currently active viewer (pause media, clear canvas).
+   */
+  _destroyActiveViewer() {
+    if (this._activeViewer) {
+      this._activeViewer.destroy(this.viewerCanvas);
+      this._activeViewer = null;
     }
   }
 
@@ -326,12 +405,33 @@ class TabManager {
         this.switchToTab(tab.id);
       });
 
-      // Close button
+      // Close button: tap to close tab, long-press to delete session from server
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
       closeBtn.textContent = '×';
+      let closeLongPress = null;
+      let closeLongFired = false;
+      const startClose = () => {
+        closeLongFired = false;
+        if (tab.type !== 'session') return;
+        closeLongPress = setTimeout(() => {
+          closeLongFired = true;
+          this.app.deleteSession(tab.id);
+        }, 500);
+      };
+      const cancelClose = () => { clearTimeout(closeLongPress); };
+      closeBtn.addEventListener('mousedown', startClose);
+      closeBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startClose(); });
+      closeBtn.addEventListener('mouseup', cancelClose);
+      closeBtn.addEventListener('mouseleave', cancelClose);
+      closeBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        cancelClose();
+        if (!closeLongFired) this.closeTab(tab.id);
+      });
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (closeLongFired) return;
         this.closeTab(tab.id);
       });
 
@@ -339,6 +439,104 @@ class TabManager {
       tabEl.appendChild(closeBtn);
       this.tabBar.appendChild(tabEl);
     }
+  }
+
+  // --- Session tab persistence (localStorage) ---
+
+  // --- Tab persistence (localStorage, shared helpers) ---
+
+  _saveToStorage(key, id, value) {
+    const stored = this._getStorage(key);
+    stored[id] = value;
+    localStorage.setItem(key, JSON.stringify(stored));
+  }
+
+  _removeFromStorage(key, id) {
+    const stored = this._getStorage(key);
+    delete stored[id];
+    localStorage.setItem(key, JSON.stringify(stored));
+  }
+
+  _getStorage(key) {
+    try { return JSON.parse(localStorage.getItem(key)) || {}; }
+    catch { return {}; }
+  }
+
+  _getRecentEntries(key) {
+    const stored = this._getStorage(key);
+    const now = Date.now();
+    const valid = {};
+    const result = [];
+    for (const [id, entry] of Object.entries(stored)) {
+      const ts = typeof entry === 'number' ? entry : entry?.ts;
+      if (ts && now - ts < TabManager.MAX_AGE_MS) {
+        valid[id] = entry;
+        result.push({ id, ...( typeof entry === 'object' ? entry : { ts: entry }) });
+      }
+    }
+    if (Object.keys(valid).length !== Object.keys(stored).length) {
+      localStorage.setItem(key, JSON.stringify(valid));
+    }
+    return result;
+  }
+
+  // --- Session persistence ---
+
+  _saveSessionTab(sessionId) {
+    this._saveToStorage(TabManager.SESSION_STORAGE_KEY, sessionId, Date.now());
+    // Persist session metadata (sessionType) for reload
+    const session = this.app.sessions.get(sessionId);
+    if (session?.sessionType) {
+      this._saveSessionMeta(sessionId, { sessionType: session.sessionType });
+    }
+  }
+
+  _removeSessionTab(sessionId) {
+    this._removeFromStorage(TabManager.SESSION_STORAGE_KEY, sessionId);
+    this._removeSessionMeta(sessionId);
+  }
+
+  _saveSessionMeta(sessionId, meta) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(TabManager.SESSION_META_KEY) || '{}');
+      stored[sessionId] = meta;
+      localStorage.setItem(TabManager.SESSION_META_KEY, JSON.stringify(stored));
+    } catch { /* ignore */ }
+  }
+
+  _removeSessionMeta(sessionId) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(TabManager.SESSION_META_KEY) || '{}');
+      delete stored[sessionId];
+      localStorage.setItem(TabManager.SESSION_META_KEY, JSON.stringify(stored));
+    } catch { /* ignore */ }
+  }
+
+  getSessionMeta(sessionId) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(TabManager.SESSION_META_KEY) || '{}');
+      return stored[sessionId] || null;
+    } catch { return null; }
+  }
+
+  getRecentSessionIds() {
+    return this._getRecentEntries(TabManager.SESSION_STORAGE_KEY).map(e => e.id);
+  }
+
+  // --- File persistence ---
+
+  _saveFileTab(projectId, filePath) {
+    const key = `${projectId}:${filePath}`;
+    this._saveToStorage(TabManager.FILE_STORAGE_KEY, key, { projectId, path: filePath, ts: Date.now() });
+  }
+
+  _removeFileTab(projectId, filePath) {
+    const key = `${projectId}:${filePath}`;
+    this._removeFromStorage(TabManager.FILE_STORAGE_KEY, key);
+  }
+
+  getRecentFiles() {
+    return this._getRecentEntries(TabManager.FILE_STORAGE_KEY);
   }
 }
 

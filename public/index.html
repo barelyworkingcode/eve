@@ -8,15 +8,57 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0a0a0a">
+  <script>
+    // Apply saved theme before first paint to prevent flash
+    (function() {
+      try {
+        var s = JSON.parse(localStorage.getItem('eve-settings'));
+        if (s) {
+          var r = document.documentElement.style;
+          if (s.bgPrimary) r.setProperty('--bg-primary', s.bgPrimary);
+          if (s.bgSecondary) { r.setProperty('--bg-secondary', s.bgSecondary); r.setProperty('--message-assistant', s.bgSecondary); }
+          if (s.accentColor) r.setProperty('--accent', s.accentColor);
+          if (s.textPrimary) r.setProperty('--text-primary', s.textPrimary);
+          if (s.textSecondary) r.setProperty('--text-secondary', s.textSecondary);
+          if (s.borderColor) r.setProperty('--border-color', s.borderColor);
+          if (s.dangerColor) r.setProperty('--danger', s.dangerColor);
+          if (s.successColor) r.setProperty('--success', s.successColor);
+          if (s.messageUserBg) r.setProperty('--message-user', s.messageUserBg);
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m && s.bgPrimary) m.content = s.bgPrimary;
+        }
+      } catch(e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
   <script src="/marked/lib/marked.umd.js"></script>
   <script src="/dompurify/purify.min.js"></script>
   <script src="/mermaid/mermaid.min.js"></script>
+  <!-- VAD: loaded before Monaco's AMD loader to avoid UMD/AMD conflict -->
+  <script src="/vad-web/bundle.min.js"></script>
   <script src="/monaco/vs/loader.js"></script>
 </head>
 <body>
+  <!-- Model Loading Overlay -->
+  <div id="modelLoadingOverlay" class="model-loading-overlay hidden">
+    <div class="model-loading-card">
+      <h3>Preparing Voice Models</h3>
+      <div class="model-loading-item" id="sttLoadingItem">
+        <span class="model-loading-label">Speech Recognition</span>
+        <div class="model-loading-bar"><div class="model-loading-fill" id="sttLoadingFill"></div></div>
+        <span class="model-loading-pct" id="sttLoadingPct">waiting...</span>
+      </div>
+      <div class="model-loading-item" id="ttsLoadingItem">
+        <span class="model-loading-label">Text-to-Speech</span>
+        <div class="model-loading-bar"><div class="model-loading-fill" id="ttsLoadingFill"></div></div>
+        <span class="model-loading-pct" id="ttsLoadingPct">waiting...</span>
+      </div>
+      <p class="model-loading-hint">First load downloads models. They are cached for future visits.</p>
+    </div>
+  </div>
+
   <!-- Auth Screen -->
   <div id="authScreen" class="auth-screen hidden">
     <div class="auth-card">
@@ -30,19 +72,15 @@
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <h1>Eve Workspace</h1>
-        <button id="closeSidebar" class="menu-toggle" title="Close menu">&#x2715;</button>
-      </div>
-      <div class="sessions-section">
-        <div class="section-header">
-          <span>Projects</span>
+        <span class="sidebar-header__title">EXPLORER</span>
+        <div class="sidebar-header__actions">
+          <button id="settingsBtn" class="btn-icon" title="Settings"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M3.1 12.9l1.4-1.4M11.5 4.5l1.4-1.4"/></svg></button>
           <button id="newProjectBtn" class="btn-icon" title="New Project">+</button>
+          <button id="closeSidebar" class="menu-toggle" title="Close menu">&#x2715;</button>
         </div>
-        <div id="projectList" class="project-list"></div>
-        <div class="section-header">
-          <span>Sessions</span>
-          <button id="newSessionBtn" class="btn-icon" title="New Session">+</button>
-        </div>
+      </div>
+      <div class="sidebar-content" id="sidebarContent">
+        <div id="projectTree" class="project-tree"></div>
       </div>
     </aside>
     <div class="sidebar-resizer" id="sidebarResizer"></div>
@@ -69,6 +107,31 @@
 
         <!-- Chat content area -->
         <div id="chat" class="chat-content">
+          <!-- Voice controls pull-down drawer -->
+          <div id="voiceDrawer" class="voice-drawer">
+            <button type="button" id="voiceDrawerToggle" class="voice-drawer__toggle" title="Voice controls">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <div class="voice-drawer__panel hidden" id="voiceDrawerPanel">
+              <select id="voiceSelect" class="voice-drawer__select" title="Select voice"></select>
+              <button type="button" id="voiceModeBtn" class="btn-voice-mode" title="Voice mode (TTS)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+                  <path d="M19.07 4.93a10 10 0 010 14.14"/>
+                  <path d="M15.54 8.46a5 5 0 010 7.07"/>
+                </svg>
+              </button>
+              <button type="button" id="voiceUIBtn" class="btn-voice-ui" title="Switch to Voice UI">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <circle cx="12" cy="12" r="4"/>
+                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+                </svg>
+              </button>
+            </div>
+          </div>
           <div id="messages" class="messages"></div>
 
           <div class="input-area">
@@ -101,6 +164,14 @@
                   <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
                 </svg>
               </button>
+              <button type="button" id="micBtn" class="btn-mic hidden" title="Dictate (Speech-to-Text)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+              </button>
               <button type="button" class="btn-stop hidden" id="stopBtn">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="6" y="6" width="12" height="12" rx="2"/>
@@ -128,9 +199,64 @@
           </div>
         </div>
 
+        <!-- File viewer content area (images, PDFs, video, audio) -->
+        <div id="fileViewer" class="file-viewer-content hidden">
+          <div id="fileViewerCanvas" class="file-viewer__canvas"></div>
+          <div class="file-viewer__status">
+            <span id="fileViewerPath" class="file-viewer__path"></span>
+            <span id="fileViewerInfo" class="file-viewer__info"></span>
+          </div>
+        </div>
+
         <!-- Terminal content area -->
         <div id="terminal" class="terminal-content hidden">
           <div id="terminalContainer" class="terminal-container"></div>
+        </div>
+
+        <!-- Voice Chat content area -->
+        <div id="voiceChat" class="voice-chat-content hidden">
+          <!-- Voice chat pull-down drawer (voice select + switch to text) -->
+          <div id="voiceChatDrawer" class="voice-drawer">
+            <button type="button" id="voiceChatDrawerToggle" class="voice-drawer__toggle" title="Voice controls">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <div class="voice-drawer__panel hidden" id="voiceChatDrawerPanel">
+              <select id="voiceChatVoiceSelect" class="voice-drawer__select"></select>
+              <button id="voiceChatConvert" class="voice-chat__btn voice-chat__btn--convert" title="Switch to text chat" type="button">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="voice-chat__backend-status" id="voiceChatBackendStatus"></div>
+          <div class="voice-chat__orb-area">
+            <canvas id="voiceOrbCanvas" class="voice-chat__orb-canvas"></canvas>
+          </div>
+          <div class="voice-chat__captions" id="voiceCaptions"></div>
+          <div class="voice-chat__controls">
+            <button id="voiceChatClose" class="voice-chat__btn voice-chat__btn--close" title="End session" type="button">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+            <button id="voiceChatModeToggle" class="voice-chat__btn voice-chat__btn--mode" title="Switch voice input mode" type="button">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              </svg>
+            </button>
+            <div class="voice-chat__prompt" id="voiceChatPrompt">Listening...</div>
+            <button id="voiceChatMic" class="voice-chat__btn voice-chat__btn--mic" title="Hold to record" type="button">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
       </div>
@@ -160,41 +286,6 @@
         <div class="modal-actions">
           <button type="button" id="cancelModal" class="btn-secondary">Cancel</button>
           <button type="submit" class="btn-primary">Start Session</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- New/Edit Project Modal -->
-  <div id="projectModal" class="modal hidden">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <h3 id="projectModalTitle">New Project</h3>
-      <form id="newProjectForm">
-        <label for="projectNameInput">Project Name</label>
-        <input
-          type="text"
-          id="projectNameInput"
-          placeholder="My Project"
-          required
-        >
-        <label for="projectPathInput">Directory Path</label>
-        <input
-          type="text"
-          id="projectPathInput"
-          placeholder="/path/to/project"
-          required
-        >
-        <label for="projectAllowedToolsInput">Allowed Tools (optional)</label>
-        <input
-          type="text"
-          id="projectAllowedToolsInput"
-          placeholder='e.g. Read Glob Grep "Bash(git:*)"'
-        >
-        <span class="field-hint">Space-separated. Pre-approves these tools without prompting.</span>
-        <div class="modal-actions">
-          <button type="button" id="cancelProjectModal" class="btn-secondary">Cancel</button>
-          <button type="submit" id="projectSubmitBtn" class="btn-primary">Create Project</button>
         </div>
       </form>
     </div>
@@ -280,7 +371,15 @@
     </div>
   </div>
 
-  <script src="constants.js"></script>
+  <!-- Core infrastructure -->
+  <script src="core/event-bus.js"></script>
+  <script src="core/container.js"></script>
+  <script src="core/constants.js"></script>
+  <script src="core/state-store.js"></script>
+  <script src="core/api-client.js"></script>
+  <script src="core/ui-utils.js"></script>
+  <script src="core/settings-manager.js"></script>
+
   <script src="auth.js"></script>
   <script src="ws-client.js"></script>
   <script src="message-renderer.js"></script>
@@ -291,8 +390,42 @@
   <script src="file-browser.js"></script>
   <script src="file-editor.js"></script>
   <script src="terminal-manager.js"></script>
+  <script src="tts-native-backend.js"></script>
+  <script src="tts-browser-backend.js"></script>
+  <script src="tts-server-backend.js"></script>
+  <script src="tts-manager.js"></script>
+  <script src="stt-browser-backend.js"></script>
+  <script src="stt-server-backend.js"></script>
+  <script src="stt-native-backend.js"></script>
+  <script src="stt-manager.js"></script>
+  <script src="vad-manager.js"></script>
+  <script src="voice-chat-manager.js"></script>
   <script src="message-dispatcher.js"></script>
   <script src="file-attachment-manager.js"></script>
+
+  <!-- Dialog modules -->
+  <script src="dialogs/dialog-base.js"></script>
+  <script src="dialogs/shell-launcher-dialog.js"></script>
+  <script src="dialogs/task-dialog.js"></script>
+  <script src="dialogs/settings-dialog.js"></script>
+  <script src="dialogs/project-dialog.js"></script>
+
+  <!-- Viewer modules -->
+  <script src="viewers/viewer-registry.js"></script>
+  <script src="viewers/image-viewer.js"></script>
+  <script src="viewers/pdf-viewer.js"></script>
+  <script src="viewers/video-viewer.js"></script>
+  <script src="viewers/audio-viewer.js"></script>
+
+  <!-- Sidebar modules -->
+  <!-- Layout modules -->
+  <script src="layout/mobile-bar.js"></script>
+
+  <script src="sidebar/file-icons.js"></script>
+  <script src="sidebar/file-tree-node.js"></script>
+  <script src="sidebar/project-tree-item.js"></script>
+  <script src="sidebar/project-tree.js"></script>
+
   <script src="app.js"></script>
 </body>
 </html>

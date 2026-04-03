@@ -3,12 +3,18 @@
  * inline rename, ungrouped sessions.
  */
 class SidebarRenderer {
-  constructor(app) {
-    this.app = app;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.renamingSessionId = null;
   }
 
   renderProjectList() {
+    // Guard: the new project tree sidebar replaces this element
+    if (!this.app.elements.projectList) return;
+
     // Capture in-progress rename value before re-rendering
     const activeRenameId = this.renamingSessionId;
     let activeRenameValue = null;
@@ -119,7 +125,7 @@ class SidebarRenderer {
 
     editBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.app.modalManager.showProjectModal(projectId);
+      this.app.bus.emit(EVT.DIALOG_PROJECT, { projectId });
     });
 
     quickAddBtn.addEventListener('click', (e) => {
