@@ -1,6 +1,7 @@
 const createAuthRoutes = require('./auth');
+const path = require('path');
 
-function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
+function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resolveProject, ttsService, sttService }) {
   // Shared auth middleware
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
@@ -132,6 +133,62 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache }) {
 
   app.post('/api/tasks/:taskId/run', requireAuth, (req, res) => {
     proxy(req, res, 'POST', `/api/tasks/${req.params.taskId}/run`);
+  });
+
+  // --- TTS voices (cached, refreshes every 5 min) ---
+  let voiceCache = null;
+  let voiceCacheTime = 0;
+  app.get('/api/tts/voices', requireAuth, async (req, res) => {
+    try {
+      if (!voiceCache || Date.now() - voiceCacheTime > 5 * 60 * 1000) {
+        voiceCache = await ttsService.listVoices();
+        voiceCacheTime = Date.now();
+      }
+      res.json(voiceCache);
+    } catch (err) {
+      if (voiceCache) return res.json(voiceCache); // stale cache better than error
+      res.status(503).json({ error: 'TTS service unavailable' });
+    }
+  });
+
+  // --- STT (Speech-to-Text) ---
+  app.get('/api/stt/status', requireAuth, async (req, res) => {
+    const available = await sttService.isAvailable();
+    res.json({ available });
+  });
+
+  app.post('/api/transcribe', requireAuth, async (req, res) => {
+    try {
+      const { audio, language } = req.body;
+      if (!audio) return res.status(400).json({ error: 'No audio data provided' });
+      const result = await sttService.transcribe(audio, language || null);
+      res.json({ text: result.text, language: result.language });
+    } catch (err) {
+      console.error('[STT] Transcription failed:', err.message);
+      res.status(503).json({ error: 'STT service unavailable' });
+    }
+  });
+
+  // --- Raw file serving (for binary file viewers: images, PDFs, video, audio) ---
+  app.get('/api/files/:projectId/*', requireAuth, (req, res) => {
+    const project = resolveProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const relativePath = req.params[0];
+    if (!relativePath) return res.status(400).json({ error: 'Path required' });
+
+    // Prevent path traversal
+    const resolved = path.resolve(project.path, relativePath);
+    if (!resolved.startsWith(path.resolve(project.path))) {
+      return res.status(403).json({ error: 'Path traversal not allowed' });
+    }
+
+    res.sendFile(resolved, { dotfiles: 'deny' }, (err) => {
+      if (err && !res.headersSent) {
+        const status = err.code === 'ENOENT' ? 404 : 500;
+        res.status(status).json({ error: 'File not found' });
+      }
+    });
   });
 }
 

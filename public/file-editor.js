@@ -1,6 +1,9 @@
 class FileEditor {
-  constructor(client) {
-    this.client = client;
+  /**
+   * @param {Container} container - DI container
+   */
+  constructor(container) {
+    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.editor = null;
     this.currentFile = null; // { projectId, path, content, originalContent }
     this.viewMode = 'split';
@@ -9,6 +12,19 @@ class FileEditor {
     this.loadMonaco();
     this.initElements();
     this.initEventListeners();
+    this._listenForSettingsChanges();
+  }
+
+  _listenForSettingsChanges() {
+    this.app.bus.on(EVT.SETTINGS_CHANGED, () => {
+      if (!this.editor) return;
+      const settings = this.app.settings;
+      monaco.editor.setTheme(settings.isLight() ? 'vs' : 'vs-dark');
+      this.editor.updateOptions({
+        fontSize: settings.get('fontSize'),
+        fontFamily: settings.getFontStack(),
+      });
+    });
   }
 
   initElements() {
@@ -127,7 +143,7 @@ class FileEditor {
 
     const content = this.editor.getValue();
     this.markdownPreview.innerHTML = DOMPurify.sanitize(marked.parse(content));
-    this.client.messageRenderer.renderMermaidBlocks(this.markdownPreview);
+    this.app.messageRenderer.renderMermaidBlocks(this.markdownPreview);
   }
 
   loadMonaco() {
@@ -159,13 +175,15 @@ class FileEditor {
   }
 
   createEditor() {
+    const settings = this.app.settings;
+
     this.editor = monaco.editor.create(this.editorContainer, {
       value: '',
       language: 'plaintext',
-      theme: 'vs-dark',
+      theme: settings.isLight() ? 'vs' : 'vs-dark',
       automaticLayout: true,
-      fontSize: 13,
-      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', monospace",
+      fontSize: settings.get('fontSize'),
+      fontFamily: settings.getFontStack(),
       tabSize: 2,
       insertSpaces: true,
       minimap: { enabled: false },
@@ -181,7 +199,7 @@ class FileEditor {
         const isModified = currentContent !== this.currentFile.originalContent;
 
         this.saveBtn.disabled = !isModified;
-        this.client.tabManager.setFileModified(
+        this.app.tabManager.setFileModified(
           this.currentFile.projectId,
           this.currentFile.path,
           isModified
@@ -274,9 +292,9 @@ class FileEditor {
 
     // Request file content from server if not already loaded
     if (isPlanProject(projectId)) {
-      this.client.ws.send(JSON.stringify({ type: 'read_plan_file', path }));
+      this.app.ws.send(JSON.stringify({ type: 'read_plan_file', path }));
     } else {
-      this.client.ws.send(JSON.stringify({ type: 'read_file', projectId, path }));
+      this.app.ws.send(JSON.stringify({ type: 'read_file', projectId, path }));
     }
   }
 
@@ -289,7 +307,7 @@ class FileEditor {
 
     const content = this.editor.getValue();
 
-    this.client.ws.send(JSON.stringify({
+    this.app.ws.send(JSON.stringify({
       type: 'write_file',
       projectId: this.currentFile.projectId,
       path: this.currentFile.path,
@@ -332,7 +350,7 @@ class FileEditor {
     }
 
     this.saveBtn.disabled = true;
-    this.client.tabManager.setFileModified(
+    this.app.tabManager.setFileModified(
       this.currentFile.projectId,
       this.currentFile.path,
       false

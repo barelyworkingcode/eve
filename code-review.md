@@ -1,5 +1,104 @@
 # Code Review Log
 
+## 2026-03-31 — On-device voice feature review (feature/on-device-voice branch)
+
+### Files reviewed
+vad-manager.js (new), tts-browser-backend.js (new), tts-worker.js (new), tts-manager.js, voice-chat-manager.js, app.js, message-dispatcher.js, settings-dialog.js, server.js, index.html, styles.css
+
+### HIGH: `app.js` + `voice-chat-manager.js` — Backend check scattered across 5 locations
+**Bug**: The `ttsManager.backend !== 'browser'` guard was repeated in 5 places across 2 files to prevent sending `voice_mode` WebSocket messages when using browser TTS. This already caused a production bug (3 of 5 locations were missed initially, requiring a separate fix commit).
+
+**Fix**: Added `syncVoiceMode(ws)` method to TTSManager that encapsulates the backend check. Replaced all 5 scattered checks with `ttsManager.syncVoiceMode(this.wsClient)`.
+
+### Cleanup: Dead code removed
+- `tts-worker.js`: Removed unused `handleVoices` function and `voices` case in switch (never called)
+- `tts-browser-backend.js`: Removed unused `voices` property and `voices_result` handler (voice IDs come from server daemon)
+
+### No further HIGH issues found
+Checked prior review log — no flip-flopping. Prior passes already addressed: FileReader error handling, session history duplication, XSS in terminal picker, missing response.ok checks, stop_generation forwarding, task auto-join bug.
+
+## 2026-03-30 — STT + Voice Chat feature review (exp branch)
+
+### Files reviewed
+stt-manager.js (new), voice-chat-manager.js (new), stt-service.js (new), app.js, message-dispatcher.js, tts-manager.js, shell-launcher-dialog.js, tab-manager.js, ws-handler.js, index.html, styles.css
+
+### HIGH: `stt-manager.js:_processRecording` — Missing `FileReader.onerror` handler
+**Bug**: Same class as file-tree-node.js fix (2026-03-28 pass). No `onerror` on FileReader, and `reader.result` could be null causing uncaught TypeError on `.split(',')`. Mic button would stay in "transcribing" state forever on failure.
+
+**Fix**: Added null check on `reader.result` before splitting. Added `reader.onerror` handler with user-facing error message.
+
+### HIGH: `voice-chat-manager.js:handleTranscription` — Manual `sessionHistories.push` bypasses server-managed history
+**Bug**: Directly pushed `{ role: 'user', content, files }` into `app.sessionHistories`, but `app.handleSubmit()` (the established pattern) does NOT do this — history is managed server-side and returned on `session_joined`. This would cause duplicate messages when converting voice->web chat and the server replays history.
+
+**Fix**: Removed the manual `history.push()` call. `appendUserMessage` still renders the message in the hidden chat DOM for immediate display on mode switch.
+
+### No further HIGH issues found
+Checked prior review log — no flip-flopping. Prior simplify pass already addressed: double-fire voiceModeBtn bug, infinite retry loop in _populateVoiceSelect, AudioContext-per-recording mobile limit, voice-enable triplet duplication (4→1), provider settings duplication (2→1), buffer reuse in getAudioLevel, cache-busting cleanup.
+
+## 2026-03-28 — Idle timeout + badge review (exp branch)
+
+### Files reviewed
+terminal-manager.js (allTerminals, getDetachedCountForPath), sidebar/project-tree-item.js (badge)
+
+### No HIGH issues found
+
+### MEDIUM: Case-sensitive path match in `getDetachedCountForPath`
+**Bug**: `startsWith(projectPath)` is case-sensitive. macOS filesystem is case-insensitive, so paths like `/Users/Jonathan` vs `/users/Jonathan` wouldn't match.
+
+**Fix**: Lowercased both sides before comparison.
+
+## 2026-03-28 — Full UI rewrite review (exp branch)
+
+### Files reviewed
+All new and modified files: core/*.js (5), sidebar/*.js (4), dialogs/*.js (3), layout/mobile-bar.js, app.js, tab-manager.js, message-dispatcher.js, ws-handler.js, index.html, styles.css. Cross-checked against prior reviews — no flip-flopping.
+
+### HIGH: `api-client.js` — `response.json()` throws on empty/204 responses
+**Bug**: Success path called `response.json()` without `.catch()`. DELETE endpoints returning 204 or empty body would throw SyntaxError. Error path already had `.catch(() => ({}))`.
+
+**Fix**: Added `.catch(() => ({}))` to success path.
+
+### HIGH: `mobile-bar.js` — Chat button handler broken
+**Bug**: Used `window.client` global lookup with nonsensical guard (`document.querySelector ? ...`), dead `ws` variable assignment. Fragile, inconsistent with bus/container pattern.
+
+**Fix**: Replaced with `this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId })` — opens shell launcher which has Web Chat. Consistent with shell button pattern.
+
+### MEDIUM: `file-tree-node.js` — Missing `FileReader.onerror` handler
+**Bug**: `_handleExternalDrop` set `reader.onload` but never `reader.onerror`. Failed file reads silently dropped.
+
+**Fix**: Added `reader.onerror` handler with console.error.
+
+### Noted (not fixed — deferred to incremental migration)
+- DRY: model select dropdown built in 3 places (shell-launcher, task-dialog, app.js)
+- DRY: context menu pattern duplicated between FileTreeNode and ProjectTreeItem
+- DRY: icon SVGs duplicated across 3 modules
+- Dual state maps in app.js (this.sessions vs this.state.sessions) — migration artifact
+- Tight coupling via `container.get('app')` in dialogs — acceptable during migration
+
+## 2026-03-28 — Terminal provider proxy review, second pass (exp branch)
+
+### Files reviewed
+All modified Eve files (terminal-manager.js, message-dispatcher.js, app.js, ws-handler.js, relay-client.js, server.js, index.html, styles.css). Verified prior XSS fix in place. No flip-flopping.
+
+### No issues found
+All prior fixes verified. DOM API used correctly for user data. Base64 encode/decode correct. Proxy forwarding clean. No dead code, no DRY violations, no new security issues.
+
+## 2026-03-28 — Terminal provider proxy review (exp branch)
+
+### Files reviewed
+public/terminal-manager.js, public/message-dispatcher.js, public/app.js, public/index.html, public/styles.css, ws-handler.js, relay-client.js, server.js
+
+### HIGH: XSS via template name/description in picker
+**Bug**: `_showPickerUI` used innerHTML with unescaped `t.name` and `t.description` from relayLLM API. Custom templates could inject arbitrary HTML/JS. Same class as modal-manager.js fix (pass 3).
+
+**Fix**: Replaced innerHTML template interpolation with DOM API (`createElement`/`textContent`). SVG icons remain as innerHTML but are hardcoded literals, not user data.
+
+### No other HIGH issues found
+- Terminal message proxying in `ws-handler.js` correctly forwards all fields without transformation.
+- `relay-client.js` `send()` method is a clean refactor of `_send()`.
+- `server.js` correctly removed local `TerminalManager` dependency.
+- Base64 encode/decode in `terminal-manager.js` handles binary correctly.
+- Template picker lifecycle (create/remove overlay) is clean.
+
 ## 2026-03-26 — Review of uncommitted changes on `newArchitecture`
 
 ### Files reviewed

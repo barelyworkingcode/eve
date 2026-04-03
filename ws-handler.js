@@ -10,14 +10,14 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject }) {
+function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject, ttsService, sttService }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
     const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !isLocalhostConnection;
     let isAuthenticated = !requiresAuth;
 
-    const relayClient = new RelayClient(relayWsUrl, ws);
+    const relayClient = new RelayClient(relayWsUrl, ws, ttsService);
     const fileWatcher = new FileWatcher(ws, fileHandlers.fileService, resolveProject);
 
     // Connect to relayLLM immediately
@@ -145,29 +145,49 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
             fileWatcher.unwatch(message.projectId, message.path);
             break;
 
-          // --- Terminal operations (local) ---
+          // --- Terminal operations (proxied to relayLLM) ---
           case 'terminal_create':
-            terminalManager.createTerminal(ws, message.directory, message.command, message.args, claudeConfig);
+            relayClient.send({ type: 'terminal_create', templateId: message.templateId, name: message.name, directory: message.directory, cols: message.cols, rows: message.rows });
             break;
 
           case 'terminal_input':
-            terminalManager.handleInput(message.terminalId, message.data);
+            relayClient.send({ type: 'terminal_input', terminalId: message.terminalId, data: message.data });
             break;
 
           case 'terminal_resize':
-            terminalManager.handleResize(message.terminalId, message.cols, message.rows);
+            relayClient.send({ type: 'terminal_resize', terminalId: message.terminalId, cols: message.cols, rows: message.rows });
             break;
 
           case 'terminal_close':
-            terminalManager.close(message.terminalId);
+            relayClient.send({ type: 'terminal_close', terminalId: message.terminalId });
             break;
 
           case 'terminal_list':
-            terminalManager.list(ws);
+            relayClient.send({ type: 'terminal_list' });
             break;
 
           case 'terminal_reconnect':
-            terminalManager.reconnect(ws, message.terminalId);
+            relayClient.send({ type: 'terminal_reconnect', terminalId: message.terminalId });
+            break;
+
+          case 'join_terminal':
+            relayClient.send({ type: 'join_terminal', terminalId: message.terminalId });
+            break;
+
+          case 'leave_terminal':
+            relayClient.send({ type: 'leave_terminal', terminalId: message.terminalId });
+            break;
+
+          case 'terminal_templates':
+            relayClient.send({ type: 'terminal_templates' });
+            break;
+
+          case 'voice_mode':
+            relayClient.setVoiceMode(message.enabled, message.voice);
+            break;
+
+          case 'transcribe_audio':
+            handleTranscribeAudio(ws, sttService, message);
             break;
 
           case 'read_plan_file':
@@ -182,7 +202,6 @@ function createWsHandler({ authService, fileHandlers, terminalManager, relayWsUr
     ws.on('close', () => {
       relayClient.close();
       fileWatcher.closeAll();
-      terminalManager.detachAll(ws);
     });
   };
 }
@@ -198,9 +217,11 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
       body: JSON.stringify({
         projectId: message.projectId || '',
         directory: message.directory || '',
-        name: '',
+        name: message.name || '',
         model: message.model || '',
-        settings: message.settings || null
+        settings: message.settings || null,
+        systemPrompt: message.systemPrompt || '',
+        appendClaudeMd: message.appendClaudeMd || false,
       })
     });
 
@@ -219,8 +240,15 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
       projectId: data.projectId || null,
       model: data.model,
       name: data.name || null,
-      metadata: data.directory
+      metadata: data.directory,
+      sessionType: message.sessionType || null,
+      voice: message.voice || null,
     }));
+
+    // Auto-enable voice mode for voice sessions
+    if (message.sessionType === 'voice') {
+      relayClient.setVoiceMode(true, message.voice || 'af_heart');
+    }
 
     // Suppress the session_joined that relayLLM will send when we join
     relayClient.setSuppressNextJoin(data.sessionId);
@@ -237,6 +265,10 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
 /**
  * Handle user input: check for local slash commands first, else relay.
  */
+const VOICE_MODE_INSTRUCTION = '[VOICE MODE] Respond conversationally for spoken delivery. Avoid markdown, code blocks, tables, bullet lists, URLs, and technical formatting. Use natural language, spell out numbers and abbreviations. Keep responses concise. Use punctuation for natural pauses.';
+
+const DICTATION_NOTICE = '[DICTATED] The following was spoken aloud and transcribed via speech-to-text. Minor transcription errors may be present; please interpret the intended meaning.\n\n';
+
 function handleUserInput(ws, relayClient, message) {
   const text = (message.text || '').trim();
 
@@ -245,7 +277,20 @@ function handleUserInput(ws, relayClient, message) {
   }
 
   const files = (message.files || []).map(parseFileAttachment);
-  relayClient.sendMessage(message.text, files, message.sessionId);
+
+  let finalText = message.text;
+
+  // Prepend dictation notice for voice-transcribed input
+  if (message.dictated) {
+    finalText = DICTATION_NOTICE + finalText;
+  }
+
+  // Prepend voice mode instruction when voice mode is active
+  if (relayClient.voiceMode) {
+    finalText = VOICE_MODE_INSTRUCTION + '\n\n' + finalText;
+  }
+
+  relayClient.sendMessage(finalText, files, message.sessionId);
 }
 
 /**
@@ -285,6 +330,40 @@ function parseFileAttachment(f) {
     }
   }
   return { name: f.name, mimeType: f.mediaType || '', data: f.content || '' };
+}
+
+/**
+ * Transcribe audio via the Whisper STT daemon.
+ */
+async function handleTranscribeAudio(ws, sttService, message) {
+  try {
+    const { audio, language } = message;
+    if (!audio) {
+      ws.send(JSON.stringify({ type: 'transcription_error', error: 'No audio data' }));
+      return;
+    }
+    const audioBytes = Math.round(audio.length * 3 / 4); // approximate decoded size
+    console.log(`[WsHandler] Transcribing audio: ~${audioBytes} bytes, language=${language || 'auto'}`);
+    if (audioBytes < 100) {
+      ws.send(JSON.stringify({ type: 'transcription_error', error: 'Audio recording too short' }));
+      return;
+    }
+    const result = await sttService.transcribe(audio, language || null);
+    ws.send(JSON.stringify({
+      type: 'transcription_result',
+      text: result.text,
+      language: result.language,
+      duration: result.duration
+    }));
+  } catch (err) {
+    console.error('[WsHandler] Transcription failed:', err.message);
+    // Strip verbose ffmpeg output — show a clean error to the user
+    let errorMsg = err.message;
+    if (errorMsg.includes('ffmpeg') || errorMsg.includes('EBML') || errorMsg.includes('End of file')) {
+      errorMsg = 'Failed to process audio. The recording may be too short or corrupted.';
+    }
+    ws.send(JSON.stringify({ type: 'transcription_error', error: errorMsg }));
+  }
 }
 
 module.exports = createWsHandler;
