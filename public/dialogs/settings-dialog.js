@@ -16,6 +16,14 @@ class SettingsDialog extends DialogBase {
     });
   }
 
+  hide() {
+    super.hide();
+    // Re-evaluate voice preloading in case user changed TTS/STT backend
+    if (this.container.has('voiceInitCoordinator')) {
+      this.container.get('voiceInitCoordinator').evaluate();
+    }
+  }
+
   render() {
     this._panel.innerHTML = '';
     this._panel.style.maxWidth = '440px';
@@ -200,8 +208,6 @@ class SettingsDialog extends DialogBase {
     backendSelect.addEventListener('change', () => {
       tts.setBackend(backendSelect.value);
       ttsStatusEl.textContent = this._getTtsStatus(tts);
-      // Trigger model loading overlay if switching to on-device
-      if (tts.activeBackend?.onDevice) this.container.get('app')._showModelLoadingOverlay();
     });
     container.appendChild(backendSelect);
 
@@ -244,8 +250,6 @@ class SettingsDialog extends DialogBase {
     sttSelect.addEventListener('change', () => {
       stt.setBackend(sttSelect.value);
       sttStatusEl.textContent = this._getSttStatus(stt);
-      // Trigger model loading overlay if switching to on-device
-      if (stt.activeBackend?.onDevice) this.container.get('app')._showModelLoadingOverlay();
     });
     container.appendChild(sttSelect);
 

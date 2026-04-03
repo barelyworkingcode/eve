@@ -19,9 +19,10 @@ class STTManager {
     this.available = null; // null = unknown, true/false after check
     this.isNativeApp = IS_NATIVE_APP;
 
-    const backendName = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
-    this.activeBackend = this._createBackend(backendName);
-    console.log(`[STT] Using ${backendName} backend`);
+    this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
+    // Always start on server — VoiceInitCoordinator switches to preferred when ready
+    this.activeBackend = this._createBackend('server');
+    console.log(`[STT] Starting on server (preferred: ${this.preferredBackend})`);
   }
 
   get backend() {
@@ -53,7 +54,6 @@ class STTManager {
       onProgress: (data) => {
         if (this.activeBackend.ready) return;
         const pct = Math.round(data.progress || 0);
-        this.app._sttLoadPct = pct;
         this.app.voiceChatManager?._setPrompt(`Loading STT model: ${pct}%`);
       },
       onReady: () => {
@@ -94,7 +94,10 @@ class STTManager {
     const prev = this.activeBackend.name;
     this.activeBackend.destroy();
     this.activeBackend = this._createBackend(name);
-    if (persist) localStorage.setItem('eve-stt-backend', name);
+    if (persist) {
+      localStorage.setItem('eve-stt-backend', name);
+      this.preferredBackend = name;
+    }
     this._initBackend();
     this._updateButtonVisibility();
     console.log(`[STT] Switched backend: ${prev} → ${name}`);
