@@ -975,6 +975,10 @@ function initSidebarResize(sidebar, resizer) {
   });
 }
 
+// Global flag: set to true to suppress sidebar swipe-to-close temporarily
+// (e.g. during an in-sidebar swipe-to-delete gesture)
+window._sidebarSwipeLocked = false;
+
 function initSwipeGesture(sidebar, toggleSidebar) {
   let startX = 0;
   let startY = 0;
@@ -985,6 +989,7 @@ function initSwipeGesture(sidebar, toggleSidebar) {
   }, { passive: true });
 
   document.addEventListener('touchend', (e) => {
+    if (window._sidebarSwipeLocked) return;
     const deltaX = e.changedTouches[0].clientX - startX;
     const deltaY = Math.abs(e.changedTouches[0].clientY - startY);
     if (deltaY > Math.abs(deltaX)) return;
