@@ -25,10 +25,12 @@ class TTSManager {
     this.currentSource = null;
     this.isNativeApp = IS_NATIVE_APP;
     this._idleTimer = null;
+    this._hasUserGesture = false;
 
-    const backendName = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
-    this.activeBackend = this._createBackend(backendName);
-    console.log(`[TTS] Using ${backendName} backend`);
+    this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
+    // Always start on server — VoiceInitCoordinator switches to preferred when ready
+    this.activeBackend = this._createBackend('server');
+    console.log(`[TTS] Starting on server (preferred: ${this.preferredBackend})`);
   }
 
   get backend() {
@@ -58,16 +60,18 @@ class TTSManager {
     this._updateVoiceSelectVisibility();
     this.loadVoices();
 
-    // Pre-warm AudioContext on first user gesture to satisfy autoplay policy
+    // Pre-warm AudioContext on first user gesture to satisfy autoplay policy.
+    // Uses capture phase so it fires even if other handlers stopPropagation (e.g. push-to-talk).
     const warmUp = () => {
+      this._hasUserGesture = true;
       this._ensureAudioContext();
-      document.removeEventListener('click', warmUp);
-      document.removeEventListener('touchstart', warmUp);
-      document.removeEventListener('keydown', warmUp);
+      document.removeEventListener('click', warmUp, true);
+      document.removeEventListener('touchstart', warmUp, true);
+      document.removeEventListener('keydown', warmUp, true);
     };
-    document.addEventListener('click', warmUp);
-    document.addEventListener('touchstart', warmUp);
-    document.addEventListener('keydown', warmUp);
+    document.addEventListener('click', warmUp, true);
+    document.addEventListener('touchstart', warmUp, true);
+    document.addEventListener('keydown', warmUp, true);
   }
 
   _initBackend() {
@@ -76,7 +80,6 @@ class TTSManager {
       onProgress: (data) => {
         if (this.activeBackend.ready) return;
         const pct = Math.round(data.progress || 0);
-        this.app._ttsLoadPct = pct;
         this.app.voiceChatManager?._setPrompt(`Loading TTS model: ${pct}%`);
       },
       onReady: () => {
@@ -106,7 +109,10 @@ class TTSManager {
     this._clearIdleTimer();
     this.activeBackend.destroy();
     this.activeBackend = this._createBackend(name);
-    if (persist) localStorage.setItem('eve-tts-backend', name);
+    if (persist) {
+      localStorage.setItem('eve-tts-backend', name);
+      this.preferredBackend = name;
+    }
     this._initBackend();
 
     // Stop current playback — old backend's audio shouldn't keep playing
@@ -232,6 +238,7 @@ class TTSManager {
   // --- Audio playback queue (shared by all backends) ---
 
   async _ensureAudioContext() {
+    if (!this._hasUserGesture) return; // Browser blocks AudioContext before user gesture
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       this.analyser = this.audioContext.createAnalyser();

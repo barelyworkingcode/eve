@@ -93,6 +93,10 @@ class EveWorkspaceClient {
     this.container.register('sttManager', this.sttManager);
     this.voiceChatManager = new VoiceChatManager(this.container);
     this.container.register('voiceChatManager', this.voiceChatManager);
+    this.toastManager = new ToastManager(this.container);
+    this.container.register('toastManager', this.toastManager);
+    this.voiceInitCoordinator = new VoiceInitCoordinator(this.container);
+    this.container.register('voiceInitCoordinator', this.voiceInitCoordinator);
     // MessageDispatcher must be created after all services it depends on
     this.messageDispatcher = new MessageDispatcher(this.container);
     this.container.register('messageDispatcher', this.messageDispatcher);
@@ -366,8 +370,8 @@ class EveWorkspaceClient {
     // Voice Chat Manager
     this.voiceChatManager.init();
 
-    // Show model loading overlay if browser backends need to download models
-    this._showModelLoadingOverlay();
+    // Start voice model preloading (non-blocking toast, not overlay)
+    this.voiceInitCoordinator.init();
 
     // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
@@ -874,63 +878,6 @@ class EveWorkspaceClient {
     initSwipeGesture(this.elements.sidebar, (open) => this.toggleSidebar(open));
   }
 
-  /**
-   * Show a blocking overlay while browser STT/TTS models are downloading.
-   * Hides automatically when all active browser backends report ready.
-   */
-  _showModelLoadingOverlay() {
-    const sttOnDevice = this.sttManager.activeBackend.onDevice;
-    const ttsOnDevice = this.ttsManager.activeBackend.onDevice;
-    if (!sttOnDevice && !ttsOnDevice) return;
-
-    // Check what actually needs loading
-    const sttNeedsLoad = sttOnDevice && !this.sttManager.activeBackend.ready;
-    const ttsNeedsLoad = ttsOnDevice && !this.ttsManager.activeBackend.ready;
-    if (!sttNeedsLoad && !ttsNeedsLoad) return;
-
-    const overlay = document.getElementById('modelLoadingOverlay');
-    const sttItem = document.getElementById('sttLoadingItem');
-    const ttsItem = document.getElementById('ttsLoadingItem');
-    const sttFill = document.getElementById('sttLoadingFill');
-    const ttsFill = document.getElementById('ttsLoadingFill');
-    const sttPct = document.getElementById('sttLoadingPct');
-    const ttsPct = document.getElementById('ttsLoadingPct');
-
-    if (!overlay) return;
-
-    // Reset and show only items that need loading
-    if (sttItem) sttItem.style.display = sttNeedsLoad ? '' : 'none';
-    if (ttsItem) ttsItem.style.display = ttsNeedsLoad ? '' : 'none';
-    if (sttFill) { sttFill.style.width = '0%'; }
-    if (ttsFill) { ttsFill.style.width = '0%'; }
-    if (sttPct) sttPct.textContent = 'waiting...';
-    if (ttsPct) ttsPct.textContent = 'waiting...';
-
-    overlay.classList.remove('hidden');
-
-    const checkDone = () => {
-      const sDone = !sttNeedsLoad || this.sttManager.activeBackend.ready;
-      const tDone = !ttsNeedsLoad || this.ttsManager.activeBackend.ready;
-
-      if (sttNeedsLoad && sttFill) {
-        const pct = sDone ? 100 : (this._sttLoadPct || 0);
-        sttFill.style.width = (pct || (this.sttManager.activeBackend.loading ? 50 : 0)) + '%';
-        sttPct.textContent = sDone ? 'ready' : (pct ? pct + '%' : 'loading...');
-      }
-      if (ttsNeedsLoad && ttsFill) {
-        const pct = tDone ? 100 : (this._ttsLoadPct || 0);
-        ttsFill.style.width = (pct || (this.ttsManager.activeBackend.loading ? 50 : 0)) + '%';
-        ttsPct.textContent = tDone ? 'ready' : (pct ? pct + '%' : 'loading...');
-      }
-
-      if (sDone && tDone) {
-        overlay.classList.add('hidden');
-      } else {
-        requestAnimationFrame(checkDone);
-      }
-    };
-    requestAnimationFrame(checkDone);
-  }
 }
 
 // --- Standalone UI helpers (no class dependency) ---

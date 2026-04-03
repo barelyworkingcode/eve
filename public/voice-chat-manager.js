@@ -53,9 +53,9 @@ class VoiceChatManager {
       }
     });
 
-    // Spacebar handler (push-to-talk)
-    document.addEventListener('keydown', (e) => this._onKeyDown(e));
-    document.addEventListener('keyup', (e) => this._onKeyUp(e));
+    // Spacebar handler (push-to-talk) — capture phase so we intercept before Monaco's body listener
+    document.addEventListener('keydown', (e) => this._onKeyDown(e), true);
+    document.addEventListener('keyup', (e) => this._onKeyUp(e), true);
 
     // Mic button (push-to-talk fallback + click alternative)
     if (this.micBtn) {
@@ -251,7 +251,6 @@ class VoiceChatManager {
   _onKeyDown(e) {
     if (!this.isVoiceSession) return;
     if (e.code !== 'Space') return;
-    if (e.repeat) return;
     // Don't capture if user is typing in an input
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
@@ -259,6 +258,9 @@ class VoiceChatManager {
     if (document.querySelector('.dialog:not(.hidden)')) return;
 
     e.preventDefault();
+    e.stopPropagation();
+
+    if (e.repeat) return; // Already recording — just suppress the event
 
     if (this.inputMode === 'conversation') {
       this.vadManager.pause();
@@ -273,6 +275,7 @@ class VoiceChatManager {
     if (!this._spacebarDown) return;
 
     e.preventDefault();
+    e.stopPropagation();
     this._spacebarDown = false;
     this._stopRecording();
 
