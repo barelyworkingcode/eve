@@ -83,9 +83,6 @@ class EveWorkspaceClient {
     this.projectDialog = new ProjectDialog(this.container);
     this.projectDialog.init();
 
-    // Mobile bar (Phase 5)
-    this.mobileBar = new MobileBar(this.container);
-    this.mobileBar.init();
     this.terminalManager = new TerminalManager(this.container);
     this.container.register('terminalManager', this.terminalManager);
     this.fileAttachmentManager = new FileAttachmentManager(this.container);
