@@ -9,7 +9,7 @@ class FileEditor {
     this.viewMode = 'split';
     this._previewDebounce = null;
 
-    this.loadMonaco();
+    this._monacoLoaded = false;
     this.initElements();
     this.initEventListeners();
     this._listenForSettingsChanges();
@@ -225,6 +225,12 @@ class FileEditor {
       content,
       originalContent: content
     };
+
+    // Lazy-load Monaco on first file open
+    if (!this._monacoLoaded) {
+      this._monacoLoaded = true;
+      this.loadMonaco();
+    }
 
     if (!this.editor) {
       // Monaco not ready yet, retry later to actually load content

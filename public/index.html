@@ -41,24 +41,6 @@
   <script src="/monaco/vs/loader.js"></script>
 </head>
 <body>
-  <!-- Model Loading Overlay -->
-  <div id="modelLoadingOverlay" class="model-loading-overlay hidden">
-    <div class="model-loading-card">
-      <h3>Preparing Voice Models</h3>
-      <div class="model-loading-item" id="sttLoadingItem">
-        <span class="model-loading-label">Speech Recognition</span>
-        <div class="model-loading-bar"><div class="model-loading-fill" id="sttLoadingFill"></div></div>
-        <span class="model-loading-pct" id="sttLoadingPct">waiting...</span>
-      </div>
-      <div class="model-loading-item" id="ttsLoadingItem">
-        <span class="model-loading-label">Text-to-Speech</span>
-        <div class="model-loading-bar"><div class="model-loading-fill" id="ttsLoadingFill"></div></div>
-        <span class="model-loading-pct" id="ttsLoadingPct">waiting...</span>
-      </div>
-      <p class="model-loading-hint">First load downloads models. They are cached for future visits.</p>
-    </div>
-  </div>
-
   <!-- Auth Screen -->
   <div id="authScreen" class="auth-screen hidden">
     <div class="auth-card">
@@ -399,6 +381,8 @@
   <script src="stt-manager.js"></script>
   <script src="vad-manager.js"></script>
   <script src="voice-chat-manager.js"></script>
+  <script src="toast.js"></script>
+  <script src="voice-init-coordinator.js"></script>
   <script src="message-dispatcher.js"></script>
   <script src="file-attachment-manager.js"></script>
 

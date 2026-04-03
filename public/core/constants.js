@@ -93,6 +93,11 @@ const EVT = {
 
   // Voice
   VOICE_BACKEND_CHANGED: 'voice:backendChanged',
+
+  // Toast (generic)
+  TOAST_SHOW:    'toast:show',
+  TOAST_UPDATE:  'toast:update',
+  TOAST_DISMISS: 'toast:dismiss',
 };
 
 // Platform detection (invariant for page lifetime)
