@@ -148,7 +148,7 @@ class EveWorkspaceClient {
       inputForm: document.getElementById('inputForm'),
       sendBtn: document.getElementById('sendBtn'),
       newSessionBtn: document.getElementById('newSessionBtn'),
-      welcomeNewSession: document.getElementById('welcomeNewSession'),
+      welcomeNewSession: document.getElementById('welcomeNewSession'), // legacy, may not exist
       modal: document.getElementById('modal'),
       newSessionForm: document.getElementById('newSessionForm'),
       directoryInput: document.getElementById('directoryInput'),
@@ -265,7 +265,7 @@ class EveWorkspaceClient {
   initEventListeners() {
     // New session buttons
     this.elements.newSessionBtn?.addEventListener('click', () => this.modalManager.showSessionModal());
-    this.elements.welcomeNewSession.addEventListener('click', () => this.modalManager.showSessionModal());
+    this.elements.welcomeNewSession?.addEventListener('click', () => this.modalManager.showSessionModal());
 
     // Terminal picker (legacy button, may not exist in new sidebar)
     this.elements.newTerminalBtn?.addEventListener('click', () => {
