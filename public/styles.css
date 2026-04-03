@@ -3292,6 +3292,181 @@ html, body {
   line-height: 1;
 }
 
+/* Project sections (Tasks, Sessions, Files) */
+
+.project-tree__sections {
+  padding-bottom: 2px;
+}
+
+.project-tree__section-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px 4px 24px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+  gap: 4px;
+}
+
+.project-tree__section-header:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.project-tree__section-chevron {
+  font-size: 7px;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.project-tree__section-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-tree__section-count {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.project-tree__section-content {
+  padding-bottom: 2px;
+}
+
+.project-tree__section-empty {
+  padding: 4px 8px 4px 38px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* Task items in sidebar */
+
+.project-tree__task-item {
+  display: flex;
+  align-items: center;
+  padding: 2px 4px 2px 38px;
+  cursor: default;
+  font-size: 12px;
+  color: var(--text-primary);
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.project-tree__task-item:hover {
+  background: var(--bg-hover);
+}
+
+.project-tree__task-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-tree__task-schedule {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.project-tree__task-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.project-tree__task-item:hover .project-tree__task-actions {
+  opacity: 1;
+}
+
+.project-tree__task-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-tree__task-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+/* Session items in sidebar */
+
+.project-tree__session-swipe {
+  position: relative;
+  overflow: hidden;
+}
+
+.project-tree__session-delete {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger, #e53e3e);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.project-tree__session-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 2px 4px 2px 38px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  will-change: transform;
+}
+
+.project-tree__session-item:hover {
+  background: var(--bg-hover);
+}
+
+.project-tree__session-item--active {
+  color: var(--accent);
+}
+
+.project-tree__session-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-tree__session-badge {
+  font-size: 9px;
+  color: var(--text-muted);
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
 /* File tree */
 
 .file-tree {
@@ -3406,6 +3581,21 @@ html, body {
     gap: 4px;
   }
   .project-tree__action-btn {
+    padding: 8px 10px;
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .project-tree__section-header {
+    min-height: 36px;
+  }
+  .project-tree__task-item,
+  .project-tree__session-item {
+    min-height: 36px;
+  }
+  .project-tree__task-actions {
+    opacity: 0.6;
+  }
+  .project-tree__task-btn {
     padding: 8px 10px;
     min-width: 36px;
     min-height: 36px;
