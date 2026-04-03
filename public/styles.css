@@ -2133,10 +2133,18 @@ html, body {
 
   .menu-toggle {
     display: flex;
+    width: 44px;
+    height: 44px;
   }
 
   .chat-header .menu-toggle {
     display: flex;
+  }
+
+  .btn-icon {
+    width: 44px;
+    height: 44px;
+    padding: 10px;
   }
 
   .main {
@@ -2162,13 +2170,12 @@ html, body {
   }
 
   .btn-attach {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
   }
 
   .btn-danger {
-    padding: 6px 10px;
-    font-size: 11px;
+    padding: 10px 16px;
   }
 
   .messages {
@@ -2195,7 +2202,7 @@ html, body {
   }
 
   .input-form textarea {
-    padding: 10px;
+    padding: 9px 10px;
     font-size: 16px; /* Prevents zoom on iOS */
   }
 
@@ -2209,8 +2216,18 @@ html, body {
   }
 
   .btn-mic {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .btn-voice-mode {
+    width: 44px;
+    height: 44px;
+  }
+
+  .btn-voice-ui {
+    width: 44px;
+    height: 44px;
   }
 
   .welcome-content h2 {
@@ -2226,33 +2243,60 @@ html, body {
     font-size: 16px; /* Prevents zoom on iOS */
   }
 
-  /* Touch-accessible: always show project action buttons on mobile */
+  /* Touch-accessible: always show action buttons on mobile with 44px targets */
   .project-delete,
   .project-quick-add,
   .project-edit,
   .project-files-toggle,
   .project-tasks-btn {
     opacity: 0.6;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .session-rename,
   .session-delete {
     opacity: 0.6;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .task-item .task-edit {
     opacity: 0.6;
+    min-width: 44px;
+    min-height: 44px;
   }
 
-  /* Smaller tabs on mobile */
+  .task-run-btn,
+  .task-history-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Tabs on mobile */
   .tab {
     min-width: 80px;
-    padding: 6px 8px;
+    padding: 10px 8px;
+    min-height: 44px;
   }
 
   .tab-label {
     max-width: 70px;
     font-size: 11px;
+  }
+
+  .tab-close {
+    width: 32px;
+    height: 32px;
+    padding: 8px;
   }
 
 }
@@ -3052,13 +3096,13 @@ html, body {
   }
 
   .btn-attach {
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
   }
 
   .btn-attach svg {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
   }
 }
 
@@ -3581,24 +3625,33 @@ html, body {
     gap: 4px;
   }
   .project-tree__action-btn {
-    padding: 8px 10px;
-    min-width: 36px;
-    min-height: 36px;
+    padding: 10px;
+    min-width: 44px;
+    min-height: 44px;
   }
   .project-tree__section-header {
-    min-height: 36px;
+    min-height: 44px;
   }
   .project-tree__task-item,
   .project-tree__session-item {
-    min-height: 36px;
+    min-height: 44px;
+  }
+  .file-tree__item {
+    min-height: 44px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .file-tree__context-item {
+    min-height: 44px;
+    padding: 12px;
   }
   .project-tree__task-actions {
     opacity: 0.6;
   }
   .project-tree__task-btn {
-    padding: 8px 10px;
-    min-width: 36px;
-    min-height: 36px;
+    padding: 10px;
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
