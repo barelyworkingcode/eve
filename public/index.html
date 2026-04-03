@@ -291,41 +291,6 @@
     </div>
   </div>
 
-  <!-- New/Edit Project Modal -->
-  <div id="projectModal" class="modal hidden">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <h3 id="projectModalTitle">New Project</h3>
-      <form id="newProjectForm">
-        <label for="projectNameInput">Project Name</label>
-        <input
-          type="text"
-          id="projectNameInput"
-          placeholder="My Project"
-          required
-        >
-        <label for="projectPathInput">Directory Path</label>
-        <input
-          type="text"
-          id="projectPathInput"
-          placeholder="/path/to/project"
-          required
-        >
-        <label for="projectAllowedToolsInput">Allowed Tools (optional)</label>
-        <input
-          type="text"
-          id="projectAllowedToolsInput"
-          placeholder='e.g. Read Glob Grep "Bash(git:*)"'
-        >
-        <span class="field-hint">Space-separated. Pre-approves these tools without prompting.</span>
-        <div class="modal-actions">
-          <button type="button" id="cancelProjectModal" class="btn-secondary">Cancel</button>
-          <button type="submit" id="projectSubmitBtn" class="btn-primary">Create Project</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <!-- Delete Confirmation Modal -->
   <div id="confirmModal" class="modal hidden">
     <div class="modal-backdrop"></div>
@@ -443,6 +408,7 @@
   <script src="dialogs/shell-launcher-dialog.js"></script>
   <script src="dialogs/task-dialog.js"></script>
   <script src="dialogs/settings-dialog.js"></script>
+  <script src="dialogs/project-dialog.js"></script>
 
   <!-- Viewer modules -->
   <script src="viewers/viewer-registry.js"></script>

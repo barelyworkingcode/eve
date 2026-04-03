@@ -80,6 +80,8 @@ class EveWorkspaceClient {
     this.taskDialog.init();
     this.settingsDialog = new SettingsDialog(this.container);
     this.settingsDialog.init();
+    this.projectDialog = new ProjectDialog(this.container);
+    this.projectDialog.init();
 
     // Mobile bar (Phase 5)
     this.mobileBar = new MobileBar(this.container);
@@ -154,11 +156,6 @@ class EveWorkspaceClient {
       newSessionForm: document.getElementById('newSessionForm'),
       directoryInput: document.getElementById('directoryInput'),
       cancelModal: document.getElementById('cancelModal'),
-      projectModal: document.getElementById('projectModal'),
-      newProjectForm: document.getElementById('newProjectForm'),
-      projectNameInput: document.getElementById('projectNameInput'),
-      projectPathInput: document.getElementById('projectPathInput'),
-      cancelProjectModal: document.getElementById('cancelProjectModal'),
       newProjectBtn: document.getElementById('newProjectBtn'),
       newTerminalBtn: document.getElementById('newTerminalBtn'),
       projectList: document.getElementById('projectList'),
@@ -179,9 +176,6 @@ class EveWorkspaceClient {
       confirmMessage: document.getElementById('confirmMessage'),
       confirmDelete: document.getElementById('confirmDelete'),
       cancelConfirm: document.getElementById('cancelConfirm'),
-      projectModalTitle: document.getElementById('projectModalTitle'),
-      projectSubmitBtn: document.getElementById('projectSubmitBtn'),
-      projectAllowedToolsInput: document.getElementById('projectAllowedToolsInput'),
       providerSettings: document.getElementById('providerSettings'),
       permissionModal: document.getElementById('permissionModal'),
       permissionToolName: document.getElementById('permissionToolName'),
@@ -247,9 +241,10 @@ class EveWorkspaceClient {
     // Shell launcher and task dialog are handled by their own EventBus subscriptions
     // (ShellLauncherDialog and TaskDialog listen for DIALOG_SHELL_LAUNCHER / DIALOG_TASK directly)
 
-    // Bridge: project edit from new sidebar
-    this.bus.on(EVT.DIALOG_PROJECT, (data) => {
-      this.modalManager.showProjectModal(data.projectId);
+    // Keep legacy project select in sync when projects change
+    this.bus.on(EVT.PROJECTS_LOADED, () => {
+      this.sidebarRenderer.renderProjectList();
+      this.updateProjectSelect();
     });
 
     // Bridge: sidebar toggle from mobile bar
@@ -274,9 +269,8 @@ class EveWorkspaceClient {
       this.bus.emit(EVT.DIALOG_SETTINGS, {});
     });
 
-    // Project modal
-    this.elements.newProjectBtn.addEventListener('click', () => this.modalManager.showProjectModal());
-    this.elements.newProjectForm.addEventListener('submit', (e) => this.handleNewProject(e));
+    // Project dialog (via EventBus — ProjectDialog handles it)
+    this.elements.newProjectBtn.addEventListener('click', () => this.bus.emit(EVT.DIALOG_PROJECT, {}));
 
     // Session form
     this.elements.newSessionForm.addEventListener('submit', (e) => this.handleNewSession(e));
@@ -487,10 +481,8 @@ class EveWorkspaceClient {
       const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const projects = await response.json();
-      this.state.setProjects(projects);
+      this.state.setProjects(projects); // emits PROJECTS_LOADED → renders sidebar + updates select
       await this.loadAllTasks();
-      this.sidebarRenderer.renderProjectList();
-      this.updateProjectSelect();
     } catch (err) {
       console.error('Failed to load projects:', err);
     }
@@ -543,36 +535,6 @@ class EveWorkspaceClient {
   }
 
   // --- Project actions ---
-
-  async handleNewProject(e) {
-    e.preventDefault();
-    const name = this.elements.projectNameInput.value.trim();
-    const projectPath = this.elements.projectPathInput.value.trim();
-    const allowedTools = this.parseArgsString(this.elements.projectAllowedToolsInput.value);
-    if (!name || !projectPath) return;
-
-    try {
-      const isEdit = !!this.modalManager.editingProjectId;
-      const url = isEdit ? `/api/projects/${this.modalManager.editingProjectId}` : '/api/projects';
-      const method = isEdit ? 'PUT' : 'POST';
-
-      const body = { name, path: projectPath, allowedTools };
-
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
-      const project = await response.json();
-      this.projects.set(project.id, project);
-      this.sidebarRenderer.renderProjectList();
-      this.updateProjectSelect();
-      this.modalManager.hideProjectModal();
-    } catch (err) {
-      console.error('Failed to save project:', err);
-    }
-  }
 
   async handleTaskSubmit(e) {
     e.preventDefault();

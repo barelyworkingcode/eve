@@ -101,6 +101,25 @@ function showContextMenu(x, y, items) {
   setTimeout(() => document.addEventListener('click', _activeContextMenuCloseHandler), 0);
 }
 
+/**
+ * Parse a space-separated args string, respecting quoted values.
+ * e.g. 'Read Glob "Bash(git:*)"' → ['Read', 'Glob', 'Bash(git:*)']
+ */
+function parseArgsString(str) {
+  if (!str || !str.trim()) return [];
+  const args = [];
+  const regex = /(?:[^\s"']+|"[^"]*"|'[^']*')+/g;
+  let match;
+  while ((match = regex.exec(str)) !== null) {
+    let val = match[0];
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    args.push(val);
+  }
+  return args;
+}
+
 function closeContextMenu() {
   if (_activeContextMenu) {
     _activeContextMenu.remove();

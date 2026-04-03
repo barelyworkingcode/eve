@@ -125,7 +125,7 @@ class SidebarRenderer {
 
     editBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.app.modalManager.showProjectModal(projectId);
+      this.app.bus.emit(EVT.DIALOG_PROJECT, { projectId });
     });
 
     quickAddBtn.addEventListener('click', (e) => {
