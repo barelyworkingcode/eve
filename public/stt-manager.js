@@ -10,7 +10,7 @@ class STTManager {
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
-    this.log = container.get('logger').child('STT');
+    this._logger = container.get('logger');
     this.isRecording = false;
     this.mediaRecorder = null;
     this.audioChunks = [];
@@ -23,7 +23,8 @@ class STTManager {
     this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');
-    this.log.info(`Starting on server (preferred: ${this.preferredBackend})`);
+    this.log = this._logger.child(`STT:${this.activeBackend.name}`);
+    this.log.info(`Starting (preferred: ${this.preferredBackend})`);
   }
 
   get backend() {
@@ -59,11 +60,11 @@ class STTManager {
         this.app.voiceChatManager?._setPrompt(`Loading STT model: ${pct}%`);
       },
       onReady: () => {
-        this.log.info(`${this.backend} backend ready`);
+        this.log.info('Backend ready');
         this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
       },
       onError: (msg) => {
-        this.log.error(`${this.backend} backend failed:`, msg);
+        this.log.error('Backend failed:', msg);
         this.app.messageRenderer?.appendSystemMessage(`On-device STT failed to load — falling back to server.`, 'warning');
         this.switchBackend('server', { persist: false });
       },
@@ -102,7 +103,8 @@ class STTManager {
     }
     this._initBackend();
     this._updateButtonVisibility();
-    this.log.info(`Switched backend: ${prev} → ${name}`);
+    this.log = this._logger.child(`STT:${name}`);
+    this.log.info(`Switched from ${prev}`);
     this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
   }
 

@@ -16,7 +16,7 @@ class TTSManager {
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
-    this.log = container.get('logger').child('TTS');
+    this._logger = container.get('logger');
     this.enabled = localStorage.getItem('eve-voice-mode') === 'true';
     this.voice = localStorage.getItem('eve-voice-preset') || DEFAULT_TTS_VOICE;
     this.voices = [];
@@ -31,7 +31,8 @@ class TTSManager {
     this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');
-    this.log.info(`Starting on server (preferred: ${this.preferredBackend})`);
+    this.log = this._logger.child(`TTS:${this.activeBackend.name}`);
+    this.log.info(`Starting (preferred: ${this.preferredBackend})`);
   }
 
   get backend() {
@@ -85,11 +86,11 @@ class TTSManager {
         this.app.voiceChatManager?._setPrompt(`Loading TTS model: ${pct}%`);
       },
       onReady: () => {
-        this.log.info(`${this.backend} backend ready`);
+        this.log.info('Backend ready');
         this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
       },
       onError: (msg) => {
-        this.log.error(`${this.backend} backend failed:`, msg);
+        this.log.error('Backend failed:', msg);
         this.app.messageRenderer?.appendSystemMessage('On-device TTS failed to load — falling back to server.', 'warning');
         this.switchBackend('server', { persist: false });
       },
@@ -128,7 +129,8 @@ class TTSManager {
       this.syncVoiceMode(ws);
     }
 
-    this.log.info(`Switched backend: ${prev} → ${name}`);
+    this.log = this._logger.child(`TTS:${name}`);
+    this.log.info(`Switched from ${prev}`);
     this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
 
     // Reload voices from new backend
@@ -254,6 +256,7 @@ class TTSManager {
   }
 
   async enqueueAudio(base64Data) {
+    this.log.debug(`Playing audio (${Math.round(base64Data.length * 3 / 4 / 1024)}kb, queue: ${this.queue.length})`);
     try {
       await this._ensureAudioContext();
       const binary = atob(base64Data);
