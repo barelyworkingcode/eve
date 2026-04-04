@@ -637,9 +637,42 @@ class VoiceOrbCanvas {
       speaking:   { color: { r: 80,  g: 140, b: 220 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.18,  wobble: 0.09 },
     };
 
+    // Touch interaction
+    this.touchPoint = null;   // { x, y } in canvas coords, null when not touching
+    this.touchEnergy = 0;     // smoothed 0-1, decays after release
+
     this.wireLoops = [];
     this._initWireLoops();
     this._setupResize();
+    this._setupTouch();
+  }
+
+  _setupTouch() {
+    const toCanvas = (clientX, clientY) => {
+      const rect = this.canvas.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left) / rect.width * this.canvas.width,
+        y: (clientY - rect.top) / rect.height * this.canvas.height,
+      };
+    };
+    this.canvas.addEventListener('mousedown', (e) => {
+      this.touchPoint = toCanvas(e.clientX, e.clientY);
+    });
+    this.canvas.addEventListener('mousemove', (e) => {
+      if (this.touchPoint) this.touchPoint = toCanvas(e.clientX, e.clientY);
+    });
+    this.canvas.addEventListener('mouseup', () => { this.touchPoint = null; });
+    this.canvas.addEventListener('mouseleave', () => { this.touchPoint = null; });
+    this.canvas.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      this.touchPoint = toCanvas(t.clientX, t.clientY);
+    }, { passive: true });
+    this.canvas.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      this.touchPoint = toCanvas(t.clientX, t.clientY);
+    }, { passive: true });
+    this.canvas.addEventListener('touchend', () => { this.touchPoint = null; });
+    this.canvas.addEventListener('touchcancel', () => { this.touchPoint = null; });
   }
 
   _initWireLoops() {
@@ -713,6 +746,9 @@ class VoiceOrbCanvas {
 
     const audioBoost = this.audioLevel;
 
+    // Touch energy: ramps up while touching, decays when released
+    this.touchEnergy = this._lerp(this.touchEnergy, this.touchPoint ? 1 : 0, this.touchPoint ? 0.15 : 0.05);
+
     // Lerp color
     this.currentColor.r = this._lerp(this.currentColor.r, config.color.r, ease);
     this.currentColor.g = this._lerp(this.currentColor.g, config.color.g, ease);
@@ -722,7 +758,7 @@ class VoiceOrbCanvas {
     this.breathRate = this._lerp(this.breathRate, config.breathRate + audioBoost * 0.02, ease);
     this.breathDepth = this._lerp(this.breathDepth, config.breathDepth + audioBoost * 0.08, ease * 3);
     this.rotSpeed = this._lerp(this.rotSpeed, config.rot + audioBoost * 0.15, ease);
-    this.wobbleAmt = this._lerp(this.wobbleAmt, config.wobble + audioBoost * 0.12, ease * 3);
+    this.wobbleAmt = this._lerp(this.wobbleAmt, config.wobble + audioBoost * 0.12 + this.touchEnergy * 0.08, ease * 3);
 
     // Advance breathing phase
     this.breathPhase += this.breathRate;
@@ -772,8 +808,21 @@ class VoiceOrbCanvas {
 
         // Simple perspective
         const perspective = 1 + z3d * 0.15;
-        const px = this.cx + x3d * r * perspective;
-        const py = this.cy + y3d * r * perspective;
+        let px = this.cx + x3d * r * perspective;
+        let py = this.cy + y3d * r * perspective;
+
+        // Touch repulsion: push points away from touch
+        if (this.touchEnergy > 0.01 && this.touchPoint) {
+          const dx = px - this.touchPoint.x;
+          const dy = py - this.touchPoint.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const radius = this.baseRadius * 0.8;
+          if (dist < radius) {
+            const force = (1 - dist / radius) * this.touchEnergy * this.baseRadius * 0.3;
+            px += (dx / dist) * force;
+            py += (dy / dist) * force;
+          }
+        }
 
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
@@ -824,9 +873,42 @@ class ParticleCloudOrb {
       speaking:   { color: { r: 80,  g: 140, b: 220 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.2,   spread: 0.20 },
     };
 
+    // Touch interaction
+    this.touchPoint = null;
+    this.touchEnergy = 0;
+
     this.particles = [];
     this._initParticles();
     this._setupResize();
+    this._setupTouch();
+  }
+
+  _setupTouch() {
+    const toCanvas = (clientX, clientY) => {
+      const rect = this.canvas.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left) / rect.width * this.canvas.width,
+        y: (clientY - rect.top) / rect.height * this.canvas.height,
+      };
+    };
+    this.canvas.addEventListener('mousedown', (e) => {
+      this.touchPoint = toCanvas(e.clientX, e.clientY);
+    });
+    this.canvas.addEventListener('mousemove', (e) => {
+      if (this.touchPoint) this.touchPoint = toCanvas(e.clientX, e.clientY);
+    });
+    this.canvas.addEventListener('mouseup', () => { this.touchPoint = null; });
+    this.canvas.addEventListener('mouseleave', () => { this.touchPoint = null; });
+    this.canvas.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      this.touchPoint = toCanvas(t.clientX, t.clientY);
+    }, { passive: true });
+    this.canvas.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      this.touchPoint = toCanvas(t.clientX, t.clientY);
+    }, { passive: true });
+    this.canvas.addEventListener('touchend', () => { this.touchPoint = null; });
+    this.canvas.addEventListener('touchcancel', () => { this.touchPoint = null; });
   }
 
   _initParticles() {
@@ -906,6 +988,9 @@ class ParticleCloudOrb {
     this.audioLevel = this._lerp(this.audioLevel, rawLevel, 0.15);
     const audioBoost = this.audioLevel;
 
+    // Touch energy
+    this.touchEnergy = this._lerp(this.touchEnergy, this.touchPoint ? 1 : 0, this.touchPoint ? 0.15 : 0.05);
+
     // Lerp parameters
     this.currentColor.r = this._lerp(this.currentColor.r, config.color.r, ease);
     this.currentColor.g = this._lerp(this.currentColor.g, config.color.g, ease);
@@ -949,8 +1034,21 @@ class ParticleCloudOrb {
       const z3d = Math.sin(p.phi) * Math.sin(theta);
 
       const perspective = 1 + z3d * 0.2;
-      const px = this.cx + x3d * r * perspective;
-      const py = this.cy + y3d * r * perspective;
+      let px = this.cx + x3d * r * perspective;
+      let py = this.cy + y3d * r * perspective;
+
+      // Touch repulsion: push particles away from touch point
+      if (this.touchEnergy > 0.01 && this.touchPoint) {
+        const dx = px - this.touchPoint.x;
+        const dy = py - this.touchPoint.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const radius = this.baseRadius * 0.8;
+        if (dist < radius) {
+          const force = (1 - dist / radius) * this.touchEnergy * this.baseRadius * 0.4;
+          px += (dx / dist) * force;
+          py += (dy / dist) * force;
+        }
+      }
 
       const depthFade = 0.6 + 0.4 * (z3d * 0.5 + 0.5);
       const alpha = p.opacity * depthFade * (0.8 + 0.2 * (rawBreath * 0.5 + 0.5));
