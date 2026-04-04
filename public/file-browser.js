@@ -4,6 +4,7 @@ class FileBrowser {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.log = container.get('logger').child('FileBrowser');
     this.projectTrees = new Map(); // projectId -> { expanded, entries, loading, expandedPaths }
     this.dragState = null;      // { projectId, path, type }
     this.renameState = null;    // { projectId, path, input }
@@ -246,7 +247,7 @@ class FileBrowser {
    * Handles file error from server
    */
   handleFileError(projectId, path, error) {
-    console.error(`File error for ${projectId}:${path}:`, error);
+    this.log.error(`File error for ${projectId}:${path}:`, error);
 
     const project = this.app.projects.get(projectId);
     const projectName = project?.name || 'Unknown project';

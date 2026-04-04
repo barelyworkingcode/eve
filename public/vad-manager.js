@@ -3,7 +3,8 @@
  * Provides Float32Array audio at 16kHz to the STT pipeline.
  */
 class VadManager {
-  constructor() {
+  constructor(log) {
+    this.log = log || new NullLogger();
     this.micVAD = null;
     this.isListening = false;
     this._destroying = false;
@@ -21,13 +22,13 @@ class VadManager {
     if (this.micVAD) return;
     this._destroying = false;
     if (typeof vad === 'undefined' || !vad.MicVAD) {
-      console.error('[VAD] vad-web library not loaded');
+      this.log.error('vad-web library not loaded');
       callbacks.onError?.(new Error('Voice detection library failed to load'));
       return;
     }
 
     try {
-      console.log('[VAD] Initializing Silero VAD...');
+      this.log.info('Initializing Silero VAD...');
       this.micVAD = await vad.MicVAD.new({
         positiveSpeechThreshold: 0.7,
         negativeSpeechThreshold: 0.4,
@@ -39,31 +40,36 @@ class VadManager {
 
         onSpeechStart: () => {
           if (this._destroying) return;
+          this.log.debug('Speech start');
           callbacks.onSpeechStart?.();
         },
 
         onSpeechEnd: (audio) => {
           if (this._destroying) return;
+          const duration = (audio.length / 16000).toFixed(1);
+          this.log.debug(`Speech end (${duration}s, ${audio.length} samples)`);
           callbacks.onSpeechEnd?.(audio);
         },
 
         onVADMisfire: () => {
           if (this._destroying) return;
+          this.log.debug('Misfire (too short)');
           callbacks.onVADMisfire?.();
         },
       });
 
       this.micVAD.start();
       this.isListening = true;
-      console.log('[VAD] Started — listening for speech');
+      this.log.info('Started — listening for speech');
     } catch (err) {
-      console.error('[VAD] Failed to initialize:', err);
+      this.log.error('Failed to initialize:', err);
       callbacks.onError?.(err);
     }
   }
 
   pause() {
     if (this.micVAD && this.isListening) {
+      this.log.debug('Paused');
       this.micVAD.pause();
       this.isListening = false;
     }
@@ -71,12 +77,14 @@ class VadManager {
 
   resume() {
     if (this.micVAD && !this.isListening) {
+      this.log.debug('Resumed');
       this.micVAD.start();
       this.isListening = true;
     }
   }
 
   destroy() {
+    this.log.debug('Destroyed');
     this._destroying = true;
     if (this.micVAD) {
       this.micVAD.destroy();

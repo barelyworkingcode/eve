@@ -10,6 +10,7 @@ class MessageDispatcher {
    * that haven't been extracted into their own services yet.
    */
   constructor(container) {
+    this.log = container.get('logger').child('Dispatch');
     // Injected services — each can be mocked independently for testing
     this.renderer = container.get('messageRenderer');
     this.modalManager = container.get('modalManager');
@@ -168,7 +169,7 @@ class MessageDispatcher {
   }
 
   _handleTtsError(data) {
-    console.warn('[TTS] Error:', data.message);
+    this.log.warn('TTS error:', data.message);
     this._notifyVoiceError(`Speech failed: ${data.message}`);
     if (!this.voice?.isVoiceSession) {
       this.renderer.appendSystemMessage(`TTS error: ${data.message}`, 'error');

@@ -4,12 +4,13 @@ class FileEditor {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.log = container.get('logger').child('FileEditor');
     this.editor = null;
     this.currentFile = null; // { projectId, path, content, originalContent }
     this.viewMode = 'split';
     this._previewDebounce = null;
 
-    this.loadMonaco();
+    this._monacoLoaded = false;
     this.initElements();
     this.initEventListeners();
     this._listenForSettingsChanges();
@@ -161,7 +162,7 @@ class FileEditor {
     require(['vs/editor/editor.main'], () => {
       this.createEditor();
     }, (err) => {
-      console.error('[FileEditor] Monaco editor failed to load:', err);
+      this.log.error('Monaco editor failed to load:', err);
       this.showEditorError('Monaco editor failed to load.');
     });
   }
@@ -225,6 +226,12 @@ class FileEditor {
       content,
       originalContent: content
     };
+
+    // Lazy-load Monaco on first file open
+    if (!this._monacoLoaded) {
+      this._monacoLoaded = true;
+      this.loadMonaco();
+    }
 
     if (!this.editor) {
       // Monaco not ready yet, retry later to actually load content

@@ -5,6 +5,7 @@
 class TaskDialog extends DialogBase {
   constructor(container) {
     super(container, 'task-dialog');
+    this.log = container.get('logger').child('TaskDialog');
     this.state = container.get('state');
     this.api = container.get('api');
     this.projectId = null;
@@ -382,7 +383,7 @@ class TaskDialog extends DialogBase {
       await this.api.runTask(task.id);
       this.hide();
     } catch (err) {
-      console.error('Failed to run task:', err);
+      this.log.error('Failed to run task:', err);
     }
   }
 
@@ -398,7 +399,7 @@ class TaskDialog extends DialogBase {
       this._tasks = this._tasks.filter(t => t.id !== task.id);
       this._switchTab('tasks');
     } catch (err) {
-      console.error('Failed to delete task:', err);
+      this.log.error('Failed to delete task:', err);
     }
   }
 
@@ -407,7 +408,7 @@ class TaskDialog extends DialogBase {
       await this.api.createTask(data);
       this.hide();
     } catch (err) {
-      console.error('Failed to create task:', err);
+      this.log.error('Failed to create task:', err);
     }
   }
 
@@ -417,7 +418,7 @@ class TaskDialog extends DialogBase {
       this._editTaskId = null;
       this.hide();
     } catch (err) {
-      console.error('Failed to update task:', err);
+      this.log.error('Failed to update task:', err);
     }
   }
 

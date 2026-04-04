@@ -10,7 +10,10 @@ const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
 const TTSService = require('./tts-service');
 const STTService = require('./stt-service');
+const { Logger } = require('./logger');
 
+const log = new Logger(process.env.LOG_LEVEL || 'debug');
+const serverLog = log.child('Server');
 
 const app = express();
 
@@ -76,10 +79,10 @@ function loadSettings() {
           ...data.providerConfig.claude
         };
       }
-      console.log('Loaded settings');
+      serverLog.info('Loaded settings');
     }
   } catch (err) {
-    console.error('Failed to load settings:', err.message);
+    serverLog.error('Failed to load settings:', err.message);
   }
 }
 loadSettings();
@@ -87,7 +90,7 @@ loadSettings();
 // relayLLM connection
 const RELAY_LLM_URL = process.env.RELAY_LLM_URL || 'http://localhost:3001';
 const RELAY_LLM_WS_URL = RELAY_LLM_URL.replace(/^http/, 'ws') + '/ws';
-console.log(`relayLLM URL: ${RELAY_LLM_URL} (WS: ${RELAY_LLM_WS_URL})`);
+serverLog.info(`relayLLM URL: ${RELAY_LLM_URL} (WS: ${RELAY_LLM_WS_URL})`);
 
 // Project cache (refreshed from relayLLM via HTTP proxy routes)
 const projectCache = new Map();
@@ -106,7 +109,7 @@ async function refreshProjectCache(data) {
       projectCache.set(p.id, p);
     }
   } catch (err) {
-    console.error('[ProjectCache] Refresh failed:', err.message);
+    log.child('ProjectCache').error('Refresh failed:', err.message);
   }
 }
 
@@ -114,7 +117,7 @@ async function refreshProjectCache(data) {
 refreshProjectCache();
 
 // Services
-const authService = new AuthService(DATA_DIR);
+const authService = new AuthService(DATA_DIR, log.child('Auth'));
 const fileHandlers = new FileHandlers((id) => projectCache.get(id));
 
 // Static middleware
@@ -146,7 +149,7 @@ const sttService = new STTService(
 );
 
 // Register HTTP routes (proxy to relayLLM + scheduler + local auth)
-registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService, sttService });
+registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService, sttService, log });
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
@@ -156,7 +159,8 @@ wss.on('connection', createWsHandler({
   claudeConfig: settings.providerConfig.claude,
   resolveProject: (id) => projectCache.get(id),
   ttsService,
-  sttService
+  sttService,
+  log: log.child('WsHandler')
 }));
 
 const PORT = process.env.PORT || 3000;
@@ -164,16 +168,16 @@ const HTTP_PORT = process.env.HTTP_PORT || 3000;
 
 server.listen(PORT, () => {
   const protocol = HTTPS_KEY && HTTPS_CERT ? 'https' : 'http';
-  console.log(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}`);
+  serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}`);
   if (authService.isEnrolled()) {
-    console.log('Authentication: enabled (passkey enrolled)');
+    serverLog.info('Authentication: enabled (passkey enrolled)');
   } else {
-    console.log('Authentication: disabled (no passkey enrolled - first visitor will become owner)');
+    serverLog.info('Authentication: disabled (no passkey enrolled - first visitor will become owner)');
   }
 
   if (httpServer) {
     httpServer.listen(HTTP_PORT, () => {
-      console.log(`HTTP server listening on http://localhost:${HTTP_PORT}`);
+      serverLog.info(`HTTP server listening on http://localhost:${HTTP_PORT}`);
     });
   }
 });
@@ -184,7 +188,7 @@ let shuttingDown = false;
 function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`\n[Shutdown] ${signal} received, cleaning up...`);
+  serverLog.info(`${signal} received, cleaning up...`);
 
   for (const client of wss.clients) {
     try { client.terminate(); } catch (e) { /* ignore */ }
@@ -195,7 +199,7 @@ function gracefulShutdown(signal) {
   server.close();
   if (httpServer) httpServer.close();
 
-  console.log('[Shutdown] Complete');
+  serverLog.info('Shutdown complete');
   process.exit(0);
 }
 
@@ -203,10 +207,10 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 process.on('uncaughtException', (err) => {
-  console.error('[Fatal] Uncaught exception:', err);
+  serverLog.error('Uncaught exception:', err);
   gracefulShutdown('uncaughtException');
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[Warning] Unhandled rejection:', reason);
+  serverLog.warn('Unhandled rejection:', reason);
 });

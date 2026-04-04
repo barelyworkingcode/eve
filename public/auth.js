@@ -1,7 +1,8 @@
 // WebAuthn authentication client
 
 class AuthClient {
-  constructor() {
+  constructor(log) {
+    this.log = log || new NullLogger();
     this.elements = null;
   }
 
@@ -38,7 +39,7 @@ class AuthClient {
       this.showLoginScreen();
       return false;
     } catch (err) {
-      console.error('Auth status check failed:', err);
+      this.log.error('Status check failed:', err);
       this.showError('Failed to check authentication status');
       return false;
     }
@@ -90,7 +91,7 @@ class AuthClient {
         await this.login();
       }
     } catch (err) {
-      console.error('Auth action failed:', err);
+      this.log.error('Action failed:', err);
       this.showError(err.message || 'Authentication failed');
     } finally {
       this.elements.action.disabled = false;
@@ -162,7 +163,7 @@ class AuthClient {
     }
     const { options, challengeId } = await startRes.json();
 
-    console.log('[Auth] Login options from server:', {
+    this.log.debug('Login options from server:', {
       rpId: options.rpId,
       allowCredentials: options.allowCredentials,
       challenge: options.challenge?.substring(0, 20) + '...'

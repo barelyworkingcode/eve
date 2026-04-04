@@ -6,6 +6,7 @@ class FileTreeNode {
   constructor(container) {
     this.bus = container.get('bus');
     this.ws = container.get('ws');
+    this.log = container.get('logger').child('FileTree');
     this.state = container.get('state');
 
     // projectId -> { path -> entries[] }
@@ -240,7 +241,7 @@ class FileTreeNode {
     for (const file of fileList) {
       if (file.size > maxSize) continue;
       const reader = new FileReader();
-      reader.onerror = () => console.error(`Failed to read "${file.name}" for upload`);
+      reader.onerror = () => this.log.error(`Failed to read "${file.name}" for upload`);
       const isText = file.type.startsWith('text/') || /\.(txt|md|json|js|ts|css|html|py|go|rs|rb|sh|yaml|yml|toml|xml|sql|ini|conf|env|log)$/i.test(file.name);
       if (isText) {
         reader.onload = () => {

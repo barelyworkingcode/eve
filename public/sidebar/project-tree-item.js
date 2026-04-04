@@ -1,21 +1,30 @@
 /**
- * ProjectTreeItem - renders a single project header with action icons and file tree.
+ * ProjectTreeItem - renders a single project header with action icons
+ * and collapsible sections (Tasks, Sessions, Files).
  */
 class ProjectTreeItem {
   constructor(container, projectId, fileTreeNode) {
     this.container = container;
     this.bus = container.get('bus');
+    this.log = container.get('logger').child('ProjectTree');
     this.state = container.get('state');
     this.projectId = projectId;
     this.fileTreeNode = fileTreeNode;
     this.expanded = false;
-    this.onToggle = null; // callback(projectId, expanded)
+    this.sectionState = { tasks: false, sessions: false, files: false };
+    this.onToggle = null;          // callback(projectId, expanded)
+    this.onSectionToggle = null;   // callback() - persists section state
+    this._tasksCache = null;
+    this._tasksFetching = false;
+    this._subscribed = false;
     this.el = null;
   }
 
   render(parentEl) {
     const project = this.state.getProject(this.projectId);
     if (!project) return;
+
+    this._subscribeEvents();
 
     this.el = document.createElement('div');
     this.el.className = 'project-tree__project';
@@ -69,16 +78,362 @@ class ProjectTreeItem {
 
     this.el.appendChild(header);
 
-    // File tree (if expanded)
+    // Collapsible sections (if project expanded)
     if (this.expanded) {
-      const treeContainer = document.createElement('div');
-      treeContainer.className = 'file-tree';
-      treeContainer.dataset.projectId = this.projectId;
-      this.fileTreeNode.renderTree(this.projectId, treeContainer);
-      this.el.appendChild(treeContainer);
+      const sections = document.createElement('div');
+      sections.className = 'project-tree__sections';
+      this._renderSection(sections, 'tasks', 'Tasks', (c) => this._renderTasksContent(c));
+      this._renderSection(sections, 'sessions', 'Sessions', (c) => this._renderSessionsContent(c));
+      this._renderSection(sections, 'files', 'Files', (c) => this._renderFilesContent(c));
+      this.el.appendChild(sections);
     }
 
     parentEl.appendChild(this.el);
+  }
+
+  // --- Section rendering ---
+
+  _renderSection(parent, key, label, contentRenderer) {
+    const isExpanded = this.sectionState[key];
+    const count = this._getSectionCount(key);
+
+    // Section header
+    const header = document.createElement('div');
+    header.className = `project-tree__section-header${isExpanded ? ' project-tree__section-header--expanded' : ''}`;
+
+    const chevron = document.createElement('span');
+    chevron.className = 'project-tree__section-chevron';
+    chevron.textContent = isExpanded ? '\u25BC' : '\u25B6';
+    header.appendChild(chevron);
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'project-tree__section-name';
+    nameEl.textContent = label;
+    header.appendChild(nameEl);
+
+    if (count !== null) {
+      const countEl = document.createElement('span');
+      countEl.className = 'project-tree__section-count';
+      countEl.textContent = `(${count})`;
+      header.appendChild(countEl);
+    }
+
+    header.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.sectionState[key] = !this.sectionState[key];
+      if (this.onSectionToggle) this.onSectionToggle();
+      this._rerender();
+    });
+
+    parent.appendChild(header);
+
+    // Section content
+    if (isExpanded) {
+      const content = document.createElement('div');
+      content.className = 'project-tree__section-content';
+      contentRenderer(content);
+      parent.appendChild(content);
+    }
+  }
+
+  _getSectionCount(key) {
+    if (key === 'tasks') {
+      return this._tasksCache ? this._tasksCache.length : null;
+    }
+    if (key === 'sessions') {
+      return this.state.getSessionsForProject(this.projectId).length;
+    }
+    return null; // files — no count
+  }
+
+  // --- Tasks content ---
+
+  _renderTasksContent(container) {
+    if (this._tasksCache) {
+      this._renderTaskItems(container, this._tasksCache);
+      return;
+    }
+    if (this._tasksFetching) {
+      this._renderLoading(container);
+      return;
+    }
+
+    this._tasksFetching = true;
+    this._renderLoading(container);
+
+    const api = this.container.get('api');
+    api.getTasks(this.projectId).then(tasks => {
+      this._tasksCache = Array.isArray(tasks) ? tasks : [];
+      this._tasksFetching = false;
+      this._rerender();
+    }).catch(() => {
+      this._tasksCache = [];
+      this._tasksFetching = false;
+      this._rerender();
+    });
+  }
+
+  _renderTaskItems(container, tasks) {
+    if (tasks.length === 0) {
+      this._renderEmpty(container, 'No tasks');
+      return;
+    }
+
+    for (const task of tasks) {
+      const lastSessionId = task.lastSessionId || task.lastResult?.sessionId;
+
+      const item = document.createElement('div');
+      item.className = 'project-tree__task-item';
+      if (lastSessionId) item.style.cursor = 'pointer';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'project-tree__task-name';
+      nameEl.textContent = task.name;
+      item.appendChild(nameEl);
+
+      const schedEl = document.createElement('span');
+      schedEl.className = 'project-tree__task-schedule';
+      schedEl.textContent = this._formatSchedule(task.schedule);
+      item.appendChild(schedEl);
+
+      const actions = document.createElement('span');
+      actions.className = 'project-tree__task-actions';
+
+      const runBtn = document.createElement('button');
+      runBtn.className = 'project-tree__task-btn';
+      runBtn.title = 'Run Now';
+      runBtn.innerHTML = UI_ICONS.shell(12);
+      runBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._runTask(task);
+        this._closeSidebarOnMobile();
+      });
+      actions.appendChild(runBtn);
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'project-tree__task-btn';
+      editBtn.title = 'Edit';
+      editBtn.innerHTML = UI_ICONS.more(12);
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId, editTaskId: task.id });
+      });
+      actions.appendChild(editBtn);
+
+      // Click task row → view last run
+      item.addEventListener('click', () => {
+        if (lastSessionId) {
+          this.container.get('app').joinSession(lastSessionId);
+          this._closeSidebarOnMobile();
+        }
+      });
+
+      item.appendChild(actions);
+      container.appendChild(item);
+    }
+  }
+
+  async _runTask(task) {
+    try {
+      const taskManager = this.container.has('taskManager') ? this.container.get('taskManager') : null;
+      if (taskManager) taskManager.userTriggeredRuns.add(task.id);
+      await this.container.get('api').runTask(task.id);
+    } catch (err) {
+      this.log.error('Failed to run task:', err);
+    }
+  }
+
+  _formatSchedule(schedule) {
+    if (!schedule) return '';
+    switch (schedule.type) {
+      case 'daily': return `Daily ${schedule.time || '09:00'}`;
+      case 'hourly': return `Hourly :${schedule.minute || '00'}`;
+      case 'weekly': return `${schedule.day || 'mon'} ${schedule.time || '09:00'}`;
+      case 'cron': return schedule.expression || 'cron';
+      case 'interval': return `Every ${schedule.minutes || 60}m`;
+      case 'once': return 'Once';
+      case 'on_demand': return 'On demand';
+      default: return schedule.type || '';
+    }
+  }
+
+  // --- Sessions content ---
+
+  _renderSessionsContent(container) {
+    const sessions = this.state.getSessionsForProject(this.projectId);
+    if (sessions.length === 0) {
+      this._renderEmpty(container, 'No sessions');
+      return;
+    }
+
+    for (const session of sessions) {
+      // Swipe wrapper: clips overflow, holds content + delete action
+      const wrapper = document.createElement('div');
+      wrapper.className = 'project-tree__session-swipe';
+
+      // Delete action (revealed on swipe left)
+      const deleteAction = document.createElement('div');
+      deleteAction.className = 'project-tree__session-delete';
+      deleteAction.textContent = 'Delete';
+      deleteAction.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.container.get('app').deleteSession(session.id);
+      });
+
+      const item = document.createElement('div');
+      const isActive = session.id === this.state.currentSessionId;
+      item.className = `project-tree__session-item${isActive ? ' project-tree__session-item--active' : ''}`;
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'project-tree__session-name';
+      // Strip project name prefix if present for cleaner display
+      const project = this.state.getProject(this.projectId);
+      let displayName = session.name || session.id;
+      if (project && displayName.startsWith(project.name + ' - ')) {
+        displayName = displayName.slice(project.name.length + 3);
+      }
+      nameEl.textContent = displayName;
+      item.appendChild(nameEl);
+
+      if (session.model) {
+        const badge = document.createElement('span');
+        badge.className = 'project-tree__session-badge';
+        // Show short model name
+        const modelParts = session.model.split('/');
+        badge.textContent = modelParts[modelParts.length - 1];
+        item.appendChild(badge);
+      }
+
+      const swipeState = { swiped: false };
+
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Don't navigate if we just swiped or delete is revealed
+        if (swipeState.swiped || wrapper.classList.contains('project-tree__session-swipe--open')) return;
+        this.container.get('app').joinSession(session.id);
+        this._closeSidebarOnMobile();
+      });
+
+      this._attachSwipe(wrapper, item, swipeState);
+
+      wrapper.appendChild(deleteAction);
+      wrapper.appendChild(item);
+      container.appendChild(wrapper);
+    }
+  }
+
+  // --- Files content ---
+
+  _renderFilesContent(container) {
+    const treeContainer = document.createElement('div');
+    treeContainer.className = 'file-tree';
+    treeContainer.dataset.projectId = this.projectId;
+    this.fileTreeNode.renderTree(this.projectId, treeContainer);
+    container.appendChild(treeContainer);
+  }
+
+  // --- Shared helpers ---
+
+  _renderLoading(container) {
+    const el = document.createElement('div');
+    el.className = 'project-tree__section-empty';
+    el.textContent = 'Loading...';
+    container.appendChild(el);
+  }
+
+  _renderEmpty(container, message) {
+    const el = document.createElement('div');
+    el.className = 'project-tree__section-empty';
+    el.textContent = message;
+    container.appendChild(el);
+  }
+
+  _attachSwipe(wrapper, item, swipeState) {
+    const DELETE_WIDTH = 64;
+    const THRESHOLD = 20; // min px before swipe activates
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let swiping = false;
+    let locked = false; // true once we commit to horizontal swipe
+
+    item.addEventListener('touchstart', (e) => {
+      const touch = e.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      currentX = 0;
+      swiping = false;
+      locked = false;
+      swipeState.swiped = false;
+      item.style.transition = 'none';
+    }, { passive: true });
+
+    item.addEventListener('touchmove', (e) => {
+      const touch = e.touches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+
+      // Decide direction on first significant movement
+      if (!locked && (Math.abs(dx) > THRESHOLD || Math.abs(dy) > THRESHOLD)) {
+        if (Math.abs(dy) > Math.abs(dx)) {
+          // Vertical scroll — bail out
+          swiping = false;
+          return;
+        }
+        locked = true;
+        swiping = true;
+        window._sidebarSwipeLocked = true;
+      }
+
+      if (!swiping) return;
+      e.preventDefault();
+
+      // Clamp: allow left swipe up to DELETE_WIDTH, slight resistance past that
+      currentX = Math.max(-DELETE_WIDTH * 1.2, Math.min(0, dx));
+      item.style.transform = `translateX(${currentX}px)`;
+    }, { passive: false });
+
+    item.addEventListener('touchend', () => {
+      if (!swiping) {
+        window._sidebarSwipeLocked = false;
+        return;
+      }
+      swipeState.swiped = true;
+      item.style.transition = 'transform 0.2s ease';
+      if (currentX < -DELETE_WIDTH / 2) {
+        // Snap open — keep sidebar locked until closed or acted on
+        item.style.transform = `translateX(${-DELETE_WIDTH}px)`;
+        wrapper.classList.add('project-tree__session-swipe--open');
+      } else {
+        // Snap closed
+        item.style.transform = '';
+        wrapper.classList.remove('project-tree__session-swipe--open');
+      }
+      // Release lock after click event fires (next tick)
+      setTimeout(() => { window._sidebarSwipeLocked = false; }, 300);
+    }, { passive: true });
+
+    // Close on tap elsewhere (any open swipe resets on next touchstart)
+    item.addEventListener('touchstart', () => {
+      // Close other open swipes in the same section
+      const parent = wrapper.parentElement;
+      if (!parent) return;
+      for (const el of parent.querySelectorAll('.project-tree__session-swipe--open')) {
+        if (el !== wrapper) {
+          el.classList.remove('project-tree__session-swipe--open');
+          const inner = el.querySelector('.project-tree__session-item');
+          if (inner) {
+            inner.style.transition = 'transform 0.2s ease';
+            inner.style.transform = '';
+          }
+        }
+      }
+    }, { passive: true });
+  }
+
+  _closeSidebarOnMobile() {
+    const app = this.container.has('app') ? this.container.get('app') : null;
+    if (app?.closeSidebarOnMobile) app.closeSidebarOnMobile();
   }
 
   _rerender() {
@@ -111,5 +466,31 @@ class ProjectTreeItem {
         });
       }},
     ]);
+  }
+
+  // --- Event subscriptions (one-time) ---
+
+  _subscribeEvents() {
+    if (this._subscribed) return;
+    this._subscribed = true;
+
+    // Tasks section reactivity
+    const onTaskEvent = () => {
+      if (!this.expanded || !this.sectionState.tasks) return;
+      this._tasksCache = null;
+      this._rerender();
+    };
+    this.bus.on(EVT.TASK_STARTED, onTaskEvent);
+    this.bus.on(EVT.TASK_COMPLETED, onTaskEvent);
+    this.bus.on(EVT.TASK_ERROR, onTaskEvent);
+
+    // Sessions section reactivity
+    const onSessionEvent = () => {
+      if (!this.expanded || !this.sectionState.sessions) return;
+      this._rerender();
+    };
+    this.bus.on(EVT.SESSION_CREATED, onSessionEvent);
+    this.bus.on(EVT.SESSION_REMOVED, onSessionEvent);
+    this.bus.on(EVT.SESSION_UPDATED, onSessionEvent);
   }
 }
