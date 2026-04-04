@@ -69,6 +69,8 @@ const EVT = {
   DIRECTORY_CREATED: 'directory:created',
 
   // Task lifecycle
+  TASKS_LOADED: 'tasks:loaded',
+  TASK_UPDATED: 'task:updated',
   TASK_STARTED: 'task:started',
   TASK_COMPLETED: 'task:completed',
   TASK_ERROR: 'task:error',

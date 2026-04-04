@@ -14,8 +14,6 @@ class ProjectTreeItem {
     this.sectionState = { tasks: false, sessions: false, files: false };
     this.onToggle = null;          // callback(projectId, expanded)
     this.onSectionToggle = null;   // callback() - persists section state
-    this._tasksCache = null;
-    this._tasksFetching = false;
     this._subscribed = false;
     this.el = null;
   }
@@ -25,7 +23,6 @@ class ProjectTreeItem {
     if (!project) return;
 
     this._subscribeEvents();
-    this._prefetchTaskCount();
 
     this.el = document.createElement('div');
     this.el.className = 'project-tree__project';
@@ -139,10 +136,11 @@ class ProjectTreeItem {
 
   _getSectionCount(key) {
     if (key === 'tasks') {
-      return this._tasksCache ? this._tasksCache.length : null;
+      return this.state.getTasksForProject(this.projectId).length;
     }
     if (key === 'sessions') {
-      return this.state.getSessionsForProject(this.projectId).length;
+      return this.state.getSessionsForProject(this.projectId)
+        .filter(s => !this.state.isTaskSession(s.id)).length;
     }
     return null; // files — no count
   }
@@ -150,28 +148,8 @@ class ProjectTreeItem {
   // --- Tasks content ---
 
   _renderTasksContent(container) {
-    if (this._tasksCache) {
-      this._renderTaskItems(container, this._tasksCache);
-      return;
-    }
-    if (this._tasksFetching) {
-      this._renderLoading(container);
-      return;
-    }
-
-    this._tasksFetching = true;
-    this._renderLoading(container);
-
-    const api = this.container.get('api');
-    api.getTasks(this.projectId).then(tasks => {
-      this._tasksCache = Array.isArray(tasks) ? tasks : [];
-      this._tasksFetching = false;
-      this._rerender();
-    }).catch(() => {
-      this._tasksCache = [];
-      this._tasksFetching = false;
-      this._rerender();
-    });
+    const tasks = this.state.getTasksForProject(this.projectId);
+    this._renderTaskItems(container, tasks);
   }
 
   _renderTaskItems(container, tasks) {
@@ -261,7 +239,8 @@ class ProjectTreeItem {
   // --- Sessions content ---
 
   _renderSessionsContent(container) {
-    const sessions = this.state.getSessionsForProject(this.projectId);
+    const sessions = this.state.getSessionsForProject(this.projectId)
+      .filter(s => !this.state.isTaskSession(s.id));
     if (sessions.length === 0) {
       this._renderEmpty(container, 'No sessions');
       return;
@@ -469,43 +448,26 @@ class ProjectTreeItem {
     ]);
   }
 
-  _prefetchTaskCount() {
-    if (this._tasksCache || this._tasksFetching) return;
-    this._tasksFetching = true;
-    const api = this.container.get('api');
-    api.getTasks(this.projectId).then(tasks => {
-      this._tasksCache = Array.isArray(tasks) ? tasks : [];
-      this._tasksFetching = false;
-      this._rerender();
-    }).catch(() => {
-      this._tasksCache = [];
-      this._tasksFetching = false;
-    });
-  }
-
   // --- Event subscriptions (one-time) ---
 
   _subscribeEvents() {
     if (this._subscribed) return;
     this._subscribed = true;
 
-    // Tasks section reactivity — invalidate cache and re-render for count badge
+    // Tasks: re-render on any task state change
     const onTaskEvent = () => {
       if (!this.expanded) return;
-      this._tasksCache = null;
       this._rerender();
     };
-    this.bus.on(EVT.TASK_STARTED, onTaskEvent);
-    this.bus.on(EVT.TASK_COMPLETED, onTaskEvent);
-    this.bus.on(EVT.TASK_ERROR, onTaskEvent);
+    this.bus.on(EVT.TASKS_LOADED, onTaskEvent);
+    this.bus.on(EVT.TASK_UPDATED, onTaskEvent);
 
-    // Sessions section reactivity — always re-render for count badge updates
+    // Sessions: re-render on session changes
     const onSessionEvent = () => {
       if (!this.expanded) return;
       this._rerender();
     };
     this.bus.on(EVT.SESSION_UPDATED, onSessionEvent);
     this.bus.on(EVT.SESSION_REMOVED, onSessionEvent);
-    this.bus.on(EVT.SESSION_UPDATED, onSessionEvent);
   }
 }

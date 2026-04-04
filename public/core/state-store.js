@@ -8,6 +8,8 @@ class StateStore {
     this.sessions = new Map();
     this.sessionHistories = new Map();
     this.projects = new Map();
+    this.tasks = new Map();
+    this.taskSessionIds = new Set();
     this.models = [];
     this.providerSettings = {};
     this.currentSessionId = null;
@@ -80,6 +82,53 @@ class StateStore {
   removeProject(id) {
     this.projects.delete(id);
     this.bus.emit(EVT.PROJECT_DELETED, { projectId: id });
+  }
+
+  // --- Tasks ---
+
+  setTasks(tasks) {
+    this.tasks.clear();
+    this.taskSessionIds.clear();
+    for (const t of tasks) {
+      this.tasks.set(t.id, t);
+      if (t.lastSessionId) this.taskSessionIds.add(t.lastSessionId);
+    }
+    this.bus.emit(EVT.TASKS_LOADED);
+  }
+
+  addTask(task) {
+    this.tasks.set(task.id, task);
+    if (task.lastSessionId) this.taskSessionIds.add(task.lastSessionId);
+    this.bus.emit(EVT.TASKS_LOADED);
+  }
+
+  updateTask(id, updates) {
+    const task = this.tasks.get(id);
+    if (!task) return;
+    Object.assign(task, updates);
+    if (updates.lastSessionId) this.taskSessionIds.add(updates.lastSessionId);
+    this.bus.emit(EVT.TASK_UPDATED, { taskId: id });
+  }
+
+  removeTask(id) {
+    this.tasks.delete(id);
+    this.bus.emit(EVT.TASKS_LOADED);
+  }
+
+  getTask(id) {
+    return this.tasks.get(id);
+  }
+
+  getTasksForProject(projectId) {
+    const result = [];
+    for (const t of this.tasks.values()) {
+      if (t.projectId === projectId) result.push(t);
+    }
+    return result;
+  }
+
+  isTaskSession(sessionId) {
+    return this.taskSessionIds.has(sessionId);
   }
 
   // --- Models ---
