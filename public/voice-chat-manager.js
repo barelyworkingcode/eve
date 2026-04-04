@@ -70,6 +70,18 @@ class VoiceChatManager {
       this.micBtn.addEventListener('touchend', (e) => { e.preventDefault(); this._onMicUp(); });
     }
 
+    // Orb canvas push-to-talk (press and hold to record, just like mic button)
+    if (this.orbCanvas) {
+      this.orbCanvas.addEventListener('mousedown', () => this._onMicDown());
+      this.orbCanvas.addEventListener('mouseup', () => this._onMicUp());
+      this.orbCanvas.addEventListener('mouseleave', () => {
+        if (this.isRecording && !this._spacebarDown) this._stopRecording();
+      });
+      this.orbCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); this._onMicDown(); }, { passive: false });
+      this.orbCanvas.addEventListener('touchend', (e) => { e.preventDefault(); this._onMicUp(); }, { passive: false });
+      this.orbCanvas.addEventListener('touchcancel', () => this._onMicUp());
+    }
+
     // Close button - end session
     if (this.closeBtn) {
       this.closeBtn.addEventListener('click', () => {
