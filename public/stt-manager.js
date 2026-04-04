@@ -10,6 +10,7 @@ class STTManager {
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
+    this._logger = container.get('logger');
     this.isRecording = false;
     this.mediaRecorder = null;
     this.audioChunks = [];
@@ -19,9 +20,11 @@ class STTManager {
     this.available = null; // null = unknown, true/false after check
     this.isNativeApp = IS_NATIVE_APP;
 
-    const backendName = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
-    this.activeBackend = this._createBackend(backendName);
-    console.log(`[STT] Using ${backendName} backend`);
+    this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
+    // Always start on server — VoiceInitCoordinator switches to preferred when ready
+    this.activeBackend = this._createBackend('server');
+    this.log = this._logger.child(`STT:${this.activeBackend.name}`);
+    this.log.info(`Starting (preferred: ${this.preferredBackend})`);
   }
 
   get backend() {
@@ -50,18 +53,18 @@ class STTManager {
     const context = {
       app: this.app,
       wsClient: this.app.wsClient,
+      log: this.log,
       onProgress: (data) => {
         if (this.activeBackend.ready) return;
         const pct = Math.round(data.progress || 0);
-        this.app._sttLoadPct = pct;
         this.app.voiceChatManager?._setPrompt(`Loading STT model: ${pct}%`);
       },
       onReady: () => {
-        console.log(`[STT] ${this.backend} backend ready`);
+        this.log.info('Backend ready');
         this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
       },
       onError: (msg) => {
-        console.error(`[STT] ${this.backend} backend failed:`, msg);
+        this.log.error('Backend failed:', msg);
         this.app.messageRenderer?.appendSystemMessage(`On-device STT failed to load — falling back to server.`, 'warning');
         this.switchBackend('server', { persist: false });
       },
@@ -82,7 +85,7 @@ class STTManager {
     this.available = await this.activeBackend.isAvailable();
     // Auto-switch to browser if server is unavailable (not on Safari — memory issues)
     if (!this.available && this.backend === 'server' && !IS_SAFARI) {
-      console.warn('[STT] Server daemon unavailable — falling back to on-device STT (runtime only)');
+      this.log.warn('Server daemon unavailable — falling back to on-device STT (runtime only)');
       this.switchBackend('browser', { persist: false });
       this.available = true;
     }
@@ -94,10 +97,14 @@ class STTManager {
     const prev = this.activeBackend.name;
     this.activeBackend.destroy();
     this.activeBackend = this._createBackend(name);
-    if (persist) localStorage.setItem('eve-stt-backend', name);
+    if (persist) {
+      localStorage.setItem('eve-stt-backend', name);
+      this.preferredBackend = name;
+    }
     this._initBackend();
     this._updateButtonVisibility();
-    console.log(`[STT] Switched backend: ${prev} → ${name}`);
+    this.log = this._logger.child(`STT:${name}`);
+    this.log.info(`Switched from ${prev}`);
     this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
   }
 
@@ -126,7 +133,7 @@ class STTManager {
         this._startTimer();
         this._updateUI();
       } catch (err) {
-        console.error('[STT] Native recording failed:', err);
+        this.log.error('Native recording failed:', err);
         this.app.messageRenderer.appendSystemMessage('Native STT failed: ' + err.message, 'error');
       }
       return;
@@ -171,7 +178,7 @@ class STTManager {
       this._startTimer();
       this._updateUI();
     } catch (err) {
-      console.error('[STT] Microphone access denied:', err);
+      this.log.error('Microphone access denied:', err);
       this.app.messageRenderer.appendSystemMessage(
         'Microphone access denied. Check browser permissions.', 'error'
       );
@@ -210,7 +217,7 @@ class STTManager {
    */
   async transcribeFloat32(audio) {
     if (!this.activeBackend.ready) {
-      console.warn('[STT] Backend not ready, audio discarded');
+      this.log.warn('Backend not ready, audio discarded');
       this.app.voiceChatManager?.handleError('STT model still loading — please wait');
       return;
     }
@@ -219,7 +226,7 @@ class STTManager {
       if (result?.text) this.handleTranscriptionResult(result.text);
       // null result = server backend (result arrives via WS → handleTranscriptionResult)
     } catch (err) {
-      console.error('[STT] Transcription failed:', err);
+      this.log.error('Transcription failed:', err);
       this.app.voiceChatManager?.handleError('Transcription failed');
     }
   }
@@ -235,12 +242,12 @@ class STTManager {
     // Skip empty or very short recordings — MediaRecorder produces invalid containers
     const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0;
     if (blob.size < 100) {
-      console.warn(`[STT] Empty recording (${blob.size} bytes), skipping`);
+      this.log.warn(`Empty recording (${blob.size} bytes), skipping`);
       this.app.voiceChatManager?.handleError('No audio captured');
       return;
     }
     if (duration < 300) {
-      console.warn(`[STT] Recording too short (${duration}ms, ${blob.size} bytes), skipping`);
+      this.log.warn(`Recording too short (${duration}ms, ${blob.size} bytes), skipping`);
       this.app.voiceChatManager?.handleError('Recording too short — hold longer');
       if (!this.app.voiceChatManager?.isVoiceSession) {
         this.app.messageRenderer.appendSystemMessage('Recording too short. Hold the button longer to record.', 'warning');
@@ -256,7 +263,7 @@ class STTManager {
       }
       // null result = server backend (WS response triggers handleTranscriptionResult)
     } catch (err) {
-      console.error('[STT] Recording transcription failed:', err);
+      this.log.error('Recording transcription failed:', err);
       this._hideTranscribingIndicator();
       this.app.voiceChatManager?.handleError('Transcription failed');
       if (!this.app.voiceChatManager?.isVoiceSession) {
@@ -274,8 +281,9 @@ class STTManager {
 
     // Filter Whisper artifacts — non-speech annotations like [BLANK_AUDIO], [Crickets chirping], (silence), etc.
     const cleaned = text.trim();
+    this.log.debug('STT result:', cleaned);
     if (/^\[.*\]$/.test(cleaned) || /^\(.*\)$/.test(cleaned)) {
-      console.warn('[STT] Filtered Whisper artifact:', cleaned);
+      this.log.warn('Filtered Whisper artifact:', cleaned);
       return;
     }
 
@@ -288,7 +296,7 @@ class STTManager {
       'subscribe', 'like and subscribe',
     ];
     if (HALLUCINATIONS.includes(lower) || lower.replace(/\./g, '').trim().length < 2) {
-      console.warn('[STT] Filtered likely hallucination:', cleaned);
+      this.log.warn('Filtered likely hallucination:', cleaned);
       return;
     }
 
@@ -317,7 +325,7 @@ class STTManager {
 
   handleTranscriptionError(error) {
     this._hideTranscribingIndicator();
-    console.error('[STT] Transcription error:', error);
+    this.log.error('Transcription error:', error);
     this.app.messageRenderer.appendSystemMessage(
       `Transcription failed: ${error}`, 'error'
     );

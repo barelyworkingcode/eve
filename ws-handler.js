@@ -10,19 +10,19 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject, ttsService, sttService }) {
+function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject, ttsService, sttService, log }) {
   return (ws, req) => {
     const host = (req.headers.host || 'localhost').split(':')[0];
     const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
     const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !isLocalhostConnection;
     let isAuthenticated = !requiresAuth;
 
-    const relayClient = new RelayClient(relayWsUrl, ws, ttsService);
+    const relayClient = new RelayClient(relayWsUrl, ws, ttsService, log?.child('Relay'));
     const fileWatcher = new FileWatcher(ws, fileHandlers.fileService, resolveProject);
 
     // Connect to relayLLM immediately
     relayClient.connect().catch(err => {
-      console.error('[WsHandler] Failed to connect to relayLLM:', err.message);
+      log?.error('Failed to connect to relayLLM:', err.message);
       ws.send(JSON.stringify({ type: 'error', message: 'Cannot connect to relay service' }));
     });
 
@@ -257,7 +257,7 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
     relayClient.joinSession(data.sessionId);
 
   } catch (err) {
-    console.error('[WsHandler] Create session failed:', err.message);
+    log?.error('Create session failed:', err.message);
     ws.send(JSON.stringify({ type: 'error', message: 'Failed to create session: relay unavailable' }));
   }
 }
@@ -290,6 +290,7 @@ function handleUserInput(ws, relayClient, message) {
     finalText = VOICE_MODE_INSTRUCTION + '\n\n' + finalText;
   }
 
+  log?.debug('→ LLM:', finalText);
   relayClient.sendMessage(finalText, files, message.sessionId);
 }
 
@@ -343,12 +344,13 @@ async function handleTranscribeAudio(ws, sttService, message) {
       return;
     }
     const audioBytes = Math.round(audio.length * 3 / 4); // approximate decoded size
-    console.log(`[WsHandler] Transcribing audio: ~${audioBytes} bytes, language=${language || 'auto'}`);
+    log?.debug(`Transcribing audio: ~${audioBytes} bytes, language=${language || 'auto'}`);
     if (audioBytes < 100) {
       ws.send(JSON.stringify({ type: 'transcription_error', error: 'Audio recording too short' }));
       return;
     }
     const result = await sttService.transcribe(audio, language || null);
+    log?.debug('STT result:', result.text);
     ws.send(JSON.stringify({
       type: 'transcription_result',
       text: result.text,
@@ -356,7 +358,7 @@ async function handleTranscribeAudio(ws, sttService, message) {
       duration: result.duration
     }));
   } catch (err) {
-    console.error('[WsHandler] Transcription failed:', err.message);
+    log?.error('Transcription failed:', err.message);
     // Strip verbose ffmpeg output — show a clean error to the user
     let errorMsg = err.message;
     if (errorMsg.includes('ffmpeg') || errorMsg.includes('EBML') || errorMsg.includes('End of file')) {
