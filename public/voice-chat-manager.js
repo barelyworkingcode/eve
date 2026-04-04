@@ -118,6 +118,7 @@ class VoiceChatManager {
     this._renderCaptions();
     this._updateBackendStatus();
     this._setOrbState('idle', 'session activated');
+    this._randomizeRenderer();
     this.orbRenderer?.start();
 
     // Resume AudioContext now — voice session activation is triggered by user gesture
@@ -504,6 +505,15 @@ class VoiceChatManager {
     this.orbRenderer?.setState(state);
   }
 
+  _randomizeRenderer() {
+    const Renderer = Math.random() < 0.5 ? VoiceOrbCanvas : ParticleCloudOrb;
+    const currentState = this.orbRenderer?.targetState || 'idle';
+    this.orbRenderer?.stop();
+    this.orbRenderer = new Renderer(this.orbCanvas, this.app);
+    this.orbRenderer.setState(currentState);
+    window.orbRenderer = this.orbRenderer;
+  }
+
   /** Console helper: window.orb('speaking') or window.orb('idle', {r:255,g:0,b:0}) */
   _exposeOrbControl() {
     window.orb = (state, color) => {
@@ -512,8 +522,9 @@ class VoiceChatManager {
         this.orbRenderer.setState(state);
         return `Orb → ${state}` + (color ? ` (color: ${JSON.stringify(color)})` : '');
       }
-      return { states: Object.keys(this.orbRenderer?.stateConfigs || {}), current: this.orbRenderer?.targetState };
+      return { states: Object.keys(this.orbRenderer?.stateConfigs || {}), current: this.orbRenderer?.targetState, configs: this.orbRenderer?.stateConfigs };
     };
+    window.orbRenderer = this.orbRenderer;
 
     /** Console helper: window.orbDemo() to cycle states, window.orbDemo() again to stop */
     window.orbDemo = () => {
@@ -532,6 +543,21 @@ class VoiceChatManager {
         console.log(`Orb → ${states[i]}`);
       }, 5000);
       return `Orb demo started: cycling ${states.join(' → ')} every 5s (call orbDemo() again to stop)`;
+    };
+
+    /** Console helper: window.orbSwitch('particles') or window.orbSwitch('wire') */
+    const renderers = { wire: VoiceOrbCanvas, particles: ParticleCloudOrb };
+    window.orbSwitch = (name) => {
+      const Renderer = renderers[name];
+      if (!Renderer) return `Unknown renderer "${name}". Available: ${Object.keys(renderers).join(', ')}`;
+      const currentState = this.orbRenderer?.targetState || 'idle';
+      const wasRunning = this.orbRenderer?.running;
+      this.orbRenderer?.stop();
+      this.orbRenderer = new Renderer(this.orbCanvas, this.app);
+      this.orbRenderer.setState(currentState);
+      if (wasRunning) this.orbRenderer.start();
+      window.orbRenderer = this.orbRenderer;
+      return `Switched to ${name} renderer`;
     };
   }
 
@@ -578,9 +604,9 @@ class VoiceChatManager {
 
 
 /**
- * VoiceOrbCanvas - Wire-sphere with spikes visualization.
- * A scribbled ball of overlapping curved lines (like a wire-frame sphere)
- * with vector spikes that extend during recording/speaking.
+ * VoiceOrbCanvas - Breathing wire-sphere visualization.
+ * A scribbled ball of overlapping curved lines (wire-frame sphere)
+ * that breathes, pulses, and wobbles to convey life and intelligence.
  * States: idle, listening, processing, speaking.
  */
 class VoiceOrbCanvas {
@@ -595,22 +621,24 @@ class VoiceOrbCanvas {
     this.running = false;
 
     this.currentColor = { r: 160, g: 160, b: 180 };
-    this.spikeEnergy = 0;
     this.rotSpeed = 0;
     this.wobbleAmt = 0;
     this.audioLevel = 0; // smoothed 0-1 from mic or playback
 
+    // Breathing system
+    this.breathPhase = 0;
+    this.breathRate = 0;
+    this.breathDepth = 0;
+
     this.stateConfigs = {
-      idle:       { color: { r: 140, g: 140, b: 165 }, spikes: 0.0,  rot: 0.1,  wobble: 0.03 },
-      listening:  { color: { r: 220, g: 80,  b: 80  }, spikes: 0.75, rot: 0.3,  wobble: 0.10 },
-      processing: { color: { r: 210, g: 170, b: 60  }, spikes: 0.25, rot: 0.6,  wobble: 0.06 },
-      speaking:   { color: { r: 80,  g: 140, b: 220 }, spikes: 0.5,  rot: 0.2,  wobble: 0.12 },
+      idle:       { color: { r: 140, g: 140, b: 165 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.08,  wobble: 0.02 },
+      listening:  { color: { r: 220, g: 80,  b: 80  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.25,  wobble: 0.08 },
+      processing: { color: { r: 210, g: 170, b: 60  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.55,  wobble: 0.05 },
+      speaking:   { color: { r: 80,  g: 140, b: 220 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.18,  wobble: 0.09 },
     };
 
     this.wireLoops = [];
-    this.spines = [];
     this._initWireLoops();
-    this._initSpines();
     this._setupResize();
   }
 
@@ -624,20 +652,6 @@ class VoiceOrbCanvas {
         wobbleFreq: 0.8 + Math.random() * 1.2,          // how fast this loop wobbles
         wobbleAmp: 0.02 + Math.random() * 0.04,         // how much it wobbles independently
         opacity: 0.15 + Math.random() * 0.25,
-      });
-    }
-  }
-
-  _initSpines() {
-    const count = 60;
-    for (let i = 0; i < count; i++) {
-      this.spines.push({
-        angle: (i / count) * Math.PI * 2,
-        length: 0.3 + Math.random() * 0.7,
-        wobblePhase: Math.random() * Math.PI * 2,
-        wobbleFreq: 1.5 + Math.random() * 2.5,
-        curvature: (Math.random() - 0.5) * 0.5,
-        thickness: 0.4 + Math.random() * 0.5,
       });
     }
   }
@@ -657,7 +671,7 @@ class VoiceOrbCanvas {
     this.canvas.style.height = size + 'px';
     this.cx = this.canvas.width / 2;
     this.cy = this.canvas.height / 2;
-    this.baseRadius = size * 0.35;
+    this.baseRadius = size * 0.42;
   }
 
   setState(state) { this.targetState = state; }
@@ -697,15 +711,25 @@ class VoiceOrbCanvas {
     }
     this.audioLevel = this._lerp(this.audioLevel, rawLevel, 0.15);
 
-    // Audio level boosts wobble and spike energy beyond base config values
     const audioBoost = this.audioLevel;
 
+    // Lerp color
     this.currentColor.r = this._lerp(this.currentColor.r, config.color.r, ease);
     this.currentColor.g = this._lerp(this.currentColor.g, config.color.g, ease);
     this.currentColor.b = this._lerp(this.currentColor.b, config.color.b, ease);
-    this.spikeEnergy = this._lerp(this.spikeEnergy, config.spikes + audioBoost * 0.4, ease * 3);
-    this.rotSpeed = this._lerp(this.rotSpeed, config.rot + audioBoost * 0.2, ease);
-    this.wobbleAmt = this._lerp(this.wobbleAmt, config.wobble + audioBoost * 0.15, ease * 3);
+
+    // Lerp breathing parameters
+    this.breathRate = this._lerp(this.breathRate, config.breathRate + audioBoost * 0.02, ease);
+    this.breathDepth = this._lerp(this.breathDepth, config.breathDepth + audioBoost * 0.08, ease * 3);
+    this.rotSpeed = this._lerp(this.rotSpeed, config.rot + audioBoost * 0.15, ease);
+    this.wobbleAmt = this._lerp(this.wobbleAmt, config.wobble + audioBoost * 0.12, ease * 3);
+
+    // Advance breathing phase
+    this.breathPhase += this.breathRate;
+
+    // Breathing radius modulation: blended sine/cubic-sine for organic inhale/exhale
+    const rawBreath = Math.sin(this.breathPhase);
+    const breathMod = 1 + this.breathDepth * (0.7 * rawBreath + 0.3 * rawBreath * rawBreath * rawBreath);
 
     const cr = Math.round(this.currentColor.r);
     const cg = Math.round(this.currentColor.g);
@@ -713,17 +737,18 @@ class VoiceOrbCanvas {
 
     const rotation = this.time * this.rotSpeed;
 
-    // Soft center glow
-    const glowR = this.baseRadius * 0.6;
+    // Soft center glow — pulses with breathing
+    const glowAlpha = 0.04 + 0.04 * (rawBreath * 0.5 + 0.5);
+    const glowR = this.baseRadius * 0.65 * breathMod;
     const gradient = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, glowR);
-    gradient.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, 0.06)`);
+    gradient.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${glowAlpha.toFixed(3)})`);
     gradient.addColorStop(1, 'transparent');
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(this.cx, this.cy, glowR, 0, Math.PI * 2);
     ctx.fill();
 
-    // Draw wire-sphere loops: each is an ellipse (great circle projected)
+    // Draw wire-sphere loops with breathing radius
     for (const loop of this.wireLoops) {
       const tilt = loop.tilt + rotation;
       const loopWobble = Math.sin(this.time * loop.wobbleFreq + loop.phase) * this.wobbleAmt;
@@ -741,9 +766,11 @@ class VoiceOrbCanvas {
         // Apply wobble distortion
         const wobbleDist = Math.sin(t * 5 + this.time * 1.5 + loop.phase) * this.wobbleAmt
                          + Math.sin(t * 8 + this.time * 2.3) * this.wobbleAmt * 0.5;
-        const r = this.baseRadius * (1 + wobbleDist + loopWobble);
 
-        // Simple perspective: push z slightly
+        // Apply breathing modulation to radius
+        const r = this.baseRadius * breathMod * (1 + wobbleDist + loopWobble);
+
+        // Simple perspective
         const perspective = 1 + z3d * 0.15;
         const px = this.cx + x3d * r * perspective;
         const py = this.cy + y3d * r * perspective;
@@ -753,47 +780,214 @@ class VoiceOrbCanvas {
       }
       ctx.closePath();
 
-      ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${loop.opacity})`;
+      // Wire opacity subtly pulses with breathing
+      const loopAlpha = loop.opacity + 0.05 * (rawBreath * 0.5 + 0.5);
+      ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${loopAlpha.toFixed(3)})`;
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }
 
-    // Draw spikes extending from sphere surface
-    for (const spine of this.spines) {
-      const a = spine.angle + rotation;
+    this.animationFrame = requestAnimationFrame(() => this._render());
+  }
+}
 
-      // Find the surface radius at this angle (with wobble)
-      const surfaceWobble = Math.sin(a * 5 + this.time * 1.5) * this.wobbleAmt
-                          + Math.sin(a * 8 + this.time * 2.3) * this.wobbleAmt * 0.5;
-      const surfaceR = this.baseRadius * (1 + surfaceWobble);
 
-      // Spike length driven by energy
-      const animWobble = Math.sin(this.time * spine.wobbleFreq + spine.wobblePhase) * 0.3;
-      const spikeLen = this.baseRadius * spine.length * (0.08 + this.spikeEnergy * 0.92) * (0.7 + animWobble);
+/**
+ * ParticleCloudOrb - Circular particle cloud visualization.
+ * Particles orbit in a spherical formation, breathing and reacting to state.
+ * Same interface as VoiceOrbCanvas: constructor(canvas, app), start(), stop(), setState().
+ */
+class ParticleCloudOrb {
+  constructor(canvas, app) {
+    this.canvas = canvas;
+    this.app = app;
+    this.ctx = canvas.getContext('2d');
+    this.targetState = 'idle';
+    this.animationFrame = null;
+    this.time = 0;
+    this.running = false;
 
-      if (spikeLen < 1.5) continue;
+    this.currentColor = { r: 160, g: 160, b: 180 };
+    this.rotSpeed = 0;
+    this.spread = 0;
+    this.audioLevel = 0;
 
-      const startX = this.cx + Math.cos(a) * surfaceR;
-      const startY = this.cy + Math.sin(a) * surfaceR;
+    // Breathing system
+    this.breathPhase = 0;
+    this.breathRate = 0;
+    this.breathDepth = 0;
 
-      const endR = surfaceR + spikeLen;
-      const curveAngle = a + spine.curvature * (0.4 + this.spikeEnergy * 0.6);
-      const endX = this.cx + Math.cos(curveAngle) * endR;
-      const endY = this.cy + Math.sin(curveAngle) * endR;
+    this.stateConfigs = {
+      idle:       { color: { r: 140, g: 140, b: 165 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.15,  spread: 0.0 },
+      listening:  { color: { r: 220, g: 80,  b: 80  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.3,   spread: 0.15 },
+      processing: { color: { r: 210, g: 170, b: 60  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.7,   spread: 0.08 },
+      speaking:   { color: { r: 80,  g: 140, b: 220 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.2,   spread: 0.20 },
+    };
 
-      const midR = surfaceR + spikeLen * 0.55;
-      const ctrlAngle = a + spine.curvature * 0.25;
-      const ctrlX = this.cx + Math.cos(ctrlAngle) * midR;
-      const ctrlY = this.cy + Math.sin(ctrlAngle) * midR;
+    this.particles = [];
+    this._initParticles();
+    this._setupResize();
+  }
 
-      const alpha = 0.15 + (spikeLen / (this.baseRadius * 0.7)) * 0.5;
+  _initParticles() {
+    const count = 120;
+    for (let i = 0; i < count; i++) {
+      // Distribute on sphere using golden spiral
+      const phi = Math.acos(1 - 2 * (i + 0.5) / count);
+      const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+      this.particles.push({
+        // Spherical coordinates
+        phi,
+        theta,
+        // Per-particle variation
+        orbitSpeed: 0.8 + Math.random() * 0.4,
+        driftPhase: Math.random() * Math.PI * 2,
+        driftFreq: 0.3 + Math.random() * 0.7,
+        driftAmt: 0.02 + Math.random() * 0.04,
+        size: 1.5 + Math.random() * 2.0,
+        opacity: 0.6 + Math.random() * 0.4,
+      });
+    }
+  }
 
+  _setupResize() {
+    const observer = new ResizeObserver(() => this._resize());
+    observer.observe(this.canvas.parentElement);
+    this._resize();
+  }
+
+  _resize() {
+    const parent = this.canvas.parentElement;
+    const size = Math.min(parent.clientWidth, parent.clientHeight, 360);
+    this.canvas.width = size * 2;
+    this.canvas.height = size * 2;
+    this.canvas.style.width = size + 'px';
+    this.canvas.style.height = size + 'px';
+    this.cx = this.canvas.width / 2;
+    this.cy = this.canvas.height / 2;
+    this.baseRadius = size * 0.42;
+  }
+
+  setState(state) { this.targetState = state; }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this._render();
+  }
+
+  stop() {
+    this.running = false;
+    if (this.animationFrame) {
+      cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
+    }
+  }
+
+  _lerp(a, b, t) { return a + (b - a) * t; }
+
+  _render() {
+    if (!this.running) return;
+
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.time += 0.016;
+
+    const config = this.stateConfigs[this.targetState] || this.stateConfigs.idle;
+    const ease = 0.04;
+
+    // Read audio level
+    let rawLevel = 0;
+    if (this.targetState === 'listening') {
+      rawLevel = this.app?.sttManager?.getAudioLevel?.() || 0;
+    } else if (this.targetState === 'speaking') {
+      rawLevel = this.app?.ttsManager?.getAudioLevel?.() || 0;
+    }
+    this.audioLevel = this._lerp(this.audioLevel, rawLevel, 0.15);
+    const audioBoost = this.audioLevel;
+
+    // Lerp parameters
+    this.currentColor.r = this._lerp(this.currentColor.r, config.color.r, ease);
+    this.currentColor.g = this._lerp(this.currentColor.g, config.color.g, ease);
+    this.currentColor.b = this._lerp(this.currentColor.b, config.color.b, ease);
+    this.breathRate = this._lerp(this.breathRate, config.breathRate + audioBoost * 0.02, ease);
+    this.breathDepth = this._lerp(this.breathDepth, config.breathDepth + audioBoost * 0.08, ease * 3);
+    this.rotSpeed = this._lerp(this.rotSpeed, config.rot + audioBoost * 0.2, ease);
+    this.spread = this._lerp(this.spread, config.spread + audioBoost * 0.15, ease * 3);
+
+    // Breathing
+    this.breathPhase += this.breathRate;
+    const rawBreath = Math.sin(this.breathPhase);
+    const breathMod = 1 + this.breathDepth * (0.7 * rawBreath + 0.3 * rawBreath * rawBreath * rawBreath);
+
+    const cr = Math.round(this.currentColor.r);
+    const cg = Math.round(this.currentColor.g);
+    const cb = Math.round(this.currentColor.b);
+    const rotation = this.time * this.rotSpeed;
+
+    // Soft center glow — pulses with breathing
+    const glowAlpha = 0.15 + 0.10 * (rawBreath * 0.5 + 0.5);
+    const glowR = this.baseRadius * 0.85 * breathMod;
+    const gradient = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, glowR);
+    gradient.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${glowAlpha.toFixed(3)})`);
+    gradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(this.cx, this.cy, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Project all particles first
+    const projected = [];
+    for (const p of this.particles) {
+      const theta = p.theta + rotation * p.orbitSpeed;
+      const drift = Math.sin(this.time * p.driftFreq + p.driftPhase) * p.driftAmt;
+      const spreadOffset = this.spread * (0.5 + 0.5 * Math.sin(this.time * p.driftFreq * 1.5 + p.driftPhase));
+      const r = this.baseRadius * breathMod * (1 + drift + spreadOffset);
+
+      const x3d = Math.sin(p.phi) * Math.cos(theta);
+      const y3d = Math.cos(p.phi);
+      const z3d = Math.sin(p.phi) * Math.sin(theta);
+
+      const perspective = 1 + z3d * 0.2;
+      const px = this.cx + x3d * r * perspective;
+      const py = this.cy + y3d * r * perspective;
+
+      const depthFade = 0.6 + 0.4 * (z3d * 0.5 + 0.5);
+      const alpha = p.opacity * depthFade * (0.8 + 0.2 * (rawBreath * 0.5 + 0.5));
+      const size = p.size * perspective * (0.9 + 0.1 * (rawBreath * 0.5 + 0.5));
+
+      projected.push({ px, py, alpha, size, z3d });
+    }
+
+    // Draw connecting lines between nearby particles
+    const maxDist = this.baseRadius * 0.55;
+    const maxDistSq = maxDist * maxDist;
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < projected.length; i++) {
+      const a = projected[i];
+      for (let j = i + 1; j < projected.length; j++) {
+        const b = projected[j];
+        const dx = a.px - b.px;
+        const dy = a.py - b.py;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < maxDistSq) {
+          const proximity = 1 - Math.sqrt(distSq) / maxDist;
+          const lineAlpha = proximity * 0.25 * Math.min(a.alpha, b.alpha);
+          ctx.beginPath();
+          ctx.moveTo(a.px, a.py);
+          ctx.lineTo(b.px, b.py);
+          ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${lineAlpha.toFixed(3)})`;
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Draw particles on top
+    for (const p of projected) {
       ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.quadraticCurveTo(ctrlX, ctrlY, endX, endY);
-      ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${Math.min(alpha, 0.7)})`;
-      ctx.lineWidth = spine.thickness * (0.8 + this.spikeEnergy * 0.6);
-      ctx.stroke();
+      ctx.arc(p.px, p.py, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${p.alpha.toFixed(3)})`;
+      ctx.fill();
     }
 
     this.animationFrame = requestAnimationFrame(() => this._render());
