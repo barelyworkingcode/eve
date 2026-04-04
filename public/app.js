@@ -575,7 +575,6 @@ class EveWorkspaceClient {
     }
 
     this.modalManager.hideTaskModal();
-    this.sidebarRenderer.renderProjectList();
   }
 
   async deleteProject(projectId) {
@@ -583,7 +582,7 @@ class EveWorkspaceClient {
     if (!project) return;
 
     const sessionCount = Array.from(this.sessions.values()).filter(s => s.projectId === projectId).length;
-    const taskCount = this.taskManager.getTasksForProject(projectId).length;
+    const taskCount = this.state.getTasksForProject(projectId).length;
     const parts = [];
     if (sessionCount > 0) parts.push(`${sessionCount} session(s) will become ungrouped`);
     if (taskCount > 0) parts.push(`${taskCount} task(s) will be deleted`);
