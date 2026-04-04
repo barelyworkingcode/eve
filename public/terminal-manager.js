@@ -238,6 +238,7 @@ class TerminalManager {
    */
   onTerminalCreated(terminalId, templateId, name, directory) {
     this.setupTerminal(terminalId, templateId, name, directory, false);
+    this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
   /**
@@ -250,6 +251,7 @@ class TerminalManager {
     // If we haven't set up this terminal yet (reconnect case), set it up.
     if (!terminal) {
       this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped');
+      this.app.bus.emit(EVT.TERMINAL_LIST);
     }
 
     // Write scrollback buffer.
@@ -308,6 +310,9 @@ class TerminalManager {
     if (terminal) {
       terminal.exited = true;
     }
+    const at = this.allTerminals.get(terminalId);
+    if (at) at.state = 'stopped';
+    this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
   closeTerminal(terminalId) {
@@ -318,6 +323,8 @@ class TerminalManager {
       terminal.container.remove();
       terminal.term.dispose();
       this.terminals.delete(terminalId);
+      this.allTerminals.delete(terminalId);
+      this.app.bus.emit(EVT.TERMINAL_LIST);
 
       if (this.activeTerminalId === terminalId) {
         this.activeTerminalId = null;
@@ -337,16 +344,17 @@ class TerminalManager {
    * Handle terminal list from relayLLM (for reconnection after refresh).
    */
   onTerminalList(terminalList) {
-    if (!terminalList || terminalList.length === 0) return;
-
-    // Track all known terminals for badge counts.
+    // Track all known terminals for sidebar and badge counts.
     this.allTerminals.clear();
-    for (const t of terminalList) {
-      this.allTerminals.set(t.id, t);
-      if (!this.terminals.has(t.id)) {
-        this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped');
+    if (terminalList && terminalList.length > 0) {
+      for (const t of terminalList) {
+        this.allTerminals.set(t.id, t);
+        if (!this.terminals.has(t.id)) {
+          this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped');
+        }
       }
     }
+    this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
   reconnectTerminal(terminalId, templateId, name, directory, exited) {
@@ -383,6 +391,10 @@ class TerminalManager {
       templateId,
       name,
       exited: !!exited
+    });
+    this.allTerminals.set(terminalId, {
+      id: terminalId, templateId, name, directory,
+      state: exited ? 'stopped' : 'running'
     });
 
     // Send input as base64 to relayLLM.
@@ -430,6 +442,21 @@ class TerminalManager {
       bytes[i] = binary.charCodeAt(i);
     }
     return bytes;
+  }
+
+  /**
+   * Return all terminals whose directory falls under a project path.
+   */
+  getTerminalsForPath(projectPath) {
+    if (!projectPath) return [];
+    const normPath = projectPath.toLowerCase();
+    const result = [];
+    for (const [id, t] of this.allTerminals) {
+      if (t.directory && t.directory.toLowerCase().startsWith(normPath)) {
+        result.push({ ...t, id });
+      }
+    }
+    return result;
   }
 
   /**
