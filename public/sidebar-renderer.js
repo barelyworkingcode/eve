@@ -59,10 +59,8 @@ class SidebarRenderer {
   groupSessions() {
     const projectSessions = new Map();
     const ungroupedSessions = [];
-    const taskSessionIds = this.app.taskManager ? this.app.taskManager.getTaskSessionIds() : new Set();
-
     for (const [id, session] of this.app.sessions) {
-      if (taskSessionIds.has(id)) continue;
+      if (this.app.state.isTaskSession(id)) continue;
       if (session.projectId && this.app.projects.has(session.projectId)) {
         if (!projectSessions.has(session.projectId)) {
           projectSessions.set(session.projectId, []);
@@ -83,7 +81,7 @@ class SidebarRenderer {
 
     const toolsBadge = project.allowedTools?.length > 0 ? `<span class="project-tools-badge" title="${escapeHtml(project.allowedTools.join(', '))}">${project.allowedTools.length} tools</span>` : '';
 
-    const projectTasks = this.app.taskManager ? this.app.taskManager.getTasksForProject(projectId) : [];
+    const projectTasks = this.app.state.getTasksForProject(projectId);
     const taskBadge = projectTasks.length > 0 ? `<span class="project-tasks-badge">${projectTasks.length} task${projectTasks.length !== 1 ? 's' : ''}</span>` : '';
 
     projectEl.innerHTML = `

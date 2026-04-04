@@ -21,11 +21,8 @@ class TaskDialog extends DialogBase {
     });
   }
 
-  async _loadAndShow() {
-    try {
-      const tasks = await this.api.getTasks(this.projectId);
-      this._tasks = Array.isArray(tasks) ? tasks : [];
-    } catch { this._tasks = []; }
+  _loadAndShow() {
+    this._tasks = this.state.getTasksForProject(this.projectId);
     this.render();
     this.show();
     if (this._editTaskId) {
