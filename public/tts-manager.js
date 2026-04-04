@@ -259,6 +259,10 @@ class TTSManager {
     this.log.debug(`Playing audio (${Math.round(base64Data.length * 3 / 4 / 1024)}kb, queue: ${this.queue.length})`);
     try {
       await this._ensureAudioContext();
+      if (!this.audioContext) {
+        this.log.warn('AudioContext unavailable (no user gesture yet) — dropping audio chunk');
+        return;
+      }
       const binary = atob(base64Data);
       const arrayBuffer = new ArrayBuffer(binary.length);
       const bytes = new Uint8Array(arrayBuffer);
