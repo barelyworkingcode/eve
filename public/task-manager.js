@@ -8,6 +8,7 @@ class TaskManager {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.log = container.get('logger').child('TaskManager');
     this.tasks = new Map();
     this.userTriggeredRuns = new Set();
     this.taskSessionIds = new Set();
@@ -33,7 +34,7 @@ class TaskManager {
         if (task.lastSessionId) this.taskSessionIds.add(task.lastSessionId);
       }
     } catch (err) {
-      console.error('Failed to load tasks:', err);
+      this.log.error('Failed to load tasks:', err);
       this.app.messageRenderer.appendSystemMessage('Failed to load tasks');
     }
   }
@@ -52,7 +53,7 @@ class TaskManager {
       }
       return task;
     } catch (err) {
-      console.error('Failed to create task:', err);
+      this.log.error('Failed to create task:', err);
       this.app.messageRenderer.appendSystemMessage('Failed to create task');
       return null;
     }
@@ -72,7 +73,7 @@ class TaskManager {
       }
       return task;
     } catch (err) {
-      console.error('Failed to update task:', err);
+      this.log.error('Failed to update task:', err);
       this.app.messageRenderer.appendSystemMessage('Failed to update task');
       return null;
     }
@@ -87,7 +88,7 @@ class TaskManager {
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       this.tasks.delete(id);
     } catch (err) {
-      console.error('Failed to delete task:', err);
+      this.log.error('Failed to delete task:', err);
       this.app.messageRenderer.appendSystemMessage('Failed to delete task');
     }
   }
@@ -103,7 +104,7 @@ class TaskManager {
         if (t.projectId === projectId) this.tasks.delete(id);
       }
     } catch (err) {
-      console.error('Failed to delete tasks by project:', err);
+      this.log.error('Failed to delete tasks by project:', err);
     }
   }
 
@@ -115,7 +116,7 @@ class TaskManager {
       });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
     } catch (err) {
-      console.error('Failed to run task:', err);
+      this.log.error('Failed to run task:', err);
       this.app.messageRenderer.appendSystemMessage('Failed to run task');
     }
   }
@@ -126,7 +127,7 @@ class TaskManager {
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       return await response.json();
     } catch (err) {
-      console.error('Failed to load task history:', err);
+      this.log.error('Failed to load task history:', err);
       return [];
     }
   }

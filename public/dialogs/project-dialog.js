@@ -5,6 +5,7 @@
 class ProjectDialog extends DialogBase {
   constructor(container) {
     super(container, 'project-dialog');
+    this.log = container.get('logger').child('ProjectDialog');
     this.state = container.get('state');
     this.api = container.get('api');
     this._projectId = null;
@@ -118,7 +119,7 @@ class ProjectDialog extends DialogBase {
       this.bus.emit(EVT.PROJECTS_LOADED);
       this.hide();
     } catch (err) {
-      console.error('Failed to save project:', err);
+      this.log.error('Failed to save project:', err);
       const existing = this._panel.querySelector('.project-dialog__error');
       if (existing) existing.remove();
       const errEl = document.createElement('div');

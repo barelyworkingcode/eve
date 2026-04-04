@@ -7,6 +7,7 @@ class WsClient {
    * @param {Object} callbacks - { onReady, onMessage }
    */
   constructor(container, callbacks) {
+    this.log = container.get('logger').child('WS');
     this.bus = container.get('bus');
     this._connectionStatusEl = null;
     this._onReady = callbacks.onReady;
@@ -25,7 +26,7 @@ class WsClient {
     this.ws = new WebSocket(`${protocol}//${window.location.host}`);
 
     this.ws.onopen = () => {
-      console.log('Connected to server');
+      this.log.info('Connected to server');
       this.reconnectDelay = 2000;
       if (this._connectionStatusEl) {
         this._connectionStatusEl.classList.add('hidden');
@@ -42,7 +43,7 @@ class WsClient {
         return;
       }
       if (data.type === 'auth_failed') {
-        console.error('WebSocket auth failed:', data.message);
+        this.log.error('Auth failed:', data.message);
         localStorage.removeItem('eve_session');
         window.location.reload();
         return;
@@ -52,7 +53,7 @@ class WsClient {
     };
 
     this.ws.onclose = () => {
-      console.log(`Disconnected from server, reconnecting in ${this.reconnectDelay / 1000}s`);
+      this.log.info(`Disconnected from server, reconnecting in ${this.reconnectDelay / 1000}s`);
       if (this._connectionStatusEl) {
         this._connectionStatusEl.classList.remove('hidden');
       }
@@ -61,12 +62,15 @@ class WsClient {
     };
 
     this.ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
+      this.log.error('Error:', err);
     };
   }
 
   send(data) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (data.type === 'user_input') {
+        this.log.debug('→ LLM:', data.text);
+      }
       this.ws.send(typeof data === 'string' ? data : JSON.stringify(data));
     }
   }
