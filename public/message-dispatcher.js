@@ -188,6 +188,7 @@ class MessageDispatcher {
 
   _handleTerminalTemplates(data) {
     this.terminal.onTemplates(data.templates);
+    this.state.setTerminalTemplates(data.templates || []);
     if (this.terminal._pendingPickerDirectory !== undefined) {
       const dir = this.terminal._pendingPickerDirectory;
       delete this.terminal._pendingPickerDirectory;
