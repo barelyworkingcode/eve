@@ -12,10 +12,12 @@ class EveWorkspaceClient {
     this.bus = new EventBus();
     this.container = new Container();
     this.container.register('bus', this.bus);
+    const logger = new Logger('debug');
+    this.container.register('logger', logger);
     this.api = new ApiClient();
     this.container.register('api', this.api);
 
-    this.authClient = new AuthClient();
+    this.authClient = new AuthClient(logger.child('Auth'));
     this.authClient.init();
 
     window.addEventListener('auth:success', () => this.initApp());
@@ -26,6 +28,8 @@ class EveWorkspaceClient {
   }
 
   initApp() {
+    this.log = this.container.get('logger').child('App');
+
     // Wire state store into infrastructure.
     this.state = new StateStore(this.bus);
     this.container.register('state', this.state);
@@ -481,7 +485,7 @@ class EveWorkspaceClient {
       this.state.setModels(data.models || [], data.providerSettings || {});
       this.renderModelSelect(this.elements.sessionModelSelect);
     } catch (err) {
-      console.error('Failed to load models:', err);
+      this.log.error('Failed to load models:', err);
     }
   }
 
@@ -497,7 +501,7 @@ class EveWorkspaceClient {
       this.state.setProjects(projects); // emits PROJECTS_LOADED → renders sidebar + updates select
       await this.loadAllTasks();
     } catch (err) {
-      console.error('Failed to load projects:', err);
+      this.log.error('Failed to load projects:', err);
     }
   }
 
@@ -513,7 +517,7 @@ class EveWorkspaceClient {
       sessions.forEach(session => this.state.addSession(session));
       this.sidebarRenderer.renderProjectList();
     } catch (err) {
-      console.error('Failed to load sessions:', err);
+      this.log.error('Failed to load sessions:', err);
     }
   }
 
@@ -596,7 +600,7 @@ class EveWorkspaceClient {
         this.sidebarRenderer.renderProjectList();
         this.updateProjectSelect();
       } catch (err) {
-        console.error('Failed to delete project:', err);
+        this.log.error('Failed to delete project:', err);
       }
     });
   }

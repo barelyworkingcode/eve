@@ -11,6 +11,7 @@ class VoiceChatManager {
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
+    this.log = container.get('logger').child('VoiceChat');
     this.isVoiceSession = false;
     this.isRecording = false;
     this.orbRenderer = null;
@@ -21,7 +22,7 @@ class VoiceChatManager {
 
     // Capacitor WebView defaults to conversation mode (like desktop); mobile Safari defaults to push-to-talk (AudioWorklet issues)
     this.inputMode = (IS_NATIVE_APP || !IS_MOBILE_SAFARI) ? 'conversation' : (localStorage.getItem('eve-voice-input-mode') || 'push-to-talk');
-    this.vadManager = new VadManager();
+    this.vadManager = new VadManager(container.get('logger').child('VAD'));
     this._vadTranscribing = false;
   }
 
@@ -135,7 +136,7 @@ class VoiceChatManager {
 
     if (this.inputMode === 'conversation') {
       this._startConversationMode().catch(err => {
-        console.error('[VoiceChat] Conversation mode failed:', err);
+        this.log.error('Conversation mode failed:', err);
         this._setPrompt(this._getPushToTalkPrompt());
       });
     } else {
@@ -190,7 +191,7 @@ class VoiceChatManager {
       onSpeechEnd: (audio) => this._onVADSpeechEnd(audio),
       onVADMisfire: () => this._onVADMisfire(),
       onError: (err) => {
-        console.error('[VoiceChat] VAD failed:', err);
+        this.log.error('VAD failed:', err);
         this._setPrompt('Voice detection failed — using push-to-talk');
         this.inputMode = 'push-to-talk';
         localStorage.setItem('eve-voice-input-mode', this.inputMode);

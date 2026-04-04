@@ -1,7 +1,10 @@
 const createAuthRoutes = require('./auth');
 const path = require('path');
 
-function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resolveProject, ttsService, sttService }) {
+const { NullLogger } = require('../logger');
+
+function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resolveProject, ttsService, sttService, log: parentLog }) {
+  const routeLog = parentLog?.child('Routes') || new NullLogger();
   // Shared auth middleware
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
@@ -15,7 +18,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
   }
 
   // Auth routes (local, no proxy)
-  app.use('/api', createAuthRoutes(authService));
+  app.use('/api', createAuthRoutes(authService, routeLog.child('Auth')));
 
   // Fetch from a backend without sending the response (for routes that need pre-response processing)
   async function relayFetch(method, path, body) {
@@ -40,7 +43,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
         return data;
       })
       .catch(err => {
-        console.error(`[Proxy] ${method} ${relayUrl}${relayPath} failed:`, err.message);
+        routeLog.error(`${method} ${relayUrl}${relayPath} failed:`, err.message);
         res.status(502).json({ error: 'Service unavailable' });
         return null;
       });
@@ -65,7 +68,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
       if (data && data.id) await refreshProjectCache();
       res.status(status).json(data);
     } catch (err) {
-      console.error('[Proxy] POST /api/projects failed:', err.message);
+      routeLog.error('POST /api/projects failed:', err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -80,7 +83,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
       if (data && data.id) await refreshProjectCache();
       res.status(status).json(data);
     } catch (err) {
-      console.error(`[Proxy] PUT /api/projects/${req.params.id} failed:`, err.message);
+      routeLog.error(`PUT /api/projects/${req.params.id} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -91,7 +94,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
       await refreshProjectCache();
       res.status(status).json(data);
     } catch (err) {
-      console.error(`[Proxy] DELETE /api/projects/${req.params.id} failed:`, err.message);
+      routeLog.error(`DELETE /api/projects/${req.params.id} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -164,7 +167,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
       const result = await sttService.transcribe(audio, language || null);
       res.json({ text: result.text, language: result.language });
     } catch (err) {
-      console.error('[STT] Transcription failed:', err.message);
+      routeLog.error('STT transcription failed:', err.message);
       res.status(503).json({ error: 'STT service unavailable' });
     }
   });

@@ -3,7 +3,8 @@
  * Provides Float32Array audio at 16kHz to the STT pipeline.
  */
 class VadManager {
-  constructor() {
+  constructor(log) {
+    this.log = log || new NullLogger();
     this.micVAD = null;
     this.isListening = false;
     this._destroying = false;
@@ -21,13 +22,13 @@ class VadManager {
     if (this.micVAD) return;
     this._destroying = false;
     if (typeof vad === 'undefined' || !vad.MicVAD) {
-      console.error('[VAD] vad-web library not loaded');
+      this.log.error('vad-web library not loaded');
       callbacks.onError?.(new Error('Voice detection library failed to load'));
       return;
     }
 
     try {
-      console.log('[VAD] Initializing Silero VAD...');
+      this.log.info('Initializing Silero VAD...');
       this.micVAD = await vad.MicVAD.new({
         positiveSpeechThreshold: 0.7,
         negativeSpeechThreshold: 0.4,
@@ -55,9 +56,9 @@ class VadManager {
 
       this.micVAD.start();
       this.isListening = true;
-      console.log('[VAD] Started — listening for speech');
+      this.log.info('Started — listening for speech');
     } catch (err) {
-      console.error('[VAD] Failed to initialize:', err);
+      this.log.error('Failed to initialize:', err);
       callbacks.onError?.(err);
     }
   }

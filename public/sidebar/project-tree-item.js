@@ -6,6 +6,7 @@ class ProjectTreeItem {
   constructor(container, projectId, fileTreeNode) {
     this.container = container;
     this.bus = container.get('bus');
+    this.log = container.get('logger').child('ProjectTree');
     this.state = container.get('state');
     this.projectId = projectId;
     this.fileTreeNode = fileTreeNode;
@@ -238,7 +239,7 @@ class ProjectTreeItem {
       if (taskManager) taskManager.userTriggeredRuns.add(task.id);
       await this.container.get('api').runTask(task.id);
     } catch (err) {
-      console.error('Failed to run task:', err);
+      this.log.error('Failed to run task:', err);
     }
   }
 
