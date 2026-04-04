@@ -11,6 +11,7 @@ class StateStore {
     this.tasks = new Map();
     this.taskSessionIds = new Set();
     this.models = [];
+    this.terminalTemplates = [];
     this.providerSettings = {};
     this.currentSessionId = null;
   }
@@ -129,6 +130,28 @@ class StateStore {
 
   isTaskSession(sessionId) {
     return this.taskSessionIds.has(sessionId);
+  }
+
+  // --- Terminal Templates ---
+
+  setTerminalTemplates(templates) {
+    this.terminalTemplates = templates || [];
+    this.bus.emit(EVT.TERMINAL_TEMPLATES_LOADED);
+  }
+
+  addTerminalTemplate(template) {
+    const idx = this.terminalTemplates.findIndex(t => t.id === template.id);
+    if (idx >= 0) {
+      this.terminalTemplates[idx] = template;
+    } else {
+      this.terminalTemplates.push(template);
+    }
+    this.bus.emit(EVT.TERMINAL_TEMPLATES_LOADED);
+  }
+
+  removeTerminalTemplate(id) {
+    this.terminalTemplates = this.terminalTemplates.filter(t => t.id !== id);
+    this.bus.emit(EVT.TERMINAL_TEMPLATES_LOADED);
   }
 
   // --- Models ---

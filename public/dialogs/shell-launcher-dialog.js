@@ -7,7 +7,6 @@ class ShellLauncherDialog extends DialogBase {
     super(container, 'shell-launcher-dialog');
     this.state = container.get('state');
     this.projectId = null;
-    this._templates = [];
   }
 
   init() {
@@ -17,8 +16,8 @@ class ShellLauncherDialog extends DialogBase {
       this.show();
     });
 
-    this.bus.on(EVT.TERMINAL_TEMPLATES, (data) => {
-      this._templates = data.templates || [];
+    this.bus.on(EVT.TERMINAL_TEMPLATES_LOADED, () => {
+      if (this.isVisible) this._showTab('new');
     });
   }
 
@@ -78,7 +77,7 @@ class ShellLauncherDialog extends DialogBase {
     }
 
     // Terminal templates (Claude Code, OpenCode, Shell, custom)
-    const templates = this._templates.length > 0 ? this._templates : [
+    const templates = this.state.terminalTemplates.length > 0 ? this.state.terminalTemplates : [
       { id: 'claude-code', name: 'Claude Code', description: 'Claude Code CLI agent', icon: 'claude-code' },
       { id: 'opencode', name: 'OpenCode', description: 'OpenCode CLI agent', icon: 'terminal' },
       { id: 'shell', name: 'Shell', description: 'Default system shell', icon: 'shell' },
@@ -369,7 +368,7 @@ class ShellLauncherDialog extends DialogBase {
 
   _launchTerminal(templateId) {
     const project = this.state.getProject(this.projectId);
-    const tmpl = this._templates.find(t => t.id === templateId);
+    const tmpl = this.state.terminalTemplates.find(t => t.id === templateId);
     const tmplName = tmpl?.name || templateId;
     const name = project ? `${project.name} - ${tmplName}` : tmplName;
     const ws = this.container.get('ws');
