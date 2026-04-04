@@ -40,16 +40,20 @@ class VadManager {
 
         onSpeechStart: () => {
           if (this._destroying) return;
+          this.log.debug('Speech start');
           callbacks.onSpeechStart?.();
         },
 
         onSpeechEnd: (audio) => {
           if (this._destroying) return;
+          const duration = (audio.length / 16000).toFixed(1);
+          this.log.debug(`Speech end (${duration}s, ${audio.length} samples)`);
           callbacks.onSpeechEnd?.(audio);
         },
 
         onVADMisfire: () => {
           if (this._destroying) return;
+          this.log.debug('Misfire (too short)');
           callbacks.onVADMisfire?.();
         },
       });
@@ -65,6 +69,7 @@ class VadManager {
 
   pause() {
     if (this.micVAD && this.isListening) {
+      this.log.debug('Paused');
       this.micVAD.pause();
       this.isListening = false;
     }
@@ -72,12 +77,14 @@ class VadManager {
 
   resume() {
     if (this.micVAD && !this.isListening) {
+      this.log.debug('Resumed');
       this.micVAD.start();
       this.isListening = true;
     }
   }
 
   destroy() {
+    this.log.debug('Destroyed');
     this._destroying = true;
     if (this.micVAD) {
       this.micVAD.destroy();
