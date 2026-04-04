@@ -4,6 +4,7 @@ class FileEditor {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.log = container.get('logger').child('FileEditor');
     this.editor = null;
     this.currentFile = null; // { projectId, path, content, originalContent }
     this.viewMode = 'split';
@@ -161,7 +162,7 @@ class FileEditor {
     require(['vs/editor/editor.main'], () => {
       this.createEditor();
     }, (err) => {
-      console.error('[FileEditor] Monaco editor failed to load:', err);
+      this.log.error('Monaco editor failed to load:', err);
       this.showEditorError('Monaco editor failed to load.');
     });
   }

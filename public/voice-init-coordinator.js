@@ -11,6 +11,7 @@
 class VoiceInitCoordinator {
   constructor(container) {
     this.bus = container.get('bus');
+    this.log = container.get('logger').child('VoiceInit');
     this.container = container;
 
     this._toastId = 'voice-init';
@@ -140,7 +141,7 @@ class VoiceInitCoordinator {
         this._checkAllReady();
       },
       onError: (msg) => {
-        console.error(`[VoiceInit] ${which.toUpperCase()} preload failed:`, msg);
+        this.log.error(`${which.toUpperCase()} preload failed:`, msg);
         if (which === 'tts') {
           this._ttsTarget = null;
           this._ttsShadow?.destroy();

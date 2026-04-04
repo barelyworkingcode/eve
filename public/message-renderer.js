@@ -8,6 +8,7 @@ class MessageRenderer {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.log = container.get('logger').child('Renderer');
     this.messagesEl = this.app.elements.messages;
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
@@ -396,7 +397,7 @@ class MessageRenderer {
     try {
       await mermaid.run({ nodes: container.querySelectorAll('.mermaid') });
     } catch (err) {
-      console.error('Mermaid render failed:', err);
+      this.log.error('Mermaid render failed:', err);
     }
   }
 

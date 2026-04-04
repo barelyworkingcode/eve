@@ -35,6 +35,7 @@ class TtsBrowserBackend {
    */
   init(options = {}) {
     this._initOptions = options;
+    this.log = options.log || new NullLogger();
     this._onProgress = options.onProgress || null;
     this._onReady = options.onReady || null;
     this._onError = options.onError || null;
@@ -56,12 +57,12 @@ class TtsBrowserBackend {
 
     this.loading = true;
     const opts = this._initOptions || {};
-    console.log(`[TTS:browser] Loading on-device model (dtype=${opts.dtype || 'q4'}, device=${opts.device || 'wasm'})...`);
+    this.log.info(`Loading on-device model (dtype=${opts.dtype || 'q4'}, device=${opts.device || 'wasm'})...`);
 
     this.worker = new Worker('tts-worker.js', { type: 'module' });
     this.worker.onmessage = (e) => this._handleMessage(e.data);
     this.worker.onerror = (e) => {
-      console.error('[TTS:browser] Worker error:', e.message);
+      this.log.error('Worker error:', e.message);
       this.loading = false;
       this._onError?.(e.message);
     };
@@ -110,7 +111,7 @@ class TtsBrowserBackend {
    */
   destroyWorker() {
     if (this.worker) {
-      console.log('[TTS:browser] Terminating idle worker');
+      this.log.info('Terminating idle worker');
       this.worker.terminate();
       this.worker = null;
     }
@@ -136,7 +137,7 @@ class TtsBrowserBackend {
       case 'ready':
         this.ready = true;
         this.loading = false;
-        console.log('[TTS:browser] On-device model loaded and ready');
+        this.log.info('On-device model loaded and ready');
         this._onReady?.();
         // Resolve all waiting promises
         for (const resolve of this._readyPromiseResolvers) resolve();
@@ -158,7 +159,7 @@ class TtsBrowserBackend {
           this._pendingCallbacks.delete(msg.id);
           errCb.reject(new Error(msg.message));
         } else {
-          console.error('[TTS:browser] Worker error:', msg.message);
+          this.log.error('Worker error:', msg.message);
           this._onError?.(msg.message);
         }
         break;

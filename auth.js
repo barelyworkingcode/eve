@@ -14,11 +14,14 @@ const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_LIMIT_MAX_ATTEMPTS = 10;
 
+const { NullLogger } = require('./logger');
+
 class AuthService {
-  constructor(dataDir) {
+  constructor(dataDir, log) {
+    this.log = log || new NullLogger();
     this.dataDir = dataDir;
     this.authFile = path.join(dataDir, 'auth.json');
-    this.sessionStore = new SessionStore(dataDir);
+    this.sessionStore = new SessionStore(dataDir, this.log.child('Sessions'));
     this.challenges = new Map();
     this.rateLimits = new Map();
 
@@ -50,7 +53,7 @@ class AuthService {
     try {
       return JSON.parse(fs.readFileSync(this.authFile, 'utf8'));
     } catch (err) {
-      console.error('Failed to load auth credentials:', err.message);
+      this.log.error('Failed to load credentials:', err.message);
       return null;
     }
   }
@@ -60,7 +63,7 @@ class AuthService {
       fs.writeFileSync(this.authFile, JSON.stringify(data, null, 2));
       this.setSecurePermissions(this.authFile);
     } catch (err) {
-      console.error('Failed to save auth credentials:', err.message);
+      this.log.error('Failed to save credentials:', err.message);
       throw err;
     }
   }
@@ -221,7 +224,7 @@ class AuthService {
     const storedId = typeof credential.id === 'string'
       ? credential.id
       : Buffer.from(credential.id).toString('base64url');
-    console.log('[Auth] Stored credential ID:', storedId);
+    this.log.debug('Stored credential ID:', storedId);
 
     const credentialData = {
       rpId: rpId, // Store the RP ID used during enrollment
@@ -270,8 +273,8 @@ class AuthService {
     }
 
     const credentialId = response.id;
-    console.log('[Auth] Login credential ID from response:', credentialId);
-    console.log('[Auth] Stored credential IDs:', authData.credentials.map(c => c.id));
+    this.log.debug('Login credential ID from response:', credentialId);
+    this.log.debug('Stored credential IDs:', authData.credentials.map(c => c.id));
     const credential = authData.credentials.find(c => c.id === credentialId);
     if (!credential) {
       throw new Error('Unknown credential');

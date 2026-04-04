@@ -4,6 +4,7 @@ class TerminalManager {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.log = container.get('logger').child('Terminal');
     this.terminals = new Map(); // terminalId -> { term, fitAddon, container, directory, templateId, name, exited }
     this.allTerminals = new Map(); // terminalId -> { id, templateId, name, directory, state } — all known from relayLLM
     this.activeTerminalId = null;
@@ -57,11 +58,11 @@ class TerminalManager {
       this.FitAddon = fitModule.FitAddon;
       this.WebLinksAddon = webLinksModule.WebLinksAddon;
       this.xtermLoaded = true;
-      console.log('xterm loaded successfully');
+      this.log.info('xterm loaded');
       for (const cb of this._readyCallbacks) cb();
       this._readyCallbacks = [];
     } catch (err) {
-      console.error('Failed to load xterm:', err);
+      this.log.error('Failed to load xterm:', err);
     }
   }
 
@@ -357,7 +358,7 @@ class TerminalManager {
 
   setupTerminal(terminalId, templateId, name, directory, exited) {
     if (!this.xtermLoaded) {
-      console.error('xterm not loaded yet');
+      this.log.error('xterm not loaded yet');
       return;
     }
 

@@ -4,8 +4,11 @@ const crypto = require('crypto');
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+const { NullLogger } = require('./logger');
+
 class SessionStore {
-  constructor(dataDir) {
+  constructor(dataDir, log) {
+    this.log = log || new NullLogger();
     this.sessionsFile = path.join(dataDir, 'sessions.json');
     this.sessions = this._load();
   }
@@ -17,7 +20,7 @@ class SessionStore {
         return new Map(Object.entries(data));
       }
     } catch (err) {
-      console.error('Failed to load sessions:', err.message);
+      this.log.error('Failed to load sessions:', err.message);
     }
     return new Map();
   }
@@ -28,7 +31,7 @@ class SessionStore {
       fs.writeFileSync(this.sessionsFile, JSON.stringify(data, null, 2));
       try { fs.chmodSync(this.sessionsFile, 0o600); } catch (_) {}
     } catch (err) {
-      console.error('Failed to save sessions:', err.message);
+      this.log.error('Failed to save sessions:', err.message);
     }
   }
 

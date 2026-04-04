@@ -16,6 +16,7 @@ class TTSManager {
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
+    this.log = container.get('logger').child('TTS');
     this.enabled = localStorage.getItem('eve-voice-mode') === 'true';
     this.voice = localStorage.getItem('eve-voice-preset') || DEFAULT_TTS_VOICE;
     this.voices = [];
@@ -30,7 +31,7 @@ class TTSManager {
     this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');
-    console.log(`[TTS] Starting on server (preferred: ${this.preferredBackend})`);
+    this.log.info(`Starting on server (preferred: ${this.preferredBackend})`);
   }
 
   get backend() {
@@ -77,17 +78,18 @@ class TTSManager {
   _initBackend() {
     const context = {
       app: this.app,
+      log: this.log,
       onProgress: (data) => {
         if (this.activeBackend.ready) return;
         const pct = Math.round(data.progress || 0);
         this.app.voiceChatManager?._setPrompt(`Loading TTS model: ${pct}%`);
       },
       onReady: () => {
-        console.log(`[TTS] ${this.backend} backend ready`);
+        this.log.info(`${this.backend} backend ready`);
         this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
       },
       onError: (msg) => {
-        console.error(`[TTS] ${this.backend} backend failed:`, msg);
+        this.log.error(`${this.backend} backend failed:`, msg);
         this.app.messageRenderer?.appendSystemMessage('On-device TTS failed to load — falling back to server.', 'warning');
         this.switchBackend('server', { persist: false });
       },
@@ -126,7 +128,7 @@ class TTSManager {
       this.syncVoiceMode(ws);
     }
 
-    console.log(`[TTS] Switched backend: ${prev} → ${name}`);
+    this.log.info(`Switched backend: ${prev} → ${name}`);
     this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
 
     // Reload voices from new backend
@@ -163,10 +165,10 @@ class TTSManager {
       // Server unavailable — fall back to browser at runtime (not on Safari).
       // Don't persist: user's explicit choice should survive reload.
       if (this.backend === 'server' && !IS_SAFARI) {
-        console.warn('[TTS] Server daemon unavailable — falling back to on-device TTS (runtime only)');
+        this.log.warn('Server daemon unavailable — falling back to on-device TTS (runtime only)');
         this.switchBackend('browser', { persist: false });
       } else if (this.backend === 'server' && IS_SAFARI) {
-        console.warn('[TTS] Server daemon unavailable. On-device TTS is not supported on Safari.');
+        this.log.warn('Server daemon unavailable. On-device TTS is not supported on Safari.');
         this.app.messageRenderer?.appendSystemMessage(
           'TTS unavailable: Kokoro daemon is offline and on-device TTS is not yet supported on Safari.', 'error'
         );
@@ -193,7 +195,7 @@ class TTSManager {
     this._clearIdleTimer();
 
     try {
-      console.log(`[TTS] Speaking via ${this.backend} (voice: ${this.voice}, ${cleaned.length} chars)`);
+      this.log.debug(`Speaking via ${this.backend} (voice: ${this.voice}):`, cleaned);
       const result = await this.activeBackend.speakText(cleaned, this.voice);
       if (result?.audio) {
         this.app.voiceChatManager?.handleTTSStart();
@@ -202,7 +204,7 @@ class TTSManager {
       // null result = server backend (audio arrives via WS tts_audio → enqueueAudio)
       //             = native backend (plugin handles playback directly)
     } catch (err) {
-      console.warn('[TTS] Speech generation failed:', err.message);
+      this.log.warn('Speech generation failed:', err.message);
       this.app.voiceChatManager?.handleError('Speech failed: ' + err.message);
     }
   }
@@ -223,7 +225,7 @@ class TTSManager {
     this._clearIdleTimer();
     if (this.activeBackend.name !== 'browser' || !this.activeBackend.destroyWorker) return;
     this._idleTimer = setTimeout(() => {
-      console.log(`[TTS] Browser worker idle for ${TTS_IDLE_TIMEOUT_MS / 1000}s — terminating to free memory`);
+      this.log.info(`Browser worker idle for ${TTS_IDLE_TIMEOUT_MS / 1000}s — terminating to free memory`);
       this.activeBackend.destroyWorker();
     }, TTS_IDLE_TIMEOUT_MS);
   }
@@ -266,7 +268,7 @@ class TTSManager {
         this._playNext();
       }
     } catch (err) {
-      console.error('[TTS] Failed to enqueue audio:', err, 'audioContext state:', this.audioContext?.state);
+      this.log.error('Failed to enqueue audio:', err, 'audioContext state:', this.audioContext?.state);
       this.app.voiceChatManager?.handleError('Audio playback failed');
     }
   }

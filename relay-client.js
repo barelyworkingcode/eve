@@ -6,8 +6,11 @@ const DEFAULT_TTS_VOICE = 'af_heart';
  * RelayClient - one instance per browser WS connection.
  * Manages a WebSocket connection to relayLLM and forwards events to the browser.
  */
+const { NullLogger } = require('./logger');
+
 class RelayClient {
-  constructor(relayWsUrl, browserWs, ttsService) {
+  constructor(relayWsUrl, browserWs, ttsService, log) {
+    this.log = log || new NullLogger();
     this.relayWsUrl = relayWsUrl;
     this.browserWs = browserWs;
     this.ws = null;
@@ -28,7 +31,7 @@ class RelayClient {
       this.ws = new WebSocket(this.relayWsUrl);
 
       this.ws.on('open', () => {
-        console.log('[RelayClient] Connected to relayLLM');
+        this.log.info('Connected to relayLLM');
         resolve();
       });
 
@@ -37,17 +40,17 @@ class RelayClient {
           const msg = JSON.parse(data.toString());
           this._handleRelayMessage(msg);
         } catch (err) {
-          console.error('[RelayClient] Failed to parse relay message:', err.message);
+          this.log.error('Failed to parse relay message:', err.message);
         }
       });
 
       this.ws.on('close', () => {
-        console.log('[RelayClient] Disconnected from relayLLM');
+        this.log.info('Disconnected from relayLLM');
         this.ws = null;
       });
 
       this.ws.on('error', (err) => {
-        console.error('[RelayClient] WebSocket error:', err.message);
+        this.log.error('WebSocket error:', err.message);
         if (this.ws?.readyState === WebSocket.CONNECTING) {
           reject(err);
         }
@@ -123,6 +126,7 @@ class RelayClient {
   }
 
   sendMessage(text, files, sessionId) {
+    this.log.debug(`→ relay (${text.length} chars, ${files.length} files)`);
     this._send({ type: 'send_message', text, files, sessionId });
   }
 
@@ -201,6 +205,7 @@ class RelayClient {
 
     if (!cleaned) return;
 
+    this.log.debug('TTS synthesizing:', cleaned);
     this.ttsPending++;
     try {
       const result = await this.ttsService.synthesize(cleaned, this.voicePreset);
@@ -210,7 +215,7 @@ class RelayClient {
         sessionId: this.currentSessionId,
       });
     } catch (err) {
-      console.error(`[RelayClient] TTS error: ${err.message}`);
+      this.log.error('TTS error:', err.message);
       this._sendToBrowser({
         type: 'tts_error',
         message: err.message,

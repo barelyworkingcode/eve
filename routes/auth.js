@@ -6,7 +6,10 @@ function getClientIp(req) {
          'unknown';
 }
 
-function createAuthRoutes(authService) {
+const { NullLogger } = require('../logger');
+
+function createAuthRoutes(authService, log) {
+  log = log || new NullLogger();
   const router = express.Router();
 
   // --- Shared middleware ---
@@ -56,10 +59,10 @@ function createAuthRoutes(authService) {
   router.post('/auth/enroll/start', rateLimit, requireNotEnrolled, async (req, res) => {
     try {
       const { options, challengeId } = await authService.generateEnrollmentOptions(req);
-      console.log('[Auth] Enrollment started - rpId:', options.rp.id, 'origin:', authService.getOrigin(req));
+      log.debug('Enrollment started - rpId:', options.rp.id, 'origin:', authService.getOrigin(req));
       res.json({ options, challengeId });
     } catch (err) {
-      console.error('Enrollment start failed:', err);
+      log.error('Enrollment start failed:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -67,12 +70,12 @@ function createAuthRoutes(authService) {
   router.post('/auth/enroll/finish', rateLimit, requireNotEnrolled, validateFinishBody, async (req, res) => {
     try {
       const { response, challengeId } = req.body;
-      console.log('[Auth] Enrollment finish - credential.id from client:', response.id);
-      console.log('[Auth] Enrollment finish - credential.rawId from client:', response.rawId);
+      log.debug('Enrollment finish - credential.id from client:', response.id);
+      log.debug('Enrollment finish - credential.rawId from client:', response.rawId);
       const token = await authService.verifyEnrollment(req, response, challengeId);
       res.json({ token });
     } catch (err) {
-      console.error('Enrollment finish failed:', err);
+      log.error('Enrollment finish failed:', err);
       res.status(400).json({ error: err.message });
     }
   });
@@ -80,12 +83,12 @@ function createAuthRoutes(authService) {
   router.post('/auth/login/start', rateLimit, requireEnrolled, async (req, res) => {
     try {
       const { options, challengeId } = await authService.generateLoginOptions(req);
-      console.log('[Auth] Login started - rpId:', options.rpId, 'origin:', authService.getOrigin(req));
-      console.log('[Auth] Stored credential rpId from auth.json:', authService.loadCredentials()?.rpId || '(not stored)');
-      console.log('[Auth] allowCredentials:', JSON.stringify(options.allowCredentials));
+      log.debug('Login started - rpId:', options.rpId, 'origin:', authService.getOrigin(req));
+      log.debug('Stored credential rpId from auth.json:', authService.loadCredentials()?.rpId || '(not stored)');
+      log.debug('allowCredentials:', JSON.stringify(options.allowCredentials));
       res.json({ options, challengeId });
     } catch (err) {
-      console.error('Login start failed:', err);
+      log.error('Login start failed:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -96,7 +99,7 @@ function createAuthRoutes(authService) {
       const token = await authService.verifyLogin(req, response, challengeId);
       res.json({ token });
     } catch (err) {
-      console.error('Login finish failed:', err);
+      log.error('Login finish failed:', err);
       res.status(400).json({ error: err.message });
     }
   });
