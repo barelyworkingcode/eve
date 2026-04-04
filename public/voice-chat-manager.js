@@ -44,6 +44,7 @@ class VoiceChatManager {
     if (!this.orbCanvas) return;
 
     this.orbRenderer = new VoiceOrbCanvas(this.orbCanvas, this.app);
+    this._exposeOrbControl();
 
     // Update backend status display and prompt when backends change
     this.bus.on(EVT.VOICE_BACKEND_CHANGED, () => {
@@ -116,7 +117,7 @@ class VoiceChatManager {
     this.captions = [];
     this._renderCaptions();
     this._updateBackendStatus();
-    this.orbRenderer?.setState('idle');
+    this._setOrbState('idle', 'session activated');
     this.orbRenderer?.start();
 
     // Resume AudioContext now — voice session activation is triggered by user gesture
@@ -160,6 +161,7 @@ class VoiceChatManager {
     if (this.inputMode === 'conversation') {
       this.inputMode = 'push-to-talk';
       this.vadManager.destroy();
+      this._setOrbState('idle', 'switched to push-to-talk');
       this._setPrompt(this._getPushToTalkPrompt());
     } else {
       this.inputMode = 'conversation';
@@ -184,7 +186,7 @@ class VoiceChatManager {
 
   async _startConversationMode() {
     this._setPrompt('Starting voice detection...');
-    this.orbRenderer?.setState('idle');
+    this._setOrbState('idle', 'starting VAD');
 
     await this.vadManager.start({
       onSpeechStart: () => this._onVADSpeechStart(),
@@ -200,7 +202,7 @@ class VoiceChatManager {
     });
 
     if (this.vadManager.isListening) {
-      this.orbRenderer?.setState('listening');
+      this._setOrbState('listening', 'VAD ready');
       this._setPrompt('Listening...');
     }
   }
@@ -211,14 +213,14 @@ class VoiceChatManager {
     // Aggressive barge-in: always stop TTS immediately (safe to call even when not playing)
     this.app.ttsManager.stop();
 
-    this.orbRenderer?.setState('listening');
+    this._setOrbState('listening', 'speech detected');
     this._setPrompt('Listening...');
   }
 
   _onVADSpeechEnd(audio) {
     if (!this.isVoiceSession) return;
 
-    this.orbRenderer?.setState('processing');
+    this._setOrbState('processing', 'speech ended');
     this._setPrompt('Transcribing...');
     this._vadTranscribing = true;
 
@@ -230,7 +232,7 @@ class VoiceChatManager {
     // Too-short speech burst — return to listening state
     if (!this.isVoiceSession) return;
     if (!this._vadTranscribing && !this.app.ttsManager.isPlaying) {
-      this.orbRenderer?.setState('listening');
+      this._setOrbState('listening', 'VAD misfire');
       this._setPrompt('Listening...');
     }
   }
@@ -293,7 +295,7 @@ class VoiceChatManager {
     // Stop any playing TTS (barge-in)
     this.app.ttsManager.stop();
 
-    this.orbRenderer?.setState('listening');
+    this._setOrbState('listening', 'recording started');
     this._setPrompt('Listening...');
     this.micBtn?.classList.add('voice-chat__btn--recording');
 
@@ -304,7 +306,7 @@ class VoiceChatManager {
     if (!this.isRecording) return;
     this.isRecording = false;
 
-    this.orbRenderer?.setState('processing');
+    this._setOrbState('processing', 'recording stopped');
     this._setPrompt('Transcribing...');
     this.micBtn?.classList.remove('voice-chat__btn--recording');
 
@@ -329,7 +331,7 @@ class VoiceChatManager {
     this.app.messageRenderer.appendUserMessage(text, []);
 
     this.assistantAccum = '';
-    this.orbRenderer?.setState('processing');
+    this._setOrbState('processing', 'transcription sent');
     this._setPrompt('Thinking...');
   }
 
@@ -348,7 +350,7 @@ class VoiceChatManager {
     if (!this.isVoiceSession) return;
     // VAD stays active during playback for voice barge-in.
     // Echo cancellation + higher thresholds filter speaker output.
-    this.orbRenderer?.setState('speaking');
+    this._setOrbState('speaking', 'TTS started');
     this._setPrompt('Speaking...');
   }
 
@@ -356,10 +358,10 @@ class VoiceChatManager {
     if (!this.isVoiceSession) return;
 
     if (this.vadManager.isListening) {
-      this.orbRenderer?.setState('listening');
+      this._setOrbState('listening', 'TTS ended');
       this._setPrompt('Listening...');
     } else {
-      this.orbRenderer?.setState('idle');
+      this._setOrbState('idle', 'TTS ended');
       this._setPrompt(this._getPushToTalkPrompt());
     }
   }
@@ -368,10 +370,10 @@ class VoiceChatManager {
     if (!this.isVoiceSession) return;
     this._addCaption('error', message);
     if (this.vadManager.isListening) {
-      this.orbRenderer?.setState('listening');
+      this._setOrbState('listening', 'error recovery');
       this._setPrompt('Listening...');
     } else {
-      this.orbRenderer?.setState('idle');
+      this._setOrbState('idle', 'error recovery');
       this._setPrompt(this._getPushToTalkPrompt());
     }
   }
@@ -495,6 +497,23 @@ class VoiceChatManager {
     const ttsLabel = tts.activeBackend.onDevice ? 'on-device' : 'server';
     const sttLabel = stt.activeBackend.onDevice ? 'on-device' : 'server';
     this.backendStatusEl.textContent = `TTS: ${ttsLabel}  ·  STT: ${sttLabel}`;
+  }
+
+  _setOrbState(state, reason) {
+    this.log.debug(`Orb: ${state}` + (reason ? ` (${reason})` : ''));
+    this.orbRenderer?.setState(state);
+  }
+
+  /** Console helper: window.orb('speaking') or window.orb('idle', {r:255,g:0,b:0}) */
+  _exposeOrbControl() {
+    window.orb = (state, color) => {
+      if (state && this.orbRenderer) {
+        if (color) this.orbRenderer.stateConfigs[state] = { ...this.orbRenderer.stateConfigs[state], color };
+        this.orbRenderer.setState(state);
+        return `Orb → ${state}` + (color ? ` (color: ${JSON.stringify(color)})` : '');
+      }
+      return { states: Object.keys(this.orbRenderer?.stateConfigs || {}), current: this.orbRenderer?.targetState };
+    };
   }
 
   _getPushToTalkPrompt() {
