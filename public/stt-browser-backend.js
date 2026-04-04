@@ -30,6 +30,7 @@ class SttBrowserBackend {
   async init(options = {}) {
     if (this.ready || this.loading) return;
     this.loading = true;
+    this.log = options.log || new NullLogger();
     this._onProgress = options.onProgress || null;
     this._onReady = options.onReady || null;
     this._onError = options.onError || null;
@@ -37,7 +38,7 @@ class SttBrowserBackend {
     this.worker = new Worker('stt-worker.js', { type: 'module' });
     this.worker.onmessage = (e) => this._handleMessage(e.data);
     this.worker.onerror = (e) => {
-      console.error('[SttBrowser] Worker error:', e.message);
+      this.log.error('Worker error:', e.message);
       this.loading = false;
       this._onError?.(e.message);
     };
@@ -109,7 +110,7 @@ class SttBrowserBackend {
       case 'ready':
         this.ready = true;
         this.loading = false;
-        console.log('[SttBrowser] Model loaded');
+        this.log.info('Model loaded');
         this._onReady?.();
         break;
 
@@ -128,7 +129,7 @@ class SttBrowserBackend {
           this._pendingCallbacks.delete(msg.id);
           errCb.reject(new Error(msg.message));
         } else {
-          console.error('[SttBrowser] Worker error:', msg.message);
+          this.log.error('Worker error:', msg.message);
           this._onError?.(msg.message);
         }
         break;

@@ -16,17 +16,18 @@ class SttNativeBackend {
 
   async init(context) {
     this.loading = true;
+    this.log = context.log || new NullLogger();
 
     try {
-      console.log('[STT:native] Loading models via EveVoice plugin...');
+      this.log.info('Loading models via EveVoice plugin...');
       await window.Capacitor.nativePromise('EveVoice', 'loadSTTModels', {});
       this.ready = true;
       this.loading = false;
-      console.log('[STT:native] Models loaded');
+      this.log.info('Models loaded');
       context.onReady?.();
     } catch (err) {
       this.loading = false;
-      console.error('[STT:native] Model loading failed:', err.message);
+      this.log.error('Model loading failed:', err.message);
       context.onError?.(err.message);
     }
   }

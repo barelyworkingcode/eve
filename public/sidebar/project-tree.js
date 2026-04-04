@@ -4,6 +4,7 @@
  */
 class ProjectTree {
   static STORAGE_KEY = 'eve-expanded-projects';
+  static SECTION_STORAGE_KEY = 'eve-expanded-sections';
 
   constructor(container) {
     this.container = container;
@@ -12,6 +13,7 @@ class ProjectTree {
     this.fileTreeNode = null;
     this.projectItems = new Map(); // projectId -> ProjectTreeItem
     this.expandedProjects = new Set(); // persisted to localStorage
+    this._sectionState = {}; // projectId -> ['tasks', 'sessions', 'files']
     this.el = null;
   }
 
@@ -23,6 +25,7 @@ class ProjectTree {
 
     // Restore project expand state from localStorage
     this._restoreExpandState();
+    this._restoreSectionState();
 
     // Subscribe to project changes
     this.bus.on(EVT.PROJECTS_LOADED, () => this.render());
@@ -64,6 +67,13 @@ class ProjectTree {
       item.expanded = expandState.has(project.id)
         ? expandState.get(project.id)
         : this.expandedProjects.has(project.id);
+      // Restore section expand state
+      const savedSections = this._sectionState[project.id] || [];
+      item.sectionState = {
+        tasks: savedSections.includes('tasks'),
+        sessions: savedSections.includes('sessions'),
+        files: savedSections.includes('files'),
+      };
       item.onToggle = (projectId, expanded) => {
         if (expanded) {
           this.expandedProjects.add(projectId);
@@ -72,6 +82,7 @@ class ProjectTree {
         }
         this._saveExpandState();
       };
+      item.onSectionToggle = () => this._saveSectionState();
       item.render(this.el);
       this.projectItems.set(project.id, item);
     }
@@ -86,6 +97,26 @@ class ProjectTree {
       const stored = JSON.parse(localStorage.getItem(ProjectTree.STORAGE_KEY));
       if (Array.isArray(stored)) {
         this.expandedProjects = new Set(stored);
+      }
+    } catch { /* ignore corrupt state */ }
+  }
+
+  _saveSectionState() {
+    const state = {};
+    for (const [pid, item] of this.projectItems) {
+      const expanded = Object.entries(item.sectionState)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      if (expanded.length > 0) state[pid] = expanded;
+    }
+    localStorage.setItem(ProjectTree.SECTION_STORAGE_KEY, JSON.stringify(state));
+  }
+
+  _restoreSectionState() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(ProjectTree.SECTION_STORAGE_KEY));
+      if (raw && typeof raw === 'object') {
+        this._sectionState = raw;
       }
     } catch { /* ignore corrupt state */ }
   }
