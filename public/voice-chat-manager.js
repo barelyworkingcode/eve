@@ -514,6 +514,25 @@ class VoiceChatManager {
       }
       return { states: Object.keys(this.orbRenderer?.stateConfigs || {}), current: this.orbRenderer?.targetState };
     };
+
+    /** Console helper: window.orbDemo() to cycle states, window.orbDemo() again to stop */
+    window.orbDemo = () => {
+      if (this._demoInterval) {
+        clearInterval(this._demoInterval);
+        this._demoInterval = null;
+        return 'Orb demo stopped';
+      }
+      const states = Object.keys(this.orbRenderer?.stateConfigs || {});
+      if (!states.length || !this.orbRenderer) return 'No orb renderer available';
+      let i = 0;
+      this.orbRenderer.setState(states[0]);
+      this._demoInterval = setInterval(() => {
+        i = (i + 1) % states.length;
+        this.orbRenderer.setState(states[i]);
+        console.log(`Orb → ${states[i]}`);
+      }, 5000);
+      return `Orb demo started: cycling ${states.join(' → ')} every 5s (call orbDemo() again to stop)`;
+    };
   }
 
   _getPushToTalkPrompt() {
