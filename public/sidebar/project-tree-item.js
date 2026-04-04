@@ -25,6 +25,7 @@ class ProjectTreeItem {
     if (!project) return;
 
     this._subscribeEvents();
+    this._prefetchTaskCount();
 
     this.el = document.createElement('div');
     this.el.className = 'project-tree__project';
@@ -468,15 +469,29 @@ class ProjectTreeItem {
     ]);
   }
 
+  _prefetchTaskCount() {
+    if (this._tasksCache || this._tasksFetching) return;
+    this._tasksFetching = true;
+    const api = this.container.get('api');
+    api.getTasks(this.projectId).then(tasks => {
+      this._tasksCache = Array.isArray(tasks) ? tasks : [];
+      this._tasksFetching = false;
+      this._rerender();
+    }).catch(() => {
+      this._tasksCache = [];
+      this._tasksFetching = false;
+    });
+  }
+
   // --- Event subscriptions (one-time) ---
 
   _subscribeEvents() {
     if (this._subscribed) return;
     this._subscribed = true;
 
-    // Tasks section reactivity
+    // Tasks section reactivity — invalidate cache and re-render for count badge
     const onTaskEvent = () => {
-      if (!this.expanded || !this.sectionState.tasks) return;
+      if (!this.expanded) return;
       this._tasksCache = null;
       this._rerender();
     };
@@ -484,12 +499,12 @@ class ProjectTreeItem {
     this.bus.on(EVT.TASK_COMPLETED, onTaskEvent);
     this.bus.on(EVT.TASK_ERROR, onTaskEvent);
 
-    // Sessions section reactivity
+    // Sessions section reactivity — always re-render for count badge updates
     const onSessionEvent = () => {
-      if (!this.expanded || !this.sectionState.sessions) return;
+      if (!this.expanded) return;
       this._rerender();
     };
-    this.bus.on(EVT.SESSION_CREATED, onSessionEvent);
+    this.bus.on(EVT.SESSION_UPDATED, onSessionEvent);
     this.bus.on(EVT.SESSION_REMOVED, onSessionEvent);
     this.bus.on(EVT.SESSION_UPDATED, onSessionEvent);
   }
