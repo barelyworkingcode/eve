@@ -107,6 +107,7 @@ const EVT = {
 const IS_NATIVE_APP = !!(window.Capacitor?.isNativePlatform?.() && window.Capacitor?.Plugins?.EveVoice);
 const IS_SAFARI = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 const IS_MOBILE_SAFARI = /iPhone|iPad|iPod/i.test(navigator.userAgent) && IS_SAFARI;
+const FAVORITE_TEMPLATE_ENABLED = true; // Gate behind IS_NATIVE_APP when shipping to App Store
 
 // Plan file project ID sentinel
 const PLAN_PROJECT_ID = '__plan__';

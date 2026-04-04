@@ -440,6 +440,9 @@ class EveWorkspaceClient {
           }
         }
       }
+
+      // Check for hash-based route (e.g., /#/voice-chat for iOS Action Button)
+      this._handleHashRoute();
     });
 
     this.terminalManager.onReady(() => {
@@ -447,6 +450,75 @@ class EveWorkspaceClient {
       this.terminalManager.requestTemplates();
     });
     this.tabManager.reestablishFileWatches();
+  }
+
+  // --- Hash route handling (deep links / iOS Action Button) ---
+
+  _handleHashRoute() {
+    const hash = window.location.hash;
+    if (!hash) return;
+
+    if (hash === '#/voice-chat' || hash === '#/voice_chat' || hash === '#!/voice-chat' || hash === '#!/voice_chat') {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      this._launchFavoriteTemplate();
+    }
+  }
+
+  _launchFavoriteTemplate() {
+    if (!FAVORITE_TEMPLATE_ENABLED) return;
+
+    const fav = this.settings.getFavoriteTemplate();
+    if (!fav) {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'no-favorite',
+        message: 'No favorite template set. Star a template in the launcher to use as default.',
+        type: 'warning',
+        duration: 5000,
+      });
+      const firstProject = this.projects.values().next().value;
+      if (firstProject) {
+        this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: firstProject.id });
+      }
+      return;
+    }
+
+    const project = this.projects.get(fav.projectId);
+    if (!project) {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'favorite-error',
+        message: 'Favorite template project not found. It may have been deleted.',
+        type: 'error',
+        duration: 5000,
+      });
+      return;
+    }
+
+    const template = (project.chatTemplates || []).find(t => t.id === fav.templateId);
+    if (!template) {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'favorite-error',
+        message: 'Favorite template not found. It may have been deleted.',
+        type: 'error',
+        duration: 5000,
+      });
+      return;
+    }
+
+    const name = `${project.name} - ${template.name}`;
+    const msg = {
+      type: 'create_session',
+      projectId: fav.projectId,
+      model: template.model,
+      settings: template.settings || null,
+      name,
+    };
+    if (template.systemPrompt) msg.systemPrompt = template.systemPrompt;
+    if (template.appendClaudeMd) msg.appendClaudeMd = true;
+    if (template.mode === 'voice') {
+      msg.sessionType = 'voice';
+      msg.voice = template.voice || 'af_heart';
+    }
+    this.wsClient.send(msg);
   }
 
   // --- Server message dispatch ---
