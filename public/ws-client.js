@@ -69,7 +69,8 @@ class WsClient {
   send(data) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       if (data.type === 'user_input') {
-        this.log.debug('→ LLM:', data.text);
+        const flags = [data.dictated && 'dictated', data.files?.length && `${data.files.length} files`].filter(Boolean).join(', ');
+        this.log.debug(`→ LLM${flags ? ` (${flags})` : ''}:`, data.text);
       }
       this.ws.send(typeof data === 'string' ? data : JSON.stringify(data));
     }
