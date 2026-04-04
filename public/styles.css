@@ -3856,6 +3856,7 @@ html, body {
 }
 
 .shell-launcher__card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -3999,6 +4000,36 @@ html, body {
 
 .shell-launcher__card--template:hover {
   border-color: rgba(168, 85, 247, 0.6);
+}
+
+/* Favorite star on template cards */
+.shell-launcher__fav-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  opacity: 0.4;
+  transition: opacity 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.shell-launcher__card:hover .shell-launcher__fav-btn {
+  opacity: 0.8;
+}
+
+.shell-launcher__fav-btn:hover {
+  opacity: 1;
+  color: #fbbf24;
+}
+
+.shell-launcher__fav-btn--active {
+  color: #fbbf24;
+  opacity: 1;
 }
 
 .shell-launcher__claudemd-row {
