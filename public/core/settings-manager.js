@@ -194,6 +194,15 @@ class SettingsManager {
     this._applyToDOM();
   }
 
+  getFavoriteTemplate() {
+    return this._settings.favoriteTemplate || null;
+  }
+
+  setFavoriteTemplate(favorite) {
+    this._settings.favoriteTemplate = favorite;
+    this._save();
+  }
+
   isLight() {
     return this._luminance(this._settings.bgPrimary) > 0.5;
   }
