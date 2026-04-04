@@ -47,17 +47,6 @@ class ProjectTreeItem {
     const actions = document.createElement('span');
     actions.className = 'project-tree__actions';
 
-    // Detached terminal badge
-    const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
-    const detached = termMgr?.getDetachedCountForPath(project.path) || 0;
-    if (detached > 0) {
-      const badge = document.createElement('span');
-      badge.className = 'project-tree__badge';
-      badge.textContent = detached;
-      badge.title = `${detached} detached terminal${detached > 1 ? 's' : ''}`;
-      actions.appendChild(badge);
-    }
-
     actions.appendChild(this._actionBtn('New Shell', UI_ICONS.shell(14), () =>
       this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: this.projectId })));
     actions.appendChild(this._actionBtn('Tasks', UI_ICONS.tasks(14), () =>
@@ -139,8 +128,12 @@ class ProjectTreeItem {
       return this.state.getTasksForProject(this.projectId).length;
     }
     if (key === 'sessions') {
-      return this.state.getSessionsForProject(this.projectId)
+      const sessionCount = this.state.getSessionsForProject(this.projectId)
         .filter(s => !this.state.isTaskSession(s.id)).length;
+      const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
+      const project = this.state.getProject(this.projectId);
+      const terminalCount = termMgr?.getTerminalsForPath(project?.path)?.length || 0;
+      return sessionCount + terminalCount;
     }
     return null; // files — no count
   }
@@ -241,9 +234,17 @@ class ProjectTreeItem {
   _renderSessionsContent(container) {
     const sessions = this.state.getSessionsForProject(this.projectId)
       .filter(s => !this.state.isTaskSession(s.id));
-    if (sessions.length === 0) {
+    const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
+    const project = this.state.getProject(this.projectId);
+    const terminals = termMgr?.getTerminalsForPath(project?.path) || [];
+
+    if (sessions.length === 0 && terminals.length === 0) {
       this._renderEmpty(container, 'No sessions');
       return;
+    }
+
+    for (const terminal of terminals) {
+      this._renderTerminalItem(container, terminal);
     }
 
     for (const session of sessions) {
@@ -300,6 +301,41 @@ class ProjectTreeItem {
       wrapper.appendChild(item);
       container.appendChild(wrapper);
     }
+  }
+
+  _renderTerminalItem(container, terminal) {
+    const item = document.createElement('div');
+    item.className = 'project-tree__session-item';
+
+    const iconEl = document.createElement('span');
+    iconEl.className = 'project-tree__terminal-icon';
+    iconEl.innerHTML = UI_ICONS.shell(12);
+    item.appendChild(iconEl);
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'project-tree__session-name';
+    const project = this.state.getProject(this.projectId);
+    let displayName = terminal.name || terminal.templateId || 'Terminal';
+    if (project && displayName.startsWith(project.name + ' - ')) {
+      displayName = displayName.slice(project.name.length + 3);
+    }
+    nameEl.textContent = displayName;
+    item.appendChild(nameEl);
+
+    const isRunning = terminal.state !== 'stopped';
+    const badge = document.createElement('span');
+    badge.className = `project-tree__session-badge${isRunning ? ' project-tree__session-badge--running' : ''}`;
+    badge.textContent = isRunning ? 'running' : 'stopped';
+    item.appendChild(badge);
+
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tabMgr = this.container.has('tabManager') ? this.container.get('tabManager') : null;
+      if (tabMgr) tabMgr.switchToTab(terminal.id);
+      this._closeSidebarOnMobile();
+    });
+
+    container.appendChild(item);
   }
 
   // --- Files content ---
@@ -469,5 +505,10 @@ class ProjectTreeItem {
     };
     this.bus.on(EVT.SESSION_UPDATED, onSessionEvent);
     this.bus.on(EVT.SESSION_REMOVED, onSessionEvent);
+
+    // Terminals: re-render when terminal list changes
+    this.bus.on(EVT.TERMINAL_LIST, () => {
+      this._rerender();  // Always rerender — count shown even when collapsed
+    });
   }
 }

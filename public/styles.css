@@ -3518,6 +3518,18 @@ html, body {
   flex-shrink: 0;
 }
 
+.project-tree__session-badge--running {
+  color: var(--accent);
+}
+
+.project-tree__terminal-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 /* File tree */
 
 .file-tree {
