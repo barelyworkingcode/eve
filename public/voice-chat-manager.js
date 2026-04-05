@@ -70,6 +70,18 @@ class VoiceChatManager {
       this.micBtn.addEventListener('touchend', (e) => { e.preventDefault(); this._onMicUp(); });
     }
 
+    // Orb canvas push-to-talk (press and hold to record, just like mic button)
+    if (this.orbCanvas) {
+      this.orbCanvas.addEventListener('mousedown', () => this._onMicDown());
+      this.orbCanvas.addEventListener('mouseup', () => this._onMicUp());
+      this.orbCanvas.addEventListener('mouseleave', () => {
+        if (this.isRecording && !this._spacebarDown) this._stopRecording();
+      });
+      this.orbCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); this._onMicDown(); }, { passive: false });
+      this.orbCanvas.addEventListener('touchend', (e) => { e.preventDefault(); this._onMicUp(); }, { passive: false });
+      this.orbCanvas.addEventListener('touchcancel', () => this._onMicUp());
+    }
+
     // Close button - end session
     if (this.closeBtn) {
       this.closeBtn.addEventListener('click', () => {
@@ -109,8 +121,10 @@ class VoiceChatManager {
   }
 
   activateForSession(sessionId) {
-    // Clean up any existing voice session (prevents listener leaks on session switch)
-    this.vadManager.destroy();
+    // Fully tear down any existing voice session (stop TTS/STT, disable server voice mode)
+    if (this.isVoiceSession) {
+      this.deactivate();
+    }
 
     this.isVoiceSession = true;
     this.assistantAccum = '';
@@ -154,6 +168,9 @@ class VoiceChatManager {
     this.app.ttsManager.stop();
     this.vadManager.destroy();
     this.orbRenderer?.stop();
+
+    // Disable server-side TTS so the relay stops generating audio
+    this.app.wsClient.send({ type: 'voice_mode', enabled: false });
   }
 
   // --- Input mode management ---

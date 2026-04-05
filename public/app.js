@@ -440,6 +440,10 @@ class EveWorkspaceClient {
           }
         }
       }
+
+      // Check for hash-based route (e.g., /#/voice-chat for iOS Action Button)
+      this._handleHashRoute();
+      window.addEventListener('hashchange', () => this._handleHashRoute());
     });
 
     this.terminalManager.onReady(() => {
@@ -447,6 +451,95 @@ class EveWorkspaceClient {
       this.terminalManager.requestTemplates();
     });
     this.tabManager.reestablishFileWatches();
+  }
+
+  // --- Hash route handling (deep links / iOS Action Button) ---
+
+  _handleHashRoute() {
+    const hash = window.location.hash;
+    if (!hash) return;
+
+    if (hash === '#/voice-chat' || hash === '#/voice_chat' || hash === '#!/voice-chat' || hash === '#!/voice_chat') {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+
+      // Resume existing voice session if one is active
+      const existingId = this._findVoiceSession();
+      if (existingId) {
+        this.tabManager.switchToTab(existingId);
+        return;
+      }
+
+      this._launchFavoriteTemplate();
+    }
+  }
+
+  _findVoiceSession() {
+    // Already viewing a voice session
+    if (this.voiceChatManager?.isVoiceSession && this.currentSessionId) {
+      return this.currentSessionId;
+    }
+    // Find any voice session tab
+    for (const [id, session] of this.sessions) {
+      if (session.sessionType === 'voice') return id;
+    }
+    return null;
+  }
+
+  _launchFavoriteTemplate() {
+    if (!FAVORITE_TEMPLATE_ENABLED) return;
+
+    const fav = this.settings.getFavoriteTemplate();
+    if (!fav) {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'no-favorite',
+        message: 'No favorite template set. Star a template in the launcher to use as default.',
+        type: 'warning',
+        duration: 5000,
+      });
+      const firstProject = this.projects.values().next().value;
+      if (firstProject) {
+        this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: firstProject.id });
+      }
+      return;
+    }
+
+    const project = this.projects.get(fav.projectId);
+    if (!project) {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'favorite-error',
+        message: 'Favorite template project not found. It may have been deleted.',
+        type: 'error',
+        duration: 5000,
+      });
+      return;
+    }
+
+    const template = (project.chatTemplates || []).find(t => t.id === fav.templateId);
+    if (!template) {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'favorite-error',
+        message: 'Favorite template not found. It may have been deleted.',
+        type: 'error',
+        duration: 5000,
+      });
+      return;
+    }
+
+    const name = `${project.name} - ${template.name}`;
+    const msg = {
+      type: 'create_session',
+      projectId: fav.projectId,
+      model: template.model,
+      settings: template.settings || null,
+      name,
+    };
+    if (template.systemPrompt) msg.systemPrompt = template.systemPrompt;
+    if (template.appendClaudeMd) msg.appendClaudeMd = true;
+    if (template.mode === 'voice') {
+      msg.sessionType = 'voice';
+      msg.voice = template.voice || 'af_heart';
+    }
+    this.wsClient.send(msg);
   }
 
   // --- Server message dispatch ---
@@ -575,7 +668,6 @@ class EveWorkspaceClient {
     }
 
     this.modalManager.hideTaskModal();
-    this.sidebarRenderer.renderProjectList();
   }
 
   async deleteProject(projectId) {
@@ -583,7 +675,7 @@ class EveWorkspaceClient {
     if (!project) return;
 
     const sessionCount = Array.from(this.sessions.values()).filter(s => s.projectId === projectId).length;
-    const taskCount = this.taskManager.getTasksForProject(projectId).length;
+    const taskCount = this.state.getTasksForProject(projectId).length;
     const parts = [];
     if (sessionCount > 0) parts.push(`${sessionCount} session(s) will become ungrouped`);
     if (taskCount > 0) parts.push(`${taskCount} task(s) will be deleted`);

@@ -132,6 +132,10 @@ class RelayClient {
 
   leaveSession(sessionId) {
     this._send({ type: 'leave_session', sessionId });
+    // Reset voice mode so TTS doesn't carry over to the next session
+    this.voiceMode = false;
+    this.ttsTextAccumulator = '';
+    this.ttsPending = 0;
   }
 
   endSession(sessionId) {

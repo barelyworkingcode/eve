@@ -138,6 +138,23 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
     proxy(req, res, 'POST', `/api/tasks/${req.params.taskId}/run`);
   });
 
+  // --- Terminal templates (proxy) ---
+  app.get('/api/terminal/templates', requireAuth, (req, res) => {
+    proxy(req, res, 'GET', '/api/terminal/templates');
+  });
+
+  app.post('/api/terminal/templates', requireAuth, (req, res) => {
+    proxy(req, res, 'POST', '/api/terminal/templates', req.body);
+  });
+
+  app.put('/api/terminal/templates/:id', requireAuth, (req, res) => {
+    proxy(req, res, 'PUT', `/api/terminal/templates/${req.params.id}`, req.body);
+  });
+
+  app.delete('/api/terminal/templates/:id', requireAuth, (req, res) => {
+    proxy(req, res, 'DELETE', `/api/terminal/templates/${req.params.id}`);
+  });
+
   // --- TTS voices (cached, refreshes every 5 min) ---
   let voiceCache = null;
   let voiceCacheTime = 0;

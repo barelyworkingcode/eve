@@ -54,7 +54,7 @@ function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, 
 
         switch (message.type) {
           case 'create_session':
-            await handleCreateSession(ws, relayClient, relayHttpUrl, message);
+            await handleCreateSession(ws, relayClient, relayHttpUrl, message, log);
             break;
 
           case 'join_session':
@@ -62,7 +62,7 @@ function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, 
             break;
 
           case 'user_input':
-            handleUserInput(ws, relayClient, message);
+            handleUserInput(ws, relayClient, message, log);
             break;
 
           case 'leave_session':
@@ -187,7 +187,7 @@ function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, 
             break;
 
           case 'transcribe_audio':
-            handleTranscribeAudio(ws, sttService, message);
+            handleTranscribeAudio(ws, sttService, message, log);
             break;
 
           case 'read_plan_file':
@@ -209,7 +209,7 @@ function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, 
 /**
  * Create session via relayLLM HTTP POST, then join via WS.
  */
-async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
+async function handleCreateSession(ws, relayClient, relayHttpUrl, message, log) {
   try {
     const response = await fetch(`${relayHttpUrl}/api/sessions`, {
       method: 'POST',
@@ -245,10 +245,9 @@ async function handleCreateSession(ws, relayClient, relayHttpUrl, message) {
       voice: message.voice || null,
     }));
 
-    // Auto-enable voice mode for voice sessions
-    if (message.sessionType === 'voice') {
-      relayClient.setVoiceMode(true, message.voice || 'af_heart');
-    }
+    // Voice mode is controlled by the client via syncVoiceMode.
+    // Server TTS backend sends voice_mode enabled; on-device backends don't.
+    // Don't force it here — that would cause double speech when using native/browser TTS.
 
     // Suppress the session_joined that relayLLM will send when we join
     relayClient.setSuppressNextJoin(data.sessionId);
@@ -269,7 +268,7 @@ const VOICE_MODE_INSTRUCTION = '[VOICE MODE] Respond conversationally for spoken
 
 const DICTATION_NOTICE = '[DICTATED] The following was spoken aloud and transcribed via speech-to-text. Minor transcription errors may be present; please interpret the intended meaning.\n\n';
 
-function handleUserInput(ws, relayClient, message) {
+function handleUserInput(ws, relayClient, message, log) {
   const text = (message.text || '').trim();
 
   if (slashCommandHandler.handle(ws, relayClient, text)) {
@@ -336,7 +335,7 @@ function parseFileAttachment(f) {
 /**
  * Transcribe audio via the Whisper STT daemon.
  */
-async function handleTranscribeAudio(ws, sttService, message) {
+async function handleTranscribeAudio(ws, sttService, message, log) {
   try {
     const { audio, language } = message;
     if (!audio) {

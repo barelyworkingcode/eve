@@ -226,7 +226,7 @@ class ModalManager {
     this.app.renderModelSelect(el.taskModelSelect);
 
     if (taskId) {
-      const task = this.app.taskManager.tasks.get(taskId);
+      const task = this.app.state.getTask(taskId);
       if (!task) return;
       el.taskModalTitle.textContent = 'Edit Task';
       el.taskSubmitBtn.textContent = 'Save';

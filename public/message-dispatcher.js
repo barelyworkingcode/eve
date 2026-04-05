@@ -188,6 +188,7 @@ class MessageDispatcher {
 
   _handleTerminalTemplates(data) {
     this.terminal.onTemplates(data.templates);
+    this.state.setTerminalTemplates(data.templates || []);
     if (this.terminal._pendingPickerDirectory !== undefined) {
       const dir = this.terminal._pendingPickerDirectory;
       delete this.terminal._pendingPickerDirectory;
@@ -197,53 +198,53 @@ class MessageDispatcher {
   }
 
   handleSchedulerTaskEvent(data) {
-    const taskManager = this.taskManager;
-    if (!taskManager) return;
+    const task = this.state.getTask(data.taskId);
+    if (!task) return;
 
-    // Capture old session ID before handleTaskEvent overwrites task.lastSessionId
-    const task = taskManager.tasks.get(data.taskId);
-    const oldTaskSessionId = task?.lastSessionId;
+    const oldSessionId = task.lastSessionId;
 
-    taskManager.handleTaskEvent(data);
-    this.sidebar.renderProjectList();
-
+    // Update task state via StateStore
+    const updates = {};
     if (data.type === 'task_started') {
-      // Join immediately on start so the user sees output streaming live.
-      if (taskManager.userTriggeredRuns.has(data.taskId) && data.sessionId) {
-        // Close the old task session tab
-        if (oldTaskSessionId) {
-          this.tabManager.closeTab(oldTaskSessionId);
-          this.state.sessions.delete(oldTaskSessionId);
-          this.state.sessionHistories.delete(oldTaskSessionId);
-        }
-        this.app.joinSession(data.sessionId);
+      updates.lastStatus = 'running';
+      if (data.sessionId) updates.lastSessionId = data.sessionId;
+    } else if (data.type === 'task_completed') {
+      updates.lastStatus = data.status || 'success';
+      if (data.sessionId) updates.lastSessionId = data.sessionId;
+    } else if (data.type === 'task_error') {
+      updates.lastStatus = 'error';
+    }
+    this.state.updateTask(data.taskId, updates);
+
+    // Emit typed event for subscribers
+    if (data.type === 'task_started') this.bus.emit(EVT.TASK_STARTED, data);
+    else if (data.type === 'task_completed') this.bus.emit(EVT.TASK_COMPLETED, data);
+    else if (data.type === 'task_error') this.bus.emit(EVT.TASK_ERROR, data);
+
+    // Task session replacement: close old, join new
+    if (data.type === 'task_started' && this.taskManager?.userTriggeredRuns.has(data.taskId) && data.sessionId) {
+      if (oldSessionId) {
+        this.tabManager.closeTab(oldSessionId);
+        this.state.removeSession(oldSessionId);
       }
+      this.app.joinSession(data.sessionId);
     }
 
-    if (data.type === 'task_completed') {
-      if (taskManager.userTriggeredRuns.has(data.taskId)) {
-        taskManager.userTriggeredRuns.delete(data.taskId);
-      }
-    }
-
-    if (data.type === 'task_error') {
-      taskManager.userTriggeredRuns.delete(data.taskId);
-    }
-
-    // Reload full task state from HTTP to sync on terminal events
     if (data.type === 'task_completed' || data.type === 'task_error') {
-      taskManager.loadTasks(data.projectId).then(() => {
-        this.sidebar.renderProjectList();
-      });
+      this.taskManager?.userTriggeredRuns.delete(data.taskId);
+      // Reload from server to get full updated task state
+      this.taskManager?.loadTasks(data.projectId);
     }
   }
 
   handleSchedulerTaskStatus(data) {
-    const taskManager = this.taskManager;
-    if (!taskManager) return;
-
-    taskManager.handleTaskStatus(data);
-    this.sidebar.renderProjectList();
+    if (!Array.isArray(data.running)) return;
+    for (const item of data.running) {
+      this.state.updateTask(item.taskId, {
+        lastStatus: 'running',
+        ...(item.sessionId && { lastSessionId: item.sessionId }),
+      });
+    }
   }
 
   // --- Background session buffering ---
@@ -404,8 +405,8 @@ class MessageDispatcher {
       this.state.addSession(newSession);
     }
 
-    if (data.headless && this.taskManager) {
-      this.taskManager.taskSessionIds.add(data.sessionId);
+    if (data.headless) {
+      this.state.taskSessionIds.add(data.sessionId);
     }
 
     const serverHistory = (data.history && data.history.length > 0) ? data.history : [];
