@@ -51,4 +51,10 @@ class ApiClient {
   deleteTasksByProject(projectId) {
     return this._request('DELETE', `/api/tasks/by-project/${projectId}`);
   }
+
+  // Terminal Templates
+  getTerminalTemplates() { return this._request('GET', '/api/terminal/templates'); }
+  createTerminalTemplate(data) { return this._request('POST', '/api/terminal/templates', data); }
+  updateTerminalTemplate(id, data) { return this._request('PUT', `/api/terminal/templates/${id}`, data); }
+  deleteTerminalTemplate(id) { return this._request('DELETE', `/api/terminal/templates/${id}`); }
 }

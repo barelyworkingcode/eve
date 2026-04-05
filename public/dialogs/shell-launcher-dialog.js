@@ -7,7 +7,6 @@ class ShellLauncherDialog extends DialogBase {
     super(container, 'shell-launcher-dialog');
     this.state = container.get('state');
     this.projectId = null;
-    this._templates = [];
   }
 
   init() {
@@ -17,8 +16,8 @@ class ShellLauncherDialog extends DialogBase {
       this.show();
     });
 
-    this.bus.on(EVT.TERMINAL_TEMPLATES, (data) => {
-      this._templates = data.templates || [];
+    this.bus.on(EVT.TERMINAL_TEMPLATES_LOADED, () => {
+      if (this.isVisible) this._showTab('new');
     });
   }
 
@@ -66,7 +65,7 @@ class ShellLauncherDialog extends DialogBase {
     for (const tmpl of chatTemplates) {
       const isVoice = tmpl.mode === 'voice';
       const modelInfo = this.state.models.find(m => m.value === tmpl.model);
-      grid.appendChild(this._createCard({
+      const card = this._createCard({
         className: 'shell-launcher__card--template',
         iconHtml: isVoice
           ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>'
@@ -74,11 +73,31 @@ class ShellLauncherDialog extends DialogBase {
         name: tmpl.name,
         description: modelInfo?.label || tmpl.model || '',
         onClick: () => this._launchFromTemplate(tmpl),
-      }));
+      });
+
+      if (FAVORITE_TEMPLATE_ENABLED) {
+        const settings = this.container.get('settings');
+        const fav = settings.getFavoriteTemplate();
+        const isFav = fav && fav.projectId === this.projectId && fav.templateId === tmpl.id;
+
+        const star = document.createElement('span');
+        star.className = 'shell-launcher__fav-btn' + (isFav ? ' shell-launcher__fav-btn--active' : '');
+        star.title = isFav ? 'Remove as favorite' : 'Set as Action Button favorite';
+        star.innerHTML = isFav
+          ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
+          : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+        star.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._toggleFavorite(this.projectId, tmpl.id);
+        });
+        card.appendChild(star);
+      }
+
+      grid.appendChild(card);
     }
 
     // Terminal templates (Claude Code, OpenCode, Shell, custom)
-    const templates = this._templates.length > 0 ? this._templates : [
+    const templates = this.state.terminalTemplates.length > 0 ? this.state.terminalTemplates : [
       { id: 'claude-code', name: 'Claude Code', description: 'Claude Code CLI agent', icon: 'claude-code' },
       { id: 'opencode', name: 'OpenCode', description: 'OpenCode CLI agent', icon: 'terminal' },
       { id: 'shell', name: 'Shell', description: 'Default system shell', icon: 'shell' },
@@ -262,6 +281,40 @@ class ShellLauncherDialog extends DialogBase {
     });
   }
 
+  _toggleFavorite(projectId, templateId) {
+    const settings = this.container.get('settings');
+    const current = settings.getFavoriteTemplate();
+
+    // Un-favorite if clicking the current favorite
+    if (current && current.projectId === projectId && current.templateId === templateId) {
+      settings.setFavoriteTemplate(null);
+      this._showTab('new');
+      return;
+    }
+
+    // Confirm replacement if a different favorite exists
+    if (current) {
+      const currentProject = this.state.getProject(current.projectId);
+      const currentTemplate = currentProject?.chatTemplates?.find(t => t.id === current.templateId);
+      const currentName = currentTemplate
+        ? `"${currentTemplate.name}" (${currentProject.name})`
+        : 'the current favorite';
+
+      this.container.get('modalManager').showConfirmModal(
+        `Replace ${currentName} as your Action Button favorite?`,
+        () => {
+          settings.setFavoriteTemplate({ projectId, templateId });
+          this._showTab('new');
+        }
+      );
+      return;
+    }
+
+    // No existing favorite — set directly
+    settings.setFavoriteTemplate({ projectId, templateId });
+    this._showTab('new');
+  }
+
   _launchVoiceChat(model, voice, settings, appendClaudeMd) {
     const modelInfo = this.state.models.find(m => m.value === model);
     this._launchSession({
@@ -369,7 +422,7 @@ class ShellLauncherDialog extends DialogBase {
 
   _launchTerminal(templateId) {
     const project = this.state.getProject(this.projectId);
-    const tmpl = this._templates.find(t => t.id === templateId);
+    const tmpl = this.state.terminalTemplates.find(t => t.id === templateId);
     const tmplName = tmpl?.name || templateId;
     const name = project ? `${project.name} - ${tmplName}` : tmplName;
     const ws = this.container.get('ws');
