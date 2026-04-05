@@ -443,6 +443,7 @@ class EveWorkspaceClient {
 
       // Check for hash-based route (e.g., /#/voice-chat for iOS Action Button)
       this._handleHashRoute();
+      window.addEventListener('hashchange', () => this._handleHashRoute());
     });
 
     this.terminalManager.onReady(() => {
@@ -460,8 +461,28 @@ class EveWorkspaceClient {
 
     if (hash === '#/voice-chat' || hash === '#/voice_chat' || hash === '#!/voice-chat' || hash === '#!/voice_chat') {
       history.replaceState(null, '', window.location.pathname + window.location.search);
+
+      // Resume existing voice session if one is active
+      const existingId = this._findVoiceSession();
+      if (existingId) {
+        this.tabManager.switchToTab(existingId);
+        return;
+      }
+
       this._launchFavoriteTemplate();
     }
+  }
+
+  _findVoiceSession() {
+    // Already viewing a voice session
+    if (this.voiceChatManager?.isVoiceSession && this.currentSessionId) {
+      return this.currentSessionId;
+    }
+    // Find any voice session tab
+    for (const [id, session] of this.sessions) {
+      if (session.sessionType === 'voice') return id;
+    }
+    return null;
   }
 
   _launchFavoriteTemplate() {
