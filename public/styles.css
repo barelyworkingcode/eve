@@ -3518,6 +3518,18 @@ html, body {
   flex-shrink: 0;
 }
 
+.project-tree__session-badge--running {
+  color: var(--accent);
+}
+
+.project-tree__terminal-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 /* File tree */
 
 .file-tree {
@@ -3844,6 +3856,7 @@ html, body {
 }
 
 .shell-launcher__card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -3989,6 +4002,36 @@ html, body {
   border-color: rgba(168, 85, 247, 0.6);
 }
 
+/* Favorite star on template cards */
+.shell-launcher__fav-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  opacity: 0.4;
+  transition: opacity 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.shell-launcher__card:hover .shell-launcher__fav-btn {
+  opacity: 0.8;
+}
+
+.shell-launcher__fav-btn:hover {
+  opacity: 1;
+  color: #fbbf24;
+}
+
+.shell-launcher__fav-btn--active {
+  color: #fbbf24;
+  opacity: 1;
+}
+
 .shell-launcher__claudemd-row {
   display: flex;
   align-items: center;
@@ -4017,6 +4060,17 @@ html, body {
   font-size: 13px;
   padding: 16px 0;
   text-align: center;
+}
+
+.project-dialog__section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--border-color);
+  margin-top: 8px;
 }
 
 .project-dialog__add-btn {

@@ -55,6 +55,7 @@ const EVT = {
   TERMINAL_CLOSED: 'terminal:closed',
   TERMINAL_LIST: 'terminal:list',
   TERMINAL_TEMPLATES: 'terminal:templates',
+  TERMINAL_TEMPLATES_LOADED: 'terminal:templatesLoaded',
 
   // File operations
   FILE_CONTENT: 'file:content',
@@ -69,6 +70,8 @@ const EVT = {
   DIRECTORY_CREATED: 'directory:created',
 
   // Task lifecycle
+  TASKS_LOADED: 'tasks:loaded',
+  TASK_UPDATED: 'task:updated',
   TASK_STARTED: 'task:started',
   TASK_COMPLETED: 'task:completed',
   TASK_ERROR: 'task:error',
@@ -104,6 +107,7 @@ const EVT = {
 const IS_NATIVE_APP = !!(window.Capacitor?.isNativePlatform?.() && window.Capacitor?.Plugins?.EveVoice);
 const IS_SAFARI = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 const IS_MOBILE_SAFARI = /iPhone|iPad|iPod/i.test(navigator.userAgent) && IS_SAFARI;
+const FAVORITE_TEMPLATE_ENABLED = true; // Gate behind IS_NATIVE_APP when shipping to App Store
 
 // Plan file project ID sentinel
 const PLAN_PROJECT_ID = '__plan__';
