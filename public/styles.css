@@ -656,6 +656,14 @@ html, body {
   border-bottom-left-radius: 4px;
 }
 
+.message-metrics {
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  margin-top: 2px;
+  padding-left: 4px;
+}
+
 .message.system .message-content {
   background: transparent;
   border: 1px solid var(--border-color);
