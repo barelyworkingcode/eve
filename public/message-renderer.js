@@ -116,7 +116,7 @@ class MessageRenderer {
     }
   }
 
-  finishAssistantMessage() {
+  finishAssistantMessage(metrics) {
     this.markToolComplete();
     if (this.currentAssistantMessage) {
       const text = this.currentAssistantMessage.dataset.rawText;
@@ -134,6 +134,16 @@ class MessageRenderer {
         this.currentAssistantMessage.innerHTML = this.formatText(text);
         this._applyThinkBlockStates();
         this.renderMermaidBlocks(this.currentAssistantMessage);
+      }
+      // Append metrics subline (TTFT / TPS) below the message content.
+      if (metrics && (metrics.ttft || metrics.tps)) {
+        const parts = [];
+        if (metrics.ttft) parts.push(`TTFT ${metrics.ttft.toFixed(1)}s`);
+        if (metrics.tps) parts.push(`${metrics.tps.toFixed(1)} tps`);
+        const metricsEl = document.createElement('div');
+        metricsEl.className = 'message-metrics';
+        metricsEl.textContent = `(${parts.join(', ')})`;
+        this.currentAssistantMessage.parentElement.appendChild(metricsEl);
       }
       this.thinkBlockOpenStates.delete(this.currentAssistantMessage);
       this._clearStreamingText();
