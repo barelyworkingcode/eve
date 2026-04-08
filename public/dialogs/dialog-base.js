@@ -201,11 +201,12 @@ class DialogBase {
         row.appendChild(lbl);
 
         if (field.type === 'boolean') {
+          row.className = 'dialog__setting-row dialog__setting-row--checkbox';
           const input = document.createElement('input');
           input.type = 'checkbox';
           input.name = field.key;
           input.checked = parsed[field.key] !== undefined ? parsed[field.key] : !!field.default;
-          row.appendChild(input);
+          row.insertBefore(input, lbl);
         } else if (field.type === 'number') {
           const input = document.createElement('input');
           input.type = 'number';

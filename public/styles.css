@@ -2812,10 +2812,11 @@ html, body {
   border-color: var(--accent);
 }
 
-.provider-setting-checkbox label {
+.provider-setting-field.provider-setting-checkbox label {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 0;
   cursor: pointer;
   font-size: 13px;
   color: var(--text-primary);
@@ -3816,6 +3817,16 @@ html, body {
 
 .dialog__setting-row {
   margin-top: 8px;
+}
+
+.dialog__setting-row--checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog__setting-row--checkbox .dialog__label {
+  margin: 0;
 }
 
 .dialog__actions {

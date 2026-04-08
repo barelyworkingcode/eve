@@ -806,6 +806,21 @@ class EveWorkspaceClient {
         if (field.default != null) input.value = field.default;
         if (field.placeholder) input.placeholder = field.placeholder;
         wrapper.appendChild(input);
+      } else if (field.type === 'json') {
+        const label = document.createElement('label');
+        label.textContent = field.label;
+        wrapper.appendChild(label);
+        const input = document.createElement('textarea');
+        input.dataset.settingKey = field.key;
+        input.dataset.settingType = 'json';
+        input.rows = 6;
+        input.style.fontFamily = 'monospace';
+        input.style.fontSize = '12px';
+        input.style.width = '100%';
+        input.style.resize = 'vertical';
+        if (field.default != null) input.value = typeof field.default === 'string' ? field.default : JSON.stringify(field.default, null, 2);
+        if (field.placeholder) input.placeholder = field.placeholder;
+        wrapper.appendChild(input);
       } else {
         // string or string[]
         const label = document.createElement('label');
@@ -843,6 +858,15 @@ class EveWorkspaceClient {
         settings[key] = input.checked;
       } else if (input.type === 'number') {
         if (input.value !== '') settings[key] = parseFloat(input.value);
+      } else if (input.dataset.settingType === 'json') {
+        const val = input.value.trim();
+        if (val) {
+          try {
+            settings[key] = JSON.parse(val);
+          } catch (e) {
+            console.warn(`Invalid JSON for setting "${key}":`, e.message);
+          }
+        }
       } else if (input.dataset.settingType === 'string[]') {
         const val = input.value.trim();
         if (val) settings[key] = val.split(/\s+/);
