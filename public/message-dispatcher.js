@@ -33,6 +33,7 @@ class MessageDispatcher {
     this._lastNonInteractiveToolName = null;
     this.backgroundBuffers = new Map();
     this.streamingSessions = new Set();
+    this._lastTurnMetrics = null;
 
     this._sessionScopedTypes = new Set([
       'llm_event', 'message_complete', 'stats_update', 'raw_output',
@@ -52,7 +53,7 @@ class MessageDispatcher {
       system_message:       (d) => this.renderer.appendSystemMessage(d.message),
       clear_messages:       ()  => this.renderer.clearMessages(),
       message_complete:     (d) => this._handleMessageComplete(d),
-      stats_update:         (d) => this.app.updateStats(d.stats),
+      stats_update:         (d) => { this._captureTurnMetrics(d.stats); this.app.updateStats(d.stats); },
       tts_audio:            (d) => this._handleTtsAudio(d),
       tts_error:            (d) => this._handleTtsError(d),
       transcription_result: (d) => this.stt?.handleTranscriptionResult(d.text),
@@ -111,6 +112,15 @@ class MessageDispatcher {
     this.voice?.handleError(message);
   }
 
+  _captureTurnMetrics(stats) {
+    if (!stats) return;
+    const ttft = stats.timeToFirstToken;
+    const tps = stats.tokensPerSecond;
+    if (ttft || tps) {
+      this._lastTurnMetrics = { ttft, tps };
+    }
+  }
+
   _handleLlmEventMessage(data) {
     this._trackStreaming(data.sessionId);
     this.handleLlmEvent(data.event);
@@ -145,7 +155,9 @@ class MessageDispatcher {
     }
     const hadContent = !!this.renderer.currentAssistantMessage;
     this.renderer.hideThinkingIndicator();
-    this.renderer.finishAssistantMessage();
+    const metrics = this._lastTurnMetrics;
+    this._lastTurnMetrics = null;
+    this.renderer.finishAssistantMessage(metrics);
     this.app.hideStopButton();
     if (!hadContent && !data.error) {
       const msg = data.errorMessage || 'No response from model';
