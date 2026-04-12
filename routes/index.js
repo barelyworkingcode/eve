@@ -3,11 +3,15 @@ const path = require('path');
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resolveProject, ttsService, sttService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, resolveProject, ttsService, sttService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
-  // Shared auth middleware
+  // Shared auth middleware.
+  // Bypass order: (1) no passkey enrolled yet — first-run bootstrap; (2) the
+  // global kill-switch EVE_NO_AUTH=1; (3) the client is on a trusted subnet
+  // (raw TCP source address only — never the Host header). Otherwise a valid
+  // session token is required.
   function requireAuth(req, res, next) {
-    if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || authService.isLocalhost(req)) {
+    if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
       return next();
     }
     const token = req.headers['x-session-token'];
@@ -18,32 +22,20 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
   }
 
   // Auth routes (local, no proxy)
-  app.use('/api', createAuthRoutes(authService, routeLog.child('Auth')));
+  app.use('/api', createAuthRoutes(authService, trustedNetwork, routeLog.child('Auth')));
 
-  // Fetch from a backend without sending the response (for routes that need pre-response processing)
-  async function relayFetch(method, path, body) {
-    const url = `${relayUrl}${path}`;
-    const opts = {
-      method,
-      headers: { 'Content-Type': 'application/json' }
-    };
-    if (body !== undefined) {
-      opts.body = JSON.stringify(body);
-    }
-    const response = await fetch(url, opts);
-    const data = await response.json();
-    return { status: response.status, data };
-  }
-
-  // Proxy helper: forwards request to relayLLM and sends the response
+  // Proxy helper: forwards request to relayLLM via the shared RelayTransport
+  // and sends the response. Callers that need pre-response processing (cache
+  // refresh, etc.) call relayTransport.fetch() directly and send the response
+  // themselves — see the mutation handlers below.
   function proxy(req, res, method, relayPath, body) {
-    return relayFetch(method, relayPath, body)
+    return relayTransport.fetch(method, relayPath, body)
       .then(({ status, data }) => {
         res.status(status).json(data);
         return data;
       })
       .catch(err => {
-        routeLog.error(`${method} ${relayUrl}${relayPath} failed:`, err.message);
+        routeLog.error(`${method} ${relayPath} failed:`, err.message);
         res.status(502).json({ error: 'Service unavailable' });
         return null;
       });
@@ -64,7 +56,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
   // where client acts on response before cache is updated
   app.post('/api/projects', requireAuth, async (req, res) => {
     try {
-      const { status, data } = await relayFetch('POST', '/api/projects', req.body);
+      const { status, data } = await relayTransport.fetch('POST', '/api/projects', req.body);
       if (data && data.id) await refreshProjectCache();
       res.status(status).json(data);
     } catch (err) {
@@ -79,7 +71,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
 
   app.put('/api/projects/:id', requireAuth, async (req, res) => {
     try {
-      const { status, data } = await relayFetch('PUT', `/api/projects/${req.params.id}`, req.body);
+      const { status, data } = await relayTransport.fetch('PUT', `/api/projects/${req.params.id}`, req.body);
       if (data && data.id) await refreshProjectCache();
       res.status(status).json(data);
     } catch (err) {
@@ -90,7 +82,7 @@ function registerRoutes(app, { authService, relayUrl, refreshProjectCache, resol
 
   app.delete('/api/projects/:id', requireAuth, async (req, res) => {
     try {
-      const { status, data } = await relayFetch('DELETE', `/api/projects/${req.params.id}`);
+      const { status, data } = await relayTransport.fetch('DELETE', `/api/projects/${req.params.id}`);
       await refreshProjectCache();
       res.status(status).json(data);
     } catch (err) {
