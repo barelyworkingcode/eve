@@ -10,14 +10,15 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, claudeConfig, resolveProject, ttsService, sttService, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, claudeConfig, resolveProject, ttsService, sttService, log }) {
   return (ws, req) => {
-    const host = (req.headers.host || 'localhost').split(':')[0];
-    const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
-    const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !isLocalhostConnection;
+    // Trust is decided by the raw TCP source address via TrustedNetworkService.
+    // Never consult req.headers.host or X-Forwarded-For here — both are
+    // attacker-controllable. See plans/cozy-honking-toast.md Section A.
+    const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !trustedNetwork.isTrusted(req);
     let isAuthenticated = !requiresAuth;
 
-    const relayClient = new RelayClient(relayWsUrl, ws, ttsService, log?.child('Relay'));
+    const relayClient = new RelayClient(relayTransport, ws, ttsService, log?.child('Relay'));
     const fileWatcher = new FileWatcher(ws, fileHandlers.fileService, resolveProject);
 
     // Connect to relayLLM immediately
@@ -54,7 +55,7 @@ function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, 
 
         switch (message.type) {
           case 'create_session':
-            await handleCreateSession(ws, relayClient, relayHttpUrl, message, log);
+            await handleCreateSession(ws, relayClient, relayTransport, message, log);
             break;
 
           case 'join_session':
@@ -209,26 +210,20 @@ function createWsHandler({ authService, fileHandlers, relayWsUrl, relayHttpUrl, 
 /**
  * Create session via relayLLM HTTP POST, then join via WS.
  */
-async function handleCreateSession(ws, relayClient, relayHttpUrl, message, log) {
+async function handleCreateSession(ws, relayClient, relayTransport, message, log) {
   try {
-    const response = await fetch(`${relayHttpUrl}/api/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectId: message.projectId || '',
-        directory: message.directory || '',
-        name: message.name || '',
-        model: message.model || '',
-        settings: message.settings || null,
-        systemPrompt: message.systemPrompt || '',
-        appendClaudeMd: message.appendClaudeMd || false,
-      })
+    const { status, data } = await relayTransport.fetch('POST', '/api/sessions', {
+      projectId: message.projectId || '',
+      directory: message.directory || '',
+      name: message.name || '',
+      model: message.model || '',
+      settings: message.settings || null,
+      systemPrompt: message.systemPrompt || '',
+      appendClaudeMd: message.appendClaudeMd || false,
     });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      ws.send(JSON.stringify({ type: 'error', message: data.error || 'Failed to create session' }));
+    if (status < 200 || status >= 300) {
+      ws.send(JSON.stringify({ type: 'error', message: (data && data.error) || 'Failed to create session' }));
       return;
     }
 

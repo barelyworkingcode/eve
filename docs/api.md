@@ -9,10 +9,12 @@ All endpoints (except `/api/auth/*`) require authentication when WebAuthn is enr
 | Method | Details |
 |--------|---------|
 | Header token | `X-Session-Token: <token>` |
-| Localhost bypass | Requests from `localhost`/`127.0.0.1` skip auth |
-| Env bypass | `EVE_NO_AUTH=1` disables auth entirely |
+| Trusted-subnet bypass | Requests whose raw TCP source address (`req.socket.remoteAddress`) falls inside a trusted subnet skip auth. Defaults: loopback + every non-internal IPv4 interface. Override with `EVE_TRUSTED_SUBNETS=10.0.0.0/24,…`, disable with `EVE_DISABLE_SUBNET_BYPASS=1`. The `Host` header and `X-Forwarded-For` are **never** consulted for this decision. |
+| Env bypass | `EVE_NO_AUTH=1` disables auth entirely (CI / dev containers only) |
 
 Get a token via the WebAuthn enrollment or login flow below.
+
+> **Note.** Earlier versions of this doc described a "localhost bypass" that skipped auth when the request `Host` header equalled `localhost` or `127.0.0.1`. That check was attacker-controllable — any remote client could set `Host: localhost` and bypass the passkey — and has been replaced by the IP-based trusted-subnet check above. See [`plans/cozy-honking-toast.md`](../plans/cozy-honking-toast.md) for the full design.
 
 ## HTTP Endpoints
 
@@ -22,7 +24,7 @@ Get a token via the WebAuthn enrollment or login flow below.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/auth/status` | Check enrollment and authentication state. Returns `localhost: true` for local connections (always authenticated). |
+| GET | `/api/auth/status` | Check enrollment and authentication state. Returns `trusted: true` when the caller's raw TCP source address is on a trusted subnet (in which case the UI skips the passkey flow). |
 | POST | `/api/auth/enroll/start` | Begin passkey enrollment. Returns WebAuthn `options` for `navigator.credentials.create()`. 400 if already enrolled. |
 | POST | `/api/auth/enroll/finish` | Complete enrollment. Body: `{ response, challengeId }`. Returns `{ token }` for subsequent requests. |
 | POST | `/api/auth/login/start` | Begin login. Returns WebAuthn `options` for `navigator.credentials.get()`. 400 if not enrolled. |

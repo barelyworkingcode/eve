@@ -1,5 +1,31 @@
 # Lessons Learned
 
+## Never Use `req.headers.host` for Authorization
+
+**Issue**: An early "localhost bypass" in `auth.js` and `ws-handler.js` short-circuited the passkey check when the request `Host` header was `localhost` or `127.0.0.1`. The `Host` header is fully attacker-controllable, so any remote client could send `Host: localhost` and bypass authentication entirely — over HTTP and WebSocket — on every data route and file operation.
+
+```javascript
+// WRONG: attacker can set Host: localhost from anywhere
+const host = req.get('host') || 'localhost';
+if (host === 'localhost' || host === '127.0.0.1') return next();
+
+// WRONG: same bug in the WS upgrade handler
+const host = (req.headers.host || 'localhost').split(':')[0];
+const isLocalhostConnection = host === 'localhost' || host === '127.0.0.1';
+
+// CORRECT: the only trustworthy signal is the raw TCP source address
+const ip = req.socket.remoteAddress;
+if (trustedNetwork.isTrusted(ip)) return next();
+```
+
+**Rules of thumb:**
+- `req.headers.host` and `X-Forwarded-For` are **never** trustworthy inputs for authorization. They are useful for building URLs and for rate limiting *with a per-IP kill switch*, but not for gating access.
+- `req.socket.remoteAddress` is the authoritative network identity. If you need to support a reverse proxy, explicitly allow-list the proxy's IP and only then consult `X-Forwarded-For` — and even then, treat it as a hint, not a credential.
+- IP-based checks must also normalize IPv6-mapped IPv4 (`::ffff:1.2.3.4` → `1.2.3.4`) or the comparison will silently fail on dual-stack hosts.
+- All trust-boundary logic lives in one place (`TrustedNetworkService`) so future edits don't accidentally reintroduce the Host-header path.
+
+Design details and the full fix are tracked in [`plans/cozy-honking-toast.md`](../plans/cozy-honking-toast.md).
+
 ## Path Handling in Node.js
 
 **Issue**: `path.resolve()` treats paths starting with `/` as absolute paths.

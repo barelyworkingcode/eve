@@ -2,7 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_TTL_DAYS = (() => {
+  const raw = process.env.EVE_SESSION_TTL_DAYS;
+  if (raw === undefined || raw === '') return 7;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 7;
+})();
+const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
 
 const { NullLogger } = require('./logger');
 

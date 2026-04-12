@@ -10,6 +10,8 @@ const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
 const TTSService = require('./tts-service');
 const STTService = require('./stt-service');
+const { TrustedNetworkService } = require('./trusted-network');
+const { RelayTransport, RelayConfigError } = require('./relay-transport');
 const { Logger } = require('./logger');
 
 const log = new Logger(process.env.LOG_LEVEL || 'debug');
@@ -87,21 +89,37 @@ function loadSettings() {
 }
 loadSettings();
 
-// relayLLM connection
-const RELAY_LLM_URL = process.env.RELAY_LLM_URL || 'http://localhost:3001';
-const RELAY_LLM_WS_URL = RELAY_LLM_URL.replace(/^http/, 'ws') + '/ws';
-serverLog.info(`relayLLM URL: ${RELAY_LLM_URL} (WS: ${RELAY_LLM_WS_URL})`);
-
-// Project cache (refreshed from relayLLM via HTTP proxy routes)
+// Project cache (refreshed from relayLLM via RelayTransport)
 const projectCache = new Map();
+
+// Services
+const authService = new AuthService(DATA_DIR, log.child('Auth'));
+const trustedNetwork = new TrustedNetworkService({ log: log.child('TrustedNetwork') });
+
+// Relay transport (Unix socket preferred, TCP fallback). Fails the process
+// hard on any insecure configuration — see plans/cozy-honking-toast.md
+// Section B for the threat model.
+let relayTransport;
+try {
+  relayTransport = RelayTransport.fromEnv({ log: log.child('RelayTransport') });
+  relayTransport.assertStartupConfig();
+} catch (err) {
+  if (err instanceof RelayConfigError) {
+    serverLog.error(`Refusing to start: ${err.message}`);
+    process.exit(1);
+  }
+  throw err;
+}
+
+const fileHandlers = new FileHandlers((id) => projectCache.get(id));
 
 async function refreshProjectCache(data) {
   try {
     let projects = data;
     if (!projects) {
-      const response = await fetch(`${RELAY_LLM_URL}/api/projects`);
-      if (!response.ok) throw new Error(`relayLLM returned ${response.status}`);
-      projects = await response.json();
+      const { status, data: fetched } = await relayTransport.fetch('GET', '/api/projects');
+      if (status < 200 || status >= 300) throw new Error(`relayLLM returned ${status}`);
+      projects = fetched;
     }
     if (!Array.isArray(projects)) return;
     projectCache.clear();
@@ -115,10 +133,6 @@ async function refreshProjectCache(data) {
 
 // Initial project cache load
 refreshProjectCache();
-
-// Services
-const authService = new AuthService(DATA_DIR, log.child('Auth'));
-const fileHandlers = new FileHandlers((id) => projectCache.get(id));
 
 // Static middleware
 app.use(express.static(path.join(__dirname, 'public')));
@@ -136,26 +150,23 @@ app.use('/vad-web', express.static(path.join(__dirname, 'node_modules/@ricky0123
 app.use('/espeak-ng', express.static(path.join(__dirname, 'node_modules/espeak-ng/dist')));
 app.use(express.json({ limit: '50mb' }));
 
-// TTS service (connects to Kokoro daemon)
-const ttsService = new TTSService(
-  process.env.TTS_HOST || 'localhost',
-  parseInt(process.env.TTS_PORT || '9997', 10)
-);
-
-// STT service (connects to Whisper daemon)
-const sttService = new STTService(
-  process.env.STT_HOST || 'localhost',
-  parseInt(process.env.STT_PORT || '9998', 10)
-);
+// TTS / STT daemons are hard-pinned to loopback. The previous TTS_HOST /
+// STT_HOST env overrides let an operator point these at a remote address
+// with no authentication — a footgun with no known consumer. If a real
+// split-host deployment ever shows up, add an explicit auth layer instead
+// of reopening the loopback pin. See plans/cozy-honking-toast.md Section B.
+const ttsService = new TTSService('127.0.0.1', parseInt(process.env.TTS_PORT || '9997', 10));
+const sttService = new STTService('127.0.0.1', parseInt(process.env.STT_PORT || '9998', 10));
 
 // Register HTTP routes (proxy to relayLLM + scheduler + local auth)
-registerRoutes(app, { authService, relayUrl: RELAY_LLM_URL, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService, sttService, log });
+registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService, sttService, log });
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
-  authService, fileHandlers,
-  relayWsUrl: RELAY_LLM_WS_URL,
-  relayHttpUrl: RELAY_LLM_URL,
+  authService,
+  trustedNetwork,
+  relayTransport,
+  fileHandlers,
   claudeConfig: settings.providerConfig.claude,
   resolveProject: (id) => projectCache.get(id),
   ttsService,
@@ -165,6 +176,18 @@ wss.on('connection', createWsHandler({
 
 const PORT = process.env.PORT || 3000;
 const HTTP_PORT = process.env.HTTP_PORT || 3000;
+
+// Warn loudly when the primary listener is plain HTTP bound to all
+// interfaces — traffic including session tokens traverses the wire
+// unencrypted. Operators can set EVE_ALLOW_PLAINTEXT_REMOTE=1 to silence
+// the warning for local-dev convenience. See plans/cozy-honking-toast.md
+// Section C.
+if (!(HTTPS_KEY && HTTPS_CERT) && process.env.EVE_ALLOW_PLAINTEXT_REMOTE !== '1') {
+  serverLog.warn(
+    'Eve is running plain HTTP on all interfaces — traffic (including session tokens) is NOT encrypted on the wire. ' +
+    'Set HTTPS_KEY / HTTPS_CERT for network access, or EVE_ALLOW_PLAINTEXT_REMOTE=1 to silence this warning for local dev.'
+  );
+}
 
 server.listen(PORT, () => {
   const protocol = HTTPS_KEY && HTTPS_CERT ? 'https' : 'http';
@@ -176,8 +199,12 @@ server.listen(PORT, () => {
   }
 
   if (httpServer) {
-    httpServer.listen(HTTP_PORT, () => {
-      serverLog.info(`HTTP server listening on http://localhost:${HTTP_PORT}`);
+    // The secondary HTTP listener is bound to loopback ONLY so DUAL_LISTEN
+    // cannot accidentally expose plaintext Eve traffic to the LAN. Same-host
+    // curl scripts still work; remote access must go through the HTTPS
+    // primary listener. See plans/cozy-honking-toast.md Section C.
+    httpServer.listen(HTTP_PORT, '127.0.0.1', () => {
+      serverLog.info(`HTTP server listening on http://127.0.0.1:${HTTP_PORT} (loopback-only)`);
     });
   }
 });
