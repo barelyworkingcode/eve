@@ -34,10 +34,12 @@ class MessageDispatcher {
     this.backgroundBuffers = new Map();
     this.streamingSessions = new Set();
     this._lastTurnMetrics = null;
+    this._localSubmitSession = null; // session ID of the last locally submitted message
 
     this._sessionScopedTypes = new Set([
       'llm_event', 'message_complete', 'stats_update', 'raw_output',
       'stderr', 'process_exited', 'error', 'system_message', 'clear_messages',
+      'user_message',
     ]);
 
     this._handlers = {
@@ -45,6 +47,7 @@ class MessageDispatcher {
       session_joined:       (d) => this.handleSessionJoined(d),
       session_renamed:      (d) => this.handleSessionRenamed(d),
       session_ended:        (d) => this.handleSessionEnded(d),
+      user_message:         (d) => this._handleUserMessage(d),
       llm_event:            (d) => this._handleLlmEventMessage(d),
       raw_output:           (d) => this.renderer.appendRawOutput(d.text),
       stderr:               (d) => this.renderer.appendSystemMessage(d.text, 'error'),
@@ -108,6 +111,16 @@ class MessageDispatcher {
     if (sessionId) this.streamingSessions.delete(sessionId);
   }
 
+  /** Reset all per-turn state. Called on user-initiated stop so stale
+   *  data from the cancelled turn doesn't bleed into the next one. */
+  resetTurnState(sessionId) {
+    this._untrackStreaming(sessionId);
+    this.pendingInteractiveTool = null;
+    this._lastTurnMetrics = null;
+    this._clientTTSAccum = '';
+    this._lastNonInteractiveToolName = null;
+  }
+
   _notifyVoiceError(message) {
     this.voice?.handleError(message);
   }
@@ -119,6 +132,23 @@ class MessageDispatcher {
     if (ttft || tps) {
       this._lastTurnMetrics = { ttft, tps };
     }
+  }
+
+  /** Mark a session as locally submitted so its server echo is suppressed. */
+  markLocalSubmit(sessionId) {
+    this._localSubmitSession = sessionId;
+  }
+
+  _handleUserMessage(data) {
+    // Sending window already rendered this optimistically — skip the echo.
+    if (this._localSubmitSession === data.sessionId) {
+      this._localSubmitSession = null;
+      return;
+    }
+    // Passive window: render the user message and transition to generating state.
+    this.renderer.appendUserMessage(data.text);
+    this.renderer.showThinkingIndicator();
+    this.app.showStopButton();
   }
 
   _handleLlmEventMessage(data) {
@@ -270,6 +300,17 @@ class MessageDispatcher {
       if (session && data.stats) {
         session.costUsd = data.stats.costUsd || 0;
       }
+      return;
+    }
+
+    if (data.type === 'user_message') {
+      // Store user message in background session history
+      let history = this.state.sessionHistories.get(sid);
+      if (!history) {
+        history = [];
+        this.state.sessionHistories.set(sid, history);
+      }
+      history.push({ role: 'user', content: data.text });
       return;
     }
 
@@ -598,6 +639,7 @@ class MessageDispatcher {
     this.modalManager.showPlanApproval((approved) => {
       if (approved) {
         this.renderer.appendUserMessage('Yes, proceed with the plan.');
+        this.markLocalSubmit(this.state.currentSessionId);
         this.ws.send({ type: 'user_input', text: 'Yes, proceed with the plan.', sessionId: this.state.currentSessionId });
         this.renderer.showThinkingIndicator();
         this.app.showStopButton();
@@ -618,6 +660,7 @@ class MessageDispatcher {
 
     this.renderer.renderQuestionBlock(questions, (responseText) => {
       this.renderer.appendUserMessage(responseText);
+      this.markLocalSubmit(this.state.currentSessionId);
       this.ws.send({ type: 'user_input', text: responseText, sessionId: this.state.currentSessionId });
       this.renderer.showThinkingIndicator();
       this.app.showStopButton();

@@ -337,6 +337,7 @@ class VoiceChatManager {
     this._vadTranscribing = false;
     this._addCaption('user', text);
 
+    this.app.messageDispatcher.markLocalSubmit(this.app.currentSessionId);
     this.app.wsClient.send({
       type: 'user_input',
       text: text,

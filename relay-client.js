@@ -161,6 +161,8 @@ class RelayClient {
   }
 
   stopGeneration(sessionId) {
+    this.ttsTextAccumulator = '';
+    this.ttsPending = 0;
     this._send({ type: 'stop_generation', sessionId });
   }
 
