@@ -99,7 +99,21 @@ Eve uses WebAuthn passkeys to secure access. The first person to visit the app e
 
 **Reset:** Delete `data/auth.json` to clear enrollment and allow a new owner.
 
-**Disable:** Set `EVE_NO_AUTH=1` environment variable to bypass authentication entirely.
+**Disable:** Set `EVE_NO_AUTH=1` environment variable to bypass authentication entirely (CI / dev containers only).
+
+### Trusted-subnet bypass
+
+Eve can skip the passkey prompt for clients whose **IP address** (from the raw TCP connection — not the `Host` header) sits on a subnet Eve trusts. This is how Claude-driven Chrome automation reaches the UI without a passkey interstitial when running on the same machine or LAN.
+
+**Default trusted set:** loopback (`127.0.0.0/8`, `::1`) plus each non-internal IPv4 interface's subnet, derived at startup from `os.networkInterfaces()`.
+
+**Override:** set `EVE_TRUSTED_SUBNETS` to a comma-separated CIDR list (e.g. `10.0.0.0/24,192.168.1.0/24`) to pin the trusted set explicitly. Useful for multi-NIC hosts, VPN overlays, and container networks.
+
+**Disable:** set `EVE_DISABLE_SUBNET_BYPASS=1` to require a passkey on every request, including loopback.
+
+Eve's trust check **only** reads `req.socket.remoteAddress` — the `Host` header and `X-Forwarded-For` are never consulted for authorization decisions. Deployments behind a reverse proxy should either rely on the proxy to enforce auth, or pin `EVE_TRUSTED_SUBNETS` to exclude the proxy's IP so every request hits the passkey flow.
+
+> This subnet-gated model replaces an earlier "localhost bypass" that incorrectly trusted the request `Host` header. Design details and implementation tracking live in [`plans/cozy-honking-toast.md`](plans/cozy-honking-toast.md).
 
 ### HTTPS for Mobile/LAN Access
 
@@ -190,7 +204,7 @@ Projects can open an interactive terminal directly in the UI. Click the terminal
 
 ## Architecture
 
-Eve is a relay proxy. It does not manage LLM providers, sessions, or projects directly.
+Eve is a relay proxy. It does not manage LLM providers, sessions, or projects directly. **Every** browser call that touches backend state traverses the Eve server — the only direct external fetch from the browser is a public-CDN download of Kokoro TTS ONNX model weights and voice embeddings from `huggingface.co` (`public/tts-worker.js`), which carries no user data.
 
 ```
 Browser ──WS──► Eve ──WS──► relayLLM       (sessions, messages, permissions)
@@ -199,6 +213,37 @@ Browser ──WS──► Eve ──local──► TerminalMgr  (terminals)
 Browser ──HTTP──► Eve ──HTTP──► relayLLM    (models, projects, sessions list)
 Browser ──HTTP──► Eve ──HTTP──► relayLLM ──HTTP──► relayScheduler  (tasks)
 ```
+
+## Security Model
+
+Eve sits between a single browser user and a set of trusted backend services (`relayLLM`, `relayScheduler`, on-device TTS/STT daemons). Two trust boundaries need to be hardened: browser↔Eve and Eve↔backend.
+
+### Browser ↔ Eve
+
+- **WebAuthn passkey + session token.** The first visitor enrolls a passkey; subsequent visits exchange the passkey for a 256-bit session token stored in `localStorage` and sent on every request as `X-Session-Token` (HTTP) or the first `{type:'auth', token}` WebSocket message.
+- **Fail-closed auth middleware.** `requireAuth` in `routes/index.js` wraps every data route. The WebSocket upgrade accepts the connection but blocks all non-auth frames until the token validates; an invalid token closes the socket with code `4001`.
+- **Trusted-subnet bypass.** See the "Trusted-subnet bypass" section above. The check uses the raw TCP source address only — the `Host` header and `X-Forwarded-For` are never trusted for authorization.
+- **No cookies.** Tokens travel in an explicit header, so the usual CSRF attack surface does not exist.
+- **TLS on the wire.** Passkeys require a secure context, so any non-loopback deployment must set `HTTPS_KEY` / `HTTPS_CERT`. See [docs/https-setup.md](docs/https-setup.md).
+
+### Eve ↔ backend
+
+Eve is the only process that talks to `relayLLM`, which in turn proxies to `relayScheduler`. The transport between Eve and relayLLM is a **Unix domain socket + ephemeral bearer token**, reusing the pattern used by the Go `relay` orchestrator for MCP tool calls (`relay/tokens.go`, `relay/service_registry.go`, `relay/bridge/server.go`).
+
+- **Socket mode (preferred).** `RELAY_LLM_SOCKET` points at a `0600`-permission Unix socket allocated by the relay orchestrator at spawn time. Kernel-enforced file permissions do the primary authorization work; the bearer token is defense-in-depth.
+- **TCP mode (fallback).** `RELAY_LLM_URL` is used only when Eve and relayLLM run on different hosts. Must be `https://`, with certificate verification enabled (`rejectUnauthorized: true`) and an optional `RELAY_LLM_CA` for operators who run an internal CA. Plain `http://` off loopback is refused at startup — no silent downgrade.
+- **Bearer token.** `RELAY_LLM_TOKEN` is a 32-byte hex value generated by the relay orchestrator at Eve/relayLLM spawn time and injected into both processes via environment variables. It is ephemeral — revoked automatically when either process exits, never written to disk. Eve sends it on every outbound HTTP request as `Authorization: Bearer <token>` and during the WebSocket upgrade as the same header, so relayLLM rejects unauthenticated upgrades before protocol-switching.
+- **Parallel, not multiplexed.** The existing `relay.sock` carries MCP tool-call JSON; Eve↔relayLLM runs on its own socket so a leaked token in one channel cannot grant access to the other.
+- **Fail-closed startup.** `RelayTransport.assertStartupConfig()` refuses to start on any insecure combination (off-loopback HTTP, missing token in non-dev modes, socket mode without token). There is no "skip verify" or "downgrade" option.
+- **TTS / STT daemons** are hard-pinned to `127.0.0.1` (Kokoro :9997, Whisper :9998). They are not reachable from the network.
+
+> **Implementation status.** Shipped. Design rationale and verification results (including a Chrome end-to-end test over the Unix socket) live in [`plans/cozy-honking-toast.md`](plans/cozy-honking-toast.md). The cross-repo pieces — the `bearerAuth` middleware + Unix socket listener in `../relayLLM`, and the `LLMChannel` credential injection in `../relay/service_registry.go` — landed alongside the Eve changes.
+
+### What to watch out for
+
+- Do **not** edit auth or trust logic without also updating `plans/cozy-honking-toast.md` and the verification tests.
+- Do **not** re-introduce a "localhost" check that reads `req.headers.host`. The raw TCP source address is the only safe signal.
+- Do **not** add backwards-compatibility flags that disable TLS or token validation on the Eve↔backend channel.
 
 ```
 server.js                - Express + WebSocket server, relayLLM config, project cache
@@ -240,15 +285,34 @@ data/                    - Runtime data (gitignored): auth, settings
 
 ## Environment Variables
 
+### Server
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | 3000 | Server port |
-| `RELAY_LLM_URL` | `http://localhost:3001` | relayLLM server URL |
+| `PORT` | `3000` | Server port |
 | `HTTPS_KEY` | - | Path to SSL private key file (enables HTTPS) |
 | `HTTPS_CERT` | - | Path to SSL certificate file (enables HTTPS) |
-| `DUAL_LISTEN` | - | Set to `true` to listen on both HTTPS and HTTP |
-| `HTTP_PORT` | 3000 | HTTP port when `DUAL_LISTEN` is enabled |
-| `EVE_NO_AUTH` | - | Set to `1` to disable passkey authentication |
+| `DUAL_LISTEN` | - | Set to `true` to run HTTP alongside HTTPS. The HTTP listener binds to `127.0.0.1` only (not the LAN) to prevent plaintext traffic from escaping the host. |
+| `HTTP_PORT` | `3000` | HTTP port when `DUAL_LISTEN` is enabled |
+| `EVE_ALLOW_PLAINTEXT_REMOTE` | - | Explicit opt-in required to bind HTTP to a non-loopback address without HTTPS. Not for production — set only for local-dev convenience. |
+
+### Browser auth
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EVE_NO_AUTH` | - | Set to `1` to disable passkey authentication entirely. CI / dev containers only. |
+| `EVE_TRUSTED_SUBNETS` | auto | Comma-separated CIDR list of subnets allowed to bypass the passkey prompt (e.g. `10.0.0.0/24,192.168.1.0/24`). Defaults to loopback plus every non-internal IPv4 interface derived from `os.networkInterfaces()`. See "Trusted-subnet bypass". |
+| `EVE_DISABLE_SUBNET_BYPASS` | - | Set to `1` to require a passkey on every request, ignoring the trusted-subnet list (including loopback). |
+| `EVE_SESSION_TTL_DAYS` | `7` | Session token lifetime in days. After this period the user must re-authenticate. |
+
+### Eve ↔ relayLLM
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RELAY_LLM_SOCKET` | - | Path to a Unix domain socket provisioned by the `relay` orchestrator at spawn time. When set, Eve dials it via `http.Agent({ socketPath })` for both HTTP and WebSocket traffic. Kernel file permissions (`0600`) anchor authorization; no TLS is needed on this hop. Preferred transport in orchestrator-managed deployments. |
+| `RELAY_LLM_URL` | `http://localhost:3001` | Fallback TCP URL for split-host deployments. Off-loopback values must use `https://`; plain `http://` to a remote host is refused at startup. |
+| `RELAY_LLM_TOKEN` | - | Ephemeral bearer token, injected by the orchestrator into both Eve and relayLLM at spawn time. Sent on every HTTP request and every WebSocket upgrade as `Authorization: Bearer <token>`. Per-process-lifetime — never written to disk. |
+| `RELAY_LLM_CA` | - | Optional PEM path for operators running an internal CA in front of relayLLM. Loaded into a shared `https.Agent` with `rejectUnauthorized: true`. There is no "skip verify" option. |
 
 ## Ecosystem
 

@@ -91,7 +91,36 @@ class AuthClient {
         await this.login();
       }
     } catch (err) {
-      this.log.error('Action failed:', err);
+      // DOMException from navigator.credentials doesn't serialize with
+      // JSON.stringify — extract the useful fields explicitly.
+      this.log.error('Action failed:', {
+        name: err.name,
+        message: err.message,
+        code: err.code,
+        stack: err.stack?.split('\n').slice(0, 3).join('\n')
+      });
+
+      // iOS WKWebView blocks WebAuthn unless the app has a verified
+      // Associated Domains entitlement (impossible for local hostnames).
+      // Fall back to opening the passkey ceremony in Safari via
+      // ASWebAuthenticationSession, which has full passkey support.
+      if (err.name === 'NotAllowedError' && window.Capacitor?.Plugins?.SafariAuth) {
+        this.log.info('Falling back to Safari passkey flow');
+        try {
+          const result = await window.Capacitor.Plugins.SafariAuth.login();
+          if (result?.token) {
+            localStorage.setItem('eve_session', result.token);
+            this.hide();
+            window.dispatchEvent(new CustomEvent('auth:success'));
+            return;
+          }
+        } catch (safariErr) {
+          this.log.error('Safari auth fallback failed:', safariErr?.message || safariErr);
+          this.showError('Authentication failed. Please try again.');
+          return;
+        }
+      }
+
       this.showError(err.message || 'Authentication failed');
     } finally {
       this.elements.action.disabled = false;

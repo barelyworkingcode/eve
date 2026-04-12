@@ -1,6 +1,8 @@
 # HTTPS Setup for Passkey Authentication
 
-WebAuthn (passkeys) requires a "secure context". While `localhost` is special-cased and works with HTTP, accessing Eve Workspace from other devices on your LAN requires HTTPS.
+WebAuthn (passkeys) requires a "secure context". While `localhost` is special-cased and works with HTTP, accessing Eve from other devices on your LAN **with a passkey prompt** requires HTTPS.
+
+> If the client is on a trusted subnet (see the "Trusted-subnet bypass" section of [`../README.md`](../README.md) and [`authentication.md`](authentication.md)) it will skip the passkey prompt entirely, and HTTPS is not strictly required for that client. HTTPS is still recommended for every non-loopback listener so session tokens and file I/O are not transmitted in the clear. For any deployment that leaves the machine, configure HTTPS as described below.
 
 ## Quick Start
 

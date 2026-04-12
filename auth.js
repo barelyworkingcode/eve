@@ -158,15 +158,18 @@ class AuthService {
   }
 
   // --- RP Configuration ---
+  //
+  // These helpers derive the WebAuthn RP ID / origin from the request host.
+  // This is intentional — WebAuthn binds credentials by hostname, so the
+  // hostname the browser used to reach us is the correct RP ID value. They
+  // MUST NOT be used for authorization decisions. Network-layer trust
+  // (the subnet bypass) lives in TrustedNetworkService and reads the raw
+  // TCP source address; see trusted-network.js and
+  // plans/cozy-honking-toast.md Section A.
 
   getRpId(req) {
     const host = req.get('host') || 'localhost';
     return host.split(':')[0];
-  }
-
-  isLocalhost(req) {
-    const host = this.getRpId(req);
-    return host === 'localhost' || host === '127.0.0.1';
   }
 
   getOrigin(req) {

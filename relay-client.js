@@ -9,9 +9,15 @@ const DEFAULT_TTS_VOICE = 'af_heart';
 const { NullLogger } = require('./logger');
 
 class RelayClient {
-  constructor(relayWsUrl, browserWs, ttsService, log) {
+  /**
+   * @param {RelayTransport} relayTransport — singleton owning transport + auth
+   * @param {WebSocket} browserWs — the per-connection browser socket
+   * @param {TTSService} ttsService
+   * @param {Logger} log
+   */
+  constructor(relayTransport, browserWs, ttsService, log) {
     this.log = log || new NullLogger();
-    this.relayWsUrl = relayWsUrl;
+    this.relayTransport = relayTransport;
     this.browserWs = browserWs;
     this.ws = null;
     this.alwaysAllow = false;
@@ -28,7 +34,7 @@ class RelayClient {
 
   connect() {
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this.relayWsUrl);
+      this.ws = this.relayTransport.createWebSocket('/ws');
 
       this.ws.on('open', () => {
         this.log.info('Connected to relayLLM');

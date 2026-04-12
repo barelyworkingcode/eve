@@ -44,11 +44,23 @@ This project follows enterprise software engineering practices. All code changes
 - No client-side security decisions
 - Validate permissions server-side
 - Never trust client-provided IDs without verification
+- **Never read `Host` or `X-Forwarded-For` for authorization.** Both are attacker-controllable on any off-loopback request. The only safe source of the client's identity at the network layer is `req.socket.remoteAddress`. An earlier "localhost bypass" in this repo trusted `req.headers.host` and was a full auth bypass — see the plan file below for the cautionary tale and the replacement.
+- All new network-trust logic goes through `TrustedNetworkService` (single responsibility, DI-injected from `server.js`). Do not inline ad-hoc IP or hostname checks in route handlers.
 
 **Data Protection**
 - Never log sensitive data (tokens, credentials)
 - Use environment variables for secrets, not config files
 - Sanitize error messages sent to client
+
+**Security Model**
+- Full design, rationale, and verification results: [`plans/cozy-honking-toast.md`](plans/cozy-honking-toast.md).
+- Operator-facing reference: [`docs/authentication.md`](docs/authentication.md) (both trust boundaries), [`README.md`](README.md) ("Security Model" and "Environment Variables" sections).
+- Two boundaries:
+  1. **Browser ↔ Eve** — WebAuthn passkey + 256-bit session token (`X-Session-Token` header / `{type:'auth'}` WS frame); IP-based trusted-subnet bypass via `TrustedNetworkService` (`req.socket.remoteAddress` only).
+  2. **Eve ↔ relayLLM** — Unix domain socket (mode `0600`) with an ephemeral bearer token (`RELAY_LLM_TOKEN`) injected by the `relay` orchestrator at spawn time. TCP fallback requires `https://` + cert verification. All outbound calls route through a single `RelayTransport` service; no raw `fetch(RELAY_LLM_URL, ...)` or `new WebSocket(relayWsUrl)` anywhere.
+- Fail-closed: `relayTransport.assertStartupConfig()` hard-fails the process on any insecure config. Never add silent downgrades or "skip-verify" flags.
+- Cross-repo pieces live in `../relayLLM/auth.go` + `../relayLLM/main.go` (bearer middleware, Unix socket listener) and `../relay/relay_llm_channel.go` + `../relay/service_registry.go` (credential provisioning and injection). Any change to the token contract must touch all three repos in lockstep.
+- **iOS native app (`../relayClient`)**: WKWebView blocks WebAuthn for local hostnames. Eve provides a Safari-based fallback: `routes/auth.js` serves a standalone passkey page at `/api/auth/safari-login`, and the iOS `SafariAuthPlugin` opens it via `ASWebAuthenticationSession`. The token is returned to the app via `relayclient://auth-callback?token=...` callback scheme. See [`docs/authentication.md`](docs/authentication.md) "iOS native app" section.
 
 ### Error Handling
 
