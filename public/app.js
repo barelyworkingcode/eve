@@ -722,6 +722,7 @@ class EveWorkspaceClient {
 
     const files = this.fileAttachmentManager.consumeFiles();
     this.messageRenderer.appendUserMessage(text, files);
+    this.messageDispatcher.markLocalSubmit(this.currentSessionId);
     this.wsClient.send({ type: 'user_input', text, files, sessionId: this.currentSessionId });
 
     this.elements.userInput.value = '';
@@ -737,6 +738,7 @@ class EveWorkspaceClient {
   handleStop() {
     if (!this.currentSessionId) return;
     this.wsClient.send({ type: 'stop_generation', sessionId: this.currentSessionId });
+    this.messageDispatcher.resetTurnState(this.currentSessionId);
     this.messageRenderer.hideThinkingIndicator();
     this.messageRenderer.finishAssistantMessage();
     this.hideStopButton();
