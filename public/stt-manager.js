@@ -112,6 +112,7 @@ class STTManager {
     this.switchBackend(name);
     this.available = true;
     this._updateButtonVisibility();
+    this.log.info(`Backend changed → ${name}`);
   }
 
   toggleRecording() {
@@ -177,6 +178,7 @@ class STTManager {
       this.recordingStartTime = Date.now();
       this._startTimer();
       this._updateUI();
+      this.log.info(`Recording started — backend: ${this.backend}`);
     } catch (err) {
       this.log.error('Microphone access denied:', err);
       this.app.messageRenderer.appendSystemMessage(
@@ -186,6 +188,7 @@ class STTManager {
   }
 
   stopRecording() {
+    this.log.info('Recording stopped');
     if (this.activeBackend.stopRecording) {
       this.activeBackend.stopRecording();
       this.isRecording = false;

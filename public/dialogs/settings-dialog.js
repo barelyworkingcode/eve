@@ -181,6 +181,26 @@ class SettingsDialog extends DialogBase {
       this.settings.set('fontSize', val);
     });
     container.appendChild(sizeInput);
+
+    // Terminal font family (monospace only)
+    const termLabel = document.createElement('label');
+    termLabel.className = 'dialog__label';
+    termLabel.textContent = 'Terminal Font';
+    container.appendChild(termLabel);
+
+    const termSelect = document.createElement('select');
+    termSelect.className = 'dialog__select';
+    for (const key of FONT_GROUPS['Monospace']) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = FONT_PRESET_LABELS[key];
+      if (key === this.settings.get('terminalFontFamily')) opt.selected = true;
+      termSelect.appendChild(opt);
+    }
+    termSelect.addEventListener('change', () => {
+      this.settings.set('terminalFontFamily', termSelect.value);
+    });
+    container.appendChild(termSelect);
   }
 
   _buildVoiceTab(container) {
@@ -225,6 +245,28 @@ class SettingsDialog extends DialogBase {
     ttsStatusEl.textContent = this._getTtsStatus(tts);
     container.appendChild(ttsStatusEl);
 
+    // TTS Prompt Tag
+    const ttsTagLabel = document.createElement('label');
+    ttsTagLabel.className = 'dialog__label';
+    ttsTagLabel.style.marginTop = '16px';
+    ttsTagLabel.textContent = 'TTS Prompt Tag';
+    container.appendChild(ttsTagLabel);
+
+    const ttsTagInput = document.createElement('input');
+    ttsTagInput.type = 'text';
+    ttsTagInput.className = 'dialog__input';
+    ttsTagInput.value = this.settings.get('ttsPromptTag') ?? '';
+    ttsTagInput.placeholder = '[SPEAK RESPONSE]';
+    ttsTagInput.addEventListener('input', () => {
+      this.settings.set('ttsPromptTag', ttsTagInput.value);
+    });
+    container.appendChild(ttsTagInput);
+
+    const ttsTagHint = document.createElement('span');
+    ttsTagHint.className = 'field-hint';
+    ttsTagHint.textContent = 'Appended to every message when TTS is active. Clear to disable.';
+    container.appendChild(ttsTagHint);
+
     // --- STT Backend ---
     const stt = this.container.has('sttManager') ? this.container.get('sttManager') : null;
     if (!stt) return;
@@ -265,6 +307,28 @@ class SettingsDialog extends DialogBase {
     sttStatusEl.style.marginTop = '12px';
     sttStatusEl.textContent = this._getSttStatus(stt);
     container.appendChild(sttStatusEl);
+
+    // STT Prompt Tag
+    const sttTagLabel = document.createElement('label');
+    sttTagLabel.className = 'dialog__label';
+    sttTagLabel.style.marginTop = '16px';
+    sttTagLabel.textContent = 'STT Prompt Tag';
+    container.appendChild(sttTagLabel);
+
+    const sttTagInput = document.createElement('input');
+    sttTagInput.type = 'text';
+    sttTagInput.className = 'dialog__input';
+    sttTagInput.value = this.settings.get('sttPromptTag') ?? '';
+    sttTagInput.placeholder = '[VOICE DICTATION]';
+    sttTagInput.addEventListener('input', () => {
+      this.settings.set('sttPromptTag', sttTagInput.value);
+    });
+    container.appendChild(sttTagInput);
+
+    const sttTagHint = document.createElement('span');
+    sttTagHint.className = 'field-hint';
+    sttTagHint.textContent = 'Prepended to every voice-dictated message. Clear to disable.';
+    container.appendChild(sttTagHint);
   }
 
   _getTtsStatus(tts) {
@@ -311,8 +375,7 @@ class SettingsDialog extends DialogBase {
       card.appendChild(label);
 
       card.addEventListener('click', () => {
-        const current = this.settings.getAll();
-        this.settings.setAll({ ...colors, fontFamily: current.fontFamily, fontSize: current.fontSize });
+        this.settings.setAll({ ...this.settings.getAll(), ...colors });
         this.render();
       });
 

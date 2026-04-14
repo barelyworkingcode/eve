@@ -51,6 +51,9 @@ const SETTINGS_DEFAULTS = {
   messageUserBg: '#1e3a5f',
   fontFamily: 'sf-mono',
   fontSize: 13,
+  terminalFontFamily: 'sf-mono',
+  ttsPromptTag: '[SPEAK RESPONSE]',
+  sttPromptTag: '[VOICE DICTATION]',
 };
 
 const THEME_PRESETS = {
@@ -246,6 +249,10 @@ class SettingsManager {
 
   getFontStack(key) {
     return FONT_PRESETS[key || this._settings.fontFamily] || FONT_PRESETS['sf-mono'];
+  }
+
+  getTerminalFontStack() {
+    return this.getFontStack(this._settings.terminalFontFamily);
   }
 
   _parseHex(hex) {

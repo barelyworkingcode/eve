@@ -23,7 +23,7 @@ class TerminalManager {
 
   _listenForSettingsChanges() {
     this.app.bus.on(EVT.SETTINGS_CHANGED, (s) => {
-      const fontStack = this.app.settings.getFontStack();
+      const fontStack = this.app.settings.getTerminalFontStack();
       const light = this.app.settings.isLight();
       for (const t of this.terminals.values()) {
         const fontChanged = t.term.options.fontSize !== s.fontSize || t.term.options.fontFamily !== fontStack;
@@ -187,7 +187,7 @@ class TerminalManager {
     const settings = this.app.settings;
     const bgColor = settings.get('bgPrimary');
     const fgColor = settings.get('textPrimary');
-    const fontStack = settings.getFontStack();
+    const fontStack = settings.getTerminalFontStack();
     const fontSize = settings.get('fontSize');
     const light = settings.isLight();
 
