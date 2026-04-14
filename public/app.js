@@ -305,9 +305,6 @@ class EveWorkspaceClient {
 
     // Voice mode toggle + voice selection
     if (this.elements.voiceModeBtn) {
-      if (this.ttsManager.enabled) {
-        this.elements.voiceModeBtn.classList.add('btn-voice-mode--active');
-      }
       this.ttsManager.init();
 
       // Short tap: toggle TTS. Long press (500ms+): switch to voice UI.
@@ -405,7 +402,7 @@ class EveWorkspaceClient {
     this.messageRenderer.hideThinkingIndicator();
 
     // Sync voice mode state to server on (re)connect
-    this.ttsManager.syncVoiceMode(this.wsClient);
+    if (this.ttsManager.enabled) this.ttsManager.syncVoiceMode(this.wsClient);
 
     // Load projects (and tasks) first, then sessions, then re-join.
     // Order matters: task session IDs must be known before sessions load
@@ -736,6 +733,7 @@ class EveWorkspaceClient {
   }
 
   _buildSendText(rawText, isDictated) {
+    if (rawText.startsWith('/')) return rawText;
     const sttTag = this.settings.get('sttPromptTag');
     const ttsTag = this.settings.get('ttsPromptTag');
     let text = rawText;

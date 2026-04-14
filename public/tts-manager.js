@@ -17,7 +17,7 @@ class TTSManager {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
     this._logger = container.get('logger');
-    this.enabled = localStorage.getItem('eve-voice-mode') === 'true';
+    this.enabled = false;
     this.voice = localStorage.getItem('eve-voice-preset') || DEFAULT_TTS_VOICE;
     this.voices = [];
     this.audioContext = null;
@@ -140,7 +140,6 @@ class TTSManager {
 
   setEnabled(enabled) {
     this.enabled = enabled;
-    localStorage.setItem('eve-voice-mode', enabled ? 'true' : 'false');
     if (!enabled) this.stop();
     this._updateVoiceSelectVisibility();
     this.log.info(enabled ? `Active — voice: ${this.voice || 'default'}, backend: ${this.backend}` : 'Disabled');
