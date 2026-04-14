@@ -61,6 +61,7 @@ class TTSManager {
     this._initBackend();
     this._updateVoiceSelectVisibility();
     this.loadVoices();
+    this.log.info(`Init — enabled: ${this.enabled}, voice: ${this.voice || 'default'}, backend: ${this.backend}`);
 
     // Pre-warm AudioContext on first user gesture to satisfy autoplay policy.
     // Uses capture phase so it fires even if other handlers stopPropagation (e.g. push-to-talk).
@@ -142,15 +143,18 @@ class TTSManager {
     localStorage.setItem('eve-voice-mode', enabled ? 'true' : 'false');
     if (!enabled) this.stop();
     this._updateVoiceSelectVisibility();
+    this.log.info(enabled ? `Active — voice: ${this.voice || 'default'}, backend: ${this.backend}` : 'Disabled');
   }
 
   setVoice(voiceId) {
     this.voice = voiceId;
     localStorage.setItem('eve-voice-preset', voiceId);
+    if (this.enabled) this.log.info(`Voice changed → ${voiceId}`);
   }
 
   setBackend(name) {
     this.switchBackend(name);
+    this.log.info(`Backend changed → ${name}`);
   }
 
   /** Send voice_mode state to server if using server TTS backend. */
@@ -215,8 +219,9 @@ class TTSManager {
     return text
       .replace(/<think>[\s\S]*?<\/think>/g, '')
       .replace(/<think>[\s\S]*$/g, '')
-      .replace(/[*_~`#>]/g, '')
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[*_~`#>]/g, '')
       .replace(/\n+/g, ' ')
       .trim();
   }
