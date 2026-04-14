@@ -253,7 +253,15 @@ class MessageRenderer {
               this.finishAssistantMessage();
             } else if (block.type === 'tool_use') {
               this.appendToolUse(block.name, block.input);
+              this.markToolComplete();
             }
+          }
+        }
+        // OpenAI/Ollama models store tool calls separately from content
+        if (Array.isArray(msg.toolCalls)) {
+          for (const tc of msg.toolCalls) {
+            this.appendToolUse(tc.name || tc.Name, tc.arguments || tc.Arguments);
+            this.markToolComplete();
           }
         }
       }
@@ -382,6 +390,15 @@ class MessageRenderer {
 
     this.messagesEl.appendChild(messageEl);
     this.scrollToBottom();
+  }
+
+  appendToolResult(preview) {
+    if (!this.currentToolBlock) return;
+    if (this.currentToolBlock.querySelector('.tool-result')) return; // already set
+    const el = document.createElement('span');
+    el.className = 'tool-result';
+    el.textContent = preview;
+    this.currentToolBlock.appendChild(el);
   }
 
   markToolComplete() {
