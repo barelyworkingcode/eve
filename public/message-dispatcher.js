@@ -604,6 +604,7 @@ class MessageDispatcher {
     if (event.subtype === 'error') {
       this.renderer.appendSystemMessage(`Tool error: ${event.error}`, 'error');
     } else if (event.subtype === 'tool_result') {
+      if (event.preview) this.renderer.appendToolResult(event.preview);
       this.renderer.markToolComplete();
     }
   }
