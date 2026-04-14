@@ -210,8 +210,9 @@ class RelayClient {
     const cleaned = text
       .replace(/<think>[\s\S]*?<\/think>/g, '')
       .replace(/<think>[\s\S]*$/g, '')
-      .replace(/[*_~`#>]/g, '')
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[*_~`#>]/g, '')
       .replace(/\n+/g, ' ')
       .trim();
 

@@ -340,7 +340,7 @@ class VoiceChatManager {
     this.app.messageDispatcher.markLocalSubmit(this.app.currentSessionId);
     this.app.wsClient.send({
       type: 'user_input',
-      text: text,
+      text: this.app._buildSendText(text, true),
       files: [],
       sessionId: this.app.currentSessionId,
       dictated: true,

@@ -723,7 +723,7 @@ class EveWorkspaceClient {
     const files = this.fileAttachmentManager.consumeFiles();
     this.messageRenderer.appendUserMessage(text, files);
     this.messageDispatcher.markLocalSubmit(this.currentSessionId);
-    this.wsClient.send({ type: 'user_input', text, files, sessionId: this.currentSessionId });
+    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, sessionId: this.currentSessionId });
 
     this.elements.userInput.value = '';
     this.autoResizeTextarea();
@@ -733,6 +733,15 @@ class EveWorkspaceClient {
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
     this.showStopButton();
+  }
+
+  _buildSendText(rawText, isDictated) {
+    const sttTag = this.settings.get('sttPromptTag');
+    const ttsTag = this.settings.get('ttsPromptTag');
+    let text = rawText;
+    if (isDictated && sttTag) text = sttTag + text;
+    if (this.ttsManager.enabled && ttsTag) text = text + ttsTag;
+    return text;
   }
 
   handleStop() {
