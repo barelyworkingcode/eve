@@ -688,44 +688,42 @@ html, body {
 
 /* Code blocks in messages — now handled by shared markdown rules below */
 
-/* Tool usage indicator */
-.tool-use {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--text-secondary);
+/* Tool call blocks (collapsible, like think-block) */
+.tool-block {
   margin: 6px 0;
-  flex-wrap: wrap;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  overflow: hidden;
 }
 
-.tool-use .tool-name {
+.tool-block summary {
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 500;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool-block summary::-webkit-details-marker { display: none; }
+.tool-block summary::before { content: '\25B6  '; font-size: 9px; margin-right: 4px; flex-shrink: 0; }
+.tool-block[open] summary::before { content: '\25BC  '; }
+
+.tool-block .tool-name {
   color: var(--accent);
   font-weight: 600;
-  flex-shrink: 0;
 }
 
-.tool-use .tool-input {
-  word-break: break-all;
-}
-
-.tool-use .tool-result {
-  flex-basis: 100%;
-  margin-top: 4px;
-  color: var(--text-secondary);
-  font-style: italic;
-  word-break: break-all;
-  opacity: 0.8;
-}
-
-.tool-use.tool-active {
+.tool-block.tool-active summary {
   border-left: 2px solid var(--accent);
 }
 
-.tool-spinner {
+.tool-block .tool-spinner {
   width: 10px;
   height: 10px;
   border: 1.5px solid var(--border-color);
@@ -733,6 +731,24 @@ html, body {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
+}
+
+.tool-detail,
+.tool-result {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.tool-detail { line-height: 1.5; overflow-x: auto; }
+.tool-result { opacity: 0.8; }
+
+.tool-detail pre,
+.tool-result pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
 }
 
 /* Think blocks (collapsible chain-of-thought) */
@@ -2216,9 +2232,8 @@ html, body {
     font-size: 13px;
   }
 
-  .tool-use {
+  .tool-block {
     font-size: 10px;
-    padding: 6px 8px;
   }
 
   .input-area {
