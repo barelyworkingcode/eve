@@ -159,30 +159,21 @@ class MessageRenderer {
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant';
 
-    let inputSummary = '';
-    if (input) {
-      if (typeof input === 'string') {
-        inputSummary = input.substring(0, 100);
-      } else if (input.command) {
-        inputSummary = input.command.substring(0, 100);
-      } else if (input.file_path) {
-        inputSummary = input.file_path;
-      } else if (input.pattern) {
-        inputSummary = input.pattern;
-      }
-    }
+    const inputDetail = input ? this._prettyJson(input) : '';
 
     messageEl.innerHTML = `
       <div class="message-content">
-        <div class="tool-use tool-active">
-          <div class="tool-spinner"></div>
-          <span class="tool-name">${this.escapeHtml(toolName)}</span>
-          ${inputSummary ? `<span class="tool-input">${this.escapeHtml(inputSummary)}</span>` : ''}
-        </div>
+        <details class="tool-block tool-active">
+          <summary>
+            <div class="tool-spinner"></div>
+            <span class="tool-name">${this.escapeHtml(toolName)}</span>
+          </summary>
+          ${inputDetail ? `<div class="tool-detail"><pre>${this.escapeHtml(inputDetail)}</pre></div>` : ''}
+        </details>
       </div>
     `;
     this.messagesEl.appendChild(messageEl);
-    this.currentToolBlock = messageEl.querySelector('.tool-use');
+    this.currentToolBlock = messageEl.querySelector('.tool-block');
     this.updateThinkingIndicator(`Running ${toolName}...`);
     this.scrollToBottom();
   }
@@ -392,12 +383,14 @@ class MessageRenderer {
     this.scrollToBottom();
   }
 
-  appendToolResult(preview) {
+  appendToolResult(content) {
     if (!this.currentToolBlock) return;
-    if (this.currentToolBlock.querySelector('.tool-result')) return; // already set
-    const el = document.createElement('span');
+    if (this.currentToolBlock.querySelector('.tool-result')) return;
+    const el = document.createElement('div');
     el.className = 'tool-result';
-    el.textContent = preview;
+    const pre = document.createElement('pre');
+    pre.textContent = this._prettyJson(content);
+    el.appendChild(pre);
     this.currentToolBlock.appendChild(el);
   }
 
@@ -486,6 +479,13 @@ class MessageRenderer {
     }
 
     return html;
+  }
+
+  _prettyJson(value) {
+    if (typeof value === 'string') {
+      try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+    }
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
   }
 
   escapeHtml(text) {
