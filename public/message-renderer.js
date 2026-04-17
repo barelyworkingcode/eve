@@ -458,6 +458,7 @@ class MessageRenderer {
     container.appendChild(img);
 
     const parts = [];
+    if (imageResult.generation_time) parts.push(imageResult.generation_time);
     if (imageResult.width && imageResult.height) parts.push(`${imageResult.width}x${imageResult.height}`);
     if (imageResult.seed && imageResult.seed !== -1) parts.push(`seed: ${imageResult.seed}`);
     if (parts.length > 0) {
