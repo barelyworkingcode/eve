@@ -9,6 +9,7 @@
 data/
 certs/
 coverage/
+plans/
 e2e/.test-env.json
 test-results/
 test/fixtures/
