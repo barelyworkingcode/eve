@@ -214,6 +214,23 @@ class RelayTransport {
     return new WebSocket(url, options);
   }
 
+  /**
+   * Like fetch(), but returns the raw response Buffer instead of parsing JSON.
+   * Used for proxying binary content (generated images, etc.).
+   *
+   * @param {string} method
+   * @param {string} path
+   * @returns {Promise<{status: number, data: Buffer, headers: object}>}
+   */
+  async fetchRaw(method, path) {
+    const url = this._buildUrl(this._httpBase, path);
+    const headers = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    return this._nodeRequestRaw(url, { method, headers });
+  }
+
   // --- Internal ---
 
   _buildUrl(base, path) {
@@ -226,10 +243,32 @@ class RelayTransport {
    * (including socketPath for Unix sockets). Returns a Promise<{status, data}>.
    */
   _nodeRequest(url, { method, headers, body }) {
+    return this._doRequest(url, { method, headers, body }).then(({ status, buffer }) => {
+      const raw = buffer.toString('utf8');
+      let data = null;
+      if (raw) {
+        try { data = JSON.parse(raw); } catch { data = raw; }
+      }
+      return { status, data };
+    });
+  }
+
+  /**
+   * Like _nodeRequest, but returns the raw Buffer without JSON parsing.
+   * Used by fetchRaw() for binary responses (images, etc.).
+   */
+  _nodeRequestRaw(url, { method, headers }) {
+    return this._doRequest(url, { method, headers }).then(({ status, buffer, headers: h }) => ({
+      status, data: buffer, headers: h,
+    }));
+  }
+
+  /**
+   * Shared core for _nodeRequest and _nodeRequestRaw. Returns the raw
+   * response buffer, status, and headers without any interpretation.
+   */
+  _doRequest(url, { method, headers, body }) {
     return new Promise((resolve, reject) => {
-      // Extract just the path from the composed URL. The hostname/port/protocol
-      // are already known from construction and don't need re-parsing.
-      const qIdx = url.indexOf('?');
       const baseLen = url.indexOf('/', url.indexOf('//') + 2);
       const pathAndQuery = baseLen >= 0 ? url.slice(baseLen) : '/';
       const opts = {
@@ -241,8 +280,6 @@ class RelayTransport {
         agent: this.agent,
       };
       if (this.mode === 'socket') {
-        // Socket-mode: hostname is a dummy placeholder; the agent routes
-        // via socketPath. Override to avoid DNS lookup.
         opts.hostname = 'localhost';
         opts.port = null;
       }
@@ -254,16 +291,11 @@ class RelayTransport {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
         res.on('end', () => {
-          const raw = Buffer.concat(chunks).toString('utf8');
-          let data = null;
-          if (raw) {
-            try {
-              data = JSON.parse(raw);
-            } catch {
-              data = raw;
-            }
-          }
-          resolve({ status: res.statusCode || 0, data });
+          resolve({
+            status: res.statusCode || 0,
+            buffer: Buffer.concat(chunks),
+            headers: res.headers,
+          });
         });
       });
       req.on('error', reject);
