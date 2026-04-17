@@ -751,6 +751,52 @@ html, body {
   font-size: 11px;
 }
 
+/* Generated images (inline in tool results) */
+.generated-image {
+  max-width: 100%;
+  max-height: 512px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  display: block;
+  margin: 4px 0;
+}
+
+.generated-image:hover {
+  opacity: 0.9;
+}
+
+.generated-image-meta {
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  padding: 2px 0;
+}
+
+.generated-image-error {
+  padding: 12px;
+  color: var(--text-muted, #888);
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* Fullscreen image overlay */
+.image-fullscreen-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  cursor: pointer;
+}
+
+.image-fullscreen-overlay img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+}
+
 /* Think blocks (collapsible chain-of-thought) */
 .think-block {
   margin: 6px 0;

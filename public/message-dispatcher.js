@@ -603,6 +603,8 @@ class MessageDispatcher {
   handleResultEvent(event) {
     if (event.subtype === 'error') {
       this.renderer.appendSystemMessage(`Tool error: ${event.error}`, 'error');
+    } else if (event.subtype === 'tool_progress') {
+      this.renderer.updateToolProgress(event.tool_name, event.message);
     } else if (event.subtype === 'tool_result') {
       if (event.content) this.renderer.appendToolResult(event.content);
       this.renderer.markToolComplete();

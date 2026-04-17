@@ -181,6 +181,23 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
+  // --- Generated images (proxy binary from relayLLM) ---
+  app.get('/api/generated/:filename', requireAuth, async (req, res) => {
+    try {
+      const { status, data, headers } = await relayTransport.fetchRaw('GET',
+        `/api/generated/${encodeURIComponent(req.params.filename)}`);
+      if (status !== 200) {
+        return res.status(status).json({ error: 'Image not found' });
+      }
+      if (headers['content-type']) res.set('Content-Type', headers['content-type']);
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      res.send(data);
+    } catch (err) {
+      routeLog.error('Generated image proxy failed:', err.message);
+      res.status(502).json({ error: 'Image not available' });
+    }
+  });
+
   // --- Raw file serving (for binary file viewers: images, PDFs, video, audio) ---
   app.get('/api/files/:projectId/*', requireAuth, (req, res) => {
     const project = resolveProject(req.params.projectId);
