@@ -577,9 +577,25 @@ class MessageRenderer {
       }
     );
 
-    // Parse markdown and sanitize
+    // Parse markdown and sanitize. Only allow images from our own generated
+    // image endpoint — LLMs sometimes hallucinate external URLs (imgur, etc.)
+    // which are not real and should not be rendered.
     let html = marked.parse(processed, { breaks: true, gfm: true });
-    html = DOMPurify.sanitize(html, { ADD_TAGS: ['img'], ADD_ATTR: ['src', 'alt', 'loading'] });
+    html = DOMPurify.sanitize(html, {
+      ADD_TAGS: ['img'],
+      ADD_ATTR: ['src', 'alt', 'loading'],
+      ALLOW_UNKNOWN_PROTOCOLS: false,
+    });
+    // Remove any <img> not pointing at our own /api/generated/ path
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    tmp.querySelectorAll('img').forEach(img => {
+      const src = img.getAttribute('src') || '';
+      if (!src.startsWith('/api/generated/')) {
+        img.remove();
+      }
+    });
+    html = tmp.innerHTML;
 
     // Restore think block placeholders
     for (let i = 0; i < thinkBlocks.length; i++) {
