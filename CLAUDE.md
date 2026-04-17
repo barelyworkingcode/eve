@@ -270,6 +270,7 @@ Browser ──WS──► Eve (ws-handler) ──local──► FileService  (fi
 Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM     (models, projects, sessions list)
 Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM ──HTTP──► relayScheduler  (tasks)
 Browser ──WS──► Eve ──WS──► relayLLM ──WS──► relayScheduler  (task events: task_started, task_completed, task_error, task_status)
+Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM             (generated images: /api/generated/:filename)
 ```
 
 ### Core Components
@@ -279,7 +280,8 @@ Browser ──WS──► Eve ──WS──► relayLLM ──WS──► relay
 - `ws-handler.js` - WebSocket message dispatch: relay ops → RelayClient, local ops → file/terminal handlers. Task events forwarded from relayLLM.
 - `relay-client.js` - WS bridge to relayLLM (one instance per browser connection)
 - `slash-command-handler.js` - Local slash commands (/clear, /help, /zsh, /bash, /claude)
-- `routes/index.js` - HTTP proxy to relayLLM (models, projects, sessions, tasks) + local auth
+- `relay-transport.js` - Shared HTTP/WS transport to relayLLM (socket or TCP, bearer auth). `fetch()` for JSON, `fetchRaw()` for binary (images)
+- `routes/index.js` - HTTP proxy to relayLLM (models, projects, sessions, tasks, generated images) + local auth
 - `routes/auth.js` - WebAuthn enrollment/login
 - `file-handlers.js` - WebSocket adapter for file operations
 - `file-service.js` - Path validation + file CRUD
@@ -314,7 +316,7 @@ Legacy (still active, migrating to EventBus):
 - `app.js` - Orchestrator wiring modules, dual state owner (legacy + StateStore)
 - `ws-client.js` - WebSocket connection, auth, reconnection
 - `message-dispatcher.js` - Server message routing and LLM event processing
-- `message-renderer.js` - Chat messages, tool use, thinking indicator, formatting
+- `message-renderer.js` - Chat messages, tool use, thinking indicator, formatting, inline generated images (click-to-fullscreen)
 - `file-attachment-manager.js` - File selection, reading, drag/drop, paste for chat input
 - `modal-manager.js` - Legacy modals (session, project, confirm, permission)
 - `sidebar-renderer.js` - Legacy sidebar (guarded, no-ops with new project tree)
@@ -565,4 +567,5 @@ Manual testing checklist for new features:
 Eve is part of the Relay ecosystem. It has a single backend dependency (relayLLM), which proxies to relayScheduler for task operations. Eve does not connect to relayScheduler directly.
 
 - `../relay/` -- MCP orchestrator. Manages Eve as a background service.
-- `../relayLLM/` -- LLM engine. Eve's single backend — proxies all session/project/permission/task operations to relayLLM, which in turn proxies tasks to relayScheduler.
+- `../relayLLM/` -- LLM engine. Eve's single backend — proxies all session/project/permission/task operations to relayLLM, which in turn proxies tasks to relayScheduler. Also serves generated images via `/api/generated/`.
+- `../relayComfy/` -- ComfyUI service. Manages ComfyUI for image/video generation. Eve proxies generated images from relayLLM (which talks to ComfyUI).
