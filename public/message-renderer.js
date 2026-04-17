@@ -133,6 +133,7 @@ class MessageRenderer {
         this.isStreaming = false;
         this.currentAssistantMessage.innerHTML = this.formatText(text);
         this._applyThinkBlockStates();
+        this._upgradeGeneratedImages(this.currentAssistantMessage);
         this.renderMermaidBlocks(this.currentAssistantMessage);
       }
       // Append metrics subline (TTFT / TPS) below the message content.
@@ -501,6 +502,14 @@ class MessageRenderer {
     return div;
   }
 
+  _upgradeGeneratedImages(container) {
+    container.querySelectorAll('img[src*="/api/generated/"]').forEach(img => {
+      img.className = 'generated-image';
+      img.loading = 'lazy';
+      img.addEventListener('click', () => this._openImageFullscreen(img.src, img.alt));
+    });
+  }
+
   async renderMermaidBlocks(container) {
     if (typeof mermaid === 'undefined') return;
     const nodes = container.querySelectorAll('code[class*="mermaid"]');
@@ -569,7 +578,7 @@ class MessageRenderer {
 
     // Parse markdown and sanitize
     let html = marked.parse(processed, { breaks: true, gfm: true });
-    html = DOMPurify.sanitize(html);
+    html = DOMPurify.sanitize(html, { ADD_TAGS: ['img'], ADD_ATTR: ['src', 'alt', 'loading'] });
 
     // Restore think block placeholders
     for (let i = 0; i < thinkBlocks.length; i++) {
