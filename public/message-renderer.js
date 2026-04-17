@@ -255,6 +255,12 @@ class MessageRenderer {
             this.markToolComplete();
           }
         }
+      } else if (msg.role === 'tool') {
+        // Render generated images from tool results in history
+        const imageResult = this._parseImageResult(msg.content);
+        if (imageResult) {
+          this._renderHistoryImage(imageResult);
+        }
       }
     }
 
@@ -388,10 +394,33 @@ class MessageRenderer {
     if (this.currentToolBlock.querySelector('.tool-result')) return;
     const el = document.createElement('div');
     el.className = 'tool-result';
-    const pre = document.createElement('pre');
-    pre.textContent = this._prettyJson(content);
-    el.appendChild(pre);
+
+    const imageResult = this._parseImageResult(content);
+    if (imageResult) {
+      this._renderInlineImage(el, imageResult);
+    } else {
+      const pre = document.createElement('pre');
+      pre.textContent = this._prettyJson(content);
+      el.appendChild(pre);
+    }
     this.currentToolBlock.appendChild(el);
+  }
+
+  updateToolProgress(toolName, message) {
+    if (!this.currentToolBlock) return;
+    const spinner = this.currentToolBlock.querySelector('.tool-spinner');
+    if (spinner) {
+      const textEl = spinner.parentElement?.querySelector('.tool-status-text') ||
+                     spinner.nextElementSibling;
+      if (textEl) {
+        textEl.textContent = message;
+      }
+    }
+    // Also update the thinking indicator if visible
+    const thinkingText = document.querySelector('#thinkingIndicator .thinking-text');
+    if (thinkingText) {
+      thinkingText.textContent = message;
+    }
   }
 
   markToolComplete() {
@@ -401,6 +430,75 @@ class MessageRenderer {
       if (spinner) spinner.remove();
       this.currentToolBlock = null;
     }
+  }
+
+  // --- Image generation helpers ---
+
+  _parseImageResult(content) {
+    try {
+      const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+      if (parsed && parsed.image_url && parsed.status === 'success') {
+        return parsed;
+      }
+    } catch {}
+    return null;
+  }
+
+  _renderInlineImage(container, imageResult) {
+    const img = document.createElement('img');
+    img.className = 'generated-image';
+    img.src = imageResult.image_url;
+    img.alt = imageResult.prompt || 'Generated image';
+    img.loading = 'lazy';
+    img.addEventListener('click', () => this._openImageFullscreen(img.src, imageResult.prompt));
+    img.addEventListener('error', () => {
+      img.replaceWith(this._createImageErrorPlaceholder());
+    });
+    container.appendChild(img);
+
+    const parts = [];
+    if (imageResult.width && imageResult.height) parts.push(`${imageResult.width}x${imageResult.height}`);
+    if (imageResult.seed && imageResult.seed !== -1) parts.push(`seed: ${imageResult.seed}`);
+    if (parts.length > 0) {
+      const meta = document.createElement('div');
+      meta.className = 'generated-image-meta';
+      meta.textContent = parts.join(' | ');
+      container.appendChild(meta);
+    }
+  }
+
+  _renderHistoryImage(imageResult) {
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message assistant';
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    this._renderInlineImage(content, imageResult);
+    messageEl.appendChild(content);
+    this.messagesEl.appendChild(messageEl);
+  }
+
+  _openImageFullscreen(src, alt) {
+    const overlay = document.createElement('div');
+    overlay.className = 'image-fullscreen-overlay';
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = alt || 'Generated image';
+    overlay.appendChild(img);
+    const cleanup = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', keyHandler);
+    };
+    overlay.addEventListener('click', cleanup);
+    const keyHandler = (e) => { if (e.key === 'Escape') cleanup(); };
+    document.addEventListener('keydown', keyHandler);
+    document.body.appendChild(overlay);
+  }
+
+  _createImageErrorPlaceholder() {
+    const div = document.createElement('div');
+    div.className = 'generated-image-error';
+    div.textContent = 'Image no longer available';
+    return div;
   }
 
   async renderMermaidBlocks(container) {
