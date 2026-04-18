@@ -73,6 +73,7 @@ class ShellLauncherDialog extends DialogBase {
         name: tmpl.name,
         description: modelInfo?.label || tmpl.model || '',
         onClick: () => this._launchFromTemplate(tmpl),
+        testid: `shell-card-template-${tmpl.id}`,
       });
 
       if (FAVORITE_TEMPLATE_ENABLED) {
@@ -109,6 +110,7 @@ class ShellLauncherDialog extends DialogBase {
         name: tmpl.name,
         description: tmpl.description || '',
         onClick: () => this._launchTerminal(tmpl.id),
+        testid: `shell-card-${tmpl.id}`,
       }));
     }
 
@@ -118,6 +120,7 @@ class ShellLauncherDialog extends DialogBase {
       name: 'Web Chat',
       description: 'LLM chat in browser',
       onClick: () => this._showWebUIForm(),
+      testid: 'shell-card-web-chat',
     }));
 
     grid.appendChild(this._createCard({
@@ -126,14 +129,16 @@ class ShellLauncherDialog extends DialogBase {
       name: 'Voice Chat',
       description: 'Hands-free voice conversation',
       onClick: () => this._showVoiceChatForm(),
+      testid: 'shell-card-voice-chat',
     }));
 
     this._tabContent.appendChild(grid);
   }
 
-  _createCard({ className, iconHtml, name, description, onClick }) {
+  _createCard({ className, iconHtml, name, description, onClick, testid }) {
     const card = document.createElement('button');
     card.className = `shell-launcher__card${className ? ' ' + className : ''}`;
+    if (testid) card.dataset.testid = testid;
     card.addEventListener('click', onClick);
 
     const icon = document.createElement('span');

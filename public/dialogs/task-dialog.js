@@ -77,6 +77,7 @@ class TaskDialog extends DialogBase {
     for (const task of this._tasks) {
       const item = document.createElement('div');
       item.className = 'task-dialog__item';
+      item.dataset.testid = `task-dialog-item-${task.id}`;
 
       // Info row
       const info = document.createElement('div');

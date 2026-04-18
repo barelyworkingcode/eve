@@ -51,6 +51,7 @@ class MessageRenderer {
 
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant';
+    messageEl.dataset.testid = 'message-assistant';
     messageEl.innerHTML = `<div class="message-content">${this.formatText(text)}</div>`;
     this.messagesEl.appendChild(messageEl);
     this.currentAssistantMessage = messageEl.querySelector('.message-content');
@@ -159,6 +160,7 @@ class MessageRenderer {
 
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant';
+    messageEl.dataset.testid = 'message-tool-use';
 
     const inputDetail = input ? this._prettyJson(input) : '';
 
@@ -182,6 +184,7 @@ class MessageRenderer {
   appendUserMessage(text, files = []) {
     const messageEl = document.createElement('div');
     messageEl.className = 'message user';
+    messageEl.dataset.testid = 'message-user';
 
     // Strip voice mode instruction and dictation notice prefixes from display
     const displayText = text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '').replace(/^\[DICTATED\][^\n]*\n\n/, '');
@@ -207,6 +210,7 @@ class MessageRenderer {
   appendSystemMessage(text, type = '') {
     const messageEl = document.createElement('div');
     messageEl.className = `message system ${type}`;
+    messageEl.dataset.testid = 'message-system';
     messageEl.innerHTML = `<div class="message-content">${this.escapeHtml(text)}</div>`;
     this.messagesEl.appendChild(messageEl);
     this.scrollToBottom();
@@ -302,6 +306,7 @@ class MessageRenderer {
     const el = document.createElement('div');
     el.className = 'thinking-indicator';
     el.id = 'thinkingIndicator';
+    el.dataset.testid = 'thinking-indicator';
     el.innerHTML = `<div class="thinking-spinner"></div><span class="thinking-text">${this.escapeHtml(text)}</span>`;
     this.messagesEl.appendChild(el);
     this.scrollToBottom();
