@@ -382,6 +382,7 @@ class VoiceChatManager {
     // Barge-in is still available via mic/orb tap or spacebar.
     if (this.inputMode === 'conversation') {
       this.vadManager.pause();
+      this.micBtn?.classList.add('voice-chat__btn--muted');
     }
     this._setOrbState('speaking', 'TTS started');
     this._setPrompt('Speaking...');
@@ -392,6 +393,7 @@ class VoiceChatManager {
 
     if (this.inputMode === 'conversation') {
       this.vadManager.resume();
+      this.micBtn?.classList.remove('voice-chat__btn--muted');
       this._setOrbState('listening', 'TTS ended');
       this._setPrompt('Listening...');
     } else {
