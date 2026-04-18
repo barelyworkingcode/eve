@@ -91,7 +91,6 @@ class TabManager {
       this.render();
     } else {
       this.switchToTab(sessionId);
-      this.render();
     }
   }
 
@@ -132,7 +131,6 @@ class TabManager {
     }
 
     this.switchToTab(tabId);
-    this.render();
   }
 
   /**
@@ -156,7 +154,6 @@ class TabManager {
 
     this.tabs.push(tab);
     this.switchToTab(terminalId);
-    this.render();
   }
 
   /**
@@ -239,6 +236,28 @@ class TabManager {
     }
 
     this.render();
+    this._updateHash(tab);
+  }
+
+  /**
+   * Updates location.hash to reflect the active tab.
+   * Uses replaceState to avoid firing hashchange events.
+   */
+  _updateHash(tab) {
+    let hash = '';
+    if (tab) {
+      if (tab.type === 'session') {
+        hash = `#session/${encodeURIComponent(tab.id)}`;
+      } else if (tab.type === 'file') {
+        hash = `#file/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.path)}`;
+      } else if (tab.type === 'terminal') {
+        hash = `#terminal/${encodeURIComponent(tab.id)}`;
+      }
+    }
+    const target = hash || (window.location.pathname + window.location.search);
+    if (window.location.hash !== hash) {
+      history.replaceState(null, '', target);
+    }
   }
 
   /**
@@ -303,6 +322,7 @@ class TabManager {
         if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
         this.app.voiceChatManager?.deactivate();
         this._destroyActiveViewer();
+        this._updateHash(null);
       }
     }
 
@@ -388,6 +408,7 @@ class TabManager {
       const tabEl = document.createElement('div');
       tabEl.className = 'tab';
       tabEl.dataset.tabId = tab.id;
+      tabEl.dataset.testid = `tab-${tab.id}`;
       if (tab.id === this.activeTabId) {
         tabEl.classList.add('active');
       }
@@ -408,6 +429,7 @@ class TabManager {
       // Close button: tap to close tab, long-press to delete session from server
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
+      closeBtn.dataset.testid = `tab-close-${tab.id}`;
       closeBtn.textContent = '×';
       let closeLongPress = null;
       let closeLongFired = false;

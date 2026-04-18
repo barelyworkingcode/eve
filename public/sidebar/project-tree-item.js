@@ -30,6 +30,7 @@ class ProjectTreeItem {
     // Header row
     const header = document.createElement('div');
     header.className = `project-tree__header${this.expanded ? ' project-tree__header--expanded' : ''}`;
+    header.dataset.testid = `sidebar-project-${this.projectId}`;
 
     // Chevron
     const chevron = document.createElement('span');
@@ -156,6 +157,7 @@ class ProjectTreeItem {
 
       const item = document.createElement('div');
       item.className = 'project-tree__task-item';
+      item.dataset.testid = `sidebar-task-${task.id}`;
       if (lastSessionId) item.style.cursor = 'pointer';
 
       const nameEl = document.createElement('span');
@@ -264,6 +266,7 @@ class ProjectTreeItem {
       const item = document.createElement('div');
       const isActive = session.id === this.state.currentSessionId;
       item.className = `project-tree__session-item${isActive ? ' project-tree__session-item--active' : ''}`;
+      item.dataset.testid = `sidebar-session-${session.id}`;
 
       const nameEl = document.createElement('span');
       nameEl.className = 'project-tree__session-name';
@@ -306,6 +309,7 @@ class ProjectTreeItem {
   _renderTerminalItem(container, terminal) {
     const item = document.createElement('div');
     item.className = 'project-tree__session-item';
+    item.dataset.testid = `sidebar-terminal-${terminal.id}`;
 
     const iconEl = document.createElement('span');
     iconEl.className = 'project-tree__terminal-icon';
@@ -468,6 +472,7 @@ class ProjectTreeItem {
     btn.className = 'project-tree__action-btn';
     btn.title = title;
     btn.innerHTML = iconHtml;
+    btn.dataset.testid = `sidebar-project-${title.toLowerCase().replace(/\s+/g, '-')}-${this.projectId}`;
     btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(e); });
     return btn;
   }

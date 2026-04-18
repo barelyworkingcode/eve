@@ -17,6 +17,7 @@ class DialogBase {
     this.el = document.createElement('div');
     this.el.id = this.dialogId;
     this.el.className = 'dialog hidden';
+    this.el.dataset.testid = `dialog-${this.dialogId}`;
 
     const backdrop = document.createElement('div');
     backdrop.className = 'dialog__backdrop';
@@ -87,6 +88,7 @@ class DialogBase {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'dialog__close';
+    closeBtn.dataset.testid = `dialog-close-${this.dialogId}`;
     closeBtn.innerHTML = '&times;';
     closeBtn.addEventListener('click', () => this.hide());
 
