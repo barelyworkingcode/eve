@@ -4750,6 +4750,23 @@ html, body {
   animation: mic-pulse 1s ease-in-out infinite;
 }
 
+.voice-chat__btn--mic.voice-chat__btn--muted {
+  opacity: 0.35;
+  position: relative;
+}
+
+.voice-chat__btn--mic.voice-chat__btn--muted::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 70%;
+  height: 2px;
+  background: var(--danger);
+  transform: translate(-50%, -50%) rotate(-45deg);
+  border-radius: 1px;
+}
+
 .voice-chat__btn--mic.voice-chat__btn--secondary {
   opacity: 0.4;
   width: 40px;
