@@ -438,9 +438,12 @@ class EveWorkspaceClient {
         }
       }
 
-      // Check for hash-based route (e.g., /#/voice-chat for iOS Action Button)
+      // Check for hash-based route (e.g., /#/voice-chat, #session/<id>, #file/<id>/<path>)
       this._handleHashRoute();
-      window.addEventListener('hashchange', () => this._handleHashRoute());
+      if (!this._hashListenerAdded) {
+        window.addEventListener('hashchange', () => this._handleHashRoute());
+        this._hashListenerAdded = true;
+      }
     });
 
     this.terminalManager.onReady(() => {
@@ -452,14 +455,23 @@ class EveWorkspaceClient {
 
   // --- Hash route handling (deep links / iOS Action Button) ---
 
+  _clearHash() {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+
+  _hashRouteError(message) {
+    this.bus.emit(EVT.TOAST_SHOW, { id: 'hash-route-error', message, type: 'warning', duration: 3000 });
+    this._clearHash();
+  }
+
   _handleHashRoute() {
     const hash = window.location.hash;
     if (!hash) return;
 
+    // Voice chat deep links (iOS Action Button) — consume and clear hash
     if (hash === '#/voice-chat' || hash === '#/voice_chat' || hash === '#!/voice-chat' || hash === '#!/voice_chat') {
-      history.replaceState(null, '', window.location.pathname + window.location.search);
+      this._clearHash();
 
-      // Resume existing voice session if one is active
       const existingId = this._findVoiceSession();
       if (existingId) {
         this.tabManager.switchToTab(existingId);
@@ -467,6 +479,60 @@ class EveWorkspaceClient {
       }
 
       this._launchFavoriteTemplate();
+      return;
+    }
+
+    // Tab deep links: #session/<id>, #file/<projectId>/<path>, #terminal/<id>
+    const match = hash.match(/^#(session|file|terminal)\/(.+)$/);
+    if (!match) return;
+
+    const [, routeType, routeData] = match;
+
+    if (routeType === 'session') {
+      const sessionId = decodeURIComponent(routeData);
+      if (this.sessions.has(sessionId)) {
+        const existingTab = this.tabManager.tabs.find(t => t.id === sessionId);
+        if (existingTab) {
+          this.tabManager.switchToTab(sessionId);
+        } else {
+          this.joinSession(sessionId);
+        }
+      } else {
+        this._hashRouteError('Session not found.');
+      }
+    } else if (routeType === 'file') {
+      const slashIdx = routeData.indexOf('/');
+      if (slashIdx === -1) return;
+      const projectId = decodeURIComponent(routeData.substring(0, slashIdx));
+      const filePath = decodeURIComponent(routeData.substring(slashIdx + 1));
+
+      if (!this.projects.has(projectId)) {
+        this._hashRouteError('Project not found.');
+        return;
+      }
+
+      const tabId = `${projectId}:${filePath}`;
+      const existingTab = this.tabManager.tabs.find(t => t.id === tabId);
+      if (existingTab) {
+        this.tabManager.switchToTab(tabId);
+      } else {
+        this.bus.emit(EVT.FILE_CONTENT, { projectId, path: filePath, filename: filePath.split('/').pop(), requestLoad: true });
+      }
+    } else if (routeType === 'terminal') {
+      const terminalId = decodeURIComponent(routeData);
+      const existingTab = this.tabManager.tabs.find(t => t.id === terminalId);
+      if (existingTab) {
+        this.tabManager.switchToTab(terminalId);
+      } else {
+        const termMgr = this.terminalManager;
+        if (termMgr?.terminals.has(terminalId)) {
+          termMgr.showTerminal(terminalId);
+          const t = termMgr.terminals.get(terminalId);
+          this.tabManager.openTerminal(terminalId, t.name || 'Terminal', t.directory || '');
+        } else {
+          this._hashRouteError('Terminal not found.');
+        }
+      }
     }
   }
 

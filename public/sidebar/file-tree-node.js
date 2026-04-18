@@ -64,6 +64,7 @@ class FileTreeNode {
       item.className = `file-tree__item${isDir ? ' file-tree__item--folder' : ''}${isExpanded ? ' file-tree__item--expanded' : ''}`;
       item.style.paddingLeft = `${12 + depth * 16}px`;
       item.draggable = true;
+      item.dataset.testid = `file-tree-item-${entryPath}`;
 
       // Chevron (folders only)
       if (isDir) {
