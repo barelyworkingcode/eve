@@ -238,6 +238,10 @@ class VoiceChatManager {
   _onVADSpeechEnd(audio) {
     if (!this.isVoiceSession) return;
 
+    // Drop if a transcription is already in flight (Chrome's AEC sometimes
+    // leaks enough echo to trigger a second VAD cycle for the same utterance)
+    if (this._vadTranscribing) return;
+
     this._setOrbState('processing', 'speech ended');
     this._setPrompt('Transcribing...');
     this._vadTranscribing = true;
@@ -258,7 +262,13 @@ class VoiceChatManager {
   // --- Mic button handling (adapts to mode) ---
 
   _onMicDown() {
-    if (this.inputMode === 'conversation') return;
+    if (this.inputMode === 'conversation') {
+      // Tap to barge-in: stop TTS, VAD resumes via handleTTSEnd()
+      if (this.app.ttsManager.isPlaying) {
+        this.app.ttsManager.stop();
+      }
+      return;
+    }
     this._startRecording();
   }
 
@@ -367,8 +377,12 @@ class VoiceChatManager {
 
   handleTTSStart() {
     if (!this.isVoiceSession) return;
-    // VAD stays active during playback for voice barge-in.
-    // Echo cancellation + higher thresholds filter speaker output.
+    // Pause VAD during TTS — browser echo cancellation (especially Chrome)
+    // leaks enough speaker audio to trigger false barge-in and duplicate messages.
+    // Barge-in is still available via mic/orb tap or spacebar.
+    if (this.inputMode === 'conversation') {
+      this.vadManager.pause();
+    }
     this._setOrbState('speaking', 'TTS started');
     this._setPrompt('Speaking...');
   }
@@ -376,7 +390,8 @@ class VoiceChatManager {
   handleTTSEnd() {
     if (!this.isVoiceSession) return;
 
-    if (this.vadManager.isListening) {
+    if (this.inputMode === 'conversation') {
+      this.vadManager.resume();
       this._setOrbState('listening', 'TTS ended');
       this._setPrompt('Listening...');
     } else {
