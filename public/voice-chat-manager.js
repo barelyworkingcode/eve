@@ -885,10 +885,10 @@ class ParticleCloudOrb {
     this.breathDepth = 0;
 
     this.stateConfigs = {
-      idle:       { color: { r: 140, g: 140, b: 165 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.15,  spread: 0.0 },
-      listening:  { color: { r: 220, g: 80,  b: 80  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.3,   spread: 0.15 },
-      processing: { color: { r: 210, g: 170, b: 60  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.7,   spread: 0.08 },
-      speaking:   { color: { r: 80,  g: 140, b: 220 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.2,   spread: 0.20 },
+      idle:       { color: { r: 160, g: 160, b: 200 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.15,  spread: 0.0 },
+      listening:  { color: { r: 255, g: 70,  b: 70  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.3,   spread: 0.15 },
+      processing: { color: { r: 255, g: 200, b: 50  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.7,   spread: 0.08 },
+      speaking:   { color: { r: 60,  g: 160, b: 255 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.2,   spread: 0.20 },
     };
 
     // Touch interaction
@@ -944,8 +944,8 @@ class ParticleCloudOrb {
         driftPhase: Math.random() * Math.PI * 2,
         driftFreq: 0.3 + Math.random() * 0.7,
         driftAmt: 0.02 + Math.random() * 0.04,
-        size: 1.5 + Math.random() * 2.0,
-        opacity: 0.6 + Math.random() * 0.4,
+        size: 2.5 + Math.random() * 3.0,
+        opacity: 0.8 + Math.random() * 0.2,
       });
     }
   }
@@ -1029,7 +1029,7 @@ class ParticleCloudOrb {
     const rotation = this.time * this.rotSpeed;
 
     // Soft center glow — pulses with breathing
-    const glowAlpha = 0.15 + 0.10 * (rawBreath * 0.5 + 0.5);
+    const glowAlpha = 0.20 + 0.15 * (rawBreath * 0.5 + 0.5);
     const glowR = this.baseRadius * 0.85 * breathMod;
     const gradient = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, glowR);
     gradient.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${glowAlpha.toFixed(3)})`);
@@ -1068,7 +1068,7 @@ class ParticleCloudOrb {
         }
       }
 
-      const depthFade = 0.6 + 0.4 * (z3d * 0.5 + 0.5);
+      const depthFade = 0.75 + 0.25 * (z3d * 0.5 + 0.5);
       const alpha = p.opacity * depthFade * (0.8 + 0.2 * (rawBreath * 0.5 + 0.5));
       const size = p.size * perspective * (0.9 + 0.1 * (rawBreath * 0.5 + 0.5));
 
@@ -1078,7 +1078,7 @@ class ParticleCloudOrb {
     // Draw connecting lines between nearby particles
     const maxDist = this.baseRadius * 0.55;
     const maxDistSq = maxDist * maxDist;
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = 1.2;
     for (let i = 0; i < projected.length; i++) {
       const a = projected[i];
       for (let j = i + 1; j < projected.length; j++) {
@@ -1088,7 +1088,7 @@ class ParticleCloudOrb {
         const distSq = dx * dx + dy * dy;
         if (distSq < maxDistSq) {
           const proximity = 1 - Math.sqrt(distSq) / maxDist;
-          const lineAlpha = proximity * 0.25 * Math.min(a.alpha, b.alpha);
+          const lineAlpha = proximity * 0.45 * Math.min(a.alpha, b.alpha);
           ctx.beginPath();
           ctx.moveTo(a.px, a.py);
           ctx.lineTo(b.px, b.py);
