@@ -649,10 +649,10 @@ class VoiceOrbCanvas {
     this.breathDepth = 0;
 
     this.stateConfigs = {
-      idle:       { color: { r: 140, g: 140, b: 165 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.08,  wobble: 0.02 },
-      listening:  { color: { r: 220, g: 80,  b: 80  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.25,  wobble: 0.08 },
-      processing: { color: { r: 210, g: 170, b: 60  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.55,  wobble: 0.05 },
-      speaking:   { color: { r: 80,  g: 140, b: 220 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.18,  wobble: 0.09 },
+      idle:       { color: { r: 160, g: 160, b: 200 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.08,  wobble: 0.02 },
+      listening:  { color: { r: 255, g: 70,  b: 70  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.25,  wobble: 0.08 },
+      processing: { color: { r: 255, g: 200, b: 50  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.55,  wobble: 0.05 },
+      speaking:   { color: { r: 60,  g: 160, b: 255 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.18,  wobble: 0.09 },
     };
 
     // Touch interaction
@@ -702,7 +702,7 @@ class VoiceOrbCanvas {
         phase: Math.random() * Math.PI * 2,             // starting rotation phase
         wobbleFreq: 0.8 + Math.random() * 1.2,          // how fast this loop wobbles
         wobbleAmp: 0.02 + Math.random() * 0.04,         // how much it wobbles independently
-        opacity: 0.15 + Math.random() * 0.25,
+        opacity: 0.35 + Math.random() * 0.35,
       });
     }
   }
@@ -715,7 +715,7 @@ class VoiceOrbCanvas {
 
   _resize() {
     const parent = this.canvas.parentElement;
-    const size = Math.min(parent.clientWidth, parent.clientHeight, 360);
+    const size = Math.min(parent.clientWidth, parent.clientHeight);
     this.canvas.width = size * 2;
     this.canvas.height = size * 2;
     this.canvas.style.width = size + 'px';
@@ -792,7 +792,7 @@ class VoiceOrbCanvas {
     const rotation = this.time * this.rotSpeed;
 
     // Soft center glow — pulses with breathing
-    const glowAlpha = 0.04 + 0.04 * (rawBreath * 0.5 + 0.5);
+    const glowAlpha = 0.08 + 0.08 * (rawBreath * 0.5 + 0.5);
     const glowR = this.baseRadius * 0.65 * breathMod;
     const gradient = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, glowR);
     gradient.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${glowAlpha.toFixed(3)})`);
@@ -848,9 +848,9 @@ class VoiceOrbCanvas {
       ctx.closePath();
 
       // Wire opacity subtly pulses with breathing
-      const loopAlpha = loop.opacity + 0.05 * (rawBreath * 0.5 + 0.5);
+      const loopAlpha = loop.opacity + 0.1 * (rawBreath * 0.5 + 0.5);
       ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${loopAlpha.toFixed(3)})`;
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.8;
       ctx.stroke();
     }
 
@@ -958,7 +958,7 @@ class ParticleCloudOrb {
 
   _resize() {
     const parent = this.canvas.parentElement;
-    const size = Math.min(parent.clientWidth, parent.clientHeight, 360);
+    const size = Math.min(parent.clientWidth, parent.clientHeight);
     this.canvas.width = size * 2;
     this.canvas.height = size * 2;
     this.canvas.style.width = size + 'px';
