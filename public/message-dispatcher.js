@@ -207,7 +207,6 @@ class MessageDispatcher {
 
   _handleTtsAudio(data) {
     this.tts?.enqueueAudio(data.data);
-    this.voice?.handleTTSStart();
   }
 
   _handleTtsError(data) {
