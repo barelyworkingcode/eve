@@ -404,6 +404,7 @@ class VoiceChatManager {
 
   handleError(message) {
     if (!this.isVoiceSession) return;
+    this._vadTranscribing = false;
     this._addCaption('error', message);
     if (this.vadManager.isListening) {
       this._setOrbState('listening', 'error recovery');
