@@ -26,7 +26,6 @@ class TTSManager {
     this.currentSource = null;
     this.isNativeApp = IS_NATIVE_APP;
     this._idleTimer = null;
-    this._hasUserGesture = false;
 
     this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
@@ -63,10 +62,9 @@ class TTSManager {
     this.loadVoices();
     this.log.info(`Init — enabled: ${this.enabled}, voice: ${this.voice || 'default'}, backend: ${this.backend}`);
 
-    // Pre-warm AudioContext on first user gesture to satisfy autoplay policy.
-    // Uses capture phase so it fires even if other handlers stopPropagation (e.g. push-to-talk).
+    // Resume AudioContext on first user gesture to satisfy autoplay policy.
+    // Context is created eagerly (starts suspended); resume only works during a gesture.
     const warmUp = () => {
-      this._hasUserGesture = true;
       this._ensureAudioContext();
       document.removeEventListener('click', warmUp, true);
       document.removeEventListener('touchstart', warmUp, true);
@@ -203,7 +201,6 @@ class TTSManager {
       this.log.debug(`Speaking via ${this.backend} (voice: ${this.voice}):`, cleaned);
       const result = await this.activeBackend.speakText(cleaned, this.voice);
       if (result?.audio) {
-        this.app.voiceChatManager?.handleTTSStart();
         await this.enqueueAudio(result.audio);
       }
       // null result = server backend (audio arrives via WS tts_audio → enqueueAudio)
@@ -246,7 +243,6 @@ class TTSManager {
   // --- Audio playback queue (shared by all backends) ---
 
   async _ensureAudioContext() {
-    if (!this._hasUserGesture) return; // Browser blocks AudioContext before user gesture
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       this.analyser = this.audioContext.createAnalyser();
@@ -263,8 +259,8 @@ class TTSManager {
     this.log.debug(`Playing audio (${Math.round(base64Data.length * 3 / 4 / 1024)}kb, queue: ${this.queue.length})`);
     try {
       await this._ensureAudioContext();
-      if (!this.audioContext) {
-        this.log.warn('AudioContext unavailable (no user gesture yet) — dropping audio chunk');
+      if (this.audioContext.state !== 'running') {
+        this.log.warn('AudioContext suspended (waiting for user interaction) — dropping audio chunk');
         return;
       }
       const binary = atob(base64Data);
@@ -293,8 +289,11 @@ class TTSManager {
       return;
     }
 
-    this.isPlaying = true;
-    this._setSpeakingIndicator(true);
+    if (!this.isPlaying) {
+      this.isPlaying = true;
+      this._setSpeakingIndicator(true);
+      this.app.voiceChatManager?.handleTTSStart();
+    }
 
     const audioBuffer = this.queue.shift();
     const source = this.audioContext.createBufferSource();
