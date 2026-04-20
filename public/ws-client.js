@@ -49,6 +49,9 @@ class WsClient {
         return;
       }
 
+      if (data.type === 'tts_done') {
+        this.log.debug('Raw WS received tts_done');
+      }
       this._onMessage(data);
     };
 
