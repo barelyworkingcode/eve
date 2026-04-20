@@ -1,6 +1,14 @@
 const WebSocket = require('ws');
 
 const DEFAULT_TTS_VOICE = 'af_heart';
+const TTS_MIN_FIRST_CHUNK = 20;
+const TTS_MIN_CHUNK = 40;
+const TTS_ABBREVIATIONS = new Set([
+  'mr', 'mrs', 'ms', 'dr', 'prof', 'st', 'jr', 'sr',
+  'vs', 'etc', 'approx', 'dept', 'est', 'govt',
+  'eg', 'ie', 'al',       // e.g., i.e., et al.
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+]);
 
 /**
  * RelayClient - one instance per browser WS connection.
@@ -30,6 +38,10 @@ class RelayClient {
     this.voicePreset = DEFAULT_TTS_VOICE;
     this.ttsTextAccumulator = '';
     this.ttsPending = 0;
+    this._ttsChain = Promise.resolve();
+    this._ttsChunkSeq = 0;
+    this._ttsGeneration = 0;
+    this._ttsFirstChunk = true;
   }
 
   connect() {
@@ -140,8 +152,7 @@ class RelayClient {
     this._send({ type: 'leave_session', sessionId });
     // Reset voice mode so TTS doesn't carry over to the next session
     this.voiceMode = false;
-    this.ttsTextAccumulator = '';
-    this.ttsPending = 0;
+    this._resetTTSState();
   }
 
   endSession(sessionId) {
@@ -161,8 +172,7 @@ class RelayClient {
   }
 
   stopGeneration(sessionId) {
-    this.ttsTextAccumulator = '';
-    this.ttsPending = 0;
+    this._resetTTSState();
     this._send({ type: 'stop_generation', sessionId });
   }
 
@@ -173,8 +183,16 @@ class RelayClient {
   setVoiceMode(enabled, voice) {
     this.voiceMode = enabled;
     if (voice) this.voicePreset = voice;
+    this._resetTTSState();
+  }
+
+  _resetTTSState() {
     this.ttsTextAccumulator = '';
     this.ttsPending = 0;
+    this._ttsChain = Promise.resolve();
+    this._ttsChunkSeq = 0;
+    this._ttsGeneration++;
+    this._ttsFirstChunk = true;
   }
 
   _handleTTSAccumulation(msg) {
@@ -197,19 +215,106 @@ class RelayClient {
       if (event.content_block?.type === 'text' && event.content_block.text) {
         this.ttsTextAccumulator += event.content_block.text;
       }
+
+      // Extract and send complete sentences as they arrive
+      this._flushCompleteSentences();
     }
 
     if (msg.type === 'message_complete') {
-      const text = this.ttsTextAccumulator.trim();
+      // Flush any remaining text regardless of length
+      const remainder = this.ttsTextAccumulator.trim();
       this.ttsTextAccumulator = '';
-      if (text) this._sendToTTS(text);
+      if (remainder) this._sendTTSChunk(remainder);
+
+      // Signal client after all queued chunks finish synthesizing.
+      // Must be inside the chain — _sendTTSChunk is async so chunks
+      // may not have been sent yet at this point.
+      const gen = this._ttsGeneration;
+      this._ttsChain = this._ttsChain.then(() => {
+        if (gen !== this._ttsGeneration) return;
+        this._sendToBrowser({
+          type: 'tts_done',
+          sessionId: this.currentSessionId,
+        });
+      });
+      this._ttsFirstChunk = true;
     }
   }
 
-  async _sendToTTS(text) {
+  /**
+   * Extract complete sentences from the accumulator and send each to TTS.
+   * Sentences below the minimum chunk size are kept for merging with the next.
+   */
+  _flushCompleteSentences() {
+    let result;
+    while ((result = this._extractNextSentence(this.ttsTextAccumulator)) && result.sentence) {
+      const minLen = this._ttsFirstChunk ? TTS_MIN_FIRST_CHUNK : TTS_MIN_CHUNK;
+      if (result.sentence.length < minLen) {
+        // Too short — keep in accumulator, will merge with next sentence
+        break;
+      }
+      this.ttsTextAccumulator = result.remainder;
+      this._sendTTSChunk(result.sentence);
+      this._ttsFirstChunk = false;
+    }
+  }
+
+  /**
+   * Find the first sentence boundary in text.
+   * Returns { sentence, remainder } or { sentence: null, remainder: text }.
+   * Skips abbreviations (Mr., Dr., e.g.), decimal numbers (3.14),
+   * and boundaries inside code blocks. Operates on raw text —
+   * cleaning (strip markdown, code blocks) is deferred to _sendTTSChunk.
+   */
+  _extractNextSentence(text) {
+    // Don't split inside an unclosed code block or think tag
+    if (/```[^`]*$/.test(text) || /<think>[^<]*$/.test(text)) {
+      return { sentence: null, remainder: text };
+    }
+
+    const pattern = /([.!?]+)(\s+|$)/g;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const endIdx = match.index + match[0].length;
+      const punct = match[1];
+      const before = text.slice(0, match.index);
+
+      // Skip boundaries inside code blocks (odd number of ``` fences before this point)
+      const fenceCount = (before.match(/```/g) || []).length;
+      if (fenceCount % 2 !== 0) continue;
+
+      // Skip decimal numbers: digit.digit
+      if (punct === '.') {
+        const charBefore = match.index > 0 ? text[match.index - 1] : '';
+        const charAfter = text[endIdx] || '';
+        if (/\d/.test(charBefore) && /\d/.test(charAfter)) continue;
+      }
+
+      // Skip abbreviations: word. where word is in the abbreviation set
+      if (punct === '.') {
+        const wordMatch = before.match(/(\w+)$/);
+        if (wordMatch && TTS_ABBREVIATIONS.has(wordMatch[1].toLowerCase())) continue;
+      }
+
+      const sentence = text.slice(0, endIdx).trim();
+      const remainder = text.slice(endIdx);
+      return { sentence, remainder };
+    }
+
+    return { sentence: null, remainder: text };
+  }
+
+  /**
+   * Clean text and chain it onto the TTS synthesis pipeline.
+   * Chunks are synthesized and sent to browser in order.
+   * Captures the current generation so stale chunks from a cancelled
+   * response are discarded even if synthesis completes.
+   */
+  _sendTTSChunk(text) {
     const cleaned = text
       .replace(/<think>[\s\S]*?<\/think>/g, '')
       .replace(/<think>[\s\S]*$/g, '')
+      .replace(/```[\s\S]*?```/g, '')
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       .replace(/https?:\/\/\S+/g, '')
       .replace(/[*_~`#>]/g, '')
@@ -218,22 +323,26 @@ class RelayClient {
 
     if (!cleaned) return;
 
-    this.log.debug('TTS synthesizing:', cleaned);
+    const seq = this._ttsChunkSeq++;
+    const gen = this._ttsGeneration;
+    this._ttsChain = this._ttsChain.then(() => {
+      if (gen !== this._ttsGeneration) return;
+      return this._synthesizeAndSend(cleaned, seq);
+    });
+  }
+
+  async _synthesizeAndSend(text, seq) {
+    this.log.debug(`TTS chunk ${seq}:`, text);
     this.ttsPending++;
     try {
-      const result = await this.ttsService.synthesize(cleaned, this.voicePreset);
+      const result = await this.ttsService.synthesize(text, this.voicePreset);
       this._sendToBrowser({
         type: 'tts_audio',
         data: result.audio_base64,
         sessionId: this.currentSessionId,
       });
     } catch (err) {
-      this.log.error('TTS error:', err.message);
-      this._sendToBrowser({
-        type: 'tts_error',
-        message: err.message,
-        sessionId: this.currentSessionId,
-      });
+      this.log.error(`TTS chunk ${seq} failed:`, err.message);
     } finally {
       this.ttsPending--;
     }
