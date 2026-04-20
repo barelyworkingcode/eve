@@ -26,6 +26,7 @@ class TTSManager {
     this.currentSource = null;
     this.isNativeApp = IS_NATIVE_APP;
     this._idleTimer = null;
+    this._ttsDoneReceived = true;
 
     this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
@@ -280,12 +281,17 @@ class TTSManager {
     }
   }
 
+  /** Enqueue audio from server TTS (via WebSocket tts_audio message). */
+  enqueueServerAudio(base64Data) {
+    this._ttsDoneReceived = false;
+    this.enqueueAudio(base64Data);
+  }
+
   _playNext() {
     if (this.queue.length === 0) {
       this.isPlaying = false;
-      this._setSpeakingIndicator(false);
-      this.app.voiceChatManager?.handleTTSEnd();
-      this._startIdleTimer();
+      if (this._ttsDoneReceived) this._finishPlayback();
+      // else: more chunks may arrive from server, stay in speaking state
       return;
     }
 
@@ -309,13 +315,27 @@ class TTSManager {
 
   stop() {
     this.queue = [];
+    this._ttsDoneReceived = true;
     if (this.currentSource) {
       try { this.currentSource.stop(); } catch { /* already stopped */ }
       this.currentSource = null;
     }
     this.isPlaying = false;
+    this._finishPlayback();
+  }
+
+  /** Signal that the server has sent all TTS chunks for this response. */
+  markTTSDone() {
+    this._ttsDoneReceived = true;
+    if (!this.isPlaying && this.queue.length === 0) {
+      this._finishPlayback();
+    }
+  }
+
+  _finishPlayback() {
     this._setSpeakingIndicator(false);
     this.app.voiceChatManager?.handleTTSEnd();
+    this._startIdleTimer();
   }
 
   /** Returns 0-1 normalized audio level from playback, or 0 if not playing. */
