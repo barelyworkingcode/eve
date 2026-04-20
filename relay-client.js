@@ -230,12 +230,19 @@ class RelayClient {
       // Must be inside the chain — _sendTTSChunk is async so chunks
       // may not have been sent yet at this point.
       const gen = this._ttsGeneration;
+      this.log.debug(`TTS message_complete: gen=${gen}, chunkSeq=${this._ttsChunkSeq}, remainder=${remainder.length} chars`);
       this._ttsChain = this._ttsChain.then(() => {
-        if (gen !== this._ttsGeneration) return;
+        if (gen !== this._ttsGeneration) {
+          this.log.debug(`TTS tts_done skipped: gen mismatch (${gen} vs ${this._ttsGeneration})`);
+          return;
+        }
+        this.log.debug('TTS sending tts_done to browser');
         this._sendToBrowser({
           type: 'tts_done',
           sessionId: this.currentSessionId,
         });
+      }).catch(err => {
+        this.log.error('TTS chain error before tts_done:', err.message);
       });
       this._ttsFirstChunk = true;
     }
@@ -325,9 +332,15 @@ class RelayClient {
 
     const seq = this._ttsChunkSeq++;
     const gen = this._ttsGeneration;
+    this.log.debug(`TTS queued chunk ${seq} (gen=${gen}, ${cleaned.length} chars): "${cleaned.slice(0, 60)}..."`);
     this._ttsChain = this._ttsChain.then(() => {
-      if (gen !== this._ttsGeneration) return;
+      if (gen !== this._ttsGeneration) {
+        this.log.debug(`TTS chunk ${seq} skipped: gen mismatch`);
+        return;
+      }
       return this._synthesizeAndSend(cleaned, seq);
+    }).catch(err => {
+      this.log.error(`TTS chain error at chunk ${seq}:`, err.message);
     });
   }
 
