@@ -277,12 +277,15 @@ class RelayClient {
    * Find the first sentence boundary in text.
    * Returns { sentence, remainder } or { sentence: null, remainder: text }.
    * Skips abbreviations (Mr., Dr., e.g.), decimal numbers (3.14),
-   * and boundaries inside code blocks. Operates on raw text —
+   * and boundaries inside code blocks or think tags. Operates on raw text —
    * cleaning (strip markdown, code blocks) is deferred to _sendTTSChunk.
    */
   _extractNextSentence(text) {
     // Don't split inside an unclosed code block or think tag
-    if (/```[^`]*$/.test(text) || /<think>[^<]*$/.test(text)) {
+    const totalFences = (text.match(/```/g) || []).length;
+    const totalThinkOpens = (text.match(/<think>/g) || []).length;
+    const totalThinkCloses = (text.match(/<\/think>/g) || []).length;
+    if (totalFences % 2 !== 0 || totalThinkOpens > totalThinkCloses) {
       return { sentence: null, remainder: text };
     }
 
@@ -296,6 +299,11 @@ class RelayClient {
       // Skip boundaries inside code blocks (odd number of ``` fences before this point)
       const fenceCount = (before.match(/```/g) || []).length;
       if (fenceCount % 2 !== 0) continue;
+
+      // Skip boundaries inside think tags (more opens than closes before this point)
+      const thinkOpens = (before.match(/<think>/g) || []).length;
+      const thinkCloses = (before.match(/<\/think>/g) || []).length;
+      if (thinkOpens > thinkCloses) continue;
 
       // Skip decimal numbers: digit.digit
       if (punct === '.') {
