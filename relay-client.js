@@ -108,6 +108,8 @@ class RelayClient {
 
     if (this.voiceMode && this.ttsService) {
       this._handleTTSAccumulation(msg);
+    } else if (msg.type === 'message_complete' && this.ttsService) {
+      this.log.debug(`TTS skipped message_complete: voiceMode=${this.voiceMode}`);
     }
 
     // Forward everything else to browser
@@ -196,6 +198,10 @@ class RelayClient {
   }
 
   _handleTTSAccumulation(msg) {
+    if (msg.type === 'message_complete') {
+      this.log.debug(`TTS _handleTTSAccumulation got message_complete, accum=${this.ttsTextAccumulator.length} chars`);
+    }
+
     if (msg.type === 'llm_event' && msg.event?.type === 'assistant') {
       const event = msg.event;
 
@@ -257,9 +263,10 @@ class RelayClient {
     while ((result = this._extractNextSentence(this.ttsTextAccumulator)) && result.sentence) {
       const minLen = this._ttsFirstChunk ? TTS_MIN_FIRST_CHUNK : TTS_MIN_CHUNK;
       if (result.sentence.length < minLen) {
-        // Too short — keep in accumulator, will merge with next sentence
+        this.log.debug(`TTS sentence too short (${result.sentence.length} < ${minLen}), keeping in accumulator`);
         break;
       }
+      this.log.debug(`TTS extracted sentence (${result.sentence.length} chars), remainder=${result.remainder.length}`);
       this.ttsTextAccumulator = result.remainder;
       this._sendTTSChunk(result.sentence);
       this._ttsFirstChunk = false;
