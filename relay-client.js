@@ -198,10 +198,6 @@ class RelayClient {
   }
 
   _handleTTSAccumulation(msg) {
-    if (msg.type === 'message_complete') {
-      this.log.debug(`TTS _handleTTSAccumulation got message_complete, accum=${this.ttsTextAccumulator.length} chars`);
-    }
-
     if (msg.type === 'llm_event' && msg.event?.type === 'assistant') {
       const event = msg.event;
 
@@ -222,12 +218,10 @@ class RelayClient {
         this.ttsTextAccumulator += event.content_block.text;
       }
 
-      // Extract and send complete sentences as they arrive
       this._flushCompleteSentences();
     }
 
     if (msg.type === 'message_complete') {
-      // Flush any remaining text regardless of length
       const remainder = this.ttsTextAccumulator.trim();
       this.ttsTextAccumulator = '';
       if (remainder) this._sendTTSChunk(remainder);
@@ -236,13 +230,9 @@ class RelayClient {
       // Must be inside the chain — _sendTTSChunk is async so chunks
       // may not have been sent yet at this point.
       const gen = this._ttsGeneration;
-      this.log.debug(`TTS message_complete: gen=${gen}, chunkSeq=${this._ttsChunkSeq}, remainder=${remainder.length} chars`);
+      this.log.debug(`TTS message_complete: gen=${gen}, chunks=${this._ttsChunkSeq}, remainder=${remainder.length}`);
       this._ttsChain = this._ttsChain.then(() => {
-        if (gen !== this._ttsGeneration) {
-          this.log.debug(`TTS tts_done skipped: gen mismatch (${gen} vs ${this._ttsGeneration})`);
-          return;
-        }
-        this.log.debug('TTS sending tts_done to browser');
+        if (gen !== this._ttsGeneration) return;
         this._sendToBrowser({
           type: 'tts_done',
           sessionId: this.currentSessionId,
@@ -262,11 +252,7 @@ class RelayClient {
     let result;
     while ((result = this._extractNextSentence(this.ttsTextAccumulator)) && result.sentence) {
       const minLen = this._ttsFirstChunk ? TTS_MIN_FIRST_CHUNK : TTS_MIN_CHUNK;
-      if (result.sentence.length < minLen) {
-        this.log.debug(`TTS sentence too short (${result.sentence.length} < ${minLen}), keeping in accumulator`);
-        break;
-      }
-      this.log.debug(`TTS extracted sentence (${result.sentence.length} chars), remainder=${result.remainder.length}`);
+      if (result.sentence.length < minLen) break;
       this.ttsTextAccumulator = result.remainder;
       this._sendTTSChunk(result.sentence);
       this._ttsFirstChunk = false;
@@ -282,13 +268,16 @@ class RelayClient {
    */
   _extractNextSentence(text) {
     // Don't split inside an unclosed code block or think tag
-    const totalFences = (text.match(/```/g) || []).length;
-    const totalThinkOpens = (text.match(/<think>/g) || []).length;
-    const totalThinkCloses = (text.match(/<\/think>/g) || []).length;
-    if (totalFences % 2 !== 0 || totalThinkOpens > totalThinkCloses) {
+    if (text.includes('```') && (text.match(/```/g) || []).length % 2 !== 0) {
       return { sentence: null, remainder: text };
     }
+    if (text.includes('<think>')) {
+      const opens = (text.match(/<think>/g) || []).length;
+      const closes = (text.match(/<\/think>/g) || []).length;
+      if (opens > closes) return { sentence: null, remainder: text };
+    }
 
+    const hasBlocks = text.includes('```') || text.includes('<think>');
     const pattern = /([.!?]+)(\s+|$)/g;
     let match;
     while ((match = pattern.exec(text)) !== null) {
@@ -296,24 +285,20 @@ class RelayClient {
       const punct = match[1];
       const before = text.slice(0, match.index);
 
-      // Skip boundaries inside code blocks (odd number of ``` fences before this point)
-      const fenceCount = (before.match(/```/g) || []).length;
-      if (fenceCount % 2 !== 0) continue;
+      // Skip boundaries inside code blocks or think tags
+      if (hasBlocks) {
+        const fenceCount = (before.match(/```/g) || []).length;
+        if (fenceCount % 2 !== 0) continue;
+        const thinkOpens = (before.match(/<think>/g) || []).length;
+        const thinkCloses = (before.match(/<\/think>/g) || []).length;
+        if (thinkOpens > thinkCloses) continue;
+      }
 
-      // Skip boundaries inside think tags (more opens than closes before this point)
-      const thinkOpens = (before.match(/<think>/g) || []).length;
-      const thinkCloses = (before.match(/<\/think>/g) || []).length;
-      if (thinkOpens > thinkCloses) continue;
-
-      // Skip decimal numbers: digit.digit
+      // Skip decimal numbers (3.14) and abbreviations (Mr., Dr., e.g.)
       if (punct === '.') {
         const charBefore = match.index > 0 ? text[match.index - 1] : '';
         const charAfter = text[endIdx] || '';
         if (/\d/.test(charBefore) && /\d/.test(charAfter)) continue;
-      }
-
-      // Skip abbreviations: word. where word is in the abbreviation set
-      if (punct === '.') {
         const wordMatch = before.match(/(\w+)$/);
         if (wordMatch && TTS_ABBREVIATIONS.has(wordMatch[1].toLowerCase())) continue;
       }
@@ -347,12 +332,8 @@ class RelayClient {
 
     const seq = this._ttsChunkSeq++;
     const gen = this._ttsGeneration;
-    this.log.debug(`TTS queued chunk ${seq} (gen=${gen}, ${cleaned.length} chars): "${cleaned.slice(0, 60)}..."`);
     this._ttsChain = this._ttsChain.then(() => {
-      if (gen !== this._ttsGeneration) {
-        this.log.debug(`TTS chunk ${seq} skipped: gen mismatch`);
-        return;
-      }
+      if (gen !== this._ttsGeneration) return;
       return this._synthesizeAndSend(cleaned, seq);
     }).catch(err => {
       this.log.error(`TTS chain error at chunk ${seq}:`, err.message);
@@ -360,7 +341,7 @@ class RelayClient {
   }
 
   async _synthesizeAndSend(text, seq) {
-    this.log.debug(`TTS chunk ${seq}:`, text);
+    this.log.debug(`TTS chunk ${seq} (${text.length} chars)`);
     this.ttsPending++;
     try {
       const result = await this.ttsService.synthesize(text, this.voicePreset);
