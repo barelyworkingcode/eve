@@ -290,6 +290,7 @@ class TTSManager {
   _playNext() {
     if (this.queue.length === 0) {
       this.isPlaying = false;
+      this.log.debug(`Queue empty — ttsDoneReceived: ${this._ttsDoneReceived}`);
       if (this._ttsDoneReceived) this._finishPlayback();
       // else: more chunks may arrive from server, stay in speaking state
       return;
@@ -327,12 +328,14 @@ class TTSManager {
   /** Signal that the server has sent all TTS chunks for this response. */
   markTTSDone() {
     this._ttsDoneReceived = true;
+    this.log.debug(`markTTSDone — isPlaying: ${this.isPlaying}, queue: ${this.queue.length}`);
     if (!this.isPlaying && this.queue.length === 0) {
       this._finishPlayback();
     }
   }
 
   _finishPlayback() {
+    this.log.debug('Finishing playback — resuming voice state');
     this._setSpeakingIndicator(false);
     this.app.voiceChatManager?.handleTTSEnd();
     this._startIdleTimer();
