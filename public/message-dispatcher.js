@@ -211,6 +211,7 @@ class MessageDispatcher {
   }
 
   _handleTtsDone() {
+    this.log.debug('Received tts_done from server');
     this.tts?.markTTSDone();
   }
 
