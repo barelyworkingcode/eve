@@ -96,6 +96,7 @@ const EVT = {
 
   // Voice
   VOICE_BACKEND_CHANGED: 'voice:backendChanged',
+  TTS_PLAYBACK_ENDED: 'tts:playbackEnded',
 
   // Toast (generic)
   TOAST_SHOW:    'toast:show',

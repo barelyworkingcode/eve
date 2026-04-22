@@ -664,6 +664,35 @@ html, body {
   padding-left: 4px;
 }
 
+.tts-play-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  opacity: 0;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-top: 2px;
+  border-radius: 4px;
+  transition: opacity 0.15s, color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.message.assistant:hover .tts-play-btn {
+  opacity: 0.6;
+}
+
+.tts-play-btn:hover {
+  opacity: 1 !important;
+  color: var(--text-primary);
+}
+
+.tts-play-btn--active {
+  opacity: 1 !important;
+  color: var(--accent);
+}
+
 .message.system .message-content {
   background: transparent;
   border: 1px solid var(--border-color);

@@ -187,6 +187,10 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             relayClient.setVoiceMode(message.enabled, message.voice);
             break;
 
+          case 'tts_speak':
+            handleTtsSpeak(ws, ttsService, message, log);
+            break;
+
           case 'transcribe_audio':
             handleTranscribeAudio(ws, sttService, message, log);
             break;
@@ -359,6 +363,32 @@ async function handleTranscribeAudio(ws, sttService, message, log) {
       errorMsg = 'Failed to process audio. The recording may be too short or corrupted.';
     }
     ws.send(JSON.stringify({ type: 'transcription_error', error: errorMsg }));
+  }
+}
+
+/**
+ * On-demand TTS: synthesize text and send audio back to the browser.
+ */
+const TTS_SPEAK_MAX_CHARS = 10000;
+
+async function handleTtsSpeak(ws, ttsService, message, log) {
+  const { text, voice } = message;
+  if (!text || !ttsService) {
+    ws.send(JSON.stringify({ type: 'tts_error', message: 'TTS unavailable' }));
+    return;
+  }
+  if (text.length > TTS_SPEAK_MAX_CHARS) {
+    ws.send(JSON.stringify({ type: 'tts_error', message: `Text too long (max ${TTS_SPEAK_MAX_CHARS} characters)` }));
+    return;
+  }
+  try {
+    log?.debug(`TTS speak: "${text.substring(0, 80)}" (voice: ${voice})`);
+    const result = await ttsService.synthesize(text, voice || 'af_heart');
+    ws.send(JSON.stringify({ type: 'tts_audio', data: result.audio_base64 }));
+    ws.send(JSON.stringify({ type: 'tts_done' }));
+  } catch (err) {
+    log?.error('TTS speak failed:', err.message);
+    ws.send(JSON.stringify({ type: 'tts_error', message: 'Speech synthesis failed' }));
   }
 }
 
