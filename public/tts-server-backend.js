@@ -14,14 +14,19 @@ class TtsServerBackend {
   }
 
   init(context) {
+    this._app = context.app || null;
     context.onReady?.();
   }
 
   /**
-   * No-op on client — relay-client handles server TTS generation.
+   * Send text to server for on-demand TTS synthesis.
    * Audio arrives via WS `tts_audio` → enqueueAudio().
    */
-  speakText() {
+  speakText(text, voice) {
+    const ws = this._app?.wsClient;
+    if (ws) {
+      ws.send({ type: 'tts_speak', text, voice });
+    }
     return null;
   }
 

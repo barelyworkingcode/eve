@@ -8,6 +8,7 @@ class MessageRenderer {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.bus = container.get('bus');
     this.log = container.get('logger').child('Renderer');
     this.messagesEl = this.app.elements.messages;
     this.currentAssistantMessage = null;
@@ -15,6 +16,7 @@ class MessageRenderer {
     this.isStreaming = false;
     this.isRenderingHistory = false;
     this.thinkBlockOpenStates = new Map(); // messageEl -> Set of open indices
+    this._speakingMessageEl = null;
 
     // Delegated mousedown handler for think-block summaries.
     // Uses mousedown (not click) because during streaming, innerHTML replacement
@@ -42,6 +44,51 @@ class MessageRenderer {
         openSet.add(idx);
       }
     });
+
+    // Delegated click handler for TTS play/stop buttons on assistant messages.
+    this.messagesEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.tts-play-btn');
+      if (!btn) return;
+      const messageEl = btn.closest('.message.assistant');
+      if (!messageEl) return;
+      const tts = this.app.ttsManager;
+      if (!tts) return;
+
+      // If this message is currently speaking, stop it
+      if (this._speakingMessageEl === messageEl) {
+        tts.stop();
+        this._clearSpeakingState();
+        return;
+      }
+
+      // Stop any current playback first
+      if (this._speakingMessageEl) {
+        tts.stop();
+        this._clearSpeakingState();
+      }
+
+      const rawText = messageEl.querySelector('.message-content')?.dataset.ttsText;
+      if (!rawText) return;
+
+      this._speakingMessageEl = messageEl;
+      btn.classList.add('tts-play-btn--active');
+      btn.setAttribute('aria-label', 'Stop speaking');
+      tts.speakText(rawText);
+    });
+
+    // Clear play button state when TTS playback finishes naturally
+    this.bus.on(EVT.TTS_PLAYBACK_ENDED, () => this._clearSpeakingState());
+  }
+
+  _clearSpeakingState() {
+    if (this._speakingMessageEl) {
+      const btn = this._speakingMessageEl.querySelector('.tts-play-btn');
+      if (btn) {
+        btn.classList.remove('tts-play-btn--active');
+        btn.setAttribute('aria-label', 'Read aloud');
+      }
+      this._speakingMessageEl = null;
+    }
   }
 
   startAssistantMessage(text) {
@@ -147,6 +194,15 @@ class MessageRenderer {
         metricsEl.textContent = `(${parts.join(', ')})`;
         this.currentAssistantMessage.parentElement.appendChild(metricsEl);
       }
+      // Store cleaned text for TTS play button and append the button
+      if (text) {
+        this.currentAssistantMessage.dataset.ttsText = text;
+        const playBtn = document.createElement('button');
+        playBtn.className = 'tts-play-btn';
+        playBtn.setAttribute('aria-label', 'Read aloud');
+        playBtn.innerHTML = UI_ICONS.speaker(14);
+        this.currentAssistantMessage.parentElement.appendChild(playBtn);
+      }
       this.thinkBlockOpenStates.delete(this.currentAssistantMessage);
       this._clearStreamingText();
       delete this.currentAssistantMessage.dataset.rawText;
@@ -225,6 +281,7 @@ class MessageRenderer {
   }
 
   clearMessages() {
+    this._speakingMessageEl = null;
     this.messagesEl.innerHTML = '';
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;

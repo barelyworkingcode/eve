@@ -335,6 +335,7 @@ class TTSManager {
   _finishPlayback() {
     this._setSpeakingIndicator(false);
     this.app.voiceChatManager?.handleTTSEnd();
+    this.bus.emit(EVT.TTS_PLAYBACK_ENDED);
     this._startIdleTimer();
   }
 

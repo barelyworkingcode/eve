@@ -220,6 +220,7 @@ class MessageDispatcher {
     if (!this.voice?.isVoiceSession) {
       this.renderer.appendSystemMessage(`TTS error: ${data.message}`, 'error');
     }
+    this.bus.emit(EVT.TTS_PLAYBACK_ENDED);
   }
 
   _handleDirectoryListing(data) {
