@@ -3922,6 +3922,12 @@ html, body {
   margin-top: 4px;
 }
 
+.dialog__setting-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+
 .dialog__setting-row {
   margin-top: 8px;
 }

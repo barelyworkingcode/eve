@@ -1,3 +1,5 @@
+const HIDDEN_SETTING_KEYS = new Set(['mcpServers']);
+
 /**
  * DialogBase - shared modal behavior for all dialogs.
  * Handles backdrop, escape key, focus trap, show/hide lifecycle.
@@ -177,9 +179,10 @@ class DialogBase {
    * @param {HTMLElement} form - Parent form element.
    * @param {HTMLSelectElement} modelSelect - Model select dropdown.
    * @param {Object|null} existingSettings - Pre-existing settings to populate (for editing).
+   * @param {Array} extraFields - Additional fields to append after provider fields.
    * @returns {HTMLElement} The settings container element.
    */
-  _addProviderSettings(form, modelSelect, existingSettings) {
+  _addProviderSettings(form, modelSelect, existingSettings, extraFields) {
     const state = this.container.get('state');
     const settingsContainer = document.createElement('div');
     settingsContainer.className = 'dialog__settings';
@@ -193,8 +196,13 @@ class DialogBase {
       settingsContainer.innerHTML = '';
       const selectedModel = state.models.find(m => m.value === modelSelect.value);
       if (!selectedModel) return;
-      const fields = state.providerSettings[selectedModel.provider] || [];
-      for (const field of fields) {
+      const providerFields = state.providerSettings[selectedModel.provider] || [];
+      const visibleExtras = (extraFields || []).filter(
+        f => !f.visibleWhen || f.visibleWhen(state.models, modelSelect.value)
+      );
+      const fields = [...providerFields, ...visibleExtras];
+
+      const createField = (field) => {
         const row = document.createElement('div');
         row.className = 'dialog__setting-row';
         const lbl = document.createElement('label');
@@ -213,11 +221,11 @@ class DialogBase {
           const input = document.createElement('input');
           input.type = 'number';
           input.name = field.key;
-          input.value = parsed[field.key] !== undefined ? parsed[field.key] : (field.default ?? '');
+          input.value = parsed[field.key] !== undefined ? parsed[field.key] : '';
           if (field.min !== undefined) input.min = field.min;
           if (field.max !== undefined) input.max = field.max;
           input.step = field.step || 'any';
-          if (field.placeholder) input.placeholder = field.placeholder;
+          input.placeholder = field.placeholder || 'Default';
           input.className = 'dialog__input';
           row.appendChild(input);
         } else {
@@ -233,8 +241,36 @@ class DialogBase {
           input.className = 'dialog__input';
           row.appendChild(input);
         }
-        settingsContainer.appendChild(row);
+        return row;
+      };
+
+      // Group consecutive same-type pairable fields (number, boolean) into pairs
+      const pairQueue = [];
+      let pairType = null;
+      const flushPairs = () => {
+        while (pairQueue.length) {
+          const pair = document.createElement('div');
+          pair.className = 'dialog__setting-pair';
+          pair.appendChild(pairQueue.shift());
+          if (pairQueue.length) pair.appendChild(pairQueue.shift());
+          settingsContainer.appendChild(pair);
+        }
+        pairType = null;
+      };
+
+      for (const field of fields) {
+        if (HIDDEN_SETTING_KEYS.has(field.key)) continue;
+        const pairable = field.type === 'number' || field.type === 'boolean';
+        if (pairable) {
+          if (pairType && pairType !== field.type) flushPairs();
+          pairType = field.type;
+          pairQueue.push(createField(field));
+        } else {
+          flushPairs();
+          settingsContainer.appendChild(createField(field));
+        }
       }
+      flushPairs();
     };
 
     modelSelect.addEventListener('change', renderSettings);

@@ -206,28 +206,18 @@ class ShellLauncherDialog extends DialogBase {
       form.appendChild(voiceSelect);
     }
 
-    const settingsContainer = this._addProviderSettings(form, modelSelect);
-
-    // Append CLAUDE.md checkbox (non-Claude models only)
-    const claudeMdWrapper = document.createElement('div');
-    claudeMdWrapper.className = 'shell-launcher__claudemd-row';
-    const claudeMdCheck = document.createElement('input');
-    claudeMdCheck.type = 'checkbox';
-    claudeMdCheck.id = 'launcher-append-claudemd';
-    const claudeMdLabel = document.createElement('label');
-    claudeMdLabel.htmlFor = 'launcher-append-claudemd';
-    claudeMdLabel.textContent = 'Append CLAUDE.md';
-    claudeMdWrapper.appendChild(claudeMdCheck);
-    claudeMdWrapper.appendChild(claudeMdLabel);
-    form.appendChild(claudeMdWrapper);
-
-    const updateClaudeMdVisibility = () => {
-      const selectedModel = this.state.models.find(m => m.value === modelSelect.value);
-      const isClaude = selectedModel?.provider === 'claude';
-      claudeMdWrapper.style.display = isClaude ? 'none' : '';
+    // Append CLAUDE.md as an extra boolean field injected into provider settings
+    const claudeMdExtra = {
+      key: '_appendClaudeMd',
+      label: 'Append CLAUDE.md',
+      type: 'boolean',
+      default: false,
+      visibleWhen: (models, modelValue) => {
+        const m = models.find(x => x.value === modelValue);
+        return m?.provider !== 'claude';
+      },
     };
-    modelSelect.addEventListener('change', updateClaudeMdVisibility);
-    updateClaudeMdVisibility();
+    const settingsContainer = this._addProviderSettings(form, modelSelect, null, [claudeMdExtra]);
 
     // Action buttons
     const actions = document.createElement('div');
@@ -244,7 +234,9 @@ class ShellLauncherDialog extends DialogBase {
     startBtn.addEventListener('click', () => {
       const model = modelSelect.value;
       const settings = this._collectSettings(settingsContainer);
-      onSubmit(model, settings, voiceSelect?.value, claudeMdCheck.checked);
+      const appendClaudeMd = settings?._appendClaudeMd || false;
+      if (settings) delete settings._appendClaudeMd;
+      onSubmit(model, settings, voiceSelect?.value, appendClaudeMd);
     });
 
     actions.appendChild(backBtn);
