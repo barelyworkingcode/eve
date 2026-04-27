@@ -46,47 +46,36 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     proxy(req, res, 'GET', '/api/models');
   });
 
-  // --- Projects (proxy, refresh cache on mutations) ---
+  // --- Projects (read-only proxy; CRUD managed via relay settings UI) ---
+  // Normalize snake_case from relay to camelCase for browser.
   app.get('/api/projects', requireAuth, async (req, res) => {
-    const data = await proxy(req, res, 'GET', '/api/projects');
-    if (data && Array.isArray(data)) refreshProjectCache(data);
-  });
-
-  // Mutation routes: refresh cache BEFORE sending response to prevent race condition
-  // where client acts on response before cache is updated
-  app.post('/api/projects', requireAuth, async (req, res) => {
     try {
-      const { status, data } = await relayTransport.fetch('POST', '/api/projects', req.body);
-      if (data && data.id) await refreshProjectCache();
-      res.status(status).json(data);
+      const { status, data } = await relayTransport.fetch('GET', '/api/projects');
+      if (data && Array.isArray(data)) {
+        refreshProjectCache(data);
+        // Return normalized (camelCase) projects from cache.
+        const normalized = data.map(p => resolveProject(p.id)).filter(Boolean);
+        res.status(status).json(normalized);
+      } else {
+        res.status(status).json(data);
+      }
     } catch (err) {
-      routeLog.error('POST /api/projects failed:', err.message);
+      routeLog.error('GET /api/projects failed:', err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
 
-  app.get('/api/projects/:id', requireAuth, (req, res) => {
-    proxy(req, res, 'GET', `/api/projects/${req.params.id}`);
-  });
-
-  app.put('/api/projects/:id', requireAuth, async (req, res) => {
+  app.get('/api/projects/:id', requireAuth, async (req, res) => {
     try {
-      const { status, data } = await relayTransport.fetch('PUT', `/api/projects/${req.params.id}`, req.body);
-      if (data && data.id) await refreshProjectCache();
-      res.status(status).json(data);
+      const { status, data } = await relayTransport.fetch('GET', `/api/projects/${req.params.id}`);
+      if (data && data.id) {
+        refreshProjectCache([data]);
+        res.status(status).json(resolveProject(data.id) || data);
+      } else {
+        res.status(status).json(data);
+      }
     } catch (err) {
-      routeLog.error(`PUT /api/projects/${req.params.id} failed:`, err.message);
-      res.status(502).json({ error: 'Service unavailable' });
-    }
-  });
-
-  app.delete('/api/projects/:id', requireAuth, async (req, res) => {
-    try {
-      const { status, data } = await relayTransport.fetch('DELETE', `/api/projects/${req.params.id}`);
-      await refreshProjectCache();
-      res.status(status).json(data);
-    } catch (err) {
-      routeLog.error(`DELETE /api/projects/${req.params.id} failed:`, err.message);
+      routeLog.error(`GET /api/projects/${req.params.id} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
