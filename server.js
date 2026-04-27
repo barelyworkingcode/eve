@@ -113,6 +113,30 @@ try {
 
 const fileHandlers = new FileHandlers((id) => projectCache.get(id));
 
+// normalizeProject maps relay's snake_case project format to the camelCase
+// format Eve's client code expects.
+function normalizeProject(p) {
+  return {
+    id: p.id,
+    name: p.name,
+    path: p.path,
+    allowedTools: p.allowed_mcp_ids || [],
+    allowedModels: p.allowed_models || [],
+    chatTemplates: (p.chat_templates || []).map(t => ({
+      id: t.id,
+      name: t.name,
+      model: t.model,
+      mode: t.mode || 'text',
+      voice: t.voice || '',
+      systemPrompt: t.system_prompt || '',
+      appendClaudeMd: false,
+      settings: t.settings || {},
+    })),
+    token: p.token || '',
+    createdAt: p.created_at || '',
+  };
+}
+
 async function refreshProjectCache(data) {
   try {
     let projects = data;
@@ -124,7 +148,8 @@ async function refreshProjectCache(data) {
     if (!Array.isArray(projects)) return;
     projectCache.clear();
     for (const p of projects) {
-      projectCache.set(p.id, p);
+      const normalized = normalizeProject(p);
+      projectCache.set(normalized.id, normalized);
     }
   } catch (err) {
     log.child('ProjectCache').error('Refresh failed:', err.message);

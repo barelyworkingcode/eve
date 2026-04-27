@@ -55,7 +55,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
 
         switch (message.type) {
           case 'create_session':
-            await handleCreateSession(ws, relayClient, relayTransport, message, log);
+            await handleCreateSession(ws, relayClient, relayTransport, message, resolveProject, log);
             break;
 
           case 'join_session':
@@ -213,17 +213,30 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
 
 /**
  * Create session via relayLLM HTTP POST, then join via WS.
+ * Resolves the project to get the scoped mcpToken and directory.
  */
-async function handleCreateSession(ws, relayClient, relayTransport, message, log) {
+async function handleCreateSession(ws, relayClient, relayTransport, message, resolveProject, log) {
   try {
+    // Resolve project to get token and directory.
+    let directory = message.directory || '';
+    let mcpToken = '';
+    if (message.projectId) {
+      const project = resolveProject(message.projectId);
+      if (project) {
+        directory = directory || project.path;
+        mcpToken = project.token || '';
+      }
+    }
+
     const { status, data } = await relayTransport.fetch('POST', '/api/sessions', {
       projectId: message.projectId || '',
-      directory: message.directory || '',
+      directory,
       name: message.name || '',
       model: message.model || '',
       settings: message.settings || null,
       systemPrompt: message.systemPrompt || '',
       appendClaudeMd: message.appendClaudeMd || false,
+      mcpToken,
     });
 
     if (status < 200 || status >= 300) {
