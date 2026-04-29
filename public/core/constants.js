@@ -20,6 +20,7 @@ const EVT = {
   // Project lifecycle
   PROJECTS_LOADED: 'projects:loaded',
   PROJECT_DELETED: 'project:deleted',
+  PROJECT_RENAMED: 'project:renamed',
 
   // Models
   MODELS_LOADED: 'models:loaded',

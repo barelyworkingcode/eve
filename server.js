@@ -186,6 +186,12 @@ const sttService = new STTService('127.0.0.1', parseInt(process.env.STT_PORT || 
 // Register HTTP routes (proxy to relayLLM + scheduler + local auth)
 registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService, sttService, log });
 
+// SPA fallback for /<projectslug>/ deep links. Single-segment regex so
+// /api/* and /monaco/... stay multi-segment and never match.
+app.get(/^\/[^/]+\/?$/, (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
   authService,
