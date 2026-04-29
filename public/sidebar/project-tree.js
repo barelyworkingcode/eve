@@ -50,7 +50,7 @@ class ProjectTree {
     }
     this.projectItems.clear();
 
-    const projects = Array.from(this.state.projects.values())
+    const projects = this.state.getVisibleProjects()
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
     if (projects.length === 0) {

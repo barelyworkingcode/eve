@@ -14,6 +14,7 @@ class StateStore {
     this.terminalTemplates = [];
     this.providerSettings = {};
     this.currentSessionId = null;
+    this.scopedProjectId = null;
   }
 
   // --- Sessions ---
@@ -81,8 +82,20 @@ class StateStore {
   }
 
   removeProject(id) {
+    if (this.scopedProjectId === id) this.scopedProjectId = null;
     this.projects.delete(id);
     this.bus.emit(EVT.PROJECT_DELETED, { projectId: id });
+  }
+
+  getVisibleProjects() {
+    if (this.scopedProjectId && this.projects.has(this.scopedProjectId)) {
+      return [this.projects.get(this.scopedProjectId)];
+    }
+    return Array.from(this.projects.values());
+  }
+
+  isProjectVisible(id) {
+    return !this.scopedProjectId || this.scopedProjectId === id;
   }
 
   // --- Tasks ---

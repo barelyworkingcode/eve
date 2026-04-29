@@ -252,6 +252,10 @@ class EveWorkspaceClient {
       this.updateProjectSelect();
     });
 
+    this.bus.on(EVT.PROJECT_RENAMED, ({ projectId }) => {
+      if (this.state.scopedProjectId === projectId) this._syncUrlToScope();
+    });
+
     // Bridge: sidebar toggle from mobile bar
     this.bus.on(EVT.UI_TOGGLE_SIDEBAR, () => {
       this.toggleSidebar();
@@ -453,6 +457,47 @@ class EveWorkspaceClient {
     this.tabManager.reestablishFileWatches();
   }
 
+  // --- URL-scoped project filter ---
+
+  // Resolves the URL slug against `projects` and writes scopedProjectId
+  // directly (no event). Caller invokes this BEFORE setProjects so the
+  // single PROJECTS_LOADED emit already reflects the scope.
+  _resolveUrlScope(projects) {
+    const slug = readScopeSlugFromUrl();
+    if (!slug) { this.state.scopedProjectId = null; return; }
+    const match = projects.find(p => slugifyProjectName(p.name) === slug);
+    if (!match) {
+      history.replaceState(null, '', '/' + this._urlSuffix());
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'scope-no-match',
+        message: `No project matches "/${slug}/" — showing all projects.`,
+        type: 'warning', duration: 4000,
+      });
+      this.state.scopedProjectId = null;
+      return;
+    }
+    this.state.scopedProjectId = match.id;
+  }
+
+  _syncUrlToScope() {
+    const id = this.state.scopedProjectId;
+    const suffix = this._urlSuffix();
+    if (!id) {
+      if (window.location.pathname !== '/') history.replaceState(null, '', '/' + suffix);
+      return;
+    }
+    const project = this.state.getProject(id);
+    if (!project) return;
+    const desired = '/' + slugifyProjectName(project.name) + '/' + suffix;
+    if (window.location.pathname + suffix !== desired) {
+      history.replaceState(null, '', desired);
+    }
+  }
+
+  _urlSuffix() {
+    return window.location.search + window.location.hash;
+  }
+
   // --- Hash route handling (deep links / iOS Action Button) ---
 
   _clearHash() {
@@ -559,7 +604,7 @@ class EveWorkspaceClient {
         type: 'warning',
         duration: 5000,
       });
-      const firstProject = this.projects.values().next().value;
+      const firstProject = this.state.getVisibleProjects()[0];
       if (firstProject) {
         this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: firstProject.id });
       }
@@ -654,6 +699,7 @@ class EveWorkspaceClient {
       const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const projects = await response.json();
+      this._resolveUrlScope(projects);
       this.state.setProjects(projects); // emits PROJECTS_LOADED → renders sidebar + updates select
       await this.loadAllTasks();
     } catch (err) {
@@ -751,7 +797,8 @@ class EveWorkspaceClient {
         await this.taskManager.deleteByProject(projectId);
         const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers: this.getAuthHeaders() });
         if (!response.ok) throw new Error(`Server error: ${response.status}`);
-        this.projects.delete(projectId);
+        this.state.removeProject(projectId);
+        this._syncUrlToScope();
         this.sidebarRenderer.renderProjectList();
         this.updateProjectSelect();
       } catch (err) {
@@ -763,9 +810,9 @@ class EveWorkspaceClient {
   updateProjectSelect() {
     const select = this.elements.projectSelect;
     select.innerHTML = '<option value="">No project</option>';
-    for (const [id, project] of this.projects) {
+    for (const project of this.state.getVisibleProjects()) {
       const option = document.createElement('option');
-      option.value = id;
+      option.value = project.id;
       option.textContent = project.name;
       select.appendChild(option);
     }
@@ -1037,8 +1084,7 @@ class EveWorkspaceClient {
   getCurrentProjectDirectory() {
     const session = this.sessions.get(this.currentSessionId);
     if (session?.directory) return session.directory;
-    // Fall back to the first project path.
-    for (const p of this.projects.values()) {
+    for (const p of this.state.getVisibleProjects()) {
       if (p.path) return p.path;
     }
     return '';

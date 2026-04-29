@@ -117,8 +117,10 @@ class ProjectDialog extends DialogBase {
       } else {
         project = await this.api.createProject(body);
       }
+      const renamed = !!this._projectId && this._project && this._project.name !== project.name;
       this.state.projects.set(project.id, project);
       this.bus.emit(EVT.PROJECTS_LOADED);
+      if (renamed) this.bus.emit(EVT.PROJECT_RENAMED, { projectId: project.id });
       this.hide();
     } catch (err) {
       this.log.error('Failed to save project:', err);
