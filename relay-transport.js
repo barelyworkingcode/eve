@@ -1,21 +1,17 @@
 /**
- * RelayTransport — singleton service that owns all Eve↔relayLLM traffic.
+ * RelayTransport — singleton service that owns all Eve↔relay traffic.
  *
- * Two transport modes, same abstractions:
+ * Two transport modes:
  *
- *  1. Socket mode (preferred)   — Unix domain socket allocated by the `relay`
- *     orchestrator at spawn time. Enabled by setting RELAY_LLM_SOCKET.
- *     File-system permissions (0600) anchor authorization; the bearer token
- *     is defense-in-depth.
+ *  1. Socket (preferred) — Unix socket allocated by the `relay` orchestrator
+ *     at spawn time (RELAY_FRONTEND_SOCKET). 0600 perms anchor authorization;
+ *     the bearer token is defense-in-depth.
  *
- *  2. TCP mode (fallback)       — HTTPS + WSS for split-host deployments.
- *     Off-loopback HTTP is refused at startup. TLS certificate verification
- *     is always on; an internal CA bundle can be supplied via RELAY_LLM_CA.
+ *  2. TCP (fallback) — HTTPS + WSS for split-host deployments. Off-loopback
+ *     HTTP is refused at startup. Optional internal CA via RELAY_FRONTEND_CA.
  *
- * In both modes, every HTTP request carries `Authorization: Bearer <token>`
- * and every WebSocket upgrade carries the same header via the `ws` package's
- * {headers} constructor option — so relayLLM can reject unauthenticated
- * upgrades before protocol-switching.
+ * Every HTTP request and WS upgrade carries `Authorization: Bearer <token>`
+ * so relay can reject unauthenticated upgrades before protocol-switching.
  *
  * Full design: plans/cozy-honking-toast.md Section B.
  */
@@ -55,10 +51,10 @@ class RelayTransport {
    * @param {Logger} [deps.log]
    */
   static fromEnv({ env = process.env, log } = {}) {
-    const socketPath = env.RELAY_LLM_SOCKET || null;
-    const url = env.RELAY_LLM_URL || 'http://localhost:3001';
-    const token = env.RELAY_LLM_TOKEN || null;
-    const caPath = env.RELAY_LLM_CA || null;
+    const socketPath = env.RELAY_FRONTEND_SOCKET || null;
+    const url = env.RELAY_FRONTEND_URL || 'http://localhost:3001';
+    const token = env.RELAY_FRONTEND_TOKEN || null;
+    const caPath = env.RELAY_FRONTEND_CA || null;
 
     return new RelayTransport({ socketPath, url, token, caPath, env, log });
   }
@@ -85,7 +81,7 @@ class RelayTransport {
     try {
       parsed = new URL(url);
     } catch (err) {
-      throw new RelayConfigError(`Invalid RELAY_LLM_URL: ${url} (${err.message})`);
+      throw new RelayConfigError(`Invalid RELAY_FRONTEND_URL: ${url} (${err.message})`);
     }
     this.parsedUrl = parsed;
     this.loopback = isLoopbackHost(parsed.hostname);
@@ -97,8 +93,8 @@ class RelayTransport {
     // Build the shared HTTP agent used by both fetch() and the WS upgrade.
     if (this.mode === 'socket') {
       this.agent = new http.Agent({ keepAlive: true, socketPath });
-      this._httpBase = 'http://relay-llm.localsocket';
-      this._wsBase = 'ws://relay-llm.localsocket';
+      this._httpBase = 'http://relay-frontend.localsocket';
+      this._wsBase = 'ws://relay-frontend.localsocket';
     } else if (parsed.protocol === 'https:') {
       this.agent = new https.Agent({
         keepAlive: true,
@@ -129,24 +125,24 @@ class RelayTransport {
     // Token is required except for the explicit dev-loopback case.
     if (!this.token) {
       if (this.mode === 'socket') {
-        throw new RelayConfigError('RELAY_LLM_SOCKET is set but RELAY_LLM_TOKEN is missing — refusing to start.');
+        throw new RelayConfigError('RELAY_FRONTEND_SOCKET is set but RELAY_FRONTEND_TOKEN is missing — refusing to start.');
       }
       if (!this.loopback) {
         throw new RelayConfigError(
-          `RELAY_LLM_URL points off-loopback (${this.parsedUrl.hostname}) but RELAY_LLM_TOKEN is missing — refusing to start.`
+          `RELAY_FRONTEND_URL points off-loopback (${this.parsedUrl.hostname}) but RELAY_FRONTEND_TOKEN is missing — refusing to start.`
         );
       }
       // Loopback + plain HTTP + no token: legacy dev config. Warn loudly.
       this.log.warn(
-        `RELAY_LLM_TOKEN is not set. Running without relay authentication is only safe for local dev on loopback. ` +
-        `Set RELAY_LLM_TOKEN as soon as possible — see plans/cozy-honking-toast.md Section B.`
+        `RELAY_FRONTEND_TOKEN is not set. Running without relay authentication is only safe for local dev on loopback. ` +
+        `Set RELAY_FRONTEND_TOKEN as soon as possible — see plans/cozy-honking-toast.md Section B.`
       );
     }
 
     // TLS is required for off-loopback TCP mode.
     if (this.mode === 'tcp' && !this.loopback && this.parsedUrl.protocol !== 'https:') {
       throw new RelayConfigError(
-        `RELAY_LLM_URL must use https:// for non-loopback hosts (got ${this.parsedUrl.protocol}//${this.parsedUrl.hostname}). ` +
+        `RELAY_FRONTEND_URL must use https:// for non-loopback hosts (got ${this.parsedUrl.protocol}//${this.parsedUrl.hostname}). ` +
         `Refusing to start — plaintext credentials on the network are not supported.`
       );
     }
