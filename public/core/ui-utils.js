@@ -131,3 +131,15 @@ function closeContextMenu() {
     _activeContextMenuCloseHandler = null;
   }
 }
+
+// --- URL-scoped project filter ---
+
+function slugifyProjectName(name) {
+  if (!name) return '';
+  return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function readScopeSlugFromUrl() {
+  const segs = window.location.pathname.split('/').filter(Boolean);
+  return segs.length === 1 ? segs[0].toLowerCase() : '';
+}
