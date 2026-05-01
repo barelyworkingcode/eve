@@ -752,6 +752,43 @@ html, body {
   border-left: 2px solid var(--accent);
 }
 
+.tool-block.tool-permission-pending summary {
+  border-left: 2px solid #f5a623;
+  background: rgba(245, 166, 35, 0.08);
+  animation: permission-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes permission-pulse {
+  0%, 100% { background: rgba(245, 166, 35, 0.08); }
+  50%      { background: rgba(245, 166, 35, 0.18); }
+}
+
+.permission-mode-banner {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.permission-mode-banner.mode-bypass {
+  background: rgba(220, 53, 69, 0.12);
+  color: #c92435;
+  border-bottom-color: rgba(220, 53, 69, 0.3);
+}
+
+.permission-mode-banner.mode-accept {
+  background: rgba(40, 167, 69, 0.12);
+  color: #1f7c32;
+  border-bottom-color: rgba(40, 167, 69, 0.3);
+}
+
+.permission-mode-banner.mode-plan {
+  background: rgba(0, 123, 255, 0.12);
+  color: #0857aa;
+  border-bottom-color: rgba(0, 123, 255, 0.3);
+}
+
 .tool-block .tool-spinner {
   width: 10px;
   height: 10px;
@@ -793,6 +830,77 @@ html, body {
 
 .generated-image:hover {
   opacity: 0.9;
+}
+
+.tool-result-image {
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: block;
+  margin: 4px 0;
+}
+
+.tool-result-image:hover {
+  opacity: 0.9;
+}
+
+/* Agent (sub-agent dispatch) block — a tool-block variant whose body holds a
+   nested chat thread rendered by a sub-MessageRenderer. */
+.tool-block.agent-block {
+  border-left: 2px solid #7c5cff;
+  background: rgba(124, 92, 255, 0.04);
+  margin-top: 4px;
+}
+
+.tool-block.agent-block summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-weight: 500;
+}
+
+.tool-block.agent-block .agent-sep {
+  color: var(--text-muted, #888);
+  font-weight: 400;
+}
+
+.tool-block.agent-block .agent-persona {
+  color: #7c5cff;
+}
+
+.tool-block.agent-block .agent-status {
+  color: var(--text-muted, #888);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.tool-block.agent-block .agent-summary {
+  color: var(--text-muted, #888);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 12px;
+  margin-left: auto;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-block.agent-block.agent-complete summary {
+  background: rgba(124, 92, 255, 0.02);
+}
+
+.tool-block.agent-block .agent-body {
+  padding: 8px 10px 8px 18px;
+  border-top: 1px solid rgba(124, 92, 255, 0.15);
+}
+
+/* Indent nested message components inside an agent body for visual hierarchy. */
+.tool-block.agent-block .agent-body > .message {
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .generated-image-meta {

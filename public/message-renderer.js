@@ -2,15 +2,27 @@
  * Chat message rendering: user messages, assistant messages, tool use,
  * system messages, thinking indicator, text formatting.
  */
+
+// Placeholder rendered in place of an Anthropic redacted_thinking block, whose
+// body is an opaque encrypted blob. Wrapped in <think> tags so the existing
+// think-block parser folds it.
+const REDACTED_THINKING_PLACEHOLDER =
+  '<think>\n_[redacted thinking — content filtered by Anthropic safety review]_\n</think>\n\n';
+
 class MessageRenderer {
   /**
    * @param {Container} container - DI container
+   * @param {Object} [opts]
+   * @param {HTMLElement} [opts.targetEl] - container element to render into.
+   *   Defaults to the main #messages element. Sub-agent renderers pass the
+   *   parent Agent block's body so sidechain events render nested.
    */
-  constructor(container) {
+  constructor(container, opts = {}) {
+    this.container = container;
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
     this.log = container.get('logger').child('Renderer');
-    this.messagesEl = this.app.elements.messages;
+    this.messagesEl = opts.targetEl || this.app.elements.messages;
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.isStreaming = false;
@@ -210,7 +222,7 @@ class MessageRenderer {
     }
   }
 
-  appendToolUse(toolName, input) {
+  appendToolUse(toolName, input, toolUseId) {
     this.hideThinkingIndicator();
     this.finishAssistantMessage();
 
@@ -233,8 +245,118 @@ class MessageRenderer {
     `;
     this.messagesEl.appendChild(messageEl);
     this.currentToolBlock = messageEl.querySelector('.tool-block');
+    if (toolUseId) {
+      this.currentToolBlock.dataset.toolUseId = toolUseId;
+    }
     this.updateThinkingIndicator(`Running ${toolName}...`);
     this.scrollToBottom();
+  }
+
+  /**
+   * Create a parent Agent (sub-agent dispatch) block. Returns the body element
+   * that a sub-renderer will target so all sidechain rendering nests inside.
+   *
+   * The block starts in the "open + running" state — header carries the
+   * persona name and a spinner, body is empty until the sub-renderer starts
+   * appending. Caller must invoke finalizeAgentBlock when the sidechain
+   * completes to swap in the summary and auto-collapse.
+   */
+  appendAgentBlock(toolUseId, persona, description) {
+    this.hideThinkingIndicator();
+    this.finishAssistantMessage();
+
+    const personaText = persona || 'sub-agent';
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message assistant';
+    messageEl.dataset.testid = 'message-agent-block';
+
+    messageEl.innerHTML = `
+      <div class="message-content">
+        <details class="tool-block agent-block agent-running" open>
+          <summary>
+            <div class="tool-spinner"></div>
+            <span class="tool-name">Agent</span>
+            <span class="agent-sep">·</span>
+            <span class="agent-persona">${this.escapeHtml(personaText)}</span>
+            <span class="agent-sep">·</span>
+            <span class="agent-status">running…</span>
+            <span class="agent-summary"></span>
+          </summary>
+          <div class="agent-body"></div>
+        </details>
+      </div>
+    `;
+    this.messagesEl.appendChild(messageEl);
+
+    const blockEl = messageEl.querySelector('.tool-block');
+    if (toolUseId) blockEl.dataset.toolUseId = toolUseId;
+    blockEl.dataset.agentDescription = description || '';
+
+    // Mark the block as user-toggled once the human clicks the summary, so
+    // finalizeAgentBlock won't override their explicit open/closed state.
+    blockEl.addEventListener('toggle', () => {
+      if (blockEl.classList.contains('agent-complete')) {
+        blockEl.dataset.userToggled = '1';
+      }
+    });
+
+    const bodyEl = blockEl.querySelector('.agent-body');
+    this.scrollToBottom();
+    return { blockEl, bodyEl };
+  }
+
+  /**
+   * Finalize a previously-created Agent block. Removes the spinner, rewrites
+   * the header with summary stats, optionally adds a one-line preview of the
+   * sub-agent's final result, and auto-collapses unless the user has already
+   * manually toggled the block.
+   */
+  finalizeAgentBlock(toolUseId, finalContent, durationMs, toolCount) {
+    const blockEl = this.findToolBlockById(toolUseId);
+    if (!blockEl || !blockEl.classList.contains('agent-block')) return;
+    blockEl.classList.remove('agent-running');
+    blockEl.classList.add('agent-complete');
+
+    // Spinner gone, status pill flips to checkmark.
+    const spinner = blockEl.querySelector('.tool-spinner');
+    if (spinner) spinner.remove();
+
+    const statusEl = blockEl.querySelector('.agent-status');
+    if (statusEl) {
+      const tools = toolCount > 0 ? `${toolCount} tool${toolCount === 1 ? '' : 's'}` : '';
+      const dur = (typeof durationMs === 'number' && durationMs > 0) ? `${(durationMs / 1000).toFixed(1)}s` : '';
+      const stats = [tools, dur].filter(Boolean).join(', ');
+      statusEl.textContent = stats || 'done';
+    }
+
+    // Pull a short preview of the final summary into the header.
+    const summaryEl = blockEl.querySelector('.agent-summary');
+    if (summaryEl) {
+      const preview = this._extractAgentSummaryPreview(finalContent);
+      if (preview) {
+        summaryEl.textContent = ` — "${preview}"`;
+      }
+    }
+
+    // Auto-collapse, but only if the user hasn't already explicitly toggled.
+    if (!blockEl.dataset.userToggled) {
+      blockEl.removeAttribute('open');
+    }
+  }
+
+  /** Extract a short single-line preview from the sub-agent's tool_result content. */
+  _extractAgentSummaryPreview(content) {
+    let text = '';
+    if (typeof content === 'string') {
+      text = content;
+    } else if (Array.isArray(content)) {
+      const firstText = content.find(b => b?.type === 'text');
+      text = firstText?.text || '';
+    }
+    if (!text) return '';
+    const firstLine = text.replace(/\s+/g, ' ').trim().slice(0, 80);
+    return firstLine.length === 80 ? firstLine + '…' : firstLine;
   }
 
   appendUserMessage(text, files = []) {
@@ -286,6 +408,35 @@ class MessageRenderer {
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.thinkBlockOpenStates.clear();
+    // Permission mode is per-session — clear the banner on session switches.
+    this.setPermissionModeBanner('default');
+  }
+
+  /**
+   * Show a banner indicating the active Claude Code permission mode. Hidden
+   * for the default mode; visible (and color-coded) for bypass/plan/acceptEdits.
+   * Called when the session emits a permission-mode event.
+   */
+  setPermissionModeBanner(mode) {
+    if (this._lastPermissionMode === mode) return;
+    this._lastPermissionMode = mode;
+    const banner = document.getElementById('permissionModeBanner');
+    if (!banner) return;
+    const labels = {
+      bypassPermissions: { text: '⚠ Bypass mode — all tools auto-approved', cls: 'mode-bypass' },
+      acceptEdits:       { text: '✎ Accept-edits mode — file writes auto-approved', cls: 'mode-accept' },
+      plan:              { text: '◇ Plan mode — model must propose a plan before acting', cls: 'mode-plan' },
+    };
+    banner.classList.remove('mode-bypass', 'mode-accept', 'mode-plan');
+    const meta = labels[mode];
+    if (!meta) {
+      banner.classList.add('hidden');
+      banner.textContent = '';
+      return;
+    }
+    banner.classList.remove('hidden');
+    banner.classList.add(meta.cls);
+    banner.textContent = meta.text;
   }
 
   renderHistory(messages) {
@@ -300,15 +451,7 @@ class MessageRenderer {
           this.startAssistantMessage(msg.content);
           this.finishAssistantMessage();
         } else if (Array.isArray(msg.content)) {
-          for (const block of msg.content) {
-            if (block.type === 'text' && block.text) {
-              this.startAssistantMessage(block.text);
-              this.finishAssistantMessage();
-            } else if (block.type === 'tool_use') {
-              this.appendToolUse(block.name, block.input);
-              this.markToolComplete();
-            }
-          }
+          this._renderAssistantBlocks(msg.content);
         }
         // OpenAI/Ollama models store tool calls separately from content
         if (Array.isArray(msg.toolCalls)) {
@@ -318,10 +461,18 @@ class MessageRenderer {
           }
         }
       } else if (msg.role === 'tool') {
-        // Render generated images from tool results in history
-        const imageResult = this._parseImageResult(msg.content);
-        if (imageResult) {
-          this._renderHistoryImage(imageResult);
+        // Pair the tool result back to its tool_use block (if rendered) and
+        // append result content. Falls back to the historical generated-image
+        // path when no tool_use_id is present.
+        if (msg.toolUseId) {
+          const content = this._parseStringMaybeJson(msg.content);
+          this.appendToolResult(content, msg.toolUseId);
+          this.markToolCompleteById(msg.toolUseId);
+        } else {
+          const imageResult = this._parseImageResult(msg.content);
+          if (imageResult) {
+            this._renderHistoryImage(imageResult);
+          }
         }
       }
     }
@@ -353,6 +504,129 @@ class MessageRenderer {
         }
       } catch {}
     }
+  }
+
+  /**
+   * Render an assistant message's content blocks during history replay.
+   * Combines consecutive text and thinking blocks into a single message bubble
+   * (with thinking wrapped in <think>…</think> tags so the existing parser
+   * folds it). Tool_use blocks render as separate tool pills with their id
+   * preserved so subsequent tool_result messages can pair correctly.
+   * Agent_transcript blocks render as collapsed nested agent blocks with
+   * their full sub-agent transcript replayed inside.
+   */
+  _renderAssistantBlocks(blocks) {
+    let textBuf = '';
+    const flushText = () => {
+      if (!textBuf) return;
+      this.startAssistantMessage(textBuf);
+      this.finishAssistantMessage();
+      textBuf = '';
+    };
+    for (const block of blocks) {
+      if (!block || typeof block !== 'object') continue;
+      switch (block.type) {
+        case 'text':
+          textBuf += block.text || '';
+          break;
+        case 'thinking':
+          textBuf += '<think>\n' + (block.thinking || '') + '\n</think>\n\n';
+          break;
+        case 'redacted_thinking':
+          textBuf += REDACTED_THINKING_PLACEHOLDER;
+          break;
+        case 'tool_use':
+          flushText();
+          this.appendToolUse(block.name, block.input, block.id);
+          // Don't mark complete — a tool message will arrive with the result.
+          break;
+        case 'agent_transcript':
+          flushText();
+          this._renderAgentTranscript(block);
+          break;
+        // Other block types (server_tool_use, etc.) silently skipped for now.
+      }
+    }
+    flushText();
+  }
+
+  /**
+   * Render a persisted sub-agent transcript as a collapsed Agent block with
+   * its full nested thread reconstructed inside. Replays each sub-message
+   * through the same renderer logic via a sub-renderer targeting the agent
+   * block's body.
+   */
+  _renderAgentTranscript(block) {
+    const persona = block.persona || 'sub-agent';
+    // Synthesize a deterministic toolUseId for replayed agent blocks if the
+    // backend didn't pair this transcript to its parent tool_use_id (the
+    // current backend doesn't — temporal pairing happens server-side via
+    // mtime). Use the agentId as a stable identifier.
+    const fakeToolUseId = `replay-agent-${block.agentId || ''}`;
+    const { bodyEl } = this.appendAgentBlock(fakeToolUseId, persona, '');
+
+    const subRenderer = new MessageRenderer(this.container, { targetEl: bodyEl });
+    subRenderer.isRenderingHistory = true;
+
+    const messages = Array.isArray(block.messages) ? block.messages : [];
+    let toolCount = 0;
+    for (const m of messages) {
+      if (!m || typeof m !== 'object') continue;
+      const content = m.content;
+      if (m.role === 'assistant') {
+        if (typeof content === 'string') {
+          subRenderer.startAssistantMessage(content);
+          subRenderer.finishAssistantMessage();
+        } else if (Array.isArray(content)) {
+          subRenderer._renderAssistantBlocks(content);
+          for (const b of content) {
+            if (b?.type === 'tool_use') toolCount++;
+          }
+        }
+      } else if (m.role === 'user') {
+        if (Array.isArray(content)) {
+          for (const b of content) {
+            if (b?.type === 'tool_result' && b.tool_use_id) {
+              const inner = (typeof b.content === 'string') ? b.content : b.content;
+              subRenderer.appendToolResult(inner, b.tool_use_id);
+              subRenderer.markToolCompleteById(b.tool_use_id);
+            }
+          }
+        }
+      }
+    }
+
+    // Finalize the agent block: collapsed by default with a tool count.
+    // Final summary preview is best-effort — pull last assistant text block.
+    const finalSummary = this._extractFinalSummary(messages);
+    this.finalizeAgentBlock(fakeToolUseId, finalSummary, 0, toolCount);
+  }
+
+  /** Pull the most recent assistant text out of a sidechain transcript. */
+  _extractFinalSummary(messages) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m?.role !== 'assistant') continue;
+      if (Array.isArray(m.content)) {
+        for (let j = m.content.length - 1; j >= 0; j--) {
+          if (m.content[j]?.type === 'text' && m.content[j].text) return m.content[j].text;
+        }
+      } else if (typeof m.content === 'string') {
+        return m.content;
+      }
+    }
+    return '';
+  }
+
+  /** Best-effort coerce a tool result content into either a string or an
+   *  Anthropic content array. Pass strings through; parse JSON arrays. */
+  _parseStringMaybeJson(content) {
+    if (Array.isArray(content)) return content;
+    if (typeof content !== 'string') return content;
+    if (content.startsWith('[') || content.startsWith('{')) {
+      try { return JSON.parse(content); } catch {}
+    }
+    return content;
   }
 
   showThinkingIndicator(text = 'Thinking...') {
@@ -452,21 +726,57 @@ class MessageRenderer {
     this.scrollToBottom();
   }
 
-  appendToolResult(content) {
-    if (!this.currentToolBlock) return;
-    if (this.currentToolBlock.querySelector('.tool-result')) return;
+  /**
+   * Append a tool_result panel to the matching tool block. If toolUseId is
+   * provided, the block is found by data-tool-use-id (Claude path); otherwise
+   * we use the currently-active tool block (chat-base path).
+   *
+   * Content can be:
+   *   - a string (plain text result, possibly JSON)
+   *   - an array of Anthropic content blocks: [{type:"text"}, {type:"image", source:{...}}]
+   */
+  appendToolResult(content, toolUseId) {
+    const block = this.findToolBlockById(toolUseId) || this.currentToolBlock;
+    if (!block) return;
+    if (block.querySelector('.tool-result')) return;
+
     const el = document.createElement('div');
     el.className = 'tool-result';
 
-    const imageResult = this._parseImageResult(content);
-    if (imageResult) {
-      this._renderInlineImage(el, imageResult);
+    if (Array.isArray(content)) {
+      // Anthropic content-block array: render each block according to type.
+      for (const part of content) {
+        if (part?.type === 'image' && part.source?.type === 'base64' && part.source?.data) {
+          const img = document.createElement('img');
+          img.className = 'tool-result-image';
+          const mime = part.source.media_type || 'image/png';
+          img.src = `data:${mime};base64,${part.source.data}`;
+          img.loading = 'lazy';
+          img.addEventListener('click', () => this._openImageFullscreen(img.src, 'Tool result'));
+          el.appendChild(img);
+        } else if (part?.type === 'text' && typeof part.text === 'string') {
+          const pre = document.createElement('pre');
+          pre.textContent = part.text;
+          el.appendChild(pre);
+        } else {
+          // Unknown block type — render the JSON for debugging.
+          const pre = document.createElement('pre');
+          pre.textContent = this._prettyJson(part);
+          el.appendChild(pre);
+        }
+      }
     } else {
-      const pre = document.createElement('pre');
-      pre.textContent = this._prettyJson(content);
-      el.appendChild(pre);
+      // String content — keep the existing ComfyUI image-result detection.
+      const imageResult = this._parseImageResult(content);
+      if (imageResult) {
+        this._renderInlineImage(el, imageResult);
+      } else {
+        const pre = document.createElement('pre');
+        pre.textContent = this._prettyJson(content);
+        el.appendChild(pre);
+      }
     }
-    this.currentToolBlock.appendChild(el);
+    block.appendChild(el);
   }
 
   updateToolProgress(toolName, message) {
@@ -486,13 +796,48 @@ class MessageRenderer {
     }
   }
 
+  /** Locate a rendered tool block by its tool_use_id. Scoped to this
+   *  renderer's container so sub-renderers find their own blocks. */
+  findToolBlockById(toolUseId) {
+    if (!toolUseId) return null;
+    return this.messagesEl.querySelector(
+      `.tool-block[data-tool-use-id="${CSS.escape(toolUseId)}"]`
+    );
+  }
+
   markToolComplete() {
-    if (this.currentToolBlock) {
-      this.currentToolBlock.classList.remove('tool-active');
-      const spinner = this.currentToolBlock.querySelector('.tool-spinner');
-      if (spinner) spinner.remove();
-      this.currentToolBlock = null;
-    }
+    this._clearToolBlockSpinner(this.currentToolBlock);
+    this.currentToolBlock = null;
+  }
+
+  /** Mark a specific tool block complete by tool_use_id. Required when the
+   *  matching tool isn't the most recent one (multi-tool assistant turns). */
+  markToolCompleteById(toolUseId) {
+    const block = this.findToolBlockById(toolUseId);
+    if (!block) return;
+    this._clearToolBlockSpinner(block);
+    if (block === this.currentToolBlock) this.currentToolBlock = null;
+  }
+
+  /** Indicate to the user which tool block triggered a permission request,
+   *  scrolling it into view. Pair with clearToolPermissionPending. */
+  markToolPermissionPending(toolUseId) {
+    const block = this.findToolBlockById(toolUseId);
+    if (!block) return;
+    block.classList.add('tool-permission-pending');
+    block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  clearToolPermissionPending(toolUseId) {
+    const block = this.findToolBlockById(toolUseId);
+    if (block) block.classList.remove('tool-permission-pending');
+  }
+
+  _clearToolBlockSpinner(block) {
+    if (!block) return;
+    block.classList.remove('tool-active');
+    const spinner = block.querySelector('.tool-spinner');
+    if (spinner) spinner.remove();
   }
 
   // --- Image generation helpers ---
