@@ -1035,7 +1035,7 @@ class EveWorkspaceClient {
   }
 
   enableVoiceMode(voice) {
-    const v = voice || this.ttsManager.voice;
+    if (voice) this.ttsManager.setVoice(voice);
     this.ttsManager.setEnabled(true);
     this.elements.voiceModeBtn?.classList.add('btn-voice-mode--active');
     this.ttsManager.syncVoiceMode(this.wsClient);
