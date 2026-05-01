@@ -91,6 +91,7 @@ class EveWorkspaceClient {
     this.container.register('terminalManager', this.terminalManager);
     this.fileAttachmentManager = new FileAttachmentManager(this.container);
     this.container.register('fileAttachmentManager', this.fileAttachmentManager);
+    this.inputHistory = new InputHistory('eve-input-history', 100);
     this.ttsManager = new TTSManager(this.container);
     this.container.register('ttsManager', this.ttsManager);
     this.sttManager = new STTManager(this.container);
@@ -298,13 +299,33 @@ class EveWorkspaceClient {
 
     // Chat input
     this.elements.inputForm.addEventListener('submit', (e) => this.handleSubmit(e));
+    const onFirstLine = (ta) => ta.value.lastIndexOf('\n', ta.selectionStart - 1) === -1;
+    const onLastLine = (ta) => ta.value.indexOf('\n', ta.selectionStart) === -1;
     this.elements.userInput.addEventListener('keydown', (e) => {
+      const applyRecall = (recalled) => {
+        if (recalled === null) return;
+        e.preventDefault();
+        this.elements.userInput.value = recalled;
+        this.elements.userInput.setSelectionRange(recalled.length, recalled.length);
+        this.autoResizeTextarea();
+      };
+      if (e.key === 'ArrowUp' && onFirstLine(this.elements.userInput)) {
+        applyRecall(this.inputHistory.prev(this.elements.userInput.value));
+        return;
+      }
+      if (e.key === 'ArrowDown' && onLastLine(this.elements.userInput)) {
+        applyRecall(this.inputHistory.next());
+        return;
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.handleSubmit(e);
       }
     });
-    this.elements.userInput.addEventListener('input', () => this.autoResizeTextarea());
+    this.elements.userInput.addEventListener('input', () => {
+      this.inputHistory.reset();
+      this.autoResizeTextarea();
+    });
     this.elements.stopBtn.addEventListener('click', () => this.handleStop());
 
     // Voice mode toggle + voice selection
@@ -824,6 +845,8 @@ class EveWorkspaceClient {
     e.preventDefault();
     const text = this.elements.userInput.value.trim();
     if (!text || !this.currentSessionId) return;
+
+    this.inputHistory.push(text);
 
     // Stop any in-progress TTS playback
     if (this.ttsManager.isPlaying) {
