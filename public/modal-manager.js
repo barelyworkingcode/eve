@@ -145,14 +145,22 @@ class ModalManager {
 
   _displayPermission(data) {
     this.pendingPermissionId = data.permissionId;
+    this.pendingPermissionToolUseId = data.toolUseId || null;
     this.app.elements.permissionToolName.textContent = data.toolName || 'Unknown';
     this.app.elements.permissionToolInput.textContent = data.toolInput || '';
     this.app.elements.permissionModal.classList.remove('hidden');
     this.app.elements.permissionAllow.focus();
+    if (this.pendingPermissionToolUseId) {
+      this.app.messageRenderer?.markToolPermissionPending(this.pendingPermissionToolUseId);
+    }
   }
 
   hidePermissionModal() {
     this.app.elements.permissionModal.classList.add('hidden');
+    if (this.pendingPermissionToolUseId) {
+      this.app.messageRenderer?.clearToolPermissionPending(this.pendingPermissionToolUseId);
+      this.pendingPermissionToolUseId = null;
+    }
     this.pendingPermissionId = null;
   }
 

@@ -10,6 +10,7 @@ class MessageDispatcher {
    * that haven't been extracted into their own services yet.
    */
   constructor(container) {
+    this.container = container;
     this.log = container.get('logger').child('Dispatch');
     // Injected services — each can be mocked independently for testing
     this.renderer = container.get('messageRenderer');
@@ -35,6 +36,16 @@ class MessageDispatcher {
     this.streamingSessions = new Set();
     this._lastTurnMetrics = null;
     this._localSubmitSession = null; // session ID of the last locally submitted message
+    // Per-turn block tracking for the canonical event protocol (see
+    // relayLLM/docs/event-protocol.md). Keyed by content-block index so we
+    // know how to close each block when its content_block_stop arrives.
+    this._openBlockKindByIndex = {};
+    // LIFO stack of open Agent (sub-agent) calls. Each frame holds the
+    // parent's tool_use_id, a child MessageRenderer that targets the parent
+    // block's body, the timestamp the call started, a tool-call counter,
+    // plus the saved parent's _openBlockKindByIndex so child stream indices
+    // don't collide.
+    this._sidechainStack = [];
 
     this._sessionScopedTypes = new Set([
       'llm_event', 'message_complete', 'stats_update', 'raw_output',
@@ -120,6 +131,8 @@ class MessageDispatcher {
     this._lastTurnMetrics = null;
     this._clientTTSAccum = '';
     this._lastNonInteractiveToolName = null;
+    this._openBlockKindByIndex = {};
+    this._sidechainStack = [];
   }
 
   _notifyVoiceError(message) {
@@ -158,7 +171,9 @@ class MessageDispatcher {
   }
 
   _handleProcessExited(data) {
-    this._untrackStreaming(data.sessionId);
+    // Provider crashed mid-turn — drop any orphaned sidechain frames so the
+    // sub-renderer's DOM references don't leak into the next turn.
+    this.resetTurnState(data.sessionId);
     this.renderer.hideThinkingIndicator();
     this.renderer.appendSystemMessage('Provider process exited. Will restart on next message.');
     this.app.hideStopButton();
@@ -174,6 +189,10 @@ class MessageDispatcher {
 
   _handleMessageComplete(data) {
     this._untrackStreaming(data.sessionId);
+    this._openBlockKindByIndex = {};
+    // Drop any sidechain still open at message_complete (orphaned Agent call
+    // without a tool_result) — would otherwise leak its frame across turns.
+    this._sidechainStack = [];
     if (this.pendingInteractiveTool) {
       const tool = this.pendingInteractiveTool;
       this.pendingInteractiveTool = null;
@@ -330,7 +349,8 @@ class MessageDispatcher {
         this.backgroundBuffers.set(sid, buf);
       }
 
-      // Accumulate structured content blocks from streaming events
+      // Re-fold canonical events into {role, content:[blocks]} so renderHistory
+      // can replay them when the user switches to this tab.
       if (event.type === 'assistant') {
         if (event.message?.content) {
           for (const block of event.message.content) {
@@ -340,24 +360,60 @@ class MessageDispatcher {
               buf.contentBlocks.push({ type: 'tool_use', name: block.name, input: block.input });
             }
           }
-        } else if (event.delta?.type === 'text_delta') {
-          const last = buf.contentBlocks[buf.contentBlocks.length - 1];
-          if (last && last.type === 'text') {
-            last.text += event.delta.text;
-          } else {
-            buf.contentBlocks.push({ type: 'text', text: event.delta.text });
+        } else if (event.content_block_stop) {
+          // Tool_use stop carries the resolved final input; update the last tool block.
+          if (event.content_block?.type === 'tool_use') {
+            for (let i = buf.contentBlocks.length - 1; i >= 0; i--) {
+              if (buf.contentBlocks[i].type === 'tool_use') {
+                buf.contentBlocks[i].input = event.content_block.input;
+                break;
+              }
+            }
           }
+        } else if (event.delta?.type === 'text_delta') {
+          this._appendBufText(buf, event.delta.text);
+        } else if (event.delta?.type === 'thinking_delta') {
+          this._appendBufText(buf, event.delta.thinking || '');
+        } else if (event.delta?.type === 'input_json_delta') {
+          // Skip — partial JSON for tool args; the tool_use block already
+          // exists and the final input arrives via content_block_stop.
         } else if (event.content_block?.type === 'text') {
-          buf.contentBlocks.push({ type: 'text', text: event.content_block.text });
+          // Strict canonical: text without inline content is a bare start;
+          // Claude CLI legacy: text inline. Either way, append if text present.
+          if (event.content_block.text) {
+            this._appendBufText(buf, event.content_block.text);
+          }
+        } else if (event.content_block?.type === 'thinking') {
+          this._appendBufText(buf, '<think>\n');
+          buf._thinkingOpen = true;
         } else if (event.content_block?.type === 'tool_use') {
+          // If a thinking block was open, close it first.
+          if (buf._thinkingOpen) {
+            this._appendBufText(buf, '\n</think>\n\n');
+            buf._thinkingOpen = false;
+          }
           buf.contentBlocks.push({ type: 'tool_use', name: event.content_block.name, input: event.content_block.input || {} });
+        } else if (event.content_block?.type === 'tool_use_input') {
+          // Claude CLI legacy: skip silently — the next tool_use block carries the resolved input.
         }
       } else if (event.type === 'result' && event.subtype === 'tool_result') {
-        // Mark the last tool_use block as completed
-        const last = buf.contentBlocks[buf.contentBlocks.length - 1];
-        if (last && last.type === 'tool_use') {
-          last.completed = true;
+        // Pair by tool_use_id when available; fall back to last tool_use block.
+        const id = event.tool_use_id;
+        let target = null;
+        if (id) {
+          for (let i = buf.contentBlocks.length - 1; i >= 0; i--) {
+            if (buf.contentBlocks[i].type === 'tool_use' && buf.contentBlocks[i].id === id) {
+              target = buf.contentBlocks[i];
+              break;
+            }
+          }
         }
+        if (!target) {
+          for (let i = buf.contentBlocks.length - 1; i >= 0; i--) {
+            if (buf.contentBlocks[i].type === 'tool_use') { target = buf.contentBlocks[i]; break; }
+          }
+        }
+        if (target) target.completed = true;
       }
       return;
     }
@@ -366,14 +422,21 @@ class MessageDispatcher {
       this.streamingSessions.delete(sid);
       // Flush accumulated content blocks as a completed assistant message
       const buf = this.backgroundBuffers.get(sid);
-      if (buf && buf.contentBlocks.length > 0) {
-        let history = this.state.sessionHistories.get(sid);
-        if (!history) {
-          history = [];
-          this.state.sessionHistories.set(sid, history);
+      if (buf) {
+        // Close any unclosed thinking wrapper before flushing.
+        if (buf._thinkingOpen) {
+          this._appendBufText(buf, '\n</think>\n\n');
+          buf._thinkingOpen = false;
         }
-        history.push({ role: 'assistant', content: buf.contentBlocks });
-        buf.contentBlocks = [];
+        if (buf.contentBlocks.length > 0) {
+          let history = this.state.sessionHistories.get(sid);
+          if (!history) {
+            history = [];
+            this.state.sessionHistories.set(sid, history);
+          }
+          history.push({ role: 'assistant', content: buf.contentBlocks });
+          buf.contentBlocks = [];
+        }
       }
       return;
     }
@@ -386,6 +449,18 @@ class MessageDispatcher {
     // Other background events (stderr, etc.) -- ignore silently
   }
 
+  /** Append text to the last text block in a background buffer, or open a
+   *  new text block if the most recent block is something else. */
+  _appendBufText(buf, text) {
+    if (!text) return;
+    const last = buf.contentBlocks[buf.contentBlocks.length - 1];
+    if (last && last.type === 'text') {
+      last.text += text;
+    } else {
+      buf.contentBlocks.push({ type: 'text', text });
+    }
+  }
+
   /**
    * Flush any buffered background content for a session when switching to it.
    * Called by TabManager.switchToTab before renderMessages.
@@ -396,6 +471,10 @@ class MessageDispatcher {
 
     // If there are partial content blocks still streaming (no message_complete yet),
     // save them to history so they render on tab switch.
+    if (buf._thinkingOpen) {
+      this._appendBufText(buf, '\n</think>\n\n');
+      buf._thinkingOpen = false;
+    }
     if (buf.contentBlocks.length > 0) {
       const history = this.state.sessionHistories.get(sessionId);
       if (history) {
@@ -529,7 +608,11 @@ class MessageDispatcher {
   handleLlmEvent(event) {
     switch (event.type) {
       case 'user':
-        // Echoed back from relay -- already rendered client-side on submit
+        // Plain user echoes are already rendered client-side on submit, but
+        // Claude CLI also emits user-typed events whose message.content is an
+        // array of tool_result blocks. Render those into the matching tool
+        // block so the user sees what each tool returned.
+        this._handleUserToolResults(event);
         break;
       case 'assistant':
         this.handleAssistantEvent(event);
@@ -540,79 +623,340 @@ class MessageDispatcher {
       case 'system':
         this.handleSystemEvent(event);
         break;
+      case 'permission-mode':
+        this._handlePermissionModeEvent(event);
+        break;
+      case 'ai-title':
+      case 'custom-title':
+        this._handleTitleEvent(event);
+        break;
     }
   }
 
+  /**
+   * Apply a session title from Claude. ai-title comes from the model's
+   * automatic summarization; custom-title is user-set (e.g. via /rename).
+   * Custom titles win over AI titles when both arrive — Eve's existing
+   * session.name field stores whichever was applied last.
+   */
+  _handleTitleEvent(event) {
+    const sid = event.sessionId || this.state.currentSessionId;
+    if (!sid) return;
+    const title = event.customTitle || event.aiTitle;
+    if (!title) return;
+    const session = this.state.sessions.get(sid);
+    if (!session) return;
+    // Don't override an existing custom title with an AI-generated one.
+    if (event.type === 'ai-title' && session.titleSource === 'custom') return;
+    const nextSource = (event.type === 'custom-title') ? 'custom' : 'ai';
+    if (session.name === title && session.titleSource === nextSource) return;
+    session.name = title;
+    session.titleSource = nextSource;
+    this.tabManager?.updateTabLabel(sid, title);
+    this.sidebar?.renderProjectList();
+  }
+
+  /**
+   * Render tool_result blocks carried inside a Claude user-message event.
+   * Claude CLI emits these as {type:"user", message:{content:[
+   *   {type:"tool_result", tool_use_id, content: string | [{type:"text"|"image", ...}]}
+   * ]}}. Each result is paired back to its tool_use block by id.
+   */
+  _handleUserToolResults(event) {
+    const content = event.message?.content;
+    if (!Array.isArray(content)) return;
+    for (const block of content) {
+      if (block?.type !== 'tool_result') continue;
+      // Sub-agent dispatches close via a tool_result on the parent's Agent
+      // tool_use_id. Intercept those: finalize the agent block instead of
+      // rendering the result inline (the agent block IS the visualization).
+      if (this._maybeCloseSidechain(block.tool_use_id, block.content)) continue;
+
+      const renderer = this._activeRenderer();
+      renderer.appendToolResult(block.content, block.tool_use_id);
+      if (block.tool_use_id) {
+        renderer.markToolCompleteById(block.tool_use_id);
+      } else {
+        renderer.markToolComplete();
+      }
+    }
+  }
+
+  _handlePermissionModeEvent(event) {
+    // Claude CLI emits this whenever the session enters/leaves a non-default
+    // permission mode (bypassPermissions / acceptEdits / plan). We surface it
+    // as a banner so the user knows when they're in a privileged state.
+    const mode = event.permissionMode || 'default';
+    this.renderer.setPermissionModeBanner(mode);
+  }
+
   handleAssistantEvent(event) {
+    // The order of these checks matters: a content_block_stop event for a
+    // tool_use carries BOTH content_block_stop:true AND a content_block
+    // (echoing the resolved final input). Check stop before content_block to
+    // avoid double-rendering the tool block. See docs/event-protocol.md.
     if (event.message) {
-      if (event.message.content) {
-        for (const block of event.message.content) {
-          if (block.type === 'text') {
-            this.renderer.startAssistantMessage(block.text);
-          } else if (block.type === 'tool_use') {
-            if (block.name === 'Write' && block.input?.file_path && /\.claude\/plans\//.test(block.input.file_path)) {
-              this.lastPlanFilePath = block.input.file_path;
-            }
-            if (!this.handleInteractiveTool(block.name, block.input)) {
-              this.renderer.appendToolUse(block.name, block.input);
-            }
-          }
-        }
-      }
+      this._handleAssistantMessageStart(event.message);
+    } else if (event.content_block_stop) {
+      this._handleContentBlockStop(event);
     } else if (event.content_block) {
-      if (event.content_block.type === 'text') {
-        this.renderer.updateAssistantMessage(event.content_block.text);
-      } else if (event.content_block.type === 'tool_use') {
-        if (this.isInteractiveTool(event.content_block.name)) {
-          this.pendingInteractiveTool = { name: event.content_block.name, input: event.content_block.input || {} };
-        } else {
-          this._lastNonInteractiveToolName = event.content_block.name;
-          this.renderer.appendToolUse(event.content_block.name, event.content_block.input);
-        }
-      } else if (event.content_block.type === 'tool_use_input') {
-        if (this.pendingInteractiveTool) {
-          if (typeof event.content_block.input === 'string') {
-            try {
-              Object.assign(this.pendingInteractiveTool.input, JSON.parse(event.content_block.input));
-            } catch {
-              // partial JSON chunk, accumulate as string
-              this.pendingInteractiveTool._rawInput = (this.pendingInteractiveTool._rawInput || '') + event.content_block.input;
-            }
-          } else if (event.content_block.input && typeof event.content_block.input === 'object') {
-            Object.assign(this.pendingInteractiveTool.input, event.content_block.input);
-          }
-        } else {
-          // Track plan file path from streaming Write tool input
-          if (this._lastNonInteractiveToolName === 'Write') {
-            const input = event.content_block.input;
-            const filePath = typeof input === 'object' ? input?.file_path : null;
-            if (filePath && /\.claude\/plans\//.test(filePath)) {
-              this.lastPlanFilePath = filePath;
-            }
-          }
-          this.renderer.updateToolInput(event.content_block.input);
-        }
-      }
+      this._handleContentBlockStart(event);
     } else if (event.delta) {
-      if (event.delta.type === 'text_delta') {
-        this.renderer.appendToAssistantMessage(event.delta.text);
-        this.voice?.handleAssistantDelta(event.delta.text);
-        // Accumulate for client-side TTS in text sessions (browser and native backends)
-        if (this.tts?.activeBackend?.onDevice && this.tts?.enabled) {
-          this._clientTTSAccum = (this._clientTTSAccum || '') + event.delta.text;
+      this._handleContentBlockDelta(event);
+    }
+  }
+
+  /**
+   * Returns the renderer that should receive streaming content right now.
+   * If a sub-agent (Agent/Task) call is in progress, routes to the nested
+   * sub-renderer at the top of the sidechain stack so its events render
+   * inside the parent Agent block. Otherwise returns the main renderer.
+   */
+  _activeRenderer() {
+    return this._sidechainStack.length > 0
+      ? this._sidechainStack[this._sidechainStack.length - 1].renderer
+      : this.renderer;
+  }
+
+  /**
+   * Push a new sidechain frame when the parent calls Agent/Task. Saves the
+   * parent's per-turn block-tracking state so the sub-agent's stream indices
+   * don't collide. The sub-renderer targets the parent Agent block's body.
+   */
+  _pushSidechain(toolUseId, persona, description) {
+    const { bodyEl } = this.renderer.appendAgentBlock(toolUseId, persona, description);
+    const subRenderer = new MessageRenderer(this.container, { targetEl: bodyEl });
+    this._sidechainStack.push({
+      toolUseId,
+      renderer: subRenderer,
+      persona,
+      startedAt: Date.now(),
+      toolCount: 0,
+      savedBlockKindByIndex: this._openBlockKindByIndex,
+    });
+    this._openBlockKindByIndex = {};
+  }
+
+  /**
+   * Pop the top sidechain frame matching toolUseId. Restores the parent's
+   * saved per-turn state. Returns the popped frame so callers can compute
+   * duration / tool count for finalize.
+   */
+  _popSidechain(toolUseId) {
+    const idx = this._sidechainStack.findIndex(f => f.toolUseId === toolUseId);
+    if (idx < 0) return null;
+    const frame = this._sidechainStack[idx];
+    // Defensive: pop everything above the matched frame too. Anthropic
+    // doesn't interleave parallel sub-agents in practice, but if anything
+    // above this frame was orphaned we drop it cleanly.
+    this._sidechainStack.splice(idx);
+    // If this was the bottom frame, restore parent state. Otherwise leave
+    // current state alone (we're still inside an outer sidechain).
+    if (this._sidechainStack.length === 0) {
+      this._openBlockKindByIndex = frame.savedBlockKindByIndex || {};
+    }
+    return frame;
+  }
+
+  /**
+   * If the given tool_use_id closes an open sidechain, finalize the matching
+   * Agent block (auto-collapse with summary) and return true. The caller
+   * should NOT render this tool_result via the normal path because the agent
+   * block IS the visualization.
+   */
+  _maybeCloseSidechain(toolUseId, content) {
+    if (!toolUseId) return false;
+    const idx = this._sidechainStack.findIndex(f => f.toolUseId === toolUseId);
+    if (idx < 0) return false;
+    const frame = this._sidechainStack[idx];
+    const durationMs = Date.now() - frame.startedAt;
+    this._popSidechain(toolUseId);
+    this.renderer.finalizeAgentBlock(toolUseId, content, durationMs, frame.toolCount);
+    return true;
+  }
+
+  _handleAssistantMessageStart(message) {
+    // Canonical message_start has empty content. Claude CLI may send a full
+    // pre-built content array (rare). Render any text/tool blocks present.
+    if (!message.content) return;
+    const renderer = this._activeRenderer();
+    for (const block of message.content) {
+      if (block.type === 'text') {
+        renderer.startAssistantMessage(block.text);
+      } else if (block.type === 'redacted_thinking') {
+        renderer.appendToAssistantMessage(REDACTED_THINKING_PLACEHOLDER);
+      } else if (block.type === 'tool_use') {
+        if (block.name === 'Write' && block.input?.file_path && /\.claude\/plans\//.test(block.input.file_path)) {
+          this.lastPlanFilePath = block.input.file_path;
+        }
+        if (this._tryStartSidechain(block)) continue;
+        if (!this.handleInteractiveTool(block.name, block.input)) {
+          renderer.appendToolUse(block.name, block.input, block.id);
         }
       }
     }
+  }
+
+  /**
+   * If this tool_use is a Claude Agent/Task sub-agent dispatch, push a new
+   * sidechain frame and return true. Subsequent stream events route through
+   * the new sub-renderer until the matching tool_result closes the frame.
+   *
+   * Heuristic: a tool named "Agent" or "Task" with subagent_type in its input
+   * is a sub-agent dispatch. Tools with the same name but no subagent_type
+   * fall through to normal tool rendering (defensive — chat-base providers
+   * don't have sub-agents).
+   */
+  _tryStartSidechain(block) {
+    if (!block || !block.id) return false;
+    if (block.name !== 'Agent' && block.name !== 'Task') return false;
+    const subagentType = block.input?.subagent_type;
+    if (!subagentType) return false;
+    const description = block.input?.description || '';
+    this._pushSidechain(block.id, subagentType, description);
+    return true;
+  }
+
+  _handleContentBlockStart(event) {
+    const cb = event.content_block;
+    const idx = event.index;
+    if (!cb) return;
+
+    // Track the block kind so the corresponding stop knows what to close.
+    if (typeof idx === 'number') {
+      this._openBlockKindByIndex[idx] = cb.type;
+    }
+
+    const renderer = this._activeRenderer();
+
+    if (cb.type === 'text') {
+      // Strict canonical: bare start (no .text) — block is implicitly opened
+      // by the next text_delta. Claude CLI legacy form: text inline on the
+      // start event — render it directly.
+      if (cb.text) {
+        renderer.updateAssistantMessage(cb.text);
+      }
+    } else if (cb.type === 'thinking') {
+      // Reuse the existing <think>...</think> renderer by wrapping the block
+      // in tags. The renderer parses these into foldable thinking sections.
+      renderer.appendToAssistantMessage('<think>\n');
+    } else if (cb.type === 'redacted_thinking') {
+      // Atomic block — no thinking_delta events follow, so emit the full
+      // <think>...</think> wrapper here. _handleContentBlockStop is a no-op
+      // for kind='redacted_thinking' (only 'thinking' triggers a close).
+      renderer.appendToAssistantMessage(REDACTED_THINKING_PLACEHOLDER);
+    } else if (cb.type === 'tool_use') {
+      if (cb.name === 'Write' && cb.input?.file_path && /\.claude\/plans\//.test(cb.input.file_path)) {
+        this.lastPlanFilePath = cb.input.file_path;
+      }
+      // Claude Agent/Task with subagent_type spawns a sub-agent. Push a
+      // sidechain frame so subsequent stream events render nested.
+      if (this._tryStartSidechain(cb)) return;
+      if (this.isInteractiveTool(cb.name)) {
+        this.pendingInteractiveTool = { name: cb.name, input: cb.input || {} };
+      } else {
+        this._lastNonInteractiveToolName = cb.name;
+        renderer.appendToolUse(cb.name, cb.input || {}, cb.id);
+        // Bump the active sidechain's tool counter for the finalize summary.
+        const top = this._sidechainStack[this._sidechainStack.length - 1];
+        if (top) top.toolCount++;
+      }
+    } else if (cb.type === 'tool_use_input') {
+      // Claude CLI legacy form: streaming tool args carried as a content_block
+      // rather than as input_json_delta deltas. Forward to the same handler.
+      this._handleStreamingToolInput(cb.input);
+    }
+  }
+
+  _handleContentBlockDelta(event) {
+    const d = event.delta;
+    if (!d) return;
+    const renderer = this._activeRenderer();
+    if (d.type === 'text_delta') {
+      renderer.appendToAssistantMessage(d.text);
+      // Voice + TTS only follow the main thread, never sub-agent deltas.
+      if (this._sidechainStack.length === 0) {
+        this.voice?.handleAssistantDelta(d.text);
+        if (this.tts?.activeBackend?.onDevice && this.tts?.enabled) {
+          this._clientTTSAccum = (this._clientTTSAccum || '') + d.text;
+        }
+      }
+    } else if (d.type === 'thinking_delta') {
+      // Append to the assistant message inside the open <think> wrapper.
+      renderer.appendToAssistantMessage(d.thinking || '');
+    } else if (d.type === 'input_json_delta') {
+      // Forward partial JSON so interactive tools (ExitPlanMode /
+      // AskUserQuestion) and the renderer's streaming tool-input summary
+      // pick up the args. The fully-resolved input arrives via
+      // content_block_stop; we don't need to accumulate here.
+      this._handleStreamingToolInput(d.partial_json || '');
+    }
+  }
+
+  _handleContentBlockStop(event) {
+    const idx = event.index;
+    const kind = (typeof idx === 'number') ? this._openBlockKindByIndex[idx] : undefined;
+    const renderer = this._activeRenderer();
+
+    if (kind === 'thinking') {
+      // Close out the <think> wrapper for the renderer's tag parser.
+      renderer.appendToAssistantMessage('\n</think>\n\n');
+    } else if (kind === 'tool_use' || (event.content_block && event.content_block.type === 'tool_use')) {
+      // The stop event echoes the resolved final input. Update the rendered
+      // tool block so users see the complete arguments even if they missed
+      // streaming deltas. Tool completion (spinner removal) happens on the
+      // matching tool_result event.
+      const finalInput = event.content_block?.input;
+      if (finalInput !== undefined && finalInput !== null) {
+        renderer.updateToolInput(finalInput);
+      }
+    }
+    if (typeof idx === 'number') delete this._openBlockKindByIndex[idx];
+  }
+
+  /**
+   * Handle one fragment of streaming tool input. Used by both the canonical
+   * input_json_delta path and the Claude CLI legacy tool_use_input path.
+   * The fragment may be a partial JSON string or (rarely) a parsed object.
+   */
+  _handleStreamingToolInput(input) {
+    if (this.pendingInteractiveTool) {
+      if (typeof input === 'string') {
+        try {
+          Object.assign(this.pendingInteractiveTool.input, JSON.parse(input));
+        } catch {
+          this.pendingInteractiveTool._rawInput = (this.pendingInteractiveTool._rawInput || '') + input;
+        }
+      } else if (input && typeof input === 'object') {
+        Object.assign(this.pendingInteractiveTool.input, input);
+      }
+      return;
+    }
+    if (this._lastNonInteractiveToolName === 'Write') {
+      const filePath = typeof input === 'object' ? input?.file_path : null;
+      if (filePath && /\.claude\/plans\//.test(filePath)) {
+        this.lastPlanFilePath = filePath;
+      }
+    }
+    this._activeRenderer().updateToolInput(input);
   }
 
   handleResultEvent(event) {
     if (event.subtype === 'error') {
+      // Tool errors are session-level — always surface on the main thread.
       this.renderer.appendSystemMessage(`Tool error: ${event.error}`, 'error');
     } else if (event.subtype === 'tool_progress') {
-      this.renderer.updateToolProgress(event.tool_name, event.message);
+      this._activeRenderer().updateToolProgress(event.tool_name, event.message);
     } else if (event.subtype === 'tool_result') {
-      if (event.content) this.renderer.appendToolResult(event.content);
-      this.renderer.markToolComplete();
+      // Chat-base path also closes sidechains via canonical result events.
+      if (this._maybeCloseSidechain(event.tool_use_id, event.content)) return;
+      const renderer = this._activeRenderer();
+      if (event.content) renderer.appendToolResult(event.content, event.tool_use_id);
+      if (event.tool_use_id) {
+        renderer.markToolCompleteById(event.tool_use_id);
+      } else {
+        renderer.markToolComplete();
+      }
     }
   }
 
@@ -686,9 +1030,67 @@ class MessageDispatcher {
       } else {
         this.renderer.hideThinkingIndicator();
       }
+    } else if (event.subtype === 'init') {
+      // Canonical turn-init context (model, tools, mcp servers, cwd). The UI
+      // already shows model/cwd from session metadata, so this is informational
+      // for now — capture it on the session for future use.
+      const session = this.state.sessions.get(this.state.currentSessionId);
+      if (session) {
+        session.lastTurnContext = {
+          model: event.model,
+          cwd: event.cwd,
+          tools: event.tools,
+          mcpServers: event.mcp_servers,
+        };
+      }
+    } else if (event.subtype === 'api_error') {
+      this._renderApiError(event);
+    } else if (event.subtype === 'bridge_status') {
+      this._renderBridgeStatus(event);
+    } else if (event.subtype === 'stop_hook_summary') {
+      this._renderStopHookSummary(event);
     } else if (event.message) {
       this.renderer.appendSystemMessage(event.message);
     }
+  }
+
+  /**
+   * Render an api_error system event. Claude Code retries automatically up to
+   * maxRetries; we surface the error with retry context so users see what's
+   * happening instead of just a stalled spinner.
+   */
+  _renderApiError(event) {
+    const code = event.cause?.code || event.error?.cause?.code || event.error?.type;
+    const path = event.cause?.path || event.error?.cause?.path;
+    const reason = code ? code : 'API error';
+    const where = path ? ` (${path})` : '';
+    const attempt = (event.retryAttempt && event.maxRetries)
+      ? ` — retry ${event.retryAttempt}/${event.maxRetries}`
+      : '';
+    const isFinal = event.retryAttempt && event.maxRetries && event.retryAttempt >= event.maxRetries;
+    const severity = isFinal ? 'error' : 'warning';
+    this.renderer.appendSystemMessage(`API error: ${reason}${where}${attempt}`, severity);
+  }
+
+  /**
+   * Render the Claude.ai remote-control bridge status. The event carries a
+   * URL the user can open to control this session from the web app.
+   */
+  _renderBridgeStatus(event) {
+    const text = event.content || 'Remote control active';
+    this.renderer.appendSystemMessage(text);
+  }
+
+  /**
+   * If the user's Stop hooks errored, surface the failures so they don't
+   * silently break workflows. Successful (or no-op) hook summaries are not
+   * rendered — they're noisy and not actionable.
+   */
+  _renderStopHookSummary(event) {
+    const errors = Array.isArray(event.hookErrors) ? event.hookErrors : [];
+    if (errors.length === 0) return;
+    const detail = errors.map(e => (typeof e === 'string' ? e : (e?.message || JSON.stringify(e)))).join('; ');
+    this.renderer.appendSystemMessage(`Stop hook error: ${detail}`, 'warning');
   }
 }
 
