@@ -87,3 +87,29 @@ Quick-reference index of all test cases. Run `npm test` for unit tests.
 **closeAll**
 - closes all watchers and clears state
 - is safe to call multiple times
+
+### `input-history.test.js` -- Chat input history (up/down arrow recall)
+
+**push**
+- adds entries and persists to localStorage
+- deduplicates consecutive duplicates
+- drops empty and whitespace-only entries
+- trims whitespace
+- enforces cap by trimming oldest
+- resets navigation state
+
+**prev / next**
+- prev walks oldest, returns null at start
+- prev on empty history returns null
+- next without prior prev returns null
+- next walks back toward newest then restores draft
+- prev snapshots draft only on first call
+
+**reset**
+- clears index and draft
+
+**persistence**
+- second instance loads first instance entries
+- load tolerates corrupt JSON
+- load tolerates missing entries field
+- load filters non-string entries and applies cap
