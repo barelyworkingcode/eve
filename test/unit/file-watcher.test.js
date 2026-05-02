@@ -95,6 +95,7 @@ describe('FileWatcher', () => {
       const key = `${PROJECT_ID}:test.js`;
       const absPath = path.join(tmpDir, 'test.js');
 
+      watcher.watch(PROJECT_ID, 'test.js');
       watcher._onFileChange(key, PROJECT_ID, 'test.js', absPath);
       // Not sent yet (debounced)
       expect(mockWs.sent.length).toBe(0);
@@ -127,6 +128,8 @@ describe('FileWatcher', () => {
       const key = `${PROJECT_ID}:test.js`;
       const absPath = path.join(tmpDir, 'test.js');
 
+      watcher.watch(PROJECT_ID, 'test.js');
+
       // Fire 3 rapid change events
       watcher._onFileChange(key, PROJECT_ID, 'test.js', absPath);
       watcher._onFileChange(key, PROJECT_ID, 'test.js', absPath);
@@ -136,6 +139,25 @@ describe('FileWatcher', () => {
 
       // Should only send once
       expect(mockWs.sent.length).toBe(1);
+    });
+
+    it('binary watches send notification only (no content)', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'doc.pdf'), 'pretend-pdf-bytes');
+      watcher.watch(PROJECT_ID, 'doc.pdf', { binary: true });
+
+      const key = `${PROJECT_ID}:doc.pdf`;
+      const absPath = path.join(tmpDir, 'doc.pdf');
+      watcher._onFileChange(key, PROJECT_ID, 'doc.pdf', absPath);
+
+      await delay(400);
+
+      expect(mockWs.sent.length).toBe(1);
+      const msg = mockWs.sent[0];
+      expect(msg.type).toBe('file_changed');
+      expect(msg.projectId).toBe(PROJECT_ID);
+      expect(msg.path).toBe('doc.pdf');
+      expect(msg.content).toBeUndefined();
+      expect(msg.size).toBeUndefined();
     });
   });
 
