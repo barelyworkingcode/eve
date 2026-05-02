@@ -908,7 +908,11 @@ class EveWorkspaceClient {
   }
 
   handleFileChanged(projectId, path, content) {
-    if (this.fileEditor) this.fileEditor.handleExternalChange(projectId, path, content);
+    if (content === undefined) {
+      this.tabManager?.handleViewerFileChanged(projectId, path);
+    } else if (this.fileEditor) {
+      this.fileEditor.handleExternalChange(projectId, path, content);
+    }
   }
 
   // --- Provider settings ---
