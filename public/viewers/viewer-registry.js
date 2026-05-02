@@ -46,12 +46,13 @@ class ViewerRegistry {
   }
 
   /**
-   * Build the HTTP URL for serving a raw file from a project.
+   * Build the HTTP URL for serving a raw file from a project. Pass `version`
+   * (any string/number) to append a cache-busting query parameter.
    */
-  buildFileUrl(projectId, filePath) {
-    // Strip leading slash from path
+  buildFileUrl(projectId, filePath, version) {
     const cleanPath = filePath.replace(/^\/+/, '');
-    return `/api/files/${encodeURIComponent(projectId)}/${cleanPath}`;
+    const url = `/api/files/${encodeURIComponent(projectId)}/${cleanPath}`;
+    return version ? `${url}?v=${encodeURIComponent(version)}` : url;
   }
 
   _getExtension(filename) {

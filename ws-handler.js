@@ -139,7 +139,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             break;
 
           case 'watch_file':
-            fileWatcher.watch(message.projectId, message.path);
+            fileWatcher.watch(message.projectId, message.path, { binary: !!message.binary });
             break;
 
           case 'unwatch_file':

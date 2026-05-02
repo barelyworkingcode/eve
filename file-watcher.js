@@ -10,12 +10,12 @@ class FileWatcher {
     this.ws = ws;
     this.fileService = fileService;
     this.resolveProject = resolveProject;
-    this.watchers = new Map();       // key -> FSWatcher
+    this.watchers = new Map();       // key -> { watcher: FSWatcher, binary: bool }
     this.debounceTimers = new Map(); // key -> timeout
     this.selfWrites = new Set();     // absolute paths written by Eve
   }
 
-  watch(projectId, relativePath) {
+  watch(projectId, relativePath, opts = {}) {
     const key = `${projectId}:${relativePath}`;
     if (this.watchers.has(key)) return;
 
@@ -29,6 +29,8 @@ class FileWatcher {
       return;
     }
 
+    const binary = !!opts.binary;
+
     try {
       const watcher = fs.watch(absolutePath, (eventType) => {
         if (eventType === 'change') {
@@ -40,7 +42,7 @@ class FileWatcher {
         this._unwatchKey(key);
       });
 
-      this.watchers.set(key, watcher);
+      this.watchers.set(key, { watcher, binary });
     } catch {
       // File may not exist or be inaccessible
     }
@@ -63,17 +65,29 @@ class FileWatcher {
     clearTimeout(this.debounceTimers.get(key));
     this.debounceTimers.set(key, setTimeout(async () => {
       this.debounceTimers.delete(key);
+      const entry = this.watchers.get(key);
+      if (!entry) return;
       try {
         const project = this.resolveProject(projectId);
         if (!project) return;
-        const { content, size } = await this.fileService.readFile(project.path, relativePath);
-        this.ws.send(JSON.stringify({
-          type: 'file_changed',
-          projectId,
-          path: relativePath,
-          content,
-          size
-        }));
+        if (entry.binary) {
+          // Binary/viewer files: notify only — client re-fetches via the
+          // existing /api/files URL with a client-generated cache-bust query.
+          this.ws.send(JSON.stringify({
+            type: 'file_changed',
+            projectId,
+            path: relativePath
+          }));
+        } else {
+          const { content, size } = await this.fileService.readFile(project.path, relativePath);
+          this.ws.send(JSON.stringify({
+            type: 'file_changed',
+            projectId,
+            path: relativePath,
+            content,
+            size
+          }));
+        }
       } catch {
         // File may have been deleted or become unreadable
       }
@@ -81,9 +95,9 @@ class FileWatcher {
   }
 
   _unwatchKey(key) {
-    const watcher = this.watchers.get(key);
-    if (watcher) {
-      watcher.close();
+    const entry = this.watchers.get(key);
+    if (entry) {
+      entry.watcher.close();
       this.watchers.delete(key);
     }
     const timer = this.debounceTimers.get(key);

@@ -120,15 +120,7 @@ class TabManager {
     this.tabs.push(tab);
     this._saveFileTab(projectId, filePath);
 
-    // Register file watcher on server (skip plan files and viewer files)
-    const isViewer = this.app.viewerRegistry?.isViewerFile(filePath);
-    if (!isPlanProject(projectId) && !isViewer) {
-      this.app.ws?.send(JSON.stringify({
-        type: 'watch_file',
-        projectId,
-        path: filePath
-      }));
-    }
+    this._sendWatchFile(projectId, filePath);
 
     this.switchToTab(tabId);
   }
@@ -357,14 +349,25 @@ class TabManager {
    */
   reestablishFileWatches() {
     for (const tab of this.tabs) {
-      if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
-        this.app.ws?.send(JSON.stringify({
-          type: 'watch_file',
-          projectId: tab.projectId,
-          path: tab.path
-        }));
+      if (tab.type === 'file') {
+        this._sendWatchFile(tab.projectId, tab.path);
       }
     }
+  }
+
+  /**
+   * Sends a watch_file message for the given path, skipping plan files and
+   * marking viewer files as binary so the server omits content from updates.
+   */
+  _sendWatchFile(projectId, filePath) {
+    if (isPlanProject(projectId)) return;
+    const isViewer = !!this.app.viewerRegistry?.isViewerFile(filePath);
+    this.app.ws?.send(JSON.stringify({
+      type: 'watch_file',
+      projectId,
+      path: filePath,
+      binary: isViewer
+    }));
   }
 
   /**
@@ -375,7 +378,7 @@ class TabManager {
     const viewer = registry.getViewer(tab.path);
     if (!viewer) return;
 
-    const url = registry.buildFileUrl(tab.projectId, tab.path);
+    const url = registry.buildFileUrl(tab.projectId, tab.path, tab._reloadVersion);
     this.viewerPath.textContent = tab.path;
     this.viewerInfo.textContent = '';
     this._activeViewer = viewer;
@@ -386,6 +389,25 @@ class TabManager {
       filename: tab.label,
       url
     });
+  }
+
+  /**
+   * Re-render a viewer tab whose file changed on disk. If the tab is currently
+   * active, refresh in place; otherwise the next switchToTab picks up the new
+   * version via the cache-busted URL.
+   */
+  handleViewerFileChanged(projectId, path) {
+    const tab = this.tabs.find(
+      t => t.type === 'file' && t.projectId === projectId && t.path === path
+    );
+    if (!tab || !this.app.viewerRegistry?.isViewerFile(tab.path)) return;
+
+    tab._reloadVersion = Date.now();
+
+    if (tab.id === this.activeTabId && !this.viewerContent.classList.contains('hidden')) {
+      this._destroyActiveViewer();
+      this._renderViewer(tab);
+    }
   }
 
   /**
