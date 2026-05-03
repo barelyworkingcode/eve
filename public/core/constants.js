@@ -114,6 +114,13 @@ const FAVORITE_TEMPLATE_ENABLED = true; // Gate behind IS_NATIVE_APP when shippi
 // Plan file project ID sentinel
 const PLAN_PROJECT_ID = '__plan__';
 
+// Chat template modes (mirrors relay's ChatTemplate.Mode field)
+const MODE_TEXT = 'text';
+const MODE_VOICE = 'voice';
+
+// Wildcard sentinel for "all MCPs" / "all models" — matches relay's isWildcard
+const MCP_WILDCARD = '*';
+
 function isPlanProject(projectId) {
   return projectId === PLAN_PROJECT_ID;
 }

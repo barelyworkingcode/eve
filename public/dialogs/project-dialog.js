@@ -11,6 +11,10 @@ class ProjectDialog extends DialogBase {
     this._projectId = null;
     this._project = null;
     this._templates = []; // working copy of chatTemplates
+    // Working sets carry literal MCP/model ids; the '*' wildcard is just
+    // another id (matches relay's isWildcard convention).
+    this._selectedMcpIds = new Set();
+    this._selectedModels = new Set();
     this._editingTemplateIdx = -1; // -1 = not editing, >=0 = index
     this._editingShellTemplate = null; // null = not editing, object = editing/creating
   }
@@ -20,6 +24,10 @@ class ProjectDialog extends DialogBase {
       this._projectId = data?.projectId || null;
       this._project = this._projectId ? this.state.getProject(this._projectId) : null;
       this._templates = this._project?.chatTemplates ? JSON.parse(JSON.stringify(this._project.chatTemplates)) : [];
+
+      this._selectedMcpIds = new Set(this._project?.allowedMcpIds || []);
+      this._selectedModels = new Set(this._project?.allowedModels || []);
+
       this._editingTemplateIdx = -1;
       this._editingShellTemplate = null;
       this.render();
@@ -73,14 +81,8 @@ class ProjectDialog extends DialogBase {
       placeholder: '/path/to/project', required: true, value: this._project?.path || '',
     });
 
-    const toolsInput = this._createField(form, 'Allowed Tools (optional)', 'text', {
-      placeholder: 'e.g. Read Glob Grep "Bash(git:*)"',
-      value: (this._project?.allowedTools || []).join(' '),
-    });
-    const hint = document.createElement('span');
-    hint.className = 'field-hint';
-    hint.textContent = 'Space-separated. Pre-approves these tools without prompting.';
-    form.appendChild(hint);
+    this._renderMcpsPicker(form);
+    this._renderModelsPicker(form);
 
     // Actions
     const actions = document.createElement('div');
@@ -95,7 +97,7 @@ class ProjectDialog extends DialogBase {
     saveBtn.className = 'dialog__btn dialog__btn--primary';
     saveBtn.textContent = this._projectId ? 'Save' : 'Create Project';
     saveBtn.addEventListener('click', () => {
-      this._saveProject(nameInput.value.trim(), pathInput.value.trim(), parseArgsString(toolsInput.value));
+      this._saveProject(nameInput.value.trim(), pathInput.value.trim());
     });
 
     actions.appendChild(cancelBtn);
@@ -106,17 +108,112 @@ class ProjectDialog extends DialogBase {
     nameInput.focus();
   }
 
-  async _saveProject(name, path, allowedTools) {
+  _renderMcpsPicker(parent) {
+    const label = document.createElement('label');
+    label.className = 'dialog__label';
+    label.textContent = 'Allowed MCPs';
+    parent.appendChild(label);
+
+    const list = document.createElement('div');
+    list.className = 'project-dialog__checkbox-list';
+
+    const items = [
+      { id: MCP_WILDCARD, label: 'All MCPs (wildcard)' },
+      ...this.state.mcps.map(m => ({ id: m.id, label: m.display_name || m.id })),
+    ];
+    for (const item of items) {
+      list.appendChild(this._mcpRow(item));
+    }
+    if (this.state.mcps.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'field-hint';
+      empty.textContent = 'No MCPs configured in relay.';
+      list.appendChild(empty);
+    }
+    parent.appendChild(list);
+  }
+
+  _mcpRow({ id, label }) {
+    const row = document.createElement('label');
+    row.className = 'project-dialog__checkbox-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = id;
+    cb.checked = this._selectedMcpIds.has(id);
+    cb.addEventListener('change', () => {
+      if (cb.checked) this._selectedMcpIds.add(id);
+      else this._selectedMcpIds.delete(id);
+    });
+    row.appendChild(cb);
+    const txt = document.createElement('span');
+    txt.textContent = label;
+    row.appendChild(txt);
+    return row;
+  }
+
+  _renderModelsPicker(parent) {
+    const label = document.createElement('label');
+    label.className = 'dialog__label';
+    label.textContent = 'Allowed Models';
+    parent.appendChild(label);
+
+    const list = document.createElement('div');
+    list.className = 'project-dialog__checkbox-list';
+
+    if (this.state.models.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'field-hint';
+      empty.textContent = 'No models discovered.';
+      list.appendChild(empty);
+    } else {
+      for (const model of this.state.models) {
+        const row = document.createElement('label');
+        row.className = 'project-dialog__checkbox-row';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = model.value;
+        cb.checked = this._selectedModels.has(model.value);
+        cb.addEventListener('change', () => {
+          if (cb.checked) this._selectedModels.add(model.value);
+          else this._selectedModels.delete(model.value);
+        });
+        row.appendChild(cb);
+        const txt = document.createElement('span');
+        txt.textContent = model.label || model.value;
+        row.appendChild(txt);
+        list.appendChild(row);
+      }
+    }
+
+    const hint = document.createElement('span');
+    hint.className = 'field-hint';
+    hint.textContent = 'Leave all unchecked to allow every model.';
+    parent.appendChild(list);
+    parent.appendChild(hint);
+  }
+
+  async _saveProject(name, path) {
     if (!name || !path) return;
 
     try {
-      const body = { name, path, allowedTools, chatTemplates: this._templates };
-      let project;
-      if (this._projectId) {
-        project = await this.api.updateProject(this._projectId, body);
-      } else {
-        project = await this.api.createProject(body);
-      }
+      const body = {
+        name,
+        path,
+        allowed_mcp_ids: Array.from(this._selectedMcpIds),
+        allowed_models: Array.from(this._selectedModels),
+        chat_templates: this._templates.map(t => ({
+          id: t.id,
+          name: t.name,
+          model: t.model,
+          mode: t.mode || MODE_TEXT,
+          voice: t.voice || '',
+          system_prompt: t.systemPrompt || '',
+        })),
+      };
+      const project = this._projectId
+        ? await this.api.updateProject(this._projectId, body)
+        : await this.api.createProject(body);
+
       const renamed = !!this._projectId && this._project && this._project.name !== project.name;
       this.state.projects.set(project.id, project);
       this.bus.emit(EVT.PROJECTS_LOADED);
@@ -174,8 +271,6 @@ class ProjectDialog extends DialogBase {
         mode: 'text',
         voice: '',
         systemPrompt: '',
-        appendClaudeMd: false,
-        settings: null,
       });
       this._editingTemplateIdx = this._templates.length - 1;
       this._showTab('templates');
@@ -224,7 +319,7 @@ class ProjectDialog extends DialogBase {
       saveBtn.textContent = 'Save';
       saveBtn.addEventListener('click', () => {
         const project = this.state.getProject(this._projectId);
-        this._saveProject(project.name, project.path, project.allowedTools || []);
+        this._saveProject(project.name, project.path);
       });
 
       actions.appendChild(cancelBtn);
@@ -254,7 +349,7 @@ class ProjectDialog extends DialogBase {
     modelBadge.textContent = modelInfo?.label || tmpl.model || '—';
     badges.appendChild(modelBadge);
 
-    if (tmpl.mode === 'voice') {
+    if (tmpl.mode === MODE_VOICE) {
       const voiceBadge = document.createElement('span');
       voiceBadge.className = 'project-dialog__badge project-dialog__badge--voice';
       voiceBadge.textContent = 'voice';
@@ -325,8 +420,8 @@ class ProjectDialog extends DialogBase {
 
     const modeRow = document.createElement('div');
     modeRow.className = 'project-dialog__mode-row';
-    const textRadio = this._createRadio(modeRow, 'tmpl-mode', 'text', 'Text', tmpl.mode !== 'voice');
-    const voiceRadio = this._createRadio(modeRow, 'tmpl-mode', 'voice', 'Voice', tmpl.mode === 'voice');
+    const textRadio = this._createRadio(modeRow, 'tmpl-mode', MODE_TEXT, 'Text', tmpl.mode !== MODE_VOICE);
+    const voiceRadio = this._createRadio(modeRow, 'tmpl-mode', MODE_VOICE, 'Voice', tmpl.mode === MODE_VOICE);
     form.appendChild(modeRow);
 
     // Voice select (shown for voice mode)
@@ -359,36 +454,6 @@ class ProjectDialog extends DialogBase {
     promptArea.rows = 4;
     form.appendChild(promptArea);
 
-    // Append CLAUDE.md checkbox
-    const claudeMdWrapper = document.createElement('div');
-    claudeMdWrapper.className = 'project-dialog__checkbox-row';
-    const claudeMdCheck = document.createElement('input');
-    claudeMdCheck.type = 'checkbox';
-    claudeMdCheck.id = 'tmpl-append-claudemd';
-    claudeMdCheck.checked = tmpl.appendClaudeMd || false;
-    const claudeMdLabel = document.createElement('label');
-    claudeMdLabel.htmlFor = 'tmpl-append-claudemd';
-    claudeMdLabel.textContent = 'Append CLAUDE.md';
-    const claudeMdHint = document.createElement('span');
-    claudeMdHint.className = 'field-hint';
-    claudeMdHint.textContent = 'Inject project CLAUDE.md into system prompt (non-Claude models only)';
-    claudeMdWrapper.appendChild(claudeMdCheck);
-    claudeMdWrapper.appendChild(claudeMdLabel);
-    claudeMdWrapper.appendChild(claudeMdHint);
-    form.appendChild(claudeMdWrapper);
-
-    // Show/hide Append CLAUDE.md based on model provider
-    const updateClaudeMdVisibility = () => {
-      const selectedModel = this.state.models.find(m => m.value === modelSelect.value);
-      const isClaude = selectedModel?.provider === 'claude';
-      claudeMdWrapper.style.display = isClaude ? 'none' : '';
-    };
-    modelSelect.addEventListener('change', updateClaudeMdVisibility);
-    updateClaudeMdVisibility();
-
-    // Provider settings
-    const settingsContainer = this._addProviderSettings(form, modelSelect, tmpl.settings);
-
     // Actions
     const actions = document.createElement('div');
     actions.className = 'dialog__actions';
@@ -416,11 +481,9 @@ class ProjectDialog extends DialogBase {
         id: tmpl.id,
         name,
         model: modelSelect.value,
-        mode: voiceRadio.checked ? 'voice' : 'text',
+        mode: voiceRadio.checked ? MODE_VOICE : MODE_TEXT,
         voice: voiceRadio.checked ? voiceSelect.value : '',
         systemPrompt: promptArea.value.trim(),
-        appendClaudeMd: claudeMdCheck.checked,
-        settings: this._collectSettings(settingsContainer),
       };
       this._editingTemplateIdx = -1;
       this._showTab('templates');

@@ -113,14 +113,12 @@ try {
 
 const fileHandlers = new FileHandlers((id) => projectCache.get(id));
 
-// normalizeProject maps relay's snake_case project format to the camelCase
-// format Eve's client code expects.
 function normalizeProject(p) {
   return {
     id: p.id,
     name: p.name,
     path: p.path,
-    allowedTools: p.allowed_mcp_ids || [],
+    allowedMcpIds: p.allowed_mcp_ids || [],
     allowedModels: p.allowed_models || [],
     chatTemplates: (p.chat_templates || []).map(t => ({
       id: t.id,
@@ -129,8 +127,6 @@ function normalizeProject(p) {
       mode: t.mode || 'text',
       voice: t.voice || '',
       systemPrompt: t.system_prompt || '',
-      appendClaudeMd: false,
-      settings: t.settings || {},
     })),
     token: p.token || '',
     createdAt: p.created_at || '',
@@ -139,15 +135,19 @@ function normalizeProject(p) {
 
 async function refreshProjectCache(data) {
   try {
-    let projects = data;
-    if (!projects) {
-      const { status, data: fetched } = await relayTransport.fetch('GET', '/api/projects');
-      if (status < 200 || status >= 300) throw new Error(`relayLLM returned ${status}`);
-      projects = fetched;
+    if (Array.isArray(data)) {
+      // Partial upsert (one or more projects from a mutation response).
+      for (const p of data) {
+        const normalized = normalizeProject(p);
+        projectCache.set(normalized.id, normalized);
+      }
+      return;
     }
-    if (!Array.isArray(projects)) return;
+    const { status, data: fetched } = await relayTransport.fetch('GET', '/api/projects');
+    if (status < 200 || status >= 300) throw new Error(`relayLLM returned ${status}`);
+    if (!Array.isArray(fetched)) return;
     projectCache.clear();
-    for (const p of projects) {
+    for (const p of fetched) {
       const normalized = normalizeProject(p);
       projectCache.set(normalized.id, normalized);
     }
@@ -184,7 +184,17 @@ const ttsService = new TTSService('127.0.0.1', parseInt(process.env.TTS_PORT || 
 const sttService = new STTService('127.0.0.1', parseInt(process.env.STT_PORT || '9998', 10));
 
 // Register HTTP routes (proxy to relayLLM + scheduler + local auth)
-registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, resolveProject: (id) => projectCache.get(id), ttsService, sttService, log });
+registerRoutes(app, {
+  authService,
+  trustedNetwork,
+  relayTransport,
+  refreshProjectCache,
+  removeFromProjectCache: (id) => projectCache.delete(id),
+  resolveProject: (id) => projectCache.get(id),
+  ttsService,
+  sttService,
+  log,
+});
 
 // SPA fallback for /<projectslug>/ deep links. Single-segment regex so
 // /api/* and /monaco/... stay multi-segment and never match.
