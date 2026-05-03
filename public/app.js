@@ -119,7 +119,7 @@ class EveWorkspaceClient {
     this.initSidebarResize();
     this.initSwipeGesture();
     this._initBusListeners();
-    this.loadModels();
+    Promise.all([this.loadModels(), this.loadMcps()]);
     this.wsClient.connect();
   }
 
@@ -711,6 +711,15 @@ class EveWorkspaceClient {
     }
   }
 
+  async loadMcps() {
+    try {
+      const mcps = await this.api.getMcps();
+      this.state.setMcps(Array.isArray(mcps) ? mcps : []);
+    } catch (err) {
+      this.log.error('Failed to load MCPs:', err);
+    }
+  }
+
   renderModelSelect(selectEl) {
     renderModelSelect(selectEl, this.models);
   }
@@ -1121,21 +1130,6 @@ class EveWorkspaceClient {
     const session = this.sessions.get(sessionId);
     if (!session) return sessionId;
     return session.name || this.shortenPath(session.directory);
-  }
-
-  parseArgsString(str) {
-    if (!str || !str.trim()) return [];
-    const args = [];
-    const regex = /(?:[^\s"']+|"[^"]*"|'[^']*')+/g;
-    let match;
-    while ((match = regex.exec(str)) !== null) {
-      let val = match[0];
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-      args.push(val);
-    }
-    return args;
   }
 
   initSidebarResize() {

@@ -3,7 +3,7 @@ const path = require('path');
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, resolveProject, ttsService, sttService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, ttsService, sttService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   // Shared auth middleware.
   // Bypass order: (1) no passkey enrolled yet — first-run bootstrap; (2) the
@@ -78,6 +78,48 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
       routeLog.error(`GET /api/projects/${req.params.id} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
+  });
+
+  // After a successful upsert we feed the relay response into the cache
+  // directly — refreshProjectCache(undefined) replaces the whole list and
+  // would force a round-trip we don't need.
+  async function proxyProjectMutation(method, relayPath, body, res, errLabel) {
+    try {
+      const { status, data } = await relayTransport.fetch(method, relayPath, body);
+      if (status >= 200 && status < 300 && data && data.id) {
+        refreshProjectCache([data]);
+        res.status(status).json(resolveProject(data.id) || data);
+      } else {
+        res.status(status).json(data ?? {});
+      }
+    } catch (err) {
+      routeLog.error(`${errLabel} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
+  }
+
+  app.post('/api/projects', requireAuth, (req, res) =>
+    proxyProjectMutation('POST', '/api/projects', req.body, res, 'POST /api/projects'));
+
+  app.put('/api/projects/:id', requireAuth, (req, res) =>
+    proxyProjectMutation('PUT', `/api/projects/${req.params.id}`, req.body, res, `PUT /api/projects/${req.params.id}`));
+
+  app.delete('/api/projects/:id', requireAuth, async (req, res) => {
+    try {
+      const { status, data } = await relayTransport.fetch('DELETE', `/api/projects/${req.params.id}`);
+      if (status >= 200 && status < 300) {
+        removeFromProjectCache(req.params.id);
+      }
+      res.status(status).json(data || {});
+    } catch (err) {
+      routeLog.error(`DELETE /api/projects/${req.params.id} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
+  });
+
+  // --- MCP listing (proxy; populates project dialog "Allowed MCPs" picker) ---
+  app.get('/api/mcps', requireAuth, (req, res) => {
+    proxy(req, res, 'GET', '/api/mcps');
   });
 
   // --- Sessions (proxy) ---
