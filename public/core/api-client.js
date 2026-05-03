@@ -38,6 +38,9 @@ class ApiClient {
   // Models
   getModels() { return this._request('GET', '/api/models'); }
 
+  // MCPs (relay-managed external tool servers; populates project dialog picker)
+  getMcps() { return this._request('GET', '/api/mcps'); }
+
   // Tasks
   getTasks(projectId) {
     const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';

@@ -11,6 +11,7 @@ class StateStore {
     this.tasks = new Map();
     this.taskSessionIds = new Set();
     this.models = [];
+    this.mcps = [];
     this.terminalTemplates = [];
     this.providerSettings = {};
     this.currentSessionId = null;
@@ -173,5 +174,11 @@ class StateStore {
     this.models = models || [];
     this.providerSettings = providerSettings || {};
     this.bus.emit(EVT.MODELS_LOADED);
+  }
+
+  // --- MCPs ---
+
+  setMcps(mcps) {
+    this.mcps = mcps || [];
   }
 }

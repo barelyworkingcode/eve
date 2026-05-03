@@ -79,7 +79,7 @@ class SidebarRenderer {
     const projectEl = document.createElement('div');
     projectEl.className = expanded ? 'project-group' : 'project-group collapsed';
 
-    const toolsBadge = project.allowedTools?.length > 0 ? `<span class="project-tools-badge" title="${escapeHtml(project.allowedTools.join(', '))}">${project.allowedTools.length} tools</span>` : '';
+    const mcpsBadge = project.allowedMcpIds?.length > 0 ? `<span class="project-tools-badge" title="${escapeHtml(project.allowedMcpIds.join(', '))}">${project.allowedMcpIds.length} MCPs</span>` : '';
 
     const projectTasks = this.app.state.getTasksForProject(projectId);
     const taskBadge = projectTasks.length > 0 ? `<span class="project-tasks-badge">${projectTasks.length} task${projectTasks.length !== 1 ? 's' : ''}</span>` : '';
@@ -88,7 +88,7 @@ class SidebarRenderer {
       <div class="project-header">
         <span class="project-toggle">${expanded ? '▼' : '▶'}</span>
         <span class="project-name">${escapeHtml(project.name)}</span>
-        ${toolsBadge}
+        ${mcpsBadge}
         ${taskBadge}
         <button class="project-files-toggle" title="Browse files">📁</button>
         <button class="project-edit" title="Edit project">&#9998;</button>
