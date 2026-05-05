@@ -127,6 +127,8 @@ function normalizeProject(p) {
       mode: t.mode || 'text',
       voice: t.voice || '',
       systemPrompt: t.system_prompt || '',
+      appendClaudeMd: !!t.append_claude_md,
+      useRelayTools: !!t.use_relay_tools,
     })),
     token: p.token || '',
     createdAt: p.created_at || '',

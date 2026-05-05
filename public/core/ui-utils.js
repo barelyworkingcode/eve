@@ -52,6 +52,10 @@ function renderModelSelect(selectEl, models, options = {}) {
   }
 }
 
+function isClaudeModel(models, value) {
+  return models.find(m => m.value === value)?.provider === 'claude';
+}
+
 // --- Context Menu ---
 
 let _activeContextMenu = null;
