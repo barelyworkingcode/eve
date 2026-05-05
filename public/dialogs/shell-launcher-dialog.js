@@ -212,10 +212,7 @@ class ShellLauncherDialog extends DialogBase {
       label: 'Append CLAUDE.md',
       type: 'boolean',
       default: false,
-      visibleWhen: (models, modelValue) => {
-        const m = models.find(x => x.value === modelValue);
-        return m?.provider !== 'claude';
-      },
+      visibleWhen: (models, modelValue) => !isClaudeModel(models, modelValue),
     };
     const settingsContainer = this._addProviderSettings(form, modelSelect, null, [claudeMdExtra]);
 
@@ -267,9 +264,11 @@ class ShellLauncherDialog extends DialogBase {
   }
 
   _launchFromTemplate(template) {
+    const settings = { ...(template.settings || {}) };
+    if (template.useRelayTools) settings.useRelayTools = true;
     this._launchSession({
       model: template.model,
-      settings: template.settings,
+      settings,
       systemPrompt: template.systemPrompt,
       appendClaudeMd: template.appendClaudeMd,
       voice: template.mode === 'voice' ? (template.voice || 'af_heart') : undefined,
