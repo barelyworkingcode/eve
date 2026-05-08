@@ -87,14 +87,15 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             break;
 
           case 'permission_response':
-            if (message.alwaysAllow) {
-              relayClient.setAlwaysAllow(true);
-            }
             relayClient.sendPermissionResponse(
               message.permissionId,
               message.approved,
               message.reason || ''
             );
+            break;
+
+          case 'set_permission_mode':
+            relayClient.setPermissionMode(message.sessionId, message.mode);
             break;
 
           // --- File operations (local) ---
@@ -217,14 +218,32 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
  */
 async function handleCreateSession(ws, relayClient, relayTransport, message, resolveProject, log) {
   try {
-    // Resolve project to get token and directory.
+    // Resolve project to get token, directory, and permission policy.
     let directory = message.directory || '';
     let mcpToken = '';
+    let projectPolicy = null;
     if (message.projectId) {
       const project = resolveProject(message.projectId);
       if (project) {
         directory = directory || project.path;
         mcpToken = project.token || '';
+        projectPolicy = project.permissionPolicy || null;
+      }
+    }
+
+    // Merge project policy into the session settings. The client may set
+    // permissionMode in message.settings to override the project default
+    // (e.g. "Start in plan mode" checkbox). The policy itself (allowed/denied)
+    // always comes from the project — clients can't widen it.
+    const settings = { ...(message.settings || {}) };
+    if (projectPolicy) {
+      settings.permissionPolicy = {
+        allowedTools: projectPolicy.allowedTools || [],
+        deniedTools: projectPolicy.deniedTools || [],
+        defaultMode: projectPolicy.defaultMode || 'default',
+      };
+      if (!settings.permissionMode && projectPolicy.defaultMode && projectPolicy.defaultMode !== 'default') {
+        settings.permissionMode = projectPolicy.defaultMode;
       }
     }
 
@@ -233,7 +252,7 @@ async function handleCreateSession(ws, relayClient, relayTransport, message, res
       directory,
       name: message.name || '',
       model: message.model || '',
-      settings: message.settings || null,
+      settings: Object.keys(settings).length > 0 ? settings : null,
       systemPrompt: message.systemPrompt || '',
       appendClaudeMd: message.appendClaudeMd || false,
       mcpToken,

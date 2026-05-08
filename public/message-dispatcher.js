@@ -92,6 +92,7 @@ class MessageDispatcher {
       terminal_list:        (d) => this.terminal.onTerminalList(d.terminals),
       terminal_templates:   (d) => this._handleTerminalTemplates(d),
       permission_request:   (d) => this.modalManager.showPermissionModal(d),
+      mode_changed:         (d) => this._applyPermissionMode(d.mode || 'default'),
       warning:              (d) => this.renderer.appendSystemMessage(d.message, 'warning'),
       task_started:         (d) => this.handleSchedulerTaskEvent(d),
       task_completed:       (d) => this.handleSchedulerTaskEvent(d),
@@ -683,11 +684,13 @@ class MessageDispatcher {
   }
 
   _handlePermissionModeEvent(event) {
-    // Claude CLI emits this whenever the session enters/leaves a non-default
-    // permission mode (bypassPermissions / acceptEdits / plan). We surface it
-    // as a banner so the user knows when they're in a privileged state.
-    const mode = event.permissionMode || 'default';
+    this._applyPermissionMode(event.permissionMode || 'default');
+  }
+
+  _applyPermissionMode(mode) {
     this.renderer.setPermissionModeBanner(mode);
+    const btn = document.getElementById('planModeBtn');
+    if (btn) btn.classList.toggle('active', mode === 'plan');
   }
 
   handleAssistantEvent(event) {
@@ -990,6 +993,9 @@ class MessageDispatcher {
 
     this.modalManager.showPlanApproval((approved) => {
       if (approved) {
+        // Switch the session out of plan mode so Claude can actually run
+        // edit tools. The mode_changed event will update the banner.
+        this.ws.send({ type: 'set_permission_mode', sessionId: this.state.currentSessionId, mode: 'default' });
         this.renderer.appendUserMessage('Yes, proceed with the plan.');
         this.markLocalSubmit(this.state.currentSessionId);
         this.ws.send({ type: 'user_input', text: 'Yes, proceed with the plan.', sessionId: this.state.currentSessionId });
