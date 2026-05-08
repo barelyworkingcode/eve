@@ -1128,6 +1128,11 @@ html, body {
   color: var(--text-primary);
 }
 
+#planModeBtn.active {
+  background: var(--accent, #6366f1);
+  color: #fff;
+}
+
 /* Voice controls pull-down drawer */
 .voice-drawer {
   display: flex;

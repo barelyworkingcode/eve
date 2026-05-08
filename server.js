@@ -130,6 +130,11 @@ function normalizeProject(p) {
       appendClaudeMd: !!t.append_claude_md,
       useRelayTools: !!t.use_relay_tools,
     })),
+    permissionPolicy: p.permission_policy ? {
+      defaultMode: p.permission_policy.default_mode || 'default',
+      allowedTools: p.permission_policy.allowed_tools || [],
+      deniedTools: p.permission_policy.denied_tools || [],
+    } : null,
     token: p.token || '',
     createdAt: p.created_at || '',
   };

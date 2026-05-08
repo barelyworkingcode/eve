@@ -28,7 +28,6 @@ class RelayClient {
     this.relayTransport = relayTransport;
     this.browserWs = browserWs;
     this.ws = null;
-    this.alwaysAllow = false;
     this.suppressNextJoin = false;
     this.sessionDirectory = null; // cached for slash command use
     this.currentSessionId = null;
@@ -77,17 +76,6 @@ class RelayClient {
   }
 
   _handleRelayMessage(msg) {
-    // Auto-respond to permission requests when alwaysAllow is set
-    if (msg.type === 'permission_request' && this.alwaysAllow) {
-      this._send({
-        type: 'permission_response',
-        permissionId: msg.permissionId,
-        approved: true,
-        reason: 'auto-allowed'
-      });
-      return;
-    }
-
     // When Eve creates a session via HTTP POST, it sends session_created to the
     // browser directly, then joins via relay WS. The relay responds with
     // session_joined which would duplicate the notification, so we suppress it.
@@ -130,10 +118,6 @@ class RelayClient {
     if (this.browserWs && this.browserWs.readyState === WebSocket.OPEN) {
       this.browserWs.send(JSON.stringify(msg));
     }
-  }
-
-  setAlwaysAllow(value) {
-    this.alwaysAllow = value;
   }
 
   setSuppressNextJoin(value) {
@@ -180,6 +164,10 @@ class RelayClient {
 
   sendPermissionResponse(permissionId, approved, reason) {
     this._send({ type: 'permission_response', permissionId, approved, reason });
+  }
+
+  setPermissionMode(sessionId, mode) {
+    this._send({ type: 'set_permission_mode', sessionId, mode });
   }
 
   setVoiceMode(enabled, voice) {
