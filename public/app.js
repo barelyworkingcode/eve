@@ -174,6 +174,7 @@ class EveWorkspaceClient {
       openSidebar: document.getElementById('openSidebar'),
       closeSidebar: document.getElementById('closeSidebar'),
       attachBtn: document.getElementById('attachBtn'),
+      planModeBtn: document.getElementById('planModeBtn'),
       fileInput: document.getElementById('fileInput'),
       attachedFiles: document.getElementById('attachedFiles'),
       costStat: document.getElementById('costStat'),
@@ -187,7 +188,6 @@ class EveWorkspaceClient {
       permissionToolName: document.getElementById('permissionToolName'),
       permissionToolInput: document.getElementById('permissionToolInput'),
       permissionAllow: document.getElementById('permissionAllow'),
-      permissionAlwaysAllow: document.getElementById('permissionAlwaysAllow'),
       permissionDeny: document.getElementById('permissionDeny'),
       planApprovalBar: document.getElementById('planApprovalBar'),
       planApprove: document.getElementById('planApprove'),
@@ -327,6 +327,22 @@ class EveWorkspaceClient {
       this.autoResizeTextarea();
     });
     this.elements.stopBtn.addEventListener('click', () => this.handleStop());
+
+    // Plan-mode toggle. The button's .active class reflects the server's
+    // current mode (set via the mode_changed event), so reading it gives the
+    // up-to-date state. relayLLM restarts Claude with --resume + the new
+    // --permission-mode flag.
+    if (this.elements.planModeBtn) {
+      this.elements.planModeBtn.addEventListener('click', () => {
+        if (!this.currentSessionId) return;
+        const next = this.elements.planModeBtn.classList.contains('active') ? 'default' : 'plan';
+        this.wsClient.send({
+          type: 'set_permission_mode',
+          sessionId: this.currentSessionId,
+          mode: next,
+        });
+      });
+    }
 
     // Voice mode toggle + voice selection
     if (this.elements.voiceModeBtn) {

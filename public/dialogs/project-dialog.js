@@ -17,6 +17,22 @@ class ProjectDialog extends DialogBase {
     this._selectedModels = new Set();
     this._editingTemplateIdx = -1; // -1 = not editing, >=0 = index
     this._editingShellTemplate = null; // null = not editing, object = editing/creating
+    this._policy = this._defaultPolicy();
+  }
+
+  _defaultPolicy() {
+    return { default_mode: 'default', allowed_tools: [], denied_tools: [] };
+  }
+
+  // Returns the policy in relay's snake_case wire format, or {} when there's
+  // nothing configured — relay treats an empty struct as "clear the policy".
+  _serializePolicy() {
+    const p = this._policy || {};
+    const out = {};
+    if (p.default_mode && p.default_mode !== 'default') out.default_mode = p.default_mode;
+    if (p.allowed_tools && p.allowed_tools.length > 0) out.allowed_tools = p.allowed_tools;
+    if (p.denied_tools && p.denied_tools.length > 0) out.denied_tools = p.denied_tools;
+    return out;
   }
 
   init() {
@@ -27,6 +43,15 @@ class ProjectDialog extends DialogBase {
 
       this._selectedMcpIds = new Set(this._project?.allowedMcpIds || []);
       this._selectedModels = new Set(this._project?.allowedModels || []);
+
+      const existing = this._project?.permissionPolicy;
+      this._policy = existing
+        ? {
+            default_mode: existing.defaultMode || existing.default_mode || 'default',
+            allowed_tools: [...(existing.allowedTools || existing.allowed_tools || [])],
+            denied_tools: [...(existing.deniedTools || existing.denied_tools || [])],
+          }
+        : this._defaultPolicy();
 
       this._editingTemplateIdx = -1;
       this._editingShellTemplate = null;
@@ -46,7 +71,11 @@ class ProjectDialog extends DialogBase {
     this._panel.appendChild(this._createTitleBar(title, badge));
 
     const { header } = this._createTabs(
-      [{ name: 'general', label: 'General' }, { name: 'templates', label: 'Templates' }],
+      [
+        { name: 'general', label: 'General' },
+        { name: 'templates', label: 'Templates' },
+        { name: 'permissions', label: 'Permissions' },
+      ],
       (tab) => this._showTab(tab)
     );
     this._panel.appendChild(header);
@@ -62,6 +91,8 @@ class ProjectDialog extends DialogBase {
     this._tabContent.innerHTML = '';
     if (tabName === 'general') {
       this._renderGeneralTab();
+    } else if (tabName === 'permissions') {
+      this._renderPermissionsTab();
     } else {
       this._renderTemplatesTab();
     }
@@ -211,6 +242,7 @@ class ProjectDialog extends DialogBase {
           append_claude_md: !!t.appendClaudeMd,
           use_relay_tools: !!t.useRelayTools,
         })),
+        permission_policy: this._serializePolicy(),
       };
       const project = this._projectId
         ? await this.api.updateProject(this._projectId, body)
@@ -230,6 +262,107 @@ class ProjectDialog extends DialogBase {
       errEl.textContent = 'Failed to save project. Please try again.';
       this._tabContent.prepend(errEl);
     }
+  }
+
+  // ─── Permissions Tab ───────────────────────────────────────
+
+  _renderPermissionsTab() {
+    const form = document.createElement('div');
+    form.className = 'project-dialog__form';
+
+    const intro = document.createElement('div');
+    intro.className = 'field-hint';
+    intro.textContent = 'Per-project Claude permission policy. Applied to every new session in this project.';
+    form.appendChild(intro);
+
+    // Default permission mode (radio)
+    const modeLabel = document.createElement('label');
+    modeLabel.className = 'dialog__label';
+    modeLabel.textContent = 'Default permission mode';
+    form.appendChild(modeLabel);
+
+    const modes = [
+      { value: 'default', label: 'Default — prompt for every tool' },
+      { value: 'acceptEdits', label: 'Accept edits — auto-approve file edits' },
+      { value: 'plan', label: 'Plan — research/plan only, no edits until approved' },
+      { value: 'bypassPermissions', label: 'Bypass — auto-approve everything (dangerous)' },
+    ];
+    const modeList = document.createElement('div');
+    modeList.className = 'project-dialog__checkbox-list';
+    const currentMode = this._policy.default_mode || 'default';
+    for (const m of modes) {
+      const radio = this._createRadio(modeList, 'projectPermissionMode', m.value, m.label, currentMode === m.value);
+      radio.addEventListener('change', () => {
+        if (radio.checked) this._policy.default_mode = m.value;
+      });
+    }
+    form.appendChild(modeList);
+
+    form.appendChild(this._renderToolList(
+      'Auto-allow tools',
+      'One pattern per line. Examples: Read, Grep, Glob, Bash:ls *',
+      this._policy.allowed_tools,
+      (lines) => { this._policy.allowed_tools = lines; },
+    ));
+
+    form.appendChild(this._renderToolList(
+      'Auto-deny tools',
+      'One pattern per line. Denies override allows.',
+      this._policy.denied_tools,
+      (lines) => { this._policy.denied_tools = lines; },
+    ));
+
+    // For existing projects, name/path live on the project record. For new
+    // projects we can only save once those are filled in on the General tab,
+    // so direct the user there.
+    if (this._projectId) {
+      const actions = document.createElement('div');
+      actions.className = 'dialog__actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'dialog__btn dialog__btn--secondary';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => this.hide());
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'dialog__btn dialog__btn--primary';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', () => {
+        this._saveProject(this._project.name, this._project.path);
+      });
+      actions.appendChild(cancelBtn);
+      actions.appendChild(saveBtn);
+      form.appendChild(actions);
+    } else {
+      const note = document.createElement('div');
+      note.className = 'field-hint';
+      note.textContent = 'Fill in name and path on the General tab, then click Create Project — these settings will be saved with it.';
+      form.appendChild(note);
+    }
+
+    this._tabContent.appendChild(form);
+  }
+
+  _renderToolList(label, hint, initialLines, onChange) {
+    const wrap = document.createElement('div');
+    const lbl = document.createElement('label');
+    lbl.className = 'dialog__label';
+    lbl.textContent = label;
+    wrap.appendChild(lbl);
+
+    const ta = document.createElement('textarea');
+    ta.className = 'dialog__input project-dialog__textarea';
+    ta.rows = 4;
+    ta.value = (initialLines || []).join('\n');
+    ta.addEventListener('input', () => {
+      const lines = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+      onChange(lines);
+    });
+    wrap.appendChild(ta);
+
+    const h = document.createElement('span');
+    h.className = 'field-hint';
+    h.textContent = hint;
+    wrap.appendChild(h);
+    return wrap;
   }
 
   // ─── Templates Tab ─────────────────────────────────────────

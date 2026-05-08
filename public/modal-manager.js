@@ -51,9 +51,6 @@ class ModalManager {
     if (el.permissionAllow) {
       el.permissionAllow.addEventListener('click', () => this.respondToPermission(true));
     }
-    if (el.permissionAlwaysAllow) {
-      el.permissionAlwaysAllow.addEventListener('click', () => this.respondToPermission(true, true));
-    }
     if (el.permissionDeny) {
       el.permissionDeny.addEventListener('click', () => this.respondToPermission(false));
     }
@@ -164,15 +161,13 @@ class ModalManager {
     this.pendingPermissionId = null;
   }
 
-  respondToPermission(approved, alwaysAllow = false) {
+  respondToPermission(approved) {
     if (!this.pendingPermissionId) return;
-    const msg = {
+    this.app.wsClient.send({
       type: 'permission_response',
       permissionId: this.pendingPermissionId,
       approved
-    };
-    if (alwaysAllow) msg.alwaysAllow = true;
-    this.app.wsClient.send(msg);
+    });
     this.hidePermissionModal();
 
     // Show next queued permission if any
