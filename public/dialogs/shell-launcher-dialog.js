@@ -97,21 +97,25 @@ class ShellLauncherDialog extends DialogBase {
       grid.appendChild(card);
     }
 
-    // Terminal templates (Claude Code, OpenCode, Shell, custom)
-    const templates = this.state.terminalTemplates.length > 0 ? this.state.terminalTemplates : [
-      { id: 'claude-code', name: 'Claude Code', description: 'Claude Code CLI agent', icon: 'claude-code' },
-      { id: 'opencode', name: 'OpenCode', description: 'OpenCode CLI agent', icon: 'terminal' },
-      { id: 'shell', name: 'Shell', description: 'Default system shell', icon: 'shell' },
-    ];
-
-    for (const tmpl of templates) {
-      grid.appendChild(this._createCard({
-        iconHtml: this._iconSVG(tmpl.icon || tmpl.id),
-        name: tmpl.name,
-        description: tmpl.description || '',
-        onClick: () => this._launchTerminal(tmpl.id),
-        testid: `shell-card-${tmpl.id}`,
-      }));
+    // Terminal templates come from relayLLM's config.json pty section, fetched
+    // once on connect. If the response hasn't landed yet, show a placeholder;
+    // EVT.TERMINAL_TEMPLATES_LOADED (init()) will re-render when it arrives.
+    const templates = this.state.terminalTemplates;
+    if (templates.length === 0) {
+      const loading = document.createElement('div');
+      loading.className = 'shell-launcher__empty';
+      loading.textContent = 'Loading terminal templates…';
+      grid.appendChild(loading);
+    } else {
+      for (const tmpl of templates) {
+        grid.appendChild(this._createCard({
+          iconHtml: this._iconSVG(tmpl.icon || tmpl.id),
+          name: tmpl.name,
+          description: tmpl.description || '',
+          onClick: () => this._launchTerminal(tmpl.id),
+          testid: `shell-card-${tmpl.id}`,
+        }));
+      }
     }
 
     grid.appendChild(this._createCard({
