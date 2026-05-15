@@ -3638,6 +3638,18 @@ html, body {
   background: var(--bg-hover);
 }
 
+/* "+ New Task" entry — visually distinct from real tasks so it reads as
+   an action affordance, not a row with empty fields. */
+.project-tree__task-item--new {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.project-tree__task-item--new:hover {
+  color: var(--text-primary);
+}
+
 .project-tree__task-name {
   flex: 1;
   overflow: hidden;
