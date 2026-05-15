@@ -1123,6 +1123,10 @@ html, body {
   flex-shrink: 0;
 }
 
+.btn-attach[hidden] {
+  display: none;
+}
+
 .btn-attach:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
