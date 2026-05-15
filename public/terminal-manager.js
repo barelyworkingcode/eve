@@ -246,22 +246,27 @@ class TerminalManager {
    */
   onTerminalJoined(data) {
     const terminalId = data.terminalId;
-    const terminal = this.terminals.get(terminalId);
+    let terminal = this.terminals.get(terminalId);
 
-    // If we haven't set up this terminal yet (reconnect case), set it up.
+    // Reconnect case: terminal isn't set up yet.
     if (!terminal) {
       this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped');
       this.app.bus.emit(EVT.TERMINAL_LIST);
+      terminal = this.terminals.get(terminalId);
+    }
+    if (!terminal) return;
+
+    // Match xterm's grid to the PTY before replaying scrollback so ANSI
+    // cursor positions in the captured bytes resolve against the right size.
+    if (Number.isInteger(data.cols) && data.cols > 0 &&
+        Number.isInteger(data.rows) && data.rows > 0) {
+      terminal.term.resize(data.cols, data.rows);
     }
 
-    // Write scrollback buffer.
     if (data.scrollback) {
-      const t = this.terminals.get(terminalId);
-      if (t) {
-        const bytes = this._decodeBase64(data.scrollback);
-        if (bytes.length > 0) {
-          t.term.write(new Uint8Array(bytes));
-        }
+      const bytes = this._decodeBase64(data.scrollback);
+      if (bytes.length > 0) {
+        terminal.term.write(new Uint8Array(bytes));
       }
     }
   }
@@ -381,7 +386,6 @@ class TerminalManager {
     this.terminalContainer.appendChild(containerDiv);
 
     term.open(containerDiv);
-    if (!exited) fitAddon.fit();
 
     this.terminals.set(terminalId, {
       term,
