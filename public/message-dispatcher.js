@@ -268,38 +268,48 @@ class MessageDispatcher {
     const task = this.state.getTask(data.taskId);
     if (!task) return;
 
-    const oldSessionId = task.lastSessionId;
+    const view = data.view;
+    // Snapshot the previous run ref before state mutates — needed for the
+    // "close old, open new" handoff on user-triggered runs.
+    const oldRef = task.view?.runId || null;
 
-    // Update task state via StateStore
-    const updates = {};
-    if (data.type === 'task_started') {
-      updates.lastStatus = 'running';
-      if (data.sessionId) updates.lastSessionId = data.sessionId;
-    } else if (data.type === 'task_completed') {
-      updates.lastStatus = data.status || 'success';
-      if (data.sessionId) updates.lastSessionId = data.sessionId;
-    } else if (data.type === 'task_error') {
-      updates.lastStatus = 'error';
-    }
-    this.state.updateTask(data.taskId, updates);
+    let lastStatus = null;
+    if (data.type === 'task_started') lastStatus = 'running';
+    else if (data.type === 'task_completed') lastStatus = data.status || 'success';
+    else if (data.type === 'task_error') lastStatus = data.status || 'error';
+    this.state.applyTaskViewUpdate(data.taskId, view, lastStatus ? { lastStatus } : {});
 
-    // Emit typed event for subscribers
     if (data.type === 'task_started') this.bus.emit(EVT.TASK_STARTED, data);
     else if (data.type === 'task_completed') this.bus.emit(EVT.TASK_COMPLETED, data);
     else if (data.type === 'task_error') this.bus.emit(EVT.TASK_ERROR, data);
 
-    // Task session replacement: close old, join new
-    if (data.type === 'task_started' && this.taskManager?.userTriggeredRuns.has(data.taskId) && data.sessionId) {
-      if (oldSessionId) {
-        this.tabManager.closeTab(oldSessionId);
-        this.state.removeSession(oldSessionId);
+    // User clicked Run → auto-open the new run, replacing any previous one.
+    if (data.type === 'task_started' && this.taskManager?.userTriggeredRuns.has(data.taskId) && view?.runId) {
+      if (oldRef && oldRef !== view.runId) {
+        if (view.kind === 'readonly') {
+          this.terminal?.closeTerminal(oldRef);
+        } else {
+          this.tabManager.closeTab(oldRef);
+          this.state.removeSession(oldRef);
+        }
       }
-      this.app.joinSession(data.sessionId);
+      if (view.kind === 'readonly') {
+        // Pre-register so a subsequent click-to-view hits WS attach rather
+        // than disk replay before terminal_list catches up.
+        const project = this.state.getProject(task.projectId);
+        this.terminal?.registerKnownTerminal({
+          id: view.runId,
+          templateId: task.templateId,
+          name: task.name,
+          directory: task.directory || project?.path || '',
+          state: 'running',
+        });
+      }
+      this.container?.get('taskViewer')?.openLiveRun(task, view);
     }
 
     if (data.type === 'task_completed' || data.type === 'task_error') {
       this.taskManager?.userTriggeredRuns.delete(data.taskId);
-      // Reload from server to get full updated task state
       this.taskManager?.loadTasks(data.projectId);
     }
   }
@@ -307,10 +317,7 @@ class MessageDispatcher {
   handleSchedulerTaskStatus(data) {
     if (!Array.isArray(data.running)) return;
     for (const item of data.running) {
-      this.state.updateTask(item.taskId, {
-        lastStatus: 'running',
-        ...(item.sessionId && { lastSessionId: item.sessionId }),
-      });
+      this.state.applyTaskViewUpdate(item.taskId, item.view, { lastStatus: 'running' });
     }
   }
 

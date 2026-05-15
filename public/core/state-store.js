@@ -9,7 +9,11 @@ class StateStore {
     this.sessionHistories = new Map();
     this.projects = new Map();
     this.tasks = new Map();
-    this.taskSessionIds = new Set();
+    // Run IDs (chat sessionId OR PTY terminalId) owned by a scheduled task.
+    // Used to filter task-owned tabs out of the user-sessions list — the
+    // task already appears under TASKS. Single Set because TaskView IDs
+    // share a namespace (both UUIDs from distinct services, never collide).
+    this.taskRunIds = new Set();
     this.models = [];
     this.mcps = [];
     this.terminalTemplates = [];
@@ -103,25 +107,37 @@ class StateStore {
 
   setTasks(tasks) {
     this.tasks.clear();
-    this.taskSessionIds.clear();
+    this.taskRunIds.clear();
     for (const t of tasks) {
       this.tasks.set(t.id, t);
-      if (t.lastSessionId) this.taskSessionIds.add(t.lastSessionId);
+      if (t.view?.runId) this.taskRunIds.add(t.view.runId);
     }
     this.bus.emit(EVT.TASKS_LOADED);
   }
 
   addTask(task) {
     this.tasks.set(task.id, task);
-    if (task.lastSessionId) this.taskSessionIds.add(task.lastSessionId);
+    if (task.view?.runId) this.taskRunIds.add(task.view.runId);
     this.bus.emit(EVT.TASKS_LOADED);
   }
 
   updateTask(id, updates) {
     const task = this.tasks.get(id);
     if (!task) return;
-    Object.assign(task, updates);
-    if (updates.lastSessionId) this.taskSessionIds.add(updates.lastSessionId);
+    // Skip the emit if nothing actually changed — scheduler status polls
+    // fire task_status broadcasts every 30s with the same payload, which
+    // otherwise cascades into a full Tasks-tab re-render in any open task
+    // dialog. Shallow compare; view is replaced as a whole object so a
+    // reference compare is correct for the new envelope.
+    let changed = false;
+    for (const k in updates) {
+      if (task[k] !== updates[k]) {
+        task[k] = updates[k];
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    if (updates.view?.runId) this.taskRunIds.add(updates.view.runId);
     this.bus.emit(EVT.TASK_UPDATED, { taskId: id });
   }
 
@@ -142,8 +158,23 @@ class StateStore {
     return result;
   }
 
-  isTaskSession(sessionId) {
-    return this.taskSessionIds.has(sessionId);
+  /** True if the given chat sessionId or PTY terminalId belongs to a task. */
+  isTaskRun(runId) {
+    return this.taskRunIds.has(runId);
+  }
+
+  /**
+   * Apply a TaskView envelope from a scheduler broadcast — replaces the
+   * task's view object so all readers (sidebar, dialog, TaskViewer) see the
+   * new run on next read. Extras carry event-specific fields like
+   * lastStatus.
+   */
+  applyTaskViewUpdate(taskId, view, extraUpdates = {}) {
+    const updates = { ...extraUpdates };
+    if (view) {
+      updates.view = { ...view, hasLastRun: !!view.runId };
+    }
+    this.updateTask(taskId, updates);
   }
 
   // --- Terminal Templates ---

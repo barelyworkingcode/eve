@@ -89,6 +89,11 @@ class EveWorkspaceClient {
 
     this.terminalManager = new TerminalManager(this.container);
     this.container.register('terminalManager', this.terminalManager);
+    // TaskViewer must be registered AFTER terminalManager and the DI app
+    // entry — it dispatches into both. It's intentionally tiny: a single
+    // dispatch table keyed by view.kind.
+    this.taskViewer = new TaskViewer(this.container);
+    this.container.register('taskViewer', this.taskViewer);
     this.fileAttachmentManager = new FileAttachmentManager(this.container);
     this.container.register('fileAttachmentManager', this.fileAttachmentManager);
     this.inputHistory = new InputHistory('eve-input-history', 100);
