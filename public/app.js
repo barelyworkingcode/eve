@@ -144,7 +144,11 @@ class EveWorkspaceClient {
   get providerSettings() { return this.state.providerSettings; }
   set providerSettings(value) { this.state.providerSettings = value; }
   get currentSessionId() { return this.state.currentSessionId; }
-  set currentSessionId(id) { this.state.currentSessionId = id; }
+  set currentSessionId(id) {
+    this.state.currentSessionId = id;
+    const session = id ? this.sessions.get(id) : null;
+    this._updateChatInputCapabilities(session?.model);
+  }
   get isRenderingHistory() { return this.messageRenderer?.isRenderingHistory ?? false; }
   set isRenderingHistory(value) { if (this.messageRenderer) this.messageRenderer.isRenderingHistory = value; }
 
@@ -256,6 +260,18 @@ class EveWorkspaceClient {
     this.bus.on(EVT.PROJECTS_LOADED, () => {
       this.sidebarRenderer.renderProjectList();
       this.updateProjectSelect();
+    });
+
+    // Re-evaluate chat-input icon gating whenever data that feeds the
+    // lookup changes — handles late session.model arrival via WS join and
+    // late model catalog load.
+    this.bus.on(EVT.MODELS_LOADED, () => {
+      this._updateChatInputCapabilities(this._activeModelValue());
+    });
+    this.bus.on(EVT.SESSION_UPDATED, ({ sessionId }) => {
+      if (sessionId === this.currentSessionId) {
+        this._updateChatInputCapabilities(this._activeModelValue());
+      }
     });
 
     this.bus.on(EVT.PROJECT_RENAMED, ({ projectId }) => {
@@ -433,6 +449,9 @@ class EveWorkspaceClient {
     // Model select — render provider-specific settings
     this.elements.sessionModelSelect.addEventListener('change', () => {
       this.renderProviderSettings();
+      if (!this.currentSessionId) {
+        this._updateChatInputCapabilities(this.elements.sessionModelSelect.value);
+      }
     });
 
     // Task form
@@ -730,6 +749,17 @@ class EveWorkspaceClient {
     } catch (err) {
       this.log.error('Failed to load models:', err);
     }
+  }
+
+  _activeModelValue() {
+    const session = this.currentSessionId ? this.sessions.get(this.currentSessionId) : null;
+    return session?.model || this.elements.sessionModelSelect?.value || null;
+  }
+
+  _updateChatInputCapabilities(modelValue) {
+    const model = modelValue ? this.models.find(m => m.value === modelValue) : null;
+    if (this.elements.attachBtn) this.elements.attachBtn.hidden = !(model?.supportsAttachments);
+    if (this.elements.planModeBtn) this.elements.planModeBtn.hidden = !(model?.supportsPermissions);
   }
 
   async loadMcps() {
