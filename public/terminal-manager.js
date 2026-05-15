@@ -427,6 +427,94 @@ class TerminalManager {
   }
 
   /**
+   * Note a terminal that exists in relayLLM but isn't (yet) in our
+   * allTerminals map. Used by the dispatcher when a scheduled PTY task
+   * fires — we learn about the new terminalId via the task_started
+   * broadcast before the next terminal_list arrives, and openTaskTerminal
+   * needs to know the session is alive so it picks WS attach over the
+   * disk-log fallback.
+   */
+  registerKnownTerminal(meta) {
+    if (!meta?.id) return;
+    if (!this.allTerminals.has(meta.id)) {
+      this.allTerminals.set(meta.id, {
+        id: meta.id,
+        templateId: meta.templateId || '',
+        name: meta.name || '',
+        directory: meta.directory || '',
+        state: meta.state || 'running',
+      });
+    }
+  }
+
+  /**
+   * Open a task's terminal output. The right entry point for TaskViewer's
+   * "readonly" renderer — picks live WS attach when relayLLM still has the
+   * session in memory, falls back to a disk-log replay otherwise. Either
+   * way the user lands in an xterm tab.
+   */
+  openTaskTerminal(terminalId, opts = {}) {
+    // Already attached in this Eve instance.
+    if (this.terminals.has(terminalId)) {
+      this.showTerminal(terminalId);
+      return;
+    }
+    // Known to relayLLM (running or recently stopped, still resident).
+    // reconnectTerminal sends a WS terminal_reconnect which streams
+    // scrollback + any continued output.
+    const meta = this.allTerminals.get(terminalId);
+    if (meta) {
+      this.reconnectTerminal(
+        terminalId,
+        meta.templateId || opts.templateId || '',
+        meta.name || opts.name || 'Terminal',
+        meta.directory || opts.directory || '',
+        meta.state === 'stopped',
+      );
+      this.showTerminal(terminalId);
+      return;
+    }
+    // Session has been evicted from memory (idle timeout or relayLLM
+    // restart). Replay the on-disk byte stream instead.
+    this.viewReadOnly(terminalId, opts);
+  }
+
+  /**
+   * Open a read-only terminal tab and replay a completed (or live) PTY's
+   * captured byte stream via the on-disk log file. Used by "View Last Run"
+   * on scheduled PTY tasks. The fetched bytes pass through xterm.js so
+   * ANSI escape codes (colors, cursor moves) render the same as they did
+   * during the original run.
+   */
+  async viewReadOnly(terminalId, opts = {}) {
+    // If we're already attached to this terminal in this tab, just focus.
+    if (this.terminals.has(terminalId)) {
+      this.showTerminal(terminalId);
+      return;
+    }
+
+    const meta = this.allTerminals.get(terminalId) || {};
+    const label = opts.name || meta.name || 'Past Run';
+    this.setupTerminal(terminalId, meta.templateId || '', label, meta.directory || opts.directory || '', true);
+    this.showTerminal(terminalId);
+
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal) return;
+
+    try {
+      const bytes = await this.app.api.getTerminalLog(terminalId);
+      // Chunk writes to keep xterm responsive on large logs (~1MB cap).
+      const chunkSize = 64 * 1024;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        terminal.term.write(bytes.subarray(i, Math.min(i + chunkSize, bytes.length)));
+      }
+    } catch (err) {
+      this.log.warn('view-only: failed to fetch terminal log', err);
+      terminal.term.write(`\r\n\x1b[31m[Failed to load log: ${err.message}]\x1b[0m\r\n`);
+    }
+  }
+
+  /**
    * Encode a string to base64 (handles unicode properly).
    */
   _encodeBase64(str) {

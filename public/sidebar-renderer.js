@@ -60,7 +60,7 @@ class SidebarRenderer {
     const projectSessions = new Map();
     const ungroupedSessions = [];
     for (const [id, session] of this.app.sessions) {
-      if (this.app.state.isTaskSession(id)) continue;
+      if (this.app.state.isTaskRun(id)) continue;
       if (session.projectId && this.app.projects.has(session.projectId)) {
         if (!projectSessions.has(session.projectId)) {
           projectSessions.set(session.projectId, []);
@@ -242,8 +242,11 @@ class SidebarRenderer {
 
     li.addEventListener('click', (e) => {
       if (e.target.closest('.task-edit') || e.target.closest('.task-run') || e.target.closest('.session-delete')) return;
-      if (!task.lastSessionId) return;
-      this.app.joinSession(task.lastSessionId);
+      // Single dispatch through TaskViewer — same path as the tree-item
+      // sidebar and the task dialog.
+      const taskViewer = this.app.container.get('taskViewer');
+      if (!taskViewer.hasLastRun(task)) return;
+      taskViewer.openLastRun(task);
     });
 
     li.querySelector('.task-edit').addEventListener('click', (e) => {

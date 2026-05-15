@@ -130,10 +130,11 @@ class ProjectTreeItem {
     }
     if (key === 'sessions') {
       const sessionCount = this.state.getSessionsForProject(this.projectId)
-        .filter(s => !this.state.isTaskSession(s.id)).length;
+        .filter(s => !this.state.isTaskRun(s.id)).length;
       const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
       const project = this.state.getProject(this.projectId);
-      const terminalCount = termMgr?.getTerminalsForPath(project?.path)?.length || 0;
+      const terminalCount = (termMgr?.getTerminalsForPath(project?.path) || [])
+        .filter(t => !this.state.isTaskRun(t.id)).length;
       return sessionCount + terminalCount;
     }
     return null; // files — no count
@@ -147,18 +148,18 @@ class ProjectTreeItem {
   }
 
   _renderTaskItems(container, tasks) {
-    if (tasks.length === 0) {
-      this._renderEmpty(container, 'No tasks');
-      return;
-    }
+    const taskViewer = this.container.get('taskViewer');
 
     for (const task of tasks) {
-      const lastSessionId = task.lastSessionId || task.lastResult?.sessionId;
+      // TaskViewer is the single point that knows interactive-vs-readonly.
+      // The sidebar only asks "do you have something to show, and please
+      // show it on click."
+      const hasLastRun = taskViewer.hasLastRun(task);
 
       const item = document.createElement('div');
       item.className = 'project-tree__task-item';
       item.dataset.testid = `sidebar-task-${task.id}`;
-      if (lastSessionId) item.style.cursor = 'pointer';
+      if (hasLastRun) item.style.cursor = 'pointer';
 
       const nameEl = document.createElement('span');
       nameEl.className = 'project-tree__task-name';
@@ -194,17 +195,34 @@ class ProjectTreeItem {
       });
       actions.appendChild(editBtn);
 
-      // Click task row → view last run
+      // Click task row → open whatever the task says its last run is.
       item.addEventListener('click', () => {
-        if (lastSessionId) {
-          this.container.get('app').joinSession(lastSessionId);
-          this._closeSidebarOnMobile();
-        }
+        if (!hasLastRun) return;
+        taskViewer.openLastRun(task);
+        this._closeSidebarOnMobile();
       });
 
       item.appendChild(actions);
       container.appendChild(item);
     }
+
+    // Always offer a "+ New Task" entry at the end. The Tasks icon in the
+    // project header opens the same dialog, but it's non-obvious — adding
+    // an in-list affordance means an empty project has a visible path to
+    // create the first task.
+    const newItem = document.createElement('div');
+    newItem.className = 'project-tree__task-item project-tree__task-item--new';
+    newItem.dataset.testid = `sidebar-task-new-${this.projectId}`;
+    const label = document.createElement('span');
+    label.className = 'project-tree__task-name';
+    label.textContent = '+ New Task';
+    newItem.appendChild(label);
+    newItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId });
+      this._closeSidebarOnMobile();
+    });
+    container.appendChild(newItem);
   }
 
   async _runTask(task) {
@@ -235,10 +253,11 @@ class ProjectTreeItem {
 
   _renderSessionsContent(container) {
     const sessions = this.state.getSessionsForProject(this.projectId)
-      .filter(s => !this.state.isTaskSession(s.id));
+      .filter(s => !this.state.isTaskRun(s.id));
     const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
     const project = this.state.getProject(this.projectId);
-    const terminals = termMgr?.getTerminalsForPath(project?.path) || [];
+    const terminals = (termMgr?.getTerminalsForPath(project?.path) || [])
+      .filter(t => !this.state.isTaskRun(t.id));
 
     if (sessions.length === 0 && terminals.length === 0) {
       this._renderEmpty(container, 'No sessions');

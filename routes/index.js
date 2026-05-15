@@ -178,6 +178,30 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     proxy(req, res, 'DELETE', `/api/terminal/templates/${req.params.id}`);
   });
 
+  // --- Terminal logs (proxy binary from relayLLM) ---
+  // The PTY's raw byte stream — used by TaskViewer's readonly renderer to
+  // replay completed scheduled-task output. Response is application/octet-
+  // stream and may contain arbitrary bytes (ANSI escapes, non-UTF8) so we
+  // go through fetchRaw instead of the JSON-only proxy() helper. The IDs
+  // are validated server-side (relayLLM rejects non-UUID-shaped paths) so
+  // path traversal isn't a concern here, but we still encodeURIComponent
+  // to keep the URL well-formed.
+  app.get('/api/terminals/:id/log', requireAuth, async (req, res) => {
+    try {
+      const { status, data, headers } = await relayTransport.fetchRaw('GET',
+        `/api/terminals/${encodeURIComponent(req.params.id)}/log`);
+      if (status !== 200) {
+        return res.status(status).json({ error: 'Terminal log not found' });
+      }
+      res.set('Content-Type', headers['content-type'] || 'application/octet-stream');
+      res.set('Cache-Control', 'no-store');
+      res.send(data);
+    } catch (err) {
+      routeLog.error(`GET /api/terminals/${req.params.id}/log failed:`, err.message);
+      res.status(502).json({ error: 'Terminal log unavailable' });
+    }
+  });
+
   // --- TTS voices (cached, refreshes every 5 min) ---
   let voiceCache = null;
   let voiceCacheTime = 0;

@@ -60,4 +60,20 @@ class ApiClient {
   createTerminalTemplate(data) { return this._request('POST', '/api/terminal/templates', data); }
   updateTerminalTemplate(id, data) { return this._request('PUT', `/api/terminal/templates/${id}`, data); }
   deleteTerminalTemplate(id) { return this._request('DELETE', `/api/terminal/templates/${id}`); }
+
+  // Terminal scrollback (raw PTY bytes from disk; used to replay completed
+  // scheduled tasks in a read-only xterm). Returns a Uint8Array because the
+  // payload is binary — ANSI escape codes, possibly invalid UTF-8.
+  async getTerminalLog(terminalId) {
+    const response = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/log`, {
+      method: 'GET',
+      headers: this._headers(false),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    const buf = await response.arrayBuffer();
+    return new Uint8Array(buf);
+  }
 }
