@@ -226,11 +226,10 @@ class MessageRenderer {
     this.hideThinkingIndicator();
     this.finishAssistantMessage();
 
-    // Defense: an empty/undefined name would render literally as
-    // "Running undefined..." in the thinking indicator. The server-side
-    // contract is to always send a name, but if it fails to, fall back to
-    // a generic label rather than expose the bug to the user.
-    const displayName = (typeof toolName === 'string' && toolName.length > 0) ? toolName : 'tool';
+    // Server contract says tool_use blocks always carry a name; omitempty
+    // drops empty strings on the wire and Eve would otherwise interpolate
+    // `undefined`. Fall back to a generic label.
+    const displayName = toolName || 'tool';
 
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant';
