@@ -447,18 +447,14 @@ class MessageRenderer {
       if (msg.role === 'user') {
         this.appendUserMessage(msg.content, msg.files || []);
       } else if (msg.role === 'assistant') {
+        // v2: tool calls live inside content as tool_use blocks; there is no
+        // separate toolCalls field. _renderAssistantBlocks renders all block
+        // types (text, thinking, tool_use, agent_transcript).
         if (typeof msg.content === 'string') {
           this.startAssistantMessage(msg.content);
           this.finishAssistantMessage();
         } else if (Array.isArray(msg.content)) {
           this._renderAssistantBlocks(msg.content);
-        }
-        // OpenAI/Ollama models store tool calls separately from content
-        if (Array.isArray(msg.toolCalls)) {
-          for (const tc of msg.toolCalls) {
-            this.appendToolUse(tc.name || tc.Name, tc.arguments || tc.Arguments);
-            this.markToolComplete();
-          }
         }
       } else if (msg.role === 'tool') {
         // Pair the tool result back to its tool_use block (if rendered) and

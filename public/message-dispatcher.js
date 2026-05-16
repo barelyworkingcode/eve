@@ -2,6 +2,12 @@
  * MessageDispatcher - handles server message routing and LLM event processing.
  * Extracted from EveWorkspaceClient to separate message dispatch from orchestration.
  */
+
+// Protocol version this client speaks. Bumped in lockstep with relayLLM's
+// docs/event-protocol.md. Every canonical llm_event payload carries a v field;
+// _checkEventVersion refuses to render anything else.
+const EVENT_PROTOCOL_VERSION = 2;
+
 class MessageDispatcher {
   /**
    * @param {Container} container - DI container.
@@ -168,7 +174,26 @@ class MessageDispatcher {
 
   _handleLlmEventMessage(data) {
     this._trackStreaming(data.sessionId);
+    if (!this._checkEventVersion(data.event)) return;
     this.handleLlmEvent(data.event);
+  }
+
+  // Returns true if the event is safe to render. Surfaces a single in-UI
+  // banner on first mismatch and drops subsequent events silently — repeated
+  // banners on every event would be unusable.
+  _checkEventVersion(event) {
+    if (!event || typeof event !== 'object') return false;
+    if (event.v === EVENT_PROTOCOL_VERSION) return true;
+    // Don't spam the UI for every event; surface a single banner per session
+    // and drop the rest until reconnect.
+    if (!this._versionMismatchSurfaced) {
+      this._versionMismatchSurfaced = true;
+      const got = event.v === undefined ? '(missing)' : event.v;
+      const msg = `Server is emitting protocol v${got}; this client expects v${EVENT_PROTOCOL_VERSION}. Refusing to render until versions match.`;
+      console.error('[message-dispatcher] protocol version mismatch', { expected: EVENT_PROTOCOL_VERSION, got, event });
+      this.renderer.appendSystemMessage(msg, 'error');
+    }
+    return false;
   }
 
   _handleProcessExited(data) {
@@ -386,11 +411,7 @@ class MessageDispatcher {
           // Skip — partial JSON for tool args; the tool_use block already
           // exists and the final input arrives via content_block_stop.
         } else if (event.content_block?.type === 'text') {
-          // Strict canonical: text without inline content is a bare start;
-          // Claude CLI legacy: text inline. Either way, append if text present.
-          if (event.content_block.text) {
-            this._appendBufText(buf, event.content_block.text);
-          }
+          // Bare start; content arrives via text_delta.
         } else if (event.content_block?.type === 'thinking') {
           this._appendBufText(buf, '<think>\n');
           buf._thinkingOpen = true;
@@ -400,28 +421,17 @@ class MessageDispatcher {
             this._appendBufText(buf, '\n</think>\n\n');
             buf._thinkingOpen = false;
           }
-          buf.contentBlocks.push({ type: 'tool_use', name: event.content_block.name, input: event.content_block.input || {} });
-        } else if (event.content_block?.type === 'tool_use_input') {
-          // Claude CLI legacy: skip silently — the next tool_use block carries the resolved input.
+          buf.contentBlocks.push({ type: 'tool_use', id: event.content_block.id, name: event.content_block.name, input: event.content_block.input || {} });
         }
       } else if (event.type === 'result' && event.subtype === 'tool_result') {
-        // Pair by tool_use_id when available; fall back to last tool_use block.
         const id = event.tool_use_id;
-        let target = null;
-        if (id) {
-          for (let i = buf.contentBlocks.length - 1; i >= 0; i--) {
-            if (buf.contentBlocks[i].type === 'tool_use' && buf.contentBlocks[i].id === id) {
-              target = buf.contentBlocks[i];
-              break;
-            }
+        if (!id) return;
+        for (let i = buf.contentBlocks.length - 1; i >= 0; i--) {
+          if (buf.contentBlocks[i].type === 'tool_use' && buf.contentBlocks[i].id === id) {
+            buf.contentBlocks[i].completed = true;
+            break;
           }
         }
-        if (!target) {
-          for (let i = buf.contentBlocks.length - 1; i >= 0; i--) {
-            if (buf.contentBlocks[i].type === 'tool_use') { target = buf.contentBlocks[i]; break; }
-          }
-        }
-        if (target) target.completed = true;
       }
       return;
     }
@@ -520,6 +530,16 @@ class MessageDispatcher {
   }
 
   handleSessionJoined(data) {
+    // Server announces its protocol version in protocolVersion. If we
+    // disagree on majors, refuse to render — the per-event v gate would
+    // catch it on first llm_event, but surfacing on join is better UX.
+    const serverMajor = parseInt(data.protocolVersion, 10);
+    if (Number.isFinite(serverMajor) && serverMajor !== EVENT_PROTOCOL_VERSION) {
+      this._versionMismatchSurfaced = true;
+      const msg = `Server is on protocol v${data.protocolVersion}; this client expects v${EVENT_PROTOCOL_VERSION}. Refusing to render until versions match.`;
+      console.error('[message-dispatcher] protocol version mismatch on session_joined', { expected: EVENT_PROTOCOL_VERSION, got: data.protocolVersion });
+      this.renderer.appendSystemMessage(msg, 'error');
+    }
     this.state.currentSessionId = data.sessionId;
 
     // Restore sessionType from localStorage if not provided by server
@@ -840,12 +860,8 @@ class MessageDispatcher {
     const renderer = this._activeRenderer();
 
     if (cb.type === 'text') {
-      // Strict canonical: bare start (no .text) — block is implicitly opened
-      // by the next text_delta. Claude CLI legacy form: text inline on the
-      // start event — render it directly.
-      if (cb.text) {
-        renderer.updateAssistantMessage(cb.text);
-      }
+      // Bare start; content arrives via text_delta. The renderer opens the
+      // block implicitly on the first delta.
     } else if (cb.type === 'thinking') {
       // Reuse the existing <think>...</think> renderer by wrapping the block
       // in tags. The renderer parses these into foldable thinking sections.
@@ -871,10 +887,6 @@ class MessageDispatcher {
         const top = this._sidechainStack[this._sidechainStack.length - 1];
         if (top) top.toolCount++;
       }
-    } else if (cb.type === 'tool_use_input') {
-      // Claude CLI legacy form: streaming tool args carried as a content_block
-      // rather than as input_json_delta deltas. Forward to the same handler.
-      this._handleStreamingToolInput(cb.input);
     }
   }
 
@@ -958,14 +970,11 @@ class MessageDispatcher {
     } else if (event.subtype === 'tool_progress') {
       this._activeRenderer().updateToolProgress(event.tool_name, event.message);
     } else if (event.subtype === 'tool_result') {
-      // Chat-base path also closes sidechains via canonical result events.
       if (this._maybeCloseSidechain(event.tool_use_id, event.content)) return;
       const renderer = this._activeRenderer();
       if (event.content) renderer.appendToolResult(event.content, event.tool_use_id);
       if (event.tool_use_id) {
         renderer.markToolCompleteById(event.tool_use_id);
-      } else {
-        renderer.markToolComplete();
       }
     }
   }
