@@ -226,6 +226,12 @@ class MessageRenderer {
     this.hideThinkingIndicator();
     this.finishAssistantMessage();
 
+    // Defense: an empty/undefined name would render literally as
+    // "Running undefined..." in the thinking indicator. The server-side
+    // contract is to always send a name, but if it fails to, fall back to
+    // a generic label rather than expose the bug to the user.
+    const displayName = (typeof toolName === 'string' && toolName.length > 0) ? toolName : 'tool';
+
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant';
     messageEl.dataset.testid = 'message-tool-use';
@@ -237,7 +243,7 @@ class MessageRenderer {
         <details class="tool-block tool-active">
           <summary>
             <div class="tool-spinner"></div>
-            <span class="tool-name">${this.escapeHtml(toolName)}</span>
+            <span class="tool-name">${this.escapeHtml(displayName)}</span>
           </summary>
           ${inputDetail ? `<div class="tool-detail"><pre>${this.escapeHtml(inputDetail)}</pre></div>` : ''}
         </details>
@@ -248,7 +254,7 @@ class MessageRenderer {
     if (toolUseId) {
       this.currentToolBlock.dataset.toolUseId = toolUseId;
     }
-    this.updateThinkingIndicator(`Running ${toolName}...`);
+    this.updateThinkingIndicator(`Running ${displayName}...`);
     this.scrollToBottom();
   }
 
