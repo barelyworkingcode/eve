@@ -4,6 +4,7 @@ const { createServer } = require('http');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
+const { parse: parseJsonc } = require('jsonc-parser');
 const AuthService = require('./auth');
 const FileHandlers = require('./file-handlers');
 const registerRoutes = require('./routes/index');
@@ -72,10 +73,14 @@ let settings = {
 };
 
 function loadSettings() {
+  // parseJsonc tolerates // and /* */ comments so users can toggle blocks
+  // by commenting them out. Comments don't survive writes — saving the file
+  // re-serializes via JSON.stringify. Unlike JSON.parse, parseJsonc returns
+  // undefined (not a throw) on unparseable input, so guard data with `?.`.
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-      if (data.providerConfig?.claude) {
+      const data = parseJsonc(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+      if (data?.providerConfig?.claude) {
         settings.providerConfig.claude = {
           ...settings.providerConfig.claude,
           ...data.providerConfig.claude
