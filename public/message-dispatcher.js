@@ -575,7 +575,7 @@ class MessageDispatcher {
     }
 
     if (data.headless) {
-      this.state.taskSessionIds.add(data.sessionId);
+      this.state.taskRunIds.add(data.sessionId);
     }
 
     const serverHistory = (data.history && data.history.length > 0) ? data.history : [];
