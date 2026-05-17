@@ -21,6 +21,7 @@
     "dompurify": "^3.2.0",
     "espeak-ng": "^1.0.2",
     "express": "^4.18.2",
+    "jsonc-parser": "^3.3.1",
     "marked": "^15.0.0",
     "mermaid": "^11.13.0",
     "monaco-editor": "^0.45.0",
