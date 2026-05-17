@@ -112,6 +112,15 @@ class FileEditor {
     return /\.md$/i.test(this.currentFile.path);
   }
 
+  isHtmlFile() {
+    if (!this.currentFile) return false;
+    return /\.html?$/i.test(this.currentFile.path);
+  }
+
+  isPreviewableFile() {
+    return this.isMarkdownFile() || this.isHtmlFile();
+  }
+
   setViewMode(mode) {
     this.viewMode = mode;
     this.editorContentEl.setAttribute('data-view-mode', mode);
@@ -140,11 +149,46 @@ class FileEditor {
 
   updatePreview() {
     if (!this.currentFile || !this.editor) return;
-    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return;
 
     const content = this.editor.getValue();
+
+    if (this.isHtmlFile()) {
+      this.renderHtmlPreview(content);
+      return;
+    }
+
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return;
+
+    this._teardownHtmlPreview();
     this.markdownPreview.innerHTML = DOMPurify.sanitize(marked.parse(content));
     this.app.messageRenderer.renderMermaidBlocks(this.markdownPreview);
+  }
+
+  renderHtmlPreview(content) {
+    if (!this._htmlPreviewIframe) {
+      this.markdownPreview.classList.add('markdown-preview--html');
+      this.markdownPreview.innerHTML = '';
+
+      const iframe = document.createElement('iframe');
+      // No allow-same-origin → unique opaque origin; iframe cannot reach Eve's
+      // DOM, cookies, or session token even if the user's HTML tries.
+      iframe.setAttribute('sandbox', 'allow-scripts');
+      this.markdownPreview.appendChild(iframe);
+      this._htmlPreviewIframe = iframe;
+    }
+
+    // Skip srcdoc reassignment when unchanged: browsers treat it as a navigation
+    // and would reload the iframe, discarding scroll position and any timers.
+    if (this._htmlPreviewIframe.srcdoc !== content) {
+      this._htmlPreviewIframe.srcdoc = content;
+    }
+  }
+
+  _teardownHtmlPreview() {
+    if (!this._htmlPreviewIframe) return;
+    this.markdownPreview.classList.remove('markdown-preview--html');
+    this._htmlPreviewIframe = null;
+    // innerHTML is overwritten by the caller (markdown render)
   }
 
   loadMonaco() {
@@ -206,8 +250,8 @@ class FileEditor {
           isModified
         );
 
-        // Debounced markdown preview update
-        if (this.isMarkdownFile() && this.viewMode !== 'edit') {
+        // Debounced preview update (markdown and HTML)
+        if (this.isPreviewableFile() && this.viewMode !== 'edit') {
           clearTimeout(this._previewDebounce);
           this._previewDebounce = setTimeout(() => this.updatePreview(), 150);
         }
@@ -275,7 +319,7 @@ class FileEditor {
     this.saveBtn.classList.toggle('hidden', isPlan);
 
     // Configure view mode based on file type
-    if (this.isMarkdownFile()) {
+    if (this.isPreviewableFile()) {
       this.viewModeToggle.classList.remove('hidden');
       this.setViewMode(isPlan ? 'preview' : this.viewMode);
     } else {
