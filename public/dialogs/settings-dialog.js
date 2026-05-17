@@ -54,17 +54,20 @@ class SettingsDialog extends DialogBase {
     presetsContent.className = 'dialog__tab-content hidden';
     const voiceContent = document.createElement('div');
     voiceContent.className = 'dialog__tab-content hidden';
+    const filesContent = document.createElement('div');
+    filesContent.className = 'dialog__tab-content hidden';
 
-    const tabs = [colorsContent, typographyContent, presetsContent, voiceContent];
+    const tabs = [colorsContent, typographyContent, presetsContent, voiceContent, filesContent];
     const { header } = this._createTabs(
       [
         { name: 'colors', label: 'Colors' },
         { name: 'typography', label: 'Typography' },
         { name: 'presets', label: 'Presets' },
         { name: 'voice', label: 'Voice' },
+        { name: 'files', label: 'Files' },
       ],
       (tab) => {
-        const map = { colors: 0, typography: 1, presets: 2, voice: 3 };
+        const map = { colors: 0, typography: 1, presets: 2, voice: 3, files: 4 };
         tabs.forEach((t, i) => t.classList.toggle('hidden', i !== map[tab]));
       }
     );
@@ -75,11 +78,13 @@ class SettingsDialog extends DialogBase {
     this._buildTypographyTab(typographyContent);
     this._buildPresetsTab(presetsContent);
     this._buildVoiceTab(voiceContent);
+    this._buildFilesTab(filesContent);
 
     this._panel.appendChild(colorsContent);
     this._panel.appendChild(typographyContent);
     this._panel.appendChild(presetsContent);
     this._panel.appendChild(voiceContent);
+    this._panel.appendChild(filesContent);
 
     // Footer with reset
     const footer = document.createElement('div');
@@ -329,6 +334,30 @@ class SettingsDialog extends DialogBase {
     sttTagHint.className = 'field-hint';
     sttTagHint.textContent = 'Prepended to every voice-dictated message. Clear to disable.';
     container.appendChild(sttTagHint);
+  }
+
+  _buildFilesTab(container) {
+    const row = document.createElement('label');
+    row.className = 'dialog__checkbox-row';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = this.settings.get('showHiddenFiles');
+    checkbox.addEventListener('change', () => {
+      this.settings.set('showHiddenFiles', checkbox.checked);
+    });
+
+    const label = document.createElement('span');
+    label.textContent = 'Show hidden files (dotfiles)';
+
+    row.appendChild(checkbox);
+    row.appendChild(label);
+    container.appendChild(row);
+
+    const hint = document.createElement('span');
+    hint.className = 'field-hint';
+    hint.textContent = 'When on, entries beginning with "." (e.g. .claude/, .gitignore, .env) appear in the sidebar file tree, styled italic and dimmer.';
+    container.appendChild(hint);
   }
 
   _getTtsStatus(tts) {

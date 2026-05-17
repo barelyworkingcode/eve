@@ -30,9 +30,9 @@ class FileHandlers {
   }
 
   async listDirectory(ws, message) {
-    const { projectId, path: relativePath } = message;
+    const { projectId, path: relativePath, showHidden } = message;
     await this._handleFileOp(ws, projectId, relativePath, async (project) => {
-      const entries = await this.fileService.listDirectory(project.path, relativePath || '/');
+      const entries = await this.fileService.listDirectory(project.path, relativePath || '/', { showHidden });
       ws.send(JSON.stringify({ type: 'directory_listing', projectId, path: relativePath || '/', entries }));
     });
   }

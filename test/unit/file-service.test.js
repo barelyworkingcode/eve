@@ -188,12 +188,20 @@ describe('FileService', () => {
         expect(dirIndex).toBeLessThan(fileIndex);
       });
 
-      it('hides dotfiles', async () => {
+      it('hides dotfiles by default', async () => {
         fs.writeFileSync(path.join(tmpDir, '.hidden'), 'secret', 'utf8');
         const items = await fileService.listDirectory(tmpDir, '');
 
         const names = items.map(i => i.name);
         expect(names).not.toContain('.hidden');
+      });
+
+      it('shows dotfiles when showHidden is true', async () => {
+        fs.writeFileSync(path.join(tmpDir, '.hidden'), 'secret', 'utf8');
+        const items = await fileService.listDirectory(tmpDir, '', { showHidden: true });
+
+        const names = items.map(i => i.name);
+        expect(names).toContain('.hidden');
       });
 
       it('throws for nonexistent directory', async () => {
@@ -268,6 +276,25 @@ describe('FileService', () => {
         fs.mkdirSync(path.join(tmpDir, 'src', 'sub'));
         await expect(fileService.moveFile(tmpDir, 'src', 'src/sub'))
           .rejects.toThrow('Cannot move a directory into itself');
+      });
+    });
+
+    describe('uploadFile', () => {
+      it('uploads a regular text file', async () => {
+        await fileService.uploadFile(tmpDir, '', 'notes.txt', 'hello', 'utf8');
+        const written = fs.readFileSync(path.join(tmpDir, 'notes.txt'), 'utf8');
+        expect(written).toBe('hello');
+      });
+
+      it('allows dotfile uploads', async () => {
+        await fileService.uploadFile(tmpDir, '', '.gitignore', 'node_modules/\n', 'utf8');
+        const written = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf8');
+        expect(written).toBe('node_modules/\n');
+      });
+
+      it('rejects path separators in fileName', async () => {
+        await expect(fileService.uploadFile(tmpDir, '', 'sub/bad.txt', 'x', 'utf8'))
+          .rejects.toThrow('File name cannot contain path separators');
       });
     });
 
