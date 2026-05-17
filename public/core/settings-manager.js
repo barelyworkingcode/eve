@@ -54,6 +54,7 @@ const SETTINGS_DEFAULTS = {
   terminalFontFamily: 'sf-mono',
   ttsPromptTag: '[SPEAK RESPONSE]',
   sttPromptTag: '[VOICE DICTATION]',
+  showHiddenFiles: false,
 };
 
 const THEME_PRESETS = {

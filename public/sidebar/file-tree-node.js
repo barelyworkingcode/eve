@@ -8,6 +8,7 @@ class FileTreeNode {
     this.ws = container.get('ws');
     this.log = container.get('logger').child('FileTree');
     this.state = container.get('state');
+    this.settings = container.get('settings');
 
     // projectId -> { path -> entries[] }
     this.dirCache = new Map();
@@ -15,6 +16,8 @@ class FileTreeNode {
     this.expandedPaths = new Map();
     // Drag state
     this.dragState = null;
+    // Track last-seen value so unrelated settings changes don't trigger refresh
+    this._lastShowHidden = this.settings.get('showHiddenFiles');
   }
 
   init() {
@@ -24,8 +27,19 @@ class FileTreeNode {
     this.bus.on(EVT.FILE_DELETED, (data) => this._refreshParent(data.projectId, data.path));
     this.bus.on(EVT.FILE_UPLOADED, (data) => this._refreshDir(data.projectId, data.destDirectory));
     this.bus.on(EVT.DIRECTORY_CREATED, (data) => this._refreshDir(data.projectId, data.path));
+    this.bus.on(EVT.SETTINGS_CHANGED, (s) => this._onSettingsChanged(s));
 
     // Close context menu on any click (handled by shared closeContextMenu)
+  }
+
+  _onSettingsChanged(s) {
+    const next = s.showHiddenFiles;
+    if (next === this._lastShowHidden) return;
+    this._lastShowHidden = next;
+    this.dirCache.clear();
+    document.querySelectorAll('.file-tree[data-project-id]').forEach((el) => {
+      this.renderTree(el.dataset.projectId, el);
+    });
   }
 
   /**
@@ -60,8 +74,9 @@ class FileTreeNode {
       const isDir = entry.type === 'directory';
       const isExpanded = this._isExpanded(projectId, entryPath);
 
+      const isHidden = entry.name.startsWith('.');
       const item = document.createElement('div');
-      item.className = `file-tree__item${isDir ? ' file-tree__item--folder' : ''}${isExpanded ? ' file-tree__item--expanded' : ''}`;
+      item.className = `file-tree__item${isDir ? ' file-tree__item--folder' : ''}${isExpanded ? ' file-tree__item--expanded' : ''}${isHidden ? ' file-tree__item--hidden' : ''}`;
       item.style.paddingLeft = `${12 + depth * 16}px`;
       item.draggable = true;
       item.dataset.testid = `file-tree-item-${entryPath}`;
@@ -168,7 +183,8 @@ class FileTreeNode {
   // --- Directory loading ---
 
   _loadDirectory(projectId, path) {
-    this.ws.send({ type: 'list_directory', projectId, path });
+    const showHidden = this.settings.get('showHiddenFiles');
+    this.ws.send({ type: 'list_directory', projectId, path, showHidden });
   }
 
   _onDirectoryListing(data) {

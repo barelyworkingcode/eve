@@ -71,7 +71,7 @@ class FileService {
   /**
    * Lists directory contents
    */
-  async listDirectory(projectPath, relativePath) {
+  async listDirectory(projectPath, relativePath, { showHidden = false } = {}) {
     const fullPath = this.validatePath(projectPath, relativePath);
 
     try {
@@ -79,7 +79,7 @@ class FileService {
 
       const items = await Promise.all(
         entries
-          .filter(entry => !entry.name.startsWith('.')) // Hide dotfiles
+          .filter(entry => showHidden || !entry.name.startsWith('.'))
           .map(async (entry) => {
             const itemPath = path.join(fullPath, entry.name);
             let size = 0;
@@ -261,11 +261,6 @@ class FileService {
     // Reject path separators in fileName
     if (fileName.includes('/') || fileName.includes('\\')) {
       throw new Error('File name cannot contain path separators');
-    }
-
-    // Reject dotfiles
-    if (fileName.startsWith('.')) {
-      throw new Error('Cannot upload dotfiles');
     }
 
     const fullPath = path.join(fullDestDir, fileName);
