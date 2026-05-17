@@ -46,6 +46,8 @@ class MessageDispatcher {
     // relayLLM/docs/event-protocol.md). Keyed by content-block index so we
     // know how to close each block when its content_block_stop arrives.
     this._openBlockKindByIndex = {};
+    // Accumulator for input_json_delta fragments. See _handleStreamingToolInput.
+    this._streamingToolInputBuffer = '';
     // LIFO stack of open Agent (sub-agent) calls. Each frame holds the
     // parent's tool_use_id, a child MessageRenderer that targets the parent
     // block's body, the timestamp the call started, a tool-call counter,
@@ -140,6 +142,7 @@ class MessageDispatcher {
     this._lastNonInteractiveToolName = null;
     this._openBlockKindByIndex = {};
     this._sidechainStack = [];
+    this._streamingToolInputBuffer = '';
   }
 
   _notifyVoiceError(message) {
@@ -216,6 +219,7 @@ class MessageDispatcher {
   _handleMessageComplete(data) {
     this._untrackStreaming(data.sessionId);
     this._openBlockKindByIndex = {};
+    this._streamingToolInputBuffer = '';
     // Drop any sidechain still open at message_complete (orphaned Agent call
     // without a tool_result) — would otherwise leak its frame across turns.
     this._sidechainStack = [];
@@ -872,6 +876,7 @@ class MessageDispatcher {
       // for kind='redacted_thinking' (only 'thinking' triggers a close).
       renderer.appendToAssistantMessage(REDACTED_THINKING_PLACEHOLDER);
     } else if (cb.type === 'tool_use') {
+      this._streamingToolInputBuffer = '';
       if (cb.name === 'Write' && cb.input?.file_path && /\.claude\/plans\//.test(cb.input.file_path)) {
         this.lastPlanFilePath = cb.input.file_path;
       }
@@ -932,35 +937,57 @@ class MessageDispatcher {
       if (finalInput !== undefined && finalInput !== null) {
         renderer.updateToolInput(finalInput);
       }
+      this._streamingToolInputBuffer = '';
     }
     if (typeof idx === 'number') delete this._openBlockKindByIndex[idx];
   }
 
   /**
-   * Handle one fragment of streaming tool input. Used by both the canonical
-   * input_json_delta path and the Claude CLI legacy tool_use_input path.
-   * The fragment may be a partial JSON string or (rarely) a parsed object.
+   * Handle one fragment of streaming tool input from an input_json_delta
+   * event. Strings are accumulated and parsed incrementally; we only forward
+   * a parsed object to the renderer once the buffer is valid JSON. Otherwise
+   * upstreams that emit word-sized deltas (pi.dev streaming from Anthropic)
+   * cause the displayed tool-input summary to flash through every fragment
+   * instead of settling on a clean summary.
    */
   _handleStreamingToolInput(input) {
-    if (this.pendingInteractiveTool) {
-      if (typeof input === 'string') {
+    let parsed = null;
+    if (typeof input === 'string') {
+      this._streamingToolInputBuffer += input;
+      // Tool inputs are always objects, so JSON.parse can only succeed once
+      // a closing brace lands. Skipping the parse on every other fragment
+      // keeps a multi-hundred-delta Edit/Write call off the UI thread.
+      if (this._streamingToolInputBuffer.endsWith('}')) {
         try {
-          Object.assign(this.pendingInteractiveTool.input, JSON.parse(input));
+          parsed = JSON.parse(this._streamingToolInputBuffer);
         } catch {
-          this.pendingInteractiveTool._rawInput = (this.pendingInteractiveTool._rawInput || '') + input;
+          // Outer object not yet closed — that '}' was nested. Keep going.
         }
-      } else if (input && typeof input === 'object') {
-        Object.assign(this.pendingInteractiveTool.input, input);
+      }
+    } else if (input && typeof input === 'object') {
+      parsed = input;
+    }
+
+    if (this.pendingInteractiveTool) {
+      // Interactive tools fire at message_complete from accumulated _rawInput;
+      // mirror the raw string so that path still works.
+      if (typeof input === 'string') {
+        this.pendingInteractiveTool._rawInput =
+          (this.pendingInteractiveTool._rawInput || '') + input;
+      }
+      if (parsed && typeof parsed === 'object') {
+        Object.assign(this.pendingInteractiveTool.input, parsed);
       }
       return;
     }
+    if (!parsed) return;
     if (this._lastNonInteractiveToolName === 'Write') {
-      const filePath = typeof input === 'object' ? input?.file_path : null;
+      const filePath = parsed?.file_path;
       if (filePath && /\.claude\/plans\//.test(filePath)) {
         this.lastPlanFilePath = filePath;
       }
     }
-    this._activeRenderer().updateToolInput(input);
+    this._activeRenderer().updateToolInput(parsed);
   }
 
   handleResultEvent(event) {
