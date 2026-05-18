@@ -117,7 +117,7 @@ function createAuthRoutes(authService, trustedNetwork, log) {
 <html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Eve – Sign In</title>
+<title>Home|Work – Sign In</title>
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0;
          display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
@@ -132,7 +132,7 @@ function createAuthRoutes(authService, trustedNetwork, log) {
 </style>
 </head><body>
 <div class="card">
-  <h1>Eve Workspace</h1>
+  <h1>Home|Work</h1>
   <p>Authenticate with your passkey.</p>
   <button id="btn" onclick="doLogin()">Sign In with Passkey</button>
   <div id="status"></div>
