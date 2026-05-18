@@ -26,7 +26,7 @@ class AuthService {
     this.rateLimits = new Map();
 
     // RP (Relying Party) settings
-    this.rpName = 'Eve Workspace';
+    this.rpName = 'Home|Work';
 
     // Start cleanup timer
     this.startCleanupTimer();
@@ -187,7 +187,7 @@ class AuthService {
       rpName: this.rpName,
       rpID: rpId,
       userName: 'eve-user',
-      userDisplayName: 'Eve User',
+      userDisplayName: 'Home|Work User',
       attestationType: 'none',
       authenticatorSelection: {
         authenticatorAttachment: 'platform',
