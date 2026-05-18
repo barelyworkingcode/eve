@@ -352,6 +352,39 @@ All other input is forwarded to relayLLM.
 **Project Cache**
 Eve caches project data from relayLLM in memory (`projectCache` Map) for file handler path resolution. Cache is refreshed on project list fetch and after mutations.
 
+## Module Architecture
+
+Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work touching this area:
+
+**What a module is**
+- A folder at `<project>/modules/<name>/` containing `module.json` + static HTML/CSS/JS.
+- Loads into Eve's document area inside an iframe with `sandbox="allow-scripts"` (NO `allow-same-origin`). Opaque origin; `null`.
+- The iframe page loads `/eve-module-sdk.js` which exposes `window.eve` with `invokeAI`, `readFile`, `writeFile`, `getManifest`.
+
+**Server-side files**
+- `module-service.js` — manifest schema/validation, path resolution with traversal + symlink defense (`MODULE_NAME_RE`, `resolveModuleFile`, `isFilePermitted`).
+- `routes/modules.js` — `GET /api/modules`, `GET /api/modules/:projectId/:moduleName`, `GET /api/modules/serve/.../*`, `POST /api/modules/invoke`. Owns the ephemeral-session lifecycle.
+- `ws-handler.js#handleModuleFileOp` — WS bridge for `module_read_file` / `module_write_file`. Re-validates manifest and `permissions.files` on every call.
+- `routes/index.js` — filters `__module:` sessions out of `GET /api/sessions`.
+
+**Client-side files**
+- `public/modules/module-host.js` — owns iframe lifecycle, postMessage bridge, in-flight file-op tracking. Authenticates messages via `event.source === iframe.contentWindow` (WeakMap lookup). The iframe never sends scope; the host injects it.
+- `public/eve-module-sdk.js` — loaded inside the iframe; pure postMessage wrapper.
+- `public/modules/module-store.js` — fetch + cache module list per project.
+- `public/sidebar/project-tree-item.js` — "Modules" section per project + `+ New Module` row.
+- `public/app.js#_startModuleBuilder` — creates a normal (visible) chat session preloaded with the builder prompt from `public/modules/module-builder-prompt.md`.
+
+**Load-bearing invariants**
+1. **Scope is server-derived, never client-derived.** `projectId` + `moduleName` come from the host's `WeakMap` lookup or route params, never from the postMessage `args`. An AI-authored iframe cannot lie about what it is.
+2. **Manifest is re-read on every gated call.** It's a file on disk an AI can rewrite between calls. Don't cache `permissions.files` across requests.
+3. **`__module:` session-name prefix is load-bearing.** Created in `routes/modules.js` (`HIDDEN_SESSION_PREFIX`); filtered in `routes/index.js`. Both must change together. Any new path that creates relayLLM sessions on behalf of a module must use this prefix.
+4. **Iframe sandbox is load-bearing.** Never add `allow-same-origin`. The entire trust model (no Eve cookies, no DOM access, no ambient `fetch`) depends on the opaque origin.
+5. **File MIME allowlist is load-bearing.** `SERVE_MIME` in `routes/modules.js` is the only set of extensions the static serve endpoint will return. Extend with care; dotfiles are explicitly denied.
+6. **Single-responsibility split.** AI invocation lives in `routes/modules.js`. File reads/writes live in `ws-handler.js`. Don't add a third file-permission gate.
+
+**Current limitation — non-streaming invoke**
+`POST /api/modules/invoke` uses relayLLM's synchronous `/api/sessions/:id/message` endpoint, which blocks until the model is fully done and returns aggregated text. Thinking and tool-use events are not visible to the iframe or the user. A streaming variant (with an "AI activity orb" overlay surfaced by the module framework) is planned.
+
 ## Client Architecture
 
 ### Module Responsibilities
