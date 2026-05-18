@@ -13,6 +13,7 @@ A browser-based LLM chat interface — AI for Home and for Work (and your homewo
 - **File attachments** - Drag/drop, click, or paste files and images into prompts
 - **Session stats** - Real-time context usage % and cost display
 - **Scheduled tasks** - Run LLM prompts on a schedule via relayScheduler (daily, hourly, cron, etc.)
+- **Modules** - AI-backed mini-apps that live inside a project (`<project>/modules/<name>/`) and run in a sandboxed iframe with a small `window.eve` SDK ([docs/modules.md](docs/modules.md))
 
 ## Requirements
 
@@ -143,6 +144,19 @@ To edit a project, click the pencil icon in the project header.
 **Allowed tools** pre-approve CLI tools so they execute without prompting. Tools not in the allowed list trigger the permission forwarding flow.
 
 Projects are managed via relayLLM and persist across restarts.
+
+## Modules
+
+A **module** is a small, AI-backed mini-app that lives inside a project at `<project>/modules/<name>/` and renders in Eve's document area inside a sandboxed iframe. Modules are static HTML/CSS/JS plus a `module.json` manifest; the iframe gets a `window.eve` API for AI calls and for reading/writing a whitelist of project files.
+
+To create one, expand a project in the sidebar, open the **Modules** section, and click **+ New Module**. A chat session opens preloaded with a builder prompt — describe what you want and Claude writes the files into `modules/<name>/`. Reload to see the new module in the sidebar.
+
+Security highlights:
+- The iframe has `sandbox="allow-scripts"` only (no `allow-same-origin`), so it can't read Eve's cookies, storage, or DOM, and can't `fetch()` arbitrary URLs.
+- All AI calls and file reads/writes are gated server-side against the manifest's `permissions.files` list.
+- Module-internal LLM sessions use a `__module:` name prefix and are filtered out of `GET /api/sessions` so they don't pollute the sidebar.
+
+Full reference: [docs/modules.md](docs/modules.md).
 
 ## Permission Forwarding
 
