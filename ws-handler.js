@@ -10,7 +10,7 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, claudeConfig, resolveProject, ttsService, sttService, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, claudeConfig, resolveProject, ttsService, sttService, log }) {
   return (ws, req) => {
     // Trust is decided by the raw TCP source address via TrustedNetworkService.
     // Never consult req.headers.host or X-Forwarded-For here — both are
@@ -145,6 +145,17 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
 
           case 'unwatch_file':
             fileWatcher.unwatch(message.projectId, message.path);
+            break;
+
+          // --- Module file ops (server-side permission check) ---
+          case 'module_read_file':
+            await handleModuleFileOp(ws, { moduleService, fileHandlers, resolveProject, fileWatcher },
+              message, 'read');
+            break;
+
+          case 'module_write_file':
+            await handleModuleFileOp(ws, { moduleService, fileHandlers, resolveProject, fileWatcher },
+              message, 'write');
             break;
 
           // --- Terminal operations (proxied to relayLLM) ---
@@ -421,6 +432,49 @@ async function handleTtsSpeak(ws, ttsService, message, log) {
   } catch (err) {
     log?.error('TTS speak failed:', err.message);
     ws.send(JSON.stringify({ type: 'tts_error', message: 'Speech synthesis failed' }));
+  }
+}
+
+/**
+ * Bridge module SDK file ops (readFile/writeFile) through the server-side
+ * permission check before delegating to FileHandlers. The iframe is untrusted
+ * (AI-authored content); client-side checks are advisory only.
+ */
+async function handleModuleFileOp(ws, { moduleService, fileHandlers, resolveProject, fileWatcher }, message, op) {
+  const { requestId, projectId, moduleName, path: relPath, content } = message;
+
+  const reply = (payload) => ws.send(JSON.stringify({
+    type: 'module_file_response', requestId, op, ...payload,
+  }));
+
+  const project = resolveProject(projectId);
+  if (!project) return reply({ ok: false, error: 'Project not found' });
+
+  let manifest;
+  try {
+    manifest = await moduleService.getModule(project.path, moduleName);
+  } catch (err) {
+    return reply({ ok: false, error: err.message });
+  }
+
+  if (!moduleService.isFilePermitted(manifest, relPath)) {
+    return reply({ ok: false, error: `Permission denied: ${relPath} not in module permissions.files` });
+  }
+
+  try {
+    if (op === 'read') {
+      const { content: text, size } = await fileHandlers.fileService.readFile(project.path, relPath);
+      reply({ ok: true, content: text, size });
+    } else {
+      try {
+        const absPath = fileHandlers.fileService.validatePath(project.path, relPath);
+        fileWatcher.markSelfWrite(absPath);
+      } catch { /* writeFile will surface the same error */ }
+      await fileHandlers.fileService.writeFile(project.path, relPath, content || '');
+      reply({ ok: true });
+    }
+  } catch (err) {
+    reply({ ok: false, error: err.message });
   }
 }
 

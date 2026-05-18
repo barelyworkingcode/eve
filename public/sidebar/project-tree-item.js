@@ -11,7 +11,7 @@ class ProjectTreeItem {
     this.projectId = projectId;
     this.fileTreeNode = fileTreeNode;
     this.expanded = false;
-    this.sectionState = { tasks: false, sessions: false, files: false };
+    this.sectionState = { tasks: false, sessions: false, files: false, modules: false };
     this.onToggle = null;          // callback(projectId, expanded)
     this.onSectionToggle = null;   // callback() - persists section state
     this._subscribed = false;
@@ -72,6 +72,7 @@ class ProjectTreeItem {
       sections.className = 'project-tree__sections';
       this._renderSection(sections, 'tasks', 'Tasks', (c) => this._renderTasksContent(c));
       this._renderSection(sections, 'sessions', 'Sessions', (c) => this._renderSessionsContent(c));
+      this._renderSection(sections, 'modules', 'Modules', (c) => this._renderModulesContent(c));
       this._renderSection(sections, 'files', 'Files', (c) => this._renderFilesContent(c));
       this.el.appendChild(sections);
     }
@@ -136,6 +137,9 @@ class ProjectTreeItem {
       const terminalCount = (termMgr?.getTerminalsForPath(project?.path) || [])
         .filter(t => !this.state.isTaskRun(t.id)).length;
       return sessionCount + terminalCount;
+    }
+    if (key === 'modules') {
+      return this.state.getModulesForProject(this.projectId).length;
     }
     return null; // files — no count
   }
@@ -361,6 +365,75 @@ class ProjectTreeItem {
     container.appendChild(item);
   }
 
+  // --- Modules content ---
+
+  _renderModulesContent(container) {
+    // Lazy-load on first expand. MODULE_LIST_UPDATED drives the re-render when
+    // the fetch completes — no need to chain .then(_rerender) here.
+    const store = this.container.has('moduleStore') ? this.container.get('moduleStore') : null;
+    if (store && !this.state.modules.has(this.projectId)) {
+      store.loadModulesForProject(this.projectId);
+    }
+
+    const modules = this.state.getModulesForProject(this.projectId);
+    if (modules.length === 0 && this.state.modules.has(this.projectId)) {
+      this._renderEmpty(container, 'No modules. Click + to ask Claude to build one.');
+    } else if (modules.length === 0) {
+      this._renderLoading(container);
+    } else {
+      for (const m of modules) {
+        this._renderModuleItem(container, m);
+      }
+    }
+
+    // Always-visible "+ New Module" row at the end.
+    const newItem = document.createElement('div');
+    newItem.className = 'project-tree__module-item project-tree__module-item--new';
+    newItem.dataset.testid = `sidebar-module-new-${this.projectId}`;
+    const label = document.createElement('span');
+    label.className = 'project-tree__module-name';
+    label.textContent = '+ New Module';
+    newItem.appendChild(label);
+    newItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.bus.emit(EVT.MODULE_CREATE_REQUEST, { projectId: this.projectId });
+      this._closeSidebarOnMobile();
+    });
+    container.appendChild(newItem);
+  }
+
+  _renderModuleItem(container, m) {
+    const item = document.createElement('div');
+    item.className = 'project-tree__module-item';
+    if (m.broken) item.classList.add('project-tree__module-item--broken');
+    item.dataset.testid = `sidebar-module-${m.name}`;
+
+    const iconEl = document.createElement('span');
+    iconEl.className = 'project-tree__module-icon';
+    iconEl.innerHTML = UI_ICONS.module(12);
+    item.appendChild(iconEl);
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'project-tree__module-name';
+    nameEl.textContent = m.displayName || m.name;
+    if (m.broken) nameEl.title = m.error || 'Module failed to load';
+    item.appendChild(nameEl);
+
+    if (!m.broken) {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.bus.emit(EVT.MODULE_LAUNCH_REQUEST, {
+          projectId: this.projectId,
+          moduleName: m.name,
+          displayName: m.displayName || m.name,
+        });
+        this._closeSidebarOnMobile();
+      });
+    }
+
+    container.appendChild(item);
+  }
+
   // --- Files content ---
 
   _renderFilesContent(container) {
@@ -533,6 +606,11 @@ class ProjectTreeItem {
     // Terminals: re-render when terminal list changes
     this.bus.on(EVT.TERMINAL_LIST, () => {
       this._rerender();  // Always rerender — count shown even when collapsed
+    });
+
+    // Modules: re-render when this project's module list changes
+    this.bus.on(EVT.MODULE_LIST_UPDATED, ({ projectId }) => {
+      if (projectId === this.projectId) this._rerender();
     });
   }
 }
