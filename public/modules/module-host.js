@@ -28,6 +28,11 @@ class ModuleHost {
     // so the success path can clear the timeout (timers would otherwise pile up).
     this._pendingFileOps = new Map();
     this._fileOpSeq = 1;
+    // Pending WS AI invocations. requestId -> { resolve, reject, source,
+    // sdkRequestId, projectId, moduleName }. The source/sdkRequestId let us
+    // post the result back through the SDK bridge after the server resolves.
+    this._pendingInvokes = new Map();
+    this._invokeSeq = 1;
     this._host = null;
   }
 
@@ -46,6 +51,28 @@ class ModuleHost {
       clearTimeout(entry.timer);
       if (msg.ok) entry.resolve(msg);
       else entry.reject(new Error(msg.error || 'Unknown error'));
+    });
+
+    // Streaming AI invocation lifecycle. The bus handlers only resolve/reject
+    // the pending Promise — _handleMessage's then/catch is responsible for
+    // posting the SDK response. Keeping the SDK reply on a single code path
+    // avoids double-posts on the cancel/timeout race.
+    this.bus.on(EVT.MODULE_AI_COMPLETED, (msg) => {
+      const entry = this._pendingInvokes.get(msg.requestId);
+      if (!entry) return;
+      this._pendingInvokes.delete(msg.requestId);
+      clearTimeout(entry.timer);
+      entry.resolve({ result: msg.result, model: msg.model });
+    });
+
+    this.bus.on(EVT.MODULE_AI_FAILED, (msg) => {
+      const entry = this._pendingInvokes.get(msg.requestId);
+      if (!entry) return;
+      this._pendingInvokes.delete(msg.requestId);
+      clearTimeout(entry.timer);
+      const denied = msg.deniedFiles;
+      const errMsg = denied ? `${msg.error} (denied: ${denied.join(', ')})` : (msg.error || 'Module invocation failed');
+      entry.reject(new Error(errMsg));
     });
   }
 
@@ -246,9 +273,38 @@ class ModuleHost {
     }
   }
 
-  async _invokeAI(ctx, source, requestId, args) {
-    try {
-      const payload = await this.api.invokeModule({
+  /**
+   * Dispatch an AI invocation over the WebSocket and wait for the terminal
+   * `module_ai_completed`/`module_ai_failed` frame. While the call is in
+   * flight, the server streams `module_ai_event` frames which the orb
+   * subscribes to directly via the bus — we don't observe them here.
+   *
+   * Returns the meta the outer log path expects. The SDK response is sent
+   * by _handleMessage's success/failure branches; doing it here would
+   * race with the cancel/timeout handlers.
+   */
+  _invokeAI(ctx, source, sdkRequestId, args) {
+    const wsClient = this.container.get('ws');
+    if (!wsClient) return Promise.reject(new Error('WebSocket unavailable'));
+
+    return new Promise((resolve, reject) => {
+      const serverRequestId = `inv${this._invokeSeq++}`;
+      // Slightly past the server's 5-min cap so a server-side timeout
+      // surfaces as a structured failure frame before we tear down locally.
+      const timer = setTimeout(() => {
+        if (this._pendingInvokes.delete(serverRequestId)) {
+          reject(new Error('Module invocation timed out (no server response)'));
+        }
+      }, 6 * 60 * 1000);
+
+      this._pendingInvokes.set(serverRequestId, {
+        resolve, reject, timer,
+        ctx, source, sdkRequestId,
+      });
+
+      wsClient.send({
+        type: 'module_invoke_ai',
+        requestId: serverRequestId,
         projectId: ctx.projectId,
         moduleName: ctx.moduleName,
         prompt: args.prompt || '',
@@ -256,16 +312,25 @@ class ModuleHost {
         schema: args.schema,
         model: args.model,
       });
-      this._respond(source, requestId, {
+    }).then(payload => {
+      this._respond(source, sdkRequestId, {
         ok: true, result: payload.result, meta: { model: payload.model },
       });
       return { value: payload.result, model: payload.model };
-    } catch (err) {
-      const denied = err.body?.deniedFiles;
-      const message = denied ? `${err.message} (denied: ${denied.join(', ')})` : err.message;
-      this._respond(source, requestId, { ok: false, error: message });
-      throw new Error(message);
-    }
+    });
+  }
+
+  /**
+   * Server-side cancel for an in-flight invocation. Looks up the pending
+   * entry by the SDK-facing requestId so the orb's "Stop" button can target
+   * a specific invocation without leaking ModuleHost's internal id.
+   */
+  stopInvoke(serverRequestId) {
+    if (!this._pendingInvokes.has(serverRequestId)) return false;
+    const wsClient = this.container.get('ws');
+    if (!wsClient) return false;
+    wsClient.send({ type: 'module_ai_stop', requestId: serverRequestId });
+    return true;
   }
 
   async _readFile(ctx, source, requestId, args) {

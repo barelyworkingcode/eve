@@ -44,14 +44,14 @@ class ApiClient {
   // MCPs (relay-managed external tool servers; populates project dialog picker)
   getMcps() { return this._request('GET', '/api/mcps'); }
 
-  // Modules
+  // Modules. Invocation is WS-only now (module_invoke_ai / module_ai_*);
+  // the legacy POST /api/modules/invoke endpoint was removed.
   listModules(projectId) {
     return this._request('GET', `/api/modules?projectId=${encodeURIComponent(projectId)}`);
   }
   getModuleManifest(projectId, moduleName) {
     return this._request('GET', `/api/modules/${encodeURIComponent(projectId)}/${encodeURIComponent(moduleName)}`);
   }
-  invokeModule(body) { return this._request('POST', '/api/modules/invoke', body); }
 
   // Tasks
   getTasks(projectId) {
