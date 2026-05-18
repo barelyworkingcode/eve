@@ -363,27 +363,32 @@ Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work t
 
 **Server-side files**
 - `module-service.js` — manifest schema/validation, path resolution with traversal + symlink defense (`MODULE_NAME_RE`, `resolveModuleFile`, `isFilePermitted`).
-- `routes/modules.js` — `GET /api/modules`, `GET /api/modules/:projectId/:moduleName`, `GET /api/modules/serve/.../*`, `POST /api/modules/invoke`. Owns the ephemeral-session lifecycle.
-- `ws-handler.js#handleModuleFileOp` — WS bridge for `module_read_file` / `module_write_file`. Re-validates manifest and `permissions.files` on every call.
-- `routes/index.js` — filters `__module:` sessions out of `GET /api/sessions`.
+- `module-invoker.js` — streaming AI invocation. Creates the ephemeral `__module:`-prefixed session, registers a handler on `RelayClient`, drives `join_session` + `send_message` over the WS, accumulates text, forwards events to the browser as `module_ai_event`, deletes the session in `finally`. Owns `HIDDEN_SESSION_PREFIX`.
+- `routes/modules.js` — `GET /api/modules`, `GET /api/modules/:projectId/:moduleName`, `GET /api/modules/serve/.../*`. AI invocation is NOT here anymore — it's WS-only.
+- `ws-handler.js` — `module_invoke_ai` (delegates to invoker), `module_ai_stop` (cancel), `module_read_file` / `module_write_file` (re-validates manifest and `permissions.files` on every call).
+- `relay-client.js` — `moduleSessions` Map intercepts every relay message whose sessionId is registered, routes to handler instead of forwarding as `llm_event`. Without this the dispatcher would buffer module events as a background session.
+- `routes/index.js` — filters `__module:` sessions out of `GET /api/sessions` (imports `HIDDEN_SESSION_PREFIX` from `module-invoker.js`).
 
 **Client-side files**
-- `public/modules/module-host.js` — owns iframe lifecycle, postMessage bridge, in-flight file-op tracking. Authenticates messages via `event.source === iframe.contentWindow` (WeakMap lookup). The iframe never sends scope; the host injects it.
+- `public/modules/module-host.js` — owns iframe lifecycle, postMessage bridge, in-flight file-op + invoke tracking. Authenticates messages via `event.source === iframe.contentWindow` (WeakMap lookup). The iframe never sends scope; the host injects it. `_invokeAI` sends `module_invoke_ai` over WS and resolves the SDK promise when `module_ai_completed` arrives; `stopInvoke(requestId)` cancels.
+- `public/modules/module-activity-orb.js` — pinned lower-right orb + read-only event log dialog. Subscribes to `MODULE_AI_*` bus events. Multiple concurrent invocations show as tabs in the dialog with a count badge on the orb.
 - `public/eve-module-sdk.js` — loaded inside the iframe; pure postMessage wrapper.
 - `public/modules/module-store.js` — fetch + cache module list per project.
 - `public/sidebar/project-tree-item.js` — "Modules" section per project + `+ New Module` row.
 - `public/app.js#_startModuleBuilder` — creates a normal (visible) chat session preloaded with the builder prompt from `public/modules/module-builder-prompt.md`.
 
+**Browser ↔ Eve WS protocol for invocation**
+- `module_invoke_ai { requestId, projectId, moduleName, prompt, files?, schema?, model? }`
+- `module_ai_stop { requestId }`
+- Server emits: `module_ai_started`, `module_ai_event { event }` (raw relay frame), `module_ai_completed { result, rawText, model }`, `module_ai_failed { error, deniedFiles? }`. Each is dispatched in `message-dispatcher.js` to `EVT.MODULE_AI_*` bus events.
+
 **Load-bearing invariants**
-1. **Scope is server-derived, never client-derived.** `projectId` + `moduleName` come from the host's `WeakMap` lookup or route params, never from the postMessage `args`. An AI-authored iframe cannot lie about what it is.
+1. **Scope is server-derived, never client-derived.** `projectId` + `moduleName` come from the host's `WeakMap` lookup (browser side) or are accepted from the authenticated WS session and re-validated against the manifest (server side). An AI-authored iframe cannot lie about what it is.
 2. **Manifest is re-read on every gated call.** It's a file on disk an AI can rewrite between calls. Don't cache `permissions.files` across requests.
-3. **`__module:` session-name prefix is load-bearing.** Created in `routes/modules.js` (`HIDDEN_SESSION_PREFIX`); filtered in `routes/index.js`. Both must change together. Any new path that creates relayLLM sessions on behalf of a module must use this prefix.
+3. **`__module:` session-name prefix is load-bearing.** Defined in `module-invoker.js` (`HIDDEN_SESSION_PREFIX`); imported by `routes/index.js` for the session-list filter; checked in `relay-client.js` via the `moduleSessions` registry. Any new path that creates relayLLM sessions on behalf of a module must use this prefix AND register the sessionId with `relayClient.registerModuleSession(...)` BEFORE joining — otherwise events leak into the user's visible chat history.
 4. **Iframe sandbox is load-bearing.** Never add `allow-same-origin`. The entire trust model (no Eve cookies, no DOM access, no ambient `fetch`) depends on the opaque origin.
 5. **File MIME allowlist is load-bearing.** `SERVE_MIME` in `routes/modules.js` is the only set of extensions the static serve endpoint will return. Extend with care; dotfiles are explicitly denied.
-6. **Single-responsibility split.** AI invocation lives in `routes/modules.js`. File reads/writes live in `ws-handler.js`. Don't add a third file-permission gate.
-
-**Current limitation — non-streaming invoke**
-`POST /api/modules/invoke` uses relayLLM's synchronous `/api/sessions/:id/message` endpoint, which blocks until the model is fully done and returns aggregated text. Thinking and tool-use events are not visible to the iframe or the user. A streaming variant (with an "AI activity orb" overlay surfaced by the module framework) is planned.
+6. **Single-responsibility split.** AI invocation lives in `module-invoker.js`. File reads/writes live in `ws-handler.js`. Static serve lives in `routes/modules.js`. Don't add a third file-permission gate.
 
 ## Client Architecture
 

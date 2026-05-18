@@ -57,6 +57,14 @@ function isClaudeModel(models, value) {
   return models.find(m => m.value === value)?.provider === 'claude';
 }
 
+// --- HTML escape ---
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 // --- Context Menu ---
 
 let _activeContextMenu = null;

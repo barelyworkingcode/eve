@@ -99,6 +99,12 @@ const EVT = {
   MODULE_OPENED: 'module:opened',
   MODULE_CLOSED: 'module:closed',
   MODULE_FILE_RESPONSE: 'module:fileResponse',
+  // Module AI invocation streaming. The orb subscribes to these to render
+  // an indicator + read-only event log while a module is talking to the LLM.
+  MODULE_AI_STARTED: 'module:aiStarted',
+  MODULE_AI_EVENT: 'module:aiEvent',
+  MODULE_AI_COMPLETED: 'module:aiCompleted',
+  MODULE_AI_FAILED: 'module:aiFailed',
 
   // Settings
   SETTINGS_CHANGED: 'settings:changed',

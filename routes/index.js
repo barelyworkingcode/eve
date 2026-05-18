@@ -1,10 +1,11 @@
 const createAuthRoutes = require('./auth');
 const moduleRoutes = require('./modules');
+const { HIDDEN_SESSION_PREFIX } = require('../module-invoker');
 const path = require('path');
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, ttsService, sttService, moduleService, fileService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, ttsService, sttService, moduleService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   // Shared auth middleware.
   // Bypass order: (1) no passkey enrolled yet — first-run bootstrap; (2) the
@@ -124,14 +125,15 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
   });
 
   // --- Sessions (proxy) ---
-  // Hide ephemeral module-invocation sessions (created by POST /api/modules/invoke).
-  // They're created/deleted within a single HTTP request, but a sidebar list
-  // fetched mid-invocation would otherwise show the in-flight session.
+  // Hide ephemeral module-invocation sessions (created by ModuleInvoker over
+  // the WS path). They're created/deleted around a single invocation, but a
+  // sidebar list fetched mid-invocation would otherwise show the in-flight
+  // session. Prefix is defined in module-invoker.js — keep in lockstep.
   app.get('/api/sessions', requireAuth, async (req, res) => {
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/sessions');
       if (status >= 200 && status < 300 && Array.isArray(data)) {
-        const filtered = data.filter(s => !(s.name || '').startsWith(moduleRoutes.HIDDEN_SESSION_PREFIX));
+        const filtered = data.filter(s => !(s.name || '').startsWith(HIDDEN_SESSION_PREFIX));
         res.status(status).json(filtered);
       } else {
         res.status(status).json(data);
@@ -142,9 +144,9 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
-  // --- Modules (local + ephemeral relay invocation) ---
+  // --- Modules (list + static file serving; AI invocation is WS-only) ---
   moduleRoutes.register(app, {
-    requireAuth, moduleService, fileService, resolveProject, relayTransport, log: parentLog,
+    requireAuth, moduleService, resolveProject, log: parentLog,
   });
 
   // --- Tasks (proxy through relayLLM → scheduler) ---

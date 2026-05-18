@@ -107,6 +107,10 @@ class MessageDispatcher {
       task_error:           (d) => this.handleSchedulerTaskEvent(d),
       task_status:          (d) => this.handleSchedulerTaskStatus(d),
       module_file_response: (d) => this.bus.emit(EVT.MODULE_FILE_RESPONSE, d),
+      module_ai_started:    (d) => this.bus.emit(EVT.MODULE_AI_STARTED, d),
+      module_ai_event:      (d) => this.bus.emit(EVT.MODULE_AI_EVENT, d),
+      module_ai_completed:  (d) => this.bus.emit(EVT.MODULE_AI_COMPLETED, d),
+      module_ai_failed:     (d) => this.bus.emit(EVT.MODULE_AI_FAILED, d),
     };
   }
 

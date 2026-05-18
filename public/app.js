@@ -71,6 +71,9 @@ class EveWorkspaceClient {
     this.moduleHost = new ModuleHost(this.container);
     this.container.register('moduleHost', this.moduleHost);
     this.moduleHost.init();
+    this.moduleActivityOrb = new ModuleActivityOrb(this.container);
+    this.container.register('moduleActivityOrb', this.moduleActivityOrb);
+    this.moduleActivityOrb.init();
 
     // File viewer registry (IoC: viewers register themselves)
     this.viewerRegistry = new ViewerRegistry();
