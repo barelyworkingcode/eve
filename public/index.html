@@ -202,6 +202,9 @@
           <div id="terminalContainer" class="terminal-container"></div>
         </div>
 
+        <!-- Module content area (sandboxed iframes for static-HTML modules) -->
+        <div id="moduleContent" class="module-content hidden"></div>
+
         <!-- Voice Chat content area -->
         <div id="voiceChat" class="voice-chat-content hidden">
           <!-- Voice chat pull-down drawer (voice select + switch to text) -->
@@ -415,6 +418,9 @@
   <script src="sidebar/file-tree-node.js"></script>
   <script src="sidebar/project-tree-item.js"></script>
   <script src="sidebar/project-tree.js"></script>
+
+  <script src="modules/module-store.js"></script>
+  <script src="modules/module-host.js"></script>
 
   <script src="app.js"></script>
 </body>

@@ -21,7 +21,10 @@ class ApiClient {
     const response = await fetch(url, opts);
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP ${response.status}`);
+      const err = new Error(data.error || `HTTP ${response.status}`);
+      err.status = response.status;
+      err.body = data;
+      throw err;
     }
     return response.json().catch(() => ({}));
   }
@@ -40,6 +43,15 @@ class ApiClient {
 
   // MCPs (relay-managed external tool servers; populates project dialog picker)
   getMcps() { return this._request('GET', '/api/mcps'); }
+
+  // Modules
+  listModules(projectId) {
+    return this._request('GET', `/api/modules?projectId=${encodeURIComponent(projectId)}`);
+  }
+  getModuleManifest(projectId, moduleName) {
+    return this._request('GET', `/api/modules/${encodeURIComponent(projectId)}/${encodeURIComponent(moduleName)}`);
+  }
+  invokeModule(body) { return this._request('POST', '/api/modules/invoke', body); }
 
   // Tasks
   getTasks(projectId) {

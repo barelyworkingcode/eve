@@ -7,6 +7,7 @@ const fs = require('fs');
 const { parse: parseJsonc } = require('jsonc-parser');
 const AuthService = require('./auth');
 const FileHandlers = require('./file-handlers');
+const ModuleService = require('./module-service');
 const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
 const TTSService = require('./tts-service');
@@ -117,6 +118,7 @@ try {
 }
 
 const fileHandlers = new FileHandlers((id) => projectCache.get(id));
+const moduleService = new ModuleService(fileHandlers.fileService);
 
 function normalizeProject(p) {
   return {
@@ -171,6 +173,33 @@ async function refreshProjectCache(data) {
 // Initial project cache load
 refreshProjectCache();
 
+// Cache-busting token, regenerated on every server start. Injected into
+// index.html so script and stylesheet URLs change after a restart and Chrome
+// can't serve a stale module-host.js / app.js / etc. against a new server.
+// The transformed HTML is computed once and reused — neither the file nor the
+// token can change without restarting the process.
+const CACHEBUST = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const INDEX_HTML_CACHED = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+  .replace(/<script\s+src="(?!https?:|\/\/)([^"?]+)"/g, `<script src="$1?rnd=${CACHEBUST}"`)
+  .replace(/<link([^>]*?)\s+href="(?!https?:|\/\/)([^"?]+\.(?:css|js))"/g, `<link$1 href="$2?rnd=${CACHEBUST}"`);
+
+function serveIndexWithCachebust(_req, res) {
+  res.set('Cache-Control', 'no-store');
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(INDEX_HTML_CACHED);
+}
+app.get('/', serveIndexWithCachebust);
+app.get('/index.html', serveIndexWithCachebust);
+
+// The module SDK is consumed by sandboxed iframes whose <script src> can't
+// carry our server-injected cachebust query (iframe HTML is module-authored).
+// Force the browser to revalidate every load so a fresh deploy is picked up
+// without users having to hard-refresh inside each module.
+app.get('/eve-module-sdk.js', (req, res, next) => {
+  res.set('Cache-Control', 'no-cache');
+  next();
+});
+
 // Static middleware
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/monaco', express.static(path.join(__dirname, 'node_modules/monaco-editor/min')));
@@ -205,14 +234,14 @@ registerRoutes(app, {
   resolveProject: (id) => projectCache.get(id),
   ttsService,
   sttService,
+  moduleService,
+  fileService: fileHandlers.fileService,
   log,
 });
 
 // SPA fallback for /<projectslug>/ deep links. Single-segment regex so
 // /api/* and /monaco/... stay multi-segment and never match.
-app.get(/^\/[^/]+\/?$/, (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.get(/^\/[^/]+\/?$/, serveIndexWithCachebust);
 
 // WebSocket connection handler
 wss.on('connection', createWsHandler({
@@ -220,6 +249,7 @@ wss.on('connection', createWsHandler({
   trustedNetwork,
   relayTransport,
   fileHandlers,
+  moduleService,
   claudeConfig: settings.providerConfig.claude,
   resolveProject: (id) => projectCache.get(id),
   ttsService,

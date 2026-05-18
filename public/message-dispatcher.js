@@ -106,6 +106,7 @@ class MessageDispatcher {
       task_completed:       (d) => this.handleSchedulerTaskEvent(d),
       task_error:           (d) => this.handleSchedulerTaskEvent(d),
       task_status:          (d) => this.handleSchedulerTaskStatus(d),
+      module_file_response: (d) => this.bus.emit(EVT.MODULE_FILE_RESPONSE, d),
     };
   }
 

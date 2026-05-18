@@ -72,6 +72,7 @@ class ProjectTree {
       item.sectionState = {
         tasks: savedSections.includes('tasks'),
         sessions: savedSections.includes('sessions'),
+        modules: savedSections.includes('modules'),
         files: savedSections.includes('files'),
       };
       item.onToggle = (projectId, expanded) => {

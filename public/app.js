@@ -65,6 +65,13 @@ class EveWorkspaceClient {
     this.fileEditor = new FileEditor(this.container);
     this.container.register('fileEditor', this.fileEditor);
 
+    // Modules (AI-backed mini-apps inside projects)
+    this.moduleStore = new ModuleStore(this.container);
+    this.container.register('moduleStore', this.moduleStore);
+    this.moduleHost = new ModuleHost(this.container);
+    this.container.register('moduleHost', this.moduleHost);
+    this.moduleHost.init();
+
     // File viewer registry (IoC: viewers register themselves)
     this.viewerRegistry = new ViewerRegistry();
     this.viewerRegistry.register(new ImageViewer());
@@ -294,6 +301,63 @@ class EveWorkspaceClient {
     sidebarCloseEvents.forEach(evt => {
       this.bus.on(evt, () => this.closeSidebarOnMobile());
     });
+
+    // Module launch — open a tab for a module the user clicked in the sidebar.
+    this.bus.on(EVT.MODULE_LAUNCH_REQUEST, ({ projectId, moduleName, displayName }) => {
+      this.tabManager.openModule(projectId, moduleName, displayName || moduleName);
+    });
+
+    // Module create — open a chat session preloaded with the builder prompt.
+    this.bus.on(EVT.MODULE_CREATE_REQUEST, ({ projectId }) => {
+      this._startModuleBuilder(projectId).catch(err => {
+        this.log.error('Failed to start module builder:', err);
+        this.bus.emit(EVT.TOAST_SHOW, {
+          id: 'module-builder-error',
+          message: 'Failed to start the module builder. Check the console.',
+          type: 'error', duration: 4000,
+        });
+      });
+    });
+  }
+
+  async _startModuleBuilder(projectId) {
+    const project = this.projects.get(projectId);
+    if (!project) throw new Error('Project not found');
+
+    let systemPrompt = '';
+    try {
+      const res = await fetch('/modules/module-builder-prompt.md');
+      if (res.ok) systemPrompt = await res.text();
+    } catch { /* fall through with empty prompt */ }
+
+    this.wsClient.send({
+      type: 'create_session',
+      projectId,
+      directory: project.path || '',
+      name: `${project.name} - Module Builder`,
+      systemPrompt,
+      appendClaudeMd: false,
+    });
+
+    this.bus.emit(EVT.TOAST_SHOW, {
+      id: 'module-builder-started',
+      message: 'Module builder ready. Describe the module you want.',
+      type: 'info', duration: 4000,
+    });
+
+    // Pre-fill input once the session is created and switched-to.
+    const once = ({ sessionId }) => {
+      if (!sessionId) return;
+      this.bus.off(EVT.SESSION_SWITCH, once);
+      const ta = this.elements.userInput;
+      if (ta && !ta.value) {
+        ta.value = 'I want a module that ...';
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+        this.autoResizeTextarea();
+      }
+    };
+    this.bus.on(EVT.SESSION_SWITCH, once);
   }
 
   initEventListeners() {
@@ -503,6 +567,14 @@ class EveWorkspaceClient {
         }
       }
 
+      // Restore module tabs from localStorage.
+      const recentModules = this.tabManager.getRecentModules();
+      for (const mod of recentModules) {
+        if (this.projects.has(mod.projectId)) {
+          this.tabManager.openModule(mod.projectId, mod.moduleName, mod.moduleName);
+        }
+      }
+
       // Check for hash-based route (e.g., /#/voice-chat, #session/<id>, #file/<id>/<path>)
       this._handleHashRoute();
       if (!this._hashListenerAdded) {
@@ -588,8 +660,8 @@ class EveWorkspaceClient {
       return;
     }
 
-    // Tab deep links: #session/<id>, #file/<projectId>/<path>, #terminal/<id>
-    const match = hash.match(/^#(session|file|terminal)\/(.+)$/);
+    // Tab deep links: #session/<id>, #file/<projectId>/<path>, #terminal/<id>, #module/<projectId>/<moduleName>
+    const match = hash.match(/^#(session|file|terminal|module)\/(.+)$/);
     if (!match) return;
 
     const [, routeType, routeData] = match;
@@ -639,6 +711,16 @@ class EveWorkspaceClient {
           this._hashRouteError('Terminal not found.');
         }
       }
+    } else if (routeType === 'module') {
+      const slashIdx = routeData.indexOf('/');
+      if (slashIdx === -1) return;
+      const projectId = decodeURIComponent(routeData.substring(0, slashIdx));
+      const moduleName = decodeURIComponent(routeData.substring(slashIdx + 1));
+      if (!this.projects.has(projectId)) {
+        this._hashRouteError('Project not found.');
+        return;
+      }
+      this.tabManager.openModule(projectId, moduleName, moduleName);
     }
   }
 

@@ -1,9 +1,10 @@
 const createAuthRoutes = require('./auth');
+const moduleRoutes = require('./modules');
 const path = require('path');
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, ttsService, sttService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, ttsService, sttService, moduleService, fileService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   // Shared auth middleware.
   // Bypass order: (1) no passkey enrolled yet — first-run bootstrap; (2) the
@@ -123,8 +124,27 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
   });
 
   // --- Sessions (proxy) ---
-  app.get('/api/sessions', requireAuth, (req, res) => {
-    proxy(req, res, 'GET', '/api/sessions');
+  // Hide ephemeral module-invocation sessions (created by POST /api/modules/invoke).
+  // They're created/deleted within a single HTTP request, but a sidebar list
+  // fetched mid-invocation would otherwise show the in-flight session.
+  app.get('/api/sessions', requireAuth, async (req, res) => {
+    try {
+      const { status, data } = await relayTransport.fetch('GET', '/api/sessions');
+      if (status >= 200 && status < 300 && Array.isArray(data)) {
+        const filtered = data.filter(s => !(s.name || '').startsWith(moduleRoutes.HIDDEN_SESSION_PREFIX));
+        res.status(status).json(filtered);
+      } else {
+        res.status(status).json(data);
+      }
+    } catch (err) {
+      routeLog.error('GET /api/sessions failed:', err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
+  });
+
+  // --- Modules (local + ephemeral relay invocation) ---
+  moduleRoutes.register(app, {
+    requireAuth, moduleService, fileService, resolveProject, relayTransport, log: parentLog,
   });
 
   // --- Tasks (proxy through relayLLM → scheduler) ---

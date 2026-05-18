@@ -2,6 +2,7 @@ class TabManager {
   static SESSION_STORAGE_KEY = 'eve-open-sessions';
   static SESSION_META_KEY = 'eve-session-meta';
   static FILE_STORAGE_KEY = 'eve-open-files';
+  static MODULE_STORAGE_KEY = 'eve-open-modules';
   static MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   /**
@@ -26,6 +27,7 @@ class TabManager {
     this.viewerInfo = document.getElementById('fileViewerInfo');
     this.terminalContent = document.getElementById('terminal');
     this.voiceChatContent = document.getElementById('voiceChat');
+    this.moduleContent = document.getElementById('moduleContent');
   }
 
   initEventListeners() {
@@ -149,6 +151,28 @@ class TabManager {
   }
 
   /**
+   * Opens a module as a tab
+   */
+  openModule(projectId, moduleName, label) {
+    const tabId = `module:${projectId}:${moduleName}`;
+    const existingTab = this.tabs.find(t => t.id === tabId);
+    if (existingTab) {
+      this.switchToTab(tabId);
+      return;
+    }
+    const tab = {
+      id: tabId,
+      type: 'module',
+      label: label || moduleName,
+      projectId,
+      moduleName,
+    };
+    this.tabs.push(tab);
+    this._saveModuleTab(projectId, moduleName);
+    this.switchToTab(tabId);
+  }
+
+  /**
    * Switches active tab
    */
   switchToTab(tabId) {
@@ -166,6 +190,7 @@ class TabManager {
     this.viewerContent.classList.add('hidden');
     this.terminalContent.classList.add('hidden');
     if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
+    if (this.moduleContent) this.moduleContent.classList.add('hidden');
 
     // Destroy active viewer when switching away (pause media, free memory)
     this._destroyActiveViewer();
@@ -225,6 +250,9 @@ class TabManager {
       if (this.app.terminalManager) {
         this.app.terminalManager.showTerminal(tab.id);
       }
+    } else if (tab.type === 'module') {
+      if (this.moduleContent) this.moduleContent.classList.remove('hidden');
+      if (this.app.moduleHost) this.app.moduleHost.activate(tab);
     }
 
     this.render();
@@ -244,6 +272,8 @@ class TabManager {
         hash = `#file/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.path)}`;
       } else if (tab.type === 'terminal') {
         hash = `#terminal/${encodeURIComponent(tab.id)}`;
+      } else if (tab.type === 'module') {
+        hash = `#module/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.moduleName)}`;
       }
     }
     const target = hash || (window.location.pathname + window.location.search);
@@ -295,6 +325,12 @@ class TabManager {
       this.app.terminalManager.closeTerminal(tab.id);
     }
 
+    // Destroy module iframe + drop from localStorage
+    if (tab.type === 'module') {
+      this._removeModuleTab(tab.projectId, tab.moduleName);
+      if (this.app.moduleHost) this.app.moduleHost.destroy(tab.id);
+    }
+
     // Remove tab
     this.tabs.splice(tabIndex, 1);
 
@@ -312,6 +348,7 @@ class TabManager {
         this.viewerContent.classList.add('hidden');
         this.terminalContent.classList.add('hidden');
         if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
+        if (this.moduleContent) this.moduleContent.classList.add('hidden');
         this.app.voiceChatManager?.deactivate();
         this._destroyActiveViewer();
         this._updateHash(null);
@@ -581,6 +618,22 @@ class TabManager {
 
   getRecentFiles() {
     return this._getRecentEntries(TabManager.FILE_STORAGE_KEY);
+  }
+
+  // --- Module persistence ---
+
+  _saveModuleTab(projectId, moduleName) {
+    const key = `${projectId}:${moduleName}`;
+    this._saveToStorage(TabManager.MODULE_STORAGE_KEY, key, { projectId, moduleName, ts: Date.now() });
+  }
+
+  _removeModuleTab(projectId, moduleName) {
+    const key = `${projectId}:${moduleName}`;
+    this._removeFromStorage(TabManager.MODULE_STORAGE_KEY, key);
+  }
+
+  getRecentModules() {
+    return this._getRecentEntries(TabManager.MODULE_STORAGE_KEY);
   }
 }
 
