@@ -1,6 +1,6 @@
 {
-  "name": "Eve Workspace",
-  "short_name": "Eve",
+  "name": "Home|Work",
+  "short_name": "Home|Work",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",

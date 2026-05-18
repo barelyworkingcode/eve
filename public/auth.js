@@ -47,7 +47,7 @@ class AuthClient {
 
   showEnrollScreen() {
     this.elements.title.textContent = 'Set Up Passkey';
-    this.elements.message.textContent = 'Secure your Eve Workspace with a passkey.';
+    this.elements.message.textContent = 'Secure your Home|Work with a passkey.';
     this.elements.action.textContent = 'Create Passkey';
     this.elements.action.dataset.mode = 'enroll';
     this.show();
