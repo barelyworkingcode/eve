@@ -32,6 +32,12 @@ class RelayClient {
     this.sessionDirectory = null; // cached for slash command use
     this.currentSessionId = null;
 
+    // Hidden module-invocation sessions intercepted before normal dispatch.
+    // sessionId -> handler(msg). Module sessions must never reach the browser
+    // as regular llm_event/message_complete — the dispatcher would treat them
+    // as background events for an unknown session and start a buffer.
+    this.moduleSessions = new Map();
+
     this.ttsService = ttsService || null;
     this.voiceMode = false;
     this.voicePreset = DEFAULT_TTS_VOICE;
@@ -76,6 +82,21 @@ class RelayClient {
   }
 
   _handleRelayMessage(msg) {
+    // Hidden module-invocation sessions are intercepted FIRST. Their events
+    // must never reach the browser as `llm_event`/`message_complete` — the
+    // dispatcher routes by sessionId and would otherwise buffer them as a
+    // background session. The handler (registered by ModuleInvoker) wraps the
+    // event into a `module_ai_event` and forwards that instead.
+    const sid = msg.sessionId;
+    if (sid && this.moduleSessions.has(sid)) {
+      try {
+        this.moduleSessions.get(sid)(msg);
+      } catch (err) {
+        this.log.error('Module session handler threw:', err.message);
+      }
+      return;
+    }
+
     // When Eve creates a session via HTTP POST, it sends session_created to the
     // browser directly, then joins via relay WS. The relay responds with
     // session_joined which would duplicate the notification, so we suppress it.
@@ -114,14 +135,32 @@ class RelayClient {
     this.send(msg);
   }
 
-  _sendToBrowser(msg) {
+  sendToBrowser(msg) {
     if (this.browserWs && this.browserWs.readyState === WebSocket.OPEN) {
       this.browserWs.send(JSON.stringify(msg));
     }
   }
+  _sendToBrowser(msg) { this.sendToBrowser(msg); }
 
   setSuppressNextJoin(value) {
     this.suppressNextJoin = value;
+  }
+
+  /**
+   * Register a handler that will receive ALL relay messages for `sessionId`
+   * instead of forwarding them to the browser. Used by ModuleInvoker to
+   * accumulate streaming text + tool events from a hidden ephemeral session
+   * without leaking them into the user's visible chat history. Last writer
+   * wins if called twice for the same id — the invoker is responsible for
+   * unregistering on terminal events.
+   */
+  registerModuleSession(sessionId, handler) {
+    if (!sessionId || typeof handler !== 'function') return;
+    this.moduleSessions.set(sessionId, handler);
+  }
+
+  unregisterModuleSession(sessionId) {
+    this.moduleSessions.delete(sessionId);
   }
 
   joinSession(sessionId) {

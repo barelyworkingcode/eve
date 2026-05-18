@@ -10,7 +10,7 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, claudeConfig, resolveProject, ttsService, sttService, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, claudeConfig, resolveProject, ttsService, sttService, log }) {
   return (ws, req) => {
     // Trust is decided by the raw TCP source address via TrustedNetworkService.
     // Never consult req.headers.host or X-Forwarded-For here — both are
@@ -156,6 +156,17 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
           case 'module_write_file':
             await handleModuleFileOp(ws, { moduleService, fileHandlers, resolveProject, fileWatcher },
               message, 'write');
+            break;
+
+          // --- Module AI invocation (streaming via hidden ephemeral session) ---
+          case 'module_invoke_ai':
+            handleModuleInvokeAi(ws, relayClient, moduleInvoker, message, log);
+            break;
+
+          case 'module_ai_stop':
+            if (moduleInvoker && message.requestId) {
+              moduleInvoker.stop(message.requestId);
+            }
             break;
 
           // --- Terminal operations (proxied to relayLLM) ---
@@ -476,6 +487,49 @@ async function handleModuleFileOp(ws, { moduleService, fileHandlers, resolveProj
   } catch (err) {
     reply({ ok: false, error: err.message });
   }
+}
+
+/**
+ * Drive a streaming module AI invocation. The invoker handles the relay
+ * session lifecycle and forwards per-event frames to the browser as it
+ * goes; this wrapper just translates the terminal outcome into a single
+ * `module_ai_completed`/`module_ai_failed` frame the client can resolve its
+ * pending Promise against. The invoke is fire-and-forget from the WS
+ * handler's perspective — errors must never throw past this boundary or
+ * they'd bubble up and disconnect the socket.
+ */
+function handleModuleInvokeAi(ws, relayClient, moduleInvoker, message, log) {
+  const { requestId, projectId, moduleName, prompt, files, schema, model } = message;
+  if (!moduleInvoker) {
+    ws.send(JSON.stringify({
+      type: 'module_ai_failed', requestId, error: 'Module invoker not initialized',
+    }));
+    return;
+  }
+  if (!requestId) {
+    ws.send(JSON.stringify({
+      type: 'module_ai_failed', requestId: null, error: 'requestId required',
+    }));
+    return;
+  }
+
+  moduleInvoker.invoke({
+    requestId, projectId, moduleName, prompt,
+    files: files || [], schema, model,
+    relayClient, browserWs: ws,
+  }).then(({ result, rawText, model: usedModel, sessionId }) => {
+    ws.send(JSON.stringify({
+      type: 'module_ai_completed',
+      requestId, sessionId, result, rawText, model: usedModel,
+    }));
+  }).catch(err => {
+    log?.error?.(`module_invoke_ai ${requestId} failed: ${err.message}`);
+    const payload = {
+      type: 'module_ai_failed', requestId, error: err.message || 'Module invocation failed',
+    };
+    if (err.deniedFiles) payload.deniedFiles = err.deniedFiles;
+    ws.send(JSON.stringify(payload));
+  });
 }
 
 module.exports = createWsHandler;

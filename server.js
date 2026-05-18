@@ -8,6 +8,7 @@ const { parse: parseJsonc } = require('jsonc-parser');
 const AuthService = require('./auth');
 const FileHandlers = require('./file-handlers');
 const ModuleService = require('./module-service');
+const ModuleInvoker = require('./module-invoker');
 const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
 const TTSService = require('./tts-service');
@@ -119,6 +120,13 @@ try {
 
 const fileHandlers = new FileHandlers((id) => projectCache.get(id));
 const moduleService = new ModuleService(fileHandlers.fileService);
+const moduleInvoker = new ModuleInvoker({
+  relayTransport,
+  moduleService,
+  fileService: fileHandlers.fileService,
+  resolveProject: (id) => projectCache.get(id),
+  log,
+});
 
 function normalizeProject(p) {
   return {
@@ -235,7 +243,6 @@ registerRoutes(app, {
   ttsService,
   sttService,
   moduleService,
-  fileService: fileHandlers.fileService,
   log,
 });
 
@@ -250,6 +257,7 @@ wss.on('connection', createWsHandler({
   relayTransport,
   fileHandlers,
   moduleService,
+  moduleInvoker,
   claudeConfig: settings.providerConfig.claude,
   resolveProject: (id) => projectCache.get(id),
   ttsService,
