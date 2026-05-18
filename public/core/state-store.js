@@ -17,9 +17,37 @@ class StateStore {
     this.models = [];
     this.mcps = [];
     this.terminalTemplates = [];
+    this.modules = new Map(); // projectId -> Module[]
     this.providerSettings = {};
     this.currentSessionId = null;
     this.scopedProjectId = null;
+  }
+
+  // --- Modules ---
+
+  setModulesForProject(projectId, modules) {
+    const next = Array.isArray(modules) ? modules : [];
+    const prev = this.modules.get(projectId);
+    // Skip the emit if the list is unchanged — `loadModulesForProject` is
+    // called eagerly on every sidebar re-render, and a cache hit shouldn't
+    // cascade into another re-render via MODULE_LIST_UPDATED.
+    if (prev && this._modulesEqual(prev, next)) return;
+    this.modules.set(projectId, next);
+    this.bus.emit(EVT.MODULE_LIST_UPDATED, { projectId });
+  }
+
+  _modulesEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i], y = b[i];
+      if (x.name !== y.name || x.displayName !== y.displayName ||
+          x.broken !== y.broken || x.error !== y.error) return false;
+    }
+    return true;
+  }
+
+  getModulesForProject(projectId) {
+    return this.modules.get(projectId) || [];
   }
 
   // --- Sessions ---
