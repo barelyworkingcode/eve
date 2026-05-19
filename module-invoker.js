@@ -57,7 +57,13 @@ class ModuleInvoker {
     ));
 
     const resolvedModel = model || manifest.model || (project.allowedModels || [])[0] || '';
-    const allowedTools = (manifest.permissions?.tools || []).slice();
+    const allowedTools = manifest.permissions?.tools || [];
+    if (allowedTools.length > 0 && !project.token) {
+      throw new Error(
+        `Module "${moduleName}" declares permissions.tools but project has no MCP token. ` +
+        `Tools cannot authenticate to the relay.`
+      );
+    }
     const systemPrompt = buildSystemPrompt({
       moduleName, displayName: manifest.displayName, files: fileBlocks, schema,
       tools: allowedTools,
@@ -219,11 +225,9 @@ function buildSystemPrompt({ moduleName, displayName, files, schema, tools, proj
     `Respond directly and concisely. Do not explain your reasoning unless asked.`,
   ];
   if (tools && tools.length > 0) {
-    // llama/openai backends receive the relay's full MCP tool list regardless
-    // of allowedTools, so name the permitted tools explicitly here too.
-    // The relay's tools require ABSOLUTE paths — they don't chdir to the
-    // session directory — so we spell out the project root here. Without
-    // this, the model's first tool call gets a "path must be absolute" error.
+    // Relay tools require ABSOLUTE paths — they don't chdir to the session
+    // directory. Without spelling out the project root, the model's first
+    // tool call gets a "path must be absolute" error.
     parts.push(
       `\nYou have these tools available: ${tools.join(', ')}. ` +
       `The project root is \`${projectRoot}\`. ` +
