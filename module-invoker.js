@@ -57,12 +57,16 @@ class ModuleInvoker {
     ));
 
     const resolvedModel = model || manifest.model || (project.allowedModels || [])[0] || '';
+    const allowedTools = (manifest.permissions?.tools || []).slice();
     const systemPrompt = buildSystemPrompt({
       moduleName, displayName: manifest.displayName, files: fileBlocks, schema,
+      tools: allowedTools,
+      projectRoot: project.path,
     });
 
     const sessionId = await this._createHiddenSession({
       projectId, directory: project.path, moduleName, model: resolvedModel,
+      project, allowedTools,
     });
     const t0 = Date.now();
 
@@ -124,12 +128,32 @@ class ModuleInvoker {
    * The `__module:` prefix is the load-bearing filter that keeps these
    * sessions out of /api/sessions and the user's sidebar. See
    * routes/index.js for the matching filter.
+   *
+   * When the manifest declares `permissions.tools`, we wire the project's
+   * MCP token + useRelayTools so llama/openai backends actually receive
+   * tool definitions (Claude reads `allowedTools` directly). bypassPermissions
+   * mode is required because the orb has no UI to answer permission prompts —
+   * the model can call whitelisted tools without round-tripping.
    */
-  async _createHiddenSession({ projectId, directory, moduleName, model }) {
+  async _createHiddenSession({ projectId, directory, moduleName, model, project, allowedTools }) {
     const sessionName = `${HIDDEN_SESSION_PREFIX}${moduleName}:${crypto.randomBytes(6).toString('hex')}`;
+    const hasTools = allowedTools && allowedTools.length > 0;
     const create = await this.relayTransport.fetch('POST', '/api/sessions', {
-      projectId, directory, name: sessionName, model,
-      systemPrompt: '', appendClaudeMd: false, mcpToken: '', settings: null,
+      projectId,
+      directory,
+      name: sessionName,
+      model,
+      systemPrompt: '',
+      appendClaudeMd: false,
+      mcpToken: hasTools ? (project?.token || '') : '',
+      settings: hasTools ? {
+        useRelayTools: true,
+        permissionPolicy: {
+          allowedTools,
+          deniedTools: [],
+          defaultMode: 'bypassPermissions',
+        },
+      } : null,
     });
     if (create.status < 200 || create.status >= 300) {
       throw new Error((create.data && create.data.error) || `Session create failed (${create.status})`);
@@ -189,11 +213,27 @@ function accumulateAssistantText(msg) {
   return out;
 }
 
-function buildSystemPrompt({ moduleName, displayName, files, schema }) {
+function buildSystemPrompt({ moduleName, displayName, files, schema, tools, projectRoot }) {
   const parts = [
     `You are the AI backend for the "${displayName}" module (id: ${moduleName}) running inside the Eve workspace.`,
     `Respond directly and concisely. Do not explain your reasoning unless asked.`,
   ];
+  if (tools && tools.length > 0) {
+    // llama/openai backends receive the relay's full MCP tool list regardless
+    // of allowedTools, so name the permitted tools explicitly here too.
+    // The relay's tools require ABSOLUTE paths — they don't chdir to the
+    // session directory — so we spell out the project root here. Without
+    // this, the model's first tool call gets a "path must be absolute" error.
+    parts.push(
+      `\nYou have these tools available: ${tools.join(', ')}. ` +
+      `The project root is \`${projectRoot}\`. ` +
+      `Tool paths must be ABSOLUTE — always prefix relative paths with the ` +
+      `project root (e.g. \`${projectRoot}/todo.md\`, not \`todo.md\`). ` +
+      `Use tools when the task requires reading, writing, or searching ` +
+      `files. Prefer the inlined context files above when they already ` +
+      `contain what you need.`
+    );
+  }
   if (files.length > 0) {
     parts.push(`\nContext files (relative to the project root):\n${files.join('\n\n')}`);
   }
