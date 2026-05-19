@@ -29,7 +29,8 @@ If a module has a broken or missing manifest, it still appears in the sidebar ta
   "entry": "index.html",
   "model": "claude-haiku-4-5",
   "permissions": {
-    "files": ["todo.md", "todo.cache.json"]
+    "files": ["todo.md", "todo.cache.json"],
+    "tools": ["Read", "Grep", "Glob"]
   }
 }
 ```
@@ -39,10 +40,31 @@ If a module has a broken or missing manifest, it still appears in the sidebar ta
 | `displayName` | yes | Non-empty string. Shown in the sidebar. |
 | `entry` | no | Defaults to `index.html`. Must end in `.html`, no `..`, no leading `/`. |
 | `model` | no | Preferred model for `invokeAI`. Falls back to the project's default. |
-| `permissions.files` | no | Array of **project-relative** file paths. Must not contain `..` or start with `/`. The exact list of files the module can read/write — no globs. |
+| `permissions.files` | no | Array of **project-relative** file paths. Must not contain `..` or start with `/`. The exact list of files the iframe SDK (`eve.readFile` / `eve.writeFile`) is allowed to touch — no globs. |
+| `permissions.tools` | no | Array of tool names the LLM is allowed to call (e.g. `["Read", "Grep", "Glob"]`). Default `[]` (no LLM tools). See the **trust boundaries** section below. |
 | `name` | — | Do not set; the folder name always wins. |
 
-The `permissions.files` list is the **only** authority on what files a module can touch. It's checked server-side on every read, write, and AI-invocation; client-side checks are advisory.
+### Two trust boundaries
+
+Modules have **two independent permission lists** that gate two different actors:
+
+- **`permissions.files`** — what the **iframe SDK** can read/write. Bounded to the listed files, project-relative. The iframe JS is AI-authored; this is the security boundary that keeps a misbehaving module from touching arbitrary files.
+- **`permissions.tools`** — what tools the **LLM** can call during `invokeAI`. Tools like `Read`/`Grep`/`Glob` see the **whole project directory**, not just `permissions.files`. There is no per-tool path scoping — once you grant `Read`, the model can read any file in the project.
+
+Recommended tool sets:
+
+| Risk | Tools | Use case |
+|---|---|---|
+| Low | `["Read", "Grep", "Glob"]` | Read-only modules that may need to explore the project before answering. |
+| Medium | `["Read", "Write", "Edit", "Grep", "Glob"]` | Modules that need to modify project files beyond the iframe SDK's whitelist. |
+| **Avoid** | `["Bash", "Task", "WebFetch"]` | These execute commands / spawn sub-agents / make network calls. Only add if you trust the module manifest as much as your own code. |
+
+If a module only needs to manipulate a fixed set of files (the typical case), leave `permissions.tools` unset and use `eve.readFile` / `eve.writeFile` with `permissions.files` — that gives the iframe a tightly scoped sandbox and the LLM stays tool-less.
+
+**Why both backends differ here:**
+
+- For Claude Code, `permissions.tools` is passed as `--allowedTools` to the Claude CLI. Claude only sees the whitelisted tools.
+- For llama-cpp / pi / OpenAI-compatible backends, relayLLM injects its full MCP tool list into the chat request regardless of `allowedTools` (a relayLLM limitation). The system prompt explicitly names the permitted tools so the model knows which ones to use; the relay's permission gate would normally block unlisted calls, but module sessions run in `bypassPermissions` mode (the orb has no UI to answer prompts), so for these backends the whitelist is advisory at the protocol layer. Treat `permissions.tools` as the **honest contract** of what the module needs; relying on it as a hard sandbox for non-Claude backends is unsafe.
 
 ## The `window.eve` SDK
 
@@ -100,16 +122,17 @@ The list of permitted extensions lives in `SERVE_MIME` in `routes/modules.js`.
 
 1. Loads and re-validates the manifest from disk.
 2. Verifies every entry in `files` is in `permissions.files` — denies the call otherwise.
-3. Reads the requested files server-side and inlines them in a system prompt (modules never need tool-use access for plain reads).
+3. Reads the requested files server-side and inlines them in a system prompt (so simple modules don't need tool access for plain reads).
 4. Resolves the model: explicit `model` arg → manifest `model` → first allowed model on the project.
-5. Creates an **ephemeral hidden relayLLM session** named `__module:<moduleName>:<random-hex>` (HTTP `POST /api/sessions`).
-6. Registers a handler on the per-connection `RelayClient` that intercepts every relay message tagged with the hidden sessionId BEFORE it can reach the browser's regular dispatch. (Without this, the dispatcher would treat the events as belonging to an unknown background session and start buffering them.)
-7. `join_session` + `send_message` over the relay WS. As `llm_event`/`message_complete` frames arrive, the handler:
+5. If `manifest.permissions.tools` is non-empty, attaches the project's MCP token + `useRelayTools: true` and sets a `permissionPolicy` with `defaultMode: 'bypassPermissions'` (the orb has no UI to answer permission prompts). The tool names are also injected into the system prompt so llama/openai backends know which tools to use. If `permissions.tools` is unset, the session runs tool-less.
+6. Creates an **ephemeral hidden relayLLM session** named `__module:<moduleName>:<random-hex>` (HTTP `POST /api/sessions`).
+7. Registers a handler on the per-connection `RelayClient` that intercepts every relay message tagged with the hidden sessionId BEFORE it can reach the browser's regular dispatch. (Without this, the dispatcher would treat the events as belonging to an unknown background session and start buffering them.)
+8. `join_session` + `send_message` over the relay WS. As `llm_event`/`message_complete` frames arrive, the handler:
    - Forwards each one to the browser as `module_ai_event { requestId, sessionId, event }`.
    - Accumulates assistant `text_delta`/`content_block` text server-side.
    - On `message_complete`, resolves a promise with the full text + parsed result.
-8. Sends a single `module_ai_completed { requestId, result, rawText, model }` (or `module_ai_failed { requestId, error, deniedFiles? }`) to the browser. `ModuleHost`'s pending-invoke entry resolves the SDK's outer Promise.
-9. **Deletes** the ephemeral session in a `finally` block, regardless of outcome.
+9. Sends a single `module_ai_completed { requestId, result, rawText, model }` (or `module_ai_failed { requestId, error, deniedFiles? }`) to the browser. `ModuleHost`'s pending-invoke entry resolves the SDK's outer Promise.
+10. **Deletes** the ephemeral session in a `finally` block, regardless of outcome.
 
 ### Browser ↔ Eve WS protocol
 
