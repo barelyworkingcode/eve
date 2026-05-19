@@ -182,6 +182,16 @@ class ModuleService {
           }
         }
       }
+      if (m.permissions.tools !== undefined) {
+        if (!Array.isArray(m.permissions.tools)) {
+          throw new Error('permissions.tools must be an array');
+        }
+        for (const t of m.permissions.tools) {
+          if (typeof t !== 'string' || !t.trim()) {
+            throw new Error('permissions.tools entries must be non-empty strings');
+          }
+        }
+      }
     }
   }
 
@@ -193,6 +203,7 @@ class ModuleService {
       model: manifest.model || null,
       permissions: {
         files: (manifest.permissions?.files || []).slice(),
+        tools: (manifest.permissions?.tools || []).slice(),
       },
     };
   }

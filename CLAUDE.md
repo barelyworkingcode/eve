@@ -361,6 +361,10 @@ Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work t
 - Loads into Eve's document area inside an iframe with `sandbox="allow-scripts"` (NO `allow-same-origin`). Opaque origin; `null`.
 - The iframe page loads `/eve-module-sdk.js` which exposes `window.eve` with `invokeAI`, `readFile`, `writeFile`, `getManifest`.
 
+**Two independent trust boundaries**
+- `permissions.files` — what the iframe SDK can `readFile`/`writeFile`. Tightly scoped: exact paths only, server-validated on every call.
+- `permissions.tools` — what tools the LLM may call during `invokeAI` (default `[]`). When set, `ModuleInvoker._createHiddenSession()` passes `mcpToken: project.token`, `settings.useRelayTools: true`, and `permissionPolicy: { allowedTools, defaultMode: 'bypassPermissions' }`. The orb has no UI to answer permission prompts so bypass mode is required. Tools see the **whole project directory** — no per-tool path scoping. Claude filters tool visibility by `allowedTools`; llama/openai see all relay MCP tools but the system prompt names the permitted ones.
+
 **Server-side files**
 - `module-service.js` — manifest schema/validation, path resolution with traversal + symlink defense (`MODULE_NAME_RE`, `resolveModuleFile`, `isFilePermitted`).
 - `module-invoker.js` — streaming AI invocation. Creates the ephemeral `__module:`-prefixed session, registers a handler on `RelayClient`, drives `join_session` + `send_message` over the WS, accumulates text, forwards events to the browser as `module_ai_event`, deletes the session in `finally`. Owns `HIDDEN_SESSION_PREFIX`.

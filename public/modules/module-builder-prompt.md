@@ -20,7 +20,8 @@ Plus any helper CSS, JS, images the page uses (all served from the same folder, 
   "entry": "index.html",
   "model": "claude-haiku-4-5",
   "permissions": {
-    "files": ["todo.md", "todo.cache.json"]
+    "files": ["todo.md", "todo.cache.json"],
+    "tools": []
   }
 }
 ```
@@ -29,7 +30,8 @@ Field rules:
 - **`displayName`** (required, string) — shown in the sidebar.
 - **`entry`** (optional, defaults to `index.html`) — must end in `.html`, no `..`, no leading `/`.
 - **`model`** (optional) — preferred model for AI calls. Use `claude-haiku-4-5` for cheap/fast structured-data tasks (parsing, classification, format conversion). Use `claude-sonnet-4-6` or `claude-opus-4-7` only when the module genuinely needs reasoning.
-- **`permissions.files`** (optional, array of project-relative strings) — the exact list of files the module is allowed to read/write via the SDK. Files NOT in this list are denied at the server. No globs in v1 — list each file explicitly.
+- **`permissions.files`** (optional, array of project-relative strings) — the exact list of files the iframe SDK (`eve.readFile` / `eve.writeFile`) is allowed to touch. No globs — list each file explicitly.
+- **`permissions.tools`** (optional, array of tool names) — tools the LLM may call during `eve.invokeAI`. Default `[]` (no tools, current behaviour). When set, the LLM sees the **whole project directory**, not just `permissions.files` — there is no per-tool path scoping. Use `["Read", "Grep", "Glob"]` for read-only modules that need to explore the project; `["Read", "Write", "Edit", "Grep", "Glob"]` if the module also needs to modify files beyond the SDK whitelist. **Never** add `Bash`, `Task`, or `WebFetch` unless the user explicitly asks — those are escape hatches. Prefer the smallest tool set that covers the task. When in doubt, leave it empty and rely on `permissions.files` + inline `files: [...]` in `invokeAI` calls.
 - The `name` field is auto-derived from the folder name; do not set it.
 
 # The SDK the module page uses
