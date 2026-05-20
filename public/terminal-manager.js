@@ -243,25 +243,31 @@ class TerminalManager {
 
   /**
    * Called when we successfully join a terminal (with scrollback).
+   *
+   * By contract, the PTY size matches our xterm grid at this point:
+   *   - Fresh terminals: created at our requested cols/rows.
+   *   - Reconnects: showTerminal fits xterm first, then sends
+   *     terminal_reconnect with the fitted cols/rows; relayLLM resizes the
+   *     PTY before capturing scrollback.
+   * So we replay bytes as-is and never resize during scrollback playback —
+   * the resize-during-replay path is what produced the duplicate-screen bug.
    */
   onTerminalJoined(data) {
     const terminalId = data.terminalId;
     let terminal = this.terminals.get(terminalId);
 
-    // Reconnect case: terminal isn't set up yet.
+    // Defensive: terminal_joined arriving without prior setup (shouldn't
+    // happen on the normal reconnect path now, but keep the fallback).
     if (!terminal) {
       this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped');
       this.app.bus.emit(EVT.TERMINAL_LIST);
       terminal = this.terminals.get(terminalId);
+      if (terminal && Number.isInteger(data.cols) && data.cols > 0 &&
+          Number.isInteger(data.rows) && data.rows > 0) {
+        terminal.term.resize(data.cols, data.rows);
+      }
     }
     if (!terminal) return;
-
-    // Match xterm's grid to the PTY before replaying scrollback so ANSI
-    // cursor positions in the captured bytes resolve against the right size.
-    if (Number.isInteger(data.cols) && data.cols > 0 &&
-        Number.isInteger(data.rows) && data.rows > 0) {
-      terminal.term.resize(data.cols, data.rows);
-    }
 
     if (data.scrollback) {
       const bytes = this._decodeBase64(data.scrollback);
@@ -286,6 +292,21 @@ class TerminalManager {
     requestAnimationFrame(() => {
       terminal.fitAddon.fit();
       terminal.term.focus();
+
+      // First display after a reconnect: now that xterm has measured itself
+      // against the visible container, ask relayLLM to size the PTY to match
+      // before it sends scrollback. This keeps PTY, xterm grid, and replayed
+      // bytes all at the same dimensions — no SIGWINCH-driven repaint
+      // landing on top of an already-rendered screen.
+      if (terminal.needsReconnect) {
+        terminal.needsReconnect = false;
+        this.app.wsClient.send({
+          type: 'terminal_reconnect',
+          terminalId,
+          cols: terminal.term.cols,
+          rows: terminal.term.rows,
+        });
+      }
     });
 
     if (this.resizeHandler) {
@@ -363,13 +384,15 @@ class TerminalManager {
   }
 
   reconnectTerminal(terminalId, templateId, name, directory, exited) {
-    this.setupTerminal(terminalId, templateId, name, directory, exited);
-
-    // Request scrollback replay via reconnect.
-    this.app.wsClient.send({ type: 'terminal_reconnect', terminalId });
+    // setupTerminal marks the terminal as needing a reconnect; the actual
+    // terminal_reconnect message is deferred until showTerminal so we can
+    // fit() against the visible container first and tell relayLLM the real
+    // viewport size. Capturing scrollback at the wrong size and resizing
+    // after replay is what produced the duplicate-screen bug.
+    this.setupTerminal(terminalId, templateId, name, directory, exited, /* needsReconnect */ true);
   }
 
-  setupTerminal(terminalId, templateId, name, directory, exited) {
+  setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect = false) {
     if (!this.xtermLoaded) {
       this.log.error('xterm not loaded yet');
       return;
@@ -394,7 +417,8 @@ class TerminalManager {
       directory,
       templateId,
       name,
-      exited: !!exited
+      exited: !!exited,
+      needsReconnect: !!needsReconnect
     });
     this.allTerminals.set(terminalId, {
       id: terminalId, templateId, name, directory,
