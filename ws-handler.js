@@ -191,7 +191,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             break;
 
           case 'terminal_reconnect':
-            relayClient.send({ type: 'terminal_reconnect', terminalId: message.terminalId });
+            relayClient.send({ type: 'terminal_reconnect', terminalId: message.terminalId, cols: message.cols, rows: message.rows });
             break;
 
           case 'join_terminal':
