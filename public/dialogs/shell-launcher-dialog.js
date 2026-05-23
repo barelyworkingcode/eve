@@ -215,10 +215,12 @@ class ShellLauncherDialog extends DialogBase {
       key: '_appendClaudeMd',
       label: 'Append CLAUDE.md',
       type: 'boolean',
-      default: false,
+      default: true,
       visibleWhen: (models, modelValue) => !isClaudeModel(models, modelValue),
     };
-    const settingsContainer = this._addProviderSettings(form, modelSelect, null, [claudeMdExtra]);
+    const settingsContainer = this._addProviderSettings(
+      form, modelSelect, { useRelayTools: true }, [claudeMdExtra]
+    );
 
     // Action buttons
     const actions = document.createElement('div');
