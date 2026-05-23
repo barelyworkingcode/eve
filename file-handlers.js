@@ -1,9 +1,10 @@
 const FileService = require('./file-service');
 
 class FileHandlers {
-  constructor(resolveProject) {
+  constructor({ resolveProject, searchService } = {}) {
     this.resolveProject = resolveProject;
     this.fileService = new FileService();
+    this.searchService = searchService;
   }
 
   _resolveProject(projectId) {
@@ -91,6 +92,36 @@ class FileHandlers {
       const newPath = await this.fileService.createDirectory(project.path, parentPath, name);
       ws.send(JSON.stringify({ type: 'directory_created', projectId, path: '/' + newPath, name }));
     });
+  }
+
+  async searchProject(ws, message) {
+    const { requestId, projectId, query, options } = message;
+    const project = this._resolveProject(projectId);
+    if (!project) {
+      ws.send(JSON.stringify({ type: 'search_error', requestId, projectId, error: 'Project not found' }));
+      return;
+    }
+    if (!this.searchService) {
+      ws.send(JSON.stringify({ type: 'search_error', requestId, projectId, error: 'Search not available' }));
+      return;
+    }
+
+    try {
+      // validatePath anchors the search to the project root and rejects any
+      // funny business with the project's own configured path.
+      const safeRoot = this.fileService.validatePath(project.path, '/');
+      const result = await this.searchService.run(safeRoot, query, { ...(options || {}), requestId });
+      ws.send(JSON.stringify({
+        type: 'search_results',
+        requestId,
+        projectId,
+        matches: result.matches,
+        truncated: result.truncated,
+        durationMs: result.durationMs,
+      }));
+    } catch (err) {
+      ws.send(JSON.stringify({ type: 'search_error', requestId, projectId, error: err.message }));
+    }
   }
 }
 

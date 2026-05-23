@@ -260,15 +260,17 @@ class FileEditor {
   }
 
   /**
-   * Opens a file in the editor
+   * Opens a file in the editor. Optional 1-based `lineNumber` jumps the
+   * cursor + scrolls into view once content loads.
    */
-  openFile(projectId, path, content) {
+  openFile(projectId, path, content, lineNumber) {
     // Set currentFile immediately to prevent duplicate requests from showFile
     this.currentFile = {
       projectId,
       path,
       content,
-      originalContent: content
+      originalContent: content,
+      pendingLineNumber: typeof lineNumber === 'number' ? lineNumber : null,
     };
 
     // Lazy-load Monaco on first file open
@@ -330,6 +332,15 @@ class FileEditor {
       this.editorContainer.style.width = '';
       this.markdownPreview.style.flex = '';
       this.markdownPreview.style.width = '';
+    }
+
+    // Honor a pending jump-to-line from openFile (e.g. clicked a search result).
+    const pendingLine = this.currentFile.pendingLineNumber;
+    if (typeof pendingLine === 'number' && pendingLine > 0) {
+      this.currentFile.pendingLineNumber = null;
+      this.editor.setPosition({ lineNumber: pendingLine, column: 1 });
+      this.editor.revealLineInCenter(pendingLine);
+      this.editor.focus();
     }
   }
 
