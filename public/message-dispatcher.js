@@ -111,6 +111,12 @@ class MessageDispatcher {
       module_ai_event:      (d) => this.bus.emit(EVT.MODULE_AI_EVENT, d),
       module_ai_completed:  (d) => this.bus.emit(EVT.MODULE_AI_COMPLETED, d),
       module_ai_failed:     (d) => this.bus.emit(EVT.MODULE_AI_FAILED, d),
+      search_results:       (d) => this.bus.emit(EVT.SEARCH_RESULTS, d),
+      search_error:         (d) => this.bus.emit(EVT.SEARCH_ERROR, d),
+      search_ai_started:    (d) => this.bus.emit(EVT.SEARCH_AI_STARTED, d),
+      search_ai_event:      (d) => this.bus.emit(EVT.SEARCH_AI_EVENT, d),
+      search_ai_completed:  (d) => this.bus.emit(EVT.SEARCH_AI_COMPLETED, d),
+      search_ai_failed:     (d) => this.bus.emit(EVT.SEARCH_AI_FAILED, d),
     };
   }
 

@@ -207,6 +207,27 @@ class SettingsManager {
     this._save();
   }
 
+  getLastSearchModel(projectId) {
+    return this._settings.lastSearchModels?.[projectId] || null;
+  }
+
+  setLastSearchModel(projectId, modelId) {
+    if (!this._settings.lastSearchModels) this._settings.lastSearchModels = {};
+    if (modelId) this._settings.lastSearchModels[projectId] = modelId;
+    else delete this._settings.lastSearchModels[projectId];
+    this._save();
+  }
+
+  getLastSearchAiEnabled(projectId) {
+    return !!this._settings.lastSearchAiEnabled?.[projectId];
+  }
+
+  setLastSearchAiEnabled(projectId, enabled) {
+    if (!this._settings.lastSearchAiEnabled) this._settings.lastSearchAiEnabled = {};
+    this._settings.lastSearchAiEnabled[projectId] = !!enabled;
+    this._save();
+  }
+
   isLight() {
     return this._luminance(this._settings.bgPrimary) > 0.5;
   }

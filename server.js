@@ -7,6 +7,8 @@ const fs = require('fs');
 const { parse: parseJsonc } = require('jsonc-parser');
 const AuthService = require('./auth');
 const FileHandlers = require('./file-handlers');
+const SearchService = require('./search-service');
+const SearchSummarizer = require('./search-summarizer');
 const ModuleService = require('./module-service');
 const ModuleInvoker = require('./module-invoker');
 const registerRoutes = require('./routes/index');
@@ -118,12 +120,21 @@ try {
   throw err;
 }
 
-const fileHandlers = new FileHandlers((id) => projectCache.get(id));
+const searchService = new SearchService();
+const fileHandlers = new FileHandlers({
+  resolveProject: (id) => projectCache.get(id),
+  searchService,
+});
 const moduleService = new ModuleService(fileHandlers.fileService);
 const moduleInvoker = new ModuleInvoker({
   relayTransport,
   moduleService,
   fileService: fileHandlers.fileService,
+  resolveProject: (id) => projectCache.get(id),
+  log,
+});
+const searchSummarizer = new SearchSummarizer({
+  relayTransport,
   resolveProject: (id) => projectCache.get(id),
   log,
 });
@@ -258,6 +269,7 @@ wss.on('connection', createWsHandler({
   fileHandlers,
   moduleService,
   moduleInvoker,
+  searchSummarizer,
   claudeConfig: settings.providerConfig.claude,
   resolveProject: (id) => projectCache.get(id),
   ttsService,

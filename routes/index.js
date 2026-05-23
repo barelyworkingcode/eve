@@ -1,7 +1,14 @@
 const createAuthRoutes = require('./auth');
 const moduleRoutes = require('./modules');
 const { HIDDEN_SESSION_PREFIX } = require('../module-invoker');
+const { HIDDEN_SEARCH_PREFIX } = require('../search-summarizer');
 const path = require('path');
+
+const HIDDEN_SESSION_PREFIXES = [HIDDEN_SESSION_PREFIX, HIDDEN_SEARCH_PREFIX];
+function isHiddenSession(name) {
+  const n = name || '';
+  return HIDDEN_SESSION_PREFIXES.some(p => n.startsWith(p));
+}
 
 const { NullLogger } = require('../logger');
 
@@ -125,15 +132,16 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
   });
 
   // --- Sessions (proxy) ---
-  // Hide ephemeral module-invocation sessions (created by ModuleInvoker over
-  // the WS path). They're created/deleted around a single invocation, but a
-  // sidebar list fetched mid-invocation would otherwise show the in-flight
-  // session. Prefix is defined in module-invoker.js — keep in lockstep.
+  // Hide ephemeral sessions created on the WS path — module AI invocations
+  // (`__module:`) and search summarizations (`__search:`). They're created
+  // and deleted around a single call, but a sidebar list fetched mid-call
+  // would otherwise show the in-flight session. Prefixes are defined in
+  // module-invoker.js and search-summarizer.js — keep in lockstep.
   app.get('/api/sessions', requireAuth, async (req, res) => {
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/sessions');
       if (status >= 200 && status < 300 && Array.isArray(data)) {
-        const filtered = data.filter(s => !(s.name || '').startsWith(HIDDEN_SESSION_PREFIX));
+        const filtered = data.filter(s => !isHiddenSession(s.name));
         res.status(status).json(filtered);
       } else {
         res.status(status).json(data);

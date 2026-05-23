@@ -96,6 +96,8 @@ class EveWorkspaceClient {
     this.settingsDialog.init();
     this.projectDialog = new ProjectDialog(this.container);
     this.projectDialog.init();
+    this.searchDialog = new SearchDialog(this.container);
+    this.searchDialog.init();
 
     this.terminalManager = new TerminalManager(this.container);
     this.container.register('terminalManager', this.terminalManager);
@@ -241,6 +243,15 @@ class EveWorkspaceClient {
     // Bridge: new file tree click -> open file via existing read_file flow
     this.bus.on(EVT.FILE_CONTENT, (data) => {
       if (data.requestLoad) {
+        // Stash lineNumber on the side; handleFileContent consumes it after
+        // the read_file round-trip lands.
+        if (typeof data.lineNumber === 'number') {
+          this._pendingFileLineNumber = {
+            projectId: data.projectId,
+            path: data.path,
+            lineNumber: data.lineNumber,
+          };
+        }
         if (this.viewerRegistry.isViewerFile(data.path)) {
           // Viewer files load via HTTP, no WebSocket read needed
           const filename = data.path.split('/').pop();
@@ -250,6 +261,8 @@ class EveWorkspaceClient {
         }
       }
     });
+
+    window.addEventListener('keydown', (e) => this._handleSearchHotkey(e));
 
     // Bridge: confirm dialog requests from new components
     this.bus.on(EVT.DIALOG_CONFIRM, (data) => {
@@ -1044,8 +1057,35 @@ class EveWorkspaceClient {
 
   handleFileContent(projectId, path, content) {
     const filename = path.split('/').pop();
-    if (this.fileEditor) this.fileEditor.openFile(projectId, path, content);
+    let lineNumber;
+    const pending = this._pendingFileLineNumber;
+    if (pending && pending.projectId === projectId && pending.path === path) {
+      lineNumber = pending.lineNumber;
+      this._pendingFileLineNumber = null;
+    }
+    if (this.fileEditor) this.fileEditor.openFile(projectId, path, content, lineNumber);
     this.tabManager.openFile(projectId, path, filename);
+  }
+
+  _handleSearchHotkey(e) {
+    const isMeta = e.metaKey || e.ctrlKey;
+    if (!isMeta || !e.shiftKey || e.key.toLowerCase() !== 'f') return;
+    const projectId = this._resolveActiveProjectId();
+    if (!projectId) return;
+    e.preventDefault();
+    this.bus.emit(EVT.DIALOG_SEARCH, { projectId });
+  }
+
+  _resolveActiveProjectId() {
+    // Prefer URL-scoped project, then the project of the active session,
+    // then fall back to the first available project.
+    if (this.state.scopedProjectId) return this.state.scopedProjectId;
+    const session = this.state.currentSessionId
+      ? this.state.sessions.get(this.state.currentSessionId)
+      : null;
+    if (session?.projectId) return session.projectId;
+    const projects = Array.from(this.state.projects?.values?.() || []);
+    return projects[0]?.id || null;
   }
 
   handleFileSaved(projectId, path) {

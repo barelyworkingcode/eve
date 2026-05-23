@@ -389,6 +389,7 @@ class RelayClient {
       this.ws.close();
       this.ws = null;
     }
+    this.moduleSessions.clear();
   }
 }
 

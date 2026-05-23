@@ -50,6 +50,8 @@ class ProjectTreeItem {
 
     actions.appendChild(this._actionBtn('New Shell', UI_ICONS.shell(14), () =>
       this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: this.projectId })));
+    actions.appendChild(this._actionBtn('Search', UI_ICONS.search(14), () =>
+      this.bus.emit(EVT.DIALOG_SEARCH, { projectId: this.projectId })));
     actions.appendChild(this._actionBtn('Tasks', UI_ICONS.tasks(14), () =>
       this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId })));
     actions.appendChild(this._actionBtn('More', UI_ICONS.more(14), (e) =>

@@ -10,7 +10,7 @@ const FileWatcher = require('./file-watcher');
 
 const slashCommandHandler = new SlashCommandHandler();
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, claudeConfig, resolveProject, ttsService, sttService, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, claudeConfig, resolveProject, ttsService, sttService, log }) {
   return (ws, req) => {
     // Trust is decided by the raw TCP source address via TrustedNetworkService.
     // Never consult req.headers.host or X-Forwarded-For here — both are
@@ -20,6 +20,11 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
 
     const relayClient = new RelayClient(relayTransport, ws, ttsService, log?.child('Relay'));
     const fileWatcher = new FileWatcher(ws, fileHandlers.fileService, resolveProject);
+    // Per-connection in-flight tracking — used to cancel everything cleanly
+    // if the browser drops mid-search. Both SearchService and SearchSummarizer
+    // track by requestId only, so we need to know which IDs belong to us.
+    const inflightSearchIds = new Set();
+    const inflightAiIds = new Set();
 
     // Connect to relayLLM immediately
     relayClient.connect().catch(err => {
@@ -139,6 +144,34 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             fileHandlers.createDirectory(ws, message);
             break;
 
+          case 'search_project':
+            if (message.requestId) inflightSearchIds.add(message.requestId);
+            fileHandlers.searchProject(ws, message).finally(() => {
+              if (message.requestId) inflightSearchIds.delete(message.requestId);
+            });
+            break;
+
+          case 'search_cancel':
+            if (fileHandlers.searchService && message.requestId) {
+              fileHandlers.searchService.cancel(message.requestId);
+              inflightSearchIds.delete(message.requestId);
+            }
+            break;
+
+          case 'search_ai_summarize':
+            if (message.requestId) inflightAiIds.add(message.requestId);
+            handleSearchAiSummarize(ws, relayClient, searchSummarizer, message, log, () => {
+              if (message.requestId) inflightAiIds.delete(message.requestId);
+            });
+            break;
+
+          case 'search_ai_stop':
+            if (searchSummarizer && message.requestId) {
+              searchSummarizer.stop(message.requestId);
+              inflightAiIds.delete(message.requestId);
+            }
+            break;
+
           case 'watch_file':
             fileWatcher.watch(message.projectId, message.path, { binary: !!message.binary });
             break;
@@ -228,6 +261,16 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     });
 
     ws.on('close', () => {
+      // Kill anything this browser kicked off — ripgrep children and hidden
+      // relay sessions both stay alive until their own timeouts otherwise.
+      for (const id of inflightSearchIds) {
+        fileHandlers.searchService?.cancel(id);
+      }
+      inflightSearchIds.clear();
+      for (const id of inflightAiIds) {
+        searchSummarizer?.stop(id);
+      }
+      inflightAiIds.clear();
       relayClient.close();
       fileWatcher.closeAll();
     });
@@ -530,6 +573,41 @@ function handleModuleInvokeAi(ws, relayClient, moduleInvoker, message, log) {
     if (err.deniedFiles) payload.deniedFiles = err.deniedFiles;
     ws.send(JSON.stringify(payload));
   });
+}
+
+/**
+ * Drive a streaming search-summary AI call. Never throws past this boundary —
+ * outcomes are already delivered to the browser as `search_ai_*` frames by
+ * SearchSummarizer.run() itself; this wrapper just logs and runs the
+ * connection-tracking cleanup.
+ */
+function handleSearchAiSummarize(ws, relayClient, searchSummarizer, message, log, onDone) {
+  const { requestId, projectId, query, matches, model } = message;
+  const finish = () => { if (onDone) onDone(); };
+
+  if (!searchSummarizer) {
+    ws.send(JSON.stringify({
+      type: 'search_ai_failed', requestId: requestId || null,
+      error: 'Search summarizer not initialized',
+    }));
+    finish();
+    return;
+  }
+  if (!requestId) {
+    ws.send(JSON.stringify({
+      type: 'search_ai_failed', requestId: null,
+      error: 'requestId required',
+    }));
+    finish();
+    return;
+  }
+
+  searchSummarizer.run({
+    requestId, projectId, query, matches, model,
+    relayClient, browserWs: ws,
+  }).catch(err => {
+    log?.error?.(`search_ai_summarize ${requestId.slice(0, 8)} failed: ${err.message}`);
+  }).finally(finish);
 }
 
 module.exports = createWsHandler;

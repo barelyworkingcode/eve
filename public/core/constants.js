@@ -91,6 +91,15 @@ const EVT = {
   DIALOG_PROJECT: 'dialog:project',
   DIALOG_CONFIRM: 'dialog:confirm',
   DIALOG_SETTINGS: 'dialog:settings',
+  DIALOG_SEARCH: 'dialog:search',
+
+  // Project content search
+  SEARCH_RESULTS: 'search:results',
+  SEARCH_ERROR: 'search:error',
+  SEARCH_AI_STARTED: 'search:aiStarted',
+  SEARCH_AI_EVENT: 'search:aiEvent',
+  SEARCH_AI_COMPLETED: 'search:aiCompleted',
+  SEARCH_AI_FAILED: 'search:aiFailed',
 
   // Modules (AI-backed mini apps inside projects)
   MODULE_LIST_UPDATED: 'module:listUpdated',
