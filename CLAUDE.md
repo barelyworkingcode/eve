@@ -261,6 +261,8 @@ test/
 
 Eve is a relay proxy -- it does not manage LLM providers, sessions, or projects directly. All LLM concerns are delegated to relayLLM via HTTP and WebSocket proxying. Eve handles local concerns: file browsing/editing, terminals, and authentication.
 
+**Project management is now dual-surface.** Eve's `project-dialog.js` and the relay tray's native Projects tab are co-equal — both call the same `Settings.*Project*` mutators in relay. A project edit from either UI propagates to the other live (relay fans out `onProjectsChanged` from every mutation). Eve's dialog remains the authoritative UI for chat templates and permission policy; the relay tray exposes per-tool MCP scoping (DisabledTools), token rotation, and Skill regen — features eve does not yet surface. No code change is required in eve to coexist; this is a context note for future work. See `../relay/docs/decisions/004-project-mgmt-in-relay.md`.
+
 ### Communication Flow
 
 ```
