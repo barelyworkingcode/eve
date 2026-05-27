@@ -269,6 +269,7 @@ class ShellLauncherDialog extends DialogBase {
       msg.sessionType = 'voice';
       msg.voice = voice || 'af_heart';
     }
+    this.container.get('app').showSessionStarting();
     this.container.get('ws').send(msg);
     this.hide();
   }

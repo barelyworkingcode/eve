@@ -1223,6 +1223,22 @@ class EveWorkspaceClient {
     this.elements.chatScreen.classList.remove('hidden');
   }
 
+  // Show a "starting model…" placeholder in the chat area while session
+  // creation is in flight. Cleared by handleSessionCreated (re-enables input;
+  // the spinner is wiped by the subsequent renderMessages) or by _handleError.
+  showSessionStarting(text = 'Starting model…') {
+    this.messageRenderer.clearMessages();
+    this.showChatScreen();
+    this.messageRenderer.showThinkingIndicator(text);
+    this.elements.userInput.disabled = true;
+    this.elements.sendBtn.disabled = true;
+  }
+
+  clearSessionStarting() {
+    this.elements.userInput.disabled = false;
+    this.elements.sendBtn.disabled = false;
+  }
+
   enableVoiceMode(voice) {
     if (voice) this.ttsManager.setVoice(voice);
     this.ttsManager.setEnabled(true);
