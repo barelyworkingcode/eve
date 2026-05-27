@@ -209,6 +209,7 @@ class EveWorkspaceClient {
       permissionToolName: document.getElementById('permissionToolName'),
       permissionToolInput: document.getElementById('permissionToolInput'),
       permissionAllow: document.getElementById('permissionAllow'),
+      permissionAllowAll: document.getElementById('permissionAllowAll'),
       permissionDeny: document.getElementById('permissionDeny'),
       planApprovalBar: document.getElementById('planApprovalBar'),
       planApprove: document.getElementById('planApprove'),
