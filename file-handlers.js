@@ -87,7 +87,7 @@ class FileHandlers {
   }
 
   async createDirectory(ws, message) {
-    const { projectId, parentPath, name } = message;
+    const { projectId, path: parentPath, name } = message;
     await this._handleFileOp(ws, projectId, parentPath, async (project) => {
       const newPath = await this.fileService.createDirectory(project.path, parentPath, name);
       ws.send(JSON.stringify({ type: 'directory_created', projectId, path: '/' + newPath, name }));

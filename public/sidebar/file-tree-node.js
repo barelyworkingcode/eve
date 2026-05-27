@@ -26,7 +26,7 @@ class FileTreeNode {
     this.bus.on(EVT.FILE_MOVED, (data) => this._refreshParent(data.projectId, data.oldPath));
     this.bus.on(EVT.FILE_DELETED, (data) => this._refreshParent(data.projectId, data.path));
     this.bus.on(EVT.FILE_UPLOADED, (data) => this._refreshDir(data.projectId, data.destDirectory));
-    this.bus.on(EVT.DIRECTORY_CREATED, (data) => this._refreshDir(data.projectId, data.path));
+    this.bus.on(EVT.DIRECTORY_CREATED, (data) => this._refreshParent(data.projectId, data.path));
     this.bus.on(EVT.SETTINGS_CHANGED, (s) => this._onSettingsChanged(s));
 
     // Close context menu on any click (handled by shared closeContextMenu)
@@ -331,6 +331,14 @@ class FileTreeNode {
     const cache = this.dirCache.get(projectId);
     if (cache) cache.delete(path);
     this._loadDirectory(projectId, path);
+  }
+
+  refreshRoot(projectId) {
+    this._refreshDir(projectId, '/');
+  }
+
+  promptNewFolderAtRoot(projectId) {
+    this._promptNewItem(projectId, '/', 'directory');
   }
 
   _refreshParent(projectId, path) {

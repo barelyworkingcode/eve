@@ -75,7 +75,9 @@ class ProjectTreeItem {
       this._renderSection(sections, 'tasks', 'Tasks', (c) => this._renderTasksContent(c));
       this._renderSection(sections, 'sessions', 'Sessions', (c) => this._renderSessionsContent(c));
       this._renderSection(sections, 'modules', 'Modules', (c) => this._renderModulesContent(c));
-      this._renderSection(sections, 'files', 'Files', (c) => this._renderFilesContent(c));
+      this._renderSection(sections, 'files', 'Files',
+        (c) => this._renderFilesContent(c),
+        (a) => this._renderFilesActions(a));
       this.el.appendChild(sections);
     }
 
@@ -84,7 +86,7 @@ class ProjectTreeItem {
 
   // --- Section rendering ---
 
-  _renderSection(parent, key, label, contentRenderer) {
+  _renderSection(parent, key, label, contentRenderer, actionsRenderer) {
     const isExpanded = this.sectionState[key];
     const count = this._getSectionCount(key);
 
@@ -107,6 +109,13 @@ class ProjectTreeItem {
       countEl.className = 'project-tree__section-count';
       countEl.textContent = `(${count})`;
       header.appendChild(countEl);
+    }
+
+    if (actionsRenderer) {
+      const actionsEl = document.createElement('span');
+      actionsEl.className = 'project-tree__section-actions';
+      actionsRenderer(actionsEl);
+      header.appendChild(actionsEl);
     }
 
     header.addEventListener('click', (e) => {
@@ -444,6 +453,13 @@ class ProjectTreeItem {
     treeContainer.dataset.projectId = this.projectId;
     this.fileTreeNode.renderTree(this.projectId, treeContainer);
     container.appendChild(treeContainer);
+  }
+
+  _renderFilesActions(actions) {
+    actions.appendChild(this._actionBtn('New Folder', UI_ICONS.newFolder(14), () =>
+      this.fileTreeNode.promptNewFolderAtRoot(this.projectId)));
+    actions.appendChild(this._actionBtn('Refresh', UI_ICONS.refresh(14), () =>
+      this.fileTreeNode.refreshRoot(this.projectId)));
   }
 
   // --- Shared helpers ---
