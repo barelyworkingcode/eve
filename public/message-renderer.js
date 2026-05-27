@@ -985,6 +985,18 @@ class MessageRenderer {
       }
     );
 
+    // Auto-link bare /api/generated/<filename> mentions in the model's
+    // prose. Models that invoke generate_image often quote the URL in
+    // their summary ("URL: /api/generated/foo.png"); without this the
+    // path stays as plain text and the user can't click through to view
+    // the image. Markdown's auto-linker only fires on http(s):// URIs,
+    // so we wrap the bare path manually. The browser resolves the
+    // relative href against window.location.origin at click time.
+    processed = processed.replace(
+      /(^|[\s(\[])(\/api\/generated\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif))(?![A-Za-z0-9._-])/g,
+      (match, prefix, url) => `${prefix}[${url}](${url})`
+    );
+
     // Parse markdown and sanitize. Only allow images from our own generated
     // image endpoint — LLMs sometimes hallucinate external URLs (imgur, etc.)
     // which are not real and should not be rendered.
@@ -994,7 +1006,9 @@ class MessageRenderer {
       ADD_ATTR: ['src', 'alt', 'loading'],
       ALLOW_UNKNOWN_PROTOCOLS: false,
     });
-    // Remove any <img> not pointing at our own /api/generated/ path
+    // Remove any <img> not pointing at our own /api/generated/ path,
+    // and force generated-image links to open in a new tab so the chat
+    // session isn't replaced when the user clicks through.
     const tmp = document.createElement('div');
     tmp.innerHTML = html;
     tmp.querySelectorAll('img').forEach(img => {
@@ -1002,6 +1016,10 @@ class MessageRenderer {
       if (!src.startsWith('/api/generated/')) {
         img.remove();
       }
+    });
+    tmp.querySelectorAll('a[href^="/api/generated/"]').forEach(a => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
     });
     html = tmp.innerHTML;
 
