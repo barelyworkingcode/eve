@@ -16,13 +16,7 @@ class ModalManager {
     this.permissionQueue = [];
     this.planApprovalCallback = null;
 
-    // Sessions the user has tapped "Allow All" on. While a session ID
-    // lives here, incoming permission_request frames for that session
-    // are auto-approved with no modal — handy when Claude is mid-turn
-    // and would otherwise prompt for every Bash/Edit/Read in sequence.
-    // Set is in-memory only; new browser tab / page reload resets it,
-    // matching how Claude CLI's --permission-mode bypassPermissions
-    // is also session-scoped. Cleared per-session on session_ended.
+    // Per-session "Allow All" bypass; cleared on session_ended.
     this.bypassedSessions = new Set();
   }
 
@@ -144,35 +138,26 @@ class ModalManager {
   // --- Permission modal ---
 
   showPermissionModal(data) {
-    // Bypass: silently approve and move on. We honor bypass based on
-    // the data's own sessionId so a permission queued from a
-    // background session still hits its own bypass flag (the
-    // foreground session might be a different chat).
     if (this._isSessionBypassed(data.sessionId)) {
       this._sendPermissionResponse(data.permissionId, true);
       return;
     }
     if (this.pendingPermissionId) {
-      // Already showing a permission — queue this one
       this.permissionQueue.push(data);
       return;
     }
     this._displayPermission(data);
   }
 
-  /** True when "Allow All" is active for the given session. */
   _isSessionBypassed(sessionId) {
     return !!sessionId && this.bypassedSessions.has(sessionId);
   }
 
-  /** Wire-level helper: send a permission_response without touching modal state. */
   _sendPermissionResponse(permissionId, approved) {
     if (!permissionId) return;
     this.app.wsClient.send({ type: 'permission_response', permissionId, approved });
   }
 
-  /** Clear bypass for a session — called when the session ends so a
-   *  fresh session under the same browser tab starts in default mode. */
   clearSessionBypass(sessionId) {
     if (sessionId) this.bypassedSessions.delete(sessionId);
   }
@@ -219,18 +204,12 @@ class ModalManager {
     }
   }
 
-  /** Approve the visible request, mark this session as bypassed, and
-   *  drain every queued permission with an approve. Subsequent
-   *  permission_request frames for the same session are auto-approved
-   *  in showPermissionModal without re-opening the modal. */
+  /** Approve current + mark session as bypassed; respondToPermission then
+   *  drains the queue, honoring per-data sessionId for cross-session items. */
   respondToPermissionAll() {
     if (!this.pendingPermissionId) return;
     const sid = this.app.state?.currentSessionId;
     if (sid) this.bypassedSessions.add(sid);
-
-    // Approve current — this also drains the queue, and the drain
-    // loop above honors per-data sessionId so cross-session items in
-    // the queue still gate on their own bypass flag.
     this.respondToPermission(true);
   }
 

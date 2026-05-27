@@ -985,14 +985,7 @@ class MessageRenderer {
       }
     );
 
-    // Auto-inline bare /api/generated/<filename> mentions in the model's
-    // prose. Models that invoke generate_image often quote the URL in
-    // their summary ("URL: /api/generated/foo.png"); without this the
-    // path stays as plain text. We emit markdown image syntax so the
-    // picture renders inline right where it's mentioned;
-    // _upgradeGeneratedImages then attaches the fullscreen click
-    // handler. Browser resolves the relative src against
-    // window.location.origin so this works on any host.
+    // Auto-inline /api/generated/ URLs that models mention in prose.
     processed = processed.replace(
       /(^|[\s(\[])(\/api\/generated\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif))(?![A-Za-z0-9._-])/g,
       (match, prefix, url) => `${prefix}![](${url})`
