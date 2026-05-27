@@ -3667,6 +3667,18 @@ html, body {
   font-weight: 400;
 }
 
+.project-tree__section-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.project-tree__section-header:hover .project-tree__section-actions {
+  opacity: 1;
+}
+
 .project-tree__section-content {
   padding-bottom: 2px;
 }
@@ -3985,7 +3997,8 @@ html, body {
 
 /* Mobile: always show action icons with touch-friendly sizing */
 @media (max-width: 768px) {
-  .project-tree__actions {
+  .project-tree__actions,
+  .project-tree__section-actions {
     opacity: 0.6;
     gap: 4px;
   }

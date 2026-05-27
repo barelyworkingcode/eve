@@ -14,6 +14,8 @@ const UI_ICONS = {
   speaker: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="currentColor"><path d="M11.536 3.464a5 5 0 010 7.072l-.707-.707a4 4 0 000-5.658l.707-.707zM8 1.5v13l-4-4H1V5.5h3l4-4zM13.657 1.343a8 8 0 010 11.314l-.707-.707a7 7 0 000-9.9l.707-.707z"/></svg>`,
   module: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M6 2h4v2a1 1 0 001 1h2v3h-2a1 1 0 100 2h2v3h-3v-2a1 1 0 10-2 0v2H4V8h2a1 1 0 100-2H4V3a1 1 0 011-1h1z"/></svg>`,
   search: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><line x1="10.5" y1="10.5" x2="14" y2="14"/></svg>`,
+  newFolder: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4a1 1 0 011-1h3l1.5 1.5h5.5a1 1 0 011 1V12a1 1 0 01-1 1h-10a1 1 0 01-1-1V4z"/><line x1="8" y1="7" x2="8" y2="11" stroke-linecap="round"/><line x1="6" y1="9" x2="10" y2="9" stroke-linecap="round"/></svg>`,
+  refresh: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3v3.5H10"/><path d="M13.2 6.5A5.5 5.5 0 102.5 8"/></svg>`,
 };
 
 // --- Model Select Dropdown ---
