@@ -645,6 +645,9 @@ class MessageDispatcher {
       this.state.currentSessionId = null;
       this.app.showWelcomeScreen();
     }
+    // Drop any "Allow All" bypass for this session so a future session
+    // re-created under the same browser tab doesn't inherit it.
+    this.modalManager?.clearSessionBypass?.(data.sessionId);
     this.sidebar.renderProjectList();
   }
 

@@ -1440,6 +1440,28 @@ html, body {
   color: white;
 }
 
+/* Allow-All on the permission modal: orange-tinted to signal "session-wide
+   bypass" — distinct from the green Allow and red Deny so muscle memory
+   can't slip the user into auto-approving everything. */
+.btn-warn {
+  padding: 8px 12px;
+  background: transparent;
+  color: #f59e0b;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btn-warn:hover {
+  background: #f59e0b;
+  color: white;
+}
+
 /* Modal */
 .modal {
   position: fixed;
