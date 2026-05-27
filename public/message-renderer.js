@@ -985,16 +985,17 @@ class MessageRenderer {
       }
     );
 
-    // Auto-link bare /api/generated/<filename> mentions in the model's
+    // Auto-inline bare /api/generated/<filename> mentions in the model's
     // prose. Models that invoke generate_image often quote the URL in
     // their summary ("URL: /api/generated/foo.png"); without this the
-    // path stays as plain text and the user can't click through to view
-    // the image. Markdown's auto-linker only fires on http(s):// URIs,
-    // so we wrap the bare path manually. The browser resolves the
-    // relative href against window.location.origin at click time.
+    // path stays as plain text. We emit markdown image syntax so the
+    // picture renders inline right where it's mentioned;
+    // _upgradeGeneratedImages then attaches the fullscreen click
+    // handler. Browser resolves the relative src against
+    // window.location.origin so this works on any host.
     processed = processed.replace(
       /(^|[\s(\[])(\/api\/generated\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif))(?![A-Za-z0-9._-])/g,
-      (match, prefix, url) => `${prefix}[${url}](${url})`
+      (match, prefix, url) => `${prefix}![](${url})`
     );
 
     // Parse markdown and sanitize. Only allow images from our own generated
