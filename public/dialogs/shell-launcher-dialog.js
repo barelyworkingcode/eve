@@ -97,11 +97,15 @@ class ShellLauncherDialog extends DialogBase {
       grid.appendChild(card);
     }
 
-    // Terminal templates come from relayLLM's config.json pty section, fetched
-    // once on connect. If the response hasn't landed yet, show a placeholder;
-    // EVT.TERMINAL_TEMPLATES_LOADED (init()) will re-render when it arrives.
+    // Terminal templates come from relayLLM's config.json pty section. They're
+    // fetched once on connect, but if that response was missed (relay hiccup),
+    // the cache stays empty forever — so re-request on open. The
+    // EVT.TERMINAL_TEMPLATES_LOADED listener in init() re-renders when they land.
     const templates = this.state.terminalTemplates;
     if (templates.length === 0) {
+      const termMgr = this.container.has('terminalManager') ? this.container.get('terminalManager') : null;
+      if (termMgr) termMgr.requestTemplates();
+
       const loading = document.createElement('div');
       loading.className = 'shell-launcher__empty';
       loading.textContent = 'Loading terminal templates…';
