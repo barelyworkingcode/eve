@@ -225,6 +225,7 @@ class MessageDispatcher {
     this.renderer.appendSystemMessage(data.message, 'error');
     this._notifyVoiceError(data.message);
     this.app.hideStopButton();
+    this.app.clearSessionStarting();
   }
 
   _handleMessageComplete(data) {
@@ -535,6 +536,7 @@ class MessageDispatcher {
     this.state.sessionHistories.set(data.sessionId, []);
     this.app.showChatScreen();
     this.tabManager.openSession(data.sessionId);
+    this.app.clearSessionStarting();
     this.sidebar.renderProjectList();
     this.modalManager.hideSessionModal();
     this.modalManager.hidePlanApproval();
