@@ -9,6 +9,11 @@
 const REDACTED_THINKING_PLACEHOLDER =
   '<think>\n_[redacted thinking — content filtered by Anthropic safety review]_\n</think>\n\n';
 
+// URL prefix that relayLLM serves generated images from. Keep in sync with
+// relayLLM/comfyui_client.go RegisterGeneratedImageRoutes and
+// relayComfy/mcp/main.go RELAY_IMAGE_BASE default.
+const GENERATED_PATH = '/api/generated/';
+
 class MessageRenderer {
   /**
    * @param {Container} container - DI container
@@ -744,8 +749,9 @@ class MessageRenderer {
     const el = document.createElement('div');
     el.className = 'tool-result';
 
+    let renderedImage = false;
+
     if (Array.isArray(content)) {
-      // Anthropic content-block array: render each block according to type.
       for (const part of content) {
         if (part?.type === 'image' && part.source?.type === 'base64' && part.source?.data) {
           const img = document.createElement('img');
@@ -755,29 +761,43 @@ class MessageRenderer {
           img.loading = 'lazy';
           img.addEventListener('click', () => this._openImageFullscreen(img.src, 'Tool result'));
           el.appendChild(img);
+          renderedImage = true;
         } else if (part?.type === 'text' && typeof part.text === 'string') {
-          const pre = document.createElement('pre');
-          pre.textContent = part.text;
-          el.appendChild(pre);
+          // Wrapped CLIs (Claude, pi) deliver generate_image's JSON inside a
+          // text block; same shape relayLLM-native sessions deliver as plain
+          // string content. _renderResultText handles both.
+          renderedImage = this._renderResultText(el, part.text) || renderedImage;
         } else {
-          // Unknown block type — render the JSON for debugging.
           const pre = document.createElement('pre');
           pre.textContent = this._prettyJson(part);
           el.appendChild(pre);
         }
       }
     } else {
-      // String content — keep the existing ComfyUI image-result detection.
-      const imageResult = this._parseImageResult(content);
-      if (imageResult) {
-        this._renderInlineImage(el, imageResult);
-      } else {
-        const pre = document.createElement('pre');
-        pre.textContent = this._prettyJson(content);
-        el.appendChild(pre);
-      }
+      renderedImage = this._renderResultText(el, content) || renderedImage;
     }
     block.appendChild(el);
+    // Auto-expand the collapsed <details> tool block when a generated image
+    // was rendered — otherwise the user sees a clickable pill with no hint
+    // that a picture is hidden inside. `open` is a no-op on non-<details>.
+    if (renderedImage) {
+      block.open = true;
+    }
+  }
+
+  /** Render a tool_result text payload, detecting the ComfyUI generate_image
+   *  JSON shape and rendering it inline. Returns true if an image was rendered,
+   *  false if it fell through to the raw-text/JSON-pretty fallback. */
+  _renderResultText(el, text) {
+    const imageResult = this._parseImageResult(text);
+    if (imageResult) {
+      this._renderInlineImage(el, imageResult);
+      return true;
+    }
+    const pre = document.createElement('pre');
+    pre.textContent = (typeof text === 'string') ? text : this._prettyJson(text);
+    el.appendChild(pre);
+    return false;
   }
 
   updateToolProgress(toolName, message) {
@@ -912,10 +932,31 @@ class MessageRenderer {
   }
 
   _upgradeGeneratedImages(container) {
-    container.querySelectorAll('img[src*="/api/generated/"]').forEach(img => {
+    container.querySelectorAll(`img[src*="${GENERATED_PATH}"]`).forEach(img => {
       img.className = 'generated-image';
       img.loading = 'lazy';
       img.addEventListener('click', () => this._openImageFullscreen(img.src, img.alt));
+      // If the model mis-transcribed the URL the image will 404. Silently
+      // drop the broken element (and its empty wrapping <p>) so the prose
+      // doesn't leave a broken-image icon or a paragraph-shaped gap. The
+      // real fix is server-side filename stability (see SaveOutput).
+      img.addEventListener('error', () => {
+        const parent = img.parentElement;
+        img.remove();
+        if (parent && parent.tagName === 'P' && parent.children.length === 0 && !parent.textContent.trim()) {
+          parent.remove();
+        }
+      });
+    });
+    // Wrapped CLIs (Claude Haiku) phrase the result as a "View image" link
+    // rather than an inline `![](url)`. Hijack the click so it opens our
+    // fullscreen overlay (ESC to close) instead of a separate browser tab —
+    // visually consistent with how clicking the inline image behaves.
+    container.querySelectorAll(`a[href^="${GENERATED_PATH}"]`).forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        this._openImageFullscreen(a.href, a.textContent || 'Generated image');
+      });
     });
   }
 
@@ -985,10 +1026,17 @@ class MessageRenderer {
       }
     );
 
-    // Auto-inline /api/generated/ URLs that models mention in prose.
+    // Auto-inline /api/generated/ URLs that models mention in prose. Skip
+    // markdown link URLs `[label](/api/generated/foo.png)` — the leading `(`
+    // would otherwise match as a prefix and we'd rewrite the inner URL into
+    // `![](url)`, producing `[label](![](url))` which marked then mangles
+    // into a URL-encoded broken link.
     processed = processed.replace(
       /(^|[\s(\[])(\/api\/generated\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif))(?![A-Za-z0-9._-])/g,
-      (match, prefix, url) => `${prefix}![](${url})`
+      (match, prefix, url, offset, full) => {
+        if (prefix === '(' && offset > 0 && full[offset - 1] === ']') return match;
+        return `${prefix}![](${url})`;
+      }
     );
 
     // Parse markdown and sanitize. Only allow images from our own generated
@@ -1007,11 +1055,11 @@ class MessageRenderer {
     tmp.innerHTML = html;
     tmp.querySelectorAll('img').forEach(img => {
       const src = img.getAttribute('src') || '';
-      if (!src.startsWith('/api/generated/')) {
+      if (!src.startsWith(GENERATED_PATH)) {
         img.remove();
       }
     });
-    tmp.querySelectorAll('a[href^="/api/generated/"]').forEach(a => {
+    tmp.querySelectorAll(`a[href^="${GENERATED_PATH}"]`).forEach(a => {
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     });
