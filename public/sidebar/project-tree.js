@@ -1,124 +1,79 @@
 /**
- * ProjectTree - renders the VS Code-style project explorer sidebar.
- * Each project is a top-level expandable tree node with file tree + action icons.
+ * ProjectTree - coordinates the activity-rail + explorer-panel sidebar.
+ *
+ * The rail (ActivityRail) lists project avatars and owns project selection;
+ * the panel (ProjectPanel) shows the active project's files/sessions/tasks/
+ * modules. This class tracks which project is active and keeps the two views
+ * in sync. The active project persists across reloads.
  */
 class ProjectTree {
-  static STORAGE_KEY = 'eve-expanded-projects';
-  static SECTION_STORAGE_KEY = 'eve-expanded-sections';
+  static ACTIVE_KEY = 'eve-active-project';
 
   constructor(container) {
     this.container = container;
     this.bus = container.get('bus');
     this.state = container.get('state');
     this.fileTreeNode = null;
-    this.projectItems = new Map(); // projectId -> ProjectTreeItem
-    this.expandedProjects = new Set(); // persisted to localStorage
-    this._sectionState = {}; // projectId -> ['tasks', 'sessions', 'files']
-    this.el = null;
+    this.rail = null;
+    this.panel = null;
+    this.activeProjectId = null;
   }
 
   init() {
-    // Create the file tree node (shared across all projects)
+    // Shared file tree node (one instance, renders per-project on demand)
     this.fileTreeNode = new FileTreeNode(this.container);
     this.fileTreeNode.init();
     this.fileTreeNode.restoreExpandState();
 
-    // Restore project expand state from localStorage
-    this._restoreExpandState();
-    this._restoreSectionState();
+    this._restoreActive();
 
-    // Subscribe to project changes
+    this.rail = new ActivityRail(this.container);
+    this.rail.init();
+    this.rail.onSelect = (projectId) => this.setActive(projectId);
+
+    this.panel = new ProjectPanel(this.container, this.fileTreeNode);
+    this.panel.init();
+
     this.bus.on(EVT.PROJECTS_LOADED, () => this.render());
-
-    // Find or create container element
-    this.el = document.getElementById('projectTree');
-    if (!this.el) {
-      this.el = document.createElement('div');
-      this.el.id = 'projectTree';
-      this.el.className = 'project-tree';
-    }
   }
 
   render() {
-    if (!this.el) return;
-    this.el.innerHTML = '';
+    const projects = this.state.getVisibleProjects();
 
-    // Preserve expand state from existing items
-    const expandState = new Map();
-    for (const [pid, item] of this.projectItems) {
-      expandState.set(pid, item.expanded);
-    }
-    this.projectItems.clear();
-
-    const projects = this.state.getVisibleProjects()
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-
-    if (projects.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'project-tree__empty';
-      empty.textContent = 'No projects. Click + to add one.';
-      this.el.appendChild(empty);
-      return;
+    // Ensure the active project still exists and is visible; otherwise fall
+    // back to the first project (alphabetical, matching the rail's order).
+    const sorted = [...projects].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    const stillValid = this.activeProjectId
+      && sorted.some(p => p.id === this.activeProjectId);
+    if (!stillValid) {
+      this.activeProjectId = sorted[0]?.id || null;
+      this._saveActive();
     }
 
-    for (const project of projects) {
-      const item = new ProjectTreeItem(this.container, project.id, this.fileTreeNode);
-      // Restore from in-memory state (which was loaded from localStorage)
-      item.expanded = expandState.has(project.id)
-        ? expandState.get(project.id)
-        : this.expandedProjects.has(project.id);
-      // Restore section expand state
-      const savedSections = this._sectionState[project.id] || [];
-      item.sectionState = {
-        tasks: savedSections.includes('tasks'),
-        sessions: savedSections.includes('sessions'),
-        modules: savedSections.includes('modules'),
-        files: savedSections.includes('files'),
-      };
-      item.onToggle = (projectId, expanded) => {
-        if (expanded) {
-          this.expandedProjects.add(projectId);
-        } else {
-          this.expandedProjects.delete(projectId);
-        }
-        this._saveExpandState();
-      };
-      item.onSectionToggle = () => this._saveSectionState();
-      item.render(this.el);
-      this.projectItems.set(project.id, item);
+    this.rail.setActive(this.activeProjectId);
+    this.rail.render();
+    this.panel.setProject(this.activeProjectId);
+  }
+
+  setActive(projectId) {
+    if (projectId === this.activeProjectId) return;
+    this.activeProjectId = projectId;
+    this._saveActive();
+    this.rail.setActive(projectId);
+    this.rail.render();
+    this.panel.setProject(projectId);
+  }
+
+  _saveActive() {
+    if (this.activeProjectId) {
+      localStorage.setItem(ProjectTree.ACTIVE_KEY, this.activeProjectId);
+    } else {
+      localStorage.removeItem(ProjectTree.ACTIVE_KEY);
     }
   }
 
-  _saveExpandState() {
-    localStorage.setItem(ProjectTree.STORAGE_KEY, JSON.stringify(Array.from(this.expandedProjects)));
-  }
-
-  _restoreExpandState() {
-    try {
-      const stored = JSON.parse(localStorage.getItem(ProjectTree.STORAGE_KEY));
-      if (Array.isArray(stored)) {
-        this.expandedProjects = new Set(stored);
-      }
-    } catch { /* ignore corrupt state */ }
-  }
-
-  _saveSectionState() {
-    const state = {};
-    for (const [pid, item] of this.projectItems) {
-      const expanded = Object.entries(item.sectionState)
-        .filter(([, v]) => v)
-        .map(([k]) => k);
-      if (expanded.length > 0) state[pid] = expanded;
-    }
-    localStorage.setItem(ProjectTree.SECTION_STORAGE_KEY, JSON.stringify(state));
-  }
-
-  _restoreSectionState() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(ProjectTree.SECTION_STORAGE_KEY));
-      if (raw && typeof raw === 'object') {
-        this._sectionState = raw;
-      }
-    } catch { /* ignore corrupt state */ }
+  _restoreActive() {
+    this.activeProjectId = localStorage.getItem(ProjectTree.ACTIVE_KEY) || null;
   }
 }
