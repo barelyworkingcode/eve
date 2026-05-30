@@ -6,13 +6,14 @@
 
 :root {
   --bg-primary: #0a0a0a;
-  --bg-secondary: #141414;
-  --bg-tertiary: #1a1a1a;
-  --bg-hover: #252525;
-  --border-color: #2a2a2a;
+  --bg-secondary: #111111;
+  --bg-tertiary: #181818;
+  --bg-hover: #1f1f1f;
+  --border-color: #1e1e1e;
+  --border-strong: #2a2a2a;
   --text-primary: #fafafa;
-  --text-secondary: #a0a0a0;
-  --text-muted: #666;
+  --text-secondary: #9a9a9a;
+  --text-muted: #5f5f5f;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
   --danger: #ef4444;
@@ -21,8 +22,8 @@
   --warning: #f59e0b;
   --code-bg: #0d0d0d;
   --message-user: #1e3a5f;
-  --message-assistant: #1a1a1a;
-  --sidebar-width: 260px;
+  --message-assistant: #141414;
+  --sidebar-width: 240px;
 }
 
 html, body {
@@ -535,10 +536,11 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px 16px;
+  padding: calc(6px + env(safe-area-inset-top, 0px)) 10px 6px 10px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  gap: 12px;
+  gap: 8px;
+  min-height: 36px;
 }
 
 .session-info {
@@ -1596,56 +1598,75 @@ html, body {
 .tab-bar {
   display: flex;
   flex: 1;
-  gap: 4px;
+  gap: 1px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 8px;
-  align-items: center;
+  padding: 0;
+  align-items: stretch;
   scrollbar-width: thin;
+  align-self: stretch;
+  margin: -6px 0;
 }
 
 .tab-bar::-webkit-scrollbar {
-  height: 4px;
+  height: 3px;
 }
 
 .tab-bar::-webkit-scrollbar-thumb {
-  background: var(--border-color);
+  background: var(--border-strong);
   border-radius: 2px;
 }
 
 .tab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  gap: 6px;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border-color);
+  border-radius: 0;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color 0.12s, color 0.12s;
   white-space: nowrap;
   flex-shrink: 0;
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.tab:first-child {
+  border-left: 1px solid var(--border-color);
 }
 
 .tab:hover {
   background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .tab.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--bg-primary);
 }
 
 .tab-label {
   font-size: 12px;
-  max-width: 150px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .tab.active .tab-label {
-  color: white;
+  color: var(--text-primary);
 }
 
 .tab-close {
@@ -1653,27 +1674,36 @@ html, body {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
   padding: 0;
   width: 16px;
   height: 16px;
+  border-radius: 3px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s;
+  transition: color 0.12s, background-color 0.12s;
+  opacity: 0.7;
+}
+
+.tab:hover .tab-close,
+.tab.active .tab-close {
+  opacity: 1;
 }
 
 .tab-close:hover {
-  color: var(--danger);
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .tab.active .tab-close {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-secondary);
 }
 
 .tab.active .tab-close:hover {
-  color: white;
+  color: var(--text-primary);
+  background: var(--border-strong);
 }
 
 /* Chat Content */
@@ -2263,6 +2293,14 @@ html, body {
 
 .terminal-container .xterm-viewport {
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+.terminal-container .xterm,
+.terminal-container .xterm-screen {
+  touch-action: pan-y;
 }
 
 .terminal-instance {
@@ -2588,24 +2626,50 @@ html, body {
     height: 44px;
   }
 
-  /* Tabs on mobile */
+  /* Tabs on mobile — tighter, scrollable, no forced min-width */
   .tab {
-    min-width: 80px;
-    padding: 10px 8px;
-    min-height: 44px;
+    min-width: 0;
+    padding: 0 10px;
+    min-height: 36px;
   }
 
   .tab-label {
-    max-width: 70px;
-    font-size: 11px;
+    max-width: 110px;
+    font-size: 12px;
   }
 
   .tab-close {
-    width: 32px;
-    height: 32px;
-    padding: 8px;
+    width: 24px;
+    height: 24px;
+    padding: 4px;
   }
 
+  /* Mobile sidebar: hide project actions on collapsed rows so the name has room.
+     Reveal them once the project is expanded — they then sit on their own line
+     visually because the section list below pushes them apart. */
+  .project-tree__actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .project-tree__header--expanded .project-tree__actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .project-tree__action-btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 8px;
+  }
+  .project-tree__header {
+    padding: 10px 8px;
+    gap: 10px;
+  }
+  .project-tree__avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    font-size: 11px;
+  }
 }
 
 /* Scheduled Tasks */
@@ -3562,24 +3626,20 @@ html, body {
 }
 
 .project-tree__project {
-  border-bottom: 1px solid var(--border-color);
-}
-
-.project-tree__project:last-child {
-  border-bottom: none;
+  /* Subtle row separation handled by hover state only — cleaner OpenCode look */
 }
 
 .project-tree__header {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
+  padding: 5px 8px;
   cursor: pointer;
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0;
   color: var(--text-primary);
-  gap: 4px;
+  gap: 8px;
+  position: relative;
 }
 
 .project-tree__header:hover {
@@ -3588,14 +3648,46 @@ html, body {
 
 .project-tree__chevron {
   font-size: 8px;
-  width: 14px;
+  width: 10px;
   text-align: center;
   flex-shrink: 0;
-  color: var(--text-secondary);
+  color: var(--text-muted);
+}
+
+.project-tree__avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  background: var(--project-avatar-bg, #3a3a3a);
+  letter-spacing: 0;
+  text-transform: uppercase;
+  line-height: 1;
 }
 
 .project-tree__project-name {
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+}
+
+.project-tree__project-subtitle {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3606,10 +3698,18 @@ html, body {
   gap: 2px;
   opacity: 0;
   transition: opacity 0.15s;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding-left: 24px;
+  background: linear-gradient(to right, transparent, var(--bg-hover) 24px);
+  pointer-events: none;
 }
 
 .project-tree__header:hover .project-tree__actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .project-tree__action-btn {
@@ -4017,17 +4117,27 @@ html, body {
   margin: 4px 0;
 }
 
-/* Mobile: always show action icons with touch-friendly sizing */
+/* Mobile: keep touch-friendly sizing, but project header actions stay hidden
+   on collapsed rows so the project name has room. Section/task actions remain
+   visible since they live inside expanded sections where space is available. */
 @media (max-width: 768px) {
-  .project-tree__actions,
+  .project-tree__actions {
+    opacity: 0;
+    pointer-events: none;
+    gap: 4px;
+  }
+  .project-tree__header--expanded .project-tree__actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
   .project-tree__section-actions {
     opacity: 0.6;
     gap: 4px;
   }
   .project-tree__action-btn {
     padding: 10px;
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 36px;
+    min-height: 36px;
   }
   .project-tree__section-header {
     min-height: 44px;
