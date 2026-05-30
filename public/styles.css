@@ -2285,9 +2285,12 @@ html, body {
   overscroll-behavior: contain;
 }
 
+/* The terminal surface is scrolled by a JS touch handler (see
+   TerminalManager._attachTouchScroll), so the browser must not also claim the
+   vertical pan — otherwise the viewport scrolls twice. */
 .terminal-container .xterm,
 .terminal-container .xterm-screen {
-  touch-action: pan-y;
+  touch-action: none;
 }
 
 .terminal-instance {
