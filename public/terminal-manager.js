@@ -409,6 +409,7 @@ class TerminalManager {
     this.terminalContainer.appendChild(containerDiv);
 
     term.open(containerDiv);
+    this._attachTouchScroll(containerDiv, term);
 
     this.terminals.set(terminalId, {
       term,
@@ -448,6 +449,44 @@ class TerminalManager {
 
     const label = name || templateId || 'Terminal';
     this.app.tabManager.openTerminal(terminalId, label, directory);
+  }
+
+  /**
+   * Enable finger-drag scrollback on touch devices.
+   *
+   * xterm.js doesn't translate a touch drag into scrollback — the `.xterm-screen`
+   * overlay swallows the gesture, and in this version the `.xterm-viewport` is
+   * not a native scroll container (scrollHeight === clientHeight), so adjusting
+   * scrollTop does nothing. Instead we drive the documented API: a vertical drag
+   * accumulates pixels and calls `term.scrollLines()` per row of movement
+   * (dragging down reveals older output, matching native touch scrolling).
+   */
+  _attachTouchScroll(containerDiv, term) {
+    let cellHeight = 0;   // px per row, measured at gesture start
+    let lastY = 0;
+    let accum = 0;        // leftover sub-row pixels carried between moves
+
+    containerDiv.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      const viewport = containerDiv.querySelector('.xterm-viewport');
+      const rows = term.rows || 1;
+      cellHeight = viewport ? viewport.clientHeight / rows : 0;
+      lastY = e.touches[0].clientY;
+      accum = 0;
+    }, { passive: true });
+
+    containerDiv.addEventListener('touchmove', (e) => {
+      if (!cellHeight || e.touches.length !== 1) return;
+      const y = e.touches[0].clientY;
+      accum += y - lastY;
+      lastY = y;
+      const steps = Math.trunc(accum / cellHeight);
+      if (steps !== 0) {
+        term.scrollLines(-steps); // drag down (steps > 0) -> scroll up into history
+        accum -= steps * cellHeight;
+        e.preventDefault(); // own the gesture so the page/overlay doesn't scroll
+      }
+    }, { passive: false });
   }
 
   /**
