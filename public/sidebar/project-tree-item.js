@@ -38,10 +38,19 @@ class ProjectTreeItem {
     chevron.textContent = this.expanded ? '\u25BC' : '\u25B6';
     header.appendChild(chevron);
 
+    // Colored avatar (first letter, color derived from project name hash)
+    const avatar = document.createElement('span');
+    avatar.className = 'project-tree__avatar';
+    avatar.textContent = (project.name || '?').trim().charAt(0).toUpperCase() || '?';
+    avatar.style.setProperty('--project-avatar-bg', this._avatarColor(project.name || project.id));
+    header.appendChild(avatar);
+
     // Project name
     const name = document.createElement('span');
     name.className = 'project-tree__project-name';
-    name.textContent = project.name;
+    const nameLabel = document.createElement('span');
+    nameLabel.textContent = project.name;
+    name.appendChild(nameLabel);
     header.appendChild(name);
 
     // Action icons (right-aligned)
@@ -575,6 +584,14 @@ class ProjectTreeItem {
     const fragment = document.createDocumentFragment();
     this.render(fragment);
     parent.insertBefore(fragment, next);
+  }
+
+  _avatarColor(seed) {
+    let h = 0;
+    const s = String(seed || '');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    const hue = h % 360;
+    return `hsl(${hue}, 38%, 36%)`;
   }
 
   _actionBtn(title, iconHtml, onClick) {
