@@ -54,6 +54,13 @@ class MessageDispatcher {
     // plus the saved parent's _openBlockKindByIndex so child stream indices
     // don't collide.
     this._sidechainStack = [];
+    // On-device TTS follows a single turn across tab switches. _ttsSessionId
+    // is the session whose response we're currently speaking (bound on its
+    // first main-thread text, cleared when that turn completes or is stopped).
+    // _clientTTSAccum holds that turn's text. Server-backend TTS is unaffected
+    // (its audio frames aren't session-scoped). See _accumulateClientTTS.
+    this._clientTTSAccum = '';
+    this._ttsSessionId = null;
 
     this._sessionScopedTypes = new Set([
       'llm_event', 'message_complete', 'stats_update', 'raw_output',
@@ -149,7 +156,12 @@ class MessageDispatcher {
     this._untrackStreaming(sessionId);
     this.pendingInteractiveTool = null;
     this._lastTurnMetrics = null;
-    this._clientTTSAccum = '';
+    // Release the TTS binding only when resetting the turn we're following, so
+    // stopping one session doesn't drop another's in-flight speech.
+    if (this._ttsSessionId === null || this._ttsSessionId === sessionId) {
+      this._clientTTSAccum = '';
+      this._ttsSessionId = null;
+    }
     this._lastNonInteractiveToolName = null;
     this._openBlockKindByIndex = {};
     this._sidechainStack = [];
@@ -260,11 +272,41 @@ class MessageDispatcher {
       this._notifyVoiceError(data.error);
     }
     this.voice?.handleResponseComplete();
-    // Client-side TTS for text sessions (voice sessions handled by voiceChatManager)
-    if (this._clientTTSAccum && !this.voice?.isVoiceSession) {
+    // Client-side TTS for text sessions (voice sessions handled by voiceChatManager).
+    // Speaks the session we've been following, which may differ from the visible
+    // one if the user switched tabs mid-response.
+    this._flushClientTTS(data.sessionId || this.state.currentSessionId);
+  }
+
+  /**
+   * Accumulate on-device TTS text for the turn we're following. Binds to the
+   * first session to stream main-thread text while TTS is enabled and ignores
+   * other concurrent sessions, so switching tabs mid-response doesn't drop the
+   * speech (the bound session keeps accumulating in the background path) and
+   * multiple streaming tabs don't talk over each other. No-op for the server
+   * backend, which streams audio frames independently of the active session.
+   */
+  _accumulateClientTTS(sessionId, text) {
+    if (!text || !sessionId) return;
+    if (!this.tts?.activeBackend?.onDevice || !this.tts?.enabled) return;
+    if (this._ttsSessionId === null) this._ttsSessionId = sessionId;
+    if (sessionId !== this._ttsSessionId) return;
+    this._clientTTSAccum += text;
+  }
+
+  /**
+   * Speak the accumulated on-device TTS for a completed turn and release the
+   * binding. Fires regardless of which tab is visible, so a response that
+   * finishes after the user switches away is still spoken. Ignores completions
+   * for sessions we aren't following.
+   */
+  _flushClientTTS(sessionId) {
+    if (this._ttsSessionId !== null && sessionId !== this._ttsSessionId) return;
+    if (this._clientTTSAccum && this.tts?.enabled && !this.voice?.isVoiceSession) {
       this.tts.speakText(this._clientTTSAccum);
     }
     this._clientTTSAccum = '';
+    this._ttsSessionId = null;
   }
 
   _handleTtsAudio(data) {
@@ -405,8 +447,10 @@ class MessageDispatcher {
           for (const block of event.message.content) {
             if (block.type === 'text') {
               buf.contentBlocks.push({ type: 'text', text: block.text });
+              if (!this._inBackgroundSidechain(buf)) this._accumulateClientTTS(sid, block.text);
             } else if (block.type === 'tool_use') {
               buf.contentBlocks.push({ type: 'tool_use', name: block.name, input: block.input });
+              this._trackBackgroundSidechain(buf, block);
             }
           }
         } else if (event.content_block_stop) {
@@ -421,6 +465,7 @@ class MessageDispatcher {
           }
         } else if (event.delta?.type === 'text_delta') {
           this._appendBufText(buf, event.delta.text);
+          if (!this._inBackgroundSidechain(buf)) this._accumulateClientTTS(sid, event.delta.text);
         } else if (event.delta?.type === 'thinking_delta') {
           this._appendBufText(buf, event.delta.thinking || '');
         } else if (event.delta?.type === 'input_json_delta') {
@@ -437,11 +482,14 @@ class MessageDispatcher {
             this._appendBufText(buf, '\n</think>\n\n');
             buf._thinkingOpen = false;
           }
-          buf.contentBlocks.push({ type: 'tool_use', id: event.content_block.id, name: event.content_block.name, input: event.content_block.input || {} });
+          const toolBlock = { type: 'tool_use', id: event.content_block.id, name: event.content_block.name, input: event.content_block.input || {} };
+          buf.contentBlocks.push(toolBlock);
+          this._trackBackgroundSidechain(buf, toolBlock);
         }
       } else if (event.type === 'result' && event.subtype === 'tool_result') {
         const id = event.tool_use_id;
         if (!id) return;
+        buf._ttsSidechainIds?.delete(id);
         for (let i = buf.contentBlocks.length - 1; i >= 0; i--) {
           if (buf.contentBlocks[i].type === 'tool_use' && buf.contentBlocks[i].id === id) {
             buf.contentBlocks[i].completed = true;
@@ -454,6 +502,9 @@ class MessageDispatcher {
 
     if (data.type === 'message_complete') {
       this.streamingSessions.delete(sid);
+      // Speak the response if this is the turn on-device TTS is following
+      // (user switched away from this tab while it was streaming).
+      this._flushClientTTS(sid);
       // Flush accumulated content blocks as a completed assistant message
       const buf = this.backgroundBuffers.get(sid);
       if (buf) {
@@ -481,6 +532,19 @@ class MessageDispatcher {
     }
 
     // Other background events (stderr, etc.) -- ignore silently
+  }
+
+  /** Open a sub-agent scope on a background buffer if the tool_use is an
+   *  Agent/Task dispatch, so its streamed text is kept out of TTS (mirrors the
+   *  foreground _sidechainStack guard). Closed in the tool_result branch. */
+  _trackBackgroundSidechain(buf, block) {
+    if (!this._isSubagentDispatch(block)) return;
+    (buf._ttsSidechainIds ||= new Set()).add(block.id);
+  }
+
+  /** True while a background buffer is inside an open sub-agent scope. */
+  _inBackgroundSidechain(buf) {
+    return buf._ttsSidechainIds?.size > 0;
   }
 
   /** Append text to the last text block in a background buffer, or open a
@@ -858,13 +922,19 @@ class MessageDispatcher {
    * don't have sub-agents).
    */
   _tryStartSidechain(block) {
+    if (!this._isSubagentDispatch(block)) return false;
+    const description = block.input?.description || '';
+    this._pushSidechain(block.id, block.input.subagent_type, description);
+    return true;
+  }
+
+  /** True if a tool_use block is an Agent/Task sub-agent dispatch (see
+   *  _tryStartSidechain). Pure — used by both the foreground renderer and the
+   *  background buffer to keep sub-agent text out of TTS. */
+  _isSubagentDispatch(block) {
     if (!block || !block.id) return false;
     if (block.name !== 'Agent' && block.name !== 'Task') return false;
-    const subagentType = block.input?.subagent_type;
-    if (!subagentType) return false;
-    const description = block.input?.description || '';
-    this._pushSidechain(block.id, subagentType, description);
-    return true;
+    return !!block.input?.subagent_type;
   }
 
   _handleContentBlockStart(event) {
@@ -920,9 +990,7 @@ class MessageDispatcher {
       // Voice + TTS only follow the main thread, never sub-agent deltas.
       if (this._sidechainStack.length === 0) {
         this.voice?.handleAssistantDelta(d.text);
-        if (this.tts?.activeBackend?.onDevice && this.tts?.enabled) {
-          this._clientTTSAccum = (this._clientTTSAccum || '') + d.text;
-        }
+        this._accumulateClientTTS(this.state.currentSessionId, d.text);
       }
     } else if (d.type === 'thinking_delta') {
       // Append to the assistant message inside the open <think> wrapper.
