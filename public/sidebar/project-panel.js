@@ -1,151 +1,135 @@
 /**
- * ProjectTreeItem - renders a single project header with action icons
- * and collapsible sections (Tasks, Sessions, Files).
+ * ProjectPanel - the explorer panel for the single active project.
+ *
+ * Layout: header (name + contextual actions) → icon tab strip
+ * (Files / Sessions / Tasks / Modules) → scrollable content → action bar.
+ *
+ * Files is the primary surface; Sessions/Tasks/Modules are secondary tabs.
+ * The per-tab content renderers were migrated from the retired ProjectTreeItem
+ * and keep their original behavior (session swipe-to-delete, terminal rows,
+ * task run, module lazy-load, lazy file tree).
  */
-class ProjectTreeItem {
-  constructor(container, projectId, fileTreeNode) {
+class ProjectPanel {
+  static TAB_STORAGE_KEY = 'eve-active-tab';
+
+  constructor(container, fileTreeNode) {
     this.container = container;
     this.bus = container.get('bus');
-    this.log = container.get('logger').child('ProjectTree');
+    this.log = container.get('logger').child('ProjectPanel');
     this.state = container.get('state');
-    this.projectId = projectId;
     this.fileTreeNode = fileTreeNode;
-    this.expanded = false;
-    this.sectionState = { tasks: false, sessions: false, files: false, modules: false };
-    this.onToggle = null;          // callback(projectId, expanded)
-    this.onSectionToggle = null;   // callback() - persists section state
+
+    this.projectId = null;
+    this.activeTab = this._restoreTab();
+
+    // DOM regions (static in index.html)
+    this.titleEl = null;
+    this.headerActionsEl = null;
+    this.tabsEl = null;
+    this.contentEl = null;
+    this.actionsEl = null;
+
     this._subscribed = false;
-    this.el = null;
   }
 
-  render(parentEl) {
-    const project = this.state.getProject(this.projectId);
-    if (!project) return;
-
+  init() {
+    this.titleEl = document.getElementById('panelTitle');
+    this.headerActionsEl = document.getElementById('panelHeaderActions');
+    this.tabsEl = document.getElementById('panelTabs');
+    this.contentEl = document.getElementById('panelContent');
+    this.actionsEl = document.getElementById('panelActions');
     this._subscribeEvents();
-
-    this.el = document.createElement('div');
-    this.el.className = 'project-tree__project';
-
-    // Header row
-    const header = document.createElement('div');
-    header.className = `project-tree__header${this.expanded ? ' project-tree__header--expanded' : ''}`;
-    header.dataset.testid = `sidebar-project-${this.projectId}`;
-
-    // Chevron
-    const chevron = document.createElement('span');
-    chevron.className = 'project-tree__chevron';
-    chevron.textContent = this.expanded ? '\u25BC' : '\u25B6';
-    header.appendChild(chevron);
-
-    // Colored avatar (first letter, color derived from project name hash)
-    const avatar = document.createElement('span');
-    avatar.className = 'project-tree__avatar';
-    avatar.textContent = (project.name || '?').trim().charAt(0).toUpperCase() || '?';
-    avatar.style.setProperty('--project-avatar-bg', this._avatarColor(project.name || project.id));
-    header.appendChild(avatar);
-
-    // Project name
-    const name = document.createElement('span');
-    name.className = 'project-tree__project-name';
-    const nameLabel = document.createElement('span');
-    nameLabel.textContent = project.name;
-    name.appendChild(nameLabel);
-    header.appendChild(name);
-
-    // Action icons (right-aligned)
-    const actions = document.createElement('span');
-    actions.className = 'project-tree__actions';
-
-    actions.appendChild(this._actionBtn('New Shell', UI_ICONS.shell(14), () =>
-      this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: this.projectId })));
-    actions.appendChild(this._actionBtn('Search', UI_ICONS.search(14), () =>
-      this.bus.emit(EVT.DIALOG_SEARCH, { projectId: this.projectId })));
-    actions.appendChild(this._actionBtn('Tasks', UI_ICONS.tasks(14), () =>
-      this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId })));
-    actions.appendChild(this._actionBtn('More', UI_ICONS.more(14), (e) =>
-      this._showProjectMenu(e.clientX, e.clientY)));
-
-    header.appendChild(actions);
-
-    // Click header to expand/collapse
-    header.addEventListener('click', () => {
-      this.expanded = !this.expanded;
-      if (this.onToggle) this.onToggle(this.projectId, this.expanded);
-      this._rerender();
-    });
-
-    this.el.appendChild(header);
-
-    // Collapsible sections (if project expanded)
-    if (this.expanded) {
-      const sections = document.createElement('div');
-      sections.className = 'project-tree__sections';
-      this._renderSection(sections, 'tasks', 'Tasks', (c) => this._renderTasksContent(c));
-      this._renderSection(sections, 'sessions', 'Sessions', (c) => this._renderSessionsContent(c));
-      this._renderSection(sections, 'modules', 'Modules', (c) => this._renderModulesContent(c));
-      this._renderSection(sections, 'files', 'Files',
-        (c) => this._renderFilesContent(c),
-        (a) => this._renderFilesActions(a));
-      this.el.appendChild(sections);
-    }
-
-    parentEl.appendChild(this.el);
   }
 
-  // --- Section rendering ---
+  setProject(projectId) {
+    this.projectId = projectId;
+    this.render();
+  }
 
-  _renderSection(parent, key, label, contentRenderer, actionsRenderer) {
-    const isExpanded = this.sectionState[key];
-    const count = this._getSectionCount(key);
+  render() {
+    if (!this.contentEl) return;
 
-    // Section header
-    const header = document.createElement('div');
-    header.className = `project-tree__section-header${isExpanded ? ' project-tree__section-header--expanded' : ''}`;
-
-    const chevron = document.createElement('span');
-    chevron.className = 'project-tree__section-chevron';
-    chevron.textContent = isExpanded ? '\u25BC' : '\u25B6';
-    header.appendChild(chevron);
-
-    const nameEl = document.createElement('span');
-    nameEl.className = 'project-tree__section-name';
-    nameEl.textContent = label;
-    header.appendChild(nameEl);
-
-    if (count !== null) {
-      const countEl = document.createElement('span');
-      countEl.className = 'project-tree__section-count';
-      countEl.textContent = `(${count})`;
-      header.appendChild(countEl);
+    const project = this.projectId ? this.state.getProject(this.projectId) : null;
+    if (!project) {
+      this.titleEl.textContent = '';
+      this.headerActionsEl.innerHTML = '';
+      this.tabsEl.innerHTML = '';
+      this.actionsEl.innerHTML = '';
+      this.contentEl.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'project-tree__empty';
+      empty.textContent = 'No projects. Click + to add one.';
+      this.contentEl.appendChild(empty);
+      return;
     }
 
-    if (actionsRenderer) {
-      const actionsEl = document.createElement('span');
-      actionsEl.className = 'project-tree__section-actions';
-      actionsRenderer(actionsEl);
-      header.appendChild(actionsEl);
-    }
+    this.titleEl.textContent = project.name;
+    this.titleEl.title = project.name;
+    this._renderHeaderActions();
+    this._renderTabs();
+    this._renderContent();
+    this._renderActionBar();
+  }
 
-    header.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.sectionState[key] = !this.sectionState[key];
-      if (this.onSectionToggle) this.onSectionToggle();
-      this._rerender();
-    });
+  // Re-render only the dynamic parts (counts + content) in response to events.
+  _refresh() {
+    if (!this.projectId || !this.state.getProject(this.projectId)) return;
+    this._renderHeaderActions();
+    this._renderTabs();
+    this._renderContent();
+  }
 
-    parent.appendChild(header);
+  // --- Tabs ---
 
-    // Section content
-    if (isExpanded) {
-      const content = document.createElement('div');
-      content.className = 'project-tree__section-content';
-      contentRenderer(content);
-      parent.appendChild(content);
+  _tabs() {
+    return [
+      { key: 'files', label: 'Files', icon: PANEL_ICONS.files, count: null },
+      { key: 'sessions', label: 'Sessions', icon: PANEL_ICONS.sessions, count: this._sectionCount('sessions') },
+      { key: 'tasks', label: 'Tasks', icon: PANEL_ICONS.tasks, count: this._sectionCount('tasks') },
+      { key: 'modules', label: 'Modules', icon: PANEL_ICONS.modules, count: this._sectionCount('modules') },
+    ];
+  }
+
+  _renderTabs() {
+    this.tabsEl.innerHTML = '';
+    for (const tab of this._tabs()) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `panel-tab${tab.key === this.activeTab ? ' panel-tab--active' : ''}`;
+      btn.title = tab.label;
+      btn.dataset.tab = tab.key;
+
+      const icon = document.createElement('span');
+      icon.className = 'panel-tab__icon';
+      icon.innerHTML = tab.icon;
+      btn.appendChild(icon);
+
+      const label = document.createElement('span');
+      label.className = 'panel-tab__label';
+      label.textContent = tab.label;
+      btn.appendChild(label);
+
+      if (tab.count !== null && tab.count > 0) {
+        const count = document.createElement('span');
+        count.className = 'panel-tab__count';
+        count.textContent = tab.count;
+        btn.appendChild(count);
+      }
+
+      btn.addEventListener('click', () => {
+        if (this.activeTab === tab.key) return;
+        this.activeTab = tab.key;
+        this._saveTab();
+        this._renderHeaderActions();
+        this._renderTabs();
+        this._renderContent();
+      });
+
+      this.tabsEl.appendChild(btn);
     }
   }
 
-  _getSectionCount(key) {
+  _sectionCount(key) {
     if (key === 'tasks') {
       return this.state.getTasksForProject(this.projectId).length;
     }
@@ -161,23 +145,72 @@ class ProjectTreeItem {
     if (key === 'modules') {
       return this.state.getModulesForProject(this.projectId).length;
     }
-    return null; // files — no count
+    return null;
+  }
+
+  // --- Header actions (search + more, plus file actions on the Files tab) ---
+
+  _renderHeaderActions() {
+    this.headerActionsEl.innerHTML = '';
+    if (this.activeTab === 'files') {
+      this.headerActionsEl.appendChild(this._iconBtn('New Folder', UI_ICONS.newFolder(16),
+        () => this.fileTreeNode.promptNewFolderAtRoot(this.projectId)));
+      this.headerActionsEl.appendChild(this._iconBtn('Refresh', UI_ICONS.refresh(16),
+        () => this.fileTreeNode.refreshRoot(this.projectId)));
+    }
+    this.headerActionsEl.appendChild(this._iconBtn('Search', UI_ICONS.search(16),
+      () => this.bus.emit(EVT.DIALOG_SEARCH, { projectId: this.projectId }),
+      `sidebar-project-search-${this.projectId}`));
+    this.headerActionsEl.appendChild(this._iconBtn('More', UI_ICONS.more(16),
+      (e) => this._showProjectMenu(e.clientX, e.clientY),
+      `sidebar-project-more-${this.projectId}`));
+  }
+
+  // --- Action bar ---
+
+  _renderActionBar() {
+    this.actionsEl.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'panel-action-btn panel-action-btn--primary';
+    btn.dataset.testid = `sidebar-new-session-${this.projectId}`;
+    btn.innerHTML = `${PANEL_ICONS.plus}<span>New Session</span>`;
+    btn.addEventListener('click', () => {
+      this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: this.projectId });
+    });
+    this.actionsEl.appendChild(btn);
+  }
+
+  // --- Content dispatch ---
+
+  _renderContent() {
+    this.contentEl.innerHTML = '';
+    switch (this.activeTab) {
+      case 'sessions': return this._renderSessionsContent(this.contentEl);
+      case 'tasks': return this._renderTasksContent(this.contentEl);
+      case 'modules': return this._renderModulesContent(this.contentEl);
+      case 'files':
+      default: return this._renderFilesContent(this.contentEl);
+    }
+  }
+
+  // --- Files content ---
+
+  _renderFilesContent(container) {
+    const treeContainer = document.createElement('div');
+    treeContainer.className = 'file-tree';
+    treeContainer.dataset.projectId = this.projectId;
+    this.fileTreeNode.renderTree(this.projectId, treeContainer);
+    container.appendChild(treeContainer);
   }
 
   // --- Tasks content ---
 
   _renderTasksContent(container) {
     const tasks = this.state.getTasksForProject(this.projectId);
-    this._renderTaskItems(container, tasks);
-  }
-
-  _renderTaskItems(container, tasks) {
     const taskViewer = this.container.get('taskViewer');
 
     for (const task of tasks) {
-      // TaskViewer is the single point that knows interactive-vs-readonly.
-      // The sidebar only asks "do you have something to show, and please
-      // show it on click."
       const hasLastRun = taskViewer.hasLastRun(task);
 
       const item = document.createElement('div');
@@ -219,7 +252,6 @@ class ProjectTreeItem {
       });
       actions.appendChild(editBtn);
 
-      // Click task row → open whatever the task says its last run is.
       item.addEventListener('click', () => {
         if (!hasLastRun) return;
         taskViewer.openLastRun(task);
@@ -230,10 +262,6 @@ class ProjectTreeItem {
       container.appendChild(item);
     }
 
-    // Always offer a "+ New Task" entry at the end. The Tasks icon in the
-    // project header opens the same dialog, but it's non-obvious — adding
-    // an in-list affordance means an empty project has a visible path to
-    // create the first task.
     const newItem = document.createElement('div');
     newItem.className = 'project-tree__task-item project-tree__task-item--new';
     newItem.dataset.testid = `sidebar-task-new-${this.projectId}`;
@@ -284,7 +312,7 @@ class ProjectTreeItem {
       .filter(t => !this.state.isTaskRun(t.id));
 
     if (sessions.length === 0 && terminals.length === 0) {
-      this._renderEmpty(container, 'No sessions');
+      this._renderEmpty(container, 'No sessions yet. Start one below.');
       return;
     }
 
@@ -293,11 +321,9 @@ class ProjectTreeItem {
     }
 
     for (const session of sessions) {
-      // Swipe wrapper: clips overflow, holds content + delete action
       const wrapper = document.createElement('div');
       wrapper.className = 'project-tree__session-swipe';
 
-      // Delete action (revealed on swipe left)
       const deleteAction = document.createElement('div');
       deleteAction.className = 'project-tree__session-delete';
       deleteAction.textContent = 'Delete';
@@ -313,8 +339,6 @@ class ProjectTreeItem {
 
       const nameEl = document.createElement('span');
       nameEl.className = 'project-tree__session-name';
-      // Strip project name prefix if present for cleaner display
-      const project = this.state.getProject(this.projectId);
       let displayName = session.name || session.id;
       if (project && displayName.startsWith(project.name + ' - ')) {
         displayName = displayName.slice(project.name.length + 3);
@@ -325,7 +349,6 @@ class ProjectTreeItem {
       if (session.model) {
         const badge = document.createElement('span');
         badge.className = 'project-tree__session-badge';
-        // Show short model name
         const modelParts = session.model.split('/');
         badge.textContent = modelParts[modelParts.length - 1];
         item.appendChild(badge);
@@ -335,7 +358,6 @@ class ProjectTreeItem {
 
       item.addEventListener('click', (e) => {
         e.stopPropagation();
-        // Don't navigate if we just swiped or delete is revealed
         if (swipeState.swiped || wrapper.classList.contains('project-tree__session-swipe--open')) return;
         this.container.get('app').joinSession(session.id);
         this._closeSidebarOnMobile();
@@ -388,8 +410,6 @@ class ProjectTreeItem {
   // --- Modules content ---
 
   _renderModulesContent(container) {
-    // Lazy-load on first expand. MODULE_LIST_UPDATED drives the re-render when
-    // the fetch completes — no need to chain .then(_rerender) here.
     const store = this.container.has('moduleStore') ? this.container.get('moduleStore') : null;
     if (store && !this.state.modules.has(this.projectId)) {
       store.loadModulesForProject(this.projectId);
@@ -406,7 +426,6 @@ class ProjectTreeItem {
       }
     }
 
-    // Always-visible "+ New Module" row at the end.
     const newItem = document.createElement('div');
     newItem.className = 'project-tree__module-item project-tree__module-item--new';
     newItem.dataset.testid = `sidebar-module-new-${this.projectId}`;
@@ -454,23 +473,6 @@ class ProjectTreeItem {
     container.appendChild(item);
   }
 
-  // --- Files content ---
-
-  _renderFilesContent(container) {
-    const treeContainer = document.createElement('div');
-    treeContainer.className = 'file-tree';
-    treeContainer.dataset.projectId = this.projectId;
-    this.fileTreeNode.renderTree(this.projectId, treeContainer);
-    container.appendChild(treeContainer);
-  }
-
-  _renderFilesActions(actions) {
-    actions.appendChild(this._actionBtn('New Folder', UI_ICONS.newFolder(14), () =>
-      this.fileTreeNode.promptNewFolderAtRoot(this.projectId)));
-    actions.appendChild(this._actionBtn('Refresh', UI_ICONS.refresh(14), () =>
-      this.fileTreeNode.refreshRoot(this.projectId)));
-  }
-
   // --- Shared helpers ---
 
   _renderLoading(container) {
@@ -487,14 +489,43 @@ class ProjectTreeItem {
     container.appendChild(el);
   }
 
+  _iconBtn(title, iconHtml, onClick, testid) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'panel-header__btn';
+    btn.title = title;
+    btn.innerHTML = iconHtml;
+    if (testid) btn.dataset.testid = testid;
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(e); });
+    return btn;
+  }
+
+  _showProjectMenu(x, y) {
+    showContextMenu(x, y, [
+      { label: 'Edit Project', action: () => this.bus.emit(EVT.DIALOG_PROJECT, { projectId: this.projectId }) },
+      { label: 'Delete Project', danger: true, action: () => {
+        this.bus.emit(EVT.DIALOG_CONFIRM, {
+          message: `Delete project "${this.state.getProject(this.projectId)?.name}"? This cannot be undone.`,
+          onConfirm: () => this.bus.emit(EVT.PROJECT_DELETED, { projectId: this.projectId }),
+        });
+      }},
+    ]);
+  }
+
+  _closeSidebarOnMobile() {
+    const app = this.container.has('app') ? this.container.get('app') : null;
+    if (app?.closeSidebarOnMobile) app.closeSidebarOnMobile();
+  }
+
+  // Swipe-to-delete for session rows (touch only). Verbatim from ProjectTreeItem.
   _attachSwipe(wrapper, item, swipeState) {
     const DELETE_WIDTH = 64;
-    const THRESHOLD = 20; // min px before swipe activates
+    const THRESHOLD = 20;
     let startX = 0;
     let startY = 0;
     let currentX = 0;
     let swiping = false;
-    let locked = false; // true once we commit to horizontal swipe
+    let locked = false;
 
     item.addEventListener('touchstart', (e) => {
       const touch = e.touches[0];
@@ -512,10 +543,8 @@ class ProjectTreeItem {
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
 
-      // Decide direction on first significant movement
       if (!locked && (Math.abs(dx) > THRESHOLD || Math.abs(dy) > THRESHOLD)) {
         if (Math.abs(dy) > Math.abs(dx)) {
-          // Vertical scroll — bail out
           swiping = false;
           return;
         }
@@ -527,7 +556,6 @@ class ProjectTreeItem {
       if (!swiping) return;
       e.preventDefault();
 
-      // Clamp: allow left swipe up to DELETE_WIDTH, slight resistance past that
       currentX = Math.max(-DELETE_WIDTH * 1.2, Math.min(0, dx));
       item.style.transform = `translateX(${currentX}px)`;
     }, { passive: false });
@@ -540,21 +568,16 @@ class ProjectTreeItem {
       swipeState.swiped = true;
       item.style.transition = 'transform 0.2s ease';
       if (currentX < -DELETE_WIDTH / 2) {
-        // Snap open — keep sidebar locked until closed or acted on
         item.style.transform = `translateX(${-DELETE_WIDTH}px)`;
         wrapper.classList.add('project-tree__session-swipe--open');
       } else {
-        // Snap closed
         item.style.transform = '';
         wrapper.classList.remove('project-tree__session-swipe--open');
       }
-      // Release lock after click event fires (next tick)
       setTimeout(() => { window._sidebarSwipeLocked = false; }, 300);
     }, { passive: true });
 
-    // Close on tap elsewhere (any open swipe resets on next touchstart)
     item.addEventListener('touchstart', () => {
-      // Close other open swipes in the same section
       const parent = wrapper.parentElement;
       if (!parent) return;
       for (const el of parent.querySelectorAll('.project-tree__session-swipe--open')) {
@@ -570,50 +593,13 @@ class ProjectTreeItem {
     }, { passive: true });
   }
 
-  _closeSidebarOnMobile() {
-    const app = this.container.has('app') ? this.container.get('app') : null;
-    if (app?.closeSidebarOnMobile) app.closeSidebarOnMobile();
+  _restoreTab() {
+    const t = localStorage.getItem(ProjectPanel.TAB_STORAGE_KEY);
+    return ['files', 'sessions', 'tasks', 'modules'].includes(t) ? t : 'files';
   }
 
-  _rerender() {
-    const parent = this.el?.parentElement;
-    if (!parent) return;
-    const next = this.el.nextSibling;
-    this.el.remove();
-    // Build new element into a detached fragment, then insert at original position.
-    const fragment = document.createDocumentFragment();
-    this.render(fragment);
-    parent.insertBefore(fragment, next);
-  }
-
-  _avatarColor(seed) {
-    let h = 0;
-    const s = String(seed || '');
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-    const hue = h % 360;
-    return `hsl(${hue}, 38%, 36%)`;
-  }
-
-  _actionBtn(title, iconHtml, onClick) {
-    const btn = document.createElement('button');
-    btn.className = 'project-tree__action-btn';
-    btn.title = title;
-    btn.innerHTML = iconHtml;
-    btn.dataset.testid = `sidebar-project-${title.toLowerCase().replace(/\s+/g, '-')}-${this.projectId}`;
-    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(e); });
-    return btn;
-  }
-
-  _showProjectMenu(x, y) {
-    showContextMenu(x, y, [
-      { label: 'Edit Project', action: () => this.bus.emit(EVT.DIALOG_PROJECT, { projectId: this.projectId }) },
-      { label: 'Delete Project', danger: true, action: () => {
-        this.bus.emit(EVT.DIALOG_CONFIRM, {
-          message: `Delete project "${this.state.getProject(this.projectId)?.name}"? This cannot be undone.`,
-          onConfirm: () => this.bus.emit(EVT.PROJECT_DELETED, { projectId: this.projectId }),
-        });
-      }},
-    ]);
+  _saveTab() {
+    localStorage.setItem(ProjectPanel.TAB_STORAGE_KEY, this.activeTab);
   }
 
   // --- Event subscriptions (one-time) ---
@@ -622,30 +608,23 @@ class ProjectTreeItem {
     if (this._subscribed) return;
     this._subscribed = true;
 
-    // Tasks: re-render on any task state change
-    const onTaskEvent = () => {
-      if (!this.expanded) return;
-      this._rerender();
-    };
-    this.bus.on(EVT.TASKS_LOADED, onTaskEvent);
-    this.bus.on(EVT.TASK_UPDATED, onTaskEvent);
-
-    // Sessions: re-render on session changes
-    const onSessionEvent = () => {
-      if (!this.expanded) return;
-      this._rerender();
-    };
-    this.bus.on(EVT.SESSION_UPDATED, onSessionEvent);
-    this.bus.on(EVT.SESSION_REMOVED, onSessionEvent);
-
-    // Terminals: re-render when terminal list changes
-    this.bus.on(EVT.TERMINAL_LIST, () => {
-      this._rerender();  // Always rerender — count shown even when collapsed
-    });
-
-    // Modules: re-render when this project's module list changes
+    const refresh = () => this._refresh();
+    this.bus.on(EVT.TASKS_LOADED, refresh);
+    this.bus.on(EVT.TASK_UPDATED, refresh);
+    this.bus.on(EVT.SESSION_UPDATED, refresh);
+    this.bus.on(EVT.SESSION_REMOVED, refresh);
+    this.bus.on(EVT.TERMINAL_LIST, refresh);
     this.bus.on(EVT.MODULE_LIST_UPDATED, ({ projectId }) => {
-      if (projectId === this.projectId) this._rerender();
+      if (projectId === this.projectId) this._refresh();
     });
   }
 }
+
+// Tab + action-bar icons not already in UI_ICONS.
+const PANEL_ICONS = {
+  files: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9 1.5H4.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5z"/><path d="M9 1.5V5h3.5"/></svg>',
+  sessions: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5h12v7H9l-3 2.5V11.5H2z"/></svg>',
+  tasks: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg>',
+  modules: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>',
+  plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+};
