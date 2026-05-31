@@ -28,8 +28,35 @@ class AuthService {
     // RP (Relying Party) settings
     this.rpName = 'Home|Work';
 
+    // Optional pinned origins (EVE_PUBLIC_ORIGIN). When set, WebAuthn RP ID and
+    // expected origin come from here instead of the request Host header, which
+    // is attacker-controllable. See docs/security-audit-frontend.md (M1).
+    this.pinnedOrigins = this._parsePinnedOrigins(process.env);
+    if (this.pinnedOrigins) {
+      this.log.info(`WebAuthn origin pinned to: ${this.pinnedOrigins.map(o => o.origin).join(', ')}`);
+    }
+
     // Start cleanup timer
     this.startCleanupTimer();
+  }
+
+  /**
+   * Parse EVE_PUBLIC_ORIGIN (comma-separated) into [{ origin, rpId }] or null.
+   * Invalid entries are skipped with a warning.
+   */
+  _parsePinnedOrigins(env) {
+    const raw = env.EVE_PUBLIC_ORIGIN;
+    if (!raw || !raw.trim()) return null;
+    const out = [];
+    for (const part of raw.split(',').map(s => s.trim()).filter(Boolean)) {
+      try {
+        const u = new URL(part);
+        out.push({ origin: u.origin, rpId: u.hostname });
+      } catch {
+        this.log.warn(`Ignoring invalid EVE_PUBLIC_ORIGIN entry: ${part}`);
+      }
+    }
+    return out.length ? out : null;
   }
 
   // --- Credential Persistence ---
@@ -71,7 +98,17 @@ class AuthService {
   // --- Cleanup ---
 
   startCleanupTimer() {
-    setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS);
+    this.cleanupTimer = setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS);
+    // Don't keep the event loop alive solely for cleanup (and let tests exit).
+    this.cleanupTimer.unref?.();
+  }
+
+  /** Stop the background cleanup timer. */
+  stop() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
   }
 
   cleanup() {
@@ -168,14 +205,39 @@ class AuthService {
   // plans/cozy-honking-toast.md Section A.
 
   getRpId(req) {
+    if (this.pinnedOrigins) return this.pinnedOrigins[0].rpId;
     const host = req.get('host') || 'localhost';
     return host.split(':')[0];
   }
 
   getOrigin(req) {
+    if (this.pinnedOrigins) return this.pinnedOrigins[0].origin;
     const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
     const host = req.get('host') || 'localhost:3000';
     return `${protocol}://${host}`;
+  }
+
+  /**
+   * Expected origin(s) for verification. When pinned, returns the full
+   * allowlist (simplewebauthn accepts a string[] here); otherwise the single
+   * request-derived origin (unchanged legacy behavior).
+   */
+  _expectedOrigins(req) {
+    return this.pinnedOrigins ? this.pinnedOrigins.map(o => o.origin) : this.getOrigin(req);
+  }
+
+  /**
+   * Expected RP ID(s) for verification. When pinned, returns the pinned
+   * hostnames plus the credential's stored rpId (so a credential enrolled
+   * before pinning still validates); otherwise the stored-or-derived id.
+   */
+  _expectedRpIds(req, storedRpId) {
+    if (this.pinnedOrigins) {
+      const ids = this.pinnedOrigins.map(o => o.rpId);
+      if (storedRpId && !ids.includes(storedRpId)) ids.push(storedRpId);
+      return ids;
+    }
+    return storedRpId || this.getRpId(req);
   }
 
   // --- WebAuthn Operations ---
@@ -208,13 +270,12 @@ class AuthService {
     const expectedChallenge = this.consumeChallenge(challengeId);
 
     const rpId = this.getRpId(req);
-    const origin = this.getOrigin(req);
 
     const verification = await verifyRegistrationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: origin,
-      expectedRPID: rpId
+      expectedOrigin: this._expectedOrigins(req),
+      expectedRPID: this.pinnedOrigins ? this.pinnedOrigins.map(o => o.rpId) : rpId
     });
 
     if (!verification.verified || !verification.registrationInfo) {
@@ -283,15 +344,11 @@ class AuthService {
       throw new Error('Unknown credential');
     }
 
-    // Use the stored RP ID from enrollment, fall back to current request
-    const rpId = authData.rpId || this.getRpId(req);
-    const origin = this.getOrigin(req);
-
     const verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: origin,
-      expectedRPID: rpId,
+      expectedOrigin: this._expectedOrigins(req),
+      expectedRPID: this._expectedRpIds(req, authData.rpId),
       credential: {
         id: credential.id,
         publicKey: Buffer.from(credential.publicKey, 'base64url'),
