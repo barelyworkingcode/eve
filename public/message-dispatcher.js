@@ -287,11 +287,20 @@ class MessageDispatcher {
    * backend, which streams audio frames independently of the active session.
    */
   _accumulateClientTTS(sessionId, text) {
-    if (!text || !sessionId) return;
+    if (!text) return;
     if (!this.tts?.activeBackend?.onDevice || !this.tts?.enabled) return;
-    if (this._ttsSessionId === null) this._ttsSessionId = sessionId;
-    if (sessionId !== this._ttsSessionId) return;
-    this._clientTTSAccum += text;
+    // Only accumulate if we have a valid sessionId or we're already bound
+    if (!sessionId && !this._ttsSessionId) return;
+    // Bind to the first sessionId we see; if already bound, require matching sessionId
+    if (this._ttsSessionId === null && sessionId) {
+      this._ttsSessionId = sessionId;
+    } else if (sessionId && sessionId !== this._ttsSessionId) {
+      return;
+    }
+    // Accumulate if bound (either just-bound or previously-bound)
+    if (this._ttsSessionId !== null) {
+      this._clientTTSAccum += text;
+    }
   }
 
   /**

@@ -28,8 +28,49 @@ class AuthService {
     // RP (Relying Party) settings
     this.rpName = 'Home|Work';
 
+    // Optional pinned origin (EVE_PUBLIC_ORIGIN). When set, the WebAuthn RP ID
+    // and expected origin come from here instead of the request Host header,
+    // which is attacker-controllable. See docs/security-audit-frontend.md (M1).
+    this.pinnedOrigin = this._parsePinnedOrigin(process.env);
+    if (this.pinnedOrigin) {
+      this.log.info(`WebAuthn origin pinned to: ${this.pinnedOrigin.origin}`);
+    }
+
     // Start cleanup timer
     this.startCleanupTimer();
+  }
+
+  /**
+   * Parse EVE_PUBLIC_ORIGIN into { origin, rpId }, or null if unset/invalid.
+   * Reads from environment on every call to support runtime config changes.
+   */
+  _getPinnedOrigin() {
+    const raw = process.env.EVE_PUBLIC_ORIGIN;
+    if (!raw || !raw.trim()) return null;
+    try {
+      const u = new URL(raw.trim());
+      return { origin: u.origin, rpId: u.hostname };
+    } catch {
+      this.log.warn(`Ignoring invalid EVE_PUBLIC_ORIGIN: ${raw}`);
+      return null;
+    }
+  }
+
+  /**
+   * Parse EVE_PUBLIC_ORIGIN into { origin, rpId }, or null if unset/invalid.
+   * Called once at startup for logging; actual pinned origin is read fresh on
+   * each request via _getPinnedOrigin().
+   */
+  _parsePinnedOrigin(env) {
+    const raw = env.EVE_PUBLIC_ORIGIN;
+    if (!raw || !raw.trim()) return null;
+    try {
+      const u = new URL(raw.trim());
+      return { origin: u.origin, rpId: u.hostname };
+    } catch {
+      this.log.warn(`Ignoring invalid EVE_PUBLIC_ORIGIN: ${raw}`);
+      return null;
+    }
   }
 
   // --- Credential Persistence ---
@@ -71,7 +112,17 @@ class AuthService {
   // --- Cleanup ---
 
   startCleanupTimer() {
-    setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS);
+    this.cleanupTimer = setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS);
+    // Don't keep the event loop alive solely for cleanup (and let tests exit).
+    this.cleanupTimer.unref?.();
+  }
+
+  /** Stop the background cleanup timer. */
+  stop() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
   }
 
   cleanup() {
@@ -168,12 +219,19 @@ class AuthService {
   // plans/cozy-honking-toast.md Section A.
 
   getRpId(req) {
+    const pinned = this._getPinnedOrigin();
+    if (pinned) return pinned.rpId;
     const host = req.get('host') || 'localhost';
     return host.split(':')[0];
   }
 
   getOrigin(req) {
-    const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const pinned = this._getPinnedOrigin();
+    if (pinned) return pinned.origin;
+    // Only trust req.secure for protocol detection, not x-forwarded-proto.
+    // x-forwarded-proto is attacker-controllable on direct connections.
+    // When behind a reverse proxy, set EVE_PUBLIC_ORIGIN to pin the origin.
+    const protocol = req.secure ? 'https' : 'http';
     const host = req.get('host') || 'localhost:3000';
     return `${protocol}://${host}`;
   }
@@ -208,12 +266,11 @@ class AuthService {
     const expectedChallenge = this.consumeChallenge(challengeId);
 
     const rpId = this.getRpId(req);
-    const origin = this.getOrigin(req);
 
     const verification = await verifyRegistrationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: origin,
+      expectedOrigin: this.getOrigin(req),
       expectedRPID: rpId
     });
 
@@ -227,7 +284,6 @@ class AuthService {
     const storedId = typeof credential.id === 'string'
       ? credential.id
       : Buffer.from(credential.id).toString('base64url');
-    this.log.debug('Stored credential ID:', storedId);
 
     const credentialData = {
       rpId: rpId, // Store the RP ID used during enrollment
@@ -276,21 +332,18 @@ class AuthService {
     }
 
     const credentialId = response.id;
-    this.log.debug('Login credential ID from response:', credentialId);
-    this.log.debug('Stored credential IDs:', authData.credentials.map(c => c.id));
     const credential = authData.credentials.find(c => c.id === credentialId);
     if (!credential) {
       throw new Error('Unknown credential');
     }
 
-    // Use the stored RP ID from enrollment, fall back to current request
+    // Use the stored RP ID from enrollment, falling back to pinned/derived.
     const rpId = authData.rpId || this.getRpId(req);
-    const origin = this.getOrigin(req);
 
     const verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: origin,
+      expectedOrigin: this.getOrigin(req),
       expectedRPID: rpId,
       credential: {
         id: credential.id,
