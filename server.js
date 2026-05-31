@@ -20,6 +20,7 @@ const { RelayTransport, RelayConfigError } = require('./relay-transport');
 const { isAllowedWsOrigin, parsePublicOrigin } = require('./ws-origin');
 const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('./security-headers');
 const { ipHostGuard } = require('./ip-host-guard');
+const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
 const { Logger } = require('./logger');
 
 const log = new Logger(process.env.LOG_LEVEL || 'info');
@@ -35,6 +36,13 @@ const PUBLIC_ORIGIN = parsePublicOrigin();
 // COOP, and HSTS over TLS). The strict app-shell CSP is set separately in
 // serveIndexWithCachebust. See security-headers.js.
 app.use(securityHeaders());
+
+// Pre-enrollment gate: until a passkey is enrolled, only bootstrap-trusted
+// clients (loopback / LAN / WireGuard) may reach Eve at all — remote scanners
+// get a boring 404 and can't race for ownership. Runs before the IP guard so a
+// blocked remote request gets a uniform 404, not a hostname hint. Wired with
+// authService + trustedNetwork below, so register lazily via a thin closure.
+app.use((req, res, next) => enrollmentGate({ authService, trustedNetwork, log: serverLog })(req, res, next));
 
 // When a canonical origin is configured, refuse browser access by bare IP —
 // WebAuthn needs a hostname RP-ID, so IP access can't authenticate anyway.
@@ -67,6 +75,12 @@ const wss = new WebSocketServer({ noServer: true });
 
 // Route upgrades from both servers to the same WebSocket handler
 function handleUpgrade(req, socket, head) {
+  // Pre-enrollment gate: drop remote upgrades until a passkey exists. Mirrors
+  // the HTTP enrollmentGate so a scanner can't reach the WS protocol either.
+  if (isEnrollmentBlocked(req, { authService, trustedNetwork })) {
+    socket.destroy();
+    return;
+  }
   if (!isAllowedWsOrigin(req, { publicOrigin: PUBLIC_ORIGIN })) {
     serverLog.warn(`Rejected WebSocket upgrade from disallowed origin: ${req.headers.origin}`);
     socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');

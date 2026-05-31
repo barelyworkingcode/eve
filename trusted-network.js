@@ -243,9 +243,23 @@ class TrustedNetworkService {
 
   /**
    * Is the client at the other end of this request on a trusted subnet?
+   * Honors EVE_DISABLE_SUBNET_BYPASS — i.e. governs whether trusted clients
+   * SKIP the passkey.
    */
   isTrusted(req) {
     if (this.disabled) return false;
+    return this.isInTrustedRange(req);
+  }
+
+  /**
+   * Raw CIDR-membership test, INDEPENDENT of EVE_DISABLE_SUBNET_BYPASS.
+   * The bypass flag decides whether trusted networks skip the passkey; it must
+   * not also decide who may bootstrap the very first enrollment, or disabling
+   * it on an un-enrolled box would lock everyone out. The enrollment gate uses
+   * this so the LAN/WireGuard can always reach the enroll flow before a passkey
+   * exists. See enrollment-gate.js.
+   */
+  isInTrustedRange(req) {
     const ip = getClientIp(req);
     if (!ip) return false;
     return isIpInCidrs(ip, this.cidrs);

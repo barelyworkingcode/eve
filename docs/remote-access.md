@@ -39,6 +39,45 @@ single origin either way.
 
 ---
 
+## First-time enrollment (the bootstrap)
+
+Eve refuses **remote** traffic until a passkey is enrolled — an un-enrolled
+internet client gets a plain `404`, so scanners can't poke the auth code or race
+you to claim ownership of a fresh box. The first passkey is bootstrapped from the
+**trusted network**:
+
+1. Get split-horizon DNS working first (below), so `eve.example.com` resolves to
+   the LAN IP at home.
+2. Set `EVE_TRUSTED_SUBNETS` to your LAN + WireGuard CIDRs so those count as
+   bootstrap-trusted (this also correctly scopes trust away from a public NIC
+   range):
+   ```bash
+   EVE_PUBLIC_ORIGIN=https://eve.example.com EVE_TRUSTED_SUBNETS="192.168.0.0/16,10.8.0.0/24" \
+   HTTPS_KEY=./certs/eve.key HTTPS_CERT=./certs/eve.crt npm run start:secure
+   ```
+3. From a device **on the LAN or WireGuard**, open `https://eve.example.com` and
+   enroll your passkey with Face ID / Touch ID. Because you're on the real
+   hostname, the passkey binds to `eve.example.com` — the RP-ID internet logins
+   use. (Don't enroll via the `localhost:3000` instance; that would bind the
+   passkey to `localhost` and it'd be useless on the public name.)
+4. Done — the gate opens. From anywhere on the internet, `https://eve.example.com`
+   now shows the passkey login; pre-enrollment visitors only ever saw `404`.
+
+**You can't lock yourself out:**
+- **Loopback always bootstraps.** Even with all subnet trust disabled, a browser
+  on the box itself can reach the enroll flow.
+- **`EVE_ALLOW_ENROLLMENT=1`** is a one-shot escape hatch that forces the door
+  open from anywhere if DNS/trust isn't wired yet. Unset it after enrolling.
+- The bootstrap check uses raw CIDR membership, **independent of**
+  `EVE_DISABLE_SUBNET_BYPASS` — so "passkey everywhere" post-enrollment still
+  leaves the LAN/WireGuard able to enroll the first passkey.
+
+> The gate is a no-op once a passkey exists and when `EVE_NO_AUTH=1`. The local
+> `localhost:3000` instance (loopback-bound, no pin) is unaffected — loopback is
+> always a bootstrap-trusted client.
+
+---
+
 ## Firewalla: split-horizon setup
 
 ### The supported way (app, no SSH)
