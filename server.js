@@ -21,7 +21,7 @@ const { isAllowedWsOrigin, parseAllowedOrigins } = require('./ws-origin');
 const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('./security-headers');
 const { Logger } = require('./logger');
 
-const log = new Logger(process.env.LOG_LEVEL || 'debug');
+const log = new Logger(process.env.LOG_LEVEL || 'info');
 const serverLog = log.child('Server');
 
 const app = express();
@@ -318,7 +318,11 @@ const HTTP_PORT = process.env.HTTP_PORT || 3000;
 // See docs/security-audit-frontend.md (M2).
 const isPlaintext = !(HTTPS_KEY && HTTPS_CERT);
 const allowPlaintextRemote = process.env.EVE_ALLOW_PLAINTEXT_REMOTE === '1';
-const bindHost = (isPlaintext && !allowPlaintextRemote) ? '127.0.0.1' : '0.0.0.0';
+// EVE_BIND_HOST pins the listen address explicitly — e.g. a WireGuard interface
+// IP so plaintext is reachable only over the (already-encrypted) tunnel and
+// nowhere else. When unset: loopback for plaintext, all interfaces otherwise.
+const bindHost = process.env.EVE_BIND_HOST
+  || ((isPlaintext && !allowPlaintextRemote) ? '127.0.0.1' : '0.0.0.0');
 
 if (isPlaintext && allowPlaintextRemote) {
   serverLog.warn(
@@ -334,7 +338,7 @@ if (isPlaintext && allowPlaintextRemote) {
 
 server.listen(PORT, bindHost, () => {
   const protocol = isPlaintext ? 'http' : 'https';
-  const scope = bindHost === '127.0.0.1' ? ' (loopback-only)' : '';
+  const scope = bindHost === '0.0.0.0' ? '' : ` (bound ${bindHost})`;
   serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}${scope}`);
   if (authService.isEnrolled()) {
     serverLog.info('Authentication: enabled (passkey enrolled)');
