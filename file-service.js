@@ -20,9 +20,14 @@ class FileService {
    * `startsWith(base)` prefix check is a path-traversal hole — see
    * docs/security-audit-frontend.md (H1).
    */
-  _isWithin(base, target) {
+  isPathWithin(base, target) {
     const resolvedBase = path.resolve(base);
     return target === resolvedBase || target.startsWith(resolvedBase + path.sep);
+  }
+
+  // Alias for backwards compatibility with internal calls
+  _isWithin(base, target) {
+    return this.isPathWithin(base, target);
   }
 
   /**

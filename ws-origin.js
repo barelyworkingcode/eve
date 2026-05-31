@@ -26,6 +26,8 @@
  *    `Origin.host === Host` is true only for a genuine same-origin page.
  */
 
+const { isLoopbackHost: relayIsLoopbackHost } = require('./relay-transport');
+
 /** Eve's canonical origin from EVE_PUBLIC_ORIGIN, or null if unset. */
 function parsePublicOrigin(env = process.env) {
   const raw = env.EVE_PUBLIC_ORIGIN;
@@ -33,13 +35,10 @@ function parsePublicOrigin(env = process.env) {
 }
 
 /**
- * Exact (not substring) loopback-hostname test. Brackets are stripped for IPv6
- * literals. `localhost.evil.com` / `127.0.0.1.evil.com` do NOT match.
+ * Exact (not substring) loopback-hostname test. Re-exported from relay-transport
+ * for consistency across all loopback checks in the codebase.
  */
-function isLoopbackHost(hostname) {
-  const h = (hostname || '').replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
-  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
-}
+const isLoopbackHost = relayIsLoopbackHost;
 
 /**
  * @param {import('http').IncomingMessage} req
