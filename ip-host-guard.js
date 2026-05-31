@@ -6,9 +6,9 @@
  * IP visit fail in a confusing way mid-login, this middleware intercepts it early
  * and points the user at the configured hostname(s).
  *
- * Active only when canonical origins are configured (EVE_PUBLIC_ORIGIN). Loopback
+ * Active only when a canonical origin is configured (EVE_PUBLIC_ORIGIN). Loopback
  * IPs are exempt so same-host tooling/health checks keep working. WebSocket
- * upgrades are guarded separately by the Origin allowlist (ws-origin.js).
+ * upgrades are guarded separately by the Origin check (ws-origin.js).
  */
 const net = require('net');
 
@@ -31,11 +31,10 @@ function isBareIpHost(hostHeader) {
   return !!host && net.isIP(host) !== 0 && !isLoopback(host);
 }
 
-function ipHostGuard({ origins = [] } = {}) {
+function ipHostGuard({ origin = null } = {}) {
   return function (req, res, next) {
-    if (!origins.length || !isBareIpHost(req.headers.host || '')) return next();
+    if (!origin || !isBareIpHost(req.headers.host || '')) return next();
 
-    const links = origins.map(o => `<a href="${o}" style="color:#3b82f6">${o}</a>`).join(' &nbsp;·&nbsp; ');
     res.status(421)
       .set('Content-Type', 'text/html; charset=utf-8')
       .set('Cache-Control', 'no-store')
@@ -46,8 +45,8 @@ function ipHostGuard({ origins = [] } = {}) {
         '<div style="max-width:440px;text-align:center;padding:24px">' +
         '<h1 style="font-size:18px;margin:0 0 8px">Open Eve by name, not by IP</h1>' +
         '<p style="color:#999;font-size:14px;margin:0 0 16px">Passkeys are bound to a hostname, so Eve ' +
-        'must be reached at one of its configured names:</p>' +
-        `<p style="font-size:15px">${links}</p></div></body>`
+        'must be reached at its configured address:</p>' +
+        `<p style="font-size:15px"><a href="${origin}" style="color:#3b82f6">${origin}</a></p></div></body>`
       );
   };
 }
