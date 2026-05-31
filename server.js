@@ -35,7 +35,16 @@ const PUBLIC_ORIGIN = parsePublicOrigin();
 // Security response headers on every route (nosniff, frame-options, referrer,
 // COOP, and HSTS over TLS). The strict app-shell CSP is set separately in
 // serveIndexWithCachebust. See security-headers.js.
-app.use(securityHeaders());
+// Placeholder — will be replaced after trustedNetwork is initialized.
+let securityHeadersMiddleware;
+const securityHeadersPlaceholder = (req, res, next) => {
+  if (securityHeadersMiddleware) {
+    securityHeadersMiddleware(req, res, next);
+  } else {
+    next();
+  }
+};
+app.use(securityHeadersPlaceholder);
 
 // Pre-enrollment gate: until a passkey is enrolled, only bootstrap-trusted
 // clients (loopback / LAN / WireGuard) may reach Eve at all — remote scanners
@@ -159,6 +168,9 @@ const projectCache = new Map();
 // Services
 const authService = new AuthService(DATA_DIR, log.child('Auth'));
 const trustedNetwork = new TrustedNetworkService({ log: log.child('TrustedNetwork') });
+
+// Initialize security headers middleware now that trustedNetwork is available
+securityHeadersMiddleware = securityHeaders({ trustedNetwork });
 
 // Instantiate enrollment gate middleware now that authService and trustedNetwork are initialized
 enrollmentGateMiddleware = enrollmentGate({ authService, trustedNetwork, log: serverLog });
