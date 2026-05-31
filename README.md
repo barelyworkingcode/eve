@@ -2,6 +2,10 @@
 
 A browser-based LLM chat interface — AI for Home and for Work (and your homework). Proxies to [relayLLM](https://github.com/barelyworkingcode/relayLLM) for all LLM concerns and provides the UI layer: chat, file editing, terminals, and authentication. Codenamed `eve` internally.
 
+> **Deploying this securely (LAN / WireGuard / internet)? → [docs/setup.md](docs/setup.md).**
+> One runbook for certs, the iOS trust profile, DNS/Firewalla, `.env`, the Relay
+> service, and first-passkey enrollment. For local hacking, `npm install && npm start` (loopback, no passkey).
+
 ## Features
 
 - **Multi-provider chat** - Access any LLM provider configured in relayLLM (Claude, Gemini, LM Studio, etc.)
