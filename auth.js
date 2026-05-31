@@ -204,14 +204,30 @@ class AuthService {
   // TCP source address; see trusted-network.js and
   // plans/cozy-honking-toast.md Section A.
 
+  /**
+   * Pick the pinned origin matching the hostname the browser actually used.
+   * Selection-by-Host is safe here: an attacker setting Host to one of OUR
+   * allowlisted hostnames just gets that (legitimate) RP-ID, and verification
+   * still pins the full allowlist. Falls back to the first pinned entry so a
+   * request to an unexpected host (e.g. a fresh enrollment over a name we
+   * didn't list) still has a deterministic RP-ID. Returns null when unpinned.
+   */
+  _pinnedForReq(req) {
+    if (!this.pinnedOrigins) return null;
+    const host = ((req.get && req.get('host')) || '').split(':')[0].toLowerCase();
+    return this.pinnedOrigins.find(o => o.rpId.toLowerCase() === host) || this.pinnedOrigins[0];
+  }
+
   getRpId(req) {
-    if (this.pinnedOrigins) return this.pinnedOrigins[0].rpId;
+    const pinned = this._pinnedForReq(req);
+    if (pinned) return pinned.rpId;
     const host = req.get('host') || 'localhost';
     return host.split(':')[0];
   }
 
   getOrigin(req) {
-    if (this.pinnedOrigins) return this.pinnedOrigins[0].origin;
+    const pinned = this._pinnedForReq(req);
+    if (pinned) return pinned.origin;
     const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
     const host = req.get('host') || 'localhost:3000';
     return `${protocol}://${host}`;
