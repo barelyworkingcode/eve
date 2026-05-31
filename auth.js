@@ -28,12 +28,12 @@ class AuthService {
     // RP (Relying Party) settings
     this.rpName = 'Home|Work';
 
-    // Optional pinned origins (EVE_PUBLIC_ORIGIN). When set, WebAuthn RP ID and
-    // expected origin come from here instead of the request Host header, which
-    // is attacker-controllable. See docs/security-audit-frontend.md (M1).
-    this.pinnedOrigins = this._parsePinnedOrigins(process.env);
-    if (this.pinnedOrigins) {
-      this.log.info(`WebAuthn origin pinned to: ${this.pinnedOrigins.map(o => o.origin).join(', ')}`);
+    // Optional pinned origin (EVE_PUBLIC_ORIGIN). When set, the WebAuthn RP ID
+    // and expected origin come from here instead of the request Host header,
+    // which is attacker-controllable. See docs/security-audit-frontend.md (M1).
+    this.pinnedOrigin = this._parsePinnedOrigin(process.env);
+    if (this.pinnedOrigin) {
+      this.log.info(`WebAuthn origin pinned to: ${this.pinnedOrigin.origin}`);
     }
 
     // Start cleanup timer
@@ -41,22 +41,18 @@ class AuthService {
   }
 
   /**
-   * Parse EVE_PUBLIC_ORIGIN (comma-separated) into [{ origin, rpId }] or null.
-   * Invalid entries are skipped with a warning.
+   * Parse EVE_PUBLIC_ORIGIN into { origin, rpId }, or null if unset/invalid.
    */
-  _parsePinnedOrigins(env) {
+  _parsePinnedOrigin(env) {
     const raw = env.EVE_PUBLIC_ORIGIN;
     if (!raw || !raw.trim()) return null;
-    const out = [];
-    for (const part of raw.split(',').map(s => s.trim()).filter(Boolean)) {
-      try {
-        const u = new URL(part);
-        out.push({ origin: u.origin, rpId: u.hostname });
-      } catch {
-        this.log.warn(`Ignoring invalid EVE_PUBLIC_ORIGIN entry: ${part}`);
-      }
+    try {
+      const u = new URL(raw.trim());
+      return { origin: u.origin, rpId: u.hostname };
+    } catch {
+      this.log.warn(`Ignoring invalid EVE_PUBLIC_ORIGIN: ${raw}`);
+      return null;
     }
-    return out.length ? out : null;
   }
 
   // --- Credential Persistence ---
@@ -204,56 +200,17 @@ class AuthService {
   // TCP source address; see trusted-network.js and
   // plans/cozy-honking-toast.md Section A.
 
-  /**
-   * Pick the pinned origin matching the hostname the browser actually used.
-   * Selection-by-Host is safe here: an attacker setting Host to one of OUR
-   * allowlisted hostnames just gets that (legitimate) RP-ID, and verification
-   * still pins the full allowlist. Falls back to the first pinned entry so a
-   * request to an unexpected host (e.g. a fresh enrollment over a name we
-   * didn't list) still has a deterministic RP-ID. Returns null when unpinned.
-   */
-  _pinnedForReq(req) {
-    if (!this.pinnedOrigins) return null;
-    const host = ((req.get && req.get('host')) || '').split(':')[0].toLowerCase();
-    return this.pinnedOrigins.find(o => o.rpId.toLowerCase() === host) || this.pinnedOrigins[0];
-  }
-
   getRpId(req) {
-    const pinned = this._pinnedForReq(req);
-    if (pinned) return pinned.rpId;
+    if (this.pinnedOrigin) return this.pinnedOrigin.rpId;
     const host = req.get('host') || 'localhost';
     return host.split(':')[0];
   }
 
   getOrigin(req) {
-    const pinned = this._pinnedForReq(req);
-    if (pinned) return pinned.origin;
+    if (this.pinnedOrigin) return this.pinnedOrigin.origin;
     const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
     const host = req.get('host') || 'localhost:3000';
     return `${protocol}://${host}`;
-  }
-
-  /**
-   * Expected origin(s) for verification. When pinned, returns the full
-   * allowlist (simplewebauthn accepts a string[] here); otherwise the single
-   * request-derived origin (unchanged legacy behavior).
-   */
-  _expectedOrigins(req) {
-    return this.pinnedOrigins ? this.pinnedOrigins.map(o => o.origin) : this.getOrigin(req);
-  }
-
-  /**
-   * Expected RP ID(s) for verification. When pinned, returns the pinned
-   * hostnames plus the credential's stored rpId (so a credential enrolled
-   * before pinning still validates); otherwise the stored-or-derived id.
-   */
-  _expectedRpIds(req, storedRpId) {
-    if (this.pinnedOrigins) {
-      const ids = this.pinnedOrigins.map(o => o.rpId);
-      if (storedRpId && !ids.includes(storedRpId)) ids.push(storedRpId);
-      return ids;
-    }
-    return storedRpId || this.getRpId(req);
   }
 
   // --- WebAuthn Operations ---
@@ -290,8 +247,8 @@ class AuthService {
     const verification = await verifyRegistrationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: this._expectedOrigins(req),
-      expectedRPID: this.pinnedOrigins ? this.pinnedOrigins.map(o => o.rpId) : rpId
+      expectedOrigin: this.getOrigin(req),
+      expectedRPID: rpId
     });
 
     if (!verification.verified || !verification.registrationInfo) {
@@ -357,11 +314,14 @@ class AuthService {
       throw new Error('Unknown credential');
     }
 
+    // Use the stored RP ID from enrollment, falling back to pinned/derived.
+    const rpId = authData.rpId || this.getRpId(req);
+
     const verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: this._expectedOrigins(req),
-      expectedRPID: this._expectedRpIds(req, authData.rpId),
+      expectedOrigin: this.getOrigin(req),
+      expectedRPID: rpId,
       credential: {
         id: credential.id,
         publicKey: Buffer.from(credential.publicKey, 'base64url'),

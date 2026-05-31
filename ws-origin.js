@@ -1,5 +1,5 @@
 /**
- * WebSocket upgrade Origin allowlisting — anti-CSWSH.
+ * WebSocket upgrade Origin check — anti-CSWSH.
  *
  * WebSocket connections are NOT subject to the same-origin policy or CORS the
  * way fetch() is: any web page can open `new WebSocket("ws://eve.host")` from a
@@ -13,33 +13,30 @@
  *  - No Origin header  → non-browser client (CLI, native socket). Not a CSWSH
  *    vector (no victim browser is being ridden); it still faces the token /
  *    subnet auth gate downstream. Allowed here.
- *  - EVE_PUBLIC_ORIGIN set → exact-match allowlist (use behind a proxy whose
- *    external origin differs from the Host Eve sees).
+ *  - EVE_PUBLIC_ORIGIN set → the Origin must equal it exactly (use behind a
+ *    proxy whose external origin differs from the Host Eve sees).
  *  - Otherwise → same-origin check. A browser sets BOTH Origin and Host itself
  *    and page script cannot forge either (both are forbidden headers), so
  *    `Origin.host === Host` is true only for a genuine same-origin page.
  */
 
-/** Parse EVE_PUBLIC_ORIGIN (comma-separated) into a trimmed list. */
-function parseAllowedOrigins(env = process.env) {
+/** Eve's canonical origin from EVE_PUBLIC_ORIGIN, or null if unset. */
+function parsePublicOrigin(env = process.env) {
   const raw = env.EVE_PUBLIC_ORIGIN;
-  if (!raw || !raw.trim()) return [];
-  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return raw && raw.trim() ? raw.trim() : null;
 }
 
 /**
  * @param {import('http').IncomingMessage} req
  * @param {object} [opts]
- * @param {string[]} [opts.allowedOrigins] - from parseAllowedOrigins()
+ * @param {string|null} [opts.publicOrigin] - from parsePublicOrigin()
  * @returns {boolean} true if the upgrade may proceed
  */
-function isAllowedWsOrigin(req, { allowedOrigins = [] } = {}) {
+function isAllowedWsOrigin(req, { publicOrigin = null } = {}) {
   const origin = req?.headers?.origin;
   if (!origin) return true; // non-browser client — not a cross-site hijack
 
-  if (allowedOrigins.length) {
-    return allowedOrigins.includes(origin);
-  }
+  if (publicOrigin) return origin === publicOrigin;
 
   let parsed;
   try {
@@ -51,4 +48,4 @@ function isAllowedWsOrigin(req, { allowedOrigins = [] } = {}) {
   return !!host && parsed.host === host;
 }
 
-module.exports = { isAllowedWsOrigin, parseAllowedOrigins };
+module.exports = { isAllowedWsOrigin, parsePublicOrigin };

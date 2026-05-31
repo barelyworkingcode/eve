@@ -17,7 +17,7 @@ const TTSService = require('./tts-service');
 const STTService = require('./stt-service');
 const { TrustedNetworkService } = require('./trusted-network');
 const { RelayTransport, RelayConfigError } = require('./relay-transport');
-const { isAllowedWsOrigin, parseAllowedOrigins } = require('./ws-origin');
+const { isAllowedWsOrigin, parsePublicOrigin } = require('./ws-origin');
 const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('./security-headers');
 const { ipHostGuard } = require('./ip-host-guard');
 const { Logger } = require('./logger');
@@ -27,19 +27,19 @@ const serverLog = log.child('Server');
 
 const app = express();
 
-// Canonical hostnames Eve is reached at (EVE_PUBLIC_ORIGIN). Shared by the WS
-// origin gate and the bare-IP guard.
-const PUBLIC_ORIGINS = parseAllowedOrigins();
+// Eve's canonical origin (EVE_PUBLIC_ORIGIN). Shared by the WS origin gate and
+// the bare-IP guard.
+const PUBLIC_ORIGIN = parsePublicOrigin();
 
 // Security response headers on every route (nosniff, frame-options, referrer,
 // COOP, and HSTS over TLS). The strict app-shell CSP is set separately in
 // serveIndexWithCachebust. See security-headers.js.
 app.use(securityHeaders());
 
-// When canonical hostnames are configured, refuse browser access by bare IP —
+// When a canonical origin is configured, refuse browser access by bare IP —
 // WebAuthn needs a hostname RP-ID, so IP access can't authenticate anyway.
 // See ip-host-guard.js.
-app.use(ipHostGuard({ origins: PUBLIC_ORIGINS }));
+app.use(ipHostGuard({ origin: PUBLIC_ORIGIN }));
 
 // HTTPS support for WebAuthn on non-localhost
 const HTTPS_KEY = process.env.HTTPS_KEY;
@@ -62,12 +62,12 @@ const wss = new WebSocketServer({ noServer: true });
 
 // Anti-CSWSH: reject WebSocket upgrades carrying a cross-site browser Origin
 // BEFORE the socket is accepted. See ws-origin.js and
-// docs/security-audit-frontend.md (C1). Set EVE_PUBLIC_ORIGIN to allowlist the
-// external origin(s) — list every hostname Eve is reached at.
+// docs/security-audit-frontend.md (C1). Set EVE_PUBLIC_ORIGIN to Eve's canonical
+// origin when fronting it with a reverse proxy.
 
 // Route upgrades from both servers to the same WebSocket handler
 function handleUpgrade(req, socket, head) {
-  if (!isAllowedWsOrigin(req, { allowedOrigins: PUBLIC_ORIGINS })) {
+  if (!isAllowedWsOrigin(req, { publicOrigin: PUBLIC_ORIGIN })) {
     serverLog.warn(`Rejected WebSocket upgrade from disallowed origin: ${req.headers.origin}`);
     socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();

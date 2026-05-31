@@ -31,22 +31,14 @@ describe('AuthService origin pinning (M1)', () => {
   describe('without EVE_PUBLIC_ORIGIN (legacy host-derived)', () => {
     it('derives rpId and origin from the request Host', () => {
       svc = makeService(undefined);
-      const req = mkReq({ host: 'eve.lan:3000' });
-      expect(svc.getRpId(req)).toBe('eve.lan');
-      expect(svc.getOrigin(req)).toBe('http://eve.lan:3000');
+      const req = mkReq({ host: 'eve.example.com:3000' });
+      expect(svc.getRpId(req)).toBe('eve.example.com');
+      expect(svc.getOrigin(req)).toBe('http://eve.example.com:3000');
     });
 
     it('uses https when the request is secure', () => {
       svc = makeService(undefined);
-      expect(svc.getOrigin(mkReq({ host: 'eve.lan', secure: true }))).toBe('https://eve.lan');
-    });
-
-    it('expected origin/rpId fall back to request + stored values', () => {
-      svc = makeService(undefined);
-      const req = mkReq({ host: 'eve.lan:3000' });
-      expect(svc._expectedOrigins(req)).toBe('http://eve.lan:3000');
-      expect(svc._expectedRpIds(req, 'stored.host')).toBe('stored.host');
-      expect(svc._expectedRpIds(req, null)).toBe('eve.lan');
+      expect(svc.getOrigin(mkReq({ host: 'eve.example.com', secure: true }))).toBe('https://eve.example.com');
     });
   });
 
@@ -58,50 +50,14 @@ describe('AuthService origin pinning (M1)', () => {
       expect(svc.getOrigin(spoofed)).toBe('https://eve.example.com');
     });
 
-    it('returns the full allowlist for verification', () => {
-      svc = makeService('https://eve.example.com, https://eve.lan');
-      const req = mkReq({ host: 'attacker.test' });
-      expect(svc._expectedOrigins(req)).toEqual(['https://eve.example.com', 'https://eve.lan']);
-      expect(svc._expectedRpIds(req, null)).toEqual(['eve.example.com', 'eve.lan']);
-    });
-
-    it('includes a credential\'s stored rpId so pre-pinning enrollments still verify', () => {
+    it('keeps the pin regardless of port or protocol on the request', () => {
       svc = makeService('https://eve.example.com');
-      expect(svc._expectedRpIds(mkReq({ host: 'x' }), 'old.host'))
-        .toEqual(['eve.example.com', 'old.host']);
+      expect(svc.getOrigin(mkReq({ host: 'eve.example.com:3000', secure: false }))).toBe('https://eve.example.com');
     });
 
-    it('skips invalid entries', () => {
-      svc = makeService('not-a-url, https://eve.example.com');
-      expect(svc.getRpId(mkReq({ host: 'x' }))).toBe('eve.example.com');
-    });
-  });
-
-  describe('two hostnames (eve.lan + DDNS)', () => {
-    const TWO = 'https://eve.lan, https://home.firewalla.net';
-
-    it('selects the RP-ID matching the host the browser used', () => {
-      svc = makeService(TWO);
-      expect(svc.getRpId(mkReq({ host: 'eve.lan' }))).toBe('eve.lan');
-      expect(svc.getRpId(mkReq({ host: 'home.firewalla.net' }))).toBe('home.firewalla.net');
-    });
-
-    it('selects the matching origin too, ignoring the port', () => {
-      svc = makeService(TWO);
-      expect(svc.getOrigin(mkReq({ host: 'eve.lan:3000' }))).toBe('https://eve.lan');
-      expect(svc.getOrigin(mkReq({ host: 'home.firewalla.net:443' }))).toBe('https://home.firewalla.net');
-    });
-
-    it('falls back to the first pinned entry for an unlisted host', () => {
-      svc = makeService(TWO);
-      expect(svc.getRpId(mkReq({ host: 'something-else' }))).toBe('eve.lan');
-    });
-
-    it('verifies against BOTH origins/RP-IDs regardless of which host was used', () => {
-      svc = makeService(TWO);
-      const req = mkReq({ host: 'eve.lan' });
-      expect(svc._expectedOrigins(req)).toEqual(['https://eve.lan', 'https://home.firewalla.net']);
-      expect(svc._expectedRpIds(req, null)).toEqual(['eve.lan', 'home.firewalla.net']);
+    it('ignores an invalid EVE_PUBLIC_ORIGIN and falls back to host-derived', () => {
+      svc = makeService('not-a-url');
+      expect(svc.getRpId(mkReq({ host: 'eve.example.com' }))).toBe('eve.example.com');
     });
   });
 });
