@@ -17,12 +17,57 @@ const TTSService = require('./tts-service');
 const STTService = require('./stt-service');
 const { TrustedNetworkService } = require('./trusted-network');
 const { RelayTransport, RelayConfigError } = require('./relay-transport');
+const { isAllowedWsOrigin, parsePublicOrigin } = require('./ws-origin');
+const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('./security-headers');
+const { ipHostGuard } = require('./ip-host-guard');
+const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
 const { Logger } = require('./logger');
 
-const log = new Logger(process.env.LOG_LEVEL || 'debug');
+const log = new Logger(process.env.LOG_LEVEL || 'info');
 const serverLog = log.child('Server');
 
 const app = express();
+
+// Eve's canonical origin (EVE_PUBLIC_ORIGIN). Shared by the WS origin gate and
+// the bare-IP guard.
+const PUBLIC_ORIGIN = parsePublicOrigin();
+
+// Security response headers on every route (nosniff, frame-options, referrer,
+// COOP, and HSTS over TLS). The strict app-shell CSP is set separately in
+// serveIndexWithCachebust. See security-headers.js.
+// Placeholder — will be replaced after trustedNetwork is initialized.
+let securityHeadersMiddleware;
+const securityHeadersPlaceholder = (req, res, next) => {
+  if (securityHeadersMiddleware) {
+    securityHeadersMiddleware(req, res, next);
+  } else {
+    next();
+  }
+};
+app.use(securityHeadersPlaceholder);
+
+// Pre-enrollment gate: until a passkey is enrolled, only bootstrap-trusted
+// clients (loopback / LAN / WireGuard) may reach Eve at all — remote scanners
+// get a boring 404 and can't race for ownership. Runs before the IP guard so a
+// blocked remote request gets a uniform 404, not a hostname hint.
+// Instantiated below after authService and trustedNetwork are initialized.
+let enrollmentGateMiddleware;
+
+// Placeholder for enrollment gate middleware. Will be registered after
+// authService and trustedNetwork are initialized.
+const enrollmentGatePlaceholder = (req, res, next) => {
+  if (enrollmentGateMiddleware) {
+    enrollmentGateMiddleware(req, res, next);
+  } else {
+    next();
+  }
+};
+app.use(enrollmentGatePlaceholder);
+
+// When a canonical origin is configured, refuse browser access by bare IP —
+// WebAuthn needs a hostname RP-ID, so IP access can't authenticate anyway.
+// See ip-host-guard.js.
+app.use(ipHostGuard({ origin: PUBLIC_ORIGIN }));
 
 // HTTPS support for WebAuthn on non-localhost
 const HTTPS_KEY = process.env.HTTPS_KEY;
@@ -43,8 +88,27 @@ const httpServer = (HTTPS_KEY && HTTPS_CERT && DUAL_LISTEN)
 
 const wss = new WebSocketServer({ noServer: true });
 
+// Anti-CSWSH: reject WebSocket upgrades carrying a cross-site browser Origin
+// BEFORE the socket is accepted. See ws-origin.js and
+// docs/security-audit-frontend.md (C1). Set EVE_PUBLIC_ORIGIN to Eve's canonical
+// origin when fronting it with a reverse proxy.
+
 // Route upgrades from both servers to the same WebSocket handler
 function handleUpgrade(req, socket, head) {
+  // Pre-enrollment gate: drop remote upgrades until a passkey exists. Mirrors
+  // the HTTP enrollmentGate so a scanner can't reach the WS protocol either.
+  if (isEnrollmentBlocked(req, { authService, trustedNetwork })) {
+    serverLog.warn(`Rejected WebSocket upgrade: enrollment gate blocked (no passkey enrolled)`);
+    socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  if (!isAllowedWsOrigin(req, { publicOrigin: PUBLIC_ORIGIN })) {
+    serverLog.warn(`Rejected WebSocket upgrade from disallowed origin: ${req.headers.origin}`);
+    socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit('connection', ws, req);
   });
@@ -104,6 +168,12 @@ const projectCache = new Map();
 // Services
 const authService = new AuthService(DATA_DIR, log.child('Auth'));
 const trustedNetwork = new TrustedNetworkService({ log: log.child('TrustedNetwork') });
+
+// Initialize security headers middleware now that trustedNetwork is available
+securityHeadersMiddleware = securityHeaders({ trustedNetwork });
+
+// Instantiate enrollment gate middleware now that authService and trustedNetwork are initialized
+enrollmentGateMiddleware = enrollmentGate({ authService, trustedNetwork, log: serverLog });
 
 // Relay transport (Unix socket preferred, TCP fallback). Fails the process
 // hard on any insecure configuration — see plans/cozy-honking-toast.md
@@ -198,13 +268,25 @@ refreshProjectCache();
 // The transformed HTML is computed once and reused — neither the file nor the
 // token can change without restarting the process.
 const CACHEBUST = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const INDEX_HTML_CACHED = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+const INDEX_HTML_RAW = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+
+// Pin index.html's inline bootstrap scripts by hash so the shell CSP can drop
+// 'unsafe-inline' for scripts. The cache-bust rewrite below only touches
+// `<script src=...>` tags, so the inline bodies the browser hashes are
+// identical to what we hash here. Disable with EVE_DISABLE_CSP=1 if a future
+// dependency needs a looser policy (see docs/security-audit-frontend.md C3).
+const SHELL_CSP = process.env.EVE_DISABLE_CSP === '1'
+  ? null
+  : buildShellCsp(computeInlineScriptHashes(INDEX_HTML_RAW));
+
+const INDEX_HTML_CACHED = INDEX_HTML_RAW
   .replace(/<script\s+src="(?!https?:|\/\/)([^"?]+)"/g, `<script src="$1?rnd=${CACHEBUST}"`)
   .replace(/<link([^>]*?)\s+href="(?!https?:|\/\/)([^"?]+\.(?:css|js))"/g, `<link$1 href="$2?rnd=${CACHEBUST}"`);
 
 function serveIndexWithCachebust(_req, res) {
   res.set('Cache-Control', 'no-store');
   res.set('Content-Type', 'text/html; charset=utf-8');
+  if (SHELL_CSP) res.set('Content-Security-Policy', SHELL_CSP);
   res.send(INDEX_HTML_CACHED);
 }
 app.get('/', serveIndexWithCachebust);
@@ -251,6 +333,7 @@ registerRoutes(app, {
   refreshProjectCache,
   removeFromProjectCache: (id) => projectCache.delete(id),
   resolveProject: (id) => projectCache.get(id),
+  fileService: fileHandlers.fileService,
   ttsService,
   sttService,
   moduleService,
@@ -280,21 +363,35 @@ wss.on('connection', createWsHandler({
 const PORT = process.env.PORT || 3000;
 const HTTP_PORT = process.env.HTTP_PORT || 3000;
 
-// Warn loudly when the primary listener is plain HTTP bound to all
-// interfaces — traffic including session tokens traverses the wire
-// unencrypted. Operators can set EVE_ALLOW_PLAINTEXT_REMOTE=1 to silence
-// the warning for local-dev convenience. See plans/cozy-honking-toast.md
-// Section C.
-if (!(HTTPS_KEY && HTTPS_CERT) && process.env.EVE_ALLOW_PLAINTEXT_REMOTE !== '1') {
+// Fail safe on plaintext: traffic (including session tokens) must not leave the
+// host unless the operator explicitly opts in. With no TLS we bind loopback
+// only — remote access is expected to go through the HTTPS listener. Set
+// EVE_ALLOW_PLAINTEXT_REMOTE=1 to expose plain HTTP on all interfaces anyway.
+// See docs/security-audit-frontend.md (M2).
+const isPlaintext = !(HTTPS_KEY && HTTPS_CERT);
+const allowPlaintextRemote = process.env.EVE_ALLOW_PLAINTEXT_REMOTE === '1';
+// EVE_BIND_HOST pins the listen address explicitly — e.g. a WireGuard interface
+// IP so plaintext is reachable only over the (already-encrypted) tunnel and
+// nowhere else. When unset: loopback for plaintext, all interfaces otherwise.
+const bindHost = process.env.EVE_BIND_HOST
+  || ((isPlaintext && !allowPlaintextRemote) ? '127.0.0.1' : '0.0.0.0');
+
+if (isPlaintext && allowPlaintextRemote) {
   serverLog.warn(
-    'Eve is running plain HTTP on all interfaces — traffic (including session tokens) is NOT encrypted on the wire. ' +
-    'Set HTTPS_KEY / HTTPS_CERT for network access, or EVE_ALLOW_PLAINTEXT_REMOTE=1 to silence this warning for local dev.'
+    'Eve is serving plain HTTP on ALL interfaces (EVE_ALLOW_PLAINTEXT_REMOTE=1) — traffic including ' +
+    'session tokens is NOT encrypted on the wire. Use HTTPS_KEY / HTTPS_CERT for any networked deployment.'
+  );
+} else if (isPlaintext) {
+  serverLog.info(
+    'No TLS configured — binding loopback (127.0.0.1) only. Set HTTPS_KEY / HTTPS_CERT for network access, ' +
+    'or EVE_ALLOW_PLAINTEXT_REMOTE=1 to expose plain HTTP on all interfaces (not recommended).'
   );
 }
 
-server.listen(PORT, () => {
-  const protocol = HTTPS_KEY && HTTPS_CERT ? 'https' : 'http';
-  serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}`);
+server.listen(PORT, bindHost, () => {
+  const protocol = isPlaintext ? 'http' : 'https';
+  const scope = bindHost === '0.0.0.0' ? '' : ` (bound ${bindHost})`;
+  serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}${scope}`);
   if (authService.isEnrolled()) {
     serverLog.info('Authentication: enabled (passkey enrolled)');
   } else {
@@ -324,6 +421,7 @@ function gracefulShutdown(signal) {
     try { client.terminate(); } catch (e) { /* ignore */ }
   }
 
+  authService.stop();
   server.closeAllConnections?.();
   httpServer?.closeAllConnections?.();
   server.close();

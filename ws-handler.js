@@ -7,8 +7,24 @@ const path = require('path');
 const RelayClient = require('./relay-client');
 const SlashCommandHandler = require('./slash-command-handler');
 const FileWatcher = require('./file-watcher');
+const RateLimiter = require('./rate-limiter');
 
 const slashCommandHandler = new SlashCommandHandler();
+
+// Per-connection rate limit for expensive operations (CPU/memory heavy or
+// fan-out to relay/STT/TTS). Generous enough for a human driving the UI, low
+// enough to cap abuse from a hijacked or scripted client. Tunable via env.
+// See docs/security-audit-frontend.md (M3).
+const EXPENSIVE_OPS = new Set([
+  'create_session',
+  'search_project',
+  'search_ai_summarize',
+  'module_invoke_ai',
+  'transcribe_audio',
+  'tts_speak',
+]);
+const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
+const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
 function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, claudeConfig, resolveProject, ttsService, sttService, log }) {
   return (ws, req) => {
@@ -25,6 +41,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     // track by requestId only, so we need to know which IDs belong to us.
     const inflightSearchIds = new Set();
     const inflightAiIds = new Set();
+    const expensiveLimiter = new RateLimiter({ windowMs: EXPENSIVE_WINDOW_MS, max: EXPENSIVE_MAX });
 
     // Connect to relayLLM immediately
     relayClient.connect().catch(err => {
@@ -55,6 +72,16 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         // Block all other messages until authenticated
         if (!isAuthenticated) {
           ws.send(JSON.stringify({ type: 'error', message: 'Authentication required' }));
+          return;
+        }
+
+        // Throttle expensive operations per connection.
+        if (EXPENSIVE_OPS.has(message.type) && !expensiveLimiter.allow()) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Rate limit exceeded — too many requests, please slow down.',
+            requestId: message.requestId,
+          }));
           return;
         }
 
@@ -405,6 +432,18 @@ async function handleReadPlanFile(ws, filePath) {
     if (!resolved.startsWith(plansDir + path.sep) || !resolved.endsWith('.md')) {
       ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
       return;
+    }
+
+    // Defeat a symlink inside plansDir pointing outside it: re-check the
+    // realpath. ENOENT falls through to the readFile error below.
+    try {
+      const real = await fs.promises.realpath(resolved);
+      if (!real.startsWith(plansDir + path.sep)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
+        return;
+      }
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
     }
 
     const content = await fs.promises.readFile(resolved, 'utf8');

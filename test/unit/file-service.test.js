@@ -50,6 +50,25 @@ describe('FileService', () => {
       const result = fileService.validatePath(projectPath, 'src/../lib/util.js');
       expect(result).toBe(path.resolve(projectPath, 'lib/util.js'));
     });
+
+    // Regression: a bare startsWith(base) prefix check let a sibling directory
+    // whose name shares the project basename prefix escape the sandbox.
+    // See docs/security-audit-frontend.md (H1).
+    it('blocks escape into a sibling dir with a shared name prefix', () => {
+      expect(() => {
+        fileService.validatePath(projectPath, '../project-secrets/secret.env');
+      }).toThrow('Path traversal not allowed');
+    });
+
+    it('blocks escape into a sibling dir via nested ../ with shared prefix', () => {
+      expect(() => {
+        fileService.validatePath(projectPath, 'src/../../project-evil/x.js');
+      }).toThrow('Path traversal not allowed');
+    });
+
+    it('still resolves the project root itself to the base path', () => {
+      expect(fileService.validatePath(projectPath, '/')).toBe(path.resolve(projectPath));
+    });
   });
 
   describe('isAllowedFile', () => {

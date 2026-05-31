@@ -12,7 +12,7 @@ function isHiddenSession(name) {
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, ttsService, sttService, moduleService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, ttsService, sttService, moduleService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   // Shared auth middleware.
   // Bypass order: (1) no passkey enrolled yet — first-run bootstrap; (2) the
@@ -284,6 +284,17 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
   });
 
   // --- Raw file serving (for binary file viewers: images, PDFs, video, audio) ---
+  //
+  // This route serves project files from Eve's OWN origin. Anything that can
+  // execute script in that origin (HTML, SVG, XML) is a stored-XSS vector —
+  // a file can arrive via upload, an agent write, or a synced project. We:
+  //   1. block path traversal with a separator-aware containment check,
+  //   2. force `nosniff` + a `default-src 'none'; sandbox` CSP on every file,
+  //   3. force `Content-Disposition: attachment` for script-capable types so
+  //      they download instead of rendering in Eve's origin.
+  // See docs/security-audit-frontend.md (H1, H2).
+  const ACTIVE_CONTENT_EXTS = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml']);
+
   app.get('/api/files/:projectId/*', requireAuth, (req, res) => {
     const project = resolveProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -291,13 +302,24 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     const relativePath = req.params[0];
     if (!relativePath) return res.status(400).json({ error: 'Path required' });
 
-    // Prevent path traversal
-    const resolved = path.resolve(project.path, relativePath);
-    if (!resolved.startsWith(path.resolve(project.path))) {
+    // Prevent path traversal. Use centralized path validation from FileService.
+    const base = path.resolve(project.path);
+    const resolved = path.resolve(base, relativePath);
+    if (!fileService.isPathWithin(base, resolved)) {
       return res.status(403).json({ error: 'Path traversal not allowed' });
     }
 
-    res.sendFile(resolved, { dotfiles: 'deny' }, (err) => {
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+
+    const ext = path.extname(resolved).toLowerCase();
+    const options = { dotfiles: 'deny' };
+    if (ACTIVE_CONTENT_EXTS.has(ext)) {
+      // Never render these inline from our origin — hand them back as a download.
+      res.set('Content-Disposition', `attachment; filename="${path.basename(resolved)}"`);
+    }
+
+    res.sendFile(resolved, options, (err) => {
       if (err && !res.headersSent) {
         const status = err.code === 'ENOENT' ? 404 : 500;
         res.status(status).json({ error: 'File not found' });

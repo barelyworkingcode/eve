@@ -58,7 +58,6 @@ function createAuthRoutes(authService, trustedNetwork, log) {
   router.post('/auth/enroll/start', rateLimit, requireNotEnrolled, async (req, res) => {
     try {
       const { options, challengeId } = await authService.generateEnrollmentOptions(req);
-      log.debug('Enrollment started - rpId:', options.rp.id, 'origin:', authService.getOrigin(req));
       res.json({ options, challengeId });
     } catch (err) {
       log.error('Enrollment start failed:', err);
@@ -69,8 +68,6 @@ function createAuthRoutes(authService, trustedNetwork, log) {
   router.post('/auth/enroll/finish', rateLimit, requireNotEnrolled, validateFinishBody, async (req, res) => {
     try {
       const { response, challengeId } = req.body;
-      log.debug('Enrollment finish - credential.id from client:', response.id);
-      log.debug('Enrollment finish - credential.rawId from client:', response.rawId);
       const token = await authService.verifyEnrollment(req, response, challengeId);
       res.json({ token });
     } catch (err) {
@@ -82,9 +79,6 @@ function createAuthRoutes(authService, trustedNetwork, log) {
   router.post('/auth/login/start', rateLimit, requireEnrolled, async (req, res) => {
     try {
       const { options, challengeId } = await authService.generateLoginOptions(req);
-      log.debug('Login started - rpId:', options.rpId, 'origin:', authService.getOrigin(req));
-      log.debug('Stored credential rpId from auth.json:', authService.loadCredentials()?.rpId || '(not stored)');
-      log.debug('allowCredentials:', JSON.stringify(options.allowCredentials));
       res.json({ options, challengeId });
     } catch (err) {
       log.error('Login start failed:', err);

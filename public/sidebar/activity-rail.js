@@ -10,6 +10,7 @@ class ActivityRail {
     this.el = null;            // #railProjects
     this.activeProjectId = null;
     this.onSelect = null;      // callback(projectId)
+    this._colorCache = new Map();  // Cache avatar colors by project name/id
   }
 
   init() {
@@ -23,6 +24,7 @@ class ActivityRail {
   render() {
     if (!this.el) return;
     this.el.innerHTML = '';
+    this._colorCache.clear();
 
     const projects = this.state.getVisibleProjects()
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
@@ -49,9 +51,14 @@ class ActivityRail {
   }
 
   _avatarColor(seed) {
+    const key = String(seed || '');
+    if (this._colorCache.has(key)) {
+      return this._colorCache.get(key);
+    }
     let h = 0;
-    const s = String(seed || '');
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-    return `hsl(${h % 360}, 38%, 38%)`;
+    for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+    const color = `hsl(${h % 360}, 38%, 38%)`;
+    this._colorCache.set(key, color);
+    return color;
   }
 }

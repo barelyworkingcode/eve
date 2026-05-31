@@ -2,6 +2,8 @@ const {
   TrustedNetworkService,
   computeTrustedCidrs,
   isIpInCidrs,
+  isPublicV4Cidr,
+  isPublicIp,
   getClientIp,
   parseCidr,
   normalizeIp,
@@ -320,5 +322,83 @@ describe('TrustedNetworkService', () => {
     const d = svc.describe();
     expect(d).toContain('10.0.0.0/24');
     expect(d).toContain('127.0.0.0/8');
+  });
+
+  test('warns at startup when the trusted set contains a public range', () => {
+    const warnings = [];
+    const log = { info: () => {}, warn: (m) => warnings.push(m), child: () => log };
+    // Simulate a host whose NIC sits on a provider-shared public /24.
+    new TrustedNetworkService({
+      log,
+      env: {},
+      osModule: {
+        networkInterfaces: () => ({
+          eth0: [{ family: 'IPv4', address: '203.0.113.7', netmask: '255.255.255.0', internal: false, cidr: '203.0.113.7/24' }],
+        }),
+      },
+    });
+    expect(warnings.some((w) => /PUBLIC IP range/.test(w))).toBe(true);
+    expect(warnings.some((w) => w.includes('203.0.113.0/24'))).toBe(true);
+  });
+
+  test('does NOT warn for a purely private/loopback trusted set', () => {
+    const warnings = [];
+    const log = { info: () => {}, warn: (m) => warnings.push(m), child: () => log };
+    new TrustedNetworkService({
+      log,
+      env: {},
+      osModule: {
+        networkInterfaces: () => ({
+          en0: [{ family: 'IPv4', address: '192.168.5.10', netmask: '255.255.255.0', internal: false, cidr: '192.168.5.10/24' }],
+        }),
+      },
+    });
+    expect(warnings.some((w) => /PUBLIC IP range/.test(w))).toBe(false);
+  });
+});
+
+describe('isPublicV4Cidr', () => {
+  test('flags public ranges', () => {
+    expect(isPublicV4Cidr(parseCidr('203.0.113.0/24'))).toBe(true);
+    expect(isPublicV4Cidr(parseCidr('8.8.8.8/32'))).toBe(true);
+  });
+
+  test('treats RFC1918, loopback, link-local, and CGNAT as private', () => {
+    expect(isPublicV4Cidr(parseCidr('10.0.0.0/8'))).toBe(false);
+    expect(isPublicV4Cidr(parseCidr('172.16.0.0/12'))).toBe(false);
+    expect(isPublicV4Cidr(parseCidr('192.168.1.0/24'))).toBe(false);
+    expect(isPublicV4Cidr(parseCidr('127.0.0.0/8'))).toBe(false);
+    expect(isPublicV4Cidr(parseCidr('169.254.0.0/16'))).toBe(false);
+    expect(isPublicV4Cidr(parseCidr('100.64.0.0/10'))).toBe(false);
+  });
+
+  test('ignores IPv6 CIDRs', () => {
+    expect(isPublicV4Cidr(parseCidr('::1'))).toBe(false);
+  });
+});
+
+describe('isPublicIp', () => {
+  test('treats RFC1918 / loopback / link-local / CGNAT as NOT public', () => {
+    for (const ip of ['127.0.0.1', '10.189.176.5', '192.168.76.20', '172.16.4.4', '169.254.1.1', '100.64.0.9']) {
+      expect(isPublicIp(ip)).toBe(false);
+    }
+  });
+  test('flags routable IPv4 as public', () => {
+    expect(isPublicIp('203.0.113.7')).toBe(true);
+    expect(isPublicIp('8.8.8.8')).toBe(true);
+  });
+  test('handles IPv6 loopback/ULA/link-local vs public', () => {
+    expect(isPublicIp('::1')).toBe(false);
+    expect(isPublicIp('fe80::1')).toBe(false);
+    expect(isPublicIp('fd12:3456::1')).toBe(false);
+    expect(isPublicIp('2001:db8::1')).toBe(true);
+  });
+  test('strips IPv4-mapped IPv6 and classifies the inner address', () => {
+    expect(isPublicIp('::ffff:192.168.1.5')).toBe(false);
+    expect(isPublicIp('::ffff:8.8.8.8')).toBe(true);
+  });
+  test('treats empty/unknown as public (fail-safe)', () => {
+    expect(isPublicIp('')).toBe(true);
+    expect(isPublicIp(null)).toBe(true);
   });
 });
