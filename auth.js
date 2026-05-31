@@ -288,7 +288,6 @@ class AuthService {
     const storedId = typeof credential.id === 'string'
       ? credential.id
       : Buffer.from(credential.id).toString('base64url');
-    this.log.debug('Stored credential ID:', storedId);
 
     const credentialData = {
       rpId: rpId, // Store the RP ID used during enrollment
@@ -337,8 +336,6 @@ class AuthService {
     }
 
     const credentialId = response.id;
-    this.log.debug('Login credential ID from response:', credentialId);
-    this.log.debug('Stored credential IDs:', authData.credentials.map(c => c.id));
     const credential = authData.credentials.find(c => c.id === credentialId);
     if (!credential) {
       throw new Error('Unknown credential');

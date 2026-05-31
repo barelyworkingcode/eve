@@ -1059,7 +1059,10 @@ class MessageRenderer {
         img.remove();
       }
     });
-    tmp.querySelectorAll(`a[href^="${GENERATED_PATH}"]`).forEach(a => {
+    // Open every link in a new tab and sever the opener reference. Protects
+    // against reverse tabnabbing (window.opener hijack) and stops a click from
+    // navigating the SPA away from the live session. See audit L4.
+    tmp.querySelectorAll('a[href]').forEach(a => {
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     });
