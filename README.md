@@ -131,6 +131,11 @@ HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem npm start
 
 ### Deployment: WireGuard and/or the internet
 
+> **Setting this up from scratch? Start with the runbook:
+> [docs/setup.md](docs/setup.md)** — it walks through certs (+ the helper scripts
+> in `scripts/`), the iOS trust profile, DNS/Firewalla, `.env`, registering the
+> Relay service, and first-passkey enrollment, end to end.
+
 Both access paths run on the **same hardened config** — there is no separate
 "LAN mode". The golden rule: **terminate TLS and pin one origin**, then reach
 Eve at that one hostname from everywhere.
