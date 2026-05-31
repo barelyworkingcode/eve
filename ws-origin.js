@@ -64,7 +64,7 @@ function isAllowedWsOrigin(req, { publicOrigin = null } = {}) {
   if (publicOrigin) return origin === publicOrigin;
 
   const host = req?.headers?.host || '';
-  return !!host && parsed.host === host;
+  return !!host && parsed.host === host.toLowerCase();
 }
 
 module.exports = { isAllowedWsOrigin, parsePublicOrigin, isLoopbackHost };
