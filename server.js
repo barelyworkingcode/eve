@@ -19,6 +19,7 @@ const { TrustedNetworkService } = require('./trusted-network');
 const { RelayTransport, RelayConfigError } = require('./relay-transport');
 const { isAllowedWsOrigin, parseAllowedOrigins } = require('./ws-origin');
 const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('./security-headers');
+const { ipHostGuard } = require('./ip-host-guard');
 const { Logger } = require('./logger');
 
 const log = new Logger(process.env.LOG_LEVEL || 'info');
@@ -26,10 +27,19 @@ const serverLog = log.child('Server');
 
 const app = express();
 
+// Canonical hostnames Eve is reached at (EVE_PUBLIC_ORIGIN). Shared by the WS
+// origin gate and the bare-IP guard.
+const PUBLIC_ORIGINS = parseAllowedOrigins();
+
 // Security response headers on every route (nosniff, frame-options, referrer,
 // COOP, and HSTS over TLS). The strict app-shell CSP is set separately in
 // serveIndexWithCachebust. See security-headers.js.
 app.use(securityHeaders());
+
+// When canonical hostnames are configured, refuse browser access by bare IP —
+// WebAuthn needs a hostname RP-ID, so IP access can't authenticate anyway.
+// See ip-host-guard.js.
+app.use(ipHostGuard({ origins: PUBLIC_ORIGINS }));
 
 // HTTPS support for WebAuthn on non-localhost
 const HTTPS_KEY = process.env.HTTPS_KEY;
@@ -52,13 +62,12 @@ const wss = new WebSocketServer({ noServer: true });
 
 // Anti-CSWSH: reject WebSocket upgrades carrying a cross-site browser Origin
 // BEFORE the socket is accepted. See ws-origin.js and
-// docs/security-audit-frontend.md (C1). Set EVE_PUBLIC_ORIGIN to allowlist an
-// external origin when fronting Eve with a reverse proxy.
-const ALLOWED_WS_ORIGINS = parseAllowedOrigins();
+// docs/security-audit-frontend.md (C1). Set EVE_PUBLIC_ORIGIN to allowlist the
+// external origin(s) — list every hostname Eve is reached at.
 
 // Route upgrades from both servers to the same WebSocket handler
 function handleUpgrade(req, socket, head) {
-  if (!isAllowedWsOrigin(req, { allowedOrigins: ALLOWED_WS_ORIGINS })) {
+  if (!isAllowedWsOrigin(req, { allowedOrigins: PUBLIC_ORIGINS })) {
     serverLog.warn(`Rejected WebSocket upgrade from disallowed origin: ${req.headers.origin}`);
     socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();
