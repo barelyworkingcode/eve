@@ -1,26 +1,26 @@
-const { isAllowedWsOrigin, parseAllowedOrigins } = require('../../ws-origin');
+const { isAllowedWsOrigin, parsePublicOrigin } = require('../../ws-origin');
 
 function reqWith(headers) {
   return { headers };
 }
 
 describe('ws-origin', () => {
-  describe('parseAllowedOrigins', () => {
-    it('returns [] when unset', () => {
-      expect(parseAllowedOrigins({})).toEqual([]);
+  describe('parsePublicOrigin', () => {
+    it('returns null when unset', () => {
+      expect(parsePublicOrigin({})).toBeNull();
     });
 
-    it('returns [] when blank', () => {
-      expect(parseAllowedOrigins({ EVE_PUBLIC_ORIGIN: '   ' })).toEqual([]);
+    it('returns null when blank', () => {
+      expect(parsePublicOrigin({ EVE_PUBLIC_ORIGIN: '   ' })).toBeNull();
     });
 
-    it('splits and trims a comma list', () => {
-      expect(parseAllowedOrigins({ EVE_PUBLIC_ORIGIN: 'https://a.com, https://b.com' }))
-        .toEqual(['https://a.com', 'https://b.com']);
+    it('returns the trimmed origin', () => {
+      expect(parsePublicOrigin({ EVE_PUBLIC_ORIGIN: '  https://eve.example  ' }))
+        .toBe('https://eve.example');
     });
   });
 
-  describe('isAllowedWsOrigin — no allowlist (same-origin mode)', () => {
+  describe('isAllowedWsOrigin — no pinned origin (same-origin mode)', () => {
     it('allows a request with no Origin (non-browser client)', () => {
       expect(isAllowedWsOrigin(reqWith({ host: 'eve.host:3000' }))).toBe(true);
     });
@@ -56,22 +56,22 @@ describe('ws-origin', () => {
     });
   });
 
-  describe('isAllowedWsOrigin — explicit allowlist', () => {
-    const allowedOrigins = ['https://eve.example'];
+  describe('isAllowedWsOrigin — pinned public origin', () => {
+    const publicOrigin = 'https://eve.example';
 
-    it('allows an exact allowlisted origin even if Host differs (proxy case)', () => {
+    it('allows the exact pinned origin even if Host differs (proxy case)', () => {
       const req = reqWith({ origin: 'https://eve.example', host: 'internal:3000' });
-      expect(isAllowedWsOrigin(req, { allowedOrigins })).toBe(true);
+      expect(isAllowedWsOrigin(req, { publicOrigin })).toBe(true);
     });
 
-    it('rejects an origin not on the allowlist', () => {
+    it('rejects any other origin', () => {
       const req = reqWith({ origin: 'https://evil.example', host: 'eve.example' });
-      expect(isAllowedWsOrigin(req, { allowedOrigins })).toBe(false);
+      expect(isAllowedWsOrigin(req, { publicOrigin })).toBe(false);
     });
 
-    it('still allows a no-Origin client under an allowlist', () => {
+    it('still allows a no-Origin client when pinned', () => {
       const req = reqWith({ host: 'eve.example' });
-      expect(isAllowedWsOrigin(req, { allowedOrigins })).toBe(true);
+      expect(isAllowedWsOrigin(req, { publicOrigin })).toBe(true);
     });
   });
 });
