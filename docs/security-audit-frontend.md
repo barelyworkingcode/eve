@@ -303,12 +303,16 @@ active project.
 | **H1** | ✅ Fixed | `file-service.js` `_isWithin()` separator-aware containment used in all 5 checks; same fix inlined in `/api/files`. Regression tests added. |
 | **H2** | ✅ Fixed | `/api/files` now sets `nosniff` + `default-src 'none'; sandbox` CSP on every file and `Content-Disposition: attachment` for html/svg/xml/xhtml. |
 | **H3** | ✅ Mostly | `npm audit fix`: 17 vulns (1 crit / 8 high) → 1 moderate. Remaining `uuid@9` advisory is a `buf` bounds check in v3/v5/v6; Eve only calls `v4()` without `buf`, so it is **not exploitable** — breaking bump to uuid@14 deferred. Recommend adding `npm audit` to CI. |
-| **M1, M2, M3, M4, L1–L4** | ⬜ Open | Not yet addressed (see sections above). |
+| **M1** | ✅ Fixed | `auth.js` pins WebAuthn RP-ID and expected origin to `EVE_PUBLIC_ORIGIN` when set (array allowlist for verification, stored rpId kept as fallback), instead of the `Host` header. Legacy host-derived behavior unchanged when unset. Verified: spoofed Host ignored under pinning. |
+| **M2** | ✅ Fixed | `server.js` binds the plaintext listener to `127.0.0.1` only unless `EVE_ALLOW_PLAINTEXT_REMOTE=1` is set; HTTPS still binds all interfaces. Verified live via `lsof` (loopback vs `*`). |
+| **M3** | ✅ Fixed | `rate-limiter.js` + `ws-handler.js`: per-connection fixed-window cap (default 30 / 10s, tunable via `EVE_RATELIMIT_*`) on expensive ops (session create, search, AI summarize, module invoke, transcribe, TTS). |
+| **M4, L1–L4** | ⬜ Open | Not yet addressed (see sections above). M4 (`read_plan_file` scope) is low real risk on a single-operator host; recommend documenting the intended behavior. |
 
-**Tests:** 197 passing (160 prior + 37 new across `ws-origin`, `security-headers`,
-`files-route`, and additions to `file-service` / `trusted-network`). New code is
-unit-tested and the headers + WS gate + C2 warning were verified against a live
-server boot.
+**Tests:** 208 passing (160 prior + 48 new across `ws-origin`, `security-headers`,
+`files-route`, `rate-limiter`, `auth-origin`, and additions to `file-service` /
+`trusted-network`). New code is unit-tested; the headers, WS origin gate, C2
+warning, M1 origin pin, and M2 bind behavior were all verified against live
+server boots.
 
 **Not committed** — changes are staged on the branch for review per repo policy
 (never auto-commit).
