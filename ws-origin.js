@@ -13,6 +13,12 @@
  *  - No Origin header  → non-browser client (CLI, native socket). Not a CSWSH
  *    vector (no victim browser is being ridden); it still faces the token /
  *    subnet auth gate downstream. Allowed here.
+ *  - Loopback Origin   → always allowed. A browser only sends Origin:
+ *    http://localhost (etc.) for a page actually served from the box itself, so
+ *    a remote attacker can't forge it in a victim's browser. Lets on-box browser
+ *    automation (the loopback :3000 listener) work even when an origin is pinned.
+ *    A forged loopback Origin from a remote IP still dies at the token/subnet
+ *    gate (the source IP is unchanged). Exact hostname match, never a substring.
  *  - EVE_PUBLIC_ORIGIN set → the Origin must equal it exactly (use behind a
  *    proxy whose external origin differs from the Host Eve sees).
  *  - Otherwise → same-origin check. A browser sets BOTH Origin and Host itself
@@ -27,6 +33,15 @@ function parsePublicOrigin(env = process.env) {
 }
 
 /**
+ * Exact (not substring) loopback-hostname test. Brackets are stripped for IPv6
+ * literals. `localhost.evil.com` / `127.0.0.1.evil.com` do NOT match.
+ */
+function isLoopbackHost(hostname) {
+  const h = (hostname || '').replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+/**
  * @param {import('http').IncomingMessage} req
  * @param {object} [opts]
  * @param {string|null} [opts.publicOrigin] - from parsePublicOrigin()
@@ -36,16 +51,21 @@ function isAllowedWsOrigin(req, { publicOrigin = null } = {}) {
   const origin = req?.headers?.origin;
   if (!origin) return true; // non-browser client — not a cross-site hijack
 
-  if (publicOrigin) return origin === publicOrigin;
-
   let parsed;
   try {
     parsed = new URL(origin);
   } catch {
     return false; // malformed Origin — a real browser never sends this
   }
+
+  // On-box loopback origins are always allowed (see header comment). Safe even
+  // when pinned: a remote forger's source IP is still untrusted downstream.
+  if (isLoopbackHost(parsed.hostname)) return true;
+
+  if (publicOrigin) return origin === publicOrigin;
+
   const host = req?.headers?.host || '';
   return !!host && parsed.host === host;
 }
 
-module.exports = { isAllowedWsOrigin, parsePublicOrigin };
+module.exports = { isAllowedWsOrigin, parsePublicOrigin, isLoopbackHost };
