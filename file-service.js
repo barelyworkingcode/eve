@@ -14,6 +14,18 @@ class FileService {
   }
 
   /**
+   * True if `target` is the base directory itself or lives inside it.
+   * CRITICAL: compares with a trailing separator so a project at
+   * `/home/u/proj` does NOT match a sibling `/home/u/proj-secrets`. A bare
+   * `startsWith(base)` prefix check is a path-traversal hole — see
+   * docs/security-audit-frontend.md (H1).
+   */
+  _isWithin(base, target) {
+    const resolvedBase = path.resolve(base);
+    return target === resolvedBase || target.startsWith(resolvedBase + path.sep);
+  }
+
+  /**
    * Validates and resolves a path within project directory
    * CRITICAL: Prevents path traversal attacks
    */
@@ -24,7 +36,7 @@ class FileService {
     const resolved = path.resolve(projectPath, normalizedRelative);
 
     // Must be within project directory
-    if (!resolved.startsWith(path.resolve(projectPath))) {
+    if (!this._isWithin(projectPath, resolved)) {
       throw new Error('Path traversal not allowed');
     }
 
@@ -184,7 +196,7 @@ class FileService {
     const newPath = path.join(dir, newName);
 
     // Validate new path is still within project
-    if (!newPath.startsWith(path.resolve(projectPath))) {
+    if (!this._isWithin(projectPath, newPath)) {
       throw new Error('Path traversal not allowed');
     }
 
@@ -213,7 +225,7 @@ class FileService {
     const fileName = path.basename(fullSourcePath);
     const fullDestPath = path.join(fullDestDir, fileName);
 
-    if (!fullDestPath.startsWith(path.resolve(projectPath))) {
+    if (!this._isWithin(projectPath, fullDestPath)) {
       throw new Error('Path traversal not allowed');
     }
 
@@ -266,7 +278,7 @@ class FileService {
     const fullPath = path.join(fullDestDir, fileName);
 
     // Validate resolved path is within project
-    if (!fullPath.startsWith(path.resolve(projectPath))) {
+    if (!this._isWithin(projectPath, fullPath)) {
       throw new Error('Path traversal not allowed');
     }
 
@@ -306,7 +318,7 @@ class FileService {
     const fullPath = path.join(fullParentPath, name);
 
     // Validate new path is still within project
-    if (!fullPath.startsWith(path.resolve(projectPath))) {
+    if (!this._isWithin(projectPath, fullPath)) {
       throw new Error('Path traversal not allowed');
     }
 
