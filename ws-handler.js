@@ -434,6 +434,18 @@ async function handleReadPlanFile(ws, filePath) {
       return;
     }
 
+    // Defeat a symlink inside plansDir pointing outside it: re-check the
+    // realpath. ENOENT falls through to the readFile error below.
+    try {
+      const real = await fs.promises.realpath(resolved);
+      if (!real.startsWith(plansDir + path.sep)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
+        return;
+      }
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+    }
+
     const content = await fs.promises.readFile(resolved, 'utf8');
     ws.send(JSON.stringify({ type: 'plan_file_content', path: filePath, content }));
   } catch (err) {
