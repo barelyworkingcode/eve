@@ -84,6 +84,33 @@ function parseCidr(cidr) {
 }
 
 /**
+ * Private / non-routable IPv4 ranges. A trusted CIDR whose network base is
+ * NOT inside one of these is a *public* range — trusting it grants passwordless
+ * access to hosts on the public internet. Used only to warn operators; it does
+ * not change trust decisions. See docs/security-audit-frontend.md (C2).
+ */
+const PRIVATE_V4_RANGES = [
+  parseCidr('10.0.0.0/8'),
+  parseCidr('172.16.0.0/12'),
+  parseCidr('192.168.0.0/16'),
+  parseCidr('127.0.0.0/8'),     // loopback
+  parseCidr('169.254.0.0/16'),  // link-local
+  parseCidr('100.64.0.0/10'),   // CGNAT
+];
+
+/**
+ * True if a parsed v4 CIDR's network base is a public (internet-routable)
+ * address. Non-v4 CIDRs return false (IPv6 trust here is only loopback/
+ * link-local literals, handled elsewhere).
+ */
+function isPublicV4Cidr(cidr) {
+  if (!cidr || cidr.kind !== 'v4') return false;
+  return !PRIVATE_V4_RANGES.some(
+    (r) => r && ((cidr.base & r.mask) >>> 0) === r.base
+  );
+}
+
+/**
  * Test whether an IP address falls inside any of the parsed CIDRs.
  */
 function isIpInCidrs(ip, cidrs) {
@@ -198,6 +225,19 @@ class TrustedNetworkService {
     } else {
       const summary = this.describe();
       this.log.info(`Trusted subnets: ${summary || '(none)'}`);
+
+      // Loudly flag public ranges in the trusted set — on an internet-facing
+      // host the primary NIC's subnet can be a provider-shared public range,
+      // which would grant passwordless access (incl. terminal RCE) to unrelated
+      // internet hosts. See docs/security-audit-frontend.md (C2).
+      const publicCidrs = this.cidrs.filter(isPublicV4Cidr);
+      if (publicCidrs.length) {
+        this.log.warn(
+          `Trusted subnet set includes PUBLIC IP range(s): ${this.describe(publicCidrs)}. ` +
+          `This grants passwordless access to those addresses. For internet-facing ` +
+          `deployments set EVE_DISABLE_SUBNET_BYPASS=1 or pin EVE_TRUSTED_SUBNETS to a range you control.`
+        );
+      }
     }
   }
 
@@ -212,10 +252,11 @@ class TrustedNetworkService {
   }
 
   /**
-   * Human-readable summary of the trusted set. Used for startup logging.
+   * Human-readable summary of a CIDR list (defaults to the trusted set).
+   * Used for startup logging.
    */
-  describe() {
-    return this.cidrs
+  describe(cidrs = this.cidrs) {
+    return cidrs
       .map((c) => {
         if (c.kind === 'v4') {
           const a = (c.base >>> 24) & 0xff;
@@ -234,6 +275,7 @@ module.exports = {
   TrustedNetworkService,
   computeTrustedCidrs,
   isIpInCidrs,
+  isPublicV4Cidr,
   getClientIp,
   parseCidr,
   normalizeIp,
