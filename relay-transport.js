@@ -29,7 +29,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 function isLoopbackHost(hostname) {
   if (!hostname) return false;
   const h = hostname.toLowerCase();
-  return LOOPBACK_HOSTS.has(h) || h.startsWith('127.');
+  return LOOPBACK_HOSTS.has(h);
 }
 
 class RelayConfigError extends Error {
