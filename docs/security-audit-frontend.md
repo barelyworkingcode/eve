@@ -297,13 +297,13 @@ active project.
 
 | ID | Status | What changed |
 |----|--------|--------------|
-| **C1** | ✅ Fixed | `ws-origin.js` + `server.js handleUpgrade` reject cross-site browser Origins (same-origin by default; `EVE_PUBLIC_ORIGIN` allowlist for proxies). Verified live: cross-origin WS → 403, same-origin / native → connect. |
+| **C1** | ✅ Fixed | `ws-origin.js` + `server.js handleUpgrade` reject cross-site browser Origins (same-origin by default; exact-match to `EVE_PUBLIC_ORIGIN` when set, for proxies). Verified live: cross-origin WS → 403, same-origin / native → connect. |
 | **C2** | ⚠️ Mitigated | `trusted-network.js` now logs a loud startup WARN when the trusted set contains a public IPv4 range, naming it and pointing at `EVE_DISABLE_SUBNET_BYPASS=1` / `EVE_TRUSTED_SUBNETS`. Default trust behavior unchanged (would break local dev); operator action still required for internet exposure. |
 | **C3** | ✅ Fixed | `security-headers.js`: global `securityHeaders()` (nosniff, X-Frame-Options SAMEORIGIN, Referrer-Policy, COOP, HSTS-on-TLS) + strict app-shell CSP with the two inline bootstrap scripts pinned by SHA-256 hash (no `'unsafe-inline'`). `EVE_DISABLE_CSP=1` escape hatch. Module iframes / safari-login intentionally excluded. |
 | **H1** | ✅ Fixed | `file-service.js` `_isWithin()` separator-aware containment used in all 5 checks; same fix inlined in `/api/files`. Regression tests added. |
 | **H2** | ✅ Fixed | `/api/files` now sets `nosniff` + `default-src 'none'; sandbox` CSP on every file and `Content-Disposition: attachment` for html/svg/xml/xhtml. |
 | **H3** | ✅ Mostly | `npm audit fix`: 17 vulns (1 crit / 8 high) → 1 moderate. Remaining `uuid@9` advisory is a `buf` bounds check in v3/v5/v6; Eve only calls `v4()` without `buf`, so it is **not exploitable** — breaking bump to uuid@14 deferred. Recommend adding `npm audit` to CI. |
-| **M1** | ✅ Fixed | `auth.js` pins WebAuthn RP-ID and expected origin to `EVE_PUBLIC_ORIGIN` when set (array allowlist for verification, stored rpId kept as fallback), instead of the `Host` header. Legacy host-derived behavior unchanged when unset. Verified: spoofed Host ignored under pinning. |
+| **M1** | ✅ Fixed | `auth.js` pins WebAuthn RP-ID and expected origin to the single `EVE_PUBLIC_ORIGIN` when set, instead of the `Host` header (stored rpId kept as the login fallback). Legacy host-derived behavior unchanged when unset. Verified: spoofed Host ignored under pinning. |
 | **M2** | ✅ Fixed | `server.js` binds the plaintext listener to `127.0.0.1` only unless `EVE_ALLOW_PLAINTEXT_REMOTE=1` is set; HTTPS still binds all interfaces. Verified live via `lsof` (loopback vs `*`). |
 | **M3** | ✅ Fixed | `rate-limiter.js` + `ws-handler.js`: per-connection fixed-window cap (default 30 / 10s, tunable via `EVE_RATELIMIT_*`) on expensive ops (session create, search, AI summarize, module invoke, transcribe, TTS). |
 | **M4** | ✅ Hardened | `read_plan_file` keeps its (intended) `~/.claude/plans/*.md` scope but now resolves the realpath and re-checks containment, defeating a symlink inside the plans dir pointing elsewhere. |
@@ -319,11 +319,11 @@ active project.
 the hardened posture; both refuse to start without `EVE_PUBLIC_ORIGIN`. See
 README "Deployment: WireGuard and/or the internet".
 
-**Tests:** 210 passing (160 prior + 50 new across `ws-origin`, `security-headers`,
-`files-route`, `rate-limiter`, `auth-origin`, `static-exposure`, and additions to
-`file-service` / `trusted-network`). The headers, WS origin gate, C2 warning, M1
-origin pin, M2 bind behavior, and the full hardened HTTPS posture were all
-verified against live server boots.
+**Tests:** 218 passing (160 prior + new suites `ws-origin`, `security-headers`,
+`files-route`, `rate-limiter`, `auth-origin`, `ip-host-guard`, `static-exposure`,
+plus additions to `file-service` / `trusted-network`). The headers, WS origin
+gate, C2 warning, M1 origin pin, M2 bind behavior, the bare-IP guard, and the
+full hardened HTTPS posture were all verified against live server boots.
 
 ---
 
@@ -335,7 +335,5 @@ Reach Eve at one hostname (`eve.example.com`) over both paths via split-horizon
 DNS so the single passkey (bound to one RP-ID) works on each. Verified live:
 HTTPS posture, HSTS, pinned-origin WS accepted, cross-origin WS rejected (403),
 and loopback NOT auto-authed with the bypass disabled. WireGuard-only operators
-can instead trust the tunnel subnet (`npm run start:wireguard`).
-
-**Not committed** — changes are staged on the branch for review per repo policy
-(never auto-commit).
+can instead trust the tunnel subnet (`npm run start:wireguard`). Full setup
+(split-horizon DNS, Firewalla steps, certs): [remote-access.md](remote-access.md).

@@ -148,22 +148,17 @@ over the WireGuard interface and the public NIC), `EVE_PUBLIC_ORIGIN` (pins
 WebAuthn + WebSocket origin — required, the script refuses to start without it),
 and `EVE_DISABLE_SUBNET_BYPASS=1` (passkey everywhere).
 
-**Use one hostname for both paths.** A passkey is bound to a single RP-ID, so
-`eve.example.com` must resolve to the WireGuard address when you're on the tunnel
-and to the public address otherwise (split-horizon DNS, or just route the public
-name over WireGuard). One hostname → one cert → one passkey that works on both.
+**Use one hostname for both paths.** `EVE_PUBLIC_ORIGIN` is a single origin, and a
+passkey is bound to that one hostname's RP-ID. Make `eve.example.com` resolve to
+the internal IP at home/on WireGuard and to the public IP outside — **split-horizon
+DNS**. One hostname → one cert → one passkey that works everywhere.
 
-> **On Firewalla?** Use the DDNS name (`xxx.firewalla.org`) for *both* paths via
-> a split-horizon **Custom DNS Rule** (Services → Custom DNS Rules → map it to the
-> LAN IP). The name resolves internally to the LAN IP and externally to the WAN IP
-> — one cert, one passkey, no `eve.lan` needed. Watch for on-device encrypted DNS
-> (iCloud Private Relay / DoH) bypassing the rule on iPhones.
->
-> If you genuinely need **two distinct hostnames**, a single passkey can't span
-> two unrelated domains: list both in `EVE_PUBLIC_ORIGIN` (comma-separated) — Eve
-> picks the right RP-ID per request, accepts both as WebSocket origins, and
-> refuses bare-IP access. Full playbook (certs, DNS, Firewalla steps + gotchas,
-> SSH fallback, passkey-per-host): [docs/multi-hostname-access.md](docs/multi-hostname-access.md).
+> **On Firewalla:** add a **Custom DNS Rule** (Services → Custom DNS Rules) mapping
+> your hostname to the LAN IP. Internally it resolves to the LAN IP; externally the
+> DDNS record points at the WAN IP. No SSH required. Watch for on-device encrypted
+> DNS (iCloud Private Relay / DoH) bypassing the rule on iPhones. Full playbook —
+> certs, DNS, Firewalla steps + gotchas, SSH fallback:
+> [docs/remote-access.md](docs/remote-access.md).
 
 **Prefer WireGuard as the only ingress, with passkey as defense-in-depth.** If
 the box is reachable *only* over WireGuard, the tunnel already authenticates the
@@ -382,7 +377,7 @@ data/                    - Runtime data (gitignored): auth, settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EVE_PUBLIC_ORIGIN` | - | Comma-separated HTTPS origin(s) Eve is reached at (e.g. `https://eve.example.com`). When set, it pins the WebAuthn RP-ID/expected-origin **and** the allowed WebSocket origin instead of trusting the `Host` header. **Set this for any networked deployment.** |
+| `EVE_PUBLIC_ORIGIN` | - | The single HTTPS origin Eve is reached at (e.g. `https://eve.example.com`). When set, it pins the WebAuthn RP-ID/expected-origin **and** the allowed WebSocket origin instead of trusting the `Host` header, and refuses bare-IP access. **Set this for any networked deployment.** |
 | `EVE_NO_AUTH` | - | Set to `1` to disable passkey authentication entirely. CI / dev containers only. |
 | `EVE_TRUSTED_SUBNETS` | auto | Comma-separated CIDR list of subnets allowed to bypass the passkey prompt (e.g. `10.0.0.0/24,192.168.1.0/24`). Defaults to loopback plus every non-internal IPv4 interface derived from `os.networkInterfaces()`. Eve logs a loud warning at startup if this set contains a public range. See "Trusted-subnet bypass". |
 | `EVE_DISABLE_SUBNET_BYPASS` | - | Set to `1` to require a passkey on every request, ignoring the trusted-subnet list (including loopback). |
