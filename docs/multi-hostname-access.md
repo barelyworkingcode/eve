@@ -1,18 +1,140 @@
 # Two-hostname access: `eve.lan` + Firewalla DDNS
 
-**Goal.** Reach Eve at two names — `eve.lan` (local / WireGuard) and a Firewalla
-DDNS name (internet) — with the browser always presenting a **hostname, never a
-raw IP**. Keep the hardened posture (passkey, Origin pinning, TLS) intact on both.
-
-> If you can instead point **one** real domain at both addresses with
-> split-horizon DNS (e.g. `eve.example.com` → LAN/WG IP internally, public IP
-> externally), do that — it sidesteps everything in the "WebAuthn constraint"
-> section below: one name, one cert, one passkey. The rest of this doc is for the
-> genuine two-distinct-names case you asked for.
+**Goal.** Reach Eve at home (LAN / WireGuard) and from the internet, with the
+browser always presenting a **hostname, never a raw IP**, and the hardened
+posture (passkey, Origin pinning, TLS) intact on every path.
 
 ---
 
-## The WebAuthn constraint (read this first)
+## Recommended: one hostname via split-horizon DNS
+
+**Use your Firewalla DDNS name (`xxx.firewalla.org`) everywhere** and make it
+resolve to the internal IP at home and the public IP outside. This collapses the
+whole problem: **one name → one cert → one passkey** that works on LAN,
+WireGuard, and the internet. You don't need `eve.lan` or two passkeys at all.
+
+```
+At home / on WireGuard:   xxx.firewalla.org → 10.20.20.10   (Firewalla local DNS)
+On the internet:          xxx.firewalla.org → your WAN IP   (Firewalla DDNS)
+                                              → port-forward 443 → 10.20.20.10
+```
+
+The name never changes, so the TLS cert (issued for `xxx.firewalla.org`) is valid
+at both IPs, and the WebAuthn RP-ID is stable. Eve config is just:
+
+```bash
+EVE_PUBLIC_ORIGIN=https://xxx.firewalla.org \
+HTTPS_KEY=./certs/eve.key HTTPS_CERT=./certs/eve.crt \
+npm run start:secure
+```
+
+**This is feasible on Firewalla without SSH** — it ships a "Custom DNS Rules"
+feature that does exactly this override. There are a few real-world gotchas
+(encrypted DNS on the client is the big one); see "Firewalla: split-horizon
+setup" below. If you genuinely need two *distinct* names (`eve.lan` +
+`xxx.firewalla.org`), skip to "Two distinct hostnames" — but try the single-name
+path first.
+
+---
+
+## Firewalla: split-horizon setup
+
+### The supported way (app, no SSH)
+
+Firewalla has a built-in **Custom DNS Rules** feature — this is the officially
+supported override and needs no command line ([guide][fw-customdns]):
+
+> **Services → Custom DNS Rules → Add Custom DNS Rule** → domain
+> `xxx.firewalla.org`, IP `10.20.20.10` → save.
+
+Notes from Firewalla's docs:
+- Works on A (IPv4) and AAAA (IPv6) records. Entering a bare TLD includes
+  subdomains; for a specific subdomain pointing somewhere different, add a rule
+  for that exact name ([guide][fw-customdns]).
+- This is the documented mechanism for "point a domain at an internal service
+  while the same name resolves to a different external IP from outside" — i.e.
+  split-horizon ([guide][fw-customdns], [DNS config overview][fw-demystify]).
+- The public DDNS record is untouched; only clients using Firewalla as their
+  resolver see the internal answer.
+
+### WireGuard clients
+
+Custom DNS Rules **do** apply to WireGuard VPN clients — *but only if the WG
+client's DNS points at Firewalla*. Set the `DNS = <Firewalla>` line in the
+WireGuard client config (device rules don't apply over VPN; the VPN connection's
+DNS does) ([WireGuard + DNS][fw-wg-dns]). Also make sure WG pushes a route to
+`10.20.20.10`.
+
+### Gotchas others hit (this is the "others must have this issue" part)
+
+1. **Encrypted DNS on the client bypasses Firewalla — the #1 failure, and it
+   bites iPhones.** If the device uses **iCloud Private Relay** or a **DoH/DoT**
+   profile, its DNS never reaches Firewalla, so your override is ignored and the
+   phone resolves `xxx.firewalla.org` to the **public** IP — then it depends on
+   hairpin NAT (unreliable on Firewalla). Fix: block **Apple Private Relay** and
+   the **"DoH Services"** target list for that device so it's forced onto
+   Firewalla's resolver ([Private Relay][fw-relay], [DoH/DoT][fw-doh]).
+2. **DNS Booster** generally makes Firewalla win — *except* when the client uses
+   on-device DoH (see #1). A few users also report Booster interfering with
+   custom entries; toggle it if a rule won't take ([DNS config][fw-demystify]).
+3. **"Works on wired, not Wi-Fi"** and **"still returns the external IP"** are
+   reported and almost always trace back to #1/#2 or a stale client DNS cache —
+   reconnect the device / toggle airplane mode after adding the rule
+   ([wired vs Wi-Fi][fw-wired]).
+4. **Hairpin NAT is the fallback, and it's flaky on Firewalla.** The community
+   consensus is to do the **DNS override** rather than rely on NAT loopback
+   ([NAT loopback thread][fw-hairpin]).
+
+### The SSH fallback (only if the app feature misbehaves)
+
+Firewalla runs **dnsmasq**, so you *can* set this at the CLI — unofficial, not
+guaranteed across firmware updates ([dnsmasq on Firewalla][fw-dnsmasq]):
+
+```sh
+# ssh pi@<firewalla-ip>
+echo 'address=/xxx.firewalla.org/10.20.20.10' \
+  > ~/.firewalla/config/dnsmasq_local/eve.conf
+# make it survive reboots/updates: re-assert from a post_main.d hook
+```
+
+`address=/name/ip` forces the A-record; drop a script in
+`~/.firewalla/config/post_main.d/` so it's re-applied after Firewalla regenerates
+its DNS config on boot/update. Prefer the app's Custom DNS Rules — only reach for
+this if the UI rule won't stick.
+
+### Verify it
+
+```sh
+# On a LAN/WireGuard client — should return the INTERNAL IP:
+dig +short xxx.firewalla.org        # → 10.20.20.10
+# From cellular (Firewalla not in path) — should return your WAN IP.
+```
+
+### Certificate for `xxx.firewalla.org`
+
+One name → one cert. Get a **Let's Encrypt** cert via **HTTP-01** (forward inbound
+`:80` → `10.20.20.10` during issuance/renewal). DNS-01 needs API control of the
+`firewalla.org` zone, which you don't have, so HTTP-01 is the path. The cert
+validates the *name*, so it's valid whether the name resolved to `10.20.20.10` or
+the WAN IP.
+
+[fw-customdns]: https://help.firewalla.com/hc/en-us/articles/360056024294-Guide-How-to-configure-Custom-DNS-Rules
+[fw-demystify]: https://help.firewalla.com/hc/en-us/community/posts/4403172242451-Demystifying-Firewalla-s-DNS-Configurations
+[fw-wg-dns]: https://help.firewalla.com/hc/en-us/community/posts/4444687726867-WireGuard-VPN-and-DNS-Resolution
+[fw-relay]: https://help.firewalla.com/hc/en-us/articles/16524616298771-Blocking-Apple-Private-Relay-Using-Firewalla
+[fw-doh]: https://help.firewalla.com/hc/en-us/articles/360060661873-Dealing-DNS-over-HTTPS-and-DNS-over-TLS-on-your-network
+[fw-wired]: https://help.firewalla.com/hc/en-us/community/posts/31614139482259-Custom-DNS-works-only-in-wired-lan-not-in-WIFI
+[fw-hairpin]: https://help.firewalla.com/hc/en-us/community/posts/8004354470803-NAT-Loopback-hairpin-route-fix
+[fw-dnsmasq]: https://help.firewalla.com/hc/en-us/community/posts/9215620130195-Does-Firewalla-use-dnsmasq-Assign-specific-DNS-to-certain-hosts
+
+---
+
+## Two distinct hostnames (only if you can't use one)
+
+Everything below applies **only if** you insist on two separate names
+(`eve.lan` + `xxx.firewalla.org`) instead of the single-name path above.
+
+### The WebAuthn constraint (read this first)
 
 A passkey is cryptographically bound to **one RP-ID** (a single registrable
 domain). The browser will only use a credential when the page's origin matches
@@ -30,7 +152,7 @@ This leaves two viable models. Pick one.
 
 ---
 
-## Model B — Passkey on the internet name, trusted network on `eve.lan` (recommended, works today)
+### Model B — passkey on the internet name, trusted network on `eve.lan`
 
 The DDNS name (exposed to the internet) is protected by a passkey. `eve.lan`
 (reached only over the LAN or the WireGuard tunnel) is trusted at the network
@@ -65,7 +187,7 @@ names, use Model A.
 
 ---
 
-## Model A — A passkey on each hostname (passkey everywhere)
+### Model A — a passkey on each hostname (passkey everywhere)
 
 Enroll **two** passkeys: one bound to `eve.lan`, one bound to the DDNS name. The
 authenticator stores both; Eve picks the right RP-ID per request.
@@ -104,10 +226,11 @@ the word and I'll implement it.
 
 ---
 
-## Certificates
+### Certificates (two distinct names)
 
 Public CAs **cannot** issue for `.lan`, so the two names need different cert
-sources. Three ways, simplest first:
+sources. (The single-hostname path above avoids this entirely — one LE cert for
+`xxx.firewalla.org`.) Three ways, simplest first:
 
 1. **One self-signed/mkcert cert with both names as SANs (simplest).**
    `mkcert eve.lan home.firewalla.net` produces a single cert valid for both;
@@ -138,9 +261,11 @@ the source-IP caveat.
 
 ---
 
-## DNS and Firewalla
+### DNS for the two-name case
 
-- **`eve.lan`** — serve it from Firewalla's local DNS (a DNS rule mapping
+(For the single-name path, see "Firewalla: split-horizon setup" above.)
+
+- **`eve.lan`** — serve it from Firewalla's Custom DNS Rules (mapping
   `eve.lan` → the Eve host's LAN IP). Make Firewalla the DNS server for your
   WireGuard peers too, so the name resolves over the tunnel. (mDNS/`.local` is an
   alternative but doesn't traverse WireGuard cleanly; a local DNS A-record is
@@ -174,20 +299,27 @@ IP SAN). Then `https://<ip>` fails at the TLS layer too.
 
 ## Recommended config for your setup
 
-If a passkey on the LAN path isn't required → **Model B** (works now):
+**First choice — one hostname (split-horizon DNS).** Set up the Firewalla Custom
+DNS Rule (above) and run:
 
 ```bash
-EVE_PUBLIC_ORIGIN="https://eve.lan,https://<your-ddns-name>" \
+EVE_PUBLIC_ORIGIN=https://xxx.firewalla.org \
+HTTPS_KEY=./certs/eve.key HTTPS_CERT=./certs/eve.crt \
+npm run start:secure
+```
+One passkey, one cert, works on LAN/WireGuard/internet. This is the path to try.
+
+**Fallback — two distinct names.** If you keep `eve.lan` separate and a passkey
+on the LAN path isn't required → **Model B**:
+
+```bash
+EVE_PUBLIC_ORIGIN="https://eve.lan,https://xxx.firewalla.org" \
 EVE_WG_SUBNET="<wireguard-cidr>" \
 HTTPS_KEY=./certs/eve.key HTTPS_CERT=./certs/eve.crt \
 npm run start:wireguard
 ```
-(`start:wireguard` also accepts extra LAN CIDRs — set `EVE_TRUSTED_SUBNETS`
-directly with `npm start` if you need both LAN and WG ranges trusted.)
-
-If you want a passkey on **both** names → **Model A**: run `npm run start:secure`
-with the same `EVE_PUBLIC_ORIGIN`, and ask me to finish the two-passkey
-enrollment flow (the 3 items above).
+For a passkey on **both** names → **Model A**: `npm run start:secure` with both
+origins, plus the two-passkey enrollment flow (ask me to finish it).
 
 ---
 
@@ -195,6 +327,7 @@ enrollment flow (the 3 items above).
 
 | Piece | State |
 |-------|-------|
+| Single hostname via Firewalla split-horizon DNS (recommended) | ✅ Supported by Firewalla Custom DNS Rules (app, no SSH); Eve config works today |
 | Host-aware RP-ID / origin selection (multi-value `EVE_PUBLIC_ORIGIN`) | ✅ Implemented + tested |
 | WS Origin allowlist accepts every configured hostname | ✅ Implemented + tested |
 | Bare-IP refusal (HTTP 421 + WS 403) | ✅ Implemented + tested |
