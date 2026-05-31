@@ -132,6 +132,12 @@ const EVT = {
 const IS_NATIVE_APP = !!(window.Capacitor?.isNativePlatform?.() && window.Capacitor?.Plugins?.EveVoice);
 const IS_SAFARI = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 const IS_MOBILE_SAFARI = /iPhone|iPad|iPod/i.test(navigator.userAgent) && IS_SAFARI;
+// Touch-capable device — gates the mobile terminal key bar (modifier keys the
+// soft keyboard can't produce: Esc/Tab/Shift-Tab/Ctrl/Alt/arrows).
+const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+// Apple host (macOS / iOS / iPadOS) — the modifier key is labelled "Option"
+// (⌥) on Apple keyboards, "Alt" elsewhere. Same escape sequence either way.
+const IS_APPLE = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent);
 const FAVORITE_TEMPLATE_ENABLED = true; // Gate behind IS_NATIVE_APP when shipping to App Store
 
 // Plan file project ID sentinel
