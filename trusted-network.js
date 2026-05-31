@@ -111,6 +111,26 @@ function isPublicV4Cidr(cidr) {
 }
 
 /**
+ * True if `ip` is a public (internet-routable) address — i.e. NOT loopback,
+ * RFC1918 private, link-local, CGNAT, or an IPv6 loopback/ULA/link-local. Used
+ * to HARD-block first-passkey enrollment from the internet. Unparseable/empty
+ * input is treated as public (fail-safe: refuse the enrollment).
+ */
+function isPublicIp(ipRaw) {
+  const ip = normalizeIp(ipRaw);
+  if (!ip) return true; // unknown source — fail safe
+  const v4 = ipv4ToInt(ip);
+  if (v4 !== null) {
+    return !PRIVATE_V4_RANGES.some((r) => r && ((v4 & r.mask) >>> 0) === r.base);
+  }
+  // IPv6
+  if (ip === '::1') return false;                                 // loopback
+  if (ip.startsWith('fe80')) return false;                        // link-local fe80::/10
+  if (ip.startsWith('fc') || ip.startsWith('fd')) return false;   // ULA fc00::/7
+  return true;
+}
+
+/**
  * Test whether an IP address falls inside any of the parsed CIDRs.
  */
 function isIpInCidrs(ip, cidrs) {
@@ -290,6 +310,7 @@ module.exports = {
   computeTrustedCidrs,
   isIpInCidrs,
   isPublicV4Cidr,
+  isPublicIp,
   getClientIp,
   parseCidr,
   normalizeIp,
