@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "start:env": "node --env-file=.env server.js",
     "start:secure": "EVE_DISABLE_SUBNET_BYPASS=1 EVE_PUBLIC_ORIGIN=\"${EVE_PUBLIC_ORIGIN:?Set EVE_PUBLIC_ORIGIN to your HTTPS origin, e.g. https://eve.example.com}\" HTTPS_KEY=\"${HTTPS_KEY:-./certs/server-key.pem}\" HTTPS_CERT=\"${HTTPS_CERT:-./certs/server.pem}\" PORT=\"${PORT:-3000}\" node server.js",
     "start:wireguard": "EVE_TRUSTED_SUBNETS=\"${EVE_WG_SUBNET:?Set EVE_WG_SUBNET to your WireGuard CIDR, e.g. 10.8.0.0/24}\" EVE_PUBLIC_ORIGIN=\"${EVE_PUBLIC_ORIGIN:?Set EVE_PUBLIC_ORIGIN to your HTTPS origin, e.g. https://eve.example.com}\" HTTPS_KEY=\"${HTTPS_KEY:-./certs/server-key.pem}\" HTTPS_CERT=\"${HTTPS_CERT:-./certs/server.pem}\" PORT=\"${PORT:-3000}\" node server.js",
     "ssl": "HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem PORT=443 node server.js",
