@@ -14,7 +14,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "audit": "npm audit --omit=dev",
-    "register": "/Applications/Relay.app/Contents/MacOS/relay service register --name 'Home|Work' --command node --args --env-file=.env --args server.js --workdir . --url http://localhost:3000 --autostart"
+    "register": "/Applications/Relay.app/Contents/MacOS/relay service register --id eve --name 'Home|Work' --command node --args --env-file=.env --args server.js --workdir . --url http://localhost:3000 --autostart"
   },
   "dependencies": {
     "@ricky0123/vad-web": "^0.0.30",
