@@ -17,12 +17,19 @@ const TTSService = require('./tts-service');
 const STTService = require('./stt-service');
 const { TrustedNetworkService } = require('./trusted-network');
 const { RelayTransport, RelayConfigError } = require('./relay-transport');
+const { isAllowedWsOrigin, parseAllowedOrigins } = require('./ws-origin');
+const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('./security-headers');
 const { Logger } = require('./logger');
 
 const log = new Logger(process.env.LOG_LEVEL || 'debug');
 const serverLog = log.child('Server');
 
 const app = express();
+
+// Security response headers on every route (nosniff, frame-options, referrer,
+// COOP, and HSTS over TLS). The strict app-shell CSP is set separately in
+// serveIndexWithCachebust. See security-headers.js.
+app.use(securityHeaders());
 
 // HTTPS support for WebAuthn on non-localhost
 const HTTPS_KEY = process.env.HTTPS_KEY;
@@ -43,8 +50,20 @@ const httpServer = (HTTPS_KEY && HTTPS_CERT && DUAL_LISTEN)
 
 const wss = new WebSocketServer({ noServer: true });
 
+// Anti-CSWSH: reject WebSocket upgrades carrying a cross-site browser Origin
+// BEFORE the socket is accepted. See ws-origin.js and
+// docs/security-audit-frontend.md (C1). Set EVE_PUBLIC_ORIGIN to allowlist an
+// external origin when fronting Eve with a reverse proxy.
+const ALLOWED_WS_ORIGINS = parseAllowedOrigins();
+
 // Route upgrades from both servers to the same WebSocket handler
 function handleUpgrade(req, socket, head) {
+  if (!isAllowedWsOrigin(req, { allowedOrigins: ALLOWED_WS_ORIGINS })) {
+    serverLog.warn(`Rejected WebSocket upgrade from disallowed origin: ${req.headers.origin}`);
+    socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit('connection', ws, req);
   });
@@ -198,13 +217,25 @@ refreshProjectCache();
 // The transformed HTML is computed once and reused — neither the file nor the
 // token can change without restarting the process.
 const CACHEBUST = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const INDEX_HTML_CACHED = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+const INDEX_HTML_RAW = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+
+// Pin index.html's inline bootstrap scripts by hash so the shell CSP can drop
+// 'unsafe-inline' for scripts. The cache-bust rewrite below only touches
+// `<script src=...>` tags, so the inline bodies the browser hashes are
+// identical to what we hash here. Disable with EVE_DISABLE_CSP=1 if a future
+// dependency needs a looser policy (see docs/security-audit-frontend.md C3).
+const SHELL_CSP = process.env.EVE_DISABLE_CSP === '1'
+  ? null
+  : buildShellCsp(computeInlineScriptHashes(INDEX_HTML_RAW));
+
+const INDEX_HTML_CACHED = INDEX_HTML_RAW
   .replace(/<script\s+src="(?!https?:|\/\/)([^"?]+)"/g, `<script src="$1?rnd=${CACHEBUST}"`)
   .replace(/<link([^>]*?)\s+href="(?!https?:|\/\/)([^"?]+\.(?:css|js))"/g, `<link$1 href="$2?rnd=${CACHEBUST}"`);
 
 function serveIndexWithCachebust(_req, res) {
   res.set('Cache-Control', 'no-store');
   res.set('Content-Type', 'text/html; charset=utf-8');
+  if (SHELL_CSP) res.set('Content-Security-Policy', SHELL_CSP);
   res.send(INDEX_HTML_CACHED);
 }
 app.get('/', serveIndexWithCachebust);
