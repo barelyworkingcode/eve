@@ -19,6 +19,48 @@ class TerminalManager {
     this.initElements();
     this.loadXterm();
     this._listenForSettingsChanges();
+    // Mobile accessory key bar (Esc/Tab/Ctrl/arrows…). No-op off touch devices.
+    // Fail-soft: it's an optional enhancement constructed during app init, so a
+    // failure here must never abort init (which would take the whole UI down).
+    // onData already falls back to raw input when this.keybar is null.
+    try {
+      this.keybar = new TerminalKeybar(this);
+    } catch (err) {
+      this.keybar = null;
+      this.log.warn('Mobile key bar failed to initialize; terminal input unaffected:', err?.message || err);
+    }
+  }
+
+  // --- Active-terminal accessors (used by the mobile key bar) ---
+
+  /** The xterm instance for the visible terminal, or null. */
+  activeTerm() {
+    return this.terminals.get(this.activeTerminalId)?.term || null;
+  }
+
+  /** Refocus the active terminal so tapping a key-bar button doesn't drop the
+   *  soft keyboard. */
+  focusActive() {
+    this.activeTerm()?.focus();
+  }
+
+  /** Re-fit the active terminal to its container (e.g. when the soft keyboard
+   *  resizes the viewport). */
+  fitActive() {
+    const t = this.terminals.get(this.activeTerminalId);
+    if (t) t.fitAddon.fit();
+  }
+
+  /** Send a raw byte sequence to the active terminal's PTY. Used by the key
+   *  bar; mirrors the encoding in the onData handler. */
+  sendInput(seq) {
+    const terminal = this.terminals.get(this.activeTerminalId);
+    if (!terminal || terminal.exited || !seq) return;
+    this.app.wsClient.send({
+      type: 'terminal_input',
+      terminalId: this.activeTerminalId,
+      data: this._encodeBase64(seq),
+    });
   }
 
   _listenForSettingsChanges() {
@@ -426,14 +468,16 @@ class TerminalManager {
       state: exited ? 'stopped' : 'running'
     });
 
-    // Send input as base64 to relayLLM.
+    // Send input as base64 to relayLLM. A primed Ctrl/Alt from the mobile key
+    // bar folds into the typed character here before it reaches the PTY.
     term.onData((data) => {
       const terminal = this.terminals.get(terminalId);
       if (terminal && !terminal.exited) {
+        const out = this.keybar ? this.keybar.transformInput(data) : data;
         this.app.wsClient.send({
           type: 'terminal_input',
           terminalId,
-          data: this._encodeBase64(data)
+          data: this._encodeBase64(out)
         });
       }
     });
