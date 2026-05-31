@@ -40,9 +40,20 @@ app.use(securityHeaders());
 // Pre-enrollment gate: until a passkey is enrolled, only bootstrap-trusted
 // clients (loopback / LAN / WireGuard) may reach Eve at all — remote scanners
 // get a boring 404 and can't race for ownership. Runs before the IP guard so a
-// blocked remote request gets a uniform 404, not a hostname hint. Wired with
-// authService + trustedNetwork below, so register lazily via a thin closure.
-app.use((req, res, next) => enrollmentGate({ authService, trustedNetwork, log: serverLog })(req, res, next));
+// blocked remote request gets a uniform 404, not a hostname hint.
+// Instantiated below after authService and trustedNetwork are initialized.
+let enrollmentGateMiddleware;
+
+// Placeholder for enrollment gate middleware. Will be registered after
+// authService and trustedNetwork are initialized.
+const enrollmentGatePlaceholder = (req, res, next) => {
+  if (enrollmentGateMiddleware) {
+    enrollmentGateMiddleware(req, res, next);
+  } else {
+    next();
+  }
+};
+app.use(enrollmentGatePlaceholder);
 
 // When a canonical origin is configured, refuse browser access by bare IP —
 // WebAuthn needs a hostname RP-ID, so IP access can't authenticate anyway.
@@ -78,6 +89,8 @@ function handleUpgrade(req, socket, head) {
   // Pre-enrollment gate: drop remote upgrades until a passkey exists. Mirrors
   // the HTTP enrollmentGate so a scanner can't reach the WS protocol either.
   if (isEnrollmentBlocked(req, { authService, trustedNetwork })) {
+    serverLog.warn(`Rejected WebSocket upgrade: enrollment gate blocked (no passkey enrolled)`);
+    socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
     socket.destroy();
     return;
   }
@@ -146,6 +159,9 @@ const projectCache = new Map();
 // Services
 const authService = new AuthService(DATA_DIR, log.child('Auth'));
 const trustedNetwork = new TrustedNetworkService({ log: log.child('TrustedNetwork') });
+
+// Instantiate enrollment gate middleware now that authService and trustedNetwork are initialized
+enrollmentGateMiddleware = enrollmentGate({ authService, trustedNetwork, log: serverLog });
 
 // Relay transport (Unix socket preferred, TCP fallback). Fails the process
 // hard on any insecure configuration — see plans/cozy-honking-toast.md
@@ -305,6 +321,7 @@ registerRoutes(app, {
   refreshProjectCache,
   removeFromProjectCache: (id) => projectCache.delete(id),
   resolveProject: (id) => projectCache.get(id),
+  fileService: fileHandlers.fileService,
   ttsService,
   sttService,
   moduleService,
@@ -392,6 +409,7 @@ function gracefulShutdown(signal) {
     try { client.terminate(); } catch (e) { /* ignore */ }
   }
 
+  authService.stop();
   server.closeAllConnections?.();
   httpServer?.closeAllConnections?.();
   server.close();

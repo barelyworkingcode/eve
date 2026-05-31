@@ -12,7 +12,7 @@ function isHiddenSession(name) {
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, ttsService, sttService, moduleService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, ttsService, sttService, moduleService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   // Shared auth middleware.
   // Bypass order: (1) no passkey enrolled yet — first-run bootstrap; (2) the
@@ -302,11 +302,10 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     const relativePath = req.params[0];
     if (!relativePath) return res.status(400).json({ error: 'Path required' });
 
-    // Prevent path traversal. Trailing separator on the base prevents a sibling
-    // dir (`proj-secrets`) from matching the project root (`proj`).
+    // Prevent path traversal. Use centralized path validation from FileService.
     const base = path.resolve(project.path);
     const resolved = path.resolve(base, relativePath);
-    if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+    if (!fileService.isPathWithin(base, resolved)) {
       return res.status(403).json({ error: 'Path traversal not allowed' });
     }
 
