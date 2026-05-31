@@ -153,6 +153,13 @@ and `EVE_DISABLE_SUBNET_BYPASS=1` (passkey everywhere).
 and to the public address otherwise (split-horizon DNS, or just route the public
 name over WireGuard). One hostname → one cert → one passkey that works on both.
 
+> **Two distinct hostnames** (e.g. `eve.lan` locally + a Firewalla DDNS name on
+> the internet)? A single passkey can't span two unrelated domains. List both in
+> `EVE_PUBLIC_ORIGIN` (comma-separated) — Eve picks the right RP-ID per request,
+> accepts both as WebSocket origins, and refuses bare-IP access. See
+> [docs/multi-hostname-access.md](docs/multi-hostname-access.md) for the full
+> playbook (certs, DNS, Firewalla, and the passkey-per-host options).
+
 **Prefer WireGuard as the only ingress, with passkey as defense-in-depth.** If
 the box is reachable *only* over WireGuard, the tunnel already authenticates the
 network layer; the passkey is then a second factor. When you later add public
