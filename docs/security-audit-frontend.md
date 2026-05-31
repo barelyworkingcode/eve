@@ -306,13 +306,36 @@ active project.
 | **M1** | ✅ Fixed | `auth.js` pins WebAuthn RP-ID and expected origin to `EVE_PUBLIC_ORIGIN` when set (array allowlist for verification, stored rpId kept as fallback), instead of the `Host` header. Legacy host-derived behavior unchanged when unset. Verified: spoofed Host ignored under pinning. |
 | **M2** | ✅ Fixed | `server.js` binds the plaintext listener to `127.0.0.1` only unless `EVE_ALLOW_PLAINTEXT_REMOTE=1` is set; HTTPS still binds all interfaces. Verified live via `lsof` (loopback vs `*`). |
 | **M3** | ✅ Fixed | `rate-limiter.js` + `ws-handler.js`: per-connection fixed-window cap (default 30 / 10s, tunable via `EVE_RATELIMIT_*`) on expensive ops (session create, search, AI summarize, module invoke, transcribe, TTS). |
-| **M4, L1–L4** | ⬜ Open | Not yet addressed (see sections above). M4 (`read_plan_file` scope) is low real risk on a single-operator host; recommend documenting the intended behavior. |
+| **M4** | ✅ Hardened | `read_plan_file` keeps its (intended) `~/.claude/plans/*.md` scope but now resolves the realpath and re-checks containment, defeating a symlink inside the plans dir pointing elsewhere. |
+| **L1** | ✅ Fixed | Removed debug logging of credential IDs / rawId / rpId / allowCredentials (`routes/auth.js`, `auth.js`); default `LOG_LEVEL` lowered from `debug` to `info`. |
+| **L2** | ⬜ Accepted | "Allow All" is a deliberate UX feature, not a fallback; left as-is. CSWSH is now closed (C1), which was the main escalation path. Revisit if multi-user. |
+| **L3** | ✅ Guarded | Added `static-exposure.test.js` asserting no secret/state files (auth.json, sessions.json, *.pem, .env) or `data/`/`certs/` ever live under the unauthenticated `public/` root. |
+| **L4** | ✅ Fixed | All chat links now get `target="_blank" rel="noopener noreferrer"` (reverse-tabnabbing defense + stops link clicks from navigating the SPA away). |
 
-**Tests:** 208 passing (160 prior + 48 new across `ws-origin`, `security-headers`,
-`files-route`, `rate-limiter`, `auth-origin`, and additions to `file-service` /
-`trusted-network`). New code is unit-tested; the headers, WS origin gate, C2
-warning, M1 origin pin, and M2 bind behavior were all verified against live
-server boots.
+**New deployment switches:** `EVE_PUBLIC_ORIGIN`, `EVE_BIND_HOST`,
+`EVE_ALLOW_PLAINTEXT_REMOTE`, `EVE_DISABLE_SUBNET_BYPASS`, `EVE_DISABLE_CSP`,
+`EVE_RATELIMIT_*`. `npm run start:secure` (internet + WireGuard) and
+`npm run start:wireguard` (trust the tunnel, passkey on public ingress) encode
+the hardened posture; both refuse to start without `EVE_PUBLIC_ORIGIN`. See
+README "Deployment: WireGuard and/or the internet".
+
+**Tests:** 210 passing (160 prior + 50 new across `ws-origin`, `security-headers`,
+`files-route`, `rate-limiter`, `auth-origin`, `static-exposure`, and additions to
+`file-service` / `trusted-network`). The headers, WS origin gate, C2 warning, M1
+origin pin, M2 bind behavior, and the full hardened HTTPS posture were all
+verified against live server boots.
+
+---
+
+## Access paths: WireGuard + internet
+
+Both run the **same** hardened config (`npm run start:secure`): TLS bound to all
+interfaces, `EVE_PUBLIC_ORIGIN` pinned, subnet bypass off, passkey everywhere.
+Reach Eve at one hostname (`eve.example.com`) over both paths via split-horizon
+DNS so the single passkey (bound to one RP-ID) works on each. Verified live:
+HTTPS posture, HSTS, pinned-origin WS accepted, cross-origin WS rejected (403),
+and loopback NOT auto-authed with the bypass disabled. WireGuard-only operators
+can instead trust the tunnel subnet (`npm run start:wireguard`).
 
 **Not committed** — changes are staged on the branch for review per repo policy
 (never auto-commit).
