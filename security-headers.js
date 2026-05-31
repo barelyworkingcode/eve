@@ -36,8 +36,11 @@ function computeInlineScriptHashes(html) {
   let m;
   while ((m = re.exec(html)) !== null) {
     const attrs = m[1] || '';
-    if (/\bsrc\s*=/i.test(attrs)) continue; // external script, not inline
+    // Skip external scripts (src attribute present)
+    if (/\bsrc\s*=/i.test(attrs)) continue;
     const body = m[2];
+    // Only hash non-empty bodies (ignore empty or whitespace-only scripts)
+    if (!body || !body.trim()) continue;
     const digest = crypto.createHash('sha256').update(body, 'utf8').digest('base64');
     hashes.push(`'sha256-${digest}'`);
   }
@@ -72,17 +75,22 @@ function buildShellCsp(scriptHashes = []) {
  * Global security-headers middleware. Safe on every response.
  * @param {object} [opts]
  * @param {boolean} [opts.hsts=true] - emit Strict-Transport-Security on TLS requests
+ * @param {TrustedNetworkService} [opts.trustedNetwork] - for validating x-forwarded-proto
  */
-function securityHeaders({ hsts = true } = {}) {
+function securityHeaders({ hsts = true, trustedNetwork = null } = {}) {
   return function (req, res, next) {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('X-Frame-Options', 'SAMEORIGIN');
     res.set('Referrer-Policy', 'no-referrer');
     res.set('Cross-Origin-Opener-Policy', 'same-origin');
     // Only meaningful (and only honored) over HTTPS. req.secure is true for the
-    // https listener; the x-forwarded-proto branch covers a TLS-terminating
-    // proxy that fronts Eve.
-    if (hsts && (req.secure || req.headers['x-forwarded-proto'] === 'https')) {
+    // https listener; x-forwarded-proto is only trusted when the request comes
+    // from a trusted reverse proxy (validated via trustedNetwork).
+    let isTls = req.secure;
+    if (hsts && !isTls && trustedNetwork?.isTrusted(req) && req.headers['x-forwarded-proto'] === 'https') {
+      isTls = true;
+    }
+    if (hsts && isTls) {
       res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
     next();

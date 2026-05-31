@@ -42,6 +42,24 @@ class AuthService {
 
   /**
    * Parse EVE_PUBLIC_ORIGIN into { origin, rpId }, or null if unset/invalid.
+   * Reads from environment on every call to support runtime config changes.
+   */
+  _getPinnedOrigin() {
+    const raw = process.env.EVE_PUBLIC_ORIGIN;
+    if (!raw || !raw.trim()) return null;
+    try {
+      const u = new URL(raw.trim());
+      return { origin: u.origin, rpId: u.hostname };
+    } catch {
+      this.log.warn(`Ignoring invalid EVE_PUBLIC_ORIGIN: ${raw}`);
+      return null;
+    }
+  }
+
+  /**
+   * Parse EVE_PUBLIC_ORIGIN into { origin, rpId }, or null if unset/invalid.
+   * Called once at startup for logging; actual pinned origin is read fresh on
+   * each request via _getPinnedOrigin().
    */
   _parsePinnedOrigin(env) {
     const raw = env.EVE_PUBLIC_ORIGIN;
@@ -201,14 +219,19 @@ class AuthService {
   // plans/cozy-honking-toast.md Section A.
 
   getRpId(req) {
-    if (this.pinnedOrigin) return this.pinnedOrigin.rpId;
+    const pinned = this._getPinnedOrigin();
+    if (pinned) return pinned.rpId;
     const host = req.get('host') || 'localhost';
     return host.split(':')[0];
   }
 
   getOrigin(req) {
-    if (this.pinnedOrigin) return this.pinnedOrigin.origin;
-    const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const pinned = this._getPinnedOrigin();
+    if (pinned) return pinned.origin;
+    // Only trust req.secure for protocol detection, not x-forwarded-proto.
+    // x-forwarded-proto is attacker-controllable on direct connections.
+    // When behind a reverse proxy, set EVE_PUBLIC_ORIGIN to pin the origin.
+    const protocol = req.secure ? 'https' : 'http';
     const host = req.get('host') || 'localhost:3000';
     return `${protocol}://${host}`;
   }

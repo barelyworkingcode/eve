@@ -24,10 +24,6 @@
  */
 const { getClientIp, isPublicIp } = require('./trusted-network');
 
-function isLoopbackIp(ip) {
-  return !!ip && (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('127.'));
-}
-
 /**
  * May this request bootstrap the first enrollment?
  *  - loopback                → always (local backstop)
@@ -37,9 +33,14 @@ function isLoopbackIp(ip) {
  */
 function canBootstrapEnrollment(req, { trustedNetwork, env = process.env } = {}) {
   const ip = getClientIp(req);
-  if (isLoopbackIp(ip)) return true;
-  // The internet can never enroll the first passkey, hatch or not.
-  if (isPublicIp(ip)) return false;
+  // isPublicIp returns false for loopback and private addresses, true only for internet IPs
+  if (isPublicIp(ip)) {
+    // The internet can never enroll the first passkey, hatch or not
+    return false;
+  }
+  // Not public (loopback, private, or unparseable):
+  // - Always allow loopback (local backstop)
+  // - Check escape hatch for private networks
   if (env.EVE_ALLOW_ENROLLMENT === '1') return true;
   return !!trustedNetwork && trustedNetwork.isInTrustedRange(req);
 }
@@ -67,4 +68,4 @@ function enrollmentGate({ authService, trustedNetwork, log, env = process.env })
   };
 }
 
-module.exports = { enrollmentGate, isEnrollmentBlocked, canBootstrapEnrollment, isLoopbackIp };
+module.exports = { enrollmentGate, isEnrollmentBlocked, canBootstrapEnrollment };

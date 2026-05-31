@@ -32,6 +32,13 @@ function ipHostGuard({ origin = null } = {}) {
   return function (req, res, next) {
     if (!origin || !isBareIpHost(req.headers.host || '')) return next();
 
+    const escapedOrigin = origin
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
     res.status(421)
       .set('Content-Type', 'text/html; charset=utf-8')
       .set('Cache-Control', 'no-store')
@@ -43,7 +50,7 @@ function ipHostGuard({ origin = null } = {}) {
         '<h1 style="font-size:18px;margin:0 0 8px">Open Eve by name, not by IP</h1>' +
         '<p style="color:#999;font-size:14px;margin:0 0 16px">Passkeys are bound to a hostname, so Eve ' +
         'must be reached at its configured address:</p>' +
-        `<p style="font-size:15px"><a href="${origin}" style="color:#3b82f6">${origin}</a></p></div></body>`
+        `<p style="font-size:15px"><a href="${escapedOrigin}" style="color:#3b82f6">${escapedOrigin}</a></p></div></body>`
       );
   };
 }
