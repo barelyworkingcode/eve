@@ -14,9 +14,15 @@
  * the auth bypass. Loopback is always allowed, and EVE_ALLOW_ENROLLMENT=1 forces
  * the door open if DNS/trust isn't wired yet. You can never truly brick the box.
  *
+ * HARD RULE: a public (internet) source IP can NEVER bootstrap the first passkey,
+ * even with EVE_ALLOW_ENROLLMENT — the escape hatch only broadens to private
+ * networks. The first passkey comes only from LAN / WireGuard / loopback. This
+ * assumes Eve sees the real client IP (Firewalla NAT forward), NOT a loopback-
+ * terminating reverse proxy.
+ *
  * Once enrolled, the gate is a no-op and normal passkey auth takes over.
  */
-const { getClientIp } = require('./trusted-network');
+const { getClientIp, isPublicIp } = require('./trusted-network');
 
 function isLoopbackIp(ip) {
   return !!ip && (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('127.'));
@@ -24,13 +30,17 @@ function isLoopbackIp(ip) {
 
 /**
  * May this request bootstrap the first enrollment?
- *  - EVE_ALLOW_ENROLLMENT=1  → always (one-shot escape hatch)
  *  - loopback                → always (local backstop)
+ *  - public / internet IP    → NEVER (hard rule, even with the escape hatch)
+ *  - EVE_ALLOW_ENROLLMENT=1  → yes for any PRIVATE source (escape hatch)
  *  - within a trusted CIDR   → yes (LAN / WireGuard), independent of the bypass flag
  */
 function canBootstrapEnrollment(req, { trustedNetwork, env = process.env } = {}) {
+  const ip = getClientIp(req);
+  if (isLoopbackIp(ip)) return true;
+  // The internet can never enroll the first passkey, hatch or not.
+  if (isPublicIp(ip)) return false;
   if (env.EVE_ALLOW_ENROLLMENT === '1') return true;
-  if (isLoopbackIp(getClientIp(req))) return true;
   return !!trustedNetwork && trustedNetwork.isInTrustedRange(req);
 }
 
