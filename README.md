@@ -129,6 +129,54 @@ mkcert -cert-file ./certs/server.pem -key-file ./certs/server-key.pem localhost 
 HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem npm start
 ```
 
+### Deployment: WireGuard and/or the internet
+
+Both access paths run on the **same hardened config** — there is no separate
+"LAN mode". The golden rule: **terminate TLS and pin one origin**, then reach
+Eve at that one hostname from everywhere.
+
+```bash
+# Works over WireGuard AND the public internet. Passkey required on every
+# request; CSWSH/clickjacking/XSS hardening on; plaintext can't leak.
+EVE_PUBLIC_ORIGIN=https://eve.example.com \
+HTTPS_KEY=./certs/server-key.pem HTTPS_CERT=./certs/server.pem \
+npm run start:secure
+```
+
+What `start:secure` sets: `HTTPS_*` (TLS, binds all interfaces so it's reachable
+over the WireGuard interface and the public NIC), `EVE_PUBLIC_ORIGIN` (pins
+WebAuthn + WebSocket origin — required, the script refuses to start without it),
+and `EVE_DISABLE_SUBNET_BYPASS=1` (passkey everywhere).
+
+**Use one hostname for both paths.** A passkey is bound to a single RP-ID, so
+`eve.example.com` must resolve to the WireGuard address when you're on the tunnel
+and to the public address otherwise (split-horizon DNS, or just route the public
+name over WireGuard). One hostname → one cert → one passkey that works on both.
+
+**Prefer WireGuard as the only ingress, with passkey as defense-in-depth.** If
+the box is reachable *only* over WireGuard, the tunnel already authenticates the
+network layer; the passkey is then a second factor. When you later add public
+ingress, nothing changes — the same passkey + TLS already gate it.
+
+**Alternative — trust the tunnel, skip the passkey on WireGuard only:**
+
+```bash
+EVE_WG_SUBNET=10.8.0.0/24 EVE_PUBLIC_ORIGIN=https://eve.example.com \
+HTTPS_KEY=./certs/server-key.pem HTTPS_CERT=./certs/server.pem \
+npm run start:wireguard
+```
+
+This trusts the WireGuard CIDR (no passkey prompt over the tunnel) while still
+requiring a passkey from any other source IP, including the public internet.
+Only do this if the WireGuard subnet is exclusively yours.
+
+**Plaintext over WireGuard (no TLS):** because the tunnel already encrypts the
+hop, you *can* run plain HTTP — but bind it to the WireGuard interface so it's
+not exposed elsewhere: `EVE_BIND_HOST=10.8.0.1 npm start`. Note WebAuthn needs a
+secure context, so passkeys won't work without HTTPS — pair this with
+`EVE_TRUSTED_SUBNETS=<wg-cidr>` so the tunnel is the auth boundary. TLS is still
+recommended.
+
 ## Projects
 
 Projects let you group related sessions and set a default model. When creating a session under a project, it inherits the project's model setting.
@@ -234,11 +282,14 @@ Eve sits between a single browser user and a set of trusted backend services (`r
 
 ### Browser ↔ Eve
 
-- **WebAuthn passkey + session token.** The first visitor enrolls a passkey; subsequent visits exchange the passkey for a 256-bit session token stored in `localStorage` and sent on every request as `X-Session-Token` (HTTP) or the first `{type:'auth', token}` WebSocket message.
+- **WebAuthn passkey + session token.** The first visitor enrolls a passkey; subsequent visits exchange the passkey for a 256-bit session token stored in `localStorage` and sent on every request as `X-Session-Token` (HTTP) or the first `{type:'auth', token}` WebSocket message. When `EVE_PUBLIC_ORIGIN` is set, the WebAuthn RP-ID and expected origin are pinned to it rather than derived from the (spoofable) `Host` header.
 - **Fail-closed auth middleware.** `requireAuth` in `routes/index.js` wraps every data route. The WebSocket upgrade accepts the connection but blocks all non-auth frames until the token validates; an invalid token closes the socket with code `4001`.
-- **Trusted-subnet bypass.** See the "Trusted-subnet bypass" section above. The check uses the raw TCP source address only — the `Host` header and `X-Forwarded-For` are never trusted for authorization.
+- **Cross-site WebSocket protection.** The upgrade is rejected before acceptance if it carries a cross-site browser `Origin` (same-origin by default; `EVE_PUBLIC_ORIGIN` allowlist behind a proxy). This stops a malicious page from driving a victim's authenticated socket (terminal I/O = RCE).
+- **Security headers + CSP.** Every response carries `nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, `COOP`, and (over TLS) HSTS. The app shell ships a strict Content-Security-Policy with inline bootstrap scripts pinned by SHA-256 hash. Raw project files served from `/api/files` get a `sandbox` CSP and are forced to download if they are HTML/SVG, so user/agent-authored markup can't execute in Eve's origin.
+- **Rate limiting.** Expensive WebSocket operations are throttled per connection (`EVE_RATELIMIT_*`).
+- **Trusted-subnet bypass.** See the "Trusted-subnet bypass" section above. The check uses the raw TCP source address only — the `Host` header and `X-Forwarded-For` are never trusted for authorization. Eve warns at startup if the trusted set contains a public IP range.
 - **No cookies.** Tokens travel in an explicit header, so the usual CSRF attack surface does not exist.
-- **TLS on the wire.** Passkeys require a secure context, so any non-loopback deployment must set `HTTPS_KEY` / `HTTPS_CERT`. See [docs/https-setup.md](docs/https-setup.md).
+- **TLS on the wire.** Passkeys require a secure context, so any non-loopback deployment must set `HTTPS_KEY` / `HTTPS_CERT`. Without TLS, Eve binds loopback only unless `EVE_ALLOW_PLAINTEXT_REMOTE=1`. See [docs/https-setup.md](docs/https-setup.md), and "Deployment: WireGuard and/or the internet" above. A full internet-exposure audit lives in [docs/security-audit-frontend.md](docs/security-audit-frontend.md).
 
 ### Eve ↔ backend
 
@@ -308,14 +359,20 @@ data/                    - Runtime data (gitignored): auth, settings
 | `HTTPS_CERT` | - | Path to SSL certificate file (enables HTTPS) |
 | `DUAL_LISTEN` | - | Set to `true` to run HTTP alongside HTTPS. The HTTP listener binds to `127.0.0.1` only (not the LAN) to prevent plaintext traffic from escaping the host. |
 | `HTTP_PORT` | `3000` | HTTP port when `DUAL_LISTEN` is enabled |
-| `EVE_ALLOW_PLAINTEXT_REMOTE` | - | Explicit opt-in required to bind HTTP to a non-loopback address without HTTPS. Not for production — set only for local-dev convenience. |
+| `EVE_BIND_HOST` | auto | Explicit listen address. Defaults to `127.0.0.1` for plaintext (loopback-only, fail-safe) and `0.0.0.0` for HTTPS. Set to a specific interface IP (e.g. a WireGuard address) to expose plaintext only over that interface. |
+| `EVE_ALLOW_PLAINTEXT_REMOTE` | - | Set to `1` to bind plain HTTP on **all** interfaces. Without it (and without HTTPS) Eve binds loopback only, so session tokens never leave the host in cleartext. Not for production. |
+| `EVE_DISABLE_CSP` | - | Set to `1` to drop the strict app-shell Content-Security-Policy. Escape hatch only — leave unset in production. |
+| `EVE_RATELIMIT_WINDOW_MS` | `10000` | Window (ms) for the per-connection rate limit on expensive WebSocket ops (search, AI invoke, transcribe, TTS, session create). |
+| `EVE_RATELIMIT_MAX` | `30` | Max expensive ops per connection per window. |
+| `LOG_LEVEL` | `info` | Log verbosity (`debug`/`info`/`warn`/`error`). `debug` is verbose and intended for development only. |
 
 ### Browser auth
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `EVE_PUBLIC_ORIGIN` | - | Comma-separated HTTPS origin(s) Eve is reached at (e.g. `https://eve.example.com`). When set, it pins the WebAuthn RP-ID/expected-origin **and** the allowed WebSocket origin instead of trusting the `Host` header. **Set this for any networked deployment.** |
 | `EVE_NO_AUTH` | - | Set to `1` to disable passkey authentication entirely. CI / dev containers only. |
-| `EVE_TRUSTED_SUBNETS` | auto | Comma-separated CIDR list of subnets allowed to bypass the passkey prompt (e.g. `10.0.0.0/24,192.168.1.0/24`). Defaults to loopback plus every non-internal IPv4 interface derived from `os.networkInterfaces()`. See "Trusted-subnet bypass". |
+| `EVE_TRUSTED_SUBNETS` | auto | Comma-separated CIDR list of subnets allowed to bypass the passkey prompt (e.g. `10.0.0.0/24,192.168.1.0/24`). Defaults to loopback plus every non-internal IPv4 interface derived from `os.networkInterfaces()`. Eve logs a loud warning at startup if this set contains a public range. See "Trusted-subnet bypass". |
 | `EVE_DISABLE_SUBNET_BYPASS` | - | Set to `1` to require a passkey on every request, ignoring the trusted-subnet list (including loopback). |
 | `EVE_SESSION_TTL_DAYS` | `7` | Session token lifetime in days. After this period the user must re-authenticate. |
 
