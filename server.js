@@ -311,21 +311,31 @@ wss.on('connection', createWsHandler({
 const PORT = process.env.PORT || 3000;
 const HTTP_PORT = process.env.HTTP_PORT || 3000;
 
-// Warn loudly when the primary listener is plain HTTP bound to all
-// interfaces — traffic including session tokens traverses the wire
-// unencrypted. Operators can set EVE_ALLOW_PLAINTEXT_REMOTE=1 to silence
-// the warning for local-dev convenience. See plans/cozy-honking-toast.md
-// Section C.
-if (!(HTTPS_KEY && HTTPS_CERT) && process.env.EVE_ALLOW_PLAINTEXT_REMOTE !== '1') {
+// Fail safe on plaintext: traffic (including session tokens) must not leave the
+// host unless the operator explicitly opts in. With no TLS we bind loopback
+// only — remote access is expected to go through the HTTPS listener. Set
+// EVE_ALLOW_PLAINTEXT_REMOTE=1 to expose plain HTTP on all interfaces anyway.
+// See docs/security-audit-frontend.md (M2).
+const isPlaintext = !(HTTPS_KEY && HTTPS_CERT);
+const allowPlaintextRemote = process.env.EVE_ALLOW_PLAINTEXT_REMOTE === '1';
+const bindHost = (isPlaintext && !allowPlaintextRemote) ? '127.0.0.1' : '0.0.0.0';
+
+if (isPlaintext && allowPlaintextRemote) {
   serverLog.warn(
-    'Eve is running plain HTTP on all interfaces — traffic (including session tokens) is NOT encrypted on the wire. ' +
-    'Set HTTPS_KEY / HTTPS_CERT for network access, or EVE_ALLOW_PLAINTEXT_REMOTE=1 to silence this warning for local dev.'
+    'Eve is serving plain HTTP on ALL interfaces (EVE_ALLOW_PLAINTEXT_REMOTE=1) — traffic including ' +
+    'session tokens is NOT encrypted on the wire. Use HTTPS_KEY / HTTPS_CERT for any networked deployment.'
+  );
+} else if (isPlaintext) {
+  serverLog.info(
+    'No TLS configured — binding loopback (127.0.0.1) only. Set HTTPS_KEY / HTTPS_CERT for network access, ' +
+    'or EVE_ALLOW_PLAINTEXT_REMOTE=1 to expose plain HTTP on all interfaces (not recommended).'
   );
 }
 
-server.listen(PORT, () => {
-  const protocol = HTTPS_KEY && HTTPS_CERT ? 'https' : 'http';
-  serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}`);
+server.listen(PORT, bindHost, () => {
+  const protocol = isPlaintext ? 'http' : 'https';
+  const scope = bindHost === '127.0.0.1' ? ' (loopback-only)' : '';
+  serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}${scope}`);
   if (authService.isEnrolled()) {
     serverLog.info('Authentication: enabled (passkey enrolled)');
   } else {
