@@ -76,4 +76,32 @@ describe('AuthService origin pinning (M1)', () => {
       expect(svc.getRpId(mkReq({ host: 'x' }))).toBe('eve.example.com');
     });
   });
+
+  describe('two hostnames (eve.lan + DDNS)', () => {
+    const TWO = 'https://eve.lan, https://home.firewalla.net';
+
+    it('selects the RP-ID matching the host the browser used', () => {
+      svc = makeService(TWO);
+      expect(svc.getRpId(mkReq({ host: 'eve.lan' }))).toBe('eve.lan');
+      expect(svc.getRpId(mkReq({ host: 'home.firewalla.net' }))).toBe('home.firewalla.net');
+    });
+
+    it('selects the matching origin too, ignoring the port', () => {
+      svc = makeService(TWO);
+      expect(svc.getOrigin(mkReq({ host: 'eve.lan:3000' }))).toBe('https://eve.lan');
+      expect(svc.getOrigin(mkReq({ host: 'home.firewalla.net:443' }))).toBe('https://home.firewalla.net');
+    });
+
+    it('falls back to the first pinned entry for an unlisted host', () => {
+      svc = makeService(TWO);
+      expect(svc.getRpId(mkReq({ host: 'something-else' }))).toBe('eve.lan');
+    });
+
+    it('verifies against BOTH origins/RP-IDs regardless of which host was used', () => {
+      svc = makeService(TWO);
+      const req = mkReq({ host: 'eve.lan' });
+      expect(svc._expectedOrigins(req)).toEqual(['https://eve.lan', 'https://home.firewalla.net']);
+      expect(svc._expectedRpIds(req, null)).toEqual(['eve.lan', 'home.firewalla.net']);
+    });
+  });
 });
