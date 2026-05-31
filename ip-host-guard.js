@@ -11,6 +11,7 @@
  * upgrades are guarded separately by the Origin check (ws-origin.js).
  */
 const net = require('net');
+const { isLoopbackHost } = require('./relay-transport');
 
 /** Extract the host portion (no port) from a Host header, handling [IPv6]:port. */
 function hostOnly(hostHeader) {
@@ -21,14 +22,10 @@ function hostOnly(hostHeader) {
   return parts.length > 2 ? hostHeader : parts[0]; // >2 colons → bare IPv6 literal
 }
 
-function isLoopback(ip) {
-  return ip === '::1' || ip === '127.0.0.1' || ip.startsWith('127.');
-}
-
 /** True if this request addresses Eve by a non-loopback bare IP. */
 function isBareIpHost(hostHeader) {
   const host = hostOnly(hostHeader);
-  return !!host && net.isIP(host) !== 0 && !isLoopback(host);
+  return !!host && net.isIP(host) !== 0 && !isLoopbackHost(host);
 }
 
 function ipHostGuard({ origin = null } = {}) {
