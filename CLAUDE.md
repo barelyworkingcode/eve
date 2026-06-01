@@ -445,6 +445,19 @@ Badge appears next to shell icon when detached terminals are running.
 
 ## Development Guidelines
 
+### Local Server Restart (index.html is cached at startup)
+
+`server.js` reads `public/index.html` into memory **once at startup** (`INDEX_HTML_RAW`) and serves a cached, cache-busted copy (`serveIndexWithCachebust`). The CSP hashes for inline bootstrap scripts are also computed once at startup. So:
+
+- **Editing existing JS/CSS** (`app.js`, a backend module, a stylesheet) needs **no restart** — `express.static` serves those fresh and the per-restart `?rnd=` token busts the browser cache.
+- **Editing `index.html`** — adding/removing a `<script>`/`<link>` tag or changing an inline bootstrap script — **requires a server restart**. Otherwise the browser runs fresh JS against the stale shell: a `<script src>` you added is missing, so its global is undefined (`ReferenceError: X is not defined`), even though the file itself serves 200. This bit us when adding `voice-crash-guard.js`.
+
+Eve runs as a Relay-managed service (`relay service list` → id `eve`). Restart it with:
+
+```bash
+npm run relay:restart   # → relay service restart --id eve
+```
+
 ### Adding Features to Client
 
 **State changes must update UI**
@@ -531,6 +544,7 @@ All session, project, and task data lives in relayLLM.
 3. Implement `render()` to build the panel content using DOM APIs (no innerHTML with user data)
 4. Register in `app.js` `initApp()` and call `init()`
 5. Emit bus event from trigger point (e.g. sidebar action button)
+6. Add the `<script src>` tag to `index.html` **and run `npm run relay:restart`** — new tags don't take effect until the server re-reads the cached `index.html` (see "Local Server Restart" above)
 
 ### Adding a button to project headers
 1. Add button creation in `ProjectTreeItem.render()` in `sidebar/project-tree-item.js`
