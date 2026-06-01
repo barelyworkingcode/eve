@@ -1033,6 +1033,10 @@ class EveWorkspaceClient {
       this.ttsManager.stop();
     }
 
+    // Voice mode auto-speaks the reply. Re-unlock audio within this send gesture
+    // so iOS hasn't re-suspended the context by the time the response arrives.
+    if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
+
     const files = this.fileAttachmentManager.consumeFiles();
     this.messageRenderer.appendUserMessage(text, files);
     this.messageDispatcher.markLocalSubmit(this.currentSessionId);
@@ -1262,6 +1266,7 @@ class EveWorkspaceClient {
   }
 
   enableVoiceMode(voice) {
+    this.ttsManager.unlockAudio(); // iOS: unlock audio within the triggering gesture
     if (voice) this.ttsManager.setVoice(voice);
     this.ttsManager.setEnabled(true);
     this.elements.voiceModeBtn?.classList.add('btn-voice-mode--active');
@@ -1270,7 +1275,9 @@ class EveWorkspaceClient {
   }
 
   toggleVoiceMode() {
-    this.ttsManager.setEnabled(!this.ttsManager.enabled);
+    const enabling = !this.ttsManager.enabled;
+    if (enabling) this.ttsManager.unlockAudio(); // iOS: unlock audio within the triggering gesture
+    this.ttsManager.setEnabled(enabling);
     this.elements.voiceModeBtn?.classList.toggle('btn-voice-mode--active', this.ttsManager.enabled);
     this.ttsManager.syncVoiceMode(this.wsClient);
     this._updateVoiceUIBtnVisibility();

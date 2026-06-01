@@ -63,10 +63,11 @@ class TTSManager {
     this.loadVoices();
     this.log.info(`Init — enabled: ${this.enabled}, voice: ${this.voice || 'default'}, backend: ${this.backend}`);
 
-    // Resume AudioContext on first user gesture to satisfy autoplay policy.
-    // Context is created eagerly (starts suspended); resume only works during a gesture.
+    // Unlock audio output on the first user gesture (iOS autoplay policy).
+    // Per-trigger unlockAudio() calls (play button, voice toggle) handle the
+    // case where iOS re-suspends the context after this one-shot warm-up.
     const warmUp = () => {
-      this._ensureAudioContext();
+      this.unlockAudio();
       document.removeEventListener('click', warmUp, true);
       document.removeEventListener('touchstart', warmUp, true);
       document.removeEventListener('keydown', warmUp, true);
@@ -243,7 +244,8 @@ class TTSManager {
 
   // --- Audio playback queue (shared by all backends) ---
 
-  async _ensureAudioContext() {
+  /** Create the AudioContext + analyser if needed (synchronous, no resume). */
+  _createAudioContext() {
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       this.analyser = this.audioContext.createAnalyser();
@@ -251,8 +253,34 @@ class TTSManager {
       this.analyser.connect(this.audioContext.destination);
       this._levelBuffer = new Uint8Array(this.analyser.frequencyBinCount);
     }
+  }
+
+  async _ensureAudioContext() {
+    this._createAudioContext();
     if (this.audioContext.state === 'suspended') {
       await this.audioContext.resume();
+    }
+  }
+
+  /**
+   * Unlock audio output from within a user gesture. iOS Safari keeps Web Audio
+   * muted until a buffer is actually started during a real tap (resuming the
+   * context alone is not enough) and re-suspends it when the tab backgrounds.
+   * Desktop Safari/Chrome don't need this, but it's harmless there. Must be
+   * called synchronously from the tap that triggers TTS (play button, voice-mode
+   * toggle) — before the async audio generation, so output is live when the
+   * generated audio arrives.
+   */
+  unlockAudio() {
+    try {
+      this._createAudioContext();
+      if (this.audioContext.state === 'suspended') this.audioContext.resume();
+      const src = this.audioContext.createBufferSource();
+      src.buffer = this.audioContext.createBuffer(1, 1, 22050);
+      src.connect(this.audioContext.destination);
+      src.start(0);
+    } catch (err) {
+      this.log.warn('Audio unlock failed:', err.message);
     }
   }
 
