@@ -59,11 +59,17 @@ class TtsBrowserBackend {
     const opts = this._initOptions || {};
     this.log.info(`Loading on-device model (dtype=${opts.dtype || 'q4'}, device=${opts.device || 'wasm'})...`);
 
+    // Mark the load as in-progress *before* the memory-heavy model load. If Safari
+    // OOM-crashes the tab here, the marker survives and VoiceCrashGuard reverts to
+    // server on the next load. Cleared on ready or on any caught error below.
+    VoiceCrashGuard.beginLoad('tts');
+
     this.worker = new Worker('tts-worker.js', { type: 'module' });
     this.worker.onmessage = (e) => this._handleMessage(e.data);
     this.worker.onerror = (e) => {
       this.log.error('Worker error:', e.message);
       this.loading = false;
+      VoiceCrashGuard.endLoad('tts'); // caught failure, not a crash — let the choice stand
       this._onError?.(e.message);
     };
 
@@ -115,6 +121,7 @@ class TtsBrowserBackend {
       this.worker.terminate();
       this.worker = null;
     }
+    VoiceCrashGuard.endLoad('tts'); // clean teardown — a crash never reaches here
     this.ready = false;
     this.loading = false;
     for (const [, cb] of this._pendingCallbacks) {
@@ -137,6 +144,7 @@ class TtsBrowserBackend {
       case 'ready':
         this.ready = true;
         this.loading = false;
+        VoiceCrashGuard.endLoad('tts'); // load completed without crashing
         this.log.info('On-device model loaded and ready');
         this._onReady?.();
         // Resolve all waiting promises
@@ -160,6 +168,7 @@ class TtsBrowserBackend {
           errCb.reject(new Error(msg.message));
         } else {
           this.log.error('Worker error:', msg.message);
+          VoiceCrashGuard.endLoad('tts'); // caught failure, not a crash
           this._onError?.(msg.message);
         }
         break;
