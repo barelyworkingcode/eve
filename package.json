@@ -14,6 +14,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "audit": "npm audit --omit=dev",
+    "relay:restart": "/Applications/Relay.app/Contents/MacOS/relay service restart --id eve",
     "register": "/Applications/Relay.app/Contents/MacOS/relay service register --id eve --name 'Home|Work' --command node --args --env-file=.env --args server.js --workdir . --url http://localhost:3000 --autostart"
   },
   "dependencies": {
