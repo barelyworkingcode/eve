@@ -35,11 +35,17 @@ class SttBrowserBackend {
     this._onReady = options.onReady || null;
     this._onError = options.onError || null;
 
+    // Mark the load as in-progress *before* the memory-heavy model load. If Safari
+    // OOM-crashes the tab here, the marker survives and VoiceCrashGuard reverts to
+    // server on the next load. Cleared on ready or on any caught error below.
+    VoiceCrashGuard.beginLoad('stt');
+
     this.worker = new Worker('stt-worker.js', { type: 'module' });
     this.worker.onmessage = (e) => this._handleMessage(e.data);
     this.worker.onerror = (e) => {
       this.log.error('Worker error:', e.message);
       this.loading = false;
+      VoiceCrashGuard.endLoad('stt'); // caught failure, not a crash — let the choice stand
       this._onError?.(e.message);
     };
 
@@ -93,6 +99,7 @@ class SttBrowserBackend {
       this.worker.terminate();
       this.worker = null;
     }
+    VoiceCrashGuard.endLoad('stt'); // clean teardown — a crash never reaches here
     this.ready = false;
     this.loading = false;
     for (const [, cb] of this._pendingCallbacks) {
@@ -110,6 +117,7 @@ class SttBrowserBackend {
       case 'ready':
         this.ready = true;
         this.loading = false;
+        VoiceCrashGuard.endLoad('stt'); // load completed without crashing
         this.log.info('Model loaded');
         this._onReady?.();
         break;
@@ -130,6 +138,7 @@ class SttBrowserBackend {
           errCb.reject(new Error(msg.message));
         } else {
           this.log.error('Worker error:', msg.message);
+          VoiceCrashGuard.endLoad('stt'); // caught failure, not a crash
           this._onError?.(msg.message);
         }
         break;

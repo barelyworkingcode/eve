@@ -109,6 +109,10 @@ class EveWorkspaceClient {
     this.fileAttachmentManager = new FileAttachmentManager(this.container);
     this.container.register('fileAttachmentManager', this.fileAttachmentManager);
     this.inputHistory = new InputHistory('eve-input-history', 100);
+    // Recover from a prior on-device voice load that hard-crashed the page (e.g.
+    // Safari OOM): reverts the persisted backend to 'server' before the managers
+    // below read their preferences. Notified to the user once the toast manager exists.
+    const voiceCrashRecovery = VoiceCrashGuard.detectAndRecover();
     this.ttsManager = new TTSManager(this.container);
     this.container.register('ttsManager', this.ttsManager);
     this.sttManager = new STTManager(this.container);
@@ -117,6 +121,7 @@ class EveWorkspaceClient {
     this.container.register('voiceChatManager', this.voiceChatManager);
     this.toastManager = new ToastManager(this.container);
     this.container.register('toastManager', this.toastManager);
+    this._notifyVoiceCrashRecovery(voiceCrashRecovery);
     this.voiceInitCoordinator = new VoiceInitCoordinator(this.container);
     this.container.register('voiceInitCoordinator', this.voiceInitCoordinator);
     // MessageDispatcher must be created after all services it depends on
@@ -539,6 +544,22 @@ class EveWorkspaceClient {
     if (this.elements.taskForm) {
       this.elements.taskForm.addEventListener('submit', (e) => this.handleTaskSubmit(e));
     }
+  }
+
+  /**
+   * Surface a toast when VoiceCrashGuard reverted an on-device backend after a
+   * prior load crashed the page. Called after the toast manager is constructed.
+   * @param {Array<{kind: string}>} recovered - result from VoiceCrashGuard.detectAndRecover()
+   */
+  _notifyVoiceCrashRecovery(recovered) {
+    if (!recovered?.length) return;
+    const names = recovered.map(r => r.kind.toUpperCase()).join(' and ');
+    this.bus.emit(EVT.TOAST_SHOW, {
+      id: 'voice-crash-recovery',
+      message: `On-device ${names} crashed last time (likely out of memory) — switched back to Server. Re-enable in Settings ▸ Voice.`,
+      type: 'warning',
+      duration: 9000,
+    });
   }
 
   // --- WebSocket ready ---
