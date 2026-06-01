@@ -90,6 +90,7 @@ class MessageRenderer {
       this._speakingMessageEl = messageEl;
       btn.classList.add('tts-play-btn--active');
       btn.setAttribute('aria-label', 'Stop speaking');
+      tts.unlockAudio(); // iOS: unlock audio inside the tap before the async generation
       tts.speakText(rawText);
     });
 
