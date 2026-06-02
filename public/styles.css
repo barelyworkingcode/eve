@@ -266,13 +266,6 @@ html, body {
 }
 
 /* File Tree */
-.file-tree {
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  max-height: 300px;
-  overflow-y: auto;
-}
-
 .file-tree-loading,
 .file-tree-empty {
   padding: 8px 16px;
@@ -4103,6 +4096,9 @@ html, body {
 /* File tree */
 
 .file-tree {
+  /* Fill the scroll viewport (.panel-content) so the tree uses all
+     available vertical space; still grows + scrolls for long file lists. */
+  min-height: 100%;
   padding-bottom: 4px;
 }
 
