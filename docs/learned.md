@@ -41,6 +41,27 @@ path.resolve('/Users/project', normalized);
 
 When building file browsers or APIs that accept "relative" paths from clients, always normalize by stripping leading slashes before using `path.resolve()`.
 
+## File Watching: Watch the Directory, Not the File
+
+**Issue**: `fs.watch(filePath)` on an individual file goes permanently silent after an *atomic* save (write to a temp file, then `rename()` over the target). The watch handle is bound to the original inode; once that inode is unlinked by the rename, no further events arrive. This is how most editors, `git`, and the LLM's own file-edit tools write — so a per-file watcher "works once, then dies," which reads as flaky/unreliable live updates.
+
+```javascript
+// WRONG: dies after the first atomic temp+rename replace
+fs.watch(absoluteFilePath, (eventType) => { ... });
+
+// CORRECT: one recursive watch on the project root survives atomic replaces
+// (the tree persists even as files inside are unlinked/replaced)
+fs.watch(projectRoot, { recursive: true }, (eventType, filename) => { ... });
+```
+
+**Rules of thumb** (see `file-watcher.js`):
+- One recursive watcher per project per connection serves both editor live-update (content push for open files) and sidebar tree sync (add/remove). No polling — recursive `fs.watch` is FSEvents-backed on macOS.
+- `eventType === 'rename'` means a directory listing changed (create/delete/rename/move). `'change'` means content only — never refresh a listing on `'change'`. Verified on darwin: creates/atomic-saves/nested-creates all surface as `'rename'`.
+- FSEvents **replays recent historical events** right after a watch starts. Guard the editor against a replayed change carrying identical content (`if (content === originalContent) return;`) so it can't pop a spurious "modified externally" bar on open.
+- Only emit a "dir changed" signal for a directory that **still exists** — when a whole dir is deleted, its child-removal events would otherwise ask the client to re-list a path that's gone (noisy "not found"). The dir's own removal fires a separate event for its *parent*, which is what actually drops it from the tree.
+- Suppress the echo of Eve's own writes (`markSelfWrite` keyed on the absolute path) so a save doesn't bounce back as an external change.
+- Recursive `fs.watch` does **not** follow symlinked directories on macOS, and reports filenames relative to (and rooted under) the watched dir — it never emits `../` escapes. File reads still go through `fileService.readFile` → `validatePath`, so traversal stays gated regardless.
+
 ## CSS Visibility Control
 
 Use `.hidden` class consistently for showing/hiding elements. Never use inline `style.display`:

@@ -69,6 +69,7 @@ const EVT = {
   FILE_DELETED: 'file:deleted',
   FILE_UPLOADED: 'file:uploaded',
   DIRECTORY_CREATED: 'directory:created',
+  DIR_CHANGED: 'directory:changed',
 
   // Task lifecycle
   TASKS_LOADED: 'tasks:loaded',

@@ -388,6 +388,11 @@ class FileEditor {
     if (!this.currentFile) return;
     if (this.currentFile.projectId !== projectId || this.currentFile.path !== path) return;
 
+    // No-op if the pushed content is what we already consider the saved baseline.
+    // Guards against FSEvents replaying a recent change right after the watcher
+    // starts, which would otherwise pop a spurious "modified externally" bar.
+    if (content === this.currentFile.originalContent) return;
+
     const currentContent = this.editor ? this.editor.getValue() : this.currentFile.content;
     const isClean = currentContent === this.currentFile.originalContent;
 
