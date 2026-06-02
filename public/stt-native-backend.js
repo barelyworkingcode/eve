@@ -18,15 +18,22 @@ class SttNativeBackend {
     this.loading = true;
     this.log = context.log || new NullLogger();
 
+    // Mark the load durable *before* it begins: the native Parakeet download runs
+    // in the app process, so an out-of-memory load can kill the whole app before
+    // any catch below runs. If the marker survives a relaunch, VoiceCrashGuard
+    // reverts the backend to 'server' instead of crash-looping. See voice-crash-guard.js.
+    VoiceCrashGuard.beginLoad('stt');
     try {
       this.log.info('Loading models via EveVoice plugin...');
       await window.Capacitor.nativePromise('EveVoice', 'loadSTTModels', {});
       this.ready = true;
       this.loading = false;
+      VoiceCrashGuard.endLoad('stt');
       this.log.info('Models loaded');
       context.onReady?.();
     } catch (err) {
       this.loading = false;
+      VoiceCrashGuard.endLoad('stt');
       this.log.error('Model loading failed:', err.message);
       context.onError?.(err.message);
     }

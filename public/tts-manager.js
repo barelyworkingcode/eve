@@ -28,7 +28,12 @@ class TTSManager {
     this._idleTimer = null;
     this._ttsDoneReceived = true;
 
-    this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
+    // Native defaults to on-device, but honors a 'server' preference — set by the
+    // user in Settings or by VoiceCrashGuard after a native load crashed the app —
+    // so recovery actually breaks the crash loop instead of re-selecting native.
+    this.preferredBackend = IS_NATIVE_APP
+      ? (localStorage.getItem('eve-tts-backend') === 'server' ? 'server' : 'native')
+      : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');
     this.log = this._logger.child(`TTS:${this.activeBackend.name}`);

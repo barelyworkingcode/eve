@@ -14,8 +14,12 @@
  * backend's stored preference to 'server' before the managers read it, and report
  * what happened.
  *
- * Scope: only the on-device browser backends call begin/end. Server can't OOM;
- * native uses the iOS Neural Engine, not in-page memory.
+ * Scope: both on-device backends — browser and native — call begin/end. Server
+ * can't OOM. Native model downloads (FluidAudio) run in the app process, so a
+ * load that exhausts memory kills the whole app, not just the page; localStorage
+ * survives the relaunch, so the same marker recovers the native path too. In the
+ * native app the reverted 'server' preference is honored by the voice managers
+ * (see tts-manager.js / stt-manager.js), which otherwise force 'native'.
  */
 const VoiceCrashGuard = {
   /** @param {'tts'|'stt'} kind */
