@@ -27,6 +27,7 @@ class FileTreeNode {
     this.bus.on(EVT.FILE_DELETED, (data) => this._refreshParent(data.projectId, data.path));
     this.bus.on(EVT.FILE_UPLOADED, (data) => this._refreshDir(data.projectId, data.destDirectory));
     this.bus.on(EVT.DIRECTORY_CREATED, (data) => this._refreshParent(data.projectId, data.path));
+    this.bus.on(EVT.DIR_CHANGED, (data) => this._onExternalDirChange(data.projectId, data.path));
     this.bus.on(EVT.SETTINGS_CHANGED, (s) => this._onSettingsChanged(s));
 
     // Close context menu on any click (handled by shared closeContextMenu)
@@ -344,5 +345,17 @@ class FileTreeNode {
   _refreshParent(projectId, path) {
     const parent = path.substring(0, path.lastIndexOf('/')) || '/';
     this._refreshDir(projectId, parent);
+  }
+
+  /**
+   * An external (on-disk) change touched a directory. Only re-list it if we
+   * currently have it loaded — i.e. it is the visible root or an expanded
+   * folder. Uncached directories load fresh when next expanded, so there is
+   * nothing to do for them.
+   */
+  _onExternalDirChange(projectId, path) {
+    if (this._getCachedDir(projectId, path)) {
+      this._refreshDir(projectId, path);
+    }
   }
 }
