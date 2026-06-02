@@ -34,16 +34,23 @@ class TtsNativeBackend {
     this.loading = true;
     this.log = context.log || new NullLogger();
 
+    // Mark the load durable *before* it begins: the native Kokoro download runs
+    // in the app process, so an out-of-memory load can kill the whole app before
+    // any catch below runs. If the marker survives a relaunch, VoiceCrashGuard
+    // reverts the backend to 'server' instead of crash-looping. See voice-crash-guard.js.
+    VoiceCrashGuard.beginLoad('tts');
     try {
       // loadModels is shared between STT and TTS — idempotent if already loaded.
       this.log.info('Loading models via EveVoice plugin...');
       await window.Capacitor.nativePromise('EveVoice', 'loadModels', {});
       this.ready = true;
       this.loading = false;
+      VoiceCrashGuard.endLoad('tts');
       this.log.info('Models loaded');
       context.onReady?.();
     } catch (err) {
       this.loading = false;
+      VoiceCrashGuard.endLoad('tts');
       this.log.error('Model loading failed:', err.message);
       context.onError?.(err.message);
     }
