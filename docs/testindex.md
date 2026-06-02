@@ -65,27 +65,44 @@ Quick-reference index of all test cases. Run `npm test` for unit tests.
 - throws when parent does not exist
 - rejects names with path separators
 
-### `file-watcher.test.js` -- File watcher service
+### `file-watcher.test.js` -- File watcher service (recursive per-project watch)
 
-**watch/unwatch**
-- creates a watcher for a valid file
-- does not duplicate watchers for the same file
+**watch/unwatch registration**
+- starts a project watcher and records the open file
+- echoes the client path verbatim and records the binary flag
+- does not duplicate the project watcher for repeated watches
 - ignores unknown project IDs
-- ignores invalid paths
-- removes watcher on unwatch
+- removes the file on unwatch but keeps the project watcher for the tree
 - unwatch is safe for unwatched files
+
+**watchProject**
+- starts a recursive watcher without any open file
+- ignores unknown project IDs
 
 **markSelfWrite**
 - adds path to selfWrites set
-- auto-clears after 500ms
+- auto-clears after the TTL
 
-**_onFileChange**
-- debounces and sends file_changed message
-- skips self-written files
-- coalesces multiple rapid events
+**_onFsEvent** (deterministic core)
+- pushes file_changed with content for an open text file
+- treats atomic-save renames of an open file as content changes
+- coalesces multiple rapid events into one push
+- skips the echo for self-written files
+- binary watches notify only, no content
+- emits dir_changed for the parent on a structural (rename) event
+- maps a nested path to its parent directory
+- does not emit dir_changed for content-only changes
+- skips dir_changed for a directory that no longer exists
+
+**ignored paths**
+- drops events inside .git / node_modules and .DS_Store
+
+**end-to-end (real fs.watch)**
+- detects a new file appearing in the tree
+- pushes content when an open file changes on disk
 
 **closeAll**
-- closes all watchers and clears state
+- closes watchers and clears all state
 - is safe to call multiple times
 
 ### `input-history.test.js` -- Chat input history (up/down arrow recall)

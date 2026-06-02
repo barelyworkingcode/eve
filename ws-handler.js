@@ -132,6 +132,10 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
 
           // --- File operations (local) ---
           case 'list_directory':
+            // Listing a directory expresses interest in the project's tree;
+            // start its recursive watcher so external structural changes
+            // (new/removed files & folders) are surfaced live.
+            fileWatcher.watchProject(message.projectId);
             fileHandlers.listDirectory(ws, message);
             break;
 

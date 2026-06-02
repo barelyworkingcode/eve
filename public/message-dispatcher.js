@@ -99,6 +99,7 @@ class MessageDispatcher {
       directory_created:    (d) => this._handleFileEvent(d, 'handleDirectoryCreated', [d.projectId, d.path, d.name], EVT.DIRECTORY_CREATED),
       file_uploaded:        (d) => this._handleFileEvent(d, 'handleFileUploaded', [d.projectId, d.destDirectory, d.fileName], EVT.FILE_UPLOADED),
       file_changed:         (d) => this.app.handleFileChanged(d.projectId, d.path, d.content),
+      dir_changed:          (d) => { if (this.bus) this.bus.emit(EVT.DIR_CHANGED, d); },
       terminal_created:     (d) => this.terminal.onTerminalCreated(d.terminalId, d.templateId, d.name, d.directory),
       terminal_joined:      (d) => this.terminal.onTerminalJoined(d),
       terminal_output:      (d) => this.terminal.onTerminalOutput(d.terminalId, d.data),
