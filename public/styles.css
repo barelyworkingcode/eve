@@ -5,6 +5,7 @@
 }
 
 :root {
+  color-scheme: dark;
   --bg-primary: #0a0a0a;
   --bg-secondary: #111111;
   --bg-tertiary: #181818;
@@ -25,14 +26,19 @@
   --message-assistant: #141414;
   --sidebar-width: 304px;
   --rail-width: 52px;
+  /* Two font slots: --font-ui for chrome/prose, --font-mono for terminal,
+     code editor, and code blocks. Overridden live by SettingsManager. */
+  --font-ui: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --root-font-size: 13px;
 }
 
 html, body {
   height: 100%;
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-ui);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--root-font-size);
   line-height: 1.5;
   padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 }
@@ -1948,6 +1954,7 @@ html, body {
   background: var(--bg-tertiary);
   padding: 2px 5px;
   border-radius: 3px;
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
@@ -1959,6 +1966,7 @@ html, body {
   padding: 14px;
   margin: 0 0 12px;
   overflow-x: auto;
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2041,7 +2049,8 @@ html, body {
 
 .markdown-preview tr:nth-child(even) td,
 .message-content tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.02);
+  /* Neutral overlay so row striping shows on both light and dark themes. */
+  background: rgba(128, 128, 128, 0.08);
 }
 
 .markdown-preview img,
@@ -3699,7 +3708,7 @@ html, body {
 .rail__item:hover .rail__avatar { transform: scale(1.06); }
 .rail__item--active .rail__avatar {
   border-radius: 9px;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .sidebar-rail__btn {
@@ -4972,6 +4981,82 @@ html, body {
   color: var(--text-secondary);
 }
 
+/* Segmented control (appearance mode, palette-edit toggle) */
+.settings-dialog__segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.settings-dialog__seg-btn {
+  flex: 1;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.settings-dialog__seg-btn:hover {
+  color: var(--text-primary);
+}
+
+.settings-dialog__seg-btn--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Preset gallery grouping */
+.settings-dialog__preset-group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 16px 0 8px;
+}
+
+.settings-dialog__preset-card {
+  position: relative;
+}
+
+.settings-dialog__preset-card--active {
+  border-color: var(--accent);
+}
+
+.settings-dialog__preset-card--active::after {
+  content: '✓';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+/* Colors tab edit-palette header */
+.settings-dialog__colors-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.settings-dialog__colors-head-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.settings-dialog__colors-head .settings-dialog__segmented {
+  flex: 1;
+}
+
 /* ============================================
    Toast Notifications
    ============================================ */
@@ -5471,7 +5556,7 @@ html, body {
 }
 .module-orb-dialog__label { color: var(--text-muted); }
 .module-orb-dialog__value { color: var(--text-primary); }
-.module-orb-dialog__value--mono { font-family: 'SF Mono', monospace; }
+.module-orb-dialog__value--mono { font-family: var(--font-mono, 'SF Mono', monospace); }
 .module-orb-dialog__status--running   { color: var(--accent); }
 .module-orb-dialog__status--completed { color: var(--success); }
 .module-orb-dialog__status--failed    { color: var(--danger); }
@@ -5499,7 +5584,7 @@ html, body {
   border: 1px solid var(--border-color);
   border-radius: 4px;
   padding: 8px 10px;
-  font-family: 'SF Mono', monospace;
+  font-family: var(--font-mono, 'SF Mono', monospace);
   font-size: 11.5px;
   line-height: 1.5;
 }
@@ -5550,7 +5635,7 @@ html, body {
   border-radius: 4px;
   padding: 10px 12px;
   font-size: 12px;
-  font-family: 'SF Mono', monospace;
+  font-family: var(--font-mono, 'SF Mono', monospace);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 220px;
@@ -5650,7 +5735,7 @@ html, body {
   text-transform: none;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono, 'SF Mono', ui-monospace, Menlo, monospace);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5669,7 +5754,7 @@ html, body {
   text-align: left;
   cursor: pointer;
   color: var(--text-primary);
-  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono, 'SF Mono', ui-monospace, Menlo, monospace);
   font-size: 12px;
   line-height: 1.5;
 }

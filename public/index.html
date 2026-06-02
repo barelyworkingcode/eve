@@ -10,24 +10,63 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0a0a0a">
   <script>
-    // Apply saved theme before first paint to prevent flash
+    // Apply saved theme before first paint to prevent flash. Self-contained:
+    // must not depend on any app script. Mirrors SettingsManager's resolution
+    // (themeMode 'auto' follows the OS) and font stacks (FONT_PRESETS).
     (function() {
       try {
         var s = JSON.parse(localStorage.getItem('eve-settings'));
-        if (s) {
-          var r = document.documentElement.style;
-          if (s.bgPrimary) r.setProperty('--bg-primary', s.bgPrimary);
-          if (s.bgSecondary) { r.setProperty('--bg-secondary', s.bgSecondary); r.setProperty('--message-assistant', s.bgSecondary); }
-          if (s.accentColor) r.setProperty('--accent', s.accentColor);
-          if (s.textPrimary) r.setProperty('--text-primary', s.textPrimary);
-          if (s.textSecondary) r.setProperty('--text-secondary', s.textSecondary);
-          if (s.borderColor) r.setProperty('--border-color', s.borderColor);
-          if (s.dangerColor) r.setProperty('--danger', s.dangerColor);
-          if (s.successColor) r.setProperty('--success', s.successColor);
-          if (s.messageUserBg) r.setProperty('--message-user', s.messageUserBg);
-          var m = document.querySelector('meta[name="theme-color"]');
-          if (m && s.bgPrimary) m.content = s.bgPrimary;
+        if (!s) return;
+        var r = document.documentElement.style;
+
+        // Resolve the active palette: new {palettes, themeMode} shape, else legacy flat.
+        var pal = null;
+        if (s.palettes) {
+          var mode = s.themeMode || 'dark';
+          var active = mode === 'auto'
+            ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : (mode === 'light' ? 'light' : 'dark');
+          pal = s.palettes[active] || s.palettes.dark || s.palettes.light;
+        } else if (s.bgPrimary) {
+          pal = s;
         }
+
+        if (pal && pal.bgPrimary) {
+          r.setProperty('--bg-primary', pal.bgPrimary);
+          if (pal.bgSecondary) { r.setProperty('--bg-secondary', pal.bgSecondary); r.setProperty('--message-assistant', pal.bgSecondary); }
+          if (pal.accentColor) r.setProperty('--accent', pal.accentColor);
+          if (pal.textPrimary) r.setProperty('--text-primary', pal.textPrimary);
+          if (pal.textSecondary) r.setProperty('--text-secondary', pal.textSecondary);
+          if (pal.borderColor) r.setProperty('--border-color', pal.borderColor);
+          if (pal.dangerColor) r.setProperty('--danger', pal.dangerColor);
+          if (pal.successColor) r.setProperty('--success', pal.successColor);
+          if (pal.messageUserBg) r.setProperty('--message-user', pal.messageUserBg);
+          var h = pal.bgPrimary.replace('#', '');
+          if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+          var lum = (0.299*parseInt(h.slice(0,2),16) + 0.587*parseInt(h.slice(2,4),16) + 0.114*parseInt(h.slice(4,6),16)) / 255;
+          r.colorScheme = lum > 0.5 ? 'light' : 'dark';
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.content = pal.bgPrimary;
+        }
+
+        // Font slots — set before paint so code/terminal never flash a wrong face.
+        var FONTS = {
+          'sf-mono': "'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', 'Consolas', monospace",
+          'jetbrains': "'JetBrains Mono', monospace",
+          'fira-code': "'Fira Code', 'Fira Mono', monospace",
+          'source-code-pro': "'Source Code Pro', monospace",
+          'cascadia': "'Cascadia Code', 'Cascadia Mono', monospace",
+          'menlo': "Menlo, Consolas, 'Courier New', monospace",
+          'system-mono': 'monospace',
+          'inter': "Inter, -apple-system, 'Segoe UI', sans-serif",
+          'system-sans': "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          'helvetica': "'Helvetica Neue', Helvetica, Arial, sans-serif",
+          'georgia': "Georgia, 'Times New Roman', serif",
+          'charter': "Charter, 'Bitstream Charter', Georgia, serif"
+        };
+        if (FONTS[s.fontFamily]) r.setProperty('--font-ui', FONTS[s.fontFamily]);
+        if (FONTS[s.terminalFontFamily]) r.setProperty('--font-mono', FONTS[s.terminalFontFamily]);
+        if (s.fontSize) r.setProperty('--root-font-size', s.fontSize + 'px');
       } catch(e) {}
     })();
   </script>

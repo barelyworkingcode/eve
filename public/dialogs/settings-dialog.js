@@ -1,12 +1,16 @@
 /**
  * SettingsDialog - browser theme configuration dialog.
- * Three tabs: Colors, Typography, Presets.
+ * Theme tabs: Theme (appearance mode + presets), Colors (palette editor),
+ * Typography (UI + code/terminal fonts). Plus Voice and Files.
  * All changes apply live via SettingsManager.
  */
 class SettingsDialog extends DialogBase {
   constructor(container) {
     super(container, 'settings-dialog');
     this.settings = container.get('settings');
+    // Which palette the Colors tab edits. Only diverges from the active mode
+    // when themeMode is 'auto' and the user picks the other side to customize.
+    this._editMode = 'dark';
   }
 
   init() {
@@ -45,44 +49,48 @@ class SettingsDialog extends DialogBase {
     titleBar.appendChild(closeBtn);
     this._panel.appendChild(titleBar);
 
+    // The Colors tab edits the active palette by default; under 'auto' the user
+    // can switch which side they edit.
+    this._editMode = this.settings.getActiveMode();
+
     // Tabs
+    const themeContent = document.createElement('div');
+    themeContent.className = 'dialog__tab-content';
     const colorsContent = document.createElement('div');
-    colorsContent.className = 'dialog__tab-content';
+    colorsContent.className = 'dialog__tab-content hidden';
     const typographyContent = document.createElement('div');
     typographyContent.className = 'dialog__tab-content hidden';
-    const presetsContent = document.createElement('div');
-    presetsContent.className = 'dialog__tab-content hidden';
     const voiceContent = document.createElement('div');
     voiceContent.className = 'dialog__tab-content hidden';
     const filesContent = document.createElement('div');
     filesContent.className = 'dialog__tab-content hidden';
 
-    const tabs = [colorsContent, typographyContent, presetsContent, voiceContent, filesContent];
+    const tabs = [themeContent, colorsContent, typographyContent, voiceContent, filesContent];
     const { header } = this._createTabs(
       [
+        { name: 'theme', label: 'Theme' },
         { name: 'colors', label: 'Colors' },
         { name: 'typography', label: 'Typography' },
-        { name: 'presets', label: 'Presets' },
         { name: 'voice', label: 'Voice' },
         { name: 'files', label: 'Files' },
       ],
       (tab) => {
-        const map = { colors: 0, typography: 1, presets: 2, voice: 3, files: 4 };
+        const map = { theme: 0, colors: 1, typography: 2, voice: 3, files: 4 };
         tabs.forEach((t, i) => t.classList.toggle('hidden', i !== map[tab]));
       }
     );
     this._panel.appendChild(header);
 
     // Build tab contents
+    this._buildThemeTab(themeContent);
     this._buildColorsTab(colorsContent);
     this._buildTypographyTab(typographyContent);
-    this._buildPresetsTab(presetsContent);
     this._buildVoiceTab(voiceContent);
     this._buildFilesTab(filesContent);
 
+    this._panel.appendChild(themeContent);
     this._panel.appendChild(colorsContent);
     this._panel.appendChild(typographyContent);
-    this._panel.appendChild(presetsContent);
     this._panel.appendChild(voiceContent);
     this._panel.appendChild(filesContent);
 
@@ -100,7 +108,175 @@ class SettingsDialog extends DialogBase {
     this._panel.appendChild(footer);
   }
 
+  _buildThemeTab(container) {
+    // Appearance mode: Auto follows the OS, Light/Dark pin it.
+    const modeLabel = document.createElement('label');
+    modeLabel.className = 'dialog__label';
+    modeLabel.textContent = 'Appearance';
+    container.appendChild(modeLabel);
+
+    container.appendChild(this._buildSegmented(
+      [
+        { value: 'auto', label: 'Auto' },
+        { value: 'light', label: 'Light' },
+        { value: 'dark', label: 'Dark' },
+      ],
+      this.settings.getThemeMode(),
+      (val) => {
+        this.settings.setThemeMode(val);
+        this._editMode = this.settings.getActiveMode();
+        this.render();
+      }
+    ));
+
+    const hint = document.createElement('span');
+    hint.className = 'field-hint';
+    hint.textContent = this._appearanceHint();
+    container.appendChild(hint);
+
+    // Preset gallery, grouped by light/dark. Clicking applies into that side's palette.
+    const groups = this.settings.getPresetGroups();
+    for (const [groupKey, label] of [['dark', 'Dark themes'], ['light', 'Light themes']]) {
+      const groupLabel = document.createElement('div');
+      groupLabel.className = 'settings-dialog__preset-group-label';
+      groupLabel.textContent = label;
+      container.appendChild(groupLabel);
+
+      const grid = document.createElement('div');
+      grid.className = 'settings-dialog__preset-grid';
+      const activeName = this.settings.matchPresetName(this.settings.getPalette(groupKey));
+
+      for (const { name, colors } of groups[groupKey]) {
+        const card = this._buildPresetCard(name, colors);
+        if (name === activeName) card.classList.add('settings-dialog__preset-card--active');
+        card.addEventListener('click', () => this._applyPreset(groupKey, colors));
+        grid.appendChild(card);
+      }
+      container.appendChild(grid);
+    }
+  }
+
+  _appearanceHint() {
+    const mode = this.settings.getThemeMode();
+    if (mode === 'auto') {
+      const active = this.settings.getActiveMode() === 'light' ? 'Light' : 'Dark';
+      return `Follows your system appearance — currently ${active}.`;
+    }
+    return mode === 'light' ? 'Always uses the light theme.' : 'Always uses the dark theme.';
+  }
+
+  _applyPreset(groupKey, colors) {
+    this.settings.setPalette(groupKey, colors);
+    const mode = this.settings.getThemeMode();
+    if (mode === 'auto') {
+      if (groupKey !== this.settings.getActiveMode()) {
+        this.bus.emit(EVT.TOAST_SHOW, {
+          id: 'theme-staged',
+          type: 'info',
+          message: `Saved as your ${groupKey} theme — shows when your system uses ${groupKey} mode.`,
+        });
+      }
+    } else if (mode !== groupKey) {
+      // Picking a preset from the other side is an explicit choice — switch to it.
+      this.settings.setThemeMode(groupKey);
+    }
+    this._editMode = this.settings.getActiveMode();
+    this.render();
+  }
+
+  _buildPresetCard(name, colors) {
+    const card = document.createElement('button');
+    card.className = 'settings-dialog__preset-card';
+
+    const swatches = document.createElement('div');
+    swatches.className = 'settings-dialog__preset-swatches';
+    for (const c of [colors.bgPrimary, colors.bgSecondary, colors.accentColor, colors.textPrimary]) {
+      const dot = document.createElement('span');
+      dot.className = 'settings-dialog__preset-dot';
+      dot.style.background = c;
+      swatches.appendChild(dot);
+    }
+
+    const label = document.createElement('span');
+    label.className = 'settings-dialog__preset-name';
+    label.textContent = name;
+
+    card.appendChild(swatches);
+    card.appendChild(label);
+    return card;
+  }
+
+  _buildSegmented(options, current, onSelect) {
+    const wrap = document.createElement('div');
+    wrap.className = 'settings-dialog__segmented';
+    const buttons = [];
+    for (const opt of options) {
+      const btn = document.createElement('button');
+      btn.className = 'settings-dialog__seg-btn';
+      btn.textContent = opt.label;
+      if (opt.value === current) btn.classList.add('settings-dialog__seg-btn--active');
+      btn.addEventListener('click', () => {
+        for (const b of buttons) b.classList.remove('settings-dialog__seg-btn--active');
+        btn.classList.add('settings-dialog__seg-btn--active');
+        onSelect(opt.value);
+      });
+      buttons.push(btn);
+      wrap.appendChild(btn);
+    }
+    return wrap;
+  }
+
   _buildColorsTab(container) {
+    const mode = this.settings.getThemeMode();
+    // Outside 'auto' there is exactly one relevant palette — keep edit in sync.
+    if (mode !== 'auto') this._editMode = this.settings.getActiveMode();
+
+    const hint = document.createElement('span');
+    hint.className = 'field-hint';
+
+    if (mode === 'auto') {
+      const head = document.createElement('div');
+      head.className = 'settings-dialog__colors-head';
+      const headLabel = document.createElement('span');
+      headLabel.className = 'settings-dialog__colors-head-label';
+      headLabel.textContent = 'Editing';
+      head.appendChild(headLabel);
+      head.appendChild(this._buildSegmented(
+        [
+          { value: 'dark', label: 'Dark palette' },
+          { value: 'light', label: 'Light palette' },
+        ],
+        this._editMode,
+        (val) => {
+          this._editMode = val;
+          this._renderColorRows(rows);
+          hint.textContent = this._colorsHint();
+        }
+      ));
+      container.appendChild(head);
+    }
+
+    container.appendChild(hint);
+
+    const rows = document.createElement('div');
+    container.appendChild(rows);
+
+    this._renderColorRows(rows);
+    hint.textContent = this._colorsHint();
+  }
+
+  _colorsHint() {
+    const mode = this.settings.getThemeMode();
+    if (mode !== 'auto') return `Editing the ${this._editMode} theme palette.`;
+    const active = this.settings.getActiveMode();
+    return this._editMode === active
+      ? `Editing the ${this._editMode} palette (currently visible).`
+      : `Editing the ${this._editMode} palette — visible when your system uses ${this._editMode} mode.`;
+  }
+
+  _renderColorRows(container) {
+    container.innerHTML = '';
+    const palette = this.settings.getPalette(this._editMode);
     const colors = [
       { key: 'accentColor', label: 'Accent' },
       { key: 'bgPrimary', label: 'Background' },
@@ -123,15 +299,15 @@ class SettingsDialog extends DialogBase {
 
       const hexSpan = document.createElement('span');
       hexSpan.className = 'settings-dialog__color-hex';
-      hexSpan.textContent = this.settings.get(key);
+      hexSpan.textContent = palette[key];
 
       const input = document.createElement('input');
       input.type = 'color';
       input.className = 'settings-dialog__color-input';
-      input.value = this.settings.get(key);
+      input.value = palette[key];
       input.addEventListener('input', () => {
         hexSpan.textContent = input.value;
-        this.settings.set(key, input.value);
+        this.settings.setColor(this._editMode, key, input.value);
       });
 
       row.appendChild(lbl);
@@ -142,10 +318,10 @@ class SettingsDialog extends DialogBase {
   }
 
   _buildTypographyTab(container) {
-    // Font family
+    // UI font — chrome, menus, chat prose.
     const famLabel = document.createElement('label');
     famLabel.className = 'dialog__label';
-    famLabel.textContent = 'Font Family';
+    famLabel.textContent = 'UI Font';
     container.appendChild(famLabel);
 
     const famSelect = document.createElement('select');
@@ -167,6 +343,11 @@ class SettingsDialog extends DialogBase {
     });
     container.appendChild(famSelect);
 
+    const famHint = document.createElement('span');
+    famHint.className = 'field-hint';
+    famHint.textContent = 'Used for the interface, menus, and chat text.';
+    container.appendChild(famHint);
+
     // Font size
     const sizeLabel = document.createElement('label');
     sizeLabel.className = 'dialog__label';
@@ -187,10 +368,10 @@ class SettingsDialog extends DialogBase {
     });
     container.appendChild(sizeInput);
 
-    // Terminal font family (monospace only)
+    // Code & terminal font (monospace only).
     const termLabel = document.createElement('label');
     termLabel.className = 'dialog__label';
-    termLabel.textContent = 'Terminal Font';
+    termLabel.textContent = 'Code & Terminal Font';
     container.appendChild(termLabel);
 
     const termSelect = document.createElement('select');
@@ -206,6 +387,11 @@ class SettingsDialog extends DialogBase {
       this.settings.set('terminalFontFamily', termSelect.value);
     });
     container.appendChild(termSelect);
+
+    const termHint = document.createElement('span');
+    termHint.className = 'field-hint';
+    termHint.textContent = 'Used by the terminal, code editor, and code blocks. Monospace only.';
+    container.appendChild(termHint);
   }
 
   _buildVoiceTab(container) {
@@ -377,40 +563,4 @@ class SettingsDialog extends DialogBase {
     return 'On-device model will download on next voice session.';
   }
 
-  _buildPresetsTab(container) {
-    const grid = document.createElement('div');
-    grid.className = 'settings-dialog__preset-grid';
-
-    for (const [name, colors] of Object.entries(THEME_PRESETS)) {
-      const card = document.createElement('button');
-      card.className = 'settings-dialog__preset-card';
-
-      // Color preview swatches
-      const swatches = document.createElement('div');
-      swatches.className = 'settings-dialog__preset-swatches';
-      const previewColors = [colors.bgPrimary, colors.bgSecondary, colors.accentColor, colors.textPrimary];
-      for (const c of previewColors) {
-        const dot = document.createElement('span');
-        dot.className = 'settings-dialog__preset-dot';
-        dot.style.background = c;
-        swatches.appendChild(dot);
-      }
-
-      const label = document.createElement('span');
-      label.className = 'settings-dialog__preset-name';
-      label.textContent = name;
-
-      card.appendChild(swatches);
-      card.appendChild(label);
-
-      card.addEventListener('click', () => {
-        this.settings.setAll({ ...this.settings.getAll(), ...colors });
-        this.render();
-      });
-
-      grid.appendChild(card);
-    }
-
-    container.appendChild(grid);
-  }
 }
