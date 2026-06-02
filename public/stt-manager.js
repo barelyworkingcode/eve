@@ -20,7 +20,12 @@ class STTManager {
     this.available = null; // null = unknown, true/false after check
     this.isNativeApp = IS_NATIVE_APP;
 
-    this.preferredBackend = IS_NATIVE_APP ? 'native' : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
+    // Native defaults to on-device, but honors a 'server' preference — set by the
+    // user in Settings or by VoiceCrashGuard after a native load crashed the app —
+    // so recovery actually breaks the crash loop instead of re-selecting native.
+    this.preferredBackend = IS_NATIVE_APP
+      ? (localStorage.getItem('eve-stt-backend') === 'server' ? 'server' : 'native')
+      : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');
     this.log = this._logger.child(`STT:${this.activeBackend.name}`);

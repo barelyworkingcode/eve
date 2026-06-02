@@ -23,6 +23,7 @@ class VoiceInitCoordinator {
     this._sttReady = false;
     this._ttsProgress = 0;
     this._sttProgress = 0;
+    this._serializeNativeLoads = false;
   }
 
   init() {
@@ -88,12 +89,26 @@ class VoiceInitCoordinator {
       persistent: true,
     });
 
-    // Start shadow preloading for targets not yet ready/loading
+    // Start shadow preloading for targets not yet ready/loading.
+    // Native models are large (Kokoro ~86MB + Parakeet ~160MB) and download in the
+    // app process; loading both at once can exhaust memory and crash the whole app
+    // on memory-constrained iOS devices. When both targets are native, defer STT
+    // until TTS settles so peak memory stays near one model instead of two. Browser
+    // workers are lighter and crash-guarded, so they still preload in parallel.
+    this._serializeNativeLoads = ttsTarget === 'native' && sttTarget === 'native';
+
     if (ttsTarget && !this._ttsReady && !this._ttsShadow) {
       this._preloadTTS(ttsTarget);
     }
-    if (sttTarget && !this._sttReady && !this._sttShadow) {
-      this._preloadSTT(sttTarget);
+    if (!this._serializeNativeLoads) {
+      this._startSTTPreload();
+    }
+  }
+
+  /** Start the STT shadow preload if a target is pending and not already loading. */
+  _startSTTPreload() {
+    if (this._sttTarget && !this._sttReady && !this._sttShadow) {
+      this._preloadSTT(this._sttTarget);
     }
   }
 
@@ -136,8 +151,13 @@ class VoiceInitCoordinator {
         this._updateToast();
       },
       onReady: () => {
-        if (which === 'tts') this._ttsReady = true;
-        else this._sttReady = true;
+        if (which === 'tts') {
+          this._ttsReady = true;
+          // TTS finished — release the deferred STT load (serialized native path).
+          if (this._serializeNativeLoads) this._startSTTPreload();
+        } else {
+          this._sttReady = true;
+        }
         this._checkAllReady();
       },
       onError: (msg) => {
@@ -146,6 +166,8 @@ class VoiceInitCoordinator {
           this._ttsTarget = null;
           this._ttsShadow?.destroy();
           this._ttsShadow = null;
+          // TTS failed, but STT is independent — release its deferred load too.
+          if (this._serializeNativeLoads) this._startSTTPreload();
         } else {
           this._sttTarget = null;
           this._sttShadow?.destroy();
