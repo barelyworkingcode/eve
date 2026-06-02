@@ -23,7 +23,7 @@ class FileEditor {
       monaco.editor.setTheme(settings.isLight() ? 'vs' : 'vs-dark');
       this.editor.updateOptions({
         fontSize: settings.get('fontSize'),
-        fontFamily: settings.getFontStack(),
+        fontFamily: settings.getTerminalFontStack(),
       });
     });
   }
@@ -228,7 +228,7 @@ class FileEditor {
       theme: settings.isLight() ? 'vs' : 'vs-dark',
       automaticLayout: true,
       fontSize: settings.get('fontSize'),
-      fontFamily: settings.getFontStack(),
+      fontFamily: settings.getTerminalFontStack(),
       tabSize: 2,
       insertSpaces: true,
       minimap: { enabled: false },
