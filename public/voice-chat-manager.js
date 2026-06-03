@@ -161,16 +161,29 @@ class VoiceChatManager {
   }
 
   deactivate() {
+    // Halt in-progress speech only when a real voice session is being torn
+    // down (barge-in). deactivate() also runs on plain tab switches with
+    // read-aloud TTS on but no voice session active — there, let the current
+    // message finish playing rather than cutting it off mid-sentence.
+    const wasVoiceSession = this.isVoiceSession;
     this.isVoiceSession = false;
     this.isRecording = false;
     this._vadTranscribing = false;
     this.app.sttManager.stopRecording();
-    this.app.ttsManager.stop();
+    if (wasVoiceSession) this.app.ttsManager.stop();
     this.vadManager.destroy();
     this.orbRenderer?.stop();
 
-    // Disable server-side TTS so the relay stops generating audio
-    this.app.wsClient.send({ type: 'voice_mode', enabled: false });
+    // Reconcile server-side TTS with the read-aloud toggle instead of forcing
+    // it off. deactivate() runs on every switch into a non-voice session tab
+    // (TabManager.switchToTab), but read-aloud TTS (ttsManager.enabled) may
+    // still be on for the chat we're landing on — and the server backend needs
+    // voice_mode to keep emitting tts_audio. Blindly sending enabled:false here
+    // left the speaker button lit but silent until a reconnect: switching tabs
+    // and back killed TTS for all future messages. syncVoiceMode still sends
+    // enabled:false when read-aloud is genuinely off (preserving teardown) and
+    // is a no-op for on-device backends.
+    this.app.ttsManager.syncVoiceMode(this.app.wsClient);
   }
 
   // --- Input mode management ---
