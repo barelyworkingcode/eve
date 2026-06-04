@@ -10,11 +10,20 @@ class TabManager {
    */
   constructor(container) {
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.bus = container.get('bus');
     this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
     this.activeTabId = null;
 
+    // Project-scoped tab bar: only tabs belonging to the active project are
+    // shown; the rest stay open but hidden until that project is active again.
+    this._activeProjectId = null;
+    this._lastActiveByProject = new Map(); // projectId -> last active tabId
+
     this.initElements();
     this.initEventListeners();
+
+    // The activity rail owns project selection; follow it.
+    this.bus.on(EVT.PROJECT_ACTIVATED, ({ projectId }) => this.setActiveProject(projectId));
   }
 
   initElements() {
@@ -82,6 +91,7 @@ class TabManager {
     if (skipRender) {
       // Make tab active without triggering renderMessages
       this.activeTabId = sessionId;
+      this._rememberActive(tab);
       this.app.showChatScreen();
       if (session.sessionType === 'voice') {
         this.voiceChatContent?.classList.remove('hidden');
@@ -90,6 +100,7 @@ class TabManager {
         this.chatContent.classList.remove('hidden');
       }
       this.app.currentSessionId = sessionId;
+      this._syncProjectToActiveTab();
       this.render();
     } else {
       this.switchToTab(sessionId);
@@ -180,17 +191,13 @@ class TabManager {
     if (!tab) return;
 
     this.activeTabId = tabId;
+    this._rememberActive(tab);
 
     // Ensure chat screen is visible (hides welcome screen)
     this.app.showChatScreen();
 
     // Hide all content containers first
-    this.chatContent.classList.add('hidden');
-    this.editorContent.classList.add('hidden');
-    this.viewerContent.classList.add('hidden');
-    this.terminalContent.classList.add('hidden');
-    if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
-    if (this.moduleContent) this.moduleContent.classList.add('hidden');
+    this._hideAllContent();
 
     // Destroy active viewer when switching away (pause media, free memory)
     this._destroyActiveViewer();
@@ -255,6 +262,9 @@ class TabManager {
       if (this.app.moduleHost) this.app.moduleHost.activate(tab);
     }
 
+    // Deep links / restore / task-join can activate a tab outside the current
+    // project — pull the rail across so the active tab stays visible.
+    this._syncProjectToActiveTab();
     this.render();
     this._updateHash(tab);
   }
@@ -334,28 +344,141 @@ class TabManager {
     // Remove tab
     this.tabs.splice(tabIndex, 1);
 
-    // If this was the active tab, switch to another
+    // If this was the active tab, switch to the next tab in the same project,
+    // falling back to the welcome screen when the project has none left.
     if (this.activeTabId === tabId) {
-      if (this.tabs.length > 0) {
-        // Switch to tab to the right, or leftmost if closing rightmost
-        const nextTab = this.tabs[tabIndex] || this.tabs[tabIndex - 1];
+      const nextTab = this._nextTabInProject(tabIndex);
+      if (nextTab) {
         this.switchToTab(nextTab.id);
       } else {
-        // No tabs left
-        this.activeTabId = null;
-        this.chatContent.classList.add('hidden');
-        this.editorContent.classList.add('hidden');
-        this.viewerContent.classList.add('hidden');
-        this.terminalContent.classList.add('hidden');
-        if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
-        if (this.moduleContent) this.moduleContent.classList.add('hidden');
-        this.app.voiceChatManager?.deactivate();
-        this._destroyActiveViewer();
-        this._updateHash(null);
+        this._showEmptyState();
       }
     }
 
     this.render();
+  }
+
+  // --- Project-scoped tab bar ---
+
+  /**
+   * Resolve which project a tab belongs to, for filtering. Sessions, files and
+   * modules carry projectId directly; terminals are matched by their working
+   * directory falling under a project's path. Returns null when unscoped.
+   */
+  _tabProjectId(tab) {
+    if (tab.type === 'terminal') return this._projectIdForDirectory(tab.directory);
+    return tab.projectId || null;
+  }
+
+  /**
+   * Longest-prefix match of a directory against known project paths.
+   */
+  _projectIdForDirectory(directory) {
+    if (!directory) return null;
+    const dir = directory.replace(/\/+$/, '').toLowerCase();
+    let bestId = null;
+    let bestLen = -1;
+    for (const project of this.app.projects.values()) {
+      if (!project.path) continue;
+      const path = project.path.replace(/\/+$/, '').toLowerCase();
+      if ((dir === path || dir.startsWith(path + '/')) && path.length > bestLen) {
+        bestId = project.id;
+        bestLen = path.length;
+      }
+    }
+    return bestId;
+  }
+
+  _rememberActive(tab) {
+    const projectId = this._tabProjectId(tab);
+    if (projectId) this._lastActiveByProject.set(projectId, tab.id);
+  }
+
+  /**
+   * Scope the tab bar to a project (driven by the activity rail). Keeps the
+   * current tab if it belongs to the project; otherwise lands on that
+   * project's most-recently-used tab, or the welcome screen when it has none.
+   */
+  setActiveProject(projectId) {
+    if (projectId === this._activeProjectId) {
+      this.render();
+      return;
+    }
+    this._activeProjectId = projectId;
+
+    const active = this.tabs.find(t => t.id === this.activeTabId);
+    if (active && this._tabProjectId(active) === projectId) {
+      this.render();
+      return;
+    }
+
+    const target = this._lastActiveTabForProject(projectId);
+    if (target) {
+      this.switchToTab(target.id);
+    } else {
+      this._showEmptyState();
+      this.render();
+    }
+  }
+
+  /**
+   * Keep the active project aligned with the active tab. When a tab from a
+   * different project becomes active (deep link, reload restore, task-join),
+   * pull the rail/sidebar across so the tab stays visible.
+   */
+  _syncProjectToActiveTab() {
+    const tab = this.tabs.find(t => t.id === this.activeTabId);
+    if (!tab) return;
+    const projectId = this._tabProjectId(tab);
+    if (projectId && projectId !== this._activeProjectId) {
+      this.app.projectTree?.setActive(projectId);
+    }
+  }
+
+  _lastActiveTabForProject(projectId) {
+    const remembered = this._lastActiveByProject.get(projectId);
+    if (remembered) {
+      const tab = this.tabs.find(t => t.id === remembered);
+      if (tab && this._tabProjectId(tab) === projectId) return tab;
+    }
+    // Fall back to the rightmost tab belonging to this project.
+    for (let i = this.tabs.length - 1; i >= 0; i--) {
+      if (this._tabProjectId(this.tabs[i]) === projectId) return this.tabs[i];
+    }
+    return null;
+  }
+
+  /**
+   * Nearest tab in the active project relative to a closed index (prefer the
+   * tab that shifted into its place, then look left). Null when none remain.
+   */
+  _nextTabInProject(fromIndex) {
+    const inProject = (t) => this._tabProjectId(t) === this._activeProjectId;
+    for (let i = fromIndex; i < this.tabs.length; i++) {
+      if (inProject(this.tabs[i])) return this.tabs[i];
+    }
+    for (let i = fromIndex - 1; i >= 0; i--) {
+      if (inProject(this.tabs[i])) return this.tabs[i];
+    }
+    return null;
+  }
+
+  _hideAllContent() {
+    this.chatContent.classList.add('hidden');
+    this.editorContent.classList.add('hidden');
+    this.viewerContent.classList.add('hidden');
+    this.terminalContent.classList.add('hidden');
+    if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
+    if (this.moduleContent) this.moduleContent.classList.add('hidden');
+  }
+
+  _showEmptyState() {
+    this.activeTabId = null;
+    this._hideAllContent();
+    this.app.voiceChatManager?.deactivate();
+    this._destroyActiveViewer();
+    this.app.showWelcomeScreen();
+    this._updateHash(null);
   }
 
   /**
@@ -464,6 +587,12 @@ class TabManager {
     this.tabBar.innerHTML = '';
 
     for (const tab of this.tabs) {
+      // Project-scoped: hide tabs that belong to other projects. With no active
+      // project (e.g. before projects load) everything shows — the safe default.
+      if (this._activeProjectId && this._tabProjectId(tab) !== this._activeProjectId) {
+        continue;
+      }
+
       const tabEl = document.createElement('div');
       tabEl.className = 'tab';
       tabEl.dataset.tabId = tab.id;
