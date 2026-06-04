@@ -1,5 +1,24 @@
 # Lessons Learned
 
+## Per-Project Allowlists: `allowed_mcp_ids` Is Enforced, `allowed_models` Had to Be
+
+**Issue**: A project carries two allowlists — `allowed_mcp_ids` and `allowed_models` — that look symmetric but weren't. `allowed_mcp_ids` is enforced server-side at the relay bridge (a project's scoped token derives `PermOff` for every non-listed MCP, and `checkToolAccess` gates every tool list/call). `allowed_models` was **stored but never enforced anywhere**: every model picker rendered the full global `/api/models` list, and `POST /api/sessions` forwarded whatever model it was given. A project restricted to two models still offered — and would run — all of them.
+
+**Why it was easy to miss**: Eve does not talk to relayLLM directly. Traffic goes Eve → **relay's frontend socket** (`RELAY_FRONTEND_SOCKET`, see `relay-transport.js`) → relayLLM. relayLLM has no project knowledge at all — projects live only in relay. So an allowlist relayLLM can't see has to be enforced in relay's frontend, in front of the transparent proxy; there is no other chokepoint.
+
+**Fix (two layers, mirroring how the MCP allowlist already works):**
+
+```javascript
+// UX only — filter the picker to the project's allowed models.
+// Empty list or ["*"] means unrestricted, matching relay's isWildcard.
+renderModelSelect(modelSelect, this.state.modelsForProject(this.projectId));
+```
+
+- **Enforcement** (the real boundary): `relay/frontend_model_guard.go` intercepts `POST /api/sessions` and `403`s a disallowed model before it reaches relayLLM. relayLLM stays project-agnostic.
+- **UX**: `StateStore.modelsForProject(projectId)` filters the list for every project-scoped model `<select>` (web/voice chat, main composer, task dialog, search dialog, legacy task modal). The project-*settings* picker is intentionally **not** filtered — it must show all models so you can choose the allowlist.
+
+**Rule of thumb**: client-side filtering of a model/tool list is UX only, never the security boundary. Put the hard gate where the authoritative data lives (relay), and treat `["*"]` or an empty list as "allow all".
+
 ## Never Use `req.headers.host` for Authorization
 
 **Issue**: An early "localhost bypass" in `auth.js` and `ws-handler.js` short-circuited the passkey check when the request `Host` header was `localhost` or `127.0.0.1`. The `Host` header is fully attacker-controllable, so any remote client could send `Host: localhost` and bypass authentication entirely — over HTTP and WebSocket — on every data route and file operation.

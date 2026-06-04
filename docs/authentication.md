@@ -3,7 +3,7 @@
 Eve has two trust boundaries that need to be hardened independently:
 
 1. **Browser ↔ Eve** — human user with a WebAuthn passkey.
-2. **Eve ↔ backend** — Eve server talking to `relayLLM` (which in turn proxies to `relayScheduler`).
+2. **Eve ↔ backend** — Eve server talking to the `relay` orchestrator's frontend socket, which reverse-proxies onward to `relayLLM` (sessions, models, permissions) and `relayScheduler` (tasks), and serves project/MCP routes itself.
 
 This document explains both. Full design rationale, threat model, and verification results live in [`plans/cozy-honking-toast.md`](../plans/cozy-honking-toast.md). The implementation shipped end-to-end across `eve/`, `../relayLLM/`, and `../relay/` — each section below describes the live behavior.
 
@@ -79,42 +79,43 @@ When `HTTPS_KEY` / `HTTPS_CERT` are set, `DUAL_LISTEN=true` enables a secondary 
 
 ## Eve ↔ backend
 
-Eve is the only process that talks to `relayLLM`. `relayScheduler` is reached indirectly via relayLLM, and the on-device TTS / STT daemons bind to `127.0.0.1` only. So securing Eve↔relayLLM covers the full outbound surface.
+Eve's only outbound channel is a single connection to the `relay` orchestrator's **frontend socket**. relay authenticates each request, then reverse-proxies it to whichever managed service registered the route — `relayLLM` for sessions/models/permissions, `relayScheduler` for tasks — over that service's own internal socket; relay serves project/MCP routes itself. Eve never dials relayLLM or relayScheduler directly. The on-device TTS / STT daemons bind to `127.0.0.1` only. So securing Eve↔relay covers the full outbound surface.
 
 ### Transport modes
 
 | Mode | When it applies | Transport | Authentication | TLS |
 |---|---|---|---|---|
-| **Socket (preferred)** | `RELAY_LLM_SOCKET` is set — typically by the `relay` orchestrator when it spawns Eve and relayLLM together | Unix domain socket (`AF_UNIX`) with mode `0600` | Ephemeral bearer token in `Authorization` header | Not applicable — kernel FS permissions anchor authorization |
-| **TCP (fallback)** | Split-host deployments where Eve and relayLLM run on different machines | HTTPS + WSS | Ephemeral bearer token + TLS certificate validation | Required. Plain `http://` to an off-loopback host is refused at startup. |
+| **Socket (preferred)** | `RELAY_FRONTEND_SOCKET` is set — typically by the `relay` orchestrator when it spawns Eve | Unix domain socket (`AF_UNIX`) with mode `0600` | Ephemeral bearer token in `Authorization` header | Not applicable — kernel FS permissions anchor authorization |
+| **TCP (fallback)** | Split-host deployments where Eve and relay run on different machines | HTTPS + WSS | Ephemeral bearer token + TLS certificate validation | Required. Plain `http://` to an off-loopback host is refused at startup. |
 
 Both modes go through a single `RelayTransport` abstraction on the Eve side — call sites never pick between them.
 
 ### Ephemeral bearer token
 
-The token model mirrors the Go `relay` orchestrator's existing MCP-token scheme (`relay/tokens.go`, `relay/service_registry.go`, `relay/bridge/server.go`):
+The token model mirrors the Go `relay` orchestrator's existing MCP-token scheme (`relay/service_registry.go`, `relay/frontend_server.go`, `relay/bridge/server.go`):
 
-1. At spawn time, the orchestrator generates a fresh 32-byte hex token via `crypto/rand`.
-2. The token's SHA-256 hash is registered in an in-memory `TokenStore`; the plaintext is injected into **both** the Eve and relayLLM child processes via environment variables.
+1. At spawn time, the orchestrator generates a fresh 32-byte hex frontend token via `crypto/rand`.
+2. relay's frontend listener is configured with that token, and the plaintext is injected into the Eve process via `RELAY_FRONTEND_TOKEN`. Eve is the only holder of the frontend token — it is **not** shared with relayLLM.
 3. Every outbound HTTP request from Eve carries `Authorization: Bearer <token>`.
-4. WebSocket upgrades to relayLLM carry the same header, so relayLLM can reject unauthenticated upgrades **before** protocol-switching — no half-open session allocation.
-5. When either process exits, the orchestrator removes the hash from the store. The token never touches disk and is not valid beyond the process lifetime that created it.
+4. WebSocket upgrades carry the same header, so relay's `frontendBearerAuth` rejects unauthenticated upgrades **before** protocol-switching — no half-open session allocation.
+5. relay then strips Eve's token and injects each managed service's own **internal** token before dialing it (`enhanced_services.go`), so the Eve↔relay and relay↔service hops never share a credential.
+6. When Eve exits, the orchestrator tears down the frontend listener. The token never touches disk and is not valid beyond the process lifetime that created it.
 
-The `RELAY_LLM_TOKEN` channel is **separate** from the existing `RELAY_MCP_TOKEN` bridge channel — a parallel socket with its own token, so a leak in one channel does not grant access to the other.
+The `RELAY_FRONTEND_TOKEN` channel is **separate** from the `RELAY_MCP_TOKEN` bridge channel (relayLLM/MCP servers → relay) — distinct sockets with distinct tokens, so a leak in one channel does not grant access to the other.
 
 ### Startup validation
 
 On startup, Eve calls `relayTransport.assertStartupConfig()` which hard-fails the process if:
 
-- Neither `RELAY_LLM_SOCKET` nor `RELAY_LLM_URL` is set.
-- `RELAY_LLM_URL` is off-loopback and does not use `https://`.
-- `RELAY_LLM_TOKEN` is missing in any mode except `http://localhost:*` (which prints a loud warning instead of failing).
+- Socket mode is selected (`RELAY_FRONTEND_SOCKET` set) but `RELAY_FRONTEND_TOKEN` is missing.
+- TCP mode (`RELAY_FRONTEND_URL`) points off-loopback and `RELAY_FRONTEND_TOKEN` is missing.
+- TCP mode points off-loopback and does not use `https://`.
 
-There is **no** "skip TLS verify" option and **no** silent HTTPS → HTTP downgrade.
+The one tolerated case is loopback TCP (`http://localhost:*`) with no token: it prints a loud warning instead of failing, for local dev. There is **no** "skip TLS verify" option and **no** silent HTTPS → HTTP downgrade.
 
 ### Certificate verification (TCP mode)
 
-TLS uses Node's default `rejectUnauthorized: true`. For operators running an internal CA, set `RELAY_LLM_CA` to a PEM bundle path; it is loaded into a shared `https.Agent` used by both HTTP and WebSocket calls.
+TLS uses Node's default `rejectUnauthorized: true`. For operators running an internal CA, set `RELAY_FRONTEND_CA` to a PEM bundle path; it is loaded into a shared `https.Agent` used by both HTTP and WebSocket calls.
 
 ### TTS / STT daemons
 
@@ -151,12 +152,12 @@ If you authenticate via `claude login` (CLI OAuth):
 - You probably enrolled a passkey and are now hitting Eve from a client whose IP is not in the trusted-subnet set. Either sign in with the passkey, or add the client subnet to `EVE_TRUSTED_SUBNETS`.
 
 **"Relay service unavailable"**
-- Check that relayLLM is running.
-- If you're running under the `relay` orchestrator, confirm `RELAY_LLM_SOCKET` and `RELAY_LLM_TOKEN` are present in Eve's environment.
-- If you're running in TCP mode, confirm `RELAY_LLM_URL` is `https://` off loopback and `RELAY_LLM_TOKEN` is set.
+- Check that the `relay` orchestrator is running (and that relayLLM/relayScheduler are registered — relay returns `502` if the upstream service for a route is down).
+- If you're running under the `relay` orchestrator, confirm `RELAY_FRONTEND_SOCKET` and `RELAY_FRONTEND_TOKEN` are present in Eve's environment.
+- If you're running in TCP mode, confirm `RELAY_FRONTEND_URL` is `https://` off loopback and `RELAY_FRONTEND_TOKEN` is set.
 
 **Startup fails with "insecure relay configuration"**
-- Eve refused to start because `RELAY_LLM_URL` points at a remote host over plain `http://`, or `RELAY_LLM_TOKEN` is missing. Fix the config — do not try to bypass the check.
+- Eve refused to start because `RELAY_FRONTEND_URL` points at a remote host over plain `http://`, or `RELAY_FRONTEND_TOKEN` is missing. Fix the config — do not try to bypass the check.
 
 **Passkey prompt appears on LAN client you expected to trust**
 - The client's IP isn't in the trusted set. Log the resolved trusted CIDRs at startup (Eve prints them at boot) and either add the client subnet to `EVE_TRUSTED_SUBNETS` or fix whatever NAT / routing makes the client appear from an unexpected source address.

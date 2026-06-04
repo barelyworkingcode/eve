@@ -57,9 +57,10 @@ This project follows enterprise software engineering practices. All code changes
 - Operator-facing reference: [`docs/authentication.md`](docs/authentication.md) (both trust boundaries), [`README.md`](README.md) ("Security Model" and "Environment Variables" sections).
 - Two boundaries:
   1. **Browser ↔ Eve** — WebAuthn passkey + 256-bit session token (`X-Session-Token` header / `{type:'auth'}` WS frame); IP-based trusted-subnet bypass via `TrustedNetworkService` (`req.socket.remoteAddress` only).
-  2. **Eve ↔ relayLLM** — Unix domain socket (mode `0600`) with an ephemeral bearer token (`RELAY_LLM_TOKEN`) injected by the `relay` orchestrator at spawn time. TCP fallback requires `https://` + cert verification. All outbound calls route through a single `RelayTransport` service; no raw `fetch(RELAY_LLM_URL, ...)` or `new WebSocket(relayWsUrl)` anywhere.
+  2. **Eve ↔ relay** — Eve connects to relay's **frontend** Unix socket (`RELAY_FRONTEND_SOCKET`, mode `0600`) with a bearer token (`RELAY_FRONTEND_TOKEN`), both injected by the `relay` orchestrator at spawn time. Eve never reaches relayLLM directly: relay authenticates the frontend token, then reverse-proxies each request onward to relayLLM (sessions/models/permissions) or relayScheduler (tasks) over that service's own internal socket + internal token. TCP fallback (`RELAY_FRONTEND_URL`, optional internal CA via `RELAY_FRONTEND_CA`) requires `https://` + cert verification. All outbound calls route through a single `RelayTransport` service; no raw `fetch()` / `new WebSocket()` to relay anywhere.
+- Because relay is the in-path gateway and owns project state, per-project policy that relayLLM can't see is enforced here: the `allowed_models` allowlist is checked on `POST /api/sessions` by `../relay/frontend_model_guard.go` (the `allowed_mcp_ids` allowlist is enforced separately, at the bridge — see `../relay/README.md` "Projects").
 - Fail-closed: `relayTransport.assertStartupConfig()` hard-fails the process on any insecure config. Never add silent downgrades or "skip-verify" flags.
-- Cross-repo pieces live in `../relayLLM/auth.go` + `../relayLLM/main.go` (bearer middleware, Unix socket listener) and `../relay/relay_llm_channel.go` + `../relay/service_registry.go` (credential provisioning and injection). Any change to the token contract must touch all three repos in lockstep.
+- Cross-repo pieces: Eve's `relay-transport.js` (single egress); relay's `frontend_server.go` (frontend bearer middleware + Unix-socket listener) and `frontend_dispatcher.go` + `enhanced_services.go` (reverse-proxy to relayLLM/relayScheduler with internal-token injection); relayLLM's `auth.go` + `main.go` (internal-socket bearer middleware + listener); credential provisioning in `../relay/service_registry.go`. Any change to the token contract must touch these in lockstep.
 - **iOS native app (`../relayClient`)**: WKWebView blocks WebAuthn for local hostnames. Eve provides a Safari-based fallback: `routes/auth.js` serves a standalone passkey page at `/api/auth/safari-login`, and the iOS `SafariAuthPlugin` opens it via `ASWebAuthenticationSession`. The token is returned to the app via `relayclient://auth-callback?token=...` callback scheme. See [`docs/authentication.md`](docs/authentication.md) "iOS native app" section.
 
 ### Error Handling
@@ -266,13 +267,14 @@ Eve is a relay proxy -- it does not manage LLM providers, sessions, or projects 
 ### Communication Flow
 
 ```
-Browser ──WS──► Eve (ws-handler) ──WS──► relayLLM    (sessions, messages, permissions)
-Browser ──WS──► Eve (ws-handler) ──WS──► relayLLM    (terminals: create, I/O, resize, close)
-Browser ──WS──► Eve (ws-handler) ──local──► FileService  (file ops)
-Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM     (models, projects, sessions list)
-Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM ──HTTP──► relayScheduler  (tasks)
-Browser ──WS──► Eve ──WS──► relayLLM ──WS──► relayScheduler  (task events: task_started, task_completed, task_error, task_status)
-Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM             (generated images: /api/generated/:filename)
+Browser ──WS──► Eve (ws-handler) ──WS──► relay ──► relayLLM    (sessions, messages, permissions)
+Browser ──WS──► Eve (ws-handler) ──WS──► relay ──► relayLLM    (terminals: create, I/O, resize, close)
+Browser ──WS──► Eve (ws-handler) ──local──► FileService        (file ops)
+Browser ──HTTP──► Eve (routes) ──HTTP──► relay ──► relayLLM    (models, sessions list)
+Browser ──HTTP──► Eve (routes) ──HTTP──► relay                 (projects, MCPs — served by relay itself)
+Browser ──HTTP──► Eve (routes) ──HTTP──► relay ──► relayScheduler  (tasks)
+Browser ──WS──► Eve ──WS──► relay ──► relayLLM ──► relayScheduler  (task events: task_started, task_completed, task_error, task_status — forwarded by relayLLM)
+Browser ──HTTP──► Eve (routes) ──HTTP──► relay ──► relayLLM    (generated images: /api/generated/:filename)
 ```
 
 ### Core Components
@@ -280,10 +282,10 @@ Browser ──HTTP──► Eve (routes) ──HTTP──► relayLLM           
 **Server**
 - `server.js` - Express + WS setup, relayLLM config, project cache, shutdown
 - `ws-handler.js` - WebSocket message dispatch: relay ops → RelayClient, local ops → file/terminal handlers. Task events forwarded from relayLLM.
-- `relay-client.js` - WS bridge to relayLLM (one instance per browser connection)
+- `relay-client.js` - WS bridge to relayLLM via relay's frontend (one instance per browser connection)
 - `slash-command-handler.js` - Local slash commands (/clear, /help, /zsh, /bash, /claude)
-- `relay-transport.js` - Shared HTTP/WS transport to relayLLM (socket or TCP, bearer auth). `fetch()` for JSON, `fetchRaw()` for binary (images)
-- `routes/index.js` - HTTP proxy to relayLLM (models, projects, sessions, tasks, generated images) + local auth
+- `relay-transport.js` - Shared HTTP/WS transport to relay's frontend socket (which proxies to relayLLM/relayScheduler; socket or TCP, bearer auth). `fetch()` for JSON, `fetchRaw()` for binary (images)
+- `routes/index.js` - HTTP proxy to relay's frontend (models, sessions, tasks, generated images; projects/MCPs served by relay) + local auth
 - `routes/auth.js` - WebAuthn enrollment/login
 - `file-handlers.js` - WebSocket adapter for file operations
 - `file-service.js` - Path validation + file CRUD
@@ -530,10 +532,10 @@ All session, project, and task data lives in relayLLM.
 **Server code organization** (modular)
 - `server.js` (~200 lines) - Startup, service wiring, shutdown
 - `ws-handler.js` (~200 lines) - WebSocket message dispatch
-- `relay-client.js` (~140 lines) - WS bridge to relayLLM
+- `relay-client.js` (~140 lines) - WS bridge to relayLLM via relay's frontend
 - `slash-command-handler.js` (~65 lines) - Local slash command handling
 - `session-store.js` (~70 lines) - Auth session token persistence
-- `routes/index.js` (~85 lines) - HTTP proxy routes (includes task proxy to relayLLM)
+- `routes/index.js` (~85 lines) - HTTP proxy routes to relay's frontend (tasks dispatched onward to relayScheduler)
 - `routes/auth.js` (~107 lines) - WebAuthn routes
 
 ## Common Tasks
@@ -625,5 +627,5 @@ Manual testing checklist for new features:
 Eve is part of the Relay ecosystem. It has a single backend dependency (relayLLM), which proxies to relayScheduler for task operations. Eve does not connect to relayScheduler directly.
 
 - `../relay/` -- MCP orchestrator. Manages Eve as a background service.
-- `../relayLLM/` -- LLM engine. Eve's single backend — proxies all session/project/permission/task operations to relayLLM, which in turn proxies tasks to relayScheduler. Also serves generated images via `/api/generated/`.
+- `../relayLLM/` -- LLM engine. Eve's primary backend for session/model/permission operations and generated images (`/api/generated/`) — reached through relay's frontend, not directly. relay proxies these to relayLLM, serves project/MCP routes itself, and dispatches tasks to relayScheduler.
 - `../relayComfy/` -- ComfyUI service. Manages ComfyUI for image/video generation. Eve proxies generated images from relayLLM (which talks to ComfyUI).
