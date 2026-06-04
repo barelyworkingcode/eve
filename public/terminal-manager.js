@@ -271,7 +271,47 @@ class TerminalManager {
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
 
+    this.registerGeneratedImageLinks(term);
+
     return { term, fitAddon };
+  }
+
+  /**
+   * Make /api/generated/<file> tokens in terminal output clickable, opening the
+   * image in Eve's fullscreen overlay (the same modal the inline renderer uses).
+   *
+   * WebLinksAddon only linkifies http(s):// URLs, and xterm can't inline images,
+   * so a CLI (e.g. Claude in a terminal) that prints the relative image URL would
+   * otherwise leave a dead string. The path resolves against Eve's own origin,
+   * which already serves /api/generated/.
+   *
+   * Matching is per visual row (pure-ASCII tokens map 1:1 to cells). A token
+   * wrapped across rows won't be detected — acceptable; these URLs are short.
+   */
+  registerGeneratedImageLinks(term) {
+    if (typeof term.registerLinkProvider !== 'function') return;
+    term.registerLinkProvider({
+      provideLinks: (y, callback) => {
+        const line = term.buffer.active.getLine(y - 1);
+        if (!line) { callback(undefined); return; }
+        const text = line.translateToString(true);
+        // Shared token matcher from message-renderer.js; reset lastIndex since
+        // it's a reused global-flag regex.
+        GENERATED_IMAGE_RE.lastIndex = 0;
+        const links = [];
+        let m;
+        while ((m = GENERATED_IMAGE_RE.exec(text)) !== null) {
+          const url = m[0];
+          links.push({
+            text: url,
+            // xterm ranges are 1-based, end inclusive.
+            range: { start: { x: m.index + 1, y }, end: { x: m.index + url.length, y } },
+            activate: () => this.app.messageRenderer?.openImageFullscreen(url, 'Generated image'),
+          });
+        }
+        callback(links.length ? links : undefined);
+      },
+    });
   }
 
   /**
