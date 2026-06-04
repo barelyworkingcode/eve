@@ -21,6 +21,7 @@ const EVT = {
   PROJECTS_LOADED: 'projects:loaded',
   PROJECT_DELETED: 'project:deleted',
   PROJECT_RENAMED: 'project:renamed',
+  PROJECT_ACTIVATED: 'project:activated',
 
   // Models
   MODELS_LOADED: 'models:loaded',

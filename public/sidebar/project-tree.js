@@ -54,6 +54,7 @@ class ProjectTree {
     this.rail.setActive(this.activeProjectId);
     this.rail.render();
     this.panel.setProject(this.activeProjectId);
+    this.bus.emit(EVT.PROJECT_ACTIVATED, { projectId: this.activeProjectId });
   }
 
   setActive(projectId) {
@@ -63,6 +64,7 @@ class ProjectTree {
     this.rail.setActive(projectId);
     this.rail.render();
     this.panel.setProject(projectId);
+    this.bus.emit(EVT.PROJECT_ACTIVATED, { projectId });
   }
 
   _saveActive() {
