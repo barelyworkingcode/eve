@@ -199,7 +199,7 @@ class ShellLauncherDialog extends DialogBase {
     modelLabel.className = 'dialog__label';
     modelLabel.textContent = 'Model';
     const modelSelect = document.createElement('select');
-    renderModelSelect(modelSelect, this.state.models, { className: 'dialog__select' });
+    renderModelSelect(modelSelect, this.state.modelsForProject(this.projectId), { className: 'dialog__select' });
     form.appendChild(modelLabel);
     form.appendChild(modelSelect);
 

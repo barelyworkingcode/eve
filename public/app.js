@@ -530,6 +530,10 @@ class EveWorkspaceClient {
     // Project select
     this.elements.projectSelect.addEventListener('change', () => {
       this.updateDirectoryInputRequirement();
+      // The model allowlist is per-project: re-filter the picker, then let the
+      // model-select 'change' handler refresh provider settings + capabilities.
+      this.renderModelSelect(this.elements.sessionModelSelect);
+      this.elements.sessionModelSelect.dispatchEvent(new Event('change'));
     });
 
     // Model select — render provider-specific settings
@@ -891,8 +895,8 @@ class EveWorkspaceClient {
     }
   }
 
-  renderModelSelect(selectEl) {
-    renderModelSelect(selectEl, this.models);
+  renderModelSelect(selectEl, projectId = this.elements.projectSelect?.value || null) {
+    renderModelSelect(selectEl, this.state.modelsForProject(projectId));
   }
 
   async loadProjects() {
