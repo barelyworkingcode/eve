@@ -14,6 +14,12 @@ const REDACTED_THINKING_PLACEHOLDER =
 // relayComfy/mcp/main.go RELAY_IMAGE_BASE default.
 const GENERATED_PATH = '/api/generated/';
 
+// Canonical matcher for a generated-image URL token (the GENERATED_PATH prefix
+// plus an image filename + extension). Single source of truth, shared by the
+// prose auto-inliner below and terminal-manager.js's xterm link provider
+// (classic scripts share global scope; this file loads first).
+const GENERATED_IMAGE_RE = /\/api\/generated\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif)/g;
+
 class MessageRenderer {
   /**
    * @param {Container} container - DI container
@@ -908,6 +914,13 @@ class MessageRenderer {
     this.messagesEl.appendChild(messageEl);
   }
 
+  // Public entry point for opening the fullscreen image overlay. Used by the
+  // terminal manager to render generated-image links the same way clicking an
+  // inline image does, keeping the UX consistent across surfaces.
+  openImageFullscreen(src, alt) {
+    this._openImageFullscreen(src, alt);
+  }
+
   _openImageFullscreen(src, alt) {
     const overlay = document.createElement('div');
     overlay.className = 'image-fullscreen-overlay';
@@ -1033,7 +1046,7 @@ class MessageRenderer {
     // `![](url)`, producing `[label](![](url))` which marked then mangles
     // into a URL-encoded broken link.
     processed = processed.replace(
-      /(^|[\s(\[])(\/api\/generated\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif))(?![A-Za-z0-9._-])/g,
+      new RegExp('(^|[\\s(\\[])(' + GENERATED_IMAGE_RE.source + ')(?![A-Za-z0-9._-])', 'g'),
       (match, prefix, url, offset, full) => {
         if (prefix === '(' && offset > 0 && full[offset - 1] === ']') return match;
         return `${prefix}![](${url})`;
