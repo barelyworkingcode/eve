@@ -235,6 +235,22 @@ class StateStore {
     this.bus.emit(EVT.MODELS_LOADED);
   }
 
+  /**
+   * Models a project's pickers may offer. `project.allowedModels` is an
+   * allowlist of model `value`s; an empty list or a single "*" means
+   * unrestricted (matching relay's `isWildcard` convention). This is a
+   * display filter for UX only — relay enforces the same allowlist on
+   * session creation, so it stays the authoritative boundary.
+   */
+  modelsForProject(projectId) {
+    const allowed = projectId ? this.projects.get(projectId)?.allowedModels : null;
+    if (!allowed || allowed.length === 0 || (allowed.length === 1 && allowed[0] === '*')) {
+      return this.models;
+    }
+    const allowSet = new Set(allowed);
+    return this.models.filter(m => allowSet.has(m.value));
+  }
+
   // --- MCPs ---
 
   setMcps(mcps) {

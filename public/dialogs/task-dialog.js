@@ -244,7 +244,7 @@ class TaskDialog extends DialogBase {
     modelLabel.textContent = 'Model';
     chatFields.appendChild(modelLabel);
     const modelSelect = document.createElement('select');
-    renderModelSelect(modelSelect, this.state.models, {
+    renderModelSelect(modelSelect, this.state.modelsForProject(this.projectId), {
       className: 'dialog__select',
       name: 'taskModel',
       selectedValue: editTask?.model,

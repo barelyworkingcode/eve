@@ -262,8 +262,9 @@ class ModalManager {
     this.taskProjectId = projectId;
     this.editingTaskId = taskId;
 
-    // Populate model dropdown (reuse app's model list)
-    this.app.renderModelSelect(el.taskModelSelect);
+    // Populate model dropdown (reuse app's model list), scoped to the task's
+    // project so its allowed-model allowlist applies.
+    this.app.renderModelSelect(el.taskModelSelect, projectId);
 
     if (taskId) {
       const task = this.app.state.getTask(taskId);
