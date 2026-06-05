@@ -14,17 +14,19 @@ function mkLog() {
 }
 
 describe('isLoopbackHost', () => {
-  test('matches common loopback forms', () => {
+  test('matches the canonical loopback forms', () => {
     expect(isLoopbackHost('localhost')).toBe(true);
     expect(isLoopbackHost('LOCALHOST')).toBe(true);
     expect(isLoopbackHost('127.0.0.1')).toBe(true);
-    expect(isLoopbackHost('127.1.2.3')).toBe(true);
     expect(isLoopbackHost('::1')).toBe(true);
+    expect(isLoopbackHost('[::1]')).toBe(true);
   });
 
-  test('rejects non-loopback', () => {
+  test('rejects non-loopback, incl. non-canonical 127.x (overly-broad check removed, #11)', () => {
     expect(isLoopbackHost('relay.internal')).toBe(false);
     expect(isLoopbackHost('192.168.1.1')).toBe(false);
+    // The startsWith('127.') fallback was dropped: only 127.0.0.1 is loopback now.
+    expect(isLoopbackHost('127.1.2.3')).toBe(false);
     expect(isLoopbackHost('')).toBe(false);
   });
 });
