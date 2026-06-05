@@ -289,11 +289,22 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
   // execute script in that origin (HTML, SVG, XML) is a stored-XSS vector —
   // a file can arrive via upload, an agent write, or a synced project. We:
   //   1. block path traversal with a separator-aware containment check,
-  //   2. force `nosniff` + a `default-src 'none'; sandbox` CSP on every file,
-  //   3. force `Content-Disposition: attachment` for script-capable types so
-  //      they download instead of rendering in Eve's origin.
+  //   2. force `nosniff` on every file and a locked-down `default-src 'none'`
+  //      CSP so no served file can pull sub-resources or run script,
+  //   3. for script-capable types, ALSO add the `sandbox` directive and force
+  //      `Content-Disposition: attachment` so they download instead of
+  //      rendering in Eve's origin.
+  // The `sandbox` directive is scoped to those script-capable types on purpose:
+  // applied to a PDF it blocks Chrome's built-in viewer and the frame goes blank.
+  //
+  // `?preview=1` is the one opt-in that renders HTML inline: the editor's preview
+  // pane (file-editor.js) needs the page's own scripts to run. We serve it with a
+  // response-level `sandbox allow-scripts` CSP, which forces an opaque origin even
+  // on direct top-level navigation — so scripts run, but the page still cannot
+  // reach Eve's DOM, cookies, or session token. Without the flag, HTML downloads.
   // See docs/security-audit-frontend.md (H1, H2).
   const ACTIVE_CONTENT_EXTS = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml']);
+  const HTML_PREVIEW_EXTS = new Set(['.html', '.htm']);
 
   app.get('/api/files/:projectId/*', requireAuth, (req, res) => {
     const project = resolveProject(req.params.projectId);
@@ -310,13 +321,22 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
 
     res.set('X-Content-Type-Options', 'nosniff');
-    res.set('Content-Security-Policy', "default-src 'none'; sandbox");
 
     const ext = path.extname(resolved).toLowerCase();
     const options = { dotfiles: 'deny' };
-    if (ACTIVE_CONTENT_EXTS.has(ext)) {
-      // Never render these inline from our origin — hand them back as a download.
+    if (req.query.preview === '1' && HTML_PREVIEW_EXTS.has(ext)) {
+      // Sandboxed live preview: the page's own scripts run inside an opaque
+      // origin, fully isolated from Eve. Rendered inline (no attachment).
+      res.set('Content-Security-Policy', 'sandbox allow-scripts');
+    } else if (ACTIVE_CONTENT_EXTS.has(ext)) {
+      // Script-capable: fully neutralize — sandbox the document AND force a
+      // download so it never renders inline in Eve's origin.
+      res.set('Content-Security-Policy', "default-src 'none'; sandbox");
       res.set('Content-Disposition', `attachment; filename="${path.basename(resolved)}"`);
+    } else {
+      // Inert (PDF/image/audio/video): lock down sub-resource loading but omit
+      // `sandbox`, which would blank out Chrome's native PDF viewer.
+      res.set('Content-Security-Policy', "default-src 'none'");
     }
 
     res.sendFile(resolved, options, (err) => {
