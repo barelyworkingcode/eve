@@ -2,30 +2,20 @@ const {
   enrollmentGate,
   isEnrollmentBlocked,
   canBootstrapEnrollment,
-  isLoopbackIp,
 } = require('../../enrollment-gate');
 
 const req = (remoteAddress, extra = {}) => ({ socket: { remoteAddress }, method: 'GET', url: '/', headers: {}, ...extra });
 
-// trustedNetwork double: trusts the 192.168.0.0/16 LAN, nothing else.
+// trustedNetwork double: mirrors the real service's default trusted set, which
+// ALWAYS includes loopback (127.0.0.0/8 + ::1) plus, here, the 192.168.0.0/16 LAN.
 const trustedNetwork = {
-  isInTrustedRange: (r) => /^192\.168\./.test(r?.socket?.remoteAddress || ''),
+  isInTrustedRange: (r) => {
+    const a = r?.socket?.remoteAddress || '';
+    return a === '::1' || /^127\./.test(a) || /^192\.168\./.test(a);
+  },
 };
 const enrolled = { isEnrolled: () => true };
 const notEnrolled = { isEnrolled: () => false };
-
-describe('isLoopbackIp', () => {
-  it('recognizes loopback v4/v6', () => {
-    expect(isLoopbackIp('127.0.0.1')).toBe(true);
-    expect(isLoopbackIp('127.0.0.5')).toBe(true);
-    expect(isLoopbackIp('::1')).toBe(true);
-  });
-  it('rejects non-loopback', () => {
-    expect(isLoopbackIp('192.168.1.4')).toBe(false);
-    expect(isLoopbackIp('8.8.8.8')).toBe(false);
-    expect(isLoopbackIp('')).toBe(false);
-  });
-});
 
 describe('canBootstrapEnrollment', () => {
   it('allows loopback', () => {

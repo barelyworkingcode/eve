@@ -12,21 +12,25 @@ function mkReq({ host, proto, secure = false } = {}) {
   return { secure, get: (h) => headers[h.toLowerCase()] };
 }
 
+const ORIGINAL_PUBLIC_ORIGIN = process.env.EVE_PUBLIC_ORIGIN;
+
 function makeService(publicOrigin) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-auth-'));
-  const prev = process.env.EVE_PUBLIC_ORIGIN;
+  // auth.js reads EVE_PUBLIC_ORIGIN fresh on every getOrigin/getRpId call (not
+  // just at construction), so the var must stay set for the whole test body.
+  // afterEach restores it.
   if (publicOrigin === undefined) delete process.env.EVE_PUBLIC_ORIGIN;
   else process.env.EVE_PUBLIC_ORIGIN = publicOrigin;
-  const svc = new AuthService(dir, silentLog);
-  // restore env immediately — the constructor has already read it
-  if (prev === undefined) delete process.env.EVE_PUBLIC_ORIGIN;
-  else process.env.EVE_PUBLIC_ORIGIN = prev;
-  return svc;
+  return new AuthService(dir, silentLog);
 }
 
 describe('AuthService origin pinning (M1)', () => {
   let svc;
-  afterEach(() => { svc?.stop?.(); svc = null; });
+  afterEach(() => {
+    svc?.stop?.(); svc = null;
+    if (ORIGINAL_PUBLIC_ORIGIN === undefined) delete process.env.EVE_PUBLIC_ORIGIN;
+    else process.env.EVE_PUBLIC_ORIGIN = ORIGINAL_PUBLIC_ORIGIN;
+  });
 
   describe('without EVE_PUBLIC_ORIGIN (legacy host-derived)', () => {
     it('derives rpId and origin from the request Host', () => {

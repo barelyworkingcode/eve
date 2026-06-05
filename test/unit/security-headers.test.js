@@ -78,10 +78,18 @@ describe('security-headers', () => {
       expect(res.get('Strict-Transport-Security')).toContain('max-age=31536000');
     });
 
-    it('sets HSTS behind a TLS-terminating proxy (x-forwarded-proto=https)', () => {
+    it('sets HSTS behind a TRUSTED TLS-terminating proxy (x-forwarded-proto=https)', () => {
       const res = mockRes();
-      securityHeaders()({ headers: { 'x-forwarded-proto': 'https' }, secure: false }, res, () => {});
+      const trustedNetwork = { isTrusted: () => true };
+      securityHeaders({ trustedNetwork })({ headers: { 'x-forwarded-proto': 'https' }, secure: false }, res, () => {});
       expect(res.get('Strict-Transport-Security')).toContain('max-age=31536000');
+    });
+
+    it('ignores x-forwarded-proto from an UNtrusted client (no HSTS spoofing)', () => {
+      const res = mockRes();
+      const trustedNetwork = { isTrusted: () => false };
+      securityHeaders({ trustedNetwork })({ headers: { 'x-forwarded-proto': 'https' }, secure: false }, res, () => {});
+      expect(res.get('Strict-Transport-Security')).toBeUndefined();
     });
   });
 });
