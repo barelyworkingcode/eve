@@ -26,7 +26,7 @@ const EXPENSIVE_OPS = new Set([
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, claudeConfig, resolveProject, ttsService, sttService, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, claudeConfig, resolveProject, ttsService, sttService, uiBus, log }) {
   return (ws, req) => {
     // Trust is decided by the raw TCP source address via TrustedNetworkService.
     // Never consult req.headers.host or X-Forwarded-For here — both are
@@ -35,6 +35,9 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     let isAuthenticated = !requiresAuth;
 
     const relayClient = new RelayClient(relayTransport, ws, ttsService, log?.child('Relay'));
+    // Track this connection so the eve-control MCP can target ui_command pushes
+    // by project (project set is populated from message.projectId below).
+    uiBus?.register(relayClient);
     const fileWatcher = new FileWatcher(ws, fileHandlers.fileService, resolveProject);
     // Per-connection in-flight tracking — used to cancel everything cleanly
     // if the browser drops mid-search. Both SearchService and SearchSummarizer
@@ -84,6 +87,11 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
           }));
           return;
         }
+
+        // Remember which project(s) this browser is viewing so LLM-initiated UI
+        // commands (eve-control MCP) reach it. Most project-scoped messages
+        // carry projectId; setting it repeatedly is idempotent.
+        if (message.projectId) uiBus?.setProject(relayClient, message.projectId);
 
         switch (message.type) {
           case 'create_session':
@@ -304,6 +312,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
       inflightAiIds.clear();
       relayClient.close();
       fileWatcher.closeAll();
+      uiBus?.unregister(relayClient);
     });
   };
 }
