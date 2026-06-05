@@ -592,7 +592,7 @@ class EveWorkspaceClient {
       const sessionTabs = this.tabManager.tabs.filter(t => t.type === 'session');
       for (const tab of sessionTabs) {
         if (!recentIds.includes(tab.id)) {
-          this.wsClient.send({ type: 'join_session', sessionId: tab.id });
+          this.wsClient.send({ type: 'join_session', sessionId: tab.id, projectId: tab.projectId });
         }
       }
 
@@ -941,7 +941,11 @@ class EveWorkspaceClient {
   }
 
   joinSession(sessionId) {
-    this.wsClient.send({ type: 'join_session', sessionId });
+    // Include projectId so eve's server can track which project this browser is
+    // viewing — used to route LLM-initiated ui_command tab pushes. The browser
+    // authoritatively knows the session's project here.
+    const projectId = this.sessions.get(sessionId)?.projectId || null;
+    this.wsClient.send({ type: 'join_session', sessionId, projectId });
   }
 
   endSession() {

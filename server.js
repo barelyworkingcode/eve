@@ -22,6 +22,7 @@ const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('.
 const { ipHostGuard } = require('./ip-host-guard');
 const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
 const { Logger } = require('./logger');
+const UiCommandBus = require('./ui-command-bus');
 
 const log = new Logger(process.env.LOG_LEVEL || 'info');
 const serverLog = log.child('Server');
@@ -164,6 +165,16 @@ loadSettings();
 
 // Project cache (refreshed from relayLLM via RelayTransport)
 const projectCache = new Map();
+
+// Bus for LLM-initiated UI commands: the eve-control MCP POSTs to a loopback-
+// only endpoint and this fans a ui_command out to the browser(s) viewing the
+// calling project. The shared secret arrives via .env (relay hands the same
+// value to the MCP at registration); without it the endpoint stays inert.
+const INTERNAL_SECRET = process.env.EVE_INTERNAL_SECRET || '';
+const uiCommandBus = new UiCommandBus({ internalSecret: INTERNAL_SECRET, log: log.child('UiCommandBus') });
+if (!INTERNAL_SECRET) {
+  serverLog.info('EVE_INTERNAL_SECRET not set — eve-control /internal/ui-command is disabled (run `npm run register:mcp`).');
+}
 
 // Services
 const authService = new AuthService(DATA_DIR, log.child('Auth'));
@@ -340,6 +351,11 @@ registerRoutes(app, {
   log,
 });
 
+// LLM-initiated UI commands from the eve-control MCP. Gated to a loopback peer
+// AND the shared secret inside the bus — never reachable from the browser or
+// the public origin. See ui-command-bus.js.
+app.post('/internal/ui-command', (req, res) => uiCommandBus.handleInternalRequest(req, res));
+
 // SPA fallback for /<projectslug>/ deep links. Single-segment regex so
 // /api/* and /monaco/... stay multi-segment and never match.
 app.get(/^\/[^/]+\/?$/, serveIndexWithCachebust);
@@ -357,6 +373,7 @@ wss.on('connection', createWsHandler({
   resolveProject: (id) => projectCache.get(id),
   ttsService,
   sttService,
+  uiBus: uiCommandBus,
   log: log.child('WsHandler')
 }));
 

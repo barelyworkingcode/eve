@@ -110,6 +110,7 @@ class MessageDispatcher {
       permission_request:   (d) => this.modalManager.showPermissionModal(d),
       mode_changed:         (d) => this._applyPermissionMode(d.mode || 'default'),
       warning:              (d) => this.renderer.appendSystemMessage(d.message, 'warning'),
+      ui_command:           (d) => this._handleUiCommand(d),
       task_started:         (d) => this.handleSchedulerTaskEvent(d),
       task_completed:       (d) => this.handleSchedulerTaskEvent(d),
       task_error:           (d) => this.handleSchedulerTaskEvent(d),
@@ -142,6 +143,34 @@ class MessageDispatcher {
   }
 
   // --- Dispatch helpers (extracted from inline switch cases) ---
+
+  /**
+   * LLM-initiated UI command from the eve-control MCP (relayed by eve's server).
+   * `actor`/`projectId` are stamped server-side and trusted here; tab-manager
+   * does the ownership trimming so the LLM only touches tabs it opened.
+   */
+  _handleUiCommand(data) {
+    const cmd = data && data.command;
+    if (!cmd || !cmd.action) return;
+    const tm = this.tabManager;
+    if (!tm) return;
+    const identity = { actor: data.actor, projectId: data.projectId };
+    switch (cmd.action) {
+      case 'open_tab':
+        if (cmd.tab_kind === 'image') {
+          tm.openImageTab(cmd.tab_ref, cmd.image_url, cmd.title, { actor: identity.actor, projectId: identity.projectId });
+        }
+        break;
+      case 'refresh_tab':
+        tm.refreshImageTab(cmd.tab_ref, identity, cmd.image_url);
+        break;
+      case 'close_tab':
+        tm.closeImageTab(cmd.tab_ref, identity);
+        break;
+      default:
+        break;
+    }
+  }
 
   _trackStreaming(sessionId) {
     if (sessionId) this.streamingSessions.add(sessionId);
