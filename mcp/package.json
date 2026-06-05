@@ -1,0 +1,8 @@
+{
+  "name": "eve-control-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "eve-control MCP — lets an LLM open/close/refresh image tabs in the eve UI. Intrinsic to eve; spawned by Relay, talks to eve's loopback internal endpoint.",
+  "main": "main.js"
+}

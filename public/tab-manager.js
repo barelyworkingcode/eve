@@ -260,6 +260,11 @@ class TabManager {
     } else if (tab.type === 'module') {
       if (this.moduleContent) this.moduleContent.classList.remove('hidden');
       if (this.app.moduleHost) this.app.moduleHost.activate(tab);
+    } else if (tab.type === 'image') {
+      // LLM image tab (eve-control MCP): source is a direct URL, not a project
+      // file, so it renders through _renderImageTab rather than _renderViewer.
+      this.viewerContent.classList.remove('hidden');
+      this._renderImageTab(tab);
     }
 
     // Deep links / restore / task-join can activate a tab outside the current
@@ -578,6 +583,76 @@ class TabManager {
       this._activeViewer.destroy(this.viewerCanvas);
       this._activeViewer = null;
     }
+  }
+
+  // --- LLM-driven image tabs (eve-control MCP) ---
+  //
+  // Tabs the LLM opens carry an `owner` ({ actor:'llm', projectId }). The human
+  // closes them through the normal UI; the LLM (refresh/close) may only touch
+  // tabs it owns in its own project — see _ownedBy. The source is a direct image
+  // URL (e.g. /api/generated/...), not a project file.
+
+  openImageTab(tabRef, imageUrl, title, owner) {
+    if (!tabRef || !imageUrl) return;
+    const projectId = owner?.projectId || null;
+    let tab = this.tabs.find(t => t.id === tabRef);
+    if (tab) {
+      // Re-open of a known ref behaves like a refresh.
+      tab.url = imageUrl;
+      tab._reloadVersion = Date.now();
+      if (tab.id === this.activeTabId) { this._destroyActiveViewer(); this._renderImageTab(tab); }
+      return;
+    }
+    tab = { id: tabRef, type: 'image', label: title || 'Image', projectId, url: imageUrl, owner: owner || null };
+    this.tabs.push(tab);
+    // Only steal focus when the tab's project is already on screen — an LLM
+    // running in a background project shouldn't yank the user's view across.
+    if (!this._activeProjectId || this._activeProjectId === projectId) {
+      this.switchToTab(tab.id);
+    } else {
+      this.render();
+    }
+  }
+
+  refreshImageTab(tabRef, identity, imageUrl) {
+    const tab = this.tabs.find(t => t.id === tabRef);
+    if (!tab || tab.type !== 'image' || !this._ownedBy(tab, identity)) return false;
+    if (imageUrl) tab.url = imageUrl;
+    tab._reloadVersion = Date.now();
+    if (tab.id === this.activeTabId && !this.viewerContent.classList.contains('hidden')) {
+      this._destroyActiveViewer();
+      this._renderImageTab(tab);
+    }
+    return true;
+  }
+
+  closeImageTab(tabRef, identity) {
+    const tab = this.tabs.find(t => t.id === tabRef);
+    if (!tab || !this._ownedBy(tab, identity)) return false;
+    this.closeTab(tabRef);
+    return true;
+  }
+
+  /** The LLM may only mutate tabs it opened, and only within its own project. */
+  _ownedBy(tab, identity) {
+    return !!tab.owner && tab.owner.actor === 'llm'
+      && identity?.actor === 'llm'
+      && !!identity.projectId && tab.owner.projectId === identity.projectId;
+  }
+
+  _renderImageTab(tab) {
+    const registry = this.app.viewerRegistry;
+    // Strip any cache-bust query before extension matching; keep it on the src.
+    const cleanName = String(tab.url).split('?')[0];
+    const viewer = registry?.getViewer(cleanName) || registry?.getViewer('image.png');
+    if (!viewer) return;
+    const url = tab._reloadVersion
+      ? `${tab.url}${tab.url.includes('?') ? '&' : '?'}v=${tab._reloadVersion}`
+      : tab.url;
+    this.viewerPath.textContent = tab.label;
+    this.viewerInfo.textContent = '';
+    this._activeViewer = viewer;
+    viewer.render(this.viewerCanvas, { filename: tab.label, url });
   }
 
   /**
