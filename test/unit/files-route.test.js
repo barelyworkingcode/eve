@@ -10,6 +10,7 @@ const path = require('path');
 const http = require('http');
 const express = require('express');
 const registerRoutes = require('../../routes/index');
+const FileService = require('../../file-service');
 
 describe('/api/files route hardening', () => {
   let server, baseUrl, projectDir, siblingDir;
@@ -23,6 +24,8 @@ describe('/api/files route hardening', () => {
     fs.writeFileSync(path.join(projectDir, 'note.txt'), 'hello', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'page.html'), '<script>alert(1)</script>', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'pic.png'), 'PNGDATA', 'utf8');
+    fs.writeFileSync(path.join(projectDir, 'doc.pdf'), '%PDF-1.4', 'utf8');
+    fs.writeFileSync(path.join(projectDir, 'game.html'), '<script>1</script>', 'utf8');
     fs.writeFileSync(path.join(siblingDir, 'secret.env'), 'API_KEY=topsecret', 'utf8');
 
     const app = express();
@@ -34,6 +37,7 @@ describe('/api/files route hardening', () => {
       refreshProjectCache: () => {},
       removeFromProjectCache: () => {},
       resolveProject: (id) => (id === 'p1' ? project : null),
+      fileService: new FileService(),
       ttsService: {}, sttService: {}, moduleService: {},
       log: null,
     });
@@ -52,22 +56,44 @@ describe('/api/files route hardening', () => {
     expect(await res.text()).toBe('hello');
   });
 
-  it('sets nosniff and a sandbox CSP on served files', async () => {
+  it('sets nosniff and a locked-down (non-sandbox) CSP on inert files', async () => {
     const res = await fetch(`${baseUrl}/api/files/p1/note.txt`);
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
-    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'");
   });
 
-  it('forces HTML to download (no inline render in Eve origin)', async () => {
+  it('forces HTML to download and sandboxes it (no inline render in Eve origin)', async () => {
     const res = await fetch(`${baseUrl}/api/files/p1/page.html`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
   });
 
   it('serves images inline (no attachment disposition)', async () => {
     const res = await fetch(`${baseUrl}/api/files/p1/pic.png`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-disposition')).toBeNull();
+  });
+
+  it('serves PDFs inline without the sandbox directive (native viewer needs it)', async () => {
+    const res = await fetch(`${baseUrl}/api/files/p1/doc.pdf`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toBeNull();
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'");
+  });
+
+  it('renders HTML inline with a script-sandbox CSP under ?preview=1', async () => {
+    const res = await fetch(`${baseUrl}/api/files/p1/game.html?preview=1`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toBeNull();
+    expect(res.headers.get('content-security-policy')).toBe('sandbox allow-scripts');
+  });
+
+  it('ignores ?preview=1 for non-HTML types (still locked down)', async () => {
+    const res = await fetch(`${baseUrl}/api/files/p1/note.txt?preview=1`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toBeNull();
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'");
   });
 
   it('blocks traversal into a sibling dir sharing the project name prefix', async () => {
