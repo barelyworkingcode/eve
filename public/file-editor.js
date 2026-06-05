@@ -150,37 +150,68 @@ class FileEditor {
   updatePreview() {
     if (!this.currentFile || !this.editor) return;
 
-    const content = this.editor.getValue();
-
+    // HTML previews the saved file over HTTP (so its scripts run), not the live
+    // editor buffer — see renderHtmlPreview. Markdown still renders live content.
     if (this.isHtmlFile()) {
-      this.renderHtmlPreview(content);
+      this.renderHtmlPreview();
       return;
     }
 
     if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return;
 
+    const content = this.editor.getValue();
     this._teardownHtmlPreview();
     this.markdownPreview.innerHTML = DOMPurify.sanitize(marked.parse(content));
     this.app.messageRenderer.renderMermaidBlocks(this.markdownPreview);
   }
 
-  renderHtmlPreview(content) {
+  renderHtmlPreview() {
+    if (!this.currentFile) return;
+
     if (!this._htmlPreviewIframe) {
       this.markdownPreview.classList.add('markdown-preview--html');
       this.markdownPreview.innerHTML = '';
 
       const iframe = document.createElement('iframe');
       // No allow-same-origin → unique opaque origin; iframe cannot reach Eve's
-      // DOM, cookies, or session token even if the user's HTML tries.
+      // DOM, cookies, or session token even though its own scripts run (the
+      // server serves the file with a `sandbox allow-scripts` CSP via ?preview=1).
       iframe.setAttribute('sandbox', 'allow-scripts');
       this.markdownPreview.appendChild(iframe);
       this._htmlPreviewIframe = iframe;
     }
 
-    // Skip srcdoc reassignment when unchanged: browsers treat it as a navigation
-    // and would reload the iframe, discarding scroll position and any timers.
-    if (this._htmlPreviewIframe.srcdoc !== content) {
-      this._htmlPreviewIframe.srcdoc = content;
+    // Preview the SAVED file over HTTP so its scripts execute (a `srcdoc` frame
+    // inherits Eve's strict app-shell CSP and would block them). The `v` token
+    // bumps on save/external change to force a reload with fresh content.
+    const url = this._buildHtmlPreviewUrl();
+
+    // Skip src reassignment when unchanged: reassigning is a navigation and would
+    // reload the frame on every keystroke, restarting the page and its timers.
+    if (this._htmlPreviewIframe.getAttribute('src') !== url) {
+      this._htmlPreviewIframe.setAttribute('src', url);
+    }
+  }
+
+  _buildHtmlPreviewUrl() {
+    const { projectId, path: filePath } = this.currentFile;
+    const cleanPath = filePath
+      .replace(/^\/+/, '')
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/');
+    const v = this._previewVersion || 0;
+    return `/api/files/${encodeURIComponent(projectId)}/${cleanPath}?preview=1&v=${v}`;
+  }
+
+  /**
+   * Forces the HTML preview iframe to reload with the file's current on-disk
+   * content. Call after the saved baseline changes (save, external rewrite).
+   */
+  _refreshHtmlPreview() {
+    this._previewVersion = (this._previewVersion || 0) + 1;
+    if (this.isHtmlFile() && this.viewMode !== 'edit') {
+      this.updatePreview();
     }
   }
 
@@ -379,6 +410,9 @@ class FileEditor {
     // Update original content after save
     this.currentFile.originalContent = content;
     this.saveBtn.disabled = true;
+
+    // Reload the HTML preview against the freshly-saved file so its scripts re-run.
+    this._refreshHtmlPreview();
   }
 
   /**
@@ -422,6 +456,10 @@ class FileEditor {
       this.currentFile.path,
       false
     );
+
+    // An external rewrite (e.g. an agent editing the file) changed the on-disk
+    // content — reload the preview so it reflects what's now saved.
+    this._refreshHtmlPreview();
   }
 
   /**
