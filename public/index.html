@@ -178,6 +178,10 @@
           <div id="connectionStatus" class="connection-status hidden">Reconnecting...</div>
         </header>
 
+        <!-- Content area: hosts all view containers. A split un-hides two of
+             them and sizes them with flex (see TabManager._applyPaneRatio). -->
+        <div id="contentArea" class="content-area">
+
         <!-- Chat content area -->
         <div id="chat" class="chat-content">
           <!-- Voice controls pull-down drawer -->
@@ -342,6 +346,10 @@
           </div>
         </div>
 
+        <!-- HTML preview content area (live preview iframe for a split pane) -->
+        <div id="htmlPreview" class="html-preview-content hidden"></div>
+        </div><!-- /#contentArea -->
+
       </div>
     </main>
   </div>
@@ -470,9 +478,12 @@
   <script src="task-manager.js"></script>
   <script src="modal-manager.js"></script>
   <script src="sidebar-renderer.js"></script>
+  <script src="core/split-resize.js"></script>
+  <script src="core/pane-dnd.js"></script>
   <script src="tab-manager.js"></script>
   <script src="file-browser.js"></script>
   <script src="file-editor.js"></script>
+  <script src="html-preview-pane.js"></script>
   <script src="terminal-keybar.js"></script>
   <script src="terminal-manager.js"></script>
   <script src="task-viewer.js"></script>
