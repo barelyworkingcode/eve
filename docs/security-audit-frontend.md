@@ -274,8 +274,14 @@ active project.
   with the *correct* separator-aware prefix check (`module-service.js`).
 - **Network trust** reads only `req.socket.remoteAddress` — the documented
   Host-header auth bypass is genuinely closed (`trusted-network.js`).
-- **Relay credentials** (mcpToken) are injected server-side from the project
-  cache; the browser cannot supply or widen them (`ws-handler.js:284-324`).
+- **Relay credentials** — as of the project-token brokering refactor
+  (relay ADR-007), eve no longer handles project tokens at all. relay strips the
+  token from every frontend HTTP response (its `projectView` DTO) and eve drops
+  any `token` field in `normalizeProject`, so the secret no longer reaches the
+  browser or eve's cache. Sessions/terminals are created with a `projectId` only;
+  relayLLM resolves the scoped token just-in-time from relay's bridge. This
+  closes both the inbound (browser can't supply/widen) and the previously
+  unaddressed outbound (token reaching the browser) exposures.
 
 ---
 

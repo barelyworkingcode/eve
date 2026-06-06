@@ -438,6 +438,9 @@ class ShellLauncherDialog extends DialogBase {
       templateId,
       name,
       directory: project?.path || '',
+      // projectId lets relay resolve a project-scoped token for the PTY. eve
+      // never sends the token itself — relay brokers it.
+      projectId: this.projectId || '',
       cols: 80,
       rows: 24,
     });

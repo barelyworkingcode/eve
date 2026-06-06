@@ -115,12 +115,13 @@ describe('SearchSummarizer.run', () => {
 
     await waitForHandler(relayClient);
 
-    // POST /api/sessions was called with the search prefix and no mcpToken.
+    // POST /api/sessions was called with the search prefix and no mcpToken:
+    // eve never sends a project token — relay brokers it.
     const createCall = relayTransport.fetch.mock.calls.find(c => c[0] === 'POST' && c[1] === '/api/sessions');
     expect(createCall).toBeDefined();
     const body = createCall[2];
     expect(body.name.startsWith(HIDDEN_SEARCH_PREFIX)).toBe(true);
-    expect(body.mcpToken).toBe('');
+    expect(body).not.toHaveProperty('mcpToken');
     expect(body.settings).toBeNull();
     expect(body.model).toBe('model-x');
 

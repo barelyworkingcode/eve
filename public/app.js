@@ -392,7 +392,7 @@ class EveWorkspaceClient {
     // Terminal picker (legacy button, may not exist in new sidebar)
     this.elements.newTerminalBtn?.addEventListener('click', () => {
       const dir = this.getCurrentProjectDirectory();
-      this.terminalManager.showTemplatePicker(dir);
+      this.terminalManager.showTemplatePicker(dir, this.getProjectIdForDirectory(dir));
     });
 
     // Settings
@@ -1355,6 +1355,20 @@ class EveWorkspaceClient {
     if (session?.directory) return session.directory;
     for (const p of this.state.getVisibleProjects()) {
       if (p.path) return p.path;
+    }
+    return '';
+  }
+
+  // Project id whose path matches dir, or '' if none. Deriving the id FROM the
+  // directory keeps a project-scoped terminal's projectId and directory
+  // consistent — relay rejects a directory that isn't within the named project.
+  getProjectIdForDirectory(dir) {
+    if (!dir) return '';
+    for (const p of this.state.getVisibleProjects()) {
+      // Match exact path or a subdirectory of it, so a session whose cwd is
+      // nested inside a project still resolves to that project's id (relay
+      // validates the dir is within the project before issuing a token).
+      if (p.path && (p.path === dir || dir.startsWith(p.path + '/'))) return p.id;
     }
     return '';
   }

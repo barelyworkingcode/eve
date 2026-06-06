@@ -367,7 +367,7 @@ Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work t
 
 **Two independent trust boundaries**
 - `permissions.files` — what the iframe SDK can `readFile`/`writeFile`. Tightly scoped: exact paths only, server-validated on every call.
-- `permissions.tools` — what tools the LLM may call during `invokeAI` (default `[]`). When set, `ModuleInvoker._createHiddenSession()` passes `mcpToken: project.token`, `settings.useRelayTools: true`, and `permissionPolicy: { allowedTools, defaultMode: 'bypassPermissions' }`. The orb has no UI to answer permission prompts so bypass mode is required. Tools see the **whole project directory** — no per-tool path scoping. Claude filters tool visibility by `allowedTools`; llama/openai see all relay MCP tools but the system prompt names the permitted ones.
+- `permissions.tools` — what tools the LLM may call during `invokeAI` (default `[]`). When set, `ModuleInvoker._createHiddenSession()` passes `settings.useRelayTools: true` and `permissionPolicy: { allowedTools, defaultMode: 'bypassPermissions' }`. eve does **not** pass any project token — relay brokers it: relayLLM resolves the project-scoped token just-in-time from relay's bridge by `projectId` (eve references the project by id only; it never handles the secret). The orb has no UI to answer permission prompts so bypass mode is required. Tools see the **whole project directory** — no per-tool path scoping. Claude filters tool visibility by `allowedTools`; llama/openai see all relay MCP tools but the system prompt names the permitted ones.
 
 **Server-side files**
 - `module-service.js` — manifest schema/validation, path resolution with traversal + symlink defense (`MODULE_NAME_RE`, `resolveModuleFile`, `isFilePermitted`).

@@ -133,17 +133,18 @@ class TerminalManager {
   /**
    * Show a picker to select a terminal template and launch it.
    */
-  showTemplatePicker(directory) {
+  showTemplatePicker(directory, projectId) {
     if (this.templates.length === 0) {
       // Fetch templates first, then show picker.
       this.requestTemplates();
       this._pendingPickerDirectory = directory;
+      this._pendingPickerProjectId = projectId || '';
       return;
     }
-    this._showPickerUI(directory);
+    this._showPickerUI(directory, projectId);
   }
 
-  _showPickerUI(directory) {
+  _showPickerUI(directory, projectId) {
     // Remove any existing picker.
     const existing = document.getElementById('terminal-template-picker');
     if (existing) existing.remove();
@@ -191,7 +192,7 @@ class TerminalManager {
       btn.appendChild(info);
       btn.addEventListener('click', () => {
         overlay.remove();
-        this.createTerminal(t.id, directory);
+        this.createTerminal(t.id, directory, projectId);
       });
       list.appendChild(btn);
     }
@@ -215,11 +216,14 @@ class TerminalManager {
   /**
    * Creates a new terminal via relayLLM.
    */
-  createTerminal(templateId, directory) {
+  createTerminal(templateId, directory, projectId) {
     this.app.wsClient.send({
       type: 'terminal_create',
       templateId,
       directory: directory || '',
+      // projectId lets relay resolve a project-scoped token for the PTY
+      // (validating directory against the project). Empty => token-free.
+      projectId: projectId || '',
       cols: 80,
       rows: 24
     });
