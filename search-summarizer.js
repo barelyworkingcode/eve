@@ -142,8 +142,7 @@ class SearchSummarizer {
       model,
       systemPrompt: '',
       appendClaudeMd: false,
-      mcpToken: '',          // text-only; no tools
-      settings: null,
+      settings: null,        // text-only; no tools (relay brokers tokens anyway)
     });
     if (create.status < 200 || create.status >= 300) {
       throw new Error((create.data && create.data.error) || `Session create failed (${create.status})`);
