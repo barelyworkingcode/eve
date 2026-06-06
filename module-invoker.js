@@ -58,10 +58,10 @@ class ModuleInvoker {
 
     const resolvedModel = model || manifest.model || (project.allowedModels || [])[0] || '';
     const allowedTools = manifest.permissions?.tools || [];
-    if (allowedTools.length > 0 && !project.token) {
+    if (allowedTools.length > 0 && !project.id) {
       throw new Error(
-        `Module "${moduleName}" declares permissions.tools but project has no MCP token. ` +
-        `Tools cannot authenticate to the relay.`
+        `Module "${moduleName}" declares permissions.tools but has no project context. ` +
+        `Tools cannot authenticate to relay without a project — relay brokers the scoped token by project id.`
       );
     }
     const systemPrompt = buildSystemPrompt({
@@ -72,7 +72,7 @@ class ModuleInvoker {
 
     const sessionId = await this._createHiddenSession({
       projectId, directory: project.path, moduleName, model: resolvedModel,
-      project, allowedTools,
+      allowedTools,
     });
     const t0 = Date.now();
 
@@ -141,7 +141,7 @@ class ModuleInvoker {
    * mode is required because the orb has no UI to answer permission prompts —
    * the model can call whitelisted tools without round-tripping.
    */
-  async _createHiddenSession({ projectId, directory, moduleName, model, project, allowedTools }) {
+  async _createHiddenSession({ projectId, directory, moduleName, model, allowedTools }) {
     const sessionName = `${HIDDEN_SESSION_PREFIX}${moduleName}:${crypto.randomBytes(6).toString('hex')}`;
     const hasTools = allowedTools && allowedTools.length > 0;
     const create = await this.relayTransport.fetch('POST', '/api/sessions', {
@@ -151,7 +151,6 @@ class ModuleInvoker {
       model,
       systemPrompt: '',
       appendClaudeMd: false,
-      mcpToken: hasTools ? (project?.token || '') : '',
       settings: hasTools ? {
         useRelayTools: true,
         permissionPolicy: {

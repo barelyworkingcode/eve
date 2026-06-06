@@ -380,8 +380,10 @@ class MessageDispatcher {
     this.state.setTerminalTemplates(data.templates || []);
     if (this.terminal._pendingPickerDirectory !== undefined) {
       const dir = this.terminal._pendingPickerDirectory;
+      const projectId = this.terminal._pendingPickerProjectId || '';
       delete this.terminal._pendingPickerDirectory;
-      this.terminal._showPickerUI(dir);
+      delete this.terminal._pendingPickerProjectId;
+      this.terminal._showPickerUI(dir, projectId);
     }
     if (this.bus) this.bus.emit(EVT.TERMINAL_TEMPLATES, data);
   }

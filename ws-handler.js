@@ -243,7 +243,10 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
 
           // --- Terminal operations (proxied to relayLLM) ---
           case 'terminal_create':
-            relayClient.send({ type: 'terminal_create', templateId: message.templateId, name: message.name, directory: message.directory, cols: message.cols, rows: message.rows });
+            // Forward projectId so relay can resolve a project-scoped token for
+            // the PTY (validating directory against the project). Empty/absent
+            // projectId yields a token-free ad-hoc terminal.
+            relayClient.send({ type: 'terminal_create', templateId: message.templateId, name: message.name, directory: message.directory, projectId: message.projectId || '', cols: message.cols, rows: message.rows });
             break;
 
           case 'terminal_input':
@@ -319,19 +322,19 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
 
 /**
  * Create session via relayLLM HTTP POST, then join via WS.
- * Resolves the project to get the scoped mcpToken and directory.
+ * Resolves the project for its directory and permission policy only. The
+ * project token is brokered entirely by relay — relayLLM resolves the scoped
+ * token from relay's bridge by projectId at spawn time, so eve never handles it.
  */
 async function handleCreateSession(ws, relayClient, relayTransport, message, resolveProject, log) {
   try {
-    // Resolve project to get token, directory, and permission policy.
+    // Resolve project for directory and permission policy (never the token).
     let directory = message.directory || '';
-    let mcpToken = '';
     let projectPolicy = null;
     if (message.projectId) {
       const project = resolveProject(message.projectId);
       if (project) {
         directory = directory || project.path;
-        mcpToken = project.token || '';
         projectPolicy = project.permissionPolicy || null;
       }
     }
@@ -360,7 +363,6 @@ async function handleCreateSession(ws, relayClient, relayTransport, message, res
       settings: Object.keys(settings).length > 0 ? settings : null,
       systemPrompt: message.systemPrompt || '',
       appendClaudeMd: message.appendClaudeMd || false,
-      mcpToken,
     });
 
     if (status < 200 || status >= 300) {
