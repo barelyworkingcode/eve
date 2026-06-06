@@ -22,6 +22,12 @@ class TabManager {
     this.initElements();
     this.initEventListeners();
 
+    // Drag a tab to an edge of the content area to split it into two panes
+    // (Pointer Events, so it works on iPad touch too).
+    if (typeof PaneDnd !== 'undefined' && this.contentArea) {
+      this.paneDnd = new PaneDnd(this);
+    }
+
     // The activity rail owns project selection; follow it.
     this.bus.on(EVT.PROJECT_ACTIVATED, ({ projectId }) => this.setActiveProject(projectId));
   }
@@ -37,6 +43,8 @@ class TabManager {
     this.terminalContent = document.getElementById('terminal');
     this.voiceChatContent = document.getElementById('voiceChat');
     this.moduleContent = document.getElementById('moduleContent');
+    this.contentArea = document.getElementById('contentArea');
+    this.htmlPreviewContent = document.getElementById('htmlPreview');
   }
 
   initEventListeners() {
@@ -47,6 +55,16 @@ class TabManager {
         if (this.activeTabId) {
           this.closeTab(this.activeTabId);
         }
+      }
+    });
+
+    // Keep split panes laid out when the viewport changes (Monaco / xterm need
+    // an explicit relayout; CSS handles the rest).
+    window.addEventListener('resize', () => {
+      const tab = this.tabs.find(t => t.id === this.activeTabId);
+      if (tab?.split) {
+        this._layoutPanes(tab);
+        this._positionPaneUndockButtons();
       }
     });
   }
@@ -187,8 +205,15 @@ class TabManager {
    * Switches active tab
    */
   switchToTab(tabId) {
-    const tab = this.tabs.find(t => t.id === tabId);
+    let tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;
+
+    // A nested pane has no standalone view — activating it (deep link, an async
+    // file-read response, restore) shows the host split it belongs to instead.
+    if (tab._nestedIn) {
+      const host = this.tabs.find(t => t.id === tab._nestedIn);
+      if (host) { tab = host; tabId = host.id; }
+    }
 
     this.activeTabId = tabId;
     this._rememberActive(tab);
@@ -202,69 +227,18 @@ class TabManager {
     // Destroy active viewer when switching away (pause media, free memory)
     this._destroyActiveViewer();
 
-    // Show appropriate content container
-    if (tab.type === 'session') {
-      const session = this.app.sessions.get(tab.id);
-      if (session?.sessionType === 'voice') {
-        this.voiceChatContent?.classList.remove('hidden');
-        this.app.voiceChatManager?.activateForSession(tab.id);
-      } else {
-        this.chatContent.classList.remove('hidden');
-        this.app.voiceChatManager?.deactivate();
-      }
-      this.app._updateVoiceUIBtnVisibility?.();
-
-      // Flush any partial streaming message from the old session to its history
-      const prevSessionId = this.app.currentSessionId;
-      if (prevSessionId && prevSessionId !== tab.id) {
-        this.app.messageRenderer.finishAssistantMessage();
-      }
-
-      // Flush background buffer for the session we're switching to
-      if (this.app.messageDispatcher) {
-        this.app.messageDispatcher.flushBackgroundBuffer(tab.id);
-      }
-
-      // Update current session in client
-      this.app.currentSessionId = tab.id;
-      this.app.renderMessages();
-      this.app.updateStatsForSession(tab.id);
-
-      // Restore stop button state based on whether this session is streaming
-      if (this.app.messageDispatcher?.streamingSessions.has(tab.id)) {
-        this.app.showStopButton();
-        this.app.messageRenderer.showThinkingIndicator();
-      } else {
-        this.app.hideStopButton();
-      }
-    } else if (tab.type === 'file') {
-      const registry = this.app.viewerRegistry;
-      if (registry && registry.isViewerFile(tab.path)) {
-        // Binary file: render with appropriate viewer
-        this.viewerContent.classList.remove('hidden');
-        this._renderViewer(tab);
-      } else {
-        // Text file: show in Monaco editor
-        this.editorContent.classList.remove('hidden');
-        if (this.app.fileEditor) {
-          this.app.fileEditor.showFile(tab.projectId, tab.path);
-        }
-      }
-    } else if (tab.type === 'terminal') {
-      this.terminalContent.classList.remove('hidden');
-
-      // Show terminal in container
-      if (this.app.terminalManager) {
-        this.app.terminalManager.showTerminal(tab.id);
-      }
-    } else if (tab.type === 'module') {
-      if (this.moduleContent) this.moduleContent.classList.remove('hidden');
-      if (this.app.moduleHost) this.app.moduleHost.activate(tab);
-    } else if (tab.type === 'image') {
-      // LLM image tab (eve-control MCP): source is a direct URL, not a project
-      // file, so it renders through _renderImageTab rather than _renderViewer.
-      this.viewerContent.classList.remove('hidden');
-      this._renderImageTab(tab);
+    // Show content: a split tab renders two panes at once, otherwise one.
+    if (tab.split) {
+      const child = this.tabs.find(t => t.id === tab.split.paneTabId);
+      this.contentArea.classList.add('content-area--split', `content-area--${tab.split.dir}`);
+      this._showContentForRef(this._viewForTab(tab), this._refForTab(tab));
+      if (child) this._showContentForRef(this._paneBView(tab, child), this._refForTab(child));
+      this._applyPaneRatio(tab);
+      this._mountDivider(tab);
+      this._mountPaneUndockButtons(tab);
+      this._layoutPanes(tab);
+    } else {
+      this._showContentForRef(this._viewForTab(tab), this._refForTab(tab));
     }
 
     // Deep links / restore / task-join can activate a tab outside the current
@@ -272,6 +246,137 @@ class TabManager {
     this._syncProjectToActiveTab();
     this.render();
     this._updateHash(tab);
+  }
+
+  /**
+   * Maps a tab to its pane "view" kind (the content container it renders into).
+   * Both the single-view path and each pane of a split go through this.
+   */
+  _viewForTab(tab) {
+    switch (tab.type) {
+      case 'session': {
+        const session = this.app.sessions.get(tab.id);
+        return session?.sessionType === 'voice' ? 'voice' : 'chat';
+      }
+      case 'file':
+        return this.app.viewerRegistry?.isViewerFile(tab.path) ? 'viewer' : 'editor';
+      case 'terminal': return 'terminal';
+      case 'module': return 'module';
+      case 'image': return 'image';
+      default: return 'chat';
+    }
+  }
+
+  /** The render args a view needs to bind its content. */
+  _refForTab(tab) {
+    switch (tab.type) {
+      case 'session': return { sessionId: tab.id };
+      case 'file': return { projectId: tab.projectId, path: tab.path, label: tab.label };
+      case 'terminal': return { terminalId: tab.id };
+      case 'module': return { projectId: tab.projectId, moduleName: tab.moduleName };
+      case 'image': return { imageTabId: tab.id };
+      default: return {};
+    }
+  }
+
+  /** The view used for the second pane — a split may override it (e.g. an HTML
+   *  file docks as a live preview rather than its editor source). */
+  _paneBView(tab, child) {
+    return tab.split?.paneView || this._viewForTab(child);
+  }
+
+  /** The view a tab would take as a dragged-in second pane. HTML files preview
+   *  rather than open their source, which is also what you want beside a console
+   *  or an editor (and sidesteps the editor-vs-editor singleton block). */
+  _prospectiveView(tab) {
+    if (tab.type === 'file' && /\.html?$/i.test(tab.path)) return 'htmlPreview';
+    return this._viewForTab(tab);
+  }
+
+  /** The DOM container a pane view renders into. Two panes must map to two
+   *  different containers — the singleton guard for splits. */
+  _containerForView(view) {
+    switch (view) {
+      case 'chat': case 'console': return this.chatContent;
+      case 'voice': return this.voiceChatContent;
+      case 'editor': return this.editorContent;
+      case 'viewer': case 'image': return this.viewerContent;
+      case 'terminal': return this.terminalContent;
+      case 'module': return this.moduleContent;
+      case 'htmlPreview': return this.htmlPreviewContent;
+      default: return null;
+    }
+  }
+
+  /**
+   * Reveals the container for `view` and tells its owner to render `ref`.
+   * The session branch keeps the existing currentSessionId / renderMessages /
+   * stop-button behavior; in a split, the console pane owns the global input.
+   */
+  _showContentForRef(view, ref) {
+    switch (view) {
+      case 'chat':
+      case 'console': {
+        this.chatContent.classList.remove('hidden');
+        this.app.voiceChatManager?.deactivate();
+        this.app._updateVoiceUIBtnVisibility?.();
+        const sessionId = ref.sessionId;
+        const prevSessionId = this.app.currentSessionId;
+        if (prevSessionId && prevSessionId !== sessionId) {
+          this.app.messageRenderer.finishAssistantMessage();
+        }
+        if (this.app.messageDispatcher) {
+          this.app.messageDispatcher.flushBackgroundBuffer(sessionId);
+        }
+        this.app.currentSessionId = sessionId;
+        this.app.renderMessages();
+        this.app.updateStatsForSession(sessionId);
+        if (this.app.messageDispatcher?.streamingSessions.has(sessionId)) {
+          this.app.showStopButton();
+          this.app.messageRenderer.showThinkingIndicator();
+        } else {
+          this.app.hideStopButton();
+        }
+        break;
+      }
+      case 'voice':
+        this.voiceChatContent?.classList.remove('hidden');
+        this.app.voiceChatManager?.activateForSession(ref.sessionId);
+        this.app._updateVoiceUIBtnVisibility?.();
+        break;
+      case 'editor':
+        this.editorContent.classList.remove('hidden');
+        this.app.fileEditor?.showFile(ref.projectId, ref.path);
+        break;
+      case 'viewer': {
+        this.viewerContent.classList.remove('hidden');
+        const t = this.tabs.find(x => x.type === 'file' && x.projectId === ref.projectId && x.path === ref.path);
+        this._renderViewer(t || { projectId: ref.projectId, path: ref.path, label: ref.label || ref.path });
+        break;
+      }
+      case 'image': {
+        this.viewerContent.classList.remove('hidden');
+        const t = this.tabs.find(x => x.id === ref.imageTabId);
+        if (t) this._renderImageTab(t);
+        break;
+      }
+      case 'terminal':
+        this.terminalContent.classList.remove('hidden');
+        this.app.terminalManager?.showTerminal(ref.terminalId);
+        break;
+      case 'module':
+        this.moduleContent?.classList.remove('hidden');
+        this.app.moduleHost?.activate({
+          id: `module:${ref.projectId}:${ref.moduleName}`,
+          projectId: ref.projectId,
+          moduleName: ref.moduleName,
+        });
+        break;
+      case 'htmlPreview':
+        this.htmlPreviewContent?.classList.remove('hidden');
+        this.app.htmlPreviewPane?.show(ref.projectId, ref.path);
+        break;
+    }
   }
 
   /**
@@ -301,10 +406,8 @@ class TabManager {
    * Closes a tab
    */
   closeTab(tabId) {
-    const tabIndex = this.tabs.findIndex(t => t.id === tabId);
-    if (tabIndex === -1) return;
-
-    const tab = this.tabs[tabIndex];
+    let tab = this.tabs.find(t => t.id === tabId);
+    if (!tab) return;
 
     // Check for unsaved changes on file tabs
     if (tab.type === 'file' && tab.modified) {
@@ -312,6 +415,25 @@ class TabManager {
         return;
       }
     }
+
+    // Closing a split host also closes its nested second pane.
+    if (tab.split?.paneTabId) {
+      const childId = tab.split.paneTabId;
+      delete tab.split;
+      const child = this.tabs.find(t => t.id === childId);
+      if (child) { delete child._nestedIn; this.closeTab(childId); }
+    }
+    // Closing a tab that is itself a nested pane detaches it from its host.
+    if (tab._nestedIn) {
+      const parent = this.tabs.find(t => t.id === tab._nestedIn);
+      if (parent?.split) delete parent.split;
+      delete tab._nestedIn;
+    }
+
+    // Re-find the index — closing a nested pane above may have shifted the array.
+    const tabIndex = this.tabs.findIndex(t => t.id === tabId);
+    if (tabIndex === -1) return;
+    tab = this.tabs[tabIndex];
 
     // Remove from localStorage and unregister file watcher
     if (tab.type === 'file') {
@@ -444,11 +566,11 @@ class TabManager {
     const remembered = this._lastActiveByProject.get(projectId);
     if (remembered) {
       const tab = this.tabs.find(t => t.id === remembered);
-      if (tab && this._tabProjectId(tab) === projectId) return tab;
+      if (tab && !tab._nestedIn && this._tabProjectId(tab) === projectId) return tab;
     }
     // Fall back to the rightmost tab belonging to this project.
     for (let i = this.tabs.length - 1; i >= 0; i--) {
-      if (this._tabProjectId(this.tabs[i]) === projectId) return this.tabs[i];
+      if (!this.tabs[i]._nestedIn && this._tabProjectId(this.tabs[i]) === projectId) return this.tabs[i];
     }
     return null;
   }
@@ -458,7 +580,7 @@ class TabManager {
    * tab that shifted into its place, then look left). Null when none remain.
    */
   _nextTabInProject(fromIndex) {
-    const inProject = (t) => this._tabProjectId(t) === this._activeProjectId;
+    const inProject = (t) => !t._nestedIn && this._tabProjectId(t) === this._activeProjectId;
     for (let i = fromIndex; i < this.tabs.length; i++) {
       if (inProject(this.tabs[i])) return this.tabs[i];
     }
@@ -475,6 +597,220 @@ class TabManager {
     this.terminalContent.classList.add('hidden');
     if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
     if (this.moduleContent) this.moduleContent.classList.add('hidden');
+    if (this.htmlPreviewContent) this.htmlPreviewContent.classList.add('hidden');
+    this._clearSplit();
+  }
+
+  // --- Split panes (two panes per tab) ---
+  //
+  // A split shows two tabs at once. The host (active) tab carries
+  // `split = { dir, before, ratio, paneTabId }`; the second pane is an absorbed
+  // tab marked `_nestedIn = hostId` so it's hidden from the tab bar but keeps
+  // its content owner (session / editor / terminal / module) fully alive. We
+  // never re-parent the heavy containers — split mode just un-hides two of them
+  // and sizes them with flex, decoupling visual order from DOM order via CSS
+  // `order`.
+
+  getTab(tabId) {
+    return this.tabs.find(t => t.id === tabId) || null;
+  }
+
+  _allContentEls() {
+    return [
+      this.chatContent, this.editorContent, this.viewerContent,
+      this.terminalContent, this.voiceChatContent, this.moduleContent,
+      this.htmlPreviewContent,
+    ].filter(Boolean);
+  }
+
+  /** Maps a drop edge to a split direction + which side the new pane lands on. */
+  _edgeToDir(edge) {
+    switch (edge) {
+      case 'left': return { dir: 'row', before: true };
+      case 'right': return { dir: 'row', before: false };
+      case 'top': return { dir: 'col', before: true };
+      case 'bottom': return { dir: 'col', before: false };
+      default: return { dir: 'row', before: false };
+    }
+  }
+
+  /**
+   * Can the dragged tab become a second pane next to the active tab? Requires a
+   * distinct, non-nested, non-voice tab whose container differs from the active
+   * tab's (two panes can't share one singleton container).
+   */
+  _canSplit(draggedTabId) {
+    const active = this.tabs.find(t => t.id === this.activeTabId);
+    if (!active || active._nestedIn) return false;
+    if (!draggedTabId || draggedTabId === this.activeTabId) return false;
+    const dragged = this.tabs.find(t => t.id === draggedTabId);
+    if (!dragged || dragged._nestedIn) return false;
+
+    const aView = this._viewForTab(active);
+    const bView = this._prospectiveView(dragged);
+    if (aView === 'voice' || bView === 'voice') return false;
+    return this._containerForView(aView) !== this._containerForView(bView);
+  }
+
+  /** Drag-commit entry point (called by PaneDnd on drop). */
+  commitSplit(draggedTabId, edge) {
+    if (!this._canSplit(draggedTabId)) return false;
+    const active = this.tabs.find(t => t.id === this.activeTabId);
+
+    // Replace an existing second pane if the active tab is already split.
+    if (active.split) {
+      const old = this.tabs.find(t => t.id === active.split.paneTabId);
+      if (old) delete old._nestedIn;
+    }
+    const dragged = this.tabs.find(t => t.id === draggedTabId);
+    const paneView = this._prospectiveView(dragged) === 'htmlPreview' ? 'htmlPreview' : null;
+    const { dir, before } = this._edgeToDir(edge);
+    this.setPaneB(active.id, draggedTabId, dir, before, paneView);
+    return true;
+  }
+
+  setPaneB(parentId, childId, dir, before, paneView = null) {
+    const parent = this.tabs.find(t => t.id === parentId);
+    const child = this.tabs.find(t => t.id === childId);
+    if (!parent || !child) return;
+    parent.split = { dir, before: !!before, ratio: 0.5, paneTabId: childId, paneView: paneView || null };
+    child._nestedIn = parentId;
+    this.switchToTab(parentId);
+  }
+
+  /**
+   * Undock a pane: collapse the split so both panes become standalone tabs. The
+   * pane that was NOT popped out stays the active full view; the popped pane
+   * drops into the tab bar. Non-destructive — closing content is a tab-bar
+   * action. `pane` is 'A' (host) or 'B' (the nested second pane).
+   */
+  undockPane(hostId, pane) {
+    const host = this.tabs.find(t => t.id === hostId);
+    if (!host?.split) return;
+    const child = this.tabs.find(t => t.id === host.split.paneTabId);
+    delete host.split;
+    if (child) delete child._nestedIn;
+    // Popping out A leaves B (child) filling the space, and vice versa.
+    const fill = pane === 'A' ? child : host;
+    this.switchToTab((fill || host).id);
+  }
+
+  _applyPaneRatio(tab) {
+    const child = this.tabs.find(t => t.id === tab.split.paneTabId);
+    if (!child) return;
+    const aEl = this._containerForView(this._viewForTab(tab));
+    const bEl = this._containerForView(this._paneBView(tab, child));
+    if (!aEl || !bEl) return;
+
+    const ratio = tab.split.ratio ?? 0.5;
+    const before = !!tab.split.before;
+    aEl.style.flex = `${ratio} 1 0`;
+    bEl.style.flex = `${1 - ratio} 1 0`;
+    aEl.style.minWidth = '0'; aEl.style.minHeight = '0';
+    bEl.style.minWidth = '0'; bEl.style.minHeight = '0';
+    aEl.style.order = before ? '2' : '0';
+    bEl.style.order = before ? '0' : '2';
+  }
+
+  _mountDivider(tab) {
+    if (!this._paneDivider) {
+      this._paneDivider = document.createElement('div');
+      this._paneDivider.className = 'pane-divider';
+    }
+    const divider = this._paneDivider;
+    divider.style.order = '1';
+    divider.classList.toggle('pane-divider--row', tab.split.dir === 'row');
+    divider.classList.toggle('pane-divider--col', tab.split.dir === 'col');
+    this.contentArea.appendChild(divider);
+
+    this._detachDivider?.();
+    this._detachDivider = attachDivider(divider, {
+      container: this.contentArea,
+      axis: tab.split.dir === 'row' ? 'x' : 'y',
+      min: 140,
+      onResize: (frac) => {
+        tab.split.ratio = tab.split.before ? (1 - frac) : frac;
+        this._applyPaneRatio(tab);
+        this._layoutPanes(tab);
+        this._positionPaneUndockButtons();
+      },
+    });
+  }
+
+  /** Relayout pane content that doesn't auto-fit (Monaco, xterm) after a resize. */
+  _layoutPanes(tab) {
+    requestAnimationFrame(() => {
+      const child = this.tabs.find(t => t.id === tab.split?.paneTabId);
+      const views = [this._viewForTab(tab)];
+      if (child) views.push(this._paneBView(tab, child));
+      for (const view of views) {
+        if (view === 'editor') this.app.fileEditor?.editor?.layout();
+        else if (view === 'terminal') this.app.terminalManager?.fitActive();
+      }
+      this._positionPaneUndockButtons();
+    });
+  }
+
+  _mountPaneUndockButtons(tab) {
+    this._clearPaneUndockButtons();
+    const child = this.tabs.find(t => t.id === tab.split.paneTabId);
+    if (!child) return;
+
+    const btnA = this._makePaneUndockBtn(() => this.undockPane(tab.id, 'A'));
+    const btnB = this._makePaneUndockBtn(() => this.undockPane(tab.id, 'B'));
+    btnA._paneEl = this._containerForView(this._viewForTab(tab));
+    btnB._paneEl = this._containerForView(this._paneBView(tab, child));
+    this.contentArea.appendChild(btnA);
+    this.contentArea.appendChild(btnB);
+    this._paneUndockBtns = [btnA, btnB];
+    this._positionPaneUndockButtons();
+  }
+
+  _makePaneUndockBtn(onClick) {
+    const btn = document.createElement('button');
+    btn.className = 'pane-undock';
+    btn.title = 'Undock this pane (move it to its own tab)';
+    // Static markup (no user data) — a "pop out" arrow leaving a box.
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-8.5 8.5"/><path d="M19 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4.5"/></svg>';
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return btn;
+  }
+
+  _positionPaneUndockButtons() {
+    if (!this._paneUndockBtns || !this.contentArea) return;
+    const base = this.contentArea.getBoundingClientRect();
+    for (const btn of this._paneUndockBtns) {
+      const el = btn._paneEl;
+      if (!el || el.classList.contains('hidden')) { btn.style.display = 'none'; continue; }
+      const r = el.getBoundingClientRect();
+      btn.style.display = '';
+      btn.style.top = `${r.top - base.top + 4}px`;
+      btn.style.left = `${r.right - base.left - 28}px`;
+    }
+  }
+
+  _clearPaneUndockButtons() {
+    if (this._paneUndockBtns) {
+      for (const btn of this._paneUndockBtns) btn.remove();
+      this._paneUndockBtns = null;
+    }
+  }
+
+  /** Tear down any split layout (called at the top of every switch). */
+  _clearSplit() {
+    if (this.contentArea) {
+      this.contentArea.classList.remove('content-area--split', 'content-area--row', 'content-area--col');
+    }
+    this._detachDivider?.();
+    this._detachDivider = null;
+    if (this._paneDivider?.parentNode) this._paneDivider.parentNode.removeChild(this._paneDivider);
+    this._clearPaneUndockButtons();
+    for (const el of this._allContentEls()) {
+      el.style.flex = '';
+      el.style.order = '';
+      el.style.minWidth = '';
+      el.style.minHeight = '';
+    }
   }
 
   _showEmptyState() {
@@ -662,6 +998,10 @@ class TabManager {
     this.tabBar.innerHTML = '';
 
     for (const tab of this.tabs) {
+      // Nested panes (the second pane of a split) have no tab-bar entry of their
+      // own — they show inside their host tab.
+      if (tab._nestedIn) continue;
+
       // Project-scoped: hide tabs that belong to other projects. With no active
       // project (e.g. before projects load) everything shows — the safe default.
       if (this._activeProjectId && this._tabProjectId(tab) !== this._activeProjectId) {

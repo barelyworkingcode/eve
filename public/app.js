@@ -64,6 +64,8 @@ class EveWorkspaceClient {
     this.container.register('fileBrowser', this.fileBrowser);
     this.fileEditor = new FileEditor(this.container);
     this.container.register('fileEditor', this.fileEditor);
+    this.htmlPreviewPane = new HtmlPreviewPane(this.container);
+    this.container.register('htmlPreviewPane', this.htmlPreviewPane);
 
     // Modules (AI-backed mini-apps inside projects)
     this.moduleStore = new ModuleStore(this.container);
@@ -1132,6 +1134,8 @@ class EveWorkspaceClient {
     } else if (this.fileEditor) {
       this.fileEditor.handleExternalChange(projectId, path, content);
     }
+    // Live-refresh an HTML preview pane showing this file (e.g. an AI editing it).
+    this.htmlPreviewPane?.handleFileChanged(projectId, path);
   }
 
   // --- Provider settings ---
