@@ -36,6 +36,14 @@ class RelayClient {
     // as background events for an unknown session and start a buffer.
     this.moduleSessions = new Map();
 
+    // Outbound frame coalescing: high-frequency browser-bound frames (token
+    // deltas, terminal output, stats) are buffered and flushed together as one
+    // `__batch` frame on a short timer. Cuts frame count (radio wakeups on
+    // mobile); latency-sensitive frames bypass via _shouldFlushImmediately.
+    this._batchBuf = [];
+    this._batchTimer = null;
+    this.BATCH_MS = 24;
+
     this.ttsService = ttsService || null;
     this.voiceMode = false;
     this.voicePreset = DEFAULT_TTS_VOICE;
@@ -134,11 +142,63 @@ class RelayClient {
   }
 
   sendToBrowser(msg) {
+    // Latency-/order-sensitive frames flush the buffer and go out immediately;
+    // everything else batches.
+    if (this._shouldFlushImmediately(msg)) {
+      this._flushBatch();
+      this._rawSend(msg);
+      return;
+    }
+    this._batchBuf.push(msg);
+    if (!this._batchTimer) {
+      this._batchTimer = setTimeout(() => this._flushBatch(), this.BATCH_MS);
+    }
+  }
+  _sendToBrowser(msg) { this.sendToBrowser(msg); }
+
+  /** Send a single frame to the browser now, bypassing the batch buffer. */
+  _rawSend(msg) {
     if (this.browserWs && this.browserWs.readyState === WebSocket.OPEN) {
       this.browserWs.send(JSON.stringify(msg));
     }
   }
-  _sendToBrowser(msg) { this.sendToBrowser(msg); }
+
+  /**
+   * Flush buffered frames. A single frame is sent bare (no envelope); multiple
+   * are wrapped in a `__batch` frame the client unwraps and dispatches in order.
+   */
+  _flushBatch() {
+    if (this._batchTimer) { clearTimeout(this._batchTimer); this._batchTimer = null; }
+    if (this._batchBuf.length === 0) return;
+    const buf = this._batchBuf;
+    this._batchBuf = [];
+    if (buf.length === 1) {
+      this._rawSend(buf[0]);
+    } else {
+      this._rawSend({ type: '__batch', msgs: buf });
+    }
+  }
+
+  /**
+   * Frames that must not sit in the batch buffer: user-perceptible prompts and
+   * order-critical control frames (tts_done must follow all audio; session
+   * lifecycle must not lag). Everything else (llm_event, terminal_output,
+   * raw_output, stats_update) batches.
+   */
+  _shouldFlushImmediately(msg) {
+    switch (msg.type) {
+      case 'permission_request':
+      case 'error':
+      case 'session_created':
+      case 'session_joined':
+      case 'tts_done':
+      case 'tts_error':
+      case 'mode_changed':
+        return true;
+      default:
+        return false;
+    }
+  }
 
   /**
    * Send a TTS audio chunk as a binary WS frame. The browser carries no other
@@ -147,8 +207,12 @@ class RelayClient {
    * which matters most on mobile. Control frames (tts_done/tts_error) stay JSON.
    */
   _sendAudioToBrowser(base64) {
+    // Flush any buffered JSON first so the audio frame can't overtake the text
+    // stream it belongs with (voice mode batches text deltas). See _flushBatch.
+    this._flushBatch();
     if (this.browserWs && this.browserWs.readyState === WebSocket.OPEN) {
-      this.browserWs.send(Buffer.from(base64, 'base64'));
+      // Audio is opaque/already-compact — skip deflate (net-negative CPU).
+      this.browserWs.send(Buffer.from(base64, 'base64'), { compress: false });
     }
   }
 
@@ -330,6 +394,8 @@ class RelayClient {
   }
 
   close() {
+    this._flushBatch();
+    if (this._batchTimer) { clearTimeout(this._batchTimer); this._batchTimer = null; }
     if (this.ws) {
       this.ws.close();
       this.ws = null;

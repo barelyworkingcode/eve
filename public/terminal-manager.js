@@ -56,11 +56,28 @@ class TerminalManager {
   sendInput(seq) {
     const terminal = this.terminals.get(this.activeTerminalId);
     if (!terminal || terminal.exited || !seq) return;
+    // Drain any buffered typed input first so a tapped special key (Esc/Tab/
+    // arrows) can't jump ahead of characters typed just before it.
+    this._flushTerminalInput(this.activeTerminalId);
     this.app.wsClient.send({
       type: 'terminal_input',
       terminalId: this.activeTerminalId,
       data: this._encodeBase64(seq),
     });
+  }
+
+  /** Flush a terminal's coalesced keystroke buffer as a single input frame. */
+  _flushTerminalInput(terminalId) {
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal) return;
+    if (terminal.inputTimer) {
+      clearTimeout(terminal.inputTimer);
+      terminal.inputTimer = null;
+    }
+    if (!terminal.inputBuf) return;
+    const data = this._encodeBase64(terminal.inputBuf);
+    terminal.inputBuf = '';
+    this.app.wsClient.send({ type: 'terminal_input', terminalId, data });
   }
 
   _listenForSettingsChanges() {
@@ -420,6 +437,8 @@ class TerminalManager {
   onTerminalExit(terminalId, exitCode) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {
+      // Flush before the exit guard starts dropping input.
+      this._flushTerminalInput(terminalId);
       terminal.exited = true;
     }
     const at = this.allTerminals.get(terminalId);
@@ -430,6 +449,9 @@ class TerminalManager {
   closeTerminal(terminalId) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {
+      // Don't drop keystrokes typed just before close; clear the resize timer.
+      this._flushTerminalInput(terminalId);
+      if (terminal.resizeTimer) { clearTimeout(terminal.resizeTimer); terminal.resizeTimer = null; }
       this.app.wsClient.send({ type: 'terminal_close', terminalId });
 
       terminal.container.remove();
@@ -505,7 +527,14 @@ class TerminalManager {
       templateId,
       name,
       exited: !!exited,
-      needsReconnect: !!needsReconnect
+      needsReconnect: !!needsReconnect,
+      // Outbound coalescing: keystrokes batch into one frame per ~12ms window
+      // (cuts per-keystroke frames on mobile); resize debounces the soft-keyboard
+      // storm. See onData/onResize handlers and _flushTerminalInput.
+      inputBuf: '',
+      inputTimer: null,
+      pendingResize: null,
+      resizeTimer: null,
     });
     this.allTerminals.set(terminalId, {
       id: terminalId, templateId, name, directory,
@@ -514,25 +543,37 @@ class TerminalManager {
 
     // Send input as base64 to relayLLM. A primed Ctrl/Alt from the mobile key
     // bar folds into the typed character here before it reaches the PTY.
+    // Keystrokes are coalesced into one frame per ~12ms window; a modifier fold
+    // flushes immediately so a chord (^C, Option+x) is never merged behind a
+    // following plain key. Concatenation is byte-correct because transformInput
+    // folds the one-shot modifier over its own chunk's first byte, and
+    // _encodeBase64(a+b) equals base64 of the concatenated UTF-8 bytes.
     term.onData((data) => {
       const terminal = this.terminals.get(terminalId);
-      if (terminal && !terminal.exited) {
-        const out = this.keybar ? this.keybar.transformInput(data) : data;
-        this.app.wsClient.send({
-          type: 'terminal_input',
-          terminalId,
-          data: this._encodeBase64(out)
-        });
+      if (!terminal || terminal.exited) return;
+      const out = this.keybar ? this.keybar.transformInput(data) : data;
+      const folded = this.keybar && out !== data;
+      terminal.inputBuf += out;
+      if (folded) { this._flushTerminalInput(terminalId); return; }
+      if (!terminal.inputTimer) {
+        terminal.inputTimer = setTimeout(() => this._flushTerminalInput(terminalId), 12);
       }
     });
 
     term.onResize(({ cols, rows }) => {
-      this.app.wsClient.send({
-        type: 'terminal_resize',
-        terminalId,
-        cols,
-        rows
-      });
+      const terminal = this.terminals.get(terminalId);
+      if (!terminal) return;
+      // Debounce: the mobile soft keyboard spams resize via fitActive().
+      terminal.pendingResize = { cols, rows };
+      if (terminal.resizeTimer) clearTimeout(terminal.resizeTimer);
+      terminal.resizeTimer = setTimeout(() => {
+        terminal.resizeTimer = null;
+        const r = terminal.pendingResize;
+        terminal.pendingResize = null;
+        if (r) {
+          this.app.wsClient.send({ type: 'terminal_resize', terminalId, cols: r.cols, rows: r.rows });
+        }
+      }, 120);
     });
 
     const label = name || templateId || 'Terminal';

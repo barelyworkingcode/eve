@@ -37,6 +37,10 @@ class MessageRenderer {
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.isStreaming = false;
+    // Streaming deltas accumulate into dataset.rawText synchronously, but the
+    // expensive render (markdown + DOMPurify + innerHTML + scroll) is coalesced
+    // to one requestAnimationFrame — many tokens collapse into one DOM update.
+    this._rafHandle = null;
     this.isRenderingHistory = false;
     this.thinkBlockOpenStates = new Map(); // messageEl -> Set of open indices
     this._speakingMessageEl = null;
@@ -133,6 +137,9 @@ class MessageRenderer {
   }
 
   updateAssistantMessage(text) {
+    // This overwrites content wholesale (without touching dataset.rawText), so
+    // a queued delta render must be dropped or it would clobber with stale text.
+    this._cancelPendingRender();
     if (this._streamRestoreTimer) {
       clearTimeout(this._streamRestoreTimer);
       this._streamRestoreTimer = null;
@@ -153,14 +160,46 @@ class MessageRenderer {
     }
     if (!this.currentAssistantMessage) {
       this.startAssistantMessage(text);
-    } else {
-      const currentText = this.currentAssistantMessage.dataset.rawText || '';
-      const newText = currentText + text;
-      this.currentAssistantMessage.dataset.rawText = newText;
-      this.currentAssistantMessage.innerHTML = this.formatText(newText);
-      this._applyThinkBlockStates();
-      this._saveStreamingText(newText);
-      this.scrollToBottom();
+      return;
+    }
+    // Cheap and synchronous: keep dataset.rawText authoritative on every call
+    // so a forced flush always renders the complete text. The costly render is
+    // deferred to the next animation frame and coalesces intervening deltas.
+    const currentText = this.currentAssistantMessage.dataset.rawText || '';
+    this.currentAssistantMessage.dataset.rawText = currentText + text;
+    this._scheduleRender();
+  }
+
+  /** Queue a single coalesced render on the next animation frame. */
+  _scheduleRender() {
+    if (this._rafHandle) return;
+    this._rafHandle = requestAnimationFrame(() => {
+      this._rafHandle = null;
+      this._renderNow();
+    });
+  }
+
+  /** Render the accumulated streaming text. Idempotent; safe to call directly. */
+  _renderNow() {
+    if (!this.currentAssistantMessage) return;
+    const text = this.currentAssistantMessage.dataset.rawText || '';
+    this.currentAssistantMessage.innerHTML = this.formatText(text);
+    this._applyThinkBlockStates();
+    this._saveStreamingText(text);
+    this.scrollToBottom();
+  }
+
+  /** Cancel a pending render and render now — use before finalizing a message. */
+  _flushRender() {
+    this._cancelPendingRender();
+    this._renderNow();
+  }
+
+  /** Drop a pending render without rendering — use when the target is replaced. */
+  _cancelPendingRender() {
+    if (this._rafHandle) {
+      cancelAnimationFrame(this._rafHandle);
+      this._rafHandle = null;
     }
   }
 
@@ -189,6 +228,9 @@ class MessageRenderer {
   }
 
   finishAssistantMessage(metrics) {
+    // Render any deltas still pending in a coalesced rAF before we finalize,
+    // so the history snapshot and re-render below see the complete text.
+    this._flushRender();
     this.markToolComplete();
     if (this.currentAssistantMessage) {
       const text = this.currentAssistantMessage.dataset.rawText;
@@ -420,6 +462,9 @@ class MessageRenderer {
   }
 
   clearMessages() {
+    // A pending render would target a node that's about to be detached (or the
+    // wrong session's storage) — drop it before wiping.
+    this._cancelPendingRender();
     this._speakingMessageEl = null;
     this.messagesEl.innerHTML = '';
     this.currentAssistantMessage = null;
