@@ -157,11 +157,29 @@ Safari issues above — this is the daemon process dying.
   (the real fix — it also guards the espeak path and is global across sessions,
   which client-side chaining can't be). Defense in depth: `tts_speak` is now
   serialized per-connection in `ws-handler.js`, and `daemon_wrapper.sh`
-  supervises + restarts the daemon on crash. Daemon deps are hash-pinned;
-  `mlx-audio` bumped to 0.4.4 (which also fixes Kokoro worker-thread usage).
+  supervises + restarts the daemon on crash. Daemon deps are hash-pinned.
 - **Invariant**: the daemon model is effectively single-threaded. Anything that
   can issue concurrent `generate()` calls (new transports, batch paths, a second
   frontend) must stay behind the daemon's lock — don't "optimize" it away.
+
+### Sequel: mlx-audio 0.4.4 has a Kokoro generation regression — stay on 0.4.1
+
+While hardening the above we bumped `mlx-audio` 0.4.1 → 0.4.4 (it advertised a
+"Kokoro worker-thread" fix). That version has a **`broadcast_shapes` regression**
+in Kokoro generation: certain phoneme sequences fail *deterministically* with
+`[broadcast_shapes] Shapes (1,N,1) and (1,N+300,9) cannot be broadcast`, and the
+probability rises with text length, so a long read-aloud block reliably failed —
+surfacing in eve as **"TTS error: Speech synthesis failed."** Not a crash (the
+`gen_lock` holds); the daemon returns `{success:false}` and `handleTtsSpeak`
+maps it to that message.
+
+- Present in 0.4.2–0.4.4; **0.4.1 is clean** (verified: the same inputs go 5/5
+  and the 674-char block 3/3). Independent of the `mlx` core version (0.31.1 and
+  0.31.2 both fail on 0.4.4).
+- **Resolution**: pin `mlx-audio==0.4.1`. We don't need 0.4.4 — our own
+  `gen_lock` provides the thread-safety, not the library. Splitting long text
+  helps but isn't sufficient (single sentences still fail on 0.4.4), so it's not
+  the fix. Re-evaluate when upstream ships a corrected release.
 
 ## File-Preview CSP: the hardening pass broke PDF and HTML previews two different ways
 
