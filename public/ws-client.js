@@ -48,18 +48,14 @@ class WsClient {
 
       const data = JSON.parse(event.data);
 
-      if (data.type === 'auth_success') {
-        this._onReady();
+      // The server coalesces high-frequency frames (token deltas, terminal
+      // output, stats) into one __batch frame on a short timer. Unwrap and
+      // dispatch each in order. See RelayClient._flushBatch.
+      if (data.type === '__batch') {
+        for (const m of data.msgs) this._dispatchOne(m);
         return;
       }
-      if (data.type === 'auth_failed') {
-        this.log.error('Auth failed:', data.message);
-        localStorage.removeItem('eve_session');
-        window.location.reload();
-        return;
-      }
-
-      this._onMessage(data);
+      this._dispatchOne(data);
     };
 
     this.ws.onclose = () => {
@@ -74,6 +70,22 @@ class WsClient {
     this.ws.onerror = (err) => {
       this.log.error('Error:', err);
     };
+  }
+
+  /** Route a single decoded frame: auth frames are handled here, everything
+   *  else goes to the message handler. Shared by top-level and batched frames. */
+  _dispatchOne(data) {
+    if (data.type === 'auth_success') {
+      this._onReady();
+      return;
+    }
+    if (data.type === 'auth_failed') {
+      this.log.error('Auth failed:', data.message);
+      localStorage.removeItem('eve_session');
+      window.location.reload();
+      return;
+    }
+    this._onMessage(data);
   }
 
   send(data) {

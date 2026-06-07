@@ -579,7 +579,8 @@ async function handleTtsSpeak(ws, ttsService, message, log, isActive = () => tru
       if (!isActive()) return; // cancelled while this chunk was generating
       // Audio goes out as a binary WS frame (no base64 inflation / atob); only
       // control frames (tts_done/tts_error) stay JSON. See RelayClient._sendAudioToBrowser.
-      ws.send(Buffer.from(result.audio_base64, 'base64'));
+      // Opaque/already-compact audio — skip permessage-deflate (net-negative CPU).
+      ws.send(Buffer.from(result.audio_base64, 'base64'), { compress: false });
     }
   } catch (err) {
     log?.error('TTS speak failed:', err.message);
