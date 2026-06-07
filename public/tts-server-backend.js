@@ -22,10 +22,10 @@ class TtsServerBackend {
    * Send text to server for on-demand TTS synthesis.
    * Audio arrives via WS `tts_audio` → enqueueAudio().
    */
-  speakText(text, voice) {
+  speakText(text, voice, speed = 1.0) {
     const ws = this._app?.wsClient;
     if (ws) {
-      ws.send({ type: 'tts_speak', text, voice });
+      ws.send({ type: 'tts_speak', text, voice, speed });
     }
     return null;
   }
@@ -53,8 +53,8 @@ class TtsServerBackend {
   /**
    * Send voice_mode state to server so relay-client activates TTS.
    */
-  syncVoiceMode(ws, enabled, voice) {
-    ws.send({ type: 'voice_mode', enabled, voice });
+  syncVoiceMode(ws, enabled, voice, speed = 1.0) {
+    ws.send({ type: 'voice_mode', enabled, voice, speed });
   }
 
   async isAvailable() {
