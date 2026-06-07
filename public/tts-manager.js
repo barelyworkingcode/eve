@@ -57,6 +57,16 @@ class TTSManager {
     return this.activeBackend.name === 'server';
   }
 
+  /**
+   * True while a native voice session owns audio playback (iOS). Server TTS
+   * frames are forwarded to the native engine instead of Web Audio, so playback
+   * survives the screen turning off. Scoped to voice sessions — read-aloud in a
+   * text session still uses the Web-Audio path.
+   */
+  get _nativeAudioActive() {
+    return IS_NATIVE_AUDIO && !!this.app.voiceChatManager?.usingNativeSession;
+  }
+
   _createBackend(name) {
     switch (name) {
       case 'native': return new TtsNativeBackend();
@@ -308,9 +318,24 @@ class TTSManager {
    * base64/atob step (the server no longer inflates audio into JSON).
    */
   enqueueServerAudioBuffer(arrayBuffer) {
-    this.log.debug(`Playing audio (${Math.round(arrayBuffer.byteLength / 1024)}kb, queue: ${this.queue.length})`);
     this._ttsDoneReceived = false;
+    if (this._nativeAudioActive) {
+      // Hand the chunk to the native engine (base64 over the Capacitor bridge).
+      // Per-sentence chunks are small, so the encode cost is negligible.
+      this.app.voiceChatManager.nativeAudio.enqueueTTS(this._arrayBufferToBase64(arrayBuffer));
+      return;
+    }
+    this.log.debug(`Playing audio (${Math.round(arrayBuffer.byteLength / 1024)}kb, queue: ${this.queue.length})`);
     this._enqueueArrayBuffer(arrayBuffer);
+  }
+
+  _arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    }
+    return btoa(binary);
   }
 
   async _enqueueArrayBuffer(arrayBuffer) {
@@ -364,6 +389,8 @@ class TTSManager {
     // a no-op bump for other backends). Without this the daemon keeps
     // synthesizing sentences after the user hits stop.
     this.activeBackend.cancelSpeak?.(this.app.wsClient);
+    // Halt native playback too (barge-in / teardown) when it owns the speaker.
+    if (this._nativeAudioActive) this.app.voiceChatManager.nativeAudio.stopPlayback();
     this.queue = [];
     this._ttsDoneReceived = true;
     if (this.currentSource) {
@@ -377,6 +404,13 @@ class TTSManager {
   /** Signal that the server has sent all TTS chunks for this response. */
   markTTSDone() {
     this._ttsDoneReceived = true;
+    if (this._nativeAudioActive) {
+      // Native drives the real end-of-playback (onPlaybackEnded → handleTTSEnd)
+      // once its queue drains. Until then it keeps the mic muted so an inter-
+      // chunk gap doesn't end the turn early.
+      this.app.voiceChatManager.nativeAudio.endTTSTurn();
+      return;
+    }
     if (!this.isPlaying && this.queue.length === 0) {
       this._finishPlayback();
     }

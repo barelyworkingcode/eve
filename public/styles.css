@@ -5450,19 +5450,43 @@ html, body {
   height: 40px;
 }
 
-.voice-chat__btn--mode {
+/* Voice input mode: a clear labeled pill showing the active mode, so it's
+   obvious at a glance and a large tap target to switch (driving / dog walk). */
+.voice-chat__mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
   background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-.voice-chat__btn--mode:hover {
-  background: var(--bg-hover);
   color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
 }
 
-.voice-chat__btn--mode.voice-chat__btn--mode-active {
+.voice-chat__mode-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.voice-chat__mode-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  box-shadow: 0 0 6px var(--accent);
+  flex-shrink: 0;
+}
+
+/* Push-to-talk: amber dot to visually distinguish from hands-free. */
+.voice-chat__mode-toggle--ptt .voice-chat__mode-dot {
+  background: var(--warning, #e0a82e);
+  box-shadow: 0 0 6px var(--warning, #e0a82e);
 }
 
 /* Mobile responsive */

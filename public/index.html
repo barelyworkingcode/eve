@@ -329,11 +329,9 @@
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
             </button>
-            <button id="voiceChatModeToggle" class="voice-chat__btn voice-chat__btn--mode" title="Switch voice input mode" type="button">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-              </svg>
+            <button id="voiceChatModeToggle" class="voice-chat__mode-toggle" title="Switch voice input mode" type="button">
+              <span class="voice-chat__mode-dot"></span>
+              <span class="voice-chat__mode-label" id="voiceChatModeLabel">Hands-free</span>
             </button>
             <div class="voice-chat__prompt" id="voiceChatPrompt">Listening...</div>
             <button id="voiceChatMic" class="voice-chat__btn voice-chat__btn--mic" title="Hold to record" type="button">
@@ -488,6 +486,7 @@
   <script src="terminal-manager.js"></script>
   <script src="task-viewer.js"></script>
   <script src="voice-crash-guard.js"></script>
+  <script src="native-audio-bridge.js"></script>
   <script src="tts-native-backend.js"></script>
   <script src="tts-browser-backend.js"></script>
   <script src="tts-server-backend.js"></script>
@@ -498,6 +497,7 @@
   <script src="stt-manager.js"></script>
   <script src="vad-manager.js"></script>
   <script src="voice-chat-manager.js"></script>
+  <script src="voice-bg-spike.js"></script>
   <script src="toast.js"></script>
   <script src="voice-init-coordinator.js"></script>
   <script src="message-dispatcher.js"></script>
