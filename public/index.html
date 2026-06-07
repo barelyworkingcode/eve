@@ -193,6 +193,14 @@
             </button>
             <div class="voice-drawer__panel hidden" id="voiceDrawerPanel">
               <select id="voiceSelect" class="voice-drawer__select" title="Select voice"></select>
+              <select id="voiceSpeedSelect" class="voice-drawer__select" title="Playback speed">
+                <option value="0.75">0.75&times;</option>
+                <option value="0.9">0.9&times;</option>
+                <option value="1" selected>1&times;</option>
+                <option value="1.1">1.1&times;</option>
+                <option value="1.25">1.25&times;</option>
+                <option value="1.5">1.5&times;</option>
+              </select>
               <button type="button" id="voiceModeBtn" class="btn-voice-mode" title="Voice mode (TTS)">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M11 5L6 9H2v6h4l5 4V5z"/>
@@ -311,6 +319,14 @@
             </button>
             <div class="voice-drawer__panel hidden" id="voiceChatDrawerPanel">
               <select id="voiceChatVoiceSelect" class="voice-drawer__select"></select>
+              <select id="voiceChatSpeedSelect" class="voice-drawer__select" title="Playback speed">
+                <option value="0.75">0.75&times;</option>
+                <option value="0.9">0.9&times;</option>
+                <option value="1" selected>1&times;</option>
+                <option value="1.1">1.1&times;</option>
+                <option value="1.25">1.25&times;</option>
+                <option value="1.5">1.5&times;</option>
+              </select>
               <button id="voiceChatConvert" class="voice-chat__btn voice-chat__btn--convert" title="Switch to text chat" type="button">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
