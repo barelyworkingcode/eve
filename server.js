@@ -87,7 +87,23 @@ const httpServer = (HTTPS_KEY && HTTPS_CERT && DUAL_LISTEN)
   ? createServer(app)
   : null;
 
-const wss = new WebSocketServer({ noServer: true });
+// perMessageDeflate compresses JSON frames on the wire — a large win on mobile
+// where most traffic is text (LLM token deltas, terminal output). Bounded
+// settings: `threshold` skips tiny frames (single-token deltas) where deflate
+// would cost more CPU than it saves; no-context-takeover caps per-connection
+// memory, which the ws README flags as the fragmentation risk under load.
+// Binary audio frames pass `{ compress: false }` at their send sites.
+const wss = new WebSocketServer({
+  noServer: true,
+  perMessageDeflate: {
+    threshold: 1024,
+    zlibDeflateOptions: { level: 3, memLevel: 7 },
+    serverNoContextTakeover: true,
+    clientNoContextTakeover: true,
+    concurrencyLimit: 10,
+    serverMaxWindowBits: 13,
+  },
+});
 
 // Anti-CSWSH: reject WebSocket upgrades carrying a cross-site browser Origin
 // BEFORE the socket is accepted. See ws-origin.js and
