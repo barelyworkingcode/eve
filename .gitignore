@@ -12,6 +12,9 @@
 data/
 certs/
 coverage/
+
+# Generated Kokoro voice packs for on-device TTS (run scripts/generate-voice-packs.py)
+public/kokoro-voices/*.bin
 plans/
 e2e/.test-env.json
 test-results/
