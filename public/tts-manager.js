@@ -28,11 +28,15 @@ class TTSManager {
     this._idleTimer = null;
     this._ttsDoneReceived = true;
 
-    // Native defaults to on-device, but honors a 'server' preference — set by the
-    // user in Settings or by VoiceCrashGuard after a native load crashed the app —
-    // so recovery actually breaks the crash loop instead of re-selecting native.
+    // Native on-device Kokoro is unreliable on iOS 26.5.1 — an upstream
+    // FluidAudio/CoreML BNNS segfault crashes synthesis within ~1-2 utterances.
+    // The server backend is the same Kokoro-82M model/voice/quality (served by
+    // the local daemon) and rock-solid, so the native app defaults to 'server'.
+    // On-device is opt-in: selected only if the user explicitly chooses 'native'
+    // in Settings (persisted). 'server' is also VoiceCrashGuard's post-crash
+    // fallback. Revisit the default if the BNNS bug is fixed upstream/in iOS.
     this.preferredBackend = IS_NATIVE_APP
-      ? (localStorage.getItem('eve-tts-backend') === 'server' ? 'server' : 'native')
+      ? (localStorage.getItem('eve-tts-backend') === 'native' ? 'native' : 'server')
       : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');

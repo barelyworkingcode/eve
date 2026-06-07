@@ -20,11 +20,13 @@ class STTManager {
     this.available = null; // null = unknown, true/false after check
     this.isNativeApp = IS_NATIVE_APP;
 
-    // Native defaults to on-device, but honors a 'server' preference — set by the
-    // user in Settings or by VoiceCrashGuard after a native load crashed the app —
-    // so recovery actually breaks the crash loop instead of re-selecting native.
+    // Native on-device ASR (Parakeet) shares the same iOS-26.5.1 CoreML/BNNS
+    // instability as native TTS, so the native app defaults to the reliable
+    // server backend. On-device is opt-in: selected only if the user explicitly
+    // chooses 'native' in Settings (persisted). 'server' is also VoiceCrashGuard's
+    // post-crash fallback.
     this.preferredBackend = IS_NATIVE_APP
-      ? (localStorage.getItem('eve-stt-backend') === 'server' ? 'server' : 'native')
+      ? (localStorage.getItem('eve-stt-backend') === 'native' ? 'native' : 'server')
       : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');
