@@ -351,6 +351,10 @@ class TTSManager {
   }
 
   stop() {
+    // Tell the server to stop streaming read-aloud chunks (server backend only;
+    // a no-op bump for other backends). Without this the daemon keeps
+    // synthesizing sentences after the user hits stop.
+    this.activeBackend.cancelSpeak?.(this.app.wsClient);
     this.queue = [];
     this._ttsDoneReceived = true;
     if (this.currentSource) {
