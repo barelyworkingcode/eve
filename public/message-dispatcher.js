@@ -83,7 +83,6 @@ class MessageDispatcher {
       clear_messages:       ()  => this.renderer.clearMessages(),
       message_complete:     (d) => this._handleMessageComplete(d),
       stats_update:         (d) => { this._captureTurnMetrics(d.stats); this.app.updateStats(d.stats); },
-      tts_audio:            (d) => this._handleTtsAudio(d),
       tts_done:             ()  => this._handleTtsDone(),
       tts_error:            (d) => this._handleTtsError(d),
       transcription_result: (d) => this.stt?.handleTranscriptionResult(d.text),
@@ -346,10 +345,6 @@ class MessageDispatcher {
     }
     this._clientTTSAccum = '';
     this._ttsSessionId = null;
-  }
-
-  _handleTtsAudio(data) {
-    this.tts?.enqueueServerAudio(data.data);
   }
 
   _handleTtsDone() {

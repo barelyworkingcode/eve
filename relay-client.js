@@ -140,6 +140,18 @@ class RelayClient {
   }
   _sendToBrowser(msg) { this.sendToBrowser(msg); }
 
+  /**
+   * Send a TTS audio chunk as a binary WS frame. The browser carries no other
+   * binary frames, so any binary frame is unambiguously audio — this avoids the
+   * ~33% base64 inflation (and the client-side atob) on the browser↔eve hop,
+   * which matters most on mobile. Control frames (tts_done/tts_error) stay JSON.
+   */
+  _sendAudioToBrowser(base64) {
+    if (this.browserWs && this.browserWs.readyState === WebSocket.OPEN) {
+      this.browserWs.send(Buffer.from(base64, 'base64'));
+    }
+  }
+
   setSuppressNextJoin(value) {
     this.suppressNextJoin = value;
   }
@@ -309,11 +321,7 @@ class RelayClient {
     this.ttsPending++;
     try {
       const result = await this.ttsService.synthesize(text, this.voicePreset);
-      this._sendToBrowser({
-        type: 'tts_audio',
-        data: result.audio_base64,
-        sessionId: this.currentSessionId,
-      });
+      this._sendAudioToBrowser(result.audio_base64);
     } catch (err) {
       this.log.error(`TTS chunk ${seq} failed:`, err.message);
     } finally {

@@ -293,18 +293,33 @@ class TTSManager {
     }
   }
 
+  /** Enqueue base64-encoded WAV (on-device backends return audio this way). */
   async enqueueAudio(base64Data) {
     this.log.debug(`Playing audio (${Math.round(base64Data.length * 3 / 4 / 1024)}kb, queue: ${this.queue.length})`);
+    const binary = atob(base64Data);
+    const arrayBuffer = new ArrayBuffer(binary.length);
+    const bytes = new Uint8Array(arrayBuffer);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    await this._enqueueArrayBuffer(arrayBuffer);
+  }
+
+  /**
+   * Enqueue raw WAV bytes from a server TTS binary WS frame. Skips the
+   * base64/atob step (the server no longer inflates audio into JSON).
+   */
+  enqueueServerAudioBuffer(arrayBuffer) {
+    this.log.debug(`Playing audio (${Math.round(arrayBuffer.byteLength / 1024)}kb, queue: ${this.queue.length})`);
+    this._ttsDoneReceived = false;
+    this._enqueueArrayBuffer(arrayBuffer);
+  }
+
+  async _enqueueArrayBuffer(arrayBuffer) {
     try {
       await this._ensureAudioContext();
       if (this.audioContext.state !== 'running') {
         this.log.warn('AudioContext suspended (waiting for user interaction) — dropping audio chunk');
         return;
       }
-      const binary = atob(base64Data);
-      const arrayBuffer = new ArrayBuffer(binary.length);
-      const bytes = new Uint8Array(arrayBuffer);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
 
       this.queue.push(audioBuffer);
@@ -316,12 +331,6 @@ class TTSManager {
       this.log.error('Failed to enqueue audio:', err, 'audioContext state:', this.audioContext?.state);
       this.app.voiceChatManager?.handleError('Audio playback failed');
     }
-  }
-
-  /** Enqueue audio from server TTS (via WebSocket tts_audio message). */
-  enqueueServerAudio(base64Data) {
-    this._ttsDoneReceived = false;
-    this.enqueueAudio(base64Data);
   }
 
   _playNext() {
