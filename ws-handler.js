@@ -8,6 +8,7 @@ const RelayClient = require('./relay-client');
 const SlashCommandHandler = require('./slash-command-handler');
 const FileWatcher = require('./file-watcher');
 const RateLimiter = require('./rate-limiter');
+const { splitIntoChunks, cleanChunkText } = require('./tts-chunker');
 
 const slashCommandHandler = new SlashCommandHandler();
 
@@ -285,15 +286,30 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             relayClient.setVoiceMode(message.enabled, message.voice);
             break;
 
-          case 'tts_speak':
+          case 'tts_speak': {
             // Serialize a connection's read-aloud requests so rapid play-button
             // clicks don't fan out into overlapping synthesis. The daemon's own
             // gen_lock is the crash-safety boundary (it serializes globally,
             // across all sessions); this per-connection chain just keeps one
             // client's requests ordered and avoids piling up in-flight work.
+            //
+            // Read-aloud now streams sentence-by-sentence, so a new request (or
+            // a stop) bumps _ttsSpeakGen; the streaming loop checks the gen
+            // before each chunk and bails, abandoning the rest. This request
+            // owns the generation captured here.
+            const speakGen = (ws._ttsSpeakGen = (ws._ttsSpeakGen || 0) + 1);
             ws._ttsSpeakChain = (ws._ttsSpeakChain || Promise.resolve())
-              .then(() => handleTtsSpeak(ws, ttsService, message, log))
+              .then(() => handleTtsSpeak(ws, ttsService, message, log, () => ws._ttsSpeakGen === speakGen))
               .catch((err) => log?.error('tts_speak chain error:', err.message));
+            break;
+          }
+
+          case 'tts_speak_cancel':
+            // Browser stopped read-aloud playback. Bump the generation so an
+            // in-flight streaming loop abandons its remaining chunks instead of
+            // synthesizing audio nobody will hear (and holding the daemon's
+            // global gen_lock against other sessions).
+            ws._ttsSpeakGen = (ws._ttsSpeakGen || 0) + 1;
             break;
 
           case 'transcribe_audio':
@@ -525,11 +541,18 @@ async function handleTranscribeAudio(ws, sttService, message, log) {
 }
 
 /**
- * On-demand TTS: synthesize text and send audio back to the browser.
+ * On-demand TTS (read-aloud button): synthesize text and stream audio back to
+ * the browser sentence-by-sentence so the first word plays after the first
+ * sentence is generated, not the whole message. The browser plays tts_audio
+ * chunks in arrival order (enqueueServerAudio) and finalizes on tts_done.
+ *
+ * @param {() => boolean} isActive — false once this read-aloud has been
+ *   superseded or cancelled; the loop bails before its next chunk so we stop
+ *   holding the daemon's global gen_lock for audio nobody will hear.
  */
 const TTS_SPEAK_MAX_CHARS = 10000;
 
-async function handleTtsSpeak(ws, ttsService, message, log) {
+async function handleTtsSpeak(ws, ttsService, message, log, isActive = () => true) {
   const { text, voice } = message;
   if (!text || !ttsService) {
     ws.send(JSON.stringify({ type: 'tts_error', message: 'TTS unavailable' }));
@@ -539,15 +562,29 @@ async function handleTtsSpeak(ws, ttsService, message, log) {
     ws.send(JSON.stringify({ type: 'tts_error', message: `Text too long (max ${TTS_SPEAK_MAX_CHARS} characters)` }));
     return;
   }
+
+  // Full-sentence chunks, synthesized one at a time. Synthesis stays serial:
+  // the daemon's gen_lock serializes globally anyway, and at RTF ~0.05
+  // generation outpaces playback, so chunk N+1 is ready before N finishes.
+  const chunks = splitIntoChunks(text);
+  log?.debug(`TTS speak: ${chunks.length} chunk(s), ${text.length} chars (voice: ${voice})`);
+
   try {
-    log?.debug(`TTS speak: "${text.substring(0, 80)}" (voice: ${voice})`);
-    const result = await ttsService.synthesize(text, voice || 'af_heart');
-    ws.send(JSON.stringify({ type: 'tts_audio', data: result.audio_base64 }));
-    ws.send(JSON.stringify({ type: 'tts_done' }));
+    for (const chunk of chunks) {
+      if (!isActive()) return; // cancelled — browser already finalized via stop()
+      const cleaned = cleanChunkText(chunk);
+      if (!cleaned) continue;
+      const result = await ttsService.synthesize(cleaned, voice || 'af_heart');
+      if (!isActive()) return; // cancelled while this chunk was generating
+      ws.send(JSON.stringify({ type: 'tts_audio', data: result.audio_base64 }));
+    }
   } catch (err) {
     log?.error('TTS speak failed:', err.message);
-    ws.send(JSON.stringify({ type: 'tts_error', message: 'Speech synthesis failed' }));
+    if (isActive()) ws.send(JSON.stringify({ type: 'tts_error', message: 'Speech synthesis failed' }));
   }
+  // Finalize on success or partial failure so the browser leaves the speaking
+  // state. Skipped on cancel (early return) — the browser already cleaned up.
+  if (isActive()) ws.send(JSON.stringify({ type: 'tts_done' }));
 }
 
 /**
