@@ -132,6 +132,13 @@ const EVT = {
 
 // Platform detection (invariant for page lifetime)
 const IS_NATIVE_APP = !!(window.Capacitor?.isNativePlatform?.() && window.Capacitor?.Plugins?.EveVoice);
+// Native owns the mic + speaker (capture, VAD endpointing, playback) via the
+// EveAudioBridge plugin — a SEPARATE axis from which TTS/STT *model* runs (still
+// server). This is what lets a voice conversation survive the screen turning off:
+// a running native AVAudioEngine holds the background-audio assertion. Gated on
+// the plugin being present so a build without it cleanly falls back to the
+// WebView audio path.
+const IS_NATIVE_AUDIO = IS_NATIVE_APP && !!window.Capacitor?.Plugins?.EveAudioBridge;
 const IS_SAFARI = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 const IS_MOBILE_SAFARI = /iPhone|iPad|iPod/i.test(navigator.userAgent) && IS_SAFARI;
 // Touch-capable device — gates the mobile terminal key bar (modifier keys the

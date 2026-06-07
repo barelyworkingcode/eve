@@ -21,9 +21,19 @@ class VoiceChatManager {
     this._spacebarDown = false;
 
     // Capacitor WebView defaults to conversation mode (like desktop); mobile Safari defaults to push-to-talk (AudioWorklet issues)
-    this.inputMode = (IS_NATIVE_APP || !IS_MOBILE_SAFARI) ? 'conversation' : (localStorage.getItem('eve-voice-input-mode') || 'push-to-talk');
+    this.inputMode = IS_NATIVE_AUDIO
+      ? (localStorage.getItem('eve-voice-input-mode') || 'conversation')
+      : ((IS_NATIVE_APP || !IS_MOBILE_SAFARI) ? 'conversation' : (localStorage.getItem('eve-voice-input-mode') || 'push-to-talk'));
     this.vadManager = new VadManager(container.get('logger').child('VAD'));
     this._vadTranscribing = false;
+
+    // Native audio transport (iOS): when present, the native AVAudioEngine owns
+    // the mic + speaker so the conversation survives the screen turning off.
+    // VadManager / getUserMedia / Web-Audio playback are bypassed entirely.
+    this.useNativeAudio = IS_NATIVE_AUDIO;
+    this.usingNativeSession = false; // true while a native voice session is live
+    this.nativeAudio = this.useNativeAudio ? new NativeAudioBridge(container.get('logger').child('NativeAudio')) : null;
+    this._nativeLevel = 0; // latest mic RMS from native onLevel (for the orb)
   }
 
   init() {
@@ -118,6 +128,42 @@ class VoiceChatManager {
       this._updateModeToggleUI();
       this.modeToggle.addEventListener('click', () => this._toggleInputMode());
     }
+
+    this._initNativeAudio();
+  }
+
+  /** Wire native AVAudioEngine events to the existing voice-session handlers. */
+  _initNativeAudio() {
+    if (!this.useNativeAudio) return;
+    this.nativeAudio.init({
+      onListening:   () => { if (this.isVoiceSession) { this._setOrbState('listening', 'native listening'); this._setPrompt('Listening...'); } },
+      onSpeechStart: () => { if (this.isVoiceSession) { this._setOrbState('listening', 'native speech'); this._setPrompt('Listening...'); } },
+      onSpeechEnd:   () => { if (this.isVoiceSession) { this._setOrbState('processing', 'native speech ended'); this._setPrompt('Transcribing...'); } },
+      onUtterance:   (d) => this._onNativeUtterance(d.audio),
+      onSpeaking:    () => this.handleTTSStart(),
+      onPlaybackEnded: () => this.handleTTSEnd(),
+      onLevel:       (d) => { this._nativeLevel = d.rms || 0; },
+      onVADMisfire:  () => { if (this.isVoiceSession && this.inputMode === 'conversation') { this._setOrbState('listening', 'native misfire'); this._setPrompt('Listening...'); } },
+      onInterruption: (d) => { if (this.isVoiceSession) this._setPrompt(d.state === 'began' ? 'Paused…' : 'Listening...'); },
+      onRouteChange: () => {},
+      onError:       (d) => this.handleError(d.message || 'Audio error'),
+    });
+  }
+
+  /** Native VAD finished an utterance — ship the WAV to server STT. */
+  _onNativeUtterance(base64) {
+    if (!this.isVoiceSession || !base64) return;
+    this._setOrbState('processing', 'native utterance');
+    this._setPrompt('Transcribing...');
+    // Result returns via transcription_result → STTManager → handleTranscription().
+    this.app.wsClient.send({ type: 'transcribe_audio', audio: base64 });
+  }
+
+  /** Orb level source when native owns the audio (no Web-Audio analyser). */
+  getNativeLevel(state) {
+    if (state === 'listening') return this._nativeLevel;
+    if (state === 'speaking') return 0.5; // native is half-duplex; no playback meter
+    return 0;
   }
 
   activateForSession(sessionId) {
@@ -150,13 +196,35 @@ class VoiceChatManager {
       localStorage.setItem('eve-voice-hint-dismissed', 'true');
     }
 
-    if (this.inputMode === 'conversation') {
+    if (this.useNativeAudio) {
+      this._startNativeSession();
+    } else if (this.inputMode === 'conversation') {
       this._startConversationMode().catch(err => {
         this.log.error('Conversation mode failed:', err);
         this._setPrompt(this._getPushToTalkPrompt());
       });
     } else {
       this._setPrompt(this._getPushToTalkPrompt());
+    }
+  }
+
+  /** Hand the mic + speaker to the native engine for this session. */
+  async _startNativeSession() {
+    this.usingNativeSession = true;
+    const mode = this.inputMode === 'conversation' ? 'handsfree' : 'ptt';
+    if (mode === 'handsfree') {
+      this._setOrbState('listening', 'native session');
+      this._setPrompt('Listening...');
+    } else {
+      this._setOrbState('idle', 'native session');
+      this._setPrompt(this._getPushToTalkPrompt());
+    }
+    try {
+      await this.nativeAudio.startSession(mode);
+    } catch (err) {
+      this.log.error('Native session failed to start:', err);
+      this.usingNativeSession = false;
+      this._setPrompt('Voice unavailable');
     }
   }
 
@@ -169,6 +237,10 @@ class VoiceChatManager {
     this.isVoiceSession = false;
     this.isRecording = false;
     this._vadTranscribing = false;
+    if (this.useNativeAudio && this.usingNativeSession) {
+      this.usingNativeSession = false;
+      this.nativeAudio.stopSession();
+    }
     this.app.sttManager.stopRecording();
     if (wasVoiceSession) this.app.ttsManager.stop();
     this.vadManager.destroy();
@@ -189,6 +261,23 @@ class VoiceChatManager {
   // --- Input mode management ---
 
   _toggleInputMode() {
+    if (this.useNativeAudio) {
+      this.inputMode = this.inputMode === 'conversation' ? 'push-to-talk' : 'conversation';
+      const mode = this.inputMode === 'conversation' ? 'handsfree' : 'ptt';
+      if (this.usingNativeSession) this.nativeAudio.setMode(mode);
+      this.nativeAudio.haptic('light');
+      if (mode === 'handsfree') {
+        this._setOrbState('listening', 'mode: handsfree');
+        this._setPrompt('Listening...');
+      } else {
+        this._setOrbState('idle', 'mode: push-to-talk');
+        this._setPrompt(this._getPushToTalkPrompt());
+      }
+      localStorage.setItem('eve-voice-input-mode', this.inputMode);
+      this._updateModeToggleUI();
+      return;
+    }
+
     if (this.inputMode === 'conversation') {
       this.inputMode = 'push-to-talk';
       this.vadManager.destroy();
@@ -207,8 +296,12 @@ class VoiceChatManager {
   _updateModeToggleUI() {
     if (!this.modeToggle) return;
     const isConvo = this.inputMode === 'conversation';
-    this.modeToggle.title = isConvo ? 'Switch to push-to-talk' : 'Switch to conversation mode';
-    this.modeToggle.classList.toggle('voice-chat__btn--mode-active', isConvo);
+    const label = document.getElementById('voiceChatModeLabel');
+    if (label) label.textContent = isConvo ? 'Hands-free' : 'Push-to-talk';
+    this.modeToggle.title = isConvo
+      ? 'Hands-free — tap for push-to-talk'
+      : 'Push-to-talk — tap for hands-free';
+    this.modeToggle.classList.toggle('voice-chat__mode-toggle--ptt', !isConvo);
     // Update mic button visibility — in conversation mode, mic is not the primary input
     if (this.micBtn) {
       this.micBtn.classList.toggle('voice-chat__btn--secondary', isConvo);
@@ -307,6 +400,12 @@ class VoiceChatManager {
     if (e.repeat) return; // Already recording — just suppress the event
 
     if (this.inputMode === 'conversation') {
+      if (this.useNativeAudio) {
+        // Native handsfree is already listening; spacebar is just barge-in.
+        this.app.ttsManager.stop();
+        this._spacebarDown = true;
+        return;
+      }
       this.vadManager.pause();
     }
     this._spacebarDown = true;
@@ -321,6 +420,10 @@ class VoiceChatManager {
     e.preventDefault();
     e.stopPropagation();
     this._spacebarDown = false;
+
+    // Native handsfree barge-in needs no stop/resume — the engine keeps listening.
+    if (this.inputMode === 'conversation' && this.useNativeAudio) return;
+
     this._stopRecording();
 
     if (this.inputMode === 'conversation') {
@@ -340,6 +443,11 @@ class VoiceChatManager {
     this._setPrompt('Listening...');
     this.micBtn?.classList.add('voice-chat__btn--recording');
 
+    if (this.useNativeAudio) {
+      this.nativeAudio.haptic('medium');
+      this.nativeAudio.startCapture();
+      return;
+    }
     await this.app.sttManager.startRecording();
   }
 
@@ -351,6 +459,11 @@ class VoiceChatManager {
     this._setPrompt('Transcribing...');
     this.micBtn?.classList.remove('voice-chat__btn--recording');
 
+    if (this.useNativeAudio) {
+      this.nativeAudio.haptic('light');
+      this.nativeAudio.stopCapture();
+      return;
+    }
     this.app.sttManager.stopRecording();
   }
 
@@ -392,8 +505,9 @@ class VoiceChatManager {
     if (!this.isVoiceSession) return;
     // Pause VAD during TTS — browser echo cancellation (especially Chrome)
     // leaks enough speaker audio to trigger false barge-in and duplicate messages.
-    // Barge-in is still available via mic/orb tap or spacebar.
-    if (this.inputMode === 'conversation') {
+    // Barge-in is still available via mic/orb tap or spacebar. Native handles
+    // half-duplex in the engine (mic muted while speaking), so no VAD to pause.
+    if (this.inputMode === 'conversation' && !this.useNativeAudio) {
       this.vadManager.pause();
       this.micBtn?.classList.add('voice-chat__btn--muted');
     }
@@ -403,6 +517,18 @@ class VoiceChatManager {
 
   handleTTSEnd() {
     if (!this.isVoiceSession) return;
+
+    if (this.useNativeAudio) {
+      // Native re-opens the mic itself (emits onListening) for handsfree.
+      if (this.inputMode === 'conversation') {
+        this._setOrbState('listening', 'TTS ended');
+        this._setPrompt('Listening...');
+      } else {
+        this._setOrbState('idle', 'TTS ended');
+        this._setPrompt(this._getPushToTalkPrompt());
+      }
+      return;
+    }
 
     if (this.inputMode === 'conversation') {
       this.vadManager.resume();
@@ -419,6 +545,17 @@ class VoiceChatManager {
     if (!this.isVoiceSession) return;
     this._vadTranscribing = false;
     this._addCaption('error', message);
+    if (this.useNativeAudio) {
+      this.nativeAudio.playEarcon('error');
+      if (this.inputMode === 'conversation') {
+        this._setOrbState('listening', 'error recovery');
+        this._setPrompt('Listening...');
+      } else {
+        this._setOrbState('idle', 'error recovery');
+        this._setPrompt(this._getPushToTalkPrompt());
+      }
+      return;
+    }
     if (this.vadManager.isListening) {
       this._setOrbState('listening', 'error recovery');
       this._setPrompt('Listening...');
@@ -786,7 +923,9 @@ class VoiceOrbCanvas {
 
     // Read real-time audio level from mic or playback
     let rawLevel = 0;
-    if (this.targetState === 'listening') {
+    if (this.app?.voiceChatManager?.useNativeAudio) {
+      rawLevel = this.app.voiceChatManager.getNativeLevel(this.targetState);
+    } else if (this.targetState === 'listening') {
       rawLevel = this.app?.sttManager?.getAudioLevel?.() || 0;
     } else if (this.targetState === 'speaking') {
       rawLevel = this.app?.ttsManager?.getAudioLevel?.() || 0;
@@ -1029,7 +1168,9 @@ class ParticleCloudOrb {
 
     // Read audio level
     let rawLevel = 0;
-    if (this.targetState === 'listening') {
+    if (this.app?.voiceChatManager?.useNativeAudio) {
+      rawLevel = this.app.voiceChatManager.getNativeLevel(this.targetState);
+    } else if (this.targetState === 'listening') {
       rawLevel = this.app?.sttManager?.getAudioLevel?.() || 0;
     } else if (this.targetState === 'speaking') {
       rawLevel = this.app?.ttsManager?.getAudioLevel?.() || 0;
