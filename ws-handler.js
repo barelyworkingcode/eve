@@ -286,7 +286,14 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             break;
 
           case 'tts_speak':
-            handleTtsSpeak(ws, ttsService, message, log);
+            // Serialize a connection's read-aloud requests so rapid play-button
+            // clicks don't fan out into overlapping synthesis. The daemon's own
+            // gen_lock is the crash-safety boundary (it serializes globally,
+            // across all sessions); this per-connection chain just keeps one
+            // client's requests ordered and avoids piling up in-flight work.
+            ws._ttsSpeakChain = (ws._ttsSpeakChain || Promise.resolve())
+              .then(() => handleTtsSpeak(ws, ttsService, message, log))
+              .catch((err) => log?.error('tts_speak chain error:', err.message));
             break;
 
           case 'transcribe_audio':
