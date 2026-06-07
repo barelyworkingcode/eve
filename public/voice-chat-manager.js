@@ -488,6 +488,9 @@ class VoiceChatManager {
     this.assistantAccum = '';
     this._setOrbState('processing', 'transcription sent');
     this._setPrompt('Thinking...');
+    // Faint repeating cue while it's the AI's turn but it hasn't spoken yet
+    // (thinking / tool-calling). Stopped when audio starts or the turn ends.
+    if (this.useNativeAudio) this.nativeAudio.startThinkingCue();
   }
 
   handleAssistantDelta(text) {
@@ -503,6 +506,7 @@ class VoiceChatManager {
 
   handleTTSStart() {
     if (!this.isVoiceSession) return;
+    if (this.useNativeAudio) this.nativeAudio.stopThinkingCue(); // it's speaking now
     // Pause VAD during TTS — browser echo cancellation (especially Chrome)
     // leaks enough speaker audio to trigger false barge-in and duplicate messages.
     // Barge-in is still available via mic/orb tap or spacebar. Native handles
@@ -546,6 +550,7 @@ class VoiceChatManager {
     this._vadTranscribing = false;
     this._addCaption('error', message);
     if (this.useNativeAudio) {
+      this.nativeAudio.stopThinkingCue();
       this.nativeAudio.playEarcon('error');
       if (this.inputMode === 'conversation') {
         this._setOrbState('listening', 'error recovery');
@@ -567,6 +572,7 @@ class VoiceChatManager {
 
   handleResponseComplete() {
     if (!this.isVoiceSession) return;
+    if (this.useNativeAudio) this.nativeAudio.stopThinkingCue(); // turn over (covers text-only)
 
     // Client-side TTS: speak the accumulated text via browser or native backend
     const backend = this.app.ttsManager.backend;
