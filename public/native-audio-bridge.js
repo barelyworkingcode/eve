@@ -52,6 +52,8 @@ class NativeAudioBridge {
 
   // eyes-free feedback
   playEarcon(name) { return this._call('playEarcon', { name }); }
+  startThinkingCue() { return this._call('startThinkingCue'); }
+  stopThinkingCue() { return this._call('stopThinkingCue'); }
   haptic(style = 'light') { return this._call('haptic', { style }); }
 
   getStatus() { return this._call('getStatus'); }
