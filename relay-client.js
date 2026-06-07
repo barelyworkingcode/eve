@@ -47,6 +47,7 @@ class RelayClient {
     this.ttsService = ttsService || null;
     this.voiceMode = false;
     this.voicePreset = DEFAULT_TTS_VOICE;
+    this.voiceSpeed = 1.0;
     this.ttsTextAccumulator = '';
     this.ttsPending = 0;
     this._ttsChain = Promise.resolve();
@@ -283,9 +284,10 @@ class RelayClient {
     this._send({ type: 'set_permission_mode', sessionId, mode });
   }
 
-  setVoiceMode(enabled, voice) {
+  setVoiceMode(enabled, voice, speed) {
     this.voiceMode = enabled;
     if (voice) this.voicePreset = voice;
+    if (speed) this.voiceSpeed = speed;
     this._resetTTSState();
   }
 
@@ -384,7 +386,7 @@ class RelayClient {
     this.log.debug(`TTS chunk ${seq} (${text.length} chars)`);
     this.ttsPending++;
     try {
-      const result = await this.ttsService.synthesize(text, this.voicePreset);
+      const result = await this.ttsService.synthesize(text, this.voicePreset, this.voiceSpeed);
       this._sendAudioToBrowser(result.audio_base64);
     } catch (err) {
       this.log.error(`TTS chunk ${seq} failed:`, err.message);

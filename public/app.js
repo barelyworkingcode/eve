@@ -232,6 +232,7 @@ class EveWorkspaceClient {
       voiceDrawerToggle: document.getElementById('voiceDrawerToggle'),
       voiceDrawerPanel: document.getElementById('voiceDrawerPanel'),
       voiceSelect: document.getElementById('voiceSelect'),
+      voiceSpeedSelect: document.getElementById('voiceSpeedSelect'),
       taskModal: document.getElementById('taskModal'),
       taskModalTitle: document.getElementById('taskModalTitle'),
       taskForm: document.getElementById('taskForm'),
@@ -488,6 +489,14 @@ class EveWorkspaceClient {
       if (this.elements.voiceSelect) {
         this.elements.voiceSelect.addEventListener('change', (e) => {
           this.ttsManager.setVoice(e.target.value);
+          this.ttsManager.syncVoiceMode(this.wsClient);
+        });
+      }
+
+      if (this.elements.voiceSpeedSelect) {
+        this.elements.voiceSpeedSelect.value = String(this.ttsManager.speed);
+        this.elements.voiceSpeedSelect.addEventListener('change', (e) => {
+          this.ttsManager.setSpeed(e.target.value);
           this.ttsManager.syncVoiceMode(this.wsClient);
         });
       }

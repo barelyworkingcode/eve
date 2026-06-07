@@ -19,6 +19,7 @@ class TTSManager {
     this._logger = container.get('logger');
     this.enabled = false;
     this.voice = localStorage.getItem('eve-voice-preset') || DEFAULT_TTS_VOICE;
+    this.speed = parseFloat(localStorage.getItem('eve-voice-speed')) || 1.0;
     this.voices = [];
     this.audioContext = null;
     this.queue = [];
@@ -170,6 +171,14 @@ class TTSManager {
     if (this.enabled) this.log.info(`Voice changed → ${voiceId}`);
   }
 
+  /** Playback (synthesis) speed multiplier. Kokoro accepts ~0.5–2.0. */
+  setSpeed(speed) {
+    const s = Math.min(2.0, Math.max(0.5, parseFloat(speed) || 1.0));
+    this.speed = s;
+    localStorage.setItem('eve-voice-speed', String(s));
+    this.log.info(`Playback speed → ${s}×`);
+  }
+
   setBackend(name) {
     this.switchBackend(name);
     this.log.info(`Backend changed → ${name}`);
@@ -177,7 +186,7 @@ class TTSManager {
 
   /** Send voice_mode state to server if using server TTS backend. */
   syncVoiceMode(ws) {
-    this.activeBackend.syncVoiceMode?.(ws, this.enabled, this.voice);
+    this.activeBackend.syncVoiceMode?.(ws, this.enabled, this.voice, this.speed);
   }
 
   // --- Voice loading (delegated to backend) ---
@@ -220,7 +229,7 @@ class TTSManager {
 
     try {
       this.log.debug(`Speaking via ${this.backend} (voice: ${this.voice}):`, cleaned);
-      const result = await this.activeBackend.speakText(cleaned, this.voice);
+      const result = await this.activeBackend.speakText(cleaned, this.voice, this.speed);
       if (result?.audio) {
         await this.enqueueAudio(result.audio);
       }

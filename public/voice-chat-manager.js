@@ -44,6 +44,7 @@ class VoiceChatManager {
     this.micBtn = document.getElementById('voiceChatMic');
     this.closeBtn = document.getElementById('voiceChatClose');
     this.voiceSelect = document.getElementById('voiceChatVoiceSelect');
+    this.speedSelect = document.getElementById('voiceChatSpeedSelect');
     this.convertBtn = document.getElementById('voiceChatConvert');
     this.drawerToggle = document.getElementById('voiceChatDrawerToggle');
     this.drawerPanel = document.getElementById('voiceChatDrawerPanel');
@@ -119,6 +120,15 @@ class VoiceChatManager {
       this._populateVoiceSelect();
       this.voiceSelect.addEventListener('change', (e) => {
         this.app.ttsManager.setVoice(e.target.value);
+        this.app.ttsManager.syncVoiceMode(this.app.wsClient);
+      });
+    }
+
+    // Playback speed
+    if (this.speedSelect) {
+      this.speedSelect.value = String(this.app.ttsManager.speed);
+      this.speedSelect.addEventListener('change', (e) => {
+        this.app.ttsManager.setSpeed(e.target.value);
         this.app.ttsManager.syncVoiceMode(this.app.wsClient);
       });
     }

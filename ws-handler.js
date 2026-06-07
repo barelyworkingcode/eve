@@ -283,7 +283,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             break;
 
           case 'voice_mode':
-            relayClient.setVoiceMode(message.enabled, message.voice);
+            relayClient.setVoiceMode(message.enabled, message.voice, message.speed);
             break;
 
           case 'tts_speak': {
@@ -554,7 +554,7 @@ async function handleTranscribeAudio(ws, sttService, message, log) {
 const TTS_SPEAK_MAX_CHARS = 10000;
 
 async function handleTtsSpeak(ws, ttsService, message, log, isActive = () => true) {
-  const { text, voice } = message;
+  const { text, voice, speed } = message;
   if (!text || !ttsService) {
     ws.send(JSON.stringify({ type: 'tts_error', message: 'TTS unavailable' }));
     return;
@@ -575,7 +575,7 @@ async function handleTtsSpeak(ws, ttsService, message, log, isActive = () => tru
       if (!isActive()) return; // cancelled — browser already finalized via stop()
       const cleaned = cleanChunkText(chunk);
       if (!cleaned) continue;
-      const result = await ttsService.synthesize(cleaned, voice || 'af_heart');
+      const result = await ttsService.synthesize(cleaned, voice || 'af_heart', speed || 1.0);
       if (!isActive()) return; // cancelled while this chunk was generating
       // Audio goes out as a binary WS frame (no base64 inflation / atob); only
       // control frames (tts_done/tts_error) stay JSON. See RelayClient._sendAudioToBrowser.
