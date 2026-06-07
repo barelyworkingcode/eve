@@ -297,15 +297,26 @@ class STTManager {
       return;
     }
 
-    // Filter Whisper hallucinations on background noise — short repetitive phrases it produces
-    // when processing non-speech audio (fan noise, keyboard clicks, ambient sounds)
-    const lower = cleaned.toLowerCase();
-    const HALLUCINATIONS = [
-      'thank you', 'thanks for watching', 'thanks for listening',
-      'you', 'bye', 'the end', 'hmm', 'mm',
-      'subscribe', 'like and subscribe',
-    ];
-    if (HALLUCINATIONS.includes(lower) || lower.replace(/\./g, '').trim().length < 2) {
+    // Drop results with no letters at all (music notes ♪, punctuation, "...").
+    if (!/[a-z]/i.test(cleaned)) {
+      this.log.warn('Filtered non-speech result:', cleaned);
+      return;
+    }
+
+    // Filter Whisper hallucinations on background noise — it emits these from
+    // non-speech audio (fan, footsteps, coughs, keyboard). Normalize away
+    // surrounding punctuation/quotes ("You." → "you") and match only when the
+    // WHOLE result is one of these, so real short commands ("yes", "stop") pass.
+    const norm = cleaned.toLowerCase()
+      .replace(/^[\s.,!?…"'’\-—]+|[\s.,!?…"'’\-—]+$/g, '')
+      .replace(/\s+/g, ' ');
+    const HALLUCINATIONS = new Set([
+      'thank you', 'thanks', 'thanks for watching', 'thanks for listening',
+      'you', 'bye', 'goodbye', 'the end', 'so',
+      'hmm', 'mm', 'mhm', 'mm-hmm', 'uh-huh', 'uh', 'um', 'huh', 'ah', 'oh', 'eh', 'er',
+      'subscribe', 'like and subscribe', 'please subscribe',
+    ]);
+    if (HALLUCINATIONS.has(norm) || norm.replace(/\./g, '').trim().length < 2) {
       this.log.warn('Filtered likely hallucination:', cleaned);
       return;
     }
