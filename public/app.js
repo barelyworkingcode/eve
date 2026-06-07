@@ -47,6 +47,7 @@ class EveWorkspaceClient {
     this.wsClient = new WsClient(this.container, {
       onReady: () => this.onWebSocketReady(),
       onMessage: (data) => this.handleServerMessage(data),
+      onAudio: (buf) => this.ttsManager?.enqueueServerAudioBuffer(buf),
     });
     this.wsClient.setConnectionStatusEl(this.elements.connectionStatus);
     this.container.register('ws', this.wsClient);

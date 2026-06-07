@@ -543,8 +543,9 @@ async function handleTranscribeAudio(ws, sttService, message, log) {
 /**
  * On-demand TTS (read-aloud button): synthesize text and stream audio back to
  * the browser sentence-by-sentence so the first word plays after the first
- * sentence is generated, not the whole message. The browser plays tts_audio
- * chunks in arrival order (enqueueServerAudio) and finalizes on tts_done.
+ * sentence is generated, not the whole message. Each chunk goes out as a
+ * binary WS frame; the browser plays them in arrival order
+ * (enqueueServerAudioBuffer) and finalizes on the tts_done control frame.
  *
  * @param {() => boolean} isActive — false once this read-aloud has been
  *   superseded or cancelled; the loop bails before its next chunk so we stop
@@ -576,7 +577,9 @@ async function handleTtsSpeak(ws, ttsService, message, log, isActive = () => tru
       if (!cleaned) continue;
       const result = await ttsService.synthesize(cleaned, voice || 'af_heart');
       if (!isActive()) return; // cancelled while this chunk was generating
-      ws.send(JSON.stringify({ type: 'tts_audio', data: result.audio_base64 }));
+      // Audio goes out as a binary WS frame (no base64 inflation / atob); only
+      // control frames (tts_done/tts_error) stay JSON. See RelayClient._sendAudioToBrowser.
+      ws.send(Buffer.from(result.audio_base64, 'base64'));
     }
   } catch (err) {
     log?.error('TTS speak failed:', err.message);

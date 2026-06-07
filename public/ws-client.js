@@ -12,6 +12,7 @@ class WsClient {
     this._connectionStatusEl = null;
     this._onReady = callbacks.onReady;
     this._onMessage = callbacks.onMessage;
+    this._onAudio = callbacks.onAudio;
     this.ws = null;
     this.reconnectDelay = 2000;
   }
@@ -24,6 +25,9 @@ class WsClient {
   connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     this.ws = new WebSocket(`${protocol}//${window.location.host}`);
+    // TTS audio arrives as binary frames; receive them as ArrayBuffer so they
+    // can be decoded directly without a Blob round-trip.
+    this.ws.binaryType = 'arraybuffer';
 
     this.ws.onopen = () => {
       this.log.info('Connected to server');
@@ -36,6 +40,12 @@ class WsClient {
     };
 
     this.ws.onmessage = (event) => {
+      // Binary frames are TTS audio chunks (the only binary the server sends).
+      if (event.data instanceof ArrayBuffer) {
+        this._onAudio?.(event.data);
+        return;
+      }
+
       const data = JSON.parse(event.data);
 
       if (data.type === 'auth_success') {
