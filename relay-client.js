@@ -1,14 +1,12 @@
 const WebSocket = require('ws');
+const {
+  TTS_MIN_FIRST_CHUNK,
+  TTS_MIN_CHUNK,
+  extractNextSentence,
+  cleanChunkText,
+} = require('./tts-chunker');
 
 const DEFAULT_TTS_VOICE = 'af_heart';
-const TTS_MIN_FIRST_CHUNK = 20;
-const TTS_MIN_CHUNK = 40;
-const TTS_ABBREVIATIONS = new Set([
-  'mr', 'mrs', 'ms', 'dr', 'prof', 'st', 'jr', 'sr',
-  'vs', 'etc', 'approx', 'dept', 'est', 'govt',
-  'eg', 'ie', 'al',       // e.g., i.e., et al.
-  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
-]);
 
 /**
  * RelayClient - one instance per browser WS connection.
@@ -277,7 +275,7 @@ class RelayClient {
    */
   _flushCompleteSentences() {
     let result;
-    while ((result = this._extractNextSentence(this.ttsTextAccumulator)) && result.sentence) {
+    while ((result = extractNextSentence(this.ttsTextAccumulator)) && result.sentence) {
       const minLen = this._ttsFirstChunk ? TTS_MIN_FIRST_CHUNK : TTS_MIN_CHUNK;
       if (result.sentence.length < minLen) break;
       this.ttsTextAccumulator = result.remainder;
@@ -287,74 +285,13 @@ class RelayClient {
   }
 
   /**
-   * Find the first sentence boundary in text.
-   * Returns { sentence, remainder } or { sentence: null, remainder: text }.
-   * Skips abbreviations (Mr., Dr., e.g.), decimal numbers (3.14),
-   * and boundaries inside code blocks or think tags. Operates on raw text —
-   * cleaning (strip markdown, code blocks) is deferred to _sendTTSChunk.
-   */
-  _extractNextSentence(text) {
-    // Don't split inside an unclosed code block or think tag
-    if (text.includes('```') && (text.match(/```/g) || []).length % 2 !== 0) {
-      return { sentence: null, remainder: text };
-    }
-    if (text.includes('<think>')) {
-      const opens = (text.match(/<think>/g) || []).length;
-      const closes = (text.match(/<\/think>/g) || []).length;
-      if (opens > closes) return { sentence: null, remainder: text };
-    }
-
-    const hasBlocks = text.includes('```') || text.includes('<think>');
-    const pattern = /([.!?]+)(\s+|$)/g;
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const endIdx = match.index + match[0].length;
-      const punct = match[1];
-      const before = text.slice(0, match.index);
-
-      // Skip boundaries inside code blocks or think tags
-      if (hasBlocks) {
-        const fenceCount = (before.match(/```/g) || []).length;
-        if (fenceCount % 2 !== 0) continue;
-        const thinkOpens = (before.match(/<think>/g) || []).length;
-        const thinkCloses = (before.match(/<\/think>/g) || []).length;
-        if (thinkOpens > thinkCloses) continue;
-      }
-
-      // Skip decimal numbers (3.14) and abbreviations (Mr., Dr., e.g.)
-      if (punct === '.') {
-        const charBefore = match.index > 0 ? text[match.index - 1] : '';
-        const charAfter = text[endIdx] || '';
-        if (/\d/.test(charBefore) && /\d/.test(charAfter)) continue;
-        const wordMatch = before.match(/(\w+)$/);
-        if (wordMatch && TTS_ABBREVIATIONS.has(wordMatch[1].toLowerCase())) continue;
-      }
-
-      const sentence = text.slice(0, endIdx).trim();
-      const remainder = text.slice(endIdx);
-      return { sentence, remainder };
-    }
-
-    return { sentence: null, remainder: text };
-  }
-
-  /**
    * Clean text and chain it onto the TTS synthesis pipeline.
    * Chunks are synthesized and sent to browser in order.
    * Captures the current generation so stale chunks from a cancelled
    * response are discarded even if synthesis completes.
    */
   _sendTTSChunk(text) {
-    const cleaned = text
-      .replace(/<think>[\s\S]*?<\/think>/g, '')
-      .replace(/<think>[\s\S]*$/g, '')
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/https?:\/\/\S+/g, '')
-      .replace(/[*_~`#>]/g, '')
-      .replace(/\n+/g, ' ')
-      .trim();
-
+    const cleaned = cleanChunkText(text);
     if (!cleaned) return;
 
     const seq = this._ttsChunkSeq++;
