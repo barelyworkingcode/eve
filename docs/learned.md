@@ -135,6 +135,34 @@ On-device STT/TTS runs in Web Workers using ONNX models. Chrome works fully. Saf
 
 All settings are user-overridable via Settings → Voice.
 
+## Server Kokoro daemon crashes under concurrent TTS (2026-06-06)
+
+The **server** TTS path (`tts-service.js` → Kokoro daemon on :9997) crashed
+intermittently: a session would lose voice ("stuck on Speaking" / no audio),
+sometimes taking out TTS for everyone at once. Distinct from the on-device
+Safari issues above — this is the daemon process dying.
+
+- **Root cause**: the daemon (`../kokoro/daemon/kokoro_daemon.py`) serves each
+  TCP connection on its own thread, all calling the shared `mlx-audio` model's
+  `generate()` (MLX/Metal) plus the espeak-ng phonemizer it drives. Both are
+  third-party and **not thread-safe**; two overlapping requests raced on shared
+  Metal command-buffer / espeak global state and segfaulted the whole process.
+  Confirmed upstream: mlx-audio#638, mlx#3078.
+- **Why intermittent**: within one session the server path is already serialized
+  via `RelayClient._ttsChain`, so a single streaming response never overlaps
+  itself. A crash needed two requests to overlap — two voice sessions at once,
+  or the read-aloud play button (`tts_speak`), which was fire-and-forget *off*
+  the chain.
+- **Fix**: a `gen_lock` in the daemon serializes all generation process-wide
+  (the real fix — it also guards the espeak path and is global across sessions,
+  which client-side chaining can't be). Defense in depth: `tts_speak` is now
+  serialized per-connection in `ws-handler.js`, and `daemon_wrapper.sh`
+  supervises + restarts the daemon on crash. Daemon deps are hash-pinned;
+  `mlx-audio` bumped to 0.4.4 (which also fixes Kokoro worker-thread usage).
+- **Invariant**: the daemon model is effectively single-threaded. Anything that
+  can issue concurrent `generate()` calls (new transports, batch paths, a second
+  frontend) must stay behind the daemon's lock — don't "optimize" it away.
+
 ## File-Preview CSP: the hardening pass broke PDF and HTML previews two different ways
 
 The frontend security audit (`docs/security-audit-frontend.md`, items H2 and C3) added CSP in two places. Both were correct for their threat model but each silently broke a file preview, and the two failures look identical to a user ("the preview is blank / doesn't work") despite having unrelated causes.
