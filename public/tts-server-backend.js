@@ -31,6 +31,15 @@ class TtsServerBackend {
   }
 
   /**
+   * Tell the server to abandon any in-flight read-aloud streaming (the user
+   * stopped playback). Read-aloud now streams sentence-by-sentence, so without
+   * this the daemon keeps synthesizing chunks nobody will hear.
+   */
+  cancelSpeak(ws) {
+    (ws || this._app?.wsClient)?.send({ type: 'tts_speak_cancel' });
+  }
+
+  /**
    * Fetch available voices from the server daemon.
    */
   async loadVoices() {
