@@ -106,6 +106,22 @@ class MessageRenderer {
 
     // Clear play button state when TTS playback finishes naturally
     this.bus.on(EVT.TTS_PLAYBACK_ENDED, () => this._clearSpeakingState());
+
+    // Auto-scroll only when the user is parked at the bottom. The moment they
+    // scroll up to read earlier output we stop yanking them back down; when they
+    // return to the bottom we re-engage. Updated solely from real scroll events,
+    // so appending content never silently flips the state — only the user does.
+    this._stickToBottom = true;
+    this.messagesEl.addEventListener('scroll', () => {
+      this._stickToBottom = this._isNearBottom();
+    }, { passive: true });
+  }
+
+  // Within SCROLL_STICK_THRESHOLD px of the bottom counts as "at the bottom".
+  // A little slack keeps fast streaming pinned and makes re-engaging forgiving.
+  _isNearBottom() {
+    const el = this.messagesEl;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= 80;
   }
 
   _clearSpeakingState() {
@@ -435,7 +451,7 @@ class MessageRenderer {
 
     messageEl.innerHTML = `<div class="message-content">${filesHtml}${this.escapeHtml(displayText)}</div>`;
     this.messagesEl.appendChild(messageEl);
-    this.scrollToBottom();
+    this.scrollToBottom(true); // user just sent — always jump to bottom
 
     if (this.app.state.currentSessionId && !this.isRenderingHistory) {
       const history = this.app.state.sessionHistories.get(this.app.state.currentSessionId) || [];
@@ -470,6 +486,7 @@ class MessageRenderer {
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.thinkBlockOpenStates.clear();
+    this._stickToBottom = true; // fresh/empty chat starts pinned to the bottom
     // Permission mode is per-session — clear the banner on session switches.
     this.setPermissionModeBanner('default');
   }
@@ -538,7 +555,7 @@ class MessageRenderer {
     // Complete any trailing tool block and remove thinking indicator from history
     this.hideThinkingIndicator();
     this.renderMermaidBlocks(this.messagesEl);
-    this.scrollToBottom();
+    this.scrollToBottom(true); // session just loaded — start at the bottom
     this.isRenderingHistory = false;
 
     // Restore in-progress assistant message saved before page refresh.
@@ -1148,7 +1165,16 @@ class MessageRenderer {
     return div.innerHTML;
   }
 
-  scrollToBottom() {
+  /**
+   * Scroll the chat to the bottom.
+   * @param {boolean} [force=false] - When true, always scroll and re-engage
+   *   stickiness (used for genuine user-initiated jumps: sending a message,
+   *   loading a session). When false, only scroll if the user is already
+   *   parked at the bottom, so streaming output never yanks them off the top.
+   */
+  scrollToBottom(force = false) {
+    if (!force && !this._stickToBottom) return;
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    this._stickToBottom = true;
   }
 }
