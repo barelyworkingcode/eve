@@ -10,7 +10,11 @@ const DEFAULT_TTS_VOICE = 'af_heart';
 
 /**
  * RelayClient - one instance per browser WS connection.
- * Manages a WebSocket connection to relayLLM and forwards events to the browser.
+ * Manages two upstream WebSockets and forwards their events to the browser:
+ *   - relayLLM's /ws (sessions, terminals, permissions) — the primary stream.
+ *   - relayScheduler's /ws/tasks (task lifecycle events) — auxiliary.
+ * The browser opens exactly one socket to eve, so eve is the only place these
+ * two upstreams can be merged onto a single browser stream.
  */
 const { NullLogger } = require('./logger');
 
@@ -26,6 +30,9 @@ class RelayClient {
     this.relayTransport = relayTransport;
     this.browserWs = browserWs;
     this.ws = null;
+    this.schedulerWs = null;         // second upstream: relayScheduler task events (/ws/tasks)
+    this._closed = false;            // set in close() to stop scheduler reconnect attempts
+    this._schedulerReconnectDelay = 2000;
     this.suppressNextJoin = false;
     this.sessionDirectory = null; // cached for slash command use
     this.currentSessionId = null;
@@ -85,7 +92,68 @@ class RelayClient {
           reject(err);
         }
       });
+
+      // Auxiliary upstream: relayScheduler's task lifecycle events. Independent
+      // of the relayLLM connection above — it never blocks (or rejects) this
+      // connect() promise, since task events are nice-to-have live updates, not
+      // core session traffic.
+      this._connectScheduler();
     });
+  }
+
+  /**
+   * Connect the second upstream WebSocket to relayScheduler's /ws/tasks (via
+   * relay's front door) and forward task lifecycle frames
+   * (task_started/completed/error/status) to the browser, where
+   * message-dispatcher already routes them. relayLLM owns "/ws"; the scheduler
+   * serves "/ws/tasks". Best-effort: reconnects with capped backoff while this
+   * client is open, self-healing across scheduler restarts. Replaces the old
+   * relayLLM SchedulerWSForwarder, relocated here per the service-manifest split.
+   */
+  _connectScheduler() {
+    if (this._closed) return;
+    let sws;
+    try {
+      sws = this.relayTransport.createWebSocket('/ws/tasks');
+    } catch (err) {
+      this.log.debug('Scheduler WS create failed:', err.message);
+      this._scheduleSchedulerReconnect();
+      return;
+    }
+    this.schedulerWs = sws;
+
+    sws.on('open', () => {
+      this.log.info('Connected to relayScheduler');
+      this._schedulerReconnectDelay = 2000;
+    });
+
+    sws.on('message', (data) => {
+      try {
+        this._sendToBrowser(JSON.parse(data.toString()));
+      } catch (err) {
+        this.log.error('Failed to parse scheduler message:', err.message);
+      }
+    });
+
+    sws.on('close', () => {
+      if (this.schedulerWs === sws) this.schedulerWs = null;
+      this._scheduleSchedulerReconnect();
+    });
+
+    // Swallow errors at debug level: when the scheduler is down relay 404s the
+    // upgrade and we'd otherwise log on every retry. 'close' fires after
+    // 'error' and drives the reconnect.
+    sws.on('error', (err) => {
+      this.log.debug('Scheduler WS error:', err.message);
+    });
+  }
+
+  /** Reconnect the scheduler upstream with capped backoff, unless closed. */
+  _scheduleSchedulerReconnect() {
+    if (this._closed) return;
+    const delay = this._schedulerReconnectDelay;
+    this._schedulerReconnectDelay = Math.min(delay * 2, 30000);
+    setTimeout(() => this._connectScheduler(), delay);
   }
 
   _handleRelayMessage(msg) {
@@ -396,11 +464,16 @@ class RelayClient {
   }
 
   close() {
+    this._closed = true;
     this._flushBatch();
     if (this._batchTimer) { clearTimeout(this._batchTimer); this._batchTimer = null; }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
+    }
+    if (this.schedulerWs) {
+      this.schedulerWs.close();
+      this.schedulerWs = null;
     }
     this.moduleSessions.clear();
   }
