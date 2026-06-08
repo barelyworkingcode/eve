@@ -45,31 +45,41 @@ class MessageRenderer {
     this.thinkBlockOpenStates = new Map(); // messageEl -> Set of open indices
     this._speakingMessageEl = null;
 
-    // Delegated mousedown handler for think-block summaries.
-    // Uses mousedown (not click) because during streaming, innerHTML replacement
-    // destroys elements between mousedown and mouseup, preventing click from firing.
-    // The native <details> toggle still works for completed messages via the
-    // normal click path; during streaming, _applyThinkBlockStates() restores
-    // the tracked state after each innerHTML replacement.
-    this.messagesEl.addEventListener('mousedown', (e) => {
+    // Think-block expand/collapse, driven from pointer events rather than the
+    // native <details> toggle. During streaming the message's innerHTML is
+    // rebuilt on every delta, so on touch devices the synthesized mouse/click
+    // event lands on a <summary> that's already been destroyed and the tap is
+    // lost — the bug that made think blocks un-expandable on mobile mid-stream.
+    // pointerdown fires on the live element the instant the finger lands, so we
+    // capture the target then, confirm it's a tap (not a scroll) on pointerup,
+    // and drive openSet — which _applyThinkBlockStates() re-applies after each
+    // re-render. We then cancel the element's own click toggle so the two don't
+    // cancel out; keyboard activation (Enter/Space) has no pointer tap and so
+    // still toggles natively.
+    let thinkTap = null; // { content, idx, x, y }
+    this.messagesEl.addEventListener('pointerdown', (e) => {
+      this._suppressSummaryClick = false;
       const summary = e.target.closest('.think-block > summary');
-      if (!summary) return;
-      const details = summary.parentElement;
-      const content = details.closest('.message-content');
-      if (!content) return;
-      const blocks = Array.from(content.querySelectorAll('.think-block'));
-      const idx = blocks.indexOf(details);
-      if (idx === -1) return;
-
-      if (!this.thinkBlockOpenStates.has(content)) {
-        this.thinkBlockOpenStates.set(content, new Set());
+      const details = summary?.parentElement;
+      const content = details?.closest('.message-content');
+      if (!content) { thinkTap = null; return; }
+      const idx = Array.from(content.querySelectorAll('.think-block')).indexOf(details);
+      thinkTap = idx === -1 ? null : { content, idx, x: e.clientX, y: e.clientY };
+    });
+    this.messagesEl.addEventListener('pointerup', (e) => {
+      if (!thinkTap) return;
+      const moved = Math.abs(e.clientX - thinkTap.x) > 10 || Math.abs(e.clientY - thinkTap.y) > 10;
+      if (!moved) {
+        this._toggleThinkBlock(thinkTap.content, thinkTap.idx);
+        this._suppressSummaryClick = true; // we handled it — cancel native toggle
       }
-      const openSet = this.thinkBlockOpenStates.get(content);
-      if (openSet.has(idx)) {
-        openSet.delete(idx);
-      } else {
-        openSet.add(idx);
+      thinkTap = null;
+    });
+    this.messagesEl.addEventListener('click', (e) => {
+      if (this._suppressSummaryClick && e.target.closest('.think-block > summary')) {
+        e.preventDefault();
       }
+      this._suppressSummaryClick = false;
     });
 
     // Delegated click handler for TTS play/stop buttons on assistant messages.
@@ -231,6 +241,21 @@ class MessageRenderer {
     if (sid && !this.isRenderingHistory) {
       try { sessionStorage.removeItem(`eve-stream-${sid}`); } catch {}
     }
+  }
+
+  // Flip one think block's open state and persist it in openSet so it survives
+  // streaming re-renders. Applies to the DOM immediately so the tap feels
+  // responsive even when no further stream delta is coming (open and close both
+  // handled here; _applyThinkBlockStates only re-opens, never closes).
+  _toggleThinkBlock(content, idx) {
+    if (!this.thinkBlockOpenStates.has(content)) {
+      this.thinkBlockOpenStates.set(content, new Set());
+    }
+    const openSet = this.thinkBlockOpenStates.get(content);
+    const open = !openSet.has(idx);
+    if (open) openSet.add(idx); else openSet.delete(idx);
+    const block = content.querySelectorAll('.think-block')[idx];
+    if (block) block.open = open;
   }
 
   _applyThinkBlockStates() {
