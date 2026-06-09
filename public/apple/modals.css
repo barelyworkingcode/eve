@@ -1,0 +1,601 @@
+/* ============================================================================
+   Apple-Native Modals — alerts, sheets, and permission dialogs.
+   Overrides styles.css by source order (loaded after). DOM/classes unchanged.
+   All ids, data-testid, class names, and z-index stacking are preserved.
+   ========================================================================== */
+
+/* — Backdrop: translucent dark scrim with vibrancy blur -------------------- */
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.44);
+  -webkit-backdrop-filter: saturate(160%) blur(8px);
+  backdrop-filter: saturate(160%) blur(8px);
+}
+
+/* — Container: centered flex host ----------------------------------------- */
+.modal {
+  padding: var(--sp-6);
+  align-items: center;
+  justify-content: center;
+}
+
+/* z-index stacking: confirmModal at 200 is declared in styles.css; kept. */
+
+/* — Card: Apple alert / sheet feel ---------------------------------------- */
+.modal-content {
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--sp-8) var(--sp-8) var(--sp-7);
+  max-width: 420px;
+  box-shadow: var(--shadow-window), var(--edge-light);
+  animation: appleModalIn var(--dur-2) var(--ease-spring) both;
+}
+
+/* Wider variant (task modal) */
+.modal-wide {
+  max-width: 560px;
+}
+
+@keyframes appleModalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes appleSheetUp {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* — Title ------------------------------------------------------------------ */
+.modal-content h3 {
+  font-size: var(--text-title3);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin-bottom: var(--sp-5);
+}
+
+/* — Confirm / descriptive text -------------------------------------------- */
+.confirm-message {
+  font-size: var(--text-callout);
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: var(--sp-6);
+}
+
+/* — Form fields ------------------------------------------------------------ */
+.modal-content label {
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+  margin-bottom: var(--sp-2);
+}
+
+.modal-content input,
+.modal-content textarea,
+.modal-content select {
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  padding: 9px var(--sp-5);
+  width: 100%;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1), background var(--dur-1);
+}
+
+.modal-content textarea {
+  resize: vertical;
+  box-sizing: border-box;
+  line-height: 1.45;
+}
+
+.modal-content select {
+  margin-bottom: var(--sp-5);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2360606a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 34px;
+}
+
+/* Lighter chevron in dark mode (the #60606a stroke is too low-contrast on
+   --bg-tertiary #2c2c2e). data-theme covers the live app; the media query
+   covers the pre-JS flash. */
+html[data-theme="dark"] .modal-content select,
+html:not([data-theme]) .modal-content select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23aeaeb2' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+html[data-theme="light"] .modal-content select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2360606a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) .modal-content select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2360606a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  }
+}
+
+.modal-content input:focus,
+.modal-content select:focus,
+.modal-content textarea:focus {
+  outline: none;
+  border-color: transparent;
+  background: var(--bg-elevated);
+  box-shadow: var(--focus-ring);
+}
+
+.modal-content select option {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* Model row: select + refresh button side by side */
+.model-select-row {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: center;
+  margin-bottom: var(--sp-5);
+}
+
+.model-select-row select {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Field hint text */
+.field-hint {
+  display: block;
+  font-size: var(--text-footnote);
+  color: var(--text-muted);
+  margin-top: var(--sp-2);
+  margin-bottom: var(--sp-5);
+}
+
+/* Provider settings fields */
+.provider-settings:empty {
+  display: none;
+}
+
+.provider-setting-field {
+  margin-bottom: var(--sp-5);
+}
+
+.provider-setting-field label {
+  display: block;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+  margin-bottom: var(--sp-2);
+}
+
+.provider-setting-field input[type="number"],
+.provider-setting-field input[type="text"] {
+  width: 100%;
+  padding: 9px var(--sp-5);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  transition: border-color var(--dur-1), box-shadow var(--dur-1), background var(--dur-1);
+}
+
+.provider-setting-field input[type="number"]:focus,
+.provider-setting-field input[type="text"]:focus {
+  outline: none;
+  border-color: transparent;
+  background: var(--bg-elevated);
+  box-shadow: var(--focus-ring);
+}
+
+.provider-setting-field.provider-setting-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: 0;
+  cursor: pointer;
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  color: var(--text-primary);
+  letter-spacing: 0;
+}
+
+.provider-setting-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* — Actions row ------------------------------------------------------------ */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-7);
+}
+
+/* — Buttons inside modals: Apple-native sizing/radius ---------------------- */
+.modal-actions .btn-primary,
+.modal-actions .btn-secondary,
+.modal-actions .btn-danger,
+.modal-actions .btn-warn {
+  height: var(--ctl-h-lg);
+  padding: 0 var(--sp-7);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-1), color var(--dur-1), transform var(--dur-1) var(--ease-spring), box-shadow var(--dur-1);
+}
+
+.modal-actions .btn-primary:active,
+.modal-actions .btn-secondary:active,
+.modal-actions .btn-danger:active,
+.modal-actions .btn-warn:active {
+  transform: scale(0.97);
+}
+
+/* Primary: filled accent */
+.modal-actions .btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+  border: none;
+  box-shadow: var(--shadow-1);
+}
+
+.modal-actions .btn-primary:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-2);
+}
+
+/* Secondary: ghost — translucent bg, subtle border */
+.modal-actions .btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 0.5px solid var(--border-color);
+  box-shadow: var(--shadow-1);
+}
+
+.modal-actions .btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+/* Danger: filled red */
+.modal-actions .btn-danger {
+  background: var(--danger);
+  color: #ffffff;
+  border: none;
+  box-shadow: var(--shadow-1);
+}
+
+.modal-actions .btn-danger:hover {
+  background: var(--danger-hover);
+}
+
+/* Warn: orange-tinted — "Allow All" bypass signal */
+.modal-actions .btn-warn {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+  border: 0.5px solid color-mix(in srgb, var(--warning) 40%, transparent);
+}
+
+.modal-actions .btn-warn:hover {
+  background: var(--warning);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+/* — Permission modal details ----------------------------------------------- */
+.permission-details {
+  margin-bottom: var(--sp-6);
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5) var(--sp-6);
+}
+
+.permission-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.permission-label {
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  letter-spacing: 0.01em;
+}
+
+.permission-value {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--accent);
+  font-family: var(--font-ui);
+}
+
+.permission-input-section {
+  margin-top: var(--sp-4);
+}
+
+.permission-input-preview {
+  background: var(--code-bg);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  padding: var(--sp-5);
+  margin-top: var(--sp-3);
+  font-size: var(--text-callout);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* Task last-result block */
+.task-last-result {
+  border-top: 0.5px solid var(--separator);
+  padding-top: var(--sp-5);
+  margin-top: var(--sp-5);
+}
+
+.task-result-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+  font-size: var(--text-footnote);
+}
+
+.task-result-status {
+  padding: 2px var(--sp-4);
+  border-radius: var(--radius-pill);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  font-size: var(--text-footnote);
+  letter-spacing: 0.04em;
+}
+
+.task-result-status.status-success {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.task-result-status.status-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.task-result-time {
+  color: var(--text-muted);
+}
+
+.task-result-stats {
+  color: var(--text-secondary);
+}
+
+.task-result-error-msg {
+  color: var(--danger);
+  font-size: var(--text-callout);
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--danger-soft);
+  border-radius: var(--radius-md);
+}
+
+.task-last-result .permission-input-preview {
+  margin-top: 0;
+  max-height: 200px;
+}
+
+/* — Modal-overlay: terminal template picker -------------------------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.44);
+  -webkit-backdrop-filter: saturate(160%) blur(8px);
+  backdrop-filter: saturate(160%) blur(8px);
+  z-index: 200;
+  padding: var(--sp-6);
+}
+
+.modal-overlay .modal {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-window), var(--edge-light);
+  width: 100%;
+  animation: appleModalIn var(--dur-2) var(--ease-spring) both;
+  display: block;
+  inset: unset;
+  padding: 0;
+  overflow: hidden;
+}
+
+.modal-overlay .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-6) var(--sp-7);
+  border-bottom: 0.5px solid var(--separator);
+}
+
+.modal-overlay .modal-header h3 {
+  font-size: var(--text-headline);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.modal-overlay .modal-close {
+  background: var(--bg-tertiary);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur-1), color var(--dur-1);
+}
+
+.modal-overlay .modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.template-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.template-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  padding: var(--sp-5) var(--sp-7);
+  background: none;
+  border: none;
+  border-bottom: 0.5px solid var(--separator);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  transition: background var(--dur-1);
+}
+
+.template-item:last-child {
+  border-bottom: none;
+}
+
+.template-item:hover {
+  background: var(--bg-hover);
+}
+
+.template-item:active {
+  background: var(--accent-soft);
+}
+
+.template-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* — Mobile: bottom sheet --------------------------------------------------- */
+@media (max-width: 768px) {
+  .modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-backdrop {
+    /* Full-bleed click-to-close target — untouched behavior. */
+  }
+
+  .modal-content {
+    width: 100%;
+    max-width: 100%;
+    /* styles.css mobile sets a 12px side margin + safe-area bottom margin on
+       .modal-content; zero it so the bottom sheet is truly full-bleed (padding
+       above already handles the safe-area inset). */
+    margin: 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding: var(--sp-7) var(--sp-6) max(var(--sp-8), env(safe-area-inset-bottom, 0px));
+    animation: appleSheetUp var(--dur-2) var(--ease-spring) both;
+    position: relative;
+  }
+
+  .modal-content::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 5px;
+    border-radius: var(--radius-pill);
+    background: var(--border-strong);
+    margin: 0 auto var(--sp-6);
+  }
+
+  /* Mobile: inputs must be 16px to prevent iOS zoom */
+  .modal-content input,
+  .modal-content textarea,
+  .modal-content select,
+  .provider-setting-field input[type="number"],
+  .provider-setting-field input[type="text"] {
+    font-size: 16px;
+  }
+
+  /* Mobile: full-width stacked buttons */
+  .modal-actions {
+    flex-direction: column-reverse;
+    margin-top: var(--sp-6);
+    gap: var(--sp-3);
+  }
+
+  .modal-actions .btn-primary,
+  .modal-actions .btn-secondary,
+  .modal-actions .btn-danger,
+  .modal-actions .btn-warn {
+    width: 100%;
+    height: var(--hit);
+    padding: 0 var(--sp-6);
+    justify-content: center;
+  }
+
+  /* Mobile: modal-overlay also snaps to bottom sheet */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-overlay .modal {
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: appleSheetUp var(--dur-2) var(--ease-spring) both;
+  }
+}

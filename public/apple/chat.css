@@ -1,0 +1,224 @@
+/* ============================================================================
+   Apple-Native Chat — Messages.app bubbles + iOS pill composer.
+   The hero surface. Pure CSS over styles.css; every id/class/data-testid kept.
+   ========================================================================== */
+
+.chat-content { background: var(--bg-primary); }
+
+/* — Message stream --------------------------------------------------------- */
+.messages {
+  padding: 18px 18px 8px;
+  gap: 8px;
+  scroll-padding-bottom: 16px;
+}
+
+/* Cap bubble width on wide screens (Messages-style readable column) while
+   keeping a percentage on narrow ones. */
+.message { max-width: min(82%, 760px); }
+.message.user { align-self: flex-end; }
+.message.assistant { align-self: flex-start; }
+
+/* Bubbles: 19px radius, single squared "tail" corner, no borders. */
+.message-content {
+  padding: 9px 14px;
+  border-radius: var(--radius-bubble);
+  font-size: var(--text-body);
+  line-height: 1.45;
+  box-shadow: var(--shadow-1);
+}
+
+.message.user .message-content {
+  background: var(--message-user);
+  color: var(--message-user-text);
+  border-bottom-right-radius: 6px;
+}
+.message.user .message-content,
+.message.user .message-content * { color: var(--message-user-text); }
+
+.message.assistant .message-content {
+  background: var(--message-assistant);
+  color: var(--message-assistant-text);
+  border: none;
+  border-bottom-left-radius: 6px;
+}
+
+/* System / error / warning as Apple inline notices (centered capsule cards). */
+.message.system .message-content {
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-callout);
+  box-shadow: none;
+}
+.message.system.error .message-content {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
+}
+.message.system.warning .message-content {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+  color: var(--warning);
+}
+
+.message-file {
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: var(--weight-medium);
+  padding: 3px 9px;
+}
+
+.message-metrics {
+  font-size: var(--text-footnote);
+  font-variant-numeric: tabular-nums;
+}
+
+/* — Input bar -------------------------------------------------------------- */
+.input-area {
+  padding: 10px 14px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-top: 0.5px solid var(--separator);
+}
+
+.input-prompt {
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--warning) 40%, transparent);
+}
+
+.plan-approval-bar {
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  border: 0.5px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  padding: 10px 14px;
+}
+
+/* Attachment chips — pill cards. */
+.attached-file {
+  border-radius: var(--radius-pill);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  padding: 5px 10px;
+}
+.attached-file.attached-image { padding: 3px 10px 3px 3px; }
+.attached-file .file-thumbnail { border-radius: var(--radius-sm); }
+
+/* — Composer: pill textarea + round controls (iOS Messages) ---------------- */
+.input-form { gap: 8px; align-items: flex-end; }
+
+.input-form textarea {
+  padding: 8px 15px;
+  min-height: 36px;
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: 20px;
+  font-size: var(--text-body);
+  line-height: 1.4;
+  transition: border-color var(--dur-1), background var(--dur-1), box-shadow var(--dur-1);
+}
+.input-form textarea:focus {
+  border-color: transparent;
+  background: var(--bg-elevated);
+  box-shadow: var(--focus-ring);
+}
+.input-form textarea.dragover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* All composer controls -> round 36px (44px touch on mobile). */
+.btn-attach,
+.btn-mic,
+.btn-send,
+.btn-stop,
+.btn-voice-mode {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  transition: background var(--dur-1), color var(--dur-1), transform var(--dur-1) var(--ease-spring);
+}
+.btn-attach:active,
+.btn-mic:active,
+.btn-send:active,
+.btn-stop:active { transform: scale(0.92); }
+
+/* Leading icons (attach, plan) = ghost circles. */
+.btn-attach {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn-attach:hover { background: var(--bg-hover); color: var(--accent); }
+#planModeBtn.active { background: var(--accent); color: #fff; }
+
+/* Send = filled accent circle. */
+.btn-send {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-1);
+}
+.btn-send:hover { background: var(--accent-hover); }
+.btn-send:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+.btn-send svg { width: 17px; height: 17px; }
+
+/* Stop = filled red circle. */
+.btn-stop {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-stop:hover { background: var(--danger-hover); }
+.btn-stop svg { width: 16px; height: 16px; }
+
+.btn-mic {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn-mic:hover { background: var(--bg-hover); color: var(--accent); }
+.btn-mic--recording,
+.btn-mic--recording:hover { background: var(--danger); color: #fff; }
+.btn-mic--transcribing { background: var(--accent); color: #fff; }
+
+/* — Voice drawer ----------------------------------------------------------- */
+.voice-drawer__toggle { background: transparent; }
+.voice-drawer__toggle:hover { background: var(--bg-hover); }
+.voice-drawer__panel {
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-bottom: 0.5px solid var(--separator);
+}
+.voice-drawer__select {
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  font-size: var(--text-callout);
+}
+.voice-drawer__select:focus { border-color: transparent; box-shadow: var(--focus-ring); }
+.btn-voice-mode { background: transparent; color: var(--text-secondary); }
+.btn-voice-mode:hover { background: var(--bg-hover); color: var(--accent); }
+.btn-voice-mode--active,
+.btn-voice-mode--active:hover { background: var(--accent); color: #fff; }
+.btn-voice-ui {
+  width: 36px; height: 36px;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn-voice-ui:hover { background: var(--bg-hover); color: var(--accent); }
+
+/* Mobile: 44px touch targets for all composer controls. */
+@media (max-width: 768px) {
+  .btn-attach, .btn-mic, .btn-send, .btn-stop, .btn-voice-mode, .btn-voice-ui {
+    width: 44px; height: 44px;
+  }
+  .input-form textarea { min-height: 44px; border-radius: 22px; font-size: 16px; }
+  .message { max-width: 85%; }
+}
