@@ -45,6 +45,7 @@
           if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
           var lum = (0.299*parseInt(h.slice(0,2),16) + 0.587*parseInt(h.slice(2,4),16) + 0.114*parseInt(h.slice(4,6),16)) / 255;
           r.colorScheme = lum > 0.5 ? 'light' : 'dark';
+          document.documentElement.dataset.theme = lum > 0.5 ? 'light' : 'dark';
           var m = document.querySelector('meta[name="theme-color"]');
           if (m) m.content = pal.bgPrimary;
         }
@@ -116,6 +117,26 @@
   </script>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth.css">
+  <!-- Apple-native redesign layer (overrides styles.css by source order).
+       Order: foundation -> shared controls -> surfaces -> overlays. -->
+  <link rel="stylesheet" href="apple/tokens.css">
+  <link rel="stylesheet" href="apple/base.css">
+  <link rel="stylesheet" href="apple/controls.css">
+  <link rel="stylesheet" href="apple/shell.css">
+  <link rel="stylesheet" href="apple/chat.css">
+  <link rel="stylesheet" href="apple/chat-extras.css">
+  <link rel="stylesheet" href="apple/sidebar-tree.css">
+  <link rel="stylesheet" href="apple/panes.css">
+  <link rel="stylesheet" href="apple/menus.css">
+  <link rel="stylesheet" href="apple/editor.css">
+  <link rel="stylesheet" href="apple/terminal.css">
+  <link rel="stylesheet" href="apple/viewers.css">
+  <link rel="stylesheet" href="apple/voice.css">
+  <link rel="stylesheet" href="apple/modules-orb.css">
+  <link rel="stylesheet" href="apple/toast.css">
+  <link rel="stylesheet" href="apple/dialogs.css">
+  <link rel="stylesheet" href="apple/modals.css">
+  <link rel="stylesheet" href="apple/auth.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
   <script src="/marked/lib/marked.umd.js"></script>
   <script src="/dompurify/purify.min.js"></script>

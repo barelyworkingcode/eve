@@ -1,0 +1,216 @@
+/* ============================================================================
+   Apple-Native Menus — context menus as popovers, native selects as menus.
+   Overrides styles.css by source order. DOM/classes/IDs/data-testid unchanged.
+   ========================================================================== */
+
+/* — Context Menus (file-context-menu and file-tree__context-menu) ---------- */
+
+.file-context-menu,
+.file-tree__context-menu {
+  position: fixed;
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  min-width: 150px;
+  padding: 4px 0;
+  font-family: var(--font-ui);
+}
+/* Preserve the z-index contract: file-context-menu=1000, file-tree menu=200. */
+.file-context-menu { z-index: 1000; }
+.file-tree__context-menu { z-index: 200; }
+
+/* Context menu button items */
+.file-context-menu button,
+.file-tree__context-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1);
+}
+
+.file-context-menu button:hover,
+.file-tree__context-item:hover {
+  background: var(--accent-soft);
+}
+
+/* Danger/destructive actions in red. */
+.file-tree__context-item--danger {
+  color: var(--danger);
+}
+
+.file-tree__context-item--danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* Separator between menu item groups. */
+.file-tree__context-sep {
+  height: 0.5px;
+  background: var(--separator);
+  margin: 6px 0;
+}
+
+/* — Native Select Elements (model select, dialog select, etc.) ------------- */
+
+/* Base styling for all select elements. */
+select,
+.modal-content select,
+.model-select-row select,
+.dialog__select,
+.dialog__model-select,
+.search-dialog__model-select,
+.voice-drawer__select,
+.voice-chat__voice-select,
+#taskScheduleConfig select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  padding: 8px 10px 8px 10px;
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color var(--dur-1), background var(--dur-1);
+
+  /* Checkmark/dropdown arrow */
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%231d1d1f' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 8px;
+  padding-right: 28px;
+}
+
+/* Dark mode arrow color. */
+@media (prefers-color-scheme: dark) {
+  select,
+  .modal-content select,
+  .model-select-row select,
+  .dialog__select,
+  .dialog__model-select,
+  .search-dialog__model-select,
+  .voice-drawer__select,
+  .voice-chat__voice-select,
+  #taskScheduleConfig select {
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23f5f5f7' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  }
+}
+
+html[data-theme="dark"] select,
+html[data-theme="dark"] .modal-content select,
+html[data-theme="dark"] .model-select-row select,
+html[data-theme="dark"] .dialog__select,
+html[data-theme="dark"] .dialog__model-select,
+html[data-theme="dark"] .search-dialog__model-select,
+html[data-theme="dark"] .voice-drawer__select,
+html[data-theme="dark"] .voice-chat__voice-select,
+html[data-theme="dark"] #taskScheduleConfig select {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23f5f5f7' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+}
+
+html[data-theme="light"] select,
+html[data-theme="light"] .modal-content select,
+html[data-theme="light"] .model-select-row select,
+html[data-theme="light"] .dialog__select,
+html[data-theme="light"] .dialog__model-select,
+html[data-theme="light"] .search-dialog__model-select,
+html[data-theme="light"] .voice-drawer__select,
+html[data-theme="light"] .voice-chat__voice-select,
+html[data-theme="light"] #taskScheduleConfig select {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%231d1d1f' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+}
+
+/* Hover state: subtle lift. */
+select:hover,
+.modal-content select:hover,
+.model-select-row select:hover,
+.dialog__select:hover,
+.dialog__model-select:hover,
+.search-dialog__model-select:hover,
+.voice-drawer__select:hover,
+.voice-chat__voice-select:hover,
+#taskScheduleConfig select:hover {
+  border-color: var(--border-strong);
+}
+
+/* Focus state: accent ring + border. */
+select:focus,
+.modal-content select:focus,
+.model-select-row select:focus,
+.dialog__select:focus,
+.dialog__model-select:focus,
+.search-dialog__model-select:focus,
+.voice-drawer__select:focus,
+.voice-chat__voice-select:focus,
+#taskScheduleConfig select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* Option styling (dropdown menu items). */
+select option,
+.modal-content select option,
+.model-select-row select option,
+.dialog__select option,
+.dialog__model-select option,
+.search-dialog__model-select option,
+.voice-drawer__select option,
+.voice-chat__voice-select option,
+#taskScheduleConfig select option {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  padding: 6px 8px;
+}
+
+/* Disabled state. */
+select:disabled,
+.modal-content select:disabled,
+.model-select-row select:disabled,
+.dialog__select:disabled,
+.dialog__model-select:disabled,
+.search-dialog__model-select:disabled,
+.voice-drawer__select:disabled,
+.voice-chat__voice-select:disabled,
+#taskScheduleConfig select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mobile: touch-friendly select sizing. */
+@media (max-width: 768px) {
+  .file-tree__context-item {
+    min-height: var(--hit);
+    padding: 12px;
+  }
+
+  select,
+  .modal-content select,
+  .model-select-row select,
+  .dialog__select,
+  .dialog__model-select,
+  .search-dialog__model-select,
+  .voice-drawer__select,
+  .voice-chat__voice-select,
+  #taskScheduleConfig select {
+    min-height: var(--hit);
+    padding: 10px 12px 10px 12px;
+    padding-right: 32px;
+  }
+}

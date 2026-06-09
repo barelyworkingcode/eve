@@ -1,0 +1,430 @@
+/* ============================================================================
+   Apple-Native Module Orb — floating activity indicator + read-only log dialog.
+   Glass pill orb (lower-right), accent badge, popover dialog (--bg-elevated).
+   Overrides styles.css by source order. DOM/classes unchanged.
+   ========================================================================== */
+
+/* — Module iframe content area ------------------------------------------------ */
+.module-content {
+  background: var(--bg-primary);
+  border: none;
+}
+
+.module-host__iframe {
+  background: var(--bg-primary);
+}
+
+/* — Floating activity orb ----------------------------------------------------- */
+.module-orb {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: var(--material-content);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-popover);
+  cursor: pointer;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: module-orb-pulse 2.2s ease-in-out infinite;
+  transition: transform var(--dur-1), box-shadow var(--dur-1);
+}
+
+.module-orb.hidden { display: none !important; }
+
+.module-orb:hover {
+  transform: scale(1.08);
+}
+
+.module-orb:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 3px;
+}
+
+/* Glassmorphic core indicator */
+.module-orb__core {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: module-orb-rotate 1.6s linear infinite;
+}
+
+/* Accent count badge — small capsule */
+.module-orb__count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-bold);
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Pulse animation — subtle outer glow on the glass surface */
+@keyframes module-orb-pulse {
+  0%, 100% {
+    box-shadow: var(--shadow-popover);
+  }
+  50% {
+    box-shadow: var(--shadow-popover), 0 0 0 6px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+}
+
+/* Core spinner animation */
+@keyframes module-orb-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* ========================================================================
+   DIALOG — Read-only log popover
+   ======================================================================== */
+
+.module-orb-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 9100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.module-orb-dialog.hidden { display: none !important; }
+
+/* Backdrop — subtle scrim */
+.module-orb-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(4px);
+}
+
+/* Panel — popover with elevation background + rounded corners */
+.module-orb-dialog__panel {
+  position: relative;
+  width: min(720px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-popover);
+}
+
+/* Header section */
+.module-orb-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 0.5px solid var(--separator);
+}
+
+.module-orb-dialog__header h3 {
+  margin: 0;
+  font-size: var(--text-headline);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+/* Close button */
+.module-orb-dialog__close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-1), background var(--dur-1);
+}
+
+.module-orb-dialog__close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Tab bar — pill-style soft tabs */
+.module-orb-dialog__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 0.5px solid var(--separator);
+  overflow-x: auto;
+}
+
+.module-orb-dialog__tab {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: color var(--dur-1), background var(--dur-1);
+}
+
+.module-orb-dialog__tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.module-orb-dialog__tab.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Status indicator dot inside tab */
+.module-orb-dialog__tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background var(--dur-1);
+}
+
+.module-orb-dialog__tab.is-running .module-orb-dialog__tab-dot {
+  background: var(--accent);
+  animation: module-orb-rotate 1.6s linear infinite;
+}
+
+.module-orb-dialog__tab.is-completed .module-orb-dialog__tab-dot {
+  background: var(--success);
+}
+
+.module-orb-dialog__tab.is-failed .module-orb-dialog__tab-dot {
+  background: var(--danger);
+}
+
+/* Body section */
+.module-orb-dialog__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.module-orb-dialog__empty {
+  color: var(--text-muted);
+  font-size: var(--text-callout);
+  text-align: center;
+  padding: 40px 0;
+}
+
+/* Metadata grid */
+.module-orb-dialog__meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 18px;
+}
+
+.module-orb-dialog__meta-row {
+  display: flex;
+  gap: 6px;
+  font-size: var(--text-subhead);
+}
+
+.module-orb-dialog__label {
+  color: var(--text-muted);
+}
+
+.module-orb-dialog__value {
+  color: var(--text-primary);
+}
+
+.module-orb-dialog__value--mono {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
+/* Status colors */
+.module-orb-dialog__status--running {
+  color: var(--accent);
+}
+
+.module-orb-dialog__status--completed {
+  color: var(--success);
+}
+
+.module-orb-dialog__status--failed {
+  color: var(--danger);
+}
+
+/* Action buttons footer */
+.module-orb-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Error alert — soft danger background */
+.module-orb-dialog__error {
+  background: var(--danger-soft);
+  border: 0.5px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-callout);
+  line-height: 1.4;
+}
+
+/* Scrollable event log */
+.module-orb-dialog__log {
+  flex: 1;
+  min-height: 200px;
+  max-height: 380px;
+  overflow-y: auto;
+  background: var(--code-bg);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-footnote);
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* Event entry in log */
+.module-orb-dialog__event {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.module-orb-dialog__event-tag {
+  flex-shrink: 0;
+  width: 50px;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  padding-top: 2px;
+}
+
+.module-orb-dialog__event-body {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+/* Event type colors */
+.module-orb-dialog__event.is-text .module-orb-dialog__event-tag {
+  color: var(--accent);
+}
+
+.module-orb-dialog__event.is-thinking .module-orb-dialog__event-tag {
+  color: var(--purple);
+}
+
+.module-orb-dialog__event.is-thinking .module-orb-dialog__event-body {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.module-orb-dialog__event.is-tool .module-orb-dialog__event-tag {
+  color: var(--warning);
+}
+
+.module-orb-dialog__event.is-error .module-orb-dialog__event-tag {
+  color: var(--danger);
+}
+
+.module-orb-dialog__event.is-error .module-orb-dialog__event-body {
+  color: var(--danger);
+}
+
+.module-orb-dialog__event.is-done .module-orb-dialog__event-tag {
+  color: var(--success);
+}
+
+.module-orb-dialog__event.is-meta .module-orb-dialog__event-tag {
+  color: var(--text-secondary);
+}
+
+.module-orb-dialog__event.is-meta .module-orb-dialog__event-body {
+  color: var(--text-secondary);
+}
+
+/* Result display section */
+.module-orb-dialog__result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.module-orb-dialog__result-heading {
+  font-size: var(--text-footnote);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+}
+
+.module-orb-dialog__result-body {
+  background: var(--code-bg);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: var(--text-callout);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* ========================================================================
+   MOBILE — Compact sizing on narrow screens
+   ======================================================================== */
+
+/* Small phones: orb size reduction */
+@media (max-width: 540px) {
+  .module-orb {
+    right: 12px;
+    bottom: 14px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .module-orb-dialog__panel {
+    max-height: 88vh;
+  }
+
+  .module-orb-dialog__meta {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Adaptive density: larger type on mobile */
+@media (max-width: 768px) {
+  .module-orb-dialog__header h3 {
+    font-size: var(--text-title3);
+  }
+}

@@ -1,0 +1,263 @@
+/* ============================================================================
+   Apple-Native Shell — app frame, vibrancy sidebar, activity rail, toolbar
+   header, macOS capsule tabs, explorer panel, welcome screen.
+   Overrides styles.css by source order (loaded after). DOM/classes unchanged.
+   ========================================================================== */
+
+.app { background: var(--bg-canvas); }
+
+.main { background: var(--bg-primary); }
+
+/* — Sidebar: one continuous vibrancy material (rail + panel) ---------------- */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--material-sidebar);
+  -webkit-backdrop-filter: var(--blur-strong);
+  backdrop-filter: var(--blur-strong);
+  border-right: 0.5px solid var(--separator);
+}
+
+.sidebar-rail {
+  width: var(--rail-width);
+  background: transparent;
+  border-right: 0.5px solid var(--separator);
+  padding: 10px 0;
+  gap: 4px;
+}
+
+.sidebar-rail__btn {
+  width: 44px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.sidebar-rail__btn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Project avatars: squircle tiles; active gets accent ring + side pill. */
+.rail__item { width: 46px; height: 46px; border-radius: var(--radius-md); }
+.rail__item--active { background: transparent; }
+.rail__avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;          /* iOS app-icon squircle feel */
+  font-size: 14px;
+  font-weight: var(--weight-bold);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-1) var(--ease-spring), border-radius var(--dur-1);
+}
+.rail__item:hover .rail__avatar { transform: scale(1.08); }
+.rail__item--active .rail__avatar {
+  border-radius: 12px;
+  box-shadow: 0 0 0 2.5px var(--accent), var(--shadow-1);
+}
+.rail__item--active::before {
+  left: -10px;
+  width: 4px;
+  height: 22px;
+  background: var(--accent);
+  border-radius: 0 4px 4px 0;
+}
+
+/* — Explorer panel --------------------------------------------------------- */
+.sidebar-panel { background: transparent; }
+
+.panel-header {
+  min-height: 48px;
+  padding: 0 8px 0 16px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.panel-header__title {
+  font-size: var(--text-headline);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+}
+.panel-header__btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.panel-header__btn:hover { color: var(--accent); background: var(--accent-soft); }
+
+/* Panel tabs as a soft segmented row. */
+.panel-tabs {
+  padding: 6px 10px;
+  gap: 4px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.panel-tab {
+  min-height: 30px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.panel-tab:hover { background: var(--bg-hover); }
+.panel-tab--active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.panel-tab--active::after { display: none; }   /* segmented fill replaces underline */
+.panel-tab__count {
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-actions { padding: 10px; border-top: 0.5px solid var(--separator); }
+.panel-action-btn {
+  min-height: 38px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--border-color);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-1);
+  font-size: var(--text-callout);
+  font-weight: var(--weight-medium);
+  transition: background var(--dur-1), transform var(--dur-1) var(--ease-spring);
+}
+.panel-action-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.panel-action-btn:active { transform: scale(0.98); }
+.panel-action-btn--primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--shadow-1);
+}
+.panel-action-btn--primary:hover { background: var(--accent-hover); }
+
+/* — Resizer ---------------------------------------------------------------- */
+.sidebar-resizer { width: 6px; }
+.sidebar-resizer:hover,
+.sidebar-resizer.resizing { background: var(--accent); }
+
+/* — Toolbar header --------------------------------------------------------- */
+.chat-header {
+  min-height: 50px;
+  padding: calc(7px + env(safe-area-inset-top, 0px)) 12px 7px 12px;
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-bottom: 0.5px solid var(--separator);
+  gap: 10px;
+}
+
+.menu-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 19px;
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.menu-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Session cost pill. */
+.session-stats { gap: 8px; }
+.stat-item {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.connection-status {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+}
+
+/* — macOS capsule tabs ----------------------------------------------------- */
+.tab-bar { gap: 5px; margin: 0; align-items: center; }
+.tab-bar::-webkit-scrollbar { height: 0; }
+
+.tab {
+  gap: 7px;
+  padding: 6px 11px;
+  border: none;
+  border-right: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.tab:first-child { border-left: none; }
+.tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tab.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-1);
+}
+.tab.active::after { display: none; }
+.tab-label { font-size: var(--text-subhead); font-weight: var(--weight-medium); }
+.tab-close {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+}
+.tab-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+.tab.active .tab-close:hover { background: var(--border-strong); }
+
+/* — Welcome screen --------------------------------------------------------- */
+.welcome-content h2 {
+  font-size: var(--text-largetitle);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.03em;
+}
+.welcome-content p {
+  font-size: var(--text-callout);
+  color: var(--text-secondary);
+}
+
+/* — Mobile: the activity rail becomes a horizontal top strip ---------------
+   The desktop .sidebar-rail rule above (width:var(--rail-width)) would clobber
+   styles.css's mobile rail rules by source order, squeezing the rail to 60px
+   and collapsing the project avatars. Re-assert the top-strip here. */
+@media (max-width: 768px) {
+  .sidebar-rail {
+    width: 100%;
+    height: 58px;
+    flex-direction: row;
+    align-items: center;
+    border-right: none;
+    border-bottom: 0.5px solid var(--separator);
+    padding: 0 8px;
+    gap: 4px;
+  }
+  .sidebar-rail__projects {
+    flex-direction: row;
+    width: auto;
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+  }
+  .sidebar-rail__spacer { display: none; }
+  /* Active-project indicator sits under the avatar in the horizontal strip. */
+  .rail__item--active::before {
+    left: 50%;
+    top: auto;
+    bottom: -1px;
+    transform: translateX(-50%);
+    width: 22px;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+  }
+
+  /* Restore 44px+ touch targets that the desktop rules above shrank
+     (audit: these are clobbered by source order at mobile width). */
+  .menu-toggle { width: 44px; height: 44px; }
+  .panel-tab { min-height: 46px; }
+  .panel-action-btn { min-height: 48px; }
+  .tab-close { width: 24px; height: 24px; }
+}
