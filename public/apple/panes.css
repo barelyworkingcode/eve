@@ -1,0 +1,141 @@
+/* ============================================================================
+   Apple-Native Panes — split-pane chrome, drop overlay, undock button.
+   Overrides styles.css by source order (loaded after). DOM/classes unchanged.
+
+   Contracts preserved:
+   - .pane-divider width stays exactly 6px (split-resize.js hit-math)
+   - .pane-divider::after fat-grab pseudo unchanged
+   - .content-area flex + min-height:0 untouched
+   - .content-area--split/--row/--col flex layout untouched
+   - .pane-divider z-index:2, .pane-drop-overlay z-index:4, .pane-undock z-index:5
+   - .pane-drop-overlay.blocked danger tint preserved
+   - .pane-drop-overlay.hidden { display:none } left to styles.css global rule
+   ============================================================================ */
+
+/* — Content area (flex container for panes) --------------------------------- */
+/* Ensure min-height:0 is always present; styles.css sets this but we
+   re-affirm so any downstream override cannot accidentally drop it. */
+.content-area {
+  /* flex:1, flex-direction:column, position:relative come from styles.css —
+     we only add the theme background here so pane backgrounds blend. */
+  background: var(--bg-primary);
+}
+
+/* — Pane divider ------------------------------------------------------------ */
+/*
+   Near-invisible hairline at rest: a single --separator pixel sandwiched by
+   the --bg-canvas gutter colour. On hover/.resizing the full bar fills to
+   --accent for clear drag feedback — matching the sidebar resizer convention
+   in shell.css (.sidebar-resizer).
+*/
+.pane-divider {
+  /* flex: 0 0 6px — KEPT from styles.css, not overridden. */
+  /* Render as a thin inset line rather than a solid bar:
+     - outer body = canvas (near-invisible)
+     - a centred 1px separator drawn with a box-shadow stripe */
+  background: var(--bg-canvas);
+  box-shadow: inset 1px 0 0 var(--separator), inset -1px 0 0 var(--separator);
+  transition: background var(--dur-1) var(--ease-out),
+              box-shadow var(--dur-1) var(--ease-out);
+}
+
+/* Column-direction divider: stripes run top-to-bottom. */
+.content-area--col .pane-divider {
+  box-shadow: inset 0 1px 0 var(--separator), inset 0 -1px 0 var(--separator);
+}
+
+/* Hover / active drag: solid accent fill, stripes gone. */
+.pane-divider:hover,
+.pane-divider.resizing {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+/* — Pane undock button ------------------------------------------------------ */
+/*
+   Small floating Apple control: --radius-md corners, elevated surface, ghost
+   at rest then accent-fill on hover. Matches the panel-header__btn idiom from
+   shell.css but with a small elevation shadow so it floats above pane content.
+*/
+.pane-undock {
+  /* Geometry: 22×22px kept from styles.css */
+  border-radius: var(--radius-sm);
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  color: var(--text-secondary);
+  border: 0.5px solid var(--separator);
+  box-shadow: var(--shadow-1);
+  opacity: 0;                         /* hidden until parent is hovered */
+  transition: opacity var(--dur-1) var(--ease-out),
+              background var(--dur-1) var(--ease-out),
+              color var(--dur-1) var(--ease-out),
+              transform var(--dur-1) var(--ease-spring);
+}
+
+/* Reveal when the pane is hovered — inherit from styles.css opacity:0.55
+   baseline; we override to 0 at rest and 1 on hover for a cleaner reveal. */
+.pane-undock:hover {
+  opacity: 1;
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--shadow-2);
+  transform: scale(1.06);
+}
+
+/* Show at partial opacity when pane content is hovered (JS may toggle a
+   parent class; also handle the element-level hover below its parent). */
+.pane-divider:hover ~ .pane-undock,
+.content-area:hover .pane-undock {
+  opacity: 0.7;
+}
+
+/* — Pane drag ghost --------------------------------------------------------- */
+/*
+   Small floating pill label that follows the cursor during a tab drag.
+   Apple-native: capsule pill, elevated material, accent border stroke.
+*/
+.pane-drag-ghost {
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--text-callout);
+  font-weight: var(--weight-medium);
+  color: var(--accent);
+  padding: var(--sp-2) var(--sp-5);
+}
+
+/* — Pane drop overlay ------------------------------------------------------- */
+/*
+   Soft accent-tinted drop zone with a dashed accent inset border.
+   Uses an outline trick so the dashed ring sits just inside the overlay
+   without affecting layout. Smooth position + opacity animation.
+*/
+.pane-drop-overlay {
+  /* Override the flat opacity:0.22 with a gradient tint + inset dashed ring. */
+  background: var(--accent-soft);
+  border: none;
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+  border-radius: var(--radius-md);
+  opacity: 1;                         /* visible at full tint; accent-soft handles alpha */
+  transition: left var(--dur-1) var(--ease-out),
+              top var(--dur-1) var(--ease-out),
+              width var(--dur-1) var(--ease-out),
+              height var(--dur-1) var(--ease-out),
+              background var(--dur-1) var(--ease-out),
+              outline-color var(--dur-1) var(--ease-out);
+}
+
+/* Blocked: red tint — mirror the accent pattern with danger tokens. */
+.pane-drop-overlay.blocked {
+  background: var(--danger-soft);
+  outline-color: var(--danger);
+}
+
+/* .pane-drop-overlay.hidden — styles.css global { display:none !important }
+   handles this; no override needed here. */

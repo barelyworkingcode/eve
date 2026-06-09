@@ -1,0 +1,244 @@
+/* ============================================================================
+   Apple-Native Design Tokens — the foundation of the redesign.
+
+   Loaded AFTER styles.css so these :root definitions win by source order and
+   re-map the legacy variable names (--bg-primary, --accent, --font-ui, ...) to
+   Apple HIG values. The legacy names are preserved on purpose: the inline
+   <head> bootstrap in index.html and SettingsManager both setProperty() those
+   exact names, so keeping them keeps theme customization working untouched.
+
+   Two palettes, system-following:
+     :root                                  -> light (Apple HIG light)
+     @media (prefers-color-scheme: dark)    -> dark
+     html[data-theme="light"|"dark"]        -> explicit manual override
+   New tokens (materials, elevation, radii, motion, control sizing) are additive
+   and consumed by the apple/*.css partials.
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* — Typography ------------------------------------------------------------ */
+  /* Chrome + prose move to SF Pro (system). Code/terminal stay monospace.
+     Both are overridable live by SettingsManager via these same names. */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+             "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code",
+               "Fira Code", Consolas, monospace;
+  --font-rounded: "SF Pro Rounded", -apple-system, BlinkMacSystemFont,
+                  var(--font-ui);
+  --root-font-size: 14px;
+
+  /* Apple text-style ramp (Dynamic-Type inspired, macOS density default). */
+  --text-largetitle: 28px;
+  --text-title1: 22px;
+  --text-title2: 19px;
+  --text-title3: 17px;
+  --text-headline: 15px;   /* semibold body */
+  --text-body: 14px;
+  --text-callout: 13px;
+  --text-subhead: 12px;
+  --text-footnote: 11px;
+  --text-caption: 11px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* — Corner radii (HIG) ---------------------------------------------------- */
+  --radius-xs: 5px;
+  --radius-sm: 7px;
+  --radius-md: 10px;    /* buttons, inputs, cards */
+  --radius-lg: 13px;    /* panels, popovers */
+  --radius-xl: 18px;    /* sheets, large cards */
+  --radius-bubble: 19px;
+  --radius-pill: 999px;
+
+  /* — Spacing (4pt base) ---------------------------------------------------- */
+  --sp-1: 2px;  --sp-2: 4px;  --sp-3: 6px;  --sp-4: 8px;  --sp-5: 12px;
+  --sp-6: 16px; --sp-7: 20px; --sp-8: 24px; --sp-9: 32px;
+
+  /* — Control sizing -------------------------------------------------------- */
+  --ctl-h-sm: 24px;
+  --ctl-h: 28px;        /* macOS regular control */
+  --ctl-h-lg: 36px;
+  --hit: 44px;          /* iOS minimum touch target (used at mobile bp) */
+  --rail-width: 60px;
+  --sidebar-width: 280px;
+
+  /* — Motion ---------------------------------------------------------------- */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);   /* Apple sheet/scroll feel */
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-1: 0.15s;
+  --dur-2: 0.26s;
+  --dur-3: 0.4s;
+
+  /* — Materials (vibrancy) -------------------------------------------------- */
+  --blur: saturate(180%) blur(20px);
+  --blur-strong: saturate(180%) blur(34px);
+
+  /* ========================================================================
+     LIGHT PALETTE (default)
+     ======================================================================== */
+  --bg-canvas: #e6e6eb;          /* behind translucent chrome */
+  --bg-primary: #ffffff;          /* content / chat canvas */
+  --bg-secondary: #f5f5f7;        /* panels, sidebar base, header */
+  --bg-tertiary: #ececf1;         /* filled controls, chips, stat pills */
+  --bg-hover: #e3e3e9;
+  --bg-elevated: #ffffff;         /* popovers, menus, dialogs */
+  --code-bg: #f4f4f6;
+
+  --text-primary: #1d1d1f;
+  --text-secondary: rgba(60, 60, 67, 0.6);
+  --text-muted: rgba(60, 60, 67, 0.32);
+
+  --border-color: rgba(60, 60, 67, 0.16);
+  --border-strong: rgba(60, 60, 67, 0.28);
+  --border: var(--border-color);   /* legacy alias used by voice-drawer rules */
+  --separator: rgba(60, 60, 67, 0.12);
+
+  --accent: #007aff;              /* systemBlue */
+  --accent-hover: #0066d6;
+  --accent-soft: rgba(0, 122, 255, 0.12);
+  --danger: #ff3b30;              /* systemRed */
+  --danger-hover: #e0322a;
+  --danger-soft: rgba(255, 59, 48, 0.12);
+  --success: #34c759;             /* systemGreen */
+  --warning: #ff9500;             /* systemOrange */
+  --purple: #af52de;              /* systemPurple — agent blocks */
+
+  /* Messages.app bubbles */
+  --message-user: linear-gradient(180deg, #38a1ff 0%, #007aff 100%);
+  --message-user-text: #ffffff;
+  --message-assistant: #e9e9eb;
+  --message-assistant-text: #1d1d1f;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.10);
+  --shadow-popover: 0 8px 30px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  --shadow-sheet: 0 -1px 24px rgba(0, 0, 0, 0.14);
+  --shadow-window: 0 18px 60px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  --edge-light: inset 0 0.5px 0 rgba(255, 255, 255, 0.7);
+
+  /* Vibrancy fills */
+  --material-sidebar: rgba(246, 246, 248, 0.72);
+  --material-bar: rgba(255, 255, 255, 0.72);
+  --material-content: rgba(255, 255, 255, 0.8);
+
+  --focus-ring: 0 0 0 3.5px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* ==========================================================================
+   DARK PALETTE
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+  :root:not([data-theme="light"]) {
+    --bg-canvas: #000000;
+    --bg-primary: #1c1c1e;
+    --bg-secondary: #232325;
+    --bg-tertiary: #2c2c2e;
+    --bg-hover: #3a3a3c;
+    --bg-elevated: #2c2c2e;
+    --code-bg: #0e0e10;
+
+    --text-primary: #f5f5f7;
+    --text-secondary: rgba(235, 235, 245, 0.6);
+    --text-muted: rgba(235, 235, 245, 0.32);
+
+    --border-color: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --border: rgba(255, 255, 255, 0.10);
+    --separator: rgba(255, 255, 255, 0.08);
+
+    --accent: #0a84ff;
+    --accent-hover: #409cff;
+    --accent-soft: rgba(10, 132, 255, 0.18);
+    --danger: #ff453a;
+    --danger-hover: #ff5c52;
+    --danger-soft: rgba(255, 69, 58, 0.18);
+    --success: #30d158;
+    --warning: #ff9f0a;
+    --purple: #bf5af2;
+
+    --message-user: linear-gradient(180deg, #0a84ff 0%, #0066ff 100%);
+    --message-user-text: #ffffff;
+    --message-assistant: #2c2c2e;
+    --message-assistant-text: #f5f5f7;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.45);
+    --shadow-popover: 0 10px 36px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+    --shadow-sheet: 0 -1px 28px rgba(0, 0, 0, 0.5);
+    --shadow-window: 0 22px 64px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(0, 0, 0, 0.7);
+    --edge-light: inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+
+    --material-sidebar: rgba(36, 36, 38, 0.6);
+    --material-bar: rgba(30, 30, 32, 0.68);
+    --material-content: rgba(28, 28, 30, 0.8);
+  }
+}
+
+/* ==========================================================================
+   EXPLICIT MANUAL OVERRIDES — html[data-theme]
+   SettingsManager can set data-theme to pin a mode regardless of OS.
+   ========================================================================== */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-canvas: #000000;
+  --bg-primary: #1c1c1e;
+  --bg-secondary: #232325;
+  --bg-tertiary: #2c2c2e;
+  --bg-hover: #3a3a3c;
+  --bg-elevated: #2c2c2e;
+  --code-bg: #0e0e10;
+  --text-primary: #f5f5f7;
+  --text-secondary: rgba(235, 235, 245, 0.6);
+  --text-muted: rgba(235, 235, 245, 0.32);
+  --border-color: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border: rgba(255, 255, 255, 0.10);
+  --separator: rgba(255, 255, 255, 0.08);
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --accent-soft: rgba(10, 132, 255, 0.18);
+  --danger: #ff453a;
+  --danger-hover: #ff5c52;
+  --danger-soft: rgba(255, 69, 58, 0.18);
+  --success: #30d158;
+  --warning: #ff9f0a;
+  --purple: #bf5af2;
+  --message-user: linear-gradient(180deg, #0a84ff 0%, #0066ff 100%);
+  --message-user-text: #ffffff;
+  --message-assistant: #2c2c2e;
+  --message-assistant-text: #f5f5f7;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-popover: 0 10px 36px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+  --shadow-sheet: 0 -1px 28px rgba(0, 0, 0, 0.5);
+  --shadow-window: 0 22px 64px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(0, 0, 0, 0.7);
+  --edge-light: inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+  --material-sidebar: rgba(36, 36, 38, 0.6);
+  --material-bar: rgba(30, 30, 32, 0.68);
+  --material-content: rgba(28, 28, 30, 0.8);
+}
+/* html[data-theme="light"] uses the :root defaults above — no overrides
+   needed, but the attribute still pins color-scheme so OS dark is ignored. */
+html[data-theme="light"] { color-scheme: light; }
+
+/* ==========================================================================
+   ADAPTIVE DENSITY — iOS-comfortable spacing/typography on narrow screens.
+   ========================================================================== */
+@media (max-width: 768px) {
+  :root {
+    --root-font-size: 16px;     /* iOS body; also prevents input zoom */
+    --text-body: 16px;
+    --text-callout: 15px;
+    --text-headline: 17px;
+    --ctl-h: 36px;
+    --ctl-h-lg: 44px;
+    --sidebar-width: 100%;
+  }
+}

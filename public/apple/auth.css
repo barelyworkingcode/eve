@@ -1,0 +1,128 @@
+/* ============================================================================
+   Apple-Native Auth — WebAuthn passkey enrollment screen.
+   Full-bleed canvas with centered elevated card, SF Pro typography,
+   prominent primary button, error footnote. Pure CSS over styles.css.
+   ========================================================================== */
+
+#authScreen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-canvas);
+  z-index: 200;
+}
+
+#authScreen.hidden {
+  display: none !important;
+}
+
+/* — Auth card: elevated container with vibrancy-style shadow ------------- */
+.auth-card {
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-window);
+  padding: var(--sp-9) var(--sp-8);
+  width: calc(100% - 2 * var(--sp-6));
+  max-width: 360px;
+  text-align: center;
+}
+
+/* — Title: SF Pro Display at large-title size, tight tracking ------------ */
+.auth-card h2 {
+  font-size: var(--text-largetitle);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.03em;
+  margin-bottom: var(--sp-3);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+/* — Message: secondary text with appropriate line-height --------------- */
+.auth-card p {
+  color: var(--text-secondary);
+  font-size: var(--text-callout);
+  margin-bottom: var(--sp-8);
+  line-height: 1.5;
+  font-family: var(--font-ui);
+}
+
+/* — Primary button: full-width, Apple control sizing, elevated feel ----- */
+.auth-card .btn-primary {
+  width: 100%;
+  padding: 10px 16px;
+  height: var(--ctl-h-lg);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+  transition: background var(--dur-1), transform var(--dur-1) var(--ease-spring);
+}
+
+.auth-card .btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.auth-card .btn-primary:active {
+  transform: scale(0.98);
+}
+
+.auth-card .btn-primary:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* — Error message: red footnote-style inline notice -------------------- */
+#authError {
+  margin-top: var(--sp-6);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--danger-soft);
+  border: 0.5px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: var(--text-footnote);
+  text-align: left;
+  font-family: var(--font-ui);
+  line-height: 1.4;
+}
+
+#authError.hidden {
+  display: none !important;
+}
+
+/* — Mobile: touch-friendly sizing and spacing (44px minimum targets) --- */
+@media (max-width: 768px) {
+  .auth-card {
+    width: calc(100% - 2 * var(--sp-6));
+    padding: var(--sp-8) var(--sp-6);
+  }
+
+  .auth-card h2 {
+    font-size: var(--text-title1);
+    margin-bottom: var(--sp-2);
+  }
+
+  .auth-card p {
+    font-size: var(--text-body);
+    margin-bottom: var(--sp-7);
+  }
+
+  .auth-card .btn-primary {
+    height: var(--hit);
+    font-size: var(--text-body);
+  }
+
+  #authError {
+    margin-top: var(--sp-5);
+    font-size: var(--text-callout);
+  }
+}

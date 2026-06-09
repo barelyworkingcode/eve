@@ -1,0 +1,164 @@
+/* ============================================================================
+   Apple-Native File Viewers — image, PDF, video, audio.
+   Centered content on primary background, clean status bar with monospace path,
+   rounded media with elevation shadow, native controls framed nicely.
+   Overrides styles.css by source order. DOM/classes unchanged.
+   ========================================================================== */
+
+/* — File Viewer Container --------------------------------------------------- */
+.file-viewer-content {
+  background: var(--bg-primary);
+}
+
+.file-viewer-content.hidden {
+  display: none !important;
+}
+
+/* — Canvas (content area) --------------------------------------------------- */
+.file-viewer__canvas {
+  min-height: 0;
+}
+
+/* — Status Bar (path + info) ----------------------------------------------- */
+.file-viewer__status {
+  padding: 8px 16px;
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-top: 0.5px solid var(--separator);
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.file-viewer__path {
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.file-viewer__info {
+  font-size: var(--text-footnote);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* — Image Viewer ----------------------------------------------------------- */
+.viewer-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.viewer-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  background: repeating-conic-gradient(#222 0% 25%, #333 0% 50%) 50% / 16px 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .viewer-image img {
+    background: repeating-conic-gradient(#444 0% 25%, #555 0% 50%) 50% / 16px 16px;
+  }
+}
+
+/* — PDF Viewer ------------------------------------------------------------- */
+.viewer-pdf {
+  width: 100%;
+  height: 100%;
+}
+
+.viewer-pdf iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* — Video Viewer ----------------------------------------------------------- */
+.viewer-video {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.viewer-video video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+}
+
+/* — Audio Viewer ----------------------------------------------------------- */
+.viewer-audio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--text-muted);
+}
+
+.viewer-audio__icon {
+  opacity: 0.4;
+}
+
+.viewer-audio__name {
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  max-width: 400px;
+  text-align: center;
+  word-break: break-word;
+}
+
+.viewer-audio audio {
+  width: 320px;
+  max-width: 100%;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+}
+
+/* — Shared Viewer Error ---------------------------------------------------- */
+.viewer-error {
+  color: var(--danger);
+  font-size: var(--text-body);
+  text-align: center;
+  padding: 20px;
+}
+
+/* Mobile: adjust padding and sizing for smaller screens ---------------------- */
+@media (max-width: 768px) {
+  .file-viewer__path {
+    font-size: var(--text-subhead);
+  }
+
+  .file-viewer__info {
+    font-size: var(--text-subhead);
+  }
+
+  .viewer-image,
+  .viewer-video {
+    padding: 12px;
+  }
+
+  .viewer-audio {
+    gap: 12px;
+  }
+
+  .viewer-audio audio {
+    width: 100%;
+  }
+}

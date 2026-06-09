@@ -1,0 +1,1312 @@
+/* ============================================================================
+   Apple-Native Dialogs — macOS sheets/popovers + iOS bottom sheets.
+   DialogBase system: .dialog / .dialog__panel / .dialog__tabs / per-dialog
+   content. Overrides styles.css by source order (loaded after). DOM/classes/
+   IDs/data-testid/name= attributes all unchanged.
+
+   Desktop: centered card with --shadow-window + --radius-xl, backdrop blur.
+   Mobile (≤ 768 px): bottom sheet with grabber + slide-up via --ease-spring.
+   Tabs: Apple HIG segmented control — pill track, elevated white/fill on active.
+   ========================================================================== */
+
+/* ==========================================================================
+   DIALOG SHELL — overlay + panel
+   ========================================================================== */
+
+/* Overlay container: flex centering (desktop), already z-100 from styles.css. */
+.dialog {
+  padding: var(--sp-6);
+  font-family: var(--font-ui);
+  /* Backdrop animation matches panel so they feel unified. */
+  animation: apple-dialog-backdrop-in var(--dur-2) var(--ease-out);
+}
+
+/* .dialog.hidden { display: none !important } — defined in styles.css; do NOT override. */
+
+/* Backdrop: subtle dark scrim with blur for the sheet-behind-glass look. */
+.dialog__backdrop {
+  background: rgba(0, 0, 0, 0.38);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* Panel: macOS window card — white/elevated background, large radius, window shadow. */
+.dialog__panel {
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-window);
+  /* Edge highlight for the "glass" look. */
+  box-shadow: var(--shadow-window), var(--edge-light);
+  width: 100%;
+  max-width: 400px;   /* default; individual dialogs override via JS style.maxWidth */
+  overflow: hidden;
+  /* Spring pop-in from slightly below + subtle scale. */
+  animation: apple-dialog-panel-in var(--dur-3) var(--ease-spring);
+  /* Safety valve: never taller than viewport with breathing room. */
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   TITLE BAR
+   ========================================================================== */
+
+.dialog__title-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-6) var(--sp-6) var(--sp-5);
+  /* No explicit border — the tab row or content provides the visual separation. */
+  flex-shrink: 0;
+}
+
+.dialog__title {
+  font-size: var(--text-headline);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin: 0;
+  flex: 1;
+}
+
+/* Badge pill next to title (e.g. project name in search dialog). */
+.dialog__badge {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: var(--sp-1) var(--sp-4);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Close button: macOS "traffic light" feel — 26px circle, × glyph. */
+.dialog__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background var(--dur-1), color var(--dur-1);
+}
+
+.dialog__close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   TABS — Apple HIG segmented control
+   ========================================================================== */
+
+/* Outer track: filled pill container, 6 px from panel edges. */
+.dialog__tabs {
+  display: flex;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-6) var(--sp-4);
+  border-bottom: none;   /* override the 1px border from styles.css */
+  flex-shrink: 0;
+}
+
+/* Inner pill track behind the segments. */
+.dialog__tabs::before {
+  content: none;  /* no pseudo — we style the container itself */
+}
+
+/* Tab segment: ghost by default. */
+.dialog__tab {
+  flex: 1;
+  padding: var(--sp-2) var(--sp-4);
+  min-height: var(--ctl-h);
+  background: var(--bg-tertiary);
+  border: none;
+  border-bottom: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: background var(--dur-1), color var(--dur-1);
+  white-space: nowrap;
+}
+
+.dialog__tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Active: elevated white/near-white fill, shadow, accent text.
+   Must match specificity of styles.css `.dialog__tab--active` (one class).
+   .dialog__tab--active already has specificity 0,1,0 — match it. */
+.dialog__tab--active {
+  background: var(--bg-elevated);
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-1);
+  border-bottom: none;
+  border-bottom-color: transparent;
+}
+
+/* ==========================================================================
+   BODY / SCROLLABLE CONTENT
+   ========================================================================== */
+
+/* Tab content pane: padded scroll container.
+   max-height kept from styles.css (60vh); we refine with dvh + padding. */
+.dialog__tab-content {
+  padding: var(--sp-5) var(--sp-6) var(--sp-6);
+  max-height: 62vh;
+  max-height: 62dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Custom scrollbar: thin + translucent track. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.dialog__tab-content::-webkit-scrollbar {
+  width: 5px;
+}
+.dialog__tab-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dialog__tab-content::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: var(--radius-pill);
+}
+
+/* ==========================================================================
+   FORM CONTROLS — labels, inputs, selects, checkboxes
+   ========================================================================== */
+
+.dialog__label {
+  display: block;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-2);
+  margin-top: var(--sp-5);
+  letter-spacing: 0.01em;
+}
+
+.dialog__label:first-child { margin-top: 0; }
+
+.dialog__input,
+.dialog__textarea {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-5);
+  height: var(--ctl-h-lg);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  transition: border-color var(--dur-1), background var(--dur-1), box-shadow var(--dur-1);
+  box-sizing: border-box;
+}
+
+.dialog__textarea {
+  height: auto;
+  min-height: 72px;
+  resize: vertical;
+  padding: var(--sp-3) var(--sp-5);
+}
+
+.dialog__input:focus,
+.dialog__textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  box-shadow: var(--focus-ring);
+}
+
+/* .dialog__select is covered by apple/menus.css (native select overrides). */
+
+/* Checkbox row: horizontally aligned label+input pair. */
+.dialog__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  margin-top: var(--sp-5);
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   SETTINGS PAIRS + ROWS (provider settings, paired number/boolean fields)
+   ========================================================================== */
+
+.dialog__settings {
+  margin-top: var(--sp-2);
+}
+
+/* KEEP: JS injects grid children into this — grid-template-columns must stay. */
+.dialog__setting-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 var(--sp-5);
+}
+
+.dialog__setting-row {
+  margin-top: var(--sp-4);
+}
+
+.dialog__setting-row--checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.dialog__setting-row--checkbox .dialog__label {
+  margin: 0;
+}
+
+/* ==========================================================================
+   ACTIONS ROW (form submit / cancel buttons at bottom of tab body)
+   ========================================================================== */
+
+.dialog__actions {
+  display: flex;
+  gap: var(--sp-3);
+  justify-content: flex-end;
+  margin-top: var(--sp-6);
+}
+
+/* Base button: macOS inline button size. */
+.dialog__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--ctl-h-lg);
+  padding: 0 var(--sp-6);
+  border-radius: var(--radius-md);
+  border: none;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-1), transform var(--dur-1) var(--ease-spring);
+}
+
+.dialog__btn:active { transform: scale(0.97); }
+
+/* Primary: filled accent. */
+.dialog__btn--primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-1);
+}
+
+.dialog__btn--primary:hover { background: var(--accent-hover); }
+
+/* Secondary: ghost with tertiary fill. */
+.dialog__btn--secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 0.5px solid var(--separator);
+}
+
+.dialog__btn--secondary:hover { background: var(--bg-hover); }
+
+/* ==========================================================================
+   SHELL LAUNCHER DIALOG
+   ========================================================================== */
+
+/* New-tab card grid (2 col → 1 col on narrow). */
+.shell-launcher__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+
+/* Card: elevated tile, squircle icon container, name + desc text. */
+.shell-launcher__card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-6) var(--sp-5);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur-1), border-color var(--dur-1), transform var(--dur-1) var(--ease-spring);
+}
+
+.shell-launcher__card:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.shell-launcher__card:active { transform: scale(0.98); }
+
+/* Accent-tinted card variant (existing --accent border). */
+.shell-launcher__card--accent {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-tertiary));
+}
+
+/* Template card: purple tint. */
+.shell-launcher__card--template {
+  border-color: color-mix(in srgb, var(--purple) 35%, transparent);
+  background: color-mix(in srgb, var(--purple) 6%, var(--bg-tertiary));
+}
+
+.shell-launcher__card--template:hover {
+  border-color: color-mix(in srgb, var(--purple) 60%, transparent);
+}
+
+/* Card icon: squircle container, accent-tinted. */
+.shell-launcher__card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;   /* iOS app-icon squircle */
+  background: var(--bg-elevated);
+  color: var(--accent);
+  flex-shrink: 0;
+  box-shadow: var(--shadow-1);
+}
+
+.shell-launcher__card-name {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.shell-launcher__card-desc {
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+  margin-top: var(--sp-1);
+  line-height: 1.3;
+}
+
+/* Favourite star: top-right of card, appears on hover. */
+.shell-launcher__fav-btn {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: var(--sp-1);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--dur-1), color var(--dur-1);
+  line-height: 1;
+}
+
+.shell-launcher__card:hover .shell-launcher__fav-btn { opacity: 0.7; }
+.shell-launcher__fav-btn:hover { opacity: 1 !important; color: var(--warning); }
+.shell-launcher__fav-btn--active { color: var(--warning); opacity: 1; }
+
+/* Section header (Resume tab). */
+.shell-launcher__section-title {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: var(--sp-4) 0 var(--sp-2);
+}
+
+.shell-launcher__section-title:first-child { padding-top: 0; }
+
+/* Resume item row. */
+.shell-launcher__resume-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  border-radius: var(--radius-md);
+  transition: background var(--dur-1);
+}
+
+.shell-launcher__resume-item:hover { background: var(--bg-tertiary); }
+
+.shell-launcher__resume-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  min-width: 0;
+  padding: var(--sp-4) var(--sp-5);
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  text-align: left;
+}
+
+/* Delete button: hidden until row hover. */
+.shell-launcher__resume-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--dur-1), background var(--dur-1), color var(--dur-1);
+}
+
+.shell-launcher__resume-item:hover .shell-launcher__resume-delete { opacity: 1; }
+.shell-launcher__resume-delete:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Badge pills: type + running state. */
+.shell-launcher__resume-badge {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.shell-launcher__resume-badge--running {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.shell-launcher__empty {
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  padding: var(--sp-8) 0;
+  text-align: center;
+}
+
+/* CLAUDE.md checkbox row in new-session form. */
+.shell-launcher__claudemd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-5);
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+
+.shell-launcher__claudemd-row input[type="checkbox"] { margin: 0; }
+
+/* Web form section (below grid on New tab). */
+.shell-launcher__web-form { padding-top: var(--sp-2); }
+
+/* ==========================================================================
+   PROJECT DIALOG
+   ========================================================================== */
+
+.project-dialog__form  { padding-top: var(--sp-2); }
+.project-dialog__templates { padding-top: var(--sp-2); }
+
+.project-dialog__empty {
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  padding: var(--sp-8) 0;
+  text-align: center;
+}
+
+.project-dialog__section-title {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  padding: var(--sp-6) 0 var(--sp-2);
+  border-top: 0.5px solid var(--separator);
+  margin-top: var(--sp-4);
+}
+
+.project-dialog__add-btn { width: 100%; margin-top: var(--sp-5); }
+
+/* Template list item: elevated card, hover accent border. */
+.project-dialog__template-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--sp-3);
+  transition: border-color var(--dur-1), background var(--dur-1);
+}
+
+.project-dialog__template-item:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.project-dialog__template-info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.project-dialog__template-name {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.project-dialog__template-badges { display: flex; gap: var(--sp-2); }
+
+/* Model / feature badges. */
+.project-dialog__badge {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--radius-pill);
+}
+
+/* Voice-capable badge: purple tint. */
+.project-dialog__badge--voice {
+  color: var(--purple);
+  background: color-mix(in srgb, var(--purple) 12%, transparent);
+}
+
+.project-dialog__template-actions { display: flex; gap: var(--sp-2); }
+
+/* Icon-only action buttons beside template items. */
+.project-dialog__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--dur-1), color var(--dur-1);
+}
+
+.project-dialog__icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.project-dialog__icon-btn--danger:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.project-dialog__template-form { padding-top: var(--sp-2); }
+
+/* Mode row: radio buttons side-by-side. */
+.project-dialog__mode-row {
+  display: flex;
+  gap: var(--sp-7);
+  margin-bottom: var(--sp-2);
+}
+
+.project-dialog__radio-label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+/* Textarea in project dialog. */
+.project-dialog__textarea {
+  resize: vertical;
+  min-height: 64px;
+}
+
+/* Checkbox rows (permissions, options). */
+.project-dialog__checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.project-dialog__checkbox-row input[type="checkbox"] { margin-top: 2px; }
+
+.project-dialog__checkbox-row label {
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.project-dialog__checkbox-row .field-hint {
+  width: 100%;
+  margin-top: var(--sp-1);
+}
+
+.project-dialog__voice-wrapper { margin-bottom: var(--sp-2); }
+
+/* Inline error banner. */
+.project-dialog__error {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  color: var(--danger);
+  font-size: var(--text-body);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--danger-soft);
+  border: 0.5px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--sp-4);
+}
+
+/* ==========================================================================
+   TASK DIALOG
+   ========================================================================== */
+
+.task-dialog__empty {
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  padding: var(--sp-8) 0;
+  text-align: center;
+}
+
+/* Task card: subtle elevated row. */
+.task-dialog__item {
+  padding: var(--sp-5);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--sp-4);
+  transition: border-color var(--dur-1);
+}
+
+.task-dialog__item:hover { border-color: var(--border-strong); }
+
+.task-dialog__info { margin-bottom: var(--sp-3); }
+
+.task-dialog__name {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.task-dialog__schedule {
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+  margin-top: var(--sp-1);
+}
+
+/* Status badge pill. */
+.task-dialog__status {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--radius-pill);
+  margin-bottom: var(--sp-4);
+}
+
+.task-dialog__status--completed {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.task-dialog__status--error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.task-dialog__status--running {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+
+.task-dialog__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/* Small inline action buttons (Run, Edit, Delete). */
+.task-dialog__action-btn {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ctl-h-sm);
+  padding: 0 var(--sp-5);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-ui);
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--separator);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--dur-1), border-color var(--dur-1), transform var(--dur-1) var(--ease-spring);
+  box-shadow: var(--shadow-1);
+}
+
+.task-dialog__action-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.task-dialog__action-btn:active { transform: scale(0.96); }
+
+.task-dialog__action-btn--danger { color: var(--danger); }
+
+.task-dialog__action-btn--danger:hover {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: var(--danger-soft);
+}
+
+/* Ensure first label in task form doesn't get top margin. */
+.task-dialog__form .dialog__label:first-child { margin-top: 0; }
+
+/* ==========================================================================
+   SEARCH DIALOG
+   ========================================================================== */
+
+/* Search body: flex column, same padding as tab-content but no extra top. */
+.search-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-4);
+}
+
+/* Query input: larger font, full width. */
+.search-dialog__query {
+  font-size: var(--text-body);
+  /* Inherits .dialog__input sizing */
+}
+
+/* Options row: toggles + glob filter inline. */
+.search-dialog__options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+}
+
+/* Toggle label pill (Regex / Whole word). */
+.search-dialog__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-callout);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.search-dialog__toggle input { cursor: pointer; }
+
+/* Glob/include filter: flex-grow remainder. */
+.search-dialog__glob {
+  flex: 1;
+  min-width: 180px;
+  font-size: var(--text-callout);
+}
+
+/* Status line: match count or hint. */
+.search-dialog__status {
+  font-size: var(--text-footnote);
+  color: var(--text-muted);
+  min-height: 14px;
+}
+
+/* Results container: scrollable panel. */
+.search-dialog__results {
+  max-height: 60vh;
+  max-height: 60dvh;
+  overflow-y: auto;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.search-dialog__results::-webkit-scrollbar { width: 4px; }
+.search-dialog__results::-webkit-scrollbar-track { background: transparent; }
+.search-dialog__results::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: var(--radius-pill);
+}
+
+/* Empty + error states. */
+.search-dialog__empty,
+.search-dialog__error {
+  padding: var(--sp-9) var(--sp-6);
+  text-align: center;
+  font-size: var(--text-body);
+  color: var(--text-muted);
+}
+
+.search-dialog__error { color: var(--danger); }
+
+/* File group header. */
+.search-dialog__file-group {
+  border-bottom: 0.5px solid var(--separator);
+}
+
+.search-dialog__file-group:last-child { border-bottom: none; }
+
+.search-dialog__file-header {
+  padding: var(--sp-2) var(--sp-5);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+  letter-spacing: -0.01em;
+}
+
+/* Result row: line number + preview code. */
+.search-dialog__result-row {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: var(--sp-5);
+  padding: var(--sp-2) var(--sp-5);
+  background: transparent;
+  border: none;
+  border-left: 2.5px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-footnote);
+  line-height: 1.5;
+  transition: background var(--dur-1), border-color var(--dur-1);
+}
+
+.search-dialog__result-row:hover,
+.search-dialog__result-row--selected {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+
+.search-dialog__line-no {
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: right;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.search-dialog__preview {
+  flex: 1;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Match highlight: accent fill, tight radius — like Xcode. */
+.search-dialog__preview mark {
+  background: var(--accent);
+  color: #fff;
+  padding: 0 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* AI row: enhanced toggle + model selector. */
+.search-dialog__ai-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+}
+
+/* Model selector: min-width to show model names, apple/menus handles native look. */
+.search-dialog__model-select {
+  min-width: 220px;
+  max-width: 320px;
+  font-size: var(--text-callout);
+}
+
+.search-dialog__model-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* AI summary panel: accent left-border card. */
+.search-dialog__ai-summary {
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-left: 2.5px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4) var(--sp-5);
+  font-size: var(--text-body);
+  line-height: 1.55;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Respect hidden attribute (element.hidden = true). */
+.search-dialog__ai-summary[hidden] { display: none; }
+
+.search-dialog__ai-summary-header {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+/* textContent updated directly for streaming hot-path — don't touch DOM here. */
+.search-dialog__ai-summary-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Blinking caret after streaming text. */
+.search-dialog__ai-summary--streaming .search-dialog__ai-summary-body::after {
+  content: '\25AE';
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--accent);
+  animation: search-dialog-caret 0.9s steps(2, end) infinite;
+}
+
+@keyframes search-dialog-caret {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+.search-dialog__ai-summary--error {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.search-dialog__ai-summary--error .search-dialog__ai-summary-header {
+  color: var(--danger);
+}
+
+/* Retry button in error state. */
+.search-dialog__ai-retry {
+  align-self: flex-start;
+  margin-top: var(--sp-2);
+  font-size: var(--text-callout);
+  padding: var(--sp-2) var(--sp-5);
+  height: var(--ctl-h-sm);
+}
+
+/* ==========================================================================
+   SETTINGS DIALOG (theme, colors, typography, voice, files)
+   ========================================================================== */
+
+/* Color palette editor rows. */
+.settings-dialog__color-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+}
+
+.settings-dialog__color-row + .settings-dialog__color-row {
+  border-top: 0.5px solid var(--separator);
+}
+
+.settings-dialog__color-label {
+  flex: 1;
+  font-size: var(--text-body);
+  color: var(--text-primary);
+}
+
+.settings-dialog__color-hex {
+  font-size: var(--text-callout);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  min-width: 62px;
+  text-align: right;
+}
+
+/* Color swatch input: tight circle. */
+.settings-dialog__color-input {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color var(--dur-1);
+}
+
+.settings-dialog__color-input:hover { border-color: var(--accent); }
+
+.settings-dialog__color-input::-webkit-color-swatch-wrapper { padding: 2px; }
+.settings-dialog__color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--radius-xs);
+}
+
+/* Footer (Reset button). */
+.settings-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--sp-5) var(--sp-6);
+  border-top: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+
+/* Theme preset gallery. */
+.settings-dialog__preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+
+.settings-dialog__preset-group-label {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: var(--sp-6) 0 var(--sp-4);
+}
+
+.settings-dialog__preset-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: border-color var(--dur-1), background var(--dur-1);
+}
+
+.settings-dialog__preset-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.settings-dialog__preset-card--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.settings-dialog__preset-card--active::after {
+  content: '✓';
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-4);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-bold);
+  color: var(--accent);
+}
+
+.settings-dialog__preset-swatches { display: flex; gap: var(--sp-2); }
+
+.settings-dialog__preset-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-dialog__preset-name {
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+}
+
+/* Segmented control (appearance mode picker / palette-edit toggle).
+   Same Apple HIG pill as dialog__tabs but self-contained and inline. */
+.settings-dialog__segmented {
+  display: flex;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+}
+
+.settings-dialog__seg-btn {
+  flex: 1;
+  padding: var(--sp-2) var(--sp-5);
+  min-height: var(--ctl-h);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-callout);
+  font-family: var(--font-ui);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background var(--dur-1), color var(--dur-1);
+}
+
+.settings-dialog__seg-btn:hover { color: var(--text-primary); }
+
+.settings-dialog__seg-btn--active {
+  background: var(--bg-elevated);
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-1);
+}
+
+/* Colors tab: edit-palette header (segmented + label). */
+.settings-dialog__colors-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-5);
+}
+
+.settings-dialog__colors-head-label {
+  font-size: var(--text-callout);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  font-weight: var(--weight-medium);
+}
+
+.settings-dialog__colors-head .settings-dialog__segmented { flex: 1; }
+
+/* ==========================================================================
+   ANIMATIONS
+   ========================================================================== */
+
+@keyframes apple-dialog-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Desktop: center-scale spring pop. */
+@keyframes apple-dialog-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ==========================================================================
+   MOBILE — bottom sheet
+   At ≤ 768 px the panel slides up from the bottom edge (iOS sheet pattern).
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  /* Adjust overlay centering → bottom-anchored. */
+  .dialog {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  /* Panel: full-width bottom sheet with grabber, rounded top corners only. */
+  .dialog__panel {
+    max-width: 100%;
+    width: 100%;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    /* Safe-area inset so content clears the Home indicator on iPhone. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    max-height: 92dvh;
+    animation: apple-dialog-sheet-in var(--dur-3) var(--ease-spring);
+  }
+
+  /* Grabber pill at top of sheet. */
+  .dialog__panel::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: var(--border-strong);
+    border-radius: var(--radius-pill);
+    margin: var(--sp-3) auto var(--sp-2);
+    flex-shrink: 0;
+  }
+
+  /* Title bar: slightly more compact. */
+  .dialog__title-bar {
+    padding: var(--sp-2) var(--sp-5) var(--sp-4);
+  }
+
+  /* Tabs: touch-target height bumped to --hit. */
+  .dialog__tab {
+    min-height: var(--hit);
+    font-size: var(--text-callout);
+  }
+
+  /* Inputs: prevent iOS font-size zoom (16px minimum). Height override is for
+     single-line controls only — textareas must keep their auto/min-height or
+     they collapse to one line. */
+  .dialog__input,
+  .dialog__select {
+    font-size: 16px;
+    height: var(--ctl-h-lg);
+  }
+  .dialog__textarea {
+    font-size: 16px;
+  }
+
+  /* Shell launcher: single-column card grid. */
+  .shell-launcher__grid { grid-template-columns: 1fr; }
+
+  /* Cards: wider touch target. */
+  .shell-launcher__card { padding: var(--sp-5) var(--sp-5); }
+
+  /* Search: narrower screen needs flexible glob/model. */
+  .search-dialog__options { gap: var(--sp-4); }
+  .search-dialog__glob { min-width: 0; width: 100%; }
+  .search-dialog__results { max-height: 50dvh; }
+  .search-dialog__model-select { min-width: 0; width: 100%; max-width: none; }
+}
+
+/* Sheet slide-up (mobile only). */
+@keyframes apple-dialog-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

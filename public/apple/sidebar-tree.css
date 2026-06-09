@@ -1,0 +1,701 @@
+/* ============================================================================
+   Apple-Native Sidebar Tree — Finder/list rows for files, sessions, tasks,
+   and modules inside the explorer panel.
+
+   Loaded AFTER styles.css and apple/shell.css so equal-specificity selectors
+   win by source order. DOM/classes/data-testid/ids are NEVER changed.
+   Padding-left is JS-injected (depth indentation) — never overridden here.
+   ========================================================================== */
+
+/* ============================================================================
+   LEGACY FILE TREE (.file-tree-*, .session-*, .project-group/header)
+   These exist in the legacy sidebar path (sidebar-renderer.js / file-browser.js).
+   Bring them up to Apple quality while matching the new tree below.
+   ========================================================================== */
+
+/* Legacy project groups */
+.project-group {
+  border-bottom: 0.5px solid var(--separator);
+}
+
+.project-header {
+  padding: 6px 10px 6px 12px;
+  gap: 6px;
+  font-family: var(--font-ui);
+  transition: background var(--dur-1) var(--ease-out);
+  border-radius: var(--radius-sm);
+  margin: 1px 4px;
+}
+.project-header:hover {
+  background: var(--bg-hover);
+}
+
+.project-toggle {
+  font-size: 9px;
+  color: var(--text-muted);
+  width: 12px;
+  flex-shrink: 0;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+/* Rotate when collapsed — toggled by JS class changes, invert direction. */
+.project-group.collapsed .project-toggle {
+  transform: rotate(-90deg);
+}
+
+.project-name {
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.project-sessions {
+  padding-left: 0;
+}
+.project-group.collapsed .project-sessions {
+  display: none;
+}
+
+/* Session items (legacy) */
+.session-item {
+  padding: 5px 10px 5px 24px;
+  border-left: none;
+  border-radius: var(--radius-sm);
+  margin: 1px 4px;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.session-item:hover {
+  background: var(--bg-hover);
+}
+.session-item.active {
+  background: var(--accent-soft);
+  border-left: none;
+}
+.session-item.active .session-name {
+  color: var(--accent);
+  font-weight: var(--weight-medium);
+}
+
+.session-item .session-name {
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+}
+
+.session-item .status {
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-rename,
+.session-delete {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  transition: opacity var(--dur-1), background var(--dur-1), color var(--dur-1);
+}
+.session-rename:hover { color: var(--accent); background: var(--accent-soft); }
+.session-delete:hover  { color: var(--danger); background: var(--danger-soft); }
+
+.session-rename-input {
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  padding: 2px 6px;
+  border: 0.5px solid var(--accent);
+  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Legacy session model badge */
+.session-model {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  border: none;
+}
+
+/* Legacy file-tree-item (file-browser.js) */
+.file-tree-loading,
+.file-tree-empty {
+  padding: 6px 14px;
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: var(--font-ui);
+}
+
+.file-tree-item {
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  margin: 1px 4px;
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  transition: background var(--dur-1) var(--ease-out);
+}
+.file-tree-item:hover {
+  background: var(--bg-hover);
+}
+
+.file-tree-toggle {
+  font-size: 8px;
+  color: var(--text-muted);
+  width: 12px;
+  flex-shrink: 0;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+.file-tree-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.file-tree-name {
+  color: var(--text-primary);
+  font-size: var(--text-subhead);
+}
+
+.file-tree-item.folder .file-tree-name {
+  font-weight: var(--weight-medium);
+}
+
+/* Drag states (legacy) */
+.file-tree-item.dragging {
+  opacity: 0.45;
+}
+.file-tree-item.drop-target,
+.file-tree.drop-target {
+  outline: 1.5px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+
+/* Legacy context menu (file-browser.js) */
+.file-context-menu {
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  padding: 5px 0;
+  min-width: 150px;
+}
+.file-context-menu.hidden { display: none; }
+
+.file-context-menu button {
+  padding: 6px 14px;
+  font-size: var(--text-callout);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  transition: background var(--dur-1);
+}
+.file-context-menu button:hover {
+  background: var(--bg-hover);
+}
+
+/* Legacy rename input */
+.file-rename-input {
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--accent);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  padding: 2px 6px;
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+/* ============================================================================
+   NEW PROJECT TREE (.project-tree, .project-tree__*)
+   project-panel.js + file-tree-node.js — the primary tree surface.
+   ========================================================================== */
+
+.project-tree {
+  user-select: none;
+}
+
+/* Empty state */
+.project-tree__empty {
+  padding: 14px 14px 14px 16px;
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  font-style: italic;
+}
+
+.project-tree__section-empty {
+  padding: 4px 8px 4px 38px;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-family: var(--font-ui);
+  font-style: italic;
+}
+
+/* ── Task items ─────────────────────────────────────────────────────────── */
+
+.project-tree__task-item {
+  min-height: 26px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-right: 6px;
+  gap: 5px;
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  margin: 0 4px;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.project-tree__task-item:hover {
+  background: var(--bg-hover);
+}
+
+/* "+ New Task" affordance */
+.project-tree__task-item--new {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.project-tree__task-item--new:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-style: normal;
+}
+
+.project-tree__task-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-subhead);
+}
+
+/* Cron schedule badge — capsule, tabular numerals */
+.project-tree__task-schedule {
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+
+/* Action buttons — revealed on hover */
+.project-tree__task-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease-out);
+  flex-shrink: 0;
+}
+.project-tree__task-item:hover .project-tree__task-actions {
+  opacity: 1;
+}
+
+.project-tree__task-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.project-tree__task-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+/* Run button: accent on hover */
+.project-tree__task-btn[title*="un"]:hover,
+.project-tree__task-btn[title*="Run"]:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+/* Running spinner retains warning color */
+.project-tree__task-btn.running {
+  color: var(--warning);
+  cursor: default;
+}
+
+/* ── Module items ─────────────────────────────────────────────────────── */
+
+.project-tree__module-item {
+  min-height: 26px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-right: 6px;
+  gap: 6px;
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  margin: 0 4px;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.project-tree__module-item:hover {
+  background: var(--bg-hover);
+}
+
+.project-tree__module-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--purple);
+  flex-shrink: 0;
+}
+
+.project-tree__module-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-subhead);
+}
+
+/* "+ New Module" affordance */
+.project-tree__module-item--new {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.project-tree__module-item--new:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-style: normal;
+}
+.project-tree__module-item--new .project-tree__module-icon {
+  color: var(--text-muted);
+}
+
+/* Broken module: muted + danger icon */
+.project-tree__module-item--broken {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+.project-tree__module-item--broken .project-tree__module-icon {
+  color: var(--danger);
+}
+
+/* ── Session items ────────────────────────────────────────────────────── */
+
+/* Swipe-to-delete container — must preserve overflow:hidden for the
+   slide-out delete button; transform is set inline by JS. */
+.project-tree__session-swipe {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Delete action revealed by swipe */
+.project-tree__session-delete {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  /* Must match project-panel.js DELETE_WIDTH (64) — the row translates -64px. */
+  width: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger);
+  color: #ffffff;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-ui);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  /* Soft left edge to visually ease in */
+  border-radius: 0 0 0 var(--radius-sm);
+}
+
+.project-tree__session-item {
+  min-height: 26px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-right: 6px;
+  gap: 5px;
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  /* Must be OPAQUE and full-bleed: the red swipe-to-delete button sits behind
+     this row at right:0, and the JS slides this row left to reveal it. A
+     transparent/translucent row leaks the red button through at rest. */
+  background: var(--bg-secondary);
+  margin: 0;
+  transition: background var(--dur-1) var(--ease-out);
+  will-change: transform;
+}
+.project-tree__session-item:hover {
+  background: var(--bg-hover);
+}
+
+/* Active session: opaque accent tint (not translucent --accent-soft, which
+   would leak the red delete button behind it). */
+.project-tree__session-item--active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary));
+  color: var(--accent);
+}
+.project-tree__session-item--active:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-secondary));
+}
+
+.project-tree__session-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-subhead);
+}
+.project-tree__session-item--active .project-tree__session-name {
+  font-weight: var(--weight-medium);
+}
+
+/* Model / status badge — pill capsule, tabular numerals */
+.project-tree__session-badge {
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+  font-family: var(--font-ui);
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "running" badge: accent color + soft accent background */
+.project-tree__session-badge--running {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Terminal icon preceding terminal-backed sessions */
+.project-tree__terminal-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 2px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.project-tree__session-item--active .project-tree__terminal-icon {
+  color: var(--accent);
+}
+
+/* ── New File-Tree (.file-tree__*) ──────────────────────────────────── */
+/* file-tree-node.js: VS Code-style file/folder tree with lazy load,
+   drag-drop, context menu. Padding-left is depth-injected — never touched. */
+
+.file-tree {
+  min-height: 100%;
+  padding-bottom: 4px;
+}
+
+.file-tree__loading {
+  padding: 7px 14px;
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  font-style: italic;
+}
+
+.file-tree__item {
+  min-height: 22px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  padding-right: 6px;
+  gap: 4px;
+  font-size: var(--text-subhead);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background var(--dur-1) var(--ease-out);
+  /* No border-radius / margin here — the full-width Finder row feel.
+     Indentation lives entirely in the JS-injected padding-left. */
+}
+.file-tree__item:hover {
+  background: var(--bg-hover);
+}
+
+/* Folders: slightly bolder name (Finder convention) */
+.file-tree__item--folder .file-tree__name {
+  font-weight: var(--weight-medium);
+}
+
+/* Dragged item: dims to ghost */
+.file-tree__item--dragging {
+  opacity: 0.4;
+}
+
+/* Drop target: accent insertion line */
+.file-tree__item--drop-target {
+  background: var(--accent-soft);
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Hidden files: italic + muted, slightly transparent */
+.file-tree__item--hidden {
+  opacity: 0.5;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+/* Disclosure chevron — rotates on expand via .file-tree__item--expanded */
+.file-tree__chevron {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 8px;
+  text-align: center;
+  transition: transform var(--dur-1) var(--ease-out),
+              color var(--dur-1);
+}
+.file-tree__item--expanded > .file-tree__chevron {
+  transform: rotate(90deg);
+  color: var(--text-primary);
+}
+.file-tree__item:hover .file-tree__chevron {
+  color: var(--text-primary);
+}
+
+.file-tree__chevron-spacer {
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.file-tree__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.file-tree__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-subhead);
+}
+
+/* ── Context menu (ui-utils.js: file-tree__context-*) ─────────────── */
+
+.file-tree__context-menu {
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 5px 0;
+  min-width: 160px;
+  z-index: var(--z-context-menu, 200);
+  box-shadow: var(--shadow-popover);
+}
+
+.file-tree__context-item {
+  display: block;
+  width: 100%;
+  padding: 6px 15px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--text-callout);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1);
+}
+.file-tree__context-item:hover {
+  background: var(--bg-hover);
+}
+
+.file-tree__context-item--danger {
+  color: var(--danger);
+}
+.file-tree__context-item--danger:hover {
+  background: var(--danger-soft);
+}
+
+.file-tree__context-sep {
+  height: 0.5px;
+  background: var(--separator);
+  margin: 4px 0;
+}
+
+/* ── Mobile: iOS touch targets (44pt minimum) ──────────────────────── */
+
+@media (max-width: 768px) {
+  .project-tree__task-item,
+  .project-tree__session-item,
+  .project-tree__module-item {
+    min-height: 44px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .file-tree__item {
+    min-height: 44px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .file-tree__context-item {
+    min-height: 44px;
+    padding: 12px 16px;
+  }
+
+  .project-tree__task-actions {
+    opacity: 0.8;
+  }
+
+  .project-tree__task-btn {
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+    padding: 10px;
+    font-size: 14px;
+  }
+
+  .session-rename,
+  .session-delete {
+    opacity: 0.7;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Keep width synced with JS DELETE_WIDTH (64); larger font for touch. */
+  .project-tree__session-delete {
+    width: 64px;
+    font-size: var(--text-subhead);
+  }
+
+  .session-item {
+    padding: 10px 14px 10px 28px;
+  }
+
+  .file-tree-item {
+    min-height: 44px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+}

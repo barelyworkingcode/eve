@@ -1,0 +1,170 @@
+/* ============================================================================
+   Apple-Native Notification Banners — System notification style.
+   Slide+fade in from top edge with spring easing, vibrancy material,
+   leading SF-symbol-like icon, title + message, optional progress track.
+   ========================================================================== */
+
+.toast-container {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top, 12px));
+  left: 50%;
+  transform: translateX(-50%);   /* top-center, clear of the sidebar/header */
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  width: calc(100% - 24px);
+  max-width: 420px;
+}
+
+/* Base toast: elevated vibrancy material, spring animation. */
+.toast {
+  pointer-events: auto;
+  background: var(--bg-elevated);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;          /* progress bar (a sibling of content) drops to its own full-width row */
+  gap: 12px;
+  animation: appleToastIn 0.4s var(--ease-spring);
+  overflow: hidden;
+}
+
+.toast--exiting {
+  animation: appleToastOut 0.3s var(--ease-out) forwards;
+}
+
+/* Leading icon: 20px square, tinted by type. */
+.toast::before {
+  content: '';
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.toast--info::before { background: var(--accent); }
+.toast--success::before { background: var(--success); }
+.toast--warning::before { background: var(--warning); }
+.toast--error::before { background: var(--danger); }
+
+/* Content wrapper: flex column, message text on left, close on right. */
+.toast__content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.toast__message {
+  font-size: var(--text-callout);
+  color: var(--text-primary);
+  line-height: 1.3;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  font-weight: var(--weight-medium);
+}
+
+/* Close button: 24px touchable, no background, muted color. */
+.toast__close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  transition: color var(--dur-1);
+}
+
+.toast__close:hover {
+  color: var(--text-primary);
+}
+
+/* Progress bar: thin accent track below message. */
+.toast__progress {
+  height: 2px;
+  background: var(--separator);
+  border-radius: 1px;
+  margin-top: 8px;
+  overflow: hidden;
+  width: 100%;
+  flex: 0 0 100%;          /* force onto its own line below the message row */
+}
+
+.toast__progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 1px;
+  transition: width 0.3s var(--ease-out);
+}
+
+/* Progress color by toast type. */
+.toast--success .toast__progress-fill { background: var(--success); }
+.toast--warning .toast__progress-fill { background: var(--warning); }
+.toast--error .toast__progress-fill { background: var(--danger); }
+
+/* — Animations: Spring in from top, fade out downward. -------------------- */
+@keyframes appleToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes appleToastOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+/* — Mobile: full width, safe area insets. ---------------------------------- */
+@media (max-width: 768px) {
+  .toast-container {
+    left: 8px;
+    right: 8px;
+    transform: none;
+    width: auto;
+    max-width: none;
+  }
+
+  .toast {
+    padding: 11px 12px;
+    gap: 10px;
+  }
+
+  .toast__close {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+  }
+}

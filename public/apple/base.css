@@ -1,0 +1,75 @@
+/* ============================================================================
+   Apple-Native Base — global element polish layered over styles.css.
+   Font smoothing, overlay scrollbars, selection, focus rings, body canvas.
+   ========================================================================== */
+
+html, body {
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-size: var(--root-font-size);
+  letter-spacing: -0.01em;            /* SF Pro optical tightening */
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+}
+
+/* Apple overlay scrollbars: thin, translucent, no track until hover. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-secondary) 38%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-secondary) 60%, transparent);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* Text selection — system blue tint. */
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text-primary);
+}
+
+/* Keyboard focus — Apple's blue ring, never on mouse clicks. */
+:focus { outline: none; }
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+/* SF Pro everywhere chrome lives; code stays mono. */
+button, input, select, textarea {
+  font-family: var(--font-ui);
+  letter-spacing: inherit;
+}
+code, pre, kbd, samp, .terminal-container, .monaco-editor {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
+/* Honor reduced-motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

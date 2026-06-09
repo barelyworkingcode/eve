@@ -1,0 +1,438 @@
+/* ============================================================================
+   Apple-Native Controls — global button polish, iOS toggle switches,
+   and general-purpose field/label refinements not already owned by
+   apple/dialogs.css (dialog context) or apple/modals.css (modal context).
+
+   Load order: last in the apple/ chain, so equal-specificity rules here win
+   over earlier partials. .modal-actions .btn-* rules in modals.css have higher
+   specificity and correctly refine the base buttons for that context.
+
+   What this file covers:
+     • .btn-primary / .btn-secondary / .btn-danger / .btn-warn  (global base)
+     • .btn-sm  (size modifier)
+     • .btn-icon  (ghost toolbar icon button)
+     • iOS toggle switches for all checkbox-as-setting contexts
+     • .task-prompt-textarea  (task dialog form — not in dialogs.css)
+     • #taskScheduleConfig  (task schedule section)
+     • .search-dialog__toggle  (AI mode toggle in search dialog)
+
+   What this file intentionally does NOT duplicate:
+     • select elements → apple/menus.css
+     • .dialog__* inputs/labels/btns → apple/dialogs.css
+     • .modal-content inputs/labels + .modal-actions .btn-* → apple/modals.css
+     • composer textarea + voice-drawer select → apple/chat.css
+   ============================================================================ */
+
+/* ============================================================================
+   BUTTONS — semantic hierarchy applied globally.
+   The .modal-actions refinement in modals.css has higher specificity and
+   will further style buttons inside modal action rows; these are the base.
+   ============================================================================ */
+
+/* Common geometry + motion for all semantic buttons. */
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-warn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-6);
+  height: var(--ctl-h-lg);       /* 36px — comfortable macOS/iOS default */
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-ui);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  border: none;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-spring);
+}
+
+/* Press: subtle scale-down (Apple spring feel). */
+.btn-primary:active,
+.btn-secondary:active,
+.btn-danger:active,
+.btn-warn:active {
+  transform: scale(0.97);
+}
+
+/* Disabled: muted, no pointer, no press. */
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled,
+.btn-warn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+}
+
+/* — Primary: filled accent (systemBlue) --------------------------------------- */
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: var(--shadow-1);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-2);
+}
+
+/* — Secondary: ghost with subtle border -------------------------------------- */
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 0.5px solid var(--border-color);
+  box-shadow: var(--shadow-1);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+/* — Danger: tinted-red at rest, solid on hover (systemRed) ------------------- */
+/* Apple HIG: destructive actions show a soft tinted background at rest.
+   Filling solid on hover maximises the warning signal on intent. */
+.btn-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 0.5px solid color-mix(in srgb, var(--danger) 36%, transparent);
+  box-shadow: none;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: var(--shadow-1);
+}
+
+/* — Warn: orange tint — permission "Allow All" (must stay visually distinct) - */
+/* See styles.css comment: orange distinguishes session-wide bypass from the
+   green Allow and red Deny so muscle memory can't slip into auto-approving. */
+.btn-warn {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+  border: 0.5px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  box-shadow: none;
+}
+
+.btn-warn:hover:not(:disabled) {
+  background: var(--warning);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: var(--shadow-1);
+}
+
+/* — Small modifier: compact height for inline/toolbar placement -------------- */
+.btn-sm {
+  height: var(--ctl-h-sm);        /* 24px */
+  padding: 0 var(--sp-5);
+  font-size: var(--text-callout);
+  border-radius: var(--radius-sm);
+}
+
+/* When .btn-sm stacks with a semantic class, enforce the compact geometry. */
+.btn-primary.btn-sm,
+.btn-secondary.btn-sm,
+.btn-danger.btn-sm,
+.btn-warn.btn-sm {
+  height: var(--ctl-h-sm);
+  padding: 0 var(--sp-5);
+  font-size: var(--text-callout);
+  border-radius: var(--radius-sm);
+}
+
+/* — Icon button: ghost used in toolbars / action rows ------------------------- */
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-spring);
+}
+
+.btn-icon:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.btn-icon:active {
+  transform: scale(0.92);
+}
+
+/* Mobile: 44px touch target. */
+@media (max-width: 768px) {
+  .btn-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    font-size: 18px;
+  }
+
+  /* Danger buttons: iOS-comfortable hit target when used outside modal-actions. */
+  .btn-danger {
+    height: var(--ctl-h-lg);
+  }
+}
+
+/* ============================================================================
+   iOS TOGGLE SWITCHES — pure CSS. Replaces native checkbox rendering for
+   inputs that function as boolean on/off settings. Uses appearance:none +
+   ::before knob + :checked state. No DOM changes.
+
+   Covered contexts (all "settings" checkboxes in the app):
+   - .provider-setting-checkbox   (task enabled / catch-up, provider booleans)
+   - .shell-launcher__claudemd-row  (include CLAUDE.md when launching shell)
+   - .project-dialog__checkbox-row  (relay tools, CLAUDE.md flags)
+   - .dialog__setting-row--checkbox  (settings dialog boolean rows)
+   - .dialog__checkbox-row  (task enabled in task dialog, search AI mode)
+   - .search-dialog__toggle  (inline AI-enhanced search toggle)
+
+   NOT toggled: .markdown-preview / .message-content checkboxes — those are
+   read-only rendered task-list items in chat; they keep accent-color only.
+   ============================================================================ */
+
+/* --- Shared toggle pill ---------------------------------------------------- */
+
+.provider-setting-checkbox input[type="checkbox"],
+.shell-launcher__claudemd-row input[type="checkbox"],
+.project-dialog__checkbox-row input[type="checkbox"],
+.dialog__setting-row--checkbox input[type="checkbox"],
+.dialog__checkbox-row input[type="checkbox"],
+.search-dialog__toggle input[type="checkbox"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+
+  /* Pill geometry (macOS density: 28×16px). */
+  position: relative;
+  flex-shrink: 0;
+  width: 28px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  border: none;
+  padding: 0;
+  margin: 0;
+  box-sizing: content-box;
+  cursor: pointer;
+  vertical-align: middle;
+
+  /* Off state: muted neutral track. */
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 0.5px var(--border-strong);
+
+  transition:
+    background var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+/* Knob — a white circle sliding inside the pill. */
+.provider-setting-checkbox input[type="checkbox"]::before,
+.shell-launcher__claudemd-row input[type="checkbox"]::before,
+.project-dialog__checkbox-row input[type="checkbox"]::before,
+.dialog__setting-row--checkbox input[type="checkbox"]::before,
+.dialog__checkbox-row input[type="checkbox"]::before,
+.search-dialog__toggle input[type="checkbox"]::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  /* Subtle knob shadow: always dark regardless of theme — the knob is white. */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.24), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  transition: transform var(--dur-1) var(--ease-spring);
+}
+
+/* On state: accent track, knob translates to the right. */
+.provider-setting-checkbox input[type="checkbox"]:checked,
+.shell-launcher__claudemd-row input[type="checkbox"]:checked,
+.project-dialog__checkbox-row input[type="checkbox"]:checked,
+.dialog__setting-row--checkbox input[type="checkbox"]:checked,
+.dialog__checkbox-row input[type="checkbox"]:checked,
+.search-dialog__toggle input[type="checkbox"]:checked {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.provider-setting-checkbox input[type="checkbox"]:checked::before,
+.shell-launcher__claudemd-row input[type="checkbox"]:checked::before,
+.project-dialog__checkbox-row input[type="checkbox"]:checked::before,
+.dialog__setting-row--checkbox input[type="checkbox"]:checked::before,
+.dialog__checkbox-row input[type="checkbox"]:checked::before,
+.search-dialog__toggle input[type="checkbox"]:checked::before {
+  transform: translateX(12px);
+}
+
+/* Keyboard focus ring on the pill. */
+.provider-setting-checkbox input[type="checkbox"]:focus-visible,
+.shell-launcher__claudemd-row input[type="checkbox"]:focus-visible,
+.project-dialog__checkbox-row input[type="checkbox"]:focus-visible,
+.dialog__setting-row--checkbox input[type="checkbox"]:focus-visible,
+.dialog__checkbox-row input[type="checkbox"]:focus-visible,
+.search-dialog__toggle input[type="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.provider-setting-checkbox input[type="checkbox"]:checked:focus-visible,
+.shell-launcher__claudemd-row input[type="checkbox"]:checked:focus-visible,
+.project-dialog__checkbox-row input[type="checkbox"]:checked:focus-visible,
+.dialog__setting-row--checkbox input[type="checkbox"]:checked:focus-visible,
+.dialog__checkbox-row input[type="checkbox"]:checked:focus-visible,
+.search-dialog__toggle input[type="checkbox"]:checked:focus-visible {
+  /* Focus ring over an accent background: accent-soft halo. */
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+/* Disabled toggle. */
+.provider-setting-checkbox input[type="checkbox"]:disabled,
+.shell-launcher__claudemd-row input[type="checkbox"]:disabled,
+.project-dialog__checkbox-row input[type="checkbox"]:disabled,
+.dialog__setting-row--checkbox input[type="checkbox"]:disabled,
+.dialog__checkbox-row input[type="checkbox"]:disabled,
+.search-dialog__toggle input[type="checkbox"]:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+/* Mobile: iOS native toggle dimensions (34×20). */
+@media (max-width: 768px) {
+  .provider-setting-checkbox input[type="checkbox"],
+  .shell-launcher__claudemd-row input[type="checkbox"],
+  .project-dialog__checkbox-row input[type="checkbox"],
+  .dialog__setting-row--checkbox input[type="checkbox"],
+  .dialog__checkbox-row input[type="checkbox"],
+  .search-dialog__toggle input[type="checkbox"] {
+    width: 34px;
+    height: 20px;
+  }
+
+  .provider-setting-checkbox input[type="checkbox"]::before,
+  .shell-launcher__claudemd-row input[type="checkbox"]::before,
+  .project-dialog__checkbox-row input[type="checkbox"]::before,
+  .dialog__setting-row--checkbox input[type="checkbox"]::before,
+  .dialog__checkbox-row input[type="checkbox"]::before,
+  .search-dialog__toggle input[type="checkbox"]::before {
+    width: 16px;
+    height: 16px;
+  }
+
+  .provider-setting-checkbox input[type="checkbox"]:checked::before,
+  .shell-launcher__claudemd-row input[type="checkbox"]:checked::before,
+  .project-dialog__checkbox-row input[type="checkbox"]:checked::before,
+  .dialog__setting-row--checkbox input[type="checkbox"]:checked::before,
+  .dialog__checkbox-row input[type="checkbox"]:checked::before,
+  .search-dialog__toggle input[type="checkbox"]:checked::before {
+    transform: translateX(14px);
+  }
+}
+
+/* — Markdown / message-content checkboxes — read-only rendered task-list items
+   in chat bubbles. Keep native appearance; accent-color only for brand tint.
+   modals.css does not touch these; they are intentionally kept native-looking. */
+.markdown-preview input[type="checkbox"],
+.message-content input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin-right: var(--sp-3);
+  /* No appearance:none — these are display items, not interactive settings. */
+}
+
+/* ============================================================================
+   TASK FORM FIELDS — .task-prompt-textarea and #taskScheduleConfig inputs
+   are not covered by dialogs.css (which owns .dialog__* selectors). These
+   are bare elements inside .task-dialog__form.
+   ============================================================================ */
+
+.task-prompt-textarea {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 80px;
+  margin-bottom: var(--sp-5);
+  box-sizing: border-box;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.task-prompt-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.task-prompt-textarea:focus {
+  outline: none;
+  border-color: transparent;
+  background: var(--bg-elevated);
+  box-shadow: var(--focus-ring);
+}
+
+/* Schedule config: bare input + select inside task form. */
+#taskScheduleConfig {
+  margin-bottom: var(--sp-5);
+}
+
+#taskScheduleConfig input {
+  width: 100%;
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
+  height: var(--ctl-h-lg);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  box-sizing: border-box;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+#taskScheduleConfig input:focus {
+  outline: none;
+  border-color: transparent;
+  background: var(--bg-elevated);
+  box-shadow: var(--focus-ring);
+}
+
+/* Mobile: prevent iOS input zoom. */
+@media (max-width: 768px) {
+  .task-prompt-textarea,
+  #taskScheduleConfig input {
+    font-size: 16px;
+  }
+}

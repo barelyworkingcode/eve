@@ -1,0 +1,479 @@
+/* ============================================================================
+   Apple-Native Editor — Monaco frame, segmented view-mode control, Apple
+   prose preview, vibrancy status bar.
+   Overrides styles.css by source order (loaded after). DOM/classes unchanged.
+   Does NOT touch Monaco's inner theme (set in JS).
+   ============================================================================ */
+
+/* — Editor frame ------------------------------------------------------------ */
+/* .editor-content is already flex-col/min-height:0 in styles.css — keep it. */
+
+/* — Pane container (flex row; col on mobile — unchanged by us) -------------- */
+/* .editor-panes: structural only, no visual chrome needed here. */
+
+/* — Monaco wrapper ---------------------------------------------------------- */
+/* Leave .monaco-editor inner canvas alone; only give it our bg so the initial
+   blank frame before Monaco mounts doesn't flash the legacy colour. */
+.monaco-editor {
+  background: var(--bg-primary);
+}
+
+/* — Split divider ----------------------------------------------------------- */
+/* Keep load-bearing: width:4px (or 100%/height:4px on mobile) + display:none
+   toggled by [data-view-mode] selectors. We only re-skin the colour. */
+.editor-split-divider {
+  background: transparent;
+  /* 1px visible line instead of a solid block */
+  box-shadow: inset -0.5px 0 0 var(--separator);
+  transition: box-shadow var(--dur-1), background var(--dur-1);
+}
+
+.editor-split-divider:hover,
+.editor-split-divider.resizing {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+/* Mobile: horizontal orientation — swap to inset top shadow */
+@media (max-width: 768px) {
+  .editor-split-divider {
+    box-shadow: inset 0 -0.5px 0 var(--separator);
+  }
+  .editor-split-divider:hover,
+  .editor-split-divider.resizing {
+    box-shadow: none;
+  }
+}
+
+/* — Status bar -------------------------------------------------------------- */
+/* Vibrancy material bar, 0.5px top separator — mirrors .input-area / .chat-header */
+.editor-status {
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-top: 0.5px solid var(--separator);
+  padding: var(--sp-2) var(--sp-5);   /* 4px 12px — tighter than legacy 8px 16px */
+  gap: var(--sp-4);                    /* 8px */
+  /* Preserve flex + justify-between from styles.css */
+}
+
+/* — File path --------------------------------------------------------------- */
+.editor-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-footnote);    /* 11px */
+  color: var(--text-secondary);
+  letter-spacing: 0;
+  /* white-space/overflow/ellipsis already set in styles.css */
+}
+
+@media (max-width: 768px) {
+  .editor-path {
+    font-size: var(--text-footnote);  /* keep 11px — styles.css sets 10px; we match */
+  }
+}
+
+/* — Segmented control (view-mode toggle) ------------------------------------ */
+/* Apple HIG pill-shaped segmented control: filled container, sliding thumb. */
+.view-mode-toggle {
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-sm);    /* 7px — tighter than pill; matches macOS segment */
+  padding: var(--sp-1);               /* 2px inset */
+  gap: var(--sp-1);                   /* 2px between segments */
+  box-shadow: var(--shadow-1);
+  /* display:flex already set in styles.css; hidden stays display:none */
+}
+
+.view-mode-btn {
+  padding: 3px var(--sp-5);           /* 3px 12px */
+  font-family: var(--font-ui);
+  font-size: var(--text-footnote);    /* 11px */
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  border-radius: calc(var(--radius-sm) - 2px);   /* 5px — inset from container */
+  transition: color var(--dur-1), background var(--dur-1), box-shadow var(--dur-1);
+  line-height: var(--ctl-h-sm);       /* 24px control height */
+  /* border:none + cursor:pointer already in styles.css */
+}
+
+.view-mode-btn:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
+}
+
+/* Active segment: floating white/elevated thumb — the classic macOS segment */
+.view-mode-btn.active {
+  background: var(--bg-elevated);
+  color: var(--accent);
+  box-shadow: var(--shadow-1);
+}
+
+/* — Save button (primary action) ------------------------------------------- */
+/* Scope to the status bar so we don't globally override .btn-primary. */
+.editor-status #saveFileBtn {
+  height: var(--ctl-h);              /* 28px */
+  padding: 0 var(--sp-6);            /* 0 16px */
+  font-family: var(--font-ui);
+  font-size: var(--text-callout);    /* 13px */
+  font-weight: var(--weight-semibold);
+  border-radius: var(--radius-sm);   /* 7px */
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  box-shadow: var(--shadow-1);
+  transition: background var(--dur-1), transform var(--dur-1) var(--ease-spring),
+              box-shadow var(--dur-1);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.editor-status #saveFileBtn:hover {
+  background: var(--accent-hover);
+}
+
+.editor-status #saveFileBtn:active {
+  transform: scale(0.97);
+}
+
+.editor-status #saveFileBtn:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: default;
+  transform: none;
+}
+
+.editor-status #saveFileBtn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* — External change notification bar --------------------------------------- */
+/* Warning banner injected dynamically by file-editor.js above the status bar */
+.external-change-bar {
+  background: color-mix(in srgb, var(--warning) 10%, var(--material-bar));
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-bottom: 0.5px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  color: var(--warning);
+  font-family: var(--font-ui);
+  font-size: var(--text-callout);     /* 13px */
+  font-weight: var(--weight-medium);
+  padding: var(--sp-2) var(--sp-5);  /* 4px 12px */
+  /* display:flex / align:center / justify:space-between in styles.css */
+}
+
+.external-change-actions {
+  gap: var(--sp-2);                   /* 4px */
+}
+
+/* Reload (primary) and Keep Mine (secondary) inside the warning bar */
+.external-change-bar .btn-sm.btn-primary {
+  height: var(--ctl-h-sm);           /* 24px */
+  padding: 0 var(--sp-5);            /* 0 12px */
+  font-family: var(--font-ui);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  border-radius: var(--radius-xs);   /* 5px */
+  background: var(--warning);
+  color: #fff;
+  border: none;
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: background var(--dur-1), transform var(--dur-1) var(--ease-spring);
+}
+.external-change-bar .btn-sm.btn-primary:hover  { background: color-mix(in srgb, var(--warning) 85%, #000); }
+.external-change-bar .btn-sm.btn-primary:active { transform: scale(0.97); }
+
+.external-change-bar .btn-sm.btn-secondary {
+  height: var(--ctl-h-sm);           /* 24px */
+  padding: 0 var(--sp-5);
+  font-family: var(--font-ui);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--warning);
+  border: 0.5px solid color-mix(in srgb, var(--warning) 50%, transparent);
+  cursor: pointer;
+  transition: background var(--dur-1), transform var(--dur-1) var(--ease-spring);
+}
+.external-change-bar .btn-sm.btn-secondary:hover  { background: color-mix(in srgb, var(--warning) 14%, transparent); }
+.external-change-bar .btn-sm.btn-secondary:active { transform: scale(0.97); }
+
+/* ============================================================================
+   Markdown preview — Apple prose surface
+   (Only .markdown-preview-prefixed rules; message-content rules live in
+   styles.css and are deliberately NOT duplicated here.)
+   ============================================================================ */
+
+.markdown-preview {
+  background: var(--bg-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);       /* 14px */
+  line-height: 1.7;
+  color: var(--text-primary);
+  padding: var(--sp-9) var(--sp-8);  /* 32px 24px — generous prose margins */
+  /* flex:1 / overflow-y:auto / display:none / min-width:0 in styles.css — kept */
+}
+
+/* HTML preview frame — zero padding, full-bleed iframe: no change needed to
+   the mechanism. We restyle only the wrapper bg. */
+.markdown-preview.markdown-preview--html {
+  background: var(--bg-primary);
+  /* padding:0 / overflow:hidden already in styles.css */
+}
+
+/* Headings */
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  font-family: var(--font-ui);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: var(--sp-8) 0 var(--sp-4); /* 24px top, 8px bottom */
+}
+
+.markdown-preview h1 {
+  font-size: var(--text-largetitle);   /* 28px */
+  border-bottom: 0.5px solid var(--separator);
+  padding-bottom: var(--sp-4);         /* 8px */
+}
+.markdown-preview h2 {
+  font-size: var(--text-title1);       /* 22px */
+  border-bottom: 0.5px solid var(--separator);
+  padding-bottom: var(--sp-3);         /* 6px */
+}
+.markdown-preview h3 { font-size: var(--text-title3);   /* 17px */ }
+.markdown-preview h4 { font-size: var(--text-headline); /* 15px */ font-weight: var(--weight-semibold); }
+.markdown-preview h5 { font-size: var(--text-body);     /* 14px */ font-weight: var(--weight-semibold); }
+.markdown-preview h6 { font-size: var(--text-callout);  /* 13px */ color: var(--text-secondary); font-weight: var(--weight-medium); }
+
+/* Suppress top margin on first heading (standard Apple prose) */
+.markdown-preview h1:first-child,
+.markdown-preview h2:first-child,
+.markdown-preview h3:first-child {
+  margin-top: 0;
+}
+
+/* Body copy */
+.markdown-preview p {
+  margin: 0 0 var(--sp-5);            /* 12px */
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+/* Links */
+.markdown-preview a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.markdown-preview a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Strong / em */
+.markdown-preview strong {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.markdown-preview em { font-style: italic; }
+
+/* Lists */
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 0 0 var(--sp-5);
+  padding-left: var(--sp-8);          /* 24px */
+}
+.markdown-preview li {
+  margin-bottom: var(--sp-2);         /* 4px */
+  line-height: 1.65;
+}
+.markdown-preview li > ul,
+.markdown-preview li > ol {
+  margin-top: var(--sp-2);
+  margin-bottom: 0;
+}
+
+/* Inline code */
+.markdown-preview code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;                  /* scale relative to context */
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-xs);    /* 5px */
+  padding: 1px var(--sp-2);           /* 1px 4px */
+  color: var(--text-primary);
+}
+
+/* Code blocks */
+.markdown-preview pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-callout);     /* 13px */
+  line-height: 1.55;
+  background: var(--code-bg);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);    /* 10px */
+  padding: var(--sp-6);               /* 16px */
+  margin: 0 0 var(--sp-5);           /* 12px */
+  overflow-x: auto;
+  box-shadow: var(--shadow-1);
+}
+.markdown-preview pre code {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Mermaid diagrams */
+.markdown-preview .mermaid {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  padding: var(--sp-6);
+  margin: 0 0 var(--sp-5);
+  text-align: center;
+  overflow-x: auto;
+  box-shadow: var(--shadow-1);
+}
+.markdown-preview .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Blockquote — left accent bar with Apple secondary fill */
+.markdown-preview blockquote {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;   /* 0 7px 7px 0 */
+  margin: 0 0 var(--sp-5);
+  padding: var(--sp-4) var(--sp-6);   /* 8px 16px */
+  color: var(--text-secondary);
+}
+.markdown-preview blockquote p:last-child { margin-bottom: 0; }
+
+/* HR */
+.markdown-preview hr {
+  border: none;
+  border-top: 0.5px solid var(--separator);
+  margin: var(--sp-7) 0;             /* 20px */
+}
+
+/* Tables */
+.markdown-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--sp-5);
+  font-size: var(--text-callout);    /* 13px */
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  overflow: hidden;                  /* clips corner-radius on cells */
+}
+.markdown-preview th,
+.markdown-preview td {
+  border: none;
+  border-bottom: 0.5px solid var(--separator);
+  padding: var(--sp-3) var(--sp-5);  /* 6px 12px */
+  text-align: left;
+}
+.markdown-preview th {
+  background: var(--bg-secondary);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  font-size: var(--text-footnote);   /* 11px — compact header row */
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.markdown-preview td {
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+}
+/* Remove bottom border from last row */
+.markdown-preview tr:last-child td { border-bottom: none; }
+/* Striped rows — light tint */
+.markdown-preview tr:nth-child(even) td {
+  background: rgba(128, 128, 128, 0.05);
+}
+
+/* Images */
+.markdown-preview img {
+  max-width: 100%;
+  border-radius: var(--radius-md);   /* 10px */
+  box-shadow: var(--shadow-1);
+}
+
+/* Task-list checkboxes */
+.markdown-preview input[type="checkbox"] {
+  margin-right: var(--sp-2);
+  accent-color: var(--accent);
+}
+
+/* ============================================================================
+   View-mode structural hooks — preserve exactly (restyle only).
+   The [data-view-mode] attribute selectors in styles.css toggle display; we
+   only need to ensure the revealed panes look right. Nothing here overrides
+   the display: none / block / flex toggles.
+   ============================================================================ */
+
+/* edit: Monaco fills 100% width */
+.editor-content[data-view-mode="edit"] .monaco-editor {
+  flex: 1;
+}
+
+/* split: Monaco + divider + preview each flex:1 */
+.editor-content[data-view-mode="split"] .monaco-editor {
+  flex: 1;
+}
+.editor-content[data-view-mode="split"] .markdown-preview {
+  flex: 1;
+  border-left: 0.5px solid var(--separator);
+  /* Suppress the box-shadow from .editor-split-divider when in split:
+     the divider itself is between them — no extra border needed on preview. */
+}
+
+/* preview: preview fills 100% width */
+.editor-content[data-view-mode="preview"] .markdown-preview {
+  flex: 1;
+}
+
+/* ============================================================================
+   Mobile — mirror styles.css responsive breakpoint adjustments.
+   ============================================================================ */
+@media (max-width: 768px) {
+  .markdown-preview {
+    padding: var(--sp-6) var(--sp-5);   /* 16px 12px — tighter on narrow screens */
+  }
+
+  .editor-status {
+    padding: var(--sp-2) var(--sp-4);   /* 4px 8px */
+  }
+
+  .editor-status #saveFileBtn {
+    height: var(--ctl-h-lg);            /* 36px — touch-friendly */
+    padding: 0 var(--sp-6);
+  }
+
+  .view-mode-btn {
+    padding: 5px var(--sp-4);           /* 5px 8px — wider touch area */
+  }
+
+  /* Horizontal split divider on mobile (column layout) */
+  .editor-split-divider {
+    box-shadow: inset 0 -0.5px 0 var(--separator);
+  }
+
+  /* In split mode on mobile the preview has a top separator not left */
+  .editor-content[data-view-mode="split"] .markdown-preview {
+    border-left: none;
+    border-top: 0.5px solid var(--separator);
+  }
+}

@@ -1,0 +1,363 @@
+/* ============================================================================
+   Apple-Native Voice UI — full-screen "call" surface.
+   Loaded after styles.css; overrides by source order, matching specificity.
+   DOM structure, class names, data-* attributes, and JS hooks are untouched.
+   ============================================================================ */
+
+/* — Root container: full-bleed canvas with a soft radial depth gradient ------- */
+.voice-chat-content {
+  background: radial-gradient(
+    ellipse 80% 70% at 50% 40%,
+    color-mix(in srgb, var(--accent) 6%, var(--bg-primary)) 0%,
+    var(--bg-primary) 100%
+  );
+  position: relative;
+}
+
+/* .hidden is the global show/hide switch — never override it. */
+
+/* — Backend status: subtle caption-2, fades to near-invisible ------------------ */
+.voice-chat__backend-status {
+  font-family: var(--font-ui);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--sp-3) 0 0;
+  opacity: 0.75;
+}
+
+/* — Orb area: centered flex cell, resize-observed by JS — style frame only ---- */
+.voice-chat__orb-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;   /* load-bearing: keeps flex scroll math intact */
+}
+
+/* Canvas pixels are owned by VoiceOrbCanvas JS — no paint styles here. */
+.voice-chat__orb-canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* — Captions: floating glass pills stack, scroll fades out -------------------- */
+.voice-chat__captions {
+  padding: 0 var(--sp-8) var(--sp-5);
+  max-height: 148px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 18%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 18%);
+}
+
+.voice-chat__captions::-webkit-scrollbar {
+  display: none;
+}
+
+/* Individual caption pill — glass material, pill radius */
+.voice-chat__caption {
+  padding: var(--sp-4) var(--sp-6);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: var(--text-callout);
+  font-weight: var(--weight-regular);
+  line-height: 1.45;
+  max-width: 82%;
+  background: var(--material-content);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 0.5px solid var(--separator);
+  box-shadow: var(--shadow-1);
+  animation: vc-caption-in var(--dur-2) var(--ease-spring);
+}
+
+@keyframes vc-caption-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+/* User captions: accent bubble, right-aligned (mirrors Messages.app user side) */
+.voice-chat__caption--user {
+  align-self: flex-end;
+  background: var(--message-user);
+  color: var(--message-user-text);
+  border-color: transparent;
+  border-bottom-right-radius: var(--radius-sm);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--shadow-2);
+}
+
+/* Assistant captions: neutral glass pill */
+.voice-chat__caption--assistant {
+  align-self: flex-start;
+  background: var(--material-content);
+  color: var(--text-primary);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+/* Error caption: danger tint, centered */
+.voice-chat__caption--error {
+  align-self: center;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 36%, transparent);
+  max-width: 90%;
+  text-align: center;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Fading captions from previous turn */
+.voice-chat__caption--fading {
+  opacity: 0.35;
+}
+
+/* — Controls bar: translucent material bar, elevated touch targets ------------ */
+.voice-chat__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-7) var(--sp-8);
+  padding-bottom: max(var(--sp-7), env(safe-area-inset-bottom, 0px));
+  background: var(--material-bar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-top: 0.5px solid var(--separator);
+}
+
+/* Prompt text: headline weight, centered, single line with overflow trim */
+.voice-chat__prompt {
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: var(--text-callout);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Voice select (inside drawer) — inherit drawer styling from chat.css */
+.voice-chat__voice-select {
+  height: var(--ctl-h-lg);
+  padding: 0 var(--sp-5);
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--separator);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-callout);
+  max-width: 140px;
+}
+.voice-chat__voice-select:focus {
+  outline: none;
+  border-color: transparent;
+  box-shadow: var(--focus-ring);
+}
+
+/* — Base circular button ----------------------------------------------------- */
+.voice-chat__btn {
+  width: 50px;
+  height: 50px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color      var(--dur-1) var(--ease-out),
+    transform  var(--dur-1) var(--ease-spring),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.voice-chat__btn:active { transform: scale(0.93); }
+
+/* Close — neutral fill, red on hover (FaceTime end-call pattern) */
+.voice-chat__btn--close {
+  width: 44px;
+  height: 44px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 0.5px solid var(--separator);
+  box-shadow: var(--shadow-1);
+}
+.voice-chat__btn--close:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--danger) 48%, transparent);
+}
+
+/* Convert (text ↔ voice) — secondary rounded button */
+.voice-chat__btn--convert {
+  width: 44px;
+  height: 44px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 0.5px solid var(--separator);
+  box-shadow: var(--shadow-1);
+}
+.voice-chat__btn--convert:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* Mic — the hero button: larger, accent-filled, elevated */
+.voice-chat__btn--mic {
+  width: 60px;
+  height: 60px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow:
+    var(--shadow-2),
+    0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.voice-chat__btn--mic:hover {
+  background: var(--accent-hover);
+  box-shadow:
+    var(--shadow-2),
+    0 6px 20px color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+/* Recording: danger fill + ring-pulse animation */
+.voice-chat__btn--mic.voice-chat__btn--recording {
+  background: var(--danger);
+  color: #fff;
+  animation: vc-mic-pulse 1.1s var(--ease-standard) infinite;
+  box-shadow:
+    var(--shadow-2),
+    0 0 0 0 color-mix(in srgb, var(--danger) 50%, transparent);
+}
+.voice-chat__btn--mic.voice-chat__btn--recording:hover {
+  background: var(--danger-hover);
+}
+
+@keyframes vc-mic-pulse {
+  0%   { box-shadow: var(--shadow-2), 0 0 0 0   color-mix(in srgb, var(--danger) 50%, transparent); }
+  60%  { box-shadow: var(--shadow-2), 0 0 0 12px color-mix(in srgb, var(--danger) 0%,  transparent); }
+  100% { box-shadow: var(--shadow-2), 0 0 0 0   color-mix(in srgb, var(--danger) 0%,  transparent); }
+}
+
+/* Muted: dim + diagonal strike-through */
+.voice-chat__btn--mic.voice-chat__btn--muted {
+  opacity: 0.38;
+  position: relative;
+}
+.voice-chat__btn--mic.voice-chat__btn--muted::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 68%;
+  height: 2px;
+  background: var(--danger);
+  border-radius: 1px;
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+/* Secondary mic (e.g. PTT secondary indicator): smaller, de-emphasized */
+.voice-chat__btn--mic.voice-chat__btn--secondary {
+  width: 42px;
+  height: 42px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-1);
+  opacity: 0.55;
+}
+
+/* — Mode-toggle: HIG capsule with status dot --------------------------------- */
+.voice-chat__mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: 38px;
+  padding: 0 var(--sp-6);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-pill);
+  background: var(--material-content);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-1);
+  transition:
+    background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-spring);
+}
+.voice-chat__mode-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.voice-chat__mode-toggle:active { transform: scale(0.96); }
+
+/* Status dot inside the capsule */
+.voice-chat__mode-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+  flex-shrink: 0;
+  transition: background var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+
+/* PTT mode: amber dot to visually distinguish from hands-free */
+.voice-chat__mode-toggle--ptt .voice-chat__mode-dot {
+  background: var(--warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 24%, transparent);
+}
+
+/* Mode label text (JS sets this to "Hands-free" or "Push to talk") */
+.voice-chat__mode-label {
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+/* — Responsive: narrower gap + tighter padding on mobile -------------------- */
+@media (max-width: 768px) {
+  .voice-chat__controls {
+    gap: var(--sp-4);
+    padding: var(--sp-5) var(--sp-6);
+    padding-bottom: max(var(--sp-5), env(safe-area-inset-bottom, 0px));
+  }
+
+  .voice-chat__btn {
+    width: var(--hit);  /* 44px iOS minimum touch target */
+    height: var(--hit);
+  }
+  .voice-chat__btn--mic {
+    width: 56px;
+    height: 56px;
+  }
+  .voice-chat__btn--mic.voice-chat__btn--secondary {
+    width: var(--hit);
+    height: var(--hit);
+  }
+
+  .voice-chat__mode-toggle { height: var(--hit); }
+
+  .voice-chat__captions {
+    padding: 0 var(--sp-6) var(--sp-4);
+    max-height: 120px;
+  }
+}

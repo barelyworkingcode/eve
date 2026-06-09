@@ -17,6 +17,7 @@ const FONT_PRESETS = {
   'cascadia': "'Cascadia Code', 'Cascadia Mono', monospace",
   'menlo': "Menlo, Consolas, 'Courier New', monospace",
   'system-mono': 'monospace',
+  'sf-pro': "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif",
   'inter': "Inter, -apple-system, 'Segoe UI', sans-serif",
   'system-sans': "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   'helvetica': "'Helvetica Neue', Helvetica, Arial, sans-serif",
@@ -25,8 +26,11 @@ const FONT_PRESETS = {
 };
 
 const FONT_GROUPS = {
+  // Sans-Serif first: the UI font picker is sans-led for the Apple-native look.
+  // The Code & Terminal picker reads FONT_GROUPS['Monospace'] by key, so group
+  // order here only affects the UI picker.
+  'Sans-Serif': ['sf-pro', 'inter', 'system-sans', 'helvetica'],
   'Monospace': ['sf-mono', 'jetbrains', 'fira-code', 'source-code-pro', 'cascadia', 'menlo', 'system-mono'],
-  'Sans-Serif': ['inter', 'system-sans', 'helvetica'],
   'Serif': ['georgia', 'charter'],
 };
 
@@ -38,6 +42,7 @@ const FONT_PRESET_LABELS = {
   'cascadia': 'Cascadia Code',
   'menlo': 'Menlo / Consolas',
   'system-mono': 'System Monospace',
+  'sf-pro': 'SF Pro',
   'inter': 'Inter',
   'system-sans': 'System Sans-Serif',
   'helvetica': 'Helvetica Neue',
@@ -53,15 +58,16 @@ const COLOR_KEYS = [
 
 const THEME_PRESETS = {
   'Default Dark': {
-    accentColor: '#3b82f6',
-    bgPrimary: '#0a0a0a',
-    bgSecondary: '#141414',
-    textPrimary: '#fafafa',
-    textSecondary: '#a0a0a0',
-    borderColor: '#2a2a2a',
-    dangerColor: '#ef4444',
-    successColor: '#22c55e',
-    messageUserBg: '#1e3a5f',
+    // Apple HIG dark (systemBlue/elevated grays). Keep in sync with apple/tokens.css.
+    accentColor: '#0a84ff',
+    bgPrimary: '#1c1c1e',
+    bgSecondary: '#2c2c2e',
+    textPrimary: '#f5f5f7',
+    textSecondary: '#98989d',
+    borderColor: '#38383a',
+    dangerColor: '#ff453a',
+    successColor: '#30d158',
+    messageUserBg: '#0a84ff',
   },
   'Midnight Blue': {
     accentColor: '#60a5fa',
@@ -97,15 +103,16 @@ const THEME_PRESETS = {
     messageUserBg: '#094959',
   },
   'Light': {
-    accentColor: '#2563eb',
+    // Apple HIG light (systemBlue/grouped grays). Keep in sync with apple/tokens.css.
+    accentColor: '#007aff',
     bgPrimary: '#ffffff',
-    bgSecondary: '#f3f4f6',
-    textPrimary: '#111827',
-    textSecondary: '#6b7280',
-    borderColor: '#e5e7eb',
-    dangerColor: '#dc2626',
-    successColor: '#16a34a',
-    messageUserBg: '#dbeafe',
+    bgSecondary: '#f2f2f7',
+    textPrimary: '#1d1d1f',
+    textSecondary: '#6e6e73',
+    borderColor: '#d1d1d6',
+    dangerColor: '#ff3b30',
+    successColor: '#34c759',
+    messageUserBg: '#007aff',
   },
   'Solarized Light': {
     accentColor: '#268bd2',
@@ -133,9 +140,9 @@ const THEME_PRESETS = {
 
 // Non-color theme settings and their defaults. Colors come from the presets above.
 const NON_COLOR_DEFAULTS = {
-  themeMode: 'dark',
-  fontFamily: 'sf-mono',
-  fontSize: 13,
+  themeMode: 'auto',
+  fontFamily: 'sf-pro',
+  fontSize: 14,
   terminalFontFamily: 'sf-mono',
   ttsPromptTag: '[SPEAK RESPONSE]',
   sttPromptTag: '[VOICE DICTATION]',
@@ -398,10 +405,14 @@ class SettingsManager {
     root.setProperty('--code-bg', light ? this._darken(s.bgPrimary, 3) : this._darken(s.bgPrimary, 2));
     root.setProperty('--message-user', s.messageUserBg);
     root.setProperty('--message-assistant', s.bgSecondary);
-    root.setProperty('--warning', light ? '#d97706' : '#f59e0b');
 
-    // Let native controls (scrollbars, color pickers, form inputs) match the theme.
+    root.setProperty('--warning', light ? '#ff9500' : '#ff9f0a');
+
+    // Let native controls (scrollbars, color pickers, form inputs) match the theme,
+    // and pin data-theme so apple/tokens.css materials/shadows resolve to the
+    // resolved mode regardless of the OS prefers-color-scheme.
     root.colorScheme = light ? 'light' : 'dark';
+    document.documentElement.dataset.theme = light ? 'light' : 'dark';
 
     // Two independent font slots: --font-ui drives chrome/prose, --font-mono
     // drives the terminal, code editor, and code blocks (always monospace).
