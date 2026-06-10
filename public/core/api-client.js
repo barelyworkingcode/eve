@@ -34,6 +34,7 @@ class ApiClient {
   createProject(data) { return this._request('POST', '/api/projects', data); }
   updateProject(id, data) { return this._request('PUT', `/api/projects/${id}`, data); }
   deleteProject(id) { return this._request('DELETE', `/api/projects/${id}`); }
+  regenerateSkills(id) { return this._request('POST', `/api/projects/${id}/regen_skill`); }
 
   // Sessions
   getSessions() { return this._request('GET', '/api/sessions'); }
