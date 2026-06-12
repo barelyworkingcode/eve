@@ -6005,3 +6005,113 @@ html, body {
 @media (max-width: 540px) {
   .search-dialog__model-select { min-width: 0; width: 100%; max-width: none; }
 }
+
+/* Voice orb settings (gear + bottom sheet) */
+.voice-orb-settings__gear {
+  position: absolute;
+  top: 28px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity .15s, background .15s;
+  z-index: 5;
+}
+.voice-orb-settings__gear:hover {
+  opacity: 1;
+  background: var(--bg-tertiary);
+}
+
+.voice-orb-settings {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50%;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 24px calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  z-index: 10;
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.25);
+  animation: orb-sheet-up 0.2s ease;
+}
+.voice-orb-settings.hidden {
+  display: none;
+}
+
+@keyframes orb-sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.voice-orb-settings__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.voice-orb-settings__close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.voice-orb-settings__close:hover {
+  background: var(--bg-tertiary);
+}
+
+.voice-orb-settings__row {
+  display: grid;
+  grid-template-columns: 110px 1fr 48px;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.voice-orb-settings__row input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.voice-orb-settings__val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.voice-orb-settings__reset {
+  align-self: flex-start;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.voice-orb-settings__reset:hover {
+  color: var(--text-primary);
+}

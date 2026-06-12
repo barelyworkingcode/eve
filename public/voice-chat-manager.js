@@ -60,6 +60,12 @@ class VoiceChatManager {
     this._makeOrbRenderer(this._defaultOrbClass());
     this._exposeOrbControl();
 
+    // Orb tuning sliders (gear button + bottom sheet)
+    if (typeof VoiceOrbSettings !== 'undefined') {
+      this.orbSettings = new VoiceOrbSettings(this);
+      this.orbSettings.init();
+    }
+
     // Update backend status display and prompt when backends change
     this.bus.on(EVT.VOICE_BACKEND_CHANGED, () => {
       this._updateBackendStatus();
@@ -888,7 +894,7 @@ class VoiceOrbCanvas {
     this.stateConfigs = {
       idle:       { color: { r: 160, g: 160, b: 200 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.08,  wobble: 0.02 },
       listening:  { color: { r: 255, g: 70,  b: 70  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.25,  wobble: 0.08 },
-      processing: { color: { r: 255, g: 200, b: 50  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.55,  wobble: 0.05 },
+      processing: { color: { r: 255, g: 140, b: 30  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.55,  wobble: 0.05 },
       speaking:   { color: { r: 60,  g: 160, b: 255 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.18,  wobble: 0.09 },
     };
 
@@ -1126,7 +1132,7 @@ class ParticleCloudOrb {
     this.stateConfigs = {
       idle:       { color: { r: 160, g: 160, b: 200 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.15,  spread: 0.0 },
       listening:  { color: { r: 255, g: 70,  b: 70  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.3,   spread: 0.15 },
-      processing: { color: { r: 255, g: 200, b: 50  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.7,   spread: 0.08 },
+      processing: { color: { r: 255, g: 140, b: 30  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.7,   spread: 0.08 },
       speaking:   { color: { r: 60,  g: 160, b: 255 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.2,   spread: 0.20 },
     };
 
