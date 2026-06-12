@@ -64,7 +64,7 @@ float snoise(vec3 v) {
 
 const ORB_VERT = `
 uniform float uTime;
-uniform float uAudio;
+uniform float uAudioDisp;
 uniform float uNoiseAmp;
 uniform float uNoiseSpeed;
 uniform vec3 uTouch;
@@ -76,7 +76,7 @@ ${SIMPLEX_NOISE_GLSL}
 void main() {
   float n  = snoise(normal * 1.8 + uTime * uNoiseSpeed);
   float n2 = snoise(normal * 4.5 - uTime * uNoiseSpeed * 1.7);
-  float disp = uNoiseAmp * n + uAudio * 0.18 * n2;
+  float disp = uNoiseAmp * n + uAudioDisp * 0.18 * n2;
   vec3 touchDir = normalize(vec3(uTouch.xy * 1.2, 1.0));
   float td = smoothstep(0.55, 1.0, dot(normalize(position), touchDir));
   disp += td * uTouch.z * 0.25;
@@ -184,9 +184,31 @@ function _loadThree() {
   return _threeModPromise;
 }
 
+// ── Tuning (user-adjustable via the orb settings sheet) ────────────────────
+
+const TUNING_KEY = 'eve-voice-orb-tuning';
+const DEFAULT_TUNING = {
+  innerSize: 1,    // soul (inner orb) scale multiplier
+  outerSize: 1,    // whole-orb scale multiplier
+  spinRate: 1,     // rotation speed multiplier
+  idleJitter: 1,   // at-rest surface ripple multiplier
+  speechJitter: 1, // audio-driven displacement multiplier
+};
+
+function loadTuning() {
+  try {
+    return { ...DEFAULT_TUNING, ...JSON.parse(localStorage.getItem(TUNING_KEY) || '{}') };
+  } catch {
+    return { ...DEFAULT_TUNING };
+  }
+}
+
 // ── Class ───────────────────────────────────────────────────────────────────
 
 class VoiceOrb3D {
+  static TUNING_KEY = TUNING_KEY;
+  static DEFAULT_TUNING = DEFAULT_TUNING;
+
   static isSupported() {
     try {
       const c = document.createElement('canvas');
@@ -209,13 +231,14 @@ class VoiceOrb3D {
     this.touchPoint = null;
     this.touchEnergy = 0;
     this.onInitError = null;
+    this.tuning = loadTuning();
 
     // Base noiseAmp is the at-rest ripple; voice adds up to ~0.3 on top (see
     // uNoiseAmp in _renderFrame), so silence = near-smooth, speech = bloom
     this.stateConfigs = {
       idle:       { color: { r: 160, g: 160, b: 200 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.05, noiseAmp: 0.025, noiseSpeed: 0.4, glow: 0.7 },
       listening:  { color: { r: 255, g: 70,  b: 70  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.12, noiseAmp: 0.05,  noiseSpeed: 0.9, glow: 1.0 },
-      processing: { color: { r: 255, g: 200, b: 50  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.45, noiseAmp: 0.08,  noiseSpeed: 1.6, glow: 0.9 },
+      processing: { color: { r: 255, g: 140, b: 30  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.45, noiseAmp: 0.08,  noiseSpeed: 1.6, glow: 0.9 },
       speaking:   { color: { r: 60,  g: 160, b: 255 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.10, noiseAmp: 0.07,  noiseSpeed: 1.1, glow: 1.1 },
     };
 
@@ -240,6 +263,11 @@ class VoiceOrb3D {
 
   setState(state) {
     this.targetState = state;
+  }
+
+  /** Merge a partial tuning update (live; persistence is the settings UI's job). */
+  setTuning(partial) {
+    Object.assign(this.tuning, partial);
   }
 
   start() {
@@ -312,6 +340,7 @@ class VoiceOrb3D {
       uTime:       { value: 0 },
       uColor:      { value: new THREE.Color(160 / 255, 160 / 255, 200 / 255) },
       uAudio:      { value: 0 },
+      uAudioDisp:  { value: 0 },
       uNoiseAmp:   { value: 0.05 },
       uNoiseSpeed: { value: 0.4 },
       uGlow:       { value: 0.7 },
@@ -458,16 +487,19 @@ class VoiceOrb3D {
     const rawBreath = Math.sin(this.breathPhase);
     const breathMod = 1 + this.current.breathDepth * (0.7 * rawBreath + 0.3 * rawBreath * rawBreath * rawBreath);
 
-    // Transform
-    this.group.scale.setScalar(breathMod);
-    this.group.rotation.y += (this.current.rot + this.audioLevel * 0.08) * 0.016;
+    // Transform (user tuning scales the baseline behavior)
+    const tune = this.tuning;
+    this.group.scale.setScalar(breathMod * tune.outerSize);
+    this.particles.scale.setScalar(tune.outerSize);
+    this.group.rotation.y += (this.current.rot + this.audioLevel * 0.08) * tune.spinRate * 0.016;
     this.group.rotation.x = this._lerp(this.group.rotation.x, (this.touchPoint ? -this.touchPoint.y * 0.45 : Math.sin(this.time * 0.13) * 0.12), 0.06);
     this.group.rotation.z = Math.sin(this.time * 0.09) * 0.08;
 
     // Uniforms
     this.uniforms.uTime.value = this.time;
     this.uniforms.uAudio.value = this.audioLevel;
-    this.uniforms.uNoiseAmp.value = this.current.noiseAmp + this.audioLevel * 0.30 + this.touchEnergy * 0.08;
+    this.uniforms.uAudioDisp.value = this.audioLevel * tune.speechJitter;
+    this.uniforms.uNoiseAmp.value = this.current.noiseAmp * tune.idleJitter + this.audioLevel * 0.30 * tune.speechJitter + this.touchEnergy * 0.08;
     this.uniforms.uNoiseSpeed.value = this.current.noiseSpeed;
     this.uniforms.uGlow.value = this.current.glow * (0.85 + 0.15 * (rawBreath * 0.5 + 0.5));
     this.uniforms.uColor.value.setRGB(this.current.color.r / 255, this.current.color.g / 255, this.current.color.b / 255);
@@ -478,7 +510,7 @@ class VoiceOrb3D {
     this.particleMaterial.color.copy(this.uniforms.uColor.value);
 
     // Soul — gentle breath pulse, swells with voice
-    const soulScale = 0.3 * (1 + 0.1 * rawBreath + this.audioLevel * 0.45);
+    const soulScale = 0.3 * tune.innerSize * (1 + 0.1 * rawBreath + this.audioLevel * 0.45);
     this.soul.scale.set(soulScale, soulScale, 1);
     this.soulMaterial.opacity = Math.min(0.7 + 0.1 * (rawBreath * 0.5 + 0.5) + this.audioLevel * 0.3, 1);
 
