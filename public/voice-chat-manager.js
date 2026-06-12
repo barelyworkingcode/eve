@@ -57,7 +57,7 @@ class VoiceChatManager {
 
     if (!this.orbCanvas) return;
 
-    this.orbRenderer = new VoiceOrbCanvas(this.orbCanvas, this.app);
+    this._makeOrbRenderer(this._defaultOrbClass());
     this._exposeOrbControl();
 
     // Update backend status display and prompt when backends change
@@ -213,7 +213,6 @@ class VoiceChatManager {
     this._renderCaptions();
     this._updateBackendStatus();
     this._setOrbState('idle', 'session activated');
-    this._randomizeRenderer();
     this.orbRenderer?.start();
 
     // Resume AudioContext now — voice session activation is triggered by user gesture
@@ -743,13 +742,32 @@ class VoiceChatManager {
     this.orbRenderer?.setState(state);
   }
 
-  _randomizeRenderer() {
-    const Renderer = Math.random() < 0.5 ? VoiceOrbCanvas : ParticleCloudOrb;
+  /**
+   * (Re)build the orb renderer on a fresh canvas element. A canvas's context
+   * type (2d vs webgl) is permanent once requested, so switching renderer
+   * kinds requires replacing the element itself.
+   */
+  _makeOrbRenderer(Renderer) {
     const currentState = this.orbRenderer?.targetState || 'idle';
-    this.orbRenderer?.stop();
+    const wasRunning = this.orbRenderer?.running;
+    if (this.orbRenderer?.destroy) this.orbRenderer.destroy();
+    else this.orbRenderer?.stop();
+    const fresh = this.orbCanvas.cloneNode(false);
+    this.orbCanvas.replaceWith(fresh);
+    this.orbCanvas = fresh;
     this.orbRenderer = new Renderer(this.orbCanvas, this.app);
+    if (Renderer === VoiceOrb3D) {
+      // WebGL/import failure → drop back to the 2D wire renderer
+      this.orbRenderer.onInitError = () => this._makeOrbRenderer(VoiceOrbCanvas);
+    }
     this.orbRenderer.setState(currentState);
+    if (wasRunning) this.orbRenderer.start();
     window.orbRenderer = this.orbRenderer;
+    return this.orbRenderer;
+  }
+
+  _defaultOrbClass() {
+    return (typeof VoiceOrb3D !== 'undefined' && VoiceOrb3D.isSupported()) ? VoiceOrb3D : VoiceOrbCanvas;
   }
 
   /** Console helper: window.orb('speaking') or window.orb('idle', {r:255,g:0,b:0}) */
@@ -784,17 +802,11 @@ class VoiceChatManager {
     };
 
     /** Console helper: window.orbSwitch('particles') or window.orbSwitch('wire') */
-    const renderers = { wire: VoiceOrbCanvas, particles: ParticleCloudOrb };
+    const renderers = { wire: VoiceOrbCanvas, particles: ParticleCloudOrb, orb3d: VoiceOrb3D };
     window.orbSwitch = (name) => {
       const Renderer = renderers[name];
       if (!Renderer) return `Unknown renderer "${name}". Available: ${Object.keys(renderers).join(', ')}`;
-      const currentState = this.orbRenderer?.targetState || 'idle';
-      const wasRunning = this.orbRenderer?.running;
-      this.orbRenderer?.stop();
-      this.orbRenderer = new Renderer(this.orbCanvas, this.app);
-      this.orbRenderer.setState(currentState);
-      if (wasRunning) this.orbRenderer.start();
-      window.orbRenderer = this.orbRenderer;
+      this._makeOrbRenderer(Renderer);
       return `Switched to ${name} renderer`;
     };
 

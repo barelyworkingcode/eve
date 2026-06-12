@@ -344,6 +344,7 @@ app.use('/vad-onnx', express.static(path.join(__dirname, 'node_modules/@ricky012
 app.use('/transformers', express.static(path.join(__dirname, 'node_modules/@huggingface/transformers/dist')));
 app.use('/vad-web', express.static(path.join(__dirname, 'node_modules/@ricky0123/vad-web/dist')));
 app.use('/espeak-ng', express.static(path.join(__dirname, 'node_modules/espeak-ng/dist')));
+app.use('/three', express.static(path.join(__dirname, 'node_modules/three/build')));
 app.use(express.json({ limit: '50mb' }));
 
 // TTS / STT daemons are hard-pinned to loopback. The previous TTS_HOST /
