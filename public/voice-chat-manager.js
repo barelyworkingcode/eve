@@ -34,6 +34,9 @@ class VoiceChatManager {
     this.usingNativeSession = false; // true while a native voice session is live
     this.nativeAudio = this.useNativeAudio ? new NativeAudioBridge(container.get('logger').child('NativeAudio')) : null;
     this._nativeLevel = 0; // latest mic RMS from native onLevel (for the orb)
+    this._assistantSpeaking = false; // true while a reply is being spoken
+    this._suppressTTSFrames = false; // drop stale server TTS frames after a barge-in
+    this._pendingInterruptNote = false; // tag the next user_input as interrupted
   }
 
   init() {
@@ -151,9 +154,9 @@ class VoiceChatManager {
       onSpeechEnd:   () => { if (this.isVoiceSession) { this._setOrbState('processing', 'native speech ended'); this._setPrompt('Transcribing...'); } },
       onUtterance:   (d) => this._onNativeUtterance(d.audio),
       onSpeaking:    () => this.handleTTSStart(),
-      onPlaybackEnded: () => this.handleTTSEnd(),
+      onPlaybackEnded: (d) => { if (d && d.bargeIn) this._interruptGeneration('voice'); this.handleTTSEnd(); },
       onLevel:       (d) => { this._nativeLevel = d.rms || 0; },
-      onVADMisfire:  () => { if (this.isVoiceSession && this.inputMode === 'conversation') { this._setOrbState('listening', 'native misfire'); this._setPrompt('Listening...'); } },
+      onVADMisfire:  () => { this._pendingInterruptNote = false; this._suppressTTSFrames = false; if (this.isVoiceSession && this.inputMode === 'conversation') { this._setOrbState('listening', 'native misfire'); this._setPrompt('Listening...'); } },
       onInterruption: (d) => { if (this.isVoiceSession) this._setPrompt(d.state === 'began' ? 'Paused…' : 'Listening...'); },
       onRouteChange: () => {},
       onError:       (d) => this.handleError(d.message || 'Audio error'),
@@ -169,10 +172,32 @@ class VoiceChatManager {
     this.app.wsClient.send({ type: 'transcribe_audio', audio: base64 });
   }
 
+  /**
+   * Common barge-in bookkeeping once speech is already halted: stop the
+   * in-flight LLM generation (handleStop also resets dispatcher/renderer turn
+   * state), suppress TTS frames that were already in flight over the WS, and
+   * tag the next transcription so the LLM knows its reply was cut off.
+   */
+  _interruptGeneration(reason) {
+    this._assistantSpeaking = false;
+    this._suppressTTSFrames = true;
+    this._pendingInterruptNote = true;
+    if (this.useNativeAudio) this.nativeAudio.stopThinkingCue();
+    this.app.handleStop();
+    this.log.info(`Barge-in (${reason}) — generation stopped`);
+  }
+
+  /** User-initiated interrupt (tap / spacebar / PTT): halt playback, then stop generation if a reply was being spoken. */
+  _bargeIn(reason) {
+    const speaking = this._assistantSpeaking || this.app.ttsManager.isPlaying;
+    this.app.ttsManager.stop();
+    if (speaking) this._interruptGeneration(reason);
+  }
+
   /** Orb level source when native owns the audio (no Web-Audio analyser). */
   getNativeLevel(state) {
     if (state === 'listening') return this._nativeLevel;
-    if (state === 'speaking') return 0.5; // native is half-duplex; no playback meter
+    if (state === 'speaking') return 0.5; // no native playback meter; steady mid-level
     return 0;
   }
 
@@ -247,6 +272,9 @@ class VoiceChatManager {
     this.isVoiceSession = false;
     this.isRecording = false;
     this._vadTranscribing = false;
+    this._assistantSpeaking = false;
+    this._suppressTTSFrames = false;
+    this._pendingInterruptNote = false;
     if (this.useNativeAudio && this.usingNativeSession) {
       this.usingNativeSession = false;
       this.nativeAudio.stopSession();
@@ -344,8 +372,8 @@ class VoiceChatManager {
   _onVADSpeechStart() {
     if (!this.isVoiceSession) return;
 
-    // Aggressive barge-in: always stop TTS immediately (safe to call even when not playing)
-    this.app.ttsManager.stop();
+    // Aggressive barge-in: always stop TTS immediately and halt generation if a reply was being spoken
+    this._bargeIn('vad');
 
     this._setOrbState('listening', 'speech detected');
     this._setPrompt('Listening...');
@@ -380,9 +408,7 @@ class VoiceChatManager {
   _onMicDown() {
     if (this.inputMode === 'conversation') {
       // Tap to barge-in: stop TTS, VAD resumes via handleTTSEnd()
-      if (this.app.ttsManager.isPlaying) {
-        this.app.ttsManager.stop();
-      }
+      if (this._assistantSpeaking || this.app.ttsManager.isPlaying) this._bargeIn('tap');
       return;
     }
     this._startRecording();
@@ -412,7 +438,7 @@ class VoiceChatManager {
     if (this.inputMode === 'conversation') {
       if (this.useNativeAudio) {
         // Native handsfree is already listening; spacebar is just barge-in.
-        this.app.ttsManager.stop();
+        this._bargeIn('spacebar');
         this._spacebarDown = true;
         return;
       }
@@ -447,7 +473,7 @@ class VoiceChatManager {
     this.isRecording = true;
 
     // Stop any playing TTS (barge-in)
-    this.app.ttsManager.stop();
+    this._bargeIn('ptt');
 
     this._setOrbState('listening', 'recording started');
     this._setPrompt('Listening...');
@@ -481,12 +507,18 @@ class VoiceChatManager {
 
   handleTranscription(text) {
     this._vadTranscribing = false;
+
+    const interrupted = this._pendingInterruptNote;
+    this._pendingInterruptNote = false;
+    this._suppressTTSFrames = false;
+    const sendText = interrupted ? `[interrupted your previous reply] ${text}` : text;
+
     this._addCaption('user', text);
 
     this.app.messageDispatcher.markLocalSubmit(this.app.currentSessionId);
     this.app.wsClient.send({
       type: 'user_input',
-      text: this.app._buildSendText(text, true),
+      text: this.app._buildSendText(sendText, true),
       files: [],
       sessionId: this.app.currentSessionId,
       dictated: true,
@@ -516,6 +548,7 @@ class VoiceChatManager {
 
   handleTTSStart() {
     if (!this.isVoiceSession) return;
+    this._assistantSpeaking = true;
     if (this.useNativeAudio) this.nativeAudio.stopThinkingCue(); // it's speaking now
     // Pause VAD during TTS — browser echo cancellation (especially Chrome)
     // leaks enough speaker audio to trigger false barge-in and duplicate messages.
@@ -531,6 +564,7 @@ class VoiceChatManager {
 
   handleTTSEnd() {
     if (!this.isVoiceSession) return;
+    this._assistantSpeaking = false;
 
     if (this.useNativeAudio) {
       // Native re-opens the mic itself (emits onListening) for handsfree.
@@ -558,6 +592,8 @@ class VoiceChatManager {
   handleError(message) {
     if (!this.isVoiceSession) return;
     this._vadTranscribing = false;
+    this._pendingInterruptNote = false;
+    this._suppressTTSFrames = false;
     this._addCaption('error', message);
     if (this.useNativeAudio) {
       this.nativeAudio.stopThinkingCue();
@@ -761,6 +797,11 @@ class VoiceChatManager {
       window.orbRenderer = this.orbRenderer;
       return `Switched to ${name} renderer`;
     };
+
+    /** Console helper: window.eveTune({bargeInRmsThreshold: 0.04, bargeInMinVoicedMs: 500}) */
+    window.eveTune = (opts) => this.nativeAudio
+      ? this.nativeAudio.setTuning(opts)
+      : 'native audio unavailable';
   }
 
   _getPushToTalkPrompt() {

@@ -444,17 +444,21 @@ class RelayClient {
     const gen = this._ttsGeneration;
     this._ttsChain = this._ttsChain.then(() => {
       if (gen !== this._ttsGeneration) return;
-      return this._synthesizeAndSend(cleaned, seq);
+      return this._synthesizeAndSend(cleaned, seq, gen);
     }).catch(err => {
       this.log.error(`TTS chain error at chunk ${seq}:`, err.message);
     });
   }
 
-  async _synthesizeAndSend(text, seq) {
+  async _synthesizeAndSend(text, seq, gen) {
     this.log.debug(`TTS chunk ${seq} (${text.length} chars)`);
     this.ttsPending++;
     try {
       const result = await this.ttsService.synthesize(text, this.voicePreset, this.voiceSpeed);
+      if (gen !== this._ttsGeneration) {
+        this.log.debug(`TTS chunk ${seq} discarded (cancelled while synthesizing)`);
+        return;
+      }
       this._sendAudioToBrowser(result.audio_base64);
     } catch (err) {
       this.log.error(`TTS chunk ${seq} failed:`, err.message);
