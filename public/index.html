@@ -359,6 +359,25 @@
           <div class="voice-chat__orb-area">
             <canvas id="voiceOrbCanvas" class="voice-chat__orb-canvas"></canvas>
           </div>
+          <button id="voiceOrbSettingsBtn" class="voice-orb-settings__gear" title="Orb settings" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <div id="voiceOrbSettingsSheet" class="voice-orb-settings hidden">
+            <div class="voice-orb-settings__header">
+              <span>Orb settings</span>
+              <button id="voiceOrbSettingsClose" class="voice-orb-settings__close" title="Close" type="button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <label class="voice-orb-settings__row"><span>Inner orb size</span><input type="range" id="orbInnerSize" min="0" max="2.5" step="0.05"><span class="voice-orb-settings__val" id="orbInnerSizeVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Outer orb size</span><input type="range" id="orbOuterSize" min="0.4" max="1.4" step="0.05"><span class="voice-orb-settings__val" id="orbOuterSizeVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Spin rate</span><input type="range" id="orbSpinRate" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbSpinRateVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Idle jitter</span><input type="range" id="orbIdleJitter" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbIdleJitterVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Speech jitter</span><input type="range" id="orbSpeechJitter" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbSpeechJitterVal"></span></label>
+            <button id="voiceOrbSettingsReset" class="voice-orb-settings__reset" type="button">Reset to defaults</button>
+          </div>
           <div class="voice-chat__captions" id="voiceCaptions"></div>
           <div class="voice-chat__controls">
             <button id="voiceChatClose" class="voice-chat__btn voice-chat__btn--close" title="End session" type="button">
@@ -534,6 +553,7 @@
   <script src="stt-manager.js"></script>
   <script src="vad-manager.js"></script>
   <script src="voice-orb-3d.js"></script>
+  <script src="voice-orb-settings.js"></script>
   <script src="voice-chat-manager.js"></script>
   <script src="voice-bg-spike.js"></script>
   <script src="toast.js"></script>
