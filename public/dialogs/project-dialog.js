@@ -11,6 +11,11 @@ class ProjectDialog extends DialogBase {
     this._projectId = null;
     this._project = null;
     this._templates = []; // working copy of chatTemplates
+    // Guards against clobbering relay's stored templates with a stale working
+    // copy: chat_templates is only included in the save body when the user
+    // actually edited templates in this dialog (relay treats an absent field
+    // as "leave unchanged").
+    this._templatesDirty = false;
     // Working sets carry literal MCP/model ids; the '*' wildcard is just
     // another id (matches relay's isWildcard convention).
     this._selectedMcpIds = new Set();
@@ -40,6 +45,7 @@ class ProjectDialog extends DialogBase {
       this._projectId = data?.projectId || null;
       this._project = this._projectId ? this.state.getProject(this._projectId) : null;
       this._templates = this._project?.chatTemplates ? JSON.parse(JSON.stringify(this._project.chatTemplates)) : [];
+      this._templatesDirty = false;
 
       this._selectedMcpIds = new Set(this._project?.allowedMcpIds || []);
       this._selectedModels = new Set(this._project?.allowedModels || []);
@@ -232,7 +238,10 @@ class ProjectDialog extends DialogBase {
         path,
         allowed_mcp_ids: Array.from(this._selectedMcpIds),
         allowed_models: Array.from(this._selectedModels),
-        chat_templates: this._templates.map(t => ({
+        permission_policy: this._serializePolicy(),
+      };
+      if (this._templatesDirty) {
+        body.chat_templates = this._templates.map(t => ({
           id: t.id,
           name: t.name,
           model: t.model,
@@ -241,9 +250,8 @@ class ProjectDialog extends DialogBase {
           system_prompt: t.systemPrompt || '',
           append_claude_md: !!t.appendClaudeMd,
           use_relay_tools: !!t.useRelayTools,
-        })),
-        permission_policy: this._serializePolicy(),
-      };
+        }));
+      }
       const project = this._projectId
         ? await this.api.updateProject(this._projectId, body)
         : await this.api.createProject(body);
@@ -514,6 +522,7 @@ class ProjectDialog extends DialogBase {
     deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
     deleteBtn.addEventListener('click', () => {
       this._templates.splice(idx, 1);
+      this._templatesDirty = true;
       this._showTab('templates');
     });
 
@@ -632,6 +641,7 @@ class ProjectDialog extends DialogBase {
       const name = nameInput.value.trim();
       if (!name) { nameInput.focus(); return; }
 
+      this._templatesDirty = true;
       this._templates[idx] = {
         id: tmpl.id,
         name,
