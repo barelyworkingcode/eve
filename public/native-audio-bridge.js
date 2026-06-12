@@ -58,6 +58,9 @@ class NativeAudioBridge {
 
   getStatus() { return this._call('getStatus'); }
 
+  /** Live VAD/barge-in tuning (thresholds in the native engine). */
+  setTuning(opts = {}) { return this._call('setTuning', opts); }
+
   // diagnostic: silent background-audio hold (see voice-bg-spike.js)
   startKeepaliveProbe() { return this._call('startKeepaliveProbe'); }
   stopKeepaliveProbe() { return this._call('stopKeepaliveProbe'); }
