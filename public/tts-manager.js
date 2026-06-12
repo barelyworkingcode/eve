@@ -327,6 +327,9 @@ class TTSManager {
    * base64/atob step (the server no longer inflates audio into JSON).
    */
   enqueueServerAudioBuffer(arrayBuffer) {
+    // Stale frames from a barged-in reply can still be in the WS pipe after the
+    // client stopped the turn; playing one would talk over the user.
+    if (this.app.voiceChatManager?._suppressTTSFrames) return;
     this._ttsDoneReceived = false;
     if (this._nativeAudioActive) {
       // Hand the chunk to the native engine (base64 over the Capacitor bridge).
