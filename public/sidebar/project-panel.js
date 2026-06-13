@@ -11,6 +11,7 @@
  */
 class ProjectPanel {
   static TAB_STORAGE_KEY = 'eve-active-tab';
+  static FOLDERS_COLLAPSED_KEY = 'eve-session-folders-collapsed';
 
   constructor(container, fileTreeNode) {
     this.container = container;
@@ -158,6 +159,11 @@ class ProjectPanel {
       this.headerActionsEl.appendChild(this._iconBtn('Refresh', UI_ICONS.refresh(16),
         () => this.fileTreeNode.refreshRoot(this.projectId)));
     }
+    if (this.activeTab === 'sessions') {
+      this.headerActionsEl.appendChild(this._iconBtn('New Folder', UI_ICONS.newFolder(16),
+        () => this.container.get('app').createSessionFolder(this.projectId),
+        `sidebar-new-session-folder-${this.projectId}`));
+    }
     this.headerActionsEl.appendChild(this._iconBtn('Search', UI_ICONS.search(16),
       () => this.bus.emit(EVT.DIALOG_SEARCH, { projectId: this.projectId }),
       `sidebar-project-search-${this.projectId}`));
@@ -304,10 +310,10 @@ class ProjectPanel {
   // --- Sessions content ---
 
   _renderSessionsContent(container) {
+    const project = this.state.getProject(this.projectId);
     const sessions = this.state.getSessionsForProject(this.projectId)
       .filter(s => !this.state.isTaskRun(s.id));
     const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
-    const project = this.state.getProject(this.projectId);
     const terminals = (termMgr?.getTerminalsForPath(project?.path) || [])
       .filter(t => !this.state.isTaskRun(t.id));
 
@@ -316,59 +322,245 @@ class ProjectPanel {
       return;
     }
 
+    // Terminals stay ungrouped, on top (unchanged behavior).
     for (const terminal of terminals) {
       this._renderTerminalItem(container, terminal);
     }
 
-    for (const session of sessions) {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'project-tree__session-swipe';
-
-      const deleteAction = document.createElement('div');
-      deleteAction.className = 'project-tree__session-delete';
-      deleteAction.textContent = 'Delete';
-      deleteAction.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.container.get('app').deleteSession(session.id);
-      });
-
-      const item = document.createElement('div');
-      const isActive = session.id === this.state.currentSessionId;
-      item.className = `project-tree__session-item${isActive ? ' project-tree__session-item--active' : ''}`;
-      item.dataset.testid = `sidebar-session-${session.id}`;
-
-      const nameEl = document.createElement('span');
-      nameEl.className = 'project-tree__session-name';
-      let displayName = session.name || session.id;
-      if (project && displayName.startsWith(project.name + ' - ')) {
-        displayName = displayName.slice(project.name.length + 3);
-      }
-      nameEl.textContent = displayName;
-      item.appendChild(nameEl);
-
-      if (session.model) {
-        const badge = document.createElement('span');
-        badge.className = 'project-tree__session-badge';
-        const modelParts = session.model.split('/');
-        badge.textContent = modelParts[modelParts.length - 1];
-        item.appendChild(badge);
-      }
-
-      const swipeState = { swiped: false };
-
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (swipeState.swiped || wrapper.classList.contains('project-tree__session-swipe--open')) return;
-        this.container.get('app').joinSession(session.id);
-        this._closeSidebarOnMobile();
-      });
-
-      this._attachSwipe(wrapper, item, swipeState);
-
-      wrapper.appendChild(deleteAction);
-      wrapper.appendChild(item);
-      container.appendChild(wrapper);
+    // Folder groups = the project's declared folders (ordered, including empty
+    // ones) unioned with any folder names actually present on sessions. The
+    // union is orphan-resilient: a half-applied folder rename can never hide a
+    // session, and a pre-folders session (folder "") always lands in Ungrouped.
+    const declared = project?.sessionFolders || [];
+    const folderNames = [...declared];
+    for (const s of sessions) {
+      const f = (s.folder || '').trim();
+      if (f && !folderNames.includes(f)) folderNames.push(f);
     }
+
+    const byFolder = new Map();
+    const ungrouped = [];
+    for (const s of sessions) {
+      const f = (s.folder || '').trim();
+      if (f && folderNames.includes(f)) {
+        if (!byFolder.has(f)) byFolder.set(f, []);
+        byFolder.get(f).push(s);
+      } else {
+        ungrouped.push(s);
+      }
+    }
+
+    // No folders anywhere → flat list, identical to the pre-folders UI. Every
+    // existing project looks unchanged; nothing is buried under a header.
+    if (folderNames.length === 0) {
+      for (const s of ungrouped) this._renderSessionRow(container, s, project);
+      return;
+    }
+
+    for (const name of folderNames) {
+      this._renderFolderGroup(container, project, name, byFolder.get(name) || []);
+    }
+    if (ungrouped.length > 0) {
+      this._renderFolderGroup(container, project, '', ungrouped);
+    }
+  }
+
+  // Renders one collapsible folder header + its session rows. name === '' is
+  // the "Ungrouped" pseudo-folder: no rename/delete menu, expanded by default.
+  _renderFolderGroup(container, project, name, sessions) {
+    const isUngrouped = name === '';
+    const collapseKey = `${this.projectId}/${name}`;
+    const collapsed = this._collapsedFolders().has(collapseKey);
+
+    const header = document.createElement('div');
+    header.className = `project-tree__folder-header${collapsed ? ' project-tree__folder-header--collapsed' : ''}`;
+    header.dataset.testid = `sidebar-folder-${this.projectId}-${isUngrouped ? '__ungrouped__' : name}`;
+
+    const caret = document.createElement('span');
+    caret.className = 'project-tree__folder-caret';
+    caret.innerHTML = UI_ICONS.caret(12);
+    header.appendChild(caret);
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'project-tree__folder-name';
+    nameEl.textContent = isUngrouped ? 'Ungrouped' : name;
+    header.appendChild(nameEl);
+
+    const count = document.createElement('span');
+    count.className = 'project-tree__folder-count';
+    count.textContent = String(sessions.length);
+    header.appendChild(count);
+
+    if (!isUngrouped) {
+      const menuBtn = document.createElement('button');
+      menuBtn.type = 'button';
+      menuBtn.className = 'project-tree__folder-menu-btn';
+      menuBtn.title = 'Folder actions';
+      menuBtn.innerHTML = UI_ICONS.more(14);
+      menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._showFolderMenu(e.clientX, e.clientY, name);
+      });
+      header.appendChild(menuBtn);
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showFolderMenu(e.clientX, e.clientY, name);
+      });
+    }
+
+    header.addEventListener('click', () => this._toggleFolderCollapsed(collapseKey));
+    container.appendChild(header);
+
+    if (collapsed) return;
+    for (const s of sessions) this._renderSessionRow(container, s, project);
+  }
+
+  // One session row (swipe-to-delete + click-to-join, plus the rename/move/
+  // delete context menu via right-click and long-press).
+  _renderSessionRow(container, session, project) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'project-tree__session-swipe';
+
+    const deleteAction = document.createElement('div');
+    deleteAction.className = 'project-tree__session-delete';
+    deleteAction.textContent = 'Delete';
+    deleteAction.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.container.get('app').deleteSession(session.id);
+    });
+
+    const item = document.createElement('div');
+    const isActive = session.id === this.state.currentSessionId;
+    item.className = `project-tree__session-item${isActive ? ' project-tree__session-item--active' : ''}`;
+    item.dataset.testid = `sidebar-session-${session.id}`;
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'project-tree__session-name';
+    let displayName = session.name || session.id;
+    if (project && displayName.startsWith(project.name + ' - ')) {
+      displayName = displayName.slice(project.name.length + 3);
+    }
+    nameEl.textContent = displayName;
+    item.appendChild(nameEl);
+
+    if (session.model) {
+      const badge = document.createElement('span');
+      badge.className = 'project-tree__session-badge';
+      const modelParts = session.model.split('/');
+      badge.textContent = modelParts[modelParts.length - 1];
+      item.appendChild(badge);
+    }
+
+    const swipeState = { swiped: false, menuOpened: false };
+
+    item.addEventListener('click', (e) => {
+      // stopPropagation also keeps a long-press's synthesized click from
+      // reaching the just-opened context menu's outside-click closer.
+      e.stopPropagation();
+      if (swipeState.swiped || swipeState.menuOpened ||
+          wrapper.classList.contains('project-tree__session-swipe--open')) return;
+      this.container.get('app').joinSession(session.id);
+      this._closeSidebarOnMobile();
+    });
+
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this._showSessionMenu(e.clientX, e.clientY, session);
+    });
+
+    this._attachSwipe(wrapper, item, swipeState);
+    this._attachLongPress(item, swipeState, (x, y) => this._showSessionMenu(x, y, session));
+
+    wrapper.appendChild(deleteAction);
+    wrapper.appendChild(item);
+    container.appendChild(wrapper);
+  }
+
+  // --- Session / folder context menus ---
+
+  _showSessionMenu(x, y, session) {
+    const app = this.container.get('app');
+    showContextMenu(x, y, [
+      { label: 'Rename', action: () => app.renameSession(session.id) },
+      { label: 'Move to folder…', action: () => this._showMoveToFolderMenu(x, y, session) },
+      { separator: true },
+      { label: 'Delete', danger: true, action: () => app.deleteSession(session.id) },
+    ]);
+  }
+
+  _showMoveToFolderMenu(x, y, session) {
+    const app = this.container.get('app');
+    const current = session.folder || '';
+    const folders = app._projectFolders(this.projectId);
+    const items = [
+      { label: `${current === '' ? '✓ ' : ''}Ungrouped`, action: () => app.setSessionFolder(session.id, '') },
+    ];
+    for (const f of folders) {
+      items.push({ label: `${current === f ? '✓ ' : ''}${f}`, action: () => app.setSessionFolder(session.id, f) });
+    }
+    items.push({ separator: true });
+    items.push({ label: 'New folder…', action: () => app.moveSessionToNewFolder(session.id) });
+    showContextMenu(x, y, items);
+  }
+
+  _showFolderMenu(x, y, name) {
+    const app = this.container.get('app');
+    showContextMenu(x, y, [
+      { label: 'Rename Folder', action: () => app.renameSessionFolder(this.projectId, name) },
+      { label: 'Delete Folder', danger: true, action: () => app.deleteSessionFolder(this.projectId, name) },
+    ]);
+  }
+
+  // --- Folder collapse state (persisted, UI-only) ---
+
+  _collapsedFolders() {
+    try {
+      const raw = localStorage.getItem(ProjectPanel.FOLDERS_COLLAPSED_KEY);
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch (_) {
+      return new Set();
+    }
+  }
+
+  _toggleFolderCollapsed(key) {
+    const set = this._collapsedFolders();
+    if (set.has(key)) set.delete(key); else set.add(key);
+    try {
+      localStorage.setItem(ProjectPanel.FOLDERS_COLLAPSED_KEY, JSON.stringify([...set]));
+    } catch (_) { /* storage full / disabled — collapse just won't persist */ }
+    this._renderContent();
+  }
+
+  // Long-press (touch) → open a callback menu. Coexists with _attachSwipe: a
+  // horizontal drag cancels the press timer (touchmove), a stationary hold
+  // fires it. Sets swipeState.menuOpened so the trailing click doesn't join.
+  _attachLongPress(item, swipeState, openMenu) {
+    const DURATION = 500;
+    let timer = null;
+    let startX = 0;
+    let startY = 0;
+    const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+    item.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      swipeState.menuOpened = false;
+      clear();
+      timer = setTimeout(() => {
+        timer = null;
+        swipeState.menuOpened = true;
+        openMenu(startX, startY);
+      }, DURATION);
+    }, { passive: true });
+
+    item.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - startX) > 10 || Math.abs(t.clientY - startY) > 10) clear();
+    }, { passive: true });
+
+    item.addEventListener('touchend', clear, { passive: true });
+    item.addEventListener('touchcancel', clear, { passive: true });
   }
 
   _renderTerminalItem(container, terminal) {

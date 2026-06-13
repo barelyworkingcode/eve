@@ -16,6 +16,7 @@ const UI_ICONS = {
   search: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><line x1="10.5" y1="10.5" x2="14" y2="14"/></svg>`,
   newFolder: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4a1 1 0 011-1h3l1.5 1.5h5.5a1 1 0 011 1V12a1 1 0 01-1 1h-10a1 1 0 01-1-1V4z"/><line x1="8" y1="7" x2="8" y2="11" stroke-linecap="round"/><line x1="6" y1="9" x2="10" y2="9" stroke-linecap="round"/></svg>`,
   refresh: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3v3.5H10"/><path d="M13.2 6.5A5.5 5.5 0 102.5 8"/></svg>`,
+  caret: (size = 12) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>`,
 };
 
 // --- Model Select Dropdown ---
@@ -127,6 +128,85 @@ function closeContextMenu() {
     document.removeEventListener('click', _activeContextMenuCloseHandler);
     _activeContextMenuCloseHandler = null;
   }
+}
+
+// --- Prompt dialog ---
+
+/**
+ * Show a lightweight single-input modal and resolve with the entered text.
+ * Built on the fly (no index.html markup → no server restart) and themed via
+ * the .prompt-dialog* classes. Resolves with the trimmed value, or `null` if
+ * the user cancels / submits empty (Escape, Cancel, backdrop click, or blank).
+ *
+ * @param {string} title
+ * @param {string} [defaultValue]
+ * @param {{ placeholder?: string, confirmLabel?: string, maxLength?: number }} [opts]
+ * @returns {Promise<string|null>}
+ */
+function showPromptDialog(title, defaultValue = '', opts = {}) {
+  return new Promise((resolve) => {
+    closeContextMenu();
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'prompt-dialog__backdrop';
+
+    const box = document.createElement('div');
+    box.className = 'prompt-dialog';
+
+    const heading = document.createElement('div');
+    heading.className = 'prompt-dialog__title';
+    heading.textContent = title;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'prompt-dialog__input';
+    input.value = defaultValue || '';
+    input.maxLength = opts.maxLength || 100;
+    if (opts.placeholder) input.placeholder = opts.placeholder;
+
+    const actions = document.createElement('div');
+    actions.className = 'prompt-dialog__actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'prompt-dialog__btn';
+    cancelBtn.textContent = 'Cancel';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'prompt-dialog__btn prompt-dialog__btn--primary';
+    saveBtn.textContent = opts.confirmLabel || 'Save';
+
+    actions.append(cancelBtn, saveBtn);
+    box.append(heading, input, actions);
+    backdrop.appendChild(box);
+    document.body.appendChild(backdrop);
+
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKey, true);
+      backdrop.remove();
+      resolve(value);
+    };
+    const commit = () => {
+      const v = input.value.trim();
+      finish(v || null);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(); }
+    };
+
+    cancelBtn.addEventListener('click', () => finish(null));
+    saveBtn.addEventListener('click', commit);
+    backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) finish(null); });
+    document.addEventListener('keydown', onKey, true);
+
+    input.focus();
+    input.select();
+  });
 }
 
 // --- URL-scoped project filter ---
