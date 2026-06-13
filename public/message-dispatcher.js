@@ -72,6 +72,7 @@ class MessageDispatcher {
       session_created:      (d) => this.handleSessionCreated(d),
       session_joined:       (d) => this.handleSessionJoined(d),
       session_renamed:      (d) => this.handleSessionRenamed(d),
+      session_folder_changed: (d) => this.handleSessionFolderChanged(d),
       session_ended:        (d) => this.handleSessionEnded(d),
       user_message:         (d) => this._handleUserMessage(d),
       llm_event:            (d) => this._handleLlmEventMessage(d),
@@ -728,13 +729,23 @@ class MessageDispatcher {
   }
 
   handleSessionRenamed(data) {
-    const renamedSession = this.state.sessions.get(data.sessionId);
-    if (renamedSession) renamedSession.name = data.name;
-    if (this.sidebar.renamingSessionId !== data.sessionId) {
-      this.sidebar.renderProjectList();
+    // updateSession emits SESSION_UPDATED, which the active sidebar panel
+    // listens to (it does not subscribe to SESSION_RENAMED). Guard against a
+    // no-op update on a session we don't know about.
+    if (this.state.sessions.has(data.sessionId)) {
+      this.state.updateSession(data.sessionId, { name: data.name });
+    }
+    if (this.sidebar?.renamingSessionId !== data.sessionId) {
+      this.sidebar?.renderProjectList?.();
     }
     if (this.tabManager) {
       this.tabManager.updateTabLabel(data.sessionId, data.name || this.app.getSessionDisplayName(data.sessionId));
+    }
+  }
+
+  handleSessionFolderChanged(data) {
+    if (this.state.sessions.has(data.sessionId)) {
+      this.state.updateSession(data.sessionId, { folder: data.folder || '' });
     }
   }
 

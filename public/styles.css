@@ -4208,6 +4208,153 @@ html, body {
   flex-shrink: 0;
 }
 
+/* Session folders (collapsible groups within the Sessions tab) */
+
+.project-tree__folder-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 14px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  user-select: none;
+}
+
+.project-tree__folder-header:hover {
+  background: var(--bg-hover);
+}
+
+.project-tree__folder-caret {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  transition: transform 0.12s ease;
+  flex-shrink: 0;
+}
+
+.project-tree__folder-header--collapsed .project-tree__folder-caret {
+  transform: rotate(-90deg);
+}
+
+.project-tree__folder-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-tree__folder-count {
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.project-tree__folder-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.project-tree__folder-header:hover .project-tree__folder-menu-btn {
+  opacity: 1;
+}
+
+.project-tree__folder-menu-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+/* The "Ungrouped" pseudo-folder gets no menu button; touch devices always show
+   the menu affordance since there's no hover. */
+@media (max-width: 768px) {
+  .project-tree__folder-header { min-height: 40px; }
+  .project-tree__folder-menu-btn { opacity: 0.6; }
+}
+
+/* Prompt dialog (lightweight text-input modal built on the fly by
+   showPromptDialog in core/ui-utils.js — used for rename + new folder) */
+
+.prompt-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+}
+
+.prompt-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 16px;
+  width: min(340px, calc(100vw - 32px));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
+.prompt-dialog__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.prompt-dialog__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  outline: none;
+}
+
+.prompt-dialog__input:focus {
+  border-color: var(--accent);
+}
+
+.prompt-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.prompt-dialog__btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.prompt-dialog__btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.prompt-dialog__btn--primary:hover {
+  background: var(--accent-hover);
+}
+
 /* File tree */
 
 .file-tree {

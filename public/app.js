@@ -974,6 +974,107 @@ class EveWorkspaceClient {
     );
   }
 
+  // --- Session rename / folder actions ---
+
+  // Prompt for a new name, then optimistically update local state + the live
+  // tab label and tell relayLLM (which persists + broadcasts session_renamed).
+  async renameSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    const current = session.name || '';
+    const newName = await showPromptDialog('Rename session', current, {
+      confirmLabel: 'Rename', placeholder: 'Session name',
+    });
+    if (newName === null || newName === current) return;
+    this.state.updateSession(sessionId, { name: newName });
+    this.tabManager.updateTabLabel(sessionId, newName || this.getSessionDisplayName(sessionId));
+    this.wsClient.send({ type: 'rename_session', sessionId, name: newName });
+  }
+
+  // Move a session into a folder (empty string = ungrouped). Optimistic local
+  // update; relayLLM persists + broadcasts session_folder_changed.
+  setSessionFolder(sessionId, folder) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    const next = folder || '';
+    if ((session.folder || '') === next) return;
+    this.state.updateSession(sessionId, { folder: next });
+    this.wsClient.send({ type: 'set_session_folder', sessionId, folder: next });
+  }
+
+  _projectFolders(projectId) {
+    return [...(this.projects.get(projectId)?.sessionFolders || [])];
+  }
+
+  // Persist a project's ordered folder-name list via relay, then refresh local
+  // project state so the sidebar re-renders. Folders are project metadata; the
+  // session→folder membership lives on each session.
+  async _saveProjectSessionFolders(projectId, folders) {
+    try {
+      const updated = await this.api.updateProject(projectId, { session_folders: folders });
+      this.state.projects.set(updated.id, updated);
+      this.bus.emit(EVT.PROJECTS_LOADED);
+      return updated;
+    } catch (err) {
+      console.error('Failed to save session folders:', err);
+      this.bus.emit(EVT.TOAST_SHOW, { message: "Couldn't save folder change", type: 'error' });
+      throw err;
+    }
+  }
+
+  async createSessionFolder(projectId) {
+    const name = await showPromptDialog('New folder', '', {
+      confirmLabel: 'Create', placeholder: 'Folder name',
+    });
+    if (!name) return;
+    const folders = this._projectFolders(projectId);
+    if (folders.includes(name)) return; // already exists — no-op
+    folders.push(name);
+    await this._saveProjectSessionFolders(projectId, folders);
+  }
+
+  // Prompt for a new folder name, create it on the project if needed, then move
+  // the session into it (used by the session "Move to folder → New folder…" item).
+  async moveSessionToNewFolder(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    const projectId = session.projectId;
+    if (!projectId) return;
+    const name = await showPromptDialog('New folder', '', { confirmLabel: 'Create', placeholder: 'Folder name' });
+    if (!name) return;
+    const folders = this._projectFolders(projectId);
+    if (!folders.includes(name)) {
+      await this._saveProjectSessionFolders(projectId, [...folders, name]);
+    }
+    this.setSessionFolder(sessionId, name);
+  }
+
+  async renameSessionFolder(projectId, oldName) {
+    const newName = await showPromptDialog('Rename folder', oldName, { confirmLabel: 'Rename' });
+    if (!newName || newName === oldName) return;
+    const folders = [...new Set(this._projectFolders(projectId).map(f => (f === oldName ? newName : f)))];
+    await this._saveProjectSessionFolders(projectId, folders);
+    // Reassign member sessions to the new folder name (membership is by name).
+    for (const s of this.state.getSessionsForProject(projectId)) {
+      if ((s.folder || '') === oldName) this.setSessionFolder(s.id, newName);
+    }
+  }
+
+  deleteSessionFolder(projectId, name) {
+    const memberCount = this.state.getSessionsForProject(projectId)
+      .filter(s => (s.folder || '') === name).length;
+    const msg = memberCount > 0
+      ? `Delete folder "${name}"? Its ${memberCount} session(s) move to Ungrouped — none are deleted.`
+      : `Delete folder "${name}"?`;
+    this.modalManager.showConfirmModal(msg, async () => {
+      const folders = this._projectFolders(projectId).filter(f => f !== name);
+      await this._saveProjectSessionFolders(projectId, folders);
+      for (const s of this.state.getSessionsForProject(projectId)) {
+        if ((s.folder || '') === name) this.setSessionFolder(s.id, '');
+      }
+    });
+  }
+
   // --- Project actions ---
 
   async handleTaskSubmit(e) {

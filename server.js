@@ -258,6 +258,8 @@ function normalizeProject(p) {
       allowedTools: p.permission_policy.allowed_tools || [],
       deniedTools: p.permission_policy.denied_tools || [],
     } : null,
+    // Ordered list of session-folder names for this project (UI grouping).
+    sessionFolders: p.session_folders || [],
     // No `token`: relay is the sole project-token authority. eve references
     // projects by id only; relayLLM resolves the scoped token from relay's
     // bridge just-in-time. Never cache or forward the secret here.
