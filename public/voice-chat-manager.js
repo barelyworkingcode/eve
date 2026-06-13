@@ -557,8 +557,10 @@ class VoiceChatManager {
     if (this.useNativeAudio) this.nativeAudio.stopThinkingCue(); // it's speaking now
     // Pause VAD during TTS — browser echo cancellation (especially Chrome)
     // leaks enough speaker audio to trigger false barge-in and duplicate messages.
-    // Barge-in is still available via mic/orb tap or spacebar. Native handles
-    // half-duplex in the engine (mic muted while speaking), so no VAD to pause.
+    // Barge-in is still available via mic/orb tap or spacebar. Native needs no
+    // VAD pause: with AEC active, EveAudioEngine keeps the mic open behind a
+    // stricter energy gate (voice barge-in); without AEC it falls back to
+    // half-duplex (mic suppressed while speaking).
     if (this.inputMode === 'conversation' && !this.useNativeAudio) {
       this.vadManager.pause();
       this.micBtn?.classList.add('voice-chat__btn--muted');
