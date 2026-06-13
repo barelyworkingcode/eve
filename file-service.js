@@ -1,4 +1,5 @@
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 
 class FileService {
@@ -31,6 +32,31 @@ class FileService {
   }
 
   /**
+   * Resolves symlinks on the longest *existing* prefix of `p` and re-appends
+   * the not-yet-existing tail. A path component that doesn't exist on disk
+   * can't itself be a symlink, so resolving the existing prefix is sufficient
+   * to learn where `p` truly lands. `p` may not exist yet (new file/dir).
+   * Only ENOENT is swallowed during the walk — any other fs error is real and
+   * surfaces to the caller.
+   */
+  _realpathExistingPrefix(p) {
+    let current = path.resolve(p);
+    const tail = [];
+    for (;;) {
+      try {
+        const real = fsSync.realpathSync(current);
+        return tail.length ? path.join(real, ...tail.reverse()) : real;
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+        const parent = path.dirname(current);
+        if (parent === current) return path.resolve(p); // chain has no existing ancestor
+        tail.push(path.basename(current));
+        current = parent;
+      }
+    }
+  }
+
+  /**
    * Validates and resolves a path within project directory
    * CRITICAL: Prevents path traversal attacks
    */
@@ -40,8 +66,22 @@ class FileService {
     const normalizedRelative = relativePath.replace(/^\/+/, '') || '.';
     const resolved = path.resolve(projectPath, normalizedRelative);
 
-    // Must be within project directory
+    // Lexical traversal check (cheap first line of defense).
     if (!this._isWithin(projectPath, resolved)) {
+      throw new Error('Path traversal not allowed');
+    }
+
+    // Symlink defense: the lexical check above only sees the textual path, so a
+    // symlink *inside* the project pointing outside it (e.g. `proj/link ->
+    // /etc`, then read `link/passwd`) would slip past. Resolve symlinks on both
+    // the target's existing prefix and the project root, then re-check
+    // containment in realpath space. Comparing realRoot vs realResolved (rather
+    // than projectPath vs realResolved) is required so a project legitimately
+    // living under a symlinked ancestor — e.g. macOS `/var` -> `/private/var` —
+    // isn't false-flagged. Mirrors module-service.js resolveModuleFile().
+    const realRoot = this._realpathExistingPrefix(projectPath);
+    const realResolved = this._realpathExistingPrefix(resolved);
+    if (!this._isWithin(realRoot, realResolved)) {
       throw new Error('Path traversal not allowed');
     }
 

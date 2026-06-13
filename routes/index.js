@@ -323,7 +323,10 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     res.set('X-Content-Type-Options', 'nosniff');
 
     const ext = path.extname(resolved).toLowerCase();
-    const options = { dotfiles: 'deny' };
+    // Containment is already enforced above by isPathWithin; dot-directories
+    // (e.g. .playwright-cli, .claude) hold legitimate, already-listed project
+    // files, so serve them. 'deny' would 403 every file under a hidden dir.
+    const options = { dotfiles: 'allow' };
     if (req.query.preview === '1' && HTML_PREVIEW_EXTS.has(ext)) {
       // Sandboxed live preview: the page's own scripts run inside an opaque
       // origin, fully isolated from Eve. Rendered inline (no attachment).
