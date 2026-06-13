@@ -23,6 +23,7 @@ const { ipHostGuard } = require('./ip-host-guard');
 const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
 const { Logger } = require('./logger');
 const UiCommandBus = require('./ui-command-bus');
+const { normalizeProject } = require('./project-normalize');
 
 const log = new Logger(process.env.LOG_LEVEL || 'info');
 const serverLog = log.child('Server');
@@ -235,37 +236,6 @@ const searchSummarizer = new SearchSummarizer({
   resolveProject: (id) => projectCache.get(id),
   log,
 });
-
-function normalizeProject(p) {
-  return {
-    id: p.id,
-    name: p.name,
-    path: p.path,
-    allowedMcpIds: p.allowed_mcp_ids || [],
-    allowedModels: p.allowed_models || [],
-    chatTemplates: (p.chat_templates || []).map(t => ({
-      id: t.id,
-      name: t.name,
-      model: t.model,
-      mode: t.mode || 'text',
-      voice: t.voice || '',
-      systemPrompt: t.system_prompt || '',
-      appendClaudeMd: !!t.append_claude_md,
-      useRelayTools: !!t.use_relay_tools,
-    })),
-    permissionPolicy: p.permission_policy ? {
-      defaultMode: p.permission_policy.default_mode || 'default',
-      allowedTools: p.permission_policy.allowed_tools || [],
-      deniedTools: p.permission_policy.denied_tools || [],
-    } : null,
-    // Ordered list of session-folder names for this project (UI grouping).
-    sessionFolders: p.session_folders || [],
-    // No `token`: relay is the sole project-token authority. eve references
-    // projects by id only; relayLLM resolves the scoped token from relay's
-    // bridge just-in-time. Never cache or forward the secret here.
-    createdAt: p.created_at || '',
-  };
-}
 
 async function refreshProjectCache(data) {
   try {
