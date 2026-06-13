@@ -89,7 +89,9 @@ class FileWatcher {
   /** Suppress the change echo for a file Eve itself just wrote. */
   markSelfWrite(absolutePath) {
     this.selfWrites.add(absolutePath);
-    setTimeout(() => this.selfWrites.delete(absolutePath), SELF_WRITE_TTL_MS);
+    // unref: this fire-and-forget TTL cleanup must never keep the process (or a
+    // jest worker) alive on its own.
+    setTimeout(() => this.selfWrites.delete(absolutePath), SELF_WRITE_TTL_MS).unref();
   }
 
   closeAll() {
@@ -167,7 +169,7 @@ class FileWatcher {
   _scheduleFilePush(projectId, canonRel) {
     const key = this._key(projectId, canonRel);
     clearTimeout(this.fileTimers.get(key));
-    this.fileTimers.set(key, setTimeout(() => this._pushFile(projectId, canonRel), FILE_DEBOUNCE_MS));
+    this.fileTimers.set(key, setTimeout(() => this._pushFile(projectId, canonRel), FILE_DEBOUNCE_MS).unref());
   }
 
   async _pushFile(projectId, canonRel) {
@@ -221,7 +223,7 @@ class FileWatcher {
         return; // gone - the parent's refresh removes it from the tree
       }
       this._send({ type: 'dir_changed', projectId, path: this._toClientDir(canonDir) });
-    }, DIR_DEBOUNCE_MS));
+    }, DIR_DEBOUNCE_MS).unref());
   }
 
   // --- Helpers ---
