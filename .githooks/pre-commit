@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Pre-commit hook: gate every commit on a clean JS parse + the jest unit suite.
+#
+# Install once per clone:
+#   git config core.hooksPath .githooks
+#
+# Skip on emergency:
+#   git commit --no-verify
+#
+# What runs (only when JS / test config is staged):
+#   1. node --check on each staged .js file  — fail fast on syntax errors
+#   2. npm test                              — full jest unit suite (~1s)
+#
+# Eve has no bundler/build step (vanilla JS, direct browser execution), so the
+# "build" gate is a per-file syntax parse, not a compile. The suite is hermetic
+# (temp dirs + mocks, no relay/relayLLM needed).
+
+set -e
+
+# Only run when JS or the test config changed; let docs/asset-only commits skip.
+if ! git diff --cached --name-only | grep -qE '\.(js|cjs|mjs)$|jest\.config\.js|package\.json'; then
+    exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+start=$(date +%s)
+
+echo "→ node --check (staged JS)"
+# Added/Copied/Modified only — skip deletes. Source filenames have no spaces.
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|cjs|mjs)$' || true)
+for f in $files; do
+    if [ -f "$f" ] && ! node --check "$f"; then
+        echo "✗ syntax error in $f; commit aborted"
+        exit 1
+    fi
+done
+
+echo "→ npm test"
+if ! npm test --silent; then
+    echo "✗ tests failed; commit aborted"
+    exit 1
+fi
+
+elapsed=$(($(date +%s) - start))
+echo "✓ pre-commit checks passed in ${elapsed}s"

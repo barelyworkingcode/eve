@@ -253,10 +253,26 @@ npm run test:watch    # Unit tests in watch mode
 **Structure**
 ```
 test/
+  setup.js                 - setupFilesAfterEnv: restores real timer globals after
+                             each test (works around a Jest 30 + Node 26 bug where
+                             useRealTimers() leaves setTimeout/clearTimeout undefined)
   unit/                    - Pure logic tests (no external deps)
 ```
 
 **Rule**: Run `npm test` before committing to catch regressions.
+
+**Pre-commit hook** (`.githooks/pre-commit`). Install once per clone:
+```bash
+git config core.hooksPath .githooks
+```
+On any commit that stages a `.js` / `jest.config.js` / `package.json`, it runs
+`node --check` on the staged JS (the "build" gate — Eve has no bundler) then the
+full jest suite (~5s, hermetic). Skip in emergencies with `git commit --no-verify`.
+
+When adding a test that uses `jest.useFakeTimers()`, you don't need to manually
+restore — `test/setup.js` force-restores real timers after every test. Keep
+fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked timer
+can't hang a worker for ~50s on teardown.
 
 ## Project Architecture
 
