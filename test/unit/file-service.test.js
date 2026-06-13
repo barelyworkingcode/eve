@@ -341,4 +341,76 @@ describe('FileService', () => {
       });
     });
   });
+
+  // Regression: validatePath's lexical traversal check cannot see through a
+  // symlink that lives *inside* the project but points outside it. Without a
+  // realpath resolution, `proj/link -> /etc` lets `readFile('link/passwd')`
+  // escape the sandbox. module-service.js already defends this via fs.realpath;
+  // file-service must too. These tests pin both halves: escapes are blocked,
+  // and a symlink that stays within the project still resolves.
+  describe('symlink escape defense', () => {
+    let projDir;
+    let outsideDir;
+    let symlinksSupported = true;
+
+    beforeEach(() => {
+      projDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-fs-proj-'));
+      outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-fs-outside-'));
+      fs.mkdirSync(path.join(projDir, 'src'));
+      fs.writeFileSync(path.join(projDir, 'src', 'index.js'), 'inside', 'utf8');
+      fs.writeFileSync(path.join(outsideDir, 'secret.txt'), 'TOP SECRET', 'utf8');
+      // Some sandboxes / Windows without privilege can't create symlinks.
+      try {
+        fs.symlinkSync(outsideDir, path.join(projDir, 'escape'), 'dir');
+        fs.symlinkSync(path.join(outsideDir, 'secret.txt'), path.join(projDir, 'leak.txt'));
+        fs.symlinkSync(path.join(projDir, 'src'), path.join(projDir, 'inner'), 'dir');
+      } catch (err) {
+        symlinksSupported = false;
+      }
+    });
+
+    afterEach(() => {
+      fs.rmSync(projDir, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    });
+
+    it('blocks reads through a symlinked directory that escapes the project', async () => {
+      if (!symlinksSupported) return;
+      await expect(fileService.readFile(projDir, 'escape/secret.txt'))
+        .rejects.toThrow('Path traversal not allowed');
+    });
+
+    it('blocks reads through a symlinked file that points outside the project', async () => {
+      if (!symlinksSupported) return;
+      await expect(fileService.readFile(projDir, 'leak.txt'))
+        .rejects.toThrow('Path traversal not allowed');
+    });
+
+    it('blocks writes through a symlinked directory that escapes the project', async () => {
+      if (!symlinksSupported) return;
+      await expect(fileService.writeFile(projDir, 'escape/planted.js', 'x'))
+        .rejects.toThrow('Path traversal not allowed');
+      // Ensure nothing was actually written outside the sandbox.
+      expect(fs.existsSync(path.join(outsideDir, 'planted.js'))).toBe(false);
+    });
+
+    it('blocks listing a symlinked directory that escapes the project', async () => {
+      if (!symlinksSupported) return;
+      await expect(fileService.listDirectory(projDir, 'escape'))
+        .rejects.toThrow('Path traversal not allowed');
+    });
+
+    it('blocks validatePath directly for a symlink escape', () => {
+      if (!symlinksSupported) return;
+      expect(() => fileService.validatePath(projDir, 'escape/secret.txt'))
+        .toThrow('Path traversal not allowed');
+    });
+
+    it('still allows a symlink that stays within the project', async () => {
+      if (!symlinksSupported) return;
+      // proj/inner -> proj/src, so this resolves inside the sandbox and must work.
+      const result = await fileService.readFile(projDir, 'inner/index.js');
+      expect(result.content).toBe('inside');
+    });
+  });
 });

@@ -189,4 +189,49 @@ describe('SearchSummarizer.run', () => {
     handler({ type: 'message_complete', sessionId: 'sess-abc' });
     await run;
   });
+
+  it('on RELAY_TIMEOUT_MS with no message_complete, stops generation and fails', async () => {
+    // Keep setImmediate/queueMicrotask real so waitForHandler's microtask pump
+    // (and the awaited session-create POST) can still settle while only the
+    // setTimeout clock is faked. test/setup.js force-restores real timers after.
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'queueMicrotask', 'nextTick'] });
+
+    const { relayTransport, relayClient, browserWs, resolveProject } = makeMocks();
+    const svc = new SearchSummarizer({ relayTransport, resolveProject, log: null });
+
+    const run = svc.run({
+      requestId: 'r4', projectId: 'p1', query: 'foo', matches: [],
+      relayClient, browserWs,
+    });
+    // run() rejects on timeout; attach the assertion now so the rejection is
+    // never unhandled while we drive the clock.
+    const settled = expect(run).rejects.toThrow(/timed out/i);
+
+    // The session-create POST is awaited before setTimeout is armed; let that
+    // microtask chain unwind (handler registration is our proxy for "armed").
+    await waitForHandler(relayClient);
+    expect(relayClient.stopGeneration).not.toHaveBeenCalled();
+
+    // Fire the timeout handler.
+    jest.advanceTimersByTime(60 * 1000 + 1);
+
+    await settled;
+
+    // (a) generation was explicitly stopped for the hidden session — the
+    // regression guard against token bleed.
+    expect(relayClient.stopGeneration).toHaveBeenCalledWith('sess-abc');
+
+    // (b) failure is signalled to the browser via a search_ai_failed frame...
+    const sentTypes = relayClient.sendToBrowser.mock.calls.map(c => c[0].type);
+    expect(sentTypes).toContain('search_ai_failed');
+    expect(sentTypes).not.toContain('search_ai_completed');
+    const failFrame = relayClient.sendToBrowser.mock.calls.map(c => c[0])
+      .find(f => f.type === 'search_ai_failed');
+    expect(failFrame.error).toMatch(/timed out/i);
+
+    // ...and the session is still cleaned up in the finally block.
+    expect(relayClient.unregisterModuleSession).toHaveBeenCalledWith('sess-abc');
+    const deleteCall = relayTransport.fetch.mock.calls.find(c => c[0] === 'DELETE');
+    expect(deleteCall[1]).toBe('/api/sessions/sess-abc');
+  });
 });

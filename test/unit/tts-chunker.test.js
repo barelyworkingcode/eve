@@ -75,6 +75,16 @@ describe('cleanChunkText', () => {
     expect(cleanChunkText('```code block```visible')).toBe('visible');
   });
 
+  it('strips a dangling unterminated think tag (half-streamed reasoning)', () => {
+    // Mid-stream the closing </think> may not have arrived yet. The
+    // /<think>[\s\S]*$/ branch must drop everything from the open tag to
+    // end-of-string so partial reasoning is never spoken; real text before
+    // the tag survives.
+    expect(cleanChunkText('Here is the answer. <think>now let me reason about'))
+      .toBe('Here is the answer.');
+    expect(cleanChunkText('<think>reasoning with no close')).toBe('');
+  });
+
   it('returns empty string when nothing speakable remains', () => {
     expect(cleanChunkText('```only code```')).toBe('');
     expect(cleanChunkText('   ')).toBe('');

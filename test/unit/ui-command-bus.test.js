@@ -112,6 +112,50 @@ describe('UiCommandBus', () => {
       }), res);
       expect(res.body).toMatchObject({ status: 'no_client', delivered: 0 });
     });
+
+    it('refresh_tab reuses the caller tab_ref (does NOT mint a new one) and carries image_url', () => {
+      const client = mockClient();
+      bus.setProject(client, 'proj-1');
+      // A caller ref that is deliberately NOT in eve's eve-llm-* mint format, so a
+      // regression that minted a fresh ref would visibly change this value.
+      const callerRef = 'caller-owned-ref-42';
+
+      const res = mockRes();
+      bus.handleInternalRequest(mockReq({
+        body: { action: 'refresh_tab', project_id: 'proj-1', tab_ref: callerRef, image_url: '/api/generated/y.png', tab_kind: 'video' },
+      }), res);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toMatchObject({ status: 'ok', delivered: 1 });
+      // Reused, not minted: identical to the caller's ref and never the eve-llm-* form.
+      expect(res.body.tab_ref).toBe(callerRef);
+      expect(res.body.tab_ref).not.toMatch(/^eve-llm-/);
+      expect(client.sent).toHaveLength(1);
+      expect(client.sent[0].command).toEqual({
+        action: 'refresh_tab',
+        tab_kind: 'video',
+        tab_ref: callerRef,
+        image_url: '/api/generated/y.png',
+      });
+    });
+
+    it('refresh_tab defaults tab_kind to image and image_url to null when omitted', () => {
+      const client = mockClient();
+      bus.setProject(client, 'proj-1');
+
+      const res = mockRes();
+      bus.handleInternalRequest(mockReq({
+        body: { action: 'refresh_tab', project_id: 'proj-1', tab_ref: 'r1' },
+      }), res);
+
+      expect(res.statusCode).toBe(200);
+      expect(client.sent[0].command).toEqual({
+        action: 'refresh_tab',
+        tab_kind: 'image',
+        tab_ref: 'r1',
+        image_url: null,
+      });
+    });
   });
 
   describe('connection indexing', () => {
