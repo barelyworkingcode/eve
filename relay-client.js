@@ -335,6 +335,10 @@ class RelayClient {
     this._send({ type: 'rename_session', sessionId, name });
   }
 
+  setSessionFolder(sessionId, folder) {
+    this._send({ type: 'set_session_folder', sessionId, folder });
+  }
+
   clearSession(sessionId) {
     this._send({ type: 'clear_session', sessionId });
   }

@@ -123,6 +123,10 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             relayClient.renameSession(message.sessionId, message.name);
             break;
 
+          case 'set_session_folder':
+            relayClient.setSessionFolder(message.sessionId, message.folder);
+            break;
+
           case 'stop_generation':
             relayClient.stopGeneration(message.sessionId);
             break;
