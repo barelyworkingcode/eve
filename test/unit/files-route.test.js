@@ -26,6 +26,11 @@ describe('/api/files route hardening', () => {
     fs.writeFileSync(path.join(projectDir, 'pic.png'), 'PNGDATA', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'doc.pdf'), '%PDF-1.4', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'game.html'), '<script>1</script>', 'utf8');
+    fs.writeFileSync(path.join(projectDir, 'art.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', 'utf8');
+    fs.writeFileSync(path.join(projectDir, 'data.xml'), '<?xml version="1.0"?><root/>', 'utf8');
+    const hiddenDir = path.join(projectDir, '.playwright-cli');
+    fs.mkdirSync(hiddenDir);
+    fs.writeFileSync(path.join(hiddenDir, 'snap.png'), 'PNGDATA', 'utf8');
     fs.writeFileSync(path.join(siblingDir, 'secret.env'), 'API_KEY=topsecret', 'utf8');
 
     const app = express();
@@ -75,6 +80,12 @@ describe('/api/files route hardening', () => {
     expect(res.headers.get('content-disposition')).toBeNull();
   });
 
+  it('serves an image inside a dot-directory (regression: dotfiles deny)', async () => {
+    const res = await fetch(`${baseUrl}/api/files/p1/.playwright-cli/snap.png`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('PNGDATA');
+  });
+
   it('serves PDFs inline without the sandbox directive (native viewer needs it)', async () => {
     const res = await fetch(`${baseUrl}/api/files/p1/doc.pdf`);
     expect(res.status).toBe(200);
@@ -94,6 +105,32 @@ describe('/api/files route hardening', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-disposition')).toBeNull();
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'");
+  });
+
+  // Regression: SVG and XML are script-capable (SVG can carry inline <script>),
+  // so they must be neutralized exactly like HTML — sandboxed + forced to
+  // download, never rendered inline in Eve's origin. The route only tested
+  // .html before, leaving these two quieter stored-XSS vectors unguarded.
+  it('forces SVG to download and sandboxes it (stored-XSS vector)', async () => {
+    const res = await fetch(`${baseUrl}/api/files/p1/art.svg`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+  });
+
+  it('forces XML to download and sandboxes it', async () => {
+    const res = await fetch(`${baseUrl}/api/files/p1/data.xml`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+  });
+
+  it('does not honor ?preview=1 for SVG (only HTML previews inline)', async () => {
+    const res = await fetch(`${baseUrl}/api/files/p1/art.svg?preview=1`);
+    expect(res.status).toBe(200);
+    // Still neutralized — preview is HTML-only.
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
   });
 
   it('blocks traversal into a sibling dir sharing the project name prefix', async () => {

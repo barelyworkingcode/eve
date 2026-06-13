@@ -144,4 +144,68 @@ describe('SearchService', () => {
     captured.emit('close', null);
     await pending;
   });
+
+  // Resource limits — the DoS/cost-control levers. A regression that loosens
+  // any of these (e.g. raising MAX_GLOBS, dropping the timeout) would otherwise
+  // ship green; these pin each one.
+  describe('resource limits', () => {
+    it('rejects an over-long query before spawning', async () => {
+      const svc = new SearchService();
+      await expect(svc.run('/proj', 'x'.repeat(1001))).rejects.toThrow(/Query too long/);
+      expect(spawnCalls).toHaveLength(0);
+    });
+
+    it('rejects an over-long glob before spawning', async () => {
+      const svc = new SearchService();
+      await expect(svc.run('/proj', 'foo', { globs: ['a'.repeat(201)] })).rejects.toThrow(/Glob too long/);
+      expect(spawnCalls).toHaveLength(0);
+    });
+
+    it('rejects more than the maximum number of globs', async () => {
+      const svc = new SearchService();
+      await expect(svc.run('/proj', 'foo', { globs: ['a', 'b', 'c', 'd', 'e', 'f'] })).rejects.toThrow(/Too many globs/);
+      expect(spawnCalls).toHaveLength(0);
+    });
+
+    it('kills the search and truncates when stdout exceeds the byte cap', async () => {
+      const svc = new SearchService();
+      let captured;
+      globalThis.__nextSpawnHandler = (proc) => { captured = proc; };
+      const pending = svc.run('/proj', 'x');
+      captured.stdout.emit('data', Buffer.alloc(10 * 1024 * 1024 + 1)); // one oversized chunk trips the cap
+      expect(captured.kill).toHaveBeenCalledWith('SIGTERM');
+      captured.emit('close', null);
+      const result = await pending;
+      expect(result.truncated).toBe(true);
+      expect(result.matches).toEqual([]);
+    });
+
+    it('times out a hung search and reports truncated', async () => {
+      jest.useFakeTimers();
+      const svc = new SearchService();
+      let captured;
+      globalThis.__nextSpawnHandler = (proc) => { captured = proc; };
+      const pending = svc.run('/proj', 'x');
+      jest.advanceTimersByTime(5000);
+      expect(captured.kill).toHaveBeenCalledWith('SIGTERM');
+      captured.emit('close', null);
+      const result = await pending;
+      expect(result.truncated).toBe(true);
+    });
+
+    it('rejects with the stderr message when ripgrep exits with an error code', async () => {
+      const svc = new SearchService();
+      globalThis.__nextSpawnHandler = (proc) => setImmediate(() => {
+        proc.stderr.emit('data', Buffer.from('rg: regex parse error\nsecond line\n'));
+        proc.emit('close', 2);
+      });
+      await expect(svc.run('/proj', 'foo')).rejects.toThrow('rg: regex parse error');
+    });
+
+    it('rejects when the ripgrep process fails to launch', async () => {
+      const svc = new SearchService();
+      globalThis.__nextSpawnHandler = (proc) => setImmediate(() => proc.emit('error', new Error('spawn ENOENT')));
+      await expect(svc.run('/proj', 'foo')).rejects.toThrow(/Failed to launch ripgrep: spawn ENOENT/);
+    });
+  });
 });
