@@ -24,7 +24,7 @@
  */
 const http = require('http');
 const { WebSocketServer } = require('ws');
-const { relayFrames } = require('./protocol');
+const { relayFrames, EVENT_PROTOCOL_VERSION } = require('./protocol');
 
 // Default streamed reply to any send_message without a per-session script, built
 // from the protocol contract so the fake can't silently diverge from it.
@@ -34,6 +34,17 @@ function defaultStream(sessionId) {
     relayFrames.assistantDelta({ sessionId, text: 'from fake relay' }),
     relayFrames.messageComplete({ sessionId }),
   ];
+}
+
+// Stamp sessionId, and v:2 onto any llm_event a test authored without it — the
+// real browser DROPS version-less events, so the fake must never emit them
+// (else a test passes against frames production would silently discard).
+function stampFrame(f, sessionId) {
+  const out = { ...f, sessionId };
+  if (out.type === 'llm_event' && out.event && out.event.v === undefined) {
+    out.event = { ...out.event, v: EVENT_PROTOCOL_VERSION };
+  }
+  return out;
 }
 
 function createFakeRelay() {
@@ -104,7 +115,7 @@ function createFakeRelay() {
       // --- Misc endpoints eve may touch at boot ---
       if (p === '/api/models' && req.method === 'GET') return send(200, [{ id: 'fake-model', name: 'Fake Model' }]);
       if (p === '/api/mcps' && req.method === 'GET') return send(200, []);
-      if (p.startsWith('/api/tasks') && req.method === 'GET') return send(200, []);
+      if (p === '/api/tasks' && req.method === 'GET') return send(200, []); // exact: GET /api/tasks/:id must 404, not return [] (a wrong shape — real returns one object)
 
       // --- Binary proxies (eve uses fetchRaw; respond with raw bytes) ---
       if (p.startsWith('/api/generated/') && req.method === 'GET') {
@@ -137,7 +148,7 @@ function createFakeRelay() {
       } else if (msg.type === 'send_message') {
         const script = sessionScripts.get(msg.sessionId);
         const frames = script
-          ? script.map((f) => ({ ...f, sessionId: msg.sessionId })) // stamp test-authored frames
+          ? script.map((f) => stampFrame(f, msg.sessionId))
           : defaultStream(msg.sessionId);
         for (const f of frames) ws.send(JSON.stringify(f));
       }

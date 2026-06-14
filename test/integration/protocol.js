@@ -53,6 +53,16 @@ const relayFrames = {
 
   messageComplete: ({ sessionId, error } = {}) => (error ? { type: 'message_complete', sessionId, error } : { type: 'message_complete', sessionId }),
   error: ({ message }) => ({ type: 'error', message }),
+
+  // Control frames eve forwards verbatim. Field names verified against the real
+  // relayLLM source, NOT guessed — earlier guesses (`tool`/`input`, raw terminal
+  // `data`) were wrong and gave false confidence.
+  //   permission_request: relayLLM/api.go:344-346 + events.go:245 → toolName / toolInput (string) / toolUseId
+  permissionRequest: ({ sessionId, permissionId, toolName, toolInput = '{}', toolUseId }) =>
+    ({ type: 'permission_request', sessionId, permissionId, toolName, toolInput, toolUseId }),
+  //   terminal_output: relayLLM/main.go:150 base64-encodes `data`; the browser _decodeBase64s it
+  terminalOutput: ({ terminalId, data }) =>
+    ({ type: 'terminal_output', terminalId, data: Buffer.from(String(data)).toString('base64') }),
 };
 
 /**

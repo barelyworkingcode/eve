@@ -85,9 +85,35 @@ survive relay-down, reconnect), and the protocol contract (fake-frame validity).
 
 ---
 
+## Fake-relay fidelity (audited vs `../relay` + `../relayLLM` source, 2026-06-14)
+Checking the fake against the REAL relay source caught **false-confidence bugs** (fake passed but the
+real contract differs). Fixed:
+- [x] `permission_request` fields are `toolName` / `toolInput` (string) / `toolUseId`
+      (relayLLM/api.go:344, events.go:245) — were fabricated as `tool`/`input`.
+- [x] `terminal_output.data` is **base64** (relayLLM/main.go:150; browser `_decodeBase64`s it) — was raw text.
+- [x] fake now stamps `v:2` on any scripted `llm_event` (real browser drops version-less events).
+- [x] `GET /api/tasks` tightened to exact match so `/api/tasks/:id` 404s instead of returning the wrong shape.
+- [x] project snake_case→camelCase normalization now pinned (projects.test.js) — incl. token-never-leaks.
+
+Still to fix for full fidelity (no active false-confidence today, but the double is incomplete):
+- [ ] Fake 404s task mutations + terminal templates eve proxies (`POST/PUT/DELETE /api/tasks/:id`,
+      `/run`, `by-project`, `/history`; `/api/terminal/templates*`). Add real shapes when those get tests.
+- [ ] Task event frames lack the real `taskName` / `view` fields (relayScheduler `broadcastTaskEvent`).
+- [ ] `POST /api/sessions` echoes the requested model instead of returning a relay-selected one, and
+      never returns the model-allowlist 400/403 (eve's create-rejection path is only unit/resilience-tested).
+- [ ] Scheduler upstream (`/ws/tasks`) failure/reconnect not tested (resilience covers only the main socket).
+
+## Duplicate review (2026-06-14)
+Audited all 3 layers for redundancy. The suite is disciplined — cross-layer overlap is deliberate
+defense-in-depth (unit logic + integration wiring + e2e render each catch a distinct drift class).
+Only 2 genuine trims applied: merged the duplicate `file-watcher` "ignores unknown projectId" blocks,
+and removed the subsumed `sessions.test.js` "scripted custom stream" delta test. Resisted further trimming.
+
 ## Notes / gotchas (learned building this)
 - **Loopback is a trusted subnet** → no passkey for harness tests; passkey stays manual / CDP.
 - **Projects are relay-owned** (eve only caches them); the fake must supply the project→path
   mapping even for "local" file tests.
 - **Browser-bound frames are coalesced** into a `__batch` (24 ms); the harness WS client unwraps it.
 - **`llm_event` inner events MUST carry `v: 2`** or the client drops them (encoded in `protocol.js`).
+- **Verify the fake against `../relay` + `../relayLLM` source, not guesses** — `permission_request`
+  fields and base64 `terminal_output` were both wrong until checked against the Go source.
