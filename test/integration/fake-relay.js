@@ -106,6 +106,16 @@ function createFakeRelay() {
       if (p === '/api/mcps' && req.method === 'GET') return send(200, []);
       if (p.startsWith('/api/tasks') && req.method === 'GET') return send(200, []);
 
+      // --- Binary proxies (eve uses fetchRaw; respond with raw bytes) ---
+      if (p.startsWith('/api/generated/') && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        return res.end(Buffer.from('FAKE-PNG-BYTES'));
+      }
+      if (/^\/api\/terminals\/.+\/log$/.test(p) && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+        return res.end(Buffer.from('TERMINAL-LOG-BYTES'));
+      }
+
       return send(404, { error: `fake-relay: unhandled ${req.method} ${p}` });
     });
   });
