@@ -14,6 +14,12 @@
  */
 'use strict';
 
+// The browser refuses to render any llm_event whose inner event lacks this
+// version (message-dispatcher.js EVENT_PROTOCOL_VERSION / _checkEventVersion).
+// eve forwards relay events transparently, so this lives in the relay->browser
+// contract — invisible in eve's own code, enforced by the client.
+const EVENT_PROTOCOL_VERSION = 2;
+
 // Frames eve SENDS to relay (relay/fake must accept these).
 const EVE_TO_RELAY_TYPES = new Set([
   'join_session', 'send_message', 'leave_session', 'end_session', 'delete_session',
@@ -33,10 +39,11 @@ const relayFrames = {
   sessionJoined: ({ sessionId, directory = '/fake' }) => ({ type: 'session_joined', sessionId, directory }),
 
   // relayLLM emits assistant text in THREE interchangeable shapes; eve handles
-  // all three (see feedback_relayLLM_events). The contract must cover each.
-  assistantDelta: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { type: 'assistant', delta: { type: 'text_delta', text } } }),
-  assistantMessage: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { type: 'assistant', message: { content: [{ type: 'text', text }] } } }),
-  assistantContentBlock: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { type: 'assistant', content_block: { type: 'text', text } } }),
+  // all three (see feedback_relayLLM_events). Every event also carries `v` — the
+  // client drops events without it. The contract must cover both.
+  assistantDelta: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', delta: { type: 'text_delta', text } } }),
+  assistantMessage: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', message: { content: [{ type: 'text', text }] } } }),
+  assistantContentBlock: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', content_block: { type: 'text', text } } }),
 
   messageComplete: ({ sessionId, error } = {}) => (error ? { type: 'message_complete', sessionId, error } : { type: 'message_complete', sessionId }),
   error: ({ message }) => ({ type: 'error', message }),
@@ -78,7 +85,9 @@ function validateRelayFrame(frame) {
     if (typeof frame.message !== 'string') errors.push('error: missing/invalid message');
   } else if (frame.type === 'llm_event') {
     if (!frame.event || typeof frame.event !== 'object') errors.push('llm_event: missing event');
-    else if (frame.event.type === 'assistant') {
+    else if (frame.event.v !== EVENT_PROTOCOL_VERSION) {
+      errors.push(`llm_event: event.v must be ${EVENT_PROTOCOL_VERSION} (got ${frame.event.v}) — client drops events without it`);
+    } else if (frame.event.type === 'assistant') {
       const ev = frame.event;
       const hasDelta = ev.delta && ev.delta.type === 'text_delta';
       const hasMessage = ev.message && Array.isArray(ev.message.content);
@@ -93,6 +102,7 @@ function validateRelayFrame(frame) {
 }
 
 module.exports = {
+  EVENT_PROTOCOL_VERSION,
   EVE_TO_RELAY_TYPES,
   MODELED_RELAY_TO_EVE_TYPES,
   relayFrames,
