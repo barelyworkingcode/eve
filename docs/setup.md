@@ -34,6 +34,9 @@ control). This doc is the glue.
 ## Prerequisites
 
 - The Relay ecosystem running (relayLLM etc.); Eve registers as a Relay service.
+- The Relay CLI reachable — either on `PATH` as `relay`, or invoked at
+  `/Applications/Relay.app/Contents/MacOS/relay`. The `npm run relay:*` scripts
+  use the full path; bare `relay` commands below assume it's on `PATH`.
 - Node ≥ 20.6 (for `--env-file`). `node --version`.
 - `mkcert` (`brew install mkcert`, then `mkcert -install` once on the host).
 - A hostname you can point at the box — here, the Firewalla DDNS name.
@@ -120,8 +123,9 @@ HTTPS_CERT=./certs/server.pem
 ```
 
 What this produces: **localhost:3000 → no passkey**; **WireGuard / LAN / internet
-→ passkey required**; origin pinned to the hostname; bare-IP access refused. See
-the full env reference in [`../README.md`](../README.md#environment-variables).
+→ passkey required**; origin pinned to the hostname; bare-IP access refused.
+Common env vars are in [`../README.md`](../README.md#common-configuration); the
+rest are documented inline below and in [authentication.md](authentication.md).
 
 > Trust model nuance: `EVE_TRUSTED_SUBNETS` here is loopback-only, so LAN/WG
 > *also* require the passkey. If you'd rather LAN/WG skip the passkey, add their
@@ -134,19 +138,32 @@ the full env reference in [`../README.md`](../README.md#environment-variables).
 Eve runs as a Relay-managed service that loads `.env`:
 
 ```bash
-npm run register        # registers service id "eve": node --env-file=.env server.js
+npm run register        # registers the eve SERVICE + the eve-control MCP
 ```
 
-This registers `--id eve` with `--url http://localhost:3000` (Relay health-checks
-the loopback door) and `--autostart`. Start/restart it with:
+`npm run register` runs two steps:
+
+- **`register:service`** — registers service id `eve` with command
+  `node --env-file=.env server.js`, `--autostart`, and
+  `--url http://localhost:3000` (the default; it follows `$EVE_PUBLIC_ORIGIN` if
+  that variable is *exported in your shell* at register time). Relay
+  health-checks the loopback door at that URL.
+- **`register:mcp`** (`scripts/register-mcp.sh`) — registers the `eve-control`
+  MCP (lets an LLM open/close/refresh image tabs in Eve). On first run it
+  generates `EVE_INTERNAL_SECRET`, appends it to `.env`, and hands the same value
+  to the MCP. Idempotent on re-run.
+
+To register the service only (no MCP): `npm run register:service`.
+
+Start/restart it with:
 
 ```bash
-relay service restart --id eve
+relay service restart --id eve       # or: npm run relay:restart
 relay service list                   # confirm it's running
 ```
 
-To change config later: edit `.env` and `relay service restart --id eve` (no
-re-register needed unless the command/flags change). To re-register from scratch:
+To change config later: edit `.env` and restart (no re-register needed unless
+the command/flags change). To re-register from scratch:
 `relay service unregister --id eve && npm run register`.
 
 ---
@@ -164,7 +181,7 @@ those unless you open the one-shot hatch. So:
 3. Re-comment `EVE_ALLOW_ENROLLMENT` and `relay service restart --id eve` to
    close the hatch.
 
-Now: enrolled, and `/api/auth/enroll/start` returns `400 Already enrolled`.
+Now: enrolled, and `POST /api/auth/enroll/start` returns `400 Already enrolled`.
 From anywhere on the internet, `https://eve.example.org` shows the passkey login.
 
 ---
@@ -193,14 +210,14 @@ headers, per-connection rate limiting.
 current code). Logs: `relay service list`, or the Relay app.
 
 **Cert renewal / new name:** re-run `scripts/gen-cert.sh <names...>`, then
-`relay service restart --id eve`. (No device re-trust needed — same root. If the
-mkcert *root* ever changes, re-run `scripts/make-ios-ca-profile.sh` and re-install
-on devices.) Check expiry: `openssl x509 -in certs/server.pem -noout -dates`.
+restart. (No device re-trust needed — same root. If the mkcert *root* ever
+changes, re-run `scripts/make-ios-ca-profile.sh` and re-install on devices.)
+Check expiry: `openssl x509 -in certs/server.pem -noout -dates`.
 
-**Reset / re-enroll a passkey:** stop being able to log in? Remove the
-enrollment and redo Step 5:
+**Reset / re-enroll a passkey:** can't log in? Remove the enrollment and redo
+Step 5 (back up first if unsure):
 ```bash
-rm -f data/auth.json data/sessions.json     # back them up first if unsure
+rm -f data/auth.json data/sessions.json
 ```
 Then flip `EVE_ALLOW_ENROLLMENT=1`, restart, enroll from LAN/WG, flip it back.
 
@@ -208,22 +225,21 @@ Then flip `EVE_ALLOW_ENROLLMENT=1`, restart, enroll from LAN/WG, flip it back.
 full trust isn't enabled (Certificate Trust Settings). Re-do Step 1's install.
 
 **Can reach by IP but not by name / wrong IP returned:** split-horizon DNS isn't
-applying — usually on-device encrypted DNS (Private Relay / DoH) or a stale DNS
-cache. See Step 2's "Watch out".
+applying — usually on-device encrypted DNS or a stale cache (see Step 2's
+"Watch out").
 
 **Locked out (can't enroll):** loopback always bootstraps; or set
 `EVE_ALLOW_ENROLLMENT=1` from a private network. You can't truly brick it.
 
-**Don't:** put a loopback-terminating reverse proxy/tunnel in front of Eve — it
-makes every internet client look like `127.0.0.1` and defeats the source-IP trust
-model (passkey bypass + the "internet can't enroll" rule both break). Use a NAT
-port-forward that preserves the client IP.
+**Don't** put a loopback-terminating reverse proxy/tunnel in front of Eve (see
+Prerequisites) — it defeats the source-IP trust model. Use a NAT port-forward
+that preserves the client IP.
 
 ---
 
 ## What's committed vs local
 
 - **Committed:** code, `scripts/`, `docs/`, `.env.example` (placeholders only).
-- **Local only (gitignored):** `.env` (your hostname + ranges), `certs/`
-  (your TLS cert/key), `data/` (passkey + sessions). Nothing deployment-specific
-  is ever committed.
+- **Local only (gitignored):** `.env` (your hostname + ranges + `EVE_INTERNAL_SECRET`),
+  `certs/` (your TLS cert/key), `data/` (passkey + sessions). Nothing
+  deployment-specific is ever committed.

@@ -216,7 +216,7 @@ class AuthService {
   // MUST NOT be used for authorization decisions. Network-layer trust
   // (the subnet bypass) lives in TrustedNetworkService and reads the raw
   // TCP source address; see trusted-network.js and
-  // plans/cozy-honking-toast.md Section A.
+  // docs/security-review-auth-transport.md Section A.
 
   getRpId(req) {
     const pinned = this._getPinnedOrigin();
