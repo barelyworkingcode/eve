@@ -454,3 +454,7 @@ class ModalManager {
     }
   }
 }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ModalManager;
+}
