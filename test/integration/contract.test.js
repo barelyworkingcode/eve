@@ -34,7 +34,10 @@ describe('relay protocol contract', () => {
       expect(validateRelayFrame({ type: 'message_complete' }).ok).toBe(false);
     });
     it('rejects an assistant llm_event with no recognized payload', () => {
-      expect(validateRelayFrame({ type: 'llm_event', event: { type: 'assistant' } }).ok).toBe(false);
+      expect(validateRelayFrame({ type: 'llm_event', event: { v: 2, type: 'assistant' } }).ok).toBe(false);
+    });
+    it('rejects an llm_event missing the event protocol version (client would drop it)', () => {
+      expect(validateRelayFrame({ type: 'llm_event', event: { type: 'assistant', delta: { type: 'text_delta', text: 'hi' } } }).ok).toBe(false);
     });
     it('passes through unknown (blindly-forwarded) types', () => {
       expect(validateRelayFrame({ type: 'stats_update', used: 5 }).ok).toBe(true);
