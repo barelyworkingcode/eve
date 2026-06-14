@@ -31,7 +31,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
   return (ws, req) => {
     // Trust is decided by the raw TCP source address via TrustedNetworkService.
     // Never consult req.headers.host or X-Forwarded-For here — both are
-    // attacker-controllable. See plans/cozy-honking-toast.md Section A.
+    // attacker-controllable. See docs/security-review-auth-transport.md Section A.
     const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !trustedNetwork.isTrusted(req);
     let isAuthenticated = !requiresAuth;
 

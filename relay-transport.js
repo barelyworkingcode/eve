@@ -13,7 +13,7 @@
  * Every HTTP request and WS upgrade carries `Authorization: Bearer <token>`
  * so relay can reject unauthenticated upgrades before protocol-switching.
  *
- * Full design: plans/cozy-honking-toast.md Section B.
+ * Full design: docs/security-review-auth-transport.md Section B.
  */
 
 const http = require('http');
@@ -135,7 +135,7 @@ class RelayTransport {
       // Loopback + plain HTTP + no token: legacy dev config. Warn loudly.
       this.log.warn(
         `RELAY_FRONTEND_TOKEN is not set. Running without relay authentication is only safe for local dev on loopback. ` +
-        `Set RELAY_FRONTEND_TOKEN as soon as possible — see plans/cozy-honking-toast.md Section B.`
+        `Set RELAY_FRONTEND_TOKEN as soon as possible — see docs/security-review-auth-transport.md Section B.`
       );
     }
 
