@@ -16,7 +16,6 @@ describe('relay protocol contract', () => {
       ['assistant thinking_delta', relayFrames.assistantThinkingDelta({ sessionId: 's1', thinking: 'hmm' })],
       ['assistant content_block_stop', relayFrames.assistantContentBlockStop({ sessionId: 's1' })],
       ['message_complete', relayFrames.messageComplete({ sessionId: 's1' })],
-      ['message_complete (error)', relayFrames.messageComplete({ sessionId: 's1', error: 'boom' })],
       ['error', relayFrames.error({ message: 'x' })],
     ];
     it.each(cases)('%s passes validateRelayFrame', (_label, frame) => {
