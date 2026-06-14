@@ -35,6 +35,12 @@ class ProjectTree {
     this.panel.init();
 
     this.bus.on(EVT.PROJECTS_LOADED, () => this.render());
+    // A delete removes from state without a full reload — state.removeProject
+    // emits PROJECT_DELETED (not PROJECTS_LOADED), so without this the rail
+    // keeps the stale avatar until a manual refresh. render() reads live
+    // state and is idempotent, so it's also safe for the "please delete"
+    // emit that precedes the actual removal.
+    this.bus.on(EVT.PROJECT_DELETED, () => this.render());
   }
 
   render() {
