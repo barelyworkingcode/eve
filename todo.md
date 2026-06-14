@@ -1,6 +1,6 @@
 # Test backlog — integration layer (and adjacent)
 
-Status (2026-06-14): **unit 476 · integration 63 (1 skipped) · e2e 3 — all green.**
+Status (2026-06-14): **unit 486 · integration 64 (1 skipped) · e2e 3 — all green.**
 
 Integration tests live in `test/integration/` (`npm run test:integration`). They spawn the
 real `node server.js` against the in-process fake relay (`fake-relay.js`) on an ephemeral
@@ -27,7 +27,20 @@ survive relay-down, reconnect), and the protocol contract (fake-frame validity).
 
 ### Permissions
 - [x] `permission_request` (relay→browser) → `permission_response` (browser→relay) round-trip.
-      _(permissions.test.js)_ — `alwaysAllow` auto-approve still TODO.
+      _(permissions.test.js)_
+- [x] "Allow All" per-session bypass (the auto-approve the relay can't see — it's a *client*
+      decision in `ModalManager`, keyed on `currentSessionId`, matched against each request's
+      `sessionId`; per-session, drains the queue, cleared by `clearSessionBypass`).
+      _(unit: permission-bypass.test.js — the todo previously mislabeled this "alwaysAllow"
+      and filed it under integration; it is only testable client-side.)_
+
+### Security invariants (source guards)
+- [x] No iframe under `public/` is granted `allow-same-origin` (module trust model invariant #4);
+      the 3 project-content iframe sites (module-host / html-preview-pane / file-editor) are locked
+      to exactly `allow-scripts`. Fails-closed, scans all sites. _(unit: iframe-sandbox-guard.test.js)_
+      Note found while writing it: `viewers/pdf-viewer.js` creates an iframe with **no** sandbox
+      attribute (renders a same-origin generated PDF). Deliberate today; flag if that iframe ever
+      loads untrusted HTML.
 
 ### Terminals
 - [x] `terminal_create` → relay; relay `terminal_output` → browser; input/resize/close forward.
