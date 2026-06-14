@@ -96,7 +96,7 @@ function makeWsClient(wsUrl) {
   };
 }
 
-async function startEve({ projects = [] } = {}) {
+async function startEve({ projects = [], env: envOverride = {} } = {}) {
   const relay = createFakeRelay();
   const relayPort = await relay.listen();
   for (const p of projects) relay.addProject(p);
@@ -114,8 +114,9 @@ async function startEve({ projects = [] } = {}) {
     RELAY_FRONTEND_TOKEN: 'test-token',
     LOG_LEVEL: process.env.EVE_IT_LOG || 'error',
     EVE_INTERNAL_SECRET: '',
+    ...envOverride, // per-test env (e.g. EVE_INTERNAL_SECRET for the ui-command bus)
   };
-  delete env.EVE_PUBLIC_ORIGIN; // keep the WS origin gate lenient for the node client
+  if (!('EVE_PUBLIC_ORIGIN' in envOverride)) delete env.EVE_PUBLIC_ORIGIN; // keep the WS origin gate lenient
 
   const child = spawn('node', ['server.js', '--data', dataDir], { cwd: EVE_DIR, env });
   const stderr = [];
