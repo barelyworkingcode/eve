@@ -1,345 +1,218 @@
 # Front-End Security Audit — Browser ↔ Eve trust boundary
 
-**Scope:** Everything reachable from a browser to Eve and back — HTTP routes, the
-WebSocket protocol, auth, file serving, and the module iframe sandbox. Reviewed
-**as if Eve were to be exposed directly to the internet.**
-**Out of scope:** Eve ↔ relayLLM internals (separate trust boundary, Unix-socket +
-bearer), relayLLM/relay/relayScheduler code.
+**Status: all findings resolved or mitigated** (see status table). This document is
+retained as the rationale archive: source files and tests cite these issue IDs in
+comments (e.g. `security-headers.js` "(C3)", `file-service.js` "(H1)",
+`ws-origin.js` "(C1)"). Read it to understand *why* a given guard exists, not as a
+list of open work.
 
-**Branch:** `security/frontend-internet-exposure-audit`
-**Date:** 2026-05-30
-**Reviewer:** Claude (static review of source at HEAD)
+**Scope (as reviewed):** Everything reachable from a browser to Eve and back — HTTP
+routes, the WebSocket protocol, auth, file serving, the module iframe sandbox —
+reviewed as if Eve were exposed directly to the internet.
+**Out of scope:** Eve ↔ relay/relayLLM internals (separate boundary, Unix-socket +
+bearer; see [authentication.md](authentication.md) "Eve ↔ backend").
 
----
-
-## TL;DR
-
-Eve's *content-rendering* hygiene is genuinely good (marked + DOMPurify with an
-image-source allowlist; sandboxed, opaque-origin module iframes; server-side
-path/symlink defense for modules; relay token injected server-side). The
-authentication primitives are sound (256-bit tokens, one-time WebAuthn
-challenges, raw-socket IP trust that already fixed the old Host-header bypass).
-
-**However, Eve is not currently safe to expose to the internet.** The blocking
-issues are about *network exposure and headers*, not crypto:
-
-1. **No Origin check on the WebSocket upgrade** → cross-site WebSocket hijacking.
-   Because every privileged action (terminal I/O = shell, file read/write) flows
-   over that socket, this is a path to **remote code execution** on the host.
-2. **The default "trusted subnet" auto-trusts the whole NIC subnet** — on an
-   internet-facing box that can mean *other internet hosts* get passwordless,
-   full access.
-3. **No Content-Security-Policy or any security headers at all.**
-4. A real **path-traversal prefix bug** and **same-origin serving of
-   user/agent-authored HTML** that, without CSP, become full origin compromise.
-5. **17 known-vulnerable production dependencies** (1 critical, 8 high),
-   including the `ws` WebSocket server itself.
+**Original review:** 2026-05-30, static review at HEAD, branch
+`security/frontend-internet-exposure-audit`.
 
 Severity legend: 🔴 Critical · 🟠 High · 🟡 Medium · ⚪ Low/Hardening
 
 ---
 
-## 🔴 C1 — Cross-Site WebSocket Hijacking (no Origin validation on upgrade)
+## Findings (all resolved — see table for the fixing commit/file)
 
-**Where:** `server.js:47-53` (`handleUpgrade`), `ws-handler.js:13-19`.
+### 🔴 C1 — Cross-Site WebSocket Hijacking (no Origin validation on upgrade)
 
-The upgrade handler accepts any WebSocket connection regardless of the `Origin`
-header:
+WebSocket upgrades are not subject to same-origin policy or CORS the way `fetch`
+is. As found, `handleUpgrade` accepted any connection regardless of `Origin`, so
+any page the victim visited could open `new WebSocket("ws://eve.host:3000")` from
+the victim's browser. Combined with the trusted-subnet bypass (C2) or
+`EVE_NO_AUTH=1`, the connection authenticated with **no token**. The WS protocol
+exposes `terminal_create` / `terminal_input` (PTYs proxied to relayLLM) plus
+`write_file` / `read_file` / `delete_file` / `module_invoke_ai` — i.e. a drive-by
+page on a trusted client meant **host RCE**. This is why an Origin gate on the
+upgrade is load-bearing, not redundant with the token.
 
-```js
-function handleUpgrade(req, socket, head) {
-  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-}
-```
+**Resolved:** `ws-origin.js` + `server.js handleUpgrade` reject cross-site
+browser Origins (same-origin by default; exact-match to `EVE_PUBLIC_ORIGIN` when
+set, for proxies; native/non-browser clients with no Origin allowed).
 
-WebSocket connections are **not** subject to the same-origin policy or CORS the
-way `fetch` is. Any web page the victim visits can open
-`new WebSocket("ws://eve.host:3000")` from the victim's browser. Two ways it
-becomes authenticated:
+### 🔴 C2 — Default trusted-subnet bypass trusts the whole NIC subnet
 
-- If the victim's IP is in the trusted subnet (see **C2**) or `EVE_NO_AUTH=1`,
-  `ws-handler.js:18` sets `isAuthenticated = true` with **no token at all** — the
-  attacker's JS is immediately authenticated.
-- Otherwise the attacker needs the session token; but combined with C2/C3 the
-  no-token path is the realistic one.
+`trusted-network.js` `computeTrustedCidrs` (used by `requireAuth`, `/auth/status`,
+and the WS handler) defaults — when `EVE_TRUSTED_SUBNETS` is unset — to loopback
+**plus every non-internal NIC's entire subnet**. On a LAN that's the whole
+`192.168.x.0/24`; on an internet-exposed host the primary NIC's subnet may be a
+provider-shared public range, so the trusted set could include unrelated internet
+hosts, short-circuiting all auth (per C1, unauthenticated RCE). The IP source is
+correct (`req.socket.remoteAddress` only — the old Host-header bypass is genuinely
+closed); the issue was default *scope*.
 
-**Impact:** The WS protocol exposes `terminal_create` / `terminal_input`
-(`ws-handler.js:206-211`) which proxy straight to relayLLM PTYs — i.e. **arbitrary
-shell command execution** — plus `write_file`, `read_file`, `delete_file`,
-`module_invoke_ai`, etc. A drive-by page on a trusted client = host compromise.
+**Resolved (mitigated):** `trusted-network.js` logs a loud startup WARN when the
+trusted set contains a public IPv4 range, names it, and points at
+`EVE_DISABLE_SUBNET_BYPASS=1` / `EVE_TRUSTED_SUBNETS`. The default trust behavior
+is intentionally unchanged (loopback-only would break local dev / Chrome
+automation); operator action is required before internet exposure.
 
-**Fix:** Validate `req.headers.origin` against an explicit allowlist
-(`EVE_PUBLIC_ORIGIN`, plus loopback) **inside `handleUpgrade`** and destroy the
-socket on mismatch *before* `wss.handleUpgrade`. Do not rely on the token alone.
+### 🔴 C3 — No Content-Security-Policy / no security headers
 
----
+As found: no `helmet`, no `res.set` security headers, no CSP `<meta>`. CSP is the
+backstop that keeps any HTML-injection bug (C4/C5, or a future one) from becoming
+session-token theft and WS takeover; its absence made every injection maximally
+severe, and missing `frame-ancestors`/X-Frame-Options allowed clickjacking.
 
-## 🔴 C2 — Default trusted-subnet bypass trusts the whole NIC subnet
+**Resolved:** `security-headers.js` emits global `securityHeaders()` (nosniff,
+X-Frame-Options SAMEORIGIN, Referrer-Policy, COOP, HSTS-on-TLS) plus a strict
+app-shell CSP with the two inline bootstrap scripts pinned by SHA-256 hash (no
+`'unsafe-inline'`). `EVE_DISABLE_CSP=1` escape hatch. Module iframes (already
+opaque-origin sandboxed) and the `/auth/safari-login` page are intentionally
+excluded. Note the two-place CSP added a footgun — see [learned.md](learned.md)
+("blank file preview").
 
-**Where:** `trusted-network.js:130-180` (`computeTrustedCidrs`), used by
-`requireAuth` (`routes/index.js:23`), `/auth/status` (`routes/auth.js:49`), and
-the WS handler (`ws-handler.js:18`).
+### 🟠 H1 — Path traversal via prefix match (missing path separator)
 
-When `EVE_TRUSTED_SUBNETS` is unset, the trusted set is loopback **plus every
-non-internal NIC's entire subnet** (derived from `iface.cidr` / netmask). On a
-typical LAN that's `192.168.x.0/24` — every device on the network gets
-passwordless access. **On an internet-exposed host, the primary NIC's subnet may
-be a provider-shared public range**, so the "trusted" set can include *unrelated
-internet hosts*. `isTrusted()` then short-circuits all auth (including the WS auth
-gate), and per C1/terminals that means unauthenticated RCE.
+As found, `validatePath` and four sibling checks in `file-service.js`, plus the
+HTTP route in `routes/index.js`, used `resolved.startsWith(projectPath)` with no
+trailing separator — so a project at `/home/u/proj` also matched sibling
+`/home/u/proj-secrets`, and `../proj-secrets/.env` passed. Worsened because
+`readFile` didn't deny dotfiles and the extension allowlist included
+`env`/`config`/`log`/`json`/`lock`. `module-service.js` already had the correct
+separator-aware check.
 
-The IP source itself is correct (`req.socket.remoteAddress` only — the old
-Host-header bypass is genuinely fixed, good). The problem is the *default scope*.
+**Resolved:** `file-service.js` `_isWithin()` (separator-aware containment:
+`target === base || target.startsWith(base + path.sep)`) used in all five checks;
+same fix inlined in `/api/files`. Regression tests in
+`test/unit/file-service.test.js` and `files-route.test.js`.
 
-**Fix for internet exposure:** ship with the bypass **off by default** and require
-explicit opt-in. Concretely: set `EVE_DISABLE_SUBNET_BYPASS=1`, or pin
-`EVE_TRUSTED_SUBNETS` to a loopback/VPN range you control. Consider changing the
-default to loopback-only and making any wider subnet an explicit operator choice.
+### 🟠 H2 — Same-origin serving of user/agent-authored HTML (stored XSS)
 
----
+`uploadFile` intentionally bypasses the extension allowlist ("any type"), so
+`.html`/`.svg` can land in a project; `/api/files/...` served them via `sendFile`
+with the extension's Content-Type and no nosniff/CSP/Content-Disposition. Result:
+`GET /api/files/<proj>/evil.html` rendered as `text/html` from Eve's own origin →
+script with access to the session token and authenticated WS. The module serve
+route (`routes/modules.js`) was already MIME-restricted + nosniff + sandboxed
+iframe; the raw `/api/files` route had neither.
 
-## 🔴 C3 — No Content-Security-Policy / no security headers
+**Resolved:** `/api/files` sets `nosniff` + a locked-down `default-src 'none'` CSP
+on every file; script-capable types (html/svg/xml/xhtml) additionally get the CSP
+`sandbox` directive + `Content-Disposition: attachment`. (Sandbox is scoped to
+those types — applied to a PDF it blanks Chrome's built-in viewer; see
+[learned.md](learned.md).)
 
-**Where:** `server.js` (no `helmet`, no `res.set` for security headers);
-`public/index.html` (no CSP `<meta>`). Confirmed: zero CSP / X-Frame-Options /
-HSTS / global nosniff / Referrer-Policy anywhere.
+### 🟠 H3 — Known-vulnerable production dependencies
 
-CSP is the backstop that keeps an HTML-injection bug (C4/C5 below, or any future
-one) from becoming full session-token theft and WS takeover. Its absence means
-*any* injection is maximally severe. Also missing:
+The original `npm audit --omit=dev` reported 17 vulnerabilities (1 critical,
+8 high, 8 moderate), including the `ws` server library itself.
 
-- **`frame-ancestors` / X-Frame-Options** → clickjacking of the whole UI.
-- **HSTS** → downgrade once TLS is in front (see M3).
-- **Referrer-Policy**, global **nosniff**.
+**Resolved (mostly):** `npm audit fix` brought it to 1 moderate. The remaining
+`uuid@9` advisory is a `buf` bounds check in v3/v5/v6; Eve only calls `v4()`
+without `buf`, so it is **not exploitable** — the breaking bump to `uuid@14` was
+deferred. Durable follow-up: add `npm audit` (or Dependabot) to CI so this can't
+regress.
 
-**Fix:** Add `helmet` with a strict policy: `default-src 'self'`,
-`connect-src 'self' wss:`, `img-src 'self' data:`, `frame-src 'self'`,
-`object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`. The inline
-`<script>`/`onclick` in `routes/auth.js:115` (`/auth/safari-login`) needs a
-per-response nonce or extraction to a file — handle that page's policy separately.
+### 🟡 M1 — WebAuthn origin/RP derived from the `Host` header
 
----
+`expectedOrigin` (used in `verifyLogin` / `verifyEnrollment`) was built from
+`req.get('host')` + `x-forwarded-proto`, both attacker-controllable. RP-ID was
+partially protected because login uses the *stored* `rpId` and the authenticator
+won't sign for a different RP, but `expectedOrigin` should still be pinned for
+internet deployment.
 
-## 🟠 H1 — Path traversal via prefix match (missing path separator)
+**Resolved:** `auth.js` pins the expected **origin** to `EVE_PUBLIC_ORIGIN`
+when set. For the **RP-ID**, login uses the stored `rpId` from enrollment first
+and falls back to the pinned/derived value; enrollment uses the pinned/derived
+RP-ID directly. Legacy host-derived behavior only when `EVE_PUBLIC_ORIGIN` is unset.
 
-**Where:** `file-service.js:27` (`validatePath`) and the same pattern in
-`renameFile:187`, `moveFile:216`, `uploadFile:269`, `createDirectory:309`, and
-the HTTP route `routes/index.js:296`.
+### 🟡 M2 — Plaintext HTTP was a warning, not a refusal
 
-```js
-if (!resolved.startsWith(path.resolve(projectPath))) throw new Error('Path traversal not allowed');
-```
+As found, without `HTTPS_KEY`/`HTTPS_CERT` Eve bound plain HTTP on all interfaces
+and only logged a warning, exposing the bearer session token on the wire.
 
-`startsWith` without a trailing separator means a project at `/home/u/proj` also
-matches sibling `/home/u/proj-secrets`. A client-supplied relative path like
-`../proj-secrets/.env` resolves to `/home/u/proj-secrets/.env`, which *passes*
-the check. Reachable by any authenticated/trusted WS client and over HTTP
-`/api/files/:projectId/*`.
+**Resolved:** `server.js` binds the plaintext listener to `127.0.0.1` only unless
+`EVE_ALLOW_PLAINTEXT_REMOTE=1`; HTTPS still binds all interfaces.
 
-Worsened by: `readFile` does **not** deny dotfiles, and the extension allowlist
-includes `env`, `config`, `log`, `json`, `lock` — so `.env`/secrets are readable.
+### 🟡 M3 — No rate-limiting / size limits on expensive authenticated surface
 
-Note `module-service.js:81,94` already does this correctly
-(`candidate.startsWith(moduleRoot + path.sep) && candidate !== moduleRoot`).
-Apply that exact pattern everywhere.
+`express.json({ limit: '50mb' })` plus unbounded WS volume on CPU/memory-heavy ops
+(`search_project`, `transcribe_audio`, `tts_speak`, `module_invoke_ai`). Auth
+routes were rate-limited; nothing else was.
 
-**Fix:** `const base = path.resolve(projectPath); if (resolved !== base && !resolved.startsWith(base + path.sep)) throw ...`
+**Resolved:** `rate-limiter.js` + `ws-handler.js` apply a per-connection
+fixed-window cap (default 30 / 10s, tunable via `EVE_RATELIMIT_*`) on the
+expensive ops. (Complements the auth-endpoint limiter documented in
+[authentication.md](authentication.md) "Rate limiting".)
 
----
+### 🟡 M4 — `read_plan_file` widens read surface to operator's home
 
-## 🟠 H2 — Same-origin serving of user/agent-authored HTML (stored XSS)
+Any authenticated browser can read `~/.claude/plans/*.md`. The path check is
+correct, but this exposes operator files outside any project. Intended (the orb
+and plan-review flows need it).
 
-**Where:** `routes/index.js:287-306` (`/api/files/:projectId/*`) +
-`file-service.js:258-293` (`uploadFile`).
+**Resolved (hardened):** `ws-handler.js` keeps the intended scope but resolves the
+realpath and re-checks containment, defeating a symlink inside the plans dir
+pointing elsewhere.
 
-- `uploadFile` **intentionally bypasses the extension allowlist** ("any type"),
-  so `.html` / `.svg` can be written into a project.
-- `/api/files/...` serves them with `res.sendFile`, which sets `Content-Type`
-  from the extension and sets **no `nosniff`, no CSP, no `Content-Disposition`**.
+### ⚪ Low / Hardening
 
-Result: `GET /api/files/<proj>/evil.html` renders as `text/html` **from Eve's own
-origin** → script runs with access to the session token and the authenticated WS.
-SVG (`image/svg+xml`) is equally scriptable. The file can arrive via upload, via
-the agent writing it, or via a synced/shared project.
-
-Contrast: the *module* serve route (`routes/modules.js:14-32`) correctly restricts
-to a MIME allowlist and sets nosniff — but loads in a sandboxed iframe anyway.
-The raw `/api/files` route has neither protection and renders in the top origin.
-
-**Fix:** For `/api/files`, force `Content-Disposition: attachment` +
-`X-Content-Type-Options: nosniff` + a sandboxing CSP, and never serve `text/html`
-/ `image/svg+xml` inline. Or route binary viewers through a restricted MIME
-allowlist like the module route does.
-
----
-
-## 🟠 H3 — Known-vulnerable production dependencies
-
-`npm audit --omit=dev`: **17 vulnerabilities (1 critical, 8 high, 8 moderate)**,
-including:
-
-- **`ws` 8.0.0–8.20.0** — uninitialized memory disclosure. This is the
-  internet-facing WebSocket server library itself.
-- **`express` / `body-parser` / `qs`** — `qs` DoS chain.
-- `uuid` (via mermaid) — bounds-check issue.
-
-**Fix:** `npm audit fix` (most are non-breaking), retest, and add `npm audit` (or
-Dependabot) to CI so this doesn't regress before exposure.
-
----
-
-## 🟡 M1 — WebAuthn origin/RP derived from the `Host` header
-
-**Where:** `auth.js:170-179` (`getRpId`, `getOrigin`), used as `expectedOrigin`
-in `verifyLogin:288` and `verifyEnrollment:211`.
-
-`expectedOrigin` is built from `req.get('host')` and `x-forwarded-proto`, both
-attacker-controllable. RP-ID binding is partially protected because login uses
-the *stored* `rpId` (`auth.js:254,287`) and the authenticator won't sign for a
-different RP — but `expectedOrigin` should still be pinned, not header-derived,
-for an internet deployment (and `x-forwarded-proto` shouldn't be trusted without
-a known proxy).
-
-**Fix:** Introduce `EVE_PUBLIC_ORIGIN` and verify against it; only honor
-`x-forwarded-*` when the peer is a configured trusted proxy.
+- **L1 — Debug logging of credential material.** Removed credential-id / rawId /
+  rpId / allowCredentials logging (`routes/auth.js`, `auth.js`); default
+  `LOG_LEVEL` lowered from `debug` to `info`.
+- **L2 — "Allow All" permission button.** Accepted as a deliberate UX feature, not
+  a fallback. The main escalation path (CSWSH) is closed by C1. Revisit if Eve
+  becomes multi-user.
+- **L3 — Static `public/` served before auth.** Guarded by
+  `test/unit/static-exposure.test.js`, which asserts no secret/state files
+  (auth.json, sessions.json, *.pem, .env) or `data/`/`certs/` ever live under the
+  unauthenticated `public/` root.
+- **L4 — `target="_blank"` reverse-tabnabbing.** All chat links now get
+  `target="_blank" rel="noopener noreferrer"` (`message-renderer.js`).
 
 ---
 
-## 🟡 M2 — Plaintext HTTP is a warning, not a refusal
-
-**Where:** `server.js:288-293`. Without `HTTPS_KEY/HTTPS_CERT`, Eve binds plain
-HTTP on all interfaces and only logs a warning. The session token is a bearer in
-the `X-Session-Token` header / WS `auth` frame — sniffable on the wire.
-
-**Fix for internet exposure:** fail closed — refuse to bind a non-loopback
-address without TLS (mirror the fail-closed stance already used for the relay
-transport in `assertStartupConfig`). Terminate TLS at a proxy only if that proxy
-is the sole listener.
-
----
-
-## 🟡 M3 — No rate-limiting / size limits on expensive authenticated surface
-
-`express.json({ limit: '50mb' })` (`server.js:236`) plus unbounded WS message
-volume. Endpoints like `search_project`, `transcribe_audio`/`/api/transcribe`,
-`tts_speak`, and `module_invoke_ai` are CPU/memory heavy and have no per-
-connection throttle. Auth routes *are* rate-limited (`auth.js:99-114`), but
-nothing else is. An authenticated/trusted client can exhaust the host.
-
-**Fix:** Per-connection WS message throttling; lower JSON/body limits to what
-attachments actually need; cap concurrent searches/invocations per connection.
-
----
-
-## 🟡 M4 — `read_plan_file` widens read surface to operator's home
-
-**Where:** `ws-handler.js:395-415`. Any authenticated browser can read any
-`~/.claude/plans/*.md`. The path check itself is correct
-(`startsWith(plansDir + path.sep)` + `.md`), but this exposes operator files
-outside any project to the browser. Information disclosure.
-
-**Fix:** Confirm this is intended; if so, document it; otherwise scope to the
-active project.
-
----
-
-## ⚪ Low / Hardening
-
-- **L1 — Debug logging of credential material:** `routes/auth.js:72-73,85-87`,
-  `auth.js` log `credential.id`, `rawId`, `rpId`, `allowCredentials`. Default
-  `LOG_LEVEL=debug` (`server.js:22`). Not secrets, but lower the default to
-  `info` for production and trim these.
-- **L2 — `Allow All` permission button** (per git log `cf8a28f`) auto-approves
-  subsequent tool permissions for the connection — increases blast radius if a
-  session is hijacked (C1). Consider scoping/expiring it.
-- **L3 — Static `public/` served before auth** (`server.js:223`): fine today
-  (only client assets live there), but keep `data/`, `certs/`, and any secret
-  out of `public/` — currently they are, good. Add a test to keep it that way.
-- **L4 — `target="_blank"` only hardened on generated links**
-  (`message-renderer.js:1062`); other markdown links rely on DOMPurify defaults.
-  Add a global `rel="noopener"` pass.
-
----
-
-## What's already done well (keep it)
+## What's already done well (design notes — keep these intact)
 
 - **LLM/markdown rendering** goes through `marked` → `DOMPurify.sanitize` with an
-  image-source allowlist that strips non-`/api/generated/` images
-  (`message-renderer.js:1045-1066`). Tool names, agent personas, file names, and
-  structured-question options are all `escapeHtml`'d.
-- **Module iframes** use `sandbox="allow-scripts"` only (opaque origin), and the
-  postMessage bridge authenticates by `event.source` WeakMap lookup, never trusting
-  iframe-supplied scope (`module-host.js`).
-- **Module file/path resolution** resolves realpaths and blocks symlink escape
-  with the *correct* separator-aware prefix check (`module-service.js`).
-- **Network trust** reads only `req.socket.remoteAddress` — the documented
+  image-source allowlist that strips non-`/api/generated/` images. Tool names,
+  personas, file names, and structured-question options are all `escapeHtml`'d.
+- **Module iframes** use `sandbox="allow-scripts"` only (opaque origin); the
+  postMessage bridge authenticates by `event.source` WeakMap lookup, never
+  trusting iframe-supplied scope (`module-host.js`).
+- **Module file/path resolution** resolves realpaths and blocks symlink escape with
+  the separator-aware prefix check (`module-service.js`) — the pattern H1 adopted.
+- **Network trust** reads only `req.socket.remoteAddress`; the documented
   Host-header auth bypass is genuinely closed (`trusted-network.js`).
-- **Relay credentials** — as of the project-token brokering refactor
-  (relay ADR-007), eve no longer handles project tokens at all. relay strips the
-  token from every frontend HTTP response (its `projectView` DTO) and eve drops
-  any `token` field in `normalizeProject`, so the secret no longer reaches the
-  browser or eve's cache. Sessions/terminals are created with a `projectId` only;
-  relayLLM resolves the scoped token just-in-time from relay's bridge. This
-  closes both the inbound (browser can't supply/widen) and the previously
-  unaddressed outbound (token reaching the browser) exposures.
+- **Relay credentials.** Since the project-token brokering refactor, Eve no longer
+  handles project tokens: relay strips the token from frontend HTTP responses and
+  Eve drops any `token` field in `normalizeProject`, so the secret never reaches
+  the browser or Eve's cache. Sessions/terminals are created by `projectId` only;
+  relayLLM resolves the scoped token just-in-time from relay's bridge. (Cross-repo
+  rationale: see `../relay/docs/decisions/`.)
 
 ---
 
-## Suggested remediation order before any internet exposure
+## Remediation status
 
-1. **C1** WS Origin allowlist on upgrade.
-2. **C2** Turn off / pin the subnet bypass (`EVE_DISABLE_SUBNET_BYPASS=1` or
-   explicit `EVE_TRUSTED_SUBNETS`).
-3. **C3** Add `helmet` + strict CSP (special-case the safari-login page).
-4. **M2** Fail-closed on non-loopback without TLS.
-5. **H1** Fix the prefix-match traversal across `file-service.js` + `/api/files`.
-6. **H2** Stop serving user HTML/SVG inline from `/api/files`.
-7. **H3** `npm audit fix` and add audit to CI.
-8. **M1/M3/M4 + L\*** as hardening.
+| ID | Status | Fixing file(s) |
+|----|--------|----------------|
+| **C1** | ✅ Fixed | `ws-origin.js`, `server.js` handleUpgrade — cross-origin WS → 403; same-origin / native connect. |
+| **C2** | ⚠️ Mitigated | `trusted-network.js` startup WARN on public range; default trust unchanged. Operator opt-in required. |
+| **C3** | ✅ Fixed | `security-headers.js` — global headers + hash-pinned strict CSP; `EVE_DISABLE_CSP=1`. |
+| **H1** | ✅ Fixed | `file-service.js` `_isWithin()` in all 5 checks; inlined in `/api/files`. Regression tests added. |
+| **H2** | ✅ Fixed | `/api/files` nosniff + `default-src 'none'`; script types get `sandbox` + `attachment`. |
+| **H3** | ✅ Mostly | `npm audit fix` (17 → 1 moderate); remaining `uuid@9` not exploitable (`v4()` only). Add `npm audit` to CI. |
+| **M1** | ✅ Fixed | `auth.js` pins origin to `EVE_PUBLIC_ORIGIN`; login RP-ID = stored `rpId`, pin/derived as fallback. |
+| **M2** | ✅ Fixed | `server.js` binds plaintext to `127.0.0.1` unless `EVE_ALLOW_PLAINTEXT_REMOTE=1`. |
+| **M3** | ✅ Fixed | `rate-limiter.js` + `ws-handler.js` per-connection cap (default 30 / 10s; `EVE_RATELIMIT_*`). |
+| **M4** | ✅ Hardened | `ws-handler.js` realpath re-check on `read_plan_file`. |
+| **L1** | ✅ Fixed | Credential-material logging removed; default `LOG_LEVEL=info`. |
+| **L2** | ⬜ Accepted | "Allow All" left as-is; CSWSH closed by C1. |
+| **L3** | ✅ Guarded | `static-exposure.test.js`. |
+| **L4** | ✅ Fixed | `message-renderer.js` `rel="noopener noreferrer"`. |
 
----
-
-## Remediation status (branch `security/frontend-internet-exposure-audit`)
-
-| ID | Status | What changed |
-|----|--------|--------------|
-| **C1** | ✅ Fixed | `ws-origin.js` + `server.js handleUpgrade` reject cross-site browser Origins (same-origin by default; exact-match to `EVE_PUBLIC_ORIGIN` when set, for proxies). Verified live: cross-origin WS → 403, same-origin / native → connect. |
-| **C2** | ⚠️ Mitigated | `trusted-network.js` now logs a loud startup WARN when the trusted set contains a public IPv4 range, naming it and pointing at `EVE_DISABLE_SUBNET_BYPASS=1` / `EVE_TRUSTED_SUBNETS`. Default trust behavior unchanged (would break local dev); operator action still required for internet exposure. |
-| **C3** | ✅ Fixed | `security-headers.js`: global `securityHeaders()` (nosniff, X-Frame-Options SAMEORIGIN, Referrer-Policy, COOP, HSTS-on-TLS) + strict app-shell CSP with the two inline bootstrap scripts pinned by SHA-256 hash (no `'unsafe-inline'`). `EVE_DISABLE_CSP=1` escape hatch. Module iframes / safari-login intentionally excluded. |
-| **H1** | ✅ Fixed | `file-service.js` `_isWithin()` separator-aware containment used in all 5 checks; same fix inlined in `/api/files`. Regression tests added. |
-| **H2** | ✅ Fixed | `/api/files` sets `nosniff` + a locked-down `default-src 'none'` CSP on every file; script-capable types (html/svg/xml/xhtml) additionally get the `sandbox` directive + `Content-Disposition: attachment`. The `sandbox` directive is scoped to those types because applied to a PDF it blanks Chrome's built-in viewer. |
-| **H3** | ✅ Mostly | `npm audit fix`: 17 vulns (1 crit / 8 high) → 1 moderate. Remaining `uuid@9` advisory is a `buf` bounds check in v3/v5/v6; Eve only calls `v4()` without `buf`, so it is **not exploitable** — breaking bump to uuid@14 deferred. Recommend adding `npm audit` to CI. |
-| **M1** | ✅ Fixed | `auth.js` pins WebAuthn RP-ID and expected origin to the single `EVE_PUBLIC_ORIGIN` when set, instead of the `Host` header (stored rpId kept as the login fallback). Legacy host-derived behavior unchanged when unset. Verified: spoofed Host ignored under pinning. |
-| **M2** | ✅ Fixed | `server.js` binds the plaintext listener to `127.0.0.1` only unless `EVE_ALLOW_PLAINTEXT_REMOTE=1` is set; HTTPS still binds all interfaces. Verified live via `lsof` (loopback vs `*`). |
-| **M3** | ✅ Fixed | `rate-limiter.js` + `ws-handler.js`: per-connection fixed-window cap (default 30 / 10s, tunable via `EVE_RATELIMIT_*`) on expensive ops (session create, search, AI summarize, module invoke, transcribe, TTS). |
-| **M4** | ✅ Hardened | `read_plan_file` keeps its (intended) `~/.claude/plans/*.md` scope but now resolves the realpath and re-checks containment, defeating a symlink inside the plans dir pointing elsewhere. |
-| **L1** | ✅ Fixed | Removed debug logging of credential IDs / rawId / rpId / allowCredentials (`routes/auth.js`, `auth.js`); default `LOG_LEVEL` lowered from `debug` to `info`. |
-| **L2** | ⬜ Accepted | "Allow All" is a deliberate UX feature, not a fallback; left as-is. CSWSH is now closed (C1), which was the main escalation path. Revisit if multi-user. |
-| **L3** | ✅ Guarded | Added `static-exposure.test.js` asserting no secret/state files (auth.json, sessions.json, *.pem, .env) or `data/`/`certs/` ever live under the unauthenticated `public/` root. |
-| **L4** | ✅ Fixed | All chat links now get `target="_blank" rel="noopener noreferrer"` (reverse-tabnabbing defense + stops link clicks from navigating the SPA away). |
-
-**New deployment switches:** `EVE_PUBLIC_ORIGIN`, `EVE_BIND_HOST`,
-`EVE_ALLOW_PLAINTEXT_REMOTE`, `EVE_DISABLE_SUBNET_BYPASS`, `EVE_DISABLE_CSP`,
-`EVE_RATELIMIT_*`. `npm run start:secure` (internet + WireGuard) and
-`npm run start:wireguard` (trust the tunnel, passkey on public ingress) encode
-the hardened posture; both refuse to start without `EVE_PUBLIC_ORIGIN`. See
-README "Deployment: WireGuard and/or the internet".
-
-**Tests:** 218 passing (160 prior + new suites `ws-origin`, `security-headers`,
-`files-route`, `rate-limiter`, `auth-origin`, `ip-host-guard`, `static-exposure`,
-plus additions to `file-service` / `trusted-network`). The headers, WS origin
-gate, C2 warning, M1 origin pin, M2 bind behavior, the bare-IP guard, and the
-full hardened HTTPS posture were all verified against live server boots.
-
----
-
-## Access paths: WireGuard + internet
-
-Both run the **same** hardened config (`npm run start:secure`): TLS bound to all
-interfaces, `EVE_PUBLIC_ORIGIN` pinned, subnet bypass off, passkey everywhere.
-Reach Eve at one hostname (`eve.example.com`) over both paths via split-horizon
-DNS so the single passkey (bound to one RP-ID) works on each. Verified live:
-HTTPS posture, HSTS, pinned-origin WS accepted, cross-origin WS rejected (403),
-and loopback NOT auto-authed with the bypass disabled. WireGuard-only operators
-can instead trust the tunnel subnet (`npm run start:wireguard`). Full setup
-(split-horizon DNS, Firewalla steps, certs): [remote-access.md](remote-access.md).
+Deployment switches and the hardened run scripts (`npm run start:secure`,
+`npm run start:wireguard`) are documented in [authentication.md](authentication.md)
+and [remote-access.md](remote-access.md); both scripts refuse to start without
+`EVE_PUBLIC_ORIGIN`. The headers, WS-origin gate, the C2 warning, the M1 origin
+pin, the M2 bind behavior, and the full hardened HTTPS posture were verified
+against live server boots.
