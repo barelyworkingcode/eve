@@ -272,6 +272,49 @@ describe('createWsHandler', () => {
         type: 'module_file_response', requestId: 'rq', op: 'read', ok: true, content: 'hi', size: 2,
       }));
     });
+
+    // The write side runs the SAME manifest re-read + permissions.files gate as
+    // read (module invariant #2). It was previously untested: a regression that
+    // dropped the gate on writes would let an AI-authored iframe overwrite any
+    // project file. These pin that the gate is enforced for writes too.
+    it('denies a write for a path not in the module permissions and never touches the disk', async () => {
+      const deps = makeDeps({
+        moduleService: { getModule: jest.fn().mockResolvedValue({}), isFilePermitted: jest.fn(() => false) },
+      });
+      deps.fileHandlers.fileService.writeFile = jest.fn();
+      const ws = mount(deps);
+      await sendMsg(ws, { type: 'module_write_file', requestId: 'rq', projectId: 'p1', moduleName: 'm', path: 'secret.txt', content: 'x' });
+      expect(deps.fileHandlers.fileService.writeFile).not.toHaveBeenCalled();
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: 'module_file_response', requestId: 'rq', op: 'write',
+        ok: false, error: 'Permission denied: secret.txt not in module permissions.files',
+      }));
+    });
+
+    it('writes a permitted file through the file service and marks the self-write', async () => {
+      const deps = makeDeps();
+      deps.fileHandlers.fileService.writeFile = jest.fn().mockResolvedValue(undefined);
+      deps.fileHandlers.fileService.validatePath = jest.fn(() => '/proj1/ok.txt');
+      const ws = mount(deps);
+      await sendMsg(ws, { type: 'module_write_file', requestId: 'rq', projectId: 'p1', moduleName: 'm', path: 'ok.txt', content: 'new body' });
+      expect(deps.fileHandlers.fileService.writeFile).toHaveBeenCalledWith('/proj1', 'ok.txt', 'new body');
+      // Self-write marking suppresses the watcher echoing eve's own write back as
+      // an external file_changed.
+      expect(fileWatcher.markSelfWrite).toHaveBeenCalledWith('/proj1/ok.txt');
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: 'module_file_response', requestId: 'rq', op: 'write', ok: true,
+      }));
+    });
+
+    it('reports a write failure from the file service as ok:false', async () => {
+      const deps = makeDeps();
+      deps.fileHandlers.fileService.writeFile = jest.fn().mockRejectedValue(new Error('EACCES: denied'));
+      const ws = mount(deps);
+      await sendMsg(ws, { type: 'module_write_file', requestId: 'rq', projectId: 'p1', moduleName: 'm', path: 'ok.txt', content: 'x' });
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: 'module_file_response', requestId: 'rq', op: 'write', ok: false, error: 'EACCES: denied',
+      }));
+    });
   });
 
   describe('module_invoke_ai guards', () => {

@@ -51,7 +51,13 @@ const relayFrames = {
   assistantThinkingDelta: ({ sessionId, thinking }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', index: 0, delta: { type: 'thinking_delta', thinking } } }),
   assistantContentBlockStop: ({ sessionId, index = 0 }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', index, content_block_stop: true } }),
 
-  messageComplete: ({ sessionId, error } = {}) => (error ? { type: 'message_complete', sessionId, error } : { type: 'message_complete', sessionId }),
+  // relayLLM's message_complete is invariantly { type, sessionId } with NIL
+  // payload on EVERY path (relayLLM/events.go:40 "payload nil"; the handler is
+  // called with nil at session.go:717, provider_claude.go:691, provider_pi.go:819,
+  // provider_chat_base.go:443). It NEVER carries an error — turn failures travel
+  // as a separate { type:'error', sessionId, message } frame. Don't reintroduce
+  // an `error` field here; it would bless a shape the real relay cannot produce.
+  messageComplete: ({ sessionId } = {}) => ({ type: 'message_complete', sessionId }),
   error: ({ message }) => ({ type: 'error', message }),
 
   // Control frames eve forwards verbatim. Field names verified against the real
@@ -96,7 +102,8 @@ function validateRelayFrame(frame) {
     if (!frame.sessionId) errors.push('session_joined: missing sessionId');
   } else if (frame.type === 'message_complete') {
     if (!('sessionId' in frame)) errors.push('message_complete: missing sessionId');
-    if ('error' in frame && typeof frame.error !== 'string') errors.push('message_complete: error must be a string');
+    // No `error` field is modeled: relayLLM's message_complete payload is always
+    // nil (see the messageComplete builder above). Errors are a separate frame.
   } else if (frame.type === 'error') {
     if (typeof frame.message !== 'string') errors.push('error: missing/invalid message');
   } else if (frame.type === 'llm_event') {
