@@ -267,8 +267,16 @@ class ProjectDialog extends DialogBase {
       if (existing) existing.remove();
       const errEl = document.createElement('div');
       errEl.className = 'project-dialog__error';
-      errEl.textContent = 'Failed to save project. Please try again.';
+      // Surface the backend's actual reason (e.g. "project path must be an
+      // absolute path") — api-client puts it on err.message. The generic
+      // fallback covers network failures with no server message.
+      errEl.textContent = err?.message
+        ? `Failed to save project: ${err.message}`
+        : 'Failed to save project. Please try again.';
       this._tabContent.prepend(errEl);
+      // The Save button sits below the MCP/model lists, so the error (top of
+      // the tab) is off-screen after a click — scroll it into view.
+      errEl.scrollIntoView({ block: 'nearest' });
     }
   }
 
