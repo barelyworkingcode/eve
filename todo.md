@@ -1,6 +1,6 @@
 # Test backlog — integration layer (and adjacent)
 
-Status (2026-06-14): **unit 476 · integration 33 (1 skipped) · e2e 3 — all green.**
+Status (2026-06-14): **unit 476 · integration 63 (1 skipped) · e2e 3 — all green.**
 
 Integration tests live in `test/integration/` (`npm run test:integration`). They spawn the
 real `node server.js` against the in-process fake relay (`fake-relay.js`) on an ephemeral
@@ -43,8 +43,8 @@ survive relay-down, reconnect), and the protocol contract (fake-frame validity).
 - [x] `search_project` over a real project with content → `search_results` (real rg);
       empty result set; unknown-project error. _(search.test.js)_
 - [ ] `search_cancel` cancels an in-flight search; truncation/cap behavior.
-- [ ] `search_ai_summarize` — fake handles the `__search:` hidden session, streams a summary,
-      session DELETEd afterward (mirror the module-ai test).
+- [x] `search_ai_summarize` — `__search:` hidden session intercepted (no llm_event leak),
+      `search_ai_*` frames surfaced, session DELETEd afterward. _(search-ai.test.js)_
 
 ### File ops (extend local-surface)
 - [x] `rename_file` / `move_file` / `upload_file` over WS. _(file-ops.test.js)_
