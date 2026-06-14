@@ -1,183 +1,66 @@
-# HTTPS Setup for Passkey Authentication
+# HTTPS / TLS Certificate Setup (mkcert)
 
-WebAuthn (passkeys) requires a "secure context". While `localhost` is special-cased and works with HTTP, accessing Eve from other devices on your LAN **with a passkey prompt** requires HTTPS.
+WebAuthn (passkeys) requires a "secure context". Browsers special-case `localhost` over HTTP, but any LAN / WireGuard / internet access needs HTTPS. This doc is the cert + device-trust reference. For the full deployment runbook (DNS, ports, `.env`, enrollment), see [`setup.md`](setup.md).
 
-> If the client is on a trusted subnet (see the "Trusted-subnet bypass" section of [`../README.md`](../README.md) and [`authentication.md`](authentication.md)) it will skip the passkey prompt entirely, and HTTPS is not strictly required for that client. HTTPS is still recommended for every non-loopback listener so session tokens and file I/O are not transmitted in the clear. For any deployment that leaves the machine, configure HTTPS as described below.
+> A client on a trusted subnet skips the passkey prompt entirely (see "Trusted-subnet bypass" in [`../README.md`](../README.md) and [`authentication.md`](authentication.md)), so HTTPS is not strictly required for that client. It is still recommended for every non-loopback listener so session tokens and file I/O aren't sent in the clear. Configure HTTPS for any deployment that leaves the machine.
 
-## Quick Start
+## Env-var contract
+
+Eve serves HTTPS when both are set (`server.js`):
+
+| Var | Meaning |
+|-----|---------|
+| `HTTPS_KEY` | path to the TLS private key (`certs/server-key.pem`) |
+| `HTTPS_CERT` | path to the TLS certificate (`certs/server.pem`) |
+
+Without TLS, Eve binds loopback only (fail-safe) unless `EVE_ALLOW_PLAINTEXT_REMOTE=1`. See the env reference in [`../README.md`](../README.md#common-configuration).
+
+## Quick start
 
 ```bash
-# Install mkcert
-brew install mkcert
+brew install mkcert         # or your platform's package manager; see mkcert's README
+mkcert -install             # install the local CA into the system trust store (run once)
 
-# Install the local CA
-mkcert -install
-
-# Generate certificates (replace with your hostname/IP)
-mkcert -cert-file ./certs/server.pem -key-file ./certs/server-key.pem localhost 127.0.0.1 192.168.1.100
-
-# Start server with HTTPS
+scripts/gen-cert.sh eve.example.org              # → certs/server.pem + certs/server-key.pem
 HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem npm start
 ```
 
-## Detailed Setup
+`scripts/gen-cert.sh <primary-hostname> [extra-names-or-IPs ...]` creates `certs/`, always also covers `localhost`, `127.0.0.1`, `::1`, and the detected LAN IP, backs up any existing cert, and writes exactly the two files `.env` / the env vars point at. (Under the hood it runs `mkcert -cert-file certs/server.pem -key-file certs/server-key.pem <names...>`.)
 
-### 1. Install mkcert
+## Device trust (iOS / macOS)
 
-**macOS:**
-```bash
-brew install mkcert
-```
-
-**Linux:**
-```bash
-# Debian/Ubuntu
-sudo apt install libnss3-tools
-brew install mkcert  # or download from releases
-
-# Arch
-sudo pacman -S mkcert
-```
-
-**Windows:**
-```powershell
-choco install mkcert
-# or
-scoop install mkcert
-```
-
-### 2. Install the Local CA
-
-Run once to install the CA in your system trust store:
+mkcert is a **private** CA, so every device must trust its root.
 
 ```bash
-mkcert -install
+scripts/make-ios-ca-profile.sh    # → ~/Documents/HomeWork-Eve-CA.mobileconfig
 ```
 
-This creates a root CA that your system will trust. The CA is stored in:
-- macOS: `~/Library/Application Support/mkcert`
-- Linux: `~/.local/share/mkcert`
-- Windows: `%LOCALAPPDATA%\mkcert`
+Install on a device:
+- Get the `.mobileconfig` onto it via **AirDrop**, or serve it and open in **Safari**. (The iOS Files app only *previews* a profile — it won't install it.)
+- **Settings → General → VPN & Device Management** → Install (shows "Unverified" — normal for a self-made profile).
+- **Required: Settings → General → About → Certificate Trust Settings** → enable full trust for the mkcert root. iOS won't trust the cert without this.
 
-### 3. Generate Certificates
+On other Macs: double-click the profile → System Settings → Profiles → Install.
 
-Create a `certs` directory in the Eve Workspace root:
+Verify: open the **pinned hostname** (e.g. `https://eve.example.org`) on the configured port. It should load with no cert warning, and passkey enrollment/login should work with Face ID / Touch ID.
 
-```bash
-mkdir -p certs
-```
+> If `EVE_PUBLIC_ORIGIN` is set (recommended for any networked deployment), Eve refuses **bare-IP** URLs with `421` — always use the hostname. Only navigate to a bare IP (`https://<ip>:<port>`) when `EVE_PUBLIC_ORIGIN` is unset.
 
-Generate certificates for all hostnames/IPs you'll use:
-
-```bash
-# Basic - localhost only
-mkcert -cert-file ./certs/server.pem -key-file ./certs/server-key.pem localhost
-
-# With LAN IP (check your IP with `ifconfig` or `ip addr`)
-mkcert -cert-file ./certs/server.pem -key-file ./certs/server-key.pem localhost 127.0.0.1 192.168.1.100
-
-# With hostname
-mkcert -cert-file ./certs/server.pem -key-file ./certs/server-key.pem localhost eve.local 192.168.1.100
-```
-
-### 4. Configure Environment
-
-Set environment variables before starting the server:
-
-```bash
-export HTTPS_KEY=./certs/server-key.pem
-export HTTPS_CERT=./certs/server.pem
-npm start
-```
-
-Or create a `.env` file (if using dotenv):
-
-```
-HTTPS_KEY=./certs/server-key.pem
-HTTPS_CERT=./certs/server.pem
-```
-
-## Mobile Device Setup (iPhone/iPad)
-
-### Installing the CA on iOS
-
-1. **Get the CA certificate:**
-   ```bash
-   # Show the CA location
-   mkcert -CAROOT
-   # Example: /Users/yourname/Library/Application Support/mkcert
-   ```
-
-2. **Transfer `rootCA.pem` to your device:**
-   - AirDrop the file to your iPhone
-   - Or email it to yourself
-   - Or host it temporarily: `python3 -m http.server 8000`
-
-3. **Install the profile:**
-   - Open the file on your iPhone
-   - Go to Settings > General > VPN & Device Management
-   - Tap the mkcert profile
-   - Tap "Install" and enter your passcode
-
-4. **Enable full trust:**
-   - Go to Settings > General > About > Certificate Trust Settings
-   - Enable full trust for the mkcert certificate
-   - Confirm when prompted
-
-5. **Verify:**
-   - Navigate to `https://192.168.1.100:3000` (your server's IP)
-   - Should load without certificate warnings
-   - Passkey enrollment should work with Face ID/Touch ID
+A real public cert (Let's Encrypt — no per-device install) is the alternative; see "Certificate" in [`remote-access.md`](remote-access.md).
 
 ## Troubleshooting
 
-### "Certificate not trusted" on macOS
+**Cert not trusted on a device** — the mkcert root profile isn't installed, or full trust isn't enabled (iOS: Certificate Trust Settings). Re-do "Device trust". On macOS, reset with `mkcert -uninstall && mkcert -install`.
 
-```bash
-# Reinstall the CA
-mkcert -uninstall
-mkcert -install
-```
+**`NET::ERR_CERT_AUTHORITY_INVALID` (Chrome)** — confirm `mkcert -install` ran, restart Chrome, and check the cert's SANs include the hostname you're using (`openssl x509 -in certs/server.pem -noout -ext subjectAltName`).
 
-### "NET::ERR_CERT_AUTHORITY_INVALID" in Chrome
+**Cert missing a name/IP** — re-run `scripts/gen-cert.sh <names...>` with the missing name, then restart Eve.
 
-- Check that `mkcert -install` was run
-- Restart Chrome after installing the CA
-- Verify the certificate includes the hostname you're using
+**Server won't start with HTTPS** — verify the paths in `HTTPS_KEY` / `HTTPS_CERT` resolve to `certs/server-key.pem` and `certs/server.pem`, and that the key is readable.
 
-### "Certificate doesn't include IP"
+## Security notes
 
-Regenerate certificates with the correct IP:
-
-```bash
-mkcert -cert-file ./certs/server.pem -key-file ./certs/server-key.pem localhost YOUR_IP
-```
-
-### iPhone still shows certificate warning
-
-1. Verify the profile is installed: Settings > General > VPN & Device Management
-2. Verify trust is enabled: Settings > General > About > Certificate Trust Settings
-3. Make sure you're using the correct IP/hostname that's in the certificate
-
-### Server won't start with HTTPS
-
-Check file paths are correct:
-
-```bash
-ls -la ./certs/
-# Should show server.pem and server-key.pem
-```
-
-Check file permissions:
-
-```bash
-chmod 600 ./certs/server-key.pem
-chmod 644 ./certs/server.pem
-```
-
-## Security Notes
-
-- The mkcert CA is only for development - never use it in production
-- Keep the CA private key secure (`rootCA-key.pem`)
-- Add `certs/` to `.gitignore` to avoid committing certificates
-- Generated certificates are valid for ~2 years by default
+- The mkcert CA is for development / personal deployments only — never use it in production.
+- Keep the CA private key (`$(mkcert -CAROOT)/rootCA-key.pem`) secure.
+- `certs/` is gitignored (`.gitignore`) — never commit certs or keys.
+- mkcert leaf certs default to ~2-year validity; re-run `scripts/gen-cert.sh` to renew (same root → no device re-trust needed).

@@ -204,7 +204,7 @@ securityHeadersMiddleware = securityHeaders({ trustedNetwork });
 enrollmentGateMiddleware = enrollmentGate({ authService, trustedNetwork, log: serverLog });
 
 // Relay transport (Unix socket preferred, TCP fallback). Fails the process
-// hard on any insecure configuration — see plans/cozy-honking-toast.md
+// hard on any insecure configuration — see docs/security-review-auth-transport.md
 // Section B for the threat model.
 let relayTransport;
 try {
@@ -323,7 +323,7 @@ app.use(express.json({ limit: '50mb' }));
 // STT_HOST env overrides let an operator point these at a remote address
 // with no authentication — a footgun with no known consumer. If a real
 // split-host deployment ever shows up, add an explicit auth layer instead
-// of reopening the loopback pin. See plans/cozy-honking-toast.md Section B.
+// of reopening the loopback pin. See docs/security-review-auth-transport.md Section B.
 const ttsService = new TTSService('127.0.0.1', parseInt(process.env.TTS_PORT || '9997', 10));
 const sttService = new STTService('127.0.0.1', parseInt(process.env.STT_PORT || '9998', 10));
 
@@ -410,7 +410,7 @@ server.listen(PORT, bindHost, () => {
     // The secondary HTTP listener is bound to loopback ONLY so DUAL_LISTEN
     // cannot accidentally expose plaintext Eve traffic to the LAN. Same-host
     // curl scripts still work; remote access must go through the HTTPS
-    // primary listener. See plans/cozy-honking-toast.md Section C.
+    // primary listener. See docs/security-review-auth-transport.md Section C.
     httpServer.listen(HTTP_PORT, '127.0.0.1', () => {
       serverLog.info(`HTTP server listening on http://127.0.0.1:${HTTP_PORT} (loopback-only)`);
     });

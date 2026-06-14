@@ -1,7 +1,7 @@
 /**
  * TrustedNetworkService — IP-based network trust for Eve's auth bypass.
  *
- * Design rationale: see plans/cozy-honking-toast.md Section A. The previous
+ * Design rationale: see docs/security-review-auth-transport.md Section A. The previous
  * "localhost bypass" in auth.js and ws-handler.js trusted req.headers.host,
  * which is fully attacker-controllable — any remote client could set
  * `Host: localhost` and skip the passkey entirely. This module replaces that
