@@ -7,6 +7,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { startEve } = require('./harness');
+const { relayFrames } = require('./protocol');
 
 describe('terminal proxying (eve <-> relay)', () => {
   let eve;
@@ -32,10 +33,12 @@ describe('terminal proxying (eve <-> relay)', () => {
     expect(created).toMatchObject({ type: 'terminal_create', projectId: 'p1', cols: 80, rows: 24 });
   });
 
-  it('relays terminal_output from relay to the browser', async () => {
-    eve.relay.emitToRelay({ type: 'terminal_output', terminalId: 't1', data: '$ echo hi\n' });
+  it('relays terminal_output (base64-encoded, as relayLLM sends it) to the browser', async () => {
+    // relayLLM base64-encodes terminal data (main.go:150); the browser _decodeBase64s
+    // it. eve forwards verbatim, so the data on the wire must be base64.
+    eve.relay.emitToRelay(relayFrames.terminalOutput({ terminalId: 't1', data: '$ echo hi\n' }));
     const out = await ws.waitFor((f) => f.type === 'terminal_output' && f.terminalId === 't1');
-    expect(out.data).toBe('$ echo hi\n');
+    expect(Buffer.from(out.data, 'base64').toString()).toBe('$ echo hi\n');
   });
 
   it('forwards terminal_input, resize and close to relay', async () => {

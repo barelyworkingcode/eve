@@ -6,6 +6,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { startEve } = require('./harness');
+const { relayFrames } = require('./protocol');
 
 describe('permission request/response forwarding', () => {
   let eve;
@@ -26,10 +27,14 @@ describe('permission request/response forwarding', () => {
   });
 
   it('forwards a relay permission_request to the browser and the response back to relay', async () => {
-    eve.relay.emitToRelay({ type: 'permission_request', permissionId: 'perm-1', sessionId: 's1', tool: 'Bash', input: { command: 'ls' } });
+    // Real relayLLM field names (toolName/toolInput/toolUseId) — see protocol.js.
+    eve.relay.emitToRelay(relayFrames.permissionRequest({
+      sessionId: 's1', permissionId: 'perm-1', toolName: 'Bash', toolInput: '{"command":"ls"}', toolUseId: 'tu-1',
+    }));
 
     const req = await ws.waitFor((f) => f.type === 'permission_request' && f.permissionId === 'perm-1');
-    expect(req.tool).toBe('Bash');
+    expect(req.toolName).toBe('Bash');
+    expect(req.toolUseId).toBe('tu-1');
 
     ws.send({ type: 'permission_response', permissionId: 'perm-1', approved: true, reason: 'ok' });
 

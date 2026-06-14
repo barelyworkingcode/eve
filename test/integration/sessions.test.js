@@ -51,22 +51,10 @@ describe('session lifecycle + streaming (eve <-> fake relay WS)', () => {
     expect(text).toBe('Hello from fake relay');
   });
 
-  it('relays a scripted custom stream verbatim', async () => {
-    const created = await createSession();
-    eve.relay.scriptSession(created.sessionId, [
-      { type: 'llm_event', event: { type: 'assistant', delta: { type: 'text_delta', text: 'scripted ' } } },
-      { type: 'llm_event', event: { type: 'assistant', delta: { type: 'text_delta', text: 'answer' } } },
-      { type: 'message_complete' },
-    ]);
-    ws.send({ type: 'user_input', text: 'go', sessionId: created.sessionId });
-
-    await ws.waitFor((f) => f.type === 'message_complete' && f.sessionId === created.sessionId);
-    const text = ws.frames
-      .filter((f) => f.type === 'llm_event' && f.sessionId === created.sessionId)
-      .map((f) => f.event.delta.text)
-      .join('');
-    expect(text).toBe('scripted answer');
-  });
+  // (Trimmed: a "scripted custom stream" delta test added no distinct regression
+  // signal over the default-stream test above — same text_delta path. Non-default
+  // scripting through real wiring is covered by session-forwarding.test.js
+  // (message-block + content_block shapes) and the error-completion test below.)
 
   it('relays an error completion to the browser', async () => {
     const created = await createSession();
