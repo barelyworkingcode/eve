@@ -62,8 +62,9 @@ describe('FileWatcher', () => {
       expect(watcher.watchedFiles.get(PROJECT_ID).size).toBe(2);
     });
 
-    it('ignores unknown project IDs', () => {
+    it('ignores unknown project IDs (both watch and watchProject)', () => {
       watcher.watch('nonexistent', '/test.js');
+      watcher.watchProject('nonexistent');
       expect(watcher.projectWatchers.size).toBe(0);
     });
 
@@ -85,11 +86,7 @@ describe('FileWatcher', () => {
       expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
       expect(watcher.watchedFiles.has(PROJECT_ID)).toBe(false);
     });
-
-    it('ignores unknown project IDs', () => {
-      watcher.watchProject('nonexistent');
-      expect(watcher.projectWatchers.size).toBe(0);
-    });
+    // (unknown-projectId guard for watchProject merged into the watch/unwatch block above)
   });
 
   describe('markSelfWrite', () => {

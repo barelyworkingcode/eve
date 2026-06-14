@@ -71,4 +71,31 @@ describe('project CRUD (eve <-> fake relay)', () => {
       await ws.close();
     }
   });
+
+  // The real relay serves projects in snake_case; eve's normalizeProject is an
+  // allow-list that maps them to camelCase (and strips the project token). This
+  // contract "bit us when adding session_folders" — pin it against a
+  // relay-shaped project so a dropped/renamed field is caught.
+  it('normalizes relay snake_case project fields to camelCase (and never leaks a token)', async () => {
+    eve.relay.addProject({
+      id: 'rich', name: 'Rich', path: projDir,
+      token: 'PLAINTEXT-SECRET', // relay must never forward this; normalizeProject drops it
+      allowed_models: ['m1', 'm2'],
+      chat_templates: [{ id: 'ct1', name: 'Fast', model: 'm1', system_prompt: 'be brief', append_claude_md: true }],
+      permission_policy: { default_mode: 'plan', allowed_tools: ['Read'], denied_tools: [] },
+      session_folders: ['Inbox', 'Done'],
+      created_at: '2026-01-01T00:00:00Z',
+    });
+
+    const list = await (await eve.get('/api/projects')).json();
+    const rich = list.find((p) => p.id === 'rich');
+    expect(rich).toMatchObject({
+      allowedModels: ['m1', 'm2'],
+      sessionFolders: ['Inbox', 'Done'],
+      permissionPolicy: { defaultMode: 'plan', allowedTools: ['Read'], deniedTools: [] },
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    expect(rich.chatTemplates[0]).toMatchObject({ id: 'ct1', name: 'Fast', systemPrompt: 'be brief', appendClaudeMd: true });
+    expect(JSON.stringify(rich)).not.toContain('PLAINTEXT-SECRET');
+  });
 });
