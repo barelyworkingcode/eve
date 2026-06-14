@@ -42,6 +42,22 @@ describe('project CRUD (eve <-> fake relay)', () => {
     expect(list.map((p) => p.id)).toContain(created.id);
   });
 
+  // Regression: the frontend sends "~/..." verbatim (no shell expansion), and
+  // the real relay rejects non-absolute paths with a 400. The fake relay used
+  // to accept any path, so this failure mode was invisible to the suite while
+  // it broke live project creation. Eve must proxy the 400 + reason through so
+  // the dialog can show why the save failed.
+  it('rejects a relative project path with the relay 400 (not a silent 201)', async () => {
+    const res = await eve.get('/api/projects', { method: 'POST', ...json({ name: 'Tilde', path: '~/source' }) });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/absolute path/i);
+
+    // Nothing was stored.
+    const list = await (await eve.get('/api/projects')).json();
+    expect(list.some((p) => p.name === 'Tilde')).toBe(false);
+  });
+
   it('edits a project (name change round-trips through eve)', async () => {
     const created = await (await eve.get('/api/projects', { method: 'POST', ...json({ name: 'Before', path: projDir }) })).json();
 
