@@ -15,7 +15,11 @@
  * Scriptable surface:
  *   addProject(p) / getProject(id) / listProjects()
  *   scriptSession(sessionId, frames)  — frames streamed in reply to send_message
- *                                       (sessionId is stamped on automatically)
+ *   emitToRelay(frame) / emitToScheduler(frame)  — push a frame on eve's /ws or
+ *                                       /ws/tasks upstream (permissions, terminals, tasks)
+ *   waitForScheduler()  — resolves once eve's /ws/tasks upstream is connected
+ *   inbound  — every WS frame eve SENT us (assert forwarding)
+ *   waitForInbound(pred) — resolves with the first inbound frame matching pred
  *   requests   — recorded [{method, path}] for assertions
  */
 const http = require('http');
@@ -36,9 +40,21 @@ function createFakeRelay() {
   const projects = new Map();        // id -> relay-shape project
   const sessionScripts = new Map();  // sessionId -> [frames]
   const requests = [];
-  const wsClients = new Set();
+  const inbound = [];                // every WS frame eve sent us
+  const inboundWaiters = [];
+  const relayWs = new Set();         // eve's /ws upstream(s)
+  const schedulerWs = new Set();     // eve's /ws/tasks upstream(s)
+  const schedulerResolvers = [];
+  const relayResolvers = [];
   let seq = 0;
   let closed = false;
+
+  const recordInbound = (msg) => {
+    inbound.push(msg);
+    for (let i = inboundWaiters.length - 1; i >= 0; i--) {
+      if (inboundWaiters[i].pred(msg)) { inboundWaiters[i].resolve(msg); inboundWaiters.splice(i, 1); }
+    }
+  };
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://relay.local');
@@ -95,11 +111,16 @@ function createFakeRelay() {
   });
 
   const wss = new WebSocketServer({ server });
-  wss.on('connection', (ws) => {
-    wsClients.add(ws);
+  wss.on('connection', (ws, req) => {
+    const isScheduler = (req.url || '').startsWith('/ws/tasks');
+    (isScheduler ? schedulerWs : relayWs).add(ws);
+    (isScheduler ? schedulerResolvers : relayResolvers).splice(0).forEach((r) => r());
+
     ws.on('message', (data) => {
       let msg;
       try { msg = JSON.parse(data.toString()); } catch { return; }
+      recordInbound(msg);
+      if (isScheduler) return; // eve never drives the scheduler socket
       if (msg.type === 'join_session') {
         // eve suppresses the first join after create; harmless either way.
         ws.send(JSON.stringify(relayFrames.sessionJoined({ sessionId: msg.sessionId })));
@@ -111,7 +132,7 @@ function createFakeRelay() {
         for (const f of frames) ws.send(JSON.stringify(f));
       }
     });
-    ws.on('close', () => wsClients.delete(ws));
+    ws.on('close', () => { relayWs.delete(ws); schedulerWs.delete(ws); });
     ws.on('error', () => {});
   });
 
@@ -120,12 +141,23 @@ function createFakeRelay() {
     getProject: (id) => projects.get(id),
     listProjects: () => [...projects.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
+    emitToRelay: (frame) => { for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
+    emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
+    waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
+    waitForScheduler: () => (schedulerWs.size > 0 ? Promise.resolve() : new Promise((r) => schedulerResolvers.push(r))),
+    inbound,
+    waitForInbound: (pred, timeoutMs = 5000) => new Promise((resolve, reject) => {
+      const existing = inbound.find(pred);
+      if (existing) return resolve(existing);
+      const t = setTimeout(() => reject(new Error('waitForInbound: timed out')), timeoutMs);
+      inboundWaiters.push({ pred, resolve: (m) => { clearTimeout(t); resolve(m); } });
+    }),
     requests,
     listen: () => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port))),
     close: () => new Promise((resolve) => {
       if (closed) return resolve(); // a resilience test may close the relay before the harness does
       closed = true;
-      for (const c of wsClients) { try { c.terminate(); } catch { /* ignore */ } }
+      for (const ws of [...relayWs, ...schedulerWs]) { try { ws.terminate(); } catch { /* ignore */ } }
       wss.close(() => server.close(() => resolve()));
     }),
   };

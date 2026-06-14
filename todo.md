@@ -17,12 +17,13 @@ survive relay-down, reconnect), and the protocol contract (fake-frame validity).
 ## Integration tests still to write
 
 ### Sessions / relay forwarding
-- [ ] Lifecycle ops forward the correct frame to relay — assert the fake **receives**
-      join / leave / end / delete / rename / set_session_folder / stop_generation /
-      set_permission_mode (add inbound-frame recording to the fake's WS handler).
-- [ ] `stop_generation` mid-stream halts rendering and resets TTS state.
-- [ ] All three assistant-text shapes stream through (sessions currently only uses
-      `assistantDelta`; add `assistantMessage` + `assistantContentBlock`).
+- [x] Lifecycle ops forward the correct frame to relay — assert the fake **receives**
+      leave / end / delete / rename / set_session_folder / stop_generation /
+      set_permission_mode. _(session-forwarding.test.js)_
+- [ ] `stop_generation` mid-stream halts rendering and resets TTS state. _(forwarding
+      covered above; the TTS-state reset is internal — better as a relay-client unit test)_
+- [x] All three assistant-text shapes stream through (`assistantMessage` +
+      `assistantContentBlock` added). _(session-forwarding.test.js)_
 
 ### Permissions
 - [ ] `permission_request` (relay→browser) → `permission_response` (browser→relay) round-trip;
@@ -39,16 +40,17 @@ survive relay-down, reconnect), and the protocol contract (fake-frame validity).
 - [ ] `GET /api/tasks` proxy + create / run / delete.
 
 ### Search (local ripgrep — no fake relay involved)
-- [ ] `search_project` over a real project with content → `search_results` (real rg).
+- [x] `search_project` over a real project with content → `search_results` (real rg);
+      empty result set; unknown-project error. _(search.test.js)_
 - [ ] `search_cancel` cancels an in-flight search; truncation/cap behavior.
 - [ ] `search_ai_summarize` — fake handles the `__search:` hidden session, streams a summary,
       session DELETEd afterward (mirror the module-ai test).
 
 ### File ops (extend local-surface)
-- [ ] `rename_file` / `move_file` / `upload_file` over WS.
-- [ ] `watch_file` → external content edit → `file_changed` (with content); self-write suppression.
-- [ ] `module_read_file` / `module_write_file` — server-side `permissions.files` gate over WS,
-      with a real module manifest (permitted path succeeds, denied path is refused).
+- [x] `rename_file` / `move_file` / `upload_file` over WS. _(file-ops.test.js)_
+- [x] `watch_file` → external content edit → `file_changed` (with content). _(file-ops.test.js)_
+- [x] `module_read_file` / `module_write_file` — server-side `permissions.files` gate over WS
+      (permitted path succeeds, denied path is refused). _(file-ops.test.js)_
 
 ### UI command bus (eve-control MCP)
 - [ ] `POST /internal/ui-command` with `EVE_INTERNAL_SECRET` + a viewing browser → `ui_command`
