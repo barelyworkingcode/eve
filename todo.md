@@ -1,0 +1,89 @@
+# Test backlog — integration layer (and adjacent)
+
+Status (2026-06-14): **unit 476 · integration 33 (1 skipped) · e2e 3 — all green.**
+
+Integration tests live in `test/integration/` (`npm run test:integration`). They spawn the
+real `node server.js` against the in-process fake relay (`fake-relay.js`) on an ephemeral
+loopback port — no real relay / relayLLM / LLM / passkey. The fake plays the project +
+session store and scripts the relay→eve WS stream from the contract in `protocol.js`.
+
+Already covered: auth status, project list + CRUD, file list/read/write, path-traversal
+reject, `dir_changed` watcher, session create + default/scripted/error streams, module-AI
+invocation (`__module:` interception + cleanup), resilience (dead-relay error, local ops
+survive relay-down, reconnect), and the protocol contract (fake-frame validity).
+
+---
+
+## Integration tests still to write
+
+### Sessions / relay forwarding
+- [ ] Lifecycle ops forward the correct frame to relay — assert the fake **receives**
+      join / leave / end / delete / rename / set_session_folder / stop_generation /
+      set_permission_mode (add inbound-frame recording to the fake's WS handler).
+- [ ] `stop_generation` mid-stream halts rendering and resets TTS state.
+- [ ] All three assistant-text shapes stream through (sessions currently only uses
+      `assistantDelta`; add `assistantMessage` + `assistantContentBlock`).
+
+### Permissions
+- [ ] `permission_request` (relay→browser) → `permission_response` (browser→relay) round-trip;
+      script the fake to emit a permission_request, assert eve forwards it, reply, assert the
+      fake receives the response. Cover `alwaysAllow` auto-approve on the same connection.
+
+### Terminals (needs terminal-frame support in the fake)
+- [ ] `terminal_create` → relay; relay `terminal_output` → browser; input/resize/close forward.
+- [ ] `terminal_list` / `terminal_templates` proxy.
+
+### Tasks / scheduler WS (second upstream `/ws/tasks`)
+- [ ] task events (`task_started/completed/error/status`) forwarded to the browser
+      (`relay-client._connectScheduler`); scheduler reconnect after a drop.
+- [ ] `GET /api/tasks` proxy + create / run / delete.
+
+### Search (local ripgrep — no fake relay involved)
+- [ ] `search_project` over a real project with content → `search_results` (real rg).
+- [ ] `search_cancel` cancels an in-flight search; truncation/cap behavior.
+- [ ] `search_ai_summarize` — fake handles the `__search:` hidden session, streams a summary,
+      session DELETEd afterward (mirror the module-ai test).
+
+### File ops (extend local-surface)
+- [ ] `rename_file` / `move_file` / `upload_file` over WS.
+- [ ] `watch_file` → external content edit → `file_changed` (with content); self-write suppression.
+- [ ] `module_read_file` / `module_write_file` — server-side `permissions.files` gate over WS,
+      with a real module manifest (permitted path succeeds, denied path is refused).
+
+### UI command bus (eve-control MCP)
+- [ ] `POST /internal/ui-command` with `EVE_INTERNAL_SECRET` + a viewing browser → `ui_command`
+      reaches the right browser; rejected without the secret or from a non-loopback peer.
+
+### Binary proxies
+- [ ] `GET /api/generated/:filename` and `/api/terminals/:id/log` (`fetchRaw`) — fake serves
+      bytes; eve sets content-type + cache headers.
+
+---
+
+## Adjacent follow-ups (not strictly integration)
+
+### Contract — record & verify  ← HIGH VALUE
+- [ ] Wire `contract.test.js`'s skipped `EVE_CONTRACT=1` block to a **live relay**: capture real
+      relay→eve frames from a session, assert each passes `validateRelayFrame`, and that ≥1
+      `llm_event` yields non-empty `extractAssistantText`. This is what catches relayLLM changing
+      a frame shape under the fake. (The fake was already missing `event.v=2` — caught by E2E.)
+
+### E2E (Playwright, `test/e2e/`, `npm run test:e2e`)
+- [ ] Passkey enroll/login via the CDP **virtual authenticator** (the only flow not on the
+      loopback bypass).
+- [ ] File editor: open a file (Monaco), edit, save → `file_saved` + on disk.
+- [ ] Reconnect banner: drop/restart the WS → `ws-client` auto-reconnect UX.
+- [ ] Permission prompt modal: `permission_request` → modal → allow / deny.
+
+### CI
+- [ ] Run integration + e2e as separate CI jobs (keep the pre-commit hook unit-only).
+- [ ] Decide cadence for the `EVE_CONTRACT=1` live-relay job (needs the real stack).
+
+---
+
+## Notes / gotchas (learned building this)
+- **Loopback is a trusted subnet** → no passkey for harness tests; passkey stays manual / CDP.
+- **Projects are relay-owned** (eve only caches them); the fake must supply the project→path
+  mapping even for "local" file tests.
+- **Browser-bound frames are coalesced** into a `__batch` (24 ms); the harness WS client unwraps it.
+- **`llm_event` inner events MUST carry `v: 2`** or the client drops them (encoded in `protocol.js`).
