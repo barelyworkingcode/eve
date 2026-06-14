@@ -38,12 +38,18 @@ const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'mess
 const relayFrames = {
   sessionJoined: ({ sessionId, directory = '/fake' }) => ({ type: 'session_joined', sessionId, directory }),
 
-  // relayLLM emits assistant text in THREE interchangeable shapes; eve handles
-  // all three (see feedback_relayLLM_events). Every event also carries `v` — the
-  // client drops events without it. The contract must cover both.
-  assistantDelta: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', delta: { type: 'text_delta', text } } }),
+  // Assistant text arrives as deltas, full message blocks, or content_blocks
+  // (provider-dependent; see feedback_relayLLM_events). Every event also carries
+  // `v` (client drops events without it). Confirmed against the live relay:
+  // Claude streams `delta.text_delta` for text AND `delta.thinking_delta` +
+  // `content_block_stop` structural markers — so assistant events are NOT all
+  // text-bearing (see assistantThinkingDelta / assistantContentBlockStop below).
+  assistantDelta: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', index: 0, delta: { type: 'text_delta', text } } }),
   assistantMessage: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', message: { content: [{ type: 'text', text }] } } }),
   assistantContentBlock: ({ sessionId, text }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', content_block: { type: 'text', text } } }),
+  // Real structural variants the live relay emits (no renderable text).
+  assistantThinkingDelta: ({ sessionId, thinking }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', index: 0, delta: { type: 'thinking_delta', thinking } } }),
+  assistantContentBlockStop: ({ sessionId, index = 0 }) => ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', index, content_block_stop: true } }),
 
   messageComplete: ({ sessionId, error } = {}) => (error ? { type: 'message_complete', sessionId, error } : { type: 'message_complete', sessionId }),
   error: ({ message }) => ({ type: 'error', message }),
@@ -87,15 +93,14 @@ function validateRelayFrame(frame) {
     if (!frame.event || typeof frame.event !== 'object') errors.push('llm_event: missing event');
     else if (frame.event.v !== EVENT_PROTOCOL_VERSION) {
       errors.push(`llm_event: event.v must be ${EVENT_PROTOCOL_VERSION} (got ${frame.event.v}) — client drops events without it`);
-    } else if (frame.event.type === 'assistant') {
-      const ev = frame.event;
-      const hasDelta = ev.delta && ev.delta.type === 'text_delta';
-      const hasMessage = ev.message && Array.isArray(ev.message.content);
-      const hasBlock = ev.content_block && typeof ev.content_block === 'object';
-      const hasToolOrOther = ev.tool_use || ev.thinking || ev.tool_result; // non-text assistant events exist
-      if (!hasDelta && !hasMessage && !hasBlock && !hasToolOrOther) {
-        errors.push('llm_event assistant: no recognized payload (delta/message/content_block/tool)');
-      }
+    } else if (frame.event.delta && typeof frame.event.delta.type !== 'string') {
+      // The load-bearing contract is the version tag. Assistant events come in
+      // many structural variants (text_delta / thinking_delta deltas,
+      // content_block_start/stop, message markers, tool_use) — confirmed against
+      // the live relay — so we don't enumerate payloads; renderable text is
+      // checked separately via extractAssistantText. Only sanity-check that a
+      // present delta is well-formed.
+      errors.push('llm_event: delta missing a type');
     }
   }
   return { ok: errors.length === 0, errors };

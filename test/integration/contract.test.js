@@ -13,6 +13,8 @@ describe('relay protocol contract', () => {
       ['assistant delta', relayFrames.assistantDelta({ sessionId: 's1', text: 'hi' })],
       ['assistant message block', relayFrames.assistantMessage({ sessionId: 's1', text: 'hi' })],
       ['assistant content_block', relayFrames.assistantContentBlock({ sessionId: 's1', text: 'hi' })],
+      ['assistant thinking_delta', relayFrames.assistantThinkingDelta({ sessionId: 's1', thinking: 'hmm' })],
+      ['assistant content_block_stop', relayFrames.assistantContentBlockStop({ sessionId: 's1' })],
       ['message_complete', relayFrames.messageComplete({ sessionId: 's1' })],
       ['message_complete (error)', relayFrames.messageComplete({ sessionId: 's1', error: 'boom' })],
       ['error', relayFrames.error({ message: 'x' })],
@@ -33,31 +35,21 @@ describe('relay protocol contract', () => {
     it('rejects message_complete missing sessionId', () => {
       expect(validateRelayFrame({ type: 'message_complete' }).ok).toBe(false);
     });
-    it('rejects an assistant llm_event with no recognized payload', () => {
-      expect(validateRelayFrame({ type: 'llm_event', event: { v: 2, type: 'assistant' } }).ok).toBe(false);
-    });
     it('rejects an llm_event missing the event protocol version (client would drop it)', () => {
       expect(validateRelayFrame({ type: 'llm_event', event: { type: 'assistant', delta: { type: 'text_delta', text: 'hi' } } }).ok).toBe(false);
+    });
+    it('accepts structural assistant events with no text payload (thinking / block-stop)', () => {
+      // Confirmed against the live relay: not every assistant event carries text.
+      expect(validateRelayFrame({ type: 'llm_event', event: { v: 2, type: 'assistant', index: 0, content_block_stop: true } }).ok).toBe(true);
+      expect(validateRelayFrame({ type: 'llm_event', event: { v: 2, type: 'assistant', delta: { type: 'thinking_delta', thinking: 'x' } } }).ok).toBe(true);
     });
     it('passes through unknown (blindly-forwarded) types', () => {
       expect(validateRelayFrame({ type: 'stats_update', used: 5 }).ok).toBe(true);
     });
   });
 
-  // Record-and-verify against the REAL relay. Skipped by default — it needs a
-  // live relay + relayLLM and a real session. Run with EVE_CONTRACT=1 once it's
-  // wired to the running relay. This is the test that keeps the fake honest:
-  // if relayLLM changes a frame shape, a real-captured frame fails the same
-  // validateRelayFrame the fake's frames pass above.
-  (process.env.EVE_CONTRACT === '1' ? describe : describe.skip)('real relay frames conform (record-and-verify)', () => {
-    it('every captured relay->eve frame passes validateRelayFrame', async () => {
-      // TODO when wired to a live relay (RELAY_FRONTEND_* env):
-      //   1. open a RelayTransport WS to the real relay,
-      //   2. create + join a session, send a trivial prompt,
-      //   3. collect frames until message_complete,
-      //   4. captured.forEach((f) => expect(validateRelayFrame(f).ok).toBe(true)),
-      //   5. expect >=1 llm_event whose extractAssistantText() is non-empty.
-      throw new Error('record-and-verify not yet wired to a live relay — see steps above');
-    });
-  });
+  // The record-and-verify against the REAL relay — the test that keeps the fake
+  // honest by validating actual relayLLM frames against this same contract —
+  // lives in contract-live.test.js (run with EVE_CONTRACT=1; it drives the
+  // running eve and hits a real LLM, so it's skipped by default).
 });
