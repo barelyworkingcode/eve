@@ -20,13 +20,17 @@
  */
 const http = require('http');
 const { WebSocketServer } = require('ws');
+const { relayFrames } = require('./protocol');
 
-// Default streamed reply to any send_message without a per-session script.
-const DEFAULT_STREAM = [
-  { type: 'llm_event', event: { type: 'assistant', delta: { type: 'text_delta', text: 'Hello ' } } },
-  { type: 'llm_event', event: { type: 'assistant', delta: { type: 'text_delta', text: 'from fake relay' } } },
-  { type: 'message_complete' },
-];
+// Default streamed reply to any send_message without a per-session script, built
+// from the protocol contract so the fake can't silently diverge from it.
+function defaultStream(sessionId) {
+  return [
+    relayFrames.assistantDelta({ sessionId, text: 'Hello ' }),
+    relayFrames.assistantDelta({ sessionId, text: 'from fake relay' }),
+    relayFrames.messageComplete({ sessionId }),
+  ];
+}
 
 function createFakeRelay() {
   const projects = new Map();        // id -> relay-shape project
@@ -34,6 +38,7 @@ function createFakeRelay() {
   const requests = [];
   const wsClients = new Set();
   let seq = 0;
+  let closed = false;
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://relay.local');
@@ -97,10 +102,13 @@ function createFakeRelay() {
       try { msg = JSON.parse(data.toString()); } catch { return; }
       if (msg.type === 'join_session') {
         // eve suppresses the first join after create; harmless either way.
-        ws.send(JSON.stringify({ type: 'session_joined', sessionId: msg.sessionId, directory: '/fake' }));
+        ws.send(JSON.stringify(relayFrames.sessionJoined({ sessionId: msg.sessionId })));
       } else if (msg.type === 'send_message') {
-        const frames = sessionScripts.get(msg.sessionId) || DEFAULT_STREAM;
-        for (const f of frames) ws.send(JSON.stringify({ ...f, sessionId: msg.sessionId }));
+        const script = sessionScripts.get(msg.sessionId);
+        const frames = script
+          ? script.map((f) => ({ ...f, sessionId: msg.sessionId })) // stamp test-authored frames
+          : defaultStream(msg.sessionId);
+        for (const f of frames) ws.send(JSON.stringify(f));
       }
     });
     ws.on('close', () => wsClients.delete(ws));
@@ -115,10 +123,12 @@ function createFakeRelay() {
     requests,
     listen: () => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port))),
     close: () => new Promise((resolve) => {
+      if (closed) return resolve(); // a resilience test may close the relay before the harness does
+      closed = true;
       for (const c of wsClients) { try { c.terminate(); } catch { /* ignore */ } }
       wss.close(() => server.close(() => resolve()));
     }),
   };
 }
 
-module.exports = { createFakeRelay, DEFAULT_STREAM };
+module.exports = { createFakeRelay };
