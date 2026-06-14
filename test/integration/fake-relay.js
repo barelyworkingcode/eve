@@ -83,8 +83,14 @@ function createFakeRelay() {
       try { parsed = body ? JSON.parse(body) : {}; } catch { /* leave {} */ }
 
       // --- Projects (file ops depend on this for path resolution) ---
+      // Mirror the real relay's path validation: a project path must be
+      // absolute (filepath.IsAbs). The frontend sends "~/..." verbatim — the
+      // backend does NOT expand it — so relative paths get a 400, not a 201.
+      const isAbsPath = (pth) => typeof pth === 'string' && pth.startsWith('/');
+      const absPathError = (pth) => send(400, { error: `project path must be an absolute path: ${JSON.stringify(pth ?? '')}` });
       if (p === '/api/projects' && req.method === 'GET') return send(200, [...projects.values()]);
       if (p === '/api/projects' && req.method === 'POST') {
+        if (!isAbsPath(parsed.path)) return absPathError(parsed.path);
         const id = parsed.id || `proj-${++seq}`;
         const proj = { ...parsed, id };
         projects.set(id, proj);
@@ -94,7 +100,12 @@ function createFakeRelay() {
       if (pm) {
         const id = pm[1];
         if (req.method === 'GET') return projects.has(id) ? send(200, projects.get(id)) : send(404, { error: 'Project not found' });
-        if (req.method === 'PUT') { const proj = { ...(projects.get(id) || {}), ...parsed, id }; projects.set(id, proj); return send(200, proj); }
+        if (req.method === 'PUT') {
+          if (parsed.path !== undefined && !isAbsPath(parsed.path)) return absPathError(parsed.path);
+          const proj = { ...(projects.get(id) || {}), ...parsed, id };
+          projects.set(id, proj);
+          return send(200, proj);
+        }
         if (req.method === 'DELETE') { projects.delete(id); return send(200, {}); }
       }
 
