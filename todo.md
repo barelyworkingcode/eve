@@ -64,11 +64,13 @@ survive relay-down, reconnect), and the protocol contract (fake-frame validity).
 
 ## Adjacent follow-ups (not strictly integration)
 
-### Contract — record & verify  ← HIGH VALUE
-- [ ] Wire `contract.test.js`'s skipped `EVE_CONTRACT=1` block to a **live relay**: capture real
-      relay→eve frames from a session, assert each passes `validateRelayFrame`, and that ≥1
-      `llm_event` yields non-empty `extractAssistantText`. This is what catches relayLLM changing
-      a frame shape under the fake. (The fake was already missing `event.v=2` — caught by E2E.)
+### Contract — record & verify
+- [x] **DONE** — `contract-live.test.js` (run `EVE_CONTRACT=1 npm run test:integration`) drives the
+      live eve, captures real relay→eve frames, validates each against `protocol.js`, and asserts
+      ≥1 `llm_event` yields text. **It immediately caught real drift**: the live relay also streams
+      `delta.thinking_delta` and `content_block_stop` assistant events, which the fake never emitted
+      and the validator wrongly rejected. Fixed `protocol.js` to model them; record-and-verify now
+      passes against the real relay → the mock layer is confirmed faithful for the modeled frames.
 
 ### E2E (Playwright, `test/e2e/`, `npm run test:e2e`)
 - [ ] Passkey enroll/login via the CDP **virtual authenticator** (the only flow not on the
