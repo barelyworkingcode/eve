@@ -26,18 +26,18 @@ survive relay-down, reconnect), and the protocol contract (fake-frame validity).
       `assistantContentBlock` added). _(session-forwarding.test.js)_
 
 ### Permissions
-- [ ] `permission_request` (relay→browser) → `permission_response` (browser→relay) round-trip;
-      script the fake to emit a permission_request, assert eve forwards it, reply, assert the
-      fake receives the response. Cover `alwaysAllow` auto-approve on the same connection.
+- [x] `permission_request` (relay→browser) → `permission_response` (browser→relay) round-trip.
+      _(permissions.test.js)_ — `alwaysAllow` auto-approve still TODO.
 
-### Terminals (needs terminal-frame support in the fake)
-- [ ] `terminal_create` → relay; relay `terminal_output` → browser; input/resize/close forward.
+### Terminals
+- [x] `terminal_create` → relay; relay `terminal_output` → browser; input/resize/close forward.
+      _(terminals.test.js)_
 - [ ] `terminal_list` / `terminal_templates` proxy.
 
 ### Tasks / scheduler WS (second upstream `/ws/tasks`)
-- [ ] task events (`task_started/completed/error/status`) forwarded to the browser
-      (`relay-client._connectScheduler`); scheduler reconnect after a drop.
-- [ ] `GET /api/tasks` proxy + create / run / delete.
+- [x] task events (`task_started/completed`) forwarded to the browser
+      (`relay-client._connectScheduler`). _(tasks.test.js)_ — reconnect-after-drop still TODO.
+- [x] `GET /api/tasks` proxy. _(tasks.test.js)_ — create / run / delete still TODO.
 
 ### Search (local ripgrep — no fake relay involved)
 - [x] `search_project` over a real project with content → `search_results` (real rg);
@@ -53,12 +53,12 @@ survive relay-down, reconnect), and the protocol contract (fake-frame validity).
       (permitted path succeeds, denied path is refused). _(file-ops.test.js)_
 
 ### UI command bus (eve-control MCP)
-- [ ] `POST /internal/ui-command` with `EVE_INTERNAL_SECRET` + a viewing browser → `ui_command`
-      reaches the right browser; rejected without the secret or from a non-loopback peer.
+- [x] `POST /internal/ui-command` with `EVE_INTERNAL_SECRET` + a viewing browser → `ui_command`
+      reaches the right browser; wrong secret → 401; no viewer → no_client. _(ui-command.test.js)_
 
 ### Binary proxies
-- [ ] `GET /api/generated/:filename` and `/api/terminals/:id/log` (`fetchRaw`) — fake serves
-      bytes; eve sets content-type + cache headers.
+- [x] `GET /api/generated/:filename` and `/api/terminals/:id/log` (`fetchRaw`) — content-type
+      + cache headers. _(binary-proxy.test.js)_
 
 ---
 
