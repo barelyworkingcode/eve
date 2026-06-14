@@ -90,13 +90,9 @@ describe('FileWatcher', () => {
   });
 
   describe('markSelfWrite', () => {
-    it('adds path to selfWrites set', () => {
-      const absPath = path.join(tmpDir, 'test.js');
-      watcher.markSelfWrite(absPath);
-      expect(watcher.selfWrites.has(absPath)).toBe(true);
-    });
-
-    it('auto-clears after the TTL', () => {
+    // The "adds the path" half is covered by the first assertion below, so this
+    // single test pins both the mark and its TTL auto-clear.
+    it('marks a path then auto-clears it after the TTL', () => {
       jest.useFakeTimers();
       const absPath = path.join(tmpDir, 'test.js');
       watcher.markSelfWrite(absPath);
