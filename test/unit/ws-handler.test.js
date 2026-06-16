@@ -149,6 +149,18 @@ describe('createWsHandler', () => {
     });
   });
 
+  describe('app-level heartbeat', () => {
+    it('answers an app-level ping with a pong even before auth', async () => {
+      const deps = makeDeps({
+        authService: { isEnrolled: () => true, validateSession: jest.fn(() => true) },
+        trustedNetwork: { isTrusted: () => false },
+      });
+      const ws = mount(deps);
+      await sendMsg(ws, { type: 'ping' });
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'pong' }));
+    });
+  });
+
   describe('expensive-op rate limiting (per connection)', () => {
     it('allows up to the cap then rejects with a rate-limit error', async () => {
       const deps = makeDeps();
