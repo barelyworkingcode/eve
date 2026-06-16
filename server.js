@@ -368,6 +368,25 @@ wss.on('connection', createWsHandler({
   log: log.child('WsHandler')
 }));
 
+// --- WebSocket heartbeat reaper (graceful-reconnect, Issue 1) ---
+// A phone moving between networks leaves a half-open TCP socket the server
+// can't tell is dead; it would otherwise linger for the OS TCP timeout, holding
+// a ghost relay session. Ping every client each tick and terminate any that
+// did not pong since the previous tick. ws.isAlive is (re)set in ws-handler.js
+// on each 'pong'. unref() so this interval never keeps the process alive.
+const WS_HEARTBEAT_MS = 30000;
+const wsHeartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      try { ws.terminate(); } catch (e) { /* ignore */ }
+      continue;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch (e) { /* ignore */ }
+  }
+}, WS_HEARTBEAT_MS);
+wsHeartbeat.unref();
+
 const PORT = process.env.PORT || 3000;
 const HTTP_PORT = process.env.HTTP_PORT || 3000;
 
@@ -424,6 +443,8 @@ function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   serverLog.info(`${signal} received, cleaning up...`);
+
+  clearInterval(wsHeartbeat);
 
   for (const client of wss.clients) {
     try { client.terminate(); } catch (e) { /* ignore */ }
