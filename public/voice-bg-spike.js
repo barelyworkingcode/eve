@@ -33,6 +33,8 @@
   let maxGap = 0;
   let wsDrops = 0;
   let startedAt = 0;
+  let natLast = null;   // last onBackgroundDiag payload from the native watchdog
+  let natMaxGap = 0;    // max native tick gap (ms) seen — the suspension signal
 
   function wsReadyState() {
     const rs = window.client?.wsClient?.ws?.readyState;
@@ -48,7 +50,10 @@
       `<b>BG&nbsp;SPIKE</b>&nbsp; ticks ${ticks} · ${elapsed}s<br>` +
       `ws ${WS_STATE[rs]} · drops ${wsDrops}<br>` +
       `gap ${sinceLast}s · <b>max ${(maxGap / 1000).toFixed(1)}s</b><br>` +
-      `native ${bridge && bridge.available ? 'HELD' : 'off'} · tap=reset`;
+      (natLast
+        ? `native ${bridge && bridge.available ? 'HELD' : 'off'} · ngap ${natLast.gapMs}ms · <b>nmax ${(natMaxGap / 1000).toFixed(1)}s</b><br>` +
+          `render=${natLast.rendering ? 1 : 0} eng=${natLast.engineRunning ? 1 : 0} ka=${natLast.keepalive ? 1 : 0} bg=${natLast.inBackground ? 1 : 0} · tap=reset`
+        : `native ${bridge && bridge.available ? 'HELD' : 'off'} · (awaiting diag…) · tap=reset`);
   }
 
   function tick() {
@@ -62,11 +67,24 @@
     render();
   }
 
+  // Native AVAudioEngine heartbeat (Issue 2): the engine's watchdog emits
+  // onBackgroundDiag each ~3s tick with its own measured gap. A large native gap
+  // means the *native* process was suspended (assertion lost); if the native gap
+  // stays small but the JS gap above is large, the web process was suspended
+  // while native stayed alive — a different failure.
+  function onNativeDiag(d) {
+    natLast = d || {};
+    if (typeof natLast.gapMs === 'number' && natLast.gapMs > natMaxGap) natMaxGap = natLast.gapMs;
+    render();
+  }
+
   function reset() {
     startedAt = last = Date.now();
     ticks = 0;
     maxGap = 0;
     wsDrops = 0;
+    natMaxGap = 0;
+    natLast = null;
     render();
   }
 
@@ -78,6 +96,10 @@
     try {
       bridge = (typeof NativeAudioBridge !== 'undefined') ? new NativeAudioBridge(null) : null;
       if (bridge && bridge.available) bridge.startKeepaliveProbe();
+      // Subscribe to the native watchdog heartbeat so the overlay shows the
+      // engine's own render-state + suspension gap (Issue 2). bridge.init wires
+      // every event; only onBackgroundDiag has a handler here.
+      if (bridge && bridge.available) bridge.init({ onBackgroundDiag: onNativeDiag });
     } catch (err) {
       console.warn('[bgspike] native keepalive failed:', err);
     }

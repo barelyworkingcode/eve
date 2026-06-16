@@ -15,7 +15,7 @@ class NativeAudioBridge {
   static EVENTS = [
     'onSessionStarted', 'onSessionStopped', 'onListening', 'onSpeechStart',
     'onSpeechEnd', 'onUtterance', 'onSpeaking', 'onPlaybackEnded', 'onLevel',
-    'onInterruption', 'onRouteChange', 'onVADMisfire', 'onError',
+    'onInterruption', 'onRouteChange', 'onVADMisfire', 'onError', 'onBackgroundDiag',
   ];
 
   constructor(logger) {
