@@ -16,6 +16,13 @@ class ProjectDialog extends DialogBase {
     // actually edited templates in this dialog (relay treats an absent field
     // as "leave unchanged").
     this._templatesDirty = false;
+    // Working copy of shellTemplates (project-scoped shell launch templates).
+    // Like chat templates, these are saved on the project body, not via an
+    // immediate API call — shell_templates is only included in the save body
+    // when the user edited them here (relay treats an absent field as
+    // "leave unchanged").
+    this._shellTemplates = [];
+    this._shellTemplatesDirty = false;
     // Working sets carry literal MCP/model ids; the '*' wildcard is just
     // another id (matches relay's isWildcard convention).
     this._selectedMcpIds = new Set();
@@ -46,6 +53,8 @@ class ProjectDialog extends DialogBase {
       this._project = this._projectId ? this.state.getProject(this._projectId) : null;
       this._templates = this._project?.chatTemplates ? JSON.parse(JSON.stringify(this._project.chatTemplates)) : [];
       this._templatesDirty = false;
+      this._shellTemplates = this._project?.shellTemplates ? JSON.parse(JSON.stringify(this._project.shellTemplates)) : [];
+      this._shellTemplatesDirty = false;
 
       this._selectedMcpIds = new Set(this._project?.allowedMcpIds || []);
       this._selectedModels = new Set(this._project?.allowedModels || []);
@@ -252,6 +261,17 @@ class ProjectDialog extends DialogBase {
           use_relay_tools: !!t.useRelayTools,
         }));
       }
+      if (this._shellTemplatesDirty) {
+        body.shell_templates = this._shellTemplates.map(t => ({
+          id: t.id,
+          name: t.name,
+          command: t.command || '',
+          args: t.args || [],
+          env: t.env || {},
+          description: t.description || '',
+          icon: t.icon || '',
+        }));
+      }
       const project = this._projectId
         ? await this.api.updateProject(this._projectId, body)
         : await this.api.createProject(body);
@@ -430,20 +450,22 @@ class ProjectDialog extends DialogBase {
     });
     container.appendChild(addBtn);
 
-    // --- Shell Templates (global, saved immediately via API) ---
+    // --- Shell Templates (project-scoped, saved on the project body) ---
+    // These are private to this project (e.g. an ssh shell you don't want to
+    // share globally). They live on the project record, edited here as a working
+    // copy and persisted with the project — NOT via an immediate global API call.
     const shellHeader = document.createElement('div');
     shellHeader.className = 'project-dialog__section-title';
     shellHeader.textContent = 'Shell Templates';
     container.appendChild(shellHeader);
 
-    const customTemplates = this.state.terminalTemplates.filter(t => !t.builtIn);
-    if (customTemplates.length === 0) {
+    if (this._shellTemplates.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'project-dialog__empty';
-      empty.textContent = 'No custom shell templates yet.';
+      empty.textContent = 'No project shell templates yet.';
       container.appendChild(empty);
     } else {
-      for (const tmpl of customTemplates) {
+      for (const tmpl of this._shellTemplates) {
         container.appendChild(this._renderShellTemplateItem(tmpl));
       }
     }
@@ -452,7 +474,7 @@ class ProjectDialog extends DialogBase {
     addShellBtn.className = 'dialog__btn dialog__btn--primary project-dialog__add-btn';
     addShellBtn.textContent = '+ Add Shell Template';
     addShellBtn.addEventListener('click', () => {
-      this._editingShellTemplate = { id: null, name: '', command: '', args: [], description: '' };
+      this._editingShellTemplate = { id: null, name: '', command: '', args: [], env: {}, description: '', icon: '' };
       this._showTab('templates');
     });
     container.appendChild(addShellBtn);
@@ -712,14 +734,10 @@ class ProjectDialog extends DialogBase {
     deleteBtn.className = 'project-dialog__icon-btn project-dialog__icon-btn--danger';
     deleteBtn.title = 'Delete';
     deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
-    deleteBtn.addEventListener('click', async () => {
-      try {
-        await this.api.deleteTerminalTemplate(tmpl.id);
-        this.state.removeTerminalTemplate(tmpl.id);
-        this._showTab('templates');
-      } catch (err) {
-        this.log.error('Failed to delete shell template:', err);
-      }
+    deleteBtn.addEventListener('click', () => {
+      this._shellTemplates = this._shellTemplates.filter(t => t.id !== tmpl.id);
+      this._shellTemplatesDirty = true;
+      this._showTab('templates');
     });
 
     actions.appendChild(editBtn);
@@ -764,27 +782,30 @@ class ProjectDialog extends DialogBase {
     const saveBtn = document.createElement('button');
     saveBtn.className = 'dialog__btn dialog__btn--primary';
     saveBtn.textContent = isEdit ? 'Update Template' : 'Create Template';
-    saveBtn.addEventListener('click', async () => {
+    saveBtn.addEventListener('click', () => {
       const name = nameInput.value.trim();
       const cmdLine = cmdInput.value.trim();
       if (!name || !cmdLine) { (name ? cmdInput : nameInput).focus(); return; }
 
       const { command, args } = this._parseCommandLine(cmdLine);
-      const data = { name, command, args, description: descInput.value.trim() };
-
-      try {
-        let result;
-        if (isEdit) {
-          result = await this.api.updateTerminalTemplate(tmpl.id, data);
-        } else {
-          result = await this.api.createTerminalTemplate(data);
-        }
-        if (result?.id) this.state.addTerminalTemplate(result);
-        this._editingShellTemplate = null;
-        this._showTab('templates');
-      } catch (err) {
-        this.log.error('Failed to save shell template:', err);
-      }
+      // Project-scoped templates carry a stable client-generated id (relay
+      // doesn't mint one — they ride the project save body). Preserve env/icon
+      // from the working-copy entry so an edit doesn't drop them.
+      const entry = {
+        id: tmpl.id || crypto.randomUUID(),
+        name,
+        command,
+        args,
+        env: tmpl.env || {},
+        description: descInput.value.trim(),
+        icon: tmpl.icon || '',
+      };
+      const idx = this._shellTemplates.findIndex(t => t.id === entry.id);
+      if (idx >= 0) this._shellTemplates[idx] = entry;
+      else this._shellTemplates.push(entry);
+      this._shellTemplatesDirty = true;
+      this._editingShellTemplate = null;
+      this._showTab('templates');
     });
 
     actions.appendChild(backBtn);
