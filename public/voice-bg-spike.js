@@ -18,10 +18,13 @@
  *            assertion didn't hold the web process; fallback = native WebSocket).
  */
 (function () {
-  const armed = () =>
-    /bgspike/.test(location.search) ||
-    /bgspike/.test(location.hash) ||
-    localStorage.getItem('eve-bgspike') === '1';
+  // bgspike overlay disabled (removed 2026-06-16): when armed it started a
+  // silent keepalive probe that hijacked the audio session (sessionActive=true,
+  // no mic tap), blocking the mic during real voice sessions — and added no
+  // value for normal use. Hard-disabled here (this file is served live, so it
+  // takes effect immediately even though the cached index.html still references
+  // it); the <script> include has also been removed from index.html.
+  const armed = () => false;
 
   const WS_STATE = { '-1': 'none', 0: 'CONNECTING', 1: 'OPEN', 2: 'CLOSING', 3: 'CLOSED' };
 
