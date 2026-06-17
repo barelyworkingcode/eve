@@ -36,6 +36,15 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     let isAuthenticated = !requiresAuth;
 
     const relayClient = new RelayClient(relayTransport, ws, ttsService, log?.child('Relay'));
+
+    // Heartbeat liveness (graceful-reconnect, Issue 1): the server pings every
+    // client on an interval (see server.js); a live browser auto-replies with a
+    // protocol pong, which marks the socket alive. The reaper terminates any
+    // socket still marked dead on the next tick — this is how a zombie
+    // connection left behind by a phone network switch gets cleaned up instead
+    // of lingering for the OS TCP timeout and holding a ghost relay session.
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
     // Track this connection so the eve-control MCP can target ui_command pushes
     // by project (project set is populated from message.projectId below).
     uiBus?.register(relayClient);
@@ -70,6 +79,16 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             ws.send(JSON.stringify({ type: 'auth_failed', message: 'Invalid or expired token' }));
             ws.close(4001, 'Unauthorized');
           }
+          return;
+        }
+
+        // App-level heartbeat (graceful-reconnect, Issue 1): the browser
+        // WebSocket API cannot send protocol pings, so the client pings at the
+        // app layer to detect a dead link fast after a network change. Answer
+        // before the auth gate and rate-limiter so the probe is always cheap
+        // and never blocked. See public/ws-client.js _heartbeat().
+        if (message.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong' }));
           return;
         }
 
