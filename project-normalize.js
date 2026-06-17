@@ -24,6 +24,18 @@ function normalizeProject(p) {
       appendClaudeMd: !!t.append_claude_md,
       useRelayTools: !!t.use_relay_tools,
     })),
+    // Project-scoped shell (terminal) launch templates — private shells (e.g.
+    // ssh) that live on the project, not in relayLLM's global pty map. Allow-
+    // listed here like chatTemplates; relayLLM resolves them by id at launch.
+    shellTemplates: (p.shell_templates || []).map(t => ({
+      id: t.id,
+      name: t.name,
+      command: t.command || '',
+      args: t.args || [],
+      env: t.env || {},
+      description: t.description || '',
+      icon: t.icon || '',
+    })),
     permissionPolicy: p.permission_policy ? {
       defaultMode: p.permission_policy.default_mode || 'default',
       allowedTools: p.permission_policy.allowed_tools || [],

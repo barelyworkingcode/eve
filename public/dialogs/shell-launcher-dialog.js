@@ -122,6 +122,22 @@ class ShellLauncherDialog extends DialogBase {
       }
     }
 
+    // Project-scoped shell templates — private shells (e.g. ssh) defined in this
+    // project's edit dialog. They ride the project record (not relayLLM's global
+    // pty map), so they render regardless of the global-template loading state
+    // and only appear here, in their own project. relayLLM resolves them by id
+    // at launch via the bridge.
+    const shellTemplates = project?.shellTemplates || [];
+    for (const tmpl of shellTemplates) {
+      grid.appendChild(this._createCard({
+        iconHtml: this._iconSVG(tmpl.icon || tmpl.id),
+        name: tmpl.name,
+        description: tmpl.description || '',
+        onClick: () => this._launchTerminal(tmpl.id),
+        testid: `shell-card-${tmpl.id}`,
+      }));
+    }
+
     grid.appendChild(this._createCard({
       className: 'shell-launcher__card--accent',
       iconHtml: '<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2.5a1 1 0 110 2 1 1 0 010-2zM6.5 7h3l-.5 5h-2L6.5 7z"/></svg>',
@@ -429,7 +445,11 @@ class ShellLauncherDialog extends DialogBase {
 
   _launchTerminal(templateId) {
     const project = this.state.getProject(this.projectId);
-    const tmpl = this.state.terminalTemplates.find(t => t.id === templateId);
+    // Resolve the display name from the merged set: global templates first, then
+    // this project's private shell templates (so a project-scoped launch shows
+    // its real name, not the raw id).
+    const tmpl = this.state.terminalTemplates.find(t => t.id === templateId)
+      || (project?.shellTemplates || []).find(t => t.id === templateId);
     const tmplName = tmpl?.name || templateId;
     const name = project ? `${project.name} - ${tmplName}` : tmplName;
     const ws = this.container.get('ws');
