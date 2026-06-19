@@ -61,6 +61,9 @@ class NativeAudioBridge {
   /** Live VAD/barge-in tuning (thresholds in the native engine). */
   setTuning(opts = {}) { return this._call('setTuning', opts); }
 
+  /** Ambient river bed idle volume (0…1); native duck levels track it. */
+  setAmbientVolume(volume) { return this._call('setAmbientVolume', { volume }); }
+
   // diagnostic: silent background-audio hold (see voice-bg-spike.js)
   startKeepaliveProbe() { return this._call('startKeepaliveProbe'); }
   stopKeepaliveProbe() { return this._call('stopKeepaliveProbe'); }

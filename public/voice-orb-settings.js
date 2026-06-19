@@ -11,6 +11,11 @@ const ORB_SLIDERS = [
   { key: 'speechJitter',  id: 'orbSpeechJitter' },
 ];
 
+// River ambient bed volume (native only). Persisted browser-side; the native
+// engine resets to its default each launch, so we re-apply on init.
+const RIVER_VOL_KEY = 'eve.riverVolume';
+const RIVER_VOL_DEFAULT = 0.12;
+
 class VoiceOrbSettings {
   constructor(manager) {
     this.manager = manager;
@@ -40,6 +45,7 @@ class VoiceOrbSettings {
     });
 
     this._initDiagToggle();
+    this._initRiverVolume();
 
     // Close click → hide sheet
     close.addEventListener('click', () => sheet.classList.add('hidden'));
@@ -80,6 +86,31 @@ class VoiceOrbSettings {
       native.setDiagLogging(toggle.checked)
         .then((r) => { toggle.checked = !!(r && r.enabled); })
         .catch(() => {});
+    });
+  }
+
+  /** Native-only: ambient river bed volume slider. Persists in localStorage and
+   *  re-applies to native on load (native resets to its default each launch). */
+  _initRiverVolume() {
+    const row = document.getElementById('riverVolRow');
+    const slider = document.getElementById('riverVolSlider');
+    const label = document.getElementById('riverVolVal');
+    if (!row || !slider) return;
+    const native = this.manager.nativeAudio;
+    if (!native || !native.available) { row.classList.add('hidden'); return; }
+    let vol = RIVER_VOL_DEFAULT;
+    try {
+      const saved = parseFloat(localStorage.getItem(RIVER_VOL_KEY));
+      if (!Number.isNaN(saved)) vol = saved;
+    } catch {}
+    slider.value = vol;
+    if (label) label.textContent = vol.toFixed(2);
+    native.setAmbientVolume(vol);
+    slider.addEventListener('input', () => {
+      const value = parseFloat(slider.value);
+      if (label) label.textContent = value.toFixed(2);
+      try { localStorage.setItem(RIVER_VOL_KEY, String(value)); } catch {}
+      native.setAmbientVolume(value);
     });
   }
 
