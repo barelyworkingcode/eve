@@ -21,3 +21,4 @@ test-results/
 test/fixtures/
 playwright-report/
 .playwright-cli/
+relay-device.log

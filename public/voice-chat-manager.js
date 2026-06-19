@@ -166,7 +166,24 @@ class VoiceChatManager {
       onInterruption: (d) => { if (this.isVoiceSession) this._setPrompt(d.state === 'began' ? 'Paused…' : 'Listening...'); },
       onRouteChange: () => {},
       onError:       (d) => this.handleError(d.message || 'Audio error'),
+      onDiagLog:     (d) => this._forwardDiagLog(d),
     });
+    // Flush diagnostics the native engine buffered before this listener existed
+    // (app-launch → first session, i.e. the cold-start trace) so it isn't lost.
+    this.nativeAudio.dumpLogs?.().then((res) => {
+      const lines = res && res.lines;
+      if (Array.isArray(lines) && lines.length) this._sendDeviceLog({ type: 'device_log', lines });
+    }).catch(() => {});
+  }
+
+  /** Stream a native diagnostic line to eve so logs can be collected with no USB. */
+  _forwardDiagLog(d) {
+    if (!d || !d.line) return;
+    this._sendDeviceLog({ type: 'device_log', seq: d.seq, line: d.line });
+  }
+
+  _sendDeviceLog(payload) {
+    try { this.app.wsClient?.send(payload); } catch (_) { /* never let diagnostics break voice */ }
   }
 
   /** Native VAD finished an utterance — ship the WAV to server STT. */
@@ -822,6 +839,16 @@ class VoiceChatManager {
     window.eveTune = (opts) => this.nativeAudio
       ? this.nativeAudio.setTuning(opts)
       : 'native audio unavailable';
+
+    /** Console helper: window.eveDiag(true|false) — toggle device-log streaming to
+     *  eve/relay-device.log. Persists across app restarts (native UserDefaults),
+     *  default off, so you can enable it, relaunch, and capture the cold boot.
+     *  window.eveDiag() with no arg reports the current state. */
+    window.eveDiag = (on) => {
+      if (!this.nativeAudio) return Promise.resolve('native audio unavailable');
+      const p = on === undefined ? this.nativeAudio.getDiagLogging() : this.nativeAudio.setDiagLogging(on);
+      return p.then((r) => `device-log streaming ${r && r.enabled ? 'ON' : 'OFF'}`);
+    };
   }
 
   _getPushToTalkPrompt() {
