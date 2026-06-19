@@ -27,6 +27,25 @@ const EXPENSIVE_OPS = new Set([
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
+// Device diagnostics (relayClient native audio): the iOS app streams its
+// cold-start / background-survival trace here as { type:'device_log', line|lines }
+// so it can be collected with no USB cable. Appended to a file for tailing.
+const DEVICE_LOG_PATH = path.join(__dirname, 'relay-device.log');
+function appendDeviceLog(message, req) {
+  try {
+    const lines = Array.isArray(message.lines)
+      ? message.lines
+      : (typeof message.line === 'string' ? [message.line] : []);
+    if (!lines.length) return;
+    const recv = new Date().toISOString();
+    const src = (req && req.socket && req.socket.remoteAddress) || '?';
+    const text = lines
+      .map((l) => `${recv} ${src} ${typeof l === 'string' ? l : JSON.stringify(l)}`)
+      .join('\n') + '\n';
+    fs.appendFile(DEVICE_LOG_PATH, text, () => {});
+  } catch (_) { /* diagnostics must never break the socket */ }
+}
+
 function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, claudeConfig, resolveProject, ttsService, sttService, uiBus, log }) {
   return (ws, req) => {
     // Trust is decided by the raw TCP source address via TrustedNetworkService.
@@ -114,6 +133,10 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         if (message.projectId) uiBus?.setProject(relayClient, message.projectId);
 
         switch (message.type) {
+          case 'device_log':
+            appendDeviceLog(message, req);
+            break;
+
           case 'create_session':
             await handleCreateSession(ws, relayClient, relayTransport, message, resolveProject, log);
             break;
