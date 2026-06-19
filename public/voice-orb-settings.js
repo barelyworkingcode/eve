@@ -33,8 +33,13 @@ class VoiceOrbSettings {
 
     this._syncSliders();
 
-    // Gear click → toggle sheet
-    gear.addEventListener('click', () => sheet.classList.toggle('hidden'));
+    // Gear click → toggle sheet (refresh the diag toggle from native on open)
+    gear.addEventListener('click', () => {
+      sheet.classList.toggle('hidden');
+      if (!sheet.classList.contains('hidden')) this._refreshDiagToggle();
+    });
+
+    this._initDiagToggle();
 
     // Close click → hide sheet
     close.addEventListener('click', () => sheet.classList.add('hidden'));
@@ -60,6 +65,30 @@ class VoiceOrbSettings {
       this._syncSliders();
       this.manager.orbRenderer?.setTuning?.(this.tuning);
     });
+  }
+
+  /** Native-only: device-log streaming toggle (persists in native UserDefaults,
+   *  default off). Hidden entirely on non-native surfaces. */
+  _initDiagToggle() {
+    const row = document.getElementById('diagLogRow');
+    const toggle = document.getElementById('diagLogToggle');
+    if (!row || !toggle) return;
+    const native = this.manager.nativeAudio;
+    if (!native || !native.available) { row.classList.add('hidden'); return; }
+    this._refreshDiagToggle();
+    toggle.addEventListener('change', () => {
+      native.setDiagLogging(toggle.checked)
+        .then((r) => { toggle.checked = !!(r && r.enabled); })
+        .catch(() => {});
+    });
+  }
+
+  /** Reflect the persisted native streaming state into the checkbox. */
+  _refreshDiagToggle() {
+    const toggle = document.getElementById('diagLogToggle');
+    const native = this.manager.nativeAudio;
+    if (!toggle || !native || !native.available) return;
+    native.getDiagLogging().then((r) => { toggle.checked = !!(r && r.enabled); }).catch(() => {});
   }
 
   /** Push current tuning values into all sliders and their value labels. */
