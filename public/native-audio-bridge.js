@@ -15,7 +15,7 @@ class NativeAudioBridge {
   static EVENTS = [
     'onSessionStarted', 'onSessionStopped', 'onListening', 'onSpeechStart',
     'onSpeechEnd', 'onUtterance', 'onSpeaking', 'onPlaybackEnded', 'onLevel',
-    'onInterruption', 'onRouteChange', 'onVADMisfire', 'onError',
+    'onInterruption', 'onRouteChange', 'onVADMisfire', 'onError', 'onDiagLog',
   ];
 
   constructor(logger) {
@@ -64,6 +64,15 @@ class NativeAudioBridge {
   // diagnostic: silent background-audio hold (see voice-bg-spike.js)
   startKeepaliveProbe() { return this._call('startKeepaliveProbe'); }
   stopKeepaliveProbe() { return this._call('stopKeepaliveProbe'); }
+
+  // diagnostic: drain the native ring buffer (lines emitted before onDiagLog
+  // was subscribed — e.g. the cold-start trace). Returns { lines: [...] }.
+  dumpLogs() { return this._call('dumpLogs'); }
+
+  // toggle device-log streaming to eve; persists in native UserDefaults across
+  // restarts (default off). Returns { enabled }.
+  setDiagLogging(enabled) { return this._call('setDiagLogging', { enabled: !!enabled }); }
+  getDiagLogging() { return this._call('getDiagLogging'); }
 
   _call(method, args = {}) {
     if (!this.available) return Promise.resolve();
