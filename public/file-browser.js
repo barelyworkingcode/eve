@@ -391,7 +391,9 @@ class FileBrowser {
       item.dataset.path = entryPath;
       item.dataset.projectId = projectId;
       item.dataset.type = entry.type;
-      item.draggable = true;
+      // Desktop-only: a draggable row hijacks touch-scroll, breaking mobile
+      // scrolling of long file lists (HTML5 DnD is inert on touch regardless).
+      item.draggable = !IS_TOUCH;
 
       if (entry.type === 'directory') {
         const isExpanded = tree.expandedPaths.has(entryPath);

@@ -137,6 +137,8 @@ html, body {
 /* Project List */
 .project-list {
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   flex: 1;
 }
 
@@ -290,6 +292,9 @@ html, body {
   font-size: 12px;
   border-radius: 4px;
   margin: 1px 4px;
+  /* Touch gestures on a row scroll the list vertically rather than starting a
+     drag — keeps long file lists scrollable on mobile. */
+  touch-action: pan-y;
 }
 
 .file-tree-item:hover {
@@ -3836,6 +3841,11 @@ html, body {
 .sidebar-panel {
   flex: 1;
   min-width: 0;
+  /* min-height:0 is load-bearing: without it this column flex item keeps its
+     default min-height:auto and grows to fit the file tree's full height,
+     overflowing the fixed sidebar so .panel-content never scrolls. This is why
+     long file lists couldn't be scrolled (most visible on mobile). */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
@@ -3934,6 +3944,8 @@ html, body {
 .panel-content {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 4px 0;
 }
 
@@ -4380,6 +4392,9 @@ html, body {
   gap: 4px;
   white-space: nowrap;
   overflow: hidden;
+  /* Touch gestures on a row scroll the list vertically rather than starting a
+     drag — keeps long file lists scrollable on mobile. */
+  touch-action: pan-y;
 }
 
 .file-tree__item:hover {
