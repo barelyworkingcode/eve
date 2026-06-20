@@ -79,7 +79,10 @@ class FileTreeNode {
       const item = document.createElement('div');
       item.className = `file-tree__item${isDir ? ' file-tree__item--folder' : ''}${isExpanded ? ' file-tree__item--expanded' : ''}${isHidden ? ' file-tree__item--hidden' : ''}`;
       item.style.paddingLeft = `${12 + depth * 16}px`;
-      item.draggable = true;
+      // Drag-to-reorganize is desktop-only: HTML5 DnD is inert on touch, and a
+      // draggable row hijacks the touch-scroll gesture, so long file lists can't
+      // be scrolled on mobile. Leave rows undraggable there.
+      item.draggable = !IS_TOUCH;
       item.dataset.testid = `file-tree-item-${entryPath}`;
 
       // Chevron (folders only)
