@@ -9,6 +9,7 @@ const SlashCommandHandler = require('./slash-command-handler');
 const FileWatcher = require('./file-watcher');
 const RateLimiter = require('./rate-limiter');
 const { splitIntoChunks, cleanChunkText } = require('./tts-chunker');
+const { Director } = require('./tts-director');
 
 const slashCommandHandler = new SlashCommandHandler();
 
@@ -471,7 +472,20 @@ async function handleCreateSession(ws, relayClient, relayTransport, message, res
 /**
  * Handle user input: check for local slash commands first, else relay.
  */
-const VOICE_MODE_INSTRUCTION = '[VOICE MODE] Respond conversationally for spoken delivery. Avoid markdown, code blocks, tables, bullet lists, URLs, and technical formatting. Use natural language, spell out numbers and abbreviations. Keep responses concise. Use punctuation for natural pauses.';
+// Voice mode: tell the model to (a) write for the ear and (b) sprinkle the
+// inline cue vocabulary the Director (tts-director.js) parses into per-utterance
+// emotion/delivery. Brackets are the ONE markup we allow precisely because the
+// Director consumes them and strips them before synthesis.
+const VOICE_MODE_INSTRUCTION = [
+  '[VOICE MODE] Your reply is spoken aloud by an expressive voice — perform it, don\'t just answer.',
+  'Talk like a real person: conversational, concise (a sentence or three unless asked for more), with natural rhythm and contractions.',
+  'No markdown, headings, bullet or numbered lists, tables, code blocks, emojis, or URLs — none of it reads aloud. Spell things as spoken ("twenty bucks", not "$20"; "doctor Reyes", not "Dr. Reyes").',
+  'Shape delivery with cues in square brackets — the ONLY markup allowed. Never narrate actions any other way (no "*laughs*", no "(softly)").',
+  'Emotion cues (a momentary feeling, right where it lands): [laugh] [giggle] [chuckle] [sigh] [gasp] [groan] [yawn] [sniffle] [cry] [gulp].',
+  'Delivery cues (change HOW you sound and persist until you change them; return to normal with [normal]): [whisper] [soft] [normal] [loud] [shout] [fast] [slow] [excited] [flat].',
+  'Use them like a voice actor: lead with a delivery cue when it fits, then [normal] to come back; drop an emotion cue exactly where the feeling hits; vary your delivery but stay believable (don\'t laugh every line or shout every sentence); one cue per spot — don\'t stack them or invent new ones.',
+  'Example — User: I got the job!! / You: [gasp] Shut up! [excited] You GOT it?! [laugh] I knew it. [normal] Okay, tell me everything.',
+].join(' ');
 
 const DICTATION_NOTICE = '[DICTATED] The following was spoken aloud and transcribed via speech-to-text. Minor transcription errors may be present; please interpret the intended meaning.\n\n';
 
@@ -616,17 +630,26 @@ async function handleTtsSpeak(ws, ttsService, message, log, isActive = () => tru
   const chunks = splitIntoChunks(text);
   log?.debug(`TTS speak: ${chunks.length} chunk(s), ${text.length} chars (voice: ${voice})`);
 
+  // Fresh Director per read-aloud: parse inline cues into expressive spans (and
+  // strip the tags so they're never spoken literally). Delivery persists across
+  // this message's chunks; a play button starts a clean turn.
+  const director = new Director();
+  const baseSpeed = speed || 1.0;
+
   try {
     for (const chunk of chunks) {
-      if (!isActive()) return; // cancelled — browser already finalized via stop()
-      const cleaned = cleanChunkText(chunk);
-      if (!cleaned) continue;
-      const result = await ttsService.synthesize(cleaned, voice || 'af_heart', speed || 1.0);
-      if (!isActive()) return; // cancelled while this chunk was generating
-      // Audio goes out as a binary WS frame (no base64 inflation / atob); only
-      // control frames (tts_done/tts_error) stay JSON. See RelayClient._sendAudioToBrowser.
-      // Opaque/already-compact audio — skip permessage-deflate (net-negative CPU).
-      ws.send(Buffer.from(result.audio_base64, 'base64'), { compress: false });
+      for (const span of director.plan(chunk)) {
+        if (!isActive()) return; // cancelled — browser already finalized via stop()
+        const cleaned = cleanChunkText(span.text);
+        if (!cleaned) continue;
+        const result = await ttsService.synthesize(
+          cleaned, voice || 'af_heart', baseSpeed * span.speed, span.instruct, span.gain);
+        if (!isActive()) return; // cancelled while this span was generating
+        // Audio goes out as a binary WS frame (no base64 inflation / atob); only
+        // control frames (tts_done/tts_error) stay JSON. See RelayClient._sendAudioToBrowser.
+        // Opaque/already-compact audio — skip permessage-deflate (net-negative CPU).
+        ws.send(Buffer.from(result.audio_base64, 'base64'), { compress: false });
+      }
     }
   } catch (err) {
     log?.error('TTS speak failed:', err.message);

@@ -5,6 +5,7 @@ const {
   extractNextSentence,
   cleanChunkText,
 } = require('./tts-chunker');
+const { Director } = require('./tts-director');
 
 const DEFAULT_TTS_VOICE = 'af_heart';
 
@@ -61,6 +62,10 @@ class RelayClient {
     this._ttsChunkSeq = 0;
     this._ttsGeneration = 0;
     this._ttsFirstChunk = true;
+    // Parses inline emotion/delivery cues ([whisper]/[laugh]) into per-span
+    // instruct/gain/speed. Stateful across a turn (delivery persists until the
+    // model changes it), so it's reset per turn in _resetTTSState / on complete.
+    this.director = new Director();
   }
 
   connect() {
@@ -370,6 +375,7 @@ class RelayClient {
     this._ttsChunkSeq = 0;
     this._ttsGeneration++;
     this._ttsFirstChunk = true;
+    this.director.reset();
   }
 
   _handleTTSAccumulation(msg) {
@@ -416,6 +422,9 @@ class RelayClient {
         this.log.error('TTS chain error before tts_done:', err.message);
       });
       this._ttsFirstChunk = true;
+      // Turn over: next assistant turn starts from the normal delivery mode.
+      // (The remainder above was already planned under this turn's state.)
+      this.director.reset();
     }
   }
 
@@ -435,30 +444,38 @@ class RelayClient {
   }
 
   /**
-   * Clean text and chain it onto the TTS synthesis pipeline.
-   * Chunks are synthesized and sent to browser in order.
-   * Captures the current generation so stale chunks from a cancelled
-   * response are discarded even if synthesis completes.
+   * Parse a raw sentence's inline cues into delivery spans, then clean and chain
+   * each span onto the TTS pipeline. A sentence may split into >1 span when
+   * delivery changes mid-way ("[whisper] psst. [loud] HEY!"); each span carries
+   * its own instruct/gain/speed. Spans synthesize and play in order. Captures
+   * the current generation so stale spans from a cancelled response are dropped
+   * even if synthesis completes.
    */
-  _sendTTSChunk(text) {
-    const cleaned = cleanChunkText(text);
-    if (!cleaned) return;
+  _sendTTSChunk(rawText) {
+    for (const span of this.director.plan(rawText)) {
+      const cleaned = cleanChunkText(span.text);
+      if (!cleaned) continue;
 
-    const seq = this._ttsChunkSeq++;
-    const gen = this._ttsGeneration;
-    this._ttsChain = this._ttsChain.then(() => {
-      if (gen !== this._ttsGeneration) return;
-      return this._synthesizeAndSend(cleaned, seq, gen);
-    }).catch(err => {
-      this.log.error(`TTS chain error at chunk ${seq}:`, err.message);
-    });
+      const seq = this._ttsChunkSeq++;
+      const gen = this._ttsGeneration;
+      this._ttsChain = this._ttsChain.then(() => {
+        if (gen !== this._ttsGeneration) return;
+        return this._synthesizeAndSend(cleaned, seq, gen, span);
+      }).catch(err => {
+        this.log.error(`TTS chain error at chunk ${seq}:`, err.message);
+      });
+    }
   }
 
-  async _synthesizeAndSend(text, seq, gen) {
+  async _synthesizeAndSend(text, seq, gen, span) {
     this.log.debug(`TTS chunk ${seq} (${text.length} chars)`);
     this.ttsPending++;
     try {
-      const result = await this.ttsService.synthesize(text, this.voicePreset, this.voiceSpeed);
+      // Delivery tempo layers on the user's base speed; instruct/gain carry the
+      // emotion (null instruct => daemon uses the voice's configured default).
+      const speed = this.voiceSpeed * (span?.speed ?? 1.0);
+      const result = await this.ttsService.synthesize(
+        text, this.voicePreset, speed, span?.instruct ?? null, span?.gain ?? 1.0);
       if (gen !== this._ttsGeneration) {
         this.log.debug(`TTS chunk ${seq} discarded (cancelled while synthesizing)`);
         return;
