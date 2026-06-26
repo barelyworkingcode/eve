@@ -873,7 +873,9 @@ class VoiceChatManager {
     // Group by language
     const groups = {};
     for (const v of voices) {
-      const lang = v.language || 'Other';
+      // Daemon emits `lang` (kokoro-compatible shape); keep `language` as a
+      // fallback so a voice never lands in "Other" on a field-name mismatch.
+      const lang = v.lang || v.language || 'Other';
       if (!groups[lang]) groups[lang] = [];
       groups[lang].push(v);
     }
