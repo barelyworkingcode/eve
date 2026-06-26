@@ -26,10 +26,17 @@ class TTSService {
    * @param {string} text
    * @param {string} voice - Voice preset ID (e.g. 'af_heart', 'am_adam')
    * @param {number} speed
+   * @param {string|null} [instruct] - Per-utterance delivery/emotion for the
+   *   daemon (Qwen3 instruct=). Null/omitted => the daemon falls back to the
+   *   voice's configured default, preserving per-voice character.
+   * @param {number} [gain] - Amplitude multiplier (loud/whisper); 1.0 = no change.
    * @returns {Promise<{audio_base64: string, duration: number, sample_rate: number}>}
    */
-  async synthesize(text, voice = 'af_heart', speed = 1.0) {
-    const response = await this._sendRequest({ text, voice, speed });
+  async synthesize(text, voice = 'af_heart', speed = 1.0, instruct = null, gain = 1.0) {
+    const request = { text, voice, speed };
+    if (instruct) request.instruct = instruct;
+    if (gain && gain !== 1.0) request.gain = gain;
+    const response = await this._sendRequest(request);
     if (!response.success) {
       throw new Error(response.error || 'TTS generation failed');
     }
