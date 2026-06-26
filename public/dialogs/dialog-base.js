@@ -149,7 +149,8 @@ class DialogBase {
     if (voices.length > 0) {
       const groups = {};
       for (const v of voices) {
-        const lang = v.language || 'Other';
+        // Daemon emits `lang`; keep `language` as a fallback (see voice-chat-manager).
+        const lang = v.lang || v.language || 'Other';
         if (!groups[lang]) groups[lang] = [];
         groups[lang].push(v);
       }
