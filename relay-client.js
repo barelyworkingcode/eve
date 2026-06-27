@@ -473,9 +473,9 @@ class RelayClient {
     try {
       // Delivery tempo layers on the user's base speed; instruct/gain carry the
       // emotion (null instruct => daemon uses the voice's configured default).
-      const speed = this.voiceSpeed * (span?.speed ?? 1.0);
+      const speed = this.voiceSpeed * span.speed;
       const result = await this.ttsService.synthesize(
-        text, this.voicePreset, speed, span?.instruct ?? null, span?.gain ?? 1.0);
+        text, this.voicePreset, speed, span.instruct, span.gain);
       if (gen !== this._ttsGeneration) {
         this.log.debug(`TTS chunk ${seq} discarded (cancelled while synthesizing)`);
         return;

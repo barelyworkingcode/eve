@@ -9,7 +9,7 @@ const SlashCommandHandler = require('./slash-command-handler');
 const FileWatcher = require('./file-watcher');
 const RateLimiter = require('./rate-limiter');
 const { splitIntoChunks, cleanChunkText } = require('./tts-chunker');
-const { Director } = require('./tts-director');
+const { Director, EMOTION, DELIVERY } = require('./tts-director');
 
 const slashCommandHandler = new SlashCommandHandler();
 
@@ -476,13 +476,16 @@ async function handleCreateSession(ws, relayClient, relayTransport, message, res
 // inline cue vocabulary the Director (tts-director.js) parses into per-utterance
 // emotion/delivery. Brackets are the ONE markup we allow precisely because the
 // Director consumes them and strips them before synthesis.
+// The advertised cue vocabulary is generated from the Director's own
+// EMOTION/DELIVERY tables, so the prompt and the parser can't drift apart.
+const cueTags = (cues) => Object.keys(cues).map(c => `[${c}]`).join(' ');
 const VOICE_MODE_INSTRUCTION = [
   '[VOICE MODE] Your reply is spoken aloud by an expressive voice — perform it, don\'t just answer.',
   'Talk like a real person: conversational, concise (a sentence or three unless asked for more), with natural rhythm and contractions.',
   'No markdown, headings, bullet or numbered lists, tables, code blocks, emojis, or URLs — none of it reads aloud. Spell things as spoken ("twenty bucks", not "$20"; "doctor Reyes", not "Dr. Reyes").',
   'Shape delivery with cues in square brackets — the ONLY markup allowed. Never narrate actions any other way (no "*laughs*", no "(softly)").',
-  'Emotion cues (a momentary feeling, right where it lands): [laugh] [giggle] [chuckle] [sigh] [gasp] [groan] [yawn] [sniffle] [cry] [gulp].',
-  'Delivery cues (change HOW you sound and persist until you change them; return to normal with [normal]): [whisper] [soft] [normal] [loud] [shout] [fast] [slow] [excited] [flat].',
+  `Emotion cues (a momentary feeling, right where it lands): ${cueTags(EMOTION)}.`,
+  `Delivery cues (change HOW you sound and persist until you change them; return to normal with [normal]): ${cueTags(DELIVERY)}.`,
   'Use them like a voice actor: lead with a delivery cue when it fits, then [normal] to come back; drop an emotion cue exactly where the feeling hits; vary your delivery but stay believable (don\'t laugh every line or shout every sentence); one cue per spot — don\'t stack them or invent new ones.',
   'Example — User: I got the job!! / You: [gasp] Shut up! [excited] You GOT it?! [laugh] I knew it. [normal] Okay, tell me everything.',
 ].join(' ');

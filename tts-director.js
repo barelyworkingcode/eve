@@ -48,17 +48,11 @@ const DELIVERY = {
 const CUE_SPLIT = /(\[[a-zA-Z_]+\])/;
 const CUE_MATCH = /^\[([a-zA-Z_]+)\]$/;
 
-/** Remove stray bracket tokens, collapse whitespace, fix space-before-punct. */
+/** Collapse whitespace and fix space-before-punctuation. */
 function tidy(text) {
   return text
-    .replace(/\[[a-zA-Z_]+\]/g, '')
     .replace(/\s+/g, ' ')
     .replace(/ ([,.!?])/g, '$1');
-}
-
-/** Deduplicate an array, preserving first-seen order. */
-function dedupeOrdered(arr) {
-  return [...new Set(arr)];
 }
 
 class Director {
@@ -85,11 +79,11 @@ class Director {
     const flush = () => {
       const text = tidy(buf.join('')).trim();
       buf = [];
-      if (text) spans.push(this._span(text, this.delivery, [...moods]));
+      if (text) spans.push(this._span(text, this.delivery, moods));
       moods = [];
     };
 
-    const tokens = sentence.split(CUE_SPLIT).filter(t => t !== undefined && t !== '');
+    const tokens = sentence.split(CUE_SPLIT).filter(Boolean);
 
     for (const tok of tokens) {
       const m = tok.match(CUE_MATCH);
@@ -123,8 +117,7 @@ class Director {
     const parts = [this.base, manner];
 
     if (moods.length > 0) {
-      const seen = dedupeOrdered(moods);
-      parts.push('while ' + seen.join(' and '));
+      parts.push('while ' + [...new Set(moods)].join(' and '));
     }
 
     return { text, instruct: parts.join(', ') + '.', gain, speed };
