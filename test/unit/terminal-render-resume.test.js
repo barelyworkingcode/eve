@@ -53,6 +53,11 @@ describe('TerminalManager._resumeRenderer', () => {
 describe('TerminalManager._forceResumeActive', () => {
   const forceResume = TerminalManager.prototype._forceResumeActive;
 
+  // The fit() is deferred to requestAnimationFrame so it measures a settled
+  // viewport; run scheduled frames synchronously for the assertions.
+  beforeEach(() => { global.requestAnimationFrame = (cb) => cb(); });
+  afterEach(() => { delete global.requestAnimationFrame; });
+
   function ctx({ activeId = 't1', entry } = {}) {
     const terminals = new Map();
     if (entry) terminals.set('t1', entry);
@@ -63,16 +68,27 @@ describe('TerminalManager._forceResumeActive', () => {
     };
   }
 
-  it('re-fits and resumes the visible terminal', () => {
+  it('repaints immediately, then re-fits the visible terminal', () => {
     const term = fakeTerm();
     const fit = jest.fn();
     const self = ctx({ entry: { term, fitAddon: { fit } } });
     forceResume.call(self);
     expect(fit).toHaveBeenCalledTimes(1);
     expect(self._resumeRenderer).toHaveBeenCalledWith(term);
-    // fit() runs before the repaint so a resized viewport is measured first.
-    expect(fit.mock.invocationCallOrder[0])
-      .toBeLessThan(self._resumeRenderer.mock.invocationCallOrder[0]);
+    // The synchronous repaint precedes the deferred fit — a stuck-paused
+    // renderer catches up without waiting for layout.
+    expect(self._resumeRenderer.mock.invocationCallOrder[0])
+      .toBeLessThan(fit.mock.invocationCallOrder[0]);
+  });
+
+  it('skips the deferred fit if the user switched terminals before the frame', () => {
+    const term = fakeTerm();
+    const fit = jest.fn();
+    global.requestAnimationFrame = (cb) => { self.activeTerminalId = 'other'; cb(); };
+    const self = ctx({ entry: { term, fitAddon: { fit } } });
+    forceResume.call(self);
+    expect(self._resumeRenderer).toHaveBeenCalledTimes(1); // the immediate one only
+    expect(fit).not.toHaveBeenCalled();
   });
 
   it('no-ops when no terminal is visible', () => {
@@ -81,7 +97,7 @@ describe('TerminalManager._forceResumeActive', () => {
     expect(self._resumeRenderer).not.toHaveBeenCalled();
   });
 
-  it('still resumes when fit() throws before layout', () => {
+  it('still repaints when fit() throws before layout', () => {
     const term = fakeTerm();
     const fit = jest.fn(() => { throw new Error('no dimensions'); });
     const self = ctx({ entry: { term, fitAddon: { fit } } });
