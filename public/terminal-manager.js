@@ -92,10 +92,18 @@ class TerminalManager {
   _forceResumeActive() {
     const t = this.terminals.get(this.activeTerminalId);
     if (!t) return;
-    // A background/foreground cycle or device rotation may have changed the
-    // viewport while the renderer was paused; re-fit before repainting.
-    try { t.fitAddon.fit(); } catch (_) { /* fit can throw before layout */ }
+    // Repaint immediately so a stuck-paused renderer catches up.
     this._resumeRenderer(t.term);
+    // Re-fit on the next frame, once layout has settled. Fitting synchronously
+    // inside a focus/visibility handler — before the returning viewport has laid
+    // out — can measure a transient/zero size and push a bogus terminal_resize
+    // to the PTY, which corrupts a full-screen TUI (e.g. Claude Code) mid-redraw.
+    // rAF defers the measure until the dimensions are real, then repaints again.
+    requestAnimationFrame(() => {
+      if (this.terminals.get(this.activeTerminalId) !== t) return; // switched away
+      try { t.fitAddon.fit(); } catch (_) { /* fit can throw before layout */ }
+      this._resumeRenderer(t.term);
+    });
   }
 
   /** Send a raw byte sequence to the active terminal's PTY. Used by the key
