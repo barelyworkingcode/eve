@@ -29,6 +29,20 @@ class TerminalManager {
       this.keybar = null;
       this.log.warn('Mobile key bar failed to initialize; terminal input unaffected:', err?.message || err);
     }
+
+    // Recover from xterm's stuck render-pause when the tab returns to the
+    // foreground (see _resumeRenderer). IntersectionObserver — xterm's own
+    // resume trigger — is unreliable across a background/foreground cycle on
+    // Safari/WKWebView and on Chrome after a long background/discard, leaving
+    // terminals accepting input but never repainting until reload.
+    // visibilitychange/pageshow/focus fire reliably on return, so drive the
+    // resume from them. Registered once for the page lifetime.
+    this._onForeground = () => {
+      if (document.visibilityState === 'visible') this._forceResumeActive();
+    };
+    document.addEventListener('visibilitychange', this._onForeground);
+    window.addEventListener('pageshow', this._onForeground);
+    window.addEventListener('focus', this._onForeground);
   }
 
   // --- Active-terminal accessors (used by the mobile key bar) ---
@@ -49,6 +63,47 @@ class TerminalManager {
   fitActive() {
     const t = this.terminals.get(this.activeTerminalId);
     if (t) t.fitAddon.fit();
+  }
+
+  /**
+   * Force xterm to resume painting a terminal.
+   *
+   * xterm v6 pauses its renderer via an IntersectionObserver and only un-pauses
+   * when that observer fires an "intersecting" entry — RenderService.refreshRows
+   * early-returns while `_isPaused`, so every write just marks the grid dirty and
+   * nothing repaints. Safari/WKWebView — and Chrome after a long
+   * background/discard — don't reliably deliver that entry when a tab returns to
+   * the foreground, so the renderer stays paused: the terminal still accepts
+   * keystrokes but never repaints until a reload. We drive the resume ourselves
+   * from reliable visibility/focus events (see the constructor) rather than
+   * trusting the observer. The private-API walk is guarded so a future xterm
+   * upgrade degrades to a no-op instead of throwing.
+   */
+  _resumeRenderer(term) {
+    const rs = term && term._core && term._core._renderService;
+    if (!rs || typeof rs.refreshRows !== 'function') return;
+    rs._isPaused = false;
+    rs.refreshRows(0, term.rows - 1);
+  }
+
+  /** Re-fit and force-repaint the visible terminal when the tab returns to the
+   *  foreground, where xterm's own IntersectionObserver resume is unreliable.
+   *  No-op when no terminal is visible. */
+  _forceResumeActive() {
+    const t = this.terminals.get(this.activeTerminalId);
+    if (!t) return;
+    // Repaint immediately so a stuck-paused renderer catches up.
+    this._resumeRenderer(t.term);
+    // Re-fit on the next frame, once layout has settled. Fitting synchronously
+    // inside a focus/visibility handler — before the returning viewport has laid
+    // out — can measure a transient/zero size and push a bogus terminal_resize
+    // to the PTY, which corrupts a full-screen TUI (e.g. Claude Code) mid-redraw.
+    // rAF defers the measure until the dimensions are real, then repaints again.
+    requestAnimationFrame(() => {
+      if (this.terminals.get(this.activeTerminalId) !== t) return; // switched away
+      try { t.fitAddon.fit(); } catch (_) { /* fit can throw before layout */ }
+      this._resumeRenderer(t.term);
+    });
   }
 
   /** Send a raw byte sequence to the active terminal's PTY. Used by the key
@@ -395,6 +450,13 @@ class TerminalManager {
     requestAnimationFrame(() => {
       terminal.fitAddon.fit();
       terminal.term.focus();
+
+      // Defeat xterm's stuck render-pause on tab switch: showing a terminal
+      // flips its container display:none→block, and Safari may not fire the
+      // IntersectionObserver "intersecting" entry that resumes rendering. Force
+      // the resume so the switched-to terminal paints immediately. See
+      // _resumeRenderer.
+      this._resumeRenderer(terminal.term);
 
       // First display after a reconnect: now that xterm has measured itself
       // against the visible container, ask relayLLM to size the PTY to match
