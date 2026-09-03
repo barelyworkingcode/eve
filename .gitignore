@@ -22,3 +22,7 @@ test/fixtures/
 playwright-report/
 .playwright-cli/
 relay-device.log
+
+# Visual-regression run output (only __baseline__ is source)
+test/visual/__current__/
+test/visual/__diff__/
