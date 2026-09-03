@@ -64,7 +64,8 @@ class NativeAudioBridge {
   /** Ambient river bed idle volume (0…1); native duck levels track it. */
   setAmbientVolume(volume) { return this._call('setAmbientVolume', { volume }); }
 
-  // diagnostic: silent background-audio hold (see voice-bg-spike.js)
+  // diagnostic: silent background-audio hold, used to check whether a running
+  // native AVAudioEngine keeps the WebView alive while the phone is locked.
   startKeepaliveProbe() { return this._call('startKeepaliveProbe'); }
   stopKeepaliveProbe() { return this._call('stopKeepaliveProbe'); }
 
