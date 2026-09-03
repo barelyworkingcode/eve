@@ -358,7 +358,6 @@
 .markdown-preview input[type="checkbox"],
 .message-content input[type="checkbox"] {
   accent-color: var(--accent);
-  margin-right: var(--sp-3);
   /* No appearance:none — these are display items, not interactive settings. */
 }
 
