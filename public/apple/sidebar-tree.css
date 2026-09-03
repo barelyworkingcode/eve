@@ -184,26 +184,7 @@
 }
 
 /* Legacy context menu (file-browser.js) */
-.file-context-menu {
-  background: var(--bg-elevated);
-  border: 0.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-popover);
-  padding: 5px 0;
-  min-width: 150px;
-}
 .file-context-menu.hidden { display: none; }
-
-.file-context-menu button {
-  padding: 6px 14px;
-  font-size: var(--text-callout);
-  font-family: var(--font-ui);
-  color: var(--text-primary);
-  transition: background var(--dur-1);
-}
-.file-context-menu button:hover {
-  background: var(--bg-hover);
-}
 
 /* Legacy rename input */
 .file-rename-input {
@@ -601,46 +582,6 @@
 
 /* ── Context menu (ui-utils.js: file-tree__context-*) ─────────────── */
 
-.file-tree__context-menu {
-  background: var(--bg-elevated);
-  border: 0.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 5px 0;
-  min-width: 160px;
-  z-index: var(--z-context-menu, 200);
-  box-shadow: var(--shadow-popover);
-}
-
-.file-tree__context-item {
-  display: block;
-  width: 100%;
-  padding: 6px 15px;
-  background: none;
-  border: none;
-  color: var(--text-primary);
-  font-size: var(--text-callout);
-  font-family: var(--font-ui);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--dur-1);
-}
-.file-tree__context-item:hover {
-  background: var(--bg-hover);
-}
-
-.file-tree__context-item--danger {
-  color: var(--danger);
-}
-.file-tree__context-item--danger:hover {
-  background: var(--danger-soft);
-}
-
-.file-tree__context-sep {
-  height: 0.5px;
-  background: var(--separator);
-  margin: 4px 0;
-}
-
 /* ── Mobile: iOS touch targets (44pt minimum) ──────────────────────── */
 
 @media (max-width: 768px) {
@@ -656,11 +597,6 @@
     min-height: 44px;
     padding-top: 10px;
     padding-bottom: 10px;
-  }
-
-  .file-tree__context-item {
-    min-height: 44px;
-    padding: 12px 16px;
   }
 
   .project-tree__task-actions {
