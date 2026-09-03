@@ -1,8 +1,8 @@
 /**
  * VoiceInitCoordinator - Manages the "start on server, preload desired backend, switch when ready" strategy.
  *
- * All TTS/STT modes start on server for immediate availability. If the user prefers a non-server
- * backend (browser or native), the coordinator creates shadow backend instances to preload models
+ * All TTS/STT modes start on server for immediate availability. If the user prefers the native
+ * on-device backend, the coordinator creates shadow backend instances to preload models
  * in the background. When ready, it destroys the shadows and switches the real managers.
  *
  * Progress is reported via a single persistent toast that tracks both TTS and STT combined.
@@ -15,7 +15,7 @@ class VoiceInitCoordinator {
     this.container = container;
 
     this._toastId = 'voice-init';
-    this._ttsTarget = null;   // 'browser' | 'native' | null
+    this._ttsTarget = null;   // 'native' | null
     this._sttTarget = null;
     this._ttsShadow = null;   // shadow backend instance
     this._sttShadow = null;
@@ -93,8 +93,7 @@ class VoiceInitCoordinator {
     // Native models are large (Kokoro ~86MB + Parakeet ~160MB) and download in the
     // app process; loading both at once can exhaust memory and crash the whole app
     // on memory-constrained iOS devices. When both targets are native, defer STT
-    // until TTS settles so peak memory stays near one model instead of two. Browser
-    // workers are lighter and crash-guarded, so they still preload in parallel.
+    // until TTS settles so peak memory stays near one model instead of two.
     this._serializeNativeLoads = ttsTarget === 'native' && sttTarget === 'native';
 
     if (ttsTarget && !this._ttsReady && !this._ttsShadow) {
@@ -133,9 +132,6 @@ class VoiceInitCoordinator {
   }
 
   _createBackend(which, target) {
-    if (target === 'browser') {
-      return which === 'tts' ? new TtsBrowserBackend() : new SttBrowserBackend();
-    }
     if (target === 'native') {
       return which === 'tts' ? new TtsNativeBackend() : new SttNativeBackend();
     }
@@ -176,20 +172,6 @@ class VoiceInitCoordinator {
         this._checkAllReady();
       },
     };
-
-    // Browser-specific init options
-    if (target === 'browser') {
-      const hasWebGPU = !!navigator.gpu;
-      if (which === 'tts') {
-        context.dtype = hasWebGPU ? 'fp32' : 'q4';
-        context.device = hasWebGPU ? 'webgpu' : 'wasm';
-      } else {
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        context.model = isMobile ? 'onnx-community/whisper-base' : 'onnx-community/whisper-small';
-        context.dtype = hasWebGPU ? 'fp32' : 'q8';
-        context.device = hasWebGPU ? 'webgpu' : 'wasm';
-      }
-    }
 
     return context;
   }

@@ -1,13 +1,9 @@
 /**
  * TTSManager - Audio playback and voice mode orchestrator.
- * Delegates speech generation and voice loading to a pluggable backend (browser, server, or native).
+ * Delegates speech generation and voice loading to a pluggable backend (server or native).
  * Owns shared concerns: audio playback queue, AudioContext, voice select UI, speaking indicator.
- *
- * Idle worker management: browser backend worker is terminated after 5 minutes of inactivity,
- * then lazily re-created on next speakText() call.
  */
 const DEFAULT_TTS_VOICE = 'af_heart';
-const TTS_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 class TTSManager {
   /**
@@ -26,7 +22,6 @@ class TTSManager {
     this.isPlaying = false;
     this.currentSource = null;
     this.isNativeApp = IS_NATIVE_APP;
-    this._idleTimer = null;
     this._ttsDoneReceived = true;
 
     // Native on-device Kokoro is unreliable on iOS 26.5.1 — an upstream
@@ -38,7 +33,7 @@ class TTSManager {
     // fallback. Revisit the default if the BNNS bug is fixed upstream/in iOS.
     this.preferredBackend = IS_NATIVE_APP
       ? (localStorage.getItem('eve-tts-backend') === 'native' ? 'native' : 'server')
-      : (localStorage.getItem('eve-tts-backend') || (IS_SAFARI ? 'server' : 'browser'));
+      : 'server';
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');
     this.log = this._logger.child(`TTS:${this.activeBackend.name}`);
@@ -47,10 +42,6 @@ class TTSManager {
 
   get backend() {
     return this.activeBackend.name;
-  }
-
-  get browserReady() {
-    return this.activeBackend.name === 'browser' && this.activeBackend.ready;
   }
 
   /** Whether server-side TTS relay should be active. */
@@ -71,7 +62,6 @@ class TTSManager {
   _createBackend(name) {
     switch (name) {
       case 'native': return new TtsNativeBackend();
-      case 'browser': return new TtsBrowserBackend();
       case 'server':
       default: return new TtsServerBackend();
     }
@@ -117,20 +107,11 @@ class TTSManager {
       },
     };
 
-    if (this.activeBackend.name === 'browser') {
-      // WebGPU + fp32 for capable devices, q4/wasm fallback.
-      // Mobile Safari can't handle on-device TTS (memory limits) — uses native or server backend.
-      const useWebGPU = !!navigator.gpu;
-      context.dtype = useWebGPU ? 'fp32' : 'q4';
-      context.device = useWebGPU ? 'webgpu' : 'wasm';
-    }
-
     this.activeBackend.init(context);
   }
 
   switchBackend(name, { persist = true } = {}) {
     const prev = this.activeBackend.name;
-    this._clearIdleTimer();
     this.activeBackend.destroy();
     this.activeBackend = this._createBackend(name);
     if (persist) {
@@ -195,17 +176,9 @@ class TTSManager {
     try {
       this.voices = await this.activeBackend.loadVoices();
     } catch {
-      // Server unavailable — fall back to browser at runtime (not on Safari).
-      // Don't persist: user's explicit choice should survive reload.
-      if (this.backend === 'server' && !IS_SAFARI) {
-        this.log.warn('Server daemon unavailable — falling back to on-device TTS (runtime only)');
-        this.switchBackend('browser', { persist: false });
-      } else if (this.backend === 'server' && IS_SAFARI) {
-        this.log.warn('Server daemon unavailable. On-device TTS is not supported on Safari.');
-        this.app.messageRenderer?.appendSystemMessage(
-          'TTS unavailable: Kokoro daemon is offline and on-device TTS is not yet supported on Safari.', 'error'
-        );
-      }
+      // Daemon down at page load — stay silent here; speakText()'s own catch
+      // surfaces the failure at the point of use.
+      this.log.warn('Server TTS daemon unavailable — using static voice list');
       // Fall back to static voice list
       if (this.voices.length === 0) {
         this.voices = KOKORO_VOICES;
@@ -225,7 +198,6 @@ class TTSManager {
     const cleaned = this._cleanTextForTTS(text);
     if (!cleaned) return;
 
-    this._clearIdleTimer();
 
     try {
       this.log.debug(`Speaking via ${this.backend} (voice: ${this.voice}):`, cleaned);
@@ -250,24 +222,6 @@ class TTSManager {
       .replace(/[*_~`#>]/g, '')
       .replace(/\n+/g, ' ')
       .trim();
-  }
-
-  // --- Idle worker management ---
-
-  _startIdleTimer() {
-    this._clearIdleTimer();
-    if (this.activeBackend.name !== 'browser' || !this.activeBackend.destroyWorker) return;
-    this._idleTimer = setTimeout(() => {
-      this.log.info(`Browser worker idle for ${TTS_IDLE_TIMEOUT_MS / 1000}s — terminating to free memory`);
-      this.activeBackend.destroyWorker();
-    }, TTS_IDLE_TIMEOUT_MS);
-  }
-
-  _clearIdleTimer() {
-    if (this._idleTimer) {
-      clearTimeout(this._idleTimer);
-      this._idleTimer = null;
-    }
   }
 
   // --- Audio playback queue (shared by all backends) ---
@@ -432,7 +386,6 @@ class TTSManager {
     this._setSpeakingIndicator(false);
     this.app.voiceChatManager?.handleTTSEnd();
     this.bus.emit(EVT.TTS_PLAYBACK_ENDED);
-    this._startIdleTimer();
   }
 
   /** Returns 0-1 normalized audio level from playback, or 0 if not playing. */

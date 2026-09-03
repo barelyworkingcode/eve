@@ -1,6 +1,6 @@
 /**
  * STTManager - Microphone recording and speech-to-text orchestrator.
- * Delegates transcription to a pluggable backend (browser, server, or native).
+ * Delegates transcription to a pluggable backend (server or native).
  * Owns shared concerns: mic recording, audio levels, UI indicators, result routing.
  */
 class STTManager {
@@ -27,7 +27,7 @@ class STTManager {
     // post-crash fallback.
     this.preferredBackend = IS_NATIVE_APP
       ? (localStorage.getItem('eve-stt-backend') === 'native' ? 'native' : 'server')
-      : (localStorage.getItem('eve-stt-backend') || (IS_SAFARI ? 'server' : 'browser'));
+      : 'server';
     // Always start on server — VoiceInitCoordinator switches to preferred when ready
     this.activeBackend = this._createBackend('server');
     this.log = this._logger.child(`STT:${this.activeBackend.name}`);
@@ -38,14 +38,9 @@ class STTManager {
     return this.activeBackend.name;
   }
 
-  get browserReady() {
-    return this.activeBackend.name === 'browser' && this.activeBackend.ready;
-  }
-
   _createBackend(name) {
     switch (name) {
       case 'native': return new SttNativeBackend();
-      case 'browser': return new SttBrowserBackend();
       case 'server':
       default: return new SttServerBackend();
     }
@@ -77,26 +72,12 @@ class STTManager {
       },
     };
 
-    if (this.activeBackend.name === 'browser') {
-      const hasWebGPU = typeof navigator !== 'undefined' && !!navigator.gpu;
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      context.model = isMobile ? 'onnx-community/whisper-base' : 'onnx-community/whisper-small';
-      context.dtype = hasWebGPU ? 'fp32' : 'q8';
-      context.device = hasWebGPU ? 'webgpu' : 'wasm';
-    }
-
     this.activeBackend.init(context);
   }
 
   async checkAvailability() {
     this.available = await this.activeBackend.isAvailable();
-    // Auto-switch to browser if server is unavailable (not on Safari — memory issues)
-    if (!this.available && this.backend === 'server' && !IS_SAFARI) {
-      this.log.warn('Server daemon unavailable — falling back to on-device STT (runtime only)');
-      this.switchBackend('browser', { persist: false });
-      this.available = true;
-    }
-    if (this.backend === 'browser') this.available = true;
+    if (!this.available) this.log.warn('Server STT daemon unavailable — mic disabled');
     this._updateButtonVisibility();
   }
 
@@ -130,7 +111,7 @@ class STTManager {
     }
   }
 
-  // --- Recording (native delegates to backend, browser/server use shared MediaRecorder) ---
+  // --- Recording (native delegates to backend, server uses shared MediaRecorder) ---
 
   async startRecording() {
     if (this.activeBackend.startRecording) {
