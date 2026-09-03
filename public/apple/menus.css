@@ -94,6 +94,21 @@ select,
   padding-right: 28px;
 }
 
+/* Read-only value line (Settings → Voice backend readout on web). Deliberately
+   NOT part of the select group: no chevron, border, hover or focus — it must
+   read as a settled value, not a control. Font/size/rhythm mirror
+   .dialog__select so the form doesn't jump; no left padding so it aligns with
+   the label above, like the field-hint below it. */
+.dialog__value {
+  background: transparent;
+  border: none;
+  padding: 8px 10px 8px 0;
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  line-height: 1.5;
+}
+
 /* Dark mode arrow color. */
 @media (prefers-color-scheme: dark) {
   select,
