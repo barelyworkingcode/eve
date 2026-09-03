@@ -15,6 +15,8 @@
     "test:watch": "jest --watch",
     "test:integration": "jest --config jest.integration.config.js",
     "test:e2e": "playwright test",
+    "test:visual:baseline": "VISUAL_MODE=baseline playwright test --config test/visual/playwright.visual.config.js test/visual/capture.spec.js",
+    "test:visual": "VISUAL_MODE=current playwright test --config test/visual/playwright.visual.config.js test/visual/capture.spec.js && node test/visual/diff.js",
     "audit": "npm audit --omit=dev",
     "relay:restart": "/Applications/Relay.app/Contents/MacOS/relay service restart --id eve",
     "register": "npm run register:service && npm run register:mcp",
@@ -43,6 +45,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "jest": "^30.2.0"
+    "jest": "^30.2.0",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0"
   }
 }
