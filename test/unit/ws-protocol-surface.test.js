@@ -10,6 +10,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { messages } = require('../../ws/message-registry');
 
 // The 46-element frozen array, committed once in this handoff and never
 // reordered/edited except by an explicit, reviewed protocol change.
@@ -68,16 +69,25 @@ describe('ws protocol surface (frozen)', () => {
     expect(new Set(FROZEN_TYPES).size).toBe(46); // no duplicates
   });
 
-  it('matches every case label and pre-switch guard in ws-handler.js', () => {
+  it('matches every case label, pre-switch guard, and registered descriptor', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', 'ws-handler.js'), 'utf8');
 
     const caseLabels = [...src.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1]);
     // The two pre-switch guards, matched the same way §1a of the spec describes them.
     const guardTypes = [...src.matchAll(/message\.type === '([a-z_]+)'/g)].map((m) => m[1]);
+    // From handoff 2 onward, a migrated type's `case` label is gone from the
+    // switch fallback and lives only as a registered descriptor — union in
+    // messages.types() so the total dispatch surface stays 46 across the
+    // whole migration, not just while everything is still in the switch.
+    const registered = messages.types();
 
-    const measured = new Set([...caseLabels, ...guardTypes]);
+    const measured = new Set([...caseLabels, ...guardTypes, ...registered]);
 
     expect(measured.size).toBe(46);
     expect([...measured].sort()).toEqual([...FROZEN_TYPES].sort());
+  });
+
+  it('every registered descriptor type is a member of the frozen surface', () => {
+    for (const t of messages.types()) expect(FROZEN_TYPES).toContain(t);
   });
 });
