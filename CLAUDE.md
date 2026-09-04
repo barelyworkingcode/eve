@@ -113,7 +113,10 @@ test/
   e2e/              - Playwright (browser)
 ```
 
-**Pre-commit hook** (`.githooks/pre-commit`; install once: `git config core.hooksPath .githooks`). On any commit staging `.js` / `jest.config.js` / `package.json`, it runs `node --check` on staged JS (the "build" gate — Eve has no bundler) then the unit suite (~5s, hermetic). Skip in emergencies with `--no-verify`.
+**Local gates** (`.githooks/`; install once: `git config core.hooksPath .githooks`). Skip either in emergencies with `--no-verify`.
+
+- **pre-commit** — on any commit staging `.js` / `jest.config.js` / `package.json`, runs `node --check` on staged JS (the "build" gate — Eve has no bundler) then the unit suite (~5s, hermetic).
+- **pre-push** — on any push whose range touches `.js` / `.css` / `.html` / test config, runs unit, integration, e2e and visual (~50s). The unit tier alone cannot see the frozen behavioural gates — the chat input row, the voice drawer, the pane characterisation suite, two-connection WebSocket isolation, the pixel baselines — which is the tier where regressions in this codebase actually surface. `test:voice` is excluded: it needs the live Kokoro/Whisper daemons, so it would fail whenever they are down.
 
 When using `jest.useFakeTimers()`, you don't need to restore manually — `test/setup.js` does. Keep fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked timer can't hang a worker on teardown. Full testing guide: [docs/test.md](docs/test.md).
 
