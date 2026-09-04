@@ -10,13 +10,14 @@ it holds the *why* for the current work.
 |---|---|
 | `main` | simplification work merged (PR #22). Green. |
 | `refactor/feature-registry` | 5 commits, pushed, **not merged**. Phase 1 of the refactor is complete. |
+| `pm/voice-button-features` | branched off it; 3 commits, **not pushed**. Phase 2 is complete. |
 | `simplify/remove-browser-voice-and-css` | merged into main; kept, safe to delete. |
 
-Everything green as of `c93547b`:
+Everything green as of `3ac0b62`:
 
     npm test              # 36 suites, 525 tests   (unit, hermetic, ~4s)
-    npm run test:integration
-    npm run test:e2e      # 8  (spawns eve + fake relay)
+    npm run test:integration   # 69 passed, 1 skipped
+    npm run test:e2e      # 13 (spawns eve + fake relay)
     npm run test:voice    # 6  (needs the live Kokoro/Whisper daemons)
     npm run test:visual   # 24 screenshots, must be 0.0000%
 
@@ -35,20 +36,51 @@ both of `index.html`'s inline bootstrap scripts, and `base-uri 'none'` blocked
 named `[data-slot]` containers, with the chat input's five buttons as the first
 consumer. Behaviour and appearance unchanged.
 
-## Next step — phase 2
+**Refactor phase 2 (on `pm/voice-button-features`).** The goal the refactor
+exists for: `tts-manager.js` and `stt-manager.js` now touch their own buttons.
 
-Move the mic and voice-mode buttons out of `public/features/chat-input.js` into
-a TTS/STT feature that owns them, so `tts-manager.js` finally touches its own
-button. That is the concrete goal the whole refactor exists for.
+`public/features/stt.js` and `public/features/tts.js` each register under the
+container key the app already resolved (`sttManager`, `ttsManager`), construct
+their manager in `init`, and render and wire their button in a slot closure
+that hands the element to the manager as `this.button`. The mic left
+`chat-input.js`; the voice-mode button left `index.html` for a new
+`voice-drawer-controls` slot, and its long-press gesture left `app.js`.
 
-`chat-input.js` is a deliberate temporary home for five buttons belonging to
-five different features; it is deleted when the last one leaves.
+`app.js` lost both `new XManager(...)` calls, both `initElements()` entries and
+the whole voice-mode gesture block, and `enableVoiceMode`/`toggleVoiceMode` now
+ask `ttsManager.syncButtonState()` instead of reaching for the element.
 
-The gate already exists: `test/e2e/chat-input-row.spec.js` asserts the row's
-*wiring* (order, send submits, plan mode emits `set_permission_mode`, stop
-hidden while idle, mic tracks STT availability, attach tracks model
-capability). Screenshots cannot catch a dead button; those tests can. Keep them
-passing and unmodified — if one fails, the code is wrong.
+Two consequences worth knowing:
+
+- **`VoiceCrashGuard.detectAndRecover()` now runs before `features.boot()`.**
+  Both constructors read the `eve-{tts,stt}-backend` keys the guard reverts
+  after an on-device crash, and the registry constructs them far earlier than
+  `initApp()` used to. Moving the guard back below `boot()` silently defeats
+  post-crash recovery, and no test will tell you.
+- **Registry construction is now load-bearing for the voice managers.** A
+  feature's constructor runs before any slot renders, so it must not touch the
+  DOM. Both are clean today; keep them that way.
+
+## Next step — phase 3
+
+Three buttons remain in `public/features/chat-input.js`: attach (belongs to
+file attachments), plan mode (to permissions), send and stop (to the chat form
+and the run lifecycle). Move each to the feature that owns it, following
+`features/stt.js` — it is the smaller of the two worked examples. `chat-input.js`
+is deleted when the last one leaves.
+
+Send and stop are the awkward pair: both are driven from `app.js`'s run
+lifecycle rather than from a manager that could own them, so that one needs a
+home invented for it rather than a home it already has.
+
+Two gates exist and must keep passing unmodified — if one fails, the code is
+wrong. `test/e2e/chat-input-row.spec.js` asserts the row's wiring (order, send
+submits, plan mode emits `set_permission_mode`, stop hidden while idle, mic
+tracks STT availability, attach tracks model capability).
+`test/e2e/voice-buttons.spec.js` asserts the drawer's (control order, short tap
+toggles TTS, the `voice_mode` frame reaches the server, the manager drives its
+own speaking indicator, 500ms long press starts voice chat and a short tap does
+not). Screenshots cannot catch a dead button; these can.
 
 Still open after that: `tab-manager.js` (30 `case` arms on pane type) and
 `ws-handler.js` (44-arm switch, 12 injected deps) have the same shape of
@@ -130,7 +162,9 @@ enough to test the daemon-down path.
   no DOM (mostly an abandoned task sidebar, replaced by `task-dialog.js` /
   `task-viewer.js`). Needs judgment, not automation.
 - **The visual harness covers 6 surfaces.** Terminal, module host, task viewer
-  and search dialog are not captured.
+  and search dialog are not captured. The voice drawer is not either — phase 2
+  changed it, so its layout was checked by capturing the panel's control
+  geometry and pixels either side of the change instead (identical).
 - **Native iOS voice is preserved by inspection, not exercised.**
 
 ## Working with the pi handoffs
@@ -153,3 +187,14 @@ Two of the last four handoffs failed on defects in the *brief*, not the
 implementation (a gate no implementation could satisfy; a registry with no
 instance to register against). Write the spec carefully; it is where the errors
 land.
+
+Phase 2 went two-for-two accepted, split as one handoff per button and run
+sequentially against the one tree. What the specs did that the failed ones did
+not: name the exact container key and slot name on both sides of the move, and
+spell out the ordering constraint (`VoiceCrashGuard` before `boot()`) rather
+than leaving it to be inferred from the code.
+
+The second round's fresh-context review looped — tool calls froze while the
+event count ran past 90k — and never produced findings. It is a free filter, so
+the answer is to review the diff yourself and not wait on it; the write phase
+had already finished and its output was good.

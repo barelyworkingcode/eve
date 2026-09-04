@@ -19,6 +19,7 @@ class STTManager {
     this.timerInterval = null;
     this.available = null; // null = unknown, true/false after check
     this.isNativeApp = IS_NATIVE_APP;
+    this.button = null; // assigned by the STT feature's render closure, which runs after boot()
 
     // Native on-device ASR (Parakeet) shares the same iOS-26.5.1 CoreML/BNNS
     // instability as native TTS, so the native app defaults to the reliable
@@ -345,14 +346,14 @@ class STTManager {
   // --- UI helpers ---
 
   _updateButtonVisibility() {
-    const btn = this.app.elements.micBtn;
+    const btn = this.button;
     if (btn) {
       btn.classList.toggle('hidden', !this.available);
     }
   }
 
   _updateUI() {
-    const btn = this.app.elements.micBtn;
+    const btn = this.button;
     if (btn) {
       btn.classList.toggle('btn-mic--recording', this.isRecording);
       btn.title = this.isRecording ? 'Stop recording' : 'Dictate (Speech-to-Text)';
@@ -360,7 +361,7 @@ class STTManager {
   }
 
   _startTimer() {
-    const btn = this.app.elements.micBtn;
+    const btn = this.button;
     if (!btn) return;
 
     this.timerInterval = setInterval(() => {
@@ -379,7 +380,7 @@ class STTManager {
   }
 
   _showTranscribingIndicator() {
-    const btn = this.app.elements.micBtn;
+    const btn = this.button;
     if (btn) {
       btn.classList.add('btn-mic--transcribing');
       btn.title = 'Transcribing...';
@@ -387,7 +388,7 @@ class STTManager {
   }
 
   _hideTranscribingIndicator() {
-    const btn = this.app.elements.micBtn;
+    const btn = this.button;
     if (btn) {
       btn.classList.remove('btn-mic--transcribing');
       btn.title = 'Dictate (Speech-to-Text)';

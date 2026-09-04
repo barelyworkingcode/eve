@@ -21,6 +21,7 @@ class TTSManager {
     this.queue = [];
     this.isPlaying = false;
     this.currentSource = null;
+    this.button = null;
     this.isNativeApp = IS_NATIVE_APP;
     this._ttsDoneReceived = true;
 
@@ -398,10 +399,15 @@ class TTSManager {
   }
 
   _setSpeakingIndicator(speaking) {
-    const btn = this.app.elements.voiceModeBtn;
+    const btn = this.button;
     if (btn) {
       btn.classList.toggle('tts-speaking', speaking);
     }
+  }
+
+  /** Reflect the current enabled state on the button. */
+  syncButtonState() {
+    this.button?.classList.toggle('btn-voice-mode--active', this.enabled);
   }
 
   // --- Voice select UI (shared) ---
