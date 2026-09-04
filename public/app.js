@@ -40,6 +40,14 @@ class EveWorkspaceClient {
     this.container.register('settings', this.settings);
     this.settings.applyToDOM();
 
+    // Feature registry: features render their own DOM into the [data-slot]
+    // markers in index.html (docs/decisions/001-feature-registry.md). Must run
+    // before initElements() — the button ids it caches (attachBtn, sendBtn,
+    // ...) do not exist until the slots render.
+    this.container.register('features', features);
+    features.boot(this.container);
+    features.renderSlots(document, this.container);
+
     this.initElements();
 
     // Initialize modules — register each in the container immediately after creation

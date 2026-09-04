@@ -254,16 +254,7 @@
             </div>
             <div id="attachedFiles" class="attached-files hidden"></div>
             <form id="inputForm" class="input-form">
-              <button type="button" id="attachBtn" class="btn-attach" title="Attach files" data-testid="chat-attach">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-                </svg>
-              </button>
-              <button type="button" id="planModeBtn" class="btn-attach" title="Toggle plan mode" data-testid="chat-plan-mode">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
-                </svg>
-              </button>
+              <div data-slot="chat-input-leading"></div>
               <input type="file" id="fileInput" multiple hidden>
               <textarea
                 id="userInput"
@@ -272,24 +263,7 @@
                 autocomplete="off"
                 data-testid="chat-input"
               ></textarea>
-              <button type="submit" class="btn-send" id="sendBtn" data-testid="chat-submit">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
-                </svg>
-              </button>
-              <button type="button" id="micBtn" class="btn-mic hidden" title="Dictate (Speech-to-Text)" data-testid="chat-mic">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                  <line x1="12" y1="19" x2="12" y2="23"/>
-                  <line x1="8" y1="23" x2="16" y2="23"/>
-                </svg>
-              </button>
-              <button type="button" class="btn-stop hidden" id="stopBtn" data-testid="chat-stop">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="6" width="12" height="12" rx="2"/>
-                </svg>
-              </button>
+              <div data-slot="chat-input-trailing"></div>
             </form>
           </div>
         </div>
@@ -527,6 +501,7 @@
   <script src="core/api-client.js"></script>
   <script src="core/ui-utils.js"></script>
   <script src="core/settings-manager.js"></script>
+  <script src="core/feature-registry.js"></script>
 
   <script src="auth.js"></script>
   <script src="ws-client.js"></script>
@@ -586,6 +561,9 @@
   <script src="modules/module-store.js"></script>
   <script src="modules/module-host.js"></script>
   <script src="modules/module-activity-orb.js"></script>
+
+  <!-- Feature modules -->
+  <script src="features/chat-input.js"></script>
 
   <script src="app.js"></script>
 </body>
