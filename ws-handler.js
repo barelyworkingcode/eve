@@ -9,7 +9,7 @@ const { messages } = require('./ws/message-registry');
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, claudeConfig, resolveProject, ttsService, sttService, uiBus, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, ttsService, sttService, uiBus, log }) {
   return (ws, req) => {
     // Trust is decided by the raw TCP source address via TrustedNetworkService.
     // Never consult req.headers.host or X-Forwarded-For here — both are
@@ -80,10 +80,9 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
           return;
         }
 
-        // Every message type is a registered descriptor now (H6 deleted the
-        // last case arm), so descriptor.expensive is the only source of
-        // rate-limit membership. See docs/security-audit-frontend.md (M3)
-        // and C4 in ws/message-registry.js.
+        // Every message type is a registered descriptor. descriptor.expensive
+        // is the only source of rate-limit membership. See
+        // docs/security-audit-frontend.md (M3) and C4 in ws/message-registry.js.
         const descriptor = messages.get(message.type);
         const expensive = descriptor?.expensive === true;
 
@@ -102,11 +101,11 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         // carry projectId; setting it repeatedly is idempotent.
         if (message.projectId) uiBus?.setProject(relayClient, message.projectId);
 
+        // Rebuilt fresh for this message, never captured by a descriptor:
+        // ws, relayClient and fileWatcher are per-connection, not
+        // per-process, and a descriptor is registered once per process
+        // (see C1 in ws/message-registry.js).
         if (descriptor) {
-          // Rebuilt fresh for this message, never captured by a descriptor:
-          // ws, relayClient and fileWatcher are per-connection, not
-          // per-process, and a descriptor is registered once per process
-          // (see C1 in ws/message-registry.js).
           await descriptor.handle({
             ws,
             req,
@@ -118,10 +117,6 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             log,
             deps: { relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, ttsService, sttService },
           });
-        } else switch (message.type) {
-          // All 44 case arms have migrated to descriptors. The empty switch
-          // and this fallback branch are H7's cleanup (spec §12-H7), left
-          // alone here so this handoff's diff is exactly its own five arms.
         }
       } catch (err) {
         ws.send(JSON.stringify({ type: 'error', message: err.message }));
