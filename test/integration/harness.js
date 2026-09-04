@@ -102,6 +102,14 @@ async function startEve({ projects = [], env: envOverride = {} } = {}) {
   for (const p of projects) relay.addProject(p);
 
   const port = await freePort();
+  // Kokoro/Whisper daemons are TCP services eve dials on these ports (see
+  // server.js). Pinning both to a freshly-allocated, momentarily-free port
+  // makes tts_speak / transcribe_audio's failure paths deterministic —
+  // ECONNREFUSED every run — instead of depending on whether the real daemons
+  // happen to be listening on this box (the same hazard as the visual
+  // harness's unstubbed /api/stt/status; see docs/handoff.md).
+  const ttsPort = await freePort();
+  const sttPort = await freePort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-data-'));
   const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -114,6 +122,8 @@ async function startEve({ projects = [], env: envOverride = {} } = {}) {
     RELAY_FRONTEND_TOKEN: 'test-token',
     LOG_LEVEL: process.env.EVE_IT_LOG || 'error',
     EVE_INTERNAL_SECRET: '',
+    TTS_PORT: String(ttsPort),
+    STT_PORT: String(sttPort),
     ...envOverride, // per-test env (e.g. EVE_INTERNAL_SECRET for the ui-command bus)
   };
   if (!('EVE_PUBLIC_ORIGIN' in envOverride)) delete env.EVE_PUBLIC_ORIGIN; // keep the WS origin gate lenient

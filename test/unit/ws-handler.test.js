@@ -1,10 +1,21 @@
 const { EventEmitter } = require('events');
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
 
 // Low rate-limit ceiling so the throttle test is cheap. Read once at module
 // load by ws-handler, so it must be set before the require below.
 process.env.EVE_RATELIMIT_MAX = '3';
 process.env.EVE_RATELIMIT_WINDOW_MS = '10000';
 delete process.env.EVE_NO_AUTH;
+
+// device_log writes into the repo working tree by default (DEVICE_LOG_PATH =
+// path.join(__dirname, 'relay-device.log')). EVE_DEVICE_LOG_PATH is the
+// testability seam (spec §9d) that points it at a tmpdir instead — also read
+// once at module load, so it must be set before the require below.
+const deviceLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-device-log-'));
+const deviceLogPath = path.join(deviceLogDir, 'relay-device.log');
+process.env.EVE_DEVICE_LOG_PATH = deviceLogPath;
 
 // RelayClient and FileWatcher are constructed inside the handler (not injected),
 // so mock the modules to inspect dispatch routing without opening real sockets.
@@ -350,6 +361,88 @@ describe('createWsHandler', () => {
       const ws = mount(makeDeps());
       await sendMsg(ws, { type: 'read_plan_file', path: '' });
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', message: 'Invalid plan file path' }));
+    });
+
+    it('reads a plan file inside ~/.claude/plans and replies plan_file_content (success path)', async () => {
+      // realpathSync: on macOS os.tmpdir() lives under a /var -> /private/var
+      // symlink, and handleReadPlanFile re-checks the realpath (defeating a
+      // symlink escape) — an unresolved tmpdir would fail that check for a
+      // reason that has nothing to do with what this test pins.
+      const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'eve-plans-home-')));
+      const plansDir = path.join(home, '.claude', 'plans');
+      fs.mkdirSync(plansDir, { recursive: true });
+      const homedirSpy = jest.spyOn(os, 'homedir').mockReturnValue(home);
+      try {
+        const planPath = path.join(plansDir, 'my-plan.md');
+        fs.writeFileSync(planPath, '# The Plan\n', 'utf8');
+        const ws = mount(makeDeps());
+        await sendMsg(ws, { type: 'read_plan_file', path: planPath });
+        // handleReadPlanFile makes two sequential real fs round trips
+        // (realpath, then readFile) — a single microtask flush can land
+        // before both resolve, so poll a few more ticks.
+        for (let i = 0; i < 20 && ws.send.mock.calls.length === 0; i++) await flush();
+        expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+          type: 'plan_file_content', path: planPath, content: '# The Plan\n',
+        }));
+      } finally {
+        homedirSpy.mockRestore();
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('voice_mode', () => {
+    it('forwards enabled/voice/speed to relayClient.setVoiceMode', async () => {
+      const ws = mount(makeDeps());
+      await sendMsg(ws, { type: 'voice_mode', enabled: true, voice: 'af_heart', speed: 1.2 });
+      expect(relayClient.setVoiceMode).toHaveBeenCalledWith(true, 'af_heart', 1.2);
+    });
+  });
+
+  describe('unwatch_file', () => {
+    it('delegates to fileWatcher.unwatch with projectId and path', async () => {
+      const ws = mount(makeDeps());
+      await sendMsg(ws, { type: 'unwatch_file', projectId: 'p1', path: 'src/index.js' });
+      expect(fileWatcher.unwatch).toHaveBeenCalledWith('p1', 'src/index.js');
+    });
+  });
+
+  describe('device_log (points at a tmpdir via EVE_DEVICE_LOG_PATH, not the repo tree)', () => {
+    beforeEach(() => {
+      fs.rmSync(deviceLogPath, { force: true });
+    });
+
+    async function readLogEventually() {
+      // appendDeviceLog's fs.appendFile is fire-and-forget, and fs.appendFile
+      // itself opens the file before it writes — a single flush() tick is
+      // enough for the file to exist but empty, not for the write to have
+      // landed. Poll on non-empty content, not mere existence.
+      const deadline = Date.now() + 1000;
+      for (;;) {
+        if (fs.existsSync(deviceLogPath)) {
+          const content = fs.readFileSync(deviceLogPath, 'utf8');
+          if (content) return content;
+        }
+        if (Date.now() >= deadline) return '';
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    }
+
+    it('appends "<iso> <ip> <line>" per line from the connection\'s remote address', async () => {
+      const ws = mount(makeDeps());
+      await sendMsg(ws, { type: 'device_log', lines: ['boot', 'wake'] });
+      const text = await readLogEventually();
+      const rows = text.trim().split('\n');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z 127\.0\.0\.1 boot$/);
+      expect(rows[1]).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z 127\.0\.0\.1 wake$/);
+    });
+
+    it('writes nothing for a malformed message (neither line nor lines)', async () => {
+      const ws = mount(makeDeps());
+      await sendMsg(ws, { type: 'device_log', notLines: 'oops' });
+      await new Promise((r) => setTimeout(r, 100)); // give an accidental async write a chance to land
+      expect(fs.existsSync(deviceLogPath)).toBe(false);
     });
   });
 

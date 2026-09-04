@@ -13,12 +13,13 @@ it holds the *why* for the current work.
 | `pm/voice-button-features` | branched off it; 3 commits, **not pushed**. Phase 2 is complete. |
 | `pm/chat-input-features` | branched off it; 7 commits, **not pushed**. Phase 3 is complete. |
 | `pm/tab-manager-registry` | branched off `pm/chat-input-features` (`4778ac2`); 14 commits, **not pushed**. Phase 4 is complete. |
+| `pm/ws-handler-registry` | branched off `pm/tab-manager-registry`; **not pushed**. Phase 5 is complete. |
 | `simplify/remove-browser-voice-and-css` | merged into main; kept, safe to delete. |
 
-Everything green as of `53bb19c`:
+Everything green as of the tip of `pm/ws-handler-registry`:
 
-    npm test              # 41 suites, 592 tests   (unit, hermetic, ~4s)
-    npm run test:integration   # 69 passed, 1 skipped
+    npm test              # 43 suites, 612 tests   (unit, hermetic, ~4s)
+    npm run test:integration   # 18 suites (1 skipped), 91 passed (1 skipped)
     npm run test:e2e      # 31 (spawns eve + fake relay)
     npm run test:voice    # 6  (needs the live Kokoro/Whisper daemons)
     npm run test:visual   # 24 screenshots, must be 0.0000%
@@ -138,15 +139,6 @@ arms + 20 `if`/ternary comparisons (`_edgeToDir`'s 4 drop-edge labels excluded
 throughout, since they're not pane-type dispatch). See 002 for the full
 inventory.
 
-## Next step — ws-handler.js
-
-The refactor's next target is the server side: `ws-handler.js` (44-arm
-switch, 12 injected deps) has the same shape of problem `tab-manager.js` did —
-a single file doing dispatch that belongs to whichever service owns each case.
-It is the last of the three files [001-feature-registry.md](001-feature-registry.md)
-named as having this problem (`tab-manager.js` is now done; `ws-handler.js` is
-the remaining one).
-
 One piece of debt, corrected here because the old figure was wrong: `app.js`'s
 `showStopButton`/`hideStopButton`/`showSessionStarting`/`clearSessionStarting`
 were described as "four one-line forwarders" to `chatForm`. Only two of the
@@ -163,8 +155,53 @@ not all in one file: `message-dispatcher.js` has 8 (`showStopButton`/
 `public/panes/views.js`'s `chat` view's `show` has the other 2 (around lines
 50 and 53), calling `app.showStopButton()`/`app.hideStopButton()` — moved
 verbatim from `tab-manager.js`'s old `chat` arm, not rewritten to reach
-`chatForm` directly. Phase 4 did not reduce this count; the natural owner of
-all 10 is the `ws-handler.js` phase.
+`chatForm` directly. Phase 4 did not reduce this count. **This debt was
+re-assigned to the phase-5 (`ws-handler.js`) phase at the time — that
+assignment was itself wrong; see below.**
+
+**Refactor phase 5 (on `pm/ws-handler-registry`).** `ws-handler.js`'s 44-arm
+switch and 13 injected dependencies moved onto a `WsMessageRegistry`
+(`ws/message-registry.js`), following the same register-by-key,
+constructs-nothing idiom as `FeatureRegistry` and `PaneRegistry`, but at
+**domain granularity** — seven files (`ws/session-messages.js`,
+`ws/file-messages.js`, `ws/search-messages.js`, `ws/module-messages.js`,
+`ws/terminal-messages.js`, `ws/voice-messages.js`,
+`ws/diagnostics-messages.js`), not one file per message type. See
+[decisions/003-ws-message-registry.md](decisions/003-ws-message-registry.md)
+for the full design and, importantly, for why the switch itself was *not* the
+defect that justified this phase — a real departure from how 001 and 002
+framed the problem.
+
+`claudeConfig` was deleted from both `ws-handler.js` and `server.js`: it had
+zero readers anywhere in the repo. `EXPENSIVE_OPS`, a six-string rate-limit
+`Set` that used to live 300 lines from the arms it gated, is gone too —
+`descriptor.expensive` is now the sole source of that security control, with
+one unit test (`test/unit/ws-message-registry.test.js`) as its only guard.
+
+Measured, before (`644976f`) → after:
+
+| measurement | before | after |
+|---|---|---|
+| `case` labels in `ws-handler.js` | 44 | 0 |
+| `ws-handler.js` lines | 787 | 144 |
+| `ws/*.js` total lines | 0 | 977 |
+| net server line change (`server.js` + `ws-handler.js` + `ws/*.js`) | — | **+333** |
+| `createWsHandler` parameter count | 13 | 12 |
+| arms with zero test coverage | 13 | 0 |
+
+The phase spec predicted +100 to +200, corrected mid-phase to +220-260; the
+real number is +333. As with phase 4, net lines went up — this bought
+locality (the 394 lines of handler implementations now live with the protocol
+concern they implement) and a correctly-placed security control, not
+brevity. All four suites stayed green through all seven handoffs, and
+`test:visual`'s 24 screenshots stayed at 0.0000% end to end.
+
+**The `app.js` forwarder debt is not this phase's, either.** Phase 4 assigned
+it here on the theory that a server-side dispatch phase was its natural
+owner. That reasoning doesn't hold: the ten call sites are client-side DOM
+forwarders with no relationship to server message dispatch. The real coupling
+is `#userInput` living in `app.js`; moving it is a client-side phase in its
+own right. It remains unclaimed — see "Next step" below.
 
 Six gates exist from the chat-input and tab-manager work and must keep
 passing unmodified — if one fails, the code is wrong.
@@ -187,7 +224,60 @@ logic seams (`_getRecentEntries`, `_projectIdForDirectory`,
 duplicate-throws, unknown-lookup-returns-null). Screenshots cannot catch a
 dead button or a silently-undefined captured service; these can.
 
+Five more gates exist from the ws-handler work and must also keep passing
+unmodified: `test/unit/ws-protocol-surface.test.js` (the frozen 46-element
+client→server type inventory), `test/integration/ws-dispatch.test.js`
+(including the two-connection isolation test for C1),
+`test/integration/voice-ws.test.js`, `test/unit/ws-handler.test.js` and
+`test/integration/file-ops.test.js`.
+
+## Next step
+
+The three files [001-feature-registry.md](001-feature-registry.md) named as
+having this shape of problem (`tab-manager.js`, `ws-handler.js`, and the
+twelve-place feature-addition list itself) are now all done. What genuinely
+remains:
+
+- **The `app.js` forwarder debt.** `showStopButton`/`hideStopButton`/
+  `showSessionStarting`/`clearSessionStarting` and their 10 call sites
+  (8 in `message-dispatcher.js`, 2 in `public/panes/views.js`). Moving them
+  needs `#userInput` itself to move into the chat-form feature first — a
+  client-side phase in its own right, not a byproduct of either registry
+  phase. Twice re-assigned to whichever phase was running at the time (see
+  [003-ws-message-registry.md](decisions/003-ws-message-registry.md)); it
+  should be scoped and owned directly rather than re-assigned a third time.
+- **TTS/STT success-path coverage.** `tts_speak` and `transcribe_audio` have
+  deterministic failure-path tests; their success paths need a fake
+  length-prefixed-JSON TCP daemon standing in for the Kokoro/Whisper
+  processes (~60 lines of new harness). `tts-chunker` and `tts-director` are
+  also untested and would benefit from the same daemon.
+- **~1,400 lines of CSS** that `scripts/prune-css.js` cannot prove safe (see
+  "Open decisions for the user" below) — unchanged by this phase.
+- **C1 coverage for search, module and voice descriptors** is code-review
+  only; the two-connection isolation test exercises `read_file` and
+  `create_session`. Extending it to the other three domains is optional
+  hardening, not a known defect.
+
 ## Gotchas that cost real time
+
+**A ws message descriptor must never capture connection-scoped state (C1).**
+`ws/*.js` descriptor objects are created once per *process*, at `require`
+time, before any socket exists. `ws`, `req`, `relayClient`, `fileWatcher`,
+`inflightSearchIds` and `inflightAiIds` are per-*connection* and reach a
+handler only through the `ctx` argument passed to `handle` at call time. This
+is the server-side sibling of the pane-descriptor gotcha below, but the
+failure mode is worse: a pane descriptor that captures a service gets a
+silent `undefined` (bad, but confined to one browser). A message descriptor
+that captures a per-connection object — a module-level `let currentWs`, a
+`const relay = ctx.relayClient` outside `handle`, a `ctx` stashed on the
+descriptor — binds the *first* browser that connects and serves every later
+one from it: one user's socket receiving another user's file contents,
+terminal output and LLM stream. Nothing throws, and it only shows up with two
+concurrent connections, which the unit suite never creates. This is why
+`test/integration/ws-dispatch.test.js` has a two-connection isolation test —
+see [decisions/003-ws-message-registry.md](decisions/003-ws-message-registry.md).
+It exercises `read_file` and `create_session` only; the other domains have
+code-review cover.
 
 **A pane descriptor must resolve its owning service through `ctx`, at call
 time — never capture one.** `new TabManager(this.container)` runs at

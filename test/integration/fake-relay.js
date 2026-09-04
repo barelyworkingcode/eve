@@ -24,8 +24,12 @@
  *                       .release() is called; lets a test observe a window
  *                       that would otherwise close as soon as the real
  *                       (async, cross-process) round trip completes
- *   inbound  — every WS frame eve SENT us (assert forwarding)
+ *   inbound  — every WS frame eve SENT us (assert forwarding); each frame carries
+ *              a non-protocol __relaySocketId so a test can tell which of eve's
+ *              (possibly several, one per browser connection) relay upstreams
+ *              it arrived on — see the C1 two-connection isolation test
  *   waitForInbound(pred) — resolves with the first inbound frame matching pred
+ *   relayConnectionCount() — number of currently-open eve→relay upstreams
  *   requests   — recorded [{method, path}] for assertions
  */
 const http = require('http');
@@ -61,6 +65,8 @@ function createFakeRelay() {
   const inbound = [];                // every WS frame eve sent us
   const inboundWaiters = [];
   const relayWs = new Set();         // eve's /ws upstream(s)
+  const relaySocketIds = new WeakMap(); // relay ws -> per-socket id, so a test can tell WHICH upstream a frame arrived on
+  let relaySocketSeq = 0;
   const schedulerWs = new Set();     // eve's /ws/tasks upstream(s)
   const schedulerResolvers = [];
   const relayResolvers = [];
@@ -169,11 +175,13 @@ function createFakeRelay() {
   wss.on('connection', (ws, req) => {
     const isScheduler = (req.url || '').startsWith('/ws/tasks');
     (isScheduler ? schedulerWs : relayWs).add(ws);
+    if (!isScheduler) relaySocketIds.set(ws, ++relaySocketSeq);
     (isScheduler ? schedulerResolvers : relayResolvers).splice(0).forEach((r) => r());
 
     ws.on('message', (data) => {
       let msg;
       try { msg = JSON.parse(data.toString()); } catch { return; }
+      if (!isScheduler) msg.__relaySocketId = relaySocketIds.get(ws);
       recordInbound(msg);
       if (isScheduler) return; // eve never drives the scheduler socket
       if (msg.type === 'join_session') {
@@ -205,6 +213,7 @@ function createFakeRelay() {
     emitToRelay: (frame) => { for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
     emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
     waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
+    relayConnectionCount: () => relayWs.size, // distinct from waitForRelay(), which only guarantees the FIRST upstream
     // Delay the reply to the next (and every subsequent, until release()) POST
     // /api/sessions. Used to pin down a state window on the eve/browser side
     // that would otherwise race the real cross-process round trip: eve's
