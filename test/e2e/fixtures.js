@@ -18,7 +18,16 @@ const test = base.test.extend({
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# Hello E2E', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'src', 'index.js'), 'console.log("e2e");', 'utf8');
 
-    const eve = await startEve({ projects: [{ id: 'p1', name: 'E2E Project', path: projectDir }] });
+    // The integration harness now pins TTS_PORT/STT_PORT to an unbound port by
+    // default (deterministic tts_speak/transcribe_audio failure paths — see
+    // test/integration/voice-ws.test.js). e2e's chat-input-row and
+    // voice-buttons specs assert real behaviour against the real Kokoro/
+    // Whisper daemons this box runs (docs/handoff.md "Voice testing"), so
+    // e2e must keep talking to the real ports, not the pinned ones.
+    const eve = await startEve({
+      projects: [{ id: 'p1', name: 'E2E Project', path: projectDir }],
+      env: { TTS_PORT: process.env.TTS_PORT || '9997', STT_PORT: process.env.STT_PORT || '9998' },
+    });
     try {
       await use({ ...eve, projectDir });
     } finally {
@@ -60,7 +69,16 @@ const testWithModule = base.test.extend({
       'utf8'
     );
 
-    const eve = await startEve({ projects: [{ id: 'p1', name: 'E2E Project', path: projectDir }] });
+    // The integration harness now pins TTS_PORT/STT_PORT to an unbound port by
+    // default (deterministic tts_speak/transcribe_audio failure paths — see
+    // test/integration/voice-ws.test.js). e2e's chat-input-row and
+    // voice-buttons specs assert real behaviour against the real Kokoro/
+    // Whisper daemons this box runs (docs/handoff.md "Voice testing"), so
+    // e2e must keep talking to the real ports, not the pinned ones.
+    const eve = await startEve({
+      projects: [{ id: 'p1', name: 'E2E Project', path: projectDir }],
+      env: { TTS_PORT: process.env.TTS_PORT || '9997', STT_PORT: process.env.STT_PORT || '9998' },
+    });
     try {
       await use({ ...eve, projectDir });
     } finally {
