@@ -404,29 +404,35 @@ class SettingsDialog extends DialogBase {
     backendLabel.textContent = 'TTS Backend';
     container.appendChild(backendLabel);
 
-    const backendSelect = document.createElement('select');
-    backendSelect.className = 'dialog__select';
-    const ttsOptions = tts.isNativeApp
-      ? [['native', 'Native (on-device)'], ['server', 'Server (Kokoro daemon)']]
-      : [['server', 'Server (Kokoro daemon)'], ['browser', 'On-Device (browser)']];
-    for (const [value, label] of ttsOptions) {
-      const opt = document.createElement('option');
-      opt.value = value;
-      opt.textContent = label;
-      if (value === tts.backend) opt.selected = true;
-      backendSelect.appendChild(opt);
+    if (tts.isNativeApp) {
+      const backendSelect = document.createElement('select');
+      backendSelect.className = 'dialog__select';
+      const ttsOptions = [['native', 'Native (on-device)'], ['server', 'Server (Kokoro daemon)']];
+      for (const [value, label] of ttsOptions) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        if (value === tts.backend) opt.selected = true;
+        backendSelect.appendChild(opt);
+      }
+      backendSelect.addEventListener('change', () => {
+        tts.setBackend(backendSelect.value);
+        ttsStatusEl.textContent = this._getTtsStatus(tts);
+      });
+      container.appendChild(backendSelect);
+    } else {
+      // Web has exactly one backend — a read-only line, no control to change.
+      const backendLine = document.createElement('div');
+      backendLine.className = 'dialog__value';
+      backendLine.textContent = 'Server (Kokoro daemon)';
+      container.appendChild(backendLine);
     }
-    backendSelect.addEventListener('change', () => {
-      tts.setBackend(backendSelect.value);
-      ttsStatusEl.textContent = this._getTtsStatus(tts);
-    });
-    container.appendChild(backendSelect);
 
     const hint = document.createElement('span');
     hint.className = 'field-hint';
     hint.textContent = tts.isNativeApp
       ? 'Native uses Kokoro TTS via the iOS Neural Engine.'
-      : 'On-Device downloads an 86MB model on first use, then runs locally.';
+      : 'Speech is synthesized by the local Kokoro daemon.';
     container.appendChild(hint);
 
     // TTS Status
@@ -468,29 +474,35 @@ class SettingsDialog extends DialogBase {
     sttLabel.textContent = 'STT Backend';
     container.appendChild(sttLabel);
 
-    const sttSelect = document.createElement('select');
-    sttSelect.className = 'dialog__select';
-    const sttOptions = stt.isNativeApp
-      ? [['native', 'Native (on-device)'], ['server', 'Server (Whisper daemon)']]
-      : [['server', 'Server (Whisper daemon)'], ['browser', 'On-Device (browser)']];
-    for (const [value, label] of sttOptions) {
-      const opt = document.createElement('option');
-      opt.value = value;
-      opt.textContent = label;
-      if (value === stt.backend) opt.selected = true;
-      sttSelect.appendChild(opt);
+    if (stt.isNativeApp) {
+      const sttSelect = document.createElement('select');
+      sttSelect.className = 'dialog__select';
+      const sttOptions = [['native', 'Native (on-device)'], ['server', 'Server (Whisper daemon)']];
+      for (const [value, label] of sttOptions) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        if (value === stt.backend) opt.selected = true;
+        sttSelect.appendChild(opt);
+      }
+      sttSelect.addEventListener('change', () => {
+        stt.setBackend(sttSelect.value);
+        sttStatusEl.textContent = this._getSttStatus(stt);
+      });
+      container.appendChild(sttSelect);
+    } else {
+      // Web has exactly one backend — a read-only line, no control to change.
+      const sttBackendLine = document.createElement('div');
+      sttBackendLine.className = 'dialog__value';
+      sttBackendLine.textContent = 'Server (Whisper daemon)';
+      container.appendChild(sttBackendLine);
     }
-    sttSelect.addEventListener('change', () => {
-      stt.setBackend(sttSelect.value);
-      sttStatusEl.textContent = this._getSttStatus(stt);
-    });
-    container.appendChild(sttSelect);
 
     const sttHint = document.createElement('span');
     sttHint.className = 'field-hint';
     sttHint.textContent = stt.isNativeApp
       ? 'Native uses WhisperKit STT via the iOS Neural Engine.'
-      : 'On-Device downloads a 166MB Whisper model on first use.';
+      : 'Speech is transcribed by the local Whisper daemon.';
     container.appendChild(sttHint);
 
     const sttStatusEl = document.createElement('div');
@@ -548,19 +560,12 @@ class SettingsDialog extends DialogBase {
 
   _getTtsStatus(tts) {
     if (tts.backend === 'native') return 'Using native Kokoro TTS via iOS Neural Engine.';
-    if (tts.backend === 'server') return 'Using server-side Kokoro TTS daemon.';
-    if (IS_SAFARI && tts.backend === 'browser') return 'Warning: On-device TTS is not yet supported on Safari. Use Server.';
-    if (tts.browserReady) return 'On-device model loaded and ready.';
-    if (tts.activeBackend?.loading) return 'Loading on-device model...';
-    return 'On-device model will download on next voice session.';
+    return 'Using server-side Kokoro TTS daemon.';
   }
 
   _getSttStatus(stt) {
     if (stt.backend === 'native') return 'Using native WhisperKit STT via iOS Neural Engine.';
-    if (stt.backend === 'server') return 'Using server-side Whisper daemon.';
-    if (stt.browserReady) return 'On-device model loaded and ready.';
-    if (stt.activeBackend?.loading) return 'Loading on-device model...';
-    return 'On-device model will download on next voice session.';
+    return 'Using server-side Whisper daemon.';
   }
 
 }

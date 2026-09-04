@@ -5,6 +5,8 @@ const { defineConfig, devices } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './test/e2e',
+  // Voice tests need the live daemons and are slow; run them via `npm run test:voice`.
+  testIgnore: /voice\.spec\.js$/,
   fullyParallel: false,
   workers: 1,
   timeout: 30000,

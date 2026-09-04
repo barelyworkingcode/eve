@@ -455,7 +455,7 @@ async function handleCreateSession(ws, relayClient, relayTransport, message, res
 
     // Voice mode is controlled by the client via syncVoiceMode.
     // Server TTS backend sends voice_mode enabled; on-device backends don't.
-    // Don't force it here — that would cause double speech when using native/browser TTS.
+    // Don't force it here — that would cause double speech when using native TTS.
 
     // Suppress the session_joined that relayLLM will send when we join
     relayClient.setSuppressNextJoin(data.sessionId);
