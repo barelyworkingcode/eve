@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const { WebSocketServer } = require('ws');
 const { createServer } = require('http');
 const https = require('https');
@@ -290,6 +291,23 @@ function serveIndexWithCachebust(_req, res) {
   if (SHELL_CSP) res.set('Content-Security-Policy', SHELL_CSP);
   res.send(INDEX_HTML_CACHED);
 }
+
+// Gzip static text assets (JS/CSS/HTML/SVG) on the wire. Scoped by content
+// type via `filter`: /api/* JSON responses carry session and project data,
+// and compressing a response that mixes a secret with attacker-influenced
+// content is the BREACH precondition — so JSON is left uncompressed.
+// Registered before the index routes so the cached index.html serve is
+// covered too; registerRoutes() runs later and is excluded by the filter.
+app.use(compression({
+  filter: (_req, res) => {
+    const type = (res.getHeader('Content-Type') || '').split(';')[0].trim();
+    return type === 'text/html'
+      || type === 'text/css'
+      || type === 'text/javascript'
+      || type === 'application/javascript'
+      || type === 'image/svg+xml';
+  },
+}));
 app.get('/', serveIndexWithCachebust);
 app.get('/index.html', serveIndexWithCachebust);
 
