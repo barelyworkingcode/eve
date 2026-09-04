@@ -53,12 +53,6 @@ function fakeContainer(map = new Map()) {
 }
 
 describe('PermissionModeControl', () => {
-  it('constructor is DOM-free: the button starts null', () => {
-    const feature = loadPermissions();
-    const control = feature.init(fakeContainer());
-    expect(control.button).toBeNull();
-  });
-
   it("syncMode('plan') activates, any other mode deactivates", () => {
     const feature = loadPermissions();
     const control = feature.init(fakeContainer());

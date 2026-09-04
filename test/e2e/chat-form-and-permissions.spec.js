@@ -1,5 +1,5 @@
 /**
- * Two phase-3 seams the gate specs don't reach:
+ * Three phase-3 seams the gate specs don't reach:
  *
  * - ChatFormControls.setSubmitEnabled(), driven by app.showSessionStarting()/
  *   clearSessionStarting(). chat-input-row.spec.js never starts a session, so
@@ -9,8 +9,15 @@
  *   only proves the button->server direction (a click sends the frame); this
  *   proves the server->button direction, which is what makes
  *   message-dispatcher.js's `getElementById` removal safe.
+ * - ChatFormControls.showStop()/hideStop() driven end to end by a real
+ *   streaming turn (message-dispatcher.js -> app.showStopButton()/
+ *   hideStopButton() -> chatForm). chat-input-row.spec.js only proves stop is
+ *   hidden while idle; nothing else drives the full path against the real
+ *   #sendBtn/#stopBtn DOM, so a silently-unassigned button (both accesses in
+ *   ChatFormControls are `?.`-guarded) would pass every other suite green.
  */
 const { test, expect } = require('./fixtures');
+const { relayFrames } = require('../integration/protocol');
 
 test.describe('chat form and permissions, beyond the gate specs', () => {
   test('send is disabled (and the textarea too) only while the session is starting', async ({ page }) => {
@@ -61,5 +68,37 @@ test.describe('chat form and permissions, beyond the gate specs', () => {
     await expect.poll(() =>
       page.evaluate(() => document.getElementById('planModeBtn').classList.contains('active'))
     ).toBe(false);
+  });
+
+  test('stop replaces send while a turn streams, and send comes back when it completes', async ({ page, eve }) => {
+    await page.getByTestId('sidebar-project-p1').click();
+    await page.getByTestId('sidebar-new-session-p1').click();
+    await page.getByTestId('shell-card-web-chat').click();
+    await page.getByRole('button', { name: 'Start Chat' }).click();
+    await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15000 });
+
+    const sessionId = await page.evaluate(() => window.client.currentSessionId);
+    // Script the turn with only a delta, no message_complete — the turn stays
+    // open until this test completes it explicitly below, so the mid-stream
+    // assertions land on a real streaming window rather than the synchronous
+    // click-time state (which would pass even if hideStop() never ran).
+    eve.relay.scriptSession(sessionId, [relayFrames.assistantDelta({ sessionId, text: 'streaming reply' })]);
+
+    await page.getByTestId('chat-input').fill('drive a real streaming turn');
+    await page.getByTestId('chat-submit').click();
+
+    // Wait for the delta to actually render, proving the turn is genuinely
+    // in flight (not just resting on the click handler's own synchronous state).
+    await expect(page.getByTestId('messages-container')).toContainText('streaming reply');
+    await expect(page.getByTestId('chat-stop')).toBeVisible();
+    await expect(page.getByTestId('chat-submit')).toBeHidden();
+
+    // No client-side click — this frame only exists if message-dispatcher's
+    // message_complete handler reaches the real #sendBtn/#stopBtn through
+    // chatForm.hideStop(), not through a silently no-op `?.` on an unassigned
+    // button.
+    eve.relay.emitToRelay(relayFrames.messageComplete({ sessionId }));
+    await expect(page.getByTestId('chat-submit')).toBeVisible();
+    await expect(page.getByTestId('chat-stop')).toBeHidden();
   });
 });
