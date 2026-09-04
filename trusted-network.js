@@ -222,9 +222,21 @@ class TrustedNetworkService {
   }
 }
 
+const LOOPBACK_CIDRS = [parseCidr('127.0.0.0/8'), parseCidr('::1')];
+
+// `localhost` is checked by name because it never reaches ipv4ToInt: callers
+// pass a listen address (which may be a hostname), not a peer IP.
+function isLoopbackHost(host) {
+  const normalized = normalizeIp(host);
+  if (!normalized) return false;
+  if (normalized === 'localhost') return true;
+  return isIpInCidrs(normalized, LOOPBACK_CIDRS);
+}
+
 module.exports = {
   TrustedNetworkService,
   computeTrustedCidrs,
+  isLoopbackHost,
   isIpInCidrs,
   isPublicV4Cidr,
   isPublicIp,

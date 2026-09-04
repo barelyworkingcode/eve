@@ -8,6 +8,7 @@ const {
   parseCidr,
   normalizeIp,
   ipv4ToInt,
+  isLoopbackHost,
 } = require('../../trusted-network');
 
 describe('ipv4ToInt', () => {
@@ -397,5 +398,30 @@ describe('isPublicIp', () => {
   test('treats empty/unknown as public (fail-safe)', () => {
     expect(isPublicIp('')).toBe(true);
     expect(isPublicIp(null)).toBe(true);
+  });
+});
+
+describe('isLoopbackHost', () => {
+  test('accepts every loopback form a listen address can take', () => {
+    expect(isLoopbackHost('127.0.0.1')).toBe(true);
+    expect(isLoopbackHost('127.1.2.3')).toBe(true);
+    expect(isLoopbackHost('::1')).toBe(true);
+    expect(isLoopbackHost('localhost')).toBe(true);
+    expect(isLoopbackHost('LocalHost')).toBe(true);
+    expect(isLoopbackHost(' 127.0.0.1 ')).toBe(true);
+  });
+
+  test('rejects addresses that leave the host', () => {
+    expect(isLoopbackHost('0.0.0.0')).toBe(false);
+    expect(isLoopbackHost('192.168.1.50')).toBe(false);
+    expect(isLoopbackHost('10.8.0.1')).toBe(false);
+    expect(isLoopbackHost('203.0.113.7')).toBe(false);
+  });
+
+  test('rejects empty and non-string input rather than defaulting to loopback', () => {
+    expect(isLoopbackHost('')).toBe(false);
+    expect(isLoopbackHost(null)).toBe(false);
+    expect(isLoopbackHost(undefined)).toBe(false);
+    expect(isLoopbackHost(127)).toBe(false);
   });
 });

@@ -9,8 +9,8 @@ A project carries two allowlists — `allowed_mcp_ids` and `allowed_models` — 
 The reason it slipped: Eve never talks to relayLLM directly. Traffic goes Eve → relay's frontend socket (`RELAY_FRONTEND_SOCKET`, see `relay-transport.js`) → relayLLM, and relayLLM has no project knowledge — projects live only in relay. An allowlist relayLLM can't see has to be enforced in relay's frontend, in front of the transparent proxy. There is no other chokepoint.
 
 Fix, two layers mirroring the MCP allowlist:
-- **Enforcement** (the real boundary): `../relay/frontend_model_guard.go` intercepts `POST /api/sessions` and `403`s a disallowed model. relayLLM stays project-agnostic.
-- **UX only**: `StateStore.modelsForProject(projectId)` (`public/core/state-store.js`) filters the list for every project-scoped `<select>` (chat composer, voice, task, search dialogs). The project-*settings* picker (`public/dialogs/project-dialog.js`) is intentionally **not** filtered — it must show all models so you can pick the allowlist.
+- **Enforcement** (the real boundary): `../relay/cmd/relay/frontend_model_guard.go` intercepts `POST /api/sessions` and `403`s a disallowed model. relayLLM stays project-agnostic.
+- **UX only**: `StateStore.modelsForProject(projectId)` (`public/core/state-store.js`) filters the list for every project-scoped `<select>` (chat composer, shell launcher, task, search dialogs). The project-*settings* picker (`public/dialogs/project-dialog.js`) is intentionally **not** filtered — it must show all models so you can pick the allowlist.
 
 **Rule**: client-side filtering of a model/tool list is UX, never the boundary. Put the hard gate where the authoritative data lives. Treat `["*"]` or an empty list as "allow all".
 
@@ -70,36 +70,31 @@ Inline styles outrank class rules, so `element.style.display = 'none'` survives 
 
 ## File-preview CSP: one hardening pass broke PDF and HTML two different ways
 
-The frontend security audit ([`security-audit-frontend.md`](security-audit-frontend.md), items H2/C3) added CSP in two places. Both correct for their threat model, each silently broke a preview, and both look identical to a user ("preview is blank").
+Two CSP guards ([`security-audit-frontend.md`](security-audit-frontend.md) C3, and the `/api/files` sandboxing) sit in different places. Both are correct for their threat model, but each can silently break a preview, and both look identical to a user ("preview is blank").
 
-**PDF — the `/api/files` `sandbox` directive (H2).** The route set `default-src 'none'; sandbox` on *every* served file. The bare `sandbox` token sandboxes the framed document, and **Chrome's built-in PDF viewer can't run in a sandboxed frame** — blank iframe even on a `200` `application/pdf`. Fix (`routes/index.js`): scope `sandbox` + `Content-Disposition: attachment` to script-capable types (`.html/.htm/.xhtml/.svg/.xml`); serve inert binaries (PDF/image/audio/video) with `default-src 'none'` and no `sandbox`. `default-src 'none'` alone does not break the native viewer; the `sandbox` token does.
+**PDF — the `/api/files` `sandbox` directive.** The route set `default-src 'none'; sandbox` on *every* served file. The bare `sandbox` token sandboxes the framed document, and **Chrome's built-in PDF viewer can't run in a sandboxed frame** — blank iframe even on a `200` `application/pdf`. Fix (`routes/index.js`): scope `sandbox` + `Content-Disposition: attachment` to script-capable types (`.html/.htm/.xhtml/.svg/.xml`); serve inert binaries (PDF/image/audio/video) with `default-src 'none'` and no `sandbox`. `default-src 'none'` alone does not break the native viewer; the `sandbox` token does.
 
 **HTML — `srcdoc` iframes inherit the parent's CSP (C3).** The editor's HTML preview (`file-editor.js` `renderHtmlPreview`) rendered via `iframe.srcdoc` in a `sandbox="allow-scripts"` frame. A `srcdoc`/`about:blank`/`blob:`/`data:` document **inherits the embedding page's CSP**, and Eve's app-shell CSP (`security-headers.js`) has `script-src 'self' 'wasm-unsafe-eval' blob: <hashes>` with no `'unsafe-inline'` — so the previewed page's inline `<script>` was blocked. HTML+CSS rendered, nothing interactive ran. **You can't loosen an inherited CSP from inside the child**; a child `<meta>` CSP can only tighten. Fix: serve the preview from a real URL whose own response headers carry the policy. `/api/files/...?preview=1` (HTML only) returns `Content-Security-Policy: sandbox allow-scripts` and the editor loads it via `iframe.src`. The response-level `sandbox` forces an opaque origin even on direct top-level navigation, so scripts run but the page can't reach Eve's DOM, cookies, or session token. Trade-off: the preview reflects the **saved** file (a version token bumps on save/external-change to reload), not the unsaved buffer.
 
 **Rule**: a response CSP applies to that resource *as a document*. `sandbox` neutralizes script-capable documents (HTML/SVG) but also disables browser viewers (PDF) and inline scripts — scope it to the types that need neutralizing. To give a sandboxed-but-scriptable preview its own policy, load it from a URL, never `srcdoc`.
 
-## Safari on-device voice incompatibilities
+## Server TTS/STT daemons: voice is on-device only in the native iOS app now
 
-On-device STT/TTS runs in Web Workers using ONNX models. Chrome works fully; Safari has several open issues. Defaults are user-overridable via Settings → Voice.
+The browser path has exactly two TTS/STT backends, `native` and `server`
+(`tts-manager.js`/`stt-manager.js`) — there is no in-browser WASM/ONNX model
+anymore. `native` means the iOS app's on-device engine, gated to opt-in
+because it's unreliable on-device (see `tts-manager.js`'s comment on the
+iOS 26.5.1 crash); every browser defaults to `server`, which calls the local
+relayTTS/relaySTT daemons (`tts-service.js`/`stt-service.js`, loopback TCP
+only — see [CLAUDE.md](../CLAUDE.md) "Voice is the one exception").
 
-| | Chrome | Safari Desktop | Safari Mobile |
-|---|---|---|---|
-| Voice mode | Conversation (VAD) | Conversation (VAD) | Push-to-talk |
-| STT | On-device | Server (daemon) | Server (daemon) |
-| TTS | On-device | Server (daemon) | Server (daemon) |
-
-- **kokoro-js TTS, all Safari**: `TypeError: undefined is not a function` inside the minified `kokoro.web.js` (WASM and WebGPU). Model loads, generation fails. Safari defaults TTS to `server`. Monitor npm `kokoro-js` / GH `hexgrad/kokoro`.
-- **Whisper STT, mobile Safari**: tab crashes during model download — mobile Safari's ~1-2GB per-tab limit is exceeded even by whisper-base (57MB) + WASM overhead. Mobile Safari defaults STT to `server`; whisper-tiny (31MB) is a possible future try.
-- **VAD, mobile Safari**: `onSpeechEnd` never fires (`@ricky0123/vad-web` #227), so conversation mode doesn't work — mobile Safari defaults to push-to-talk.
-- **Safari WebGPU + ONNX**: node-assignment warnings only; STT works fine with WebGPU on Safari desktop.
-
-## Server Kokoro daemon: serialize all generation, pin mlx-audio==0.4.1
-
-The server TTS path (`tts-service.js` → Kokoro daemon on TCP :9997) crashed intermittently — a session would lose voice ("stuck on Speaking"), sometimes taking out TTS for everyone.
-
-- **Root cause**: the daemon (`../kokoro/daemon/kokoro_daemon.py`) serves each TCP connection on its own thread, all calling the shared `mlx-audio` `generate()` (MLX/Metal) and the espeak-ng phonemizer. Neither is thread-safe; two overlapping requests raced on shared Metal command-buffer / espeak global state and segfaulted the process. Confirmed upstream: mlx-audio#638, mlx#3078.
-- **Why intermittent**: within one session the server path is already serialized via `RelayClient._ttsChain`, so a streaming response never overlaps itself. A crash needed two overlapping requests — two voice sessions, or the read-aloud play button (`tts_speak`), which was fire-and-forget off the chain.
-- **Fix**: `gen_lock` in the daemon (`kokoro_daemon.py`) serializes all generation process-wide — the real fix, since it's global across sessions and also guards espeak. Defense in depth: `tts_speak` is serialized per-connection in `ws-handler.js`; `daemon_wrapper.sh` supervises and restarts on crash; daemon deps are hash-pinned.
-- **Invariant**: the daemon model is effectively single-threaded. Anything that can issue concurrent `generate()` calls must stay behind the daemon's lock — don't optimize it away.
-
-**Don't bump past 0.4.1.** mlx-audio 0.4.2–0.4.4 has a `broadcast_shapes` regression in Kokoro generation: certain phoneme sequences fail deterministically (`Shapes (1,N,1) and (1,N+300,9) cannot be broadcast`), probability rising with text length, so long read-aloud blocks reliably surfaced as "TTS error: Speech synthesis failed." 0.4.1 is clean (verified, independent of the mlx core version). Pin `mlx-audio==0.4.1` (`../kokoro/requirements.txt`); our `gen_lock` provides thread-safety, not the library. Re-evaluate when upstream ships a corrected release.
+**Read-aloud (`tts_speak`) must stay serialized even though it's fire-and-forget.**
+Within one voice session, streaming synthesis is already serial via
+`RelayClient._ttsChain`. `tts_speak` (the read-aloud button in a text session)
+runs off that chain, so without its own guard it can overlap a live voice
+session's generation. The daemon can crash under concurrent generation
+requests — a crash there takes out voice for every connected session, not
+just the one that triggered it — so `ws/voice-messages.js` explicitly
+serializes `tts_speak` against the daemon's own global generation lock. Any
+new call path into the daemon must go through the same serialization; there
+is no "fast path" that's safe to bypass it.

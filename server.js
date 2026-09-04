@@ -16,7 +16,7 @@ const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
 const TTSService = require('./tts-service');
 const STTService = require('./stt-service');
-const { TrustedNetworkService } = require('./trusted-network');
+const { TrustedNetworkService, isLoopbackHost } = require('./trusted-network');
 const { RelayTransport, RelayConfigError } = require('./relay-transport');
 const { isAllowedWsOrigin, parsePublicOrigin } = require('./ws-origin');
 const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('./security-headers');
@@ -373,14 +373,21 @@ const allowPlaintextRemote = process.env.EVE_ALLOW_PLAINTEXT_REMOTE === '1';
 const bindHost = process.env.EVE_BIND_HOST
   || ((isPlaintext && !allowPlaintextRemote) ? '127.0.0.1' : '0.0.0.0');
 
-if (isPlaintext && allowPlaintextRemote) {
+// Keyed on the address actually bound, not on EVE_ALLOW_PLAINTEXT_REMOTE:
+// EVE_BIND_HOST is the second way off loopback, and reporting that bind as
+// "loopback only" would hide unencrypted exposure from the operator.
+if (isPlaintext && !isLoopbackHost(bindHost)) {
+  const via = allowPlaintextRemote
+    ? 'EVE_ALLOW_PLAINTEXT_REMOTE=1'
+    : `EVE_BIND_HOST=${bindHost}`;
+  const where = bindHost === '0.0.0.0' ? 'ALL interfaces' : bindHost;
   serverLog.warn(
-    'Eve is serving plain HTTP on ALL interfaces (EVE_ALLOW_PLAINTEXT_REMOTE=1) — traffic including ' +
+    `Eve is serving plain HTTP on ${where} (${via}) — traffic including ` +
     'session tokens is NOT encrypted on the wire. Use HTTPS_KEY / HTTPS_CERT for any networked deployment.'
   );
 } else if (isPlaintext) {
   serverLog.info(
-    'No TLS configured — binding loopback (127.0.0.1) only. Set HTTPS_KEY / HTTPS_CERT for network access, ' +
+    `No TLS configured — binding loopback (${bindHost}) only. Set HTTPS_KEY / HTTPS_CERT for network access, ` +
     'or EVE_ALLOW_PLAINTEXT_REMOTE=1 to expose plain HTTP on all interfaces (not recommended).'
   );
 }

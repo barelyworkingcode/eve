@@ -18,8 +18,8 @@ A browser-based LLM chat interface — AI for Home and for Work (and your homewo
 
 ## Requirements
 
-- Node.js 18+
-- A running [relay](https://github.com/barelyworkingcode/relay) orchestrator (which fronts relayLLM). For standalone dev, relayLLM reachable at `http://localhost:3001`.
+- Node.js 20.6+ (older versions lack `--env-file`, used by `npm run start:env` and by the Relay-managed service registration).
+- A running [relay](https://github.com/barelyworkingcode/relay) orchestrator (which fronts relayLLM). For standalone dev, relay's frontend reachable at `http://localhost:3001` (`RELAY_FRONTEND_URL`).
 
 ## Install & run
 
@@ -38,7 +38,7 @@ node server.js --data /var/eve/data
 
 ## Configuration
 
-Eve makes **one** outbound connection — to the relay orchestrator's frontend — and relay proxies onward to relayLLM/relayScheduler.
+Eve's one *backend* connection is to the relay orchestrator's frontend, which proxies onward to relayLLM/relayScheduler. (Voice is separate: Eve also dials local TTS/STT daemons directly over loopback TCP — see Security model below.)
 
 - **Orchestrator-managed (preferred):** relay injects `RELAY_FRONTEND_SOCKET` + `RELAY_FRONTEND_TOKEN` at spawn; no configuration needed.
 - **Standalone/dev:** set `RELAY_FRONTEND_URL` (default `http://localhost:3001`).
@@ -87,12 +87,12 @@ Create a project from the sidebar **+**: name, directory, default model, and opt
 
 - **Permission forwarding** — when an LLM hits a tool that isn't pre-approved, relayLLM sends a `permission_request`; Eve shows a modal and relays the Allow/Deny back.
 - **Slash commands** (handled locally): `/clear`, `/zsh`, `/bash`, `/claude`, `/help`. Provider commands like `/model`, `/compact`, `/cost` are handled by relayLLM.
-- **Attachments** — files are sent inline wrapped in `<file name="...">`; images go inline; oversized binaries are skipped.
+- **Attachments** — sent as a separate `files` array (name/MIME/base64), not inlined into the message text.
 - **Stats** — the header shows context-window % (green/yellow/red) and cumulative session cost.
 
 ## Architecture
 
-Eve is a relay proxy: it owns no LLM providers, sessions, or projects. **Every** browser call that touches backend state goes through the Eve server — the only direct external fetch from the browser is the Kokoro TTS model download from `huggingface.co` (`public/tts-worker.js`), which carries no user data.
+Eve is a relay proxy: it owns no LLM providers, sessions, or projects. Every browser call that touches backend state goes through the Eve server.
 
 ```
 Browser ──WS──►  Eve ──WS──► relay ──► relayLLM        (sessions, messages, permissions, terminals)
@@ -107,7 +107,7 @@ Browser ──HTTP─► Eve ──HTTP─► relay ──► relayScheduler  (t
 Eve sits between one browser user and the relay orchestrator, which fronts the trusted backends. Two boundaries are hardened:
 
 - **Browser ↔ Eve** — WebAuthn passkey + session token; fail-closed `requireAuth` on every route; the WS upgrade blocks all frames until the token validates. Cross-site WebSocket and clickjacking/XSS hardening (CSP, `nosniff`, frame/COOP headers); no cookies (so no CSRF surface). The trusted-IP check reads the raw TCP source address only. A public source IP can never bootstrap the first passkey.
-- **Eve ↔ backend** — Eve's single egress is the relay frontend Unix socket (`0600`) + ephemeral bearer token, both injected by relay; TCP fallback (`RELAY_FRONTEND_URL`) is HTTPS-only with cert verification. `RelayTransport.assertStartupConfig()` refuses to start on any insecure combination — no skip-verify, no downgrade.
+- **Eve ↔ backend** — Eve's egress to relay is the relay frontend Unix socket (`0600`) + ephemeral bearer token, both injected by relay; TCP fallback (`RELAY_FRONTEND_URL`) is HTTPS-only with cert verification. `RelayTransport.assertStartupConfig()` refuses to start on any insecure combination — no skip-verify, no downgrade. Voice is a separate, unauthenticated loopback TCP connection to a local TTS/STT daemon — not covered by this guarantee (see [CLAUDE.md](CLAUDE.md)).
 
 Operator reference: [docs/authentication.md](docs/authentication.md). Design rationale & verification: [docs/security-review-auth-transport.md](docs/security-review-auth-transport.md). Internet-exposure audit: [docs/security-audit-frontend.md](docs/security-audit-frontend.md).
 
@@ -127,11 +127,11 @@ Full variable reference (browser-auth, Eve↔relay, deployment): [docs/setup.md]
 
 Part of the Relay ecosystem — each project runs independently, but together they give LLMs secure access to macOS.
 
-- **[Relay](https://github.com/barelyworkingcode/relay)** — orchestrator. Runs Eve as a managed service and fronts all of Eve's backend traffic.
+- **[Relay](https://github.com/barelyworkingcode/relay)** — orchestrator. Runs Eve as a managed service and fronts all of Eve's relay-proxied backend traffic.
 - **[relayLLM](https://github.com/barelyworkingcode/relayLLM)** — LLM engine (sessions, models, permissions). Reached through relay, not directly.
 - **[relayScheduler](https://github.com/barelyworkingcode/relayScheduler)** — runs LLM prompts on a schedule; reached via relay's `/api/tasks` dispatch.
-- **[relayTelegram](https://github.com/barelyworkingcode/relayTelegram)** — Telegram bot bridge.
-- **[macMCP](https://github.com/barelyworkingcode/macMCP)** — Swift MCP server, 42 macOS-native tools.
+- **[relayTTS](https://github.com/barelyworkingcode/relayTTS)** / **[relaySTT](https://github.com/barelyworkingcode/relaySTT)** — local voice daemons. Eve talks to these directly over loopback TCP, not through relay.
+- **[macMCP](https://github.com/barelyworkingcode/macMCP)** — Swift MCP server exposing macOS-native tools.
 - **[fsMCP](https://github.com/barelyworkingcode/fsmcp)** — file system MCP server (read, write, edit, glob, grep, bash).
 
 ## License
