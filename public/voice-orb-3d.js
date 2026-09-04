@@ -1,12 +1,7 @@
 /**
  * VoiceOrb3D — audio-reactive 3D orb rendered with Three.js (WebGL).
- * Noise-displaced icosphere with animated interior energy swirls, fresnel rim
- * lighting, a wireframe shell, a soft halo, and a faint drifting particle
- * field. Normal (non-additive) blending throughout so it reads on the light
- * Apple theme as well as dark backgrounds.
- * Interface: constructor(canvas, app), start(), stop(), setState(state),
- * plus destroy() for full GL teardown.
- * States: idle, listening, processing, speaking.
+ * Normal (non-additive) blending throughout — additive glow is invisible on
+ * the light Apple theme.
  */
 
 // ── GLSL noise (Ashima / webgl-noise 3D simplex, MIT) ──────────────────────
@@ -59,8 +54,6 @@ float snoise(vec3 v) {
   return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
 }
 `;
-
-// ── Shaders ─────────────────────────────────────────────────────────────────
 
 const ORB_VERT = `
 uniform float uTime;
@@ -176,23 +169,20 @@ void main() {
 }
 `;
 
-// ── Three.js lazy loader ────────────────────────────────────────────────────
-
 let _threeModPromise = null;
 function _loadThree() {
   if (!_threeModPromise) _threeModPromise = import('/three/three.module.min.js');
   return _threeModPromise;
 }
 
-// ── Tuning (user-adjustable via the orb settings sheet) ────────────────────
-
+// Tuning is user-adjustable via the orb settings sheet.
 const TUNING_KEY = 'eve-voice-orb-tuning';
 const DEFAULT_TUNING = {
-  innerSize: 1,    // soul (inner orb) scale multiplier
-  outerSize: 1,    // whole-orb scale multiplier
-  spinRate: 1,     // rotation speed multiplier
-  idleJitter: 1,   // at-rest surface ripple multiplier
-  speechJitter: 1, // audio-driven displacement multiplier
+  innerSize: 1,
+  outerSize: 1,
+  spinRate: 1,
+  idleJitter: 1,
+  speechJitter: 1,
 };
 
 function loadTuning() {
@@ -202,8 +192,6 @@ function loadTuning() {
     return { ...DEFAULT_TUNING };
   }
 }
-
-// ── Class ───────────────────────────────────────────────────────────────────
 
 class VoiceOrb3D {
   static TUNING_KEY = TUNING_KEY;
@@ -233,8 +221,6 @@ class VoiceOrb3D {
     this.onInitError = null;
     this.tuning = loadTuning();
 
-    // Base noiseAmp is the at-rest ripple; voice adds up to ~0.3 on top (see
-    // uNoiseAmp in _renderFrame), so silence = near-smooth, speech = bloom
     this.stateConfigs = {
       idle:       { color: { r: 160, g: 160, b: 200 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.05, noiseAmp: 0.025, noiseSpeed: 0.4, glow: 0.7 },
       listening:  { color: { r: 255, g: 70,  b: 70  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.12, noiseAmp: 0.05,  noiseSpeed: 0.9, glow: 1.0 },
@@ -292,18 +278,15 @@ class VoiceOrb3D {
       this._resizeObserver = null;
     }
     if (this.ready) {
-      // Dispose geometries
       if (this.coreGeometry) this.coreGeometry.dispose();
       if (this.haloGeometry) this.haloGeometry.dispose();
       if (this.particleGeometry) this.particleGeometry.dispose();
-      // Dispose materials
       if (this.coreMaterial) this.coreMaterial.dispose();
       if (this.wireMaterial) this.wireMaterial.dispose();
       if (this.haloMaterial) this.haloMaterial.dispose();
       if (this.particleMaterial) this.particleMaterial.dispose();
       if (this.particleTexture) this.particleTexture.dispose();
       if (this.soulMaterial) this.soulMaterial.dispose();
-      // Dispose renderer
       if (this.renderer) {
         this.renderer.dispose();
         if (this.renderer.forceContextLoss) this.renderer.forceContextLoss();
@@ -312,8 +295,6 @@ class VoiceOrb3D {
       this.scene = null;
     }
   }
-
-  // ── Private ─────────────────────────────────────────────────────────────
 
   async _init() {
     const THREE = await _loadThree();
@@ -335,7 +316,7 @@ class VoiceOrb3D {
     this.group = new THREE.Group();
     this.scene.add(this.group);
 
-    // Shared uniforms (core + wire share the same object)
+    // core and wire materials share this uniforms object, so updates apply to both
     this.uniforms = {
       uTime:       { value: 0 },
       uColor:      { value: new THREE.Color(160 / 255, 160 / 255, 200 / 255) },
@@ -347,8 +328,7 @@ class VoiceOrb3D {
       uTouch:      { value: new THREE.Vector3(0, 0, 0) },
     };
 
-    // 1. Core mesh — noise-displaced icosphere. detail=16 → ~5.8k faces, enough
-    // tessellation that displacement reads as liquid rather than low-poly facets
+    // detail=16 keeps displacement reading as liquid rather than low-poly facets
     this.coreGeometry = new THREE.IcosahedronGeometry(1, 16);
     this.coreMaterial = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
@@ -359,8 +339,7 @@ class VoiceOrb3D {
     this.coreMesh = new THREE.Mesh(this.coreGeometry, this.coreMaterial);
     this.group.add(this.coreMesh);
 
-    // 2. Wireframe shell — same geometry; normal blending so it shows on
-    // light backgrounds (additive is invisible over white)
+    // normal blending — additive would be invisible over white
     this.wireMaterial = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: ORB_VERT,
@@ -372,8 +351,6 @@ class VoiceOrb3D {
     this.wireMesh = new THREE.Mesh(this.coreGeometry, this.wireMaterial);
     this.group.add(this.wireMesh);
 
-    // 3. Halo — back-face sphere with fresnel rim glow (normal blending for
-    // light-theme visibility)
     this.haloGeometry = new THREE.SphereGeometry(1.35, 48, 48);
     this.haloMaterial = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
@@ -386,11 +363,10 @@ class VoiceOrb3D {
     this.haloMesh = new THREE.Mesh(this.haloGeometry, this.haloMaterial);
     this.group.add(this.haloMesh);
 
-    // 4. Particles — 260 points on a spherical shell (1.5–2.0 radius)
     this.particleGeometry = new THREE.BufferGeometry();
     const positions = new Float32Array(260 * 3);
     for (let i = 0; i < 260; i++) {
-      // Normalize-random-cube trick for uniform sphere directions
+      // rejection-sample a random cube point for a uniform sphere direction
       let x, y, z;
       do {
         x = Math.random() * 2 - 1;
@@ -404,7 +380,6 @@ class VoiceOrb3D {
       positions[i * 3 + 2] = (z / len) * r;
     }
     this.particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    // Radial-gradient sprite so points render as soft round motes, not squares
     const sprite = document.createElement('canvas');
     sprite.width = sprite.height = 64;
     const sctx = sprite.getContext('2d');
@@ -426,8 +401,7 @@ class VoiceOrb3D {
     this.particles = new THREE.Points(this.particleGeometry, this.particleMaterial);
     this.scene.add(this.particles);
 
-    // 5. Soul — a small white orb at the heart of the sphere. Drawn last with
-    // depth testing off so it glows through the shell from the very center.
+    // depthTest off so the soul glows through the shell instead of being occluded by it
     this.soulMaterial = new THREE.SpriteMaterial({
       map: this.particleTexture,
       color: 0xffffff,
@@ -454,7 +428,6 @@ class VoiceOrb3D {
   _renderFrame() {
     this.time += 0.016;
 
-    // Poll the current audio level (native, mic, or playback)
     let rawLevel = 0;
     if (this.app?.voiceChatManager?.useNativeAudio) {
       rawLevel = this.app.voiceChatManager.getNativeLevel(this.targetState);
@@ -468,10 +441,8 @@ class VoiceOrb3D {
     const config = this.stateConfigs[this.targetState] || this.stateConfigs.idle;
     const ease = 0.04;
 
-    // Touch energy
     this.touchEnergy = this._lerp(this.touchEnergy, this.touchPoint ? 1 : 0, this.touchPoint ? 0.15 : 0.05);
 
-    // Lerp current toward config
     this.current.color.r = this._lerp(this.current.color.r, config.color.r, ease);
     this.current.color.g = this._lerp(this.current.color.g, config.color.g, ease);
     this.current.color.b = this._lerp(this.current.color.b, config.color.b, ease);
@@ -482,12 +453,10 @@ class VoiceOrb3D {
     this.current.breathDepth = this._lerp(this.current.breathDepth, config.breathDepth, ease * 3);
     this.current.noiseAmp = this._lerp(this.current.noiseAmp, config.noiseAmp, ease * 3);
 
-    // Breathing
     this.breathPhase += this.current.breathRate + this.audioLevel * 0.02;
     const rawBreath = Math.sin(this.breathPhase);
     const breathMod = 1 + this.current.breathDepth * (0.7 * rawBreath + 0.3 * rawBreath * rawBreath * rawBreath);
 
-    // Transform (user tuning scales the baseline behavior)
     const tune = this.tuning;
     this.group.scale.setScalar(breathMod * tune.outerSize);
     this.particles.scale.setScalar(tune.outerSize);
@@ -495,7 +464,6 @@ class VoiceOrb3D {
     this.group.rotation.x = this._lerp(this.group.rotation.x, (this.touchPoint ? -this.touchPoint.y * 0.45 : Math.sin(this.time * 0.13) * 0.12), 0.06);
     this.group.rotation.z = Math.sin(this.time * 0.09) * 0.08;
 
-    // Uniforms
     this.uniforms.uTime.value = this.time;
     this.uniforms.uAudio.value = this.audioLevel;
     this.uniforms.uAudioDisp.value = this.audioLevel * tune.speechJitter;
@@ -505,16 +473,13 @@ class VoiceOrb3D {
     this.uniforms.uColor.value.setRGB(this.current.color.r / 255, this.current.color.g / 255, this.current.color.b / 255);
     this.uniforms.uTouch.value.set(this.touchPoint?.x || 0, this.touchPoint?.y || 0, this.touchEnergy);
 
-    // Particles
     this.particles.rotation.y -= 0.0008 + this.audioLevel * 0.002;
     this.particleMaterial.color.copy(this.uniforms.uColor.value);
 
-    // Soul — gentle breath pulse, swells with voice
     const soulScale = 0.3 * tune.innerSize * (1 + 0.1 * rawBreath + this.audioLevel * 0.45);
     this.soul.scale.set(soulScale, soulScale, 1);
     this.soulMaterial.opacity = Math.min(0.7 + 0.1 * (rawBreath * 0.5 + 0.5) + this.audioLevel * 0.3, 1);
 
-    // Render
     this.renderer.render(this.scene, this.camera);
   }
 

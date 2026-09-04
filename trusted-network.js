@@ -1,26 +1,13 @@
 /**
- * TrustedNetworkService — IP-based network trust for Eve's auth bypass.
- *
- * Design rationale: see docs/security-review-auth-transport.md Section A. The previous
- * "localhost bypass" in auth.js and ws-handler.js trusted req.headers.host,
- * which is fully attacker-controllable — any remote client could set
- * `Host: localhost` and skip the passkey entirely. This module replaces that
- * check with one that reads ONLY req.socket.remoteAddress (the raw TCP source
- * address), normalized and compared against a set of trusted CIDR ranges.
- *
- * Never read req.headers.host or X-Forwarded-For here.
+ * Never read req.headers.host or X-Forwarded-For for authorization here; the
+ * only safe network identity is req.socket.remoteAddress.
+ * See docs/security-review-auth-transport.md.
  */
 
 const os = require('os');
 
 const { NullLogger } = require('./logger');
 
-// --- Pure helpers (exported for unit tests) ---
-
-/**
- * Parse an IPv4 dotted-quad into a 32-bit unsigned integer.
- * Returns null if the input is not a valid IPv4 literal.
- */
 function ipv4ToInt(ip) {
   const parts = ip.split('.');
   if (parts.length !== 4) return null;
@@ -34,12 +21,6 @@ function ipv4ToInt(ip) {
   return value >>> 0;
 }
 
-/**
- * Normalize a remote address string.
- * - Strips IPv6-mapped IPv4 prefix (`::ffff:1.2.3.4` → `1.2.3.4`)
- * - Lower-cases IPv6 literals
- * - Returns null for empty / undefined inputs
- */
 function normalizeIp(ip) {
   if (!ip || typeof ip !== 'string') return null;
   const trimmed = ip.trim();
@@ -49,12 +30,6 @@ function normalizeIp(ip) {
   return trimmed.toLowerCase();
 }
 
-/**
- * Parse an IPv4 CIDR ("10.0.0.0/24" or bare "10.0.0.1" == /32) into
- * { kind: 'v4', base, mask, prefix }.
- * Returns null for anything we don't understand — IPv6 CIDRs are
- * passed through as { kind: 'v6', literal } for exact match.
- */
 function parseCidr(cidr) {
   if (typeof cidr !== 'string') return null;
   const trimmed = cidr.trim();
@@ -64,7 +39,6 @@ function parseCidr(cidr) {
   const addr = slash === -1 ? trimmed : trimmed.slice(0, slash);
   const prefixStr = slash === -1 ? null : trimmed.slice(slash + 1);
 
-  // IPv4 branch
   const v4 = ipv4ToInt(addr);
   if (v4 !== null) {
     const prefix = prefixStr === null ? 32 : Number(prefixStr);
@@ -73,9 +47,8 @@ function parseCidr(cidr) {
     return { kind: 'v4', base: (v4 & mask) >>> 0, mask, prefix };
   }
 
-  // IPv6 branch — keep a normalized literal. We accept exact matches only
-  // (no CIDR math for v6) because the only v6 cases we actually trust are
-  // `::1` loopback and link-local addresses enumerated from the NICs.
+  // IPv6: exact-match only (no CIDR math) — only loopback and link-local
+  // literals are trusted here.
   if (addr.includes(':')) {
     return { kind: 'v6', literal: addr.toLowerCase() };
   }
@@ -83,12 +56,9 @@ function parseCidr(cidr) {
   return null;
 }
 
-/**
- * Private / non-routable IPv4 ranges. A trusted CIDR whose network base is
- * NOT inside one of these is a *public* range — trusting it grants passwordless
- * access to hosts on the public internet. Used only to warn operators; it does
- * not change trust decisions. See docs/security-audit-frontend.md (C2).
- */
+// A trusted CIDR whose base falls outside these ranges is public — trusting
+// it grants passwordless access from the internet. Warn-only; does not change
+// trust decisions. See docs/security-audit-frontend.md (C2).
 const PRIVATE_V4_RANGES = [
   parseCidr('10.0.0.0/8'),
   parseCidr('172.16.0.0/12'),
@@ -98,11 +68,6 @@ const PRIVATE_V4_RANGES = [
   parseCidr('100.64.0.0/10'),   // CGNAT
 ];
 
-/**
- * True if a parsed v4 CIDR's network base is a public (internet-routable)
- * address. Non-v4 CIDRs return false (IPv6 trust here is only loopback/
- * link-local literals, handled elsewhere).
- */
 function isPublicV4Cidr(cidr) {
   if (!cidr || cidr.kind !== 'v4') return false;
   return !PRIVATE_V4_RANGES.some(
@@ -110,12 +75,9 @@ function isPublicV4Cidr(cidr) {
   );
 }
 
-/**
- * True if `ip` is a public (internet-routable) address — i.e. NOT loopback,
- * RFC1918 private, link-local, CGNAT, or an IPv6 loopback/ULA/link-local. Used
- * to HARD-block first-passkey enrollment from the internet. Unparseable/empty
- * input is treated as public (fail-safe: refuse the enrollment).
- */
+// Used to hard-block first-passkey enrollment from the internet (see
+// enrollment-gate.js). Unparseable/empty input is treated as public — fail
+// safe, refuse the enrollment.
 function isPublicIp(ipRaw) {
   const ip = normalizeIp(ipRaw);
   if (!ip) return true; // unknown source — fail safe
@@ -123,16 +85,12 @@ function isPublicIp(ipRaw) {
   if (v4 !== null) {
     return !PRIVATE_V4_RANGES.some((r) => r && ((v4 & r.mask) >>> 0) === r.base);
   }
-  // IPv6
   if (ip === '::1') return false;                                 // loopback
   if (ip.startsWith('fe80')) return false;                        // link-local fe80::/10
   if (ip.startsWith('fc') || ip.startsWith('fd')) return false;   // ULA fc00::/7
   return true;
 }
 
-/**
- * Test whether an IP address falls inside any of the parsed CIDRs.
- */
 function isIpInCidrs(ip, cidrs) {
   const normalized = normalizeIp(ip);
   if (!normalized) return false;
@@ -150,30 +108,14 @@ function isIpInCidrs(ip, cidrs) {
   return false;
 }
 
-/**
- * Extract the client's IP from an HTTP/WS request. This is the single
- * trustworthy source of the client's network identity.
- *
- * Do NOT consult req.headers.host or req.headers['x-forwarded-for'] —
- * both are attacker-controlled. If a reverse-proxy topology is added later,
- * gate XFF parsing on an explicit allow-list of trusted proxy IPs.
- */
+// The only trustworthy source of client identity. Never consult
+// req.headers.host or req.headers['x-forwarded-for'] — both are
+// attacker-controlled. If reverse-proxy support is added, gate XFF parsing on
+// an explicit trusted-proxy allowlist.
 function getClientIp(req) {
   return normalizeIp(req?.socket?.remoteAddress || '');
 }
 
-/**
- * Compute the default trusted CIDR set from the current host's network
- * interfaces. Always includes loopback. Non-internal IPv4 interfaces
- * contribute their network/prefix derived from `address` + `netmask`.
- *
- * If `env.EVE_TRUSTED_SUBNETS` is set, it REPLACES the default set —
- * operators can pin the trusted range explicitly (multi-NIC, VLAN, VPN).
- *
- * @param {object} [deps]
- * @param {NodeJS.ProcessEnv} [deps.env]
- * @param {typeof os} [deps.osModule]
- */
 function computeTrustedCidrs({ env = process.env, osModule = os } = {}) {
   const override = env.EVE_TRUSTED_SUBNETS;
   if (override && override.trim()) {
@@ -199,18 +141,15 @@ function computeTrustedCidrs({ env = process.env, osModule = os } = {}) {
     if (!Array.isArray(list)) continue;
     for (const iface of list) {
       if (!iface || iface.internal) continue;
-      // Prefer the pre-computed cidr field when present (Node 10+).
       if (iface.cidr) {
         const parsed = parseCidr(iface.cidr);
         if (parsed) cidrs.push(parsed);
         continue;
       }
-      // IPv4 fallback: derive prefix from netmask.
       if (iface.family === 'IPv4' && iface.address && iface.netmask) {
         const netInt = ipv4ToInt(iface.netmask);
         const addrInt = ipv4ToInt(iface.address);
         if (netInt === null || addrInt === null) continue;
-        // netmask → prefix length via popcount
         let prefix = 0;
         let m = netInt;
         while (m) { prefix += m & 1; m >>>= 1; }
@@ -226,15 +165,7 @@ function computeTrustedCidrs({ env = process.env, osModule = os } = {}) {
   return cidrs.filter((c) => c !== null);
 }
 
-// --- DI-injectable service ---
-
 class TrustedNetworkService {
-  /**
-   * @param {object} [deps]
-   * @param {Logger} [deps.log]
-   * @param {NodeJS.ProcessEnv} [deps.env]
-   * @param {typeof os} [deps.osModule]
-   */
   constructor({ log, env = process.env, osModule = os } = {}) {
     this.log = log || new NullLogger();
     this.disabled = env.EVE_DISABLE_SUBNET_BYPASS === '1';
@@ -246,10 +177,9 @@ class TrustedNetworkService {
       const summary = this.describe();
       this.log.info(`Trusted subnets: ${summary || '(none)'}`);
 
-      // Loudly flag public ranges in the trusted set — on an internet-facing
-      // host the primary NIC's subnet can be a provider-shared public range,
-      // which would grant passwordless access (incl. terminal RCE) to unrelated
-      // internet hosts. See docs/security-audit-frontend.md (C2).
+      // A provider-shared public subnet on the primary NIC would grant
+      // passwordless access (incl. terminal RCE) to unrelated internet hosts.
+      // See docs/security-audit-frontend.md (C2).
       const publicCidrs = this.cidrs.filter(isPublicV4Cidr);
       if (publicCidrs.length) {
         this.log.warn(
@@ -261,34 +191,21 @@ class TrustedNetworkService {
     }
   }
 
-  /**
-   * Is the client at the other end of this request on a trusted subnet?
-   * Honors EVE_DISABLE_SUBNET_BYPASS — i.e. governs whether trusted clients
-   * SKIP the passkey.
-   */
   isTrusted(req) {
     if (this.disabled) return false;
     return this.isInTrustedRange(req);
   }
 
-  /**
-   * Raw CIDR-membership test, INDEPENDENT of EVE_DISABLE_SUBNET_BYPASS.
-   * The bypass flag decides whether trusted networks skip the passkey; it must
-   * not also decide who may bootstrap the very first enrollment, or disabling
-   * it on an un-enrolled box would lock everyone out. The enrollment gate uses
-   * this so the LAN/WireGuard can always reach the enroll flow before a passkey
-   * exists. See enrollment-gate.js.
-   */
+  // Independent of EVE_DISABLE_SUBNET_BYPASS: that flag governs whether
+  // trusted networks skip the passkey, but must not also gate first-passkey
+  // enrollment — disabling it on an un-enrolled box would lock everyone out.
+  // enrollment-gate.js uses this for that reason.
   isInTrustedRange(req) {
     const ip = getClientIp(req);
     if (!ip) return false;
     return isIpInCidrs(ip, this.cidrs);
   }
 
-  /**
-   * Human-readable summary of a CIDR list (defaults to the trusted set).
-   * Used for startup logging.
-   */
   describe(cidrs = this.cidrs) {
     return cidrs
       .map((c) => {

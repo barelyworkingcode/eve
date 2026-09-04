@@ -1,14 +1,8 @@
-/**
- * Event name constants for the EventBus.
- * Grouped by domain for easy discovery.
- */
 const EVT = {
-  // WebSocket lifecycle
   WS_READY: 'ws:ready',
   WS_MESSAGE: 'ws:message',
   WS_DISCONNECTED: 'ws:disconnected',
 
-  // Session lifecycle
   SESSION_CREATED: 'session:created',
   SESSION_JOINED: 'session:joined',
   SESSION_ENDED: 'session:ended',
@@ -17,16 +11,13 @@ const EVT = {
   SESSION_UPDATED: 'session:updated',
   SESSION_SWITCH: 'session:switch',
 
-  // Project lifecycle
   PROJECTS_LOADED: 'projects:loaded',
   PROJECT_DELETED: 'project:deleted',
   PROJECT_RENAMED: 'project:renamed',
   PROJECT_ACTIVATED: 'project:activated',
 
-  // Models
   MODELS_LOADED: 'models:loaded',
 
-  // Chat / LLM streaming
   CHAT_ASSISTANT_START: 'chat:assistantStart',
   CHAT_ASSISTANT_DELTA: 'chat:assistantDelta',
   CHAT_ASSISTANT_FINISH: 'chat:assistantFinish',
@@ -41,15 +32,12 @@ const EVT = {
   CHAT_STATS_UPDATE: 'chat:statsUpdate',
   CHAT_PROCESS_EXITED: 'chat:processExited',
 
-  // Interactive tools
   CHAT_PLAN_APPROVAL: 'chat:planApproval',
   CHAT_ASK_QUESTION: 'chat:askQuestion',
 
-  // Permission
   PERMISSION_REQUEST: 'permission:request',
   PERMISSION_RESPONSE: 'permission:response',
 
-  // Terminal
   TERMINAL_CREATED: 'terminal:created',
   TERMINAL_JOINED: 'terminal:joined',
   TERMINAL_OUTPUT: 'terminal:output',
@@ -59,7 +47,6 @@ const EVT = {
   TERMINAL_TEMPLATES: 'terminal:templates',
   TERMINAL_TEMPLATES_LOADED: 'terminal:templatesLoaded',
 
-  // File operations
   FILE_CONTENT: 'file:content',
   FILE_SAVED: 'file:saved',
   FILE_CHANGED: 'file:changed',
@@ -72,7 +59,6 @@ const EVT = {
   DIRECTORY_CREATED: 'directory:created',
   DIR_CHANGED: 'directory:changed',
 
-  // Task lifecycle
   TASKS_LOADED: 'tasks:loaded',
   TASK_UPDATED: 'task:updated',
   TASK_STARTED: 'task:started',
@@ -80,14 +66,12 @@ const EVT = {
   TASK_ERROR: 'task:error',
   TASK_STATUS: 'task:status',
 
-  // UI navigation
   UI_SHOW_CHAT: 'ui:showChat',
   UI_SHOW_EDITOR: 'ui:showEditor',
   UI_SHOW_TERMINAL: 'ui:showTerminal',
   UI_SHOW_WELCOME: 'ui:showWelcome',
   UI_TOGGLE_SIDEBAR: 'ui:toggleSidebar',
 
-  // Dialog requests
   DIALOG_SHELL_LAUNCHER: 'dialog:shellLauncher',
   DIALOG_TASK: 'dialog:task',
   DIALOG_PROJECT: 'dialog:project',
@@ -95,7 +79,6 @@ const EVT = {
   DIALOG_SETTINGS: 'dialog:settings',
   DIALOG_SEARCH: 'dialog:search',
 
-  // Project content search
   SEARCH_RESULTS: 'search:results',
   SEARCH_ERROR: 'search:error',
   SEARCH_AI_STARTED: 'search:aiStarted',
@@ -103,53 +86,41 @@ const EVT = {
   SEARCH_AI_COMPLETED: 'search:aiCompleted',
   SEARCH_AI_FAILED: 'search:aiFailed',
 
-  // Modules (AI-backed mini apps inside projects)
   MODULE_LIST_UPDATED: 'module:listUpdated',
   MODULE_LAUNCH_REQUEST: 'module:launchRequest',
   MODULE_CREATE_REQUEST: 'module:createRequest',
   MODULE_OPENED: 'module:opened',
   MODULE_CLOSED: 'module:closed',
   MODULE_FILE_RESPONSE: 'module:fileResponse',
-  // Module AI invocation streaming. The orb subscribes to these to render
-  // an indicator + read-only event log while a module is talking to the LLM.
   MODULE_AI_STARTED: 'module:aiStarted',
   MODULE_AI_EVENT: 'module:aiEvent',
   MODULE_AI_COMPLETED: 'module:aiCompleted',
   MODULE_AI_FAILED: 'module:aiFailed',
 
-  // Settings
   SETTINGS_CHANGED: 'settings:changed',
 
-  // Voice
   VOICE_BACKEND_CHANGED: 'voice:backendChanged',
   TTS_PLAYBACK_ENDED: 'tts:playbackEnded',
 
-  // Toast (generic)
   TOAST_SHOW:    'toast:show',
   TOAST_UPDATE:  'toast:update',
   TOAST_DISMISS: 'toast:dismiss',
 };
 
-// Platform detection (invariant for page lifetime)
 const IS_NATIVE_APP = !!(window.Capacitor?.isNativePlatform?.() && window.Capacitor?.Plugins?.EveVoice);
-// Native owns the mic + speaker (capture, VAD endpointing, playback) via the
-// EveAudioBridge plugin — a SEPARATE axis from which TTS/STT *model* runs (still
-// server). This is what lets a voice conversation survive the screen turning off:
-// a running native AVAudioEngine holds the background-audio assertion. Gated on
-// the plugin being present so a build without it cleanly falls back to the
-// WebView audio path.
+// A running native AVAudioEngine (via EveAudioBridge) holds the background-audio
+// assertion that lets a voice conversation survive the screen turning off; this
+// is independent of which TTS/STT model runs. Gated on the plugin's presence so
+// a build without it falls back to the WebView audio path.
 const IS_NATIVE_AUDIO = IS_NATIVE_APP && !!window.Capacitor?.Plugins?.EveAudioBridge;
 const IS_SAFARI = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 const IS_MOBILE_SAFARI = /iPhone|iPad|iPod/i.test(navigator.userAgent) && IS_SAFARI;
-// Touch-capable device — gates the mobile terminal key bar (modifier keys the
-// soft keyboard can't produce: Esc/Tab/Shift-Tab/Ctrl/Alt/arrows).
 const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-// Apple host (macOS / iOS / iPadOS) — the modifier key is labelled "Option"
-// (⌥) on Apple keyboards, "Alt" elsewhere. Same escape sequence either way.
+// Apple keyboards label the modifier "Option" (⌥) rather than "Alt"; the
+// escape sequence sent is the same either way.
 const IS_APPLE = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent);
-const FAVORITE_TEMPLATE_ENABLED = true; // Gate behind IS_NATIVE_APP when shipping to App Store
+const FAVORITE_TEMPLATE_ENABLED = true; // gate behind IS_NATIVE_APP before App Store submission
 
-// Plan file project ID sentinel
 const PLAN_PROJECT_ID = '__plan__';
 
 // Chat template modes (mirrors relay's ChatTemplate.Mode field)

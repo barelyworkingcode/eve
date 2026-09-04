@@ -1,9 +1,5 @@
-/**
- * ModuleService — module discovery, manifest validation, and the load-bearing
- * path defenses (name allow-list, traversal block, symlink-escape block) that
- * route handlers trust when serving module files. Driven against a real temp
- * project tree so the realpath/symlink checks exercise the actual filesystem.
- */
+// Driven against a real temp project tree so the realpath/symlink checks that
+// route handlers trust exercise the actual filesystem, not a mock.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -18,7 +14,6 @@ beforeAll(() => {
   const modules = path.join(projectPath, 'modules');
   fs.mkdirSync(modules, { recursive: true });
 
-  // A valid module.
   const good = path.join(modules, 'good');
   fs.mkdirSync(path.join(good, 'sub'), { recursive: true });
   fs.writeFileSync(path.join(good, 'index.html'), '<h1>hi</h1>');
@@ -29,19 +24,15 @@ beforeAll(() => {
     permissions: { files: ['data/notes.txt'], tools: ['Read'] },
   }));
 
-  // A broken module (manifest missing required displayName).
   const broken = path.join(modules, 'broken');
   fs.mkdirSync(broken);
   fs.writeFileSync(path.join(broken, 'module.json'), JSON.stringify({ entry: 'index.html' }));
 
-  // Ignored: dot-dir and an invalid (uppercase) module name.
   fs.mkdirSync(path.join(modules, '.hidden'));
   fs.mkdirSync(path.join(modules, 'NotAllowed'));
 
-  // A file outside the project, used as a traversal / symlink-escape target.
   outsideSecret = path.join(tmp, 'secret.txt');
   fs.writeFileSync(outsideSecret, 'TOP SECRET');
-  // Symlink inside the good module pointing outside it.
   try {
     fs.symlinkSync(outsideSecret, path.join(good, 'escape.txt'));
   } catch (_) { /* symlink unsupported — the escape test self-skips below */ }
@@ -58,7 +49,7 @@ describe('listModules', () => {
     const list = await svc.listModules(projectPath);
     const byName = Object.fromEntries(list.map(m => [m.name, m]));
 
-    expect(Object.keys(byName).sort()).toEqual(['broken', 'good']); // .hidden + NotAllowed excluded
+    expect(Object.keys(byName).sort()).toEqual(['broken', 'good']);
     expect(byName.good).toMatchObject({
       name: 'good',
       displayName: 'Good Module',

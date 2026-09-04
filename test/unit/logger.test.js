@@ -89,7 +89,7 @@ describe('Logger', () => {
 
     logger.setLevel('error');
     logger.debug('after');
-    expect(calls).toHaveLength(1); // still 1 — debug suppressed
+    expect(calls).toHaveLength(1);
 
     logger.setLevel('debug');
     logger.debug('restored');
@@ -166,14 +166,13 @@ describe('ChildLogger', () => {
 
     logger.setLevel('error');
     child.info('after');
-    expect(calls).toHaveLength(1); // still 1
+    expect(calls).toHaveLength(1);
   });
 });
 
 describe('NullLogger', () => {
   test('all methods are no-ops', () => {
     const logger = new NullLogger();
-    // Should not throw
     logger.debug('a');
     logger.info('b');
     logger.warn('c');

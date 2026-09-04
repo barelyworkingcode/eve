@@ -1,20 +1,6 @@
-/**
- * Chat-form feature — owns the send and stop buttons in the chat input row.
- *
- * Registers ChatFormControls under the container key 'chatForm' and renders
- * both buttons into the chat-input-trailing slot (send at order 10, stop at
- * order 30, with the STT feature's mic at order 20 between them). Send needs
- * no click handler — it is type="submit" and #inputForm's submit listener in
- * app.js handles it. Stop's click handler is wired here; handleStop() itself
- * stays in app.js because it orchestrates wsClient, messageDispatcher and
- * messageRenderer.
- *
- * app.js's showStopButton/hideStopButton/showSessionStarting/
- * clearSessionStarting delegate to this service so the eleven external call
- * sites (message-dispatcher.js, tab-manager.js, shell-launcher-dialog.js)
- * that go through those four app.js methods do not have to move.
- */
-
+// Send has no click handler here: it's type="submit" and #inputForm's submit
+// listener in app.js handles it. Stop's handleStop() also stays in app.js,
+// since it orchestrates wsClient, messageDispatcher and messageRenderer.
 class ChatFormControls {
   constructor() {
     this.sendBtn = null;

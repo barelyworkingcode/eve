@@ -1,14 +1,9 @@
 /**
- * The voice drawer and its voice-mode button, asserted behaviourally.
- *
- * This is the gate for the next phase of the FeatureRegistry migration
- * (docs/decisions/001-feature-registry.md), one phase further along than
- * chat-input-row.spec.js: #voiceModeBtn's markup moves out of index.html into
- * a slot render, and its wiring moves out of app.js. The visual harness
- * proves the drawer still *looks* right; this proves it still *works*, which
- * a screenshot cannot.
- *
- * Assert wiring, not appearance. Every check here should survive the move.
+ * Gate for the next phase of the FeatureRegistry migration
+ * (docs/decisions/001-feature-registry.md), one phase further than
+ * chat-input-row.spec.js: #voiceModeBtn's markup and wiring move out of
+ * index.html/app.js into a slot render. Assert wiring, not appearance —
+ * every check here should survive the move.
  */
 const { test, expect } = require('./fixtures');
 
@@ -20,17 +15,14 @@ async function openChat(page) {
   await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15000 });
 }
 
-// The drawer panel is a real element in the DOM from load, but it starts
-// `hidden` behind its own toggle (independent of the chat screen's own
-// hidden/visible state) — open it before touching anything inside.
+// The drawer panel starts `hidden` behind its own toggle, independent of
+// the chat screen's own hidden/visible state.
 async function openVoiceDrawer(page) {
   await page.locator('#voiceDrawerToggle').click();
   await expect(page.locator('#voiceDrawerPanel')).toBeVisible();
 }
 
-// Mouse down over the button, hold for `ms`, then release — gives us control
-// over the press duration that a plain `.click()` doesn't, which is the
-// whole point of the test that reads on it.
+// Gives control over press duration, unlike a plain `.click()`.
 async function pressVoiceModeBtn(page, ms) {
   const box = await page.locator('#voiceModeBtn').boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -47,7 +39,7 @@ test.describe('voice buttons', () => {
     await page.locator('#voiceDrawerToggle').click();
 
     await expect(page.locator('#voiceDrawerPanel')).toBeVisible();
-    // Order is load-bearing after the move, exactly like the chat input row's.
+    // Order is load-bearing after the move.
     const ids = await page.$$eval('#voiceDrawerPanel select, #voiceDrawerPanel button', (els) =>
       els.map((e) => e.id).filter(Boolean));
     expect(ids).toEqual(['voiceSelect', 'voiceSpeedSelect', 'voiceModeBtn', 'voiceUIBtn']);
@@ -69,8 +61,7 @@ test.describe('voice buttons', () => {
   test('enabling voice mode tells the server via a voice_mode frame', async ({ page }) => {
     await openChat(page);
     await openVoiceDrawer(page);
-    // Same technique as the plan-mode gate: assert on the frame sent, not on
-    // any local state the migration is free to restructure.
+    // Assert on the frame sent, not local state the migration is free to restructure.
     const sent = await page.evaluate(async () => {
       const ws = window.client.wsClient;
       const original = ws.send.bind(ws);
@@ -88,8 +79,8 @@ test.describe('voice buttons', () => {
   test('the tts manager reaches its own button to set the speaking indicator', async ({ page }) => {
     await openChat(page);
     await openVoiceDrawer(page);
-    // Drive it through the manager, not by adding the class ourselves — the
-    // point is that tts-manager.js still finds its own button after the move.
+    // Drive it through the manager to prove tts-manager.js still finds its
+    // own button after the move.
     const speaking = await page.evaluate(() => {
       window.client.ttsManager._setSpeakingIndicator(true);
       return document.getElementById('voiceModeBtn').classList.contains('tts-speaking');
@@ -106,9 +97,8 @@ test.describe('voice buttons', () => {
   test('a long press starts voice chat; a short tap does not', async ({ page }) => {
     await openChat(page);
     await openVoiceDrawer(page);
-    // convertToVoiceChat() switches the whole tab to the voice UI — not
-    // something to run end to end here. Stub it and assert the 500ms
-    // threshold the gesture wiring hinges on, in both directions.
+    // convertToVoiceChat() switches the whole tab to the voice UI — stub it
+    // and assert the 500ms threshold the gesture wiring hinges on.
     await page.evaluate(() => {
       window.__convertCalls = 0;
       window.client.voiceChatManager.convertToVoiceChat = () => { window.__convertCalls++; };

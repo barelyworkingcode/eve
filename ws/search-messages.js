@@ -1,28 +1,8 @@
-/**
- * Search message descriptors — project search, cancellation, and the AI
- * summarize/stop pair. See ws/message-registry.js for the registry these are
- * registered into.
- *
- * This domain owns half of the one seam in the phase where a descriptor and
- * the connection's `close` handler share state: `inflightSearchIds` and
- * `inflightAiIds` are per-connection Sets built in ws-handler.js and reached
- * here only through `ctx` (never captured — see C1 in ws/message-registry.js).
- * The `close` handler drains the same two Sets to cancel work in flight when
- * the socket drops, so add/delete here must use the exact objects `close`
- * reads — which `ctx.inflightSearchIds`/`ctx.inflightAiIds` guarantee, since
- * both are the same Set instances created once per connection in
- * ws-handler.js and never rebuilt.
- *
- * None of these four arms are `await`ed in today's switch, so none of these
- * descriptors may be `async` — see C2 in ws/message-registry.js.
- */
-
-/**
- * Drive a streaming search-summary AI call. Never throws past this boundary —
- * outcomes are already delivered to the browser as `search_ai_*` frames by
- * SearchSummarizer.run() itself; this wrapper just logs and runs the
- * connection-tracking cleanup.
- */
+// The connection's `close` handler drains `inflightSearchIds`/`inflightAiIds`
+// to cancel work in flight when the socket drops, so add/delete here must
+// use the exact Set instances `close` reads — which reaching them only
+// through `ctx` guarantees, since ws-handler.js creates each Set once per
+// connection and never rebuilds it.
 function handleSearchAiSummarize(ctx, onDone) {
   const { ws, relayClient, message, log } = ctx;
   const { searchSummarizer } = ctx.deps;

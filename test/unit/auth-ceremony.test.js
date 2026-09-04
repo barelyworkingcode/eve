@@ -2,9 +2,8 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 
-// WebAuthn crypto is mocked: these tests pin AuthService's own logic
-// (counter persistence, challenge lifecycle, rate limiting), not the library's
-// signature math.
+// WebAuthn crypto is mocked: these tests pin AuthService's own logic, not the
+// library's signature math.
 jest.mock('@simplewebauthn/server', () => ({
   generateRegistrationOptions: jest.fn(),
   verifyRegistrationResponse: jest.fn(),
@@ -50,7 +49,7 @@ describe('AuthService', () => {
     it('returns a stored challenge exactly once (one-time use)', () => {
       const id = auth.storeChallenge('chal-abc');
       expect(auth.getChallenge(id)).toBe('chal-abc');
-      expect(auth.getChallenge(id)).toBeNull(); // consumed
+      expect(auth.getChallenge(id)).toBeNull();
     });
 
     it('returns null for an unknown challenge id', () => {
@@ -59,7 +58,7 @@ describe('AuthService', () => {
 
     it('drops an expired challenge', () => {
       const id = auth.storeChallenge('chal-old');
-      auth.challenges.get(id).expiresAt = Date.now() - 1; // force past expiry
+      auth.challenges.get(id).expiresAt = Date.now() - 1;
       expect(auth.getChallenge(id)).toBeNull();
       expect(auth.challenges.has(id)).toBe(false);
     });
@@ -83,17 +82,13 @@ describe('AuthService', () => {
 
     it('resets the window once it has elapsed', () => {
       expect(auth.checkRateLimit('3.3.3.3')).toBe(true);
-      auth.rateLimits.get('3.3.3.3').resetAt = Date.now() - 1; // force window expiry
+      auth.rateLimits.get('3.3.3.3').resetAt = Date.now() - 1;
       expect(auth.checkRateLimit('3.3.3.3')).toBe(true);
       expect(auth.rateLimits.get('3.3.3.3').attempts).toBe(1);
     });
   });
 
   describe('verifyEnrollment (credential persistence)', () => {
-    // Mirrors verifyLogin's setup: the WebAuthn library is mocked, so these pin
-    // AuthService's own logic — what it persists, the id-encoding branch, the
-    // failure throws — not the attestation math. Previously this method had zero
-    // real coverage (route tests only jest.fn()-mock it).
     function attestationResponse(transports) {
       return { id: 'attestation', response: transports ? { transports } : {} };
     }
@@ -107,7 +102,6 @@ describe('AuthService', () => {
 
       const session = await auth.verifyEnrollment(req, attestationResponse(['internal']), challengeId);
 
-      // The consumed challenge and derived rpId must reach the verifier.
       expect(swa.verifyRegistrationResponse).toHaveBeenCalledWith(
         expect.objectContaining({ expectedChallenge: 'enroll-chal', expectedRPID: 'localhost' })
       );
@@ -174,10 +168,9 @@ describe('AuthService', () => {
       expect(swa.verifyAuthenticationResponse).toHaveBeenCalledWith(
         expect.objectContaining({ credential: expect.objectContaining({ counter: 5 }) })
       );
-      // The advanced counter must be written back to disk.
       const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'auth.json'), 'utf8'));
       expect(persisted.credentials[0].counter).toBe(6);
-      expect(typeof session).toBe('string'); // a fresh session token
+      expect(typeof session).toBe('string');
     });
 
     it('rejects an unknown credential id', async () => {

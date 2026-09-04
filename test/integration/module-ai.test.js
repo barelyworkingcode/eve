@@ -1,10 +1,7 @@
-/**
- * Increment 4 — module AI invocation end-to-end. Exercises the load-bearing
- * `__module:` hidden-session interception: the fake relay streams llm_events on
- * the hidden session, eve's RelayClient routes them to the ModuleInvoker's
- * handler (NOT into the user's chat), and the browser receives module_ai_*
- * frames. Also verifies the ephemeral session is DELETEd afterward.
- */
+// Exercises the load-bearing `__module:` hidden-session interception: the
+// fake relay streams llm_events on the hidden session, eve's RelayClient
+// routes them to ModuleInvoker's handler, not into the user's chat, and the
+// ephemeral session is DELETEd afterward.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -42,12 +39,10 @@ describe('module AI invocation (eve <-> fake relay)', () => {
     // No schema → result is the accumulated raw text from the fake's stream.
     expect(completed.result).toBe('Hello from fake relay');
 
-    // The intercepted frames surfaced as module_ai_event, NOT as plain llm_event
-    // in the user's chat (that's the whole point of __module: interception).
+    // Surfaced as module_ai_event, not plain llm_event in the user's chat.
     expect(ws.frames.some((f) => f.type === 'module_ai_event')).toBe(true);
     expect(ws.frames.some((f) => f.type === 'llm_event')).toBe(false);
 
-    // The ephemeral session was cleaned up.
     expect(eve.relay.requests).toContainEqual({ method: 'DELETE', path: `/api/sessions/${started.sessionId}` });
   });
 });

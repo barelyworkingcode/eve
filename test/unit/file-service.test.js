@@ -30,7 +30,6 @@ describe('FileService', () => {
 
     it('resolves empty path to project root', () => {
       const result = fileService.validatePath(projectPath, '');
-      // Empty string -> '.' -> resolves to projectPath
       expect(result).toBe(path.resolve(projectPath));
     });
 
@@ -51,9 +50,8 @@ describe('FileService', () => {
       expect(result).toBe(path.resolve(projectPath, 'lib/util.js'));
     });
 
-    // Regression: a bare startsWith(base) prefix check let a sibling directory
-    // whose name shares the project basename prefix escape the sandbox.
-    // See docs/security-audit-frontend.md (H1).
+    // A bare startsWith(base) prefix check let a sibling directory whose name
+    // shares the project basename prefix escape the sandbox — see docs/security-audit-frontend.md.
     it('blocks escape into a sibling dir with a shared name prefix', () => {
       expect(() => {
         fileService.validatePath(projectPath, '../project-secrets/secret.env');
@@ -126,7 +124,6 @@ describe('FileService', () => {
 
     beforeEach(() => {
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-fs-test-'));
-      // Create a subdirectory structure
       fs.mkdirSync(path.join(tmpDir, 'src'));
       fs.writeFileSync(path.join(tmpDir, 'src', 'index.js'), 'console.log("hello");', 'utf8');
       fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Test', 'utf8');
@@ -342,12 +339,10 @@ describe('FileService', () => {
     });
   });
 
-  // Regression: validatePath's lexical traversal check cannot see through a
-  // symlink that lives *inside* the project but points outside it. Without a
-  // realpath resolution, `proj/link -> /etc` lets `readFile('link/passwd')`
-  // escape the sandbox. module-service.js already defends this via fs.realpath;
-  // file-service must too. These tests pin both halves: escapes are blocked,
-  // and a symlink that stays within the project still resolves.
+  // validatePath's lexical traversal check cannot see through a symlink that
+  // lives *inside* the project but points outside it: without realpath
+  // resolution, `proj/link -> /etc` lets `readFile('link/passwd')` escape the
+  // sandbox. module-service.js already defends this via fs.realpath; file-service must too.
   describe('symlink escape defense', () => {
     let projDir;
     let outsideDir;
@@ -390,7 +385,6 @@ describe('FileService', () => {
       if (!symlinksSupported) return;
       await expect(fileService.writeFile(projDir, 'escape/planted.js', 'x'))
         .rejects.toThrow('Path traversal not allowed');
-      // Ensure nothing was actually written outside the sandbox.
       expect(fs.existsSync(path.join(outsideDir, 'planted.js'))).toBe(false);
     });
 

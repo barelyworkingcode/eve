@@ -1,16 +1,9 @@
-/**
- * PaneRegistry - see docs/decisions/001-feature-registry.md for the pattern
- * this composes, and public/core/pane-registry.js for the why of this one.
- *
- * jest runs with testEnvironment 'node'; nothing here touches the DOM, so
- * this follows the vm-sandbox idiom from feature-registry.test.js rather than
- * pulling in jsdom.
- */
+// public/ files are plain <script> globals, not modules, and the repo has no
+// jsdom, so this loads the source into a vm sandbox rather than requiring it.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// public/ files are plain <script> globals, not modules.
 const src = fs.readFileSync(path.join(__dirname, '../../public/core/pane-registry.js'), 'utf8');
 const sandbox = {};
 vm.createContext(sandbox);
@@ -18,9 +11,8 @@ vm.runInContext(src + '\nthis.PaneRegistry = PaneRegistry; this.panes = panes;',
 const { PaneRegistry } = sandbox;
 
 describe('the page singleton', () => {
-  // A panes/*.js file runs the moment its <script> is parsed, long before
-  // initApp(), so there must already be an instance for it to register
-  // against. Without this, file-scope registration has nothing to call.
+  // A panes/*.js file registers against `panes` the moment its <script> tag is
+  // parsed, long before initApp() runs, so the instance must already exist.
   it('exposes a ready-to-use `panes` instance', () => {
     expect(sandbox.panes).toBeInstanceOf(PaneRegistry);
     expect(sandbox.panes.types()).toEqual([]);
@@ -99,8 +91,7 @@ describe('PaneRegistry.registerView / .view / .hasView', () => {
 });
 
 describe('type and view registries are independent', () => {
-  // 'viewer' is a real view id and 'viewer' could plausibly also be typed as
-  // a pane type by mistake; the two maps must not collide.
+  // 'viewer' is a real view id in production and a plausible pane-type name too.
   it('a type and a view may share the same name', () => {
     const r = new PaneRegistry();
     r.registerType({ type: 'viewer' });

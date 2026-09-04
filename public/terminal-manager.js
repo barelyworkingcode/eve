@@ -1,12 +1,9 @@
 class TerminalManager {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.log = container.get('logger').child('Terminal');
-    this.terminals = new Map(); // terminalId -> { term, fitAddon, container, directory, templateId, name, exited }
-    this.allTerminals = new Map(); // terminalId -> { id, templateId, name, directory, state } — all known from relayLLM
+    this.terminals = new Map();
+    this.allTerminals = new Map();
     this.activeTerminalId = null;
     this.xtermLoaded = false;
     this.Terminal = null;
@@ -14,15 +11,13 @@ class TerminalManager {
     this.WebLinksAddon = null;
     this.resizeHandler = null;
     this._readyCallbacks = [];
-    this.templates = []; // cached terminal templates from relayLLM
+    this.templates = [];
 
     this.initElements();
     this.loadXterm();
     this._listenForSettingsChanges();
-    // Mobile accessory key bar (Esc/Tab/Ctrl/arrows…). No-op off touch devices.
-    // Fail-soft: it's an optional enhancement constructed during app init, so a
-    // failure here must never abort init (which would take the whole UI down).
-    // onData already falls back to raw input when this.keybar is null.
+    // Must not throw: this is an optional enhancement built during init, and a
+    // failure here would otherwise abort init and take the whole UI down.
     try {
       this.keybar = new TerminalKeybar(this);
     } catch (err) {
@@ -30,13 +25,8 @@ class TerminalManager {
       this.log.warn('Mobile key bar failed to initialize; terminal input unaffected:', err?.message || err);
     }
 
-    // Recover from xterm's stuck render-pause when the tab returns to the
-    // foreground (see _resumeRenderer). IntersectionObserver — xterm's own
-    // resume trigger — is unreliable across a background/foreground cycle on
-    // Safari/WKWebView and on Chrome after a long background/discard, leaving
-    // terminals accepting input but never repainting until reload.
-    // visibilitychange/pageshow/focus fire reliably on return, so drive the
-    // resume from them. Registered once for the page lifetime.
+    // visibilitychange/pageshow/focus fire reliably on return, unlike xterm's
+    // own IntersectionObserver resume trigger; see _resumeRenderer.
     this._onForeground = () => {
       if (document.visibilityState === 'visible') this._forceResumeActive();
     };
@@ -45,40 +35,27 @@ class TerminalManager {
     window.addEventListener('focus', this._onForeground);
   }
 
-  // --- Active-terminal accessors (used by the mobile key bar) ---
-
-  /** The xterm instance for the visible terminal, or null. */
   activeTerm() {
     return this.terminals.get(this.activeTerminalId)?.term || null;
   }
 
-  /** Refocus the active terminal so tapping a key-bar button doesn't drop the
-   *  soft keyboard. */
   focusActive() {
     this.activeTerm()?.focus();
   }
 
-  /** Re-fit the active terminal to its container (e.g. when the soft keyboard
-   *  resizes the viewport). */
   fitActive() {
     const t = this.terminals.get(this.activeTerminalId);
     if (t) t.fitAddon.fit();
   }
 
-  /**
-   * Force xterm to resume painting a terminal.
-   *
-   * xterm v6 pauses its renderer via an IntersectionObserver and only un-pauses
-   * when that observer fires an "intersecting" entry — RenderService.refreshRows
-   * early-returns while `_isPaused`, so every write just marks the grid dirty and
-   * nothing repaints. Safari/WKWebView — and Chrome after a long
-   * background/discard — don't reliably deliver that entry when a tab returns to
-   * the foreground, so the renderer stays paused: the terminal still accepts
-   * keystrokes but never repaints until a reload. We drive the resume ourselves
-   * from reliable visibility/focus events (see the constructor) rather than
-   * trusting the observer. The private-API walk is guarded so a future xterm
-   * upgrade degrades to a no-op instead of throwing.
-   */
+  // xterm pauses its renderer via an IntersectionObserver and only un-pauses on
+  // an "intersecting" entry — RenderService.refreshRows early-returns while
+  // `_isPaused`, so writes mark the grid dirty but nothing repaints. Safari/
+  // WKWebView, and Chrome after a long background/discard, don't reliably
+  // deliver that entry on foreground return, leaving the terminal accepting
+  // input but never repainting until reload; we force the resume ourselves
+  // instead. The private-API walk is guarded so a future xterm upgrade
+  // degrades to a no-op instead of throwing.
   _resumeRenderer(term) {
     const rs = term && term._core && term._core._renderService;
     if (!rs || typeof rs.refreshRows !== 'function') return;
@@ -86,33 +63,26 @@ class TerminalManager {
     rs.refreshRows(0, term.rows - 1);
   }
 
-  /** Re-fit and force-repaint the visible terminal when the tab returns to the
-   *  foreground, where xterm's own IntersectionObserver resume is unreliable.
-   *  No-op when no terminal is visible. */
   _forceResumeActive() {
     const t = this.terminals.get(this.activeTerminalId);
     if (!t) return;
-    // Repaint immediately so a stuck-paused renderer catches up.
     this._resumeRenderer(t.term);
-    // Re-fit on the next frame, once layout has settled. Fitting synchronously
-    // inside a focus/visibility handler — before the returning viewport has laid
-    // out — can measure a transient/zero size and push a bogus terminal_resize
-    // to the PTY, which corrupts a full-screen TUI (e.g. Claude Code) mid-redraw.
-    // rAF defers the measure until the dimensions are real, then repaints again.
+    // Fitting synchronously inside a focus/visibility handler — before the
+    // returning viewport has laid out — can measure a transient/zero size and
+    // push a bogus terminal_resize to the PTY, corrupting a full-screen TUI
+    // mid-redraw. rAF defers the measure until the dimensions are real.
     requestAnimationFrame(() => {
-      if (this.terminals.get(this.activeTerminalId) !== t) return; // switched away
-      try { t.fitAddon.fit(); } catch (_) { /* fit can throw before layout */ }
+      if (this.terminals.get(this.activeTerminalId) !== t) return;
+      try { t.fitAddon.fit(); } catch (_) { /* fit can throw before layout settles */ }
       this._resumeRenderer(t.term);
     });
   }
 
-  /** Send a raw byte sequence to the active terminal's PTY. Used by the key
-   *  bar; mirrors the encoding in the onData handler. */
   sendInput(seq) {
     const terminal = this.terminals.get(this.activeTerminalId);
     if (!terminal || terminal.exited || !seq) return;
-    // Drain any buffered typed input first so a tapped special key (Esc/Tab/
-    // arrows) can't jump ahead of characters typed just before it.
+    // Flush buffered input first so a tapped special key can't jump ahead of
+    // characters typed just before it.
     this._flushTerminalInput(this.activeTerminalId);
     this.app.wsClient.send({
       type: 'terminal_input',
@@ -121,7 +91,6 @@ class TerminalManager {
     });
   }
 
-  /** Flush a terminal's coalesced keystroke buffer as a single input frame. */
   _flushTerminalInput(terminalId) {
     const terminal = this.terminals.get(terminalId);
     if (!terminal) return;
@@ -188,26 +157,16 @@ class TerminalManager {
     }
   }
 
-  /**
-   * Request available terminal templates from relayLLM.
-   */
   requestTemplates() {
     this.app.wsClient.send({ type: 'terminal_templates' });
   }
 
-  /**
-   * Handle terminal_templates response from relayLLM.
-   */
   onTemplates(templates) {
     this.templates = templates || [];
   }
 
-  /**
-   * Show a picker to select a terminal template and launch it.
-   */
   showTemplatePicker(directory, projectId) {
     if (this.templates.length === 0) {
-      // Fetch templates first, then show picker.
       this.requestTemplates();
       this._pendingPickerDirectory = directory;
       this._pendingPickerProjectId = projectId || '';
@@ -217,7 +176,6 @@ class TerminalManager {
   }
 
   _showPickerUI(directory, projectId) {
-    // Remove any existing picker.
     const existing = document.getElementById('terminal-template-picker');
     if (existing) existing.remove();
 
@@ -225,7 +183,6 @@ class TerminalManager {
     overlay.id = 'terminal-template-picker';
     overlay.className = 'modal-overlay';
 
-    // Build modal shell (static content only).
     overlay.innerHTML = `
       <div class="modal" style="max-width: 400px;">
         <div class="modal-header">
@@ -285,16 +242,13 @@ class TerminalManager {
     }
   }
 
-  /**
-   * Creates a new terminal via relayLLM.
-   */
   createTerminal(templateId, directory, projectId) {
     this.app.wsClient.send({
       type: 'terminal_create',
       templateId,
       directory: directory || '',
-      // projectId lets relay resolve a project-scoped token for the PTY
-      // (validating directory against the project). Empty => token-free.
+      // projectId lets relay resolve a project-scoped token for the PTY,
+      // validated against the project's directory; empty is token-free.
       projectId: projectId || '',
       cols: 80,
       rows: 24
@@ -352,18 +306,11 @@ class TerminalManager {
     return { term, fitAddon };
   }
 
-  /**
-   * Make /api/generated/<file> tokens in terminal output clickable, opening the
-   * image in Eve's fullscreen overlay (the same modal the inline renderer uses).
-   *
-   * WebLinksAddon only linkifies http(s):// URLs, and xterm can't inline images,
-   * so a CLI (e.g. Claude in a terminal) that prints the relative image URL would
-   * otherwise leave a dead string. The path resolves against Eve's own origin,
-   * which already serves /api/generated/.
-   *
-   * Matching is per visual row (pure-ASCII tokens map 1:1 to cells). A token
-   * wrapped across rows won't be detected — acceptable; these URLs are short.
-   */
+  // WebLinksAddon only linkifies http(s):// URLs, and xterm can't inline images,
+  // so a CLI that prints a relative /api/generated/<file> token would otherwise
+  // leave a dead string; this makes it clickable against Eve's own origin.
+  // Matching is per visual row — a token wrapped across rows won't be
+  // detected, which is acceptable since these URLs are short.
   registerGeneratedImageLinks(term) {
     if (typeof term.registerLinkProvider !== 'function') return;
     term.registerLinkProvider({
@@ -371,8 +318,8 @@ class TerminalManager {
         const line = term.buffer.active.getLine(y - 1);
         if (!line) { callback(undefined); return; }
         const text = line.translateToString(true);
-        // Shared token matcher from message-renderer.js; reset lastIndex since
-        // it's a reused global-flag regex.
+        // GENERATED_IMAGE_RE is a shared global-flag regex; reset lastIndex
+        // or matches silently stop after the first call.
         GENERATED_IMAGE_RE.lastIndex = 0;
         const links = [];
         let m;
@@ -380,7 +327,7 @@ class TerminalManager {
           const url = m[0];
           links.push({
             text: url,
-            // xterm ranges are 1-based, end inclusive.
+            // xterm link ranges are 1-based, end-inclusive.
             range: { start: { x: m.index + 1, y }, end: { x: m.index + url.length, y } },
             activate: () => this.app.messageRenderer?.openImageFullscreen(url, 'Generated image'),
           });
@@ -390,32 +337,22 @@ class TerminalManager {
     });
   }
 
-  /**
-   * Called when relayLLM confirms terminal creation (sent only to creator).
-   * Server auto-joins the creator, so no join_terminal needed.
-   */
+  // relayLLM auto-joins the creator, so no separate join_terminal is needed.
   onTerminalCreated(terminalId, templateId, name, directory) {
     this.setupTerminal(terminalId, templateId, name, directory, false);
     this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
-  /**
-   * Called when we successfully join a terminal (with scrollback).
-   *
-   * By contract, the PTY size matches our xterm grid at this point:
-   *   - Fresh terminals: created at our requested cols/rows.
-   *   - Reconnects: showTerminal fits xterm first, then sends
-   *     terminal_reconnect with the fitted cols/rows; relayLLM resizes the
-   *     PTY before capturing scrollback.
-   * So we replay bytes as-is and never resize during scrollback playback —
-   * the resize-during-replay path is what produced the duplicate-screen bug.
-   */
+  // By the time terminal_joined arrives, the PTY size is guaranteed to match
+  // our xterm grid: fresh terminals are created at our requested cols/rows,
+  // and reconnects fit xterm before sending terminal_reconnect so relayLLM
+  // resizes the PTY before capturing scrollback. Never resize during replay —
+  // that's what produced the duplicate-screen bug.
   onTerminalJoined(data) {
     const terminalId = data.terminalId;
     let terminal = this.terminals.get(terminalId);
 
-    // Defensive: terminal_joined arriving without prior setup (shouldn't
-    // happen on the normal reconnect path now, but keep the fallback).
+    // Fallback for terminal_joined arriving without prior setup.
     if (!terminal) {
       this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped');
       this.app.bus.emit(EVT.TERMINAL_LIST);
@@ -451,18 +388,12 @@ class TerminalManager {
       terminal.fitAddon.fit();
       terminal.term.focus();
 
-      // Defeat xterm's stuck render-pause on tab switch: showing a terminal
-      // flips its container display:none→block, and Safari may not fire the
-      // IntersectionObserver "intersecting" entry that resumes rendering. Force
-      // the resume so the switched-to terminal paints immediately. See
-      // _resumeRenderer.
       this._resumeRenderer(terminal.term);
 
-      // First display after a reconnect: now that xterm has measured itself
-      // against the visible container, ask relayLLM to size the PTY to match
-      // before it sends scrollback. This keeps PTY, xterm grid, and replayed
-      // bytes all at the same dimensions — no SIGWINCH-driven repaint
-      // landing on top of an already-rendered screen.
+      // Now that xterm has measured itself against the visible container, tell
+      // relayLLM to size the PTY to match before it sends scrollback — keeps
+      // PTY, grid, and replayed bytes at the same dimensions so no
+      // SIGWINCH-driven repaint lands on an already-rendered screen.
       if (terminal.needsReconnect) {
         terminal.needsReconnect = false;
         this.app.wsClient.send({
@@ -485,9 +416,6 @@ class TerminalManager {
     window.addEventListener('resize', this.resizeHandler);
   }
 
-  /**
-   * Handles terminal output from relayLLM (base64-encoded).
-   */
   onTerminalOutput(terminalId, data) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {
@@ -499,7 +427,6 @@ class TerminalManager {
   onTerminalExit(terminalId, exitCode) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {
-      // Flush before the exit guard starts dropping input.
       this._flushTerminalInput(terminalId);
       terminal.exited = true;
     }
@@ -511,7 +438,6 @@ class TerminalManager {
   closeTerminal(terminalId) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {
-      // Don't drop keystrokes typed just before close; clear the resize timer.
       this._flushTerminalInput(terminalId);
       if (terminal.resizeTimer) { clearTimeout(terminal.resizeTimer); terminal.resizeTimer = null; }
       this.app.wsClient.send({ type: 'terminal_close', terminalId });
@@ -536,11 +462,7 @@ class TerminalManager {
     this.app.wsClient.send({ type: 'terminal_list' });
   }
 
-  /**
-   * Handle terminal list from relayLLM (for reconnection after refresh).
-   */
   onTerminalList(terminalList) {
-    // Track all known terminals for sidebar and badge counts.
     this.allTerminals.clear();
     if (terminalList && terminalList.length > 0) {
       for (const t of terminalList) {
@@ -554,11 +476,8 @@ class TerminalManager {
   }
 
   reconnectTerminal(terminalId, templateId, name, directory, exited) {
-    // setupTerminal marks the terminal as needing a reconnect; the actual
-    // terminal_reconnect message is deferred until showTerminal so we can
-    // fit() against the visible container first and tell relayLLM the real
-    // viewport size. Capturing scrollback at the wrong size and resizing
-    // after replay is what produced the duplicate-screen bug.
+    // terminal_reconnect is deferred until showTerminal so xterm can fit()
+    // against the visible container first and report the real viewport size.
     this.setupTerminal(terminalId, templateId, name, directory, exited, /* needsReconnect */ true);
   }
 
@@ -568,7 +487,6 @@ class TerminalManager {
       return;
     }
 
-    // Don't create duplicate terminals.
     if (this.terminals.has(terminalId)) return;
 
     const { term, fitAddon } = this.createXtermInstance();
@@ -590,9 +508,6 @@ class TerminalManager {
       name,
       exited: !!exited,
       needsReconnect: !!needsReconnect,
-      // Outbound coalescing: keystrokes batch into one frame per ~12ms window
-      // (cuts per-keystroke frames on mobile); resize debounces the soft-keyboard
-      // storm. See onData/onResize handlers and _flushTerminalInput.
       inputBuf: '',
       inputTimer: null,
       pendingResize: null,
@@ -603,13 +518,10 @@ class TerminalManager {
       state: exited ? 'stopped' : 'running'
     });
 
-    // Send input as base64 to relayLLM. A primed Ctrl/Alt from the mobile key
-    // bar folds into the typed character here before it reaches the PTY.
-    // Keystrokes are coalesced into one frame per ~12ms window; a modifier fold
-    // flushes immediately so a chord (^C, Option+x) is never merged behind a
-    // following plain key. Concatenation is byte-correct because transformInput
-    // folds the one-shot modifier over its own chunk's first byte, and
-    // _encodeBase64(a+b) equals base64 of the concatenated UTF-8 bytes.
+    // A modifier fold flushes immediately so a chord (^C, Option+x) is never
+    // merged behind a following plain key. Concatenation stays byte-correct
+    // because transformInput folds the one-shot modifier over its own chunk's
+    // first byte, and _encodeBase64(a+b) equals base64 of a+b's UTF-8 bytes.
     term.onData((data) => {
       const terminal = this.terminals.get(terminalId);
       if (!terminal || terminal.exited) return;
@@ -625,7 +537,7 @@ class TerminalManager {
     term.onResize(({ cols, rows }) => {
       const terminal = this.terminals.get(terminalId);
       if (!terminal) return;
-      // Debounce: the mobile soft keyboard spams resize via fitActive().
+      // The mobile soft keyboard spams resize via fitActive().
       terminal.pendingResize = { cols, rows };
       if (terminal.resizeTimer) clearTimeout(terminal.resizeTimer);
       terminal.resizeTimer = setTimeout(() => {
@@ -642,20 +554,15 @@ class TerminalManager {
     this.app.tabManager.openTerminal(terminalId, label, directory);
   }
 
-  /**
-   * Enable finger-drag scrollback on touch devices.
-   *
-   * xterm.js doesn't translate a touch drag into scrollback — the `.xterm-screen`
-   * overlay swallows the gesture, and in this version the `.xterm-viewport` is
-   * not a native scroll container (scrollHeight === clientHeight), so adjusting
-   * scrollTop does nothing. Instead we drive the documented API: a vertical drag
-   * accumulates pixels and calls `term.scrollLines()` per row of movement
-   * (dragging down reveals older output, matching native touch scrolling).
-   */
+  // xterm.js doesn't translate a touch drag into scrollback — the
+  // `.xterm-screen` overlay swallows the gesture, and in this version
+  // `.xterm-viewport` isn't a native scroll container (scrollHeight ===
+  // clientHeight), so adjusting scrollTop does nothing. Drive scrollLines()
+  // from accumulated drag pixels instead.
   _attachTouchScroll(containerDiv, term) {
-    let cellHeight = 0;   // px per row, measured at gesture start
+    let cellHeight = 0;
     let lastY = 0;
-    let accum = 0;        // leftover sub-row pixels carried between moves
+    let accum = 0;
 
     containerDiv.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
@@ -673,21 +580,16 @@ class TerminalManager {
       lastY = y;
       const steps = Math.trunc(accum / cellHeight);
       if (steps !== 0) {
-        term.scrollLines(-steps); // drag down (steps > 0) -> scroll up into history
+        term.scrollLines(-steps); // drag down (steps > 0) scrolls up into history
         accum -= steps * cellHeight;
-        e.preventDefault(); // own the gesture so the page/overlay doesn't scroll
+        e.preventDefault();
       }
     }, { passive: false });
   }
 
-  /**
-   * Note a terminal that exists in relayLLM but isn't (yet) in our
-   * allTerminals map. Used by the dispatcher when a scheduled PTY task
-   * fires — we learn about the new terminalId via the task_started
-   * broadcast before the next terminal_list arrives, and openTaskTerminal
-   * needs to know the session is alive so it picks WS attach over the
-   * disk-log fallback.
-   */
+  // Called by the dispatcher on a task_started broadcast, which arrives
+  // before the next terminal_list — lets openTaskTerminal pick WS attach
+  // over the disk-log fallback for a terminal relayLLM already knows about.
   registerKnownTerminal(meta) {
     if (!meta?.id) return;
     if (!this.allTerminals.has(meta.id)) {
@@ -701,21 +603,11 @@ class TerminalManager {
     }
   }
 
-  /**
-   * Open a task's terminal output. The right entry point for TaskViewer's
-   * "readonly" renderer — picks live WS attach when relayLLM still has the
-   * session in memory, falls back to a disk-log replay otherwise. Either
-   * way the user lands in an xterm tab.
-   */
   openTaskTerminal(terminalId, opts = {}) {
-    // Already attached in this Eve instance.
     if (this.terminals.has(terminalId)) {
       this.showTerminal(terminalId);
       return;
     }
-    // Known to relayLLM (running or recently stopped, still resident).
-    // reconnectTerminal sends a WS terminal_reconnect which streams
-    // scrollback + any continued output.
     const meta = this.allTerminals.get(terminalId);
     if (meta) {
       this.reconnectTerminal(
@@ -728,20 +620,11 @@ class TerminalManager {
       this.showTerminal(terminalId);
       return;
     }
-    // Session has been evicted from memory (idle timeout or relayLLM
-    // restart). Replay the on-disk byte stream instead.
+    // Not resident in relayLLM (idle timeout or relayLLM restart evicted it).
     this.viewReadOnly(terminalId, opts);
   }
 
-  /**
-   * Open a read-only terminal tab and replay a completed (or live) PTY's
-   * captured byte stream via the on-disk log file. Used by "View Last Run"
-   * on scheduled PTY tasks. The fetched bytes pass through xterm.js so
-   * ANSI escape codes (colors, cursor moves) render the same as they did
-   * during the original run.
-   */
   async viewReadOnly(terminalId, opts = {}) {
-    // If we're already attached to this terminal in this tab, just focus.
     if (this.terminals.has(terminalId)) {
       this.showTerminal(terminalId);
       return;
@@ -757,7 +640,7 @@ class TerminalManager {
 
     try {
       const bytes = await this.app.api.getTerminalLog(terminalId);
-      // Chunk writes to keep xterm responsive on large logs (~1MB cap).
+      // Chunk writes to keep xterm responsive on large logs.
       const chunkSize = 64 * 1024;
       for (let i = 0; i < bytes.length; i += chunkSize) {
         terminal.term.write(bytes.subarray(i, Math.min(i + chunkSize, bytes.length)));
@@ -768,9 +651,6 @@ class TerminalManager {
     }
   }
 
-  /**
-   * Encode a string to base64 (handles unicode properly).
-   */
   _encodeBase64(str) {
     const bytes = new TextEncoder().encode(str);
     let binary = '';
@@ -778,9 +658,6 @@ class TerminalManager {
     return btoa(binary);
   }
 
-  /**
-   * Decode base64 to a byte array.
-   */
   _decodeBase64(b64) {
     const binary = atob(b64);
     const bytes = new Uint8Array(binary.length);
@@ -790,9 +667,6 @@ class TerminalManager {
     return bytes;
   }
 
-  /**
-   * Return all terminals whose directory falls under a project path.
-   */
   getTerminalsForPath(projectPath) {
     if (!projectPath) return [];
     const normPath = projectPath.toLowerCase();
@@ -805,9 +679,6 @@ class TerminalManager {
     return result;
   }
 
-  /**
-   * Count running terminals for a project path that aren't currently in a tab.
-   */
   getDetachedCountForPath(projectPath) {
     if (!projectPath) return 0;
     const normPath = projectPath.toLowerCase();
@@ -825,7 +696,6 @@ class TerminalManager {
   }
 }
 
-// Export for use in app.js
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = TerminalManager;
 }

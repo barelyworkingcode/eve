@@ -1,5 +1,3 @@
-// WebAuthn authentication client
-
 class AuthClient {
   constructor(log) {
     this.log = log || new NullLogger();
@@ -128,7 +126,6 @@ class AuthClient {
   }
 
   async enroll() {
-    // Get registration options from server
     const startRes = await fetch('/api/auth/enroll/start', { method: 'POST' });
     if (!startRes.ok) {
       const error = await startRes.json();
@@ -136,7 +133,6 @@ class AuthClient {
     }
     const { options, challengeId } = await startRes.json();
 
-    // Create credential with browser API
     const credential = await navigator.credentials.create({
       publicKey: {
         ...options,
@@ -152,7 +148,6 @@ class AuthClient {
       }
     });
 
-    // Send credential to server for verification
     const response = {
       id: credential.id,
       rawId: bufferToBase64url(credential.rawId),
@@ -184,7 +179,6 @@ class AuthClient {
   }
 
   async login() {
-    // Get authentication options from server
     const startRes = await fetch('/api/auth/login/start', { method: 'POST' });
     if (!startRes.ok) {
       const error = await startRes.json();
@@ -198,7 +192,6 @@ class AuthClient {
       challenge: options.challenge?.substring(0, 20) + '...'
     });
 
-    // Get credential with browser API
     const credential = await navigator.credentials.get({
       publicKey: {
         ...options,
@@ -210,7 +203,6 @@ class AuthClient {
       }
     });
 
-    // Send assertion to server for verification
     const response = {
       id: credential.id,
       rawId: bufferToBase64url(credential.rawId),
@@ -243,7 +235,6 @@ class AuthClient {
   }
 }
 
-// Base64url helpers
 function base64urlToBuffer(base64url) {
   const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
   const padding = '='.repeat((4 - base64.length % 4) % 4);
@@ -264,5 +255,4 @@ function bufferToBase64url(buffer) {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
-// Export for use in app.js
 window.AuthClient = AuthClient;

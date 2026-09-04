@@ -1,14 +1,3 @@
-/**
- * SettingsManager - browser theme configuration stored in localStorage.
- * Applies settings by overriding CSS custom properties on :root.
- *
- * Theme model: two palettes (dark + light), each a set of base colors, plus a
- * themeMode of 'auto' | 'light' | 'dark'. In 'auto' the active palette follows
- * the OS (prefers-color-scheme) and re-applies live when the OS theme flips.
- * The 9 base colors live ONLY inside palettes[mode]; get('bgPrimary') etc.
- * resolve to whichever palette is currently active.
- */
-
 const FONT_PRESETS = {
   'sf-mono': "'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', 'Consolas', monospace",
   'jetbrains': "'JetBrains Mono', monospace",
@@ -26,9 +15,8 @@ const FONT_PRESETS = {
 };
 
 const FONT_GROUPS = {
-  // Sans-Serif first: the UI font picker is sans-led for the Apple-native look.
-  // The Code & Terminal picker reads FONT_GROUPS['Monospace'] by key, so group
-  // order here only affects the UI picker.
+  // Order only affects the UI font picker; the Code & Terminal picker reads
+  // FONT_GROUPS['Monospace'] by key.
   'Sans-Serif': ['sf-pro', 'inter', 'system-sans', 'helvetica'],
   'Monospace': ['sf-mono', 'jetbrains', 'fira-code', 'source-code-pro', 'cascadia', 'menlo', 'system-mono'],
   'Serif': ['georgia', 'charter'],
@@ -50,7 +38,6 @@ const FONT_PRESET_LABELS = {
   'charter': 'Charter',
 };
 
-// The base palette keys. These live inside palettes[mode], never at the top level.
 const COLOR_KEYS = [
   'accentColor', 'bgPrimary', 'bgSecondary', 'textPrimary', 'textSecondary',
   'borderColor', 'dangerColor', 'successColor', 'messageUserBg',
@@ -138,7 +125,6 @@ const THEME_PRESETS = {
   },
 };
 
-// Non-color theme settings and their defaults. Colors come from the presets above.
 const NON_COLOR_DEFAULTS = {
   themeMode: 'auto',
   fontFamily: 'sf-pro',
@@ -181,7 +167,6 @@ class SettingsManager {
     if (!stored) return;
 
     if (stored.palettes) {
-      // Already the current shape — merge, guaranteeing both palettes are complete.
       Object.assign(this._settings, stored);
       this._settings.palettes = {
         dark: { ...THEME_PRESETS['Default Dark'], ...(stored.palettes.dark || {}) },
@@ -191,18 +176,11 @@ class SettingsManager {
         this._settings.themeMode = 'dark';
       }
     } else {
-      // Legacy flat shape ({bgPrimary, accentColor, ...}). Migrate once.
       this._migrateLegacy(stored);
       this._save();
     }
   }
 
-  /**
-   * Convert pre-palette flat settings into the palettes + themeMode shape.
-   * The stored colors were the user's single active theme; infer whether they
-   * were running light or dark from background luminance, seat them in that
-   * palette, and leave the opposite palette at its preset default.
-   */
   _migrateLegacy(stored) {
     const flat = {};
     for (const k of COLOR_KEYS) {
@@ -214,7 +192,6 @@ class SettingsManager {
       this._settings.palettes[activeMode] = { ...base, ...flat };
       this._settings.themeMode = activeMode;
     }
-    // Carry over every non-color key (fonts, prompt tags, favorites, search prefs…).
     for (const [k, v] of Object.entries(stored)) {
       if (COLOR_KEYS.includes(k) || k === 'palettes' || k === 'themeMode') continue;
       this._settings[k] = v;
@@ -253,7 +230,6 @@ class SettingsManager {
     return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
   }
 
-  /** The mode actually rendered right now (resolves 'auto' against the OS). */
   getActiveMode() {
     if (this._settings.themeMode === 'auto') return this._systemPrefersDark() ? 'dark' : 'light';
     return this._settings.themeMode === 'light' ? 'light' : 'dark';
@@ -262,8 +238,6 @@ class SettingsManager {
   _activePalette() {
     return this._settings.palettes[this.getActiveMode()];
   }
-
-  // --- Generic accessors -------------------------------------------------
 
   get(key) {
     if (COLOR_KEYS.includes(key)) return this._activePalette()[key];
@@ -280,8 +254,6 @@ class SettingsManager {
     this._scheduleApply();
   }
 
-  // --- Theme mode + palette API (used by the settings dialog) ------------
-
   getThemeMode() {
     return this._settings.themeMode;
   }
@@ -297,7 +269,6 @@ class SettingsManager {
     return { ...this._settings.palettes[mode] };
   }
 
-  /** Set a single color within a specific palette (dark/light). */
   setColor(mode, key, value) {
     if (!this._settings.palettes[mode] || !COLOR_KEYS.includes(key)) return;
     this._settings.palettes[mode][key] = value;
@@ -305,7 +276,6 @@ class SettingsManager {
     this._scheduleApply();
   }
 
-  /** Replace a whole palette's colors (used when applying a preset). */
   setPalette(mode, colors) {
     if (!this._settings.palettes[mode]) return;
     this._settings.palettes[mode] = { ...this._settings.palettes[mode], ...colors };
@@ -313,7 +283,6 @@ class SettingsManager {
     this._applyToDOM();
   }
 
-  /** Presets grouped by whether they read as a light or dark theme. */
   getPresetGroups() {
     const groups = { dark: [], light: [] };
     for (const [name, colors] of Object.entries(THEME_PRESETS)) {
@@ -322,7 +291,6 @@ class SettingsManager {
     return groups;
   }
 
-  /** Name of the preset whose colors exactly match the given palette, if any. */
   matchPresetName(colors) {
     for (const [name, preset] of Object.entries(THEME_PRESETS)) {
       if (COLOR_KEYS.every((k) => (preset[k] || '').toLowerCase() === (colors[k] || '').toLowerCase())) {
@@ -333,8 +301,8 @@ class SettingsManager {
   }
 
   reset() {
-    // Reset theme + font preferences to defaults, but keep non-theme state the
-    // user accumulated (favorite template, last-used search models, etc.).
+    // Deliberately partial: only theme + font keys reset, not accumulated
+    // state like favoriteTemplate or lastSearchModels.
     const fresh = defaultSettings();
     for (const k of Object.keys(NON_COLOR_DEFAULTS)) this._settings[k] = fresh[k];
     this._settings.palettes = fresh.palettes;
@@ -408,14 +376,11 @@ class SettingsManager {
 
     root.setProperty('--warning', light ? '#ff9500' : '#ff9f0a');
 
-    // Let native controls (scrollbars, color pickers, form inputs) match the theme,
-    // and pin data-theme so apple/tokens.css materials/shadows resolve to the
-    // resolved mode regardless of the OS prefers-color-scheme.
+    // dataset.theme (not just colorScheme) is what apple/tokens.css keys its
+    // materials/shadows on, so it must track the resolved mode, not the OS.
     root.colorScheme = light ? 'light' : 'dark';
     document.documentElement.dataset.theme = light ? 'light' : 'dark';
 
-    // Two independent font slots: --font-ui drives chrome/prose, --font-mono
-    // drives the terminal, code editor, and code blocks (always monospace).
     root.setProperty('--font-ui', FONT_PRESETS[this._settings.fontFamily] || FONT_PRESETS['sf-mono']);
     root.setProperty('--font-mono', this.getTerminalFontStack());
     root.setProperty('--root-font-size', this._settings.fontSize + 'px');

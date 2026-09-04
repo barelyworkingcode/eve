@@ -1,12 +1,11 @@
 const WebSocket = require('ws');
 const RelayClient = require('../../relay-client');
 
-// Minimal fake socket: records JSON frames + binary frames, controllable readyState.
 function makeSocket(readyState = WebSocket.OPEN) {
   return {
     readyState,
-    sent: [],    // parsed JSON frames
-    binary: [],  // Buffer frames (audio)
+    sent: [],
+    binary: [],
     send: jest.fn(function (data) {
       if (Buffer.isBuffer(data)) this.binary.push(data);
       else this.sent.push(JSON.parse(data));
@@ -22,8 +21,8 @@ describe('RelayClient', () => {
 
   beforeEach(() => {
     browserWs = makeSocket();
-    // connect() is not exercised here (it opens upstream sockets + scheduler
-    // reconnect timers); we test the message-routing core directly with the
+    // connect() opens upstream sockets + scheduler reconnect timers, so it's not
+    // exercised here; the message-routing core is tested directly against an
     // upstream socket faked as already-open.
     transport = { createWebSocket: jest.fn(() => makeSocket()) };
     client = new RelayClient(transport, browserWs, null, null);
@@ -98,7 +97,7 @@ describe('RelayClient', () => {
       jest.useFakeTimers();
       client.sendToBrowser({ type: 'llm_event', n: 1 });
       client.sendToBrowser({ type: 'stats_update', n: 2 });
-      expect(browserWs.send).not.toHaveBeenCalled(); // still buffered
+      expect(browserWs.send).not.toHaveBeenCalled();
 
       jest.advanceTimersByTime(client.BATCH_MS);
 
@@ -115,8 +114,8 @@ describe('RelayClient', () => {
 
     it('flushes the buffer before an immediate-priority frame so ordering is preserved', () => {
       jest.useFakeTimers();
-      client.sendToBrowser({ type: 'llm_event', n: 1 });        // buffered
-      client.sendToBrowser({ type: 'permission_request', id: 'p' }); // immediate → flush then send
+      client.sendToBrowser({ type: 'llm_event', n: 1 });
+      client.sendToBrowser({ type: 'permission_request', id: 'p' });
 
       expect(browserWs.sent[0]).toEqual({ type: 'llm_event', n: 1 });
       expect(browserWs.sent[1]).toEqual({ type: 'permission_request', id: 'p' });

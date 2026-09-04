@@ -1,8 +1,6 @@
-/**
- * Integration test for the module routes (routes/modules.js). The SERVE_MIME
- * allowlist, the 403 traversal/symlink mapping, and the no-store/nosniff
- * headers live in the route + ModuleService, so they need a real Express app.
- */
+// The SERVE_MIME allowlist, the 403 traversal/symlink mapping, and the
+// no-store/nosniff headers live in the route + ModuleService, so they need a
+// real Express app to exercise.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -27,10 +25,9 @@ describe('module routes', () => {
     }), 'utf8');
     fs.writeFileSync(path.join(modDir, 'index.html'), '<h1>hi</h1>', 'utf8');
     fs.writeFileSync(path.join(modDir, 'style.css'), 'body{}', 'utf8');
-    fs.writeFileSync(path.join(modDir, 'data.bin'), 'BINARY', 'utf8'); // disallowed type
-    fs.writeFileSync(path.join(projectDir, 'secret.txt'), 'TOP SECRET', 'utf8'); // outside the module
+    fs.writeFileSync(path.join(modDir, 'data.bin'), 'BINARY', 'utf8');
+    fs.writeFileSync(path.join(projectDir, 'secret.txt'), 'TOP SECRET', 'utf8');
 
-    // Symlink inside the module pointing outside it (escape attempt).
     try {
       fs.writeFileSync(path.join(tmp, 'outside.html'), '<b>leak</b>', 'utf8');
       fs.symlinkSync(path.join(tmp, 'outside.html'), path.join(modDir, 'leak.html'));

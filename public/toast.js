@@ -1,12 +1,8 @@
-/**
- * ToastManager - Lightweight, event-driven toast notifications.
- * Listens to EVT.TOAST_SHOW / TOAST_UPDATE / TOAST_DISMISS on the EventBus.
- * No other module touches toast DOM directly.
- */
+// No other module touches toast DOM directly.
 class ToastManager {
   constructor(container) {
     this.bus = container.get('bus');
-    this._toasts = new Map(); // id → { el, timer }
+    this._toasts = new Map();
     this._container = null;
     this._initContainer();
     this._subscribe();
@@ -24,18 +20,7 @@ class ToastManager {
     this.bus.on(EVT.TOAST_DISMISS, (data) => this._dismiss(data.id));
   }
 
-  /**
-   * Show a toast notification.
-   * @param {Object} opts
-   * @param {string} opts.id - Unique identifier (update/dismiss by id)
-   * @param {string} opts.message - Display text
-   * @param {string} [opts.type='info'] - 'info' | 'success' | 'warning' | 'error'
-   * @param {number} [opts.progress] - 0-100, shows progress bar if present
-   * @param {boolean} [opts.persistent=false] - If true, no auto-dismiss
-   * @param {number} [opts.duration=5000] - Auto-dismiss delay (ms), ignored if persistent
-   */
   _show({ id, message, type = 'info', progress, persistent = false, duration = 5000 }) {
-    // If toast with this id already exists, update it instead
     if (this._toasts.has(id)) {
       this._update({ id, message, progress, type });
       return;
@@ -81,14 +66,6 @@ class ToastManager {
     this._toasts.set(id, { el, timer });
   }
 
-  /**
-   * Update an existing toast.
-   * @param {Object} opts
-   * @param {string} opts.id
-   * @param {string} [opts.message]
-   * @param {number} [opts.progress]
-   * @param {string} [opts.type]
-   */
   _update({ id, message, progress, type }) {
     const entry = this._toasts.get(id);
     if (!entry) return;
@@ -105,7 +82,6 @@ class ToastManager {
       if (fill) {
         fill.style.width = `${progress}%`;
       } else {
-        // Add progress bar if it didn't exist
         const bar = document.createElement('div');
         bar.className = 'toast__progress';
         fill = document.createElement('div');
@@ -121,10 +97,6 @@ class ToastManager {
     }
   }
 
-  /**
-   * Dismiss a toast by id.
-   * @param {string} id
-   */
   _dismiss(id) {
     const entry = this._toasts.get(id);
     if (!entry) return;

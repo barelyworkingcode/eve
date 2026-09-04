@@ -27,7 +27,7 @@ describe('permission request/response forwarding', () => {
   });
 
   it('forwards a relay permission_request to the browser and the response back to relay', async () => {
-    // Real relayLLM field names (toolName/toolInput/toolUseId) — see protocol.js.
+    // Real relayLLM field names — see protocol.js.
     eve.relay.emitToRelay(relayFrames.permissionRequest({
       sessionId: 's1', permissionId: 'perm-1', toolName: 'Bash', toolInput: '{"command":"ls"}', toolUseId: 'tu-1',
     }));

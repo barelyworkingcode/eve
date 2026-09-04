@@ -1,23 +1,12 @@
-/**
- * FileAttachmentManager - handles file selection, reading, drag/drop, paste,
- * and rendering of attached files for chat input.
- */
 class FileAttachmentManager {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
     this.container = container;
     this.files = [];
     this.button = null;
   }
 
-  /**
-   * Wires the attach button and the static input-row markup it depends on.
-   * Called from the render closure at renderSlots() time, when #fileInput,
-   * #userInput and #attachedFiles (static index.html markup) and #attachBtn
-   * (just created) all exist.
-   */
+  // Must run after #fileInput, #userInput, #attachedFiles (static index.html
+  // markup) and #attachBtn (just created) exist in the DOM.
   init(button) {
     this.button = button;
     this.fileInput = document.getElementById('fileInput');
@@ -30,7 +19,6 @@ class FileAttachmentManager {
       e.target.value = '';
     });
 
-    // Paste images
     this.input.addEventListener('paste', (e) => {
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -48,7 +36,6 @@ class FileAttachmentManager {
       }
     });
 
-    // Drag and drop on input
     this.input.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -67,7 +54,6 @@ class FileAttachmentManager {
     });
   }
 
-  /** State-sync: called by app._updateChatInputCapabilities. */
   setAvailable(available) {
     if (this.button) this.button.hidden = !available;
   }
@@ -145,7 +131,6 @@ class FileAttachmentManager {
     });
   }
 
-  /** Returns current files and clears the list */
   consumeFiles() {
     const files = [...this.files];
     this.files = [];
@@ -154,7 +139,6 @@ class FileAttachmentManager {
   }
 }
 
-// Export for use in app.js
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = FileAttachmentManager;
 }

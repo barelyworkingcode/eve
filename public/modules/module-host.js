@@ -1,15 +1,14 @@
 /**
- * ModuleHost — owns module iframe lifecycle and the postMessage bridge.
- *
  * SECURITY MODEL:
- *  - Iframes are created with sandbox="allow-scripts" only (NO allow-same-origin).
- *  - The iframe's origin is `null` (opaque), so postMessage origin is `*` —
- *    we authenticate the message by matching `event.source` against the
- *    Window of an iframe we created. That cannot be spoofed.
- *  - The iframe NEVER sends projectId/moduleName over the wire — both come
- *    from the WeakMap lookup. An AI-authored module cannot lie about scope.
- *  - File reads/writes are gated server-side against the manifest's
- *    permissions.files list. Client checks are advisory.
+ *  - Iframe sandbox must never gain allow-same-origin — the opaque origin
+ *    is the isolation.
+ *  - The postMessage bridge authenticates by matching event.source to the
+ *    iframe's contentWindow. Scope (projectId/moduleName) is injected by
+ *    the host from that lookup, never accepted from the iframe — an
+ *    AI-authored iframe would otherwise be able to claim to be a
+ *    different module.
+ *  - Manifest permissions are re-read on every gated call server-side,
+ *    because an AI can rewrite the manifest between calls.
  */
 class ModuleHost {
   constructor(container) {
@@ -19,18 +18,10 @@ class ModuleHost {
     this.state = container.get('state');
     this.api = container.get('api');
 
-    // tabId -> { iframeEl, contentWindow, projectId, moduleName, manifest }
-    // While a creation is in flight, the entry is { pending: Promise<ctx> }.
     this.iframes = new Map();
-    // WeakMap so iframe GC doesn't leak; reverse lookup from postMessage source.
     this.windowToCtx = new WeakMap();
-    // Pending WS file-op requests. Each entry holds { resolve, reject, timer }
-    // so the success path can clear the timeout (timers would otherwise pile up).
     this._pendingFileOps = new Map();
     this._fileOpSeq = 1;
-    // Pending WS AI invocations. requestId -> { resolve, reject, source,
-    // sdkRequestId, projectId, moduleName }. The source/sdkRequestId let us
-    // post the result back through the SDK bridge after the server resolves.
     this._pendingInvokes = new Map();
     this._invokeSeq = 1;
     this._host = null;
@@ -43,7 +34,6 @@ class ModuleHost {
     }
     window.addEventListener('message', (event) => this._handleMessage(event));
 
-    // Bridge WS responses from server-side module file ops back to pending callers.
     this.bus.on(EVT.MODULE_FILE_RESPONSE, (msg) => {
       const entry = this._pendingFileOps.get(msg.requestId);
       if (!entry) return;
@@ -53,10 +43,6 @@ class ModuleHost {
       else entry.reject(new Error(msg.error || 'Unknown error'));
     });
 
-    // Streaming AI invocation lifecycle. The bus handlers only resolve/reject
-    // the pending Promise — _handleMessage's then/catch is responsible for
-    // posting the SDK response. Keeping the SDK reply on a single code path
-    // avoids double-posts on the cancel/timeout race.
     this.bus.on(EVT.MODULE_AI_COMPLETED, (msg) => {
       const entry = this._pendingInvokes.get(msg.requestId);
       if (!entry) return;
@@ -76,27 +62,16 @@ class ModuleHost {
     });
   }
 
-  /**
-   * Show the iframe for `tab`. Creates it on first activation; reuses it on
-   * subsequent switches so the module's in-memory state is preserved.
-   *
-   * Concurrent calls (e.g. multiple MODULE_LAUNCH_REQUEST emits or a fast
-   * close+reopen) reuse the same in-flight creation Promise — without that
-   * dedup, the second call's `iframes.get(tab.id)` would miss the slot the
-   * first call is still constructing, and both would append iframes.
-   */
   async activate(tab) {
     if (!this._host) return;
 
     let entry = this.iframes.get(tab.id);
     if (!entry) {
       const pending = this._createIframe(tab);
-      // Claim the slot synchronously so a re-entrant activate() finds it.
       this.iframes.set(tab.id, { pending });
       try {
         entry = await pending;
       } finally {
-        // If creation failed (entry is null) or aborted, drop the placeholder.
         if (!entry) this.iframes.delete(tab.id);
       }
       if (!entry) return;
@@ -105,7 +80,6 @@ class ModuleHost {
       if (!entry) return;
     }
 
-    // Hide all OTHER module iframes; reveal this one.
     for (const [id, e] of this.iframes) {
       if (id !== tab.id && e.iframeEl) e.iframeEl.classList.add('hidden');
     }
@@ -130,19 +104,14 @@ class ModuleHost {
     iframeEl.src = `/api/modules/serve/${encodeURIComponent(projectId)}/${encodeURIComponent(moduleName)}/${encodeURIComponent(manifest.entry || 'index.html')}`;
     this._host.appendChild(iframeEl);
 
-    // Register the contentWindow BEFORE the iframe's script can fire postMessage.
-    // The Window object is allocated when the element is created and stays the
-    // same across navigation, so the WeakMap key is stable. Registering here
-    // (rather than on the iframe 'load' event) avoids a race where the SDK
-    // posts on script-execute — which happens before the parent's 'load'.
     const ctx = { iframeEl, contentWindow: iframeEl.contentWindow, projectId, moduleName, manifest };
     if (ctx.contentWindow) {
       this.windowToCtx.set(ctx.contentWindow, ctx);
     }
 
-    // Re-register after load in case the Window object identity changed during
-    // navigation (defensive — should be the same object on every browser
-    // we target, but cheap to confirm).
+    // Registered before load so a message arriving mid-navigation still
+    // resolves, and again on load because navigating to src can replace the
+    // contentWindow — an unregistered window fails authentication silently.
     iframeEl.addEventListener('load', () => {
       if (iframeEl.contentWindow && iframeEl.contentWindow !== ctx.contentWindow) {
         ctx.contentWindow = iframeEl.contentWindow;
@@ -150,9 +119,6 @@ class ModuleHost {
       }
     });
 
-    // Promote placeholder ({pending}) to the real entry — unless destroy()
-    // dropped the slot while we were awaiting. In that case, tear down the
-    // iframe we built and abort so we don't leak a detached element.
     const slot = this.iframes.get(tab.id);
     if (!slot || !slot.pending) {
       iframeEl.remove();
@@ -163,16 +129,11 @@ class ModuleHost {
     return ctx;
   }
 
-  /**
-   * Destroy the iframe for `tabId` and free associated state. Safe to call
-   * while the iframe is still being constructed — the slot is dropped and the
-   * in-flight _createIframe will detect that on resolve and abort.
-   */
   destroy(tabId) {
     const entry = this.iframes.get(tabId);
     if (!entry) return;
     if (entry.iframeEl) {
-      try { entry.iframeEl.remove(); } catch { /* ignore */ }
+      try { entry.iframeEl.remove(); } catch {}
     }
     this.iframes.delete(tabId);
     if (entry.projectId) {
@@ -195,17 +156,13 @@ class ModuleHost {
     setTimeout(() => errEl.remove(), 6000);
   }
 
-  // --- PostMessage bridge ---
-
   _handleMessage(event) {
     const data = event.data;
     if (!data || data.source !== 'eve-module-sdk') return;
-    if (data.op === 'ready') return; // boot ping, no response needed
+    if (data.op === 'ready') return;
 
     const ctx = this.windowToCtx.get(event.source);
     if (!ctx) {
-      // Message from an unknown Window — silently drop. Possible during the
-      // narrow window before the iframe's `load` registers contentWindow.
       this.log.debug('Dropped postMessage from unknown source');
       return;
     }
@@ -222,9 +179,6 @@ class ModuleHost {
     });
   }
 
-  // Parent-console mirror of every SDK call. Always tagged with the module
-  // name; invokeAI lines additionally carry the resolved model so the
-  // operator can see which provider handled the request at a glance.
   _logRequest(ctx, data) {
     const tag = `[module:${ctx.moduleName}]`;
     const model = data.op === 'invokeAI' ? this._resolveModelTag(ctx, data.args) : '';
@@ -263,7 +217,6 @@ class ModuleHost {
       case 'writeFile':
         return this._writeFile(ctx, source, requestId, args);
       case 'getManifest': {
-        // ctx.manifest is already the public projection (set by the server).
         this._respond(source, requestId, { ok: true, result: ctx.manifest });
         return { value: ctx.manifest };
       }
@@ -273,25 +226,15 @@ class ModuleHost {
     }
   }
 
-  /**
-   * Dispatch an AI invocation over the WebSocket and wait for the terminal
-   * `module_ai_completed`/`module_ai_failed` frame. While the call is in
-   * flight, the server streams `module_ai_event` frames which the orb
-   * subscribes to directly via the bus — we don't observe them here.
-   *
-   * Returns the meta the outer log path expects. The SDK response is sent
-   * by _handleMessage's success/failure branches; doing it here would
-   * race with the cancel/timeout handlers.
-   */
   _invokeAI(ctx, source, sdkRequestId, args) {
     const wsClient = this.container.get('ws');
     if (!wsClient) return Promise.reject(new Error('WebSocket unavailable'));
 
     return new Promise((resolve, reject) => {
       const serverRequestId = `inv${this._invokeSeq++}`;
-      // Slightly past the server's 5-min cap so a server-side timeout
-      // surfaces as a structured failure frame before we tear down locally.
       const timer = setTimeout(() => {
+        // delete() as test-and-clear: its return value is the only thing
+        // stopping a timeout from rejecting a request that already settled.
         if (this._pendingInvokes.delete(serverRequestId)) {
           reject(new Error('Module invocation timed out (no server response)'));
         }
@@ -320,11 +263,6 @@ class ModuleHost {
     });
   }
 
-  /**
-   * Server-side cancel for an in-flight invocation. Looks up the pending
-   * entry by the SDK-facing requestId so the orb's "Stop" button can target
-   * a specific invocation without leaking ModuleHost's internal id.
-   */
   stopInvoke(serverRequestId) {
     if (!this._pendingInvokes.has(serverRequestId)) return false;
     const wsClient = this.container.get('ws');

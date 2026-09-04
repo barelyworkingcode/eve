@@ -1,9 +1,3 @@
-/**
- * Shared UI utilities — DRY helpers for repeated patterns.
- */
-
-// --- SVG Icons ---
-
 const UI_ICONS = {
   shell: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l5 4-5 4"/><line x1="8" y1="13" x2="14" y2="13"/></svg>`,
   tasks: (size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12M2 8h12M2 13h12"/><circle cx="13" cy="3" r="1.5" fill="currentColor"/></svg>`,
@@ -19,14 +13,6 @@ const UI_ICONS = {
   caret: (size = 12) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>`,
 };
 
-// --- Model Select Dropdown ---
-
-/**
- * Populate a <select> element with grouped model options.
- * @param {HTMLSelectElement} selectEl - The select element to populate.
- * @param {Array} models - Array of {value, label, group, provider}.
- * @param {Object} [options] - { selectedValue, className, name }
- */
 function renderModelSelect(selectEl, models, options = {}) {
   selectEl.innerHTML = '';
   if (options.className) selectEl.className = options.className;
@@ -61,25 +47,15 @@ function isClaudeModel(models, value) {
   return models.find(m => m.value === value)?.provider === 'claude';
 }
 
-// --- HTML escape ---
-
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
 }
 
-// --- Context Menu ---
-
 let _activeContextMenu = null;
 let _activeContextMenuCloseHandler = null;
 
-/**
- * Show a positioned context menu.
- * @param {number} x - Left position.
- * @param {number} y - Top position.
- * @param {Array} items - Array of { label, action, danger? } or { separator: true }.
- */
 function showContextMenu(x, y, items) {
   closeContextMenu();
 
@@ -109,12 +85,10 @@ function showContextMenu(x, y, items) {
   document.body.appendChild(menu);
   _activeContextMenu = menu;
 
-  // Adjust if off-screen
   const rect = menu.getBoundingClientRect();
   if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 8}px`;
   if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 8}px`;
 
-  // Close on click outside
   _activeContextMenuCloseHandler = () => closeContextMenu();
   setTimeout(() => document.addEventListener('click', _activeContextMenuCloseHandler), 0);
 }
@@ -130,19 +104,7 @@ function closeContextMenu() {
   }
 }
 
-// --- Prompt dialog ---
-
-/**
- * Show a lightweight single-input modal and resolve with the entered text.
- * Built on the fly (no index.html markup → no server restart) and themed via
- * the .prompt-dialog* classes. Resolves with the trimmed value, or `null` if
- * the user cancels / submits empty (Escape, Cancel, backdrop click, or blank).
- *
- * @param {string} title
- * @param {string} [defaultValue]
- * @param {{ placeholder?: string, confirmLabel?: string, maxLength?: number }} [opts]
- * @returns {Promise<string|null>}
- */
+// Built from DOM APIs, not index.html markup, so adding this dialog needed no server restart.
 function showPromptDialog(title, defaultValue = '', opts = {}) {
   return new Promise((resolve) => {
     closeContextMenu();
@@ -208,8 +170,6 @@ function showPromptDialog(title, defaultValue = '', opts = {}) {
     input.select();
   });
 }
-
-// --- URL-scoped project filter ---
 
 function slugifyProjectName(name) {
   if (!name) return '';

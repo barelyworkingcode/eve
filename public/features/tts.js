@@ -1,14 +1,3 @@
-/**
- * TTS feature — owns the voice-mode button in the voice controls drawer.
- *
- * Registers TTSManager under the container key 'ttsManager' (the key the rest
- * of the app already resolves) and renders the voice-mode button into the
- * voice-drawer-controls slot. The render closure wires the tap/long-press
- * gestures and hands the manager its button: renderSlots() runs after boot(),
- * so the container lookup inside the closure resolves to the manager boot()
- * created.
- */
-
 features.register({
   id: 'ttsManager',
   init: (container) => new TTSManager(container),
@@ -16,6 +5,8 @@ features.register({
     {
       slot: 'voice-drawer-controls',
       order: 10,
+      // renderSlots() runs after boot(), so this lookup resolves to the
+      // manager boot() already created.
       render: (container) => {
         const app = container.get('app');
         const btn = document.createElement('button');
@@ -29,7 +20,6 @@ features.register({
   <path d="M15.54 8.46a5 5 0 010 7.07"/>
 </svg>`;
 
-        // Short tap: toggle TTS. Long press (500ms+): switch to voice UI.
         let voiceBtnTimer = null;
         let voiceBtnHandled = false;
         const startLongPress = () => {

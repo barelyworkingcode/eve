@@ -1,12 +1,3 @@
-/**
- * Module routes — list and serve static files for static-HTML modules
- * living under <project>/modules/<name>/.
- *
- * AI invocation does NOT live here anymore — it's driven over the WebSocket
- * by ModuleInvoker (see module-invoker.js) so the orb can stream tool-use
- * and thinking events while the model is working. The hidden-session
- * `__module:` prefix is still the load-bearing filter for /api/sessions.
- */
 const path = require('path');
 
 const { ModuleError } = require('../module-service');
@@ -34,7 +25,6 @@ const SERVE_MIME = {
 function register(app, { requireAuth, moduleService, resolveProject, log }) {
   const routeLog = log?.child ? log.child('ModuleRoutes') : { error: () => {}, info: () => {}, debug: () => {} };
 
-  // --- List modules ---
   app.get('/api/modules', requireAuth, async (req, res) => {
     const projectId = req.query.projectId;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
@@ -49,7 +39,6 @@ function register(app, { requireAuth, moduleService, resolveProject, log }) {
     }
   });
 
-  // --- Get a single module's manifest (for ModuleHost validation) ---
   app.get('/api/modules/:projectId/:moduleName', requireAuth, async (req, res) => {
     const { projectId, moduleName } = req.params;
     const project = resolveProject(projectId);
@@ -63,17 +52,12 @@ function register(app, { requireAuth, moduleService, resolveProject, log }) {
     }
   });
 
-  // --- Static module file serving (loaded into iframe) ---
   app.get('/api/modules/serve/:projectId/:moduleName/*', requireAuth, async (req, res) => {
     const { projectId, moduleName } = req.params;
     const project = resolveProject(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     try {
-      // Only parse the manifest when we need its default entry (root request).
-      // Asset requests under the module (`/index.html`, `/style.css`, images)
-      // skip the JSON parse + schema check — path traversal/symlink defense
-      // lives in resolveModuleFile and doesn't depend on the manifest.
       let relPath = req.params[0];
       if (!relPath) {
         const manifest = await moduleService.getModule(project.path, moduleName);
@@ -89,8 +73,7 @@ function register(app, { requireAuth, moduleService, resolveProject, log }) {
 
       res.set('Content-Type', mime);
       res.set('Cache-Control', 'no-store');
-      // Prevent the iframe page from framing other origins or being framed
-      // outside Eve. Module content is AI-authored — treat it as untrusted.
+      // Framing is already blocked globally (X-Frame-Options in security-headers.js).
       res.set('X-Content-Type-Options', 'nosniff');
 
       res.sendFile(resolved, { dotfiles: 'deny' }, (err) => {
@@ -112,6 +95,3 @@ function register(app, { requireAuth, moduleService, resolveProject, log }) {
 }
 
 module.exports = { register };
-// HIDDEN_SESSION_PREFIX moved to module-invoker.js — it's the load-bearing
-// marker for the sessions-list filter in routes/index.js. Update both files
-// in lockstep if you ever rename it.

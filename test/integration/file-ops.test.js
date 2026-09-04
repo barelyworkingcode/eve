@@ -21,7 +21,6 @@ describe('file ops over WebSocket', () => {
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# hi', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'src', 'index.js'), 'const a = 1;', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'data', 'notes.txt'), 'secret notes', 'utf8');
-    // A module declaring access to data/notes.txt only.
     const modDir = path.join(projectDir, 'modules', 'demo');
     fs.mkdirSync(modDir, { recursive: true });
     fs.writeFileSync(path.join(modDir, 'module.json'), JSON.stringify({
@@ -79,10 +78,9 @@ describe('file ops over WebSocket', () => {
       expect(res.error).toMatch(/permission denied/i);
     });
 
-    // The write side runs the same manifest re-read + permissions.files gate
-    // as read (module architecture invariant #2). Previously this had unit
-    // cover only (test/unit/ws-handler.test.js) with mocked FileService —
-    // never against a real spawned eve and real disk. See spec §9c-T4.
+    // Runs the same manifest re-read + permissions.files gate as read
+    // (module architecture invariant #2), against real disk and a real
+    // spawned eve — previously only unit-covered with a mocked FileService.
     it('writes a file listed in permissions.files, and it lands on disk', async () => {
       ws.send({
         type: 'module_write_file', requestId: 'w1', projectId: 'p1', moduleName: 'demo',

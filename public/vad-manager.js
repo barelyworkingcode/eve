@@ -1,6 +1,5 @@
 /**
- * VadManager - Voice Activity Detection using Silero VAD via @ricky0123/vad-web.
- * Provides Float32Array audio at 16kHz to the STT pipeline.
+ * VadManager - voice activity detection via the on-device VAD library.
  */
 class VadManager {
   constructor(log) {
@@ -10,14 +9,7 @@ class VadManager {
     this._destroying = false;
   }
 
-  /**
-   * Initialize and start the VAD. Mic permission is requested here.
-   * @param {Object} callbacks
-   * @param {Function} callbacks.onSpeechStart - Called when user starts speaking
-   * @param {Function} callbacks.onSpeechEnd - Called with Float32Array audio (16kHz mono)
-   * @param {Function} [callbacks.onVADMisfire] - Called on false positive (too short)
-   * @param {Function} [callbacks.onError] - Called if initialization fails
-   */
+  // mic permission is requested here, inside the VAD library's init call
   async start(callbacks) {
     if (this.micVAD) return;
     this._destroying = false;
@@ -93,9 +85,6 @@ class VadManager {
     this.isListening = false;
   }
 
-  /**
-   * Encode a Float32Array (16kHz mono) as a WAV and return base64.
-   */
   static audioToBase64Wav(float32Audio) {
     const sampleRate = 16000;
     const bytesPerSample = 2;

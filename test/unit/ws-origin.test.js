@@ -80,7 +80,7 @@ describe('ws-origin', () => {
       expect(isLoopbackHost('localhost')).toBe(true);
       expect(isLoopbackHost('127.0.0.1')).toBe(true);
       expect(isLoopbackHost('::1')).toBe(true);
-      expect(isLoopbackHost('[::1]')).toBe(true); // bracketed IPv6
+      expect(isLoopbackHost('[::1]')).toBe(true);
       expect(isLoopbackHost('LOCALHOST')).toBe(true);
     });
     it('rejects substring/lookalike bypass attempts', () => {

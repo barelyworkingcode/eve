@@ -1,7 +1,4 @@
-/**
- * Binary proxies: generated images and terminal logs are streamed from relay
- * via fetchRaw (not the JSON proxy). eve sets the content-type + cache headers.
- */
+// Generated images and terminal logs stream from relay via fetchRaw, not the JSON proxy.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');

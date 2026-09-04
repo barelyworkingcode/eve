@@ -3,21 +3,19 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 
-// Low rate-limit ceiling so the throttle test is cheap. Read once at module
-// load by ws-handler, so it must be set before the require below.
+// ws-handler reads these env vars once at module load, so they must be set
+// before the require below. Low ceiling keeps the throttle test cheap.
 process.env.EVE_RATELIMIT_MAX = '3';
 process.env.EVE_RATELIMIT_WINDOW_MS = '10000';
 delete process.env.EVE_NO_AUTH;
 
-// device_log writes into the repo working tree by default (DEVICE_LOG_PATH =
-// path.join(__dirname, 'relay-device.log')). EVE_DEVICE_LOG_PATH is the
-// testability seam (spec §9d) that points it at a tmpdir instead — also read
-// once at module load, so it must be set before the require below.
+// device_log writes into the repo working tree by default; EVE_DEVICE_LOG_PATH
+// points it at a tmpdir instead, also read once at module load.
 const deviceLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-device-log-'));
 const deviceLogPath = path.join(deviceLogDir, 'relay-device.log');
 process.env.EVE_DEVICE_LOG_PATH = deviceLogPath;
 
-// RelayClient and FileWatcher are constructed inside the handler (not injected),
+// RelayClient and FileWatcher are constructed inside the handler, not injected,
 // so mock the modules to inspect dispatch routing without opening real sockets.
 jest.mock('../../relay-client');
 jest.mock('../../file-watcher');
@@ -76,7 +74,6 @@ describe('createWsHandler', () => {
     FileWatcher.mockImplementation(() => fileWatcher);
   });
 
-  // Default deps: NOT enrolled → no auth required → isAuthenticated from the start.
   function makeDeps(overrides = {}) {
     return {
       authService: { isEnrolled: jest.fn(() => false), validateSession: jest.fn(() => true) },
@@ -152,7 +149,7 @@ describe('createWsHandler', () => {
     });
 
     it('when auth is not required, auth frame succeeds without validating the token', async () => {
-      const deps = makeDeps(); // not enrolled → no auth
+      const deps = makeDeps();
       const ws = mount(deps);
       await sendMsg(ws, { type: 'auth', token: 'whatever' });
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth_success' }));
@@ -296,10 +293,8 @@ describe('createWsHandler', () => {
       }));
     });
 
-    // The write side runs the SAME manifest re-read + permissions.files gate as
-    // read (module invariant #2). It was previously untested: a regression that
-    // dropped the gate on writes would let an AI-authored iframe overwrite any
-    // project file. These pin that the gate is enforced for writes too.
+    // Previously untested: a regression that dropped the same permissions.files
+    // gate on writes would let an AI-authored iframe overwrite any project file.
     it('denies a write for a path not in the module permissions and never touches the disk', async () => {
       const deps = makeDeps({
         moduleService: { getModule: jest.fn().mockResolvedValue({}), isFilePermitted: jest.fn(() => false) },
@@ -321,8 +316,7 @@ describe('createWsHandler', () => {
       const ws = mount(deps);
       await sendMsg(ws, { type: 'module_write_file', requestId: 'rq', projectId: 'p1', moduleName: 'm', path: 'ok.txt', content: 'new body' });
       expect(deps.fileHandlers.fileService.writeFile).toHaveBeenCalledWith('/proj1', 'ok.txt', 'new body');
-      // Self-write marking suppresses the watcher echoing eve's own write back as
-      // an external file_changed.
+      // markSelfWrite suppresses the watcher echoing eve's own write back as an external file_changed.
       expect(fileWatcher.markSelfWrite).toHaveBeenCalledWith('/proj1/ok.txt');
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
         type: 'module_file_response', requestId: 'rq', op: 'write', ok: true,

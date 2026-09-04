@@ -1,12 +1,6 @@
-/**
- * FileAttachmentManager's constructor/init split (phase 3): the constructor
- * must stay DOM-free (it now runs at features.boot(), before any slot
- * renders); init(button) is called later, at renderSlots() time, and is
- * where the five listeners actually get wired against the static markup.
- *
- * The class already has a CommonJS export guard, so it's required directly
- * rather than loaded into a vm sandbox.
- */
+// The constructor must stay DOM-free — it runs at features.boot(), before any
+// slot renders. init(button) is called later, at renderSlots() time, and wires
+// the listeners against the static markup.
 const FileAttachmentManager = require('../../public/file-attachment-manager.js');
 
 function fakeClassList() {
@@ -69,7 +63,7 @@ describe('FileAttachmentManager construction/init split', () => {
     userInput.dispatch('dragleave', dragEvt);
     expect(userInput.classList.contains('dragover')).toBe(false);
 
-    userInput.classList.add('dragover'); // simulate a dragover immediately preceding the drop
+    userInput.classList.add('dragover');
     const files = [{ name: 'a.png', type: 'image/png' }];
     userInput.dispatch('drop', { preventDefault: jest.fn(), stopPropagation: jest.fn(), dataTransfer: { files } });
 
@@ -99,7 +93,7 @@ describe('FileAttachmentManager construction/init split', () => {
 
     const imageFile = {};
     const items = [
-      { type: 'text/plain', getAsFile: () => ({}) },              // must be ignored
+      { type: 'text/plain', getAsFile: () => ({}) },
       { type: 'image/png', getAsFile: () => imageFile },
     ];
     const evt = { preventDefault: jest.fn(), clipboardData: { items } };

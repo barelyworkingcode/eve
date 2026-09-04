@@ -1,7 +1,3 @@
-/**
- * ImageViewer - renders image files centered in the viewer canvas.
- * Supports zoom via mouse wheel and drag-to-pan.
- */
 class ImageViewer {
   constructor() {
     this.extensions = new Set([
@@ -24,7 +20,6 @@ class ImageViewer {
     img.alt = filename;
     img.draggable = false;
 
-    // Show dimensions once loaded
     img.addEventListener('load', () => {
       const info = canvas.closest('.file-viewer-content')?.querySelector('.file-viewer__info');
       if (info) info.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;

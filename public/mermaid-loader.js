@@ -1,9 +1,6 @@
 /**
- * Lazy loader for mermaid. The UMD bundle is ~3.2 MB and only needed when a
- * message contains a mermaid code block, so it is imported on demand instead
- * of blocking every page load. Same shape as voice-orb-3d.js's three.js
- * loader: a module-level promise so the module loads exactly once, no matter
- * how many messages render concurrently.
+ * The UMD bundle is ~3.2 MB and only needed when a message contains a
+ * mermaid code block, so it's imported on demand.
  *
  * Uses mermaid.esm.min.mjs, not the package's `module` entry
  * (mermaid.core.mjs): the core build leaves bare specifiers (d3, ts-dedent,
@@ -17,8 +14,7 @@ function loadMermaid() {
   if (!_mermaidPromise) {
     _mermaidPromise = import('/mermaid/mermaid.esm.min.mjs')
       .then((mod) => {
-        // Moved from app.js's initApp(): must run before the first
-        // mermaid.run(), exactly once.
+        // Must run before the first mermaid.run(), exactly once.
         mod.default.initialize({
           startOnLoad: false,
           theme: 'dark',

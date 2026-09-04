@@ -1,19 +1,12 @@
-/**
- * Refuse browser access to Eve by a bare IP address.
- *
- * WebAuthn RP-IDs must be hostnames — a passkey ceremony against `https://1.2.3.4`
- * cannot succeed — and Eve's Origin pinning is hostname-based. Rather than let an
- * IP visit fail in a confusing way mid-login, this middleware intercepts it early
- * and points the user at the configured hostname(s).
- *
- * Active only when a canonical origin is configured (EVE_PUBLIC_ORIGIN). Loopback
- * IPs are exempt so same-host tooling/health checks keep working. WebSocket
- * upgrades are guarded separately by the Origin check (ws-origin.js).
- */
+// WebAuthn RP-IDs must be hostnames — a passkey ceremony against
+// `https://1.2.3.4` cannot succeed, and Eve's Origin pinning is
+// hostname-based — so a bare-IP visit is intercepted early with a pointer to
+// the configured hostname instead of failing confusingly mid-login. Active
+// only when EVE_PUBLIC_ORIGIN is set; loopback IPs are exempt. WebSocket
+// upgrades are guarded separately (ws-origin.js).
 const net = require('net');
 const { isLoopbackHost } = require('./relay-transport');
 
-/** Extract the host portion (no port) from a Host header, handling [IPv6]:port. */
 function hostOnly(hostHeader) {
   if (!hostHeader) return '';
   const bracket = hostHeader.match(/^\[([^\]]+)\]/);
@@ -22,7 +15,6 @@ function hostOnly(hostHeader) {
   return parts.length > 2 ? hostHeader : parts[0]; // >2 colons → bare IPv6 literal
 }
 
-/** True if this request addresses Eve by a non-loopback bare IP. */
 function isBareIpHost(hostHeader) {
   const host = hostOnly(hostHeader);
   return !!host && net.isIP(host) !== 0 && !isLoopbackHost(host);

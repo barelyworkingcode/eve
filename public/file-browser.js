@@ -1,21 +1,15 @@
 class FileBrowser {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.log = container.get('logger').child('FileBrowser');
-    this.projectTrees = new Map(); // projectId -> { expanded, entries, loading, expandedPaths }
-    this.dragState = null;      // { projectId, path, type }
-    this.renameState = null;    // { projectId, path, input }
-    this.contextMenuEl = null;  // Shared context menu element
+    this.projectTrees = new Map();
+    this.dragState = null;
+    this.renameState = null;
+    this.contextMenuEl = null;
 
     this.initContextMenu();
   }
 
-  /**
-   * Creates the shared context menu element
-   */
   initContextMenu() {
     this.contextMenuEl = document.createElement('div');
     this.contextMenuEl.className = 'file-context-menu hidden';
@@ -26,14 +20,12 @@ class FileBrowser {
     `;
     document.body.appendChild(this.contextMenuEl);
 
-    // Close on outside click
     document.addEventListener('click', (e) => {
       if (!this.contextMenuEl.contains(e.target)) {
         this.hideContextMenu();
       }
     });
 
-    // Handle menu actions
     this.contextMenuEl.addEventListener('click', (e) => {
       const action = e.target.dataset.action;
       if (action) {
@@ -42,9 +34,6 @@ class FileBrowser {
     });
   }
 
-  /**
-   * Shows context menu at position
-   */
   showContextMenu(x, y, projectId, path, type) {
     this.contextMenuProjectId = projectId;
     this.contextMenuPath = path;
@@ -54,7 +43,6 @@ class FileBrowser {
     this.contextMenuEl.style.top = `${y}px`;
     this.contextMenuEl.classList.remove('hidden');
 
-    // Adjust if menu goes off screen
     const rect = this.contextMenuEl.getBoundingClientRect();
     if (rect.right > window.innerWidth) {
       this.contextMenuEl.style.left = `${window.innerWidth - rect.width - 8}px`;
@@ -64,16 +52,10 @@ class FileBrowser {
     }
   }
 
-  /**
-   * Hides context menu
-   */
   hideContextMenu() {
     this.contextMenuEl.classList.add('hidden');
   }
 
-  /**
-   * Handles context menu action
-   */
   handleContextAction(action) {
     this.hideContextMenu();
 
@@ -90,9 +72,6 @@ class FileBrowser {
     }
   }
 
-  /**
-   * Starts inline rename for a file/directory
-   */
   startRename(projectId, path) {
     const container = document.querySelector(`[data-project-id="${projectId}"] .file-tree`);
     if (!container) return;
@@ -126,7 +105,7 @@ class FileBrowser {
           newName
         }));
       }
-      // Restore name (will be updated by server response)
+      // Reverts to old name even on success; handleFileRenamed re-renders once the server confirms.
       nameEl.textContent = currentName;
       this.renameState = null;
     };
@@ -149,9 +128,6 @@ class FileBrowser {
     input.addEventListener('blur', commit);
   }
 
-  /**
-   * Shows delete confirmation
-   */
   confirmDelete(projectId, path) {
     const filename = path.split('/').pop();
     this.app.modalManager.showConfirmModal(`Delete "${filename}"?`, () => {
@@ -163,11 +139,7 @@ class FileBrowser {
     });
   }
 
-  /**
-   * Prompts for new folder name
-   */
   promptNewFolder(projectId, path, type) {
-    // If clicked on a file, use parent directory
     const parentPath = type === 'directory' ? path : path.substring(0, path.lastIndexOf('/')) || '/';
 
     const name = prompt('New folder name:');
@@ -181,14 +153,10 @@ class FileBrowser {
     }
   }
 
-  /**
-   * Toggles file tree visibility for a project
-   */
   toggleFileTree(projectId) {
     const tree = this.projectTrees.get(projectId);
 
     if (!tree) {
-      // Initialize tree state
       this.projectTrees.set(projectId, {
         expanded: true,
         entries: null,
@@ -196,18 +164,13 @@ class FileBrowser {
         expandedPaths: new Set()
       });
 
-      // Load root directory
       this.loadDirectory(projectId, '/');
     } else {
-      // Toggle visibility
       tree.expanded = !tree.expanded;
       this.renderFileTree(projectId);
     }
   }
 
-  /**
-   * Loads directory contents from server
-   */
   loadDirectory(projectId, path) {
     const tree = this.projectTrees.get(projectId);
     if (!tree) return;
@@ -222,9 +185,6 @@ class FileBrowser {
     }));
   }
 
-  /**
-   * Handles directory listing response from server
-   */
   handleDirectoryListing(projectId, path, entries) {
     const tree = this.projectTrees.get(projectId);
     if (!tree) return;
@@ -243,9 +203,6 @@ class FileBrowser {
     this.renderFileTree(projectId);
   }
 
-  /**
-   * Handles file error from server
-   */
   handleFileError(projectId, path, error) {
     this.log.error(`File error for ${projectId}:${path}:`, error);
 
@@ -260,20 +217,12 @@ class FileBrowser {
     }
   }
 
-  /**
-   * Handles file renamed response
-   */
   handleFileRenamed(projectId, oldPath, newPath) {
-    // Refresh the parent directory
     const parentPath = oldPath.substring(0, oldPath.lastIndexOf('/')) || '/';
     this.refreshDirectory(projectId, parentPath);
   }
 
-  /**
-   * Handles file moved response
-   */
   handleFileMoved(projectId, oldPath, newPath) {
-    // Refresh both source and destination directories
     const oldParent = oldPath.substring(0, oldPath.lastIndexOf('/')) || '/';
     const newParent = newPath.substring(0, newPath.lastIndexOf('/')) || '/';
 
@@ -283,43 +232,29 @@ class FileBrowser {
     }
   }
 
-  /**
-   * Handles file deleted response
-   */
   handleFileDeleted(projectId, path) {
     const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
     this.refreshDirectory(projectId, parentPath);
   }
 
-  /**
-   * Handles directory created response
-   */
   handleDirectoryCreated(projectId, path, name) {
     const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
     this.refreshDirectory(projectId, parentPath);
   }
 
-  /**
-   * Refreshes a directory's contents
-   */
   refreshDirectory(projectId, path) {
     const tree = this.projectTrees.get(projectId);
     if (!tree) return;
 
-    // Clear cached entries for this path
     if (path === '/' || path === '') {
       tree.entries = null;
     } else if (tree.subdirectories) {
       tree.subdirectories.delete(path);
     }
 
-    // Reload
     this.loadDirectory(projectId, path);
   }
 
-  /**
-   * Renders the file tree for a project
-   */
   renderFileTree(projectId) {
     const container = document.querySelector(`[data-project-id="${projectId}"] .file-tree`);
 
@@ -339,12 +274,10 @@ class FileBrowser {
       return;
     }
 
-    // Attach root-level drop handlers for external file drops (once per container)
     if (!container.dataset.dropInitialized) {
       container.dataset.dropInitialized = 'true';
 
       container.addEventListener('dragover', (e) => {
-        // Only handle external file drops on the container itself (not bubbled from children)
         if (e.target !== container) return;
         if (!this.dragState && e.dataTransfer.types.includes('Files')) {
           e.preventDefault();
@@ -377,9 +310,6 @@ class FileBrowser {
     this.renderDirectoryContents(container, projectId, '/', tree.entries, 0);
   }
 
-  /**
-   * Recursively renders directory contents
-   */
   renderDirectoryContents(container, projectId, dirPath, entries, depth) {
     const tree = this.projectTrees.get(projectId);
 
@@ -391,8 +321,7 @@ class FileBrowser {
       item.dataset.path = entryPath;
       item.dataset.projectId = projectId;
       item.dataset.type = entry.type;
-      // Desktop-only: a draggable row hijacks touch-scroll, breaking mobile
-      // scrolling of long file lists (HTML5 DnD is inert on touch regardless).
+      // draggable rows hijack touch-scroll on mobile; HTML5 DnD is inert on touch anyway
       item.draggable = !IS_TOUCH;
 
       if (entry.type === 'directory') {
@@ -414,13 +343,11 @@ class FileBrowser {
         item.appendChild(name);
         item.classList.add('folder');
 
-        // Expand/collapse on click
         item.addEventListener('click', (e) => {
           e.stopPropagation();
           this.toggleDirectory(projectId, entryPath);
         });
 
-        // Drag-drop handlers for directories (drop targets)
         item.addEventListener('dragover', (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -453,7 +380,6 @@ class FileBrowser {
 
         container.appendChild(item);
 
-        // Render subdirectory contents if expanded
         if (isExpanded && tree.subdirectories?.has(entryPath)) {
           const subEntries = tree.subdirectories.get(entryPath);
           this.renderDirectoryContents(container, projectId, entryPath, subEntries, depth + 1);
@@ -479,7 +405,6 @@ class FileBrowser {
         container.appendChild(item);
       }
 
-      // Common drag handlers
       item.addEventListener('dragstart', (e) => {
         this.dragState = { projectId, path: entryPath, type: entry.type };
         item.classList.add('dragging');
@@ -490,11 +415,9 @@ class FileBrowser {
       item.addEventListener('dragend', (e) => {
         item.classList.remove('dragging');
         this.dragState = null;
-        // Remove all drop-target classes
         container.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
       });
 
-      // Context menu
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -503,15 +426,10 @@ class FileBrowser {
     }
   }
 
-  /**
-   * Handles drop of a dragged item onto a directory
-   */
   handleDrop(projectId, sourcePath, destDirectory) {
-    // Don't move to same directory
     const sourceParent = sourcePath.substring(0, sourcePath.lastIndexOf('/')) || '/';
     if (sourceParent === destDirectory) return;
 
-    // Don't move directory into itself or its children
     if (destDirectory.startsWith(sourcePath + '/')) return;
 
     this.app.ws.send(JSON.stringify({
@@ -522,11 +440,8 @@ class FileBrowser {
     }));
   }
 
-  /**
-   * Handles files dropped from an external source (e.g. Finder)
-   */
   async handleExternalDrop(projectId, destDirectory, fileList) {
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 10 * 1024 * 1024;
 
     for (const file of fileList) {
       if (file.size > maxSize) {
@@ -553,10 +468,6 @@ class FileBrowser {
     }
   }
 
-  /**
-   * Reads a File object for upload. Returns { data, encoding }.
-   * Text files are read as UTF-8, binary files as base64.
-   */
   readFileForUpload(file) {
     const textTypes = [
       'text/', 'application/json', 'application/xml', 'application/javascript',
@@ -581,7 +492,6 @@ class FileBrowser {
         reader.readAsText(file);
       } else {
         reader.onload = (e) => {
-          // Strip the data URL prefix to get raw base64
           const base64 = e.target.result.split(',')[1];
           resolve({ data: base64, encoding: 'base64' });
         };
@@ -590,16 +500,10 @@ class FileBrowser {
     });
   }
 
-  /**
-   * Handles successful file upload response from server
-   */
   handleFileUploaded(projectId, destDirectory, fileName) {
     this.refreshDirectory(projectId, destDirectory);
   }
 
-  /**
-   * Toggles a directory expanded/collapsed
-   */
   toggleDirectory(projectId, path) {
     const tree = this.projectTrees.get(projectId);
     if (!tree) return;
@@ -612,7 +516,6 @@ class FileBrowser {
     } else {
       tree.expandedPaths.add(path);
 
-      // Load directory contents if not already loaded
       if (!tree.subdirectories?.has(path)) {
         this.loadDirectory(projectId, path);
       } else {
@@ -621,9 +524,6 @@ class FileBrowser {
     }
   }
 
-  /**
-   * Opens a file in the editor
-   */
   openFile(projectId, path, filename) {
     this.app.ws.send(JSON.stringify({
       type: 'read_file',
@@ -632,9 +532,6 @@ class FileBrowser {
     }));
   }
 
-  /**
-   * Returns an icon for a file based on extension
-   */
   getFileIcon(filename) {
     const ext = filename.split('.').pop().toLowerCase();
     const icons = {
@@ -664,7 +561,6 @@ class FileBrowser {
   }
 }
 
-// Export for use in app.js
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = FileBrowser;
 }

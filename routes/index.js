@@ -14,11 +14,6 @@ const { NullLogger } = require('../logger');
 
 function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, ttsService, sttService, moduleService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
-  // Shared auth middleware.
-  // Bypass order: (1) no passkey enrolled yet — first-run bootstrap; (2) the
-  // global kill-switch EVE_NO_AUTH=1; (3) the client is on a trusted subnet
-  // (raw TCP source address only — never the Host header). Otherwise a valid
-  // session token is required.
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
       return next();
@@ -30,13 +25,8 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     next();
   }
 
-  // Auth routes (local, no proxy)
   app.use('/api', createAuthRoutes(authService, trustedNetwork, routeLog.child('Auth')));
 
-  // Proxy helper: forwards request to relayLLM via the shared RelayTransport
-  // and sends the response. Callers that need pre-response processing (cache
-  // refresh, etc.) call relayTransport.fetch() directly and send the response
-  // themselves — see the mutation handlers below.
   function proxy(req, res, method, relayPath, body) {
     return relayTransport.fetch(method, relayPath, body)
       .then(({ status, data }) => {
@@ -50,19 +40,15 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
       });
   }
 
-  // --- Models (proxy) ---
   app.get('/api/models', requireAuth, (req, res) => {
     proxy(req, res, 'GET', '/api/models');
   });
 
-  // --- Projects (read-only proxy; CRUD managed via relay settings UI) ---
-  // Normalize snake_case from relay to camelCase for browser.
   app.get('/api/projects', requireAuth, async (req, res) => {
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/projects');
       if (data && Array.isArray(data)) {
         refreshProjectCache(data);
-        // Return normalized (camelCase) projects from cache.
         const normalized = data.map(p => resolveProject(p.id)).filter(Boolean);
         res.status(status).json(normalized);
       } else {
@@ -89,9 +75,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
-  // After a successful upsert we feed the relay response into the cache
-  // directly — refreshProjectCache(undefined) replaces the whole list and
-  // would force a round-trip we don't need.
   async function proxyProjectMutation(method, relayPath, body, res, errLabel) {
     try {
       const { status, data } = await relayTransport.fetch(method, relayPath, body);
@@ -126,17 +109,13 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
-  // --- MCP listing (proxy; populates project dialog "Allowed MCPs" picker) ---
   app.get('/api/mcps', requireAuth, (req, res) => {
     proxy(req, res, 'GET', '/api/mcps');
   });
 
-  // --- Sessions (proxy) ---
-  // Hide ephemeral sessions created on the WS path — module AI invocations
-  // (`__module:`) and search summarizations (`__search:`). They're created
-  // and deleted around a single call, but a sidebar list fetched mid-call
-  // would otherwise show the in-flight session. Prefixes are defined in
-  // module-invoker.js and search-summarizer.js — keep in lockstep.
+  // A sidebar list fetched mid-call would otherwise show these in-flight
+  // sessions. Prefixes are defined in module-invoker.js and
+  // search-summarizer.js — keep in lockstep.
   app.get('/api/sessions', requireAuth, async (req, res) => {
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/sessions');
@@ -152,12 +131,10 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
-  // --- Modules (list + static file serving; AI invocation is WS-only) ---
   moduleRoutes.register(app, {
     requireAuth, moduleService, resolveProject, log: parentLog,
   });
 
-  // --- Tasks (proxy through relayLLM → scheduler) ---
   app.get('/api/tasks', requireAuth, (req, res) => {
     const qs = req.query.projectId ? `?projectId=${encodeURIComponent(req.query.projectId)}` : '';
     proxy(req, res, 'GET', `/api/tasks${qs}`);
@@ -191,7 +168,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     proxy(req, res, 'POST', `/api/tasks/${req.params.taskId}/run`);
   });
 
-  // --- Terminal templates (proxy) ---
   app.get('/api/terminal/templates', requireAuth, (req, res) => {
     proxy(req, res, 'GET', '/api/terminal/templates');
   });
@@ -208,14 +184,8 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     proxy(req, res, 'DELETE', `/api/terminal/templates/${req.params.id}`);
   });
 
-  // --- Terminal logs (proxy binary from relayLLM) ---
-  // The PTY's raw byte stream — used by TaskViewer's readonly renderer to
-  // replay completed scheduled-task output. Response is application/octet-
-  // stream and may contain arbitrary bytes (ANSI escapes, non-UTF8) so we
-  // go through fetchRaw instead of the JSON-only proxy() helper. The IDs
-  // are validated server-side (relayLLM rejects non-UUID-shaped paths) so
-  // path traversal isn't a concern here, but we still encodeURIComponent
-  // to keep the URL well-formed.
+  // The id is forwarded without shape validation here: relayLLM rejects ids it
+  // won't accept before joining one into a log filename.
   app.get('/api/terminals/:id/log', requireAuth, async (req, res) => {
     try {
       const { status, data, headers } = await relayTransport.fetchRaw('GET',
@@ -232,7 +202,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
-  // --- TTS voices (cached, refreshes every 5 min) ---
   let voiceCache = null;
   let voiceCacheTime = 0;
   app.get('/api/tts/voices', requireAuth, async (req, res) => {
@@ -248,7 +217,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
-  // --- STT (Speech-to-Text) ---
   app.get('/api/stt/status', requireAuth, async (req, res) => {
     const available = await sttService.isAvailable();
     res.json({ available });
@@ -266,7 +234,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
-  // --- Generated images (proxy binary from relayLLM) ---
   app.get('/api/generated/:filename', requireAuth, async (req, res) => {
     try {
       const { status, data, headers } = await relayTransport.fetchRaw('GET',
@@ -283,26 +250,15 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     }
   });
 
-  // --- Raw file serving (for binary file viewers: images, PDFs, video, audio) ---
-  //
-  // This route serves project files from Eve's OWN origin. Anything that can
-  // execute script in that origin (HTML, SVG, XML) is a stored-XSS vector —
-  // a file can arrive via upload, an agent write, or a synced project. We:
-  //   1. block path traversal with a separator-aware containment check,
-  //   2. force `nosniff` on every file and a locked-down `default-src 'none'`
-  //      CSP so no served file can pull sub-resources or run script,
-  //   3. for script-capable types, ALSO add the `sandbox` directive and force
-  //      `Content-Disposition: attachment` so they download instead of
-  //      rendering in Eve's origin.
-  // The `sandbox` directive is scoped to those script-capable types on purpose:
-  // applied to a PDF it blocks Chrome's built-in viewer and the frame goes blank.
-  //
-  // `?preview=1` is the one opt-in that renders HTML inline: the editor's preview
-  // pane (file-editor.js) needs the page's own scripts to run. We serve it with a
-  // response-level `sandbox allow-scripts` CSP, which forces an opaque origin even
-  // on direct top-level navigation — so scripts run, but the page still cannot
-  // reach Eve's DOM, cookies, or session token. Without the flag, HTML downloads.
-  // See docs/security-audit-frontend.md (H1, H2).
+  // This route serves project files from Eve's OWN origin — a file arriving
+  // via upload, an agent write, or a sync is untrusted, and HTML/SVG/XML
+  // served same-origin is a stored-XSS vector. `sandbox` is scoped to just
+  // those script-capable types: applied to a PDF it blocks Chrome's built-in
+  // viewer and the frame goes blank. `?preview=1` is the one opt-in that
+  // renders HTML inline, for the editor's preview pane (file-editor.js): the
+  // response-level `sandbox allow-scripts` CSP forces an opaque origin even
+  // on direct top-level navigation, so the page's scripts run but can't reach
+  // Eve's DOM, cookies, or session token. See docs/security-audit-frontend.md.
   const ACTIVE_CONTENT_EXTS = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml']);
   const HTML_PREVIEW_EXTS = new Set(['.html', '.htm']);
 
@@ -313,7 +269,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     const relativePath = req.params[0];
     if (!relativePath) return res.status(400).json({ error: 'Path required' });
 
-    // Prevent path traversal. Use centralized path validation from FileService.
     const base = path.resolve(project.path);
     const resolved = path.resolve(base, relativePath);
     if (!fileService.isPathWithin(base, resolved)) {
@@ -323,22 +278,15 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     res.set('X-Content-Type-Options', 'nosniff');
 
     const ext = path.extname(resolved).toLowerCase();
-    // Containment is already enforced above by isPathWithin; dot-directories
-    // (e.g. .playwright-cli, .claude) hold legitimate, already-listed project
-    // files, so serve them. 'deny' would 403 every file under a hidden dir.
+    // dot-directories (e.g. .playwright-cli, .claude) hold legitimate,
+    // already-listed project files; 'deny' would 403 every file under one.
     const options = { dotfiles: 'allow' };
     if (req.query.preview === '1' && HTML_PREVIEW_EXTS.has(ext)) {
-      // Sandboxed live preview: the page's own scripts run inside an opaque
-      // origin, fully isolated from Eve. Rendered inline (no attachment).
       res.set('Content-Security-Policy', 'sandbox allow-scripts');
     } else if (ACTIVE_CONTENT_EXTS.has(ext)) {
-      // Script-capable: fully neutralize — sandbox the document AND force a
-      // download so it never renders inline in Eve's origin.
       res.set('Content-Security-Policy', "default-src 'none'; sandbox");
       res.set('Content-Disposition', `attachment; filename="${path.basename(resolved)}"`);
     } else {
-      // Inert (PDF/image/audio/video): lock down sub-resource loading but omit
-      // `sandbox`, which would blank out Chrome's native PDF viewer.
       res.set('Content-Security-Policy', "default-src 'none'");
     }
 

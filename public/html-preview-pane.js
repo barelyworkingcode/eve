@@ -1,21 +1,18 @@
 /**
- * HtmlPreviewPane — renders a project HTML file as a live, sandboxed preview in
- * a split pane (the `htmlPreview` pane view).
- *
- * It reuses the same server endpoint the editor's preview uses
+ * Reuses the same server endpoint the editor's preview uses
  * (`/api/files/...?preview=1&v=`) so the page's own scripts execute under the
- * relaxed preview CSP, and bumps the cache-bust token whenever the file changes
- * on disk — so an AI editing the page shows up live without a tab switch.
+ * relaxed preview CSP, and bumps the cache-bust token whenever the file
+ * changes on disk so an AI editing the page shows up live without a tab
+ * switch.
  */
 class HtmlPreviewPane {
   constructor(_container) {
     this.host = document.getElementById('htmlPreview');
-    this.current = null;   // { projectId, path }
+    this.current = null;
     this.version = 0;
     this.iframe = null;
   }
 
-  /** Show `path` from `project` in the preview pane (called by TabManager). */
   show(projectId, path) {
     if (!this.host) return;
     const changed = !this.current
@@ -42,7 +39,6 @@ class HtmlPreviewPane {
     }
   }
 
-  /** Reload when the previewed file changes on disk (filewatcher push). */
   handleFileChanged(projectId, path) {
     if (!this.current) return;
     if (this.current.projectId !== projectId || this.current.path !== path) return;

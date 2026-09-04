@@ -1,7 +1,3 @@
-/**
- * AudioViewer - renders audio files with native HTML5 <audio> controls
- * and a visual icon centered in the canvas.
- */
 class AudioViewer {
   constructor() {
     this.extensions = new Set(['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma']);
@@ -17,7 +13,6 @@ class AudioViewer {
     const wrapper = document.createElement('div');
     wrapper.className = 'viewer-audio';
 
-    // Audio icon
     const icon = document.createElement('div');
     icon.className = 'viewer-audio__icon';
     icon.innerHTML = `<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">

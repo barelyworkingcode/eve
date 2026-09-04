@@ -1,12 +1,4 @@
-/**
- * SlashCommandHandler - handles local slash commands (/clear, /help, /zsh, /bash, /claude).
- * Returns true if the input was a handled slash command, false otherwise.
- */
 class SlashCommandHandler {
-  /**
-   * @param {WebSocket} ws - browser WebSocket
-   * @param {RelayClient} relayClient
-   */
   handle(ws, relayClient, text) {
     if (!text.startsWith('/')) return false;
 

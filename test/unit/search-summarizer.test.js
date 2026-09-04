@@ -12,7 +12,6 @@ describe('SearchSummarizer prompt construction', () => {
 
     expect(prompt).toMatch(/Total matches: 75/);
     expect(prompt).toMatch(/showing first 50/);
-    // Count rendered match lines (each starts with "  src/file")
     const rendered = (prompt.match(/^  src\/file/gm) || []).length;
     expect(rendered).toBe(MAX_SUMMARY_MATCHES);
   });
@@ -24,7 +23,6 @@ describe('SearchSummarizer prompt construction', () => {
     const lineRegex = /^  a\.js:1  (.+)$/m;
     const match = prompt.match(lineRegex);
     expect(match).not.toBeNull();
-    // Snippet must be at most MAX_SNIPPET_LEN chars + the ellipsis we add.
     expect(match[1].length).toBeLessThanOrEqual(MAX_SNIPPET_LEN + 1);
     expect(match[1].endsWith('…')).toBe(true);
   });
@@ -47,12 +45,8 @@ describe('SearchSummarizer prompt construction', () => {
   });
 });
 
-/**
- * Wait until registerModuleSession has been called at least once. The
- * SearchSummarizer awaits an async POST before registering the handler, so
- * a bare `await Promise.resolve()` isn't enough — we need to let the
- * microtask chain unwind.
- */
+// SearchSummarizer awaits an async POST before registering the handler, so a
+// bare `await Promise.resolve()` isn't enough to observe it — poll instead.
 async function waitForHandler(relayClient, timeoutMs = 200) {
   const t0 = Date.now();
   while (relayClient.registerModuleSession.mock.calls.length === 0) {
@@ -115,8 +109,7 @@ describe('SearchSummarizer.run', () => {
 
     await waitForHandler(relayClient);
 
-    // POST /api/sessions was called with the search prefix and no mcpToken:
-    // eve never sends a project token — relay brokers it.
+    // No mcpToken: eve never sends a project token, relay brokers it.
     const createCall = relayTransport.fetch.mock.calls.find(c => c[0] === 'POST' && c[1] === '/api/sessions');
     expect(createCall).toBeDefined();
     const body = createCall[2];
@@ -125,25 +118,20 @@ describe('SearchSummarizer.run', () => {
     expect(body.settings).toBeNull();
     expect(body.model).toBe('model-x');
 
-    // Handler was registered against the new sessionId.
     expect(relayClient.registerModuleSession).toHaveBeenCalledWith('sess-abc', expect.any(Function));
     const handler = relayClient.registerModuleSession.mock.calls[0][1];
 
-    // join_session + send_message dispatched.
     expect(relayClient.joinSession).toHaveBeenCalledWith('sess-abc');
     expect(relayClient.sendMessage).toHaveBeenCalledWith(expect.stringContaining('"foo"'), [], 'sess-abc');
 
-    // Simulate message_complete from relay.
     handler({ type: 'message_complete', sessionId: 'sess-abc' });
 
     await run;
 
-    // Cleanup: unregister + DELETE.
     expect(relayClient.unregisterModuleSession).toHaveBeenCalledWith('sess-abc');
     const deleteCall = relayTransport.fetch.mock.calls.find(c => c[0] === 'DELETE');
     expect(deleteCall[1]).toBe('/api/sessions/sess-abc');
 
-    // Frames sent to the browser include started + completed.
     const sentTypes = relayClient.sendToBrowser.mock.calls.map(c => c[0].type);
     expect(sentTypes).toContain('search_ai_started');
     expect(sentTypes).toContain('search_ai_completed');
@@ -165,7 +153,6 @@ describe('SearchSummarizer.run', () => {
 
     const sentTypes = relayClient.sendToBrowser.mock.calls.map(c => c[0].type);
     expect(sentTypes).toContain('search_ai_failed');
-    // Session must still be deleted in the finally block.
     const deleteCall = relayTransport.fetch.mock.calls.find(c => c[0] === 'DELETE');
     expect(deleteCall).toBeDefined();
   });
@@ -212,16 +199,14 @@ describe('SearchSummarizer.run', () => {
     await waitForHandler(relayClient);
     expect(relayClient.stopGeneration).not.toHaveBeenCalled();
 
-    // Fire the timeout handler.
     jest.advanceTimersByTime(60 * 1000 + 1);
 
     await settled;
 
-    // (a) generation was explicitly stopped for the hidden session — the
-    // regression guard against token bleed.
+    // Regression guard against token bleed: generation must be explicitly
+    // stopped for the hidden session, not just left to expire.
     expect(relayClient.stopGeneration).toHaveBeenCalledWith('sess-abc');
 
-    // (b) failure is signalled to the browser via a search_ai_failed frame...
     const sentTypes = relayClient.sendToBrowser.mock.calls.map(c => c[0].type);
     expect(sentTypes).toContain('search_ai_failed');
     expect(sentTypes).not.toContain('search_ai_completed');
@@ -229,7 +214,6 @@ describe('SearchSummarizer.run', () => {
       .find(f => f.type === 'search_ai_failed');
     expect(failFrame.error).toMatch(/timed out/i);
 
-    // ...and the session is still cleaned up in the finally block.
     expect(relayClient.unregisterModuleSession).toHaveBeenCalledWith('sess-abc');
     const deleteCall = relayTransport.fetch.mock.calls.find(c => c[0] === 'DELETE');
     expect(deleteCall[1]).toBe('/api/sessions/sess-abc');
