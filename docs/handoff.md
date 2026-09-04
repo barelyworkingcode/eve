@@ -12,14 +12,14 @@ it holds the *why* for the current work.
 | `refactor/feature-registry` | 5 commits, pushed, **not merged**. Phase 1 of the refactor is complete. |
 | `pm/voice-button-features` | branched off it; 3 commits, **not pushed**. Phase 2 is complete. |
 | `pm/chat-input-features` | branched off it; 7 commits, **not pushed**. Phase 3 is complete. |
-| `pm/tab-manager-registry` | branched off `pm/chat-input-features` (`4778ac2`); 11 commits, **not pushed**. Phase 4 is complete. |
+| `pm/tab-manager-registry` | branched off `pm/chat-input-features` (`4778ac2`); 14 commits, **not pushed**. Phase 4 is complete. |
 | `simplify/remove-browser-voice-and-css` | merged into main; kept, safe to delete. |
 
-Everything green as of `636b858`:
+Everything green as of `53bb19c`:
 
-    npm test              # 39 suites, 540 tests   (unit, hermetic, ~4s)
+    npm test              # 41 suites, 592 tests   (unit, hermetic, ~4s)
     npm run test:integration   # 69 passed, 1 skipped
-    npm run test:e2e      # 16 (spawns eve + fake relay)
+    npm run test:e2e      # 31 (spawns eve + fake relay)
     npm run test:voice    # 6  (needs the live Kokoro/Whisper daemons)
     npm run test:visual   # 24 screenshots, must be 0.0000%
 
