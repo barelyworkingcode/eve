@@ -70,11 +70,6 @@
   padding: 3px 9px;
 }
 
-.message-metrics {
-  font-size: var(--text-footnote);
-  font-variant-numeric: tabular-nums;
-}
-
 /* — Input bar -------------------------------------------------------------- */
 .input-area {
   padding: 10px 14px;
@@ -197,12 +192,7 @@
 }
 .voice-drawer__select {
   height: 32px;
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
-  border: 0.5px solid var(--separator);
-  font-size: var(--text-callout);
 }
-.voice-drawer__select:focus { border-color: transparent; box-shadow: var(--focus-ring); }
 .btn-voice-mode { background: transparent; color: var(--text-secondary); }
 .btn-voice-mode:hover { background: var(--bg-hover); color: var(--accent); }
 .btn-voice-mode--active,

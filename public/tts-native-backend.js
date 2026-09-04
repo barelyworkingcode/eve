@@ -58,7 +58,7 @@ class TtsNativeBackend {
 
   /**
    * Speak text via the native Capacitor plugin.
-   * Returns { audio: base64, duration } — same contract as TtsBrowserBackend.
+   * Returns { audio: base64, duration } — same contract as the other TTS backends.
    * JS handles playback via AudioContext (standard path).
    */
   async speakText(text, voice) {

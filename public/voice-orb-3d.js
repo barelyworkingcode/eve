@@ -4,8 +4,8 @@
  * lighting, a wireframe shell, a soft halo, and a faint drifting particle
  * field. Normal (non-additive) blending throughout so it reads on the light
  * Apple theme as well as dark backgrounds.
- * Same interface as VoiceOrbCanvas: constructor(canvas, app), start(), stop(),
- * setState(state), plus destroy() for full GL teardown.
+ * Interface: constructor(canvas, app), start(), stop(), setState(state),
+ * plus destroy() for full GL teardown.
  * States: idle, listening, processing, speaking.
  */
 
@@ -256,7 +256,7 @@ class VoiceOrb3D {
 
     this._initPromise = this._init().catch((err) => {
       this.failed = true;
-      console.warn('[VoiceOrb3D] init failed, falling back:', err);
+      console.warn('[VoiceOrb3D] init failed — orb visualiser disabled:', err);
       if (this.onInitError) this.onInitError(err);
     });
   }
@@ -454,7 +454,7 @@ class VoiceOrb3D {
   _renderFrame() {
     this.time += 0.016;
 
-    // Poll audio level (same logic as VoiceOrbCanvas)
+    // Poll the current audio level (native, mic, or playback)
     let rawLevel = 0;
     if (this.app?.voiceChatManager?.useNativeAudio) {
       rawLevel = this.app.voiceChatManager.getNativeLevel(this.targetState);

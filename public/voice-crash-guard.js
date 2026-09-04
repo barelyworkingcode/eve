@@ -1,23 +1,23 @@
 /**
- * VoiceCrashGuard - Recovers from on-device voice model loads that hard-crash the page.
+ * VoiceCrashGuard - Recovers from on-device voice model loads that hard-crash the app.
  *
- * Loading an on-device TTS/STT model (Kokoro ~86MB, Whisper ~166MB) can exhaust
- * memory in Safari, which kills the whole tab *before* any JS error handler runs.
- * A try/catch or worker.onerror never fires, and because the chosen backend is
- * persisted, every reload re-triggers the same crash — a loop the user can't
+ * Loading a native on-device TTS/STT model (Kokoro ~86MB, Whisper ~166MB) can
+ * exhaust memory, which kills the whole app *before* any JS error handler runs.
+ * A try/catch never fires, and because the chosen backend is persisted, every
+ * relaunch re-triggers the same crash — a loop the user can't
  * escape (they can't even reach Settings to switch back).
  *
  * Detection therefore can't be inline. Instead a "load guard" marker is written
  * to localStorage *synchronously before* a heavy load begins, and cleared when the
- * load succeeds or fails gracefully. If the marker survives a page reload, the
+ * load succeeds or fails gracefully. If the marker survives a relaunch, the
  * previous load crashed (or was interrupted mid-download) — so we revert that
  * backend's stored preference to 'server' before the managers read it, and report
  * what happened.
  *
- * Scope: both on-device backends — browser and native — call begin/end. Server
+ * Scope: the native on-device backend calls begin/end. Server
  * can't OOM. Native model downloads (FluidAudio) run in the app process, so a
- * load that exhausts memory kills the whole app, not just the page; localStorage
- * survives the relaunch, so the same marker recovers the native path too. In the
+ * load that exhausts memory kills the whole app; localStorage
+ * survives the relaunch, so the marker recovers the path. In the
  * native app the reverted 'server' preference is honored by the voice managers
  * (see tts-manager.js / stt-manager.js), which otherwise force 'native'.
  */

@@ -131,14 +131,6 @@ class EveWorkspaceClient {
     this.messageDispatcher = new MessageDispatcher(this.container);
     this.container.register('messageDispatcher', this.messageDispatcher);
 
-    if (typeof mermaid !== 'undefined') {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        securityLevel: 'strict',
-      });
-    }
-
     this.initEventListeners();
     this.modalManager.initEventListeners();
     this.initSidebarResize();
