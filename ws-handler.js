@@ -10,6 +10,7 @@ const FileWatcher = require('./file-watcher');
 const RateLimiter = require('./rate-limiter');
 const { splitIntoChunks, cleanChunkText } = require('./tts-chunker');
 const { Director, EMOTION, DELIVERY } = require('./tts-director');
+const { messages } = require('./ws/message-registry');
 
 const slashCommandHandler = new SlashCommandHandler();
 
@@ -118,8 +119,15 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
           return;
         }
 
+        // Registry-first, switch-fallback: a migrated type's descriptor
+        // carries its own expensive classification; an unmigrated type still
+        // reads the legacy EXPENSIVE_OPS set. Both sources feed the same
+        // rate limiter so the cap can never silently lapse mid-migration.
+        const descriptor = messages.get(message.type);
+        const expensive = descriptor ? descriptor.expensive === true : EXPENSIVE_OPS.has(message.type);
+
         // Throttle expensive operations per connection.
-        if (EXPENSIVE_OPS.has(message.type) && !expensiveLimiter.allow()) {
+        if (expensive && !expensiveLimiter.allow()) {
           ws.send(JSON.stringify({
             type: 'error',
             message: 'Rate limit exceeded — too many requests, please slow down.',
@@ -133,7 +141,23 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         // carry projectId; setting it repeatedly is idempotent.
         if (message.projectId) uiBus?.setProject(relayClient, message.projectId);
 
-        switch (message.type) {
+        if (descriptor) {
+          // Rebuilt fresh for this message, never captured by a descriptor:
+          // ws, relayClient and fileWatcher are per-connection, not
+          // per-process, and a descriptor is registered once per process
+          // (see C1 in ws/message-registry.js).
+          await descriptor.handle({
+            ws,
+            req,
+            message,
+            relayClient,
+            fileWatcher,
+            inflightSearchIds,
+            inflightAiIds,
+            log,
+            deps: { relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, ttsService, sttService },
+          });
+        } else switch (message.type) {
           case 'device_log':
             appendDeviceLog(message, req);
             break;
@@ -287,46 +311,6 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             if (moduleInvoker && message.requestId) {
               moduleInvoker.stop(message.requestId);
             }
-            break;
-
-          // --- Terminal operations (proxied to relayLLM) ---
-          case 'terminal_create':
-            // Forward projectId so relay can resolve a project-scoped token for
-            // the PTY (validating directory against the project). Empty/absent
-            // projectId yields a token-free ad-hoc terminal.
-            relayClient.send({ type: 'terminal_create', templateId: message.templateId, name: message.name, directory: message.directory, projectId: message.projectId || '', cols: message.cols, rows: message.rows });
-            break;
-
-          case 'terminal_input':
-            relayClient.send({ type: 'terminal_input', terminalId: message.terminalId, data: message.data });
-            break;
-
-          case 'terminal_resize':
-            relayClient.send({ type: 'terminal_resize', terminalId: message.terminalId, cols: message.cols, rows: message.rows });
-            break;
-
-          case 'terminal_close':
-            relayClient.send({ type: 'terminal_close', terminalId: message.terminalId });
-            break;
-
-          case 'terminal_list':
-            relayClient.send({ type: 'terminal_list' });
-            break;
-
-          case 'terminal_reconnect':
-            relayClient.send({ type: 'terminal_reconnect', terminalId: message.terminalId, cols: message.cols, rows: message.rows });
-            break;
-
-          case 'join_terminal':
-            relayClient.send({ type: 'join_terminal', terminalId: message.terminalId });
-            break;
-
-          case 'leave_terminal':
-            relayClient.send({ type: 'leave_terminal', terminalId: message.terminalId });
-            break;
-
-          case 'terminal_templates':
-            relayClient.send({ type: 'terminal_templates' });
             break;
 
           case 'voice_mode':
