@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Pre-push hook: gate every push on all four hermetic suites.
+#
+# Install once per clone:
+#   git config core.hooksPath .githooks
+#
+# Skip on emergency:
+#   git push --no-verify
+#
+# What runs (only when code or test config changed in the pushed range):
+#   1. npm test                  — unit          (~4s)
+#   2. npm run test:integration  — integration   (~5s)
+#   3. npm run test:e2e          — Playwright    (~35s, spawns eve + a fake relay)
+#   4. npm run test:visual       — screenshots   (~30s, must be 0.0000%)
+#
+# The pre-commit hook covers syntax and the unit tier in ~4s, which is the right
+# trade per commit. It cannot see the tiers that hold the frozen behavioural
+# gates — the chat input row, the voice drawer, the pane characterisation suite,
+# two-connection WebSocket isolation, and the pixel baselines. Those live here.
+#
+# test:voice is deliberately absent: it needs the live Kokoro/Whisper daemons,
+# so it would fail whenever they happen to be down. Run it by hand.
+
+set -e
+
+remote_ref_zero='^0\{40\}$'
+range_files() {
+    while read -r _local_ref local_sha _remote_ref remote_sha; do
+        # Deleting a ref pushes a zero local sha; nothing to test.
+        if echo "$local_sha" | grep -q "$remote_ref_zero"; then continue; fi
+
+        if echo "$remote_sha" | grep -q "$remote_ref_zero"; then
+            # New branch: diff against whatever the remote already has.
+            base=$(git merge-base "$local_sha" origin/main 2>/dev/null || true)
+            [ -n "$base" ] && git diff --name-only "$base" "$local_sha" || git ls-tree -r --name-only "$local_sha"
+        else
+            git diff --name-only "$remote_sha" "$local_sha"
+        fi
+    done
+}
+
+files=$(range_files | sort -u)
+
+if [ -z "$files" ]; then
+    exit 0
+fi
+
+# CSS and HTML are in scope: the visual and e2e tiers are what catch them.
+if ! echo "$files" | grep -qE '\.(js|cjs|mjs|css|html)$|jest\.config\.js|package\.json'; then
+    echo "→ docs/assets only; skipping suites"
+    exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+start=$(date +%s)
+
+for suite in "npm test" "npm run test:integration" "npm run test:e2e" "npm run test:visual"; do
+    echo "→ $suite"
+    if ! $suite --silent; then
+        echo "✗ $suite failed; push aborted"
+        exit 1
+    fi
+done
+
+elapsed=$(($(date +%s) - start))
+echo "✓ pre-push checks passed in ${elapsed}s"
