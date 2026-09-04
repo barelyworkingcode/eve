@@ -31,7 +31,7 @@ const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 // Device diagnostics (relayClient native audio): the iOS app streams its
 // cold-start / background-survival trace here as { type:'device_log', line|lines }
 // so it can be collected with no USB cable. Appended to a file for tailing.
-const DEVICE_LOG_PATH = path.join(__dirname, 'relay-device.log');
+const DEVICE_LOG_PATH = process.env.EVE_DEVICE_LOG_PATH || path.join(__dirname, 'relay-device.log');
 function appendDeviceLog(message, req) {
   try {
     const lines = Array.isArray(message.lines)

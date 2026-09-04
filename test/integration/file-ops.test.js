@@ -78,5 +78,30 @@ describe('file ops over WebSocket', () => {
       expect(res.ok).toBe(false);
       expect(res.error).toMatch(/permission denied/i);
     });
+
+    // The write side runs the same manifest re-read + permissions.files gate
+    // as read (module architecture invariant #2). Previously this had unit
+    // cover only (test/unit/ws-handler.test.js) with mocked FileService —
+    // never against a real spawned eve and real disk. See spec §9c-T4.
+    it('writes a file listed in permissions.files, and it lands on disk', async () => {
+      ws.send({
+        type: 'module_write_file', requestId: 'w1', projectId: 'p1', moduleName: 'demo',
+        path: 'data/notes.txt', content: 'updated by module',
+      });
+      const res = await ws.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'w1');
+      expect(res).toMatchObject({ ok: true });
+      expect(fs.readFileSync(path.join(projectDir, 'data', 'notes.txt'), 'utf8')).toBe('updated by module');
+    });
+
+    it('denies a write to a path NOT in permissions.files, and the disk is untouched', async () => {
+      ws.send({
+        type: 'module_write_file', requestId: 'w2', projectId: 'p1', moduleName: 'demo',
+        path: 'README.md', content: 'hijacked',
+      });
+      const res = await ws.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'w2');
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/permission denied/i);
+      expect(fs.readFileSync(path.join(projectDir, 'README.md'), 'utf8')).toBe('# hi');
+    });
   });
 });
