@@ -95,6 +95,8 @@ Connect to `ws://<host>:<port>`. When auth is required, send `{type:'auth', toke
 
 ### Client → Server
 
+Connection: `ping` (app-level heartbeat, answered before auth and rate-limiting — see `public/ws-client.js` `_heartbeat()`).
+
 Sessions: `create_session` (`{directory?, projectId?, name?, model?, settings?, systemPrompt?, appendClaudeMd?}`), `join_session`, `leave_session`, `end_session`, `delete_session`, `rename_session`, `set_session_folder`, `user_input` (`{text, files?, sessionId?, dictated?}`), `stop_generation`, `permission_response` (`{permissionId, approved, reason?}`), `set_permission_mode` (`{sessionId, mode}`).
 
 Files: `list_directory`, `read_file`, `write_file`, `rename_file`, `move_file`, `delete_file`, `upload_file`, `create_directory`, `watch_file`, `unwatch_file`, `read_plan_file`.
@@ -107,7 +109,11 @@ Modules: `module_read_file`, `module_write_file`, `module_invoke_ai`, `module_ai
 
 Voice/TTS/STT: `voice_mode` (`{enabled, voice?, speed?}`), `tts_speak`, `tts_speak_cancel`, `transcribe_audio`.
 
+Diagnostics: `device_log` (`{lines: [...]}` — appended to a server-side log with timestamp and source IP; no reply frame).
+
 ### Server → Client
+
+Connection: `pong` (reply to `ping`).
 
 Sessions: `session_created`, `session_joined`, `session_renamed`, `session_folder_changed`, `session_ended`, `user_message`, `llm_event`, `message_complete`, `stats_update`, `raw_output`, `stderr`, `system_message`, `warning`, `error`, `process_exited`, `clear_messages`, `mode_changed`, `permission_request`, `terminal_request` (`{sessionId, directory, command}` — from local slash commands), `plan_file_content`.
 

@@ -375,7 +375,6 @@ wss.on('connection', createWsHandler({
   moduleService,
   moduleInvoker,
   searchSummarizer,
-  claudeConfig: settings.providerConfig.claude,
   resolveProject: (id) => projectCache.get(id),
   ttsService,
   sttService,
