@@ -82,6 +82,8 @@ for (const mod of [
   require('./terminal-messages'),
   require('./search-messages'),
   require('./module-messages'),
+  require('./voice-messages'),
+  require('./diagnostics-messages'),
 ]) {
   for (const d of mod) messages.register(d);
 }
