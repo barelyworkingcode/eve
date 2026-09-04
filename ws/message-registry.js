@@ -78,6 +78,7 @@ class WsMessageRegistry {
 const messages = new WsMessageRegistry();
 for (const mod of [
   require('./session-messages'),
+  require('./file-messages'),
   require('./terminal-messages'),
 ]) {
   for (const d of mod) messages.register(d);
