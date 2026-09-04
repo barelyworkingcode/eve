@@ -5,14 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const RelayClient = require('./relay-client');
-const SlashCommandHandler = require('./slash-command-handler');
 const FileWatcher = require('./file-watcher');
 const RateLimiter = require('./rate-limiter');
 const { splitIntoChunks, cleanChunkText } = require('./tts-chunker');
-const { Director, EMOTION, DELIVERY } = require('./tts-director');
+const { Director } = require('./tts-director');
 const { messages } = require('./ws/message-registry');
-
-const slashCommandHandler = new SlashCommandHandler();
 
 // Per-connection rate limit for expensive operations (CPU/memory heavy or
 // fan-out to relay/STT/TTS). Generous enough for a human driving the UI, low
@@ -160,54 +157,6 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         } else switch (message.type) {
           case 'device_log':
             appendDeviceLog(message, req);
-            break;
-
-          case 'create_session':
-            await handleCreateSession(ws, relayClient, relayTransport, message, resolveProject, log);
-            break;
-
-          case 'join_session':
-            relayClient.joinSession(message.sessionId);
-            break;
-
-          case 'user_input':
-            handleUserInput(ws, relayClient, message, log);
-            break;
-
-          case 'leave_session':
-            relayClient.leaveSession(message.sessionId);
-            break;
-
-          case 'end_session':
-            relayClient.endSession(message.sessionId || relayClient.currentSessionId);
-            break;
-
-          case 'delete_session':
-            relayClient.deleteSession(message.sessionId);
-            break;
-
-          case 'rename_session':
-            relayClient.renameSession(message.sessionId, message.name);
-            break;
-
-          case 'set_session_folder':
-            relayClient.setSessionFolder(message.sessionId, message.folder);
-            break;
-
-          case 'stop_generation':
-            relayClient.stopGeneration(message.sessionId);
-            break;
-
-          case 'permission_response':
-            relayClient.sendPermissionResponse(
-              message.permissionId,
-              message.approved,
-              message.reason || ''
-            );
-            break;
-
-          case 'set_permission_mode':
-            relayClient.setPermissionMode(message.sessionId, message.mode);
             break;
 
           // --- File operations (local) ---
@@ -375,133 +324,6 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
 }
 
 /**
- * Create session via relayLLM HTTP POST, then join via WS.
- * Resolves the project for its directory and permission policy only. The
- * project token is brokered entirely by relay — relayLLM resolves the scoped
- * token from relay's bridge by projectId at spawn time, so eve never handles it.
- */
-async function handleCreateSession(ws, relayClient, relayTransport, message, resolveProject, log) {
-  try {
-    // Resolve project for directory and permission policy (never the token).
-    let directory = message.directory || '';
-    let projectPolicy = null;
-    if (message.projectId) {
-      const project = resolveProject(message.projectId);
-      if (project) {
-        directory = directory || project.path;
-        projectPolicy = project.permissionPolicy || null;
-      }
-    }
-
-    // Merge project policy into the session settings. The client may set
-    // permissionMode in message.settings to override the project default
-    // (e.g. "Start in plan mode" checkbox). The policy itself (allowed/denied)
-    // always comes from the project — clients can't widen it.
-    const settings = { ...(message.settings || {}) };
-    if (projectPolicy) {
-      settings.permissionPolicy = {
-        allowedTools: projectPolicy.allowedTools || [],
-        deniedTools: projectPolicy.deniedTools || [],
-        defaultMode: projectPolicy.defaultMode || 'default',
-      };
-      if (!settings.permissionMode && projectPolicy.defaultMode && projectPolicy.defaultMode !== 'default') {
-        settings.permissionMode = projectPolicy.defaultMode;
-      }
-    }
-
-    const { status, data } = await relayTransport.fetch('POST', '/api/sessions', {
-      projectId: message.projectId || '',
-      directory,
-      name: message.name || '',
-      model: message.model || '',
-      settings: Object.keys(settings).length > 0 ? settings : null,
-      systemPrompt: message.systemPrompt || '',
-      appendClaudeMd: message.appendClaudeMd || false,
-    });
-
-    if (status < 200 || status >= 300) {
-      ws.send(JSON.stringify({ type: 'error', message: (data && data.error) || 'Failed to create session' }));
-      return;
-    }
-
-    // Send session_created to browser
-    ws.send(JSON.stringify({
-      type: 'session_created',
-      sessionId: data.sessionId,
-      directory: data.directory,
-      projectId: data.projectId || null,
-      model: data.model,
-      name: data.name || null,
-      metadata: data.directory,
-      sessionType: message.sessionType || null,
-      voice: message.voice || null,
-    }));
-
-    // Voice mode is controlled by the client via syncVoiceMode.
-    // Server TTS backend sends voice_mode enabled; on-device backends don't.
-    // Don't force it here — that would cause double speech when using native TTS.
-
-    // Suppress the session_joined that relayLLM will send when we join
-    relayClient.setSuppressNextJoin(data.sessionId);
-    relayClient.currentSessionId = data.sessionId;
-    relayClient.sessionDirectory = data.directory;
-    relayClient.joinSession(data.sessionId);
-
-  } catch (err) {
-    log?.error('Create session failed:', err.message);
-    ws.send(JSON.stringify({ type: 'error', message: 'Failed to create session: relay unavailable' }));
-  }
-}
-
-/**
- * Handle user input: check for local slash commands first, else relay.
- */
-// Voice mode: tell the model to (a) write for the ear and (b) sprinkle the
-// inline cue vocabulary the Director (tts-director.js) parses into per-utterance
-// emotion/delivery. Brackets are the ONE markup we allow precisely because the
-// Director consumes them and strips them before synthesis.
-// The advertised cue vocabulary is generated from the Director's own
-// EMOTION/DELIVERY tables, so the prompt and the parser can't drift apart.
-const cueTags = (cues) => Object.keys(cues).map(c => `[${c}]`).join(' ');
-const VOICE_MODE_INSTRUCTION = [
-  '[VOICE MODE] Your reply is spoken aloud by an expressive voice — perform it, don\'t just answer.',
-  'Talk like a real person: conversational, concise (a sentence or three unless asked for more), with natural rhythm and contractions.',
-  'No markdown, headings, bullet or numbered lists, tables, code blocks, emojis, or URLs — none of it reads aloud. Spell things as spoken ("twenty bucks", not "$20"; "doctor Reyes", not "Dr. Reyes").',
-  'Shape delivery with cues in square brackets — the ONLY markup allowed. Never narrate actions any other way (no "*laughs*", no "(softly)").',
-  `Emotion cues (a momentary feeling, right where it lands): ${cueTags(EMOTION)}.`,
-  `Delivery cues (change HOW you sound and persist until you change them; return to normal with [normal]): ${cueTags(DELIVERY)}.`,
-  'Use them like a voice actor: lead with a delivery cue when it fits, then [normal] to come back; drop an emotion cue exactly where the feeling hits; vary your delivery but stay believable (don\'t laugh every line or shout every sentence); one cue per spot — don\'t stack them or invent new ones.',
-  'Example — User: I got the job!! / You: [gasp] Shut up! [excited] You GOT it?! [laugh] I knew it. [normal] Okay, tell me everything.',
-].join(' ');
-
-const DICTATION_NOTICE = '[DICTATED] The following was spoken aloud and transcribed via speech-to-text. Minor transcription errors may be present; please interpret the intended meaning.\n\n';
-
-function handleUserInput(ws, relayClient, message, log) {
-  const text = (message.text || '').trim();
-
-  if (slashCommandHandler.handle(ws, relayClient, text)) {
-    return;
-  }
-
-  const files = (message.files || []).map(parseFileAttachment);
-
-  let finalText = message.text;
-
-  // Prepend dictation notice for voice-transcribed input
-  if (message.dictated) {
-    finalText = DICTATION_NOTICE + finalText;
-  }
-
-  // Prepend voice mode instruction when voice mode is active
-  if (relayClient.voiceMode) {
-    finalText = VOICE_MODE_INSTRUCTION + '\n\n' + finalText;
-  }
-
-  log?.debug('→ LLM:', finalText);
-  relayClient.sendMessage(finalText, files, message.sessionId);
-}
-
-/**
  * Read a Claude plan file with strict path validation.
  */
 async function handleReadPlanFile(ws, filePath) {
@@ -536,20 +358,6 @@ async function handleReadPlanFile(ws, filePath) {
   } catch (err) {
     ws.send(JSON.stringify({ type: 'error', message: `Failed to read plan file: ${err.message}` }));
   }
-}
-
-/**
- * Convert a client file attachment to the relay format.
- * Extracts mime type and raw base64 from data URLs.
- */
-function parseFileAttachment(f) {
-  if (f.type === 'image' && f.content && f.content.startsWith('data:')) {
-    const match = f.content.match(/^data:([^;]+);base64,(.+)$/);
-    if (match) {
-      return { name: f.name, mimeType: match[1], data: match[2] };
-    }
-  }
-  return { name: f.name, mimeType: f.mediaType || '', data: f.content || '' };
 }
 
 /**
