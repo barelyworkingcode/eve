@@ -1,13 +1,13 @@
 /**
  * Chat input button row — the first FeatureRegistry consumer.
  *
- * TEMPORARY HOME. These five buttons belong to five different features
+ * TEMPORARY HOME. These four buttons belong to four different features
  * (attach to file attachments, plan mode to permissions, send to the chat
- * form, mic to STT, stop to the run lifecycle). Later tasks move each button
- * to the feature that owns it (the mic to a TTS/STT feature, and so on); this
- * file is deleted when the last one leaves. That is the point of the
- * exercise: a feature owns its own DOM through a [data-slot] without
- * index.html or app.js knowing about it.
+ * form, stop to the run lifecycle); the mic lives in the STT feature
+ * (features/stt.js). Later tasks move each remaining button to the feature
+ * that owns it; this file is deleted when the last one leaves. That is the
+ * point of the exercise: a feature owns its own DOM through a [data-slot]
+ * without index.html or app.js knowing about it.
  *
  * Registration is at file scope against the page's registry singleton
  * (core/feature-registry.js). The render closures run at boot, so the DOM
@@ -67,23 +67,6 @@ features.register({
         testid: 'chat-submit',
         svg: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
   <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
-</svg>`,
-      }),
-    },
-    {
-      slot: 'chat-input-trailing',
-      order: 20,
-      render: () => buildInputButton({
-        id: 'micBtn',
-        classes: 'btn-mic hidden',
-        type: 'button',
-        title: 'Dictate (Speech-to-Text)',
-        testid: 'chat-mic',
-        svg: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-  <line x1="12" y1="19" x2="12" y2="23"/>
-  <line x1="8" y1="23" x2="16" y2="23"/>
 </svg>`,
       }),
     },
