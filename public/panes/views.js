@@ -97,8 +97,30 @@ panes.registerView({
   splittable: true,
   show(ref, ctx, el) {
     el.classList.remove('hidden');
-    const t = ctx.tabs.tabs.find(x => x.type === 'file' && x.projectId === ref.projectId && x.path === ref.path);
-    ctx.tabs._renderViewer(t || { projectId: ref.projectId, path: ref.path, label: ref.label || ref.path });
+    // Verbatim body of the pre-migration `TabManager#_renderViewer` (moved
+    // here, not into the `file` type descriptor, per spec §M0.1: `viewer` is
+    // produced by exactly one type, so there is nothing left to select
+    // between). `t` re-finds the owning tab so a re-render picks up
+    // `_reloadVersion`; a ref with no owning tab yet (e.g. a fresh open)
+    // falls back to a synthetic one built from `ref` alone.
+    const t = ctx.tabs.tabs.find(x => x.type === 'file' && x.projectId === ref.projectId && x.path === ref.path)
+      || { projectId: ref.projectId, path: ref.path, label: ref.label || ref.path };
+
+    const registry = ctx.app.viewerRegistry;
+    const viewer = registry.getViewer(t.path);
+    if (!viewer) return;
+
+    const url = registry.buildFileUrl(t.projectId, t.path, t._reloadVersion);
+    ctx.tabs.viewerPath.textContent = t.path;
+    ctx.tabs.viewerInfo.textContent = '';
+    ctx.tabs._activeViewer = viewer;
+
+    viewer.render(ctx.tabs.viewerCanvas, {
+      projectId: t.projectId,
+      path: t.path,
+      filename: t.label,
+      url,
+    });
   },
   destroy: destroyActiveViewer,
 });

@@ -163,21 +163,10 @@ class TabManager {
       return;
     }
 
-    // Create new tab
-    const tab = {
-      id: tabId,
-      type: 'file',
-      label: label || filePath.split('/').pop(),
-      projectId,
-      path: filePath,
-      modified: false
-    };
-
+    const d = panes.type('file');
+    const tab = d.create({ projectId, path: filePath, label }, this._ctx());
     this.tabs.push(tab);
-    this._saveFileTab(projectId, filePath);
-
-    this._sendWatchFile(projectId, filePath);
-
+    if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
     this.switchToTab(tabId);
   }
 
@@ -285,8 +274,6 @@ class TabManager {
         const session = this.app.sessions.get(tab.id);
         return session?.sessionType === 'voice' ? 'voice' : 'chat';
       }
-      case 'file':
-        return this.app.viewerRegistry?.isViewerFile(tab.path) ? 'viewer' : 'editor';
       default: return 'chat';
     }
   }
@@ -297,7 +284,6 @@ class TabManager {
     if (d) return d.ref(tab);
     switch (tab.type) {
       case 'session': return { sessionId: tab.id };
-      case 'file': return { projectId: tab.projectId, path: tab.path, label: tab.label };
       default: return {};
     }
   }
@@ -308,11 +294,13 @@ class TabManager {
     return tab.split?.paneView || this._viewForTab(child);
   }
 
-  /** The view a tab would take as a dragged-in second pane. HTML files preview
-   *  rather than open their source, which is also what you want beside a console
-   *  or an editor (and sidesteps the editor-vs-editor singleton block). */
+  /** The view a tab would take as a dragged-in second pane. Defaults to a
+   *  migrated type's own `view()`; `file` overrides it (an HTML file previews
+   *  live rather than opening its source, which also sidesteps the
+   *  editor-vs-editor singleton block — see public/panes/file-pane.js). */
   _prospectiveView(tab) {
-    if (tab.type === 'file' && /\.html?$/i.test(tab.path)) return 'htmlPreview';
+    const d = panes.type(tab.type);
+    if (d) return d.prospectiveView ? d.prospectiveView(tab, this._ctx()) : d.view(tab, this._ctx());
     return this._viewForTab(tab);
   }
 
@@ -343,8 +331,6 @@ class TabManager {
         hash = d.hash ? d.hash(tab) : '';
       } else if (tab.type === 'session') {
         hash = `#session/${encodeURIComponent(tab.id)}`;
-      } else if (tab.type === 'file') {
-        hash = `#file/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.path)}`;
       }
     }
     const target = hash || (window.location.pathname + window.location.search);
@@ -360,11 +346,11 @@ class TabManager {
     let tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;
 
-    // Check for unsaved changes on file tabs
-    if (tab.type === 'file' && tab.modified) {
-      if (!confirm(`"${tab.label}" has unsaved changes. Close anyway?`)) {
-        return;
-      }
+    // Gate the close on a per-type confirmation (currently `file`'s modified-
+    // file confirm() only; every other migrated type defaults to true).
+    const closeGate = panes.type(tab.type);
+    if (closeGate?.confirmClose && !closeGate.confirmClose(tab, this._ctx())) {
+      return;
     }
 
     // Closing a split host also closes its nested second pane.
@@ -386,18 +372,6 @@ class TabManager {
     if (tabIndex === -1) return;
     tab = this.tabs[tabIndex];
 
-    // Remove from localStorage and unregister file watcher
-    if (tab.type === 'file') {
-      this._removeFileTab(tab.projectId, tab.path);
-    }
-    if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
-      this.app.ws?.send(JSON.stringify({
-        type: 'unwatch_file',
-        projectId: tab.projectId,
-        path: tab.path
-      }));
-    }
-
     // Send leave_session to unbind from relayLLM when closing a session tab
     if (tab.type === 'session') {
       this._removeSessionTab(tab.id);
@@ -409,8 +383,8 @@ class TabManager {
     }
 
     // Persistence removal + dispose for pane types migrated onto PaneRegistry
-    // (module, terminal, for now — file/session keep their own arms above
-    // until their own handoffs land).
+    // (file, module, terminal, for now — session keeps its own arm above
+    // until its own handoff lands).
     const migratedType = panes.type(tab.type);
     if (migratedType) {
       if (migratedType.persist) this._removeFromStorage(migratedType.persist.key, migratedType.persist.entryId(tab));
@@ -778,68 +752,34 @@ class TabManager {
   }
 
   /**
-   * Re-registers file watchers after WebSocket reconnection.
+   * Re-registers file watchers after WebSocket reconnection. The frame itself
+   * (skip plan projects, mark viewer files binary) is the `file` descriptor's
+   * `watchFile` — the same one `create` sends on first open (public/panes/file-pane.js).
    */
   reestablishFileWatches() {
+    const d = panes.type('file');
     for (const tab of this.tabs) {
-      if (tab.type === 'file') {
-        this._sendWatchFile(tab.projectId, tab.path);
-      }
+      if (tab.type === d.type) d.watchFile(tab, this._ctx());
     }
-  }
-
-  /**
-   * Sends a watch_file message for the given path, skipping plan files and
-   * marking viewer files as binary so the server omits content from updates.
-   */
-  _sendWatchFile(projectId, filePath) {
-    if (isPlanProject(projectId)) return;
-    const isViewer = !!this.app.viewerRegistry?.isViewerFile(filePath);
-    this.app.ws?.send(JSON.stringify({
-      type: 'watch_file',
-      projectId,
-      path: filePath,
-      binary: isViewer
-    }));
-  }
-
-  /**
-   * Renders a viewer file into the viewer canvas.
-   */
-  _renderViewer(tab) {
-    const registry = this.app.viewerRegistry;
-    const viewer = registry.getViewer(tab.path);
-    if (!viewer) return;
-
-    const url = registry.buildFileUrl(tab.projectId, tab.path, tab._reloadVersion);
-    this.viewerPath.textContent = tab.path;
-    this.viewerInfo.textContent = '';
-    this._activeViewer = viewer;
-
-    viewer.render(this.viewerCanvas, {
-      projectId: tab.projectId,
-      path: tab.path,
-      filename: tab.label,
-      url
-    });
   }
 
   /**
    * Re-render a viewer tab whose file changed on disk. If the tab is currently
    * active, refresh in place; otherwise the next switchToTab picks up the new
-   * version via the cache-busted URL.
+   * version via the cache-busted URL. Whether `path` is a viewer file at all
+   * is the `file` descriptor's `view()` decision, not a local viewerRegistry
+   * reach-through.
    */
   handleViewerFileChanged(projectId, path) {
-    const tab = this.tabs.find(
-      t => t.type === 'file' && t.projectId === projectId && t.path === path
-    );
-    if (!tab || !this.app.viewerRegistry?.isViewerFile(tab.path)) return;
+    const d = panes.type('file');
+    const tab = this.tabs.find(t => t.type === d.type && t.projectId === projectId && t.path === path);
+    if (!tab || d.view(tab, this._ctx()) !== 'viewer') return;
 
     tab._reloadVersion = Date.now();
 
     if (tab.id === this.activeTabId && !this.viewerContent.classList.contains('hidden')) {
       this._destroyActiveViewer();
-      this._renderViewer(tab);
+      this._showContentForRef('viewer', this._refForTab(tab));
     }
   }
 
@@ -1066,16 +1006,10 @@ class TabManager {
   }
 
   // --- File persistence ---
-
-  _saveFileTab(projectId, filePath) {
-    const key = `${projectId}:${filePath}`;
-    this._saveToStorage(TabManager.FILE_STORAGE_KEY, key, { projectId, path: filePath, ts: Date.now() });
-  }
-
-  _removeFileTab(projectId, filePath) {
-    const key = `${projectId}:${filePath}`;
-    this._removeFromStorage(TabManager.FILE_STORAGE_KEY, key);
-  }
+  // Writing/removing an entry is now generic — see openFile and closeTab,
+  // which drive it off the `file` descriptor's `persist` field
+  // (public/panes/file-pane.js). The reader stays here unchanged (§H.5):
+  // its name and shape are called from app.js on every reconnect.
 
   getRecentFiles() {
     return this._getRecentEntries(TabManager.FILE_STORAGE_KEY);
