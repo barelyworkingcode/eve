@@ -111,10 +111,26 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-isolation-'));
     fs.writeFileSync(path.join(projectDir, 'secretA.txt'), 'AAA-ONLY-FOR-A', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'secretB.txt'), 'BBB-ONLY-FOR-B', 'utf8');
+    // Fixtures for the search and module isolation cases below.
+    fs.writeFileSync(path.join(projectDir, 'needleA.txt'), 'ZEBRAALPHA marker', 'utf8');
+    fs.writeFileSync(path.join(projectDir, 'needleB.txt'), 'ZEBRABRAVO marker', 'utf8');
+    fs.writeFileSync(path.join(projectDir, 'dataA.txt'), 'MODULE-DATA-A', 'utf8');
+    fs.writeFileSync(path.join(projectDir, 'dataB.txt'), 'MODULE-DATA-B', 'utf8');
+    // A module manifest permitting both files — same fixture shape as file-ops.test.js.
+    fs.mkdirSync(path.join(projectDir, 'modules', 'demo'), { recursive: true });
+    fs.writeFileSync(path.join(projectDir, 'modules', 'demo', 'module.json'), JSON.stringify({
+      displayName: 'Demo', entry: 'index.html', permissions: { files: ['dataA.txt', 'dataB.txt'] },
+    }), 'utf8');
     eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
     wsA = await eve.connectWs();
     wsB = await eve.connectWs();
     await eve.relay.waitForRelay();
+    // waitForRelay only guarantees the FIRST of eve's two per-connection relay
+    // upstreams is open. The terminal case below needs BOTH (relayClient.send
+    // silently no-ops on a not-yet-open socket) — bounded poll, not a fixed sleep.
+    for (let i = 0; i < 100 && eve.relay.relayConnectionCount() < 2; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
   });
 
   afterAll(async () => {
@@ -157,5 +173,75 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     expect(createdA.sessionId).not.toBe(createdB.sessionId);
     expect(wsA.frames.slice(fromA).some((f) => f.type === 'session_created' && f.sessionId === createdB.sessionId)).toBe(false);
     expect(wsB.frames.slice(fromB).some((f) => f.type === 'session_created' && f.sessionId === createdA.sessionId)).toBe(false);
+  });
+
+  // --- The five domains C1's "accepted limits" named as review-checklist-only
+  // (docs/decisions/003-ws-message-registry.md): search, module, voice.
+  // Terminal and diagnostics are covered below too, closing the gap. ---
+
+  it('search_project on each connection replies only to the connection that asked', async () => {
+    const fromA = wsA.mark();
+    const fromB = wsB.mark();
+
+    wsA.send({ type: 'search_project', projectId: 'p1', query: 'ZEBRAALPHA', requestId: 'search-A' });
+    wsB.send({ type: 'search_project', projectId: 'p1', query: 'ZEBRABRAVO', requestId: 'search-B' });
+
+    const resultsA = await wsA.waitFor((f) => f.type === 'search_results' && f.requestId === 'search-A', 10000, fromA);
+    const resultsB = await wsB.waitFor((f) => f.type === 'search_results' && f.requestId === 'search-B', 10000, fromB);
+
+    expect(resultsA.matches.some((m) => path.basename(m.file) === 'needleA.txt')).toBe(true);
+    expect(resultsB.matches.some((m) => path.basename(m.file) === 'needleB.txt')).toBe(true);
+
+    expect(wsA.frames.slice(fromA).some((f) => f.requestId === 'search-B')).toBe(false);
+    expect(wsB.frames.slice(fromB).some((f) => f.requestId === 'search-A')).toBe(false);
+  });
+
+  it('module_read_file on each connection replies only to the connection that asked', async () => {
+    const fromA = wsA.mark();
+    const fromB = wsB.mark();
+
+    wsA.send({ type: 'module_read_file', projectId: 'p1', moduleName: 'demo', path: 'dataA.txt', requestId: 'mod-A' });
+    wsB.send({ type: 'module_read_file', projectId: 'p1', moduleName: 'demo', path: 'dataB.txt', requestId: 'mod-B' });
+
+    const respA = await wsA.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'mod-A', 5000, fromA);
+    const respB = await wsB.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'mod-B', 5000, fromB);
+
+    expect(respA).toMatchObject({ ok: true, content: 'MODULE-DATA-A' });
+    expect(respB).toMatchObject({ ok: true, content: 'MODULE-DATA-B' });
+
+    expect(wsA.frames.slice(fromA).some((f) => f.requestId === 'mod-B')).toBe(false);
+    expect(wsB.frames.slice(fromB).some((f) => f.requestId === 'mod-A')).toBe(false);
+  });
+
+  it('transcribe_audio on each connection replies with its own error, never the other\'s', async () => {
+    const fromA = wsA.mark();
+    const fromB = wsB.mark();
+
+    // Both land on the daemon-unreachable failure path deterministically (harness
+    // pins TTS_PORT/STT_PORT to dead ports), but the two arms diverge BEFORE that
+    // dial even happens, on the payload alone — see handleTranscribeAudio.
+    wsA.send({ type: 'transcribe_audio' }); // no audio field at all
+    wsB.send({ type: 'transcribe_audio', audio: Buffer.from('ABCD').toString('base64') }); // 4 raw bytes, well under the 100-byte floor
+
+    const errA = await wsA.waitFor((f) => f.type === 'transcription_error', 5000, fromA);
+    const errB = await wsB.waitFor((f) => f.type === 'transcription_error', 5000, fromB);
+
+    expect(errA.error).toBe('No audio data');
+    expect(errB.error).toBe('Audio recording too short');
+
+    expect(wsA.frames.slice(fromA).some((f) => f.error === 'Audio recording too short')).toBe(false);
+    expect(wsB.frames.slice(fromB).some((f) => f.error === 'No audio data')).toBe(false);
+  });
+
+  it('terminal_input from each connection arrives at relay on a different relay socket', async () => {
+    wsA.send({ type: 'terminal_input', terminalId: 'tA', data: 'FROM-A' });
+    wsB.send({ type: 'terminal_input', terminalId: 'tB', data: 'FROM-B' });
+
+    const inA = await eve.relay.waitForInbound((f) => f.type === 'terminal_input' && f.terminalId === 'tA');
+    const inB = await eve.relay.waitForInbound((f) => f.type === 'terminal_input' && f.terminalId === 'tB');
+
+    expect(inA.__relaySocketId).toBeDefined();
+    expect(inB.__relaySocketId).toBeDefined();
+    expect(inA.__relaySocketId).not.toBe(inB.__relaySocketId);
   });
 });
