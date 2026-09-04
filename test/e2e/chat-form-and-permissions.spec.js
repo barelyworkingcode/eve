@@ -20,15 +20,21 @@ const { test, expect } = require('./fixtures');
 const { relayFrames } = require('../integration/protocol');
 
 test.describe('chat form and permissions, beyond the gate specs', () => {
-  test('send is disabled (and the textarea too) only while the session is starting', async ({ page }) => {
+  test('send is disabled (and the textarea too) only while the session is starting', async ({ page, eve }) => {
     await page.getByTestId('sidebar-project-p1').click();
     await page.getByTestId('sidebar-new-session-p1').click();
     await page.getByTestId('shell-card-web-chat').click();
 
-    // Read state right after the click resolves: showSessionStarting() runs
-    // synchronously in the click handler, before the real WS round trip to
-    // the fake relay's HTTP API that produces session_created — so there is
-    // no way for that response to have arrived yet.
+    // showSessionStarting() runs synchronously in the click handler, before
+    // ws.send('create_session') — so the disabled read below is never racing
+    // *that* part. What it can race, under load, is the other side: eve's
+    // child process round-tripping the real (if fake) HTTP POST to relay and
+    // WS-pushing session_created back, which would flip the button enabled
+    // again before this assertion gets scheduled. Holding the relay's
+    // response open removes that race outright instead of hoping this read
+    // wins a timing footrace across three processes.
+    const gate = eve.relay.holdSessionCreate();
+
     await page.getByRole('button', { name: 'Start Chat' }).click();
     const whileStarting = await page.evaluate(() => ({
       sendDisabled: document.getElementById('sendBtn').disabled,
@@ -36,6 +42,7 @@ test.describe('chat form and permissions, beyond the gate specs', () => {
     }));
     expect(whileStarting).toEqual({ sendDisabled: true, userInputDisabled: true });
 
+    gate.release();
     await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15000 });
     const afterCreated = await page.evaluate(() => ({
       sendDisabled: document.getElementById('sendBtn').disabled,

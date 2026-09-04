@@ -1,0 +1,23 @@
+{
+  "_comment": "Captured from a live run of the unmodified pm/tab-manager-registry build (4778ac2) — a real browser driven through create_session, tabManager.openFile and tabManager.openModule, then a dump of the four localStorage keys. This is the back-compat gate for the whole pane-registry refactor (spec section H): every handoff from 1 through 9 must restore this fixture identically. {{SESSION_ID}}, {{PROJECT_ID}} and {{TS}} are substituted by test/e2e/tab-panes.spec.js at seed time (a fixed session/project id and Date.now(), so the fixture stays inside the 24h TTL on every run) — the field NAMES and SHAPES either side of the substitution are the literal captured output, unedited. See §H of /tmp/eve-phase4-tab-manager-spec.md: eve-open-sessions is deliberately a bare number, not an object; eve-session-meta is the only place sessionType survives a reload, since GET /api/sessions (relayLLM) has no concept of it.",
+  "eve-open-sessions": {
+    "{{SESSION_ID}}": "{{TS}}"
+  },
+  "eve-session-meta": {
+    "{{SESSION_ID}}": { "sessionType": "voice" }
+  },
+  "eve-open-files": {
+    "{{PROJECT_ID}}:/README.md": {
+      "projectId": "{{PROJECT_ID}}",
+      "path": "/README.md",
+      "ts": "{{TS}}"
+    }
+  },
+  "eve-open-modules": {
+    "{{PROJECT_ID}}:demo-module": {
+      "projectId": "{{PROJECT_ID}}",
+      "moduleName": "demo-module",
+      "ts": "{{TS}}"
+    }
+  }
+}
