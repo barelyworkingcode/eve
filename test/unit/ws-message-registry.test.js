@@ -91,3 +91,22 @@ describe('WsMessageRegistry.expensiveTypes', () => {
     expect(messages.expensiveTypes().size).toBe(0);
   });
 });
+
+// C2 (spec §5c / §7): a descriptor's `handle` must be an async function if
+// and only if today's `case` arm is awaited — currently exactly
+// `create_session`, `module_read_file`, `module_write_file`. Returning a
+// promise for any other type turns a fire-and-forget rejection into a
+// browser-visible `{type:'error'}` frame it has never produced before. This
+// passes trivially today (only the terminal domain is registered, and none
+// of its nine handles are async); it becomes load-bearing at the session and
+// module handoffs.
+describe('constraint C2 — handle is async iff its case arm is awaited today', () => {
+  const AWAITED_TYPES = new Set(['create_session', 'module_read_file', 'module_write_file']);
+
+  it('every registered descriptor matches the awaited-arm set', () => {
+    for (const type of messages.types()) {
+      const isAsync = messages.get(type).handle.constructor.name === 'AsyncFunction';
+      expect(isAsync).toBe(AWAITED_TYPES.has(type));
+    }
+  });
+});
