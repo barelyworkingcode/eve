@@ -38,9 +38,12 @@ function computeInlineScriptHashes(html) {
     const attrs = m[1] || '';
     // Skip external scripts (src attribute present)
     if (/\bsrc\s*=/i.test(attrs)) continue;
-    const body = m[2];
+    // Browsers normalise CRLF to LF before hashing an inline script body, so a
+    // CRLF-checked-out index.html would otherwise never match its own hash and
+    // every inline script would be silently blocked.
+    const body = (m[2] || '').replace(/\r\n/g, '\n');
     // Only hash non-empty bodies (ignore empty or whitespace-only scripts)
-    if (!body || !body.trim()) continue;
+    if (!body.trim()) continue;
     const digest = crypto.createHash('sha256').update(body, 'utf8').digest('base64');
     hashes.push(`'sha256-${digest}'`);
   }
@@ -65,7 +68,11 @@ function buildShellCsp(scriptHashes = []) {
     "connect-src 'self' ws: wss: data: blob:",
     "frame-src 'self'",
     "object-src 'none'",
-    "base-uri 'none'",
+    // 'self', not 'none': index.html carries <base href="/"> so the shell still
+    // resolves its relative script/link URLs when served from a /:project path
+    // with a trailing slash. 'none' blocked the tag and 404'd all 60 scripts
+    // there. 'self' still prevents a injected <base> pointing off-origin.
+    "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
   ].join('; ');

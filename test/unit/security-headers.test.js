@@ -29,6 +29,16 @@ describe('security-headers', () => {
       expect(computeInlineScriptHashes(html)).toHaveLength(2);
     });
 
+    // Browsers normalise CRLF to LF before hashing an inline script body. Hashing
+    // the raw bytes of a CRLF file therefore yields a hash the browser never
+    // matches, and every inline script is silently blocked — which is exactly
+    // what happened to index.html's theme bootstrap and bad-network safety net.
+    it('hashes CRLF and LF bodies identically', () => {
+      const lf = '<script>\nvar a = 1;\nvar b = 2;\n</script>';
+      const crlf = '<script>\r\nvar a = 1;\r\nvar b = 2;\r\n</script>';
+      expect(computeInlineScriptHashes(crlf)).toEqual(computeInlineScriptHashes(lf));
+    });
+
     it('returns [] when there are no inline scripts', () => {
       expect(computeInlineScriptHashes('<script src="/a.js"></script>')).toEqual([]);
     });
@@ -43,10 +53,17 @@ describe('security-headers', () => {
       expect(csp).not.toContain("'unsafe-eval'"); // only the narrower wasm-unsafe-eval
     });
 
-    it('locks down object-src, base-uri, and frame-ancestors', () => {
+    it('locks down object-src and frame-ancestors', () => {
       expect(csp).toContain("object-src 'none'");
-      expect(csp).toContain("base-uri 'none'");
       expect(csp).toContain("frame-ancestors 'none'");
+    });
+
+    // 'self' rather than 'none': index.html carries <base href="/"> so the shell
+    // resolves its relative script URLs when served from a /:project path with a
+    // trailing slash. 'none' blocked the tag and 404'd all 60 scripts there.
+    it('allows a same-origin base-uri so <base href="/"> survives', () => {
+      expect(csp).toContain("base-uri 'self'");
+      expect(csp).not.toContain("base-uri 'none'");
     });
 
     it('allows ws/wss in connect-src for the relay socket', () => {
