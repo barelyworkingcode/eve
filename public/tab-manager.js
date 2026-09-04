@@ -214,15 +214,10 @@ class TabManager {
       this.switchToTab(tabId);
       return;
     }
-    const tab = {
-      id: tabId,
-      type: 'module',
-      label: label || moduleName,
-      projectId,
-      moduleName,
-    };
+    const d = panes.type('module');
+    const tab = d.create({ projectId, moduleName, label }, this._ctx());
     this.tabs.push(tab);
-    this._saveModuleTab(projectId, moduleName);
+    if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
     this.switchToTab(tabId);
   }
 
@@ -300,7 +295,6 @@ class TabManager {
       case 'file':
         return this.app.viewerRegistry?.isViewerFile(tab.path) ? 'viewer' : 'editor';
       case 'terminal': return 'terminal';
-      case 'module': return 'module';
       default: return 'chat';
     }
   }
@@ -313,7 +307,6 @@ class TabManager {
       case 'session': return { sessionId: tab.id };
       case 'file': return { projectId: tab.projectId, path: tab.path, label: tab.label };
       case 'terminal': return { terminalId: tab.id };
-      case 'module': return { projectId: tab.projectId, moduleName: tab.moduleName };
       default: return {};
     }
   }
@@ -354,14 +347,15 @@ class TabManager {
   _updateHash(tab) {
     let hash = '';
     if (tab) {
-      if (tab.type === 'session') {
+      const d = panes.type(tab.type);
+      if (d) {
+        hash = d.hash ? d.hash(tab) : '';
+      } else if (tab.type === 'session') {
         hash = `#session/${encodeURIComponent(tab.id)}`;
       } else if (tab.type === 'file') {
         hash = `#file/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.path)}`;
       } else if (tab.type === 'terminal') {
         hash = `#terminal/${encodeURIComponent(tab.id)}`;
-      } else if (tab.type === 'module') {
-        hash = `#module/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.moduleName)}`;
       }
     }
     const target = hash || (window.location.pathname + window.location.search);
@@ -430,10 +424,13 @@ class TabManager {
       this.app.terminalManager.closeTerminal(tab.id);
     }
 
-    // Destroy module iframe + drop from localStorage
-    if (tab.type === 'module') {
-      this._removeModuleTab(tab.projectId, tab.moduleName);
-      if (this.app.moduleHost) this.app.moduleHost.destroy(tab.id);
+    // Persistence removal + dispose for pane types migrated onto PaneRegistry
+    // (module, for now — file/session/terminal keep their own arms above
+    // until their own handoffs land).
+    const migratedType = panes.type(tab.type);
+    if (migratedType) {
+      if (migratedType.persist) this._removeFromStorage(migratedType.persist.key, migratedType.persist.entryId(tab));
+      if (migratedType.dispose) migratedType.dispose(tab, this._ctx());
     }
 
     // Remove tab
@@ -1110,16 +1107,10 @@ class TabManager {
   }
 
   // --- Module persistence ---
-
-  _saveModuleTab(projectId, moduleName) {
-    const key = `${projectId}:${moduleName}`;
-    this._saveToStorage(TabManager.MODULE_STORAGE_KEY, key, { projectId, moduleName, ts: Date.now() });
-  }
-
-  _removeModuleTab(projectId, moduleName) {
-    const key = `${projectId}:${moduleName}`;
-    this._removeFromStorage(TabManager.MODULE_STORAGE_KEY, key);
-  }
+  // Writing/removing an entry is now generic — see openModule and closeTab,
+  // which drive it off the `module` descriptor's `persist` field
+  // (public/panes/module-pane.js). The reader stays here unchanged (§H.5):
+  // its name and shape are called from app.js on every reconnect.
 
   getRecentModules() {
     return this._getRecentEntries(TabManager.MODULE_STORAGE_KEY);
