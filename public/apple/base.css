@@ -73,3 +73,13 @@ code, pre, kbd, samp, .terminal-container, .monaco-editor {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Feature-registry slots (docs/decisions/001-feature-registry.md): a
+ * [data-slot] wrapper must not create a box of its own. .input-form is
+ * display:flex with a gap — if the slot div were a flex item, the buttons
+ * rendered into it would stop participating in the row's layout (different
+ * gaps, different alignment). display:contents makes the wrapper invisible
+ * to layout, so its children are flex items of the form itself.
+ */
+[data-slot] { display: contents; }
