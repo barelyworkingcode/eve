@@ -29,6 +29,7 @@ class MessageDispatcher {
     this.stt = container.get('sttManager');
     this.voice = container.get('voiceChatManager');
     this.taskManager = container.get('taskManager');
+    this.permissions = container.get('permissions');
     this.state = container.get('state');
     this.ws = container.get('ws');
     this.bus = container.get('bus');
@@ -847,8 +848,7 @@ class MessageDispatcher {
 
   _applyPermissionMode(mode) {
     this.renderer.setPermissionModeBanner(mode);
-    const btn = document.getElementById('planModeBtn');
-    if (btn) btn.classList.toggle('active', mode === 'plan');
+    this.permissions.syncMode(mode);
   }
 
   handleAssistantEvent(event) {
