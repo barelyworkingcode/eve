@@ -14,10 +14,16 @@
  *
  * Scriptable surface:
  *   addProject(p) / getProject(id) / listProjects()
+ *   listSessions()      — sessions created via POST /api/sessions, as GET /api/sessions lists them
+ *   seedSession(s)      — inject a session directly, as if created before this process (see fixtures)
  *   scriptSession(sessionId, frames)  — frames streamed in reply to send_message
  *   emitToRelay(frame) / emitToScheduler(frame)  — push a frame on eve's /ws or
  *                                       /ws/tasks upstream (permissions, terminals, tasks)
  *   waitForScheduler()  — resolves once eve's /ws/tasks upstream is connected
+ *   holdSessionCreate() — delays the POST /api/sessions response until
+ *                       .release() is called; lets a test observe a window
+ *                       that would otherwise close as soon as the real
+ *                       (async, cross-process) round trip completes
  *   inbound  — every WS frame eve SENT us (assert forwarding)
  *   waitForInbound(pred) — resolves with the first inbound frame matching pred
  *   requests   — recorded [{method, path}] for assertions
@@ -49,6 +55,7 @@ function stampFrame(f, sessionId) {
 
 function createFakeRelay() {
   const projects = new Map();        // id -> relay-shape project
+  const sessions = new Map();        // sessionId -> relay-shape session (GET /api/sessions listing)
   const sessionScripts = new Map();  // sessionId -> [frames]
   const requests = [];
   const inbound = [];                // every WS frame eve sent us
@@ -59,6 +66,7 @@ function createFakeRelay() {
   const relayResolvers = [];
   let seq = 0;
   let closed = false;
+  let sessionCreateGate = null; // set by holdSessionCreate(); POST /api/sessions awaits it before replying
 
   const recordInbound = (msg) => {
     inbound.push(msg);
@@ -110,18 +118,33 @@ function createFakeRelay() {
       }
 
       // --- Sessions (create returns an id; delete is the invoker's cleanup) ---
+      // Tracked in `sessions` (not just returned) so a later GET /api/sessions
+      // — the reconnect/reload restore path's only session source — can see
+      // it. Real relayLLM has no concept of eve's UI-only `sessionType`
+      // ("chat" vs "voice"), so it's deliberately NOT stored here: restoring
+      // that distinction after a reload is `eve-session-meta`'s job alone
+      // (see TabManager.getSessionMeta, read in message-dispatcher.js's
+      // handleSessionJoined).
       if (p === '/api/sessions' && req.method === 'POST') {
-        const sessionId = parsed.sessionId || `sess-${++seq}`;
-        return send(201, {
-          sessionId,
-          directory: parsed.directory || '/fake',
-          projectId: parsed.projectId || null,
-          model: parsed.model || 'fake-model',
-          name: parsed.name || '',
-        });
+        const respond = () => {
+          const sessionId = parsed.sessionId || `sess-${++seq}`;
+          const session = {
+            sessionId,
+            directory: parsed.directory || '/fake',
+            projectId: parsed.projectId || null,
+            model: parsed.model || 'fake-model',
+            name: parsed.name || '',
+          };
+          sessions.set(sessionId, session);
+          return send(201, session);
+        };
+        // Held open until the test releases it — see holdSessionCreate() below.
+        if (sessionCreateGate) return sessionCreateGate.then(respond);
+        return respond();
       }
-      if (/^\/api\/sessions\/.+$/.test(p) && req.method === 'DELETE') return send(200, {});
-      if (p === '/api/sessions' && req.method === 'GET') return send(200, []);
+      const sm = p.match(/^\/api\/sessions\/([^/]+)$/);
+      if (sm && req.method === 'DELETE') { sessions.delete(sm[1]); return send(200, {}); }
+      if (p === '/api/sessions' && req.method === 'GET') return send(200, [...sessions.values()]);
 
       // --- Misc endpoints eve may touch at boot ---
       if (p === '/api/models' && req.method === 'GET') return send(200, [{ id: 'fake-model', name: 'Fake Model' }]);
@@ -170,12 +193,30 @@ function createFakeRelay() {
 
   return {
     addProject: (proj) => { projects.set(proj.id, proj); },
+    // Seed a session as if it were created before this test process started
+    // (e.g. a previous browser tab) — for reload/restore tests that need
+    // GET /api/sessions to already know about an id a localStorage fixture
+    // references, without a real POST round trip.
+    seedSession: (session) => { sessions.set(session.sessionId, session); },
     getProject: (id) => projects.get(id),
     listProjects: () => [...projects.values()],
+    listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
     emitToRelay: (frame) => { for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
     emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
     waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
+    // Delay the reply to the next (and every subsequent, until release()) POST
+    // /api/sessions. Used to pin down a state window on the eve/browser side
+    // that would otherwise race the real cross-process round trip: eve's
+    // child process HTTP-POSTs here, gets a response, then WS-pushes
+    // session_created back to the browser — all genuinely async hops that a
+    // synchronous DOM read right after a Playwright click cannot be assumed
+    // to run before under load.
+    holdSessionCreate: () => {
+      let release;
+      sessionCreateGate = new Promise((resolve) => { release = resolve; });
+      return { release: () => { release(); sessionCreateGate = null; } };
+    },
     waitForScheduler: () => (schedulerWs.size > 0 ? Promise.resolve() : new Promise((r) => schedulerResolvers.push(r))),
     inbound,
     waitForInbound: (pred, timeoutMs = 5000) => new Promise((resolve, reject) => {

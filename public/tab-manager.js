@@ -1,3 +1,16 @@
+// In the browser, `panes` is core/pane-registry.js's file-scope const,
+// already in scope here because its <script> tag runs first (index.html) —
+// classic scripts share one top-level scope, so no import is needed and none
+// is possible (redeclaring `panes` here would collide with it). Under Jest,
+// this file is `require`d directly with no <script> ordering (see
+// test/unit/tab-manager-logic.test.js), so hang the same singleton on
+// `global` instead — exactly like that test's own document/window/history/
+// localStorage/EVT fakes — so every bare `panes.type(...)` / `panes.view(...)`
+// reference below resolves the same way in both environments.
+if (typeof module !== 'undefined' && module.exports) {
+  require('./core/pane-registry.js'); // also loads every panes/*.js and publishes `panes` on `global`
+}
+
 class TabManager {
   static SESSION_STORAGE_KEY = 'eve-open-sessions';
   static SESSION_META_KEY = 'eve-session-meta';
@@ -9,6 +22,7 @@ class TabManager {
    * @param {Container} container - DI container
    */
   constructor(container) {
+    this.container = container;
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
     this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
@@ -34,17 +48,28 @@ class TabManager {
 
   initElements() {
     this.tabBar = document.getElementById('tabBar');
-    this.chatContent = document.getElementById('chat');
-    this.editorContent = document.getElementById('editor');
-    this.viewerContent = document.getElementById('fileViewer');
+    this.contentArea = document.getElementById('contentArea');
+
+    // One element per registered view (public/panes/views.js). `elementId`
+    // names static markup in index.html, so resolving it here — once, at
+    // construction — is safe (see core/pane-registry.js). Kept in a Map for
+    // _containerForView/_hideAllContent/_allContentEls, and mirrored onto the
+    // named properties below because _showContentForRef and the render
+    // helpers still reach for them by name.
+    this._viewEls = new Map(panes.views().map(v => [v.view, document.getElementById(v.elementId)]));
+    this.chatContent = this._viewEls.get('chat');
+    this.voiceChatContent = this._viewEls.get('voice');
+    this.editorContent = this._viewEls.get('editor');
+    this.viewerContent = this._viewEls.get('viewer'); // shared with 'image' — see panes/views.js
+    this.terminalContent = this._viewEls.get('terminal');
+    this.moduleContent = this._viewEls.get('module');
+    this.htmlPreviewContent = this._viewEls.get('htmlPreview');
+
+    // Viewer-internal elements — not part of the view→container map, used
+    // only inside the viewer's own render helper.
     this.viewerCanvas = document.getElementById('fileViewerCanvas');
     this.viewerPath = document.getElementById('fileViewerPath');
     this.viewerInfo = document.getElementById('fileViewerInfo');
-    this.terminalContent = document.getElementById('terminal');
-    this.voiceChatContent = document.getElementById('voiceChat');
-    this.moduleContent = document.getElementById('moduleContent');
-    this.contentArea = document.getElementById('contentArea');
-    this.htmlPreviewContent = document.getElementById('htmlPreview');
   }
 
   initEventListeners() {
@@ -77,49 +102,23 @@ class TabManager {
     if (!session) return;
 
     // Check if tab already exists
-    const existingTab = this.tabs.find(t => t.type === 'session' && t.id === sessionId);
+    const existingTab = this.tabs.find(t => t.id === sessionId);
     if (existingTab) {
       if (skipRender) return;
       this.switchToTab(existingTab.id);
       return;
     }
 
-    // Get label: prefer custom name, then project name, then directory
-    let label;
-    if (session.name) {
-      label = session.name;
-    } else if (session.projectId) {
-      const project = this.app.projects.get(session.projectId);
-      label = project?.name || session.directory;
-    } else {
-      label = session.directory?.split('/').filter(p => p).pop() || session.directory || 'Session';
-    }
-
-    // Create new tab
-    const tab = {
-      id: sessionId,
-      type: 'session',
-      label,
-      projectId: session.projectId
-    };
-
+    const d = panes.type('session');
+    const tab = d.create({ sessionId }, this._ctx());
     this.tabs.push(tab);
-    this._saveSessionTab(sessionId);
+    if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
+    if (session.sessionType) this._saveSessionMeta(sessionId, { sessionType: session.sessionType });
 
     if (skipRender) {
-      // Make tab active without triggering renderMessages
-      this.activeTabId = sessionId;
-      this._rememberActive(tab);
-      this.app.showChatScreen();
-      if (session.sessionType === 'voice') {
-        this.voiceChatContent?.classList.remove('hidden');
-        this.app.voiceChatManager?.activateForSession(sessionId);
-      } else {
-        this.chatContent.classList.remove('hidden');
-      }
-      this.app.currentSessionId = sessionId;
-      this._syncProjectToActiveTab();
-      this.render();
+      // Verbatim, documented-divergent activation path — see
+      // public/panes/session-pane.js's `activateSkipRender` header.
+      d.activateSkipRender(tab, this._ctx());
     } else {
       this.switchToTab(sessionId);
     }
@@ -138,21 +137,10 @@ class TabManager {
       return;
     }
 
-    // Create new tab
-    const tab = {
-      id: tabId,
-      type: 'file',
-      label: label || filePath.split('/').pop(),
-      projectId,
-      path: filePath,
-      modified: false
-    };
-
+    const d = panes.type('file');
+    const tab = d.create({ projectId, path: filePath, label }, this._ctx());
     this.tabs.push(tab);
-    this._saveFileTab(projectId, filePath);
-
-    this._sendWatchFile(projectId, filePath);
-
+    if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
     this.switchToTab(tabId);
   }
 
@@ -167,14 +155,7 @@ class TabManager {
       return;
     }
 
-    // Create new tab
-    const tab = {
-      id: terminalId,
-      type: 'terminal',
-      label,
-      directory
-    };
-
+    const tab = panes.type('terminal').create({ terminalId, label, directory }, this._ctx());
     this.tabs.push(tab);
     this.switchToTab(terminalId);
   }
@@ -189,15 +170,10 @@ class TabManager {
       this.switchToTab(tabId);
       return;
     }
-    const tab = {
-      id: tabId,
-      type: 'module',
-      label: label || moduleName,
-      projectId,
-      moduleName,
-    };
+    const d = panes.type('module');
+    const tab = d.create({ projectId, moduleName, label }, this._ctx());
     this.tabs.push(tab);
-    this._saveModuleTab(projectId, moduleName);
+    if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
     this.switchToTab(tabId);
   }
 
@@ -249,34 +225,28 @@ class TabManager {
   }
 
   /**
+   * The object a pane descriptor's functions receive. Rebuilt on every call,
+   * never captured: the services reached through `app` (fileEditor,
+   * terminalManager, moduleHost, voiceChatManager, htmlPreviewPane,
+   * viewerRegistry, messageDispatcher, ...) are constructed after `new
+   * TabManager` runs (see app.js), so a descriptor that memoised one of them
+   * would get `undefined` on first use.
+   */
+  _ctx() {
+    return { container: this.container, app: this.app, tabs: this, bus: this.bus };
+  }
+
+  /**
    * Maps a tab to its pane "view" kind (the content container it renders into).
    * Both the single-view path and each pane of a split go through this.
    */
   _viewForTab(tab) {
-    switch (tab.type) {
-      case 'session': {
-        const session = this.app.sessions.get(tab.id);
-        return session?.sessionType === 'voice' ? 'voice' : 'chat';
-      }
-      case 'file':
-        return this.app.viewerRegistry?.isViewerFile(tab.path) ? 'viewer' : 'editor';
-      case 'terminal': return 'terminal';
-      case 'module': return 'module';
-      case 'image': return 'image';
-      default: return 'chat';
-    }
+    return panes.type(tab.type).view(tab, this._ctx());
   }
 
   /** The render args a view needs to bind its content. */
   _refForTab(tab) {
-    switch (tab.type) {
-      case 'session': return { sessionId: tab.id };
-      case 'file': return { projectId: tab.projectId, path: tab.path, label: tab.label };
-      case 'terminal': return { terminalId: tab.id };
-      case 'module': return { projectId: tab.projectId, moduleName: tab.moduleName };
-      case 'image': return { imageTabId: tab.id };
-      default: return {};
-    }
+    return panes.type(tab.type).ref(tab);
   }
 
   /** The view used for the second pane — a split may override it (e.g. an HTML
@@ -285,98 +255,29 @@ class TabManager {
     return tab.split?.paneView || this._viewForTab(child);
   }
 
-  /** The view a tab would take as a dragged-in second pane. HTML files preview
-   *  rather than open their source, which is also what you want beside a console
-   *  or an editor (and sidesteps the editor-vs-editor singleton block). */
+  /** The view a tab would take as a dragged-in second pane. Defaults to a
+   *  migrated type's own `view()`; `file` overrides it (an HTML file previews
+   *  live rather than opening its source, which also sidesteps the
+   *  editor-vs-editor singleton block — see public/panes/file-pane.js). */
   _prospectiveView(tab) {
-    if (tab.type === 'file' && /\.html?$/i.test(tab.path)) return 'htmlPreview';
+    const d = panes.type(tab.type);
+    if (d) return d.prospectiveView ? d.prospectiveView(tab, this._ctx()) : d.view(tab, this._ctx());
     return this._viewForTab(tab);
   }
 
   /** The DOM container a pane view renders into. Two panes must map to two
    *  different containers — the singleton guard for splits. */
   _containerForView(view) {
-    switch (view) {
-      case 'chat': case 'console': return this.chatContent;
-      case 'voice': return this.voiceChatContent;
-      case 'editor': return this.editorContent;
-      case 'viewer': case 'image': return this.viewerContent;
-      case 'terminal': return this.terminalContent;
-      case 'module': return this.moduleContent;
-      case 'htmlPreview': return this.htmlPreviewContent;
-      default: return null;
-    }
+    return this._viewEls.get(view) || null;
   }
 
   /**
    * Reveals the container for `view` and tells its owner to render `ref`.
-   * The session branch keeps the existing currentSessionId / renderMessages /
-   * stop-button behavior; in a split, the console pane owns the global input.
+   * Each view's own behavior lives on its descriptor now (public/panes/views.js).
    */
   _showContentForRef(view, ref) {
-    switch (view) {
-      case 'chat':
-      case 'console': {
-        this.chatContent.classList.remove('hidden');
-        this.app.voiceChatManager?.deactivate();
-        this.app._updateVoiceUIBtnVisibility?.();
-        const sessionId = ref.sessionId;
-        const prevSessionId = this.app.currentSessionId;
-        if (prevSessionId && prevSessionId !== sessionId) {
-          this.app.messageRenderer.finishAssistantMessage();
-        }
-        if (this.app.messageDispatcher) {
-          this.app.messageDispatcher.flushBackgroundBuffer(sessionId);
-        }
-        this.app.currentSessionId = sessionId;
-        this.app.renderMessages();
-        this.app.updateStatsForSession(sessionId);
-        if (this.app.messageDispatcher?.streamingSessions.has(sessionId)) {
-          this.app.showStopButton();
-          this.app.messageRenderer.showThinkingIndicator();
-        } else {
-          this.app.hideStopButton();
-        }
-        break;
-      }
-      case 'voice':
-        this.voiceChatContent?.classList.remove('hidden');
-        this.app.voiceChatManager?.activateForSession(ref.sessionId);
-        this.app._updateVoiceUIBtnVisibility?.();
-        break;
-      case 'editor':
-        this.editorContent.classList.remove('hidden');
-        this.app.fileEditor?.showFile(ref.projectId, ref.path);
-        break;
-      case 'viewer': {
-        this.viewerContent.classList.remove('hidden');
-        const t = this.tabs.find(x => x.type === 'file' && x.projectId === ref.projectId && x.path === ref.path);
-        this._renderViewer(t || { projectId: ref.projectId, path: ref.path, label: ref.label || ref.path });
-        break;
-      }
-      case 'image': {
-        this.viewerContent.classList.remove('hidden');
-        const t = this.tabs.find(x => x.id === ref.imageTabId);
-        if (t) this._renderImageTab(t);
-        break;
-      }
-      case 'terminal':
-        this.terminalContent.classList.remove('hidden');
-        this.app.terminalManager?.showTerminal(ref.terminalId);
-        break;
-      case 'module':
-        this.moduleContent?.classList.remove('hidden');
-        this.app.moduleHost?.activate({
-          id: `module:${ref.projectId}:${ref.moduleName}`,
-          projectId: ref.projectId,
-          moduleName: ref.moduleName,
-        });
-        break;
-      case 'htmlPreview':
-        this.htmlPreviewContent?.classList.remove('hidden');
-        this.app.htmlPreviewPane?.show(ref.projectId, ref.path);
-        break;
-    }
+    const d = panes.view(view);
+    if (d) d.show(ref, this._ctx(), this._containerForView(view));
   }
 
   /**
@@ -386,15 +287,8 @@ class TabManager {
   _updateHash(tab) {
     let hash = '';
     if (tab) {
-      if (tab.type === 'session') {
-        hash = `#session/${encodeURIComponent(tab.id)}`;
-      } else if (tab.type === 'file') {
-        hash = `#file/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.path)}`;
-      } else if (tab.type === 'terminal') {
-        hash = `#terminal/${encodeURIComponent(tab.id)}`;
-      } else if (tab.type === 'module') {
-        hash = `#module/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.moduleName)}`;
-      }
+      const d = panes.type(tab.type);
+      if (d) hash = d.hash ? d.hash(tab) : '';
     }
     const target = hash || (window.location.pathname + window.location.search);
     if (window.location.hash !== hash) {
@@ -409,11 +303,11 @@ class TabManager {
     let tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;
 
-    // Check for unsaved changes on file tabs
-    if (tab.type === 'file' && tab.modified) {
-      if (!confirm(`"${tab.label}" has unsaved changes. Close anyway?`)) {
-        return;
-      }
+    // Gate the close on a per-type confirmation (currently `file`'s modified-
+    // file confirm() only; every other migrated type defaults to true).
+    const closeGate = panes.type(tab.type);
+    if (closeGate?.confirmClose && !closeGate.confirmClose(tab, this._ctx())) {
+      return;
     }
 
     // Closing a split host also closes its nested second pane.
@@ -435,37 +329,13 @@ class TabManager {
     if (tabIndex === -1) return;
     tab = this.tabs[tabIndex];
 
-    // Remove from localStorage and unregister file watcher
-    if (tab.type === 'file') {
-      this._removeFileTab(tab.projectId, tab.path);
-    }
-    if (tab.type === 'file' && !isPlanProject(tab.projectId)) {
-      this.app.ws?.send(JSON.stringify({
-        type: 'unwatch_file',
-        projectId: tab.projectId,
-        path: tab.path
-      }));
-    }
-
-    // Send leave_session to unbind from relayLLM when closing a session tab
-    if (tab.type === 'session') {
-      this._removeSessionTab(tab.id);
-      this.app.wsClient.send({ type: 'leave_session', sessionId: tab.id });
-      if (this.app.messageDispatcher) {
-        this.app.messageDispatcher.backgroundBuffers.delete(tab.id);
-        this.app.messageDispatcher.streamingSessions.delete(tab.id);
-      }
-    }
-
-    // Clean up terminal if closing terminal tab
-    if (tab.type === 'terminal' && this.app.terminalManager) {
-      this.app.terminalManager.closeTerminal(tab.id);
-    }
-
-    // Destroy module iframe + drop from localStorage
-    if (tab.type === 'module') {
-      this._removeModuleTab(tab.projectId, tab.moduleName);
-      if (this.app.moduleHost) this.app.moduleHost.destroy(tab.id);
+    // Persistence removal + dispose — every pane type is on PaneRegistry now,
+    // so this one block covers all five (session's leave_session +
+    // dispatcher-buffer cleanup lives in its `dispose`, panes/session-pane.js).
+    const migratedType = panes.type(tab.type);
+    if (migratedType) {
+      if (migratedType.persist) this._removeFromStorage(migratedType.persist.key, migratedType.persist.entryId(tab));
+      if (migratedType.dispose) migratedType.dispose(tab, this._ctx());
     }
 
     // Remove tab
@@ -490,30 +360,21 @@ class TabManager {
   /**
    * Resolve which project a tab belongs to, for filtering. Sessions, files and
    * modules carry projectId directly; terminals are matched by their working
-   * directory falling under a project's path. Returns null when unscoped.
+   * directory falling under a project's path (public/panes/terminal-pane.js's
+   * `projectId`) — the descriptor override for pane types that need one.
+   * Returns null when unscoped.
    */
   _tabProjectId(tab) {
-    if (tab.type === 'terminal') return this._projectIdForDirectory(tab.directory);
+    const d = panes.type(tab.type);
+    if (d?.projectId) return d.projectId(tab, this._ctx());
     return tab.projectId || null;
   }
 
-  /**
-   * Longest-prefix match of a directory against known project paths.
-   */
+  /** Forwards to the `terminal` descriptor's pure longest-prefix match
+   *  (public/panes/terminal-pane.js) — kept as a real method since the unit
+   *  suite calls it on a bare instance, single-argument, with no `ctx`. */
   _projectIdForDirectory(directory) {
-    if (!directory) return null;
-    const dir = directory.replace(/\/+$/, '').toLowerCase();
-    let bestId = null;
-    let bestLen = -1;
-    for (const project of this.app.projects.values()) {
-      if (!project.path) continue;
-      const path = project.path.replace(/\/+$/, '').toLowerCase();
-      if ((dir === path || dir.startsWith(path + '/')) && path.length > bestLen) {
-        bestId = project.id;
-        bestLen = path.length;
-      }
-    }
-    return bestId;
+    return panes.type('terminal').projectId({ directory }, this._ctx());
   }
 
   _rememberActive(tab) {
@@ -591,13 +452,7 @@ class TabManager {
   }
 
   _hideAllContent() {
-    this.chatContent.classList.add('hidden');
-    this.editorContent.classList.add('hidden');
-    this.viewerContent.classList.add('hidden');
-    this.terminalContent.classList.add('hidden');
-    if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
-    if (this.moduleContent) this.moduleContent.classList.add('hidden');
-    if (this.htmlPreviewContent) this.htmlPreviewContent.classList.add('hidden');
+    for (const el of new Set(this._viewEls.values())) el?.classList.add('hidden');
     this._clearSplit();
   }
 
@@ -611,16 +466,8 @@ class TabManager {
   // and sizes them with flex, decoupling visual order from DOM order via CSS
   // `order`.
 
-  getTab(tabId) {
-    return this.tabs.find(t => t.id === tabId) || null;
-  }
-
   _allContentEls() {
-    return [
-      this.chatContent, this.editorContent, this.viewerContent,
-      this.terminalContent, this.voiceChatContent, this.moduleContent,
-      this.htmlPreviewContent,
-    ].filter(Boolean);
+    return [...new Set(this._viewEls.values())].filter(Boolean);
   }
 
   /** Maps a drop edge to a split direction + which side the new pane lands on. */
@@ -636,8 +483,9 @@ class TabManager {
 
   /**
    * Can the dragged tab become a second pane next to the active tab? Requires a
-   * distinct, non-nested, non-voice tab whose container differs from the active
-   * tab's (two panes can't share one singleton container).
+   * distinct, non-nested, splittable tab (per its view descriptor) whose
+   * container differs from the active tab's (two panes can't share one
+   * singleton container).
    */
   _canSplit(draggedTabId) {
     const active = this.tabs.find(t => t.id === this.activeTabId);
@@ -648,7 +496,8 @@ class TabManager {
 
     const aView = this._viewForTab(active);
     const bView = this._prospectiveView(dragged);
-    if (aView === 'voice' || bView === 'voice') return false;
+    const splittable = (view) => panes.view(view)?.splittable !== false;
+    if (!splittable(aView) || !splittable(bView)) return false;
     return this._containerForView(aView) !== this._containerForView(bView);
   }
 
@@ -743,9 +592,9 @@ class TabManager {
       const child = this.tabs.find(t => t.id === tab.split?.paneTabId);
       const views = [this._viewForTab(tab)];
       if (child) views.push(this._paneBView(tab, child));
+      const ctx = this._ctx();
       for (const view of views) {
-        if (view === 'editor') this.app.fileEditor?.editor?.layout();
-        else if (view === 'terminal') this.app.terminalManager?.fitActive();
+        panes.view(view)?.layout?.(ctx);
       }
       this._positionPaneUndockButtons();
     });
@@ -846,79 +695,45 @@ class TabManager {
   }
 
   /**
-   * Re-registers file watchers after WebSocket reconnection.
+   * Re-registers file watchers after WebSocket reconnection. The frame itself
+   * (skip plan projects, mark viewer files binary) is the `file` descriptor's
+   * `watchFile` — the same one `create` sends on first open (public/panes/file-pane.js).
    */
   reestablishFileWatches() {
+    const d = panes.type('file');
     for (const tab of this.tabs) {
-      if (tab.type === 'file') {
-        this._sendWatchFile(tab.projectId, tab.path);
-      }
+      if (tab.type === d.type) d.watchFile(tab, this._ctx());
     }
-  }
-
-  /**
-   * Sends a watch_file message for the given path, skipping plan files and
-   * marking viewer files as binary so the server omits content from updates.
-   */
-  _sendWatchFile(projectId, filePath) {
-    if (isPlanProject(projectId)) return;
-    const isViewer = !!this.app.viewerRegistry?.isViewerFile(filePath);
-    this.app.ws?.send(JSON.stringify({
-      type: 'watch_file',
-      projectId,
-      path: filePath,
-      binary: isViewer
-    }));
-  }
-
-  /**
-   * Renders a viewer file into the viewer canvas.
-   */
-  _renderViewer(tab) {
-    const registry = this.app.viewerRegistry;
-    const viewer = registry.getViewer(tab.path);
-    if (!viewer) return;
-
-    const url = registry.buildFileUrl(tab.projectId, tab.path, tab._reloadVersion);
-    this.viewerPath.textContent = tab.path;
-    this.viewerInfo.textContent = '';
-    this._activeViewer = viewer;
-
-    viewer.render(this.viewerCanvas, {
-      projectId: tab.projectId,
-      path: tab.path,
-      filename: tab.label,
-      url
-    });
   }
 
   /**
    * Re-render a viewer tab whose file changed on disk. If the tab is currently
    * active, refresh in place; otherwise the next switchToTab picks up the new
-   * version via the cache-busted URL.
+   * version via the cache-busted URL. Whether `path` is a viewer file at all
+   * is the `file` descriptor's `view()` decision, not a local viewerRegistry
+   * reach-through.
    */
   handleViewerFileChanged(projectId, path) {
-    const tab = this.tabs.find(
-      t => t.type === 'file' && t.projectId === projectId && t.path === path
-    );
-    if (!tab || !this.app.viewerRegistry?.isViewerFile(tab.path)) return;
+    const d = panes.type('file');
+    const tab = this.tabs.find(t => t.type === d.type && t.projectId === projectId && t.path === path);
+    if (!tab || d.view(tab, this._ctx()) !== 'viewer') return;
 
     tab._reloadVersion = Date.now();
 
     if (tab.id === this.activeTabId && !this.viewerContent.classList.contains('hidden')) {
       this._destroyActiveViewer();
-      this._renderViewer(tab);
+      this._showContentForRef('viewer', this._refForTab(tab));
     }
   }
 
   /**
-   * Destroys the currently active viewer (pause media, clear canvas).
+   * Destroys the currently active viewer (pause media, clear canvas). The
+   * teardown itself lives on the `viewer`/`image` view descriptors — they
+   * share it verbatim, since both render into `#fileViewer` via the same
+   * `_activeViewer` (see public/panes/views.js).
    */
   _destroyActiveViewer() {
-    if (this._activeViewer) {
-      this._activeViewer.destroy(this.viewerCanvas);
-      this._activeViewer = null;
-    }
+    panes.view('viewer')?.destroy?.(this._ctx());
   }
 
   // --- LLM-driven image tabs (eve-control MCP) ---
@@ -936,10 +751,10 @@ class TabManager {
       // Re-open of a known ref behaves like a refresh.
       tab.url = imageUrl;
       tab._reloadVersion = Date.now();
-      if (tab.id === this.activeTabId) { this._destroyActiveViewer(); this._renderImageTab(tab); }
+      if (tab.id === this.activeTabId) { this._destroyActiveViewer(); this._showContentForRef('image', { imageTabId: tab.id }); }
       return;
     }
-    tab = { id: tabRef, type: 'image', label: title || 'Image', projectId, url: imageUrl, owner: owner || null };
+    tab = panes.type('image').create({ tabRef, imageUrl, title, owner }, this._ctx());
     this.tabs.push(tab);
     // Only steal focus when the tab's project is already on screen — an LLM
     // running in a background project shouldn't yank the user's view across.
@@ -951,44 +766,29 @@ class TabManager {
   }
 
   refreshImageTab(tabRef, identity, imageUrl) {
+    const d = panes.type('image');
     const tab = this.tabs.find(t => t.id === tabRef);
-    if (!tab || tab.type !== 'image' || !this._ownedBy(tab, identity)) return false;
+    if (!tab || tab.type !== d.type || !d.ownedBy(tab, identity)) return false;
     if (imageUrl) tab.url = imageUrl;
     tab._reloadVersion = Date.now();
     if (tab.id === this.activeTabId && !this.viewerContent.classList.contains('hidden')) {
       this._destroyActiveViewer();
-      this._renderImageTab(tab);
+      this._showContentForRef('image', { imageTabId: tab.id });
     }
     return true;
   }
 
   closeImageTab(tabRef, identity) {
     const tab = this.tabs.find(t => t.id === tabRef);
-    if (!tab || !this._ownedBy(tab, identity)) return false;
+    if (!tab || !panes.type('image').ownedBy(tab, identity)) return false;
     this.closeTab(tabRef);
     return true;
   }
 
-  /** The LLM may only mutate tabs it opened, and only within its own project. */
+  /** Forwards to the `image` descriptor's ownership gate (image-pane.js) —
+   *  kept as a real method since the unit suite calls it on a bare instance. */
   _ownedBy(tab, identity) {
-    return !!tab.owner && tab.owner.actor === 'llm'
-      && identity?.actor === 'llm'
-      && !!identity.projectId && tab.owner.projectId === identity.projectId;
-  }
-
-  _renderImageTab(tab) {
-    const registry = this.app.viewerRegistry;
-    // Strip any cache-bust query before extension matching; keep it on the src.
-    const cleanName = String(tab.url).split('?')[0];
-    const viewer = registry?.getViewer(cleanName) || registry?.getViewer('image.png');
-    if (!viewer) return;
-    const url = tab._reloadVersion
-      ? `${tab.url}${tab.url.includes('?') ? '&' : '?'}v=${tab._reloadVersion}`
-      : tab.url;
-    this.viewerPath.textContent = tab.label;
-    this.viewerInfo.textContent = '';
-    this._activeViewer = viewer;
-    viewer.render(this.viewerCanvas, { filename: tab.label, url });
+    return panes.type('image').ownedBy(tab, identity);
   }
 
   /**
@@ -1029,7 +829,9 @@ class TabManager {
         this.switchToTab(tab.id);
       });
 
-      // Close button: tap to close tab, long-press to delete session from server
+      // Close button: tap to close tab; a type whose descriptor declares
+      // `onCloseLongPress` (currently only `session`) also deletes on a
+      // 500 ms press.
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
       closeBtn.dataset.testid = `tab-close-${tab.id}`;
@@ -1038,10 +840,11 @@ class TabManager {
       let closeLongFired = false;
       const startClose = () => {
         closeLongFired = false;
-        if (tab.type !== 'session') return;
+        const d = panes.type(tab.type);
+        if (!d?.onCloseLongPress) return;
         closeLongPress = setTimeout(() => {
           closeLongFired = true;
-          this.app.deleteSession(tab.id);
+          d.onCloseLongPress(tab, this._ctx());
         }, 500);
       };
       const cancelClose = () => { clearTimeout(closeLongPress); };
@@ -1106,20 +909,13 @@ class TabManager {
   }
 
   // --- Session persistence ---
-
-  _saveSessionTab(sessionId) {
-    this._saveToStorage(TabManager.SESSION_STORAGE_KEY, sessionId, Date.now());
-    // Persist session metadata (sessionType) for reload
-    const session = this.app.sessions.get(sessionId);
-    if (session?.sessionType) {
-      this._saveSessionMeta(sessionId, { sessionType: session.sessionType });
-    }
-  }
-
-  _removeSessionTab(sessionId) {
-    this._removeFromStorage(TabManager.SESSION_STORAGE_KEY, sessionId);
-    this._removeSessionMeta(sessionId);
-  }
+  // Writing/removing the `eve-open-sessions` entry is now generic — see
+  // openSession and closeTab, which drive it off the `session` descriptor's
+  // `persist` field (public/panes/session-pane.js). `eve-session-meta` is
+  // separate — session metadata, not tab bookkeeping (spec §H.6) — and its
+  // three methods below stay unmoved, called from `message-dispatcher.js`
+  // and `voice-chat-manager.js` directly, plus from `openSession` and the
+  // session descriptor's `dispose` through `ctx.tabs`.
 
   _saveSessionMeta(sessionId, meta) {
     try {
@@ -1149,32 +945,20 @@ class TabManager {
   }
 
   // --- File persistence ---
-
-  _saveFileTab(projectId, filePath) {
-    const key = `${projectId}:${filePath}`;
-    this._saveToStorage(TabManager.FILE_STORAGE_KEY, key, { projectId, path: filePath, ts: Date.now() });
-  }
-
-  _removeFileTab(projectId, filePath) {
-    const key = `${projectId}:${filePath}`;
-    this._removeFromStorage(TabManager.FILE_STORAGE_KEY, key);
-  }
+  // Writing/removing an entry is now generic — see openFile and closeTab,
+  // which drive it off the `file` descriptor's `persist` field
+  // (public/panes/file-pane.js). The reader stays here unchanged (§H.5):
+  // its name and shape are called from app.js on every reconnect.
 
   getRecentFiles() {
     return this._getRecentEntries(TabManager.FILE_STORAGE_KEY);
   }
 
   // --- Module persistence ---
-
-  _saveModuleTab(projectId, moduleName) {
-    const key = `${projectId}:${moduleName}`;
-    this._saveToStorage(TabManager.MODULE_STORAGE_KEY, key, { projectId, moduleName, ts: Date.now() });
-  }
-
-  _removeModuleTab(projectId, moduleName) {
-    const key = `${projectId}:${moduleName}`;
-    this._removeFromStorage(TabManager.MODULE_STORAGE_KEY, key);
-  }
+  // Writing/removing an entry is now generic — see openModule and closeTab,
+  // which drive it off the `module` descriptor's `persist` field
+  // (public/panes/module-pane.js). The reader stays here unchanged (§H.5):
+  // its name and shape are called from app.js on every reconnect.
 
   getRecentModules() {
     return this._getRecentEntries(TabManager.MODULE_STORAGE_KEY);
