@@ -192,14 +192,7 @@ class TabManager {
       return;
     }
 
-    // Create new tab
-    const tab = {
-      id: terminalId,
-      type: 'terminal',
-      label,
-      directory
-    };
-
+    const tab = panes.type('terminal').create({ terminalId, label, directory }, this._ctx());
     this.tabs.push(tab);
     this.switchToTab(terminalId);
   }
@@ -294,7 +287,6 @@ class TabManager {
       }
       case 'file':
         return this.app.viewerRegistry?.isViewerFile(tab.path) ? 'viewer' : 'editor';
-      case 'terminal': return 'terminal';
       default: return 'chat';
     }
   }
@@ -306,7 +298,6 @@ class TabManager {
     switch (tab.type) {
       case 'session': return { sessionId: tab.id };
       case 'file': return { projectId: tab.projectId, path: tab.path, label: tab.label };
-      case 'terminal': return { terminalId: tab.id };
       default: return {};
     }
   }
@@ -354,8 +345,6 @@ class TabManager {
         hash = `#session/${encodeURIComponent(tab.id)}`;
       } else if (tab.type === 'file') {
         hash = `#file/${encodeURIComponent(tab.projectId)}/${encodeURIComponent(tab.path)}`;
-      } else if (tab.type === 'terminal') {
-        hash = `#terminal/${encodeURIComponent(tab.id)}`;
       }
     }
     const target = hash || (window.location.pathname + window.location.search);
@@ -419,13 +408,8 @@ class TabManager {
       }
     }
 
-    // Clean up terminal if closing terminal tab
-    if (tab.type === 'terminal' && this.app.terminalManager) {
-      this.app.terminalManager.closeTerminal(tab.id);
-    }
-
     // Persistence removal + dispose for pane types migrated onto PaneRegistry
-    // (module, for now — file/session/terminal keep their own arms above
+    // (module, terminal, for now — file/session keep their own arms above
     // until their own handoffs land).
     const migratedType = panes.type(tab.type);
     if (migratedType) {
@@ -455,30 +439,21 @@ class TabManager {
   /**
    * Resolve which project a tab belongs to, for filtering. Sessions, files and
    * modules carry projectId directly; terminals are matched by their working
-   * directory falling under a project's path. Returns null when unscoped.
+   * directory falling under a project's path (public/panes/terminal-pane.js's
+   * `projectId`) — the descriptor override for pane types that need one.
+   * Returns null when unscoped.
    */
   _tabProjectId(tab) {
-    if (tab.type === 'terminal') return this._projectIdForDirectory(tab.directory);
+    const d = panes.type(tab.type);
+    if (d?.projectId) return d.projectId(tab, this._ctx());
     return tab.projectId || null;
   }
 
-  /**
-   * Longest-prefix match of a directory against known project paths.
-   */
+  /** Forwards to the `terminal` descriptor's pure longest-prefix match
+   *  (public/panes/terminal-pane.js) — kept as a real method since the unit
+   *  suite calls it on a bare instance, single-argument, with no `ctx`. */
   _projectIdForDirectory(directory) {
-    if (!directory) return null;
-    const dir = directory.replace(/\/+$/, '').toLowerCase();
-    let bestId = null;
-    let bestLen = -1;
-    for (const project of this.app.projects.values()) {
-      if (!project.path) continue;
-      const path = project.path.replace(/\/+$/, '').toLowerCase();
-      if ((dir === path || dir.startsWith(path + '/')) && path.length > bestLen) {
-        bestId = project.id;
-        bestLen = path.length;
-      }
-    }
-    return bestId;
+    return panes.type('terminal').projectId({ directory }, this._ctx());
   }
 
   _rememberActive(tab) {
