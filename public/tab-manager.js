@@ -22,6 +22,7 @@ class TabManager {
    * @param {Container} container - DI container
    */
   constructor(container) {
+    this.container = container;
     this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
     this.bus = container.get('bus');
     this.tabs = []; // [{ id, type: 'session'|'file'|'terminal', label, projectId, path?, modified? }]
@@ -273,6 +274,18 @@ class TabManager {
   }
 
   /**
+   * The object a pane descriptor's functions receive. Rebuilt on every call,
+   * never captured: the services reached through `app` (fileEditor,
+   * terminalManager, moduleHost, voiceChatManager, htmlPreviewPane,
+   * viewerRegistry, messageDispatcher, ...) are constructed after `new
+   * TabManager` runs (see app.js), so a descriptor that memoised one of them
+   * would get `undefined` on first use.
+   */
+  _ctx() {
+    return { container: this.container, app: this.app, tabs: this, bus: this.bus };
+  }
+
+  /**
    * Maps a tab to its pane "view" kind (the content container it renders into).
    * Both the single-view path and each pane of a split go through this.
    */
@@ -325,73 +338,11 @@ class TabManager {
 
   /**
    * Reveals the container for `view` and tells its owner to render `ref`.
-   * The session branch keeps the existing currentSessionId / renderMessages /
-   * stop-button behavior; in a split, the console pane owns the global input.
+   * Each view's own behavior lives on its descriptor now (public/panes/views.js).
    */
   _showContentForRef(view, ref) {
-    switch (view) {
-      case 'chat':
-      case 'console': {
-        this.chatContent.classList.remove('hidden');
-        this.app.voiceChatManager?.deactivate();
-        this.app._updateVoiceUIBtnVisibility?.();
-        const sessionId = ref.sessionId;
-        const prevSessionId = this.app.currentSessionId;
-        if (prevSessionId && prevSessionId !== sessionId) {
-          this.app.messageRenderer.finishAssistantMessage();
-        }
-        if (this.app.messageDispatcher) {
-          this.app.messageDispatcher.flushBackgroundBuffer(sessionId);
-        }
-        this.app.currentSessionId = sessionId;
-        this.app.renderMessages();
-        this.app.updateStatsForSession(sessionId);
-        if (this.app.messageDispatcher?.streamingSessions.has(sessionId)) {
-          this.app.showStopButton();
-          this.app.messageRenderer.showThinkingIndicator();
-        } else {
-          this.app.hideStopButton();
-        }
-        break;
-      }
-      case 'voice':
-        this.voiceChatContent?.classList.remove('hidden');
-        this.app.voiceChatManager?.activateForSession(ref.sessionId);
-        this.app._updateVoiceUIBtnVisibility?.();
-        break;
-      case 'editor':
-        this.editorContent.classList.remove('hidden');
-        this.app.fileEditor?.showFile(ref.projectId, ref.path);
-        break;
-      case 'viewer': {
-        this.viewerContent.classList.remove('hidden');
-        const t = this.tabs.find(x => x.type === 'file' && x.projectId === ref.projectId && x.path === ref.path);
-        this._renderViewer(t || { projectId: ref.projectId, path: ref.path, label: ref.label || ref.path });
-        break;
-      }
-      case 'image': {
-        this.viewerContent.classList.remove('hidden');
-        const t = this.tabs.find(x => x.id === ref.imageTabId);
-        if (t) this._renderImageTab(t);
-        break;
-      }
-      case 'terminal':
-        this.terminalContent.classList.remove('hidden');
-        this.app.terminalManager?.showTerminal(ref.terminalId);
-        break;
-      case 'module':
-        this.moduleContent?.classList.remove('hidden');
-        this.app.moduleHost?.activate({
-          id: `module:${ref.projectId}:${ref.moduleName}`,
-          projectId: ref.projectId,
-          moduleName: ref.moduleName,
-        });
-        break;
-      case 'htmlPreview':
-        this.htmlPreviewContent?.classList.remove('hidden');
-        this.app.htmlPreviewPane?.show(ref.projectId, ref.path);
-        break;
-    }
+    const d = panes.view(view);
+    if (d) d.show(ref, this._ctx());
   }
 
   /**
@@ -641,8 +592,9 @@ class TabManager {
 
   /**
    * Can the dragged tab become a second pane next to the active tab? Requires a
-   * distinct, non-nested, non-voice tab whose container differs from the active
-   * tab's (two panes can't share one singleton container).
+   * distinct, non-nested, splittable tab (per its view descriptor) whose
+   * container differs from the active tab's (two panes can't share one
+   * singleton container).
    */
   _canSplit(draggedTabId) {
     const active = this.tabs.find(t => t.id === this.activeTabId);
@@ -653,7 +605,8 @@ class TabManager {
 
     const aView = this._viewForTab(active);
     const bView = this._prospectiveView(dragged);
-    if (aView === 'voice' || bView === 'voice') return false;
+    const splittable = (view) => panes.view(view)?.splittable !== false;
+    if (!splittable(aView) || !splittable(bView)) return false;
     return this._containerForView(aView) !== this._containerForView(bView);
   }
 
@@ -748,9 +701,9 @@ class TabManager {
       const child = this.tabs.find(t => t.id === tab.split?.paneTabId);
       const views = [this._viewForTab(tab)];
       if (child) views.push(this._paneBView(tab, child));
+      const ctx = this._ctx();
       for (const view of views) {
-        if (view === 'editor') this.app.fileEditor?.editor?.layout();
-        else if (view === 'terminal') this.app.terminalManager?.fitActive();
+        panes.view(view)?.layout?.(ctx);
       }
       this._positionPaneUndockButtons();
     });
@@ -917,13 +870,13 @@ class TabManager {
   }
 
   /**
-   * Destroys the currently active viewer (pause media, clear canvas).
+   * Destroys the currently active viewer (pause media, clear canvas). The
+   * teardown itself lives on the `viewer`/`image` view descriptors — they
+   * share it verbatim, since both render into `#fileViewer` via the same
+   * `_activeViewer` (see public/panes/views.js).
    */
   _destroyActiveViewer() {
-    if (this._activeViewer) {
-      this._activeViewer.destroy(this.viewerCanvas);
-      this._activeViewer = null;
-    }
+    panes.view('viewer').destroy(this._ctx());
   }
 
   // --- LLM-driven image tabs (eve-control MCP) ---
