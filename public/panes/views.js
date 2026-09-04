@@ -19,18 +19,20 @@
  * safe; see core/pane-registry.js for the ordering rule this depends on.
  *
  * `show`/`layout`/`destroy` reach every owning service through `ctx.app`
- * (never captured — see core/pane-registry.js's header) and every container
- * element through `ctx.tabs`'s named properties (`chatContent`, `editorContent`,
- * ...), which `TabManager.initElements()` mirrors from `panes.views()` for
- * exactly this reason.
+ * (never captured — see core/pane-registry.js's header). `show` also takes
+ * the container element as its third argument (`TabManager._containerForView`
+ * resolves it, so a descriptor never needs to know its own `elementId` twice);
+ * `layout`/`destroy` still reach a container through `ctx.tabs`'s named
+ * properties (`chatContent`, `editorContent`, ...), which `TabManager.initElements()`
+ * mirrors from `panes.views()` for exactly this reason.
  */
 panes.registerView({
   view: 'chat',
   elementId: 'chat',
   splittable: true,
-  show(ref, ctx) {
+  show(ref, ctx, el) {
     const { tabs, app } = ctx;
-    tabs.chatContent.classList.remove('hidden');
+    el.classList.remove('hidden');
     app.voiceChatManager?.deactivate();
     app._updateVoiceUIBtnVisibility?.();
     const sessionId = ref.sessionId;
@@ -57,8 +59,8 @@ panes.registerView({
   view: 'voice',
   elementId: 'voiceChat',
   splittable: false,
-  show(ref, ctx) {
-    ctx.tabs.voiceChatContent?.classList.remove('hidden');
+  show(ref, ctx, el) {
+    el?.classList.remove('hidden');
     ctx.app.voiceChatManager?.activateForSession(ref.sessionId);
     ctx.app._updateVoiceUIBtnVisibility?.();
   },
@@ -68,8 +70,8 @@ panes.registerView({
   view: 'editor',
   elementId: 'editor',
   splittable: true,
-  show(ref, ctx) {
-    ctx.tabs.editorContent.classList.remove('hidden');
+  show(ref, ctx, el) {
+    el.classList.remove('hidden');
     ctx.app.fileEditor?.showFile(ref.projectId, ref.path);
   },
   layout(ctx) {
@@ -93,8 +95,8 @@ panes.registerView({
   view: 'viewer',
   elementId: 'fileViewer',
   splittable: true,
-  show(ref, ctx) {
-    ctx.tabs.viewerContent.classList.remove('hidden');
+  show(ref, ctx, el) {
+    el.classList.remove('hidden');
     const t = ctx.tabs.tabs.find(x => x.type === 'file' && x.projectId === ref.projectId && x.path === ref.path);
     ctx.tabs._renderViewer(t || { projectId: ref.projectId, path: ref.path, label: ref.label || ref.path });
   },
@@ -105,10 +107,28 @@ panes.registerView({
   view: 'image',
   elementId: 'fileViewer',
   splittable: true,
-  show(ref, ctx) {
-    ctx.tabs.viewerContent.classList.remove('hidden');
+  show(ref, ctx, el) {
+    el.classList.remove('hidden');
     const t = ctx.tabs.tabs.find(x => x.id === ref.imageTabId);
-    if (t) ctx.tabs._renderImageTab(t);
+    if (t) {
+      // Verbatim body of the pre-migration `_renderImageTab` — draws `t`'s
+      // image into the shared viewer canvas via the viewer registry, falling
+      // back to the generic image viewer by extension, and cache-busting the
+      // URL after a refresh. Bug-for-bug: a registry miss (no viewer at all,
+      // not even the fallback) silently no-ops.
+      const registry = ctx.app.viewerRegistry;
+      const cleanName = String(t.url).split('?')[0];
+      const viewer = registry?.getViewer(cleanName) || registry?.getViewer('image.png');
+      if (viewer) {
+        const url = t._reloadVersion
+          ? `${t.url}${t.url.includes('?') ? '&' : '?'}v=${t._reloadVersion}`
+          : t.url;
+        ctx.tabs.viewerPath.textContent = t.label;
+        ctx.tabs.viewerInfo.textContent = '';
+        ctx.tabs._activeViewer = viewer;
+        viewer.render(ctx.tabs.viewerCanvas, { filename: t.label, url });
+      }
+    }
   },
   destroy: destroyActiveViewer,
 });
@@ -117,8 +137,8 @@ panes.registerView({
   view: 'terminal',
   elementId: 'terminal',
   splittable: true,
-  show(ref, ctx) {
-    ctx.tabs.terminalContent.classList.remove('hidden');
+  show(ref, ctx, el) {
+    el.classList.remove('hidden');
     ctx.app.terminalManager?.showTerminal(ref.terminalId);
   },
   layout(ctx) {
@@ -130,8 +150,8 @@ panes.registerView({
   view: 'module',
   elementId: 'moduleContent',
   splittable: true,
-  show(ref, ctx) {
-    ctx.tabs.moduleContent?.classList.remove('hidden');
+  show(ref, ctx, el) {
+    el?.classList.remove('hidden');
     ctx.app.moduleHost?.activate({
       id: `module:${ref.projectId}:${ref.moduleName}`,
       projectId: ref.projectId,
@@ -144,8 +164,8 @@ panes.registerView({
   view: 'htmlPreview',
   elementId: 'htmlPreview',
   splittable: true,
-  show(ref, ctx) {
-    ctx.tabs.htmlPreviewContent?.classList.remove('hidden');
+  show(ref, ctx, el) {
+    el?.classList.remove('hidden');
     ctx.app.htmlPreviewPane?.show(ref.projectId, ref.path);
   },
 });

@@ -100,9 +100,15 @@ class PaneRegistry {
  */
 const panes = new PaneRegistry();
 
-// Node has no <script> tag order to put `panes` in scope for whoever
-// `require`s a file that expects it (see tab-manager.js's own top-of-file
-// comment). Same guard, same pattern as tab-manager.js's own module.exports.
+// Node has no <script> tag order, so there is no page to load panes/*.js in
+// sequence for whoever `require`s a file that expects them registered. This
+// file is the one thing every pane descriptor file needs in scope (`panes`),
+// so it is also the one place that loads them, once, for every Node caller —
+// tab-manager.js just requires this file instead of one line per pane type.
 if (typeof module !== 'undefined' && module.exports) {
+  global.panes = panes; // must be set before the scan below: descriptor files reference `panes` at file scope
+  const fs = require('fs'), path = require('path');
+  const dir = path.join(__dirname, '..', 'panes');
+  for (const f of fs.readdirSync(dir).sort()) if (f.endsWith('.js')) require(path.join(dir, f));
   module.exports = { PaneRegistry, panes };
 }
