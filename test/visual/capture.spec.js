@@ -30,7 +30,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   VIEWPORTS, THEMES, BASELINE_DIR, CURRENT_DIR, FREEZE_CSS,
-  seedTheme, stubTtsVoices, openSidebarIfMobile, blurActiveElement,
+  seedTheme, stubVoiceDaemons, openSidebarIfMobile, blurActiveElement,
 } = require('./support');
 
 const OUT_DIR = process.env.VISUAL_MODE === 'current' ? CURRENT_DIR : BASELINE_DIR;
@@ -55,7 +55,7 @@ for (const viewport of VIEWPORTS) {
         colorScheme: theme,
       });
       await seedTheme(context, theme);
-      await stubTtsVoices(context);
+      await stubVoiceDaemons(context);
       const page = await context.newPage();
 
       try {
@@ -127,7 +127,7 @@ for (const viewport of VIEWPORTS) {
         // This tab's backend <select> + status line are read from TTSManager
         // once at render() time with no live re-render, so they'd freeze on
         // whatever transient state a background TTS backend race left behind
-        // if one were running — stubTtsVoices() above is what keeps this
+        // if one were running — stubVoiceDaemons() above is what keeps this
         // deterministic, by making sure no such race ever starts.
         await voiceTab.evaluate((el) => { el.scrollTop = el.scrollHeight; });
         await shoot(page, `settings-voice-${suffix}`);
