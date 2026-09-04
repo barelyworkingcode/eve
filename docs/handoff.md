@@ -103,9 +103,12 @@ non-trivial).
 All five pane types (`session`, `file`, `terminal`, `module`, `image`) and all
 eight views (`chat`, `voice`, `editor`, `viewer`, `image`, `terminal`,
 `module`, `htmlPreview`) now live in `public/panes/*.js`, registered at file
-scope and loaded via one `<script>` tag each in `index.html` (also picked up
-under Node by a directory scan in `core/pane-registry.js`, so no handoff had
-to add a `require` line to `tab-manager.js`). The dead `console` view id and
+scope and loaded via one `<script>` tag each in `index.html`, also picked up
+under Node by a directory scan in `core/pane-registry.js` — descriptor
+loading under Node lives there, not in `tab-manager.js`. `tab-manager.js:11`
+does carry one `require('./core/pane-registry.js')`, but it is permanent and
+type-agnostic, not a per-type line: adding a pane type edits no line of
+`tab-manager.js` at all, require included. The dead `console` view id and
 the unused `getTab` method were deleted in the final handoff, along with the
 two switch statements (`_viewForTab`, `_refForTab`) that had degenerated to a
 bare `default:` arm with nothing left to fall through from.
@@ -154,11 +157,14 @@ shows the thinking indicator; `clearSessionStarting` re-enables the textarea
 directly. Neither can be deleted in favor of callers reaching `chatForm`
 directly until `#userInput` itself moves into the chat-form feature, which is
 a phase in its own right (`elements.userInput` has callers throughout
-`app.js`). Phase 4 deleted two of the ten external call sites for the two
-genuine forwarders for free, inside the `session` view's `show` (now
-`ctx.container.get('chatForm').showStop()`/`.hideStop()` directly, in
-`public/panes/views.js`) — the remaining eight all live in
-`message-dispatcher.js`, whose natural owner is the `ws-handler.js` phase.
+`app.js`). The external call-site count is **10**, not eight, and they are
+not all in one file: `message-dispatcher.js` has 8 (`showStopButton`/
+`hideStopButton` around streaming start/stop and error paths), and
+`public/panes/views.js`'s `chat` view's `show` has the other 2 (around lines
+50 and 53), calling `app.showStopButton()`/`app.hideStopButton()` — moved
+verbatim from `tab-manager.js`'s old `chat` arm, not rewritten to reach
+`chatForm` directly. Phase 4 did not reduce this count; the natural owner of
+all 10 is the `ws-handler.js` phase.
 
 Six gates exist from the chat-input and tab-manager work and must keep
 passing unmodified — if one fails, the code is wrong.
