@@ -16,10 +16,6 @@
   const pending = new Map();
   let nextId = 1;
 
-  // Compact one-liner for the iframe's own console. The full request + response
-  // are logged by ModuleHost in the parent console (with the resolved model);
-  // duplicating them here would just be noise. Keep iframe logs as a thin
-  // marker so devs working *inside* a module still see when calls fire.
   function summarize(value) {
     if (value === undefined || value === null) return '';
     if (typeof value === 'string') return value.length <= 40 ? value : `(${value.length} chars)`;
@@ -93,8 +89,6 @@
 
   window.eve = {
     /**
-     * Invoke an AI prompt and get a single structured response.
-     * Long timeout because LLM calls can take a while.
      * @param {object} opts
      * @param {string} opts.prompt       — user-style prompt for the model.
      * @param {string[]} [opts.files]    — project-relative files to inline (must be in manifest permissions).
@@ -108,7 +102,7 @@
     },
 
     /**
-     * Read a file from the project. Must be in the module's permissions.files list.
+     * Must be in the module's permissions.files list.
      * @param {string} relPath — project-relative path.
      * @returns {Promise<string>} — file contents (utf-8).
      */
@@ -117,27 +111,22 @@
     },
 
     /**
-     * Write a file in the project. Must be in the module's permissions.files list.
+     * Must be in the module's permissions.files list.
      * @param {string} relPath — project-relative path.
      * @param {string} content — utf-8 contents.
-     * @returns {Promise<void>}
      */
     writeFile(relPath, content) {
       return send('writeFile', { path: relPath, content });
     },
 
-    /**
-     * Get the module's manifest (read-only view).
-     * @returns {Promise<object>}
-     */
+    // Read-only: mutating the returned object has no effect on the module's actual manifest.
     getManifest() {
       return send('getManifest', {});
     },
   };
 
-  // Tell the parent we loaded; helps with debugging and lets the host know
-  // the iframe is ready to receive any boot-time messages.
+  // ModuleHost waits for this before sending boot-time messages.
   try {
     window.parent.postMessage({ source: 'eve-module-sdk', op: 'ready' }, '*');
-  } catch { /* ignore */ }
+  } catch {}
 })();

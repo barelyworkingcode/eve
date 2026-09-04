@@ -1,13 +1,8 @@
-/**
- * TTS text chunking — shared by the streaming voice path (relay-client.js) and
- * the read-aloud play button (ws-handler.js handleTtsSpeak).
- *
- * The daemon synthesizes one text per request, so to start audio before the
- * whole message is generated we split text at sentence boundaries and feed the
- * daemon one chunk at a time. This module owns the boundary detection, the
- * markdown/code cleaning applied before synthesis, and the min-length merge
- * rules — keeping both callers byte-identical.
- */
+// Shared by the streaming voice path (relay-client.js) and the read-aloud
+// play button (ws/voice-messages.js handleTtsSpeak) so both stay
+// byte-identical. The daemon synthesizes one text per request, so this
+// module splits at sentence boundaries to start audio before the whole
+// message is generated.
 
 const TTS_MIN_FIRST_CHUNK = 20;
 const TTS_MIN_CHUNK = 40;
@@ -18,15 +13,10 @@ const TTS_ABBREVIATIONS = new Set([
   'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
 ]);
 
-/**
- * Find the first sentence boundary in text.
- * Returns { sentence, remainder } or { sentence: null, remainder: text }.
- * Skips abbreviations (Mr., Dr., e.g.), decimal numbers (3.14),
- * and boundaries inside code blocks or think tags. Operates on raw text —
- * cleaning (strip markdown, code blocks) is deferred to cleanChunkText.
- */
+// Skips abbreviations (Mr., Dr., e.g.), decimal numbers (3.14), and
+// boundaries inside code blocks or think tags. Cleaning is deferred to
+// cleanChunkText.
 function extractNextSentence(text) {
-  // Don't split inside an unclosed code block or think tag
   if (text.includes('```') && (text.match(/```/g) || []).length % 2 !== 0) {
     return { sentence: null, remainder: text };
   }
@@ -44,7 +34,6 @@ function extractNextSentence(text) {
     const punct = match[1];
     const before = text.slice(0, match.index);
 
-    // Skip boundaries inside code blocks or think tags
     if (hasBlocks) {
       const fenceCount = (before.match(/```/g) || []).length;
       if (fenceCount % 2 !== 0) continue;
@@ -53,7 +42,6 @@ function extractNextSentence(text) {
       if (thinkOpens > thinkCloses) continue;
     }
 
-    // Skip decimal numbers (3.14) and abbreviations (Mr., Dr., e.g.)
     if (punct === '.') {
       const charBefore = match.index > 0 ? text[match.index - 1] : '';
       const charAfter = text[endIdx] || '';
@@ -70,10 +58,6 @@ function extractNextSentence(text) {
   return { sentence: null, remainder: text };
 }
 
-/**
- * Strip markdown / code / URLs / think tags from a chunk so the synthesizer
- * never speaks formatting. Returns '' when nothing speakable remains.
- */
 function cleanChunkText(text) {
   return text
     .replace(/<think>[\s\S]*?<\/think>/g, '')
@@ -86,19 +70,11 @@ function cleanChunkText(text) {
     .trim();
 }
 
-/**
- * Split a complete message into ordered, raw (uncleaned) chunks at sentence
- * boundaries, merging short sentences forward until each chunk reaches the
- * minimum length (TTS_MIN_FIRST_CHUNK for the first, TTS_MIN_CHUNK after).
- *
- * Unlike the streaming flusher in relay-client.js — which waits for more text
- * when a sentence is below the minimum — this operates on a fully-known message,
- * so a short opener is merged with following sentences rather than stalling the
- * whole message into one chunk. Any trailing text without a terminal boundary
- * (or stuck behind an unclosed fence) becomes the final chunk.
- *
- * Callers should run each returned chunk through cleanChunkText before synthesis.
- */
+// Unlike the streaming flusher in relay-client.js — which waits for more text
+// when a sentence is below the minimum — this operates on a fully-known
+// message, so a short opener is merged forward instead of stalling the whole
+// message into one chunk. Callers should run each returned chunk through
+// cleanChunkText before synthesis.
 function splitIntoChunks(text) {
   const chunks = [];
   let buffer = '';

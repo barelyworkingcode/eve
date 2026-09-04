@@ -1,15 +1,10 @@
 /**
  * Shared constants + helpers for the visual-regression harness.
  *
- * IMPORTANT — index.html is cached: `server.js` reads public/index.html into
- * memory ONCE at process startup (see CLAUDE.md, "Local server restart"). The
- * `eve` fixture (test/e2e/fixtures.js -> test/integration/harness.js) spawns a
- * brand-new `node server.js` child per test, so it always serves the current
- * index.html on disk — no manual restart needed to run this harness. But if
- * you point this harness at an already-running eve instance instead of the
- * fixture (e.g. the pid mentioned in the task, started before an index.html
- * edit), you MUST restart that instance first or you'll be screenshotting
- * stale markup against fresh JS/CSS.
+ * server.js reads public/index.html into memory once at startup. The `eve`
+ * fixture spawns a fresh server per test so it always serves current disk
+ * contents; pointing this harness at an already-running instance started
+ * before an index.html edit screenshots stale markup against fresh JS/CSS.
  */
 const path = require('path');
 
@@ -24,11 +19,8 @@ const BASELINE_DIR = path.join(__dirname, '__baseline__');
 const CURRENT_DIR = path.join(__dirname, '__current__');
 const DIFF_DIR = path.join(__dirname, '__diff__');
 
-// Forces every animation/transition to its end state instantly, and hides
-// caret/cursor blink. Applied after each navigation so results depend only on
-// final layout, never on where a CSS clock happened to be when we clicked
-// the shutter. A screenshot harness that reports false diffs from animation
-// timing is worse than no harness — this is the load-bearing line of defense.
+// Applied after each navigation so a screenshot depends only on final layout,
+// never on where a CSS clock happened to be when the shutter fired.
 const FREEZE_CSS = `
   *, *::before, *::after {
     animation-duration: 0s !important;

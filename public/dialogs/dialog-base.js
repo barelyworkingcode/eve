@@ -1,9 +1,5 @@
 const HIDDEN_SETTING_KEYS = new Set(['mcpServers']);
 
-/**
- * DialogBase - shared modal behavior for all dialogs.
- * Handles backdrop, escape key, focus trap, show/hide lifecycle.
- */
 class DialogBase {
   constructor(container, dialogId) {
     this.container = container;
@@ -33,16 +29,10 @@ class DialogBase {
     document.body.appendChild(this.el);
   }
 
-  /**
-   * Set the panel HTML content. Subclasses call this in render().
-   */
   _setContent(html) {
     this._panel.innerHTML = html;
   }
 
-  /**
-   * Get the panel element for DOM manipulation.
-   */
   get panel() {
     return this._panel;
   }
@@ -50,7 +40,6 @@ class DialogBase {
   show() {
     this.el.classList.remove('hidden');
     document.addEventListener('keydown', this._boundEscape);
-    // Focus the first focusable element
     requestAnimationFrame(() => {
       const focusable = this._panel.querySelector('button, input, select, textarea, [tabindex]');
       if (focusable) focusable.focus();
@@ -73,9 +62,6 @@ class DialogBase {
     }
   }
 
-  /**
-   * Helper to create a title bar with title, badge, and close button.
-   */
   _createTitleBar(titleText, badgeText) {
     const bar = document.createElement('div');
     bar.className = 'dialog__title-bar';
@@ -100,10 +86,6 @@ class DialogBase {
     return bar;
   }
 
-  /**
-   * Helper to create tabbed header.
-   * Returns { header, setActiveTab } where setActiveTab(name) updates the UI.
-   */
   _createTabs(tabs, onSwitch) {
     const header = document.createElement('div');
     header.className = 'dialog__tabs';
@@ -123,7 +105,6 @@ class DialogBase {
       header.appendChild(btn);
     }
 
-    // Activate first tab
     if (tabs.length > 0) {
       buttons[tabs[0].name].classList.add('dialog__tab--active');
     }
@@ -137,9 +118,6 @@ class DialogBase {
     };
   }
 
-  /**
-   * Create a voice selection dropdown, optionally pre-selecting a voice.
-   */
   _createVoiceSelect(selectedVoice) {
     const select = document.createElement('select');
     select.className = 'dialog__select';
@@ -175,14 +153,6 @@ class DialogBase {
     return select;
   }
 
-  /**
-   * Add dynamic provider settings fields based on the selected model.
-   * @param {HTMLElement} form - Parent form element.
-   * @param {HTMLSelectElement} modelSelect - Model select dropdown.
-   * @param {Object|null} existingSettings - Pre-existing settings to populate (for editing).
-   * @param {Array} extraFields - Additional fields to append after provider fields.
-   * @returns {HTMLElement} The settings container element.
-   */
   _addProviderSettings(form, modelSelect, existingSettings, extraFields) {
     const state = this.container.get('state');
     const settingsContainer = document.createElement('div');
@@ -245,7 +215,6 @@ class DialogBase {
         return row;
       };
 
-      // Group consecutive same-type pairable fields (number, boolean) into pairs
       const pairQueue = [];
       let pairType = null;
       const flushPairs = () => {
@@ -279,9 +248,6 @@ class DialogBase {
     return settingsContainer;
   }
 
-  /**
-   * Collect settings values from a provider settings container.
-   */
   _collectSettings(container) {
     const settings = {};
     for (const input of container.querySelectorAll('input, select')) {

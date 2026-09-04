@@ -4,7 +4,7 @@ const path = require('path');
 
 class FileService {
   constructor() {
-    this.maxFileSize = 10 * 1024 * 1024; // 10MB
+    this.maxFileSize = 10 * 1024 * 1024;
 
     this.allowedExtensions = new Set([
       'txt', 'md', 'json', 'yaml', 'yml', 'js', 'ts', 'jsx', 'tsx',
@@ -14,31 +14,23 @@ class FileService {
     ]);
   }
 
-  /**
-   * True if `target` is the base directory itself or lives inside it.
-   * CRITICAL: compares with a trailing separator so a project at
-   * `/home/u/proj` does NOT match a sibling `/home/u/proj-secrets`. A bare
-   * `startsWith(base)` prefix check is a path-traversal hole — see
-   * docs/security-audit-frontend.md (H1).
-   */
+  // Must compare with a trailing separator so a project at `/home/u/proj`
+  // does NOT match a sibling `/home/u/proj-secrets` — a bare
+  // `startsWith(base)` prefix check is a path-traversal hole.
+  // See docs/security-audit-frontend.md (H1).
   isPathWithin(base, target) {
     const resolvedBase = path.resolve(base);
     return target === resolvedBase || target.startsWith(resolvedBase + path.sep);
   }
 
-  // Alias for backwards compatibility with internal calls
   _isWithin(base, target) {
     return this.isPathWithin(base, target);
   }
 
-  /**
-   * Resolves symlinks on the longest *existing* prefix of `p` and re-appends
-   * the not-yet-existing tail. A path component that doesn't exist on disk
-   * can't itself be a symlink, so resolving the existing prefix is sufficient
-   * to learn where `p` truly lands. `p` may not exist yet (new file/dir).
-   * Only ENOENT is swallowed during the walk — any other fs error is real and
-   * surfaces to the caller.
-   */
+  // Resolves symlinks on the longest *existing* prefix of `p` and re-appends
+  // the not-yet-existing tail — a path component that doesn't exist on disk
+  // can't itself be a symlink, so this is sufficient even when `p` doesn't
+  // exist yet (new file/dir). Only ENOENT is swallowed during the walk.
   _realpathExistingPrefix(p) {
     let current = path.resolve(p);
     const tail = [];
@@ -56,29 +48,22 @@ class FileService {
     }
   }
 
-  /**
-   * Validates and resolves a path within project directory
-   * CRITICAL: Prevents path traversal attacks
-   */
   validatePath(projectPath, relativePath) {
-    // Normalize the relative path - strip leading slashes to prevent path.resolve
-    // from treating it as an absolute path
+    // Strip leading slashes so path.resolve doesn't treat relativePath as absolute
+    // (which would discard projectPath entirely).
     const normalizedRelative = relativePath.replace(/^\/+/, '') || '.';
     const resolved = path.resolve(projectPath, normalizedRelative);
 
-    // Lexical traversal check (cheap first line of defense).
     if (!this._isWithin(projectPath, resolved)) {
       throw new Error('Path traversal not allowed');
     }
 
-    // Symlink defense: the lexical check above only sees the textual path, so a
-    // symlink *inside* the project pointing outside it (e.g. `proj/link ->
-    // /etc`, then read `link/passwd`) would slip past. Resolve symlinks on both
-    // the target's existing prefix and the project root, then re-check
-    // containment in realpath space. Comparing realRoot vs realResolved (rather
-    // than projectPath vs realResolved) is required so a project legitimately
-    // living under a symlinked ancestor — e.g. macOS `/var` -> `/private/var` —
-    // isn't false-flagged. Mirrors module-service.js resolveModuleFile().
+    // The lexical check above only sees the textual path, so a symlink
+    // *inside* the project pointing outside it (e.g. `proj/link -> /etc`)
+    // would slip past — recheck containment in realpath space. Comparing
+    // realRoot vs realResolved (not projectPath vs realResolved) is required
+    // so a project living under a symlinked ancestor (e.g. macOS `/var` ->
+    // `/private/var`) isn't false-flagged. Mirrors module-service.js resolveModuleFile().
     const realRoot = this._realpathExistingPrefix(projectPath);
     const realResolved = this._realpathExistingPrefix(resolved);
     if (!this._isWithin(realRoot, realResolved)) {
@@ -88,10 +73,6 @@ class FileService {
     return resolved;
   }
 
-  /**
-   * Converts filesystem error codes to user-friendly messages.
-   * Custom overrides can be provided per error code.
-   */
   _handleFsError(err, overrides = {}) {
     const messages = {
       ENOENT: 'File not found',
@@ -105,9 +86,6 @@ class FileService {
     throw err;
   }
 
-  /**
-   * Throws if the path already exists.
-   */
   async _assertNotExists(fullPath, message = 'Already exists') {
     try {
       await fs.access(fullPath);
@@ -117,17 +95,11 @@ class FileService {
     }
   }
 
-  /**
-   * Checks if file extension is allowed for editing
-   */
   isAllowedFile(filename) {
     const ext = path.extname(filename).slice(1).toLowerCase();
     return this.allowedExtensions.has(ext) || !ext; // Allow extensionless files
   }
 
-  /**
-   * Lists directory contents
-   */
   async listDirectory(projectPath, relativePath, { showHidden = false } = {}) {
     const fullPath = this.validatePath(projectPath, relativePath);
 
@@ -156,7 +128,6 @@ class FileService {
           })
       );
 
-      // Sort: directories first, then alphabetically
       items.sort((a, b) => {
         if (a.type !== b.type) {
           return a.type === 'directory' ? -1 : 1;
@@ -170,13 +141,9 @@ class FileService {
     }
   }
 
-  /**
-   * Reads file content
-   */
   async readFile(projectPath, relativePath) {
     const fullPath = this.validatePath(projectPath, relativePath);
 
-    // Check if file extension is allowed
     if (!this.isAllowedFile(fullPath)) {
       throw new Error('File type not allowed for editing');
     }
@@ -195,18 +162,13 @@ class FileService {
     }
   }
 
-  /**
-   * Writes file content
-   */
   async writeFile(projectPath, relativePath, content) {
     const fullPath = this.validatePath(projectPath, relativePath);
 
-    // Check if file extension is allowed
     if (!this.isAllowedFile(fullPath)) {
       throw new Error('File type not allowed for editing');
     }
 
-    // Check content size
     const contentSize = Buffer.byteLength(content, 'utf8');
     if (contentSize > this.maxFileSize) {
       throw new Error(`Content too large (max ${this.maxFileSize / 1024 / 1024}MB)`);
@@ -219,28 +181,21 @@ class FileService {
     }
   }
 
-  /**
-   * Renames a file or directory
-   */
   async renameFile(projectPath, relativePath, newName) {
     const fullPath = this.validatePath(projectPath, relativePath);
 
-    // Reject names with path separators
     if (newName.includes('/') || newName.includes('\\')) {
       throw new Error('Name cannot contain path separators');
     }
 
-    // Check extension for files (not directories)
     const stats = await fs.stat(fullPath);
     if (stats.isFile() && !this.isAllowedFile(newName)) {
       throw new Error('File type not allowed');
     }
 
-    // Build new path
     const dir = path.dirname(fullPath);
     const newPath = path.join(dir, newName);
 
-    // Validate new path is still within project
     if (!this._isWithin(projectPath, newPath)) {
       throw new Error('Path traversal not allowed');
     }
@@ -255,9 +210,6 @@ class FileService {
     }
   }
 
-  /**
-   * Moves a file or directory to a new location
-   */
   async moveFile(projectPath, sourcePath, destDirectory) {
     const fullSourcePath = this.validatePath(projectPath, sourcePath);
     const fullDestDir = this.validatePath(projectPath, destDirectory);
@@ -288,13 +240,10 @@ class FileService {
     }
   }
 
-  /**
-   * Deletes a file or directory (moves to system trash)
-   */
+  // Moves to system trash rather than permanently deleting.
   async deleteFile(projectPath, relativePath) {
     const fullPath = this.validatePath(projectPath, relativePath);
 
-    // Prevent deleting the project root
     if (fullPath === path.resolve(projectPath)) {
       throw new Error('Cannot delete project root');
     }
@@ -308,26 +257,22 @@ class FileService {
     }
   }
 
-  /**
-   * Uploads a file (any type) to a directory.
-   * Unlike writeFile, does not enforce allowedExtensions.
-   */
+  // Unlike writeFile, does not enforce allowedExtensions.
   async uploadFile(projectPath, destDirectory, fileName, content, encoding) {
     const fullDestDir = this.validatePath(projectPath, destDirectory);
 
-    // Reject path separators in fileName
     if (fileName.includes('/') || fileName.includes('\\')) {
       throw new Error('File name cannot contain path separators');
     }
 
     const fullPath = path.join(fullDestDir, fileName);
 
-    // Validate resolved path is within project
     if (!this._isWithin(projectPath, fullPath)) {
       throw new Error('Path traversal not allowed');
     }
 
-    // Size limit (10MB, accounting for base64 ~33% overhead)
+    // rawSize estimates decoded size so the 10MB cap applies to actual bytes,
+    // not the ~33% larger base64 text.
     const maxUploadSize = this.maxFileSize;
     const rawSize = encoding === 'base64'
       ? Math.ceil(content.length * 3 / 4)
@@ -349,20 +294,15 @@ class FileService {
     }
   }
 
-  /**
-   * Creates a new directory
-   */
   async createDirectory(projectPath, parentPath, name) {
     const fullParentPath = this.validatePath(projectPath, parentPath);
 
-    // Reject names with path separators
     if (name.includes('/') || name.includes('\\')) {
       throw new Error('Name cannot contain path separators');
     }
 
     const fullPath = path.join(fullParentPath, name);
 
-    // Validate new path is still within project
     if (!this._isWithin(projectPath, fullPath)) {
       throw new Error('Path traversal not allowed');
     }

@@ -1,21 +1,12 @@
-/**
- * VoiceChatManager - Manages the voice-first chat UI with animated orb,
- * closed-caption text display, and two input modes:
- *   - Conversation mode: always-listening via VAD (Voice Activity Detection)
- *   - Push-to-talk mode: spacebar/mic button hold to record
- */
 class VoiceChatManager {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.bus = container.get('bus');
     this.log = container.get('logger').child('VoiceChat');
     this.isVoiceSession = false;
     this.isRecording = false;
     this.orbRenderer = null;
-    this.captions = []; // [{role, text, timestamp}]
+    this.captions = [];
     this.maxCaptions = 4;
     this.assistantAccum = '';
     this._spacebarDown = false;
@@ -27,16 +18,15 @@ class VoiceChatManager {
     this.vadManager = new VadManager(container.get('logger').child('VAD'));
     this._vadTranscribing = false;
 
-    // Native audio transport (iOS): when present, the native AVAudioEngine owns
+    // Native iOS audio transport: when present, the native AVAudioEngine owns
     // the mic + speaker so the conversation survives the screen turning off.
-    // VadManager / getUserMedia / Web-Audio playback are bypassed entirely.
     this.useNativeAudio = IS_NATIVE_AUDIO;
-    this.usingNativeSession = false; // true while a native voice session is live
+    this.usingNativeSession = false;
     this.nativeAudio = this.useNativeAudio ? new NativeAudioBridge(container.get('logger').child('NativeAudio')) : null;
-    this._nativeLevel = 0; // latest mic RMS from native onLevel (for the orb)
-    this._assistantSpeaking = false; // true while a reply is being spoken
-    this._suppressTTSFrames = false; // drop stale server TTS frames after a barge-in
-    this._pendingInterruptNote = false; // tag the next user_input as interrupted
+    this._nativeLevel = 0;
+    this._assistantSpeaking = false;
+    this._suppressTTSFrames = false;
+    this._pendingInterruptNote = false;
   }
 
   init() {
@@ -60,13 +50,11 @@ class VoiceChatManager {
     this._makeOrbRenderer(this._defaultOrbClass());
     this._exposeOrbControl();
 
-    // Orb tuning sliders (gear button + bottom sheet)
     if (typeof VoiceOrbSettings !== 'undefined') {
       this.orbSettings = new VoiceOrbSettings(this);
       this.orbSettings.init();
     }
 
-    // Update backend status display and prompt when backends change
     this.bus.on(EVT.VOICE_BACKEND_CHANGED, () => {
       this._updateBackendStatus();
       if (this.isVoiceSession) {
@@ -75,11 +63,10 @@ class VoiceChatManager {
       }
     });
 
-    // Spacebar handler (push-to-talk) — capture phase so we intercept before Monaco's body listener
+    // Capture phase: must run before Monaco's own keydown listener
     document.addEventListener('keydown', (e) => this._onKeyDown(e), true);
     document.addEventListener('keyup', (e) => this._onKeyUp(e), true);
 
-    // Mic button (push-to-talk fallback + click alternative)
     if (this.micBtn) {
       this.micBtn.addEventListener('mousedown', () => this._onMicDown());
       this.micBtn.addEventListener('mouseup', () => this._onMicUp());
@@ -90,7 +77,6 @@ class VoiceChatManager {
       this.micBtn.addEventListener('touchend', (e) => { e.preventDefault(); this._onMicUp(); });
     }
 
-    // Orb canvas push-to-talk (press and hold to record, just like mic button)
     if (this.orbCanvas) {
       this.orbCanvas.addEventListener('mousedown', () => this._onMicDown());
       this.orbCanvas.addEventListener('mouseup', () => this._onMicUp());
@@ -102,7 +88,6 @@ class VoiceChatManager {
       this.orbCanvas.addEventListener('touchcancel', () => this._onMicUp());
     }
 
-    // Close button - end session
     if (this.closeBtn) {
       this.closeBtn.addEventListener('click', () => {
         if (this.app.currentSessionId) {
@@ -111,12 +96,10 @@ class VoiceChatManager {
       });
     }
 
-    // Convert to web chat
     if (this.convertBtn) {
       this.convertBtn.addEventListener('click', () => this.convertToWebChat());
     }
 
-    // Drawer toggle
     if (this.drawerToggle) {
       this.drawerToggle.addEventListener('click', () => {
         this.drawerPanel?.classList.toggle('hidden');
@@ -124,7 +107,6 @@ class VoiceChatManager {
       });
     }
 
-    // Voice selection
     if (this.voiceSelect) {
       this._populateVoiceSelect();
       this.voiceSelect.addEventListener('change', (e) => {
@@ -133,7 +115,6 @@ class VoiceChatManager {
       });
     }
 
-    // Playback speed
     if (this.speedSelect) {
       this.speedSelect.value = String(this.app.ttsManager.speed);
       this.speedSelect.addEventListener('change', (e) => {
@@ -142,7 +123,6 @@ class VoiceChatManager {
       });
     }
 
-    // Mode toggle button
     if (this.modeToggle) {
       this._updateModeToggleUI();
       this.modeToggle.addEventListener('click', () => this._toggleInputMode());
@@ -151,7 +131,6 @@ class VoiceChatManager {
     this._initNativeAudio();
   }
 
-  /** Wire native AVAudioEngine events to the existing voice-session handlers. */
   _initNativeAudio() {
     if (!this.useNativeAudio) return;
     this.nativeAudio.init({
@@ -168,15 +147,13 @@ class VoiceChatManager {
       onError:       (d) => this.handleError(d.message || 'Audio error'),
       onDiagLog:     (d) => this._forwardDiagLog(d),
     });
-    // Flush diagnostics the native engine buffered before this listener existed
-    // (app-launch → first session, i.e. the cold-start trace) so it isn't lost.
+    // Flush diagnostics the native engine buffered before this listener existed.
     this.nativeAudio.dumpLogs?.().then((res) => {
       const lines = res && res.lines;
       if (Array.isArray(lines) && lines.length) this._sendDeviceLog({ type: 'device_log', lines });
     }).catch(() => {});
   }
 
-  /** Stream a native diagnostic line to eve so logs can be collected with no USB. */
   _forwardDiagLog(d) {
     if (!d || !d.line) return;
     this._sendDeviceLog({ type: 'device_log', seq: d.seq, line: d.line });
@@ -186,21 +163,13 @@ class VoiceChatManager {
     try { this.app.wsClient?.send(payload); } catch (_) { /* never let diagnostics break voice */ }
   }
 
-  /** Native VAD finished an utterance — ship the WAV to server STT. */
   _onNativeUtterance(base64) {
     if (!this.isVoiceSession || !base64) return;
     this._setOrbState('processing', 'native utterance');
     this._setPrompt('Transcribing...');
-    // Result returns via transcription_result → STTManager → handleTranscription().
     this.app.wsClient.send({ type: 'transcribe_audio', audio: base64 });
   }
 
-  /**
-   * Common barge-in bookkeeping once speech is already halted: stop the
-   * in-flight LLM generation (handleStop also resets dispatcher/renderer turn
-   * state), suppress TTS frames that were already in flight over the WS, and
-   * tag the next transcription so the LLM knows its reply was cut off.
-   */
   _interruptGeneration(reason) {
     this._assistantSpeaking = false;
     this._suppressTTSFrames = true;
@@ -210,14 +179,12 @@ class VoiceChatManager {
     this.log.info(`Barge-in (${reason}) — generation stopped`);
   }
 
-  /** User-initiated interrupt (tap / spacebar / PTT): halt playback, then stop generation if a reply was being spoken. */
   _bargeIn(reason) {
     const speaking = this._assistantSpeaking || this.app.ttsManager.isPlaying;
     this.app.ttsManager.stop();
     if (speaking) this._interruptGeneration(reason);
   }
 
-  /** Orb level source when native owns the audio (no Web-Audio analyser). */
   getNativeLevel(state) {
     if (state === 'listening') return this._nativeLevel;
     if (state === 'speaking') return 0.5; // no native playback meter; steady mid-level
@@ -225,7 +192,6 @@ class VoiceChatManager {
   }
 
   activateForSession(sessionId) {
-    // Fully tear down any existing voice session (stop TTS/STT, disable server voice mode)
     if (this.isVoiceSession) {
       this.deactivate();
     }
@@ -245,7 +211,6 @@ class VoiceChatManager {
       this.app.enableVoiceMode();
     }
 
-    // Show permission hint on first voice session
     if (!localStorage.getItem('eve-voice-hint-dismissed')) {
       if (IS_SAFARI) {
         this._addCaption('error', 'Tip: In Safari Settings for this site, set Microphone to "Allow" and Auto-Play to "Allow All" for the best experience.');
@@ -265,7 +230,6 @@ class VoiceChatManager {
     }
   }
 
-  /** Hand the mic + speaker to the native engine for this session. */
   async _startNativeSession() {
     this.usingNativeSession = true;
     const mode = this.inputMode === 'conversation' ? 'handsfree' : 'ptt';
@@ -286,10 +250,9 @@ class VoiceChatManager {
   }
 
   deactivate() {
-    // Halt in-progress speech only when a real voice session is being torn
-    // down (barge-in). deactivate() also runs on plain tab switches with
-    // read-aloud TTS on but no voice session active — there, let the current
-    // message finish playing rather than cutting it off mid-sentence.
+    // Only halt in-progress speech when a real voice session is torn down.
+    // deactivate() also runs on plain tab switches with read-aloud TTS on but
+    // no voice session active — let that message finish rather than cut it off.
     const wasVoiceSession = this.isVoiceSession;
     this.isVoiceSession = false;
     this.isRecording = false;
@@ -306,19 +269,12 @@ class VoiceChatManager {
     this.vadManager.destroy();
     this.orbRenderer?.stop();
 
-    // Reconcile server-side TTS with the read-aloud toggle instead of forcing
-    // it off. deactivate() runs on every switch into a non-voice session tab
-    // (TabManager.switchToTab), but read-aloud TTS (ttsManager.enabled) may
-    // still be on for the chat we're landing on — and the server backend needs
-    // voice_mode to keep emitting tts_audio. Blindly sending enabled:false here
-    // left the speaker button lit but silent until a reconnect: switching tabs
-    // and back killed TTS for all future messages. syncVoiceMode still sends
-    // enabled:false when read-aloud is genuinely off (preserving teardown) and
-    // is a no-op for on-device backends.
+    // syncVoiceMode reconciles server voice_mode with the read-aloud toggle
+    // instead of forcing it off — read-aloud TTS may still be enabled for the
+    // chat being switched to, and the server needs voice_mode on to keep
+    // emitting tts_audio.
     this.app.ttsManager.syncVoiceMode(this.app.wsClient);
   }
-
-  // --- Input mode management ---
 
   _toggleInputMode() {
     if (this.useNativeAudio) {
@@ -362,7 +318,6 @@ class VoiceChatManager {
       ? 'Hands-free — tap for push-to-talk'
       : 'Push-to-talk — tap for hands-free';
     this.modeToggle.classList.toggle('voice-chat__mode-toggle--ptt', !isConvo);
-    // Update mic button visibility — in conversation mode, mic is not the primary input
     if (this.micBtn) {
       this.micBtn.classList.toggle('voice-chat__btn--secondary', isConvo);
     }
@@ -394,7 +349,6 @@ class VoiceChatManager {
   _onVADSpeechStart() {
     if (!this.isVoiceSession) return;
 
-    // Aggressive barge-in: always stop TTS immediately and halt generation if a reply was being spoken
     this._bargeIn('vad');
 
     this._setOrbState('listening', 'speech detected');
@@ -404,20 +358,18 @@ class VoiceChatManager {
   _onVADSpeechEnd(audio) {
     if (!this.isVoiceSession) return;
 
-    // Drop if a transcription is already in flight (Chrome's AEC sometimes
-    // leaks enough echo to trigger a second VAD cycle for the same utterance)
+    // Drop if a transcription is already in flight — Chrome's AEC sometimes
+    // leaks enough echo to trigger a second VAD cycle for the same utterance.
     if (this._vadTranscribing) return;
 
     this._setOrbState('processing', 'speech ended');
     this._setPrompt('Transcribing...');
     this._vadTranscribing = true;
 
-    // Route through STT manager — handles browser/server backend selection
     this.app.sttManager.transcribeFloat32(audio);
   }
 
   _onVADMisfire() {
-    // Too-short speech burst — return to listening state
     if (!this.isVoiceSession) return;
     if (!this._vadTranscribing && !this.app.ttsManager.isPlaying) {
       this._setOrbState('listening', 'VAD misfire');
@@ -425,11 +377,8 @@ class VoiceChatManager {
     }
   }
 
-  // --- Mic button handling (adapts to mode) ---
-
   _onMicDown() {
     if (this.inputMode === 'conversation') {
-      // Tap to barge-in: stop TTS, VAD resumes via handleTTSEnd()
       if (this._assistantSpeaking || this.app.ttsManager.isPlaying) this._bargeIn('tap');
       return;
     }
@@ -441,25 +390,21 @@ class VoiceChatManager {
     this._stopRecording();
   }
 
-  // --- Keyboard handling (push-to-talk) ---
-
   _onKeyDown(e) {
     if (!this.isVoiceSession) return;
     if (e.code !== 'Space') return;
-    // Don't capture if user is typing in an input
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
-    // Don't capture if a dialog is open
     if (document.querySelector('.dialog:not(.hidden)')) return;
 
     e.preventDefault();
     e.stopPropagation();
 
-    if (e.repeat) return; // Already recording — just suppress the event
+    if (e.repeat) return;
 
     if (this.inputMode === 'conversation') {
       if (this.useNativeAudio) {
-        // Native handsfree is already listening; spacebar is just barge-in.
+        // Native handsfree is already listening — spacebar only barges in.
         this._bargeIn('spacebar');
         this._spacebarDown = true;
         return;
@@ -479,13 +424,12 @@ class VoiceChatManager {
     e.stopPropagation();
     this._spacebarDown = false;
 
-    // Native handsfree barge-in needs no stop/resume — the engine keeps listening.
+    // Native handsfree needs no stop/resume on barge-in — the engine keeps listening.
     if (this.inputMode === 'conversation' && this.useNativeAudio) return;
 
     this._stopRecording();
 
     if (this.inputMode === 'conversation') {
-      // Resume VAD after manual push-to-talk
       this.vadManager.resume();
     }
   }
@@ -494,7 +438,6 @@ class VoiceChatManager {
     if (this.isRecording) return;
     this.isRecording = true;
 
-    // Stop any playing TTS (barge-in)
     this._bargeIn('ptt');
 
     this._setOrbState('listening', 'recording started');
@@ -525,8 +468,6 @@ class VoiceChatManager {
     this.app.sttManager.stopRecording();
   }
 
-  // --- Transcription + LLM flow ---
-
   handleTranscription(text) {
     this._vadTranscribing = false;
 
@@ -546,21 +487,18 @@ class VoiceChatManager {
       dictated: true,
     });
 
-    // Render in hidden chat so converting to web chat shows the message
+    // Render into hidden chat history so convertToWebChat() shows this message.
     this.app.messageRenderer.appendUserMessage(text, []);
 
     this.assistantAccum = '';
     this._setOrbState('processing', 'transcription sent');
     this._setPrompt('Thinking...');
-    // Faint repeating cue while it's the AI's turn but it hasn't spoken yet
-    // (thinking / tool-calling). Stopped when audio starts or the turn ends.
     if (this.useNativeAudio) this.nativeAudio.startThinkingCue();
   }
 
   handleAssistantDelta(text) {
     if (!this.isVoiceSession) return;
     this.assistantAccum += text;
-    // Strip think tags and show clean text in captions
     const clean = this.assistantAccum
       .replace(/<think>[\s\S]*?<\/think>/g, '')
       .replace(/<think>[\s\S]*$/g, '')
@@ -571,13 +509,11 @@ class VoiceChatManager {
   handleTTSStart() {
     if (!this.isVoiceSession) return;
     this._assistantSpeaking = true;
-    if (this.useNativeAudio) this.nativeAudio.stopThinkingCue(); // it's speaking now
-    // Pause VAD during TTS — browser echo cancellation (especially Chrome)
-    // leaks enough speaker audio to trigger false barge-in and duplicate messages.
-    // Barge-in is still available via mic/orb tap or spacebar. Native needs no
-    // VAD pause: with AEC active, EveAudioEngine keeps the mic open behind a
-    // stricter energy gate (voice barge-in); without AEC it falls back to
-    // half-duplex (mic suppressed while speaking).
+    if (this.useNativeAudio) this.nativeAudio.stopThinkingCue();
+    // Pause VAD during TTS — browser echo cancellation (esp. Chrome) leaks
+    // enough speaker audio to trigger false barge-in and duplicate messages.
+    // Native audio needs no pause: it barge-ins via a stricter energy gate
+    // with AEC active, or half-duplex without it.
     if (this.inputMode === 'conversation' && !this.useNativeAudio) {
       this.vadManager.pause();
       this.micBtn?.classList.add('voice-chat__btn--muted');
@@ -591,7 +527,6 @@ class VoiceChatManager {
     this._assistantSpeaking = false;
 
     if (this.useNativeAudio) {
-      // Native re-opens the mic itself (emits onListening) for handsfree.
       if (this.inputMode === 'conversation') {
         this._setOrbState('listening', 'TTS ended');
         this._setPrompt('Listening...');
@@ -642,9 +577,8 @@ class VoiceChatManager {
 
   handleResponseComplete() {
     if (!this.isVoiceSession) return;
-    if (this.useNativeAudio) this.nativeAudio.stopThinkingCue(); // turn over (covers text-only)
+    if (this.useNativeAudio) this.nativeAudio.stopThinkingCue(); // covers text-only replies, which have no TTS start/end to stop the cue
 
-    // Client-side TTS: speak the accumulated text via browser or native backend
     const backend = this.app.ttsManager.backend;
     if (this.app.ttsManager.activeBackend.onDevice && this.assistantAccum.trim()) {
       this.app.ttsManager.speakText(this.assistantAccum);
@@ -653,11 +587,8 @@ class VoiceChatManager {
     this.assistantAccum = '';
   }
 
-  // --- Captions ---
-
   _addCaption(role, text) {
     this.captions.push({ role, text, timestamp: Date.now() });
-    // Keep only recent captions
     if (this.captions.length > this.maxCaptions) {
       this.captions = this.captions.slice(-this.maxCaptions);
     }
@@ -665,11 +596,9 @@ class VoiceChatManager {
   }
 
   _updateAssistantCaption(text) {
-    // Update or add the latest assistant caption
     const last = this.captions[this.captions.length - 1];
     if (last && last.role === 'assistant') {
       last.text = text;
-      // Fast path: update the existing DOM element's text without rebuilding
       const lastEl = this.captionsEl?.lastElementChild;
       if (lastEl) {
         const maxLen = 200;
@@ -695,11 +624,9 @@ class VoiceChatManager {
       const el = document.createElement('div');
       el.className = `voice-chat__caption voice-chat__caption--${cap.role}`;
 
-      // Fade older captions
       const age = total - i;
       if (age > 2) el.classList.add('voice-chat__caption--fading');
 
-      // Truncate long text for display
       const maxLen = 200;
       const displayText = cap.text.length > maxLen ? cap.text.slice(0, maxLen) + '...' : cap.text;
       el.textContent = displayText;
@@ -707,11 +634,8 @@ class VoiceChatManager {
       this.captionsEl.appendChild(el);
     });
 
-    // Scroll to bottom
     this.captionsEl.scrollTop = this.captionsEl.scrollHeight;
   }
-
-  // --- Convert between modes ---
 
   convertToVoiceChat() {
     const sessionId = this.app.currentSessionId;
@@ -724,9 +648,7 @@ class VoiceChatManager {
         if (stateSession) stateSession.sessionType = 'voice';
       }
     }
-    // Persist session type
     this.app.tabManager._saveSessionMeta(sessionId, { sessionType: 'voice' });
-    // Re-trigger tab switch to show voice UI
     this.app.tabManager.switchToTab(sessionId);
   }
 
@@ -740,14 +662,10 @@ class VoiceChatManager {
         if (stateSession) stateSession.sessionType = null;
       }
     }
-    // Clear persisted session type
     this.app.tabManager._removeSessionMeta(sessionId);
     this.deactivate();
-    // Re-trigger tab switch to show web chat UI
     this.app.tabManager.switchToTab(sessionId);
   }
-
-  // --- Helpers ---
 
   _setPrompt(text) {
     if (this.promptEl) this.promptEl.textContent = text;
@@ -768,12 +686,8 @@ class VoiceChatManager {
   }
 
   /**
-   * (Re)build the orb renderer on a fresh canvas element. A canvas's context
-   * type (webgl) is permanent once requested, so rebuilding requires
-   * replacing the element itself. With Renderer null (WebGL unavailable, or
-   * renderer init failed), the canvas is hidden and no renderer is
-   * constructed — the rest of voice chat keeps working without the
-   * visualiser.
+   * A canvas's WebGL context is permanent once requested, so switching
+   * renderers requires replacing the canvas element itself.
    */
   _makeOrbRenderer(Renderer) {
     const currentState = this.orbRenderer?.targetState || 'idle';
@@ -792,8 +706,6 @@ class VoiceChatManager {
     this.orbCanvas = fresh;
     this.orbCanvas.hidden = false;
     this.orbRenderer = new Renderer(this.orbCanvas, this.app);
-    // Three.js import failure or WebGL context failure → no fallback
-    // renderer; hide the canvas and continue.
     this.orbRenderer.onInitError = () => this._makeOrbRenderer(null);
     this.orbRenderer.setState(currentState);
     if (wasRunning) this.orbRenderer.start();
@@ -805,7 +717,6 @@ class VoiceChatManager {
     return (typeof VoiceOrb3D !== 'undefined' && VoiceOrb3D.isSupported()) ? VoiceOrb3D : null;
   }
 
-  /** Console helper: window.orb('speaking') or window.orb('idle', {r:255,g:0,b:0}) */
   _exposeOrbControl() {
     window.orb = (state, color) => {
       if (state && this.orbRenderer) {
@@ -817,7 +728,6 @@ class VoiceChatManager {
     };
     window.orbRenderer = this.orbRenderer;
 
-    /** Console helper: window.orbDemo() to cycle states, window.orbDemo() again to stop */
     window.orbDemo = () => {
       if (this._demoInterval) {
         clearInterval(this._demoInterval);
@@ -836,15 +746,11 @@ class VoiceChatManager {
       return `Orb demo started: cycling ${states.join(' → ')} every 5s (call orbDemo() again to stop)`;
     };
 
-    /** Console helper: window.eveTune({bargeInRmsThreshold: 0.04, bargeInMinVoicedMs: 500}) */
     window.eveTune = (opts) => this.nativeAudio
       ? this.nativeAudio.setTuning(opts)
       : 'native audio unavailable';
 
-    /** Console helper: window.eveDiag(true|false) — toggle device-log streaming to
-     *  eve/relay-device.log. Persists across app restarts (native UserDefaults),
-     *  default off, so you can enable it, relaunch, and capture the cold boot.
-     *  window.eveDiag() with no arg reports the current state. */
+    /** Persists across app restarts via native UserDefaults; default off. */
     window.eveDiag = (on) => {
       if (!this.nativeAudio) return Promise.resolve('native audio unavailable');
       const p = on === undefined ? this.nativeAudio.getDiagLogging() : this.nativeAudio.setDiagLogging(on);
@@ -859,7 +765,6 @@ class VoiceChatManager {
 
   _populateVoiceSelect() {
     if (!this.voiceSelect) return;
-    // Delegate to the existing TTS manager voices
     const voices = this.app.ttsManager.voices || [];
     if (voices.length === 0) {
       this._voiceRetries = (this._voiceRetries || 0) + 1;
@@ -871,11 +776,10 @@ class VoiceChatManager {
     this._voiceRetries = 0;
 
     this.voiceSelect.innerHTML = '';
-    // Group by language
     const groups = {};
     for (const v of voices) {
-      // Daemon emits `lang` (kokoro-compatible shape); keep `language` as a
-      // fallback so a voice never lands in "Other" on a field-name mismatch.
+      // The voice daemon emits `lang`; keep `language` as a fallback so a
+      // voice never lands in "Other" on a field-name mismatch.
       const lang = v.lang || v.language || 'Other';
       if (!groups[lang]) groups[lang] = [];
       groups[lang].push(v);

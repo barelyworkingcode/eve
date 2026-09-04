@@ -1,8 +1,5 @@
-// Mock child_process before requiring SearchService — the service reads
-// spawn at module load and we want to capture every invocation.
-// Jest hoists jest.mock() above all requires, so the factory can't close
-// over outer-scope vars. Stash state on globalThis and require EventEmitter
-// inside the factory.
+// Jest hoists jest.mock() above all requires, so the factory can't close over
+// outer-scope vars — stash state on globalThis instead.
 globalThis.__spawnCalls = [];
 globalThis.__nextSpawnHandler = null;
 
@@ -117,12 +114,11 @@ describe('SearchService', () => {
     const svc = new SearchService();
     globalThis.__nextSpawnHandler =(proc) => {
       setImmediate(() => {
-        // Emit 501 matches — service caps at 500 and kills the process
         for (let i = 1; i <= 501; i++) {
           emitMatchLine(proc, { file: 'a.txt', lineNumber: i, lineText: 'x', submatches: [{ start: 0, end: 1 }] });
         }
-        // After the cap, the service triggers kill() — we still emit close to
-        // resolve the promise (simulating proc death).
+        // kill() doesn't actually terminate this fake process, so emit close
+        // ourselves to simulate proc death and resolve the promise.
         proc.emit('close', null);
       });
     };
@@ -140,14 +136,12 @@ describe('SearchService', () => {
     const ok = svc.cancel('req-1');
     expect(ok).toBe(true);
     expect(captured.kill).toHaveBeenCalledWith('SIGTERM');
-    // Resolve the still-pending promise by simulating the process close.
     captured.emit('close', null);
     await pending;
   });
 
-  // Resource limits — the DoS/cost-control levers. A regression that loosens
-  // any of these (e.g. raising MAX_GLOBS, dropping the timeout) would otherwise
-  // ship green; these pin each one.
+  // The DoS/cost-control levers: a regression that loosens any of these (e.g.
+  // raising MAX_GLOBS, dropping the timeout) would otherwise ship green.
   describe('resource limits', () => {
     it('rejects an over-long query before spawning', async () => {
       const svc = new SearchService();
@@ -172,7 +166,7 @@ describe('SearchService', () => {
       let captured;
       globalThis.__nextSpawnHandler = (proc) => { captured = proc; };
       const pending = svc.run('/proj', 'x');
-      captured.stdout.emit('data', Buffer.alloc(10 * 1024 * 1024 + 1)); // one oversized chunk trips the cap
+      captured.stdout.emit('data', Buffer.alloc(10 * 1024 * 1024 + 1));
       expect(captured.kill).toHaveBeenCalledWith('SIGTERM');
       captured.emit('close', null);
       const result = await pending;

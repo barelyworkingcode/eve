@@ -1,7 +1,4 @@
-/**
- * TTSService - TCP client for the Kokoro TTS daemon.
- * Length-prefixed JSON protocol over TCP on port 9997.
- */
+// TCP client for the external TTS daemon. Length-prefixed JSON protocol.
 const net = require('net');
 
 class TTSService {
@@ -22,16 +19,8 @@ class TTSService {
     });
   }
 
-  /**
-   * @param {string} text
-   * @param {string} voice - Voice preset ID (e.g. 'af_heart', 'am_adam')
-   * @param {number} speed
-   * @param {string|null} [instruct] - Per-utterance delivery/emotion for the
-   *   daemon (Qwen3 instruct=). Null/omitted => the daemon falls back to the
-   *   voice's configured default, preserving per-voice character.
-   * @param {number} [gain] - Amplitude multiplier (loud/whisper); 1.0 = no change.
-   * @returns {Promise<{audio_base64: string, duration: number, sample_rate: number}>}
-   */
+  // instruct null/omitted => the daemon falls back to the voice's configured
+  // default, preserving per-voice character.
   async synthesize(text, voice = 'af_heart', speed = 1.0, instruct = null, gain = 1.0) {
     const request = { text, voice, speed };
     if (instruct) request.instruct = instruct;

@@ -1,15 +1,11 @@
-/**
- * Guard: `public/` is served unauthenticated by express.static, so no secret
- * or state file may ever live there. data/ (auth.json, sessions.json) and
- * certs/ are separate trees — this test fails loudly if that stops being true.
- * See docs/security-audit-frontend.md (L3).
- */
+// `public/` is served unauthenticated by express.static, so no secret or state
+// file may ever live there. data/ (auth.json, sessions.json) and certs/ are
+// separate trees — this fails loudly if that stops being true.
 const fs = require('fs');
 const path = require('path');
 
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 
-// Filenames / extensions that must never be reachable from the web root.
 const FORBIDDEN_NAMES = new Set(['auth.json', 'sessions.json', 'settings.json', '.env']);
 const FORBIDDEN_EXTS = new Set(['.pem', '.key', '.crt', '.p12', '.pfx']);
 

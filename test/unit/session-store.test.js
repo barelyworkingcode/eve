@@ -1,9 +1,5 @@
-/**
- * SessionStore — auth session token lifecycle (create / validate / expire /
- * cleanup) and on-disk persistence. This is an authentication primitive, so a
- * regression here (e.g. accepting an expired or unknown token) is a real
- * security bug. Driven directly against a temp data dir.
- */
+// SessionStore is an authentication primitive: a regression here (e.g. accepting
+// an expired or unknown token) is a real security bug.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +19,7 @@ describe('SessionStore', () => {
   it('creates a 256-bit hex token that validates', () => {
     const store = new SessionStore(dataDir);
     const token = store.create();
-    expect(token).toMatch(/^[0-9a-f]{64}$/); // 32 bytes hex
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
     expect(store.validate(token)).toBe(true);
   });
 
@@ -39,11 +35,10 @@ describe('SessionStore', () => {
   it('rejects an expired token and evicts it from the store', () => {
     const store = new SessionStore(dataDir);
     const token = store.create();
-    // Force expiry by rewinding the stored deadline into the past.
     store.sessions.get(token).expiresAt = Date.now() - 1000;
     expect(store.validate(token)).toBe(false);
-    expect(store.sessions.has(token)).toBe(false); // eviction on failed validate
-    expect(store.validate(token)).toBe(false);     // still gone on re-check
+    expect(store.sessions.has(token)).toBe(false);
+    expect(store.validate(token)).toBe(false);
   });
 
   it('defaults to a ~7 day TTL', () => {
@@ -51,14 +46,13 @@ describe('SessionStore', () => {
     const token = store.create();
     const ttl = store.sessions.get(token).expiresAt - Date.now();
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
-    // Allow a generous slop for execution time; just guard the order of magnitude.
     expect(ttl).toBeGreaterThan(sevenDays - 60_000);
     expect(ttl).toBeLessThanOrEqual(sevenDays);
   });
 
   it('persists tokens across instances over the same data dir', () => {
     const token = new SessionStore(dataDir).create();
-    const reopened = new SessionStore(dataDir); // fresh instance, reads disk
+    const reopened = new SessionStore(dataDir);
     expect(reopened.validate(token)).toBe(true);
   });
 
@@ -79,7 +73,6 @@ describe('SessionStore', () => {
     expect(store.sessions.has(live)).toBe(true);
     expect(store.sessions.has(dead)).toBe(false);
 
-    // The eviction is durable: a reopened store still rejects the dead token.
     const reopened = new SessionStore(dataDir);
     expect(reopened.validate(live)).toBe(true);
     expect(reopened.validate(dead)).toBe(false);
@@ -89,22 +82,17 @@ describe('SessionStore', () => {
     fs.writeFileSync(path.join(dataDir, 'sessions.json'), '{ not valid json', 'utf8');
     const store = new SessionStore(dataDir); // must not throw
     expect(store.validate('anything')).toBe(false);
-    const token = store.create(); // still usable afterward
+    const token = store.create();
     expect(store.validate(token)).toBe(true);
   });
 });
 
-/**
- * TTL configuration — SESSION_TTL_MS is derived from EVE_SESSION_TTL_DAYS ONCE
- * at module load (frozen at require time), so the env-override branch can only
- * be exercised by setting the env var and re-loading the module in an isolated
- * registry. The default-only describe block above never sees these paths.
- *
- * The load-bearing case is the non-numeric fallback: without the
- * `Number.isFinite(n) && n > 0` guard, parseInt('abc', 10) === NaN would make
- * SESSION_TTL_MS NaN, so `Date.now() + NaN` is NaN and `Date.now() > NaN` is
- * always false → tokens that NEVER expire. That's an auth/security regression.
- */
+// SESSION_TTL_MS is derived from EVE_SESSION_TTL_DAYS once at module load, so the
+// env-override branch can only be exercised by re-requiring the module in an
+// isolated registry after setting the env var. The load-bearing case is the
+// non-numeric fallback: without the `Number.isFinite(n) && n > 0` guard,
+// parseInt('abc', 10) === NaN would make SESSION_TTL_MS NaN, so `Date.now() >
+// expiresAt` is always false and tokens would NEVER expire — an auth regression.
 describe('SessionStore TTL configuration', () => {
   const ENV_KEY = 'EVE_SESSION_TTL_DAYS';
   const DAY_MS = 24 * 60 * 60 * 1000;
@@ -113,24 +101,20 @@ describe('SessionStore TTL configuration', () => {
 
   beforeEach(() => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-session-store-ttl-'));
-    savedEnv = process.env[ENV_KEY]; // capture so we can restore exactly (incl. undefined)
+    savedEnv = process.env[ENV_KEY];
   });
 
   afterEach(() => {
-    // Always restore the env var so the override can't leak into the default
-    // tests above (which assert the ~7 day default) or any other test file.
+    // Restored so the override can't leak into other test files via the module registry.
     if (savedEnv === undefined) {
       delete process.env[ENV_KEY];
     } else {
       process.env[ENV_KEY] = savedEnv;
     }
-    jest.resetModules(); // drop the env-tweaked module from the registry
+    jest.resetModules();
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  // Load a SessionStore class against the given EVE_SESSION_TTL_DAYS value,
-  // re-requiring the module in an isolated registry so its module-load-time
-  // TTL parse runs with the env var we set here.
   const loadStoreWith = (envValue) => {
     if (envValue === undefined) {
       delete process.env[ENV_KEY];
@@ -144,7 +128,6 @@ describe('SessionStore TTL configuration', () => {
     return Loaded;
   };
 
-  // Observe the frozen TTL by reading the expiry a freshly created token gets.
   const ttlOf = (StoreClass) => {
     const store = new StoreClass(dataDir);
     const token = store.create();
@@ -155,10 +138,8 @@ describe('SessionStore TTL configuration', () => {
     const StoreClass = loadStoreWith('30');
     const ttl = ttlOf(StoreClass);
     const thirtyDays = 30 * DAY_MS;
-    // Generous slop for execution time; just pin the magnitude to 30 days.
     expect(ttl).toBeGreaterThan(thirtyDays - 60_000);
     expect(ttl).toBeLessThanOrEqual(thirtyDays);
-    // Sanity: this is materially longer than the 7-day default.
     expect(ttl).toBeGreaterThan(7 * DAY_MS);
   });
 
@@ -171,8 +152,6 @@ describe('SessionStore TTL configuration', () => {
     expect(ttl).toBeGreaterThan(DAY_MS - 60_000);
     expect(ttl).toBeLessThanOrEqual(DAY_MS);
 
-    // Within the 1-day window it validates; rewind past the deadline and it
-    // must be rejected (and evicted), proving the custom TTL actually gates.
     expect(store.validate(token)).toBe(true);
     store.sessions.get(token).expiresAt = Date.now() - 1000;
     expect(store.validate(token)).toBe(false);
@@ -180,12 +159,11 @@ describe('SessionStore TTL configuration', () => {
   });
 
   it('falls back to the 7-day default for a non-numeric value (no NaN / never-expiring token)', () => {
-    const StoreClass = loadStoreWith('abc'); // parseInt('abc', 10) === NaN
+    const StoreClass = loadStoreWith('abc');
     const store = new StoreClass(dataDir);
     const token = store.create();
 
     const expiresAt = store.sessions.get(token).expiresAt;
-    // The regression: NaN expiry. Guard it explicitly before checking magnitude.
     expect(Number.isFinite(expiresAt)).toBe(true);
     expect(Number.isNaN(expiresAt)).toBe(false);
 
@@ -194,8 +172,6 @@ describe('SessionStore TTL configuration', () => {
     expect(ttl).toBeGreaterThan(sevenDays - 60_000);
     expect(ttl).toBeLessThanOrEqual(sevenDays);
 
-    // A NaN deadline would make `Date.now() > expiresAt` always false → the
-    // token would NEVER expire. Confirm the fallback TTL actually expires.
     expect(store.validate(token)).toBe(true);
     store.sessions.get(token).expiresAt = Date.now() - 1000;
     expect(store.validate(token)).toBe(false);

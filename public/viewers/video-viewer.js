@@ -1,6 +1,3 @@
-/**
- * VideoViewer - renders video files with native HTML5 <video> controls.
- */
 class VideoViewer {
   constructor() {
     this.extensions = new Set(['mp4', 'webm', 'ogv', 'mov']);
@@ -35,7 +32,6 @@ class VideoViewer {
   }
 
   destroy(canvas) {
-    // Pause video to stop playback when switching away
     const video = canvas.querySelector('video');
     if (video) video.pause();
     canvas.innerHTML = '';

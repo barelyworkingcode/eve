@@ -1,12 +1,5 @@
-/**
- * ChatFormControls (public/features/chat-form.js) — the send/stop toggle
- * logic phase 3 pulled out of app.js's showStopButton/hideStopButton/
- * showSessionStarting/clearSessionStarting.
- *
- * jest runs with testEnvironment 'node'; the file is a plain <script> global
- * (no module.exports), so it's loaded into a vm sandbox with a fake `features`
- * registry and a fake `document`, following test/unit/feature-registry.test.js.
- */
+// chat-form.js is a plain <script> global (no module.exports), so it's loaded
+// into a vm sandbox with a fake `features` registry and a fake `document`.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -54,7 +47,7 @@ describe('ChatFormControls', () => {
     const controls = feature.init(fakeContainer());
     controls.sendBtn = fakeButton();
     controls.stopBtn = fakeButton();
-    controls.stopBtn.classList.add('hidden'); // initial render state: stop starts hidden
+    controls.stopBtn.classList.add('hidden');
 
     controls.showStop();
     expect(controls.sendBtn.classList.contains('hidden')).toBe(true);
@@ -76,9 +69,8 @@ describe('ChatFormControls', () => {
     expect(controls.sendBtn.disabled).toBe(false);
   });
 
-  // Boundary: renderSlots() may not have run yet (or a test double never
-  // assigns the buttons). The `?.` guards are the whole point of this class
-  // existing instead of two raw classList calls in app.js.
+  // The `?.` guards here are the whole point of this class existing instead of
+  // two raw classList calls in app.js.
   it('is a no-op, not a throw, before the buttons are assigned', () => {
     const feature = loadChatForm();
     const controls = feature.init(fakeContainer());

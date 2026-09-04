@@ -1,6 +1,5 @@
 const { RelayTransport, RelayConfigError, isLoopbackHost } = require('../../relay-transport');
 
-// Silent logger that still records warnings so we can assert on them.
 function mkLog() {
   const calls = { debug: [], info: [], warn: [], error: [] };
   return {
@@ -25,7 +24,6 @@ describe('isLoopbackHost', () => {
   test('rejects non-loopback, incl. non-canonical 127.x (overly-broad check removed, #11)', () => {
     expect(isLoopbackHost('relay.internal')).toBe(false);
     expect(isLoopbackHost('192.168.1.1')).toBe(false);
-    // The startsWith('127.') fallback was dropped: only 127.0.0.1 is loopback now.
     expect(isLoopbackHost('127.1.2.3')).toBe(false);
     expect(isLoopbackHost('')).toBe(false);
   });
@@ -155,7 +153,6 @@ describe('URL / agent wiring', () => {
       log: mkLog(),
     });
     expect(t.agent).toBeDefined();
-    // The socketPath is stored on the agent's options object.
     expect(t.agent.options.socketPath).toBe('/tmp/x.sock');
   });
 

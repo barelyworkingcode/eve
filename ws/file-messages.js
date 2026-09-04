@@ -1,20 +1,7 @@
-/**
- * File message descriptors — local file-tree CRUD, the recursive project
- * watcher, ad-hoc file watch/unwatch, and Claude plan-file reads. See
- * ws/message-registry.js for the registry these are registered into.
- *
- * None of these eleven arms are `await`ed in today's switch, so none of
- * these descriptors may be `async` — see C2 in ws/message-registry.js.
- * `handleReadPlanFile` is itself `async` internally (two sequential real fs
- * round trips) but its call site does not await it, exactly as today.
- */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-/**
- * Read a Claude plan file with strict path validation.
- */
 async function handleReadPlanFile(ws, filePath) {
   try {
     if (!filePath || typeof filePath !== 'string') {

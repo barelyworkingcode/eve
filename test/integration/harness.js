@@ -1,8 +1,6 @@
 /**
- * Integration harness: boots the REAL eve server as a child process (exactly
- * as production runs it — `node server.js`), pointed at the fake relay, on an
- * ephemeral port with a throwaway data dir. Loopback is a trusted subnet, so
- * there's no passkey/auth to deal with. No relay orchestrator, relayLLM, or LLM.
+ * Boots the REAL eve server as a child process (`node server.js`), pointed
+ * at the fake relay. No relay orchestrator, relayLLM, or LLM involved.
  *
  * Usage:
  *   const eve = await startEve({ projects: [{ id, name, path }] });
@@ -36,16 +34,12 @@ async function waitForHttp(url, timeoutMs = 15000) {
     try {
       const res = await fetch(url);
       if (res.ok) return;
-    } catch { /* not up yet */ }
+    } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`eve did not become ready at ${url} within ${timeoutMs}ms`);
 }
 
-/**
- * A thin WebSocket test client over eve's browser-facing /ws. Collects every
- * JSON frame and lets a test await a specific one.
- */
 function makeWsClient(wsUrl) {
   const ws = new WebSocket(wsUrl, { origin: undefined });
   const frames = [];
@@ -65,8 +59,8 @@ function makeWsClient(wsUrl) {
     if (isBinary) return deliver({ __binary: true, bytes: data.length });
     let msg;
     try { msg = JSON.parse(data.toString()); } catch { return; }
-    // eve coalesces browser-bound frames into a __batch on a short timer; the
-    // real browser client unwraps it, so the test client does too.
+    // eve coalesces browser-bound frames into a __batch on a short timer;
+    // unwrap it like the real browser client does.
     if (msg.type === '__batch' && Array.isArray(msg.msgs)) msg.msgs.forEach(deliver);
     else deliver(msg);
   });
@@ -79,13 +73,9 @@ function makeWsClient(wsUrl) {
       ws.once('error', reject);
     }),
     send: (obj) => ws.send(JSON.stringify(obj)),
-    /** Current frame count — pass to waitFor's `fromIndex` to ignore past frames. */
     mark: () => frames.length,
-    /**
-     * Resolve with the first frame matching pred. Past frames before `fromIndex`
-     * are ignored — needed when one socket is reused across steps so a stale
-     * frame of the same type (e.g. an earlier session_created) isn't matched.
-     */
+    // fromIndex ignores past frames — needed when one socket is reused across
+    // steps so a stale frame of the same type isn't matched.
     waitFor: (pred, timeoutMs = 5000, fromIndex = 0) => new Promise((resolve, reject) => {
       const existing = frames.slice(fromIndex).find(pred);
       if (existing) return resolve(existing);
@@ -102,12 +92,11 @@ async function startEve({ projects = [], env: envOverride = {} } = {}) {
   for (const p of projects) relay.addProject(p);
 
   const port = await freePort();
-  // Kokoro/Whisper daemons are TCP services eve dials on these ports (see
-  // server.js). Pinning both to a freshly-allocated, momentarily-free port
-  // makes tts_speak / transcribe_audio's failure paths deterministic —
-  // ECONNREFUSED every run — instead of depending on whether the real daemons
-  // happen to be listening on this box (the same hazard as the visual
-  // harness's unstubbed /api/stt/status; see docs/handoff.md).
+  // Pinning TTS_PORT/STT_PORT to a freshly-allocated, momentarily-free port
+  // makes tts_speak/transcribe_audio's failure paths deterministic
+  // (ECONNREFUSED every run) instead of depending on whether the real speech
+  // daemons happen to be listening on this box — same hazard as the visual
+  // harness's unstubbed /api/stt/status.
   const ttsPort = await freePort();
   const sttPort = await freePort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-data-'));
@@ -133,7 +122,6 @@ async function startEve({ projects = [], env: envOverride = {} } = {}) {
   child.stderr.on('data', (d) => stderr.push(d.toString()));
   child.on('exit', (code) => {
     if (code && code !== 0 && !stopping) {
-      // Surface a boot failure instead of a mystery timeout.
       // eslint-disable-next-line no-console
       console.error(`eve exited early (code ${code}):\n${stderr.join('')}`);
     }
@@ -165,7 +153,7 @@ async function startEve({ projects = [], env: envOverride = {} } = {}) {
       child.kill('SIGTERM');
       await new Promise((r) => {
         const t = setTimeout(() => { child.kill('SIGKILL'); r(); }, 3000);
-        child.once('exit', () => { clearTimeout(t); r(); }); // clear the fallback so it can't keep the loop alive
+        child.once('exit', () => { clearTimeout(t); r(); });
       });
       await relay.close();
       fs.rmSync(dataDir, { recursive: true, force: true });

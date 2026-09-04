@@ -6,8 +6,6 @@ async function waitFor(cond, n = 30) {
   throw new Error('condition not met in time');
 }
 
-// Fake per-connection RelayClient: captures the module-session handler so the
-// test can feed relay frames back through it, and records outbound calls.
 function makeRelay(browserWs) {
   const state = { handler: null, framesToBrowser: [], messages: [] };
   const relay = {
@@ -64,9 +62,7 @@ describe('ModuleInvoker', () => {
 
       const out = await p;
       expect(out).toMatchObject({ result: { ok: true }, rawText: '{"ok":true}', sessionId: 'sess-1' });
-      // The streamed event was forwarded to the browser.
       expect(relay._state.framesToBrowser.some(f => f.type === 'module_ai_event')).toBe(true);
-      // finally: unregister + DELETE the ephemeral session + drop from active.
       expect(relay.unregisterModuleSession).toHaveBeenCalledWith('sess-1');
       expect(relayTransport.fetch).toHaveBeenCalledWith('DELETE', '/api/sessions/sess-1');
       expect(invoker.active.has('rq')).toBe(false);

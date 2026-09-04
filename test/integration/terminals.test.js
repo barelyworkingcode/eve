@@ -34,8 +34,8 @@ describe('terminal proxying (eve <-> relay)', () => {
   });
 
   it('relays terminal_output (base64-encoded, as relayLLM sends it) to the browser', async () => {
-    // relayLLM base64-encodes terminal data (main.go:150); the browser _decodeBase64s
-    // it. eve forwards verbatim, so the data on the wire must be base64.
+    // relayLLM base64-encodes terminal data (main.go); the browser
+    // _decodeBase64s it. eve forwards verbatim, so the wire data must be base64.
     eve.relay.emitToRelay(relayFrames.terminalOutput({ terminalId: 't1', data: '$ echo hi\n' }));
     const out = await ws.waitFor((f) => f.type === 'terminal_output' && f.terminalId === 't1');
     expect(Buffer.from(out.data, 'base64').toString()).toBe('$ echo hi\n');

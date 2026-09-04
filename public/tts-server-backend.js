@@ -1,8 +1,7 @@
 /**
- * TtsServerBackend - Server-side TTS via Kokoro daemon.
- * Speech generation is handled by relay-client on the server.
- * Client receives audio chunks via WS `tts_audio` messages → TTSManager.enqueueAudio().
- * This backend handles voice loading and voice mode sync.
+ * TtsServerBackend - speech generation happens via relay-client on the
+ * server, against the external TTS daemon. Client receives audio chunks via
+ * WS `tts_audio` messages → TTSManager.enqueueServerAudioBuffer().
  */
 class TtsServerBackend {
   constructor() {
@@ -18,10 +17,6 @@ class TtsServerBackend {
     context.onReady?.();
   }
 
-  /**
-   * Send text to server for on-demand TTS synthesis.
-   * Audio arrives via WS `tts_audio` → enqueueAudio().
-   */
   speakText(text, voice, speed = 1.0) {
     const ws = this._app?.wsClient;
     if (ws) {
@@ -30,18 +25,11 @@ class TtsServerBackend {
     return null;
   }
 
-  /**
-   * Tell the server to abandon any in-flight read-aloud streaming (the user
-   * stopped playback). Read-aloud now streams sentence-by-sentence, so without
-   * this the daemon keeps synthesizing chunks nobody will hear.
-   */
+  /** Without this, the daemon keeps synthesizing chunks nobody will hear. */
   cancelSpeak(ws) {
     (ws || this._app?.wsClient)?.send({ type: 'tts_speak_cancel' });
   }
 
-  /**
-   * Fetch available voices from the server daemon.
-   */
   async loadVoices() {
     const token = localStorage.getItem('eve_session');
     const headers = token ? { 'x-session-token': token } : {};
@@ -50,9 +38,6 @@ class TtsServerBackend {
     return await res.json();
   }
 
-  /**
-   * Send voice_mode state to server so relay-client activates TTS.
-   */
   syncVoiceMode(ws, enabled, voice, speed = 1.0) {
     ws.send({ type: 'voice_mode', enabled, voice, speed });
   }

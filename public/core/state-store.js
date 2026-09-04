@@ -1,7 +1,3 @@
-/**
- * StateStore - centralized shared state with change events.
- * Single source of truth for sessions, projects, models.
- */
 class StateStore {
   constructor(bus) {
     this.bus = bus;
@@ -9,10 +5,8 @@ class StateStore {
     this.sessionHistories = new Map();
     this.projects = new Map();
     this.tasks = new Map();
-    // Run IDs (chat sessionId OR PTY terminalId) owned by a scheduled task.
-    // Used to filter task-owned tabs out of the user-sessions list — the
-    // task already appears under TASKS. Single Set because TaskView IDs
-    // share a namespace (both UUIDs from distinct services, never collide).
+    // Single Set for both chat sessionId and PTY terminalId runs: both are
+    // UUIDs from distinct services and never collide.
     this.taskRunIds = new Set();
     this.models = [];
     this.mcps = [];
@@ -23,14 +17,11 @@ class StateStore {
     this.scopedProjectId = null;
   }
 
-  // --- Modules ---
-
   setModulesForProject(projectId, modules) {
     const next = Array.isArray(modules) ? modules : [];
     const prev = this.modules.get(projectId);
-    // Skip the emit if the list is unchanged — `loadModulesForProject` is
-    // called eagerly on every sidebar re-render, and a cache hit shouldn't
-    // cascade into another re-render via MODULE_LIST_UPDATED.
+    // loadModulesForProject runs on every sidebar re-render; skip the emit on
+    // a cache hit or it cascades into another re-render via MODULE_LIST_UPDATED.
     if (prev && this._modulesEqual(prev, next)) return;
     this.modules.set(projectId, next);
     this.bus.emit(EVT.MODULE_LIST_UPDATED, { projectId });
@@ -49,8 +40,6 @@ class StateStore {
   getModulesForProject(projectId) {
     return this.modules.get(projectId) || [];
   }
-
-  // --- Sessions ---
 
   setCurrentSession(id) {
     const prev = this.currentSessionId;
@@ -95,8 +84,6 @@ class StateStore {
     return result;
   }
 
-  // --- Projects ---
-
   setProjects(projects) {
     this.projects.clear();
     for (const p of projects) {
@@ -131,8 +118,6 @@ class StateStore {
     return !this.scopedProjectId || this.scopedProjectId === id;
   }
 
-  // --- Tasks ---
-
   setTasks(tasks) {
     this.tasks.clear();
     this.taskRunIds.clear();
@@ -152,11 +137,10 @@ class StateStore {
   updateTask(id, updates) {
     const task = this.tasks.get(id);
     if (!task) return;
-    // Skip the emit if nothing actually changed — scheduler status polls
-    // fire task_status broadcasts every 30s with the same payload, which
-    // otherwise cascades into a full Tasks-tab re-render in any open task
-    // dialog. Shallow compare; view is replaced as a whole object so a
-    // reference compare is correct for the new envelope.
+    // Scheduler status polls fire task_status broadcasts every 30s with an
+    // unchanged payload; skip the emit or it cascades into a full Tasks-tab
+    // re-render in any open task dialog. `view` is always replaced as a whole
+    // object, so a reference compare here is correct, not just cheap.
     let changed = false;
     for (const k in updates) {
       if (task[k] !== updates[k]) {
@@ -186,17 +170,10 @@ class StateStore {
     return result;
   }
 
-  /** True if the given chat sessionId or PTY terminalId belongs to a task. */
   isTaskRun(runId) {
     return this.taskRunIds.has(runId);
   }
 
-  /**
-   * Apply a TaskView envelope from a scheduler broadcast — replaces the
-   * task's view object so all readers (sidebar, dialog, TaskViewer) see the
-   * new run on next read. Extras carry event-specific fields like
-   * lastStatus.
-   */
   applyTaskViewUpdate(taskId, view, extraUpdates = {}) {
     const updates = { ...extraUpdates };
     if (view) {
@@ -204,8 +181,6 @@ class StateStore {
     }
     this.updateTask(taskId, updates);
   }
-
-  // --- Terminal Templates ---
 
   setTerminalTemplates(templates) {
     this.terminalTemplates = templates || [];
@@ -227,21 +202,14 @@ class StateStore {
     this.bus.emit(EVT.TERMINAL_TEMPLATES_LOADED);
   }
 
-  // --- Models ---
-
   setModels(models, providerSettings) {
     this.models = models || [];
     this.providerSettings = providerSettings || {};
     this.bus.emit(EVT.MODELS_LOADED);
   }
 
-  /**
-   * Models a project's pickers may offer. `project.allowedModels` is an
-   * allowlist of model `value`s; an empty list or a single "*" means
-   * unrestricted (matching relay's `isWildcard` convention). This is a
-   * display filter for UX only — relay enforces the same allowlist on
-   * session creation, so it stays the authoritative boundary.
-   */
+  // Display filter only — matches relay's `isWildcard` convention, but relay
+  // re-enforces the same allowlist on session creation as the actual boundary.
   modelsForProject(projectId) {
     const allowed = projectId ? this.projects.get(projectId)?.allowedModels : null;
     if (!allowed || allowed.length === 0 || (allowed.length === 1 && allowed[0] === '*')) {
@@ -250,8 +218,6 @@ class StateStore {
     const allowSet = new Set(allowed);
     return this.models.filter(m => allowSet.has(m.value));
   }
-
-  // --- MCPs ---
 
   setMcps(mcps) {
     this.mcps = mcps || [];

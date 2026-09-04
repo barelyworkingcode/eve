@@ -1,12 +1,5 @@
-/**
- * PermissionModeControl (public/features/permissions.js) — the plan-mode
- * button's .active-class sync, moved out of message-dispatcher.js's
- * getElementById('planModeBtn') and out of app.js's click handler.
- *
- * Loaded into a vm sandbox with a fake `features` registry and `document`,
- * following test/unit/feature-registry.test.js — the file is a plain
- * <script> global, not a module.
- */
+// permissions.js is a plain <script> global, not a module, so it's loaded into
+// a vm sandbox with a fake `features` registry and `document`.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');

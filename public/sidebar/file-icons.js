@@ -1,8 +1,3 @@
-/**
- * FileIcons - extension-to-SVG icon mapping.
- * Single-color SVGs colored via CSS (VS Code Seti-style approach).
- */
-
 const FILE_ICON_COLORS = {
   js: '#cbcb41',
   mjs: '#cbcb41',
@@ -63,29 +58,18 @@ const FILE_ICON_COLORS = {
   folderOpen: '#dcb67a',
 };
 
-// Compact SVG paths for file type icons (16x16 viewBox)
 const FILE_ICON_SVGS = {
-  // Generic file
   file: '<path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1zm4.5 0v4h4" fill="none" stroke="currentColor" stroke-width="1.2"/>',
-  // Folder closed
   folder: '<path d="M2 4h4l1.5-2H14a1 1 0 011 1v9a1 1 0 01-1 1H2a1 1 0 01-1-1V5a1 1 0 011-1z" fill="currentColor" opacity="0.85"/>',
-  // Folder open
   folderOpen: '<path d="M2 4h4l1.5-2H14a1 1 0 011 1v2H5L3 13H2a1 1 0 01-1-1V5a1 1 0 011-1z" fill="currentColor" opacity="0.85"/><path d="M5 7h11l-2 7H3z" fill="currentColor" opacity="0.6"/>',
-  // Code file (js, ts, etc.)
   code: '<path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1zm4.5 0v4h4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 9l2 2-2 2M9 13h2.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
-  // Markdown
   markdown: '<path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1zm4.5 0v4h4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 10v-3l1.5 2 1.5-2v3M10 10V7l2 3V7" fill="none" stroke="currentColor" stroke-width="1"/>',
-  // Config/data (json, yaml, toml)
   config: '<path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1zm4.5 0v4h4" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="6.5" cy="9.5" r="0.8" fill="currentColor"/><circle cx="6.5" cy="12" r="0.8" fill="currentColor"/><line x1="8" y1="9.5" x2="11.5" y2="9.5" stroke="currentColor" stroke-width="0.8"/><line x1="8" y1="12" x2="11.5" y2="12" stroke="currentColor" stroke-width="0.8"/>',
-  // Image
   image: '<path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1zm4.5 0v4h4" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="6" cy="8" r="1" fill="currentColor"/><path d="M3 13l3-4 2 2 2-3 3 5" fill="none" stroke="currentColor" stroke-width="0.8"/>',
-  // Shell script
   shell: '<path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1zm4.5 0v4h4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 9l2.5 2-2.5 2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="9" y1="13" x2="12" y2="13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>',
-  // Spreadsheet
   spreadsheet: '<path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1zm4.5 0v4h4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4 8h8M4 10.5h8M7 7v5.5M10 7v5.5" stroke="currentColor" stroke-width="0.6"/>',
 };
 
-// Map extensions to SVG shape
 const EXT_TO_SHAPE = {
   js: 'code', mjs: 'code', cjs: 'code', ts: 'code', tsx: 'code', jsx: 'code',
   py: 'code', go: 'code', rs: 'code', rb: 'code', java: 'code', c: 'code',
@@ -100,13 +84,9 @@ const EXT_TO_SHAPE = {
   xlsx: 'spreadsheet', xls: 'spreadsheet', csv: 'spreadsheet',
 };
 
-/**
- * Returns an SVG icon element for a filename.
- */
 function getFileIconSVG(filename) {
   const ext = filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
 
-  // Special filenames
   const nameLower = filename.toLowerCase();
   let shape = 'file';
   let color = FILE_ICON_COLORS.default;
@@ -128,9 +108,6 @@ function getFileIconSVG(filename) {
   return _makeSVG(FILE_ICON_SVGS[shape], color);
 }
 
-/**
- * Returns an SVG icon element for a folder.
- */
 function getFolderIconSVG(isOpen) {
   const shape = isOpen ? 'folderOpen' : 'folder';
   const color = FILE_ICON_COLORS.folder;

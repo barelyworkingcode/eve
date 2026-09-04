@@ -1,9 +1,4 @@
-/**
- * Playwright fixtures: each test gets a freshly spawned eve + fake relay (reusing
- * the integration harness) seeded with one project on a real temp dir, plus the
- * Playwright `page` already navigated to it. Loopback is trusted, so the app
- * loads straight into the workspace with no passkey.
- */
+// Loopback is trusted, so the app loads straight into the workspace with no passkey.
 const base = require('@playwright/test');
 const os = require('os');
 const fs = require('fs');
@@ -11,19 +6,15 @@ const path = require('path');
 const { startEve } = require('../integration/harness');
 
 const test = base.test.extend({
-  // The spawned eve + fake relay, with a seeded project at a real temp dir.
   eve: async ({}, use) => {
     const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-proj-'));
     fs.mkdirSync(path.join(projectDir, 'src'));
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# Hello E2E', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'src', 'index.js'), 'console.log("e2e");', 'utf8');
 
-    // The integration harness now pins TTS_PORT/STT_PORT to an unbound port by
-    // default (deterministic tts_speak/transcribe_audio failure paths — see
-    // test/integration/voice-ws.test.js). e2e's chat-input-row and
-    // voice-buttons specs assert real behaviour against the real Kokoro/
-    // Whisper daemons this box runs (docs/handoff.md "Voice testing"), so
-    // e2e must keep talking to the real ports, not the pinned ones.
+    // Overrides the harness's default pinned TTS_PORT/STT_PORT (see
+    // harness.js) — chat-input-row and voice-buttons assert against the real
+    // speech daemons this box runs.
     const eve = await startEve({
       projects: [{ id: 'p1', name: 'E2E Project', path: projectDir }],
       env: { TTS_PORT: process.env.TTS_PORT || '9997', STT_PORT: process.env.STT_PORT || '9998' },
@@ -36,21 +27,16 @@ const test = base.test.extend({
     }
   },
 
-  // The page, pre-navigated to the running eve.
   page: async ({ page, eve }, use) => {
     await page.goto(eve.baseUrl);
     await use(page);
   },
 });
 
-// A second variant, identical to the one above except the project directory
-// also has a real modules/<name>/module.json (§G.3 of the tab-manager-registry
-// spec: "so module panes can be exercised"). Kept as its own `eve`/`page` pair
-// rather than folded into the default fixture above: the extra `modules/`
-// directory is a new row in the project's file tree, and the default `eve`
-// fixture is also what test/visual/capture.spec.js screenshots — an extra row
-// there would fail every one of its 24 baselines for a reason that has
-// nothing to do with tab-manager.js. Used only by test/e2e/tab-panes.spec.js.
+// Kept separate from the default fixture: the default `eve` is also what
+// test/visual/capture.spec.js screenshots, and the extra modules/ row here
+// would fail every one of its baselines for a reason unrelated to
+// tab-manager.js. Used only by test/e2e/tab-panes.spec.js.
 const testWithModule = base.test.extend({
   eve: async ({}, use) => {
     const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-proj-'));
@@ -69,12 +55,9 @@ const testWithModule = base.test.extend({
       'utf8'
     );
 
-    // The integration harness now pins TTS_PORT/STT_PORT to an unbound port by
-    // default (deterministic tts_speak/transcribe_audio failure paths — see
-    // test/integration/voice-ws.test.js). e2e's chat-input-row and
-    // voice-buttons specs assert real behaviour against the real Kokoro/
-    // Whisper daemons this box runs (docs/handoff.md "Voice testing"), so
-    // e2e must keep talking to the real ports, not the pinned ones.
+    // Overrides the harness's default pinned TTS_PORT/STT_PORT (see
+    // harness.js) — chat-input-row and voice-buttons assert against the real
+    // speech daemons this box runs.
     const eve = await startEve({
       projects: [{ id: 'p1', name: 'E2E Project', path: projectDir }],
       env: { TTS_PORT: process.env.TTS_PORT || '9997', STT_PORT: process.env.STT_PORT || '9998' },

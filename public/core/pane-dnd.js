@@ -1,22 +1,3 @@
-/**
- * PaneDnd — drag a tab toward an edge of the content area to dock it as a
- * second pane (split). Built on Pointer Events so mouse, trackpad, and touch
- * (iPad) share one path.
- *
- * Gesture: press a tab → drag past a threshold → a ghost follows the pointer
- * and a shaded overlay previews where the dragged tab will land. Releasing over
- * an outer edge band splits the active tab (left/right → side-by-side,
- * top/bottom → stacked); releasing in the inner region cancels. A plain tap
- * (no drag) falls through to the tab label's normal switch handler.
- *
- * The model lives in TabManager; this class only detects the gesture and calls
- * back: `tm._canSplit(draggedId)` for the blocked/allowed overlay state and
- * `tm.commitSplit(draggedId, edge)` to apply the drop.
- *
- * Listeners live on `document` so a fast drag that leaves the tab is still
- * tracked; the pointer is only captured once a drag begins (to suppress touch
- * scroll/gestures on iPad without breaking tap-to-switch).
- */
 class PaneDnd {
   constructor(tabManager) {
     this.tm = tabManager;
@@ -53,7 +34,7 @@ class PaneDnd {
   }
 
   _onDown(e) {
-    if (this._tabId != null) return;                 // a press is already in flight
+    if (this._tabId != null) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const tabEl = e.target.closest('.tab');
     if (!tabEl || e.target.closest('.tab-close')) return;
@@ -71,7 +52,6 @@ class PaneDnd {
     document.addEventListener('pointerup', this._onUp);
     document.addEventListener('pointercancel', this._onCancel);
 
-    // Touch users can start a drag by holding still, without horizontal motion.
     this._longPress = setTimeout(() => {
       if (!this._dragging && this._tabId) this._beginDrag();
     }, 200);
@@ -92,8 +72,8 @@ class PaneDnd {
     this._longPress = null;
     this._dragging = true;
     this._didDrag = true;
-    // Capture now (not on pointerdown) so taps still produce a click, but a real
-    // drag suppresses iPad scroll/gestures while it's in progress.
+    // Capture deferred to here (not pointerdown): capturing before the drag
+    // threshold is crossed would suppress the click a plain tap depends on.
     try { this._tabEl?.setPointerCapture(this._pointerId); } catch { /* unsupported */ }
 
     const ghost = document.createElement('div');
@@ -137,7 +117,6 @@ class PaneDnd {
     o.classList.toggle('blocked', !this.tm._canSplit(this._tabId));
     o.classList.remove('hidden');
 
-    // Overlay covers the half where the dragged tab (pane B) would land.
     const css = { left: '0', top: '0', width: '100%', height: '100%' };
     if (edge === 'left') { css.width = '50%'; }
     else if (edge === 'right') { css.left = '50%'; css.width = '50%'; }
@@ -153,7 +132,7 @@ class PaneDnd {
     const dragged = this._dragging;
     this._cleanup();
     if (dragged && edge && tabId) this.tm.commitSplit(tabId, edge);
-    // Clear the drag flag after the synchronous click (if any) has been suppressed.
+    // The click event (if any) fires synchronously after pointerup, before this runs.
     setTimeout(() => { this._didDrag = false; }, 0);
   }
 

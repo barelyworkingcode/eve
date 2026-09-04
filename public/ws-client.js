@@ -1,11 +1,4 @@
-/**
- * WebSocket connection management: connect, authenticate, reconnect.
- */
 class WsClient {
-  /**
-   * @param {Container} container - DI container
-   * @param {Object} callbacks - { onReady, onMessage }
-   */
   constructor(container, callbacks) {
     this.log = container.get('logger').child('WS');
     this.bus = container.get('bus');
@@ -16,10 +9,8 @@ class WsClient {
     this.ws = null;
     this.reconnectDelay = 2000;
 
-    // --- Graceful reconnect (Issue 1): heartbeat + network-change handling ---
-    // Timings: ping every 15s; if no inbound frame for 30s the link is a zombie
-    // (a network switch left a half-open socket) and we force a reconnect; a
-    // connectivity-probe waits 4s for a reply before giving up.
+    // A network switch can leave a half-open "zombie" socket that looks open
+    // but is dead; heartbeat + stale-window detect it and force a reconnect.
     this._heartbeatIntervalMs = 15000;
     this._staleAfterMs = 30000;
     this._probeTimeoutMs = 4000;
@@ -31,7 +22,6 @@ class WsClient {
     this._wireConnectivityListeners();
   }
 
-  /** Set the connection status DOM element (called after initElements). */
   setConnectionStatusEl(el) {
     this._connectionStatusEl = el;
   }
@@ -47,7 +37,6 @@ class WsClient {
       this.log.info('Connected to server');
       this.reconnectDelay = 2000;
       this._lastInbound = Date.now();
-      // A fresh socket is open — cancel any backoff reconnect still pending.
       if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
       if (this._connectionStatusEl) {
         this._connectionStatusEl.classList.add('hidden');
@@ -66,7 +55,7 @@ class WsClient {
       }
 
       const data = JSON.parse(event.data);
-      // Heartbeat reply — liveness already recorded above; nothing to dispatch.
+      // liveness already recorded above via _lastInbound; nothing to dispatch.
       if (data.type === 'pong') return;
 
       // The server coalesces high-frequency frames (token deltas, terminal
@@ -95,9 +84,6 @@ class WsClient {
     };
   }
 
-  /** Ping on an interval; if the link has gone silent past the stale window,
-   *  force a reconnect. The server replies {type:'pong'} (see ws-handler.js),
-   *  which refreshes _lastInbound via onmessage. */
   _startHeartbeat() {
     this._stopHeartbeat();
     this._heartbeatTimer = setInterval(() => {
@@ -115,9 +101,8 @@ class WsClient {
     if (this._heartbeatTimer) { clearInterval(this._heartbeatTimer); this._heartbeatTimer = null; }
   }
 
-  /** Tear down the current socket and reconnect immediately, resetting backoff.
-   *  Detaches the old socket's handlers first so its onclose can't also schedule
-   *  a competing reconnect. Guarded against overlapping triggers. */
+  // Detaches the old socket's handlers first so its onclose can't also
+  // schedule a competing reconnect.
   forceReconnect() {
     if (this._reconnecting) return;
     this._reconnecting = true;
@@ -134,10 +119,8 @@ class WsClient {
     this._reconnecting = false;
   }
 
-  /** Connectivity signal (network change / app resume / online). If not open,
-   *  reconnect now. If apparently open, it may be a zombie from the previous
-   *  network — probe it and only reconnect if no reply arrives. This avoids
-   *  needlessly dropping a healthy connection. */
+  // May be a zombie link from a previous network; probes before reconnecting
+  // to avoid dropping a still-healthy connection.
   checkConnection() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.forceReconnect();
@@ -154,10 +137,8 @@ class WsClient {
     }, this._probeTimeoutMs);
   }
 
-  /** Wire browser + native connectivity signals once. WKWebView's online/offline
-   *  events are unreliable, so the native shell (relayClient) also dispatches a
-   *  'eve:networkchange' window event from an NWPathMonitor; all of them route to
-   *  checkConnection(). Guarded for non-browser contexts. */
+  // WKWebView's online/offline events are unreliable; the native shell
+  // (relayClient) also dispatches 'eve:networkchange' from an NWPathMonitor.
   _wireConnectivityListeners() {
     if (this._listenersWired || typeof window === 'undefined') return;
     this._listenersWired = true;
@@ -172,8 +153,6 @@ class WsClient {
     });
   }
 
-  /** Route a single decoded frame: auth frames are handled here, everything
-   *  else goes to the message handler. Shared by top-level and batched frames. */
   _dispatchOne(data) {
     if (data.type === 'auth_success') {
       this._onReady();

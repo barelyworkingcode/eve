@@ -1,17 +1,6 @@
-/**
- * SearchDialog - project-wide content search backed by ripgrep on the server.
- *
- * Sends `search_project` over the WS, receives grouped results, renders
- * file-grouped match list with highlighted spans. Click a result to open the
- * file in the editor at the matching line.
- */
-
-// Ripgrep search runs on a tight keystroke debounce — matches feel instant.
 const SEARCH_DEBOUNCE_MS = 250;
-// AI summarization runs on a longer settled-typing debounce. The LLM call is
-// expensive (session create + tokens), so we wait for the user to stop typing
-// before firing. Set so the user has clearly paused but the wait isn't long
-// enough to feel sluggish after they've stopped.
+// Longer than SEARCH_DEBOUNCE_MS: the LLM call is expensive (session create +
+// tokens), so this waits for typing to settle before firing.
 const AI_SUMMARY_DEBOUNCE_MS = 700;
 
 class SearchDialog extends DialogBase {
@@ -28,17 +17,12 @@ class SearchDialog extends DialogBase {
     this._resultRows = [];
     this._lastQuery = '';
 
-    // AI summarization state
     this._aiRequestId = null;
     this._aiText = '';
     this._aiState = 'idle';      // idle | streaming | complete | error
     this._aiError = '';
     this._aiDebounceTimer = null;
-    // True when the AI debounce has elapsed but results hadn't arrived yet —
-    // _renderResults() will fire the summary as soon as matches land.
     this._aiPending = false;
-    // Cached reference to the summary body div; updated incrementally during
-    // streaming to avoid rebuilding the whole panel per text_delta.
     this._aiBodyEl = null;
   }
 
@@ -51,7 +35,7 @@ class SearchDialog extends DialogBase {
 
     this.bus.on(EVT.SEARCH_RESULTS, (data) => {
       if (!this.isVisible) return;
-      if (data.requestId !== this._currentRequestId) return; // stale result
+      if (data.requestId !== this._currentRequestId) return;
       if (data.projectId !== this.projectId) return;
       this._currentRequestId = null;
       this._matches = data.matches || [];
@@ -69,8 +53,6 @@ class SearchDialog extends DialogBase {
       this._renderError(data.error || 'Search failed');
     });
 
-    // AI summarization stream — accumulate text from relay event frames and
-    // re-render. Stale events from a cancelled requestId are ignored.
     this.bus.on(EVT.SEARCH_AI_STARTED, (data) => {
       if (!this.isVisible) return;
       if (data.requestId !== this._aiRequestId) return;
@@ -86,8 +68,8 @@ class SearchDialog extends DialogBase {
       const added = accumulateAssistantText(data.event);
       if (!added) return;
       this._aiText += added;
-      // Hot path: deltas fire 50+ times per response. Update only the body
-      // textContent instead of rebuilding the whole panel.
+      // Deltas fire 50+ times per response — update textContent directly
+      // instead of rebuilding the whole panel via _renderAiSummary().
       if (this._aiBodyEl) {
         this._aiBodyEl.textContent = this._aiText;
       } else {
@@ -125,7 +107,6 @@ class SearchDialog extends DialogBase {
     const body = document.createElement('div');
     body.className = 'dialog__tab-content search-dialog__body';
 
-    // Query input
     this._queryInput = document.createElement('input');
     this._queryInput.type = 'text';
     this._queryInput.className = 'dialog__input search-dialog__query';
@@ -136,7 +117,6 @@ class SearchDialog extends DialogBase {
     this._queryInput.addEventListener('keydown', (e) => this._onKey(e));
     body.appendChild(this._queryInput);
 
-    // Options row
     const options = document.createElement('div');
     options.className = 'search-dialog__options';
 
@@ -155,7 +135,6 @@ class SearchDialog extends DialogBase {
 
     body.appendChild(options);
 
-    // AI controls row: [AI enhanced checkbox] [model dropdown]
     const aiRow = document.createElement('div');
     aiRow.className = 'search-dialog__ai-row';
 
@@ -168,7 +147,6 @@ class SearchDialog extends DialogBase {
     this._aiCheckbox.addEventListener('change', () => {
       this.settings?.setLastSearchAiEnabled?.(this.projectId, this._aiCheckbox.checked);
       this._updateAiControlsEnabled();
-      // If toggled ON and we already have matches, run a summary now.
       if (this._aiCheckbox.checked && this._matches.length > 0) {
         this._runAiSummary();
       } else if (!this._aiCheckbox.checked) {
@@ -193,7 +171,6 @@ class SearchDialog extends DialogBase {
     });
     this._modelSelect.addEventListener('change', () => {
       this.settings?.setLastSearchModel?.(this.projectId, this._modelSelect.value);
-      // Re-summarize with the new model if AI is on and we have matches.
       if (this._aiCheckbox.checked && this._matches.length > 0) {
         this._runAiSummary();
       }
@@ -203,20 +180,16 @@ class SearchDialog extends DialogBase {
     body.appendChild(aiRow);
     this._updateAiControlsEnabled();
 
-    // Status line
     this._statusEl = document.createElement('div');
     this._statusEl.className = 'search-dialog__status';
     body.appendChild(this._statusEl);
 
-    // AI summary panel (above the results scroller — always rendered, but
-    // hidden when state === 'idle'). Updated by _renderAiSummary().
     this._aiSummaryEl = document.createElement('div');
     this._aiSummaryEl.className = 'search-dialog__ai-summary';
     this._aiSummaryEl.dataset.testid = 'search-dialog-ai-summary';
     this._aiSummaryEl.hidden = true;
     body.appendChild(this._aiSummaryEl);
 
-    // Results pane
     this._resultsEl = document.createElement('div');
     this._resultsEl.className = 'search-dialog__results';
     this._resultsEl.dataset.testid = 'search-dialog-results';
@@ -225,7 +198,6 @@ class SearchDialog extends DialogBase {
     this._panel.appendChild(body);
 
     if (this._queryInput.value.trim()) {
-      // Re-running existing query on reopen
       this._runSearch();
     } else {
       this._renderEmpty('Type to search file contents.');
@@ -251,7 +223,6 @@ class SearchDialog extends DialogBase {
 
   _scheduleSearch(immediate = false) {
     if (this._debounceTimer) clearTimeout(this._debounceTimer);
-    // Any pending AI fire is invalidated — the query has changed.
     if (this._aiDebounceTimer) clearTimeout(this._aiDebounceTimer);
     this._aiPending = false;
 
@@ -261,10 +232,6 @@ class SearchDialog extends DialogBase {
       this._debounceTimer = setTimeout(() => this._runSearch(), SEARCH_DEBOUNCE_MS);
     }
 
-    // AI summary runs on its own longer debounce so fast typing doesn't pay
-    // for an LLM call on every committed keystroke. When this timer fires
-    // we either kick off the summary (results already landed) or mark
-    // pending so _renderResults() fires it when matches arrive.
     if (this._aiCheckbox?.checked) {
       this._aiDebounceTimer = setTimeout(() => {
         this._aiDebounceTimer = null;
@@ -273,11 +240,6 @@ class SearchDialog extends DialogBase {
     }
   }
 
-  /**
-   * Conditions checked at AI-debounce fire time: AI on, dialog visible,
-   * matches present for the current query. If matches aren't here yet,
-   * we set `_aiPending` so the deferred fire happens in `_renderResults()`.
-   */
   _tryStartAiSummary() {
     if (!this._aiCheckbox?.checked) return;
     if (!this.isVisible) return;
@@ -296,7 +258,6 @@ class SearchDialog extends DialogBase {
     if (this._currentRequestId) {
       this.container.get('ws').send({ type: 'search_cancel', requestId: this._currentRequestId });
     }
-    // Drop any in-flight AI summary — its match list is now stale.
     this._cancelAiSummary();
     this._aiState = 'idle';
     this._aiText = '';
@@ -370,7 +331,6 @@ class SearchDialog extends DialogBase {
 
     if (this._matches.length === 0) {
       this._statusEl.textContent = 'No matches.';
-      // Drop any prior AI summary — nothing to summarize.
       this._cancelAiSummary();
       this._aiPending = false;
       this._aiState = 'idle';
@@ -379,16 +339,11 @@ class SearchDialog extends DialogBase {
       return;
     }
 
-    // AI is debounced independently of ripgrep. If the AI debounce already
-    // elapsed while we were waiting on results, fire the summary now.
-    // Otherwise the AI timer will fire shortly and pick this up via
-    // _tryStartAiSummary().
     if (this._aiPending && this._aiCheckbox?.checked) {
       this._aiPending = false;
       this._runAiSummary();
     }
 
-    // Group by file
     const groups = new Map();
     for (const m of this._matches) {
       if (!groups.has(m.file)) groups.set(m.file, []);
@@ -440,11 +395,8 @@ class SearchDialog extends DialogBase {
     return row;
   }
 
-  /**
-   * Append the matched line to `el`, wrapping each submatch range in <mark>.
-   * Built with textContent so file content is never injected as HTML.
-   * Long lines are trimmed around the first match to keep rows readable.
-   */
+  // Built with createTextNode/textContent, never innerHTML — file content
+  // must never be injected as HTML.
   _appendHighlightedPreview(el, lineText, submatches) {
     const MAX_LEN = 200;
     let start = 0;
@@ -454,13 +406,12 @@ class SearchDialog extends DialogBase {
 
     if (text.length > MAX_LEN && subs.length > 0) {
       const firstStart = subs[0].start;
-      // Center the window around the first match
       const half = Math.floor(MAX_LEN / 2);
       offset = Math.max(0, firstStart - half);
       text = text.slice(offset, offset + MAX_LEN);
       if (offset > 0) {
         text = '…' + text;
-        offset -= 1; // account for the ellipsis we just prepended
+        offset -= 1;
       }
       if (lineText.length > offset + MAX_LEN + 1) text += '…';
       subs = subs
@@ -541,7 +492,6 @@ class SearchDialog extends DialogBase {
   }
 
   _runAiSummary() {
-    // Cancel any in-flight summary before starting a new one.
     this._cancelAiSummary();
 
     const requestId = (window.crypto?.randomUUID && window.crypto.randomUUID())
@@ -570,11 +520,6 @@ class SearchDialog extends DialogBase {
     this._aiRequestId = null;
   }
 
-  /**
-   * Re-render the summary panel based on `_aiState`. The streaming hot path
-   * (SEARCH_AI_EVENT) doesn't call this — it updates `_aiBodyEl.textContent`
-   * directly to avoid a full DOM rebuild on every text_delta.
-   */
   _renderAiSummary() {
     if (!this._aiSummaryEl) return;
     this._aiSummaryEl.innerHTML = '';
@@ -643,11 +588,8 @@ class SearchDialog extends DialogBase {
   }
 }
 
-/**
- * Walk a relay assistant event (same shape as module_ai_event's `event`)
- * and return any newly-arrived text. Mirrors
- * `module-invoker.js#accumulateAssistantText` server-side.
- */
+// Mirrors module-invoker.js#accumulateAssistantText server-side; keep both
+// in sync or streamed summaries silently lose text.
 function accumulateAssistantText(msg) {
   if (!msg || msg.type !== 'llm_event' || msg.event?.type !== 'assistant') return '';
   const ev = msg.event;

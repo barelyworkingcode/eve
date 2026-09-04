@@ -1,15 +1,9 @@
 'use strict';
-// UiCommandBus — routes LLM-initiated UI commands to the right browser(s).
-//
-// The eve-control MCP (mcp/main.js) POSTs to the loopback-only
-// /internal/ui-command endpoint; this bus validates the call, stamps a trusted
-// identity (actor=llm + the project that called), and forwards a `ui_command`
-// frame to the browser connections viewing that project. The browser does the
-// final ownership trimming — it only lets the LLM touch tabs the LLM opened.
-//
-// Targeting is by PROJECT: each browser connection announces the project(s) it
-// is viewing (ws-handler tracks message.projectId) and we fan out to those.
-// Session-level precision is a deferred refinement (see the eve-control plan).
+// /internal/ui-command is loopback-only. This bus stamps a trusted identity
+// (actor=llm + calling project) onto each command and forwards it to browser
+// connections viewing that project; the browser does final ownership trimming
+// (LLM can only touch tabs it opened). Targeting is by project, not session —
+// ws-handler tracks each connection's message.projectId.
 
 const crypto = require('node:crypto');
 const { NullLogger } = require('./logger');
@@ -37,12 +31,11 @@ class UiCommandBus {
     this._seq = 0;
   }
 
-  /** Begin tracking a connection (so unregister cleans up even before any project). */
+  // So unregister() cleans up even for a client that never joined a project.
   register(client) {
     if (client && !this._byClient.has(client)) this._byClient.set(client, new Set());
   }
 
-  /** Record that `client` is viewing `projectId` (idempotent). */
   setProject(client, projectId) {
     if (!client || !projectId) return;
     this.register(client);
@@ -57,7 +50,7 @@ class UiCommandBus {
     set.add(client);
   }
 
-  /** Drop a connection from all project indexes (call on socket close). */
+  // Call on socket close.
   unregister(client) {
     const projects = this._byClient.get(client);
     if (projects) {
@@ -76,7 +69,6 @@ class UiCommandBus {
     return `eve-llm-${Date.now().toString(36)}-${(this._seq++).toString(36)}`;
   }
 
-  /** Fan a stamped ui_command out to every browser viewing `projectId`. Returns the delivery count. */
   pushToProject(projectId, command) {
     const frame = { type: 'ui_command', command, actor: 'llm', projectId: projectId || '' };
     const set = projectId ? this._byProject.get(projectId) : null;
@@ -94,11 +86,8 @@ class UiCommandBus {
     return delivered;
   }
 
-  /**
-   * Express handler for POST /internal/ui-command. The eve-control MCP is the
-   * only caller — gated to a loopback peer AND the shared secret. eve never
-   * exposes this to the browser/public origin.
-   */
+  // Gated to a loopback peer AND the shared secret; never exposed to the
+  // browser/public origin.
   handleInternalRequest(req, res) {
     if (!isLoopbackReq(req)) {
       return res.status(403).json({ error: 'forbidden' });
@@ -114,8 +103,7 @@ class UiCommandBus {
     switch (body.action) {
       case 'open_tab':
         if (!body.image_url) return res.status(400).json({ error: 'image_url required' });
-        // eve mints the tab_ref so it owns tab identity; the LLM gets it back
-        // and uses it for later refresh/close.
+        // eve mints the tab_ref so it owns tab identity.
         tabRef = this._nextTabRef();
         command = { action: 'open_tab', tab_kind: body.tab_kind || 'image', tab_ref: tabRef, image_url: body.image_url, title: body.title || 'Image' };
         break;
@@ -133,9 +121,7 @@ class UiCommandBus {
 
     const delivered = this.pushToProject(body.project_id || '', command);
     if (delivered === 0) {
-      // Reached eve but matched no browser: usually an empty/mismatched
-      // project_id (e.g. relay not rebuilt with the _meta.project_id injection)
-      // or no browser currently viewing that project.
+      // Usually a mismatched project_id or no browser currently viewing it.
       this._log.warn?.(`ui_command undelivered: action=${body.action} project=${body.project_id || '(none)'} tracked=[${[...this._byProject.keys()].join(', ')}]`);
     }
     res.json({ status: delivered > 0 ? 'ok' : 'no_client', tab_ref: tabRef, delivered });

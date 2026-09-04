@@ -1,11 +1,5 @@
-/**
- * WsMessageRegistry - see ws/message-registry.js for the pattern and its
- * relationship to PaneRegistry (public/core/pane-registry.js /
- * test/unit/pane-registry.test.js), which this mirrors.
- *
- * Unlike PaneRegistry this is a plain Node module (real `require`, no
- * <script> globals), so no vm sandbox is needed — require it directly.
- */
+// Plain Node module (real `require`, no <script> globals), so no vm sandbox is
+// needed here, unlike PaneRegistry (public/core/pane-registry.js).
 const { WsMessageRegistry, messages } = require('../../ws/message-registry');
 
 describe('the process-wide singleton', () => {
@@ -82,11 +76,9 @@ describe('WsMessageRegistry.expensiveTypes', () => {
     expect(r.expensiveTypes()).toEqual(new Set(['pricey']));
   });
 
-  // The frozen six from spec §5b / C4 / AC-10. Every expensive type now has a
-  // descriptor (H6 migrated `transcribe_audio` and `tts_speak`, the last two,
-  // and deleted `EXPENSIVE_OPS`), so this is the sole guard against an
-  // expensive type silently losing its rate-limit cap — descriptor.expensive
-  // is the only source of rate-limit membership left in the process.
+  // descriptor.expensive is the only source of rate-limit membership left in the
+  // process, so this is the sole guard against an expensive type silently losing
+  // its rate-limit cap.
   it('carries exactly the six frozen expensive types', () => {
     expect(messages.expensiveTypes()).toEqual(new Set([
       'create_session', 'search_project', 'search_ai_summarize', 'module_invoke_ai',
@@ -95,14 +87,10 @@ describe('WsMessageRegistry.expensiveTypes', () => {
   });
 });
 
-// C2 (spec §5c / §7): a descriptor's `handle` must be an async function if
-// and only if today's `case` arm is awaited — currently exactly
-// `create_session`, `module_read_file`, `module_write_file`. Returning a
-// promise for any other type turns a fire-and-forget rejection into a
-// browser-visible `{type:'error'}` frame it has never produced before. This
-// passes trivially today (only the terminal domain is registered, and none
-// of its nine handles are async); it becomes load-bearing at the session and
-// module handoffs.
+// A descriptor's `handle` must be an async function iff the ws-handler `case` arm it
+// replaces is awaited: returning a promise for a non-awaited type turns a
+// fire-and-forget rejection into a browser-visible `{type:'error'}` frame it never
+// produced before, and an unawaited async handler changes ordering on the wire.
 describe('constraint C2 — handle is async iff its case arm is awaited today', () => {
   const AWAITED_TYPES = new Set(['create_session', 'module_read_file', 'module_write_file']);
 

@@ -1,7 +1,3 @@
-/**
- * ShellLauncherDialog - unified terminal/session launcher with New and Resume tabs.
- * Replaces separate session modal + terminal template picker.
- */
 class ShellLauncherDialog extends DialogBase {
   constructor(container) {
     super(container, 'shell-launcher-dialog');
@@ -30,14 +26,12 @@ class ShellLauncherDialog extends DialogBase {
 
     this._panel.appendChild(this._createTitleBar('Shell Launcher', projectName));
 
-    // Tabs
     const { header, setActiveTab } = this._createTabs(
       [{ name: 'new', label: 'New' }, { name: 'resume', label: 'Resume' }],
       (tab) => this._showTab(tab)
     );
     this._panel.appendChild(header);
 
-    // Tab content container
     this._tabContent = document.createElement('div');
     this._tabContent.className = 'dialog__tab-content';
     this._panel.appendChild(this._tabContent);
@@ -59,7 +53,6 @@ class ShellLauncherDialog extends DialogBase {
     const grid = document.createElement('div');
     grid.className = 'shell-launcher__grid';
 
-    // Chat templates from project (rendered first, mixed into grid)
     const project = this.state.getProject(this.projectId);
     const chatTemplates = project?.chatTemplates || [];
     for (const tmpl of chatTemplates) {
@@ -97,10 +90,9 @@ class ShellLauncherDialog extends DialogBase {
       grid.appendChild(card);
     }
 
-    // Terminal templates come from relayLLM's config.json pty section. They're
-    // fetched once on connect, but if that response was missed (relay hiccup),
-    // the cache stays empty forever — so re-request on open. The
-    // EVT.TERMINAL_TEMPLATES_LOADED listener in init() re-renders when they land.
+    // Terminal templates (relayLLM's config.json pty section) are fetched once
+    // on connect; if that response was missed (relay hiccup), the cache stays
+    // empty forever, so re-request on open.
     const templates = this.state.terminalTemplates;
     if (templates.length === 0) {
       const termMgr = this.container.has('terminalManager') ? this.container.get('terminalManager') : null;
@@ -122,11 +114,9 @@ class ShellLauncherDialog extends DialogBase {
       }
     }
 
-    // Project-scoped shell templates — private shells (e.g. ssh) defined in this
-    // project's edit dialog. They ride the project record (not relayLLM's global
-    // pty map), so they render regardless of the global-template loading state
-    // and only appear here, in their own project. relayLLM resolves them by id
-    // at launch via the bridge.
+    // These ride the project record, not relayLLM's global pty map, so they
+    // render unconditionally rather than being gated on templates.length above
+    // — relayLLM resolves them by id at launch via the bridge.
     const shellTemplates = project?.shellTemplates || [];
     for (const tmpl of shellTemplates) {
       grid.appendChild(this._createCard({
@@ -200,17 +190,12 @@ class ShellLauncherDialog extends DialogBase {
     });
   }
 
-  /**
-   * Shared form for Web Chat and Voice Chat — model select, optional voice select,
-   * provider settings, and action buttons.
-   */
   _showModelForm({ buttonText, showVoice, onSubmit }) {
     this._tabContent.innerHTML = '';
 
     const form = document.createElement('div');
     form.className = 'shell-launcher__web-form';
 
-    // Model select
     const modelLabel = document.createElement('label');
     modelLabel.className = 'dialog__label';
     modelLabel.textContent = 'Model';
@@ -219,7 +204,6 @@ class ShellLauncherDialog extends DialogBase {
     form.appendChild(modelLabel);
     form.appendChild(modelSelect);
 
-    // Voice select (voice chat only)
     let voiceSelect = null;
     if (showVoice) {
       voiceSelect = this._createVoiceSelect();
@@ -230,7 +214,6 @@ class ShellLauncherDialog extends DialogBase {
       form.appendChild(voiceSelect);
     }
 
-    // Append CLAUDE.md as an extra boolean field injected into provider settings
     const claudeMdExtra = {
       key: '_appendClaudeMd',
       label: 'Append CLAUDE.md',
@@ -242,7 +225,6 @@ class ShellLauncherDialog extends DialogBase {
       form, modelSelect, { useRelayTools: true }, [claudeMdExtra]
     );
 
-    // Action buttons
     const actions = document.createElement('div');
     actions.className = 'dialog__actions';
 
@@ -308,14 +290,12 @@ class ShellLauncherDialog extends DialogBase {
     const settings = this.container.get('settings');
     const current = settings.getFavoriteTemplate();
 
-    // Un-favorite if clicking the current favorite
     if (current && current.projectId === projectId && current.templateId === templateId) {
       settings.setFavoriteTemplate(null);
       this._showTab('new');
       return;
     }
 
-    // Confirm replacement if a different favorite exists
     if (current) {
       const currentProject = this.state.getProject(current.projectId);
       const currentTemplate = currentProject?.chatTemplates?.find(t => t.id === current.templateId);
@@ -333,7 +313,6 @@ class ShellLauncherDialog extends DialogBase {
       return;
     }
 
-    // No existing favorite — set directly
     settings.setFavoriteTemplate({ projectId, templateId });
     this._showTab('new');
   }
@@ -351,7 +330,6 @@ class ShellLauncherDialog extends DialogBase {
     const container = document.createElement('div');
     container.className = 'shell-launcher__resume';
 
-    // LLM Sessions for this project
     const sessions = this.state.getSessionsForProject(this.projectId);
     if (sessions.length > 0) {
       const header = document.createElement('div');
@@ -388,7 +366,8 @@ class ShellLauncherDialog extends DialogBase {
         deleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           this.container.get('app').deleteSession(session.id);
-          // Re-render resume tab after a short delay for the delete to process
+          // Delete is async (round-trips through relay); re-rendering
+          // immediately would still show the deleted session.
           setTimeout(() => this._showTab('resume'), 300);
         });
 
@@ -398,13 +377,11 @@ class ShellLauncherDialog extends DialogBase {
       }
     }
 
-    // Running terminals (we'd need terminal list - for now show a message)
     const termHeader = document.createElement('div');
     termHeader.className = 'shell-launcher__section-title';
     termHeader.textContent = 'Running Terminals';
     container.appendChild(termHeader);
 
-    // Get terminals from terminal manager
     const termMgr = this.container.has('terminalManager') ? this.container.get('terminalManager') : null;
     const terminalMap = termMgr?.terminals;
     let terminalCount = 0;
@@ -445,9 +422,6 @@ class ShellLauncherDialog extends DialogBase {
 
   _launchTerminal(templateId) {
     const project = this.state.getProject(this.projectId);
-    // Resolve the display name from the merged set: global templates first, then
-    // this project's private shell templates (so a project-scoped launch shows
-    // its real name, not the raw id).
     const tmpl = this.state.terminalTemplates.find(t => t.id === templateId)
       || (project?.shellTemplates || []).find(t => t.id === templateId);
     const tmplName = tmpl?.name || templateId;

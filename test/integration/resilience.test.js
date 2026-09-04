@@ -1,9 +1,6 @@
-/**
- * Increment 5 — resilience. Asserts eve's documented degradation behavior when
- * relay is unavailable, and that a browser reconnect establishes a fresh working
- * session. Each test runs its own spawned eve since the relay-down cases are
- * destructive to the shared backend.
- */
+// Asserts eve's documented degradation behavior when relay is unavailable,
+// and that a browser reconnect establishes a fresh working session. Each
+// test runs its own spawned eve since the relay-down cases are destructive.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -61,7 +58,6 @@ describe('resilience (relay down / reconnect)', () => {
   it('establishes a fresh working session after a browser reconnect', async () => {
     const eve = await startEve({ projects: [project()] });
     try {
-      // First connection, then drop it.
       const ws1 = await eve.connectWs();
       ws1.send({ type: 'create_session', projectId: 'p1' });
       await ws1.waitFor((f) => f.type === 'session_created');

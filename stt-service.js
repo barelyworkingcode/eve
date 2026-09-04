@@ -1,7 +1,5 @@
-/**
- * STTService - TCP client for the Whisper STT daemon.
- * Mirrors the TTSService pattern: length-prefixed JSON over TCP.
- */
+// TCP client for the external STT daemon. Mirrors TTSService's
+// length-prefixed JSON protocol.
 const net = require('net');
 
 class STTService {
@@ -11,9 +9,6 @@ class STTService {
     this.timeout = timeout;
   }
 
-  /**
-   * Check if the Whisper daemon is reachable.
-   */
   async isAvailable() {
     try {
       const response = await this._sendRequest({ action: 'ping' }, 2000);
@@ -23,12 +18,7 @@ class STTService {
     }
   }
 
-  /**
-   * Transcribe base64-encoded audio.
-   * @param {string} audioBase64 - Base64-encoded audio data (any format ffmpeg can decode)
-   * @param {string|null} language - Optional language hint (e.g. 'en')
-   * @returns {Promise<{text: string, language: string, duration: number, transcription_time: number}>}
-   */
+  // audioBase64 accepts any format ffmpeg can decode.
   async transcribe(audioBase64, language = null) {
     const request = { audio_base64: audioBase64 };
     if (language) request.language = language;
@@ -39,9 +29,6 @@ class STTService {
     return response;
   }
 
-  /**
-   * Send a length-prefixed JSON request to the daemon and receive the response.
-   */
   _sendRequest(request, timeoutOverride) {
     const timeout = timeoutOverride || this.timeout;
     return new Promise((resolve, reject) => {
@@ -54,13 +41,11 @@ class STTService {
       sock.on('data', (chunk) => {
         responseData = Buffer.concat([responseData, chunk]);
 
-        // Read 4-byte length header
         if (expectedLen === null && responseData.length >= 4) {
           expectedLen = responseData.readUInt32BE(0);
           responseData = responseData.slice(4);
         }
 
-        // Check if we have the full payload
         if (expectedLen !== null && responseData.length >= expectedLen) {
           const payload = responseData.slice(0, expectedLen).toString('utf-8');
           sock.destroy();

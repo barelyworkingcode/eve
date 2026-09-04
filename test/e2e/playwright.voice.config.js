@@ -1,6 +1,6 @@
-// Voice tests run against the real Kokoro/Whisper daemons and take ~3s per
-// transcription, so they get their own config and are kept out of the fast
-// e2e suite (see testIgnore in ../../playwright.config.js).
+// Voice tests run against the real speech daemons and take ~3s per
+// transcription, so they get their own config, kept out of the fast e2e
+// suite (see testIgnore in ../../playwright.config.js).
 const { defineConfig, devices } = require('@playwright/test');
 
 module.exports = defineConfig({

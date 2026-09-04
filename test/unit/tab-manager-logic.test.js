@@ -1,22 +1,10 @@
-/**
- * TabManager (public/tab-manager.js) — the pure-logic seams, characterised
- * bug-for-bug ahead of the pane-registry refactor (docs/decisions/002 to be).
- *
- * Unlike public/features/chat-form.js, tab-manager.js already carries a
- * CommonJS `module.exports` (see the bottom of the file), so it can be
- * `require`d directly — no vm sandbox needed. What it does need is a handful
- * of globals a browser provides that jest's `testEnvironment: 'node'` does
- * not: `document`, `window`, `history`, `localStorage`. Those are faked here,
- * ~60 lines' worth, following the fakeButton()/fakeClassList() idiom of
- * test/unit/chat-form-controls.test.js. No jsdom — the repo deliberately has
- * none, and every seam below is reachable through plain objects.
- *
- * Scope: only the methods that don't touch rendering — `_getRecentEntries`,
- * `_projectIdForDirectory`, `_nextTabInProject`, `_lastActiveTabForProject`,
- * `_ownedBy`, `_edgeToDir`, `_updateHash`. Split-pane commit, switchToTab,
- * closeTab and the view/container dispatch are covered end to end in
- * test/e2e/tab-panes.spec.js instead, against a real DOM.
- */
+// tab-manager.js carries a CommonJS `module.exports`, so it's required directly
+// — no vm sandbox needed. It does need browser globals jest's `testEnvironment:
+// 'node'` doesn't provide (`document`, `window`, `history`, `localStorage`);
+// those are faked below rather than pulling in jsdom, which the repo has none of.
+// Rendering-touching methods (switchToTab, closeTab, split-pane commit, the
+// view/container dispatch) are covered against a real DOM in test/e2e/tab-panes.spec.js
+// instead.
 
 function fakeClassList(initial = []) {
   const set = new Set(initial);
@@ -67,8 +55,6 @@ function fakeLocalStorage(initial = {}) {
   };
 }
 
-/** Installs the fake browser globals TabManager's constructor touches, then
- *  requires the real file fresh so each test starts from a clean class. */
 function loadTabManager({ localStorageContents } = {}) {
   jest.resetModules();
   global.document = fakeDocument();
@@ -79,12 +65,10 @@ function loadTabManager({ localStorageContents } = {}) {
   global.history = { replaceState: jest.fn() };
   global.localStorage = fakeLocalStorage(localStorageContents);
   global.EVT = { PROJECT_ACTIVATED: 'project:activated' };
-  // core/constants.js's isPlanProject is a bare global in the browser (classic
-  // script); file-pane.js's watch/unwatch reach it the same way, so it needs
-  // a fake here too. No plan-project path is exercised below.
+  // isPlanProject is a bare global in the browser (classic script), reached the
+  // same way by file-pane.js's watch/unwatch, so it needs a fake here too.
   global.isPlanProject = () => false;
-  // PaneDnd is deliberately left undefined — `typeof PaneDnd !== 'undefined'`
-  // is exactly the guard that makes that safe.
+  // PaneDnd is deliberately left undefined — `typeof PaneDnd !== 'undefined'` guards it.
   return require('../../public/tab-manager.js');
 }
 
@@ -109,11 +93,11 @@ describe('_getRecentEntries', () => {
   it('keeps numeric and object entries within the TTL, drops both forms once expired, and prunes on write-back', () => {
     jest.spyOn(Date, 'now').mockReturnValue(NOW);
     const stored = {
-      'sess-fresh': NOW - 1000,                 // bare number, fresh — the session-tab shape
-      'sess-stale': NOW - MAX_AGE_MS - 5000,    // bare number, expired
-      'p1:/a.js': { projectId: 'p1', path: '/a.js', ts: NOW - 2000 }, // object, fresh
-      'p1:/b.js': { projectId: 'p1', path: '/b.js', ts: NOW - MAX_AGE_MS - 1 }, // object, expired
-      'no-ts': { projectId: 'p1', path: '/c.js' }, // malformed — no ts at all
+      'sess-fresh': NOW - 1000,
+      'sess-stale': NOW - MAX_AGE_MS - 5000,
+      'p1:/a.js': { projectId: 'p1', path: '/a.js', ts: NOW - 2000 },
+      'p1:/b.js': { projectId: 'p1', path: '/b.js', ts: NOW - MAX_AGE_MS - 1 },
+      'no-ts': { projectId: 'p1', path: '/c.js' },
     };
     const tm = makeTabManager({ localStorageContents: { [KEY]: JSON.stringify(stored) } });
 
@@ -121,11 +105,9 @@ describe('_getRecentEntries', () => {
     const ids = result.map((e) => e.id).sort();
     expect(ids).toEqual(['p1:/a.js', 'sess-fresh']);
 
-    // Numeric entries surface as { id, ts }; object entries spread through unchanged.
     expect(result.find((e) => e.id === 'sess-fresh')).toEqual({ id: 'sess-fresh', ts: NOW - 1000 });
     expect(result.find((e) => e.id === 'p1:/a.js')).toEqual({ id: 'p1:/a.js', projectId: 'p1', path: '/a.js', ts: NOW - 2000 });
 
-    // The expired and malformed entries are pruned back to storage.
     const written = JSON.parse(localStorage.getItem(KEY));
     expect(Object.keys(written).sort()).toEqual(['p1:/a.js', 'sess-fresh']);
   });
@@ -349,10 +331,8 @@ describe('_updateHash', () => {
     expect(history.replaceState).toHaveBeenCalledWith(null, '', '#module/p1/demo-module');
   });
 
-  // Pinned as-is, not fixed: §B.2 line 389-395 of the spec has no `image` arm,
-  // so activating an image tab clears the hash instead of linking to it. A
-  // future handoff may decide that's worth changing; this test only proves
-  // today's behaviour, so it fails the moment that arm is quietly added too.
+  // Known bug, pinned deliberately: `_updateHash` has no `image` arm, so activating
+  // an image tab clears the hash instead of linking to it. Don't "fix" this test.
   it('an image tab has no hash arm, so activating one clears the hash instead of linking to it', () => {
     const tm = setup('#session/old');
     tm._updateHash({ type: 'image', id: 'eve-llm-1' });
@@ -372,11 +352,9 @@ describe('_updateHash', () => {
   });
 });
 
-// Finding 1 (architect review): terminal-pane.js's `dispose` had no automated
-// cover at any tier — the fake relay can't create terminals, so this is unit-
-// only cover, against a fake `terminalManager`. If `dispose` became a no-op,
-// the xterm instance and its WS channel would leak on every close and every
-// other suite would stay green.
+// The fake relay can't create real terminals, so this is the only cover of
+// terminal-pane.js's `dispose` at any tier. If `dispose` became a no-op, the
+// xterm instance and its WS channel would leak on every close undetected.
 describe('terminal dispose', () => {
   it('closes the terminal exactly once via terminalManager, and never persists', () => {
     const closeTerminal = jest.fn();
@@ -397,11 +375,9 @@ describe('terminal dispose', () => {
   });
 });
 
-// Finding 2 (architect review, spec §I.10): nothing drove openSession/
-// openFile/openModule and inspected what they actually write. These pin the
-// pre-refactor shapes — including the legacy bare-number session entry — so
-// e.g. dropping `moduleName` from module-pane.js's `entry()` fails here
-// instead of only at reload-restore time.
+// Pins the write shapes, including the legacy bare-number session entry, so e.g.
+// dropping `moduleName` from module-pane.js's `entry()` fails here instead of
+// only surfacing at reload-restore time.
 describe('persistence write shapes (pinning, not changing)', () => {
   const NOW = 1_700_000_000_000;
   beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(NOW));

@@ -1,14 +1,6 @@
-/**
- * EveWorkspaceClient - thin orchestrator wiring together focused modules.
- *
- * Modules (loaded via <script> tags before this file):
- *   WsClient, MessageRenderer, ModalManager,
- *   SidebarRenderer, TabManager, FileBrowser, FileEditor, TerminalManager
- */
 class EveWorkspaceClient {
   constructor() {
 
-    // Core infrastructure (Phase 1) — available for new modules.
     this.bus = new EventBus();
     this.container = new Container();
     this.container.register('bus', this.bus);
@@ -30,33 +22,24 @@ class EveWorkspaceClient {
   initApp() {
     this.log = this.container.get('logger').child('App');
 
-    // Wire state store into infrastructure.
     this.state = new StateStore(this.bus);
     this.container.register('state', this.state);
     this.container.register('app', this); // Legacy bridge: modules can access app via container during migration
 
-    // Apply saved settings before any rendering
     this.settings = new SettingsManager(this.bus);
     this.container.register('settings', this.settings);
     this.settings.applyToDOM();
 
-    // Feature registry: features render their own DOM into the [data-slot]
-    // markers in index.html (docs/decisions/001-feature-registry.md). Must run
-    // before initElements() — none of the ids initElements() caches are
-    // slot-rendered, but the render closures depend on static markup that
-    // must already exist.
+    // initElements() must run after this: it caches ids from slot-rendered markup.
     this.container.register('features', features);
-    // Reverts the persisted voice backend to 'server' after an on-device
-    // crash. Must run before features.boot(): STTManager's constructor reads
-    // the 'eve-stt-backend' key the guard reverts.
+    // Must run before features.boot(): STTManager's constructor reads the
+    // 'eve-stt-backend' key this guard reverts.
     const voiceCrashRecovery = VoiceCrashGuard.detectAndRecover();
     features.boot(this.container);
     features.renderSlots(document, this.container);
 
     this.initElements();
 
-    // Initialize modules — register each in the container immediately after creation
-    // so subsequent modules (and Phase 2+ container-based modules) can resolve them.
     this.wsClient = new WsClient(this.container, {
       onReady: () => this.onWebSocketReady(),
       onMessage: (data) => this.handleServerMessage(data),
@@ -81,7 +64,6 @@ class EveWorkspaceClient {
     this.htmlPreviewPane = new HtmlPreviewPane(this.container);
     this.container.register('htmlPreviewPane', this.htmlPreviewPane);
 
-    // Modules (AI-backed mini-apps inside projects)
     this.moduleStore = new ModuleStore(this.container);
     this.container.register('moduleStore', this.moduleStore);
     this.moduleHost = new ModuleHost(this.container);
@@ -91,7 +73,6 @@ class EveWorkspaceClient {
     this.container.register('moduleActivityOrb', this.moduleActivityOrb);
     this.moduleActivityOrb.init();
 
-    // File viewer registry (IoC: viewers register themselves)
     this.viewerRegistry = new ViewerRegistry();
     this.viewerRegistry.register(new ImageViewer());
     this.viewerRegistry.register(new PdfViewer());
@@ -99,11 +80,9 @@ class EveWorkspaceClient {
     this.viewerRegistry.register(new AudioViewer());
     this.container.register('viewerRegistry', this.viewerRegistry);
 
-    // New sidebar: project tree (Phase 2)
     this.projectTree = new ProjectTree(this.container);
     this.projectTree.init();
 
-    // New dialogs (Phase 3)
     this.shellLauncher = new ShellLauncherDialog(this.container);
     this.shellLauncher.init();
     this.taskDialog = new TaskDialog(this.container);
@@ -117,9 +96,6 @@ class EveWorkspaceClient {
 
     this.terminalManager = new TerminalManager(this.container);
     this.container.register('terminalManager', this.terminalManager);
-    // TaskViewer must be registered AFTER terminalManager and the DI app
-    // entry — it dispatches into both. It's intentionally tiny: a single
-    // dispatch table keyed by view.kind.
     this.taskViewer = new TaskViewer(this.container);
     this.container.register('taskViewer', this.taskViewer);
     this.fileAttachmentManager = this.container.get('fileAttachmentManager');
@@ -134,7 +110,6 @@ class EveWorkspaceClient {
     this._notifyVoiceCrashRecovery(voiceCrashRecovery);
     this.voiceInitCoordinator = new VoiceInitCoordinator(this.container);
     this.container.register('voiceInitCoordinator', this.voiceInitCoordinator);
-    // MessageDispatcher must be created after all services it depends on
     this.messageDispatcher = new MessageDispatcher(this.container);
     this.container.register('messageDispatcher', this.messageDispatcher);
 
@@ -147,14 +122,10 @@ class EveWorkspaceClient {
     this.wsClient.connect();
   }
 
-  // Proxy for existing modules that reference client.ws directly
   get ws() {
     return this.wsClient?.ws;
   }
 
-  // State delegates — single source of truth is StateStore.
-  // These getters let module code (e.g. this.app.sessions.get(...))
-  // work transparently while StateStore owns the data.
   get sessions() { return this.state.sessions; }
   get sessionHistories() { return this.state.sessionHistories; }
   get projects() { return this.state.projects; }
@@ -241,11 +212,8 @@ class EveWorkspaceClient {
   }
 
   _initBusListeners() {
-    // Bridge: new file tree click -> open file via existing read_file flow
     this.bus.on(EVT.FILE_CONTENT, (data) => {
       if (data.requestLoad) {
-        // Stash lineNumber on the side; handleFileContent consumes it after
-        // the read_file round-trip lands.
         if (typeof data.lineNumber === 'number') {
           this._pendingFileLineNumber = {
             projectId: data.projectId,
@@ -254,7 +222,6 @@ class EveWorkspaceClient {
           };
         }
         if (this.viewerRegistry.isViewerFile(data.path)) {
-          // Viewer files load via HTTP, no WebSocket read needed
           const filename = data.path.split('/').pop();
           this.tabManager.openFile(data.projectId, data.path, filename);
         } else {
@@ -265,30 +232,21 @@ class EveWorkspaceClient {
 
     window.addEventListener('keydown', (e) => this._handleSearchHotkey(e));
 
-    // Bridge: confirm dialog requests from new components
     this.bus.on(EVT.DIALOG_CONFIRM, (data) => {
       if (confirm(data.message)) {
         if (data.onConfirm) data.onConfirm();
       }
     });
 
-    // Bridge: project delete from new sidebar
     this.bus.on(EVT.PROJECT_DELETED, (data) => {
       this.deleteProject(data.projectId);
     });
 
-    // Shell launcher and task dialog are handled by their own EventBus subscriptions
-    // (ShellLauncherDialog and TaskDialog listen for DIALOG_SHELL_LAUNCHER / DIALOG_TASK directly)
-
-    // Keep legacy project select in sync when projects change
     this.bus.on(EVT.PROJECTS_LOADED, () => {
       this.sidebarRenderer.renderProjectList();
       this.updateProjectSelect();
     });
 
-    // Re-evaluate chat-input icon gating whenever data that feeds the
-    // lookup changes — handles late session.model arrival via WS join and
-    // late model catalog load.
     this.bus.on(EVT.MODELS_LOADED, () => {
       this._updateChatInputCapabilities(this._activeModelValue());
     });
@@ -302,12 +260,10 @@ class EveWorkspaceClient {
       if (this.state.scopedProjectId === projectId) this._syncUrlToScope();
     });
 
-    // Bridge: sidebar toggle from mobile bar
     this.bus.on(EVT.UI_TOGGLE_SIDEBAR, () => {
       this.toggleSidebar();
     });
 
-    // Auto-close sidebar on mobile after actions that leave the sidebar context
     const sidebarCloseEvents = [
       EVT.FILE_CONTENT,
       EVT.DIALOG_SHELL_LAUNCHER,
@@ -319,12 +275,10 @@ class EveWorkspaceClient {
       this.bus.on(evt, () => this.closeSidebarOnMobile());
     });
 
-    // Module launch — open a tab for a module the user clicked in the sidebar.
     this.bus.on(EVT.MODULE_LAUNCH_REQUEST, ({ projectId, moduleName, displayName }) => {
       this.tabManager.openModule(projectId, moduleName, displayName || moduleName);
     });
 
-    // Module create — open a chat session preloaded with the builder prompt.
     this.bus.on(EVT.MODULE_CREATE_REQUEST, ({ projectId }) => {
       this._startModuleBuilder(projectId).catch(err => {
         this.log.error('Failed to start module builder:', err);
@@ -362,7 +316,6 @@ class EveWorkspaceClient {
       type: 'info', duration: 4000,
     });
 
-    // Pre-fill input once the session is created and switched-to.
     const once = ({ sessionId }) => {
       if (!sessionId) return;
       this.bus.off(EVT.SESSION_SWITCH, once);
@@ -378,28 +331,22 @@ class EveWorkspaceClient {
   }
 
   initEventListeners() {
-    // New session buttons
     this.elements.newSessionBtn?.addEventListener('click', () => this.modalManager.showSessionModal());
     this.elements.welcomeNewSession?.addEventListener('click', () => this.modalManager.showSessionModal());
 
-    // Terminal picker (legacy button, may not exist in new sidebar)
     this.elements.newTerminalBtn?.addEventListener('click', () => {
       const dir = this.getCurrentProjectDirectory();
       this.terminalManager.showTemplatePicker(dir, this.getProjectIdForDirectory(dir));
     });
 
-    // Settings
     document.getElementById('settingsBtn')?.addEventListener('click', () => {
       this.bus.emit(EVT.DIALOG_SETTINGS, {});
     });
 
-    // Project dialog (via EventBus — ProjectDialog handles it)
     this.elements.newProjectBtn.addEventListener('click', () => this.bus.emit(EVT.DIALOG_PROJECT, {}));
 
-    // Session form
     this.elements.newSessionForm.addEventListener('submit', (e) => this.handleNewSession(e));
 
-    // Chat input
     this.elements.inputForm.addEventListener('submit', (e) => this.handleSubmit(e));
     const onFirstLine = (ta) => ta.value.lastIndexOf('\n', ta.selectionStart - 1) === -1;
     const onLastLine = (ta) => ta.value.indexOf('\n', ta.selectionStart) === -1;
@@ -429,7 +376,6 @@ class EveWorkspaceClient {
       this.autoResizeTextarea();
     });
 
-    // Voice mode toggle + voice selection
     this.ttsManager.init();
 
     if (this.elements.voiceSelect) {
@@ -447,14 +393,12 @@ class EveWorkspaceClient {
       });
     }
 
-    // Voice UI switch button (text chat -> voice chat)
     if (this.elements.voiceUIBtn) {
       this.elements.voiceUIBtn.addEventListener('click', () => {
         this.voiceChatManager.convertToVoiceChat();
       });
     }
 
-    // Voice controls drawer toggle
     if (this.elements.voiceDrawerToggle) {
       this.elements.voiceDrawerToggle.addEventListener('click', () => {
         const panel = this.elements.voiceDrawerPanel;
@@ -464,30 +408,22 @@ class EveWorkspaceClient {
       });
     }
 
-    // Microphone / STT
     this.sttManager.init();
 
-    // Voice Chat Manager
     this.voiceChatManager.init();
 
-    // Start voice model preloading (non-blocking toast, not overlay)
     this.voiceInitCoordinator.init();
 
-    // Mobile sidebar toggle
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
     this.elements.welcomeOpenSidebar.addEventListener('click', () => this.toggleSidebar(true));
     this.elements.closeSidebar.addEventListener('click', () => this.toggleSidebar(false));
 
-    // Project select
     this.elements.projectSelect.addEventListener('change', () => {
       this.updateDirectoryInputRequirement();
-      // The model allowlist is per-project: re-filter the picker, then let the
-      // model-select 'change' handler refresh provider settings + capabilities.
       this.renderModelSelect(this.elements.sessionModelSelect);
       this.elements.sessionModelSelect.dispatchEvent(new Event('change'));
     });
 
-    // Model select — render provider-specific settings
     this.elements.sessionModelSelect.addEventListener('change', () => {
       this.renderProviderSettings();
       if (!this.currentSessionId) {
@@ -495,17 +431,11 @@ class EveWorkspaceClient {
       }
     });
 
-    // Task form
     if (this.elements.taskForm) {
       this.elements.taskForm.addEventListener('submit', (e) => this.handleTaskSubmit(e));
     }
   }
 
-  /**
-   * Surface a toast when VoiceCrashGuard reverted an on-device backend after a
-   * prior load crashed the page. Called after the toast manager is constructed.
-   * @param {Array<{kind: string}>} recovered - result from VoiceCrashGuard.detectAndRecover()
-   */
   _notifyVoiceCrashRecovery(recovered) {
     if (!recovered?.length) return;
     const names = recovered.map(r => r.kind.toUpperCase()).join(' and ');
@@ -517,29 +447,21 @@ class EveWorkspaceClient {
     });
   }
 
-  // --- WebSocket ready ---
-
   onWebSocketReady() {
-    // Clear stale thinking indicator from previous connection
     this.messageRenderer.hideThinkingIndicator();
 
-    // Sync voice mode state to server on (re)connect
     if (this.ttsManager.enabled) this.ttsManager.syncVoiceMode(this.wsClient);
 
-    // Load projects (and tasks) first, then sessions, then re-join.
     // Order matters: task session IDs must be known before sessions load
     // so task sessions are filtered from the sidebar.
     this.loadProjects().then(() => this.loadSessions()).then(() => {
-      // Restore session tabs from localStorage (sessions opened in the last 24h).
       const recentIds = this.tabManager.getRecentSessionIds();
       for (const sessionId of recentIds) {
-        // Only restore if the session still exists on the server.
         if (this.sessions.has(sessionId)) {
           this.joinSession(sessionId);
         }
       }
 
-      // Also re-join any already-open session tabs (e.g. from WebSocket reconnect).
       const sessionTabs = this.tabManager.tabs.filter(t => t.type === 'session');
       for (const tab of sessionTabs) {
         if (!recentIds.includes(tab.id)) {
@@ -547,7 +469,6 @@ class EveWorkspaceClient {
         }
       }
 
-      // Restore file tabs from localStorage (files opened in the last 24h).
       const recentFiles = this.tabManager.getRecentFiles();
       for (const file of recentFiles) {
         if (this.projects.has(file.projectId)) {
@@ -560,7 +481,6 @@ class EveWorkspaceClient {
         }
       }
 
-      // Restore module tabs from localStorage.
       const recentModules = this.tabManager.getRecentModules();
       for (const mod of recentModules) {
         if (this.projects.has(mod.projectId)) {
@@ -568,7 +488,6 @@ class EveWorkspaceClient {
         }
       }
 
-      // Check for hash-based route (e.g., /#/voice-chat, #session/<id>, #file/<id>/<path>)
       this._handleHashRoute();
       if (!this._hashListenerAdded) {
         window.addEventListener('hashchange', () => this._handleHashRoute());
@@ -583,11 +502,8 @@ class EveWorkspaceClient {
     this.tabManager.reestablishFileWatches();
   }
 
-  // --- URL-scoped project filter ---
-
-  // Resolves the URL slug against `projects` and writes scopedProjectId
-  // directly (no event). Caller invokes this BEFORE setProjects so the
-  // single PROJECTS_LOADED emit already reflects the scope.
+  // Must run before setProjects() so the single PROJECTS_LOADED emit already
+  // reflects the scope.
   _resolveUrlScope(projects) {
     const slug = readScopeSlugFromUrl();
     if (!slug) { this.state.scopedProjectId = null; return; }
@@ -624,8 +540,6 @@ class EveWorkspaceClient {
     return window.location.search + window.location.hash;
   }
 
-  // --- Hash route handling (deep links / iOS Action Button) ---
-
   _clearHash() {
     history.replaceState(null, '', window.location.pathname + window.location.search);
   }
@@ -639,7 +553,7 @@ class EveWorkspaceClient {
     const hash = window.location.hash;
     if (!hash) return;
 
-    // Voice chat deep links (iOS Action Button) — consume and clear hash
+    // iOS Action Button deep link
     if (hash === '#/voice-chat' || hash === '#/voice_chat' || hash === '#!/voice-chat' || hash === '#!/voice_chat') {
       this._clearHash();
 
@@ -653,7 +567,6 @@ class EveWorkspaceClient {
       return;
     }
 
-    // Tab deep links: #session/<id>, #file/<projectId>/<path>, #terminal/<id>, #module/<projectId>/<moduleName>
     const match = hash.match(/^#(session|file|terminal|module)\/(.+)$/);
     if (!match) return;
 
@@ -718,11 +631,9 @@ class EveWorkspaceClient {
   }
 
   _findVoiceSession() {
-    // Already viewing a voice session
     if (this.voiceChatManager?.isVoiceSession && this.currentSessionId) {
       return this.currentSessionId;
     }
-    // Find any voice session tab
     for (const [id, session] of this.sessions) {
       if (session.sessionType === 'voice') return id;
     }
@@ -786,13 +697,9 @@ class EveWorkspaceClient {
     this.wsClient.send(msg);
   }
 
-  // --- Server message dispatch ---
-
   handleServerMessage(data) {
     this.messageDispatcher.dispatch(data);
   }
-
-  // --- Stats ---
 
   updateStats(stats) {
     if (!stats) return;
@@ -811,8 +718,6 @@ class EveWorkspaceClient {
     this.elements.costStat.textContent = `$${cost.toFixed(4)}`;
     this.elements.costStat.title = `Session cost: $${cost.toFixed(6)}`;
   }
-
-  // --- Data loading ---
 
   async loadModels() {
     try {
@@ -879,8 +784,6 @@ class EveWorkspaceClient {
     }
   }
 
-  // --- Session actions ---
-
   handleNewSession(e) {
     e.preventDefault();
     const projectId = this.elements.projectSelect.value || null;
@@ -892,9 +795,7 @@ class EveWorkspaceClient {
   }
 
   joinSession(sessionId) {
-    // Include projectId so eve's server can track which project this browser is
-    // viewing — used to route LLM-initiated ui_command tab pushes. The browser
-    // authoritatively knows the session's project here.
+    // Server uses projectId to route LLM-initiated ui_command tab pushes.
     const projectId = this.sessions.get(sessionId)?.projectId || null;
     this.wsClient.send({ type: 'join_session', sessionId, projectId });
   }
@@ -913,10 +814,6 @@ class EveWorkspaceClient {
     );
   }
 
-  // --- Session rename / folder actions ---
-
-  // Prompt for a new name, then optimistically update local state + the live
-  // tab label and tell relayLLM (which persists + broadcasts session_renamed).
   async renameSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
@@ -930,8 +827,6 @@ class EveWorkspaceClient {
     this.wsClient.send({ type: 'rename_session', sessionId, name: newName });
   }
 
-  // Move a session into a folder (empty string = ungrouped). Optimistic local
-  // update; relayLLM persists + broadcasts session_folder_changed.
   setSessionFolder(sessionId, folder) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
@@ -945,9 +840,6 @@ class EveWorkspaceClient {
     return [...(this.projects.get(projectId)?.sessionFolders || [])];
   }
 
-  // Persist a project's ordered folder-name list via relay, then refresh local
-  // project state so the sidebar re-renders. Folders are project metadata; the
-  // session→folder membership lives on each session.
   async _saveProjectSessionFolders(projectId, folders) {
     try {
       const updated = await this.api.updateProject(projectId, { session_folders: folders });
@@ -967,13 +859,11 @@ class EveWorkspaceClient {
     });
     if (!name) return;
     const folders = this._projectFolders(projectId);
-    if (folders.includes(name)) return; // already exists — no-op
+    if (folders.includes(name)) return;
     folders.push(name);
     await this._saveProjectSessionFolders(projectId, folders);
   }
 
-  // Prompt for a new folder name, create it on the project if needed, then move
-  // the session into it (used by the session "Move to folder → New folder…" item).
   async moveSessionToNewFolder(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
@@ -993,7 +883,6 @@ class EveWorkspaceClient {
     if (!newName || newName === oldName) return;
     const folders = [...new Set(this._projectFolders(projectId).map(f => (f === oldName ? newName : f)))];
     await this._saveProjectSessionFolders(projectId, folders);
-    // Reassign member sessions to the new folder name (membership is by name).
     for (const s of this.state.getSessionsForProject(projectId)) {
       if ((s.folder || '') === oldName) this.setSessionFolder(s.id, newName);
     }
@@ -1013,8 +902,6 @@ class EveWorkspaceClient {
       }
     });
   }
-
-  // --- Project actions ---
 
   async handleTaskSubmit(e) {
     e.preventDefault();
@@ -1079,8 +966,6 @@ class EveWorkspaceClient {
     }
   }
 
-  // --- Chat submission ---
-
   handleSubmit(e) {
     e.preventDefault();
     const text = this.elements.userInput.value.trim();
@@ -1088,13 +973,12 @@ class EveWorkspaceClient {
 
     this.inputHistory.push(text);
 
-    // Stop any in-progress TTS playback
     if (this.ttsManager.isPlaying) {
       this.ttsManager.stop();
     }
 
-    // Voice mode auto-speaks the reply. Re-unlock audio within this send gesture
-    // so iOS hasn't re-suspended the context by the time the response arrives.
+    // iOS: unlock audio within this send gesture so it isn't re-suspended
+    // by the time the reply's TTS arrives.
     if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
 
     const files = this.fileAttachmentManager.consumeFiles();
@@ -1161,8 +1045,6 @@ class EveWorkspaceClient {
   }
 
   _resolveActiveProjectId() {
-    // Prefer URL-scoped project, then the project of the active session,
-    // then fall back to the first available project.
     if (this.state.scopedProjectId) return this.state.scopedProjectId;
     const session = this.state.currentSessionId
       ? this.state.sessions.get(this.state.currentSessionId)
@@ -1182,11 +1064,8 @@ class EveWorkspaceClient {
     } else if (this.fileEditor) {
       this.fileEditor.handleExternalChange(projectId, path, content);
     }
-    // Live-refresh an HTML preview pane showing this file (e.g. an AI editing it).
     this.htmlPreviewPane?.handleFileChanged(projectId, path);
   }
-
-  // --- Provider settings ---
 
   renderProviderSettings() {
     const container = this.elements.providerSettings;
@@ -1242,7 +1121,6 @@ class EveWorkspaceClient {
         if (field.placeholder) input.placeholder = field.placeholder;
         wrapper.appendChild(input);
       } else {
-        // string or string[]
         const label = document.createElement('label');
         label.textContent = field.label;
         wrapper.appendChild(label);
@@ -1297,8 +1175,6 @@ class EveWorkspaceClient {
     return Object.keys(settings).length > 0 ? settings : null;
   }
 
-  // --- UI helpers ---
-
   showWelcomeScreen() {
     this.elements.welcomeScreen.classList.remove('hidden');
     this.elements.chatScreen.classList.add('hidden');
@@ -1309,9 +1185,8 @@ class EveWorkspaceClient {
     this.elements.chatScreen.classList.remove('hidden');
   }
 
-  // Show a "starting model…" placeholder in the chat area while session
-  // creation is in flight. Cleared by handleSessionCreated (re-enables input;
-  // the spinner is wiped by the subsequent renderMessages) or by _handleError.
+  // Cleared by handleSessionCreated or _handleError elsewhere — nothing in
+  // this file clears it.
   showSessionStarting(text = 'Starting model…') {
     this.messageRenderer.clearMessages();
     this.showChatScreen();
@@ -1407,15 +1282,11 @@ class EveWorkspaceClient {
     return '';
   }
 
-  // Project id whose path matches dir, or '' if none. Deriving the id FROM the
-  // directory keeps a project-scoped terminal's projectId and directory
-  // consistent — relay rejects a directory that isn't within the named project.
+  // relay rejects a directory that isn't within the named project, so the id
+  // must be derived from dir rather than passed independently.
   getProjectIdForDirectory(dir) {
     if (!dir) return '';
     for (const p of this.state.getVisibleProjects()) {
-      // Match exact path or a subdirectory of it, so a session whose cwd is
-      // nested inside a project still resolves to that project's id (relay
-      // validates the dir is within the project before issuing a token).
       if (p.path && (p.path === dir || dir.startsWith(p.path + '/'))) return p.id;
     }
     return '';
@@ -1436,8 +1307,6 @@ class EveWorkspaceClient {
   }
 
 }
-
-// --- Standalone UI helpers (no class dependency) ---
 
 function initSidebarResize(sidebar, resizer) {
   const minWidth = 200;
@@ -1476,8 +1345,7 @@ function initSidebarResize(sidebar, resizer) {
   });
 }
 
-// Global flag: set to true to suppress sidebar swipe-to-close temporarily
-// (e.g. during an in-sidebar swipe-to-delete gesture)
+// Set by other modules to suppress swipe-to-close during their own gesture.
 window._sidebarSwipeLocked = false;
 
 function initSwipeGesture(sidebar, toggleSidebar) {
@@ -1501,7 +1369,6 @@ function initSwipeGesture(sidebar, toggleSidebar) {
   }, { passive: true });
 }
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
   window.client = new EveWorkspaceClient();
 });

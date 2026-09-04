@@ -1,7 +1,3 @@
-/**
- * ApiClient - HTTP API wrapper for relayLLM endpoints.
- * Replaces scattered fetch() calls throughout app.js and task-manager.js.
- */
 class ApiClient {
   constructor() {
     this._getToken = () => localStorage.getItem('eve_session');
@@ -29,24 +25,20 @@ class ApiClient {
     return response.json().catch(() => ({}));
   }
 
-  // Projects
   getProjects() { return this._request('GET', '/api/projects'); }
   createProject(data) { return this._request('POST', '/api/projects', data); }
   updateProject(id, data) { return this._request('PUT', `/api/projects/${id}`, data); }
   deleteProject(id) { return this._request('DELETE', `/api/projects/${id}`); }
   regenerateSkills(id) { return this._request('POST', `/api/projects/${id}/regen_skill`); }
 
-  // Sessions
   getSessions() { return this._request('GET', '/api/sessions'); }
 
-  // Models
   getModels() { return this._request('GET', '/api/models'); }
 
-  // MCPs (relay-managed external tool servers; populates project dialog picker)
   getMcps() { return this._request('GET', '/api/mcps'); }
 
-  // Modules. Invocation is WS-only now (module_invoke_ai / module_ai_*);
-  // the legacy POST /api/modules/invoke endpoint was removed.
+  // Module invocation is WS-only (module_invoke_ai / module_ai_*); there is
+  // deliberately no HTTP invoke() method here.
   listModules(projectId) {
     return this._request('GET', `/api/modules?projectId=${encodeURIComponent(projectId)}`);
   }
@@ -54,7 +46,6 @@ class ApiClient {
     return this._request('GET', `/api/modules/${encodeURIComponent(projectId)}/${encodeURIComponent(moduleName)}`);
   }
 
-  // Tasks
   getTasks(projectId) {
     const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
     return this._request('GET', `/api/tasks${qs}`);
@@ -68,15 +59,12 @@ class ApiClient {
     return this._request('DELETE', `/api/tasks/by-project/${projectId}`);
   }
 
-  // Terminal Templates
   getTerminalTemplates() { return this._request('GET', '/api/terminal/templates'); }
   createTerminalTemplate(data) { return this._request('POST', '/api/terminal/templates', data); }
   updateTerminalTemplate(id, data) { return this._request('PUT', `/api/terminal/templates/${id}`, data); }
   deleteTerminalTemplate(id) { return this._request('DELETE', `/api/terminal/templates/${id}`); }
 
-  // Terminal scrollback (raw PTY bytes from disk; used to replay completed
-  // scheduled tasks in a read-only xterm). Returns a Uint8Array because the
-  // payload is binary — ANSI escape codes, possibly invalid UTF-8.
+  // Payload is raw PTY bytes (ANSI escapes, possibly invalid UTF-8), not JSON.
   async getTerminalLog(terminalId) {
     const response = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/log`, {
       method: 'GET',

@@ -1,35 +1,18 @@
-/**
- * Session message descriptors — session lifecycle (create/join/leave/end/
- * delete/rename/folder), user input (with slash-command interception, voice
- * mode and dictation prompts) and mid-session controls (stop, permission
- * response, permission mode). See ws/message-registry.js for the registry
- * these are registered into.
- *
- * `create_session` is the only `async handle` in this file (and the first in
- * the registry outside the pilot): its `case` arm is `await`ed today, so its
- * rejections must keep reaching the dispatcher's `try/catch` the same way.
- * Every other descriptor here must NOT be async — see C2 in
- * ws/message-registry.js.
- */
 const SlashCommandHandler = require('../slash-command-handler');
 const { EMOTION, DELIVERY } = require('../tts-director');
 
-// Stateless (see C5 in ws/message-registry.js) — takes ws/relayClient as
-// call-time arguments on every invocation, so a single process-wide instance
-// never captures a per-connection object.
+// Stateless — takes ws/relayClient as call-time arguments on every
+// invocation, so this process-wide singleton never captures a per-connection
+// object.
 const slashCommandHandler = new SlashCommandHandler();
 
-/**
- * Create session via relayLLM HTTP POST, then join via WS.
- * Resolves the project for its directory and permission policy only. The
- * project token is brokered entirely by relay — relayLLM resolves the scoped
- * token from relay's bridge by projectId at spawn time, so eve never handles it.
- */
+// The project token is brokered entirely by relay — relayLLM resolves the
+// scoped token from relay's bridge by projectId at spawn time, so eve never
+// handles it.
 async function handleCreateSession(ctx) {
   const { ws, relayClient, message, log } = ctx;
   const { relayTransport, resolveProject } = ctx.deps;
   try {
-    // Resolve project for directory and permission policy (never the token).
     let directory = message.directory || '';
     let projectPolicy = null;
     if (message.projectId) {
@@ -40,10 +23,9 @@ async function handleCreateSession(ctx) {
       }
     }
 
-    // Merge project policy into the session settings. The client may set
-    // permissionMode in message.settings to override the project default
-    // (e.g. "Start in plan mode" checkbox). The policy itself (allowed/denied)
-    // always comes from the project — clients can't widen it.
+    // The client may override permissionMode (e.g. "Start in plan mode"), but
+    // the allowed/denied tool policy always comes from the project — clients
+    // can't widen it.
     const settings = { ...(message.settings || {}) };
     if (projectPolicy) {
       settings.permissionPolicy = {
@@ -71,7 +53,6 @@ async function handleCreateSession(ctx) {
       return;
     }
 
-    // Send session_created to browser
     ws.send(JSON.stringify({
       type: 'session_created',
       sessionId: data.sessionId,
@@ -84,11 +65,9 @@ async function handleCreateSession(ctx) {
       voice: message.voice || null,
     }));
 
-    // Voice mode is controlled by the client via syncVoiceMode.
-    // Server TTS backend sends voice_mode enabled; on-device backends don't.
-    // Don't force it here — that would cause double speech when using native TTS.
-
-    // Suppress the session_joined that relayLLM will send when we join
+    // Voice mode is controlled by the client via syncVoiceMode — don't force
+    // it here, since on-device TTS backends don't send voice_mode enabled and
+    // forcing it would cause double speech.
     relayClient.setSuppressNextJoin(data.sessionId);
     relayClient.currentSessionId = data.sessionId;
     relayClient.sessionDirectory = data.directory;
@@ -100,15 +79,10 @@ async function handleCreateSession(ctx) {
   }
 }
 
-/**
- * Handle user input: check for local slash commands first, else relay.
- */
-// Voice mode: tell the model to (a) write for the ear and (b) sprinkle the
-// inline cue vocabulary the Director (tts-director.js) parses into per-utterance
-// emotion/delivery. Brackets are the ONE markup we allow precisely because the
-// Director consumes them and strips them before synthesis.
-// The advertised cue vocabulary is generated from the Director's own
-// EMOTION/DELIVERY tables, so the prompt and the parser can't drift apart.
+// Brackets are the ONE markup allowed because the Director (tts-director.js)
+// consumes them and strips them before synthesis. The advertised cue
+// vocabulary is generated from the Director's own EMOTION/DELIVERY tables so
+// the prompt and the parser can't drift apart.
 const cueTags = (cues) => Object.keys(cues).map(c => `[${c}]`).join(' ');
 const VOICE_MODE_INSTRUCTION = [
   '[VOICE MODE] Your reply is spoken aloud by an expressive voice — perform it, don\'t just answer.',
@@ -135,12 +109,10 @@ function handleUserInput(ctx) {
 
   let finalText = message.text;
 
-  // Prepend dictation notice for voice-transcribed input
   if (message.dictated) {
     finalText = DICTATION_NOTICE + finalText;
   }
 
-  // Prepend voice mode instruction when voice mode is active
   if (relayClient.voiceMode) {
     finalText = VOICE_MODE_INSTRUCTION + '\n\n' + finalText;
   }
@@ -149,10 +121,6 @@ function handleUserInput(ctx) {
   relayClient.sendMessage(finalText, files, message.sessionId);
 }
 
-/**
- * Convert a client file attachment to the relay format.
- * Extracts mime type and raw base64 from data URLs.
- */
 function parseFileAttachment(f) {
   if (f.type === 'image' && f.content && f.content.startsWith('data:')) {
     const match = f.content.match(/^data:([^;]+);base64,(.+)$/);

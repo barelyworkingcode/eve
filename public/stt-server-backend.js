@@ -1,8 +1,8 @@
 /**
- * SttServerBackend - Server-side STT via Whisper daemon.
- * Sends audio over WebSocket to Eve backend, which forwards to the Whisper TCP daemon.
- * Results arrive asynchronously via WS `transcription_result` / `transcription_error` messages,
- * routed by message-dispatcher to STTManager.handleTranscriptionResult().
+ * SttServerBackend - sends audio over WebSocket to Eve's server, which
+ * forwards it to the external STT daemon. Results arrive asynchronously via
+ * WS `transcription_result` / `transcription_error` messages, routed by
+ * message-dispatcher to STTManager.handleTranscriptionResult().
  */
 class SttServerBackend {
   constructor() {
@@ -18,22 +18,14 @@ class SttServerBackend {
     context.onReady?.();
   }
 
-  /**
-   * Transcribe Float32Array audio from VAD.
-   * Encodes as WAV base64 and sends via WebSocket.
-   * Returns null — result arrives via WS dispatcher → handleTranscriptionResult().
-   */
+  /** Returns null — result arrives via WS dispatcher → handleTranscriptionResult(). */
   transcribe(audio) {
     const base64Wav = VadManager.audioToBase64Wav(audio);
     this._wsClient.send({ type: 'transcribe_audio', audio: base64Wav });
     return null;
   }
 
-  /**
-   * Transcribe a push-to-talk recording blob.
-   * Reads blob as base64 and sends via WebSocket.
-   * Returns null — result arrives via WS dispatcher.
-   */
+  /** Returns null — result arrives via WS dispatcher. */
   async transcribeBlob(blob) {
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader();

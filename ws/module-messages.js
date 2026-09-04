@@ -1,27 +1,3 @@
-/**
- * Module message descriptors — the module SDK's file r/w bridge (with the
- * server-side permission re-check) and the module AI invoke/stop pair. See
- * ws/message-registry.js for the registry these are registered into.
- *
- * This domain owns the other half of the one seam in the phase where a
- * descriptor and the connection's `close` handler share state:
- * `inflightAiIds` is a per-connection Set built in ws-handler.js and reached
- * here only through `ctx` (never captured — see C1 in ws/message-registry.js).
- * `module_invoke_ai` itself does not track `inflightAiIds` (it never did —
- * that bookkeeping belongs to `search_ai_summarize` only), but `module_ai_stop`
- * shares the same `ctx`-only discipline for `moduleInvoker`.
- *
- * `module_read_file` and `module_write_file` are `await`ed in today's switch,
- * so their descriptors must be `async`. `module_invoke_ai` and `module_ai_stop`
- * are not awaited today, so their descriptors must not be — see C2 in
- * ws/message-registry.js.
- */
-
-/**
- * Bridge module SDK file ops (readFile/writeFile) through the server-side
- * permission check before delegating to FileHandlers. The iframe is untrusted
- * (AI-authored content); client-side checks are advisory only.
- */
 async function handleModuleFileOp(ctx, op) {
   const { ws, message, fileWatcher } = ctx;
   const { moduleService, fileHandlers, resolveProject } = ctx.deps;
@@ -62,15 +38,8 @@ async function handleModuleFileOp(ctx, op) {
   }
 }
 
-/**
- * Drive a streaming module AI invocation. The invoker handles the relay
- * session lifecycle and forwards per-event frames to the browser as it
- * goes; this wrapper just translates the terminal outcome into a single
- * `module_ai_completed`/`module_ai_failed` frame the client can resolve its
- * pending Promise against. The invoke is fire-and-forget from the WS
- * handler's perspective — errors must never throw past this boundary or
- * they'd bubble up and disconnect the socket.
- */
+// Errors must never throw past this boundary — an unhandled rejection here
+// would bubble up and disconnect the socket.
 function handleModuleInvokeAi(ctx) {
   const { ws, relayClient, message, log } = ctx;
   const { moduleInvoker } = ctx.deps;
