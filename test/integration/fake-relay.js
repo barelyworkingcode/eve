@@ -14,6 +14,8 @@
  *
  * Scriptable surface:
  *   addProject(p) / getProject(id) / listProjects()
+ *   listSessions()      — sessions created via POST /api/sessions, as GET /api/sessions lists them
+ *   seedSession(s)      — inject a session directly, as if created before this process (see fixtures)
  *   scriptSession(sessionId, frames)  — frames streamed in reply to send_message
  *   emitToRelay(frame) / emitToScheduler(frame)  — push a frame on eve's /ws or
  *                                       /ws/tasks upstream (permissions, terminals, tasks)
@@ -49,6 +51,7 @@ function stampFrame(f, sessionId) {
 
 function createFakeRelay() {
   const projects = new Map();        // id -> relay-shape project
+  const sessions = new Map();        // sessionId -> relay-shape session (GET /api/sessions listing)
   const sessionScripts = new Map();  // sessionId -> [frames]
   const requests = [];
   const inbound = [];                // every WS frame eve sent us
@@ -110,18 +113,28 @@ function createFakeRelay() {
       }
 
       // --- Sessions (create returns an id; delete is the invoker's cleanup) ---
+      // Tracked in `sessions` (not just returned) so a later GET /api/sessions
+      // — the reconnect/reload restore path's only session source — can see
+      // it. Real relayLLM has no concept of eve's UI-only `sessionType`
+      // ("chat" vs "voice"), so it's deliberately NOT stored here: restoring
+      // that distinction after a reload is `eve-session-meta`'s job alone
+      // (see TabManager.getSessionMeta, read in message-dispatcher.js's
+      // handleSessionJoined).
       if (p === '/api/sessions' && req.method === 'POST') {
         const sessionId = parsed.sessionId || `sess-${++seq}`;
-        return send(201, {
+        const session = {
           sessionId,
           directory: parsed.directory || '/fake',
           projectId: parsed.projectId || null,
           model: parsed.model || 'fake-model',
           name: parsed.name || '',
-        });
+        };
+        sessions.set(sessionId, session);
+        return send(201, session);
       }
-      if (/^\/api\/sessions\/.+$/.test(p) && req.method === 'DELETE') return send(200, {});
-      if (p === '/api/sessions' && req.method === 'GET') return send(200, []);
+      const sm = p.match(/^\/api\/sessions\/([^/]+)$/);
+      if (sm && req.method === 'DELETE') { sessions.delete(sm[1]); return send(200, {}); }
+      if (p === '/api/sessions' && req.method === 'GET') return send(200, [...sessions.values()]);
 
       // --- Misc endpoints eve may touch at boot ---
       if (p === '/api/models' && req.method === 'GET') return send(200, [{ id: 'fake-model', name: 'Fake Model' }]);
@@ -170,8 +183,14 @@ function createFakeRelay() {
 
   return {
     addProject: (proj) => { projects.set(proj.id, proj); },
+    // Seed a session as if it were created before this test process started
+    // (e.g. a previous browser tab) — for reload/restore tests that need
+    // GET /api/sessions to already know about an id a localStorage fixture
+    // references, without a real POST round trip.
+    seedSession: (session) => { sessions.set(session.sessionId, session); },
     getProject: (id) => projects.get(id),
     listProjects: () => [...projects.values()],
+    listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
     emitToRelay: (frame) => { for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
     emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
