@@ -241,20 +241,12 @@ class TabManager {
    * Both the single-view path and each pane of a split go through this.
    */
   _viewForTab(tab) {
-    const d = panes.type(tab.type);
-    if (d) return d.view(tab, this._ctx());
-    switch (tab.type) {
-      default: return 'chat';
-    }
+    return panes.type(tab.type).view(tab, this._ctx());
   }
 
   /** The render args a view needs to bind its content. */
   _refForTab(tab) {
-    const d = panes.type(tab.type);
-    if (d) return d.ref(tab);
-    switch (tab.type) {
-      default: return {};
-    }
+    return panes.type(tab.type).ref(tab);
   }
 
   /** The view used for the second pane — a split may override it (e.g. an HTML
@@ -473,10 +465,6 @@ class TabManager {
   // never re-parent the heavy containers — split mode just un-hides two of them
   // and sizes them with flex, decoupling visual order from DOM order via CSS
   // `order`.
-
-  getTab(tabId) {
-    return this.tabs.find(t => t.id === tabId) || null;
-  }
 
   _allContentEls() {
     return [...new Set(this._viewEls.values())].filter(Boolean);

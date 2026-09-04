@@ -12,6 +12,7 @@ it holds the *why* for the current work.
 | `refactor/feature-registry` | 5 commits, pushed, **not merged**. Phase 1 of the refactor is complete. |
 | `pm/voice-button-features` | branched off it; 3 commits, **not pushed**. Phase 2 is complete. |
 | `pm/chat-input-features` | branched off it; 7 commits, **not pushed**. Phase 3 is complete. |
+| `pm/tab-manager-registry` | branched off `pm/chat-input-features` (`4778ac2`); 11 commits, **not pushed**. Phase 4 is complete. |
 | `simplify/remove-browser-voice-and-css` | merged into main; kept, safe to delete. |
 
 Everything green as of `636b858`:
@@ -90,36 +91,114 @@ specs' worth of behavioural cover on the input row —
 `test/e2e/chat-input-row.spec.js` and `test/e2e/voice-buttons.spec.js` remain
 unmodifiable contracts, and this phase's new e2e spec joins them.
 
-## Next step — tab-manager.js and ws-handler.js
+**Refactor phase 4 (on `pm/tab-manager-registry`).** `tab-manager.js`'s pane-
+type and pane-view dispatch moved onto a `PaneRegistry`
+(`public/core/pane-registry.js`), the same file-scope-singleton /
+deferred-registration idiom as `FeatureRegistry`, composed with
+`ViewerRegistry`'s selection-by-key semantics. See
+[decisions/002-pane-registry.md](decisions/002-pane-registry.md) for the full
+design (two descriptor kinds, why, and the constraint that made the phase
+non-trivial).
 
-The refactor's next targets are the document-pane and server sides:
-`tab-manager.js` (30 `case` arms on pane type) and `ws-handler.js` (44-arm
-switch, 12 injected deps) have the same shape of problem the chat-input buttons
-did — a single file doing dispatch that belongs to whichever feature or
-service owns each case.
+All five pane types (`session`, `file`, `terminal`, `module`, `image`) and all
+eight views (`chat`, `voice`, `editor`, `viewer`, `image`, `terminal`,
+`module`, `htmlPreview`) now live in `public/panes/*.js`, registered at file
+scope and loaded via one `<script>` tag each in `index.html` (also picked up
+under Node by a directory scan in `core/pane-registry.js`, so no handoff had
+to add a `require` line to `tab-manager.js`). The dead `console` view id and
+the unused `getTab` method were deleted in the final handoff, along with the
+two switch statements (`_viewForTab`, `_refForTab`) that had degenerated to a
+bare `default:` arm with nothing left to fall through from.
 
-One honest piece of debt to clear along the way: `app.js`'s
+Measured, before → after:
+
+| measurement | before | after |
+|---|---|---|
+| `case` labels in `tab-manager.js` | 32 (28 pane-type + 4 `_edgeToDir`) | 4 (all `_edgeToDir`, drop edges — not pane types) |
+| `default:` arms | 4 | 1 (`_edgeToDir`'s) |
+| pane-type conditionals (`.type === '…'` etc.) | 20 | 0 |
+| `tab-manager.js` lines | 1187 | 971 |
+| `public/core/pane-registry.js` + `public/panes/*.js` lines | 0 | 761 |
+
+Net lines across the client went up (locality was the goal, not brevity — see
+002's consequences section). All four suites stayed green through every one
+of the ten handoffs, and `test:visual`'s 24 screenshots stayed at 0.0000%
+end to end.
+
+**Correcting a stale figure.** [001-feature-registry.md](001-feature-registry.md)
+and the previous revision of this document both cited "30 `case` arms on pane
+type" for `tab-manager.js`. That was a `grep -c "case '"` line count, which
+undercounts (two lines each carry two labels) and doesn't count `if`/ternary
+comparisons at all. The actually-measured pre-refactor dispatch surface was
+**51 branch arms across 18 sites**: 28 `case` labels + 3 pane-type `default:`
+arms + 20 `if`/ternary comparisons (`_edgeToDir`'s 4 drop-edge labels excluded
+throughout, since they're not pane-type dispatch). See 002 for the full
+inventory.
+
+## Next step — ws-handler.js
+
+The refactor's next target is the server side: `ws-handler.js` (44-arm
+switch, 12 injected deps) has the same shape of problem `tab-manager.js` did —
+a single file doing dispatch that belongs to whichever service owns each case.
+It is the last of the three files [001-feature-registry.md](001-feature-registry.md)
+named as having this problem (`tab-manager.js` is now done; `ws-handler.js` is
+the remaining one).
+
+One piece of debt, corrected here because the old figure was wrong: `app.js`'s
 `showStopButton`/`hideStopButton`/`showSessionStarting`/`clearSessionStarting`
-survive only as one-line forwarders to `chatForm`. That was deliberate in phase
-3 — it kept eleven call sites from moving — but it is debt now, not a
-destination. Pointing those callers (`message-dispatcher.js`, `tab-manager.js`,
-`dialogs/shell-launcher-dialog.js`) at `chatForm` directly, and deleting the
-forwarders, is the natural first move.
+were described as "four one-line forwarders" to `chatForm`. Only two of the
+four actually are (`showStopButton`, `hideStopButton`). The other two own
+`elements.userInput.disabled` in addition to delegating to `chatForm` —
+`showSessionStarting` also clears messages, switches to the chat screen and
+shows the thinking indicator; `clearSessionStarting` re-enables the textarea
+directly. Neither can be deleted in favor of callers reaching `chatForm`
+directly until `#userInput` itself moves into the chat-form feature, which is
+a phase in its own right (`elements.userInput` has callers throughout
+`app.js`). Phase 4 deleted two of the ten external call sites for the two
+genuine forwarders for free, inside the `session` view's `show` (now
+`ctx.container.get('chatForm').showStop()`/`.hideStop()` directly, in
+`public/panes/views.js`) — the remaining eight all live in
+`message-dispatcher.js`, whose natural owner is the `ws-handler.js` phase.
 
-Three gates exist from the chat-input work and must keep passing unmodified —
-if one fails, the code is wrong. `test/e2e/chat-input-row.spec.js` asserts the
-row's wiring (order, send submits, plan mode emits `set_permission_mode`, stop
-hidden while idle, mic tracks STT availability, attach tracks model
-capability). `test/e2e/voice-buttons.spec.js` asserts the drawer's (control
-order, short tap toggles TTS, the `voice_mode` frame reaches the server, the
-manager drives its own speaking indicator, 500ms long press starts voice chat
-and a short tap does not). `test/e2e/chat-form-and-permissions.spec.js` covers
-two seams the other two don't reach: send/textarea disabled only during the
+Six gates exist from the chat-input and tab-manager work and must keep
+passing unmodified — if one fails, the code is wrong.
+`test/e2e/chat-input-row.spec.js` asserts the row's wiring (order, send
+submits, plan mode emits `set_permission_mode`, stop hidden while idle, mic
+tracks STT availability, attach tracks model capability).
+`test/e2e/voice-buttons.spec.js` asserts the drawer's (control order, short
+tap toggles TTS, the `voice_mode` frame reaches the server, the manager
+drives its own speaking indicator, 500ms long press starts voice chat and a
+short tap does not). `test/e2e/chat-form-and-permissions.spec.js` covers two
+seams the other two don't reach: send/textarea disabled only during the
 session-starting window, and plan mode reflecting a server-pushed
-`mode_changed` frame rather than only the local click. Screenshots cannot catch
-a dead button; these can.
+`mode_changed` frame rather than only the local click.
+`test/e2e/tab-panes.spec.js` pins tab/pane behaviour end to end (splits,
+undocking, close confirms, the long-press session delete, image ownership,
+localStorage restore). `test/unit/tab-manager-logic.test.js` pins the pure
+logic seams (`_getRecentEntries`, `_projectIdForDirectory`,
+`_nextTabInProject`, `_ownedBy`, `_edgeToDir`, `_updateHash`).
+`test/unit/pane-registry.test.js` pins `PaneRegistry` itself (registration,
+duplicate-throws, unknown-lookup-returns-null). Screenshots cannot catch a
+dead button or a silently-undefined captured service; these can.
 
 ## Gotchas that cost real time
+
+**A pane descriptor must resolve its owning service through `ctx`, at call
+time — never capture one.** `new TabManager(this.container)` runs at
+`app.js:75`, before `fileEditor` (79), `htmlPreviewPane` (81), `moduleHost`
+(87), `viewerRegistry` (95), `terminalManager` (118) and `voiceChatManager`
+(131) are constructed. A `panes/*.js` file that does
+`const ed = container.get('fileEditor')` at file scope, at registration, or in
+a memoised field gets `undefined`, and the failure is silent — nothing throws
+at load time; the descriptor's call into `undefined` either no-ops behind an
+optional chain or throws deep inside a click handler the first time a user
+exercises that pane type. No test in the repo catches a captured service: the
+unit suite constructs `TabManager` against a fake `document` with no real
+`app`, and by the time the e2e suite runs, every service already exists, so
+"resolved late, correctly" and "resolved early, would have been undefined"
+look identical. Every descriptor function must reach a service through
+`ctx.app.<x>` inside its own body — see `TabManager._ctx()` and
+`core/pane-registry.js`'s file header.
 
 **`server.js` caches `public/index.html` at startup.** Editing it has no effect
 until the server restarts. Editing any other file under `public/` is picked up
