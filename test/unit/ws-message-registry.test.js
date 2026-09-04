@@ -82,15 +82,15 @@ describe('WsMessageRegistry.expensiveTypes', () => {
     expect(r.expensiveTypes()).toEqual(new Set(['pricey']));
   });
 
-  // The frozen six from spec §5b / C4. `create_session` (H3), `search_project`
-  // and `search_ai_summarize` (H5, search-messages.js) and `module_invoke_ai`
-  // (H5, module-messages.js) exist so far — `transcribe_audio` and `tts_speak`
-  // land in H6. This asserts the *mechanism*, not the eventual membership. The
-  // membership itself is asserted end-to-end once every expensive type has a
-  // descriptor (spec §12-H6).
-  it('carries exactly the expensive types registered so far', () => {
+  // The frozen six from spec §5b / C4 / AC-10. Every expensive type now has a
+  // descriptor (H6 migrated `transcribe_audio` and `tts_speak`, the last two,
+  // and deleted `EXPENSIVE_OPS`), so this is the sole guard against an
+  // expensive type silently losing its rate-limit cap — descriptor.expensive
+  // is the only source of rate-limit membership left in the process.
+  it('carries exactly the six frozen expensive types', () => {
     expect(messages.expensiveTypes()).toEqual(new Set([
       'create_session', 'search_project', 'search_ai_summarize', 'module_invoke_ai',
+      'transcribe_audio', 'tts_speak',
     ]));
   });
 });
