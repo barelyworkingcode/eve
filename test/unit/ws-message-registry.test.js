@@ -82,13 +82,12 @@ describe('WsMessageRegistry.expensiveTypes', () => {
     expect(r.expensiveTypes()).toEqual(new Set(['pricey']));
   });
 
-  // The frozen six from spec §5b / C4. None of them exist yet in H2 (only
-  // the terminal domain is registered so far, and no terminal type is
-  // expensive) — this asserts the *mechanism*, not the eventual membership.
-  // The membership itself is asserted end-to-end once every expensive type
-  // has a descriptor (spec §12-H6).
-  it('none of the terminal descriptors are marked expensive', () => {
-    expect(messages.expensiveTypes().size).toBe(0);
+  // The frozen six from spec §5b / C4. Only `create_session` exists yet (the
+  // session domain landed in H3) — this asserts the *mechanism*, not the
+  // eventual membership. The membership itself is asserted end-to-end once
+  // every expensive type has a descriptor (spec §12-H6).
+  it('carries exactly the expensive types registered so far', () => {
+    expect(messages.expensiveTypes()).toEqual(new Set(['create_session']));
   });
 });
 
