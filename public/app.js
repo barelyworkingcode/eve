@@ -42,8 +42,9 @@ class EveWorkspaceClient {
 
     // Feature registry: features render their own DOM into the [data-slot]
     // markers in index.html (docs/decisions/001-feature-registry.md). Must run
-    // before initElements() — the button ids it caches (attachBtn, sendBtn,
-    // ...) do not exist until the slots render.
+    // before initElements() — none of the ids initElements() caches are
+    // slot-rendered, but the render closures depend on static markup that
+    // must already exist.
     this.container.register('features', features);
     // Reverts the persisted voice backend to 'server' after an on-device
     // crash. Must run before features.boot(): STTManager's constructor reads
@@ -121,11 +122,11 @@ class EveWorkspaceClient {
     // dispatch table keyed by view.kind.
     this.taskViewer = new TaskViewer(this.container);
     this.container.register('taskViewer', this.taskViewer);
-    this.fileAttachmentManager = new FileAttachmentManager(this.container);
-    this.container.register('fileAttachmentManager', this.fileAttachmentManager);
+    this.fileAttachmentManager = this.container.get('fileAttachmentManager');
     this.inputHistory = new InputHistory('eve-input-history', 100);
     this.ttsManager = this.container.get('ttsManager');
     this.sttManager = this.container.get('sttManager');
+    this.chatForm = this.container.get('chatForm');
     this.voiceChatManager = new VoiceChatManager(this.container);
     this.container.register('voiceChatManager', this.voiceChatManager);
     this.toastManager = new ToastManager(this.container);
@@ -182,7 +183,6 @@ class EveWorkspaceClient {
       messages: document.getElementById('messages'),
       userInput: document.getElementById('userInput'),
       inputForm: document.getElementById('inputForm'),
-      sendBtn: document.getElementById('sendBtn'),
       newSessionBtn: document.getElementById('newSessionBtn'),
       welcomeNewSession: document.getElementById('welcomeNewSession'), // legacy, may not exist
       modal: document.getElementById('modal'),
@@ -200,10 +200,6 @@ class EveWorkspaceClient {
       sidebarResizer: document.getElementById('sidebarResizer'),
       openSidebar: document.getElementById('openSidebar'),
       closeSidebar: document.getElementById('closeSidebar'),
-      attachBtn: document.getElementById('attachBtn'),
-      planModeBtn: document.getElementById('planModeBtn'),
-      fileInput: document.getElementById('fileInput'),
-      attachedFiles: document.getElementById('attachedFiles'),
       costStat: document.getElementById('costStat'),
       sessionStats: document.getElementById('sessionStats'),
       confirmModal: document.getElementById('confirmModal'),
@@ -222,7 +218,6 @@ class EveWorkspaceClient {
       planRevise: document.getElementById('planRevise'),
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
-      stopBtn: document.getElementById('stopBtn'),
       voiceUIBtn: document.getElementById('voiceUIBtn'),
       voiceDrawer: document.getElementById('voiceDrawer'),
       voiceDrawerToggle: document.getElementById('voiceDrawerToggle'),
@@ -433,23 +428,6 @@ class EveWorkspaceClient {
       this.inputHistory.reset();
       this.autoResizeTextarea();
     });
-    this.elements.stopBtn.addEventListener('click', () => this.handleStop());
-
-    // Plan-mode toggle. The button's .active class reflects the server's
-    // current mode (set via the mode_changed event), so reading it gives the
-    // up-to-date state. relayLLM restarts Claude with --resume + the new
-    // --permission-mode flag.
-    if (this.elements.planModeBtn) {
-      this.elements.planModeBtn.addEventListener('click', () => {
-        if (!this.currentSessionId) return;
-        const next = this.elements.planModeBtn.classList.contains('active') ? 'default' : 'plan';
-        this.wsClient.send({
-          type: 'set_permission_mode',
-          sessionId: this.currentSessionId,
-          mode: next,
-        });
-      });
-    }
 
     // Voice mode toggle + voice selection
     this.ttsManager.init();
@@ -855,8 +833,8 @@ class EveWorkspaceClient {
 
   _updateChatInputCapabilities(modelValue) {
     const model = modelValue ? this.models.find(m => m.value === modelValue) : null;
-    if (this.elements.attachBtn) this.elements.attachBtn.hidden = !(model?.supportsAttachments);
-    if (this.elements.planModeBtn) this.elements.planModeBtn.hidden = !(model?.supportsPermissions);
+    this.fileAttachmentManager.setAvailable(!!model?.supportsAttachments);
+    this.container.get('permissions').setAvailable(!!model?.supportsPermissions);
   }
 
   async loadMcps() {
@@ -1154,13 +1132,11 @@ class EveWorkspaceClient {
   }
 
   showStopButton() {
-    this.elements.sendBtn.classList.add('hidden');
-    this.elements.stopBtn.classList.remove('hidden');
+    this.chatForm.showStop();
   }
 
   hideStopButton() {
-    this.elements.stopBtn.classList.add('hidden');
-    this.elements.sendBtn.classList.remove('hidden');
+    this.chatForm.hideStop();
   }
 
   handleFileContent(projectId, path, content) {
@@ -1341,12 +1317,12 @@ class EveWorkspaceClient {
     this.showChatScreen();
     this.messageRenderer.showThinkingIndicator(text);
     this.elements.userInput.disabled = true;
-    this.elements.sendBtn.disabled = true;
+    this.chatForm.setSubmitEnabled(false);
   }
 
   clearSessionStarting() {
     this.elements.userInput.disabled = false;
-    this.elements.sendBtn.disabled = false;
+    this.chatForm.setSubmitEnabled(true);
   }
 
   enableVoiceMode(voice) {

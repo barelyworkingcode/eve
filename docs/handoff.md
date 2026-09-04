@@ -11,13 +11,14 @@ it holds the *why* for the current work.
 | `main` | simplification work merged (PR #22). Green. |
 | `refactor/feature-registry` | 5 commits, pushed, **not merged**. Phase 1 of the refactor is complete. |
 | `pm/voice-button-features` | branched off it; 3 commits, **not pushed**. Phase 2 is complete. |
+| `pm/chat-input-features` | branched off it; 7 commits, **not pushed**. Phase 3 is complete. |
 | `simplify/remove-browser-voice-and-css` | merged into main; kept, safe to delete. |
 
-Everything green as of `3ac0b62`:
+Everything green as of `636b858`:
 
-    npm test              # 36 suites, 525 tests   (unit, hermetic, ~4s)
+    npm test              # 39 suites, 540 tests   (unit, hermetic, ~4s)
     npm run test:integration   # 69 passed, 1 skipped
-    npm run test:e2e      # 13 (spawns eve + fake relay)
+    npm run test:e2e      # 16 (spawns eve + fake relay)
     npm run test:voice    # 6  (needs the live Kokoro/Whisper daemons)
     npm run test:visual   # 24 screenshots, must be 0.0000%
 
@@ -61,30 +62,62 @@ Two consequences worth knowing:
   feature's constructor runs before any slot renders, so it must not touch the
   DOM. Both are clean today; keep them that way.
 
-## Next step — phase 3
+**Refactor phase 3 (on `pm/chat-input-features`).** The last four buttons left
+`public/features/chat-input.js`, which is now deleted. Attach went to
+`public/features/file-attachments.js`, container key `fileAttachmentManager`,
+slot `chat-input-leading` order 10. `FileAttachmentManager`'s constructor is now
+DOM-free; a new `init(button)` does the wiring, and `setAvailable()` replaces
+`app.js` poking `.hidden`. Plan mode went to `public/features/permissions.js`
+with a `PermissionModeControl` (`syncMode`/`setAvailable`), key `permissions`,
+slot `chat-input-leading` order 20; `message-dispatcher._applyPermissionMode`
+now calls `syncMode()` instead of `document.getElementById('planModeBtn')`.
+Send and stop went to `public/features/chat-form.js` with a `ChatFormControls`
+defined in the same file (`showStop`/`hideStop`/`setSubmitEnabled`), key
+`chatForm`, slot `chat-input-trailing` orders 10 and 30 with the mic's 20
+between them. `app.js`'s `showStopButton`/`hideStopButton`/`showSessionStarting`/
+`clearSessionStarting` keep their names and signatures and became one-line
+delegations, so their eleven callers in `message-dispatcher.js`, `tab-manager.js`
+and `dialogs/shell-launcher-dialog.js` did not move.
 
-Three buttons remain in `public/features/chat-input.js`: attach (belongs to
-file attachments), plan mode (to permissions), send and stop (to the chat form
-and the run lifecycle). Move each to the feature that owns it, following
-`features/stt.js` — it is the smaller of the two worked examples. `chat-input.js`
-is deleted when the last one leaves.
+`public/app.js` went 1531 → 1507 lines; `initElements()` went from 65 to 59
+`getElementById` entries; `this.elements.*` reach-throughs went from 81 to 69.
 
-Send and stop are the awkward pair: both are driven from `app.js`'s run
-lifecycle rather than from a manager that could own them, so that one needs a
-home invented for it rather than a home it already has.
+New tests: `test/unit/chat-form-controls.test.js`,
+`test/unit/permission-mode-control.test.js`,
+`test/unit/file-attachment-manager-init.test.js`, and
+`test/e2e/chat-form-and-permissions.spec.js`. There are now three frozen gate
+specs' worth of behavioural cover on the input row —
+`test/e2e/chat-input-row.spec.js` and `test/e2e/voice-buttons.spec.js` remain
+unmodifiable contracts, and this phase's new e2e spec joins them.
 
-Two gates exist and must keep passing unmodified — if one fails, the code is
-wrong. `test/e2e/chat-input-row.spec.js` asserts the row's wiring (order, send
-submits, plan mode emits `set_permission_mode`, stop hidden while idle, mic
-tracks STT availability, attach tracks model capability).
-`test/e2e/voice-buttons.spec.js` asserts the drawer's (control order, short tap
-toggles TTS, the `voice_mode` frame reaches the server, the manager drives its
-own speaking indicator, 500ms long press starts voice chat and a short tap does
-not). Screenshots cannot catch a dead button; these can.
+## Next step — tab-manager.js and ws-handler.js
 
-Still open after that: `tab-manager.js` (30 `case` arms on pane type) and
-`ws-handler.js` (44-arm switch, 12 injected deps) have the same shape of
-problem on the document-pane and server sides.
+The refactor's next targets are the document-pane and server sides:
+`tab-manager.js` (30 `case` arms on pane type) and `ws-handler.js` (44-arm
+switch, 12 injected deps) have the same shape of problem the chat-input buttons
+did — a single file doing dispatch that belongs to whichever feature or
+service owns each case.
+
+One honest piece of debt to clear along the way: `app.js`'s
+`showStopButton`/`hideStopButton`/`showSessionStarting`/`clearSessionStarting`
+survive only as one-line forwarders to `chatForm`. That was deliberate in phase
+3 — it kept eleven call sites from moving — but it is debt now, not a
+destination. Pointing those callers (`message-dispatcher.js`, `tab-manager.js`,
+`dialogs/shell-launcher-dialog.js`) at `chatForm` directly, and deleting the
+forwarders, is the natural first move.
+
+Three gates exist from the chat-input work and must keep passing unmodified —
+if one fails, the code is wrong. `test/e2e/chat-input-row.spec.js` asserts the
+row's wiring (order, send submits, plan mode emits `set_permission_mode`, stop
+hidden while idle, mic tracks STT availability, attach tracks model
+capability). `test/e2e/voice-buttons.spec.js` asserts the drawer's (control
+order, short tap toggles TTS, the `voice_mode` frame reaches the server, the
+manager drives its own speaking indicator, 500ms long press starts voice chat
+and a short tap does not). `test/e2e/chat-form-and-permissions.spec.js` covers
+two seams the other two don't reach: send/textarea disabled only during the
+session-starting window, and plan mode reflecting a server-pushed
+`mode_changed` frame rather than only the local click. Screenshots cannot catch
+a dead button; these can.
 
 ## Gotchas that cost real time
 
@@ -117,6 +150,14 @@ hidden.** A "is the mic hidden?" assertion therefore passes for the wrong
 reason unless a chat session is opened first. Both voice and button-row specs
 open one.
 
+**A feature's `init` constructor runs at `features.boot()`, before any slot
+renders and before `initElements()`.** It must not touch the DOM.
+`FileAttachmentManager` was the case that proved it: its constructor used to
+call `initEventListeners()` against `app.elements`, which does not exist yet at
+that point. The fix is the pattern the other features already use — a
+DOM-free constructor plus a separate `init(button)` called from the slot's
+render closure, once the element it needs actually exists.
+
 **Whisper jitters.** Assert word overlap ≥ 0.7, never string equality: a phrase
 scoring 100% on most runs was observed at 78%, and unusual proper nouns get
 mangled ("eve voice" → "in police"). Broken speech scores near zero, so 0.7
@@ -124,7 +165,9 @@ still fails hard on a real regression.
 
 **`.input-form` is a flex row** and its buttons are direct flex items, so any
 `[data-slot]` wrapper needs `display: contents` or the row's spacing changes.
-No selector depends on that form's children structurally.
+`public/apple/base.css:85` already has `[data-slot] { display: contents; }`
+globally — don't remove it, and don't add a wrapper element of any other kind
+inside a slot. No selector depends on that form's children structurally.
 
 **The `FeatureRegistry` instance must exist at file scope.** Feature files run
 the moment their `<script>` is parsed, long before `initApp()`, so
