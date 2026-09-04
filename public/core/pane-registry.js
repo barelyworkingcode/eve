@@ -99,3 +99,10 @@ class PaneRegistry {
  * must already be something for it to register against.
  */
 const panes = new PaneRegistry();
+
+// Node has no <script> tag order to put `panes` in scope for whoever
+// `require`s a file that expects it (see tab-manager.js's own top-of-file
+// comment). Same guard, same pattern as tab-manager.js's own module.exports.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { PaneRegistry, panes };
+}

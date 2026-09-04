@@ -1,3 +1,16 @@
+// In the browser, `panes` is core/pane-registry.js's file-scope const,
+// already in scope here because its <script> tag runs first (index.html) —
+// classic scripts share one top-level scope, so no import is needed and none
+// is possible (redeclaring `panes` here would collide with it). Under Jest,
+// this file is `require`d directly with no <script> ordering (see
+// test/unit/tab-manager-logic.test.js), so hang the same singleton on
+// `global` instead — exactly like that test's own document/window/history/
+// localStorage/EVT fakes — so every bare `panes.type(...)` / `panes.view(...)`
+// reference below resolves the same way in both environments.
+if (typeof module !== 'undefined' && module.exports) {
+  global.panes = require('./core/pane-registry.js').panes;
+}
+
 class TabManager {
   static SESSION_STORAGE_KEY = 'eve-open-sessions';
   static SESSION_META_KEY = 'eve-session-meta';
@@ -34,17 +47,28 @@ class TabManager {
 
   initElements() {
     this.tabBar = document.getElementById('tabBar');
-    this.chatContent = document.getElementById('chat');
-    this.editorContent = document.getElementById('editor');
-    this.viewerContent = document.getElementById('fileViewer');
+    this.contentArea = document.getElementById('contentArea');
+
+    // One element per registered view (public/panes/views.js). `elementId`
+    // names static markup in index.html, so resolving it here — once, at
+    // construction — is safe (see core/pane-registry.js). Kept in a Map for
+    // _containerForView/_hideAllContent/_allContentEls, and mirrored onto the
+    // named properties below because _showContentForRef and the render
+    // helpers still reach for them by name.
+    this._viewEls = new Map(panes.views().map(v => [v.view, document.getElementById(v.elementId)]));
+    this.chatContent = this._viewEls.get('chat');
+    this.voiceChatContent = this._viewEls.get('voice');
+    this.editorContent = this._viewEls.get('editor');
+    this.viewerContent = this._viewEls.get('viewer'); // shared with 'image' — see panes/views.js
+    this.terminalContent = this._viewEls.get('terminal');
+    this.moduleContent = this._viewEls.get('module');
+    this.htmlPreviewContent = this._viewEls.get('htmlPreview');
+
+    // Viewer-internal elements — not part of the view→container map, used
+    // only inside the viewer's own render helper.
     this.viewerCanvas = document.getElementById('fileViewerCanvas');
     this.viewerPath = document.getElementById('fileViewerPath');
     this.viewerInfo = document.getElementById('fileViewerInfo');
-    this.terminalContent = document.getElementById('terminal');
-    this.voiceChatContent = document.getElementById('voiceChat');
-    this.moduleContent = document.getElementById('moduleContent');
-    this.contentArea = document.getElementById('contentArea');
-    this.htmlPreviewContent = document.getElementById('htmlPreview');
   }
 
   initEventListeners() {
@@ -296,16 +320,7 @@ class TabManager {
   /** The DOM container a pane view renders into. Two panes must map to two
    *  different containers — the singleton guard for splits. */
   _containerForView(view) {
-    switch (view) {
-      case 'chat': case 'console': return this.chatContent;
-      case 'voice': return this.voiceChatContent;
-      case 'editor': return this.editorContent;
-      case 'viewer': case 'image': return this.viewerContent;
-      case 'terminal': return this.terminalContent;
-      case 'module': return this.moduleContent;
-      case 'htmlPreview': return this.htmlPreviewContent;
-      default: return null;
-    }
+    return this._viewEls.get(view) || null;
   }
 
   /**
@@ -591,13 +606,7 @@ class TabManager {
   }
 
   _hideAllContent() {
-    this.chatContent.classList.add('hidden');
-    this.editorContent.classList.add('hidden');
-    this.viewerContent.classList.add('hidden');
-    this.terminalContent.classList.add('hidden');
-    if (this.voiceChatContent) this.voiceChatContent.classList.add('hidden');
-    if (this.moduleContent) this.moduleContent.classList.add('hidden');
-    if (this.htmlPreviewContent) this.htmlPreviewContent.classList.add('hidden');
+    for (const el of new Set(this._viewEls.values())) el?.classList.add('hidden');
     this._clearSplit();
   }
 
@@ -616,11 +625,7 @@ class TabManager {
   }
 
   _allContentEls() {
-    return [
-      this.chatContent, this.editorContent, this.viewerContent,
-      this.terminalContent, this.voiceChatContent, this.moduleContent,
-      this.htmlPreviewContent,
-    ].filter(Boolean);
+    return [...new Set(this._viewEls.values())].filter(Boolean);
   }
 
   /** Maps a drop edge to a split direction + which side the new pane lands on. */
