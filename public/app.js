@@ -121,8 +121,7 @@ class EveWorkspaceClient {
     // dispatch table keyed by view.kind.
     this.taskViewer = new TaskViewer(this.container);
     this.container.register('taskViewer', this.taskViewer);
-    this.fileAttachmentManager = new FileAttachmentManager(this.container);
-    this.container.register('fileAttachmentManager', this.fileAttachmentManager);
+    this.fileAttachmentManager = this.container.get('fileAttachmentManager');
     this.inputHistory = new InputHistory('eve-input-history', 100);
     this.ttsManager = this.container.get('ttsManager');
     this.sttManager = this.container.get('sttManager');
@@ -200,10 +199,7 @@ class EveWorkspaceClient {
       sidebarResizer: document.getElementById('sidebarResizer'),
       openSidebar: document.getElementById('openSidebar'),
       closeSidebar: document.getElementById('closeSidebar'),
-      attachBtn: document.getElementById('attachBtn'),
       planModeBtn: document.getElementById('planModeBtn'),
-      fileInput: document.getElementById('fileInput'),
-      attachedFiles: document.getElementById('attachedFiles'),
       costStat: document.getElementById('costStat'),
       sessionStats: document.getElementById('sessionStats'),
       confirmModal: document.getElementById('confirmModal'),
@@ -855,7 +851,7 @@ class EveWorkspaceClient {
 
   _updateChatInputCapabilities(modelValue) {
     const model = modelValue ? this.models.find(m => m.value === modelValue) : null;
-    if (this.elements.attachBtn) this.elements.attachBtn.hidden = !(model?.supportsAttachments);
+    this.fileAttachmentManager.setAvailable(!!model?.supportsAttachments);
     if (this.elements.planModeBtn) this.elements.planModeBtn.hidden = !(model?.supportsPermissions);
   }
 

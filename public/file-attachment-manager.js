@@ -7,22 +7,31 @@ class FileAttachmentManager {
    * @param {Container} container - DI container
    */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.container = container;
     this.files = [];
-    this.initEventListeners();
+    this.button = null;
   }
 
-  initEventListeners() {
-    const els = this.app.elements;
+  /**
+   * Wires the attach button and the static input-row markup it depends on.
+   * Called from the render closure at renderSlots() time, when #fileInput,
+   * #userInput and #attachedFiles (static index.html markup) and #attachBtn
+   * (just created) all exist.
+   */
+  init(button) {
+    this.button = button;
+    this.fileInput = document.getElementById('fileInput');
+    this.input = document.getElementById('userInput');
+    this.attachedFilesEl = document.getElementById('attachedFiles');
 
-    els.attachBtn.addEventListener('click', () => els.fileInput.click());
-    els.fileInput.addEventListener('change', (e) => {
+    this.button.addEventListener('click', () => this.fileInput.click());
+    this.fileInput.addEventListener('change', (e) => {
       this.addFiles(Array.from(e.target.files));
       e.target.value = '';
     });
 
     // Paste images
-    els.userInput.addEventListener('paste', (e) => {
+    this.input.addEventListener('paste', (e) => {
       const items = e.clipboardData?.items;
       if (!items) return;
       for (const item of items) {
@@ -40,28 +49,33 @@ class FileAttachmentManager {
     });
 
     // Drag and drop on input
-    els.userInput.addEventListener('dragover', (e) => {
+    this.input.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      els.userInput.classList.add('dragover');
+      this.input.classList.add('dragover');
     });
-    els.userInput.addEventListener('dragleave', (e) => {
+    this.input.addEventListener('dragleave', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      els.userInput.classList.remove('dragover');
+      this.input.classList.remove('dragover');
     });
-    els.userInput.addEventListener('drop', (e) => {
+    this.input.addEventListener('drop', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      els.userInput.classList.remove('dragover');
+      this.input.classList.remove('dragover');
       this.addFiles(Array.from(e.dataTransfer.files));
     });
+  }
+
+  /** State-sync: called by app._updateChatInputCapabilities. */
+  setAvailable(available) {
+    if (this.button) this.button.hidden = !available;
   }
 
   async addFiles(files) {
     for (const file of files) {
       if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
-        this.app.messageRenderer.appendSystemMessage(`Skipped unsupported file type: ${file.name}`, 'error');
+        this.container.get('messageRenderer').appendSystemMessage(`Skipped unsupported file type: ${file.name}`, 'error');
         continue;
       }
       try {
@@ -76,7 +90,7 @@ class FileAttachmentManager {
           mediaType: file.type
         });
       } catch (err) {
-        this.app.messageRenderer.appendSystemMessage(`Failed to read file: ${file.name}`, 'error');
+        this.container.get('messageRenderer').appendSystemMessage(`Failed to read file: ${file.name}`, 'error');
       }
     }
     this.render();
@@ -101,7 +115,7 @@ class FileAttachmentManager {
   }
 
   render() {
-    const container = this.app.elements.attachedFiles;
+    const container = this.attachedFilesEl;
     if (this.files.length === 0) {
       container.classList.add('hidden');
       container.innerHTML = '';
@@ -116,7 +130,7 @@ class FileAttachmentManager {
       return `
         <div class="attached-file ${isImage ? 'attached-image' : ''}">
           ${thumbnail}${icon}
-          <span class="file-name">${this.app.messageRenderer.escapeHtml(f.name)}</span>
+          <span class="file-name">${this.container.get('messageRenderer').escapeHtml(f.name)}</span>
           <button type="button" class="file-remove" data-index="${i}">&times;</button>
         </div>
       `;
