@@ -102,49 +102,23 @@ class TabManager {
     if (!session) return;
 
     // Check if tab already exists
-    const existingTab = this.tabs.find(t => t.type === 'session' && t.id === sessionId);
+    const existingTab = this.tabs.find(t => t.id === sessionId);
     if (existingTab) {
       if (skipRender) return;
       this.switchToTab(existingTab.id);
       return;
     }
 
-    // Get label: prefer custom name, then project name, then directory
-    let label;
-    if (session.name) {
-      label = session.name;
-    } else if (session.projectId) {
-      const project = this.app.projects.get(session.projectId);
-      label = project?.name || session.directory;
-    } else {
-      label = session.directory?.split('/').filter(p => p).pop() || session.directory || 'Session';
-    }
-
-    // Create new tab
-    const tab = {
-      id: sessionId,
-      type: 'session',
-      label,
-      projectId: session.projectId
-    };
-
+    const d = panes.type('session');
+    const tab = d.create({ sessionId }, this._ctx());
     this.tabs.push(tab);
-    this._saveSessionTab(sessionId);
+    if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
+    if (session.sessionType) this._saveSessionMeta(sessionId, { sessionType: session.sessionType });
 
     if (skipRender) {
-      // Make tab active without triggering renderMessages
-      this.activeTabId = sessionId;
-      this._rememberActive(tab);
-      this.app.showChatScreen();
-      if (session.sessionType === 'voice') {
-        this.voiceChatContent?.classList.remove('hidden');
-        this.app.voiceChatManager?.activateForSession(sessionId);
-      } else {
-        this.chatContent.classList.remove('hidden');
-      }
-      this.app.currentSessionId = sessionId;
-      this._syncProjectToActiveTab();
-      this.render();
+      // Verbatim, documented-divergent activation path — see
+      // public/panes/session-pane.js's `activateSkipRender` header.
+      d.activateSkipRender(tab, this._ctx());
     } else {
       this.switchToTab(sessionId);
     }
@@ -270,10 +244,6 @@ class TabManager {
     const d = panes.type(tab.type);
     if (d) return d.view(tab, this._ctx());
     switch (tab.type) {
-      case 'session': {
-        const session = this.app.sessions.get(tab.id);
-        return session?.sessionType === 'voice' ? 'voice' : 'chat';
-      }
       default: return 'chat';
     }
   }
@@ -283,7 +253,6 @@ class TabManager {
     const d = panes.type(tab.type);
     if (d) return d.ref(tab);
     switch (tab.type) {
-      case 'session': return { sessionId: tab.id };
       default: return {};
     }
   }
@@ -327,11 +296,7 @@ class TabManager {
     let hash = '';
     if (tab) {
       const d = panes.type(tab.type);
-      if (d) {
-        hash = d.hash ? d.hash(tab) : '';
-      } else if (tab.type === 'session') {
-        hash = `#session/${encodeURIComponent(tab.id)}`;
-      }
+      if (d) hash = d.hash ? d.hash(tab) : '';
     }
     const target = hash || (window.location.pathname + window.location.search);
     if (window.location.hash !== hash) {
@@ -372,19 +337,9 @@ class TabManager {
     if (tabIndex === -1) return;
     tab = this.tabs[tabIndex];
 
-    // Send leave_session to unbind from relayLLM when closing a session tab
-    if (tab.type === 'session') {
-      this._removeSessionTab(tab.id);
-      this.app.wsClient.send({ type: 'leave_session', sessionId: tab.id });
-      if (this.app.messageDispatcher) {
-        this.app.messageDispatcher.backgroundBuffers.delete(tab.id);
-        this.app.messageDispatcher.streamingSessions.delete(tab.id);
-      }
-    }
-
-    // Persistence removal + dispose for pane types migrated onto PaneRegistry
-    // (file, module, terminal, for now — session keeps its own arm above
-    // until its own handoff lands).
+    // Persistence removal + dispose — every pane type is on PaneRegistry now,
+    // so this one block covers all five (session's leave_session +
+    // dispatcher-buffer cleanup lives in its `dispose`, panes/session-pane.js).
     const migratedType = panes.type(tab.type);
     if (migratedType) {
       if (migratedType.persist) this._removeFromStorage(migratedType.persist.key, migratedType.persist.entryId(tab));
@@ -886,7 +841,9 @@ class TabManager {
         this.switchToTab(tab.id);
       });
 
-      // Close button: tap to close tab, long-press to delete session from server
+      // Close button: tap to close tab; a type whose descriptor declares
+      // `onCloseLongPress` (currently only `session`) also deletes on a
+      // 500 ms press.
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
       closeBtn.dataset.testid = `tab-close-${tab.id}`;
@@ -895,10 +852,11 @@ class TabManager {
       let closeLongFired = false;
       const startClose = () => {
         closeLongFired = false;
-        if (tab.type !== 'session') return;
+        const d = panes.type(tab.type);
+        if (!d?.onCloseLongPress) return;
         closeLongPress = setTimeout(() => {
           closeLongFired = true;
-          this.app.deleteSession(tab.id);
+          d.onCloseLongPress(tab, this._ctx());
         }, 500);
       };
       const cancelClose = () => { clearTimeout(closeLongPress); };
@@ -963,20 +921,13 @@ class TabManager {
   }
 
   // --- Session persistence ---
-
-  _saveSessionTab(sessionId) {
-    this._saveToStorage(TabManager.SESSION_STORAGE_KEY, sessionId, Date.now());
-    // Persist session metadata (sessionType) for reload
-    const session = this.app.sessions.get(sessionId);
-    if (session?.sessionType) {
-      this._saveSessionMeta(sessionId, { sessionType: session.sessionType });
-    }
-  }
-
-  _removeSessionTab(sessionId) {
-    this._removeFromStorage(TabManager.SESSION_STORAGE_KEY, sessionId);
-    this._removeSessionMeta(sessionId);
-  }
+  // Writing/removing the `eve-open-sessions` entry is now generic — see
+  // openSession and closeTab, which drive it off the `session` descriptor's
+  // `persist` field (public/panes/session-pane.js). `eve-session-meta` is
+  // separate — session metadata, not tab bookkeeping (spec §H.6) — and its
+  // three methods below stay unmoved, called from `message-dispatcher.js`
+  // and `voice-chat-manager.js` directly, plus from `openSession` and the
+  // session descriptor's `dispose` through `ctx.tabs`.
 
   _saveSessionMeta(sessionId, meta) {
     try {
