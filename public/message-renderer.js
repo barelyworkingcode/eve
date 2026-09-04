@@ -1062,9 +1062,18 @@ class MessageRenderer {
   }
 
   async renderMermaidBlocks(container) {
-    if (typeof mermaid === 'undefined') return;
     const nodes = container.querySelectorAll('code[class*="mermaid"]');
     if (nodes.length === 0) return;
+    // Load the ~3.2 MB diagram library on demand (only when a diagram is
+    // actually present). A failed load (offline, 404) must not break message
+    // rendering — leave the code block as-is and render without the diagram.
+    let mermaid;
+    try {
+      mermaid = await loadMermaid();
+    } catch (err) {
+      this.log.error('Mermaid failed to load:', err);
+      return;
+    }
     for (const node of nodes) {
       const pre = node.parentElement;
       const div = document.createElement('div');
