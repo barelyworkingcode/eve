@@ -10,47 +10,20 @@
  * `view` renders into `#fileViewer`, shared with the `viewer` view
  * (public/panes/views.js) — deliberate, not this file's concern to enforce:
  * `_containerForView` returning the same element for both is what stops a
- * viewer and an image tab from ever being split beside each other.
+ * viewer and an image tab from ever being split beside each other. The
+ * paint step itself lives on the `image` *view* (panes/views.js), not here:
+ * `image` is produced by exactly one type, so there is nothing for a `render`
+ * descriptor field to select between.
  *
- * Two members below (`render`, `ownedBy`) aren't in the `PaneTypeDescriptor`
- * table (spec §D.3) — flagged for review, not slipped in quietly:
- *
- * - `render(tab, ctx)` draws the tab's pixels into the shared `#fileViewer`
- *   canvas. The `image` *view* (panes/views.js) still owns the container
- *   show/hide; this is what it delegates to, via TabManager's
- *   `_renderImageTab` forwarder — the same shape `views.js` already uses for
- *   `viewer` (`_renderViewer`, not yet migrated) and `destroy`
- *   (`destroyActiveViewer`, migrated). D.3's fields describe a tab's
- *   lifecycle (create/dispose/hash/...), not its view's paint step; a type
- *   whose view needs type-specific rendering has nowhere else in the current
- *   shape to put it.
- * - `ownedBy(tab, identity)` is the LLM cross-project ownership gate. It stays
- *   reachable as `TabManager#_ownedBy` too (a thin forwarder — see
- *   tab-manager.js) because test/unit/tab-manager-logic.test.js `require`s
- *   tab-manager.js in isolation, with no `<script>` order to load this file;
- *   tab-manager.js's Node-only require guard pulls this file in explicitly so
- *   that forwarder has something to forward to. A future type whose
- *   unit-tested pure logic moves out here hits the identical wrinkle.
+ * `ownedBy` below isn't in the `PaneTypeDescriptor` table (spec §D.3) —
+ * flagged for review, not slipped in quietly. It is the LLM cross-project
+ * ownership gate, and it stays reachable as `TabManager#_ownedBy` too (a thin
+ * forwarder — see tab-manager.js) because test/unit/tab-manager-logic.test.js
+ * `require`s tab-manager.js in isolation, with no `<script>` order to load
+ * this file; core/pane-registry.js's Node-only directory scan pulls this file
+ * in explicitly so that forwarder has something to forward to. A future type
+ * whose unit-tested pure logic moves out here hits the identical wrinkle.
  */
-
-/** Draws `tab`'s image into the shared viewer canvas via the viewer registry,
- *  falling back to the generic image viewer by extension, and cache-busting
- *  the URL after a refresh. Bug-for-bug with the pre-migration body: a
- *  registry miss (no viewer at all, not even the fallback) silently no-ops. */
-function renderImageTab(tab, ctx) {
-  const registry = ctx.app.viewerRegistry;
-  // Strip any cache-bust query before extension matching; keep it on the src.
-  const cleanName = String(tab.url).split('?')[0];
-  const viewer = registry?.getViewer(cleanName) || registry?.getViewer('image.png');
-  if (!viewer) return;
-  const url = tab._reloadVersion
-    ? `${tab.url}${tab.url.includes('?') ? '&' : '?'}v=${tab._reloadVersion}`
-    : tab.url;
-  ctx.tabs.viewerPath.textContent = tab.label;
-  ctx.tabs.viewerInfo.textContent = '';
-  ctx.tabs._activeViewer = viewer;
-  viewer.render(ctx.tabs.viewerCanvas, { filename: tab.label, url });
-}
 
 /** The LLM may only mutate tabs it opened, and only within its own project. */
 function ownedBy(tab, identity) {
@@ -87,10 +60,9 @@ panes.registerType({
   // it out of `this.tabs` (no watcher to release, nothing to persist-remove).
   // No `onCloseLongPress` — that's session-only.
 
-  render: renderImageTab,
   ownedBy,
 });
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { renderImageTab, ownedBy };
+  module.exports = { ownedBy };
 }

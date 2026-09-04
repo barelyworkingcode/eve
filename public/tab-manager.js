@@ -8,10 +8,7 @@
 // localStorage/EVT fakes — so every bare `panes.type(...)` / `panes.view(...)`
 // reference below resolves the same way in both environments.
 if (typeof module !== 'undefined' && module.exports) {
-  global.panes = require('./core/pane-registry.js').panes;
-  // `_ownedBy` below forwards onto the `image` descriptor; Node has no
-  // <script> order to load it like the browser does, so pull it in here.
-  require('./panes/image-pane.js');
+  require('./core/pane-registry.js'); // also loads every panes/*.js and publishes `panes` on `global`
 }
 
 class TabManager {
@@ -347,7 +344,7 @@ class TabManager {
    */
   _showContentForRef(view, ref) {
     const d = panes.view(view);
-    if (d) d.show(ref, this._ctx());
+    if (d) d.show(ref, this._ctx(), this._containerForView(view));
   }
 
   /**
@@ -881,7 +878,7 @@ class TabManager {
    * `_activeViewer` (see public/panes/views.js).
    */
   _destroyActiveViewer() {
-    panes.view('viewer').destroy(this._ctx());
+    panes.view('viewer')?.destroy?.(this._ctx());
   }
 
   // --- LLM-driven image tabs (eve-control MCP) ---
@@ -899,7 +896,7 @@ class TabManager {
       // Re-open of a known ref behaves like a refresh.
       tab.url = imageUrl;
       tab._reloadVersion = Date.now();
-      if (tab.id === this.activeTabId) { this._destroyActiveViewer(); this._renderImageTab(tab); }
+      if (tab.id === this.activeTabId) { this._destroyActiveViewer(); this._showContentForRef('image', { imageTabId: tab.id }); }
       return;
     }
     tab = panes.type('image').create({ tabRef, imageUrl, title, owner }, this._ctx());
@@ -921,7 +918,7 @@ class TabManager {
     tab._reloadVersion = Date.now();
     if (tab.id === this.activeTabId && !this.viewerContent.classList.contains('hidden')) {
       this._destroyActiveViewer();
-      this._renderImageTab(tab);
+      this._showContentForRef('image', { imageTabId: tab.id });
     }
     return true;
   }
@@ -937,12 +934,6 @@ class TabManager {
    *  kept as a real method since the unit suite calls it on a bare instance. */
   _ownedBy(tab, identity) {
     return panes.type('image').ownedBy(tab, identity);
-  }
-
-  /** Forwards to the `image` descriptor's paint step; kept as a method
-   *  since panes/views.js's `image` view calls it too. */
-  _renderImageTab(tab) {
-    panes.type('image').render(tab, this._ctx());
   }
 
   /**
