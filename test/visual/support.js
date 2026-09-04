@@ -74,18 +74,32 @@ const STUB_TTS_VOICES = [
 ];
 
 /**
- * This environment has no local Kokoro TTS daemon, so eve's own
- * GET /api/tts/voices (server.js -> tts-service.js, NOT the fake relay —
- * this is local to eve) always 503s. TTSManager.init() calls it at app boot,
- * and the failure path is timing-dependent enough to vary the captured page.
- * Stub the one request so the server backend's probe succeeds exactly as it
- * would against a real Kokoro daemon, and the capture is identical each run.
+ * Pin the voice-daemon probes so a capture does not depend on whether the
+ * Kokoro/Whisper daemons happen to be running on the host.
+ *
+ * Both are eve's own endpoints (server.js -> tts-service.js / stt-service.js,
+ * NOT the fake relay). TTSManager.init() and STTManager.checkAvailability()
+ * call them at app boot, and their answers are load-bearing for the rendered
+ * page: `/api/stt/status` decides whether the mic button is visible at all.
+ * Left unstubbed, the same commit screenshots differently depending on daemon
+ * state — which is exactly what happened: a baseline captured while the
+ * daemons were down showed no mic button, and every later run flagged a
+ * false regression once they came back up.
+ *
+ * Stubbed to the daemons-up answer, because that is the normal state.
+ * The daemons-down path is covered by test/e2e/voice.spec.js, which asserts
+ * the mic button hides when /api/stt/status reports unavailable.
  */
-async function stubTtsVoices(context) {
+async function stubVoiceDaemons(context) {
   await context.route('**/api/tts/voices', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify(STUB_TTS_VOICES),
+  }));
+  await context.route('**/api/stt/status', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ available: true }),
   }));
 }
 
@@ -137,7 +151,7 @@ module.exports = {
   DIFF_DIR,
   FREEZE_CSS,
   seedTheme,
-  stubTtsVoices,
+  stubVoiceDaemons,
   openSidebarIfMobile,
   blurActiveElement,
 };
