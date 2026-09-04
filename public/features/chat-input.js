@@ -1,13 +1,13 @@
 /**
  * Chat input button row — the first FeatureRegistry consumer.
  *
- * TEMPORARY HOME. These four buttons belong to four different features
- * (attach to file attachments, plan mode to permissions, send to the chat
- * form, stop to the run lifecycle); the mic lives in the STT feature
- * (features/stt.js). Later tasks move each remaining button to the feature
- * that owns it; this file is deleted when the last one leaves. That is the
- * point of the exercise: a feature owns its own DOM through a [data-slot]
- * without index.html or app.js knowing about it.
+ * TEMPORARY HOME. These three buttons belong to three different features
+ * (plan mode to permissions, send and stop to the chat form); the attach
+ * button moved to features/file-attachments.js and the mic lives in the STT
+ * feature (features/stt.js). Later tasks move each remaining button to the
+ * feature that owns it; this file is deleted when the last one leaves. That
+ * is the point of the exercise: a feature owns its own DOM through a
+ * [data-slot] without index.html or app.js knowing about it.
  *
  * Registration is at file scope against the page's registry singleton
  * (core/feature-registry.js). The render closures run at boot, so the DOM
@@ -29,20 +29,6 @@ function buildInputButton({ id, classes, type, title, testid, svg }) {
 features.register({
   id: 'chat-input',
   slots: [
-    {
-      slot: 'chat-input-leading',
-      order: 10,
-      render: () => buildInputButton({
-        id: 'attachBtn',
-        classes: 'btn-attach',
-        type: 'button',
-        title: 'Attach files',
-        testid: 'chat-attach',
-        svg: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-</svg>`,
-      }),
-    },
     {
       slot: 'chat-input-leading',
       order: 20,
