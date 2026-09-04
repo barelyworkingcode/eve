@@ -79,6 +79,10 @@ function loadTabManager({ localStorageContents } = {}) {
   global.history = { replaceState: jest.fn() };
   global.localStorage = fakeLocalStorage(localStorageContents);
   global.EVT = { PROJECT_ACTIVATED: 'project:activated' };
+  // core/constants.js's isPlanProject is a bare global in the browser (classic
+  // script); file-pane.js's watch/unwatch reach it the same way, so it needs
+  // a fake here too. No plan-project path is exercised below.
+  global.isPlanProject = () => false;
   // PaneDnd is deliberately left undefined — `typeof PaneDnd !== 'undefined'`
   // is exactly the guard that makes that safe.
   return require('../../public/tab-manager.js');
@@ -365,5 +369,62 @@ describe('_updateHash', () => {
     const tm = setup('#session/abc');
     tm._updateHash({ type: 'session', id: 'abc' });
     expect(history.replaceState).not.toHaveBeenCalled();
+  });
+});
+
+// Finding 1 (architect review): terminal-pane.js's `dispose` had no automated
+// cover at any tier — the fake relay can't create terminals, so this is unit-
+// only cover, against a fake `terminalManager`. If `dispose` became a no-op,
+// the xterm instance and its WS channel would leak on every close and every
+// other suite would stay green.
+describe('terminal dispose', () => {
+  it('closes the terminal exactly once via terminalManager, and never persists', () => {
+    const closeTerminal = jest.fn();
+    const app = {
+      showChatScreen: () => {},
+      showWelcomeScreen: () => {},
+      terminalManager: { closeTerminal, showTerminal: () => {}, fitActive: () => {} },
+    };
+    const tm = makeTabManager({ container: { app } });
+    const setItemSpy = jest.spyOn(localStorage, 'setItem');
+
+    tm.openTerminal('term-1', 'Terminal', '/work');
+    tm.closeTab('term-1');
+
+    expect(closeTerminal).toHaveBeenCalledTimes(1);
+    expect(closeTerminal).toHaveBeenCalledWith('term-1');
+    expect(setItemSpy).not.toHaveBeenCalled(); // terminals are deliberately never persisted
+  });
+});
+
+// Finding 2 (architect review, spec §I.10): nothing drove openSession/
+// openFile/openModule and inspected what they actually write. These pin the
+// pre-refactor shapes — including the legacy bare-number session entry — so
+// e.g. dropping `moduleName` from module-pane.js's `entry()` fails here
+// instead of only at reload-restore time.
+describe('persistence write shapes (pinning, not changing)', () => {
+  const NOW = 1_700_000_000_000;
+  beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(NOW));
+  afterEach(() => jest.restoreAllMocks());
+
+  it('openSession writes a bare-number entry to eve-open-sessions', () => {
+    const app = { sessions: new Map([['sess-1', {}]]), showChatScreen: () => {} };
+    const tm = makeTabManager({ container: { app } });
+    tm.openSession('sess-1', { skipRender: true });
+    expect(JSON.parse(localStorage.getItem('eve-open-sessions'))).toEqual({ 'sess-1': NOW });
+  });
+
+  it('openFile writes {projectId, path, ts} to eve-open-files', () => {
+    const tm = makeTabManager({ container: { app: { showChatScreen: () => {} } } });
+    tm.openFile('p1', '/a.js', 'a.js');
+    expect(JSON.parse(localStorage.getItem('eve-open-files'))['p1:/a.js'])
+      .toEqual({ projectId: 'p1', path: '/a.js', ts: NOW });
+  });
+
+  it('openModule writes {projectId, moduleName, ts} to eve-open-modules', () => {
+    const tm = makeTabManager({ container: { app: { showChatScreen: () => {} } } });
+    tm.openModule('p1', 'demo', 'Demo');
+    expect(JSON.parse(localStorage.getItem('eve-open-modules'))['p1:demo'])
+      .toEqual({ projectId: 'p1', moduleName: 'demo', ts: NOW });
   });
 });
