@@ -1,9 +1,4 @@
-/**
- * Integration test for the proxy/auth surface of routes/index.js: the
- * requireAuth gate, the load-bearing hidden-session filter on /api/sessions,
- * proxy error mapping, project-cache wiring, and the voices cache. The
- * /api/files route is covered separately in files-route.test.js.
- */
+// The /api/files route is covered separately in files-route.test.js.
 const http = require('http');
 const express = require('express');
 const registerRoutes = require('../../routes/index');

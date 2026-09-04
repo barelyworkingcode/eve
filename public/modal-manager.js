@@ -1,13 +1,6 @@
-/**
- * Modal lifecycle management: show/hide for all modals,
- * confirmation flow, permission prompts, input prompts.
- */
 class ModalManager {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.confirmCallback = null;
     this.editingProjectId = null;
     this.editingTaskId = null;
@@ -23,7 +16,6 @@ class ModalManager {
   initEventListeners() {
     const el = this.app.elements;
 
-    // Escape key closes the topmost open modal
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       if (el.permissionModal && !el.permissionModal.classList.contains('hidden')) {
@@ -41,16 +33,13 @@ class ModalManager {
       e.stopPropagation();
     });
 
-    // Session Modal
     el.cancelModal.addEventListener('click', () => this.hideSessionModal());
     el.modal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideSessionModal());
 
-    // Confirmation modal
     el.cancelConfirm.addEventListener('click', () => this.hideConfirmModal());
     el.confirmModal.querySelector('.modal-backdrop').addEventListener('click', () => this.hideConfirmModal());
     el.confirmDelete.addEventListener('click', () => this.handleConfirm());
 
-    // Permission modal
     if (el.permissionAllow) {
       el.permissionAllow.addEventListener('click', () => this.respondToPermission(true));
     }
@@ -64,7 +53,6 @@ class ModalManager {
       el.permissionModal.querySelector('.modal-backdrop').addEventListener('click', () => this.respondToPermission(false));
     }
 
-    // Plan approval bar
     if (el.planApprove) {
       el.planApprove.addEventListener('click', () => this.respondToPlanApproval(true));
     }
@@ -72,7 +60,6 @@ class ModalManager {
       el.planRevise.addEventListener('click', () => this.respondToPlanApproval(false));
     }
 
-    // Task modal
     if (el.cancelTaskModal) {
       el.cancelTaskModal.addEventListener('click', () => this.hideTaskModal());
     }
@@ -83,8 +70,6 @@ class ModalManager {
       el.taskScheduleType.addEventListener('change', () => this.renderScheduleConfig());
     }
   }
-
-  // --- Session modal ---
 
   showSessionModal(projectId = null) {
     const el = this.app.elements;
@@ -114,8 +99,6 @@ class ModalManager {
     this.app.updateDirectoryInputRequirement();
   }
 
-  // --- Confirm modal ---
-
   showConfirmModal(message, callback) {
     this.app.elements.confirmMessage.textContent = message;
     this.confirmCallback = callback;
@@ -134,8 +117,6 @@ class ModalManager {
     }
     this.hideConfirmModal();
   }
-
-  // --- Permission modal ---
 
   showPermissionModal(data) {
     if (this._isSessionBypassed(data.sessionId)) {
@@ -192,7 +173,6 @@ class ModalManager {
     });
     this.hidePermissionModal();
 
-    // Show next queued permission if any (or auto-approve when bypassed)
     while (this.permissionQueue.length > 0) {
       const next = this.permissionQueue.shift();
       if (this._isSessionBypassed(next.sessionId)) {
@@ -204,16 +184,12 @@ class ModalManager {
     }
   }
 
-  /** Approve current + mark session as bypassed; respondToPermission then
-   *  drains the queue, honoring per-data sessionId for cross-session items. */
   respondToPermissionAll() {
     if (!this.pendingPermissionId) return;
     const sid = this.app.state?.currentSessionId;
     if (sid) this.bypassedSessions.add(sid);
     this.respondToPermission(true);
   }
-
-  // --- Plan approval ---
 
   showPlanApproval(onRespond) {
     this.planApprovalCallback = onRespond;
@@ -235,8 +211,6 @@ class ModalManager {
     if (callback) callback(approved);
   }
 
-  // --- Input prompt ---
-
   showPermissionPrompt(message) {
     this.app.elements.inputPrompt.classList.remove('hidden');
     this.app.elements.promptText.textContent = message;
@@ -255,15 +229,12 @@ class ModalManager {
     this.app.elements.userInput.placeholder = 'Type your message...';
   }
 
-  // --- Task modal ---
-
   showTaskModal(projectId, taskId = null) {
     const el = this.app.elements;
     this.taskProjectId = projectId;
     this.editingTaskId = taskId;
 
-    // Populate model dropdown (reuse app's model list), scoped to the task's
-    // project so its allowed-model allowlist applies.
+    // Scoped to the task's project so its allowed-model allowlist applies.
     this.app.renderModelSelect(el.taskModelSelect, projectId);
 
     if (taskId) {
@@ -284,7 +255,6 @@ class ModalManager {
       el.taskScheduleType.value = schedule.type || 'daily';
       this.renderScheduleConfig(schedule);
 
-      // Load and render last execution result
       this.renderTaskLastResult(taskId);
     } else {
       el.taskModalTitle.textContent = 'New Task';
@@ -324,16 +294,13 @@ class ModalManager {
     let html = '<div class="task-last-result">';
     html += '<div class="task-result-meta">';
 
-    // Status badge
     const statusClass = isError ? 'status-error' : 'status-success';
     html += `<span class="task-result-status ${statusClass}">${this.escapeHtml(last.status || 'unknown')}</span>`;
 
-    // Timestamp
     if (timeStr) {
       html += `<span class="task-result-time">${timeStr}</span>`;
     }
 
-    // Stats (tokens, cost)
     if (last.stats) {
       const parts = [];
       if (last.stats.inputTokens != null || last.stats.outputTokens != null) {
@@ -351,12 +318,10 @@ class ModalManager {
 
     html += '</div>';
 
-    // Error message
     if (isError && last.error) {
       html += `<div class="task-result-error-msg">${this.escapeHtml(last.error)}</div>`;
     }
 
-    // Collapsible response text
     if (last.response) {
       html += '<details class="think-block">';
       html += '<summary>Response</summary>';
@@ -414,7 +379,6 @@ class ModalManager {
         addField('taskAtInput', 'At (ISO8601)', new Date(Date.now() + 3600000).toISOString(), existing.at || '');
         break;
       case 'on_demand':
-        // No config needed
         break;
     }
   }

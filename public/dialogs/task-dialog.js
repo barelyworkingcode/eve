@@ -1,9 +1,3 @@
-/**
- * Tokenize an "extra args" input string, honoring "double quoted" and
- * 'single quoted' substrings so users can pass shell commands like
- *   -c "npm test"
- * as two args ("-c", "npm test") rather than three.
- */
 function parseExtraArgs(input) {
   if (!input) return [];
   const out = [];
@@ -31,10 +25,6 @@ function parseExtraArgs(input) {
   return out;
 }
 
-/**
- * TaskDialog - task management with Tasks and New tabs.
- * Lists existing tasks, supports run/edit/delete/join, and create new.
- */
 class TaskDialog extends DialogBase {
   constructor(container) {
     super(container, 'task-dialog');
@@ -52,10 +42,8 @@ class TaskDialog extends DialogBase {
       this._editTaskId = data.editTaskId || null;
       this._loadAndShow();
     });
-    // Live-refresh while open: a scheduled task firing in the background
-    // bumps task.view in state. Re-render the Tasks tab
-    // so "View Last Run" points at the newest run, not the snapshot from
-    // when the dialog opened.
+    // The dialog can stay open while a scheduled task fires in the
+    // background; re-read state on every update so it never goes stale.
     const refresh = () => {
       if (!this.isVisible) return;
       if (this._activeTab === 'tasks') this._renderTasksList();
@@ -82,7 +70,6 @@ class TaskDialog extends DialogBase {
 
     this._panel.appendChild(this._createTitleBar('Tasks', projectName));
 
-    // Tabs
     const { header, setActiveTab } = this._createTabs(
       [{ name: 'tasks', label: 'Tasks' }, { name: 'new', label: 'New' }],
       (tab) => this._switchTab(tab)
@@ -90,7 +77,6 @@ class TaskDialog extends DialogBase {
     this._panel.appendChild(header);
     this._setActiveTab = setActiveTab;
 
-    // Content container
     this._tabContent = document.createElement('div');
     this._tabContent.className = 'dialog__tab-content';
     this._panel.appendChild(this._tabContent);
@@ -110,10 +96,6 @@ class TaskDialog extends DialogBase {
   }
 
   _renderTasksList() {
-    // Always re-read from state. The dialog can stay open across multiple
-    // runs of the same task, and the live-refresh subscription in init()
-    // re-invokes this method on TASK_UPDATED. Reading state here keeps
-    // closures below pinned to the latest IDs.
     this._tasks = this.state.getTasksForProject(this.projectId);
     if (this._tabContent) this._tabContent.innerHTML = '';
     if (this._tasks.length === 0) {
@@ -129,7 +111,6 @@ class TaskDialog extends DialogBase {
       item.className = 'task-dialog__item';
       item.dataset.testid = `task-dialog-item-${task.id}`;
 
-      // Info row
       const info = document.createElement('div');
       info.className = 'task-dialog__info';
 
@@ -144,22 +125,17 @@ class TaskDialog extends DialogBase {
       info.appendChild(name);
       info.appendChild(schedule);
 
-      // Status badge
       const lastStatus = task.lastStatus || task.lastResult?.status;
       const status = document.createElement('span');
       status.className = `task-dialog__status task-dialog__status--${lastStatus || 'none'}`;
       status.textContent = lastStatus || (task.enabled ? 'ready' : 'disabled');
 
-      // Actions row
       const actions = document.createElement('div');
       actions.className = 'task-dialog__actions';
 
       const runBtn = this._actionBtn('Run', () => this._runTask(task));
       actions.appendChild(runBtn);
 
-      // The TaskViewer module owns the interactive-vs-readonly dispatch.
-      // We re-read the task from state at click time so a run completing
-      // while the dialog is open still hands off to the newest run.
       const taskViewer = this.container.get('taskViewer');
       if (taskViewer.hasLastRun(task)) {
         const joinBtn = this._actionBtn('View Last Run', () => {
@@ -195,18 +171,13 @@ class TaskDialog extends DialogBase {
   }
 
   _renderNewForm() {
-    // Read directly from state so an edit-after-update sees the latest
-    // server-confirmed shape rather than the dialog-open snapshot.
     const editTask = this._editTaskId ? this.state.getTask(this._editTaskId) : null;
 
     const form = document.createElement('div');
     form.className = 'task-dialog__form';
 
-    // Name
     form.appendChild(this._formField('Task Name', 'text', 'taskName', editTask?.name || '', 'Daily summary'));
 
-    // Type: chat vs terminal. Drives which fields below are visible.
-    // Stored as task.sessionType ("" / "headless" → chat, "pty" → terminal).
     const typeLabel = document.createElement('label');
     typeLabel.className = 'dialog__label';
     typeLabel.textContent = 'Type';
@@ -223,7 +194,6 @@ class TaskDialog extends DialogBase {
     typeSelect.value = editTask?.sessionType === 'pty' ? 'pty' : 'headless';
     form.appendChild(typeSelect);
 
-    // --- Chat fields (Prompt + Model) ---
     const chatFields = document.createElement('div');
     chatFields.className = 'task-dialog__type-fields';
 
@@ -252,7 +222,6 @@ class TaskDialog extends DialogBase {
     chatFields.appendChild(modelSelect);
     form.appendChild(chatFields);
 
-    // --- Terminal fields (template + extraArgs + directory + timeout) ---
     const ptyFields = document.createElement('div');
     ptyFields.className = 'task-dialog__type-fields';
 
@@ -263,8 +232,6 @@ class TaskDialog extends DialogBase {
     const tplSelect = document.createElement('select');
     tplSelect.className = 'dialog__select';
     tplSelect.name = 'taskTemplateId';
-    // Populate from cached templates; if empty, ask the terminal manager to
-    // refresh and re-render once they arrive.
     const populateTemplates = () => {
       tplSelect.innerHTML = '';
       const templates = this.state.terminalTemplates || [];
@@ -284,7 +251,6 @@ class TaskDialog extends DialogBase {
     };
     populateTemplates();
     if ((this.state.terminalTemplates || []).length === 0) {
-      // Best-effort fetch via the API; will refresh on next dialog open.
       this.api.getTerminalTemplates?.().then(list => {
         if (list && list.length) {
           this.state.terminalTemplates = list;
@@ -317,7 +283,6 @@ class TaskDialog extends DialogBase {
 
     form.appendChild(ptyFields);
 
-    // Show only the active type's fields. Re-renders on change.
     const refreshTypeFields = () => {
       const isPty = typeSelect.value === 'pty';
       chatFields.style.display = isPty ? 'none' : '';
@@ -326,7 +291,6 @@ class TaskDialog extends DialogBase {
     typeSelect.addEventListener('change', refreshTypeFields);
     refreshTypeFields();
 
-    // Schedule type
     const schedLabel = document.createElement('label');
     schedLabel.className = 'dialog__label';
     schedLabel.textContent = 'Schedule';
@@ -343,7 +307,6 @@ class TaskDialog extends DialogBase {
     }
     form.appendChild(schedSelect);
 
-    // Schedule config (dynamic based on type)
     const schedConfig = document.createElement('div');
     schedConfig.className = 'task-dialog__sched-config';
     form.appendChild(schedConfig);
@@ -444,7 +407,6 @@ class TaskDialog extends DialogBase {
     schedSelect.addEventListener('change', renderScheduleConfig);
     renderScheduleConfig();
 
-    // Enabled checkbox
     const enabledRow = document.createElement('label');
     enabledRow.className = 'dialog__checkbox-row';
     const enabledCheck = document.createElement('input');
@@ -455,7 +417,6 @@ class TaskDialog extends DialogBase {
     enabledRow.appendChild(document.createTextNode(' Enabled'));
     form.appendChild(enabledRow);
 
-    // Actions
     const actions = document.createElement('div');
     actions.className = 'dialog__actions';
 
@@ -476,7 +437,6 @@ class TaskDialog extends DialogBase {
     submitBtn.addEventListener('click', () => {
       const schedType = form.querySelector('[name="scheduleType"]').value;
       const schedule = { type: schedType };
-      // Collect schedule config fields
       const time = form.querySelector('[name="schedTime"]');
       if (time) schedule.time = time.value;
       const day = form.querySelector('[name="schedDay"]');
@@ -500,9 +460,6 @@ class TaskDialog extends DialogBase {
       };
       if (sessionType === 'pty') {
         data.templateId = form.querySelector('[name="taskTemplateId"]').value;
-        // Tokenize extraArgs honoring "quoted strings" so users can pass
-        // shell commands like  -c "npm test"  without the shell glueing them
-        // back together.
         data.extraArgs = parseExtraArgs(form.querySelector('[name="taskExtraArgs"]').value);
         const dir = form.querySelector('[name="taskDirectory"]').value.trim();
         if (dir) data.directory = dir;
@@ -555,12 +512,9 @@ class TaskDialog extends DialogBase {
 
   async _deleteTask(task) {
     if (!confirm(`Delete task "${task.name}"?`)) return;
-    // Route through TaskManager so StateStore stays in sync — that's what
-    // emits TASKS_LOADED for the sidebar to re-render. Calling the API
-    // directly leaves the sidebar showing stale data until refresh.
+    // TaskManager.deleteTask emits TASKS_LOADED for the sidebar; calling the
+    // API directly here would leave the sidebar showing stale data.
     await this.container.get('taskManager').deleteTask(task.id);
-    // _renderTasksList re-reads from state, which TaskManager.deleteTask
-    // has already pruned — no need to maintain a parallel local cache.
     this._switchTab('tasks');
   }
 

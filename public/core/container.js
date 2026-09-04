@@ -1,7 +1,3 @@
-/**
- * Container - lightweight dependency injection.
- * Modules register themselves by name; others request by name.
- */
 class Container {
   constructor() {
     this._services = new Map();

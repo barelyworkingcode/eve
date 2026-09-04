@@ -29,7 +29,6 @@ class VoiceOrbSettings {
     const reset = document.getElementById('voiceOrbSettingsReset');
     if (!gear || !sheet) return;
 
-    // Load tuning: defaults ← localStorage
     try {
       this.tuning = { ...VoiceOrb3D.DEFAULT_TUNING, ...JSON.parse(localStorage.getItem(VoiceOrb3D.TUNING_KEY) || '{}') };
     } catch {
@@ -38,7 +37,6 @@ class VoiceOrbSettings {
 
     this._syncSliders();
 
-    // Gear click → toggle sheet (refresh the diag toggle from native on open)
     gear.addEventListener('click', () => {
       sheet.classList.toggle('hidden');
       if (!sheet.classList.contains('hidden')) this._refreshDiagToggle();
@@ -47,10 +45,8 @@ class VoiceOrbSettings {
     this._initDiagToggle();
     this._initRiverVolume();
 
-    // Close click → hide sheet
     close.addEventListener('click', () => sheet.classList.add('hidden'));
 
-    // Slider input → update tuning, persist, apply live
     for (const s of ORB_SLIDERS) {
       const slider = document.getElementById(s.id);
       if (!slider) continue;
@@ -64,7 +60,6 @@ class VoiceOrbSettings {
       });
     }
 
-    // Reset → restore defaults, persist, push to UI, apply live
     reset.addEventListener('click', () => {
       this.tuning = { ...VoiceOrb3D.DEFAULT_TUNING };
       localStorage.setItem(VoiceOrb3D.TUNING_KEY, JSON.stringify(this.tuning));
@@ -73,8 +68,7 @@ class VoiceOrbSettings {
     });
   }
 
-  /** Native-only: device-log streaming toggle (persists in native UserDefaults,
-   *  default off). Hidden entirely on non-native surfaces. */
+  // persists in native UserDefaults, default off
   _initDiagToggle() {
     const row = document.getElementById('diagLogRow');
     const toggle = document.getElementById('diagLogToggle');
@@ -89,8 +83,6 @@ class VoiceOrbSettings {
     });
   }
 
-  /** Native-only: ambient river bed volume slider. Persists in localStorage and
-   *  re-applies to native on load (native resets to its default each launch). */
   _initRiverVolume() {
     const row = document.getElementById('riverVolRow');
     const slider = document.getElementById('riverVolSlider');
@@ -114,7 +106,6 @@ class VoiceOrbSettings {
     });
   }
 
-  /** Reflect the persisted native streaming state into the checkbox. */
   _refreshDiagToggle() {
     const toggle = document.getElementById('diagLogToggle');
     const native = this.manager.nativeAudio;
@@ -122,7 +113,6 @@ class VoiceOrbSettings {
     native.getDiagLogging().then((r) => { toggle.checked = !!(r && r.enabled); }).catch(() => {});
   }
 
-  /** Push current tuning values into all sliders and their value labels. */
   _syncSliders() {
     for (const s of ORB_SLIDERS) {
       const slider = document.getElementById(s.id);

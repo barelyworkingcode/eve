@@ -1,14 +1,3 @@
-/**
- * ProjectPanel - the explorer panel for the single active project.
- *
- * Layout: header (name + contextual actions) → icon tab strip
- * (Files / Sessions / Tasks / Modules) → scrollable content → action bar.
- *
- * Files is the primary surface; Sessions/Tasks/Modules are secondary tabs.
- * The per-tab content renderers were migrated from the retired ProjectTreeItem
- * and keep their original behavior (session swipe-to-delete, terminal rows,
- * task run, module lazy-load, lazy file tree).
- */
 class ProjectPanel {
   static TAB_STORAGE_KEY = 'eve-active-tab';
   static FOLDERS_COLLAPSED_KEY = 'eve-session-folders-collapsed';
@@ -23,7 +12,6 @@ class ProjectPanel {
     this.projectId = null;
     this.activeTab = this._restoreTab();
 
-    // DOM regions (static in index.html)
     this.titleEl = null;
     this.headerActionsEl = null;
     this.tabsEl = null;
@@ -72,15 +60,12 @@ class ProjectPanel {
     this._renderActionBar();
   }
 
-  // Re-render only the dynamic parts (counts + content) in response to events.
   _refresh() {
     if (!this.projectId || !this.state.getProject(this.projectId)) return;
     this._renderHeaderActions();
     this._renderTabs();
     this._renderContent();
   }
-
-  // --- Tabs ---
 
   _tabs() {
     return [
@@ -149,8 +134,6 @@ class ProjectPanel {
     return null;
   }
 
-  // --- Header actions (search + more, plus file actions on the Files tab) ---
-
   _renderHeaderActions() {
     this.headerActionsEl.innerHTML = '';
     if (this.activeTab === 'files') {
@@ -172,8 +155,6 @@ class ProjectPanel {
       `sidebar-project-more-${this.projectId}`));
   }
 
-  // --- Action bar ---
-
   _renderActionBar() {
     this.actionsEl.innerHTML = '';
     const btn = document.createElement('button');
@@ -187,8 +168,6 @@ class ProjectPanel {
     this.actionsEl.appendChild(btn);
   }
 
-  // --- Content dispatch ---
-
   _renderContent() {
     this.contentEl.innerHTML = '';
     switch (this.activeTab) {
@@ -200,8 +179,6 @@ class ProjectPanel {
     }
   }
 
-  // --- Files content ---
-
   _renderFilesContent(container) {
     const treeContainer = document.createElement('div');
     treeContainer.className = 'file-tree';
@@ -209,8 +186,6 @@ class ProjectPanel {
     this.fileTreeNode.renderTree(this.projectId, treeContainer);
     container.appendChild(treeContainer);
   }
-
-  // --- Tasks content ---
 
   _renderTasksContent(container) {
     const tasks = this.state.getTasksForProject(this.projectId);
@@ -307,8 +282,6 @@ class ProjectPanel {
     }
   }
 
-  // --- Sessions content ---
-
   _renderSessionsContent(container) {
     const project = this.state.getProject(this.projectId);
     const sessions = this.state.getSessionsForProject(this.projectId)
@@ -322,15 +295,13 @@ class ProjectPanel {
       return;
     }
 
-    // Terminals stay ungrouped, on top (unchanged behavior).
     for (const terminal of terminals) {
       this._renderTerminalItem(container, terminal);
     }
 
-    // Folder groups = the project's declared folders (ordered, including empty
-    // ones) unioned with any folder names actually present on sessions. The
-    // union is orphan-resilient: a half-applied folder rename can never hide a
-    // session, and a pre-folders session (folder "") always lands in Ungrouped.
+    // Union, not just declared folders: a half-applied folder rename can't
+    // hide a session, and a pre-folders session (folder "") always lands in
+    // Ungrouped.
     const declared = project?.sessionFolders || [];
     const folderNames = [...declared];
     for (const s of sessions) {
@@ -350,8 +321,8 @@ class ProjectPanel {
       }
     }
 
-    // No folders anywhere → flat list, identical to the pre-folders UI. Every
-    // existing project looks unchanged; nothing is buried under a header.
+    // No folders anywhere → flat list, matching the pre-folders UI so
+    // existing projects render unchanged.
     if (folderNames.length === 0) {
       for (const s of ungrouped) this._renderSessionRow(container, s, project);
       return;
@@ -365,8 +336,6 @@ class ProjectPanel {
     }
   }
 
-  // Renders one collapsible folder header + its session rows. name === '' is
-  // the "Ungrouped" pseudo-folder: no rename/delete menu, expanded by default.
   _renderFolderGroup(container, project, name, sessions) {
     const isUngrouped = name === '';
     const collapseKey = `${this.projectId}/${name}`;
@@ -415,8 +384,6 @@ class ProjectPanel {
     for (const s of sessions) this._renderSessionRow(container, s, project);
   }
 
-  // One session row (swipe-to-delete + click-to-join, plus the rename/move/
-  // delete context menu via right-click and long-press).
   _renderSessionRow(container, session, project) {
     const wrapper = document.createElement('div');
     wrapper.className = 'project-tree__session-swipe';
@@ -454,8 +421,8 @@ class ProjectPanel {
     const swipeState = { swiped: false, menuOpened: false };
 
     item.addEventListener('click', (e) => {
-      // stopPropagation also keeps a long-press's synthesized click from
-      // reaching the just-opened context menu's outside-click closer.
+      // Also keeps a long-press's synthesized click from reaching the
+      // just-opened context menu's outside-click closer.
       e.stopPropagation();
       if (swipeState.swiped || swipeState.menuOpened ||
           wrapper.classList.contains('project-tree__session-swipe--open')) return;
@@ -475,8 +442,6 @@ class ProjectPanel {
     wrapper.appendChild(item);
     container.appendChild(wrapper);
   }
-
-  // --- Session / folder context menus ---
 
   _showSessionMenu(x, y, session) {
     const app = this.container.get('app');
@@ -511,8 +476,6 @@ class ProjectPanel {
     ]);
   }
 
-  // --- Folder collapse state (persisted, UI-only) ---
-
   _collapsedFolders() {
     try {
       const raw = localStorage.getItem(ProjectPanel.FOLDERS_COLLAPSED_KEY);
@@ -531,9 +494,6 @@ class ProjectPanel {
     this._renderContent();
   }
 
-  // Long-press (touch) → open a callback menu. Coexists with _attachSwipe: a
-  // horizontal drag cancels the press timer (touchmove), a stationary hold
-  // fires it. Sets swipeState.menuOpened so the trailing click doesn't join.
   _attachLongPress(item, swipeState, openMenu) {
     const DURATION = 500;
     let timer = null;
@@ -599,8 +559,6 @@ class ProjectPanel {
     container.appendChild(item);
   }
 
-  // --- Modules content ---
-
   _renderModulesContent(container) {
     const store = this.container.has('moduleStore') ? this.container.get('moduleStore') : null;
     if (store && !this.state.modules.has(this.projectId)) {
@@ -665,8 +623,6 @@ class ProjectPanel {
     container.appendChild(item);
   }
 
-  // --- Shared helpers ---
-
   _renderLoading(container) {
     const el = document.createElement('div');
     el.className = 'project-tree__section-empty';
@@ -705,9 +661,8 @@ class ProjectPanel {
     ]);
   }
 
-  // Asks relay to regenerate this project's SKILL.md (relay owns skill
-  // generation). Progress + result surfaced via the toast bus; a distinct
-  // result id avoids colliding with the still-dismissing progress toast.
+  // Relay owns skill generation. Distinct progress/done toast ids avoid
+  // colliding with the still-dismissing progress toast.
   async _regenerateSkills() {
     const id = this.projectId;
     if (!id) return;
@@ -730,7 +685,6 @@ class ProjectPanel {
     if (app?.closeSidebarOnMobile) app.closeSidebarOnMobile();
   }
 
-  // Swipe-to-delete for session rows (touch only). Verbatim from ProjectTreeItem.
   _attachSwipe(wrapper, item, swipeState) {
     const DELETE_WIDTH = 64;
     const THRESHOLD = 20;
@@ -815,8 +769,6 @@ class ProjectPanel {
     localStorage.setItem(ProjectPanel.TAB_STORAGE_KEY, this.activeTab);
   }
 
-  // --- Event subscriptions (one-time) ---
-
   _subscribeEvents() {
     if (this._subscribed) return;
     this._subscribed = true;
@@ -833,7 +785,6 @@ class ProjectPanel {
   }
 }
 
-// Tab + action-bar icons not already in UI_ICONS.
 const PANEL_ICONS = {
   files: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9 1.5H4.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5z"/><path d="M9 1.5V5h3.5"/></svg>',
   sessions: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5h12v7H9l-3 2.5V11.5H2z"/></svg>',

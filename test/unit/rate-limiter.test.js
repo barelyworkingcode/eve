@@ -17,7 +17,7 @@ describe('RateLimiter', () => {
     expect(rl.allow()).toBe(true);
     expect(rl.allow()).toBe(true);
     expect(rl.allow()).toBe(false);
-    t += 10000; // window boundary
+    t += 10000;
     expect(rl.allow()).toBe(true);
     expect(rl.allow()).toBe(true);
     expect(rl.allow()).toBe(false);

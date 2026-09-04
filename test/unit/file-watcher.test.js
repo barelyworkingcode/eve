@@ -86,12 +86,9 @@ describe('FileWatcher', () => {
       expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
       expect(watcher.watchedFiles.has(PROJECT_ID)).toBe(false);
     });
-    // (unknown-projectId guard for watchProject merged into the watch/unwatch block above)
   });
 
   describe('markSelfWrite', () => {
-    // The "adds the path" half is covered by the first assertion below, so this
-    // single test pins both the mark and its TTL auto-clear.
     it('marks a path then auto-clears it after the TTL', () => {
       jest.useFakeTimers();
       const absPath = path.join(tmpDir, 'test.js');
@@ -103,13 +100,11 @@ describe('FileWatcher', () => {
     });
   });
 
-  // _onFsEvent is the deterministic core: it is driven directly here so the
-  // tests don't depend on fs.watch delivery timing. Open files are registered
-  // without starting a real watcher (which would replay FSEvents history and
-  // make assertions non-deterministic). A real-fs integration test below
-  // confirms the wiring actually fires end to end.
+  // _onFsEvent is driven directly here so the tests don't depend on fs.watch
+  // delivery timing, and open files are registered without a real watcher
+  // (which would replay FSEvents history and make assertions non-deterministic).
+  // A real-fs integration test below confirms the wiring fires end to end.
   describe('_onFsEvent', () => {
-    // Register an open file the way watch() would, minus the real fs watcher.
     function registerOpenFile(clientPath, opts = {}) {
       const canon = clientPath.replace(/^\/+/, '');
       if (!watcher.watchedFiles.has(PROJECT_ID)) watcher.watchedFiles.set(PROJECT_ID, new Map());

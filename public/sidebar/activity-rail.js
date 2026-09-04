@@ -1,16 +1,11 @@
-/**
- * ActivityRail - vertical strip of project avatars (VS Code activity-bar style).
- * Renders into #railProjects; the active project drives the explorer panel.
- * Project switching happens here; secondary surfaces live in ProjectPanel.
- */
 class ActivityRail {
   constructor(container) {
     this.container = container;
     this.state = container.get('state');
-    this.el = null;            // #railProjects
+    this.el = null;
     this.activeProjectId = null;
-    this.onSelect = null;      // callback(projectId)
-    this._colorCache = new Map();  // Cache avatar colors by project name/id
+    this.onSelect = null;
+    this._colorCache = new Map();
   }
 
   init() {

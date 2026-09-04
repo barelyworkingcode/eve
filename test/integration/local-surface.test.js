@@ -1,8 +1,5 @@
-/**
- * Increment 1 — the local surface, end-to-end through a real spawned eve, with
- * NO real relay (the fake relay only supplies the project→path mapping). Proves
- * the harness works and exercises file ops + watcher events against real disk.
- */
+// The local surface, end-to-end through a real spawned eve, with NO real
+// relay (the fake relay only supplies the project->path mapping).
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -80,10 +77,9 @@ describe('eve local surface (spawned server, fake relay)', () => {
         // list_directory starts the recursive project watcher.
         ws.send({ type: 'list_directory', projectId: 'p1', path: '/' });
         await ws.waitFor((f) => f.type === 'directory_listing');
-        // Give fs.watch a moment to attach before mutating the tree.
         await new Promise((r) => setTimeout(r, 300));
 
-        // External write (NOT through eve, so it's not a suppressed self-write).
+        // External write, not through eve, so it's not a suppressed self-write.
         fs.writeFileSync(path.join(projectDir, 'appeared.md'), 'new', 'utf8');
 
         const frame = await ws.waitFor((f) => f.type === 'dir_changed', 8000);

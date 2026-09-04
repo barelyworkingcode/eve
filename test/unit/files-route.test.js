@@ -1,9 +1,5 @@
-/**
- * Integration test for the hardened `/api/files/:projectId/*` route.
- * The traversal check and the XSS-hardening headers live in the route itself
- * (routes/index.js), so they need a real Express app to exercise.
- * See docs/security-audit-frontend.md (H1, H2).
- */
+// The traversal check and the XSS-hardening headers live in the route itself
+// (routes/index.js), so they need a real Express app to exercise.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -107,10 +103,9 @@ describe('/api/files route hardening', () => {
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'");
   });
 
-  // Regression: SVG and XML are script-capable (SVG can carry inline <script>),
-  // so they must be neutralized exactly like HTML — sandboxed + forced to
-  // download, never rendered inline in Eve's origin. The route only tested
-  // .html before, leaving these two quieter stored-XSS vectors unguarded.
+  // SVG and XML are script-capable (SVG can carry inline <script>), so they must
+  // be neutralized exactly like HTML — sandboxed + forced to download, never
+  // rendered inline in Eve's origin.
   it('forces SVG to download and sandboxes it (stored-XSS vector)', async () => {
     const res = await fetch(`${baseUrl}/api/files/p1/art.svg`);
     expect(res.status).toBe(200);
@@ -128,7 +123,6 @@ describe('/api/files route hardening', () => {
   it('does not honor ?preview=1 for SVG (only HTML previews inline)', async () => {
     const res = await fetch(`${baseUrl}/api/files/p1/art.svg?preview=1`);
     expect(res.status).toBe(200);
-    // Still neutralized — preview is HTML-only.
     expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
   });

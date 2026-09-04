@@ -1,23 +1,9 @@
 /**
- * FeatureRegistry - lets a feature own its own DOM, services and subscriptions.
+ * See docs/decisions/001-feature-registry.md.
  *
- * Why: see docs/decisions/001-feature-registry.md. In short, adding a feature
- * with a UI surface currently means hand-editing a dozen places, and nothing
- * keeps a feature's pieces together.
- *
- * A feature is a plain descriptor:
- *
- *   FeatureRegistry.register({
- *     id: 'tts',                                   // unique; also the container key
- *     init: (container) => new TTSManager(container),
- *     slots: [{ slot: 'chat-input-trailing', order: 20, render: (c) => el }],
- *     events: { [EVT.CHAT_ASSISTANT_FINISH]: (data, container) => {} },
- *   });
- *
- * register() deliberately constructs NOTHING. Storing an `init` closure and
- * deferring construction to boot() is what makes the 65 <script> tags in
- * index.html order-insensitive without introducing a build step: a file may
- * register before the classes it names exist, as long as they exist by boot.
+ * register() deliberately constructs nothing: storing the `init` closure and
+ * deferring construction to boot() is what makes <script> tag order in
+ * index.html not matter, with no bundler.
  */
 class FeatureRegistry {
   constructor() {
@@ -38,10 +24,6 @@ class FeatureRegistry {
   has(id) { return this._byId.has(id); }
   ids() { return this._features.map((f) => f.id); }
 
-  /**
-   * Construct every feature in registration order, register each result in the
-   * container under its id, and subscribe its event handlers to the bus.
-   */
   boot(container) {
     for (const feature of this._features) {
       if (typeof feature.init === 'function') {
@@ -59,13 +41,8 @@ class FeatureRegistry {
     }
   }
 
-  /**
-   * Fill every [data-slot] under `root` with its contributions, ordered.
-   *
-   * A contribution naming a slot that isn't in the DOM throws rather than
-   * disappearing: a silently missing button is the exact failure this design
-   * exists to prevent.
-   */
+  // Throws on a contribution naming a slot absent from the DOM, rather than
+  // dropping it: a silently missing button is what this exists to prevent.
   renderSlots(root, container) {
     const contributions = new Map();
     for (const feature of this._features) {
@@ -91,7 +68,6 @@ class FeatureRegistry {
     for (const el of nodes) {
       const list = (contributions.get(el.dataset.slot) || [])
         .map((c, i) => ({ c, i }))
-        // Stable: equal orders fall back to registration order.
         .sort((a, b) => ((a.c.order ?? 0) - (b.c.order ?? 0)) || (a.i - b.i))
         .map(({ c }) => c);
       for (const c of list) {
@@ -102,14 +78,6 @@ class FeatureRegistry {
   }
 }
 
-/**
- * The page's registry. Feature files call `features.register({...})` at file
- * scope; app.js boots it once the container exists.
- *
- * It has to be created here, not in app.js, because that is the whole point of
- * deferred construction: a feature file runs the moment its <script> tag is
- * parsed, long before initApp(), so there must already be something for it to
- * register against. A top-level `const` in a classic script is visible to every
- * script parsed after it — the same way `EVT` in core/constants.js is.
- */
+// Must exist at file scope: a feature file calls `features.register({...})`
+// the moment its <script> tag is parsed, long before app.js boots it.
 const features = new FeatureRegistry();

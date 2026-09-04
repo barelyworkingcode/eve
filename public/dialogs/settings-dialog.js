@@ -1,15 +1,7 @@
-/**
- * SettingsDialog - browser theme configuration dialog.
- * Theme tabs: Theme (appearance mode + presets), Colors (palette editor),
- * Typography (UI + code/terminal fonts). Plus Voice and Files.
- * All changes apply live via SettingsManager.
- */
 class SettingsDialog extends DialogBase {
   constructor(container) {
     super(container, 'settings-dialog');
     this.settings = container.get('settings');
-    // Which palette the Colors tab edits. Only diverges from the active mode
-    // when themeMode is 'auto' and the user picks the other side to customize.
     this._editMode = 'dark';
   }
 
@@ -22,7 +14,6 @@ class SettingsDialog extends DialogBase {
 
   hide() {
     super.hide();
-    // Re-evaluate voice preloading in case user changed TTS/STT backend
     if (this.container.has('voiceInitCoordinator')) {
       this.container.get('voiceInitCoordinator').evaluate();
     }
@@ -32,7 +23,6 @@ class SettingsDialog extends DialogBase {
     this._panel.innerHTML = '';
     this._panel.style.maxWidth = '440px';
 
-    // Title bar
     const titleBar = document.createElement('div');
     titleBar.className = 'dialog__title-bar';
 
@@ -49,11 +39,8 @@ class SettingsDialog extends DialogBase {
     titleBar.appendChild(closeBtn);
     this._panel.appendChild(titleBar);
 
-    // The Colors tab edits the active palette by default; under 'auto' the user
-    // can switch which side they edit.
     this._editMode = this.settings.getActiveMode();
 
-    // Tabs
     const themeContent = document.createElement('div');
     themeContent.className = 'dialog__tab-content';
     const colorsContent = document.createElement('div');
@@ -81,7 +68,6 @@ class SettingsDialog extends DialogBase {
     );
     this._panel.appendChild(header);
 
-    // Build tab contents
     this._buildThemeTab(themeContent);
     this._buildColorsTab(colorsContent);
     this._buildTypographyTab(typographyContent);
@@ -94,7 +80,6 @@ class SettingsDialog extends DialogBase {
     this._panel.appendChild(voiceContent);
     this._panel.appendChild(filesContent);
 
-    // Footer with reset
     const footer = document.createElement('div');
     footer.className = 'settings-dialog__footer';
     const resetBtn = document.createElement('button');
@@ -109,7 +94,6 @@ class SettingsDialog extends DialogBase {
   }
 
   _buildThemeTab(container) {
-    // Appearance mode: Auto follows the OS, Light/Dark pin it.
     const modeLabel = document.createElement('label');
     modeLabel.className = 'dialog__label';
     modeLabel.textContent = 'Appearance';
@@ -134,7 +118,6 @@ class SettingsDialog extends DialogBase {
     hint.textContent = this._appearanceHint();
     container.appendChild(hint);
 
-    // Preset gallery, grouped by light/dark. Clicking applies into that side's palette.
     const groups = this.settings.getPresetGroups();
     for (const [groupKey, label] of [['dark', 'Dark themes'], ['light', 'Light themes']]) {
       const groupLabel = document.createElement('div');
@@ -177,7 +160,6 @@ class SettingsDialog extends DialogBase {
         });
       }
     } else if (mode !== groupKey) {
-      // Picking a preset from the other side is an explicit choice — switch to it.
       this.settings.setThemeMode(groupKey);
     }
     this._editMode = this.settings.getActiveMode();
@@ -228,7 +210,6 @@ class SettingsDialog extends DialogBase {
 
   _buildColorsTab(container) {
     const mode = this.settings.getThemeMode();
-    // Outside 'auto' there is exactly one relevant palette — keep edit in sync.
     if (mode !== 'auto') this._editMode = this.settings.getActiveMode();
 
     const hint = document.createElement('span');
@@ -318,7 +299,6 @@ class SettingsDialog extends DialogBase {
   }
 
   _buildTypographyTab(container) {
-    // UI font — chrome, menus, chat prose.
     const famLabel = document.createElement('label');
     famLabel.className = 'dialog__label';
     famLabel.textContent = 'UI Font';
@@ -348,7 +328,6 @@ class SettingsDialog extends DialogBase {
     famHint.textContent = 'Used for the interface, menus, and chat text.';
     container.appendChild(famHint);
 
-    // Font size
     const sizeLabel = document.createElement('label');
     sizeLabel.className = 'dialog__label';
     sizeLabel.textContent = 'Font Size';
@@ -368,7 +347,6 @@ class SettingsDialog extends DialogBase {
     });
     container.appendChild(sizeInput);
 
-    // Code & terminal font (monospace only).
     const termLabel = document.createElement('label');
     termLabel.className = 'dialog__label';
     termLabel.textContent = 'Code & Terminal Font';
@@ -398,7 +376,6 @@ class SettingsDialog extends DialogBase {
     const tts = this.container.has('ttsManager') ? this.container.get('ttsManager') : null;
     if (!tts) return;
 
-    // TTS Backend
     const backendLabel = document.createElement('label');
     backendLabel.className = 'dialog__label';
     backendLabel.textContent = 'TTS Backend';
@@ -421,7 +398,6 @@ class SettingsDialog extends DialogBase {
       });
       container.appendChild(backendSelect);
     } else {
-      // Web has exactly one backend — a read-only line, no control to change.
       const backendLine = document.createElement('div');
       backendLine.className = 'dialog__value';
       backendLine.textContent = 'Server (Kokoro daemon)';
@@ -435,14 +411,12 @@ class SettingsDialog extends DialogBase {
       : 'Speech is synthesized by the local Kokoro daemon.';
     container.appendChild(hint);
 
-    // TTS Status
     const ttsStatusEl = document.createElement('div');
     ttsStatusEl.className = 'field-hint';
     ttsStatusEl.style.marginTop = '12px';
     ttsStatusEl.textContent = this._getTtsStatus(tts);
     container.appendChild(ttsStatusEl);
 
-    // TTS Prompt Tag
     const ttsTagLabel = document.createElement('label');
     ttsTagLabel.className = 'dialog__label';
     ttsTagLabel.style.marginTop = '16px';
@@ -464,7 +438,6 @@ class SettingsDialog extends DialogBase {
     ttsTagHint.textContent = 'Appended to every message when TTS is active. Clear to disable.';
     container.appendChild(ttsTagHint);
 
-    // --- STT Backend ---
     const stt = this.container.has('sttManager') ? this.container.get('sttManager') : null;
     if (!stt) return;
 
@@ -491,7 +464,6 @@ class SettingsDialog extends DialogBase {
       });
       container.appendChild(sttSelect);
     } else {
-      // Web has exactly one backend — a read-only line, no control to change.
       const sttBackendLine = document.createElement('div');
       sttBackendLine.className = 'dialog__value';
       sttBackendLine.textContent = 'Server (Whisper daemon)';
@@ -511,7 +483,6 @@ class SettingsDialog extends DialogBase {
     sttStatusEl.textContent = this._getSttStatus(stt);
     container.appendChild(sttStatusEl);
 
-    // STT Prompt Tag
     const sttTagLabel = document.createElement('label');
     sttTagLabel.className = 'dialog__label';
     sttTagLabel.style.marginTop = '16px';

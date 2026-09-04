@@ -7,8 +7,6 @@ const { TrustedNetworkService } = require('../../trusted-network');
 
 const req = (remoteAddress, extra = {}) => ({ socket: { remoteAddress }, method: 'GET', url: '/', headers: {}, ...extra });
 
-// trustedNetwork double: mirrors the real service's default trusted set, which
-// ALWAYS includes loopback (127.0.0.0/8 + ::1) plus, here, the 192.168.0.0/16 LAN.
 const trustedNetwork = {
   isInTrustedRange: (r) => {
     const a = r?.socket?.remoteAddress || '';
@@ -33,7 +31,6 @@ describe('canBootstrapEnrollment', () => {
     expect(canBootstrapEnrollment(req('8.8.8.8'), { trustedNetwork, env: { EVE_ALLOW_ENROLLMENT: '1' } })).toBe(false);
   });
   it('the escape hatch broadens to a non-trusted PRIVATE net (e.g. a different LAN/VPN)', () => {
-    // 10.50.50.50 is private but outside the trustedNetwork double's 192.168/16
     expect(canBootstrapEnrollment(req('10.50.50.50'), { trustedNetwork, env: {} })).toBe(false);
     expect(canBootstrapEnrollment(req('10.50.50.50'), { trustedNetwork, env: { EVE_ALLOW_ENROLLMENT: '1' } })).toBe(true);
   });
@@ -106,31 +103,27 @@ describe('enrollmentGate middleware', () => {
   });
 });
 
-// Integration-flavored: wire the REAL TrustedNetworkService into the REAL gate so
-// the gate <-> service seam is exercised. The hand-rolled double above mirrors the
-// service's intent but reimplements the trust predicate; here a normalization
-// regression in the real service (e.g. how it classifies a ::ffff:-mapped client,
-// or its CIDR membership math) would actually fail a test.
+// The hand-rolled double above mirrors the real service's intent but reimplements
+// the trust predicate, so it can't catch a normalization regression in the real
+// service (e.g. ::ffff:-mapped client handling or CIDR membership math). This
+// block wires the real TrustedNetworkService in instead.
 describe('with the real TrustedNetworkService', () => {
-  // Pin the trusted set to a private /16 via EVE_TRUSTED_SUBNETS and feed an
-  // empty NIC list so the service's classification is fully deterministic and
-  // independent of the host running the tests. (The override REPLACES the default
-  // set, so loopback is intentionally not in `cidrs` here — but loopback is still
-  // non-public and handled by the gate's isPublicIp short-circuit.)
+  // EVE_TRUSTED_SUBNETS REPLACES the default trusted set (loopback included), and
+  // an empty NIC list keeps classification independent of the host running the
+  // tests — loopback still works via the gate's separate isPublicIp short-circuit.
   const realTrustedNetwork = new TrustedNetworkService({
     env: { EVE_TRUSTED_SUBNETS: '192.168.0.0/16' },
     osModule: { networkInterfaces: () => ({}) },
   });
 
   it('classifies the pinned private /16 as in-range (real service)', () => {
-    // Sanity-check the seam directly: the gate calls exactly this method.
     expect(realTrustedNetwork.isInTrustedRange(req('192.168.1.50'))).toBe(true);
     expect(realTrustedNetwork.isInTrustedRange(req('203.0.113.7'))).toBe(false);
   });
 
   it('HARD RULE: a public-IP client cannot enroll even with EVE_ALLOW_ENROLLMENT=1', () => {
-    // Drives the real service: 203.0.113.7 is public AND outside 192.168/16, so
-    // both the isPublicIp hard rule and the real isInTrustedRange say "no".
+    // 203.0.113.7 is public AND outside 192.168/16, so both the isPublicIp hard
+    // rule and the real isInTrustedRange independently say "no".
     expect(canBootstrapEnrollment(req('203.0.113.7'), {
       trustedNetwork: realTrustedNetwork,
       env: { EVE_ALLOW_ENROLLMENT: '1' },
@@ -142,8 +135,6 @@ describe('with the real TrustedNetworkService', () => {
   });
 
   it('a client in the trusted private range may bootstrap (no escape hatch needed)', () => {
-    // No EVE_ALLOW_ENROLLMENT — trust comes purely from the real service's CIDR
-    // membership test, so this exercises isInTrustedRange end-to-end.
     expect(canBootstrapEnrollment(req('192.168.1.50'), {
       trustedNetwork: realTrustedNetwork,
       env: {},
@@ -151,7 +142,6 @@ describe('with the real TrustedNetworkService', () => {
   });
 
   it('honors the real service IPv6-mapped-IPv4 normalization for a trusted client', () => {
-    // ::ffff:192.168.1.50 must normalize to 192.168.1.50 inside the real service.
     // A regression in normalizeIp/getClientIp would make this client look untrusted.
     expect(canBootstrapEnrollment(req('::ffff:192.168.1.50'), {
       trustedNetwork: realTrustedNetwork,
@@ -184,9 +174,8 @@ describe('with the real TrustedNetworkService', () => {
     expect(r.statusCode).toBeNull();
   });
 
-  // `res()` is defined inside the `enrollmentGate middleware` describe above; the
-  // two end-to-end cases need it, so re-declare the same minimal fake here to keep
-  // this block self-contained.
+  // Duplicated from the `enrollmentGate middleware` describe above, rather than
+  // shared, to keep this block self-contained.
   function res() {
     return {
       statusCode: null, body: null, headers: {},

@@ -1,37 +1,24 @@
 /**
- * SearchService - spawns ripgrep against a project directory and streams
- * structured match results.
- *
- * Security: query and globs are passed via spawn() argv (never a shell string).
- * A `--` separator precedes the query so a leading `-` can't be parsed as a flag.
- * The caller is responsible for passing a project path that has already gone
- * through FileService.validatePath().
+ * Query and globs are passed via spawn() argv, never a shell string. A `--`
+ * separator precedes the query so a leading `-` can't be parsed as a flag.
+ * Caller must pass a project path already validated by FileService.validatePath().
  */
 const { spawn } = require('child_process');
 const { rgPath } = require('@vscode/ripgrep');
 
-const MAX_MATCHES = 500;          // hard cap on results returned per search
-const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10MB stdout cap
-const TIMEOUT_MS = 5000;          // hard timeout per search
+const MAX_MATCHES = 500;
+const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+const TIMEOUT_MS = 5000;
 const MAX_GLOBS = 5;
 const MAX_GLOB_LEN = 200;
 const MAX_QUERY_LEN = 1000;
 
 class SearchService {
   constructor() {
-    this._inflight = new Map(); // requestId -> child process
+    this._inflight = new Map();
   }
 
-  /**
-   * Run a search. Resolves with { matches, truncated, durationMs }.
-   * Each match: { file, lineNumber, lineText, submatches: [{start, end}] }
-   *
-   * Options:
-   *   regex    — if true, query is a regex; otherwise --fixed-strings
-   *   word     — if true, --word-regexp
-   *   globs    — array of strings forwarded as --glob (validated)
-   *   requestId — opaque id used by cancel()
-   */
+  // Resolves { matches, truncated, durationMs }. requestId is opaque, used by cancel().
   run(projectPath, query, options = {}) {
     if (typeof query !== 'string' || !query.length) {
       return Promise.reject(new Error('Search query is empty'));
@@ -121,7 +108,6 @@ class SearchService {
       });
 
       proc.stderr.on('data', (chunk) => {
-        // Buffer stderr but never grow unbounded
         if (stderrBuf.length < 8192) {
           stderrBuf += chunk.toString('utf8');
         }
@@ -151,9 +137,6 @@ class SearchService {
     });
   }
 
-  /**
-   * Cancel an in-flight search by requestId. No-op if not running.
-   */
   cancel(requestId) {
     const entry = this._inflight.get(requestId);
     if (!entry) return false;

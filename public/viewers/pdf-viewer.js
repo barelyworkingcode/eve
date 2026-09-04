@@ -1,8 +1,5 @@
-/**
- * PdfViewer - renders PDF files using the browser's built-in PDF viewer.
- * Uses an <iframe> for maximum compatibility (Chrome, Safari, Firefox all
- * have native PDF rendering).
- */
+// <iframe>, not <embed>/<object>: Chrome, Safari and Firefox all give it
+// native PDF rendering, which is what this relies on.
 class PdfViewer {
   constructor() {
     this.extensions = new Set(['pdf']);

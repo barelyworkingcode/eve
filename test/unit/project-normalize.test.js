@@ -1,10 +1,6 @@
-/**
- * normalizeProject — relay snake_case → browser camelCase projection. It is an
- * allow-list, so this test guards two regression classes:
- *   1. every expected field is mapped (a silent drop is how session_folders got
- *      missed the first time), and
- *   2. the project token is NEVER projected to the client.
- */
+// normalizeProject is an allow-list, so this test guards two regression classes:
+// every expected field is mapped (a silent drop is how session_folders got missed
+// the first time), and the project token is NEVER projected to the client.
 const { normalizeProject } = require('../../project-normalize');
 
 const fullRelayProject = {

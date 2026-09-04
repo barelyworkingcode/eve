@@ -1,11 +1,3 @@
-/**
- * Pinned indicator shown whenever a module's invokeAI() call is in flight,
- * with a click-to-open read-only event log dialog.
- *
- * The dialog stays open after an invocation completes if the user has it
- * open — they may still want to inspect the final transcript. Closing the
- * dialog drops terminal invocations; running ones are preserved.
- */
 class ModuleActivityOrb {
   constructor(container) {
     this.container = container;
@@ -14,9 +6,6 @@ class ModuleActivityOrb {
 
     this.invocations = new Map();
     this.activeId = null;
-    // Tracks whether the user's read-anchor is at the bottom of the log so
-    // we don't fight their scroll. Updated by a single scroll listener on
-    // the log element instead of forcing a layout read per event.
     this._userIsNearBottom = true;
 
     this.orbEl = null;
@@ -92,12 +81,7 @@ class ModuleActivityOrb {
       startedAt: Date.now(),
       endedAt: null,
       eventCount: 0,
-      // Insertion-ordered Map keyed by stable row key (e.g. `text-3`) so
-      // streaming text/thinking deltas coalesce into one growing row instead
-      // of one row per token.
       rows: new Map(),
-      // Live DOM-element refs for in-place updates, populated on render.
-      // Cleared when the dialog re-renders the invocation (tab switch).
       rowElements: new Map(),
       finalResult: null,
       finalError: null,
@@ -105,9 +89,8 @@ class ModuleActivityOrb {
     this._refreshOrb();
     this._refreshTabs();
     if (this.dialogEl.classList.contains('hidden')) return;
-    // Two cases need a fresh render: nothing was selected yet, OR the user
-    // pre-selected this requestId before the start frame arrived (e.g.
-    // programmatic selection right after send).
+    // Also covers a caller pre-selecting this requestId before the start
+    // frame arrives (e.g. programmatic selection right after send).
     if (!this.activeId || this.activeId === requestId) {
       this._selectInvocation(requestId);
     }
@@ -116,8 +99,8 @@ class ModuleActivityOrb {
   _onEvent(msg) {
     const inv = this.invocations.get(msg.requestId);
     if (!inv) return;
-    // Hard cap to bound memory on a chatty model. Stop processing past the
-    // cap rather than shifting (which would be O(n) per event).
+    // Bounds memory on a chatty model; stops accepting events rather than
+    // shifting the oldest ones out, which would be O(n) per event.
     if (inv.eventCount >= 2000) return;
     inv.eventCount++;
 
@@ -168,8 +151,6 @@ class ModuleActivityOrb {
   openDialog() {
     this.dialogEl.classList.remove('hidden');
     if (!this.activeId || !this.invocations.has(this.activeId)) {
-      // Prefer the most recent running invocation; fall back to most recent
-      // overall so the dialog isn't empty when opened after completion.
       const running = [...this.invocations.values()].filter(i => i.status === 'running');
       const pick = running[running.length - 1] || [...this.invocations.values()].pop();
       if (pick) this._selectInvocation(pick.requestId);
@@ -347,28 +328,20 @@ class ModuleActivityOrb {
     return el;
   }
 
-  /**
-   * Send `module_ai_stop` directly. We don't route through
-   * ModuleHost.stopInvoke — that path checks the SDK's pending-invoke map,
-   * which is empty for invocations the orb learned about purely from the
-   * server (e.g. iframe-side test harnesses or future server-driven calls).
-   */
+  // Not routed through ModuleHost.stopInvoke: that path checks the SDK's
+  // pending-invoke map, which is empty for invocations the orb learned about
+  // purely from the server.
   _handleStop(requestId) {
     const wsClient = this.container.get('ws');
     wsClient?.send({ type: 'module_ai_stop', requestId });
   }
 }
 
-/**
- * Project one relayLLM frame into the orb's row map. Returns
- *   { key, op: 'new' | 'update' }   — caller mounts or patches by key
- *   null                             — frame has no visual representation
- *
- * Coalescing keys: text/thinking blocks share `text-<index>` / `think-<index>`
- * so deltas for the same content-block accumulate in one row. Tool blocks
- * share `tool-<index>` and absorb their input_json_delta stream into a single
- * placeholder until the resolved args arrive in content_block_stop.
- */
+// relayLLM streams text/thinking as deltas against a stable content-block
+// index; text/thinking rows key on `text-<index>`/`think-<index>` so deltas
+// for the same block coalesce into one row, and tool rows key on
+// `tool-<index>`, absorbing the input_json_delta stream into a placeholder
+// until the resolved args arrive in content_block_stop.
 function projectEventIntoRows(rows, msg) {
   if (!msg || typeof msg !== 'object') return null;
   const topLevel = projectTopLevelFrame(rows, msg);
@@ -455,8 +428,6 @@ function projectAssistantEvent(rows, ev) {
     return upsertByKey(rows, `think-${idx}`, { tag: 'think', text: '', kind: 'thinking' });
   }
   if (ev.content_block_stop) {
-    // For tool_use, the resolved final input may be present and worth
-    // overwriting the placeholder with.
     if (ev.content_block?.type === 'tool_use' && idx !== undefined && ev.content_block.input) {
       const name = ev.content_block.name || '';
       const text = `${name} ${JSON.stringify(ev.content_block.input)}`.slice(0, 200);

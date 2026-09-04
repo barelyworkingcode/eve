@@ -1,21 +1,13 @@
-/**
- * Sidebar rendering: project list, session items, task items,
- * inline rename, ungrouped sessions.
- */
 class SidebarRenderer {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.renamingSessionId = null;
   }
 
   renderProjectList() {
-    // Guard: the new project tree sidebar replaces this element
+    // The new project tree sidebar replaces this element when present.
     if (!this.app.elements.projectList) return;
 
-    // Capture in-progress rename value before re-rendering
     const activeRenameId = this.renamingSessionId;
     let activeRenameValue = null;
     if (activeRenameId) {
@@ -23,7 +15,6 @@ class SidebarRenderer {
       if (input) activeRenameValue = input.value;
     }
 
-    // Capture expanded (non-collapsed) project groups before re-rendering
     const expandedProjects = new Set();
     for (const el of this.app.elements.projectList.querySelectorAll('.project-group:not(.collapsed)')) {
       const key = el.dataset.projectId || (el.classList.contains('ungrouped') ? '__ungrouped' : null);
@@ -46,7 +37,6 @@ class SidebarRenderer {
       this.renderUngroupedSessions(ungroupedSessions, expanded);
     }
 
-    // Restore in-progress rename after re-render
     if (activeRenameId) {
       const nameEl = this.app.elements.projectList
         .querySelector(`[data-session-id="${activeRenameId}"] .session-name`);
@@ -141,12 +131,10 @@ class SidebarRenderer {
       this.app.deleteProject(projectId);
     });
 
-    // Render tasks
     for (const task of projectTasks) {
       this.renderTaskItem(task, sessionsList);
     }
 
-    // Render sessions
     for (const session of sessions) {
       this.renderSessionItem(session, sessionsList, true);
     }
@@ -242,8 +230,6 @@ class SidebarRenderer {
 
     li.addEventListener('click', (e) => {
       if (e.target.closest('.task-edit') || e.target.closest('.task-run') || e.target.closest('.session-delete')) return;
-      // Single dispatch through TaskViewer — same path as the tree-item
-      // sidebar and the task dialog.
       const taskViewer = this.app.container.get('taskViewer');
       if (!taskViewer.hasLastRun(task)) return;
       taskViewer.openLastRun(task);
@@ -273,7 +259,7 @@ class SidebarRenderer {
       this.app.taskManager.runTask(task.id);
     });
 
-    // Show spinner if task is currently running (handles page refresh + other-tab runs)
+    // Covers the case where the run was started from a page refresh or another tab.
     if (task.lastStatus === 'running') {
       runBtn.classList.add('running');
       runBtn.textContent = '';

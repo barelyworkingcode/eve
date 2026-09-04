@@ -1,10 +1,3 @@
-/**
- * SttNativeBackend - Native STT via Capacitor EveVoice plugin.
- * Follows the shared backend pattern:
- *   - transcribe(audio) accepts Float32Array, returns { text }
- *   - transcribeBlob(blob) decodes to Float32 then calls transcribe()
- * Audio capture and VAD are handled by JS — this backend only transcribes.
- */
 class SttNativeBackend {
   constructor() {
     this.name = 'native';
@@ -18,7 +11,7 @@ class SttNativeBackend {
     this.loading = true;
     this.log = context.log || new NullLogger();
 
-    // Mark the load durable *before* it begins: the native Parakeet download runs
+    // Mark the load durable *before* it begins: the native model download runs
     // in the app process, so an out-of-memory load can kill the whole app before
     // any catch below runs. If the marker survives a relaunch, VoiceCrashGuard
     // reverts the backend to 'server' instead of crash-looping. See voice-crash-guard.js.
@@ -40,13 +33,12 @@ class SttNativeBackend {
   }
 
   /**
-   * Transcribe Float32Array audio (16kHz mono) via native ASR engine.
-   * Returns { text } — same contract as the other STT backends.
+   * Expects 16kHz mono Float32 audio. Returns { text } — same contract as
+   * the other STT backends.
    */
   async transcribe(audio) {
     if (!this.ready) throw new Error('STT not ready');
 
-    // Encode Float32Array as base64 for Capacitor bridge
     const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
     let binary = '';
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
@@ -56,10 +48,6 @@ class SttNativeBackend {
     return { text: result.text };
   }
 
-  /**
-   * Transcribe a push-to-talk recording blob by decoding to Float32Array.
-   * Decodes the blob to Float32 and delegates to transcribe().
-   */
   async transcribeBlob(blob) {
     const arrayBuffer = await blob.arrayBuffer();
     const audioCtx = new OfflineAudioContext(1, 1, 16000);

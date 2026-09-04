@@ -1,11 +1,3 @@
-/**
- * ProjectTree - coordinates the activity-rail + explorer-panel sidebar.
- *
- * The rail (ActivityRail) lists project avatars and owns project selection;
- * the panel (ProjectPanel) shows the active project's files/sessions/tasks/
- * modules. This class tracks which project is active and keeps the two views
- * in sync. The active project persists across reloads.
- */
 class ProjectTree {
   static ACTIVE_KEY = 'eve-active-project';
 
@@ -20,7 +12,6 @@ class ProjectTree {
   }
 
   init() {
-    // Shared file tree node (one instance, renders per-project on demand)
     this.fileTreeNode = new FileTreeNode(this.container);
     this.fileTreeNode.init();
     this.fileTreeNode.restoreExpandState();
@@ -35,19 +26,16 @@ class ProjectTree {
     this.panel.init();
 
     this.bus.on(EVT.PROJECTS_LOADED, () => this.render());
-    // A delete removes from state without a full reload — state.removeProject
-    // emits PROJECT_DELETED (not PROJECTS_LOADED), so without this the rail
-    // keeps the stale avatar until a manual refresh. render() reads live
-    // state and is idempotent, so it's also safe for the "please delete"
-    // emit that precedes the actual removal.
+    // state.removeProject emits PROJECT_DELETED, not PROJECTS_LOADED, so this
+    // listener is needed or the rail keeps a stale avatar. render() is
+    // idempotent, which also makes it safe against the "please delete" emit
+    // that precedes the actual removal.
     this.bus.on(EVT.PROJECT_DELETED, () => this.render());
   }
 
   render() {
     const projects = this.state.getVisibleProjects();
 
-    // Ensure the active project still exists and is visible; otherwise fall
-    // back to the first project (alphabetical, matching the rail's order).
     const sorted = [...projects].sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     const stillValid = this.activeProjectId

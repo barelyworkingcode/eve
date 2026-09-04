@@ -1,11 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// scripts/prune-css.js
-//
-// Prunes provably dead CSS from every sheet that public/index.html loads
-// from under public/ (in load order; /-served sheets are skipped).
-//
 // A declaration in sheet i is covered only by rules in sheets i+1..n. It
 // is DEAD if, for EVERY comma-separated selector of its rule, some rule in
 // a later sheet has:
@@ -49,8 +44,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(REPO_ROOT, 'public');
 const STYLES_CSS = 'styles.css'; // only used for the PARTIAL/UNIQUE detail report
 
-// Sheet load order from index.html, in document order. Hrefs starting with
-// / are served from node_modules and are not ours.
+// Hrefs starting with / are served from node_modules and are not ours.
 function sheetOrder() {
   const html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
   const sheets = [];
@@ -65,7 +59,6 @@ function sheetOrder() {
   return sheets;
 }
 
-// Walk a parsed sheet and collect every style rule with its metadata.
 // Rules inside @keyframes (and @-webkit-keyframes) are not style rules;
 // they are excluded entirely.
 function collectRules(root, sheetIdx) {
@@ -111,9 +104,6 @@ function removedLineCount(orig, next) {
   return deleted;
 }
 
-// Coverage index over a flat list of rules: (ctx, selector) -> prop ->
-// {plain, important} — whether a later sheet re-declares the property,
-// plain and/or important.
 function addRulesToCoverage(cov, rules) {
   for (const r of rules) {
     if (r.declNodes.length === 0) continue;
@@ -130,9 +120,6 @@ function addRulesToCoverage(cov, rules) {
   }
 }
 
-// A declaration is dead iff EVERY one of its rule's selectors has a later
-// re-declaration in the same at-rule context. A !important declaration is
-// covered only by a later !important one.
 function declCovered(cov, rule, decl) {
   return rule.selectors.every(sel => {
     const props = cov.get(rule.ctx + '\u0000' + sel);
@@ -144,7 +131,6 @@ function declCovered(cov, rule, decl) {
   });
 }
 
-// Offset of the first byte of each 0-based line.
 function lineStarts(src) {
   const st = [0];
   let i = -1;
@@ -215,14 +201,12 @@ function maximalSafeSet(src, st, candidates) {
   }
 }
 
-// Per-sheet removal plan: which nodes are provably dead and which of those
-// are line-safe to remove.
 function planSheet(sheet, cov) {
   const { root, src, st } = sheet;
 
-  // At-rules that had children at parse time, recorded before any removal,
-  // so at-rules left with no children can be identified later. Statement
-  // at-rules (@charset and the like) never qualify and are never touched.
+  // Recorded before any removal so at-rules left with no children can be
+  // identified later. Statement at-rules (@charset and the like) have no
+  // .nodes and never qualify.
   const hadChildren = new Set();
   root.walkAtRules(at => {
     if (at.nodes && at.nodes.length) hadChildren.add(at);
@@ -234,8 +218,8 @@ function planSheet(sheet, cov) {
   const isStyles = sheet.href === STYLES_CSS;
 
   for (const r of sheet.rules) {
-    if (r.declNodes.length === 0) continue; // empty rules: skip, never dead
-    if (r.selectors.length === 0) { // no selector to compare: never provably dead
+    if (r.declNodes.length === 0) continue;
+    if (r.selectors.length === 0) {
       if (isStyles) { detail.unique++; detail.uniqueLines += r.endLine - r.startLine + 1; }
       continue;
     }
@@ -330,8 +314,6 @@ function main() {
     return { href, idx, src, root, st: lineStarts(src), rules: collectRules(root, idx) };
   });
 
-  // Coverage from later-loading sheets: covs[i] holds every rule in
-  // sheets i+1..n.
   const covs = parsed.map((sheet, i) => {
     const cov = new Map();
     for (let j = i + 1; j < parsed.length; j++) addRulesToCoverage(cov, parsed[j].rules);
@@ -353,7 +335,6 @@ function main() {
     }
   }
 
-  // Execute in memory (the dry run stops here without writing) and report.
   const totals = { blocks: 0, decls: 0, lines: 0, skipped: 0, files: 0 };
   const width = Math.max(...parsed.map(s => s.href.length));
   console.log(`Load order: ${sheets.length} stylesheets from public/index.html (skipping /-served sheets)`);

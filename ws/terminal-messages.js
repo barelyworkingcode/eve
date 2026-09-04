@@ -1,12 +1,3 @@
-/**
- * Terminal message descriptors — proxied verbatim to relayLLM via
- * RelayClient. See ws/message-registry.js for the registry these are
- * registered into.
- *
- * All nine arms are one-line relayClient.send field-picks: no `deps`, no
- * `async`, one collaborator (relayClient). This is the pilot domain
- * precisely because it is the least entangled slice of the switch.
- */
 module.exports = [
   {
     type: 'terminal_create',

@@ -1,6 +1,4 @@
 /**
- * TerminalKeybar — mobile accessory key bar for the terminal.
- *
  * Soft keyboards don't produce Esc, Tab, Shift+Tab, Ctrl, Alt/Option or arrow
  * keys, and can't express chords (Ctrl+C, Shift+Tab). This bar supplies those
  * sequences and, for Ctrl/Alt, acts as a sticky modifier applied to the next
@@ -9,11 +7,9 @@
  * (matching Termux/Blink).
  *
  * Lives inside #terminal so it hides automatically when the terminal pane is
- * not the active tab. Positioned just above the soft keyboard via the
- * VisualViewport API. Touch devices only.
+ * not the active tab.
  */
 
-// Keys that emit a fixed byte sequence. Arrows honour DECCKM at send time.
 const KEYBAR_ESSENTIAL = [
   { label: 'Esc',  seq: '\x1b' },
   { label: 'Tab',  seq: '\t' },
@@ -25,8 +21,7 @@ const KEYBAR_ESSENTIAL = [
   { label: '→',    arrow: 'C' },
 ];
 
-// Apple keyboards label the ⌥ modifier "Option"; everyone else says "Alt".
-// Purely cosmetic — _applyModifiers sends the same ESC-prefix sequence.
+// Purely cosmetic — _applyModifiers sends the same ESC-prefix sequence either way.
 const ALT_LABEL = IS_APPLE ? 'Option' : 'Alt';
 
 const KEYBAR_EXTENDED = [
@@ -43,16 +38,11 @@ const KEYBAR_EXTENDED = [
   { label: '~',    seq: '~' },
 ];
 
-// Modifier press lifecycle: off -> armed (one shot) -> locked -> off.
 const MOD_OFF = 0;
 const MOD_ARMED = 1;
 const MOD_LOCKED = 2;
 
 class TerminalKeybar {
-  /**
-   * @param {TerminalManager} terminalManager - owner; provides sendInput() and
-   *   the active xterm instance.
-   */
   constructor(terminalManager) {
     this.tm = terminalManager;
     this.log = terminalManager.log.child('Keybar');
@@ -60,14 +50,12 @@ class TerminalKeybar {
     this.enabled = IS_TOUCH;
     this.expanded = false;
     this._mods = { ctrl: MOD_OFF, alt: MOD_OFF };
-    this._modButtons = {};     // name -> button el
-    this._lastModTap = {};     // name -> timestamp, for double-tap detection
+    this._modButtons = {};
+    this._lastModTap = {};
     this._bar = null;
 
     if (this.enabled) this._build();
   }
-
-  // --- DOM construction ---
 
   _build() {
     const host = document.getElementById('terminal');
@@ -87,7 +75,6 @@ class TerminalKeybar {
 
     for (const def of KEYBAR_ESSENTIAL) keys.appendChild(this._makeKey(def));
 
-    // Trailing expand toggle reveals the extended row in place.
     const expand = this._makeButton('⋯', 'terminal-keybar__key terminal-keybar__expand');
     expand.setAttribute('aria-label', 'More keys');
     this._bindPress(expand, () => this._toggleExpanded(expand));
@@ -122,9 +109,8 @@ class TerminalKeybar {
   }
 
   /**
-   * Wire a tap without stealing focus from xterm's hidden textarea — a blur
-   * collapses the soft keyboard, which would make the bar unusable. We act on
-   * pointerdown and preventDefault so focus never leaves the terminal.
+   * A blur collapses the soft keyboard, which would make the bar unusable —
+   * so this must not steal focus from xterm's hidden textarea.
    */
   _bindPress(btn, handler) {
     btn.addEventListener('pointerdown', (e) => {
@@ -145,8 +131,6 @@ class TerminalKeybar {
     }
   }
 
-  // --- Key handling ---
-
   _onKeyTap(def) {
     const seq = def.arrow ? this._arrowSeq(def.arrow) : def.seq;
     this.tm.sendInput(this._applyModifiers(seq));
@@ -164,7 +148,6 @@ class TerminalKeybar {
     const prev = this._lastModTap[name] || 0;
     this._lastModTap[name] = now;
 
-    // Double tap (within 350ms) locks; otherwise cycle off <-> armed.
     if (now - prev < 350) {
       this._mods[name] = MOD_LOCKED;
     } else {
@@ -180,12 +163,7 @@ class TerminalKeybar {
     btn.classList.toggle('terminal-keybar__key--locked', this._mods[name] === MOD_LOCKED);
   }
 
-  /**
-   * Apply any active Ctrl/Alt modifier to a byte sequence and clear the
-   * one-shot (armed) state. Called for bar keys and, via transformInput(), for
-   * system-keyboard input. Modifiers fold over the first byte only — that's
-   * what a real Ctrl/Alt chord targets.
-   */
+  // Modifiers fold over the first byte only — that's what a real Ctrl/Alt chord targets.
   _applyModifiers(seq) {
     if (!seq) return seq;
     let out = seq;
@@ -199,7 +177,6 @@ class TerminalKeybar {
    *  to 0x00–0x1f; anything else passes through unchanged. */
   _ctrl(seq) {
     const ch = seq.charCodeAt(0);
-    // Uppercase A–Z / lowercase a–z and the @[\]^_ block.
     if (ch >= 64 && ch <= 95) return String.fromCharCode(ch & 0x1f) + seq.slice(1);
     if (ch >= 97 && ch <= 122) return String.fromCharCode(ch & 0x1f) + seq.slice(1);
     return seq;
@@ -217,17 +194,10 @@ class TerminalKeybar {
     return changed;
   }
 
-  /**
-   * Transform system-keyboard input before it reaches the PTY, folding in an
-   * armed/locked Ctrl or Alt. No-op when no modifier is active, so the normal
-   * typing path is untouched. Called from TerminalManager.onData.
-   */
   transformInput(data) {
     if (this._mods.ctrl === MOD_OFF && this._mods.alt === MOD_OFF) return data;
     return this._applyModifiers(data);
   }
-
-  // --- Keyboard-aware positioning ---
 
   /**
    * Ride just above the soft keyboard. The VisualViewport shrinks when the
@@ -242,7 +212,6 @@ class TerminalKeybar {
       raf = 0;
       const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       this._bar.style.transform = `translateY(${-overlap}px)`;
-      // Keep xterm sized to the space left above the keyboard.
       this.tm.fitActive();
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
@@ -251,7 +220,6 @@ class TerminalKeybar {
   }
 }
 
-// Export for use in terminal-manager.js
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = TerminalKeybar;
 }

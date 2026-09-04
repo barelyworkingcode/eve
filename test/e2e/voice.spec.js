@@ -1,10 +1,10 @@
 /**
- * Voice tests against the real Kokoro/Whisper daemons.
+ * Voice tests against the real speech daemons.
  *
- * No virtual audio driver is involved. Chromium can use a WAV file as the
- * microphone (`--use-file-for-fake-audio-capture`), which is hermetic,
- * headless, and parallel-safe in a way a shared system audio device is not.
- * Known speech is generated at test time with macOS `say`.
+ * Chromium plays a WAV file as the microphone
+ * (`--use-file-for-fake-audio-capture`) instead of using a virtual audio
+ * driver — hermetic, headless, and parallel-safe in a way a shared system
+ * audio device is not. Known speech is generated at test time with macOS `say`.
  *
  * Slower than the rest of the e2e suite (~3s per transcription), so it is
  * excluded from `npm run test:e2e` and run via `npm run test:voice`.
@@ -20,11 +20,12 @@ const TTSService = require('../../tts-service');
 const STTService = require('../../stt-service');
 
 const PHRASE = 'The quick brown fox jumps over the lazy dog';
-// Whisper mangles unusual proper nouns — "eve voice" came back as "in police" —
-// so assert on word overlap of a common-word phrase, never string equality.
-// 0.7, not 0.8: the recognizer jitters run to run (a phrase that scores 1.0
-// most runs was observed at 0.78 once). Broken speech scores near zero, so
-// this still fails hard on a real regression without being flaky.
+// The recognizer mangles unusual proper nouns ("eve voice" came back as "in
+// police"), so assert on word overlap of a common-word phrase, never string
+// equality. 0.7, not 0.8: the recognizer jitters run to run (a phrase that
+// scores 1.0 most runs was observed at 0.78 once). Broken speech still
+// scores near zero, so this fails hard on a real regression without being
+// flaky.
 const MIN_OVERLAP = 0.7;
 
 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -63,11 +64,8 @@ async function daemonUp(Service) {
   try { return await new Service().isAvailable(); } catch { return false; }
 }
 
-// ---------------------------------------------------------------------------
-// 1. Mic button visibility. Stubbed, so it never depends on daemon state.
-//    Regression test: the visual baseline was once captured with the daemons
-//    down, recording a missing mic button and flagging false regressions.
-// ---------------------------------------------------------------------------
+// Stubbed so visibility never depends on whether the speech daemons happen
+// to be running.
 test.describe('mic button visibility', () => {
   for (const available of [true, false]) {
     test(`mic button is ${available ? 'shown' : 'hidden'} when STT reports available=${available}`, async ({ page, eve }) => {
@@ -83,9 +81,6 @@ test.describe('mic button visibility', () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// 2. Speech in -> transcript in the chat input, through the real app.
-// ---------------------------------------------------------------------------
 test.describe('speech to transcript', () => {
   test('a spoken phrase lands in the chat input', async ({ eve }) => {
     test.skip(process.platform !== 'darwin', 'needs macOS `say`/`afconvert` to generate speech');
@@ -110,7 +105,7 @@ test.describe('speech to transcript', () => {
       const mic = page.getByTestId('chat-mic');
       await expect(mic).toBeVisible({ timeout: 15000 });
 
-      // #micBtn is a click toggle, not push-to-talk. Hold well past the 300ms
+      // #micBtn is a click toggle, not push-to-talk. Hold past the 300ms
       // floor in _processRecording(); the generated phrase is ~2.5s.
       await mic.click();
       await page.waitForTimeout(3000);
@@ -130,10 +125,6 @@ test.describe('speech to transcript', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3. TTS -> STT round trip. Proves synthesized speech is intelligible with
-//    nobody listening to it.
-// ---------------------------------------------------------------------------
 test.describe('TTS/STT round trip', () => {
   for (const phrase of [
     'The quick brown fox jumps over the lazy dog',

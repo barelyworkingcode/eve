@@ -25,25 +25,20 @@ class AuthService {
     this.challenges = new Map();
     this.rateLimits = new Map();
 
-    // RP (Relying Party) settings
-    this.rpName = 'Home|Work';
+    this.rpName = 'Home|Work'; // RP (Relying Party) display name
 
-    // Optional pinned origin (EVE_PUBLIC_ORIGIN). When set, the WebAuthn RP ID
-    // and expected origin come from here instead of the request Host header,
-    // which is attacker-controllable. See docs/security-audit-frontend.md (M1).
+    // When EVE_PUBLIC_ORIGIN is set, the WebAuthn RP ID and expected origin
+    // come from it instead of the request Host header, which is
+    // attacker-controllable. See docs/security-audit-frontend.md (M1).
     this.pinnedOrigin = this._parsePinnedOrigin(process.env);
     if (this.pinnedOrigin) {
       this.log.info(`WebAuthn origin pinned to: ${this.pinnedOrigin.origin}`);
     }
 
-    // Start cleanup timer
     this.startCleanupTimer();
   }
 
-  /**
-   * Parse EVE_PUBLIC_ORIGIN into { origin, rpId }, or null if unset/invalid.
-   * Reads from environment on every call to support runtime config changes.
-   */
+  // Reads process.env fresh on every call to support runtime config changes.
   _getPinnedOrigin() {
     const raw = process.env.EVE_PUBLIC_ORIGIN;
     if (!raw || !raw.trim()) return null;
@@ -56,11 +51,7 @@ class AuthService {
     }
   }
 
-  /**
-   * Parse EVE_PUBLIC_ORIGIN into { origin, rpId }, or null if unset/invalid.
-   * Called once at startup for logging; actual pinned origin is read fresh on
-   * each request via _getPinnedOrigin().
-   */
+  // Called once at startup for logging only; requests read fresh via _getPinnedOrigin().
   _parsePinnedOrigin(env) {
     const raw = env.EVE_PUBLIC_ORIGIN;
     if (!raw || !raw.trim()) return null;
@@ -72,8 +63,6 @@ class AuthService {
       return null;
     }
   }
-
-  // --- Credential Persistence ---
 
   setSecurePermissions(filePath) {
     try {
@@ -109,15 +98,12 @@ class AuthService {
     }
   }
 
-  // --- Cleanup ---
-
   startCleanupTimer() {
     this.cleanupTimer = setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS);
     // Don't keep the event loop alive solely for cleanup (and let tests exit).
     this.cleanupTimer.unref?.();
   }
 
-  /** Stop the background cleanup timer. */
   stop() {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
@@ -130,22 +116,18 @@ class AuthService {
 
     this.sessionStore.cleanup();
 
-    // Clean expired challenges
     for (const [id, challenge] of this.challenges) {
       if (now > challenge.expiresAt) {
         this.challenges.delete(id);
       }
     }
 
-    // Clean expired rate limits
     for (const [ip, limit] of this.rateLimits) {
       if (now > limit.resetAt) {
         this.rateLimits.delete(ip);
       }
     }
   }
-
-  // --- Rate Limiting ---
 
   checkRateLimit(ip) {
     const now = Date.now();
@@ -164,8 +146,6 @@ class AuthService {
     return true;
   }
 
-  // --- Session Management (delegates to SessionStore) ---
-
   createSession() {
     return this.sessionStore.create();
   }
@@ -173,8 +153,6 @@ class AuthService {
   validateSession(token) {
     return this.sessionStore.validate(token);
   }
-
-  // --- Challenge Management ---
 
   storeChallenge(challenge) {
     const id = crypto.randomBytes(16).toString('hex');
@@ -196,10 +174,6 @@ class AuthService {
     return stored.challenge;
   }
 
-  /**
-   * Get, validate, and consume a challenge in one call.
-   * Throws if the challenge is missing or expired.
-   */
   consumeChallenge(challengeId) {
     const challenge = this.getChallenge(challengeId);
     if (!challenge) {
@@ -208,15 +182,11 @@ class AuthService {
     return challenge;
   }
 
-  // --- RP Configuration ---
-  //
-  // These helpers derive the WebAuthn RP ID / origin from the request host.
-  // This is intentional — WebAuthn binds credentials by hostname, so the
-  // hostname the browser used to reach us is the correct RP ID value. They
-  // MUST NOT be used for authorization decisions. Network-layer trust
-  // (the subnet bypass) lives in TrustedNetworkService and reads the raw
-  // TCP source address; see trusted-network.js and
-  // docs/security-review-auth-transport.md Section A.
+  // getRpId/getOrigin deliberately derive from the request host — WebAuthn
+  // binds credentials by hostname, so that's the correct RP ID value. They
+  // MUST NOT be used for authorization decisions; network-layer trust (the
+  // subnet bypass) lives in TrustedNetworkService and reads only
+  // req.socket.remoteAddress. See trusted-network.js.
 
   getRpId(req) {
     const pinned = this._getPinnedOrigin();
@@ -228,15 +198,13 @@ class AuthService {
   getOrigin(req) {
     const pinned = this._getPinnedOrigin();
     if (pinned) return pinned.origin;
-    // Only trust req.secure for protocol detection, not x-forwarded-proto.
-    // x-forwarded-proto is attacker-controllable on direct connections.
-    // When behind a reverse proxy, set EVE_PUBLIC_ORIGIN to pin the origin.
+    // req.secure only, never x-forwarded-proto — the latter is
+    // attacker-controllable on a direct connection. Behind a reverse proxy,
+    // set EVE_PUBLIC_ORIGIN instead.
     const protocol = req.secure ? 'https' : 'http';
     const host = req.get('host') || 'localhost:3000';
     return `${protocol}://${host}`;
   }
-
-  // --- WebAuthn Operations ---
 
   async generateEnrollmentOptions(req) {
     const rpId = this.getRpId(req);
@@ -286,7 +254,7 @@ class AuthService {
       : Buffer.from(credential.id).toString('base64url');
 
     const credentialData = {
-      rpId: rpId, // Store the RP ID used during enrollment
+      rpId: rpId,
       credentials: [{
         id: storedId,
         publicKey: Buffer.from(credential.publicKey).toString('base64url'),
@@ -306,7 +274,9 @@ class AuthService {
       throw new Error('No credentials enrolled');
     }
 
-    // Use the stored RP ID from enrollment, fall back to current request
+    // Recomputing from the current request could resolve a different
+    // hostname than the credential was bound to (e.g. EVE_PUBLIC_ORIGIN
+    // added/changed since), failing verification.
     const rpId = authData.rpId || this.getRpId(req);
 
     const options = await generateAuthenticationOptions({
@@ -337,7 +307,7 @@ class AuthService {
       throw new Error('Unknown credential');
     }
 
-    // Use the stored RP ID from enrollment, falling back to pinned/derived.
+    // Prefer the RP ID recorded at enrollment — see generateLoginOptions().
     const rpId = authData.rpId || this.getRpId(req);
 
     const verification = await verifyAuthenticationResponse({

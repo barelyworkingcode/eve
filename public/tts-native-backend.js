@@ -1,9 +1,4 @@
-/**
- * TtsNativeBackend - Native TTS via Capacitor EveVoice plugin.
- * Uses the Kokoro voice IDs — same as server/browser backends.
- */
-
-// Shared fallback voice list (also used by TtsServerBackend when daemon is offline)
+// Shared fallback voice list (also used by TtsManager when the server daemon is offline)
 const KOKORO_VOICES = [
   { id: 'af_heart', name: 'Heart', lang: 'American English', gender: 'F' },
   { id: 'af_bella', name: 'Bella', lang: 'American English', gender: 'F' },
@@ -34,7 +29,7 @@ class TtsNativeBackend {
     this.loading = true;
     this.log = context.log || new NullLogger();
 
-    // Mark the load durable *before* it begins: the native Kokoro download runs
+    // Mark the load durable *before* it begins: the native model download runs
     // in the app process, so an out-of-memory load can kill the whole app before
     // any catch below runs. If the marker survives a relaunch, VoiceCrashGuard
     // reverts the backend to 'server' instead of crash-looping. See voice-crash-guard.js.
@@ -56,19 +51,12 @@ class TtsNativeBackend {
     }
   }
 
-  /**
-   * Speak text via the native Capacitor plugin.
-   * Returns { audio: base64, duration } — same contract as the other TTS backends.
-   * JS handles playback via AudioContext (standard path).
-   */
+  /** Returns { audio: base64, duration } — same contract as the other TTS backends. */
   async speakText(text, voice) {
     const result = await window.Capacitor.nativePromise('EveVoice', 'speak', { text, voice });
     return { audio: result.audio, duration: result.duration };
   }
 
-  /**
-   * Return the static voice list — native uses the same Kokoro voice IDs.
-   */
   async loadVoices() {
     return KOKORO_VOICES;
   }

@@ -1,10 +1,7 @@
-/**
- * Increment 3 — session lifecycle + streamed LLM response, end-to-end through
- * the REAL RelayClient (eve <-> fake relay WS). The fake relay scripts the
- * llm_event stream, so we assert the *structure* eve relays to the browser, not
- * any model content. This is the layer that catches relay-client/ws-handler
- * contract drift that the unit tests (which mock RelayClient) cannot.
- */
+// Session lifecycle + streamed response, end-to-end through the REAL
+// RelayClient. Asserts the structure eve relays to the browser, not any
+// model content — the layer that catches relay-client/ws-handler contract
+// drift that the unit tests (which mock RelayClient) cannot.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -50,11 +47,6 @@ describe('session lifecycle + streaming (eve <-> fake relay WS)', () => {
       .join('');
     expect(text).toBe('Hello from fake relay');
   });
-
-  // (Trimmed: a "scripted custom stream" delta test added no distinct regression
-  // signal over the default-stream test above — same text_delta path. Non-default
-  // scripting through real wiring is covered by session-forwarding.test.js
-  // (message-block + content_block shapes) and the error-completion test below.)
 
   it('relays an error completion to the browser', async () => {
     const created = await createSession();

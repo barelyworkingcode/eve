@@ -1,9 +1,4 @@
-/**
- * Protocol contract tests. The live part keeps the fake relay honest to the
- * declared contract (protocol.js). The skipped part is the record-and-verify
- * stub that, run against a live relay, is what actually catches relayLLM
- * changing a frame shape out from under the double.
- */
+// Keeps the fake relay's declared frame builders honest to protocol.js.
 const { relayFrames, validateRelayFrame, extractAssistantText } = require('./protocol');
 
 describe('relay protocol contract', () => {
@@ -47,8 +42,6 @@ describe('relay protocol contract', () => {
     });
   });
 
-  // The record-and-verify against the REAL relay — the test that keeps the fake
-  // honest by validating actual relayLLM frames against this same contract —
-  // lives in contract-live.test.js (run with EVE_CONTRACT=1; it drives the
-  // running eve and hits a real LLM, so it's skipped by default).
+  // The test that validates real relayLLM frames against this contract
+  // lives in contract-live.test.js (EVE_CONTRACT=1; skipped by default).
 });

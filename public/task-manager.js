@@ -1,12 +1,4 @@
-/**
- * TaskManager - CRUD client for relayScheduler tasks.
- * All storage is delegated to StateStore. All HTTP goes through ApiClient.
- * Task lifecycle events (started/completed/error) are handled by MessageDispatcher.
- */
 class TaskManager {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
     this.api = container.get('api');
     this.state = container.get('state');
@@ -19,7 +11,6 @@ class TaskManager {
       const tasks = await this.api.getTasks(projectId);
       if (!Array.isArray(tasks)) return;
       if (projectId) {
-        // Merge: remove this project's old tasks, add fresh ones
         for (const [id, t] of this.state.tasks) {
           if (t.projectId === projectId) this.state.removeTask(id);
         }

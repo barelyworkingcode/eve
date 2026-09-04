@@ -1,15 +1,10 @@
 /**
  * NativeAudioBridge - thin JS wrapper over the native EveAudioBridge Capacitor
  * plugin (iOS). When IS_NATIVE_AUDIO, the native AVAudioEngine owns the mic and
- * speaker so a voice conversation keeps running with the screen off; JS stays
- * the orchestrator (WebSocket, transcribe_audio, forwarding TTS frames, UI).
+ * speaker so a voice conversation keeps running with the screen off.
  *
- * Methods are invoked with window.Capacitor.nativePromise(...) — the same valid
- * Capacitor 8 internal API the on-device backends use (tts-native-backend.js).
- * Native → JS events arrive via Capacitor.Plugins.EveAudioBridge.addListener.
- *
- * No-op (available === false) on every non-native surface, so callers can guard
- * on `IS_NATIVE_AUDIO` and never branch on platform internals.
+ * Calls go through window.Capacitor.nativePromise(...) — an internal (non-public)
+ * Capacitor API also used by the on-device backends.
  */
 class NativeAudioBridge {
   static EVENTS = [
@@ -24,7 +19,6 @@ class NativeAudioBridge {
     this._plugin = window.Capacitor?.Plugins?.EveAudioBridge || null;
   }
 
-  /** Subscribe to native events. `handlers` maps event name → callback(data). */
   init(handlers) {
     if (!this.available || !this._plugin) return;
     for (const ev of NativeAudioBridge.EVENTS) {
@@ -36,21 +30,18 @@ class NativeAudioBridge {
     this.log?.info('Native audio bridge wired');
   }
 
-  // mode: 'handsfree' | 'ptt'
   startSession(mode) { return this._call('startSession', { mode }); }
   stopSession() { return this._call('stopSession'); }
   setMode(mode) { return this._call('setMode', { mode }); }
 
-  // push-to-talk
   startCapture() { return this._call('startCapture'); }
   stopCapture() { return this._call('stopCapture'); }
 
-  // playback — base64 is a server TTS WAV chunk
+  // base64 is a server TTS WAV chunk
   enqueueTTS(base64) { return this._call('enqueueTTS', { audio: base64 }); }
   endTTSTurn() { return this._call('endTTSTurn'); }
   stopPlayback() { return this._call('stopPlayback'); }
 
-  // eyes-free feedback
   playEarcon(name) { return this._call('playEarcon', { name }); }
   startThinkingCue() { return this._call('startThinkingCue'); }
   stopThinkingCue() { return this._call('stopThinkingCue'); }
@@ -58,23 +49,22 @@ class NativeAudioBridge {
 
   getStatus() { return this._call('getStatus'); }
 
-  /** Live VAD/barge-in tuning (thresholds in the native engine). */
+  // VAD/barge-in thresholds live in the native engine, not here
   setTuning(opts = {}) { return this._call('setTuning', opts); }
 
-  /** Ambient river bed idle volume (0…1); native duck levels track it. */
+  // native duck levels track this value
   setAmbientVolume(volume) { return this._call('setAmbientVolume', { volume }); }
 
-  // diagnostic: silent background-audio hold, used to check whether a running
-  // native AVAudioEngine keeps the WebView alive while the phone is locked.
+  // checks whether a running native AVAudioEngine keeps the WebView alive
+  // while the phone is locked
   startKeepaliveProbe() { return this._call('startKeepaliveProbe'); }
   stopKeepaliveProbe() { return this._call('stopKeepaliveProbe'); }
 
-  // diagnostic: drain the native ring buffer (lines emitted before onDiagLog
-  // was subscribed — e.g. the cold-start trace). Returns { lines: [...] }.
+  // drains the native ring buffer, including lines emitted before onDiagLog
+  // was subscribed (e.g. the cold-start trace)
   dumpLogs() { return this._call('dumpLogs'); }
 
-  // toggle device-log streaming to eve; persists in native UserDefaults across
-  // restarts (default off). Returns { enabled }.
+  // persists in native UserDefaults across restarts (default off)
   setDiagLogging(enabled) { return this._call('setDiagLogging', { enabled: !!enabled }); }
   getDiagLogging() { return this._call('getDiagLogging'); }
 

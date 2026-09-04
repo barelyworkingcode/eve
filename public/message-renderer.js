@@ -1,62 +1,42 @@
-/**
- * Chat message rendering: user messages, assistant messages, tool use,
- * system messages, thinking indicator, text formatting.
- */
-
-// Placeholder rendered in place of an Anthropic redacted_thinking block, whose
-// body is an opaque encrypted blob. Wrapped in <think> tags so the existing
+// Placeholder for a redacted-thinking block whose body is an opaque encrypted
+// blob from the LLM provider. Wrapped in <think> tags so the existing
 // think-block parser folds it.
 const REDACTED_THINKING_PLACEHOLDER =
   '<think>\n_[redacted thinking — content filtered by Anthropic safety review]_\n</think>\n\n';
 
 // URL prefix that relayLLM serves generated images from. Keep in sync with
-// relayLLM/comfyui_client.go RegisterGeneratedImageRoutes and
-// relayComfy/mcp/main.go RELAY_IMAGE_BASE default.
+// relayLLM's RegisterGeneratedImageRoutes and relayComfy's RELAY_IMAGE_BASE.
 const GENERATED_PATH = '/api/generated/';
 
-// Canonical matcher for a generated-image URL token (the GENERATED_PATH prefix
-// plus an image filename + extension). Single source of truth, shared by the
-// prose auto-inliner below and terminal-manager.js's xterm link provider
-// (classic scripts share global scope; this file loads first).
+// Shared with terminal-manager.js's xterm link provider via global scope —
+// this file must load first.
 const GENERATED_IMAGE_RE = /\/api\/generated\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif)/g;
 
 class MessageRenderer {
   /**
-   * @param {Container} container - DI container
-   * @param {Object} [opts]
-   * @param {HTMLElement} [opts.targetEl] - container element to render into.
-   *   Defaults to the main #messages element. Sub-agent renderers pass the
-   *   parent Agent block's body so sidechain events render nested.
+   * Sub-agent renderers pass opts.targetEl as the parent Agent block's body
+   * so sidechain events render nested, instead of the main #messages element.
    */
   constructor(container, opts = {}) {
     this.container = container;
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.bus = container.get('bus');
     this.log = container.get('logger').child('Renderer');
     this.messagesEl = opts.targetEl || this.app.elements.messages;
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.isStreaming = false;
-    // Streaming deltas accumulate into dataset.rawText synchronously, but the
-    // expensive render (markdown + DOMPurify + innerHTML + scroll) is coalesced
-    // to one requestAnimationFrame — many tokens collapse into one DOM update.
     this._rafHandle = null;
     this.isRenderingHistory = false;
-    this.thinkBlockOpenStates = new Map(); // messageEl -> Set of open indices
+    this.thinkBlockOpenStates = new Map();
     this._speakingMessageEl = null;
 
-    // Think-block expand/collapse, driven from pointer events rather than the
-    // native <details> toggle. During streaming the message's innerHTML is
-    // rebuilt on every delta, so on touch devices the synthesized mouse/click
-    // event lands on a <summary> that's already been destroyed and the tap is
-    // lost — the bug that made think blocks un-expandable on mobile mid-stream.
-    // pointerdown fires on the live element the instant the finger lands, so we
-    // capture the target then, confirm it's a tap (not a scroll) on pointerup,
-    // and drive openSet — which _applyThinkBlockStates() re-applies after each
-    // re-render. We then cancel the element's own click toggle so the two don't
-    // cancel out; keyboard activation (Enter/Space) has no pointer tap and so
-    // still toggles natively.
-    let thinkTap = null; // { content, idx, x, y }
+    // On touch devices, streaming rebuilds the message's innerHTML on every
+    // delta, so the native <summary> click can land on an already-destroyed
+    // element and the tap is lost. Track pointerdown/pointerup instead, and
+    // suppress the native click toggle so the two don't double-fire; keyboard
+    // activation still toggles natively since it has no pointer tap.
+    let thinkTap = null;
     this.messagesEl.addEventListener('pointerdown', (e) => {
       this._suppressSummaryClick = false;
       const summary = e.target.closest('.think-block > summary');
@@ -71,7 +51,7 @@ class MessageRenderer {
       const moved = Math.abs(e.clientX - thinkTap.x) > 10 || Math.abs(e.clientY - thinkTap.y) > 10;
       if (!moved) {
         this._toggleThinkBlock(thinkTap.content, thinkTap.idx);
-        this._suppressSummaryClick = true; // we handled it — cancel native toggle
+        this._suppressSummaryClick = true;
       }
       thinkTap = null;
     });
@@ -82,7 +62,6 @@ class MessageRenderer {
       this._suppressSummaryClick = false;
     });
 
-    // Delegated click handler for TTS play/stop buttons on assistant messages.
     this.messagesEl.addEventListener('click', (e) => {
       const btn = e.target.closest('.tts-play-btn');
       if (!btn) return;
@@ -91,14 +70,12 @@ class MessageRenderer {
       const tts = this.app.ttsManager;
       if (!tts) return;
 
-      // If this message is currently speaking, stop it
       if (this._speakingMessageEl === messageEl) {
         tts.stop();
         this._clearSpeakingState();
         return;
       }
 
-      // Stop any current playback first
       if (this._speakingMessageEl) {
         tts.stop();
         this._clearSpeakingState();
@@ -114,21 +91,15 @@ class MessageRenderer {
       tts.speakText(rawText);
     });
 
-    // Clear play button state when TTS playback finishes naturally
     this.bus.on(EVT.TTS_PLAYBACK_ENDED, () => this._clearSpeakingState());
 
-    // Auto-scroll only when the user is parked at the bottom. The moment they
-    // scroll up to read earlier output we stop yanking them back down; when they
-    // return to the bottom we re-engage. Updated solely from real scroll events,
-    // so appending content never silently flips the state — only the user does.
+    // Only real scroll events flip _stickToBottom — appending content must not.
     this._stickToBottom = true;
     this.messagesEl.addEventListener('scroll', () => {
       this._stickToBottom = this._isNearBottom();
     }, { passive: true });
   }
 
-  // Within SCROLL_STICK_THRESHOLD px of the bottom counts as "at the bottom".
-  // A little slack keeps fast streaming pinned and makes re-engaging forgiving.
   _isNearBottom() {
     const el = this.messagesEl;
     return el.scrollHeight - el.scrollTop - el.clientHeight <= 80;
@@ -163,8 +134,8 @@ class MessageRenderer {
   }
 
   updateAssistantMessage(text) {
-    // This overwrites content wholesale (without touching dataset.rawText), so
-    // a queued delta render must be dropped or it would clobber with stale text.
+    // Overwrites content wholesale without touching dataset.rawText — a queued
+    // delta render must be dropped first or it would clobber with stale text.
     this._cancelPendingRender();
     if (this._streamRestoreTimer) {
       clearTimeout(this._streamRestoreTimer);
@@ -188,15 +159,11 @@ class MessageRenderer {
       this.startAssistantMessage(text);
       return;
     }
-    // Cheap and synchronous: keep dataset.rawText authoritative on every call
-    // so a forced flush always renders the complete text. The costly render is
-    // deferred to the next animation frame and coalesces intervening deltas.
     const currentText = this.currentAssistantMessage.dataset.rawText || '';
     this.currentAssistantMessage.dataset.rawText = currentText + text;
     this._scheduleRender();
   }
 
-  /** Queue a single coalesced render on the next animation frame. */
   _scheduleRender() {
     if (this._rafHandle) return;
     this._rafHandle = requestAnimationFrame(() => {
@@ -205,7 +172,6 @@ class MessageRenderer {
     });
   }
 
-  /** Render the accumulated streaming text. Idempotent; safe to call directly. */
   _renderNow() {
     if (!this.currentAssistantMessage) return;
     const text = this.currentAssistantMessage.dataset.rawText || '';
@@ -215,13 +181,11 @@ class MessageRenderer {
     this.scrollToBottom();
   }
 
-  /** Cancel a pending render and render now — use before finalizing a message. */
   _flushRender() {
     this._cancelPendingRender();
     this._renderNow();
   }
 
-  /** Drop a pending render without rendering — use when the target is replaced. */
   _cancelPendingRender() {
     if (this._rafHandle) {
       cancelAnimationFrame(this._rafHandle);
@@ -243,10 +207,6 @@ class MessageRenderer {
     }
   }
 
-  // Flip one think block's open state and persist it in openSet so it survives
-  // streaming re-renders. Applies to the DOM immediately so the tap feels
-  // responsive even when no further stream delta is coming (open and close both
-  // handled here; _applyThinkBlockStates only re-opens, never closes).
   _toggleThinkBlock(content, idx) {
     if (!this.thinkBlockOpenStates.has(content)) {
       this.thinkBlockOpenStates.set(content, new Set());
@@ -269,8 +229,8 @@ class MessageRenderer {
   }
 
   finishAssistantMessage(metrics) {
-    // Render any deltas still pending in a coalesced rAF before we finalize,
-    // so the history snapshot and re-render below see the complete text.
+    // Flush any pending rAF render before finalizing, so the history snapshot
+    // below sees the complete text.
     this._flushRender();
     this.markToolComplete();
     if (this.currentAssistantMessage) {
@@ -283,7 +243,8 @@ class MessageRenderer {
         });
         this.app.state.sessionHistories.set(this.app.state.currentSessionId, history);
       }
-      // Re-render with isStreaming=false to collapse think blocks
+      // isStreaming must flip to false before this re-render, or a still-open
+      // think block's summary stays stuck on "Thinking...".
       if (text) {
         this.isStreaming = false;
         this.currentAssistantMessage.innerHTML = this.formatText(text);
@@ -291,7 +252,6 @@ class MessageRenderer {
         this._upgradeGeneratedImages(this.currentAssistantMessage);
         this.renderMermaidBlocks(this.currentAssistantMessage);
       }
-      // Append metrics subline (TTFT / TPS) below the message content.
       if (metrics && (metrics.ttft || metrics.tps)) {
         const parts = [];
         if (metrics.ttft) parts.push(`TTFT ${metrics.ttft.toFixed(1)}s`);
@@ -301,7 +261,6 @@ class MessageRenderer {
         metricsEl.textContent = `(${parts.join(', ')})`;
         this.currentAssistantMessage.parentElement.appendChild(metricsEl);
       }
-      // Store cleaned text for TTS play button and append the button
       if (text) {
         this.currentAssistantMessage.dataset.ttsText = text;
         const playBtn = document.createElement('button');
@@ -352,15 +311,7 @@ class MessageRenderer {
     this.scrollToBottom();
   }
 
-  /**
-   * Create a parent Agent (sub-agent dispatch) block. Returns the body element
-   * that a sub-renderer will target so all sidechain rendering nests inside.
-   *
-   * The block starts in the "open + running" state — header carries the
-   * persona name and a spinner, body is empty until the sub-renderer starts
-   * appending. Caller must invoke finalizeAgentBlock when the sidechain
-   * completes to swap in the summary and auto-collapse.
-   */
+  // Caller must invoke finalizeAgentBlock when the sidechain completes.
   appendAgentBlock(toolUseId, persona, description) {
     this.hideThinkingIndicator();
     this.finishAssistantMessage();
@@ -393,8 +344,7 @@ class MessageRenderer {
     if (toolUseId) blockEl.dataset.toolUseId = toolUseId;
     blockEl.dataset.agentDescription = description || '';
 
-    // Mark the block as user-toggled once the human clicks the summary, so
-    // finalizeAgentBlock won't override their explicit open/closed state.
+    // finalizeAgentBlock won't auto-collapse once the user has toggled manually.
     blockEl.addEventListener('toggle', () => {
       if (blockEl.classList.contains('agent-complete')) {
         blockEl.dataset.userToggled = '1';
@@ -406,19 +356,12 @@ class MessageRenderer {
     return { blockEl, bodyEl };
   }
 
-  /**
-   * Finalize a previously-created Agent block. Removes the spinner, rewrites
-   * the header with summary stats, optionally adds a one-line preview of the
-   * sub-agent's final result, and auto-collapses unless the user has already
-   * manually toggled the block.
-   */
   finalizeAgentBlock(toolUseId, finalContent, durationMs, toolCount) {
     const blockEl = this.findToolBlockById(toolUseId);
     if (!blockEl || !blockEl.classList.contains('agent-block')) return;
     blockEl.classList.remove('agent-running');
     blockEl.classList.add('agent-complete');
 
-    // Spinner gone, status pill flips to checkmark.
     const spinner = blockEl.querySelector('.tool-spinner');
     if (spinner) spinner.remove();
 
@@ -430,7 +373,6 @@ class MessageRenderer {
       statusEl.textContent = stats || 'done';
     }
 
-    // Pull a short preview of the final summary into the header.
     const summaryEl = blockEl.querySelector('.agent-summary');
     if (summaryEl) {
       const preview = this._extractAgentSummaryPreview(finalContent);
@@ -439,13 +381,11 @@ class MessageRenderer {
       }
     }
 
-    // Auto-collapse, but only if the user hasn't already explicitly toggled.
     if (!blockEl.dataset.userToggled) {
       blockEl.removeAttribute('open');
     }
   }
 
-  /** Extract a short single-line preview from the sub-agent's tool_result content. */
   _extractAgentSummaryPreview(content) {
     let text = '';
     if (typeof content === 'string') {
@@ -464,7 +404,6 @@ class MessageRenderer {
     messageEl.className = 'message user';
     messageEl.dataset.testid = 'message-user';
 
-    // Strip voice mode instruction and dictation notice prefixes from display
     const displayText = text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '').replace(/^\[DICTATED\][^\n]*\n\n/, '');
 
     let filesHtml = '';
@@ -476,7 +415,7 @@ class MessageRenderer {
 
     messageEl.innerHTML = `<div class="message-content">${filesHtml}${this.escapeHtml(displayText)}</div>`;
     this.messagesEl.appendChild(messageEl);
-    this.scrollToBottom(true); // user just sent — always jump to bottom
+    this.scrollToBottom(true);
 
     if (this.app.state.currentSessionId && !this.isRenderingHistory) {
       const history = this.app.state.sessionHistories.get(this.app.state.currentSessionId) || [];
@@ -503,24 +442,18 @@ class MessageRenderer {
   }
 
   clearMessages() {
-    // A pending render would target a node that's about to be detached (or the
-    // wrong session's storage) — drop it before wiping.
+    // Drop any pending render before wiping — it would target a node about to
+    // be detached, or the wrong session's storage.
     this._cancelPendingRender();
     this._speakingMessageEl = null;
     this.messagesEl.innerHTML = '';
     this.currentAssistantMessage = null;
     this.currentToolBlock = null;
     this.thinkBlockOpenStates.clear();
-    this._stickToBottom = true; // fresh/empty chat starts pinned to the bottom
-    // Permission mode is per-session — clear the banner on session switches.
+    this._stickToBottom = true;
     this.setPermissionModeBanner('default');
   }
 
-  /**
-   * Show a banner indicating the active Claude Code permission mode. Hidden
-   * for the default mode; visible (and color-coded) for bypass/plan/acceptEdits.
-   * Called when the session emits a permission-mode event.
-   */
   setPermissionModeBanner(mode) {
     if (this._lastPermissionMode === mode) return;
     this._lastPermissionMode = mode;
@@ -551,9 +484,8 @@ class MessageRenderer {
       if (msg.role === 'user') {
         this.appendUserMessage(msg.content, msg.files || []);
       } else if (msg.role === 'assistant') {
-        // v2: tool calls live inside content as tool_use blocks; there is no
-        // separate toolCalls field. _renderAssistantBlocks renders all block
-        // types (text, thinking, tool_use, agent_transcript).
+        // Tool calls live inside content as tool_use blocks — there is no
+        // separate toolCalls field.
         if (typeof msg.content === 'string') {
           this.startAssistantMessage(msg.content);
           this.finishAssistantMessage();
@@ -561,9 +493,6 @@ class MessageRenderer {
           this._renderAssistantBlocks(msg.content);
         }
       } else if (msg.role === 'tool') {
-        // Pair the tool result back to its tool_use block (if rendered) and
-        // append result content. Falls back to the historical generated-image
-        // path when no tool_use_id is present.
         if (msg.toolUseId) {
           const content = this._parseStringMaybeJson(msg.content);
           this.appendToolResult(content, msg.toolUseId);
@@ -577,24 +506,21 @@ class MessageRenderer {
       }
     }
 
-    // Complete any trailing tool block and remove thinking indicator from history
     this.hideThinkingIndicator();
     this.renderMermaidBlocks(this.messagesEl);
-    this.scrollToBottom(true); // session just loaded — start at the bottom
+    this.scrollToBottom(true);
     this.isRenderingHistory = false;
 
-    // Restore in-progress assistant message saved before page refresh.
-    // Rendered as a started (not finished) message so new streaming deltas
-    // append to it if the model is still running.
+    // A page refresh mid-stream leaves this in sessionStorage; render it as a
+    // started (not finished) message so incoming deltas can still append.
     const sid = this.app.state.currentSessionId;
     if (sid) {
       try {
         const saved = sessionStorage.getItem(`eve-stream-${sid}`);
         if (saved) {
           this.startAssistantMessage(saved);
-          // If model is still running, new deltas or message_complete will
-          // continue/finalize. If model finished while disconnected, finalize
-          // after a short grace period.
+          // Finalize after a grace period in case the model finished while
+          // this client was disconnected and no message_complete will arrive.
           this._streamRestoreTimer = setTimeout(() => {
             if (this.currentAssistantMessage &&
                 this.currentAssistantMessage.dataset.rawText === saved) {
@@ -606,15 +532,6 @@ class MessageRenderer {
     }
   }
 
-  /**
-   * Render an assistant message's content blocks during history replay.
-   * Combines consecutive text and thinking blocks into a single message bubble
-   * (with thinking wrapped in <think>…</think> tags so the existing parser
-   * folds it). Tool_use blocks render as separate tool pills with their id
-   * preserved so subsequent tool_result messages can pair correctly.
-   * Agent_transcript blocks render as collapsed nested agent blocks with
-   * their full sub-agent transcript replayed inside.
-   */
   _renderAssistantBlocks(blocks) {
     let textBuf = '';
     const flushText = () => {
@@ -644,24 +561,15 @@ class MessageRenderer {
           flushText();
           this._renderAgentTranscript(block);
           break;
-        // Other block types (server_tool_use, etc.) silently skipped for now.
       }
     }
     flushText();
   }
 
-  /**
-   * Render a persisted sub-agent transcript as a collapsed Agent block with
-   * its full nested thread reconstructed inside. Replays each sub-message
-   * through the same renderer logic via a sub-renderer targeting the agent
-   * block's body.
-   */
   _renderAgentTranscript(block) {
     const persona = block.persona || 'sub-agent';
-    // Synthesize a deterministic toolUseId for replayed agent blocks if the
-    // backend didn't pair this transcript to its parent tool_use_id (the
-    // current backend doesn't — temporal pairing happens server-side via
-    // mtime). Use the agentId as a stable identifier.
+    // The backend doesn't pair a transcript to its parent tool_use_id —
+    // temporal pairing happens server-side via mtime — so synthesize one here.
     const fakeToolUseId = `replay-agent-${block.agentId || ''}`;
     const { bodyEl } = this.appendAgentBlock(fakeToolUseId, persona, '');
 
@@ -696,13 +604,10 @@ class MessageRenderer {
       }
     }
 
-    // Finalize the agent block: collapsed by default with a tool count.
-    // Final summary preview is best-effort — pull last assistant text block.
     const finalSummary = this._extractFinalSummary(messages);
     this.finalizeAgentBlock(fakeToolUseId, finalSummary, 0, toolCount);
   }
 
-  /** Pull the most recent assistant text out of a sidechain transcript. */
   _extractFinalSummary(messages) {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -718,8 +623,6 @@ class MessageRenderer {
     return '';
   }
 
-  /** Best-effort coerce a tool result content into either a string or an
-   *  Anthropic content array. Pass strings through; parse JSON arrays. */
   _parseStringMaybeJson(content) {
     if (Array.isArray(content)) return content;
     if (typeof content !== 'string') return content;
@@ -809,11 +712,9 @@ class MessageRenderer {
     html += '</div>';
     messageEl.innerHTML = html;
 
-    // Wire up option buttons
     messageEl.querySelectorAll('.question-option').forEach(btn => {
       btn.addEventListener('click', () => {
         const label = btn.dataset.label;
-        // Disable all option buttons
         messageEl.querySelectorAll('.question-option').forEach(b => {
           b.disabled = true;
           if (b === btn) b.classList.add('selected');
@@ -826,15 +727,6 @@ class MessageRenderer {
     this.scrollToBottom();
   }
 
-  /**
-   * Append a tool_result panel to the matching tool block. If toolUseId is
-   * provided, the block is found by data-tool-use-id (Claude path); otherwise
-   * we use the currently-active tool block (chat-base path).
-   *
-   * Content can be:
-   *   - a string (plain text result, possibly JSON)
-   *   - an array of Anthropic content blocks: [{type:"text"}, {type:"image", source:{...}}]
-   */
   appendToolResult(content, toolUseId) {
     const block = this.findToolBlockById(toolUseId) || this.currentToolBlock;
     if (!block) return;
@@ -857,9 +749,8 @@ class MessageRenderer {
           el.appendChild(img);
           renderedImage = true;
         } else if (part?.type === 'text' && typeof part.text === 'string') {
-          // Wrapped CLIs (Claude, pi) deliver generate_image's JSON inside a
-          // text block; same shape relayLLM-native sessions deliver as plain
-          // string content. _renderResultText handles both.
+          // Wrapped-CLI sessions deliver generate_image's JSON inside a text
+          // block; relayLLM-native sessions deliver it as a plain string.
           renderedImage = this._renderResultText(el, part.text) || renderedImage;
         } else {
           const pre = document.createElement('pre');
@@ -871,17 +762,13 @@ class MessageRenderer {
       renderedImage = this._renderResultText(el, content) || renderedImage;
     }
     block.appendChild(el);
-    // Auto-expand the collapsed <details> tool block when a generated image
-    // was rendered — otherwise the user sees a clickable pill with no hint
-    // that a picture is hidden inside. `open` is a no-op on non-<details>.
+    // `open` is a no-op on non-<details> blocks, so this only affects tool
+    // panels — auto-expand so a rendered image isn't hidden behind a pill.
     if (renderedImage) {
       block.open = true;
     }
   }
 
-  /** Render a tool_result text payload, detecting the ComfyUI generate_image
-   *  JSON shape and rendering it inline. Returns true if an image was rendered,
-   *  false if it fell through to the raw-text/JSON-pretty fallback. */
   _renderResultText(el, text) {
     const imageResult = this._parseImageResult(text);
     if (imageResult) {
@@ -904,15 +791,12 @@ class MessageRenderer {
         textEl.textContent = message;
       }
     }
-    // Also update the thinking indicator if visible
     const thinkingText = document.querySelector('#thinkingIndicator .thinking-text');
     if (thinkingText) {
       thinkingText.textContent = message;
     }
   }
 
-  /** Locate a rendered tool block by its tool_use_id. Scoped to this
-   *  renderer's container so sub-renderers find their own blocks. */
   findToolBlockById(toolUseId) {
     if (!toolUseId) return null;
     return this.messagesEl.querySelector(
@@ -925,8 +809,7 @@ class MessageRenderer {
     this.currentToolBlock = null;
   }
 
-  /** Mark a specific tool block complete by tool_use_id. Required when the
-   *  matching tool isn't the most recent one (multi-tool assistant turns). */
+  // Needed when the tool to complete isn't the most recent one (multi-tool turns).
   markToolCompleteById(toolUseId) {
     const block = this.findToolBlockById(toolUseId);
     if (!block) return;
@@ -934,8 +817,6 @@ class MessageRenderer {
     if (block === this.currentToolBlock) this.currentToolBlock = null;
   }
 
-  /** Indicate to the user which tool block triggered a permission request,
-   *  scrolling it into view. Pair with clearToolPermissionPending. */
   markToolPermissionPending(toolUseId) {
     const block = this.findToolBlockById(toolUseId);
     if (!block) return;
@@ -954,8 +835,6 @@ class MessageRenderer {
     const spinner = block.querySelector('.tool-spinner');
     if (spinner) spinner.remove();
   }
-
-  // --- Image generation helpers ---
 
   _parseImageResult(content) {
     try {
@@ -1001,9 +880,7 @@ class MessageRenderer {
     this.messagesEl.appendChild(messageEl);
   }
 
-  // Public entry point for opening the fullscreen image overlay. Used by the
-  // terminal manager to render generated-image links the same way clicking an
-  // inline image does, keeping the UX consistent across surfaces.
+  // Used by terminal-manager.js so generated-image links open the same overlay.
   openImageFullscreen(src, alt) {
     this._openImageFullscreen(src, alt);
   }
@@ -1037,10 +914,8 @@ class MessageRenderer {
       img.className = 'generated-image';
       img.loading = 'lazy';
       img.addEventListener('click', () => this._openImageFullscreen(img.src, img.alt));
-      // If the model mis-transcribed the URL the image will 404. Silently
-      // drop the broken element (and its empty wrapping <p>) so the prose
-      // doesn't leave a broken-image icon or a paragraph-shaped gap. The
-      // real fix is server-side filename stability (see SaveOutput).
+      // A model-hallucinated filename 404s; drop the element (and its now-
+      // empty wrapping <p>) rather than leave a broken-image icon or gap.
       img.addEventListener('error', () => {
         const parent = img.parentElement;
         img.remove();
@@ -1049,10 +924,8 @@ class MessageRenderer {
         }
       });
     });
-    // Wrapped CLIs (Claude Haiku) phrase the result as a "View image" link
-    // rather than an inline `![](url)`. Hijack the click so it opens our
-    // fullscreen overlay (ESC to close) instead of a separate browser tab —
-    // visually consistent with how clicking the inline image behaves.
+    // Wrapped-CLI sessions phrase the result as a "View image" link rather
+    // than an inline image — hijack the click to open our overlay instead.
     container.querySelectorAll(`a[href^="${GENERATED_PATH}"]`).forEach(a => {
       a.addEventListener('click', e => {
         e.preventDefault();
@@ -1064,9 +937,6 @@ class MessageRenderer {
   async renderMermaidBlocks(container) {
     const nodes = container.querySelectorAll('code[class*="mermaid"]');
     if (nodes.length === 0) return;
-    // Load the ~3.2 MB diagram library on demand (only when a diagram is
-    // actually present). A failed load (offline, 404) must not break message
-    // rendering — leave the code block as-is and render without the diagram.
     let mermaid;
     try {
       mermaid = await loadMermaid();
@@ -1088,26 +958,21 @@ class MessageRenderer {
     }
   }
 
-  // --- Formatting utilities ---
-
   formatText(text) {
-    // Fallback if marked/DOMPurify not loaded
     if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
       let safe = this.escapeHtml(text);
       safe = safe.replace(/\n/g, '<br>');
       return safe;
     }
 
-    // Extract think blocks before markdown parsing
     const thinkBlocks = [];
     let processed = text;
 
-    // Repair lost <think> tag (e.g., page refresh mid-stream loses the opening tag)
+    // A page refresh mid-stream can lose the opening <think> tag; repair it.
     if (!processed.includes('<think>') && processed.includes('</think>')) {
       processed = '<think>' + processed;
     }
 
-    // Complete think blocks
     processed = processed.replace(
       /<think>([\s\S]*?)<\/think>/g,
       (match, content) => {
@@ -1121,7 +986,6 @@ class MessageRenderer {
       }
     );
 
-    // Unclosed think block (still streaming)
     processed = processed.replace(
       /<think>([\s\S]*)$/,
       (match, content) => {
@@ -1136,11 +1000,9 @@ class MessageRenderer {
       }
     );
 
-    // Auto-inline /api/generated/ URLs that models mention in prose. Skip
-    // markdown link URLs `[label](/api/generated/foo.png)` — the leading `(`
-    // would otherwise match as a prefix and we'd rewrite the inner URL into
-    // `![](url)`, producing `[label](![](url))` which marked then mangles
-    // into a URL-encoded broken link.
+    // Skip markdown link URLs `[label](/api/generated/foo.png)` — the leading
+    // `(` would otherwise match as a prefix, rewriting the inner URL into
+    // `![](url)` and producing a mangled `[label](![](url))`.
     processed = processed.replace(
       new RegExp('(^|[\\s(\\[])(' + GENERATED_IMAGE_RE.source + ')(?![A-Za-z0-9._-])', 'g'),
       (match, prefix, url, offset, full) => {
@@ -1149,18 +1011,14 @@ class MessageRenderer {
       }
     );
 
-    // Parse markdown and sanitize. Only allow images from our own generated
-    // image endpoint — LLMs sometimes hallucinate external URLs (imgur, etc.)
-    // which are not real and should not be rendered.
+    // Only allow images from our own generated-image endpoint — models
+    // sometimes hallucinate external URLs that aren't real.
     let html = marked.parse(processed, { breaks: true, gfm: true });
     html = DOMPurify.sanitize(html, {
       ADD_TAGS: ['img'],
       ADD_ATTR: ['src', 'alt', 'loading'],
       ALLOW_UNKNOWN_PROTOCOLS: false,
     });
-    // Remove any <img> not pointing at our own /api/generated/ path,
-    // and force generated-image links to open in a new tab so the chat
-    // session isn't replaced when the user clicks through.
     const tmp = document.createElement('div');
     tmp.innerHTML = html;
     tmp.querySelectorAll('img').forEach(img => {
@@ -1169,16 +1027,14 @@ class MessageRenderer {
         img.remove();
       }
     });
-    // Open every link in a new tab and sever the opener reference. Protects
-    // against reverse tabnabbing (window.opener hijack) and stops a click from
-    // navigating the SPA away from the live session. See audit L4.
+    // rel=noopener prevents reverse tabnabbing (window.opener hijack) and
+    // stops a click from navigating the SPA away from the live session.
     tmp.querySelectorAll('a[href]').forEach(a => {
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     });
     html = tmp.innerHTML;
 
-    // Restore think block placeholders
     for (let i = 0; i < thinkBlocks.length; i++) {
       html = html.replace(`%%THINK_${i}%%`, thinkBlocks[i]);
     }
@@ -1199,13 +1055,8 @@ class MessageRenderer {
     return div.innerHTML;
   }
 
-  /**
-   * Scroll the chat to the bottom.
-   * @param {boolean} [force=false] - When true, always scroll and re-engage
-   *   stickiness (used for genuine user-initiated jumps: sending a message,
-   *   loading a session). When false, only scroll if the user is already
-   *   parked at the bottom, so streaming output never yanks them off the top.
-   */
+  // force re-engages stickiness for user-initiated jumps (send, load session);
+  // without it, streaming output never yanks a scrolled-up reader back down.
   scrollToBottom(force = false) {
     if (!force && !this._stickToBottom) return;
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight;

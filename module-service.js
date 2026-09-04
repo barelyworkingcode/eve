@@ -19,15 +19,10 @@ class ModuleService {
     this.fileService = fileService || new FileService();
   }
 
-  /**
-   * Lists all modules in <projectPath>/modules/.
-   * Surfaces broken manifests in-line (with `broken: true`) so the UI can
-   * show them instead of silently dropping them.
-   *
-   * No caching: directory-mtime invalidation misses edits inside existing
-   * subdirs (POSIX semantics), and `module.json` is the file AI agents edit
-   * most often. The N small JSON reads in parallel are cheap.
-   */
+  // No caching: module.json is a file an AI can rewrite between calls, and
+  // directory-mtime invalidation misses edits inside existing subdirs
+  // anyway (POSIX semantics). Broken manifests surface with `broken: true`
+  // instead of being silently dropped.
   async listModules(projectPath) {
     const modulesDir = path.join(path.resolve(projectPath), MODULES_DIRNAME);
 
@@ -55,9 +50,6 @@ class ModuleService {
     return modules;
   }
 
-  /**
-   * Loads and validates a single module's manifest. Throws on missing or invalid.
-   */
   async getModule(projectPath, moduleName) {
     if (!MODULE_NAME_RE.test(moduleName)) {
       throw new Error(`Invalid module name: ${moduleName}`);
@@ -65,12 +57,8 @@ class ModuleService {
     return this._loadManifest(projectPath, moduleName);
   }
 
-  /**
-   * Resolves a path inside <projectPath>/modules/<moduleName>/.
-   * Returns the realpath (symlinks resolved) and rejects anything that
-   * escapes the module folder. Route handlers branch on the error `code`s
-   * below to pick HTTP status (403 for traversal/symlink, 404 for ENOENT).
-   */
+  // Route handlers branch on the error `code`s below to pick HTTP status
+  // (403 for traversal/symlink, 404 for ENOENT).
   async resolveModuleFile(projectPath, moduleName, relPath) {
     if (!MODULE_NAME_RE.test(moduleName)) {
       throw new Error(`Invalid module name: ${moduleName}`);
@@ -97,10 +85,6 @@ class ModuleService {
     return real;
   }
 
-  /**
-   * Checks that `relProjectPath` is in the module's declared permissions.files
-   * list. Paths are compared as normalized project-relative strings.
-   */
   isFilePermitted(manifest, relProjectPath) {
     const list = manifest?.permissions?.files;
     if (!Array.isArray(list)) return false;
@@ -111,8 +95,6 @@ class ModuleService {
   _normalizeRel(p) {
     return String(p || '').replace(/^\.?\/+/, '').replace(/\\/g, '/').trim();
   }
-
-  // --- Internals ---
 
   async _loadManifest(projectPath, moduleName) {
     const manifestPath = path.resolve(
@@ -141,9 +123,10 @@ class ModuleService {
     return parsed;
   }
 
-  // Schema validation. The traversal check on `permissions.files` is
-  // load-bearing — entries are trusted later in route handlers to permit
-  // file reads/writes without re-validating against the project root.
+  // isFilePermitted matches permissions.files entries as literal strings, so
+  // a `../`-style entry here must be rejected before it can match a
+  // client-requested path — fileService.validatePath's real containment
+  // check only runs on the actual read/write, not on this list.
   _validateManifest(m, dirName) {
     if (!m || typeof m !== 'object' || Array.isArray(m)) {
       throw new Error('Manifest must be a JSON object');

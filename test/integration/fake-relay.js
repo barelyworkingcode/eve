@@ -1,43 +1,12 @@
 /**
- * Fake relay — an in-process contract double for relay's frontend, used by the
- * integration harness. It plays the project + session store, answers the HTTP
- * endpoints eve proxies, and scripts the relay→eve WS frame stream. NO real
- * relay / relayLLM / LLM involved.
- *
- * The WS contract eve depends on (consumed in relay-client.js / module-invoker.js):
- *   eve → relay:  { type:'join_session', sessionId }
- *                 { type:'send_message', text, files, sessionId }
- *   relay → eve:  { type:'session_joined', sessionId, directory }
- *                 { type:'llm_event', sessionId, event:{ type:'assistant',
- *                     delta:{ type:'text_delta', text } } }
- *                 { type:'message_complete', sessionId, error? }
- *
- * Scriptable surface:
- *   addProject(p) / getProject(id) / listProjects()
- *   listSessions()      — sessions created via POST /api/sessions, as GET /api/sessions lists them
- *   seedSession(s)      — inject a session directly, as if created before this process (see fixtures)
- *   scriptSession(sessionId, frames)  — frames streamed in reply to send_message
- *   emitToRelay(frame) / emitToScheduler(frame)  — push a frame on eve's /ws or
- *                                       /ws/tasks upstream (permissions, terminals, tasks)
- *   waitForScheduler()  — resolves once eve's /ws/tasks upstream is connected
- *   holdSessionCreate() — delays the POST /api/sessions response until
- *                       .release() is called; lets a test observe a window
- *                       that would otherwise close as soon as the real
- *                       (async, cross-process) round trip completes
- *   inbound  — every WS frame eve SENT us (assert forwarding); each frame carries
- *              a non-protocol __relaySocketId so a test can tell which of eve's
- *              (possibly several, one per browser connection) relay upstreams
- *              it arrived on — see the C1 two-connection isolation test
- *   waitForInbound(pred) — resolves with the first inbound frame matching pred
- *   relayConnectionCount() — number of currently-open eve→relay upstreams
- *   requests   — recorded [{method, path}] for assertions
+ * Fake relay — an in-process contract double for relay's frontend, used by
+ * the integration harness. No real relay / relayLLM / LLM involved.
  */
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const { relayFrames, EVENT_PROTOCOL_VERSION } = require('./protocol');
 
-// Default streamed reply to any send_message without a per-session script, built
-// from the protocol contract so the fake can't silently diverge from it.
+// Built from the protocol contract so the fake can't silently diverge from it.
 function defaultStream(sessionId) {
   return [
     relayFrames.assistantDelta({ sessionId, text: 'Hello ' }),
@@ -46,9 +15,9 @@ function defaultStream(sessionId) {
   ];
 }
 
-// Stamp sessionId, and v:2 onto any llm_event a test authored without it — the
-// real browser DROPS version-less events, so the fake must never emit them
-// (else a test passes against frames production would silently discard).
+// The real browser drops version-less llm_event frames, so the fake must
+// never emit them — otherwise a test could pass against frames production
+// would silently discard.
 function stampFrame(f, sessionId) {
   const out = { ...f, sessionId };
   if (out.type === 'llm_event' && out.event && out.event.v === undefined) {
@@ -58,21 +27,23 @@ function stampFrame(f, sessionId) {
 }
 
 function createFakeRelay() {
-  const projects = new Map();        // id -> relay-shape project
-  const sessions = new Map();        // sessionId -> relay-shape session (GET /api/sessions listing)
-  const sessionScripts = new Map();  // sessionId -> [frames]
+  const projects = new Map();
+  const sessions = new Map();
+  const sessionScripts = new Map();
   const requests = [];
-  const inbound = [];                // every WS frame eve sent us
+  const inbound = [];
   const inboundWaiters = [];
-  const relayWs = new Set();         // eve's /ws upstream(s)
-  const relaySocketIds = new WeakMap(); // relay ws -> per-socket id, so a test can tell WHICH upstream a frame arrived on
+  const relayWs = new Set();
+  // Lets a test tell which of eve's (possibly several) relay upstreams a
+  // frame arrived on — the only cover for the two-connection isolation tests.
+  const relaySocketIds = new WeakMap();
   let relaySocketSeq = 0;
-  const schedulerWs = new Set();     // eve's /ws/tasks upstream(s)
+  const schedulerWs = new Set();
   const schedulerResolvers = [];
   const relayResolvers = [];
   let seq = 0;
   let closed = false;
-  let sessionCreateGate = null; // set by holdSessionCreate(); POST /api/sessions awaits it before replying
+  let sessionCreateGate = null;
 
   const recordInbound = (msg) => {
     inbound.push(msg);
@@ -94,12 +65,11 @@ function createFakeRelay() {
     req.on('end', () => {
       requests.push({ method: req.method, path: p });
       let parsed = {};
-      try { parsed = body ? JSON.parse(body) : {}; } catch { /* leave {} */ }
+      try { parsed = body ? JSON.parse(body) : {}; } catch {}
 
-      // --- Projects (file ops depend on this for path resolution) ---
-      // Mirror the real relay's path validation: a project path must be
-      // absolute (filepath.IsAbs). The frontend sends "~/..." verbatim — the
-      // backend does NOT expand it — so relative paths get a 400, not a 201.
+      // Mirrors the real relay's path validation (filepath.IsAbs): the
+      // frontend sends "~/..." verbatim and the backend does not expand it,
+      // so relative paths get a 400, not a 201.
       const isAbsPath = (pth) => typeof pth === 'string' && pth.startsWith('/');
       const absPathError = (pth) => send(400, { error: `project path must be an absolute path: ${JSON.stringify(pth ?? '')}` });
       if (p === '/api/projects' && req.method === 'GET') return send(200, [...projects.values()]);
@@ -123,14 +93,11 @@ function createFakeRelay() {
         if (req.method === 'DELETE') { projects.delete(id); return send(200, {}); }
       }
 
-      // --- Sessions (create returns an id; delete is the invoker's cleanup) ---
-      // Tracked in `sessions` (not just returned) so a later GET /api/sessions
-      // — the reconnect/reload restore path's only session source — can see
-      // it. Real relayLLM has no concept of eve's UI-only `sessionType`
-      // ("chat" vs "voice"), so it's deliberately NOT stored here: restoring
-      // that distinction after a reload is `eve-session-meta`'s job alone
-      // (see TabManager.getSessionMeta, read in message-dispatcher.js's
-      // handleSessionJoined).
+      // Tracked in `sessions` so a later GET /api/sessions — the reconnect/
+      // reload restore path's only session source — can see it. Real
+      // relayLLM has no concept of eve's UI-only `sessionType` ("chat" vs
+      // "voice"), so it's deliberately not stored here: restoring that
+      // distinction after a reload is `eve-session-meta`'s job alone.
       if (p === '/api/sessions' && req.method === 'POST') {
         const respond = () => {
           const sessionId = parsed.sessionId || `sess-${++seq}`;
@@ -144,7 +111,7 @@ function createFakeRelay() {
           sessions.set(sessionId, session);
           return send(201, session);
         };
-        // Held open until the test releases it — see holdSessionCreate() below.
+        // Held open until the test releases it — see holdSessionCreate().
         if (sessionCreateGate) return sessionCreateGate.then(respond);
         return respond();
       }
@@ -152,12 +119,13 @@ function createFakeRelay() {
       if (sm && req.method === 'DELETE') { sessions.delete(sm[1]); return send(200, {}); }
       if (p === '/api/sessions' && req.method === 'GET') return send(200, [...sessions.values()]);
 
-      // --- Misc endpoints eve may touch at boot ---
       if (p === '/api/models' && req.method === 'GET') return send(200, [{ id: 'fake-model', name: 'Fake Model' }]);
       if (p === '/api/mcps' && req.method === 'GET') return send(200, []);
-      if (p === '/api/tasks' && req.method === 'GET') return send(200, []); // exact: GET /api/tasks/:id must 404, not return [] (a wrong shape — real returns one object)
+      if (p === '/api/tasks' && req.method === 'GET') return send(200, []);
+      // GET /api/tasks/:id is deliberately left unimplemented (falls through
+      // to the 404 below): it must 404, not return [] — a wrong shape, since
+      // the real endpoint returns one object.
 
-      // --- Binary proxies (eve uses fetchRaw; respond with raw bytes) ---
       if (p.startsWith('/api/generated/') && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'image/png' });
         return res.end(Buffer.from('FAKE-PNG-BYTES'));
@@ -183,9 +151,8 @@ function createFakeRelay() {
       try { msg = JSON.parse(data.toString()); } catch { return; }
       if (!isScheduler) msg.__relaySocketId = relaySocketIds.get(ws);
       recordInbound(msg);
-      if (isScheduler) return; // eve never drives the scheduler socket
+      if (isScheduler) return;
       if (msg.type === 'join_session') {
-        // eve suppresses the first join after create; harmless either way.
         ws.send(JSON.stringify(relayFrames.sessionJoined({ sessionId: msg.sessionId })));
       } else if (msg.type === 'send_message') {
         const script = sessionScripts.get(msg.sessionId);
@@ -201,10 +168,8 @@ function createFakeRelay() {
 
   return {
     addProject: (proj) => { projects.set(proj.id, proj); },
-    // Seed a session as if it were created before this test process started
-    // (e.g. a previous browser tab) — for reload/restore tests that need
-    // GET /api/sessions to already know about an id a localStorage fixture
-    // references, without a real POST round trip.
+    // For reload/restore tests that need GET /api/sessions to already know
+    // about an id a localStorage fixture references, without a real POST.
     seedSession: (session) => { sessions.set(session.sessionId, session); },
     getProject: (id) => projects.get(id),
     listProjects: () => [...projects.values()],
@@ -213,14 +178,10 @@ function createFakeRelay() {
     emitToRelay: (frame) => { for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
     emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
     waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
-    relayConnectionCount: () => relayWs.size, // distinct from waitForRelay(), which only guarantees the FIRST upstream
-    // Delay the reply to the next (and every subsequent, until release()) POST
-    // /api/sessions. Used to pin down a state window on the eve/browser side
-    // that would otherwise race the real cross-process round trip: eve's
-    // child process HTTP-POSTs here, gets a response, then WS-pushes
-    // session_created back to the browser — all genuinely async hops that a
-    // synchronous DOM read right after a Playwright click cannot be assumed
-    // to run before under load.
+    relayConnectionCount: () => relayWs.size,
+    // Delays the reply to POST /api/sessions until release() is called, so a
+    // test can pin down a state window that would otherwise race the real
+    // cross-process round trip (HTTP POST, then a WS session_created push).
     holdSessionCreate: () => {
       let release;
       sessionCreateGate = new Promise((resolve) => { release = resolve; });
@@ -239,7 +200,7 @@ function createFakeRelay() {
     close: () => new Promise((resolve) => {
       if (closed) return resolve(); // a resilience test may close the relay before the harness does
       closed = true;
-      for (const ws of [...relayWs, ...schedulerWs]) { try { ws.terminate(); } catch { /* ignore */ } }
+      for (const ws of [...relayWs, ...schedulerWs]) { try { ws.terminate(); } catch {} }
       wss.close(() => server.close(() => resolve()));
     }),
   };

@@ -1,15 +1,12 @@
-/**
- * Increment 2 — project create/edit/delete end-to-end. These proxy through eve
- * to the fake relay (which plays the project store) and update eve's in-memory
- * project cache. Asserts BOTH eve's HTTP response and the resulting store state,
- * plus that a deleted project stops resolving for file ops.
- */
+// Project create/edit/delete end-to-end, proxied through eve to the fake
+// relay. Asserts both eve's HTTP response and the resulting store state,
+// plus that a deleted project stops resolving for file ops.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { startEve } = require('./harness');
 
-// Headers + body only; the caller sets `method` (spreading this must not clobber it).
+// Headers + body only; the caller sets `method`.
 const json = (body) => ({
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
@@ -35,25 +32,20 @@ describe('project CRUD (eve <-> fake relay)', () => {
     const created = await res.json();
     expect(created).toMatchObject({ id: expect.any(String), name: 'Created', path: projDir });
 
-    // The fake relay now holds it...
     expect(eve.relay.getProject(created.id)).toMatchObject({ name: 'Created' });
-    // ...and eve serves it from cache.
     const list = await (await eve.get('/api/projects')).json();
     expect(list.map((p) => p.id)).toContain(created.id);
   });
 
-  // Regression: the frontend sends "~/..." verbatim (no shell expansion), and
-  // the real relay rejects non-absolute paths with a 400. The fake relay used
-  // to accept any path, so this failure mode was invisible to the suite while
-  // it broke live project creation. Eve must proxy the 400 + reason through so
-  // the dialog can show why the save failed.
+  // The frontend sends "~/..." verbatim (no shell expansion) and the real
+  // relay rejects non-absolute paths with a 400. Eve must proxy the 400 +
+  // reason through so the dialog can show why the save failed.
   it('rejects a relative project path with the relay 400 (not a silent 201)', async () => {
     const res = await eve.get('/api/projects', { method: 'POST', ...json({ name: 'Tilde', path: '~/source' }) });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/absolute path/i);
 
-    // Nothing was stored.
     const list = await (await eve.get('/api/projects')).json();
     expect(list.some((p) => p.name === 'Tilde')).toBe(false);
   });
@@ -77,7 +69,6 @@ describe('project CRUD (eve <-> fake relay)', () => {
     const list = await (await eve.get('/api/projects')).json();
     expect(list.map((p) => p.id)).not.toContain(created.id);
 
-    // A file op against the deleted project no longer resolves.
     const ws = await eve.connectWs();
     try {
       ws.send({ type: 'list_directory', projectId: created.id, path: '/' });
@@ -88,9 +79,8 @@ describe('project CRUD (eve <-> fake relay)', () => {
     }
   });
 
-  // The real relay serves projects in snake_case; eve's normalizeProject is an
-  // allow-list that maps them to camelCase (and strips the project token). This
-  // contract "bit us when adding session_folders" — pin it against a
+  // normalizeProject is an allow-list mapping the real relay's snake_case
+  // fields to camelCase (and stripping the project token) — pinned against a
   // relay-shaped project so a dropped/renamed field is caught.
   it('normalizes relay snake_case project fields to camelCase (and never leaks a token)', async () => {
     eve.relay.addProject({

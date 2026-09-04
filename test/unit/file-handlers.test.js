@@ -3,7 +3,6 @@ const fs = require('fs');
 const path = require('path');
 const FileHandlers = require('../../file-handlers');
 
-// Fake browser socket: records parsed JSON frames.
 function makeWs() {
   const ws = { sent: [], send: jest.fn((data) => ws.sent.push(JSON.parse(data))) };
   return ws;
@@ -104,8 +103,8 @@ describe('FileHandlers (WS file-op adapter)', () => {
     });
   });
 
-  // End-to-end: the symlink-escape defense added to FileService must hold when
-  // reached through the WS adapter, not just when FileService is called directly.
+  // The symlink-escape defense added to FileService must hold when reached through
+  // the WS adapter, not just when FileService is called directly.
   describe('symlink escape defense (integration)', () => {
     it('rejects a read through a symlink that escapes the project', async () => {
       const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-fh-outside-'));

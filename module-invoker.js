@@ -1,12 +1,6 @@
-/**
- * Drives the streaming flow for window.eve.invokeAI() calls. Replaces the
- * old POST /api/modules/invoke synchronous path so the orb can show
- * thinking/tool-use events as they happen.
- *
- * Concurrent invocations isolate by sessionId. Cancellation via stop() sends
- * relay's stop_generation — the resulting message_complete still flows
- * through the regular handler so we don't double-resolve.
- */
+// Cancellation via stop() sends relay's stop_generation; the resulting
+// message_complete still flows through the regular handler, so callers must
+// not also reject/resolve locally (would double-resolve).
 const crypto = require('crypto');
 
 const HIDDEN_SESSION_PREFIX = '__module:';
@@ -20,16 +14,11 @@ class ModuleInvoker {
     this.resolveProject = resolveProject;
     this.log = log?.child ? log.child('ModuleInvoker') : log;
 
-    // requestId -> { sessionId, relayClient } — used by stop().
     this.active = new Map();
   }
 
-  /**
-   * Resolves with { result, rawText, model, sessionId } when the model
-   * emits message_complete. Throws on validation/setup errors BEFORE the
-   * session is created; once it's created, the returned promise will
-   * resolve/reject and cleanup happens in a finally block.
-   */
+  // Throws on validation/setup errors before the session is created; once
+  // created, cleanup happens in the finally block below instead.
   async invoke({ requestId, projectId, moduleName, prompt, files = [], schema, model, relayClient, browserWs }) {
     if (!requestId) throw new Error('requestId required');
     if (!projectId || !moduleName) throw new Error('projectId and moduleName required');
@@ -47,9 +36,8 @@ class ModuleInvoker {
       throw err;
     }
 
-    // Inline context files server-side so the module never needs tool-use
-    // access for plain reads. Partial context is worse than none — any
-    // failure aborts the whole invocation.
+    // Server-side so the module never needs tool-use access for plain reads.
+    // Partial context is worse than none — any failure aborts the invocation.
     const fileBlocks = await Promise.all(files.map(f =>
       this.fileService.readFile(project.path, f).then(({ content }) =>
         `<file path="${f}">\n${content}\n</file>`
@@ -131,15 +119,11 @@ class ModuleInvoker {
   }
 
   /**
-   * The `__module:` prefix is the load-bearing filter that keeps these
-   * sessions out of /api/sessions and the user's sidebar. See
-   * routes/index.js for the matching filter.
-   *
-   * When the manifest declares `permissions.tools`, we wire the project's
-   * MCP token + useRelayTools so llama/openai backends actually receive
-   * tool definitions (Claude reads `allowedTools` directly). bypassPermissions
-   * mode is required because the orb has no UI to answer permission prompts —
-   * the model can call whitelisted tools without round-tripping.
+   * `__module:` prefix is load-bearing — filters these sessions out of
+   * /api/sessions and the user's sidebar (see routes/index.js). When
+   * permissions.tools is declared: relay brokers the project-scoped MCP
+   * token itself from projectId (Eve never holds it), and bypassPermissions
+   * is required because the orb has no UI to answer permission prompts.
    */
   async _createHiddenSession({ projectId, directory, moduleName, model, allowedTools }) {
     const sessionName = `${HIDDEN_SESSION_PREFIX}${moduleName}:${crypto.randomBytes(6).toString('hex')}`;
@@ -166,11 +150,7 @@ class ModuleInvoker {
     return create.data.sessionId;
   }
 
-  /**
-   * Idempotent for unknown requestIds so stray clicks after completion don't
-   * error. The resulting message_complete still flows through the regular
-   * handler — we don't reject locally.
-   */
+  // Idempotent for unknown requestIds so stray clicks after completion don't error.
   stop(requestId) {
     const entry = this.active.get(requestId);
     if (!entry) return false;
@@ -183,25 +163,20 @@ class ModuleInvoker {
   }
 }
 
-// Send a framed message to the browser via the per-connection RelayClient.
-// Centralising on relayClient.sendToBrowser keeps the readyState guard in
-// one place and matches how the rest of the server emits frames.
 function sendFrame(relayClient, browserWs, payload) {
   if (relayClient?.browserWs === browserWs) {
     relayClient.sendToBrowser(payload);
     return;
   }
-  // Defensive: in tests the relayClient may not be the one that owns
-  // browserWs. Fall back to a direct write.
+  // In tests the relayClient may not be the one that owns browserWs.
   if (browserWs && browserWs.readyState === 1) {
     try { browserWs.send(JSON.stringify(payload)); } catch { /* socket closed */ }
   }
 }
 
-// Walk the canonical assistant-event shape and return any new text. Mirrors
-// the pattern in RelayClient._handleTTSAccumulation — kept local because
-// the consumers have different downstream goals (audio vs schema parsing)
-// and a shared abstraction would need to expose internals from both.
+// Mirrors the pattern in RelayClient._handleTTSAccumulation — kept local
+// because the consumers have different downstream goals (audio vs schema
+// parsing) and a shared abstraction would need to expose internals from both.
 function accumulateAssistantText(msg) {
   if (msg.type !== 'llm_event' || msg.event?.type !== 'assistant') return '';
   const ev = msg.event;
@@ -224,9 +199,8 @@ function buildSystemPrompt({ moduleName, displayName, files, schema, tools, proj
     `Respond directly and concisely. Do not explain your reasoning unless asked.`,
   ];
   if (tools && tools.length > 0) {
-    // Relay tools require ABSOLUTE paths — they don't chdir to the session
-    // directory. Without spelling out the project root, the model's first
-    // tool call gets a "path must be absolute" error.
+    // Relay tools don't chdir to the session directory — they require
+    // absolute paths, or the model's first tool call errors.
     parts.push(
       `\nYou have these tools available: ${tools.join(', ')}. ` +
       `The project root is \`${projectRoot}\`. ` +
