@@ -9,6 +9,9 @@
 // reference below resolves the same way in both environments.
 if (typeof module !== 'undefined' && module.exports) {
   global.panes = require('./core/pane-registry.js').panes;
+  // `_ownedBy` below forwards onto the `image` descriptor; Node has no
+  // <script> order to load it like the browser does, so pull it in here.
+  require('./panes/image-pane.js');
 }
 
 class TabManager {
@@ -290,6 +293,8 @@ class TabManager {
    * Both the single-view path and each pane of a split go through this.
    */
   _viewForTab(tab) {
+    const d = panes.type(tab.type);
+    if (d) return d.view(tab, this._ctx());
     switch (tab.type) {
       case 'session': {
         const session = this.app.sessions.get(tab.id);
@@ -299,19 +304,19 @@ class TabManager {
         return this.app.viewerRegistry?.isViewerFile(tab.path) ? 'viewer' : 'editor';
       case 'terminal': return 'terminal';
       case 'module': return 'module';
-      case 'image': return 'image';
       default: return 'chat';
     }
   }
 
   /** The render args a view needs to bind its content. */
   _refForTab(tab) {
+    const d = panes.type(tab.type);
+    if (d) return d.ref(tab);
     switch (tab.type) {
       case 'session': return { sessionId: tab.id };
       case 'file': return { projectId: tab.projectId, path: tab.path, label: tab.label };
       case 'terminal': return { terminalId: tab.id };
       case 'module': return { projectId: tab.projectId, moduleName: tab.moduleName };
-      case 'image': return { imageTabId: tab.id };
       default: return {};
     }
   }
@@ -897,7 +902,7 @@ class TabManager {
       if (tab.id === this.activeTabId) { this._destroyActiveViewer(); this._renderImageTab(tab); }
       return;
     }
-    tab = { id: tabRef, type: 'image', label: title || 'Image', projectId, url: imageUrl, owner: owner || null };
+    tab = panes.type('image').create({ tabRef, imageUrl, title, owner }, this._ctx());
     this.tabs.push(tab);
     // Only steal focus when the tab's project is already on screen — an LLM
     // running in a background project shouldn't yank the user's view across.
@@ -909,8 +914,9 @@ class TabManager {
   }
 
   refreshImageTab(tabRef, identity, imageUrl) {
+    const d = panes.type('image');
     const tab = this.tabs.find(t => t.id === tabRef);
-    if (!tab || tab.type !== 'image' || !this._ownedBy(tab, identity)) return false;
+    if (!tab || tab.type !== d.type || !d.ownedBy(tab, identity)) return false;
     if (imageUrl) tab.url = imageUrl;
     tab._reloadVersion = Date.now();
     if (tab.id === this.activeTabId && !this.viewerContent.classList.contains('hidden')) {
@@ -922,31 +928,21 @@ class TabManager {
 
   closeImageTab(tabRef, identity) {
     const tab = this.tabs.find(t => t.id === tabRef);
-    if (!tab || !this._ownedBy(tab, identity)) return false;
+    if (!tab || !panes.type('image').ownedBy(tab, identity)) return false;
     this.closeTab(tabRef);
     return true;
   }
 
-  /** The LLM may only mutate tabs it opened, and only within its own project. */
+  /** Forwards to the `image` descriptor's ownership gate (image-pane.js) —
+   *  kept as a real method since the unit suite calls it on a bare instance. */
   _ownedBy(tab, identity) {
-    return !!tab.owner && tab.owner.actor === 'llm'
-      && identity?.actor === 'llm'
-      && !!identity.projectId && tab.owner.projectId === identity.projectId;
+    return panes.type('image').ownedBy(tab, identity);
   }
 
+  /** Forwards to the `image` descriptor's paint step; kept as a method
+   *  since panes/views.js's `image` view calls it too. */
   _renderImageTab(tab) {
-    const registry = this.app.viewerRegistry;
-    // Strip any cache-bust query before extension matching; keep it on the src.
-    const cleanName = String(tab.url).split('?')[0];
-    const viewer = registry?.getViewer(cleanName) || registry?.getViewer('image.png');
-    if (!viewer) return;
-    const url = tab._reloadVersion
-      ? `${tab.url}${tab.url.includes('?') ? '&' : '?'}v=${tab._reloadVersion}`
-      : tab.url;
-    this.viewerPath.textContent = tab.label;
-    this.viewerInfo.textContent = '';
-    this._activeViewer = viewer;
-    viewer.render(this.viewerCanvas, { filename: tab.label, url });
+    panes.type('image').render(tab, this._ctx());
   }
 
   /**
