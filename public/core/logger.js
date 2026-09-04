@@ -1,17 +1,3 @@
-/**
- * Logger - level-filtered logging with subsystem prefixes.
- *
- * Usage:
- *   const logger = new Logger('debug');           // root logger
- *   const log = logger.child('STT');              // [STT] prefix
- *   const sub = log.child('native');              // [STT:native] prefix
- *   log.info('ready');                            // [STT] ready
- *   logger.setLevel('error');                     // suppresses debug/info/warn globally
- *
- * For retail/production, swap with NullLogger (same API, all no-ops):
- *   container.register('logger', new NullLogger());
- */
-
 const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3, none: 4 };
 
 class Logger {
@@ -37,6 +23,8 @@ class Logger {
   error(...args) { if (this._level <= 3) console.error(...args); }
 }
 
+// Holds no level of its own; every call delegates to the parent, so
+// setLevel() on the root cascades to every child.
 class ChildLogger {
   constructor(parent, prefix) {
     this._parent = parent;
@@ -44,7 +32,6 @@ class ChildLogger {
   }
 
   child(subPrefix) {
-    // Strip brackets from current prefix to build nested: [STT:native]
     const base = this._prefix.slice(1, -1);
     return new ChildLogger(this._parent, `${base}:${subPrefix}`);
   }

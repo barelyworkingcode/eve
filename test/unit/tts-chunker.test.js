@@ -27,8 +27,8 @@ describe('extractNextSentence', () => {
   });
 
   it('does NOT protect multi-dot abbreviations like e.g. (known limitation)', () => {
-    // `(\w+)$` before the boundary only captures "g", not "eg", so the dot after
-    // "e.g" is treated as a sentence end. Documenting actual behavior, not ideal.
+    // Known bug, pinned deliberately: `(\w+)$` before the boundary only captures
+    // "g", not "eg", so the dot after "e.g" is treated as a sentence end.
     expect(extractNextSentence('Bring snacks, e.g. chips and dip.').sentence)
       .toBe('Bring snacks, e.g.');
   });
@@ -76,10 +76,8 @@ describe('cleanChunkText', () => {
   });
 
   it('strips a dangling unterminated think tag (half-streamed reasoning)', () => {
-    // Mid-stream the closing </think> may not have arrived yet. The
-    // /<think>[\s\S]*$/ branch must drop everything from the open tag to
-    // end-of-string so partial reasoning is never spoken; real text before
-    // the tag survives.
+    // Mid-stream the closing </think> may not have arrived yet, so partial
+    // reasoning must never be spoken; real text before the tag survives.
     expect(cleanChunkText('Here is the answer. <think>now let me reason about'))
       .toBe('Here is the answer.');
     expect(cleanChunkText('<think>reasoning with no close')).toBe('');
@@ -112,7 +110,7 @@ describe('splitIntoChunks', () => {
   });
 
   it('merges short subsequent sentences up to the subsequent minimum', () => {
-    const first = 'This is a normal first sentence here.'; // 37 chars >= first min
+    const first = 'This is a normal first sentence here.';
     expect(first.length).toBeGreaterThanOrEqual(TTS_MIN_FIRST_CHUNK);
     const chunks = splitIntoChunks(`${first} Ok two. Three is here now ok.`);
     expect(chunks[0]).toBe(first);

@@ -1,19 +1,12 @@
 /**
- * Frozen wire inventory (spec §8.3 / §1). 44 `case` labels plus the two
- * pre-switch `if (message.type === …)` guards (`auth`, `ping`) — 46 total.
- *
- * This list is hardcoded against the CURRENT SWITCH for phase 5 handoff 1.
- * This file is frozen: if a later handoff has to edit it to stay green,
- * production is wrong — fix production, not this test. Adding, removing or
- * renaming a client→server message type must fail this test; that is the
- * whole point of it.
+ * Frozen wire-type inventory: 46 client message types. If a change forces
+ * an edit to this file to stay green, production is wrong — fix
+ * production, not this test.
  */
 const fs = require('fs');
 const path = require('path');
 const { messages } = require('../../ws/message-registry');
 
-// The 46-element frozen array, committed once in this handoff and never
-// reordered/edited except by an explicit, reviewed protocol change.
 const FROZEN_TYPES = [
   'auth',
   'ping',
@@ -66,19 +59,16 @@ const FROZEN_TYPES = [
 describe('ws protocol surface (frozen)', () => {
   it('has exactly 46 types', () => {
     expect(FROZEN_TYPES.length).toBe(46);
-    expect(new Set(FROZEN_TYPES).size).toBe(46); // no duplicates
+    expect(new Set(FROZEN_TYPES).size).toBe(46);
   });
 
   it('matches every case label, pre-switch guard, and registered descriptor', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', 'ws-handler.js'), 'utf8');
 
     const caseLabels = [...src.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1]);
-    // The two pre-switch guards, matched the same way §1a of the spec describes them.
     const guardTypes = [...src.matchAll(/message\.type === '([a-z_]+)'/g)].map((m) => m[1]);
-    // From handoff 2 onward, a migrated type's `case` label is gone from the
-    // switch fallback and lives only as a registered descriptor — union in
-    // messages.types() so the total dispatch surface stays 46 across the
-    // whole migration, not just while everything is still in the switch.
+    // A migrated type's `case` label can be gone from the switch and live only as a
+    // registered descriptor; union it in so the dispatch surface stays 46 either way.
     const registered = messages.types();
 
     const measured = new Set([...caseLabels, ...guardTypes, ...registered]);

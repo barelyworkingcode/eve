@@ -1,18 +1,3 @@
-/**
- * Logger - level-filtered logging with subsystem prefixes (server-side).
- *
- * Usage:
- *   const { Logger } = require('./logger');
- *   const log = new Logger(process.env.LOG_LEVEL || 'debug');
- *   const wsLog = log.child('WsHandler');
- *   wsLog.info('connected');                      // [WsHandler] connected
- *   wsLog.child('relay').error('timeout');         // [WsHandler:relay] timeout
- *
- * For production, use NullLogger or set level to 'none':
- *   const { NullLogger } = require('./logger');
- *   const log = new NullLogger();
- */
-
 const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3, none: 4 };
 
 class Logger {

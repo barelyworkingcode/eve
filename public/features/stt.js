@@ -1,13 +1,3 @@
-/**
- * STT feature — owns the mic button in the chat input row.
- *
- * Registers STTManager under the container key 'sttManager' (the key the rest
- * of the app already resolves) and renders the mic button into the
- * chat-input-trailing slot. The render closure wires the click handler and
- * hands the manager its button: renderSlots() runs after boot(), so the
- * container lookup inside the closure resolves to the manager boot() created.
- */
-
 features.register({
   id: 'sttManager',
   init: (container) => new STTManager(container),
@@ -15,6 +5,8 @@ features.register({
     {
       slot: 'chat-input-trailing',
       order: 20,
+      // renderSlots() runs after boot(), so this lookup resolves to the
+      // manager boot() already created.
       render: (container) => {
         const btn = document.createElement('button');
         btn.id = 'micBtn';

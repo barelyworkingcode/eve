@@ -1,12 +1,8 @@
 'use strict';
 
-// normalizeProject maps relay's snake_case project shape to the camelCase shape
-// the browser consumes, and is a deliberate ALLOW-LIST: only the fields listed
-// here cross to the client. That has two consequences worth a test —
-//   1. a new relay field is silently dropped until it's added here (this bit us
-//      when adding session_folders), and
-//   2. the project token must never leak (it is intentionally absent).
-// Extracted from server.js so both the server and the test require the same fn.
+// Deliberate ALLOW-LIST: only the fields listed here cross to the client. A
+// new relay field is silently dropped until added here; the project token
+// must never leak and is intentionally absent (see below).
 function normalizeProject(p) {
   return {
     id: p.id,
@@ -24,9 +20,8 @@ function normalizeProject(p) {
       appendClaudeMd: !!t.append_claude_md,
       useRelayTools: !!t.use_relay_tools,
     })),
-    // Project-scoped shell (terminal) launch templates — private shells (e.g.
-    // ssh) that live on the project, not in relayLLM's global pty map. Allow-
-    // listed here like chatTemplates; relayLLM resolves them by id at launch.
+    // Private shells (e.g. ssh) that live on the project, not relayLLM's
+    // global pty map; relayLLM resolves them by id at launch.
     shellTemplates: (p.shell_templates || []).map(t => ({
       id: t.id,
       name: t.name,
@@ -41,11 +36,9 @@ function normalizeProject(p) {
       allowedTools: p.permission_policy.allowed_tools || [],
       deniedTools: p.permission_policy.denied_tools || [],
     } : null,
-    // Ordered list of session-folder names for this project (UI grouping).
     sessionFolders: p.session_folders || [],
-    // No `token`: relay is the sole project-token authority. eve references
-    // projects by id only; relayLLM resolves the scoped token from relay's
-    // bridge just-in-time. Never cache or forward the secret here.
+    // No `token`: relay is the sole project-token authority. Never cache or
+    // forward the secret here.
     createdAt: p.created_at || '',
   };
 }

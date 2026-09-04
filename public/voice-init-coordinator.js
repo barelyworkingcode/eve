@@ -1,12 +1,7 @@
 /**
- * VoiceInitCoordinator - Manages the "start on server, preload desired backend, switch when ready" strategy.
- *
- * All TTS/STT modes start on server for immediate availability. If the user prefers the native
- * on-device backend, the coordinator creates shadow backend instances to preload models
- * in the background. When ready, it destroys the shadows and switches the real managers.
- *
- * Progress is reported via a single persistent toast that tracks both TTS and STT combined.
- * Re-evaluates on settings dialog close to handle preference changes.
+ * VoiceInitCoordinator - starts TTS/STT on server for immediate availability, then
+ * preloads the user's preferred on-device backend in shadow instances and switches
+ * the real managers over once ready.
  */
 class VoiceInitCoordinator {
   constructor(container) {
@@ -15,9 +10,9 @@ class VoiceInitCoordinator {
     this.container = container;
 
     this._toastId = 'voice-init';
-    this._ttsTarget = null;   // 'native' | null
+    this._ttsTarget = null;
     this._sttTarget = null;
-    this._ttsShadow = null;   // shadow backend instance
+    this._ttsShadow = null;
     this._sttShadow = null;
     this._ttsReady = false;
     this._sttReady = false;
@@ -30,10 +25,7 @@ class VoiceInitCoordinator {
     this.evaluate();
   }
 
-  /**
-   * Evaluate current preferences and start/abort preloading as needed.
-   * Called on startup and when settings dialog closes.
-   */
+  // called on startup and when the settings dialog closes
   evaluate() {
     const tts = this.container.get('ttsManager');
     const stt = this.container.get('sttManager');
@@ -41,7 +33,6 @@ class VoiceInitCoordinator {
     const ttsTarget = tts.preferredBackend !== 'server' ? tts.preferredBackend : null;
     const sttTarget = stt.preferredBackend !== 'server' ? stt.preferredBackend : null;
 
-    // Abort stale TTS shadow if target changed
     if (this._ttsShadow && this._ttsTarget !== ttsTarget) {
       this._ttsShadow.destroy();
       this._ttsShadow = null;
@@ -49,7 +40,6 @@ class VoiceInitCoordinator {
       this._ttsProgress = 0;
     }
 
-    // Abort stale STT shadow if target changed
     if (this._sttShadow && this._sttTarget !== sttTarget) {
       this._sttShadow.destroy();
       this._sttShadow = null;
@@ -60,13 +50,12 @@ class VoiceInitCoordinator {
     this._ttsTarget = ttsTarget;
     this._sttTarget = sttTarget;
 
-    // Nothing to preload — dismiss any existing toast and return
     if (!ttsTarget && !sttTarget) {
       this.bus.emit(EVT.TOAST_DISMISS, { id: this._toastId });
       return;
     }
 
-    // If the real manager already switched (e.g. fallback logic), mark as ready
+    // the real manager may have already switched on its own (e.g. fallback logic)
     if (ttsTarget && tts.backend === ttsTarget && tts.activeBackend.ready) {
       this._ttsReady = true;
     }
@@ -74,13 +63,11 @@ class VoiceInitCoordinator {
       this._sttReady = true;
     }
 
-    // Check if already done
     if (this._isDone()) {
       this._finalize();
       return;
     }
 
-    // Show toast
     this.bus.emit(EVT.TOAST_SHOW, {
       id: this._toastId,
       message: 'Preparing on-device voice models…',
@@ -89,11 +76,9 @@ class VoiceInitCoordinator {
       persistent: true,
     });
 
-    // Start shadow preloading for targets not yet ready/loading.
-    // Native models are large (Kokoro ~86MB + Parakeet ~160MB) and download in the
-    // app process; loading both at once can exhaust memory and crash the whole app
-    // on memory-constrained iOS devices. When both targets are native, defer STT
-    // until TTS settles so peak memory stays near one model instead of two.
+    // Native model downloads run in the app process, so loading both at once can
+    // exhaust memory and crash the app on constrained iOS devices; when both
+    // targets are native, defer STT until TTS settles.
     this._serializeNativeLoads = ttsTarget === 'native' && sttTarget === 'native';
 
     if (ttsTarget && !this._ttsReady && !this._ttsShadow) {
@@ -104,14 +89,11 @@ class VoiceInitCoordinator {
     }
   }
 
-  /** Start the STT shadow preload if a target is pending and not already loading. */
   _startSTTPreload() {
     if (this._sttTarget && !this._sttReady && !this._sttShadow) {
       this._preloadSTT(this._sttTarget);
     }
   }
-
-  // --- Shadow preloading ---
 
   _preloadTTS(target) {
     const shadow = this._createBackend('tts', target);
@@ -149,7 +131,6 @@ class VoiceInitCoordinator {
       onReady: () => {
         if (which === 'tts') {
           this._ttsReady = true;
-          // TTS finished — release the deferred STT load (serialized native path).
           if (this._serializeNativeLoads) this._startSTTPreload();
         } else {
           this._sttReady = true;
@@ -162,7 +143,6 @@ class VoiceInitCoordinator {
           this._ttsTarget = null;
           this._ttsShadow?.destroy();
           this._ttsShadow = null;
-          // TTS failed, but STT is independent — release its deferred load too.
           if (this._serializeNativeLoads) this._startSTTPreload();
         } else {
           this._sttTarget = null;
@@ -175,8 +155,6 @@ class VoiceInitCoordinator {
 
     return context;
   }
-
-  // --- Progress & completion ---
 
   _updateToast() {
     const hasTTS = !!this._ttsTarget;
@@ -216,7 +194,6 @@ class VoiceInitCoordinator {
   }
 
   _finalize() {
-    // Destroy shadow backends (free workers/memory)
     this._ttsShadow?.destroy();
     this._sttShadow?.destroy();
     this._ttsShadow = null;
@@ -225,7 +202,6 @@ class VoiceInitCoordinator {
     const tts = this.container.get('ttsManager');
     const stt = this.container.get('sttManager');
 
-    // Show success toast
     this.bus.emit(EVT.TOAST_UPDATE, {
       id: this._toastId,
       message: 'Ready — switching to on-device',
@@ -233,7 +209,7 @@ class VoiceInitCoordinator {
       type: 'success',
     });
 
-    // Switch real managers to preferred backends (models are cached, re-init is fast)
+    // Models are already cached from preload, so this re-init is fast.
     if (this._ttsTarget && tts.backend !== this._ttsTarget) {
       tts.switchBackend(this._ttsTarget, { persist: true });
     }
@@ -241,7 +217,6 @@ class VoiceInitCoordinator {
       stt.switchBackend(this._sttTarget, { persist: true });
     }
 
-    // Auto-dismiss toast after 1.5s
     setTimeout(() => {
       this.bus.emit(EVT.TOAST_DISMISS, { id: this._toastId });
     }, 1500);

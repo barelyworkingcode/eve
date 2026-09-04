@@ -1,15 +1,10 @@
 /**
- * tts_speak / tts_speak_cancel / transcribe_audio: none of these touch relay,
- * so they had zero coverage of any kind before phase 5 (spec §9b, §9d).
- *
- * These arms are TCP clients to the Kokoro/Whisper daemons (server.js
- * TTS_PORT/STT_PORT). The harness now pins both ports to a freshly-allocated
- * port nothing listens on (test/integration/harness.js), so every path here
- * is the deterministic *failure* path regardless of whether the real daemons
- * happen to be running on this box — the same hazard as the visual harness's
- * unstubbed /api/stt/status (docs/handoff.md). The daemons' SUCCESS paths are
- * out of scope for this phase (spec §9d/D3): they need a fake length-prefixed
- * TCP daemon that doesn't exist yet.
+ * tts_speak / tts_speak_cancel / transcribe_audio are TCP clients to the
+ * speech daemons (server.js TTS_PORT/STT_PORT), which the harness pins to a
+ * freshly-allocated dead port — so every path here is the deterministic
+ * failure path, same hazard as the visual harness's unstubbed
+ * /api/stt/status. Success paths are out of scope: they need a fake
+ * length-prefixed TCP daemon that doesn't exist yet.
  */
 const os = require('os');
 const fs = require('fs');
@@ -51,8 +46,8 @@ describe('voice ws arms (deterministic failure paths, daemons unreachable)', () 
   it('tts_speak_cancel replies with nothing at all', async () => {
     const from = ws.mark();
     ws.send({ type: 'tts_speak_cancel' });
-    // Negative characterisation: the arm is a synchronous counter bump with no
-    // reply frame. Give it a beat to (not) arrive, then assert nothing did.
+    // A synchronous counter bump with no reply frame — give it a beat to
+    // (not) arrive, then assert nothing did.
     await new Promise((r) => setTimeout(r, 200));
     expect(ws.frames.slice(from).length).toBe(0);
   });

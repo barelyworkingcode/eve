@@ -74,7 +74,6 @@ describe('parseCidr', () => {
 
   test('normalizes the base against the mask', () => {
     const c = parseCidr('10.0.0.77/24');
-    // The parsed base should be the network address, not the literal addr.
     expect(c.base).toBe(ipv4ToInt('10.0.0.0'));
   });
 
@@ -140,7 +139,6 @@ describe('isIpInCidrs', () => {
     const c = [parseCidr('0.0.0.0/0')];
     expect(isIpInCidrs('1.2.3.4', c)).toBe(true);
     expect(isIpInCidrs('255.255.255.255', c)).toBe(true);
-    // But not IPv6.
     expect(isIpInCidrs('::1', c)).toBe(false);
   });
 
@@ -327,7 +325,6 @@ describe('TrustedNetworkService', () => {
   test('warns at startup when the trusted set contains a public range', () => {
     const warnings = [];
     const log = { info: () => {}, warn: (m) => warnings.push(m), child: () => log };
-    // Simulate a host whose NIC sits on a provider-shared public /24.
     new TrustedNetworkService({
       log,
       env: {},

@@ -1,9 +1,5 @@
-/**
- * SlashCommandHandler — local slash commands handled by Eve (not relayed).
- * Returns true when it consumes the input, false to let it flow to relayLLM.
- * Verifies dispatch + the exact frames sent to the browser, since the client
- * dispatcher keys off these `type`s.
- */
+// Verifies dispatch + the exact frames sent to the browser, since the client
+// dispatcher keys off these `type`s.
 const SlashCommandHandler = require('../../slash-command-handler');
 
 function mockWs() {

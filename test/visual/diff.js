@@ -1,24 +1,13 @@
 #!/usr/bin/env node
-/**
- * Compares test/visual/__current__/*.png against test/visual/__baseline__/*.png
- * pixel-by-pixel (pixelmatch), writes a diff PNG per pair into __diff__/, and
- * prints a percent-changed report. Run after `npm run test:visual` has
- * populated __current__ (see package.json's test:visual script, which chains
- * capture -> this).
- *
- * Exit code is 0 only if every compared pair is within FAIL_THRESHOLD_PCT and
- * baseline/current have exactly the same file set. A screenshot harness that
- * reports false diffs is worse than none, so the threshold is a hair above
- * zero (not exactly zero) purely to absorb any residual sub-pixel
- * antialiasing noise — investigate ANY nonzero number, don't just trust the
- * exit code.
- */
 const fs = require('fs');
 const path = require('path');
 const { PNG } = require('pngjs');
 const pixelmatch = require('pixelmatch').default || require('pixelmatch');
 const { BASELINE_DIR, CURRENT_DIR, DIFF_DIR } = require('./support');
 
+// A hair above zero, not exactly zero, purely to absorb residual sub-pixel
+// antialiasing noise — investigate any nonzero number, don't just trust the
+// exit code.
 const FAIL_THRESHOLD_PCT = 0.01;
 
 function listPngs(dir) {

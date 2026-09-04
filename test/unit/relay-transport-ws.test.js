@@ -1,11 +1,6 @@
-/**
- * Pins the WebSocket egress contract for RelayTransport.createWebSocket().
- * The audit flagged this as the highest-risk untested path: a silent flip to
- * rejectUnauthorized:false, a dropped CA pin, or a missing Authorization header
- * on the WSS upgrade would all ship green without these.
- *
- * `ws` is mocked to capture the constructor args instead of dialing out.
- */
+// A silent flip to rejectUnauthorized:false, a dropped CA pin, or a missing
+// Authorization header on the WSS upgrade would all ship green without these.
+// `ws` is mocked to capture the constructor args instead of dialing out.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');

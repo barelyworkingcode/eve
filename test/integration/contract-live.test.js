@@ -1,16 +1,11 @@
 /**
- * Record-and-verify against a LIVE relay — the keystone that makes the whole
- * mock layer trustworthy. It drives the running eve (default http://localhost:3000,
- * loopback-trusted so no passkey), creates a throwaway session, sends a trivial
- * prompt, captures the REAL relay→eve frames, and asserts each conforms to
- * protocol.js. If relayLLM changes a frame shape, this is what catches it — the
- * fake's frames pass the same validateRelayFrame, so the fake can't be trusted
- * beyond what this confirms.
+ * Record-and-verify against a LIVE relay — the keystone that makes the fake's
+ * frames trustworthy: if relayLLM changes a frame shape, this is what
+ * catches it, since the fake passes the same validateRelayFrame.
  *
  * Skipped by default (non-hermetic, hits a real LLM). Run with:
  *   EVE_CONTRACT=1 npm run test:integration -- contract-live
- * Optional: EVE_BASE_URL (default http://localhost:3000), EVE_CONTRACT_MODEL
- * (default 'haiku'), EVE_CONTRACT_DIR (default '/tmp').
+ * Optional: EVE_BASE_URL, EVE_CONTRACT_MODEL, EVE_CONTRACT_DIR.
  */
 const WebSocket = require('ws');
 const { validateRelayFrame, extractAssistantText } = require('./protocol');
@@ -65,7 +60,6 @@ function liveClient(wsUrl) {
       client.send({ type: 'user_input', text: 'Reply with exactly the single word: hi', sessionId });
       await client.waitFor((f) => f.type === 'message_complete' && f.sessionId === sessionId, 60000);
 
-      // Validate every frame of a type we claim to model.
       const MODELED = new Set(['session_joined', 'llm_event', 'message_complete', 'error']);
       const seen = client.frames.filter((f) => MODELED.has(f.type));
       const failures = seen
@@ -73,14 +67,13 @@ function liveClient(wsUrl) {
         .filter((x) => !x.result.ok);
 
       if (failures.length) {
-        // Surface the drift loudly — this is the whole point of the test.
+        // Surface the drift loudly — the whole point of this test.
         // eslint-disable-next-line no-console
         console.error('RELAY CONTRACT DRIFT:\n' + failures.map((x) =>
           `  ${x.type}: ${x.result.errors.join('; ')}\n    frame=${JSON.stringify(x.frame).slice(0, 300)}`).join('\n'));
       }
       expect(failures.map((x) => `${x.type}: ${x.result.errors.join(', ')}`)).toEqual([]);
 
-      // And at least one assistant llm_event must yield text via our extractor.
       const texts = client.frames.filter((f) => f.type === 'llm_event').map(extractAssistantText).filter(Boolean);
       expect(texts.length).toBeGreaterThan(0);
     } finally {

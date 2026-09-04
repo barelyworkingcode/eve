@@ -98,7 +98,6 @@ describe('Director — emotion deduplication', () => {
     const instruct = spans[0].instruct;
     expect(instruct).toContain('while laughing warmly and giggling playfully');
 
-    // 'laughing warmly' must appear exactly once
     const count = (instruct.match(/laughing warmly/g) || []).length;
     expect(count).toBe(1);
   });

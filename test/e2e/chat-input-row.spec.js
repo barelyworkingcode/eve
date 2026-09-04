@@ -1,13 +1,9 @@
 /**
- * The chat input button row, asserted behaviourally.
- *
- * This exists as the gate for the FeatureRegistry migration
- * (docs/decisions/001-feature-registry.md): the buttons are moving from
- * literal markup in index.html to slot contributions rendered at boot. The
- * visual harness proves the row still *looks* right; this proves it still
- * *works*, which a screenshot cannot.
- *
- * Assert wiring, not appearance. Every check here should survive the move.
+ * Gate for the FeatureRegistry migration (docs/decisions/001-feature-registry.md):
+ * buttons are moving from literal markup to slot contributions rendered at
+ * boot. The visual harness proves the row still looks right; this proves it
+ * still works. Assert wiring, not appearance — every check here should
+ * survive the move.
  */
 const { test, expect } = require('./fixtures');
 
@@ -22,7 +18,7 @@ async function openChat(page) {
 test.describe('chat input row', () => {
   test('every button is present and in the right order', async ({ page }) => {
     await openChat(page);
-    // Order is load-bearing: leading actions, the textarea, then trailing.
+    // Order is load-bearing.
     const ids = await page.$$eval('#inputForm button, #inputForm textarea', (els) =>
       els.map((e) => e.id).filter(Boolean));
     expect(ids).toEqual(['attachBtn', 'planModeBtn', 'userInput', 'sendBtn', 'micBtn', 'stopBtn']);
@@ -30,13 +26,12 @@ test.describe('chat input row', () => {
 
   test('attach visibility tracks model attachment support, and it opens the picker', async ({ page }) => {
     await openChat(page);
-    // app.js hides #attachBtn for models that don't advertise supportsAttachments.
-    // The fake relay's model doesn't, so hidden is the correct state here — that
-    // capability wiring is itself worth protecting through the migration.
+    // The fake relay's model doesn't advertise supportsAttachments, so
+    // hidden is the correct state here.
     await expect(page.getByTestId('chat-attach')).toBeHidden();
 
-    // Its only other job is to click the hidden #fileInput. Reveal it so the
-    // click wiring can be asserted without depending on the fake model's metadata.
+    // Reveal it to assert the click wiring without depending on the fake
+    // model's metadata.
     await page.evaluate(() => { document.getElementById('attachBtn').hidden = false; });
     const opened = page.waitForEvent('filechooser', { timeout: 5000 });
     await page.getByTestId('chat-attach').click();
@@ -53,8 +48,7 @@ test.describe('chat input row', () => {
 
   test('plan mode asks the server to change permission mode', async ({ page }) => {
     await openChat(page);
-    // The button's own class reflects server state, so assert on the frame it
-    // sends rather than on any local toggle.
+    // Button's own class reflects server state, so assert on the sent frame.
     const sent = await page.evaluate(async () => {
       const ws = window.client.wsClient;
       const original = ws.send.bind(ws);

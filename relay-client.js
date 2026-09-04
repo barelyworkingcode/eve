@@ -9,45 +9,25 @@ const { Director } = require('./tts-director');
 
 const DEFAULT_TTS_VOICE = 'af_heart';
 
-/**
- * RelayClient - one instance per browser WS connection.
- * Manages two upstream WebSockets and forwards their events to the browser:
- *   - relayLLM's /ws (sessions, terminals, permissions) — the primary stream.
- *   - relayScheduler's /ws/tasks (task lifecycle events) — auxiliary.
- * The browser opens exactly one socket to eve, so eve is the only place these
- * two upstreams can be merged onto a single browser stream.
- */
 const { NullLogger } = require('./logger');
 
 class RelayClient {
-  /**
-   * @param {RelayTransport} relayTransport — singleton owning transport + auth
-   * @param {WebSocket} browserWs — the per-connection browser socket
-   * @param {TTSService} ttsService
-   * @param {Logger} log
-   */
   constructor(relayTransport, browserWs, ttsService, log) {
     this.log = log || new NullLogger();
     this.relayTransport = relayTransport;
     this.browserWs = browserWs;
     this.ws = null;
-    this.schedulerWs = null;         // second upstream: relayScheduler task events (/ws/tasks)
-    this._closed = false;            // set in close() to stop scheduler reconnect attempts
+    this.schedulerWs = null;
+    this._closed = false;
     this._schedulerReconnectDelay = 2000;
     this.suppressNextJoin = false;
-    this.sessionDirectory = null; // cached for slash command use
+    this.sessionDirectory = null;
     this.currentSessionId = null;
 
-    // Hidden module-invocation sessions intercepted before normal dispatch.
-    // sessionId -> handler(msg). Module sessions must never reach the browser
-    // as regular llm_event/message_complete — the dispatcher would treat them
-    // as background events for an unknown session and start a buffer.
     this.moduleSessions = new Map();
 
-    // Outbound frame coalescing: high-frequency browser-bound frames (token
-    // deltas, terminal output, stats) are buffered and flushed together as one
-    // `__batch` frame on a short timer. Cuts frame count (radio wakeups on
-    // mobile); latency-sensitive frames bypass via _shouldFlushImmediately.
+    // Buffered and flushed as one `__batch` frame on a timer to cut frame
+    // count (radio wakeups on mobile); see _shouldFlushImmediately for bypass.
     this._batchBuf = [];
     this._batchTimer = null;
     this.BATCH_MS = 24;
@@ -62,9 +42,7 @@ class RelayClient {
     this._ttsChunkSeq = 0;
     this._ttsGeneration = 0;
     this._ttsFirstChunk = true;
-    // Parses inline emotion/delivery cues ([whisper]/[laugh]) into per-span
-    // instruct/gain/speed. Stateful across a turn (delivery persists until the
-    // model changes it), so it's reset per turn in _resetTTSState / on complete.
+    // Delivery state persists across a turn; reset per turn in _resetTTSState / on complete.
     this.director = new Director();
   }
 
@@ -86,6 +64,8 @@ class RelayClient {
         }
       });
 
+      // Deliberately no reconnect: a browser reconnect spawns a fresh RelayClient;
+      // only the scheduler upstream self-heals.
       this.ws.on('close', () => {
         this.log.info('Disconnected from relayLLM');
         this.ws = null;
@@ -98,23 +78,12 @@ class RelayClient {
         }
       });
 
-      // Auxiliary upstream: relayScheduler's task lifecycle events. Independent
-      // of the relayLLM connection above — it never blocks (or rejects) this
-      // connect() promise, since task events are nice-to-have live updates, not
-      // core session traffic.
+      // Independent of the relayLLM connection above; never blocks/rejects this
+      // connect() promise — task events are nice-to-have, not core session traffic.
       this._connectScheduler();
     });
   }
 
-  /**
-   * Connect the second upstream WebSocket to relayScheduler's /ws/tasks (via
-   * relay's front door) and forward task lifecycle frames
-   * (task_started/completed/error/status) to the browser, where
-   * message-dispatcher already routes them. relayLLM owns "/ws"; the scheduler
-   * serves "/ws/tasks". Best-effort: reconnects with capped backoff while this
-   * client is open, self-healing across scheduler restarts. Replaces the old
-   * relayLLM SchedulerWSForwarder, relocated here per the service-manifest split.
-   */
   _connectScheduler() {
     if (this._closed) return;
     let sws;
@@ -145,15 +114,13 @@ class RelayClient {
       this._scheduleSchedulerReconnect();
     });
 
-    // Swallow errors at debug level: when the scheduler is down relay 404s the
-    // upgrade and we'd otherwise log on every retry. 'close' fires after
-    // 'error' and drives the reconnect.
+    // Debug-level only: scheduler-down 404s the upgrade on every retry;
+    // 'close' (which drives the reconnect) fires after 'error'.
     sws.on('error', (err) => {
       this.log.debug('Scheduler WS error:', err.message);
     });
   }
 
-  /** Reconnect the scheduler upstream with capped backoff, unless closed. */
   _scheduleSchedulerReconnect() {
     if (this._closed) return;
     const delay = this._schedulerReconnectDelay;
@@ -162,11 +129,10 @@ class RelayClient {
   }
 
   _handleRelayMessage(msg) {
-    // Hidden module-invocation sessions are intercepted FIRST. Their events
-    // must never reach the browser as `llm_event`/`message_complete` — the
-    // dispatcher routes by sessionId and would otherwise buffer them as a
-    // background session. The handler (registered by ModuleInvoker) wraps the
-    // event into a `module_ai_event` and forwards that instead.
+    // Module-invocation sessions are intercepted first: forwarding them as
+    // llm_event/message_complete would let the browser dispatcher buffer them
+    // as an unknown background session. Handler (from ModuleInvoker) wraps
+    // into module_ai_event instead.
     const sid = msg.sessionId;
     if (sid && this.moduleSessions.has(sid)) {
       try {
@@ -177,10 +143,9 @@ class RelayClient {
       return;
     }
 
-    // When Eve creates a session via HTTP POST, it sends session_created to the
-    // browser directly, then joins via relay WS. The relay responds with
-    // session_joined which would duplicate the notification, so we suppress it.
-    // The flag is set by ws-handler.js handleCreateSession().
+    // HTTP-created sessions already got session_created directly from Eve;
+    // suppress the WS session_joined echo to avoid a duplicate. Flag set by
+    // ws-handler.js handleCreateSession().
     if (msg.type === 'session_joined' && this.suppressNextJoin === msg.sessionId) {
       this.suppressNextJoin = false;
       if (msg.directory) {
@@ -189,7 +154,6 @@ class RelayClient {
       return;
     }
 
-    // Cache directory from session_joined for slash commands
     if (msg.type === 'session_joined' && msg.directory) {
       this.sessionDirectory = msg.directory;
       this.currentSessionId = msg.sessionId;
@@ -201,7 +165,6 @@ class RelayClient {
       this.log.debug(`TTS skipped message_complete: voiceMode=${this.voiceMode}`);
     }
 
-    // Forward everything else to browser
     this._sendToBrowser(msg);
   }
 
@@ -216,8 +179,6 @@ class RelayClient {
   }
 
   sendToBrowser(msg) {
-    // Latency-/order-sensitive frames flush the buffer and go out immediately;
-    // everything else batches.
     if (this._shouldFlushImmediately(msg)) {
       this._flushBatch();
       this._rawSend(msg);
@@ -230,17 +191,13 @@ class RelayClient {
   }
   _sendToBrowser(msg) { this.sendToBrowser(msg); }
 
-  /** Send a single frame to the browser now, bypassing the batch buffer. */
   _rawSend(msg) {
     if (this.browserWs && this.browserWs.readyState === WebSocket.OPEN) {
       this.browserWs.send(JSON.stringify(msg));
     }
   }
 
-  /**
-   * Flush buffered frames. A single frame is sent bare (no envelope); multiple
-   * are wrapped in a `__batch` frame the client unwraps and dispatches in order.
-   */
+  // Client-side message-dispatcher unwraps __batch frames and dispatches in order.
   _flushBatch() {
     if (this._batchTimer) { clearTimeout(this._batchTimer); this._batchTimer = null; }
     if (this._batchBuf.length === 0) return;
@@ -253,12 +210,8 @@ class RelayClient {
     }
   }
 
-  /**
-   * Frames that must not sit in the batch buffer: user-perceptible prompts and
-   * order-critical control frames (tts_done must follow all audio; session
-   * lifecycle must not lag). Everything else (llm_event, terminal_output,
-   * raw_output, stats_update) batches.
-   */
+  // Bypass batching only for order-critical frames: tts_done must follow all
+  // queued audio, session lifecycle must not lag.
   _shouldFlushImmediately(msg) {
     switch (msg.type) {
       case 'permission_request':
@@ -274,15 +227,10 @@ class RelayClient {
     }
   }
 
-  /**
-   * Send a TTS audio chunk as a binary WS frame. The browser carries no other
-   * binary frames, so any binary frame is unambiguously audio — this avoids the
-   * ~33% base64 inflation (and the client-side atob) on the browser↔eve hop,
-   * which matters most on mobile. Control frames (tts_done/tts_error) stay JSON.
-   */
+  // Binary frame => audio; it's the only binary frame type in this protocol,
+  // which avoids the ~33% base64 inflation (and client-side atob) on this hop.
   _sendAudioToBrowser(base64) {
-    // Flush any buffered JSON first so the audio frame can't overtake the text
-    // stream it belongs with (voice mode batches text deltas). See _flushBatch.
+    // Flush buffered JSON first so audio can't overtake the text stream it belongs with.
     this._flushBatch();
     if (this.browserWs && this.browserWs.readyState === WebSocket.OPEN) {
       // Audio is opaque/already-compact — skip deflate (net-negative CPU).
@@ -294,14 +242,8 @@ class RelayClient {
     this.suppressNextJoin = value;
   }
 
-  /**
-   * Register a handler that will receive ALL relay messages for `sessionId`
-   * instead of forwarding them to the browser. Used by ModuleInvoker to
-   * accumulate streaming text + tool events from a hidden ephemeral session
-   * without leaking them into the user's visible chat history. Last writer
-   * wins if called twice for the same id — the invoker is responsible for
-   * unregistering on terminal events.
-   */
+  // Last writer wins for a given sessionId; caller (ModuleInvoker) must
+  // unregister on terminal events.
   registerModuleSession(sessionId, handler) {
     if (!sessionId || typeof handler !== 'function') return;
     this.moduleSessions.set(sessionId, handler);
@@ -323,7 +265,6 @@ class RelayClient {
 
   leaveSession(sessionId) {
     this._send({ type: 'leave_session', sessionId });
-    // Reset voice mode so TTS doesn't carry over to the next session
     this.voiceMode = false;
     this._resetTTSState();
   }
@@ -407,9 +348,8 @@ class RelayClient {
       this.ttsTextAccumulator = '';
       if (remainder) this._sendTTSChunk(remainder);
 
-      // Signal client after all queued chunks finish synthesizing.
-      // Must be inside the chain — _sendTTSChunk is async so chunks
-      // may not have been sent yet at this point.
+      // Must be inside the chain — _sendTTSChunk is async so chunks may not
+      // have been sent yet at this point.
       const gen = this._ttsGeneration;
       this.log.debug(`TTS message_complete: gen=${gen}, chunks=${this._ttsChunkSeq}, remainder=${remainder.length}`);
       this._ttsChain = this._ttsChain.then(() => {
@@ -422,16 +362,10 @@ class RelayClient {
         this.log.error('TTS chain error before tts_done:', err.message);
       });
       this._ttsFirstChunk = true;
-      // Turn over: next assistant turn starts from the normal delivery mode.
-      // (The remainder above was already planned under this turn's state.)
       this.director.reset();
     }
   }
 
-  /**
-   * Extract complete sentences from the accumulator and send each to TTS.
-   * Sentences below the minimum chunk size are kept for merging with the next.
-   */
   _flushCompleteSentences() {
     let result;
     while ((result = extractNextSentence(this.ttsTextAccumulator)) && result.sentence) {
@@ -443,14 +377,8 @@ class RelayClient {
     }
   }
 
-  /**
-   * Parse a raw sentence's inline cues into delivery spans, then clean and chain
-   * each span onto the TTS pipeline. A sentence may split into >1 span when
-   * delivery changes mid-way ("[whisper] psst. [loud] HEY!"); each span carries
-   * its own instruct/gain/speed. Spans synthesize and play in order. Captures
-   * the current generation so stale spans from a cancelled response are dropped
-   * even if synthesis completes.
-   */
+  // Captures the current generation so stale spans from a cancelled response
+  // are dropped even if synthesis completes.
   _sendTTSChunk(rawText) {
     for (const span of this.director.plan(rawText)) {
       const cleaned = cleanChunkText(span.text);

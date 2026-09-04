@@ -1,14 +1,12 @@
 /**
  * SearchSummarizer - one-shot LLM call that turns ripgrep matches into a
- * short natural-language summary. Forked from module-invoker.js's hidden
- * ephemeral-session pattern, with the module-specific machinery (manifest,
- * file inlining, tool permissions, schema parsing) stripped out.
+ * short natural-language summary.
  *
  * Lifecycle:
  *   1. POST /api/sessions  (name "__search:<rand>") — invisible to the user
  *   2. relayClient.registerModuleSession(sid, handler) — intercept relay frames
  *   3. join_session + send_message
- *   4. Accumulate assistant text; forward each frame as `search_ai_event`
+ *   4. Forward each frame as `search_ai_event` (client accumulates the text)
  *   5. On message_complete → `search_ai_completed` (or `search_ai_failed`)
  *   6. finally: unregisterModuleSession + DELETE /api/sessions/<sid>
  */
@@ -19,7 +17,8 @@ const RELAY_TIMEOUT_MS = 60 * 1000;
 
 // Cost-control limits enforced server-side. The client passes a match list
 // but we never trust it — it could omit or exceed these.
-// Named distinctly from SearchService.MAX_SUMMARY_MATCHES (the ripgrep result cap of 500).
+// Distinct from SearchService.MAX_MATCHES (the ripgrep result cap of 500) — this
+// one caps how many of those matches get sent to the LLM.
 const MAX_SUMMARY_MATCHES = 50;
 const MAX_SNIPPET_LEN = 120;
 
@@ -28,15 +27,12 @@ class SearchSummarizer {
     this.relayTransport = relayTransport;
     this.resolveProject = resolveProject;
     this.log = log?.child ? log.child('SearchSummarizer') : log;
-    // requestId -> { sessionId, relayClient }
     this.active = new Map();
   }
 
-  /**
-   * Fire-and-forget; outcomes are delivered to the browser via `search_ai_*`
-   * WS frames. The returned promise resolves/rejects so the caller (ws-handler)
-   * can log final status, but the user-facing flow doesn't depend on it.
-   */
+  // Fire-and-forget; outcomes are delivered to the browser via `search_ai_*`
+  // WS frames. The returned promise lets the caller (ws/search-messages.js)
+  // log final status, but the user-facing flow doesn't depend on it.
   async run({ requestId, projectId, query, matches, model, relayClient, browserWs }) {
     if (!requestId) throw new Error('requestId required');
     if (!projectId) throw new Error('projectId required');
@@ -117,11 +113,8 @@ class SearchSummarizer {
     }
   }
 
-  /**
-   * Cancel an in-flight summary. Idempotent — stray stops after completion
-   * silently no-op. The resulting message_complete still flows through the
-   * handler, so we don't reject locally.
-   */
+  // Idempotent — stray stops after completion silently no-op. The resulting
+  // message_complete still flows through the handler, so this doesn't reject locally.
   stop(requestId) {
     const entry = this.active.get(requestId);
     if (!entry) return false;
@@ -161,14 +154,8 @@ function sendFrame(relayClient, browserWs, payload) {
   }
 }
 
-/**
- * Build the single user-turn prompt sent to the model. The system-prompt
- * portion is folded in here (relayLLM's `systemPrompt` is left empty) so we
- * keep one place to inspect when tuning the output.
- *
- * Match list is capped at MAX_SUMMARY_MATCHES; each snippet is clamped to
- * MAX_SNIPPET_LEN chars. These are independent of whatever the client sent.
- */
+// System-prompt portion is folded in here (relayLLM's `systemPrompt` is left
+// empty) so there's one place to inspect when tuning the output.
 function buildPrompt(query, matches, projectName) {
   const safeMatches = Array.isArray(matches) ? matches.slice(0, MAX_SUMMARY_MATCHES) : [];
   const total = Array.isArray(matches) ? matches.length : 0;

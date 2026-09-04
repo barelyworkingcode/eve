@@ -1,13 +1,5 @@
-/**
- * Characterisation for the arms of ws-handler.js's switch that had zero test
- * coverage before phase 5 (see /tmp/eve-phase5-ws-handler-spec.md §9b) and
- * that the fake relay can reach. Table-driven forwarding, modelled directly on
- * session-forwarding.test.js's it.each(cases) idiom, plus two negative
- * characterisations and the two-connection isolation test (§9c-T2).
- *
- * This file is written and frozen BEFORE the registry migration starts. It
- * must not be modified afterwards — if it fails, the migration is wrong.
- */
+// Frozen before the registry migration starts and must not be modified
+// afterwards — if it fails, the migration is wrong.
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -31,7 +23,7 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
     fs.rmSync(projectDir, { recursive: true, force: true });
   });
 
-  // --- Terminal bookkeeping arms: pure relayClient.send field-picks, forwarded verbatim. ---
+  // Pure relayClient.send field-picks, forwarded verbatim.
   const terminalCases = [
     ['terminal_list', { type: 'terminal_list' }, { type: 'terminal_list' }],
     ['terminal_reconnect',
@@ -48,7 +40,6 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
     expect(got).toMatchObject(expected);
   });
 
-  // --- Local file arms with no prior coverage. Real disk, asserted both ways. ---
   it('delete_file removes the file and replies file_deleted', async () => {
     const target = path.join(projectDir, 'to-delete.txt');
     fs.writeFileSync(target, 'bye', 'utf8');
@@ -65,15 +56,14 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
     expect(fs.statSync(path.join(projectDir, 'new-dir')).isDirectory()).toBe(true);
   });
 
-  // --- Negative characterisation: cancel-with-nothing-in-flight. What these
-  // arms actually do today is nothing — no crash, no reply frame. A future
-  // implementation that starts replying (or throwing) to an unmatched cancel
-  // would be a protocol change this test catches. ---
+  // Today an unmatched cancel does nothing — no crash, no reply frame. A
+  // future implementation that starts replying (or throwing) would be a
+  // protocol change this test catches.
   it('search_ai_stop with no matching request in flight: no crash, no frame', async () => {
     const from = ws.mark();
     ws.send({ type: 'search_ai_stop', requestId: 'no-such-search' });
-    // Prove the connection is still alive and dispatching by round-tripping
-    // an unrelated op, then assert nothing arrived for the stop itself.
+    // Round-trip an unrelated op to prove the connection is still alive and
+    // dispatching, then assert nothing arrived for the stop itself.
     ws.send({ type: 'terminal_list' });
     await eve.relay.waitForInbound((f) => f.type === 'terminal_list');
     expect(ws.frames.slice(from).some((f) => f.requestId === 'no-such-search')).toBe(false);
@@ -89,17 +79,10 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
 });
 
 /**
- * T2 — two-connection isolation (§9c-T2, constraint C1).
- *
- * The current switch is correct: every per-arm reply is addressed through the
- * `ws` closed over by that specific connection's handler invocation, and
- * every collaborator (relayClient, fileWatcher) is constructed fresh per
- * connection. Nothing here should ever cross-talk. This is the ONLY test in
- * the repo that would catch a future registry descriptor that captures
- * connection-scoped state (ws / relayClient / fileWatcher) at registration
- * time instead of reaching it through a per-call ctx — see C1 in the spec.
- * Written and passing against today's correct code, before any production
- * line of the registry migration lands, so it proves itself.
+ * Two-connection isolation (C1, docs/decisions/003-ws-message-registry.md).
+ * The ONLY test in the repo that would catch a future handler that captures
+ * one connection's socket / relayClient / fileWatcher at registration time
+ * and serves another connection's data through it.
  */
 describe('ws-dispatch: two-connection isolation (C1)', () => {
   let eve;
@@ -111,12 +94,11 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-isolation-'));
     fs.writeFileSync(path.join(projectDir, 'secretA.txt'), 'AAA-ONLY-FOR-A', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'secretB.txt'), 'BBB-ONLY-FOR-B', 'utf8');
-    // Fixtures for the search and module isolation cases below.
     fs.writeFileSync(path.join(projectDir, 'needleA.txt'), 'ZEBRAALPHA marker', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'needleB.txt'), 'ZEBRABRAVO marker', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'dataA.txt'), 'MODULE-DATA-A', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'dataB.txt'), 'MODULE-DATA-B', 'utf8');
-    // A module manifest permitting both files — same fixture shape as file-ops.test.js.
+    // Same fixture shape as file-ops.test.js.
     fs.mkdirSync(path.join(projectDir, 'modules', 'demo'), { recursive: true });
     fs.writeFileSync(path.join(projectDir, 'modules', 'demo', 'module.json'), JSON.stringify({
       displayName: 'Demo', entry: 'index.html', permissions: { files: ['dataA.txt', 'dataB.txt'] },
@@ -125,9 +107,9 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     wsA = await eve.connectWs();
     wsB = await eve.connectWs();
     await eve.relay.waitForRelay();
-    // waitForRelay only guarantees the FIRST of eve's two per-connection relay
-    // upstreams is open. The terminal case below needs BOTH (relayClient.send
-    // silently no-ops on a not-yet-open socket) — bounded poll, not a fixed sleep.
+    // waitForRelay only guarantees the first of eve's two upstreams is open;
+    // the terminal case below needs both (relayClient.send silently no-ops
+    // on a not-yet-open socket).
     for (let i = 0; i < 100 && eve.relay.relayConnectionCount() < 2; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -144,8 +126,8 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     const fromA = wsA.mark();
     const fromB = wsB.mark();
 
-    // Fire both concurrently — a captured-ws bug would route (at least) one
-    // of these to the wrong socket, or duplicate both replies onto one.
+    // Fire concurrently — a captured-ws bug would route one to the wrong
+    // socket, or duplicate both replies onto one.
     wsA.send({ type: 'read_file', projectId: 'p1', path: 'secretA.txt' });
     wsB.send({ type: 'read_file', projectId: 'p1', path: 'secretB.txt' });
 
@@ -155,7 +137,6 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     expect(replyA.content).toBe('AAA-ONLY-FOR-A');
     expect(replyB.content).toBe('BBB-ONLY-FOR-B');
 
-    // The negative half of the assertion: neither socket ever saw the other's data.
     expect(wsA.frames.slice(fromA).some((f) => f.type === 'file_content' && f.content === 'BBB-ONLY-FOR-B')).toBe(false);
     expect(wsB.frames.slice(fromB).some((f) => f.type === 'file_content' && f.content === 'AAA-ONLY-FOR-A')).toBe(false);
   });
@@ -175,10 +156,8 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     expect(wsB.frames.slice(fromB).some((f) => f.type === 'session_created' && f.sessionId === createdA.sessionId)).toBe(false);
   });
 
-  // --- The five domains C1's "accepted limits" named as review-checklist-only
-  // (docs/decisions/003-ws-message-registry.md): search, module, voice.
-  // Terminal and diagnostics are covered below too, closing the gap. ---
-
+  // C1's "accepted limits" named search, module, and voice as
+  // review-checklist-only; terminal is covered below too, closing that gap.
   it('search_project on each connection replies only to the connection that asked', async () => {
     const fromA = wsA.mark();
     const fromB = wsB.mark();
@@ -217,9 +196,9 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     const fromA = wsA.mark();
     const fromB = wsB.mark();
 
-    // Both land on the daemon-unreachable failure path deterministically (harness
-    // pins TTS_PORT/STT_PORT to dead ports), but the two arms diverge BEFORE that
-    // dial even happens, on the payload alone — see handleTranscribeAudio.
+    // Both land on the daemon-unreachable path (harness pins TTS_PORT/STT_PORT
+    // to dead ports), but the two arms diverge before that dial even
+    // happens, on the payload alone — see handleTranscribeAudio.
     wsA.send({ type: 'transcribe_audio' }); // no audio field at all
     wsB.send({ type: 'transcribe_audio', audio: Buffer.from('ABCD').toString('base64') }); // 4 raw bytes, well under the 100-byte floor
 

@@ -1,19 +1,9 @@
 /**
- * RelayTransport — singleton service that owns all Eve↔relay traffic.
- *
- * Two transport modes:
- *
- *  1. Socket (preferred) — Unix socket allocated by the `relay` orchestrator
- *     at spawn time (RELAY_FRONTEND_SOCKET). 0600 perms anchor authorization;
- *     the bearer token is defense-in-depth.
- *
- *  2. TCP (fallback) — HTTPS + WSS for split-host deployments. Off-loopback
- *     HTTP is refused at startup. Optional internal CA via RELAY_FRONTEND_CA.
- *
- * Every HTTP request and WS upgrade carries `Authorization: Bearer <token>`
- * so relay can reject unauthenticated upgrades before protocol-switching.
- *
- * Full design: docs/security-review-auth-transport.md Section B.
+ * RelayTransport is the single egress point for all Eve<->relay traffic; no
+ * other module may open a raw fetch()/WebSocket to relay. Socket mode's 0600
+ * perms anchor authorization (bearer token is defense-in-depth); TCP fallback
+ * refuses off-loopback plaintext at startup. assertStartupConfig() must never
+ * gain a skip-verify escape. See docs/security-review-auth-transport.md Section B.
  */
 
 const http = require('http');
@@ -40,16 +30,7 @@ class RelayConfigError extends Error {
 }
 
 class RelayTransport {
-  /**
-   * Build a RelayTransport from the process environment. Does NOT perform
-   * the startup validation — call assertStartupConfig() for that. This split
-   * lets tests construct the object with synthetic config and then assert
-   * on the validation step independently.
-   *
-   * @param {object} [deps]
-   * @param {NodeJS.ProcessEnv} [deps.env]
-   * @param {Logger} [deps.log]
-   */
+  // Does not validate; call assertStartupConfig() separately.
   static fromEnv({ env = process.env, log } = {}) {
     const socketPath = env.RELAY_FRONTEND_SOCKET || null;
     const url = env.RELAY_FRONTEND_URL || 'http://localhost:3001';
@@ -59,15 +40,6 @@ class RelayTransport {
     return new RelayTransport({ socketPath, url, token, caPath, env, log });
   }
 
-  /**
-   * @param {object} opts
-   * @param {string|null} opts.socketPath
-   * @param {string} opts.url
-   * @param {string|null} opts.token
-   * @param {string|null} [opts.caPath]
-   * @param {NodeJS.ProcessEnv} [opts.env]
-   * @param {Logger} [opts.log]
-   */
   constructor({ socketPath, url, token, caPath = null, log }) {
     this.log = log || new NullLogger();
     this.socketPath = socketPath;
@@ -75,8 +47,8 @@ class RelayTransport {
 
     this.mode = socketPath ? 'socket' : 'tcp';
 
-    // Parse the TCP URL even in socket mode — we still use its `pathname`
-    // for path-joining when the orchestrator passes both (rare but legal).
+    // Parsed even in socket mode: its pathname is still used for path-joining
+    // when the orchestrator passes both (rare but legal).
     let parsed;
     try {
       parsed = new URL(url);
@@ -86,11 +58,10 @@ class RelayTransport {
     this.parsedUrl = parsed;
     this.loopback = isLoopbackHost(parsed.hostname);
 
-    // Read CA cert once at startup (if configured). Reused for both the
-    // https.Agent and createWebSocket() — no per-connection disk reads.
+    // Read once at startup and reused by both the https.Agent and
+    // createWebSocket() — no per-connection disk reads.
     this._caBuffer = caPath ? fs.readFileSync(caPath) : undefined;
 
-    // Build the shared HTTP agent used by both fetch() and the WS upgrade.
     if (this.mode === 'socket') {
       this.agent = new http.Agent({ keepAlive: true, socketPath });
       this._httpBase = 'http://relay-frontend.localsocket';
@@ -104,25 +75,20 @@ class RelayTransport {
       this._httpBase = `${parsed.protocol}//${parsed.host}`;
       this._wsBase = `wss://${parsed.host}`;
     } else {
-      // Plain http: — only valid for loopback dev. We still build an agent
-      // so call-site behavior is uniform; assertStartupConfig() may refuse.
+      // Plain http: is only valid for loopback dev; built uniformly here so
+      // call-site behavior doesn't branch — assertStartupConfig() is what refuses it.
       this.agent = new http.Agent({ keepAlive: true });
       this._httpBase = `${parsed.protocol}//${parsed.host}`;
       this._wsBase = `ws://${parsed.host}`;
     }
 
-    // Pre-compute request options that are constant per-instance so
-    // _nodeRequest doesn't re-parse the URL on every call.
     this._isHttps = parsed.protocol === 'https:';
     this._requestLib = this._isHttps ? https : http;
   }
 
-  /**
-   * Fail-closed startup validation. Call once in server.js before listen().
-   * Throws RelayConfigError on any insecure configuration.
-   */
+  // Fail-closed: call once in server.js before listen(). Throws
+  // RelayConfigError on any insecure configuration.
   assertStartupConfig() {
-    // Token is required except for the explicit dev-loopback case.
     if (!this.token) {
       if (this.mode === 'socket') {
         throw new RelayConfigError('RELAY_FRONTEND_SOCKET is set but RELAY_FRONTEND_TOKEN is missing — refusing to start.');
@@ -132,14 +98,12 @@ class RelayTransport {
           `RELAY_FRONTEND_URL points off-loopback (${this.parsedUrl.hostname}) but RELAY_FRONTEND_TOKEN is missing — refusing to start.`
         );
       }
-      // Loopback + plain HTTP + no token: legacy dev config. Warn loudly.
       this.log.warn(
         `RELAY_FRONTEND_TOKEN is not set. Running without relay authentication is only safe for local dev on loopback. ` +
         `Set RELAY_FRONTEND_TOKEN as soon as possible — see docs/security-review-auth-transport.md Section B.`
       );
     }
 
-    // TLS is required for off-loopback TCP mode.
     if (this.mode === 'tcp' && !this.loopback && this.parsedUrl.protocol !== 'https:') {
       throw new RelayConfigError(
         `RELAY_FRONTEND_URL must use https:// for non-loopback hosts (got ${this.parsedUrl.protocol}//${this.parsedUrl.hostname}). ` +
@@ -147,7 +111,6 @@ class RelayTransport {
       );
     }
 
-    // Log the effective config at startup so operators can verify it.
     if (this.mode === 'socket') {
       this.log.info(`Relay transport: unix socket at ${this.socketPath}${this.token ? ' (token set)' : ' (NO TOKEN — dev only)'}`);
     } else {
@@ -159,28 +122,18 @@ class RelayTransport {
     }
   }
 
-  // --- HTTP ---
-
-  /**
-   * Make an authenticated HTTP request to relayLLM. Returns { status, data }
-   * where data is the parsed JSON body (or null if empty).
-   *
-   * @param {string} method
-   * @param {string} path — relayLLM path, e.g. '/api/projects'
-   * @param {any} [body] — JSON-serializable body, omitted for GET/DELETE
-   */
   async fetch(method, path, body) {
     const url = this._buildUrl(this._httpBase, path);
     const headers = { 'Content-Type': 'application/json' };
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
+    // Deliberately Node core `http`/`https`, not global fetch(): undici-based
+    // fetch pools via a `dispatcher`, not `agent`, which loses control of
+    // agent reuse (needed for socket mode).
     const opts = {
       method,
       headers,
-      // Node's undici-based fetch uses a `dispatcher`, not `agent`, for
-      // pooling. We use the Node core `http` module instead so we keep
-      // full control of agent reuse (esp. for socket mode).
     };
     if (body !== undefined) {
       opts.body = JSON.stringify(body);
@@ -189,14 +142,6 @@ class RelayTransport {
     return this._nodeRequest(url, opts);
   }
 
-  /**
-   * Create a WebSocket connection to relayLLM's /ws endpoint.
-   * The bearer token is sent via the Authorization header during the
-   * HTTP upgrade, so relayLLM can reject unauthenticated upgrades before
-   * protocol-switching.
-   *
-   * @param {string} [wsPath] — defaults to '/ws'
-   */
   createWebSocket(wsPath = '/ws') {
     const url = this._buildUrl(this._wsBase, wsPath);
     const options = { agent: this.agent };
@@ -210,14 +155,6 @@ class RelayTransport {
     return new WebSocket(url, options);
   }
 
-  /**
-   * Like fetch(), but returns the raw response Buffer instead of parsing JSON.
-   * Used for proxying binary content (generated images, etc.).
-   *
-   * @param {string} method
-   * @param {string} path
-   * @returns {Promise<{status: number, data: Buffer, headers: object}>}
-   */
   async fetchRaw(method, path) {
     const url = this._buildUrl(this._httpBase, path);
     const headers = {};
@@ -227,17 +164,11 @@ class RelayTransport {
     return this._nodeRequestRaw(url, { method, headers });
   }
 
-  // --- Internal ---
-
   _buildUrl(base, path) {
     const normalized = path.startsWith('/') ? path : `/${path}`;
     return `${base}${normalized}`;
   }
 
-  /**
-   * Low-level http/https.request wrapper that honors the shared agent
-   * (including socketPath for Unix sockets). Returns a Promise<{status, data}>.
-   */
   _nodeRequest(url, { method, headers, body }) {
     return this._doRequest(url, { method, headers, body }).then(({ status, buffer }) => {
       const raw = buffer.toString('utf8');
@@ -249,20 +180,12 @@ class RelayTransport {
     });
   }
 
-  /**
-   * Like _nodeRequest, but returns the raw Buffer without JSON parsing.
-   * Used by fetchRaw() for binary responses (images, etc.).
-   */
   _nodeRequestRaw(url, { method, headers }) {
     return this._doRequest(url, { method, headers }).then(({ status, buffer, headers: h }) => ({
       status, data: buffer, headers: h,
     }));
   }
 
-  /**
-   * Shared core for _nodeRequest and _nodeRequestRaw. Returns the raw
-   * response buffer, status, and headers without any interpretation.
-   */
   _doRequest(url, { method, headers, body }) {
     return new Promise((resolve, reject) => {
       const baseLen = url.indexOf('/', url.indexOf('//') + 2);

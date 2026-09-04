@@ -1,15 +1,6 @@
-/**
- * File-attachments feature — owns the attach button in the chat input row.
- *
- * Registers FileAttachmentManager under the container key
- * 'fileAttachmentManager' (the key app.js already resolves) and renders the
- * attach button into the chat-input-leading slot. The manager's constructor
- * runs at boot(), before any slot renders, so it must stay DOM-free; the
- * render closure hands it the button via init(), by which time the static
- * index.html markup it also needs (#fileInput, #userInput, #attachedFiles)
- * exists too.
- */
-
+// FileAttachmentManager's constructor runs at boot(), before any slot renders,
+// so it must stay DOM-free; render() hands it the button once index.html's
+// static markup (#fileInput, #userInput, #attachedFiles) exists too.
 features.register({
   id: 'fileAttachmentManager',
   init: (container) => new FileAttachmentManager(container),

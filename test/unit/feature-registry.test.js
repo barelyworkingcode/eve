@@ -1,16 +1,10 @@
-/**
- * FeatureRegistry - see docs/decisions/001-feature-registry.md.
- *
- * jest runs with testEnvironment 'node' and nothing else here touches the DOM.
- * The registry's DOM surface is three methods (querySelectorAll, dataset.slot,
- * appendChild), so it is stubbed rather than pulling in jest-environment-jsdom
- * for that alone.
- */
+// The registry's DOM surface is three methods (querySelectorAll, dataset.slot,
+// appendChild), so they're stubbed here rather than pulling in jsdom for that alone.
+// public/ files are plain <script> globals, not modules, hence the vm sandbox.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// public/ files are plain <script> globals, not modules.
 const src = fs.readFileSync(path.join(__dirname, '../../public/core/feature-registry.js'), 'utf8');
 const sandbox = {};
 vm.createContext(sandbox);
@@ -39,9 +33,8 @@ function fakeContainer() {
 }
 
 describe('the page singleton', () => {
-  // Feature files run the moment their <script> is parsed, long before
-  // initApp(), so there must already be an instance for them to register
-  // against. Without this, file-scope registration has nothing to call.
+  // Feature files register against `features` the moment their <script> tag is
+  // parsed, long before initApp() runs, so the instance must already exist.
   it('exposes a ready-to-use `features` instance', () => {
     expect(sandbox.features).toBeInstanceOf(FeatureRegistry);
     expect(sandbox.features.ids()).toEqual([]);

@@ -1,10 +1,6 @@
-/**
- * Integration test for the WebAuthn HTTP routes (routes/auth.js). The status
- * short-circuits, the rate-limit / enrollment-gate middleware, and the body
- * validation all live in the router, so they need a real Express app. The
- * AuthService itself is faked — its ceremony logic is covered in
- * auth-ceremony.test.js.
- */
+// The status short-circuits, rate-limit/enrollment-gate middleware, and body
+// validation all live in the router, so they need a real Express app. AuthService
+// itself is faked here — its ceremony logic is covered in auth-ceremony.test.js.
 const http = require('http');
 const express = require('express');
 const createAuthRoutes = require('../../routes/auth');

@@ -1,7 +1,3 @@
-/**
- * ProjectDialog - tabbed Edit/New Project dialog with General and Templates tabs.
- * Replaces the old #projectModal HTML + ModalManager project methods.
- */
 class ProjectDialog extends DialogBase {
   constructor(container) {
     super(container, 'project-dialog');
@@ -10,25 +6,21 @@ class ProjectDialog extends DialogBase {
     this.api = container.get('api');
     this._projectId = null;
     this._project = null;
-    this._templates = []; // working copy of chatTemplates
-    // Guards against clobbering relay's stored templates with a stale working
-    // copy: chat_templates is only included in the save body when the user
-    // actually edited templates in this dialog (relay treats an absent field
-    // as "leave unchanged").
+    this._templates = [];
+    // relay treats an absent chat_templates field on save as "leave
+    // unchanged", so it's only included in the body once the user actually
+    // edits a template here.
     this._templatesDirty = false;
-    // Working copy of shellTemplates (project-scoped shell launch templates).
-    // Like chat templates, these are saved on the project body, not via an
-    // immediate API call — shell_templates is only included in the save body
-    // when the user edited them here (relay treats an absent field as
-    // "leave unchanged").
+    // Same relay contract as chat_templates: shell_templates is only
+    // included in the save body once edited here.
     this._shellTemplates = [];
     this._shellTemplatesDirty = false;
-    // Working sets carry literal MCP/model ids; the '*' wildcard is just
-    // another id (matches relay's isWildcard convention).
+    // The '*' wildcard is just another id, matching relay's isWildcard
+    // convention.
     this._selectedMcpIds = new Set();
     this._selectedModels = new Set();
-    this._editingTemplateIdx = -1; // -1 = not editing, >=0 = index
-    this._editingShellTemplate = null; // null = not editing, object = editing/creating
+    this._editingTemplateIdx = -1;
+    this._editingShellTemplate = null;
     this._policy = this._defaultPolicy();
   }
 
@@ -36,8 +28,7 @@ class ProjectDialog extends DialogBase {
     return { default_mode: 'default', allowed_tools: [], denied_tools: [] };
   }
 
-  // Returns the policy in relay's snake_case wire format, or {} when there's
-  // nothing configured — relay treats an empty struct as "clear the policy".
+  // relay treats an empty struct as "clear the policy".
   _serializePolicy() {
     const p = this._policy || {};
     const out = {};
@@ -113,8 +104,6 @@ class ProjectDialog extends DialogBase {
     }
   }
 
-  // ─── General Tab ───────────────────────────────────────────
-
   _renderGeneralTab() {
     const form = document.createElement('div');
     form.className = 'project-dialog__form';
@@ -130,7 +119,6 @@ class ProjectDialog extends DialogBase {
     this._renderMcpsPicker(form);
     this._renderModelsPicker(form);
 
-    // Actions
     const actions = document.createElement('div');
     actions.className = 'dialog__actions';
 
@@ -287,20 +275,13 @@ class ProjectDialog extends DialogBase {
       if (existing) existing.remove();
       const errEl = document.createElement('div');
       errEl.className = 'project-dialog__error';
-      // Surface the backend's actual reason (e.g. "project path must be an
-      // absolute path") — api-client puts it on err.message. The generic
-      // fallback covers network failures with no server message.
       errEl.textContent = err?.message
         ? `Failed to save project: ${err.message}`
         : 'Failed to save project. Please try again.';
       this._tabContent.prepend(errEl);
-      // The Save button sits below the MCP/model lists, so the error (top of
-      // the tab) is off-screen after a click — scroll it into view.
       errEl.scrollIntoView({ block: 'nearest' });
     }
   }
-
-  // ─── Permissions Tab ───────────────────────────────────────
 
   _renderPermissionsTab() {
     const form = document.createElement('div');
@@ -311,7 +292,6 @@ class ProjectDialog extends DialogBase {
     intro.textContent = 'Per-project Claude permission policy. Applied to every new session in this project.';
     form.appendChild(intro);
 
-    // Default permission mode (radio)
     const modeLabel = document.createElement('label');
     modeLabel.className = 'dialog__label';
     modeLabel.textContent = 'Default permission mode';
@@ -348,9 +328,6 @@ class ProjectDialog extends DialogBase {
       (lines) => { this._policy.denied_tools = lines; },
     ));
 
-    // For existing projects, name/path live on the project record. For new
-    // projects we can only save once those are filled in on the General tab,
-    // so direct the user there.
     if (this._projectId) {
       const actions = document.createElement('div');
       actions.className = 'dialog__actions';
@@ -401,8 +378,6 @@ class ProjectDialog extends DialogBase {
     return wrap;
   }
 
-  // ─── Templates Tab ─────────────────────────────────────────
-
   _renderTemplatesTab() {
     const container = document.createElement('div');
     container.className = 'project-dialog__templates';
@@ -419,7 +394,6 @@ class ProjectDialog extends DialogBase {
   }
 
   _renderTemplateList(container) {
-    // --- Chat Templates ---
     if (this._templates.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'project-dialog__empty';
@@ -450,10 +424,6 @@ class ProjectDialog extends DialogBase {
     });
     container.appendChild(addBtn);
 
-    // --- Shell Templates (project-scoped, saved on the project body) ---
-    // These are private to this project (e.g. an ssh shell you don't want to
-    // share globally). They live on the project record, edited here as a working
-    // copy and persisted with the project — NOT via an immediate global API call.
     const shellHeader = document.createElement('div');
     shellHeader.className = 'project-dialog__section-title';
     shellHeader.textContent = 'Shell Templates';
@@ -479,7 +449,6 @@ class ProjectDialog extends DialogBase {
     });
     container.appendChild(addShellBtn);
 
-    // Save + Cancel actions (so user doesn't have to switch to General tab)
     if (this._projectId) {
       const actions = document.createElement('div');
       actions.className = 'dialog__actions';
@@ -564,19 +533,15 @@ class ProjectDialog extends DialogBase {
     return item;
   }
 
-  // ─── Template Edit Form ────────────────────────────────────
-
   _renderTemplateForm(container, idx) {
     const tmpl = this._templates[idx];
     const form = document.createElement('div');
     form.className = 'project-dialog__template-form';
 
-    // Name
     const nameInput = this._createField(form, 'Template Name', 'text', {
       placeholder: 'e.g. Quick Chat', value: tmpl.name,
     });
 
-    // Model
     const modelLabel = document.createElement('label');
     modelLabel.className = 'dialog__label';
     modelLabel.textContent = 'Model';
@@ -588,7 +553,6 @@ class ProjectDialog extends DialogBase {
     });
     form.appendChild(modelSelect);
 
-    // Mode
     const modeLabel = document.createElement('label');
     modeLabel.className = 'dialog__label';
     modeLabel.textContent = 'Startup Mode';
@@ -600,7 +564,6 @@ class ProjectDialog extends DialogBase {
     const voiceRadio = this._createRadio(modeRow, 'tmpl-mode', MODE_VOICE, 'Voice', tmpl.mode === MODE_VOICE);
     form.appendChild(modeRow);
 
-    // Voice select (shown for voice mode)
     const voiceWrapper = document.createElement('div');
     voiceWrapper.className = 'project-dialog__voice-wrapper';
     const voiceLabel = document.createElement('label');
@@ -618,7 +581,6 @@ class ProjectDialog extends DialogBase {
     voiceRadio.addEventListener('change', updateVoiceVisibility);
     updateVoiceVisibility();
 
-    // System Prompt
     const promptLabel = document.createElement('label');
     promptLabel.className = 'dialog__label';
     promptLabel.textContent = 'System Prompt';
@@ -630,9 +592,11 @@ class ProjectDialog extends DialogBase {
     promptArea.rows = 4;
     form.appendChild(promptArea);
 
-    // Both checkboxes are hidden for Claude models: Claude reads CLAUDE.md
-    // natively, and relay-MCP injection isn't wired into the Claude provider
-    // (see relayLLM/provider_claude.go — no UseRelayTools handling).
+    // Hidden for Claude models and force-cleared below regardless of checkbox
+    // state: Claude reads CLAUDE.md natively, and although relayLLM's
+    // ClaudeProvider does wire useRelayTools into --mcp-config
+    // (relayMCPConfigJSON in relayLLM/provider_claude.go), this UI never
+    // offers the option for Claude models.
     const { wrapper: relayToolsWrapper, check: relayToolsCheck } = this._checkboxRow(
       'Use Relay Tools (mail, calendar, contacts, web search)', !!tmpl.useRelayTools);
     const { wrapper: claudeMdWrapper, check: claudeMdCheck } = this._checkboxRow(
@@ -648,7 +612,6 @@ class ProjectDialog extends DialogBase {
     modelSelect.addEventListener('change', updateClaudeOnlyRows);
     updateClaudeOnlyRows();
 
-    // Actions
     const actions = document.createElement('div');
     actions.className = 'dialog__actions';
 
@@ -693,8 +656,6 @@ class ProjectDialog extends DialogBase {
     container.appendChild(form);
     nameInput.focus();
   }
-
-  // ─── Shell Template List Item ────────────────────────────
 
   _renderShellTemplateItem(tmpl) {
     const item = document.createElement('div');
@@ -748,8 +709,6 @@ class ProjectDialog extends DialogBase {
     return item;
   }
 
-  // ─── Shell Template Edit Form ──────────────────────────────
-
   _renderShellTemplateForm(container, tmpl) {
     const isEdit = !!tmpl.id;
     const form = document.createElement('div');
@@ -788,9 +747,9 @@ class ProjectDialog extends DialogBase {
       if (!name || !cmdLine) { (name ? cmdInput : nameInput).focus(); return; }
 
       const { command, args } = this._parseCommandLine(cmdLine);
-      // Project-scoped templates carry a stable client-generated id (relay
-      // doesn't mint one — they ride the project save body). Preserve env/icon
-      // from the working-copy entry so an edit doesn't drop them.
+      // relay doesn't mint an id for project-scoped templates, so the client
+      // generates one. env/icon aren't editable in this form — carry them
+      // over from the working-copy entry so an edit doesn't drop them.
       const entry = {
         id: tmpl.id || crypto.randomUUID(),
         name,
@@ -815,8 +774,6 @@ class ProjectDialog extends DialogBase {
     container.appendChild(form);
     nameInput.focus();
   }
-
-  // ─── Command Line Helpers ──────────────────────────────────
 
   _parseCommandLine(str) {
     const tokens = [];
@@ -845,8 +802,6 @@ class ProjectDialog extends DialogBase {
     const parts = [tmpl.command, ...(tmpl.args || [])];
     return parts.map(p => p.includes(' ') ? `"${p}"` : p).join(' ');
   }
-
-  // ─── Helpers (unique to this dialog) ─────────────────────
 
   _createField(parent, labelText, type, opts = {}) {
     const label = document.createElement('label');

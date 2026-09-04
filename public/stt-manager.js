@@ -1,14 +1,6 @@
-/**
- * STTManager - Microphone recording and speech-to-text orchestrator.
- * Delegates transcription to a pluggable backend (server or native).
- * Owns shared concerns: mic recording, audio levels, UI indicators, result routing.
- */
 class STTManager {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.bus = container.get('bus');
     this._logger = container.get('logger');
     this.isRecording = false;
@@ -17,14 +9,14 @@ class STTManager {
     this.stream = null;
     this.recordingStartTime = null;
     this.timerInterval = null;
-    this.available = null; // null = unknown, true/false after check
+    this.available = null;
     this.isNativeApp = IS_NATIVE_APP;
     this.button = null; // assigned by the STT feature's render closure, which runs after boot()
 
-    // Native on-device ASR (Parakeet) shares the same iOS-26.5.1 CoreML/BNNS
-    // instability as native TTS, so the native app defaults to the reliable
-    // server backend. On-device is opt-in: selected only if the user explicitly
-    // chooses 'native' in Settings (persisted). 'server' is also VoiceCrashGuard's
+    // Native on-device STT shares the same iOS-26.5.1 platform instability as
+    // native TTS, so the native app defaults to the reliable server backend.
+    // On-device is opt-in: selected only if the user explicitly chooses
+    // 'native' in Settings (persisted). 'server' is also VoiceCrashGuard's
     // post-crash fallback.
     this.preferredBackend = IS_NATIVE_APP
       ? (localStorage.getItem('eve-stt-backend') === 'native' ? 'native' : 'server')
@@ -112,8 +104,6 @@ class STTManager {
     }
   }
 
-  // --- Recording (native delegates to backend, server uses shared MediaRecorder) ---
-
   async startRecording() {
     if (this.activeBackend.startRecording) {
       try {
@@ -133,7 +123,6 @@ class STTManager {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.audioChunks = [];
 
-      // Set up analyser for real-time audio levels (reuse AudioContext)
       if (!this.micContext) {
         this.micContext = new (window.AudioContext || window.webkitAudioContext)();
         this.micAnalyser = this.micContext.createAnalyser();
@@ -144,7 +133,6 @@ class STTManager {
       this._micSource = this.micContext.createMediaStreamSource(this.stream);
       this._micSource.connect(this.micAnalyser);
 
-      // Prefer webm/opus for small size; fall back to whatever is available
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/webm')
@@ -202,11 +190,6 @@ class STTManager {
     this._updateUI();
   }
 
-  // --- Transcription ---
-
-  /**
-   * Transcribe Float32Array audio from VAD. Delegates to active backend.
-   */
   async transcribeFloat32(audio) {
     if (!this.activeBackend.ready) {
       this.log.warn('Backend not ready, audio discarded');
@@ -223,9 +206,6 @@ class STTManager {
     }
   }
 
-  /**
-   * Process a push-to-talk recording. Validates then delegates to backend.
-   */
   async _processRecording() {
     const mimeType = this.mediaRecorder ? this.mediaRecorder.mimeType : 'audio/webm';
     const blob = new Blob(this.audioChunks, { type: mimeType });
@@ -264,14 +244,12 @@ class STTManager {
     }
   }
 
-  // --- Result handling (shared across all backends) ---
-
   handleTranscriptionResult(text) {
     this._hideTranscribingIndicator();
 
     if (!text || !text.trim()) return;
 
-    // Filter Whisper artifacts — non-speech annotations like [BLANK_AUDIO], [Crickets chirping], (silence), etc.
+    // Filter non-speech annotations the daemon emits, like [BLANK_AUDIO], [Crickets chirping], (silence).
     const cleaned = text.trim();
     this.log.debug('STT result:', cleaned);
     if (/^\[.*\]$/.test(cleaned) || /^\(.*\)$/.test(cleaned)) {
@@ -285,10 +263,10 @@ class STTManager {
       return;
     }
 
-    // Filter Whisper hallucinations on background noise — it emits these from
-    // non-speech audio (fan, footsteps, coughs, keyboard). Normalize away
-    // surrounding punctuation/quotes ("You." → "you") and match only when the
-    // WHOLE result is one of these, so real short commands ("yes", "stop") pass.
+    // Filter hallucinated output the daemon emits on non-speech background
+    // noise (fan, footsteps, coughs, keyboard). Normalize away surrounding
+    // punctuation/quotes ("You." → "you") and match only when the WHOLE
+    // result is one of these, so real short commands ("yes", "stop") pass.
     const norm = cleaned.toLowerCase()
       .replace(/^[\s.,!?…"'’\-—]+|[\s.,!?…"'’\-—]+$/g, '')
       .replace(/\s+/g, ' ');
@@ -303,7 +281,6 @@ class STTManager {
       return;
     }
 
-    // Route to voice chat manager if active
     if (this.app.voiceChatManager?.isVoiceSession) {
       this.app.voiceChatManager.handleTranscription(cleaned);
       return;
@@ -311,14 +288,12 @@ class STTManager {
 
     const textarea = this.app.elements.userInput;
 
-    // Append to existing text (in case user typed something)
     const existing = textarea.value;
     const separator = existing && !existing.endsWith(' ') ? ' ' : '';
     textarea.value = existing + separator + cleaned;
     this.app.autoResizeTextarea();
     textarea.focus();
 
-    // Auto-submit if voice mode (TTS) is active
     if (this.app.ttsManager.enabled && this.app.currentSessionId) {
       setTimeout(() => {
         this.app.handleSubmit(new Event('submit'));
@@ -334,7 +309,6 @@ class STTManager {
     );
   }
 
-  /** Returns 0-1 normalized audio level from mic, or 0 if not recording. */
   getAudioLevel() {
     if (!this.micAnalyser || !this._levelBuffer) return 0;
     this.micAnalyser.getByteFrequencyData(this._levelBuffer);
@@ -342,8 +316,6 @@ class STTManager {
     for (let i = 0; i < this._levelBuffer.length; i++) sum += this._levelBuffer[i];
     return Math.min((sum / this._levelBuffer.length) / 128, 1);
   }
-
-  // --- UI helpers ---
 
   _updateButtonVisibility() {
     const btn = this.button;

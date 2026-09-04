@@ -1,16 +1,13 @@
-/**
- * Regression: xterm v6 pauses its renderer via an IntersectionObserver and only
- * un-pauses when that observer fires an "intersecting" entry. Safari/WKWebView —
- * and Chrome after a long background/discard — don't reliably deliver that entry
- * when a tab returns to the foreground, so `_isPaused` stays true, every write
- * just marks the grid dirty (RenderService.refreshRows early-returns), and the
- * terminal accepts keystrokes but never repaints until reload. TerminalManager
- * drives the resume itself from visibility/focus events; these tests lock that
- * behaviour in without needing a DOM or a real xterm.
- */
+// xterm v6 pauses its renderer via an IntersectionObserver and only un-pauses
+// when that observer fires an "intersecting" entry. Safari/WKWebView — and
+// Chrome after a long background/discard — don't reliably deliver that entry
+// when a tab returns to the foreground, so `_isPaused` stays true, every write
+// just marks the grid dirty, and the terminal accepts keystrokes but never
+// repaints until reload. TerminalManager drives the resume itself from
+// visibility/focus events; these tests lock that behaviour in without needing a
+// DOM or a real xterm.
 const TerminalManager = require('../../public/terminal-manager');
 
-/** Minimal stand-in for an xterm Terminal in its paused state. */
 function fakeTerm({ paused = true, rows = 24 } = {}) {
   const calls = [];
   return {
@@ -87,7 +84,7 @@ describe('TerminalManager._forceResumeActive', () => {
     global.requestAnimationFrame = (cb) => { self.activeTerminalId = 'other'; cb(); };
     const self = ctx({ entry: { term, fitAddon: { fit } } });
     forceResume.call(self);
-    expect(self._resumeRenderer).toHaveBeenCalledTimes(1); // the immediate one only
+    expect(self._resumeRenderer).toHaveBeenCalledTimes(1);
     expect(fit).not.toHaveBeenCalled();
   });
 

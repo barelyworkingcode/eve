@@ -15,10 +15,6 @@ class FileHandlers {
     ws.send(JSON.stringify({ type: 'file_error', projectId, path, error }));
   }
 
-  /**
-   * Resolves the project, runs the operation, and sends the response.
-   * Handles the common resolve-try-call-send pattern.
-   */
   async _handleFileOp(ws, projectId, errorPath, operation) {
     const project = this._resolveProject(projectId);
     if (!project) return this._sendError(ws, projectId, errorPath, 'Project not found');
@@ -107,8 +103,7 @@ class FileHandlers {
     }
 
     try {
-      // validatePath anchors the search to the project root and rejects any
-      // funny business with the project's own configured path.
+      // Anchors to the project root even if project.path itself is misconfigured.
       const safeRoot = this.fileService.validatePath(project.path, '/');
       const result = await this.searchService.run(safeRoot, query, { ...(options || {}), requestId });
       ws.send(JSON.stringify({

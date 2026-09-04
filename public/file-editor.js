@@ -1,12 +1,9 @@
 class FileEditor {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.log = container.get('logger').child('FileEditor');
     this.editor = null;
-    this.currentFile = null; // { projectId, path, content, originalContent }
+    this.currentFile = null;
     this.viewMode = 'split';
     this._previewDebounce = null;
 
@@ -40,12 +37,10 @@ class FileEditor {
   }
 
   initEventListeners() {
-    // Save button
     this.saveBtn.addEventListener('click', () => {
       this.saveCurrentFile();
     });
 
-    // Cmd/Ctrl+S to save
     document.addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
@@ -55,7 +50,6 @@ class FileEditor {
       }
     });
 
-    // View mode toggle buttons
     this.viewModeToggle.addEventListener('click', (e) => {
       const btn = e.target.closest('.view-mode-btn');
       if (!btn) return;
@@ -74,7 +68,6 @@ class FileEditor {
       let leftWidth = startLeftWidth + dx;
       let rightWidth = startRightWidth - dx;
 
-      // Enforce minimums
       if (leftWidth < 200) { leftWidth = 200; rightWidth = panesWidth - leftWidth; }
       if (rightWidth < 200) { rightWidth = 200; leftWidth = panesWidth - rightWidth; }
 
@@ -125,23 +118,19 @@ class FileEditor {
     this.viewMode = mode;
     this.editorContentEl.setAttribute('data-view-mode', mode);
 
-    // Update toggle button active states
     this.viewModeToggle.querySelectorAll('.view-mode-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.mode === mode);
     });
 
-    // Reset custom split widths when changing mode
     this.editorContainer.style.flex = '';
     this.editorContainer.style.width = '';
     this.markdownPreview.style.flex = '';
     this.markdownPreview.style.width = '';
 
-    // Layout editor when it becomes visible
     if (mode !== 'preview' && this.editor) {
       this.editor.layout();
     }
 
-    // Update preview when it becomes visible
     if (mode !== 'edit') {
       this.updatePreview();
     }
@@ -150,8 +139,6 @@ class FileEditor {
   updatePreview() {
     if (!this.currentFile || !this.editor) return;
 
-    // HTML previews the saved file over HTTP (so its scripts run), not the live
-    // editor buffer — see renderHtmlPreview. Markdown still renders live content.
     if (this.isHtmlFile()) {
       this.renderHtmlPreview();
       return;
@@ -181,9 +168,8 @@ class FileEditor {
       this._htmlPreviewIframe = iframe;
     }
 
-    // Preview the SAVED file over HTTP so its scripts execute (a `srcdoc` frame
-    // inherits Eve's strict app-shell CSP and would block them). The `v` token
-    // bumps on save/external change to force a reload with fresh content.
+    // Loaded via `src`, not `srcdoc`: a srcdoc frame inherits Eve's strict
+    // app-shell CSP and would block the file's scripts from running.
     const url = this._buildHtmlPreviewUrl();
 
     // Skip src reassignment when unchanged: reassigning is a navigation and would
@@ -204,10 +190,6 @@ class FileEditor {
     return `/api/files/${encodeURIComponent(projectId)}/${cleanPath}?preview=1&v=${v}`;
   }
 
-  /**
-   * Forces the HTML preview iframe to reload with the file's current on-disk
-   * content. Call after the saved baseline changes (save, external rewrite).
-   */
   _refreshHtmlPreview() {
     this._previewVersion = (this._previewVersion || 0) + 1;
     if (this.isHtmlFile() && this.viewMode !== 'edit') {
@@ -268,7 +250,6 @@ class FileEditor {
       lineNumbers: 'on'
     });
 
-    // Listen for content changes
     this.editor.onDidChangeModelContent(() => {
       if (this.currentFile) {
         const currentContent = this.editor.getValue();
@@ -281,7 +262,6 @@ class FileEditor {
           isModified
         );
 
-        // Debounced preview update (markdown and HTML)
         if (this.isPreviewableFile() && this.viewMode !== 'edit') {
           clearTimeout(this._previewDebounce);
           this._previewDebounce = setTimeout(() => this.updatePreview(), 150);
@@ -304,14 +284,12 @@ class FileEditor {
       pendingLineNumber: typeof lineNumber === 'number' ? lineNumber : null,
     };
 
-    // Lazy-load Monaco on first file open
     if (!this._monacoLoaded) {
       this._monacoLoaded = true;
       this.loadMonaco();
     }
 
     if (!this.editor) {
-      // Monaco not ready yet, retry later to actually load content
       setTimeout(() => this.loadContentIntoEditor(), 100);
       return;
     }
@@ -319,9 +297,6 @@ class FileEditor {
     this.loadContentIntoEditor();
   }
 
-  /**
-   * Loads the current file content into Monaco editor
-   */
   loadContentIntoEditor() {
     if (!this.editor) {
       setTimeout(() => this.loadContentIntoEditor(), 100);
@@ -332,40 +307,33 @@ class FileEditor {
 
     const { path, content } = this.currentFile;
 
-    // Set editor content
     this.editor.setValue(content);
 
-    // Detect language from file extension
     const language = this.detectLanguage(path);
     const model = this.editor.getModel();
     if (model) {
       monaco.editor.setModelLanguage(model, language);
     }
 
-    // Update UI
     this.editorPath.textContent = path;
     this.saveBtn.disabled = true;
 
-    // Configure read-only mode for plan files
     const isPlan = isPlanProject(this.currentFile.projectId);
     this.editor.updateOptions({ readOnly: isPlan });
     this.saveBtn.classList.toggle('hidden', isPlan);
 
-    // Configure view mode based on file type
     if (this.isPreviewableFile()) {
       this.viewModeToggle.classList.remove('hidden');
       this.setViewMode(isPlan ? 'preview' : this.viewMode);
     } else {
       this.viewModeToggle.classList.add('hidden');
       this.editorContentEl.removeAttribute('data-view-mode');
-      // Reset any custom split widths
       this.editorContainer.style.flex = '';
       this.editorContainer.style.width = '';
       this.markdownPreview.style.flex = '';
       this.markdownPreview.style.width = '';
     }
 
-    // Honor a pending jump-to-line from openFile (e.g. clicked a search result).
     const pendingLine = this.currentFile.pendingLineNumber;
     if (typeof pendingLine === 'number' && pendingLine > 0) {
       this.currentFile.pendingLineNumber = null;
@@ -375,15 +343,11 @@ class FileEditor {
     }
   }
 
-  /**
-   * Shows a specific file (called by tab manager)
-   */
   showFile(projectId, path) {
     if (this.currentFile?.projectId === projectId && this.currentFile?.path === path) {
       return;
     }
 
-    // Request file content from server if not already loaded
     if (isPlanProject(projectId)) {
       this.app.ws.send(JSON.stringify({ type: 'read_plan_file', path }));
     } else {
@@ -391,9 +355,6 @@ class FileEditor {
     }
   }
 
-  /**
-   * Saves the current file
-   */
   saveCurrentFile() {
     if (!this.currentFile) return;
     if (isPlanProject(this.currentFile.projectId)) return;
@@ -407,22 +368,16 @@ class FileEditor {
       content
     }));
 
-    // Update original content after save
     this.currentFile.originalContent = content;
     this.saveBtn.disabled = true;
 
-    // Reload the HTML preview against the freshly-saved file so its scripts re-run.
     this._refreshHtmlPreview();
   }
 
-  /**
-   * Handles an externally-modified file pushed from the server.
-   */
   handleExternalChange(projectId, path, content) {
     if (!this.currentFile) return;
     if (this.currentFile.projectId !== projectId || this.currentFile.path !== path) return;
 
-    // No-op if the pushed content is what we already consider the saved baseline.
     // Guards against FSEvents replaying a recent change right after the watcher
     // starts, which would otherwise pop a spurious "modified externally" bar.
     if (content === this.currentFile.originalContent) return;
@@ -437,9 +392,6 @@ class FileEditor {
     }
   }
 
-  /**
-   * Silently applies external content, preserving cursor position.
-   */
   _applyExternalContent(content) {
     this.currentFile.content = content;
     this.currentFile.originalContent = content;
@@ -457,16 +409,10 @@ class FileEditor {
       false
     );
 
-    // An external rewrite (e.g. an agent editing the file) changed the on-disk
-    // content — reload the preview so it reflects what's now saved.
     this._refreshHtmlPreview();
   }
 
-  /**
-   * Shows a notification bar when external changes conflict with local edits.
-   */
   _showExternalChangeNotification(newContent) {
-    // Remove existing notification if any
     this.editorContentEl.querySelector('.external-change-bar')?.remove();
 
     const bar = document.createElement('div');
@@ -485,7 +431,6 @@ class FileEditor {
     });
 
     bar.querySelector('.external-change-keep').addEventListener('click', () => {
-      // Update originalContent so saving will overwrite with local version
       this.currentFile.originalContent = newContent;
       bar.remove();
     });
@@ -493,9 +438,6 @@ class FileEditor {
     this.editorContentEl.insertBefore(bar, this.editorContentEl.firstChild);
   }
 
-  /**
-   * Detects language from file extension
-   */
   detectLanguage(path) {
     const ext = path.split('.').pop().toLowerCase();
 
@@ -532,7 +474,6 @@ class FileEditor {
   }
 }
 
-// Export for use in app.js
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = FileEditor;
 }

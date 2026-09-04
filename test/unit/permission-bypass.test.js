@@ -1,17 +1,7 @@
-/**
- * Permission "Allow All" per-session bypass (ModalManager).
- *
- * This is the client-side auto-approve path the relay can't see: when the user
- * clicks "Allow All", ModalManager records the *current* session in
- * `bypassedSessions` and silently approves every later `permission_request`
- * carrying that same sessionId — never showing the modal again. A regression
- * here either (a) keeps prompting after Allow All, or worse (b) auto-approves
- * the WRONG session. Neither is visible to the relay/integration layer because
- * the decision is made entirely in the browser, so it lives here as a unit test.
- *
- * (The todo filed this under "Permissions / integration — alwaysAllow"; the real
- * mechanism is this per-session bypass, and it is only testable client-side.)
- */
+// This is a client-side auto-approve path the relay/integration layer can't see:
+// the decision is made entirely in the browser, so a regression that either keeps
+// prompting after Allow All, or worse auto-approves the WRONG session, is only
+// visible to a unit test like this one.
 const ModalManager = require('../../public/modal-manager');
 
 function makeClassList(initial = []) {
@@ -23,7 +13,6 @@ function makeClassList(initial = []) {
   };
 }
 
-/** A ModalManager wired to fully fake DOM/ws so we can assert outbound frames. */
 function makeManager(currentSessionId = 's1') {
   const sent = [];
   const app = {
@@ -77,12 +66,10 @@ describe('ModalManager permission per-session bypass', () => {
     m.showPermissionModal(req('p1', 's1'));
     m.respondToPermissionAll();
 
-    // Current request approved + session marked bypassed.
     expect(sent).toEqual([{ type: 'permission_response', permissionId: 'p1', approved: true }]);
     expect(m.bypassedSessions.has('s1')).toBe(true);
     expect(modalVisible()).toBe(false);
 
-    // A later request for the SAME session is auto-approved without a modal.
     m.showPermissionModal(req('p2', 's1'));
     expect(modalVisible()).toBe(false);
     expect(m.pendingPermissionId).toBeNull();
@@ -97,7 +84,6 @@ describe('ModalManager permission per-session bypass', () => {
     m.showPermissionModal(req('p9', 's2'));
     expect(modalVisible()).toBe(true);
     expect(m.pendingPermissionId).toBe('p9');
-    // Only p1 was auto-sent; s2's request awaits the user.
     expect(sent).toEqual([{ type: 'permission_response', permissionId: 'p1', approved: true }]);
   });
 
@@ -114,9 +100,9 @@ describe('ModalManager permission per-session bypass', () => {
 
   test('queued same-session requests are drained as auto-approved after Allow All', () => {
     const { m, sent } = makeManager('s1');
-    m.showPermissionModal(req('p1', 's1'));   // shown
-    m.showPermissionModal(req('p2', 's1'));   // queued behind p1
-    m.respondToPermissionAll();               // approves p1, bypasses s1, drains p2
+    m.showPermissionModal(req('p1', 's1'));
+    m.showPermissionModal(req('p2', 's1'));
+    m.respondToPermissionAll();
 
     expect(sent).toEqual([
       { type: 'permission_response', permissionId: 'p1', approved: true },

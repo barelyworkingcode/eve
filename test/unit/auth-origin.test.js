@@ -16,9 +16,8 @@ const ORIGINAL_PUBLIC_ORIGIN = process.env.EVE_PUBLIC_ORIGIN;
 
 function makeService(publicOrigin) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-auth-'));
-  // auth.js reads EVE_PUBLIC_ORIGIN fresh on every getOrigin/getRpId call (not
-  // just at construction), so the var must stay set for the whole test body.
-  // afterEach restores it.
+  // auth.js reads EVE_PUBLIC_ORIGIN fresh on every getOrigin/getRpId call, not
+  // just at construction, so it must stay set for the whole test body.
   if (publicOrigin === undefined) delete process.env.EVE_PUBLIC_ORIGIN;
   else process.env.EVE_PUBLIC_ORIGIN = publicOrigin;
   return new AuthService(dir, silentLog);

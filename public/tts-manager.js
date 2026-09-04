@@ -1,16 +1,8 @@
-/**
- * TTSManager - Audio playback and voice mode orchestrator.
- * Delegates speech generation and voice loading to a pluggable backend (server or native).
- * Owns shared concerns: audio playback queue, AudioContext, voice select UI, speaking indicator.
- */
 const DEFAULT_TTS_VOICE = 'af_heart';
 
 class TTSManager {
-  /**
-   * @param {Container} container - DI container
-   */
   constructor(container) {
-    this.app = container.get('app'); // Legacy bridge — Phase 3 will remove
+    this.app = container.get('app');
     this.bus = container.get('bus');
     this._logger = container.get('logger');
     this.enabled = false;
@@ -25,13 +17,13 @@ class TTSManager {
     this.isNativeApp = IS_NATIVE_APP;
     this._ttsDoneReceived = true;
 
-    // Native on-device Kokoro is unreliable on iOS 26.5.1 — an upstream
-    // FluidAudio/CoreML BNNS segfault crashes synthesis within ~1-2 utterances.
-    // The server backend is the same Kokoro-82M model/voice/quality (served by
-    // the local daemon) and rock-solid, so the native app defaults to 'server'.
-    // On-device is opt-in: selected only if the user explicitly chooses 'native'
-    // in Settings (persisted). 'server' is also VoiceCrashGuard's post-crash
-    // fallback. Revisit the default if the BNNS bug is fixed upstream/in iOS.
+    // Native on-device TTS is unreliable on iOS 26.5.1 — an upstream library
+    // bug crashes synthesis within ~1-2 utterances. The server backend gives
+    // the same voice/quality and is rock-solid, so the native app defaults to
+    // 'server'. On-device is opt-in: selected only if the user explicitly
+    // chooses 'native' in Settings (persisted). 'server' is also
+    // VoiceCrashGuard's post-crash fallback. Revisit the default if the bug
+    // is fixed upstream/in iOS.
     this.preferredBackend = IS_NATIVE_APP
       ? (localStorage.getItem('eve-tts-backend') === 'native' ? 'native' : 'server')
       : 'server';
@@ -45,7 +37,6 @@ class TTSManager {
     return this.activeBackend.name;
   }
 
-  /** Whether server-side TTS relay should be active. */
   get useServerTTS() {
     return this.activeBackend.name === 'server';
   }
@@ -121,10 +112,8 @@ class TTSManager {
     }
     this._initBackend();
 
-    // Stop current playback — old backend's audio shouldn't keep playing
     this.stop();
 
-    // Sync server voice mode: disable if leaving server, enable if joining server
     const ws = this.app.wsClient;
     if (prev === 'server' && name !== 'server') {
       ws.send({ type: 'voice_mode', enabled: false });
@@ -136,7 +125,6 @@ class TTSManager {
     this.log.info(`Switched from ${prev}`);
     this.bus.emit(EVT.VOICE_BACKEND_CHANGED);
 
-    // Reload voices from new backend
     this.loadVoices();
   }
 
@@ -153,7 +141,6 @@ class TTSManager {
     if (this.enabled) this.log.info(`Voice changed → ${voiceId}`);
   }
 
-  /** Playback (synthesis) speed multiplier. Kokoro accepts ~0.5–2.0. */
   setSpeed(speed) {
     const s = Math.min(2.0, Math.max(0.5, parseFloat(speed) || 1.0));
     this.speed = s;
@@ -166,21 +153,17 @@ class TTSManager {
     this.log.info(`Backend changed → ${name}`);
   }
 
-  /** Send voice_mode state to server if using server TTS backend. */
   syncVoiceMode(ws) {
     this.activeBackend.syncVoiceMode?.(ws, this.enabled, this.voice, this.speed);
   }
-
-  // --- Voice loading (delegated to backend) ---
 
   async loadVoices() {
     try {
       this.voices = await this.activeBackend.loadVoices();
     } catch {
-      // Daemon down at page load — stay silent here; speakText()'s own catch
+      // Don't surface this to the user here — speakText()'s own catch
       // surfaces the failure at the point of use.
       this.log.warn('Server TTS daemon unavailable — using static voice list');
-      // Fall back to static voice list
       if (this.voices.length === 0) {
         this.voices = KOKORO_VOICES;
       }
@@ -188,11 +171,6 @@ class TTSManager {
     this._populateVoiceSelect();
   }
 
-  // --- Speech generation (delegated to backend) ---
-
-  /**
-   * Generate and play TTS for text using the active backend.
-   */
   async speakText(text) {
     if (!text.trim()) return;
 
@@ -206,8 +184,8 @@ class TTSManager {
       if (result?.audio) {
         await this.enqueueAudio(result.audio);
       }
-      // null result = server backend (audio arrives via WS tts_audio → enqueueAudio)
-      //             = native backend (plugin handles playback directly)
+      // null result = server backend, whose audio arrives separately via the
+      // WS tts_audio frame → enqueueServerAudioBuffer, not this return value.
     } catch (err) {
       this.log.warn('Speech generation failed:', err.message);
       this.app.voiceChatManager?.handleError('Speech failed: ' + err.message);
@@ -225,9 +203,6 @@ class TTSManager {
       .trim();
   }
 
-  // --- Audio playback queue (shared by all backends) ---
-
-  /** Create the AudioContext + analyser if needed (synchronous, no resume). */
   _createAudioContext() {
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -267,7 +242,6 @@ class TTSManager {
     }
   }
 
-  /** Enqueue base64-encoded WAV (on-device backends return audio this way). */
   async enqueueAudio(base64Data) {
     this.log.debug(`Playing audio (${Math.round(base64Data.length * 3 / 4 / 1024)}kb, queue: ${this.queue.length})`);
     const binary = atob(base64Data);
@@ -277,18 +251,13 @@ class TTSManager {
     await this._enqueueArrayBuffer(arrayBuffer);
   }
 
-  /**
-   * Enqueue raw WAV bytes from a server TTS binary WS frame. Skips the
-   * base64/atob step (the server no longer inflates audio into JSON).
-   */
   enqueueServerAudioBuffer(arrayBuffer) {
     // Stale frames from a barged-in reply can still be in the WS pipe after the
     // client stopped the turn; playing one would talk over the user.
     if (this.app.voiceChatManager?._suppressTTSFrames) return;
     this._ttsDoneReceived = false;
     if (this._nativeAudioActive) {
-      // Hand the chunk to the native engine (base64 over the Capacitor bridge).
-      // Per-sentence chunks are small, so the encode cost is negligible.
+      // Per-sentence chunks are small, so the base64 re-encode cost is negligible.
       this.app.voiceChatManager.nativeAudio.enqueueTTS(this._arrayBufferToBase64(arrayBuffer));
       return;
     }
@@ -329,7 +298,6 @@ class TTSManager {
     if (this.queue.length === 0) {
       this.isPlaying = false;
       if (this._ttsDoneReceived) this._finishPlayback();
-      // else: more chunks may arrive from server, stay in speaking state
       return;
     }
 
@@ -352,11 +320,8 @@ class TTSManager {
   }
 
   stop() {
-    // Tell the server to stop streaming read-aloud chunks (server backend only;
-    // a no-op bump for other backends). Without this the daemon keeps
-    // synthesizing sentences after the user hits stop.
+    // Without this, the daemon keeps synthesizing sentences after the user hits stop.
     this.activeBackend.cancelSpeak?.(this.app.wsClient);
-    // Halt native playback too (barge-in / teardown) when it owns the speaker.
     if (this._nativeAudioActive) this.app.voiceChatManager.nativeAudio.stopPlayback();
     this.queue = [];
     this._ttsDoneReceived = true;
@@ -368,13 +333,12 @@ class TTSManager {
     this._finishPlayback();
   }
 
-  /** Signal that the server has sent all TTS chunks for this response. */
   markTTSDone() {
     this._ttsDoneReceived = true;
     if (this._nativeAudioActive) {
       // Native drives the real end-of-playback (onPlaybackEnded → handleTTSEnd)
-      // once its queue drains. Until then it keeps the mic muted so an inter-
-      // chunk gap doesn't end the turn early.
+      // once its queue drains; until then it keeps the mic muted so an
+      // inter-chunk gap doesn't end the turn early.
       this.app.voiceChatManager.nativeAudio.endTTSTurn();
       return;
     }
@@ -389,7 +353,6 @@ class TTSManager {
     this.bus.emit(EVT.TTS_PLAYBACK_ENDED);
   }
 
-  /** Returns 0-1 normalized audio level from playback, or 0 if not playing. */
   getAudioLevel() {
     if (!this.analyser || !this.isPlaying || !this._levelBuffer) return 0;
     this.analyser.getByteFrequencyData(this._levelBuffer);
@@ -405,12 +368,9 @@ class TTSManager {
     }
   }
 
-  /** Reflect the current enabled state on the button. */
   syncButtonState() {
     this.button?.classList.toggle('btn-voice-mode--active', this.enabled);
   }
-
-  // --- Voice select UI (shared) ---
 
   _populateVoiceSelect() {
     const select = this.app.elements.voiceSelect;
@@ -447,6 +407,6 @@ class TTSManager {
   }
 
   _updateVoiceSelectVisibility() {
-    // Voice select is now in the pull-down drawer, always visible there
+    // Voice select lives in the pull-down drawer and is always visible there.
   }
 }

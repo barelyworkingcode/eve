@@ -1,7 +1,3 @@
-/**
- * FileTreeNode - renders a file/folder tree for a project.
- * Handles lazy-load directories, expand/collapse, drag-drop, context menu.
- */
 class FileTreeNode {
   constructor(container) {
     this.bus = container.get('bus');
@@ -10,13 +6,9 @@ class FileTreeNode {
     this.state = container.get('state');
     this.settings = container.get('settings');
 
-    // projectId -> { path -> entries[] }
     this.dirCache = new Map();
-    // projectId -> Set of expanded paths
     this.expandedPaths = new Map();
-    // Drag state
     this.dragState = null;
-    // Track last-seen value so unrelated settings changes don't trigger refresh
     this._lastShowHidden = this.settings.get('showHiddenFiles');
   }
 
@@ -29,8 +21,6 @@ class FileTreeNode {
     this.bus.on(EVT.DIRECTORY_CREATED, (data) => this._refreshParent(data.projectId, data.path));
     this.bus.on(EVT.DIR_CHANGED, (data) => this._onExternalDirChange(data.projectId, data.path));
     this.bus.on(EVT.SETTINGS_CHANGED, (s) => this._onSettingsChanged(s));
-
-    // Close context menu on any click (handled by shared closeContextMenu)
   }
 
   _onSettingsChanged(s) {
@@ -43,9 +33,6 @@ class FileTreeNode {
     });
   }
 
-  /**
-   * Render the file tree for a project into the given container element.
-   */
   renderTree(projectId, containerEl) {
     containerEl.innerHTML = '';
     const entries = this._getCachedDir(projectId, '/');
@@ -63,7 +50,6 @@ class FileTreeNode {
   }
 
   _renderEntries(projectId, parentPath, entries, containerEl, depth) {
-    // Sort: folders first, then alphabetical
     const sorted = [...entries].sort((a, b) => {
       if (a.type === 'directory' && b.type !== 'directory') return -1;
       if (a.type !== 'directory' && b.type === 'directory') return 1;
@@ -85,20 +71,17 @@ class FileTreeNode {
       item.draggable = !IS_TOUCH;
       item.dataset.testid = `file-tree-item-${entryPath}`;
 
-      // Chevron (folders only)
       if (isDir) {
         const chevron = document.createElement('span');
         chevron.className = 'file-tree__chevron';
         chevron.textContent = isExpanded ? '\u25BC' : '\u25B6';
         item.appendChild(chevron);
       } else {
-        // Spacer for alignment
         const spacer = document.createElement('span');
         spacer.className = 'file-tree__chevron-spacer';
         item.appendChild(spacer);
       }
 
-      // Icon
       const icon = document.createElement('span');
       icon.className = 'file-tree__icon';
       if (isDir) {
@@ -108,13 +91,11 @@ class FileTreeNode {
       }
       item.appendChild(icon);
 
-      // Name
       const nameSpan = document.createElement('span');
       nameSpan.className = 'file-tree__name';
       nameSpan.textContent = entry.name;
       item.appendChild(nameSpan);
 
-      // Click handler
       item.addEventListener('click', (e) => {
         e.stopPropagation();
         if (isDir) {
@@ -124,7 +105,6 @@ class FileTreeNode {
         }
       });
 
-      // Drag handlers
       item.addEventListener('dragstart', (e) => {
         this.dragState = { projectId, path: entryPath };
         e.dataTransfer.effectAllowed = 'move';
@@ -163,7 +143,6 @@ class FileTreeNode {
         });
       }
 
-      // Context menu
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -172,7 +151,6 @@ class FileTreeNode {
 
       containerEl.appendChild(item);
 
-      // Render children if expanded
       if (isDir && isExpanded) {
         const children = this._getCachedDir(projectId, entryPath);
         if (children) {
@@ -183,8 +161,6 @@ class FileTreeNode {
       }
     }
   }
-
-  // --- Directory loading ---
 
   _loadDirectory(projectId, path) {
     const showHidden = this.settings.get('showHiddenFiles');
@@ -198,7 +174,6 @@ class FileTreeNode {
     }
     this.dirCache.get(projectId).set(path, entries);
 
-    // Re-render the tree container for this project
     const containerEl = document.querySelector(`.file-tree[data-project-id="${projectId}"]`);
     if (containerEl) {
       this.renderTree(projectId, containerEl);
@@ -208,8 +183,6 @@ class FileTreeNode {
   _getCachedDir(projectId, path) {
     return this.dirCache.get(projectId)?.get(path);
   }
-
-  // --- Expand/collapse ---
 
   _isExpanded(projectId, path) {
     return this.expandedPaths.get(projectId)?.has(path) || false;
@@ -245,10 +218,8 @@ class FileTreeNode {
       for (const [pid, paths] of Object.entries(state)) {
         this.expandedPaths.set(pid, new Set(paths));
       }
-    } catch { /* ignore corrupt state */ }
+    } catch {}
   }
-
-  // --- Drag & drop ---
 
   _handleInternalDrop(projectId, sourcePath, destDirectory) {
     const sourceParent = sourcePath.substring(0, sourcePath.lastIndexOf('/')) || '/';
@@ -278,8 +249,6 @@ class FileTreeNode {
     }
   }
 
-  // --- Context menu ---
-
   _showContextMenu(x, y, projectId, path, isDir) {
     const items = [
       { label: 'Rename', action: () => this._startRename(projectId, path) },
@@ -300,8 +269,6 @@ class FileTreeNode {
 
     showContextMenu(x, y, items);
   }
-
-  // --- File operations ---
 
   _startRename(projectId, path) {
     const filename = path.split('/').pop();
@@ -350,12 +317,6 @@ class FileTreeNode {
     this._refreshDir(projectId, parent);
   }
 
-  /**
-   * An external (on-disk) change touched a directory. Only re-list it if we
-   * currently have it loaded — i.e. it is the visible root or an expanded
-   * folder. Uncached directories load fresh when next expanded, so there is
-   * nothing to do for them.
-   */
   _onExternalDirChange(projectId, path) {
     if (this._getCachedDir(projectId, path)) {
       this._refreshDir(projectId, path);

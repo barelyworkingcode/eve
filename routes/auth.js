@@ -7,8 +7,6 @@ function createAuthRoutes(authService, trustedNetwork, log) {
   log = log || new NullLogger();
   const router = express.Router();
 
-  // --- Shared middleware ---
-
   function rateLimit(req, res, next) {
     const ip = getClientIp(req) || 'unknown';
     if (!authService.checkRateLimit(ip)) {
@@ -39,13 +37,7 @@ function createAuthRoutes(authService, trustedNetwork, log) {
     next();
   }
 
-  // --- Routes ---
-
   router.get('/auth/status', (req, res) => {
-    // Network-layer bypass (trusted subnet) and the global kill-switch both
-    // short-circuit the UI's passkey flow. The response field is called
-    // `trusted` because this is not specifically about loopback anymore —
-    // any client inside the trusted CIDR set gets the same treatment.
     if (trustedNetwork.isTrusted(req) || process.env.EVE_NO_AUTH === '1') {
       return res.json({ enrolled: false, authenticated: true, trusted: true });
     }
@@ -97,15 +89,11 @@ function createAuthRoutes(authService, trustedNetwork, log) {
     }
   });
 
-  // --- Safari passkey flow for iOS native apps ---
-  //
   // WKWebView blocks WebAuthn unless the app has a verified Associated
   // Domains entitlement, which requires Apple's CDN to reach the domain —
   // impossible for local hostnames like eve.lan. This route serves a
   // standalone page that runs in ASWebAuthenticationSession (Safari context)
-  // where passkeys work natively. After a successful ceremony, it redirects
-  // to relayclient://auth-callback?token=<session-token>.
-
+  // where passkeys work natively.
   router.get('/auth/safari-login', (req, res) => {
     res.send(`<!DOCTYPE html>
 <html><head>

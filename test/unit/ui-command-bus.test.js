@@ -1,10 +1,6 @@
-/**
- * UiCommandBus — fans LLM-initiated ui_command frames to the browsers viewing a
- * project, behind a loopback + shared-secret gate on POST /internal/ui-command.
- * The gate is the security boundary (only the loopback eve-control MCP may
- * drive the browser), so both the rejection paths and the project-targeted
- * delivery are worth pinning.
- */
+// The loopback + shared-secret gate on POST /internal/ui-command is the security
+// boundary (only the loopback eve-control MCP may drive the browser), so both
+// the rejection paths and the project-targeted delivery are worth pinning.
 const UiCommandBus = require('../../ui-command-bus');
 
 const SECRET = 'super-secret-value';
@@ -116,8 +112,8 @@ describe('UiCommandBus', () => {
     it('refresh_tab reuses the caller tab_ref (does NOT mint a new one) and carries image_url', () => {
       const client = mockClient();
       bus.setProject(client, 'proj-1');
-      // A caller ref that is deliberately NOT in eve's eve-llm-* mint format, so a
-      // regression that minted a fresh ref would visibly change this value.
+      // Deliberately not in eve's eve-llm-* mint format, so a regression that
+      // minted a fresh ref would visibly change this value.
       const callerRef = 'caller-owned-ref-42';
 
       const res = mockRes();
@@ -127,7 +123,6 @@ describe('UiCommandBus', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.body).toMatchObject({ status: 'ok', delivered: 1 });
-      // Reused, not minted: identical to the caller's ref and never the eve-llm-* form.
       expect(res.body.tab_ref).toBe(callerRef);
       expect(res.body.tab_ref).not.toMatch(/^eve-llm-/);
       expect(client.sent).toHaveLength(1);

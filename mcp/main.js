@@ -1,21 +1,16 @@
 'use strict';
-// eve-control MCP — a tiny stdio MCP server, intrinsic to eve.
-//
-// It lets an LLM drive eve's tabs (open / close / refresh an image tab) during,
-// e.g., an interactive story. It does NOT touch the browser directly: each tool
-// POSTs to eve's own loopback-only /internal/ui-command endpoint, and eve's
-// server is what pushes a `ui_command` to the browser(s) viewing the project.
-// This keeps the layers clean — relayLLM never learns that "eve" or "tabs"
-// exist; this is a normal tool call routed through relay like any other MCP.
+// Each tool POSTs to eve's loopback-only /internal/ui-command endpoint; eve
+// pushes the resulting `ui_command` to the browser(s) viewing the project.
+// relayLLM never learns "eve" or "tabs" exist — this is a normal MCP tool call.
 //
 // Relay spawns this process and injects (via `relay mcp register --env`):
-//   EVE_INTERNAL_URL     eve's loopback base URL, e.g. http://127.0.0.1:3000
+//   EVE_INTERNAL_URL     eve's loopback base URL
 //   EVE_INTERNAL_SECRET  shared secret for the internal endpoint (also in eve's .env)
+// Changing this contract requires updating both sides in lockstep.
 //
-// The authenticated calling project rides `_meta.project_id`, which relay
-// injects (it authenticates the project token — the LLM cannot forge it). eve
-// does the security trimming (a tab opened by a human can't be closed by the
-// LLM; the LLM only touches tabs it opened in its own project).
+// `_meta.project_id` is injected by relay, which authenticates the project
+// token — the LLM cannot forge it. eve still enforces per-tab ownership (a
+// human-opened tab can't be closed by the LLM).
 
 const readline = require('node:readline');
 const http = require('node:http');
@@ -78,7 +73,6 @@ function textResult(text, isError) {
   return { content: [{ type: 'text', text }], isError: !!isError };
 }
 
-// POST the command to eve's loopback internal endpoint. Returns {ok, body}.
 function postUiCommand(payload) {
   return new Promise((resolve) => {
     let url;
@@ -114,8 +108,8 @@ function postUiCommand(payload) {
 
 async function callTool(name, args, meta) {
   const projectId = (meta && meta.project_id) || '';
-  // Defense in depth: relay already vouches project_id; if the LLM also named a
-  // project, it must match. eve enforces ownership regardless.
+  // Defense in depth: relay already vouches project_id via _meta; a
+  // conflicting requested_project is refused outright.
   if (args.requested_project && projectId && args.requested_project !== projectId) {
     return textResult(`refused: requested_project "${args.requested_project}" does not match your authorized project`, true);
   }

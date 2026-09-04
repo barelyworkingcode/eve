@@ -1,48 +1,23 @@
-/**
- * Security response headers for the Browser ↔ Eve boundary.
- *
- * Two layers:
- *   1. `securityHeaders()` — a global middleware setting headers that are safe
- *      on every response (nosniff, frame-options, referrer-policy, COOP, and
- *      HSTS when the connection is TLS).
- *   2. `shellCsp()` — the strict Content-Security-Policy applied ONLY to the
- *      main application HTML document (the page that runs Eve's own JS). It is
- *      deliberately NOT applied to:
- *        - module iframes (AI-authored inline scripts; isolated by the iframe
- *          sandbox / opaque origin, which is the real trust boundary),
- *        - the standalone `/api/auth/safari-login` page (its own inline script),
- *        - `/api/files/*` (sets its own `default-src 'none'; sandbox`).
- *
- * The shell CSP pins the two inline bootstrap scripts in index.html by
- * SHA-256 hash so we avoid `'unsafe-inline'` for scripts entirely. WASM
- * compilation (onnxruntime / transformers / vad) needs `'wasm-unsafe-eval'`,
- * and Monaco / ML workers need `blob:` worker sources — both are strictly
- * narrower than `'unsafe-eval'`.
- *
- * See docs/security-audit-frontend.md (C3).
- */
+// The strict CSP built by buildShellCsp() applies ONLY to the main app HTML
+// document, deliberately NOT to: module iframes (isolated by the iframe
+// sandbox / opaque origin — the real trust boundary there), the standalone
+// /api/auth/safari-login page, or /api/files/* (sets its own
+// default-src 'none'; sandbox). See docs/security-audit-frontend.md (C3).
 const crypto = require('crypto');
 
-/**
- * Compute CSP `'sha256-...'` source tokens for every INLINE <script> block
- * (i.e. <script> with no src attribute) in an HTML string. The hash is taken
- * over the exact text content between the tags, which is what the browser
- * hashes. The cache-bust rewrite in server.js only touches `<script src=...>`
- * tags, so inline bodies are byte-stable across the transform.
- */
+// Hash is taken over the exact inline <script> text content, which is what
+// the browser hashes. Relies on server.js's cache-bust rewrite only touching
+// `<script src=...>` tags, so inline bodies stay byte-stable.
 function computeInlineScriptHashes(html) {
   const hashes = [];
   const re = /<script(\b[^>]*)>([\s\S]*?)<\/script>/gi;
   let m;
   while ((m = re.exec(html)) !== null) {
     const attrs = m[1] || '';
-    // Skip external scripts (src attribute present)
     if (/\bsrc\s*=/i.test(attrs)) continue;
-    // Browsers normalise CRLF to LF before hashing an inline script body, so a
-    // CRLF-checked-out index.html would otherwise never match its own hash and
-    // every inline script would be silently blocked.
+    // Browsers normalise CRLF to LF before hashing — a CRLF-checked-out
+    // index.html would otherwise never match its own hash.
     const body = (m[2] || '').replace(/\r\n/g, '\n');
-    // Only hash non-empty bodies (ignore empty or whitespace-only scripts)
     if (!body.trim()) continue;
     const digest = crypto.createHash('sha256').update(body, 'utf8').digest('base64');
     hashes.push(`'sha256-${digest}'`);
@@ -50,10 +25,6 @@ function computeInlineScriptHashes(html) {
   return hashes;
 }
 
-/**
- * Build the strict CSP string for the app shell.
- * @param {string[]} scriptHashes - inline-script hash tokens from computeInlineScriptHashes
- */
 function buildShellCsp(scriptHashes = []) {
   const scriptSrc = ["'self'", "'wasm-unsafe-eval'", 'blob:', ...scriptHashes].join(' ');
   return [
@@ -68,31 +39,23 @@ function buildShellCsp(scriptHashes = []) {
     "connect-src 'self' ws: wss: data: blob:",
     "frame-src 'self'",
     "object-src 'none'",
-    // 'self', not 'none': index.html carries <base href="/"> so the shell still
-    // resolves its relative script/link URLs when served from a /:project path
-    // with a trailing slash. 'none' blocked the tag and 404'd all 60 scripts
-    // there. 'self' still prevents a injected <base> pointing off-origin.
+    // 'self', not 'none': index.html's <base href="/"> must still resolve
+    // relative script/link URLs when served from a /:project path with a
+    // trailing slash. 'self' still blocks an injected off-origin <base>.
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
   ].join('; ');
 }
 
-/**
- * Global security-headers middleware. Safe on every response.
- * @param {object} [opts]
- * @param {boolean} [opts.hsts=true] - emit Strict-Transport-Security on TLS requests
- * @param {TrustedNetworkService} [opts.trustedNetwork] - for validating x-forwarded-proto
- */
 function securityHeaders({ hsts = true, trustedNetwork = null } = {}) {
   return function (req, res, next) {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('X-Frame-Options', 'SAMEORIGIN');
     res.set('Referrer-Policy', 'no-referrer');
     res.set('Cross-Origin-Opener-Policy', 'same-origin');
-    // Only meaningful (and only honored) over HTTPS. req.secure is true for the
-    // https listener; x-forwarded-proto is only trusted when the request comes
-    // from a trusted reverse proxy (validated via trustedNetwork).
+    // x-forwarded-proto is trusted only when the request comes from a
+    // trusted reverse proxy (validated via trustedNetwork).
     let isTls = req.secure;
     if (hsts && !isTls && trustedNetwork?.isTrusted(req) && req.headers['x-forwarded-proto'] === 'https') {
       isTls = true;

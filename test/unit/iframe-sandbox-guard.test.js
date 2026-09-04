@@ -1,27 +1,16 @@
-/**
- * Iframe sandbox invariant guard (eve/CLAUDE.md, module trust model invariant #4:
- * "Never add allow-same-origin").
- *
- * The entire module/preview trust model — no Eve cookies, no DOM access, no
- * ambient fetch, postMessage origin checks that rely on an opaque `null` origin —
- * depends on every project-content iframe being sandboxed WITHOUT
- * `allow-same-origin`. That invariant was guarded only by a code comment; one
- * careless edit (or a new iframe site) would silently re-grant same-origin and
- * no other test would notice. This is a source-level guard because the threat is
- * a source edit, and it must cover ALL iframe sites at once, not just the paths a
- * behavioral test happens to instantiate.
- *
- * Note: public/viewers/pdf-viewer.js creates an iframe with no sandbox attribute
- * (it renders a same-origin generated PDF via the browser's native viewer) — a
- * deliberate exclusion, not an oversight. This guard checks sandbox *values*, so
- * it neither requires nor forbids that; it only forbids allow-same-origin.
- */
+// The module/preview trust model depends on every project-content iframe being
+// sandboxed WITHOUT allow-same-origin; that invariant was previously guarded only
+// by a code comment, so this scans source text across ALL iframe sites at once
+// rather than only the paths a behavioral test happens to instantiate.
+//
+// public/viewers/pdf-viewer.js creates an iframe with no sandbox attribute at all
+// (it renders a same-origin generated PDF via the browser's native viewer) — a
+// deliberate exclusion, not an oversight; this guard only forbids allow-same-origin.
 const fs = require('fs');
 const path = require('path');
 
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 
-/** Recursively collect every .js/.html file under public/. */
 function collectFiles(dir) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -35,12 +24,8 @@ function collectFiles(dir) {
   return out;
 }
 
-/**
- * Extract every sandbox-attribute *value* assigned in a file. We match real
- * assignments (JS setAttribute / .sandbox =, HTML sandbox="...") rather than a
- * bare "allow-same-origin" substring, so warning comments like "(NO
- * allow-same-origin)" are correctly ignored.
- */
+// Matches real assignments rather than a bare "allow-same-origin" substring, so
+// warning comments like "(NO allow-same-origin)" don't produce false positives.
 function sandboxValues(file) {
   const src = fs.readFileSync(file, 'utf8');
   const values = [];
@@ -76,10 +61,8 @@ describe('iframe sandbox invariant', () => {
     expect(offenders).toEqual([]);
   });
 
-  // The three iframe sites that render project/module content must be locked to
-  // exactly allow-scripts. (pdf-viewer.js is intentionally excluded — see header.)
   const lockedSites = [
-    'modules/module-host.js', // invariant #4 — the module iframe
+    'modules/module-host.js',
     'html-preview-pane.js',
     'file-editor.js',
   ];
