@@ -3,10 +3,10 @@
  * pre-switch `if (message.type === …)` guards (`auth`, `ping`) — 46 total.
  *
  * This list is hardcoded against the CURRENT SWITCH for phase 5 handoff 1.
- * From handoff 2 onward it also asserts against `messages.types()` from the
- * new registry (see spec §9c-T5) — do not add that assertion before the
- * registry exists. Adding, removing or renaming a client→server message type
- * must fail this test; that is the whole point of it.
+ * This file is frozen: if a later handoff has to edit it to stay green,
+ * production is wrong — fix production, not this test. Adding, removing or
+ * renaming a client→server message type must fail this test; that is the
+ * whole point of it.
  */
 const fs = require('fs');
 const path = require('path');

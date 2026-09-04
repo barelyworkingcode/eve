@@ -124,7 +124,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         // reads the legacy EXPENSIVE_OPS set. Both sources feed the same
         // rate limiter so the cap can never silently lapse mid-migration.
         const descriptor = messages.get(message.type);
-        const expensive = descriptor ? descriptor.expensive === true : EXPENSIVE_OPS.has(message.type);
+        const expensive = EXPENSIVE_OPS.has(message.type) || descriptor?.expensive === true;
 
         // Throttle expensive operations per connection.
         if (expensive && !expensiveLimiter.allow()) {
