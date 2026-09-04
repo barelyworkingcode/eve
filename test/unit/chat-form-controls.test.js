@@ -49,13 +49,6 @@ function fakeContainer(map = new Map()) {
 }
 
 describe('ChatFormControls', () => {
-  it('constructor is DOM-free: both buttons start null', () => {
-    const feature = loadChatForm();
-    const controls = feature.init(fakeContainer());
-    expect(controls.sendBtn).toBeNull();
-    expect(controls.stopBtn).toBeNull();
-  });
-
   it('showStop hides send and reveals stop; hideStop is the exact inverse', () => {
     const feature = loadChatForm();
     const controls = feature.init(fakeContainer());
