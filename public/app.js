@@ -124,8 +124,7 @@ class EveWorkspaceClient {
     this.fileAttachmentManager = new FileAttachmentManager(this.container);
     this.container.register('fileAttachmentManager', this.fileAttachmentManager);
     this.inputHistory = new InputHistory('eve-input-history', 100);
-    this.ttsManager = new TTSManager(this.container);
-    this.container.register('ttsManager', this.ttsManager);
+    this.ttsManager = this.container.get('ttsManager');
     this.sttManager = this.container.get('sttManager');
     this.voiceChatManager = new VoiceChatManager(this.container);
     this.container.register('voiceChatManager', this.voiceChatManager);
@@ -224,7 +223,6 @@ class EveWorkspaceClient {
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
       stopBtn: document.getElementById('stopBtn'),
-      voiceModeBtn: document.getElementById('voiceModeBtn'),
       voiceUIBtn: document.getElementById('voiceUIBtn'),
       voiceDrawer: document.getElementById('voiceDrawer'),
       voiceDrawerToggle: document.getElementById('voiceDrawerToggle'),
@@ -454,51 +452,21 @@ class EveWorkspaceClient {
     }
 
     // Voice mode toggle + voice selection
-    if (this.elements.voiceModeBtn) {
-      this.ttsManager.init();
+    this.ttsManager.init();
 
-      // Short tap: toggle TTS. Long press (500ms+): switch to voice UI.
-      let voiceBtnTimer = null;
-      let voiceBtnHandled = false;
-      const startLongPress = () => {
-        voiceBtnHandled = false;
-        voiceBtnTimer = setTimeout(() => {
-          voiceBtnHandled = true;
-          if (this.currentSessionId) {
-            this.enableVoiceMode();
-            this.voiceChatManager.convertToVoiceChat();
-          }
-        }, 500);
-      };
-      const cancelLongPress = () => { clearTimeout(voiceBtnTimer); };
-      const shortTap = () => {
-        if (voiceBtnHandled) return;
-        voiceBtnHandled = true;
-        this.toggleVoiceMode();
-      };
+    if (this.elements.voiceSelect) {
+      this.elements.voiceSelect.addEventListener('change', (e) => {
+        this.ttsManager.setVoice(e.target.value);
+        this.ttsManager.syncVoiceMode(this.wsClient);
+      });
+    }
 
-      this.elements.voiceModeBtn.addEventListener('mousedown', startLongPress);
-      this.elements.voiceModeBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startLongPress(); });
-      this.elements.voiceModeBtn.addEventListener('mouseup', cancelLongPress);
-      this.elements.voiceModeBtn.addEventListener('mouseleave', cancelLongPress);
-      this.elements.voiceModeBtn.addEventListener('touchend', (e) => { e.preventDefault(); cancelLongPress(); shortTap(); });
-      this.elements.voiceModeBtn.addEventListener('click', (e) => { e.preventDefault(); shortTap(); });
-
-      if (this.elements.voiceSelect) {
-        this.elements.voiceSelect.addEventListener('change', (e) => {
-          this.ttsManager.setVoice(e.target.value);
-          this.ttsManager.syncVoiceMode(this.wsClient);
-        });
-      }
-
-      if (this.elements.voiceSpeedSelect) {
-        this.elements.voiceSpeedSelect.value = String(this.ttsManager.speed);
-        this.elements.voiceSpeedSelect.addEventListener('change', (e) => {
-          this.ttsManager.setSpeed(e.target.value);
-          this.ttsManager.syncVoiceMode(this.wsClient);
-        });
-      }
-
+    if (this.elements.voiceSpeedSelect) {
+      this.elements.voiceSpeedSelect.value = String(this.ttsManager.speed);
+      this.elements.voiceSpeedSelect.addEventListener('change', (e) => {
+        this.ttsManager.setSpeed(e.target.value);
+        this.ttsManager.syncVoiceMode(this.wsClient);
+      });
     }
 
     // Voice UI switch button (text chat -> voice chat)
@@ -1385,7 +1353,7 @@ class EveWorkspaceClient {
     this.ttsManager.unlockAudio(); // iOS: unlock audio within the triggering gesture
     if (voice) this.ttsManager.setVoice(voice);
     this.ttsManager.setEnabled(true);
-    this.elements.voiceModeBtn?.classList.add('btn-voice-mode--active');
+    this.ttsManager.syncButtonState();
     this.ttsManager.syncVoiceMode(this.wsClient);
     this._updateVoiceUIBtnVisibility();
   }
@@ -1394,7 +1362,7 @@ class EveWorkspaceClient {
     const enabling = !this.ttsManager.enabled;
     if (enabling) this.ttsManager.unlockAudio(); // iOS: unlock audio within the triggering gesture
     this.ttsManager.setEnabled(enabling);
-    this.elements.voiceModeBtn?.classList.toggle('btn-voice-mode--active', this.ttsManager.enabled);
+    this.ttsManager.syncButtonState();
     this.ttsManager.syncVoiceMode(this.wsClient);
     this._updateVoiceUIBtnVisibility();
   }
