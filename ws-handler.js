@@ -2,7 +2,6 @@
  * WebSocket connection handler - dispatches messages to relay or local services.
  */
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const RelayClient = require('./relay-client');
 const FileWatcher = require('./file-watcher');
@@ -159,51 +158,6 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             appendDeviceLog(message, req);
             break;
 
-          // --- File operations (local) ---
-          case 'list_directory':
-            // Listing a directory expresses interest in the project's tree;
-            // start its recursive watcher so external structural changes
-            // (new/removed files & folders) are surfaced live.
-            fileWatcher.watchProject(message.projectId);
-            fileHandlers.listDirectory(ws, message);
-            break;
-
-          case 'read_file':
-            fileHandlers.readFile(ws, message);
-            break;
-
-          case 'write_file': {
-            const project = resolveProject(message.projectId);
-            if (project) {
-              try {
-                const absPath = fileHandlers.fileService.validatePath(project.path, message.path);
-                fileWatcher.markSelfWrite(absPath);
-              } catch { /* path validation failed, writeFile will handle the error */ }
-            }
-            fileHandlers.writeFile(ws, message);
-            break;
-          }
-
-          case 'rename_file':
-            fileHandlers.renameFile(ws, message);
-            break;
-
-          case 'move_file':
-            fileHandlers.moveFile(ws, message);
-            break;
-
-          case 'delete_file':
-            fileHandlers.deleteFile(ws, message);
-            break;
-
-          case 'upload_file':
-            fileHandlers.uploadFile(ws, message);
-            break;
-
-          case 'create_directory':
-            fileHandlers.createDirectory(ws, message);
-            break;
-
           case 'search_project':
             if (message.requestId) inflightSearchIds.add(message.requestId);
             fileHandlers.searchProject(ws, message).finally(() => {
@@ -230,14 +184,6 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
               searchSummarizer.stop(message.requestId);
               inflightAiIds.delete(message.requestId);
             }
-            break;
-
-          case 'watch_file':
-            fileWatcher.watch(message.projectId, message.path, { binary: !!message.binary });
-            break;
-
-          case 'unwatch_file':
-            fileWatcher.unwatch(message.projectId, message.path);
             break;
 
           // --- Module file ops (server-side permission check) ---
@@ -295,10 +241,6 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
           case 'transcribe_audio':
             handleTranscribeAudio(ws, sttService, message, log);
             break;
-
-          case 'read_plan_file':
-            handleReadPlanFile(ws, message.path);
-            break;
         }
       } catch (err) {
         ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -321,43 +263,6 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
       uiBus?.unregister(relayClient);
     });
   };
-}
-
-/**
- * Read a Claude plan file with strict path validation.
- */
-async function handleReadPlanFile(ws, filePath) {
-  try {
-    if (!filePath || typeof filePath !== 'string') {
-      ws.send(JSON.stringify({ type: 'error', message: 'Invalid plan file path' }));
-      return;
-    }
-
-    const resolved = path.resolve(filePath);
-    const plansDir = path.resolve(os.homedir(), '.claude', 'plans');
-
-    if (!resolved.startsWith(plansDir + path.sep) || !resolved.endsWith('.md')) {
-      ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
-      return;
-    }
-
-    // Defeat a symlink inside plansDir pointing outside it: re-check the
-    // realpath. ENOENT falls through to the readFile error below.
-    try {
-      const real = await fs.promises.realpath(resolved);
-      if (!real.startsWith(plansDir + path.sep)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
-        return;
-      }
-    } catch (e) {
-      if (e.code !== 'ENOENT') throw e;
-    }
-
-    const content = await fs.promises.readFile(resolved, 'utf8');
-    ws.send(JSON.stringify({ type: 'plan_file_content', path: filePath, content }));
-  } catch (err) {
-    ws.send(JSON.stringify({ type: 'error', message: `Failed to read plan file: ${err.message}` }));
-  }
 }
 
 /**
