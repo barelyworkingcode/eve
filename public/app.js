@@ -45,6 +45,10 @@ class EveWorkspaceClient {
     // before initElements() — the button ids it caches (attachBtn, sendBtn,
     // ...) do not exist until the slots render.
     this.container.register('features', features);
+    // Reverts the persisted voice backend to 'server' after an on-device
+    // crash. Must run before features.boot(): STTManager's constructor reads
+    // the 'eve-stt-backend' key the guard reverts.
+    const voiceCrashRecovery = VoiceCrashGuard.detectAndRecover();
     features.boot(this.container);
     features.renderSlots(document, this.container);
 
@@ -120,14 +124,9 @@ class EveWorkspaceClient {
     this.fileAttachmentManager = new FileAttachmentManager(this.container);
     this.container.register('fileAttachmentManager', this.fileAttachmentManager);
     this.inputHistory = new InputHistory('eve-input-history', 100);
-    // Recover from a prior on-device voice load that hard-crashed the page (e.g.
-    // Safari OOM): reverts the persisted backend to 'server' before the managers
-    // below read their preferences. Notified to the user once the toast manager exists.
-    const voiceCrashRecovery = VoiceCrashGuard.detectAndRecover();
     this.ttsManager = new TTSManager(this.container);
     this.container.register('ttsManager', this.ttsManager);
-    this.sttManager = new STTManager(this.container);
-    this.container.register('sttManager', this.sttManager);
+    this.sttManager = this.container.get('sttManager');
     this.voiceChatManager = new VoiceChatManager(this.container);
     this.container.register('voiceChatManager', this.voiceChatManager);
     this.toastManager = new ToastManager(this.container);
@@ -225,7 +224,6 @@ class EveWorkspaceClient {
       connectionStatus: document.getElementById('connectionStatus'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
       stopBtn: document.getElementById('stopBtn'),
-      micBtn: document.getElementById('micBtn'),
       voiceModeBtn: document.getElementById('voiceModeBtn'),
       voiceUIBtn: document.getElementById('voiceUIBtn'),
       voiceDrawer: document.getElementById('voiceDrawer'),
@@ -521,12 +519,7 @@ class EveWorkspaceClient {
     }
 
     // Microphone / STT
-    if (this.elements.micBtn) {
-      this.sttManager.init();
-      this.elements.micBtn.addEventListener('click', () => {
-        this.sttManager.toggleRecording();
-      });
-    }
+    this.sttManager.init();
 
     // Voice Chat Manager
     this.voiceChatManager.init();
