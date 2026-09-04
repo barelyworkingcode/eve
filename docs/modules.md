@@ -145,10 +145,10 @@ The prefix `HIDDEN_SESSION_PREFIX` is defined in `module-invoker.js`; `routes/in
 The SDK's `readFile`/`writeFile` go over the **browser WebSocket**, piggybacking on the existing connection:
 
 ```
-iframe ──postMessage──► ModuleHost ──WS──► ws-handler ──FileService──► disk
+iframe ──postMessage──► ModuleHost ──WS──► ws-handler ──► ws/module-messages.js ──FileService──► disk
 ```
 
-`ws-handler.js#handleModuleFileOp`:
+`ws/module-messages.js#handleModuleFileOp`:
 
 1. Resolves the project from `projectId` (server-side, never from the iframe).
 2. Re-loads the manifest from disk.
@@ -171,7 +171,7 @@ Host requests time out after 30s. The host also marks self-writes against the `F
 | Manifest schema + path validation | `module-service.js` |
 | Streaming AI invocation (session lifecycle, accumulation) | `module-invoker.js` |
 | HTTP routes (list, manifest, static serve) | `routes/modules.js` |
-| WS routes (`module_invoke_ai`, `module_ai_stop`, file ops) | `ws-handler.js` |
+| WS message descriptors (`module_invoke_ai`, `module_ai_stop`, file ops) | `ws/module-messages.js` (registered via `ws/message-registry.js`, dispatched by `ws-handler.js`) |
 | Relay-side filter for hidden sessions | `relay-client.js` (`moduleSessions`) |
 | Hidden-session list filter | `routes/index.js` |
 | Iframe lifecycle + postMessage bridge | `public/modules/module-host.js` |
@@ -189,4 +189,4 @@ Host requests time out after 30s. The host also marks self-writes against the `F
 2. **Re-validate the manifest on every gated call.** It's a file on disk an AI agent can rewrite between calls. Don't cache `permissions.files`.
 3. **The `__module:` prefix is load-bearing.** Any new server path that creates relayLLM sessions for a module must use the prefix **and** register the sessionId with `relayClient.registerModuleSession(...)` before joining — otherwise events leak into the user's visible chat.
 4. **The iframe sandbox is load-bearing.** Never add `allow-same-origin`; the entire trust model depends on the opaque origin.
-5. **Single-responsibility split.** AI invocation in `module-invoker.js`; file reads/writes in `ws-handler.js`; static serve in `routes/modules.js`. Don't add a third file-permission gate.
+5. **Single-responsibility split.** AI invocation in `module-invoker.js`; file reads/writes in `ws/module-messages.js` (dispatched by `ws-handler.js`); static serve in `routes/modules.js`. Don't add a third file-permission gate.

@@ -2,7 +2,7 @@
 
 Eve exposes HTTP endpoints and a single WebSocket interface. Eve owns local concerns (auth, file ops, file watch, search, modules, TTS/STT); everything LLM-related is forwarded over relay's frontend socket — relay serves project/MCP routes itself, reverse-proxies sessions/models to relayLLM, and dispatches tasks to relayScheduler.
 
-This file is a quick reference. The authoritative field lists live in `routes/index.js`, `routes/auth.js`, `routes/modules.js` (HTTP), and `ws-handler.js` / `public/message-dispatcher.js` (WS) — check there when a field here looks stale.
+This file is a quick reference. The authoritative field lists live in `routes/index.js`, `routes/auth.js`, `routes/modules.js` (HTTP), and `ws-handler.js` (auth/dispatch) + `ws/*.js` (per-domain message descriptors) / `public/message-dispatcher.js` (WS) — check there when a field here looks stale.
 
 ## Authentication
 
@@ -85,7 +85,7 @@ Projects are returned camelCase-normalized and cached for file-handler path reso
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/files/:projectId/*` | Serve a project file. Path-traversal checked; `nosniff` + locked-down CSP on every file; HTML/SVG/XML are sandboxed and forced to download (`?preview=1` renders HTML inline in a sandboxed opaque origin). See [docs/security-audit-frontend.md](security-audit-frontend.md). |
+| GET | `/api/files/:projectId/*` | Serve a project file. Path-traversal checked; `nosniff` + locked-down CSP on every file; HTML/SVG/XML are sandboxed and forced to download (`?preview=1` renders HTML inline in a sandboxed opaque origin). |
 | GET | `/api/generated/:filename` | Generated image (binary, proxied from relayLLM, immutable cache). |
 | GET | `/api/modules` · `/api/modules/:projectId/:moduleName` · `/api/modules/serve/.../*` | Module list, manifest, static asset serving. AI invocation is WS-only. See [docs/modules.md](modules.md). |
 
@@ -97,7 +97,7 @@ Connect to `ws://<host>:<port>`. When auth is required, send `{type:'auth', toke
 
 Connection: `ping` (app-level heartbeat, answered before auth and rate-limiting — see `public/ws-client.js` `_heartbeat()`).
 
-Sessions: `create_session` (`{directory?, projectId?, name?, model?, settings?, systemPrompt?, appendClaudeMd?}`), `join_session`, `leave_session`, `end_session`, `delete_session`, `rename_session`, `set_session_folder`, `user_input` (`{text, files?, sessionId?, dictated?}`), `stop_generation`, `permission_response` (`{permissionId, approved, reason?}`), `set_permission_mode` (`{sessionId, mode}`).
+Sessions: `create_session` (`{directory?, projectId?, name?, model?, settings?, systemPrompt?, appendClaudeMd?, sessionType?, voice?}` — `sessionType`/`voice` are echoed back unvalidated on `session_created`, used client-side to mark a voice-mode session), `join_session`, `leave_session`, `end_session`, `delete_session`, `rename_session`, `set_session_folder`, `user_input` (`{text, files?, sessionId?, dictated?}`), `stop_generation`, `permission_response` (`{permissionId, approved, reason?}`), `set_permission_mode` (`{sessionId, mode}`).
 
 Files: `list_directory`, `read_file`, `write_file`, `rename_file`, `move_file`, `delete_file`, `upload_file`, `create_directory`, `watch_file`, `unwatch_file`, `read_plan_file`.
 

@@ -51,7 +51,7 @@ describe('FileService', () => {
     });
 
     // A bare startsWith(base) prefix check let a sibling directory whose name
-    // shares the project basename prefix escape the sandbox — see docs/security-audit-frontend.md.
+    // shares the project basename prefix escape the sandbox.
     it('blocks escape into a sibling dir with a shared name prefix', () => {
       expect(() => {
         fileService.validatePath(projectPath, '../project-secrets/secret.env');
