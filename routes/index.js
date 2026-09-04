@@ -258,7 +258,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
   // renders HTML inline, for the editor's preview pane (file-editor.js): the
   // response-level `sandbox allow-scripts` CSP forces an opaque origin even
   // on direct top-level navigation, so the page's scripts run but can't reach
-  // Eve's DOM, cookies, or session token. See docs/security-audit-frontend.md.
+  // Eve's DOM, cookies, or session token.
   const ACTIVE_CONTENT_EXTS = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml']);
   const HTML_PREVIEW_EXTS = new Set(['.html', '.htm']);
 

@@ -61,6 +61,8 @@ To the user it's one "Sign In" tap and a Face ID prompt.
 
 WebAuthn enrollment and login endpoints are rate-limited at **10 attempts / 15 minutes per client IP** (`req.socket.remoteAddress` as the key). Excess attempts return `429` (`auth.js`).
 
+Separately, each authenticated WebSocket connection has its own limiter for expensive ops (search, transcription, TTS, AI invocation, session creation): **30 requests / 10 seconds** by default, configurable via `EVE_RATELIMIT_MAX` / `EVE_RATELIMIT_WINDOW_MS` (`ws-handler.js`). Excess requests get a `{type:'error'}` frame, not a disconnect.
+
 ### TLS
 
 WebAuthn requires a secure context. `localhost` works over HTTP (browser special case); any LAN / remote access requires HTTPS. See [`docs/https-setup.md`](https-setup.md) for mkcert instructions.

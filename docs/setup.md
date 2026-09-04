@@ -7,8 +7,8 @@ on-box automation. Follow it top to bottom for a fresh box.
 **Deeper references:** [remote-access.md](remote-access.md) (DNS / Firewalla
 detail), [authentication.md](authentication.md) (the trust model),
 [https-setup.md](https-setup.md) (mkcert basics),
-[security-audit-frontend.md](security-audit-frontend.md) (the *why* behind every
-control). This doc is the glue.
+[security-audit-frontend.md](security-audit-frontend.md) (invariants behind the
+browser-facing controls). This doc is the glue.
 
 ---
 
@@ -16,10 +16,11 @@ control). This doc is the glue.
 
 ```
                      ┌─────────────────────────── one Eve process (DUAL_LISTEN) ──┐
-  Internet ──:443──▶ │ HTTPS  *:443   ── passkey required (WG / LAN / internet)   │
-  WireGuard ─:443──▶ │                                                            │
-  LAN ──────:443──▶  │ HTTP   127.0.0.1:3000 ── loopback only, NO passkey         │
-  on-box ───:3000──▶ │                          (browser automation, tooling)    │
+  Internet ──:443──▶ │                                                            │
+  WireGuard ─:443──▶ │ HTTPS  *:443   ── passkey required (WG / LAN / internet)   │
+  LAN ──────:443──▶  │                                                            │
+  on-box ───:3000──▶ │ HTTP   127.0.0.1:3000 ── loopback only, NO passkey         │
+                     │                          (browser automation, tooling)    │
                      └────────────────────────────────────────────────────────────┘
 ```
 
@@ -28,6 +29,11 @@ control). This doc is the glue.
   passkey. (We use the Firewalla DDNS name.)
 - **localhost:3000** is loopback-bound, so it's unreachable from any other
   machine (kernel-enforced) and needs no passkey.
+- The passkey bypass itself is IP-based, not port-based (`trusted-network.js`
+  checks only `req.socket.remoteAddress`): with `DUAL_LISTEN`, `:443` binds
+  all interfaces, so a loopback-sourced request to `https://127.0.0.1:443`
+  skips the passkey too, the same as `:3000`. `:3000` is the documented
+  on-box entry point, not the only one.
 
 ---
 
@@ -63,18 +69,11 @@ iOS/macOS profile and install it on every device that will use Eve:
 scripts/make-ios-ca-profile.sh               # → ~/Documents/HomeWork-Eve-CA.mobileconfig
 ```
 
-Install on a device:
-- Get the file onto it via **AirDrop**, or serve it and open in **Safari**.
-  (The Files app only *previews* `.mobileconfig` — it won't install.)
-- **Settings → General → VPN & Device Management** → Install (shows "Unverified"
-  — normal for a self-made profile).
-- **Required:** **Settings → General → About → Certificate Trust Settings** →
-  enable full trust for the mkcert root. iOS won't trust the cert without this.
-
-On other Macs: double-click the profile → System Settings → Profiles → Install.
+Full install walkthrough (AirDrop/Safari, the required Certificate Trust
+Settings toggle, macOS): [https-setup.md#device-trust-ios--macos](https-setup.md#device-trust-ios--macos).
 
 > A real public cert (Let's Encrypt, no per-device install) is the alternative —
-> see "Certificates" in [remote-access.md](remote-access.md). For personal
+> see "Certificate" in [remote-access.md](remote-access.md). For personal
 > devices the mkcert + profile route is simplest.
 
 ---
