@@ -19,7 +19,7 @@ it holds the *why* for the current work.
 Everything green as of the tip of `pm/ws-handler-registry`:
 
     npm test              # 43 suites, 612 tests   (unit, hermetic, ~4s)
-    npm run test:integration   # 18 suites (1 skipped), 87 passed (1 skipped)
+    npm run test:integration   # 18 suites (1 skipped), 91 passed (1 skipped)
     npm run test:e2e      # 31 (spawns eve + fake relay)
     npm run test:voice    # 6  (needs the live Kokoro/Whisper daemons)
     npm run test:visual   # 24 screenshots, must be 0.0000%
