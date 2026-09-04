@@ -14,7 +14,7 @@ const vm = require('vm');
 const src = fs.readFileSync(path.join(__dirname, '../../public/core/feature-registry.js'), 'utf8');
 const sandbox = {};
 vm.createContext(sandbox);
-vm.runInContext(src + '\nthis.FeatureRegistry = FeatureRegistry;', sandbox);
+vm.runInContext(src + '\nthis.FeatureRegistry = FeatureRegistry; this.features = features;', sandbox);
 const { FeatureRegistry } = sandbox;
 
 function fakeSlotEl(name) {
@@ -37,6 +37,16 @@ function fakeContainer() {
     has: (k) => map.has(k),
   };
 }
+
+describe('the page singleton', () => {
+  // Feature files run the moment their <script> is parsed, long before
+  // initApp(), so there must already be an instance for them to register
+  // against. Without this, file-scope registration has nothing to call.
+  it('exposes a ready-to-use `features` instance', () => {
+    expect(sandbox.features).toBeInstanceOf(FeatureRegistry);
+    expect(sandbox.features.ids()).toEqual([]);
+  });
+});
 
 describe('FeatureRegistry', () => {
   it('register() does not construct anything', () => {

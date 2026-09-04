@@ -101,3 +101,15 @@ class FeatureRegistry {
     }
   }
 }
+
+/**
+ * The page's registry. Feature files call `features.register({...})` at file
+ * scope; app.js boots it once the container exists.
+ *
+ * It has to be created here, not in app.js, because that is the whole point of
+ * deferred construction: a feature file runs the moment its <script> tag is
+ * parsed, long before initApp(), so there must already be something for it to
+ * register against. A top-level `const` in a classic script is visible to every
+ * script parsed after it — the same way `EVT` in core/constants.js is.
+ */
+const features = new FeatureRegistry();
