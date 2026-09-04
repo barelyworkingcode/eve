@@ -16,6 +16,7 @@
     "test:watch": "jest --watch",
     "test:integration": "jest --config jest.integration.config.js",
     "test:e2e": "playwright test",
+    "test:voice": "playwright test --config test/e2e/playwright.voice.config.js",
     "test:visual:baseline": "VISUAL_MODE=baseline playwright test --config test/visual/playwright.visual.config.js test/visual/capture.spec.js",
     "test:visual": "VISUAL_MODE=current playwright test --config test/visual/playwright.visual.config.js test/visual/capture.spec.js && node test/visual/diff.js",
     "audit": "npm audit --omit=dev",
