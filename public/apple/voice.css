@@ -37,7 +37,7 @@
   min-height: 0;   /* load-bearing: keeps flex scroll math intact */
 }
 
-/* Canvas pixels are owned by VoiceOrbCanvas JS — no paint styles here. */
+/* Canvas pixels are owned by VoiceOrb3D JS — no paint styles here. */
 .voice-chat__orb-canvas {
   max-width: 100%;
   max-height: 100%;

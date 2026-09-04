@@ -769,22 +769,32 @@ class VoiceChatManager {
 
   /**
    * (Re)build the orb renderer on a fresh canvas element. A canvas's context
-   * type (2d vs webgl) is permanent once requested, so switching renderer
-   * kinds requires replacing the element itself.
+   * type (webgl) is permanent once requested, so rebuilding requires
+   * replacing the element itself. With Renderer null (WebGL unavailable, or
+   * renderer init failed), the canvas is hidden and no renderer is
+   * constructed — the rest of voice chat keeps working without the
+   * visualiser.
    */
   _makeOrbRenderer(Renderer) {
     const currentState = this.orbRenderer?.targetState || 'idle';
     const wasRunning = this.orbRenderer?.running;
     if (this.orbRenderer?.destroy) this.orbRenderer.destroy();
     else this.orbRenderer?.stop();
+    this.orbRenderer = null;
+    window.orbRenderer = null;
+    if (!Renderer) {
+      this.orbCanvas.hidden = true;
+      this.log.warn('Orb visualiser unavailable — hiding canvas; voice chat continues without it');
+      return null;
+    }
     const fresh = this.orbCanvas.cloneNode(false);
     this.orbCanvas.replaceWith(fresh);
     this.orbCanvas = fresh;
+    this.orbCanvas.hidden = false;
     this.orbRenderer = new Renderer(this.orbCanvas, this.app);
-    if (Renderer === VoiceOrb3D) {
-      // WebGL/import failure → drop back to the 2D wire renderer
-      this.orbRenderer.onInitError = () => this._makeOrbRenderer(VoiceOrbCanvas);
-    }
+    // Three.js import failure or WebGL context failure → no fallback
+    // renderer; hide the canvas and continue.
+    this.orbRenderer.onInitError = () => this._makeOrbRenderer(null);
     this.orbRenderer.setState(currentState);
     if (wasRunning) this.orbRenderer.start();
     window.orbRenderer = this.orbRenderer;
@@ -792,7 +802,7 @@ class VoiceChatManager {
   }
 
   _defaultOrbClass() {
-    return (typeof VoiceOrb3D !== 'undefined' && VoiceOrb3D.isSupported()) ? VoiceOrb3D : VoiceOrbCanvas;
+    return (typeof VoiceOrb3D !== 'undefined' && VoiceOrb3D.isSupported()) ? VoiceOrb3D : null;
   }
 
   /** Console helper: window.orb('speaking') or window.orb('idle', {r:255,g:0,b:0}) */
@@ -824,15 +834,6 @@ class VoiceChatManager {
         console.log(`Orb → ${states[i]}`);
       }, 5000);
       return `Orb demo started: cycling ${states.join(' → ')} every 5s (call orbDemo() again to stop)`;
-    };
-
-    /** Console helper: window.orbSwitch('orb3d') or window.orbSwitch('wire') */
-    const renderers = { wire: VoiceOrbCanvas, orb3d: VoiceOrb3D };
-    window.orbSwitch = (name) => {
-      const Renderer = renderers[name];
-      if (!Renderer) return `Unknown renderer "${name}". Available: ${Object.keys(renderers).join(', ')}`;
-      this._makeOrbRenderer(Renderer);
-      return `Switched to ${name} renderer`;
     };
 
     /** Console helper: window.eveTune({bargeInRmsThreshold: 0.04, bargeInMinVoicedMs: 500}) */
@@ -891,245 +892,5 @@ class VoiceChatManager {
       }
       this.voiceSelect.appendChild(optgroup);
     }
-  }
-}
-
-
-/**
- * VoiceOrbCanvas - Breathing wire-sphere visualization.
- * A scribbled ball of overlapping curved lines (wire-frame sphere)
- * that breathes, pulses, and wobbles to convey life and intelligence.
- * States: idle, listening, processing, speaking.
- */
-class VoiceOrbCanvas {
-  constructor(canvas, app) {
-    this.canvas = canvas;
-    this.app = app;
-    this.ctx = canvas.getContext('2d');
-    this.state = 'idle';
-    this.targetState = 'idle';
-    this.animationFrame = null;
-    this.time = 0;
-    this.running = false;
-
-    this.currentColor = { r: 160, g: 160, b: 180 };
-    this.rotSpeed = 0;
-    this.wobbleAmt = 0;
-    this.audioLevel = 0; // smoothed 0-1 from mic or playback
-
-    // Breathing system
-    this.breathPhase = 0;
-    this.breathRate = 0;
-    this.breathDepth = 0;
-
-    this.stateConfigs = {
-      idle:       { color: { r: 160, g: 160, b: 200 }, breathRate: 0.012, breathDepth: 0.06, rot: 0.08,  wobble: 0.02 },
-      listening:  { color: { r: 255, g: 70,  b: 70  }, breathRate: 0.022, breathDepth: 0.08, rot: 0.25,  wobble: 0.08 },
-      processing: { color: { r: 255, g: 140, b: 30  }, breathRate: 0.035, breathDepth: 0.04, rot: 0.55,  wobble: 0.05 },
-      speaking:   { color: { r: 60,  g: 160, b: 255 }, breathRate: 0.018, breathDepth: 0.10, rot: 0.18,  wobble: 0.09 },
-    };
-
-    // Touch interaction
-    this.touchPoint = null;   // { x, y } in canvas coords, null when not touching
-    this.touchEnergy = 0;     // smoothed 0-1, decays after release
-
-    this.wireLoops = [];
-    this._initWireLoops();
-    this._setupResize();
-    this._setupTouch();
-  }
-
-  _setupTouch() {
-    const toCanvas = (clientX, clientY) => {
-      const rect = this.canvas.getBoundingClientRect();
-      return {
-        x: (clientX - rect.left) / rect.width * this.canvas.width,
-        y: (clientY - rect.top) / rect.height * this.canvas.height,
-      };
-    };
-    this.canvas.addEventListener('mousedown', (e) => {
-      this.touchPoint = toCanvas(e.clientX, e.clientY);
-    });
-    this.canvas.addEventListener('mousemove', (e) => {
-      if (this.touchPoint) this.touchPoint = toCanvas(e.clientX, e.clientY);
-    });
-    this.canvas.addEventListener('mouseup', () => { this.touchPoint = null; });
-    this.canvas.addEventListener('mouseleave', () => { this.touchPoint = null; });
-    this.canvas.addEventListener('touchstart', (e) => {
-      const t = e.touches[0];
-      this.touchPoint = toCanvas(t.clientX, t.clientY);
-    }, { passive: true });
-    this.canvas.addEventListener('touchmove', (e) => {
-      const t = e.touches[0];
-      this.touchPoint = toCanvas(t.clientX, t.clientY);
-    }, { passive: true });
-    this.canvas.addEventListener('touchend', () => { this.touchPoint = null; });
-    this.canvas.addEventListener('touchcancel', () => { this.touchPoint = null; });
-  }
-
-  _initWireLoops() {
-    // Generate great-circle-like loops at various tilts to create a wire sphere
-    const count = 14;
-    for (let i = 0; i < count; i++) {
-      this.wireLoops.push({
-        tilt: (i / count) * Math.PI,                    // tilt angle of this loop
-        phase: Math.random() * Math.PI * 2,             // starting rotation phase
-        wobbleFreq: 0.8 + Math.random() * 1.2,          // how fast this loop wobbles
-        wobbleAmp: 0.02 + Math.random() * 0.04,         // how much it wobbles independently
-        opacity: 0.35 + Math.random() * 0.35,
-      });
-    }
-  }
-
-  _setupResize() {
-    const observer = new ResizeObserver(() => this._resize());
-    observer.observe(this.canvas.parentElement);
-    this._resize();
-  }
-
-  _resize() {
-    const parent = this.canvas.parentElement;
-    const size = Math.min(parent.clientWidth, parent.clientHeight);
-    this.canvas.width = size * 2;
-    this.canvas.height = size * 2;
-    this.canvas.style.width = size + 'px';
-    this.canvas.style.height = size + 'px';
-    this.cx = this.canvas.width / 2;
-    this.cy = this.canvas.height / 2;
-    this.baseRadius = size * 0.42;
-  }
-
-  setState(state) { this.targetState = state; }
-
-  start() {
-    if (this.running) return;
-    this.running = true;
-    this._render();
-  }
-
-  stop() {
-    this.running = false;
-    if (this.animationFrame) {
-      cancelAnimationFrame(this.animationFrame);
-      this.animationFrame = null;
-    }
-  }
-
-  _lerp(a, b, t) { return a + (b - a) * t; }
-
-  _render() {
-    if (!this.running) return;
-
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.time += 0.016;
-
-    const config = this.stateConfigs[this.targetState] || this.stateConfigs.idle;
-    const ease = 0.04;
-
-    // Read real-time audio level from mic or playback
-    let rawLevel = 0;
-    if (this.app?.voiceChatManager?.useNativeAudio) {
-      rawLevel = this.app.voiceChatManager.getNativeLevel(this.targetState);
-    } else if (this.targetState === 'listening') {
-      rawLevel = this.app?.sttManager?.getAudioLevel?.() || 0;
-    } else if (this.targetState === 'speaking') {
-      rawLevel = this.app?.ttsManager?.getAudioLevel?.() || 0;
-    }
-    this.audioLevel = this._lerp(this.audioLevel, rawLevel, 0.15);
-
-    const audioBoost = this.audioLevel;
-
-    // Touch energy: ramps up while touching, decays when released
-    this.touchEnergy = this._lerp(this.touchEnergy, this.touchPoint ? 1 : 0, this.touchPoint ? 0.15 : 0.05);
-
-    // Lerp color
-    this.currentColor.r = this._lerp(this.currentColor.r, config.color.r, ease);
-    this.currentColor.g = this._lerp(this.currentColor.g, config.color.g, ease);
-    this.currentColor.b = this._lerp(this.currentColor.b, config.color.b, ease);
-
-    // Lerp breathing parameters
-    this.breathRate = this._lerp(this.breathRate, config.breathRate + audioBoost * 0.02, ease);
-    this.breathDepth = this._lerp(this.breathDepth, config.breathDepth + audioBoost * 0.08, ease * 3);
-    this.rotSpeed = this._lerp(this.rotSpeed, config.rot + audioBoost * 0.15, ease);
-    this.wobbleAmt = this._lerp(this.wobbleAmt, config.wobble + audioBoost * 0.12 + this.touchEnergy * 0.08, ease * 3);
-
-    // Advance breathing phase
-    this.breathPhase += this.breathRate;
-
-    // Breathing radius modulation: blended sine/cubic-sine for organic inhale/exhale
-    const rawBreath = Math.sin(this.breathPhase);
-    const breathMod = 1 + this.breathDepth * (0.7 * rawBreath + 0.3 * rawBreath * rawBreath * rawBreath);
-
-    const cr = Math.round(this.currentColor.r);
-    const cg = Math.round(this.currentColor.g);
-    const cb = Math.round(this.currentColor.b);
-
-    const rotation = this.time * this.rotSpeed;
-
-    // Soft center glow — pulses with breathing
-    const glowAlpha = 0.08 + 0.08 * (rawBreath * 0.5 + 0.5);
-    const glowR = this.baseRadius * 0.65 * breathMod;
-    const gradient = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, glowR);
-    gradient.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${glowAlpha.toFixed(3)})`);
-    gradient.addColorStop(1, 'transparent');
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(this.cx, this.cy, glowR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Draw wire-sphere loops with breathing radius
-    for (const loop of this.wireLoops) {
-      const tilt = loop.tilt + rotation;
-      const loopWobble = Math.sin(this.time * loop.wobbleFreq + loop.phase) * this.wobbleAmt;
-
-      ctx.beginPath();
-      const steps = 80;
-      for (let i = 0; i <= steps; i++) {
-        const t = (i / steps) * Math.PI * 2;
-
-        // 3D point on a unit sphere, then project
-        const x3d = Math.cos(t);
-        const y3d = Math.sin(t) * Math.cos(tilt);
-        const z3d = Math.sin(t) * Math.sin(tilt);
-
-        // Apply wobble distortion
-        const wobbleDist = Math.sin(t * 5 + this.time * 1.5 + loop.phase) * this.wobbleAmt
-                         + Math.sin(t * 8 + this.time * 2.3) * this.wobbleAmt * 0.5;
-
-        // Apply breathing modulation to radius
-        const r = this.baseRadius * breathMod * (1 + wobbleDist + loopWobble);
-
-        // Simple perspective
-        const perspective = 1 + z3d * 0.15;
-        let px = this.cx + x3d * r * perspective;
-        let py = this.cy + y3d * r * perspective;
-
-        // Touch repulsion: push points away from touch
-        if (this.touchEnergy > 0.01 && this.touchPoint) {
-          const dx = px - this.touchPoint.x;
-          const dy = py - this.touchPoint.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const radius = this.baseRadius * 0.8;
-          if (dist < radius) {
-            const force = (1 - dist / radius) * this.touchEnergy * this.baseRadius * 0.3;
-            px += (dx / dist) * force;
-            py += (dy / dist) * force;
-          }
-        }
-
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-
-      // Wire opacity subtly pulses with breathing
-      const loopAlpha = loop.opacity + 0.1 * (rawBreath * 0.5 + 0.5);
-      ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${loopAlpha.toFixed(3)})`;
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-    }
-
-    this.animationFrame = requestAnimationFrame(() => this._render());
   }
 }
