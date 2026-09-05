@@ -345,9 +345,10 @@ class TerminalManager {
 
   // By the time terminal_joined arrives, the PTY size is guaranteed to match
   // our xterm grid: fresh terminals are created at our requested cols/rows,
-  // and reconnects fit xterm before sending terminal_reconnect so relayLLM
-  // resizes the PTY before capturing scrollback. Never resize during replay —
-  // that's what produced the duplicate-screen bug.
+  // and every terminal_reconnect carries the grid xterm currently has — fitted
+  // first when the pane is being shown — so relayLLM resizes the PTY before
+  // capturing scrollback. Never resize during replay — that's what produced
+  // the duplicate-screen bug.
   onTerminalJoined(data) {
     const terminalId = data.terminalId;
     let terminal = this.terminals.get(terminalId);
@@ -367,9 +368,14 @@ class TerminalManager {
     if (data.scrollback) {
       const bytes = this._decodeBase64(data.scrollback);
       if (bytes.length > 0) {
+        // A join always replays the full scrollback. Re-joining a pane that is
+        // already showing that content would stack a second copy underneath
+        // the first, so clear the grid before the replay lands.
+        if (terminal.replayPending) terminal.term.reset();
         terminal.term.write(new Uint8Array(bytes));
       }
     }
+    terminal.replayPending = false;
   }
 
   showTerminal(terminalId) {
@@ -394,15 +400,7 @@ class TerminalManager {
       // relayLLM to size the PTY to match before it sends scrollback — keeps
       // PTY, grid, and replayed bytes at the same dimensions so no
       // SIGWINCH-driven repaint lands on an already-rendered screen.
-      if (terminal.needsReconnect) {
-        terminal.needsReconnect = false;
-        this.app.wsClient.send({
-          type: 'terminal_reconnect',
-          terminalId,
-          cols: terminal.term.cols,
-          rows: terminal.term.rows,
-        });
-      }
+      this._sendReconnect(terminalId);
     });
 
     if (this.resizeHandler) {
@@ -414,6 +412,34 @@ class TerminalManager {
       }
     };
     window.addEventListener('resize', this.resizeHandler);
+  }
+
+  // relayLLM forwards terminal_output only to connections it has registered as
+  // viewers, but it accepts terminal_input for any terminal by id from any
+  // connection. A browser reconnect builds a whole new upstream connection
+  // whose viewer set is empty, so an already-open pane keeps accepting
+  // keystrokes into the live PTY and never receives another byte back. That
+  // reads as "the UI froze", and only a reload clears it — a reload rebuilds
+  // this.terminals from empty, which is the one path that re-joins. Marking
+  // them here makes onTerminalList/showTerminal re-join instead. No-op on the
+  // first connect, when nothing is open yet.
+  markTerminalsForRejoin() {
+    for (const terminal of this.terminals.values()) {
+      if (!terminal.exited) terminal.needsReconnect = true;
+    }
+  }
+
+  _sendReconnect(terminalId) {
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal || !terminal.needsReconnect) return;
+    terminal.needsReconnect = false;
+    terminal.replayPending = true;
+    this.app.wsClient.send({
+      type: 'terminal_reconnect',
+      terminalId,
+      cols: terminal.term.cols,
+      rows: terminal.term.rows,
+    });
   }
 
   onTerminalOutput(terminalId, data) {
@@ -469,6 +495,11 @@ class TerminalManager {
         this.allTerminals.set(t.id, t);
         if (!this.terminals.has(t.id)) {
           this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped');
+        } else if (t.id === this.activeTerminalId) {
+          // Being in the list proves it's still resident upstream, so this
+          // can't draw a "terminal not found" error. Hidden panes wait for
+          // showTerminal, which fits them against a real viewport first.
+          this._sendReconnect(t.id);
         }
       }
     }
@@ -508,6 +539,7 @@ class TerminalManager {
       name,
       exited: !!exited,
       needsReconnect: !!needsReconnect,
+      replayPending: false,
       inputBuf: '',
       inputTimer: null,
       pendingResize: null,

@@ -93,6 +93,8 @@ Projects are returned camelCase-normalized and cached for file-handler path reso
 
 Connect to `ws://<host>:<port>`. When auth is required, send `{type:'auth', token}` first; all other frames are blocked until it succeeds. High-frequency server frames are coalesced into a `__batch {msgs:[...]}` envelope the client unwraps and dispatches in order.
 
+**Reconnects re-subscribe from scratch.** A browser reconnect builds a whole new chain — new browser socket, new `RelayClient`, new upstream socket to relay — so relayLLM's per-connection subscription state starts empty. Anything the old connection had joined must be re-joined: `join_session` per open session tab, `terminal_reconnect` per live terminal. Terminals are the sharp edge, because `terminal_input` is routed to the PTY by id from any connection while `terminal_output` goes only to registered viewers — skip the re-join and the pane silently becomes write-only. See [learned.md](learned.md).
+
 ### Client → Server
 
 Connection: `ping` (app-level heartbeat, answered before auth and rate-limiting — see `public/ws-client.js` `_heartbeat()`).
