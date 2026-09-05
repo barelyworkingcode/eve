@@ -41,6 +41,15 @@ Browser ──WS──►  Eve ──WS──► relay ──► relayScheduler 
 
 Voice does not appear in this diagram — see the Security section above.
 
+### SSH host projects
+
+Design and cross-repo contract: [../relay/docs/ssh-hosts.md](../relay/docs/ssh-hosts.md) — read it first; this is a pointer, not a summary. A project either lives on the console or on one SSH host (`project.hostId`); `ssh_argv` (relay's ready-to-exec ssh prefix) is cached server-side only (`server.js`'s `hostCache`) and never crosses to the browser.
+
+- **`ssh-command.js`** — the one Node implementation of relay's `RemoteCommand`/launcher derivation (`remoteCommand`, `nodeLauncher`), pinned byte-for-byte against the doc's Fixtures.
+- **`remote-fs-agent.js`** — the file-plane agent that runs *on the host*, launched via `nodeLauncher`. Self-contained (Node core only, no `require` of any eve module) since it ships as raw source, not a module.
+- **`ssh-host-pool.js`** — `HostPool`/`HostAgent`: spawns and reconnects the agent over `ssh_argv`, JSON-lines request/response, ref-counted `watch`/`unwatch`, emits `status` (`connecting|connected|unreachable`) fanned out to browsers as the WS `host_status` frame.
+- **`remote-file-service.js`** — `RemoteFileService`, the same method surface as `FileService` but backed by a `HostAgent`. `FileHandlers#fileServiceFor(project)` picks local vs. remote; every file/search/watch call site goes through it.
+
 ## Module architecture
 
 Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work in this area.
@@ -63,7 +72,9 @@ Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work i
 
 Frontend is vanilla JS (no framework, no build step), mid-migration from a legacy orchestrator (`app.js`) to an EventBus + DI-container + StateStore core (`public/core/`). New code: `public/core/`, `public/sidebar/` (VS Code-style explorer), `public/dialogs/` (`DialogBase` + shell-launcher/task dialogs). Legacy still active: `app.js`, `ws-client.js`, `message-dispatcher.js`, `message-renderer.js`, `file-attachment-manager.js`, `modal-manager.js`, `tab-manager.js`, `file-browser.js`, `file-editor.js`, `terminal-manager.js`.
 
-**localStorage keys:** `eve-open-sessions` and `eve-open-files` (24h expiry); `eve-tree-expand` (no TTL). Project expand state is read from the DOM at render time, not persisted.
+**localStorage keys:** `eve-open-sessions` and `eve-open-files` (24h expiry); `eve-tree-expand` (no TTL); `eve-session-recents` (`core/session-recents.js` — per-session `{title, lastOpenedAt}` learned from the first user turn and each open; outlives the tab, pruned to 80). Project expand state is read from the DOM at render time, not persisted.
+
+**Orientation surfaces** (design rationale: [docs/design-home-and-palette.md](docs/design-home-and-palette.md)): `home-screen.js` renders behind `#welcomeScreen`; `dialogs/command-palette.js` is ⌘K. Session labels everywhere go through `sessionDisplayName()` in `core/ui-utils.js`; project avatar colours through `StateStore.projectColor(id)` (rank-based, not hashed).
 
 **Local server restart** — see [AGENTS.md](AGENTS.md) for the index.html-cached-at-startup gotcha (editing `index.html` needs a restart; other `public/` files reload live). Eve runs as a Relay-managed service (`relay service list` → id `eve`); restart with `npm run relay:restart`.
 

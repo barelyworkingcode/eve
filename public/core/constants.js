@@ -16,6 +16,10 @@ const EVT = {
   PROJECT_RENAMED: 'project:renamed',
   PROJECT_ACTIVATED: 'project:activated',
 
+  // SSH host connectivity (../relay/docs/ssh-hosts.md) — fired on the
+  // server's `host_status` WS frame; see StateStore.hosts / setHostStatus.
+  HOST_STATUS: 'host:status',
+
   MODELS_LOADED: 'models:loaded',
 
   CHAT_ASSISTANT_START: 'chat:assistantStart',
@@ -78,6 +82,7 @@ const EVT = {
   DIALOG_CONFIRM: 'dialog:confirm',
   DIALOG_SETTINGS: 'dialog:settings',
   DIALOG_SEARCH: 'dialog:search',
+  DIALOG_COMMAND_PALETTE: 'dialog:commandPalette',
 
   SEARCH_RESULTS: 'search:results',
   SEARCH_ERROR: 'search:error',

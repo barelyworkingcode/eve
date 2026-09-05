@@ -37,6 +37,14 @@ class ApiClient {
 
   getMcps() { return this._request('GET', '/api/mcps'); }
 
+  // SSH hosts (../relay/docs/ssh-hosts.md).
+  getHosts() { return this._request('GET', '/api/hosts'); }
+  createHost(data) { return this._request('POST', '/api/hosts', data); }
+  updateHost(id, data) { return this._request('PUT', `/api/hosts/${id}`, data); }
+  deleteHost(id) { return this._request('DELETE', `/api/hosts/${id}`); }
+  probeHost(id) { return this._request('POST', `/api/hosts/${id}/probe`); }
+  disconnectHost(id) { return this._request('POST', `/api/hosts/${id}/disconnect`); }
+
   // Module invocation is WS-only (module_invoke_ai / module_ai_*); there is
   // deliberately no HTTP invoke() method here.
   listModules(projectId) {

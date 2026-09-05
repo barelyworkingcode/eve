@@ -21,6 +21,84 @@ class FileTreeNode {
     this.bus.on(EVT.DIRECTORY_CREATED, (data) => this._refreshParent(data.projectId, data.path));
     this.bus.on(EVT.DIR_CHANGED, (data) => this._onExternalDirChange(data.projectId, data.path));
     this.bus.on(EVT.SETTINGS_CHANGED, (s) => this._onSettingsChanged(s));
+    if (EVT.HOST_STATUS) this.bus.on(EVT.HOST_STATUS, (data) => this._onHostStatus(data));
+  }
+
+  // A host project's root listing is only as live as the SSH connection
+  // behind it: re-render every visible tree on that host so the connecting
+  // skeleton, the unreachable notice and the real listing swap in place.
+  _onHostStatus(data) {
+    document.querySelectorAll('.file-tree[data-project-id]').forEach((el) => {
+      const project = this.state.getProject(el.dataset.projectId);
+      if (project?.host?.id !== data.hostId) return;
+      if (data.status === 'connected' && !this._getCachedDir(project.id, '/')) {
+        this._loadDirectory(project.id, '/');
+      }
+      this.renderTree(project.id, el);
+    });
+  }
+
+  _hostState(projectId) {
+    const project = this.state.getProject(projectId);
+    if (!project?.host) return null;
+    const status = this.state.hostStatus?.(project.host.id) || project.host.status || 'unknown';
+    return { host: project.host, status };
+  }
+
+  _renderHostState(projectId, containerEl) {
+    const hs = this._hostState(projectId);
+    if (!hs) return false;
+    const box = document.createElement('div');
+    box.className = 'file-tree__host-state';
+    if (hs.status === 'unreachable') {
+      box.classList.add('file-tree__host-state--error');
+      const line = document.createElement('div');
+      line.className = 'file-tree__host-state-line';
+      line.textContent = `${hs.host.name} is unreachable`;
+      box.appendChild(line);
+      const detail = document.createElement('div');
+      detail.className = 'file-tree__host-state-detail';
+      detail.textContent = this._hostErrors?.get(hs.host.id) || 'ssh could not connect — check the host is up and your key works from a terminal.';
+      box.appendChild(detail);
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'file-tree__retry';
+      retry.textContent = 'Retry';
+      retry.dataset.testid = `file-tree-retry-${projectId}`;
+      retry.addEventListener('click', () => {
+        this._loadDirectory(projectId, '/');
+        this._renderConnecting(projectId, containerEl, hs.host);
+      });
+      box.appendChild(retry);
+      containerEl.appendChild(box);
+      return true;
+    }
+    this._renderConnecting(projectId, containerEl, hs.host, box);
+    return true;
+  }
+
+  _renderConnecting(projectId, containerEl, host, box = null) {
+    containerEl.innerHTML = '';
+    const el = box || document.createElement('div');
+    el.className = 'file-tree__host-state';
+    const line = document.createElement('div');
+    line.className = 'file-tree__host-state-line';
+    const chip = (typeof hostChip === 'function') ? hostChip(host, { status: 'connecting', size: 'sm' }) : null;
+    if (chip) line.appendChild(chip);
+    const text = document.createElement('span');
+    text.textContent = `Connecting to ${host.name}…`;
+    line.appendChild(text);
+    el.appendChild(line);
+    const skel = document.createElement('div');
+    skel.className = 'file-tree__skeleton';
+    for (let i = 0; i < 4; i++) {
+      const r = document.createElement('div');
+      r.className = 'file-tree__skeleton-row';
+      skel.appendChild(r);
+    }
+    el.appendChild(skel);
+    containerEl.appendChild(el);
+    containerEl.dataset.projectId = projectId;
   }
 
   _onSettingsChanged(s) {
@@ -38,6 +116,7 @@ class FileTreeNode {
     const entries = this._getCachedDir(projectId, '/');
     if (!entries) {
       this._loadDirectory(projectId, '/');
+      if (this._renderHostState(projectId, containerEl)) return;
       const loading = document.createElement('div');
       loading.className = 'file-tree__loading';
       loading.textContent = 'Loading...';
@@ -281,7 +360,9 @@ class FileTreeNode {
   _confirmDelete(projectId, path) {
     const filename = path.split('/').pop();
     this.bus.emit(EVT.DIALOG_CONFIRM, {
-      message: `Delete "${filename}"? This will move it to trash.`,
+      message: this.state.getProject(projectId)?.host
+        ? `Delete "${filename}" permanently? There is no Trash on ${this.state.getProject(projectId).host.name}.`
+        : `Delete "${filename}"? This will move it to trash.`,
       onConfirm: () => this.ws.send({ type: 'delete_file', projectId, path }),
     });
   }

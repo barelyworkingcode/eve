@@ -31,6 +31,19 @@ class ProjectTree {
     // idempotent, which also makes it safe against the "please delete" emit
     // that precedes the actual removal.
     this.bus.on(EVT.PROJECT_DELETED, () => this.render());
+
+    // The rail shows a live dot per project; liveness changes arrive as a
+    // burst of per-session events on load, so coalesce to one repaint.
+    const repaintRail = () => {
+      if (this._railRaf) return;
+      this._railRaf = requestAnimationFrame(() => {
+        this._railRaf = 0;
+        this.rail.render();
+      });
+    };
+    for (const evt of [EVT.SESSION_UPDATED, EVT.SESSION_REMOVED, EVT.SESSION_ENDED, EVT.SESSION_CREATED]) {
+      this.bus.on(evt, repaintRail);
+    }
   }
 
   render() {

@@ -8,6 +8,11 @@ function normalizeProject(p) {
     id: p.id,
     name: p.name,
     path: p.path,
+    // '' for a console project. The full `host` object (id/name/status) is
+    // attached separately by server.js#resolveProject from its hosts cache —
+    // this module has no relay transport to fetch it with, and ssh_argv must
+    // never reach here at all (see docs/security — ssh-hosts.md).
+    hostId: p.host_id || '',
     allowedMcpIds: p.allowed_mcp_ids || [],
     allowedModels: p.allowed_models || [],
     chatTemplates: (p.chat_templates || []).map(t => ({

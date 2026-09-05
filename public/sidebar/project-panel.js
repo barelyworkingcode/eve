@@ -54,6 +54,7 @@ class ProjectPanel {
 
     this.titleEl.textContent = project.name;
     this.titleEl.title = project.name;
+    this._renderHostBar(project);
     this._renderHeaderActions();
     this._renderTabs();
     this._renderContent();
@@ -124,7 +125,7 @@ class ProjectPanel {
         .filter(s => !this.state.isTaskRun(s.id)).length;
       const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
       const project = this.state.getProject(this.projectId);
-      const terminalCount = (termMgr?.getTerminalsForPath(project?.path) || [])
+      const terminalCount = (termMgr?.getTerminalsForPath(project?.path, project?.hostId || '') || [])
         .filter(t => !this.state.isTaskRun(t.id)).length;
       return sessionCount + terminalCount;
     }
@@ -287,7 +288,7 @@ class ProjectPanel {
     const sessions = this.state.getSessionsForProject(this.projectId)
       .filter(s => !this.state.isTaskRun(s.id));
     const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
-    const terminals = (termMgr?.getTerminalsForPath(project?.path) || [])
+    const terminals = (termMgr?.getTerminalsForPath(project?.path, project?.hostId || '') || [])
       .filter(t => !this.state.isTaskRun(t.id));
 
     if (sessions.length === 0 && terminals.length === 0) {
@@ -403,12 +404,26 @@ class ProjectPanel {
 
     const nameEl = document.createElement('span');
     nameEl.className = 'project-tree__session-name';
-    let displayName = session.name || session.id;
-    if (project && displayName.startsWith(project.name + ' - ')) {
-      displayName = displayName.slice(project.name.length + 3);
-    }
+    const displayName = sessionDisplayName(session, project) || session.id;
     nameEl.textContent = displayName;
+    nameEl.title = displayName;
     item.appendChild(nameEl);
+
+    if (session.active) {
+      const live = document.createElement('span');
+      live.className = 'project-tree__live';
+      live.title = 'Running';
+      item.appendChild(live);
+    }
+
+    const openedAt = this._sessionOpenedAt(session);
+    if (openedAt) {
+      const time = document.createElement('span');
+      time.className = 'project-tree__session-time';
+      time.textContent = relativeTime(openedAt);
+      time.title = new Date(openedAt).toLocaleString();
+      item.appendChild(time);
+    }
 
     if (session.model) {
       const badge = document.createElement('span');
@@ -441,6 +456,15 @@ class ProjectPanel {
     wrapper.appendChild(deleteAction);
     wrapper.appendChild(item);
     container.appendChild(wrapper);
+  }
+
+  // Local "last opened" wins (it's what you did); otherwise the server's
+  // last-message / created time, when the list carries them.
+  _sessionOpenedAt(session) {
+    const local = (typeof SessionRecents !== 'undefined') ? SessionRecents.get(session.id)?.lastOpenedAt : null;
+    if (local) return local;
+    const server = Date.parse(session.lastMessageAt || session.createdAt || '');
+    return Number.isNaN(server) ? null : server;
   }
 
   _showSessionMenu(x, y, session) {
@@ -782,6 +806,45 @@ class ProjectPanel {
     this.bus.on(EVT.MODULE_LIST_UPDATED, ({ projectId }) => {
       if (projectId === this.projectId) this._refresh();
     });
+    if (EVT.HOST_STATUS) {
+      this.bus.on(EVT.HOST_STATUS, ({ hostId }) => {
+        const project = this.state.getProject(this.projectId);
+        if (project?.host?.id === hostId) this._renderHostBar(project);
+      });
+    }
+  }
+
+  // The header is one short line, so the host gets its own strip beneath
+  // it: dot, host name, and the status word. Console projects hide it; the
+  // strip's absence is the "this Mac" signal.
+  _renderHostBar(project) {
+    const bar = document.getElementById('panelHostBar');
+    if (!bar) return;
+    if (!project?.host) {
+      bar.hidden = true;
+      bar.innerHTML = '';
+      bar.className = 'panel-host-bar';
+      return;
+    }
+    const status = this.state.hostStatus?.(project.host.id) || project.host.status || 'unknown';
+    bar.hidden = false;
+    bar.className = `panel-host-bar panel-host-bar--${status}`;
+    bar.innerHTML = '';
+    bar.dataset.testid = `panel-host-bar-${project.host.id}`;
+    const dot = document.createElement('span');
+    dot.className = 'host-chip__dot';
+    bar.appendChild(dot);
+    const name = document.createElement('span');
+    name.className = 'panel-host-bar__name';
+    name.textContent = project.host.name;
+    bar.appendChild(name);
+    const word = document.createElement('span');
+    word.className = 'panel-host-bar__status';
+    word.textContent = {
+      connected: 'connected', connecting: 'connecting…', unreachable: 'unreachable', idle: 'idle', unknown: '',
+    }[status] ?? status;
+    bar.appendChild(word);
+    if (typeof hostStatusLabel === 'function') bar.title = hostStatusLabel(project.host, status);
   }
 }
 

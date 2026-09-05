@@ -4,6 +4,14 @@
  * atomic save (write-temp-then-rename), which is how most editors, CLI
  * tools, and git write. Watching the tree survives atomic replaces. Serves
  * both editor live-update (`file_changed`) and sidebar tree sync (`dir_changed`).
+ *
+ * Backend seam (../relay/docs/ssh-hosts.md): a console project watches with
+ * a local recursive `fs.watch`; a host project instead asks its HostAgent
+ * (ssh-host-pool.js) to watch, ref-counted across every browser connection
+ * that's touched that host, and feeds the agent's `{event:"change"}` frames
+ * into the same debounce/dedup path below. The agent doesn't distinguish
+ * rename from in-place write, so a remote event is treated as both — an
+ * extra, idempotent `dir_changed` is cheap; missing one is a stale tree.
  */
 const fs = require('fs');
 const fsp = require('fs').promises;
@@ -18,9 +26,13 @@ const DIR_DEBOUNCE_MS = 200;  // coalesce rapid structural churn before refresh
 const SELF_WRITE_TTL_MS = 1000;
 
 class FileWatcher {
-  constructor(ws, fileService, resolveProject) {
+  // fileServiceFor: (project) => FileService|RemoteFileService, mirroring
+  // FileHandlers#fileServiceFor — kept as an injected function (rather than a
+  // single instance) so this class never has to know which backend a given
+  // project uses.
+  constructor(ws, fileServiceFor, resolveProject) {
     this.ws = ws;
-    this.fileService = fileService;
+    this.fileServiceFor = fileServiceFor;
     this.resolveProject = resolveProject;
 
     this.projectWatchers = new Map();
@@ -85,9 +97,14 @@ class FileWatcher {
     const project = this.resolveProject(projectId);
     if (!project) return false;
 
+    if (project.hostId) return this._ensureRemoteProjectWatcher(projectId, project);
+    return this._ensureLocalProjectWatcher(projectId, project);
+  }
+
+  _ensureLocalProjectWatcher(projectId, project) {
     let root;
     try {
-      root = this.fileService.validatePath(project.path, '/');
+      root = this.fileServiceFor(project).validatePath(project.path, '/');
     } catch {
       return false;
     }
@@ -108,16 +125,48 @@ class FileWatcher {
     }
 
     watcher.on('error', () => this._stopProjectWatcher(projectId));
-    this.projectWatchers.set(projectId, { watcher, root });
+    this.projectWatchers.set(projectId, { remote: false, watcher, root });
     return true;
+  }
+
+  // hostAgent.watch()/unwatch() are ref-counted per HostAgent across every
+  // browser connection that touches that host, so multiple FileWatcher
+  // instances (one per WS connection) sharing the same agent don't fight
+  // over a single underlying remote `fs.watch`.
+  _ensureRemoteProjectWatcher(projectId, project) {
+    const agent = this._hostAgentFor(project);
+    if (!agent) return false;
+
+    const root = project.path;
+    const onChange = (evt) => {
+      if (evt.root !== root) return; // this agent may serve other projects on the same host
+      const canon = this._canonRel(evt.path);
+      // A remote event carries no rename/change distinction — treat every
+      // one as a potential rename so the directory listing refreshes too.
+      this._onFsEvent(projectId, root, 'rename', canon);
+    };
+    agent.on('change', onChange);
+    agent.watch(root).catch(() => { /* connectivity surfaces via host_status, not here */ });
+
+    this.projectWatchers.set(projectId, { remote: true, agent, root, onChange });
+    return true;
+  }
+
+  _hostAgentFor(project) {
+    const fs = this.fileServiceFor(project);
+    return fs && fs.hostAgent ? fs.hostAgent : null;
   }
 
   _stopProjectWatcher(projectId) {
     const entry = this.projectWatchers.get(projectId);
-    if (entry) {
+    if (!entry) return;
+    if (entry.remote) {
+      entry.agent.removeListener('change', entry.onChange);
+      entry.agent.unwatch(entry.root).catch(() => { /* best-effort teardown */ });
+    } else {
       try { entry.watcher.close(); } catch { /* already closed */ }
-      this.projectWatchers.delete(projectId);
     }
+    this.projectWatchers.delete(projectId);
   }
 
   _onFsEvent(projectId, root, eventType, canonRel) {
@@ -146,12 +195,13 @@ class FileWatcher {
 
     const project = this.resolveProject(projectId);
     if (!project) return;
+    const fileService = this.fileServiceFor(project);
 
     // Must match ws/file-messages.js's validatePath derivation exactly, or the
     // self-write key won't match and Eve's own write will echo back.
     let absPath;
     try {
-      absPath = this.fileService.validatePath(project.path, entry.clientPath);
+      absPath = fileService.validatePath(project.path, entry.clientPath);
     } catch {
       return; // invalid / traversal - nothing to push
     }
@@ -160,11 +210,15 @@ class FileWatcher {
     try {
       if (entry.binary) {
         // Viewer files: notify only; the client re-fetches via its cache-busted URL.
-        await fsp.access(absPath); // skip if it vanished
+        if (project.hostId) {
+          await fileService.readFile(project.path, entry.clientPath); // existence probe
+        } else {
+          await fsp.access(absPath); // skip if it vanished
+        }
         this._send({ type: 'file_changed', projectId, path: entry.clientPath });
         return;
       }
-      const { content, size } = await this.fileService.readFile(project.path, entry.clientPath);
+      const { content, size } = await fileService.readFile(project.path, entry.clientPath);
       this._send({ type: 'file_changed', projectId, path: entry.clientPath, content, size });
     } catch {
       // Deleted or unreadable mid-flight - the dir refresh covers the tree side.
@@ -179,10 +233,18 @@ class FileWatcher {
       // If the whole directory was removed, its child-removal events would
       // otherwise ask the client to re-list a path that's gone; the parent
       // directory's own event is what actually drops it from the tree.
-      const absDir = canonDir === '' ? root : path.join(root, ...canonDir.split('/'));
+      const project = this.resolveProject(projectId);
+      if (!project) return;
+      const fileService = this.fileServiceFor(project);
       try {
-        const st = await fsp.stat(absDir);
-        if (!st.isDirectory()) return;
+        if (project.hostId) {
+          // No cheap remote "is it still a directory" probe beyond listing it.
+          await fileService.listDirectory(project.path, this._toClientDir(canonDir));
+        } else {
+          const absDir = canonDir === '' ? root : path.join(root, ...canonDir.split('/'));
+          const st = await fsp.stat(absDir);
+          if (!st.isDirectory()) return;
+        }
       } catch {
         return;
       }

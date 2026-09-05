@@ -12,7 +12,7 @@ function isHiddenSession(name) {
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, ttsService, sttService, moduleService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, fileServiceFor, refreshHostCache, removeFromHostCache, hostPool, ttsService, sttService, moduleService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
@@ -105,6 +105,86 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
       res.status(status).json(data || {});
     } catch (err) {
       routeLog.error(`DELETE /api/projects/${req.params.id} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
+  });
+
+  // ssh_argv never crosses this boundary (../relay/docs/ssh-hosts.md): relay's
+  // hostView carries it so relay/relayLLM/eve can each derive the same ssh
+  // invocation, but only eve's server-side hostCache (server.js) keeps it —
+  // every response the browser can see strips it here.
+  function stripSshArgv(hostView) {
+    if (!hostView || typeof hostView !== 'object') return hostView;
+    const { ssh_argv, ...rest } = hostView;
+    return rest;
+  }
+
+  app.get('/api/hosts', requireAuth, async (req, res) => {
+    try {
+      const { status, data } = await relayTransport.fetch('GET', '/api/hosts');
+      if (status >= 200 && status < 300 && Array.isArray(data)) {
+        refreshHostCache(data);
+        res.status(status).json(data.map(stripSshArgv));
+      } else {
+        res.status(status).json(data);
+      }
+    } catch (err) {
+      routeLog.error('GET /api/hosts failed:', err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
+  });
+
+  async function proxyHostMutation(method, relayPath, body, res, errLabel) {
+    try {
+      const { status, data } = await relayTransport.fetch(method, relayPath, body);
+      if (status >= 200 && status < 300 && data && data.id) {
+        refreshHostCache([data]);
+      }
+      res.status(status).json(stripSshArgv(data) ?? {});
+    } catch (err) {
+      routeLog.error(`${errLabel} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
+  }
+
+  app.post('/api/hosts', requireAuth, (req, res) =>
+    proxyHostMutation('POST', '/api/hosts', req.body, res, 'POST /api/hosts'));
+
+  app.put('/api/hosts/:id', requireAuth, (req, res) =>
+    proxyHostMutation('PUT', `/api/hosts/${req.params.id}`, req.body, res, `PUT /api/hosts/${req.params.id}`));
+
+  app.delete('/api/hosts/:id', requireAuth, async (req, res) => {
+    try {
+      const { status, data } = await relayTransport.fetch('DELETE', `/api/hosts/${req.params.id}`);
+      if (status >= 200 && status < 300) {
+        removeFromHostCache(req.params.id);
+        // Deleting a host referenced by a project is refused by relay
+        // (409) before this ever runs; a live agent for it is stale either way.
+        hostPool?.disconnect(req.params.id);
+      }
+      res.status(status).json(data || {});
+    } catch (err) {
+      routeLog.error(`DELETE /api/hosts/${req.params.id} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
+  });
+
+  app.post('/api/hosts/:id/probe', requireAuth, (req, res) =>
+    proxyHostMutation('POST', `/api/hosts/${req.params.id}/probe`, undefined, res, `POST /api/hosts/${req.params.id}/probe`));
+
+  app.post('/api/hosts/:id/disconnect', requireAuth, async (req, res) => {
+    try {
+      const { status, data } = await relayTransport.fetch('POST', `/api/hosts/${req.params.id}/disconnect`);
+      if (status >= 200 && status < 300 && data && data.id) {
+        refreshHostCache([data]);
+      }
+      // Tears down eve's own file-agent connection too — the operator's
+      // "disconnect" means "stop talking to this host", not just relay's
+      // ssh ControlMaster.
+      hostPool?.disconnect(req.params.id);
+      res.status(status).json(stripSshArgv(data) ?? {});
+    } catch (err) {
+      routeLog.error(`POST /api/hosts/${req.params.id}/disconnect failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -262,6 +342,71 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
   const ACTIVE_CONTENT_EXTS = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml']);
   const HTML_PREVIEW_EXTS = new Set(['.html', '.htm']);
 
+  // `send` (what res.sendFile uses locally) infers this from mime-db; a host
+  // file arrives as raw bytes over the agent's stream op instead, so this is
+  // the same idea scaled down to what a project actually contains.
+  const EXT_MIME = {
+    '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8', '.mjs': 'application/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.xml': 'application/xml; charset=utf-8', '.svg': 'image/svg+xml',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+    '.webp': 'image/webp', '.ico': 'image/x-icon', '.bmp': 'image/bmp',
+    '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
+    '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8',
+    '.csv': 'text/csv; charset=utf-8', '.yaml': 'text/yaml; charset=utf-8', '.yml': 'text/yaml; charset=utf-8',
+    '.pdf': 'application/pdf', '.zip': 'application/zip',
+    '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
+    '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+  };
+  const mimeForExt = (ext) => EXT_MIME[ext] || 'application/octet-stream';
+
+  function setFileResponseHeaders(res, req, ext, filename) {
+    if (req.query.preview === '1' && HTML_PREVIEW_EXTS.has(ext)) {
+      res.set('Content-Security-Policy', 'sandbox allow-scripts');
+    } else if (ACTIVE_CONTENT_EXTS.has(ext)) {
+      res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+      res.set('Content-Disposition', `attachment; filename="${filename}"`);
+    } else {
+      res.set('Content-Security-Policy', "default-src 'none'");
+    }
+  }
+
+  // Streams a host project's file through remote-fs-agent.js's `stream` op
+  // (64 KiB base64 chunks, decoded by HostAgent) instead of res.sendFile —
+  // there is no local path to hand Express. Chunked transfer-encoding
+  // applies automatically since Content-Length is never set.
+  async function serveHostFile(req, res, project, relativePath) {
+    const remoteFs = fileServiceFor(project);
+    let full;
+    try {
+      full = remoteFs.validatePath(project.path, relativePath);
+    } catch {
+      return res.status(403).json({ error: 'Path traversal not allowed' });
+    }
+
+    const ext = path.posix.extname(full).toLowerCase();
+    setFileResponseHeaders(res, req, ext, path.posix.basename(full));
+
+    let headerSent = false;
+    try {
+      await remoteFs.stream(project.path, relativePath, (chunk) => {
+        if (!headerSent) {
+          headerSent = true;
+          res.set('Content-Type', mimeForExt(ext));
+        }
+        res.write(chunk);
+      });
+      if (!headerSent) res.set('Content-Type', mimeForExt(ext)); // zero-byte file
+      res.end();
+    } catch (err) {
+      if (res.headersSent) { res.destroy(); return; }
+      const status = err.code === 'ENOENT' ? 404 : err.code === 'TRAVERSAL' ? 403 : 503;
+      res.status(status).json({ error: err.message || 'File not found' });
+    }
+  }
+
   app.get('/api/files/:projectId/*', requireAuth, (req, res) => {
     const project = resolveProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -269,26 +414,23 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     const relativePath = req.params[0];
     if (!relativePath) return res.status(400).json({ error: 'Path required' });
 
+    res.set('X-Content-Type-Options', 'nosniff');
+
+    if (project.hostId) {
+      return serveHostFile(req, res, project, relativePath);
+    }
+
     const base = path.resolve(project.path);
     const resolved = path.resolve(base, relativePath);
     if (!fileService.isPathWithin(base, resolved)) {
       return res.status(403).json({ error: 'Path traversal not allowed' });
     }
 
-    res.set('X-Content-Type-Options', 'nosniff');
-
     const ext = path.extname(resolved).toLowerCase();
     // dot-directories (e.g. .playwright-cli, .claude) hold legitimate,
     // already-listed project files; 'deny' would 403 every file under one.
     const options = { dotfiles: 'allow' };
-    if (req.query.preview === '1' && HTML_PREVIEW_EXTS.has(ext)) {
-      res.set('Content-Security-Policy', 'sandbox allow-scripts');
-    } else if (ACTIVE_CONTENT_EXTS.has(ext)) {
-      res.set('Content-Security-Policy', "default-src 'none'; sandbox");
-      res.set('Content-Disposition', `attachment; filename="${path.basename(resolved)}"`);
-    } else {
-      res.set('Content-Security-Policy', "default-src 'none'");
-    }
+    setFileResponseHeaders(res, req, ext, path.basename(resolved));
 
     res.sendFile(resolved, options, (err) => {
       if (err && !res.headersSent) {
