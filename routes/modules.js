@@ -30,6 +30,10 @@ function register(app, { requireAuth, moduleService, resolveProject, log }) {
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
     const project = resolveProject(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    // Modules are served from the console's disk (decision in
+    // ../relay/docs/ssh-hosts.md — v2 for a host project); an empty list
+    // rather than a 404 so the modules panel just renders nothing.
+    if (project.hostId) return res.json({ modules: [] });
     try {
       const modules = await moduleService.listModules(project.path);
       res.json({ modules });
@@ -43,6 +47,7 @@ function register(app, { requireAuth, moduleService, resolveProject, log }) {
     const { projectId, moduleName } = req.params;
     const project = resolveProject(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (project.hostId) return res.status(404).json({ error: 'Modules are not available on a host project' });
     try {
       const manifest = await moduleService.getModule(project.path, moduleName);
       res.json(moduleService.publicView(manifest));
@@ -56,6 +61,7 @@ function register(app, { requireAuth, moduleService, resolveProject, log }) {
     const { projectId, moduleName } = req.params;
     const project = resolveProject(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (project.hostId) return res.status(404).json({ error: 'Modules are not available on a host project' });
 
     try {
       let relPath = req.params[0];
