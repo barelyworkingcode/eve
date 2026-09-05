@@ -403,12 +403,26 @@ class ProjectPanel {
 
     const nameEl = document.createElement('span');
     nameEl.className = 'project-tree__session-name';
-    let displayName = session.name || session.id;
-    if (project && displayName.startsWith(project.name + ' - ')) {
-      displayName = displayName.slice(project.name.length + 3);
-    }
+    const displayName = sessionDisplayName(session, project) || session.id;
     nameEl.textContent = displayName;
+    nameEl.title = displayName;
     item.appendChild(nameEl);
+
+    if (session.active) {
+      const live = document.createElement('span');
+      live.className = 'project-tree__live';
+      live.title = 'Running';
+      item.appendChild(live);
+    }
+
+    const openedAt = this._sessionOpenedAt(session.id);
+    if (openedAt) {
+      const time = document.createElement('span');
+      time.className = 'project-tree__session-time';
+      time.textContent = relativeTime(openedAt);
+      time.title = new Date(openedAt).toLocaleString();
+      item.appendChild(time);
+    }
 
     if (session.model) {
       const badge = document.createElement('span');
@@ -441,6 +455,11 @@ class ProjectPanel {
     wrapper.appendChild(deleteAction);
     wrapper.appendChild(item);
     container.appendChild(wrapper);
+  }
+
+  _sessionOpenedAt(sessionId) {
+    if (typeof SessionRecents === 'undefined') return null;
+    return SessionRecents.get(sessionId)?.lastOpenedAt || null;
   }
 
   _showSessionMenu(x, y, session) {

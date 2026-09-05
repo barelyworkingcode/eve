@@ -10,6 +10,7 @@ class ShellLauncherDialog extends DialogBase {
       this.projectId = data.projectId;
       this.render();
       this.show();
+      this._applyIntent(data.intent);
     });
 
     this.bus.on(EVT.TERMINAL_TEMPLATES_LOADED, () => {
@@ -38,6 +39,15 @@ class ShellLauncherDialog extends DialogBase {
 
     this._setActiveTab = setActiveTab;
     this._showTab('new');
+  }
+
+  // Home-screen tiles open the launcher already pointed at one card, so a
+  // "Chat" tile is one click to the model form rather than two.
+  _applyIntent(intent) {
+    if (!intent) return;
+    if (intent === 'web-chat') return this._showWebUIForm();
+    if (intent === 'voice-chat') return this._showVoiceChatForm();
+    if (intent.startsWith('terminal:')) return this._launchTerminal(intent.slice('terminal:'.length));
   }
 
   _showTab(tabName) {

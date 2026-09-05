@@ -261,3 +261,17 @@
   .panel-action-btn { min-height: 48px; }
   .tab-close { width: 24px; height: 24px; }
 }
+
+/* — Rail: live-session dot (a provider is alive in that project) ----------- */
+.rail__item { position: relative; }
+.rail__live {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 2px var(--bg-secondary);
+  pointer-events: none;
+}

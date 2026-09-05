@@ -421,11 +421,19 @@ class TerminalManager {
   // keystrokes into the live PTY and never receives another byte back. That
   // reads as "the UI froze", and only a reload clears it — a reload rebuilds
   // this.terminals from empty, which is the one path that re-joins. Marking
-  // them here makes onTerminalList/showTerminal re-join instead. No-op on the
-  // first connect, when nothing is open yet.
-  markTerminalsForRejoin() {
-    for (const terminal of this.terminals.values()) {
-      if (!terminal.exited) terminal.needsReconnect = true;
+  // them here makes onTerminalList/showTerminal re-join instead.
+  //
+  // `onlyIds` scopes the marking to terminals that existed when the socket
+  // opened. The caller runs after async project/session loads, and a terminal
+  // created inside that window is already a viewer on the new socket —
+  // relayLLM auto-joins the creator — so re-joining it would send a spurious
+  // terminal_reconnect and a second replay. null marks everything (used for
+  // an upstream-only relay reconnect, where every viewer set was lost).
+  markTerminalsForRejoin(onlyIds = null) {
+    for (const [id, terminal] of this.terminals) {
+      if (terminal.exited) continue;
+      if (onlyIds && !onlyIds.has(id)) continue;
+      terminal.needsReconnect = true;
     }
   }
 
