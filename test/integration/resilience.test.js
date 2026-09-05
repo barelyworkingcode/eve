@@ -5,6 +5,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { startEve } = require('./harness');
+const { createFakeRelay } = require('./fake-relay');
 
 describe('resilience (relay down / reconnect)', () => {
   let projectDir;
@@ -79,6 +80,45 @@ describe('resilience (relay down / reconnect)', () => {
         await ws2.close();
       }
     } finally {
+      await eve.stop();
+    }
+  });
+
+  it('retries the upstream leg on its own and forwards session traffic again once relay comes back', async () => {
+    const eve = await startEve({ projects: [project()] });
+    let revived = null;
+    try {
+      const ws = await eve.connectWs();
+      try {
+        ws.send({ type: 'create_session', projectId: 'p1' });
+        const created = await ws.waitFor((f) => f.type === 'session_created');
+
+        // create_session's own internal join_session/session_joined round trip
+        // (suppressed from the browser — see relay-client.js suppressNextJoin)
+        // has to land before relay goes away, or the suppress flag is left set
+        // forever and swallows the session_joined this test waits for below.
+        await eve.relay.waitForInbound((f) => f.type === 'join_session' && f.sessionId === created.sessionId);
+        await new Promise((r) => setTimeout(r, 200));
+
+        await eve.relay.close();
+        await ws.waitFor((f) => f.type === 'relay_status' && f.connected === false);
+
+        // RELAY_FRONTEND_URL was fixed at eve's spawn — the only way back is a
+        // fresh relay bound to the exact same port eve is retrying against.
+        revived = createFakeRelay();
+        await revived.listen(eve.relayPort);
+
+        await ws.waitFor((f) => f.type === 'relay_status' && f.connected === true, 10000);
+
+        const from = ws.mark();
+        ws.send({ type: 'join_session', sessionId: created.sessionId });
+        const joined = await ws.waitFor((f) => f.type === 'session_joined', 5000, from);
+        expect(joined.sessionId).toBe(created.sessionId);
+      } finally {
+        await ws.close();
+      }
+    } finally {
+      if (revived) await revived.close();
       await eve.stop();
     }
   });

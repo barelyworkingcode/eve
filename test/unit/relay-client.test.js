@@ -1,5 +1,22 @@
+const { EventEmitter } = require('events');
 const WebSocket = require('ws');
 const RelayClient = require('../../relay-client');
+
+// A minimal stand-in for the real `ws` socket connect() drives: real events
+// (open/message/close/error) via EventEmitter, plus the readyState/send/close
+// surface relay-client.js reads directly.
+function makeFakeUpstream() {
+  const ws = new EventEmitter();
+  ws.readyState = WebSocket.CONNECTING;
+  ws.send = jest.fn();
+  ws.close = jest.fn();
+  return ws;
+}
+
+function openFakeUpstream(ws) {
+  ws.readyState = WebSocket.OPEN;
+  ws.emit('open');
+}
 
 function makeSocket(readyState = WebSocket.OPEN) {
   return {
@@ -161,6 +178,114 @@ describe('RelayClient', () => {
       expect(client.ws).toBeNull();
       expect(client.moduleSessions.size).toBe(0);
       expect(client._closed).toBe(true);
+    });
+  });
+
+  describe('connect() self-heals the upstream leg (mirrors _connectScheduler)', () => {
+    let upstreams;
+    let rTransport;
+    let rBrowserWs;
+    let rClient;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      upstreams = [];
+      rTransport = {
+        createWebSocket: jest.fn((path) => {
+          const ws = makeFakeUpstream();
+          if (path === '/ws') upstreams.push(ws);
+          return ws;
+        }),
+      };
+      rBrowserWs = makeSocket();
+      rClient = new RelayClient(rTransport, rBrowserWs, null, null);
+    });
+
+    afterEach(() => {
+      rClient.close();
+    });
+
+    it('resolves connect() from the first open and never re-settles it on a later reconnect', async () => {
+      const connected = rClient.connect();
+      openFakeUpstream(upstreams[0]);
+      await expect(connected).resolves.toBeUndefined();
+
+      upstreams[0].emit('close');
+      jest.advanceTimersByTime(2000);
+      expect(upstreams).toHaveLength(2);
+      expect(() => openFakeUpstream(upstreams[1])).not.toThrow();
+    });
+
+    it('retries with capped exponential backoff after the upstream drops', () => {
+      rClient.connect().catch(() => {});
+      openFakeUpstream(upstreams[0]);
+
+      upstreams[0].emit('close');
+      jest.advanceTimersByTime(1999);
+      expect(upstreams).toHaveLength(1);
+      jest.advanceTimersByTime(1);
+      expect(upstreams).toHaveLength(2);
+
+      upstreams[1].emit('close');
+      jest.advanceTimersByTime(3999);
+      expect(upstreams).toHaveLength(2);
+      jest.advanceTimersByTime(1);
+      expect(upstreams).toHaveLength(3);
+    });
+
+    it('resets the backoff delay after a successful reconnect', () => {
+      rClient.connect().catch(() => {});
+      openFakeUpstream(upstreams[0]);
+
+      upstreams[0].emit('close');
+      jest.advanceTimersByTime(2000);
+      openFakeUpstream(upstreams[1]);
+
+      upstreams[1].emit('close');
+      jest.advanceTimersByTime(1999);
+      expect(upstreams).toHaveLength(2);
+      jest.advanceTimersByTime(1);
+      expect(upstreams).toHaveLength(3);
+    });
+
+    it('keeps retrying even when the very first connection attempt fails outright', async () => {
+      const connected = rClient.connect();
+      connected.catch(() => {});
+      upstreams[0].emit('error', new Error('ECONNREFUSED'));
+      upstreams[0].emit('close');
+      await expect(connected).rejects.toThrow('ECONNREFUSED');
+
+      jest.advanceTimersByTime(2000);
+      expect(upstreams).toHaveLength(2);
+    });
+
+    it('stops retrying once close() is called', () => {
+      rClient.connect().catch(() => {});
+      openFakeUpstream(upstreams[0]);
+
+      rClient.close();
+      upstreams[0].emit('close');
+      jest.advanceTimersByTime(30000);
+      expect(upstreams).toHaveLength(1);
+    });
+
+    it('tells the browser relay_status:false immediately on loss, bypassing the batch timer', () => {
+      rClient.connect().catch(() => {});
+      openFakeUpstream(upstreams[0]);
+
+      upstreams[0].emit('close');
+      expect(rBrowserWs.sent).toContainEqual({ type: 'relay_status', connected: false });
+    });
+
+    it('does not announce relay_status on the initial connect, only on a later re-establishment', () => {
+      rClient.connect().catch(() => {});
+      openFakeUpstream(upstreams[0]);
+      expect(rBrowserWs.sent).not.toContainEqual(expect.objectContaining({ type: 'relay_status' }));
+
+      upstreams[0].emit('close');
+      jest.advanceTimersByTime(2000);
+      openFakeUpstream(upstreams[1]);
+      expect(rBrowserWs.sent).toContainEqual({ type: 'relay_status', connected: true });
     });
   });
 });
