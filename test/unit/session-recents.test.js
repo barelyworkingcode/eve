@@ -133,4 +133,13 @@ describe('ui-utils naming helpers', () => {
     const renamed = { id: 's1', name: 'Inbox triage', model: 'host/omlx/Chat' };
     expect(utils.sessionDisplayName(renamed, project)).toBe('Inbox triage');
   });
+
+  test('sessionDisplayName falls back to the server preview before the model name', () => {
+    const project = { name: 'Chat Test' };
+    const unseen = { id: 's9', name: 'Chat Test - sonnet', model: 'sonnet', preview: 'Plan the migration' };
+    expect(utils.sessionDisplayName(unseen, project)).toBe('Plan the migration');
+    SessionRecents.setTitle('s9', 'What I actually typed');
+    expect(utils.sessionDisplayName(unseen, project)).toBe('What I actually typed');
+    expect(utils.sessionDisplayName({ id: 's8', name: 'Chat Test - sonnet', model: 'sonnet', preview: '  ' }, project)).toBe('sonnet');
+  });
 });

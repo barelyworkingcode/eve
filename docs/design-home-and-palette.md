@@ -37,11 +37,14 @@ first ask. Lists strip the `"<Project> - "` prefix; tabs keep it, because the
 tab bar is where project context lives and an e2e characterisation test pins
 that.
 
-**Follow-up worth doing upstream**: `relayLLM/session.go#ListSessions` could
-add `createdAt`, `messageCount` and a first-turn `preview` for a few lines of
-Go. Eve would then know about sessions this browser never opened. The client
-memory stays useful either way (it is what makes titles appear instantly on
-first send), so the two compose.
+**Server side**: `relayLLM/session.go#ListSessions` (branch
+`feat/session-list-metadata`) adds `createdAt`, `messageCount`,
+`lastMessageAt` and a first-user-turn `preview` to every list entry. Eve
+treats them as fallbacks: the remembered local title beats `preview`, and the
+local last-opened time beats `lastMessageAt`/`createdAt`, because what *you*
+did on this device is the better recency signal. The two compose: the server
+covers sessions this browser never opened; the client memory makes titles
+appear the instant you send a first message, before any list refresh.
 
 ## Home screen (`public/home-screen.js`, `apple/home.css`)
 
