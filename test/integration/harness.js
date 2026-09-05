@@ -141,6 +141,7 @@ async function startEve({ projects = [], env: envOverride = {} } = {}) {
   return {
     baseUrl,
     relay,
+    relayPort,
     dataDir,
     get: (p, opts) => fetch(`${baseUrl}${p}`, opts),
     connectWs: async () => {
