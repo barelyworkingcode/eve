@@ -40,6 +40,9 @@ for (const viewport of VIEWPORTS) {
         colorScheme: theme,
       });
       await seedTheme(context, theme);
+      // The Home screen greets by hour and prints today's date, and session
+      // rows show "opened Nm ago" — pin the clock or the pixels drift daily.
+      await context.clock.setFixedTime(new Date('2026-09-04T15:30:00'));
       await stubVoiceDaemons(context);
       const page = await context.newPage();
 

@@ -136,6 +136,8 @@
   <link rel="stylesheet" href="apple/toast.css">
   <link rel="stylesheet" href="apple/dialogs.css">
   <link rel="stylesheet" href="apple/modals.css">
+  <link rel="stylesheet" href="apple/home.css">
+  <link rel="stylesheet" href="apple/palette.css">
   <link rel="stylesheet" href="apple/auth.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
   <script src="/marked/lib/marked.umd.js"></script>
@@ -183,10 +185,7 @@
     <main class="main">
       <div id="welcomeScreen" class="welcome-screen">
         <button id="welcomeOpenSidebar" class="menu-toggle welcome-menu-toggle" title="Open menu" data-testid="welcome-sidebar-open">&#9776;</button>
-        <div class="welcome-content">
-          <h2>Welcome to Home|Work</h2>
-          <p>Open the sidebar to add a project or start a new session.</p>
-        </div>
+        <div class="welcome-content home" id="homeContent" data-testid="home-screen"></div>
       </div>
 
       <div id="chatScreen" class="chat-screen hidden">
@@ -494,6 +493,7 @@
   <script src="core/state-store.js"></script>
   <script src="core/api-client.js"></script>
   <script src="core/ui-utils.js"></script>
+  <script src="core/session-recents.js"></script>
   <script src="core/settings-manager.js"></script>
   <script src="core/feature-registry.js"></script>
 
@@ -544,6 +544,7 @@
   <script src="dialogs/settings-dialog.js"></script>
   <script src="dialogs/project-dialog.js"></script>
   <script src="dialogs/search-dialog.js"></script>
+  <script src="dialogs/command-palette.js"></script>
 
   <!-- Viewer modules -->
   <script src="viewers/viewer-registry.js"></script>
@@ -558,6 +559,7 @@
   <script src="sidebar/activity-rail.js"></script>
   <script src="sidebar/project-panel.js"></script>
   <script src="sidebar/project-tree.js"></script>
+  <script src="home-screen.js"></script>
 
   <script src="modules/module-store.js"></script>
   <script src="modules/module-host.js"></script>

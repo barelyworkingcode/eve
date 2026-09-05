@@ -180,3 +180,70 @@ function readScopeSlugFromUrl() {
   const segs = window.location.pathname.split('/').filter(Boolean);
   return segs.length === 1 ? segs[0].toLowerCase() : '';
 }
+
+// Two-letter monogram: initials of the first two words, or the first two
+// letters of a single word. One letter collapses ("Hermes Mail", "Hermes
+// Files", "Hermes Files v3" all read "H"); two keeps siblings apart.
+function projectMonogram(name) {
+  const words = String(name || '').trim().split(/[\s_\-/]+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+// Golden-angle hue spread from a string hash. Adjacent hashes land far apart
+// on the wheel, so sibling projects with near-identical names don't collide.
+function projectHue(seed) {
+  const key = String(seed || '');
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return Math.round((h * 137.508) % 360);
+}
+
+function projectColor(seed) {
+  return `hsl(${projectHue(seed)}, 42%, 44%)`;
+}
+
+// Rank-based hue: golden-angle steps from a blue origin, so consecutive
+// ranks are ~137° apart and no two of the first dozen fall within 20°.
+function projectColorAtRank(rank) {
+  const hue = Math.round((212 + rank * 137.508) % 360);
+  return `hsl(${hue}, 46%, 45%)`;
+}
+
+// Compact by design ("12m", "3h", "Sep 4"): it sits in 280px sidebar rows next
+// to a model badge, where "12 minutes ago" would eat the title.
+function relativeTime(ts, now = Date.now()) {
+  const t = typeof ts === 'number' ? ts : Date.parse(ts);
+  if (!t || Number.isNaN(t)) return '';
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 45) return 'now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.round(h / 24);
+  if (d < 7) return `${d}d`;
+  const w = Math.round(d / 7);
+  if (w < 5) return `${w}w`;
+  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+// The one rule for what to call a session in lists. A user-chosen name wins;
+// relayLLM's auto name ("<Project> - <model>") loses to the first thing the
+// user actually asked, once SessionRecents has seen it.
+function sessionDisplayName(session, project, { stripProject = true } = {}) {
+  const fullName = session?.name || '';
+  let name = fullName;
+  if (project && name.startsWith(project.name + ' - ')) name = name.slice(project.name.length + 3) || fullName;
+  const model = session?.model || '';
+  const isAutoName = !name || name === model || name === model.split('/').pop();
+  const shown = stripProject ? name : fullName;
+  if (!isAutoName) return shown;
+  const remembered = (typeof SessionRecents !== 'undefined') ? SessionRecents.get(session?.id)?.title : '';
+  return remembered || shown;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { projectMonogram, projectHue, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName };
+}

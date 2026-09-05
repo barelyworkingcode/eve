@@ -1,0 +1,233 @@
+/* ============================================================================
+   Command palette (⌘K) — Spotlight-style sheet. DOM from command-palette.js.
+   Reuses the DialogBase shell (.dialog / .dialog__backdrop / .dialog__panel)
+   and restyles the panel as a top-anchored, borderless search sheet.
+   ========================================================================== */
+
+#command-palette.dialog {
+  align-items: flex-start;
+  padding-top: clamp(48px, 14vh, 140px);
+}
+
+#command-palette .dialog__panel.palette {
+  width: min(640px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(560px, calc(100vh - 96px));
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  -webkit-backdrop-filter: var(--blur-strong);
+  backdrop-filter: var(--blur-strong);
+  border: 0.5px solid var(--border-color);
+  box-shadow: var(--shadow-window), var(--edge-light);
+  animation: palette-in var(--dur-2) var(--ease-spring) both;
+}
+@keyframes palette-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* — Input row --------------------------------------------------------------- */
+.palette__input-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.palette__icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.palette__input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-title3);
+  font-weight: var(--weight-regular);
+  letter-spacing: -0.01em;
+}
+.palette__input::placeholder { color: var(--text-muted); }
+/* The sheet itself is the focus target; no inner ring on the bare input. */
+.palette__input:focus,
+.palette__input:focus-visible { outline: none; box-shadow: none; border: none; background: transparent; }
+
+.palette__kbd {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--border-color);
+  border-bottom-width: 1.5px;
+  border-radius: 5px;
+  padding: 1px 5px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* — Results ----------------------------------------------------------------- */
+.palette__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px 8px;
+  overscroll-behavior: contain;
+}
+.palette__list::-webkit-scrollbar { width: 8px; }
+.palette__list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+
+.palette__section {
+  padding: 10px 10px 4px;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background var(--dur-1);
+}
+.palette__item[aria-selected="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+.palette__item[aria-selected="true"] .palette__item-sub,
+.palette__item[aria-selected="true"] .palette__item-meta,
+.palette__item[aria-selected="true"] .palette__item-icon { color: rgba(255, 255, 255, 0.78); }
+.palette__item[aria-selected="true"] .palette__kbd,
+.palette__item[aria-selected="true"] .palette__chip {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.palette__item mark {
+  background: transparent;
+  color: inherit;
+  font-weight: var(--weight-bold);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.palette__item-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+}
+.palette__item-icon svg { width: 18px; height: 18px; }
+
+.palette__monogram {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--project-avatar-bg, var(--accent));
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.02em;
+  box-shadow: var(--edge-light);
+}
+
+.palette__item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.palette__item-label {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette__item-sub {
+  font-size: var(--text-subhead);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette__item-meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
+}
+.palette__chip {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 0.5px solid transparent;
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette__live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent);
+}
+
+.palette__empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-callout);
+}
+
+/* — Footer ------------------------------------------------------------------ */
+.palette__footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-top: 0.5px solid var(--separator);
+  color: var(--text-muted);
+  font-size: var(--text-footnote);
+}
+.palette__footer .palette__kbd { margin-left: 8px; }
+.palette__footer .palette__kbd:first-child { margin-left: 0; }
+
+@media (max-width: 768px) {
+  #command-palette.dialog { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
+  #command-palette .dialog__panel.palette { max-height: calc(100vh - 24px); }
+  .palette__input { font-size: 16px; }
+  .palette__item { padding: 11px 10px; }
+  .palette__footer { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #command-palette .dialog__panel.palette { animation: none; }
+}

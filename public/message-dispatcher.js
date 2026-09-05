@@ -428,6 +428,10 @@ class MessageDispatcher {
         history = [];
         this.state.sessionHistories.set(sid, history);
       }
+      if (history.length === 0 && typeof SessionRecents !== 'undefined' && SessionRecents.setTitle(sid, data.text)) {
+        this.state.updateSession(sid, {});
+        this.tabManager?.updateTabLabel(sid, this.app.getSessionDisplayName(sid));
+      }
       history.push({ role: 'user', content: data.text });
       return;
     }
@@ -666,6 +670,10 @@ class MessageDispatcher {
 
     const serverHistory = (data.history && data.history.length > 0) ? data.history : [];
     this.state.sessionHistories.set(data.sessionId, serverHistory);
+    if (typeof SessionRecents !== 'undefined'
+        && SessionRecents.setTitle(data.sessionId, SessionRecents.titleFromHistory(serverHistory))) {
+      this.state.updateSession(data.sessionId, {});
+    }
 
     if (isResubscribeJoin) {
       this.flushBackgroundBuffer(data.sessionId);

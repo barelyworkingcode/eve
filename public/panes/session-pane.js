@@ -17,7 +17,7 @@ panes.registerType({
     const session = ctx.app.sessions.get(spec.sessionId);
     let label;
     if (session?.name) {
-      label = session.name;
+      label = ctx.app.getSessionDisplayName(spec.sessionId);
     } else if (session?.projectId) {
       const project = ctx.app.projects.get(session.projectId);
       label = project?.name || session.directory;

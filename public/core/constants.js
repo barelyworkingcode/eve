@@ -78,6 +78,7 @@ const EVT = {
   DIALOG_CONFIRM: 'dialog:confirm',
   DIALOG_SETTINGS: 'dialog:settings',
   DIALOG_SEARCH: 'dialog:search',
+  DIALOG_COMMAND_PALETTE: 'dialog:commandPalette',
 
   SEARCH_RESULTS: 'search:results',
   SEARCH_ERROR: 'search:error',

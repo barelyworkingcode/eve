@@ -63,7 +63,9 @@ Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work i
 
 Frontend is vanilla JS (no framework, no build step), mid-migration from a legacy orchestrator (`app.js`) to an EventBus + DI-container + StateStore core (`public/core/`). New code: `public/core/`, `public/sidebar/` (VS Code-style explorer), `public/dialogs/` (`DialogBase` + shell-launcher/task dialogs). Legacy still active: `app.js`, `ws-client.js`, `message-dispatcher.js`, `message-renderer.js`, `file-attachment-manager.js`, `modal-manager.js`, `tab-manager.js`, `file-browser.js`, `file-editor.js`, `terminal-manager.js`.
 
-**localStorage keys:** `eve-open-sessions` and `eve-open-files` (24h expiry); `eve-tree-expand` (no TTL). Project expand state is read from the DOM at render time, not persisted.
+**localStorage keys:** `eve-open-sessions` and `eve-open-files` (24h expiry); `eve-tree-expand` (no TTL); `eve-session-recents` (`core/session-recents.js` — per-session `{title, lastOpenedAt}` learned from the first user turn and each open; outlives the tab, pruned to 80). Project expand state is read from the DOM at render time, not persisted.
+
+**Orientation surfaces** (design rationale: [docs/design-home-and-palette.md](docs/design-home-and-palette.md)): `home-screen.js` renders behind `#welcomeScreen`; `dialogs/command-palette.js` is ⌘K. Session labels everywhere go through `sessionDisplayName()` in `core/ui-utils.js`; project avatar colours through `StateStore.projectColor(id)` (rank-based, not hashed).
 
 **Local server restart** — see [AGENTS.md](AGENTS.md) for the index.html-cached-at-startup gotcha (editing `index.html` needs a restart; other `public/` files reload live). Eve runs as a Relay-managed service (`relay service list` → id `eve`); restart with `npm run relay:restart`.
 
