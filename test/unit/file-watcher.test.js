@@ -33,7 +33,7 @@ describe('FileWatcher', () => {
       return undefined;
     };
 
-    watcher = new FileWatcher(mockWs, fileService, resolveProject);
+    watcher = new FileWatcher(mockWs, () => fileService, resolveProject);
   });
 
   afterEach(() => {

@@ -28,6 +28,7 @@ function stampFrame(f, sessionId) {
 
 function createFakeRelay() {
   const projects = new Map();
+  const hosts = new Map();
   const sessions = new Map();
   const sessionScripts = new Map();
   const requests = [];
@@ -93,6 +94,50 @@ function createFakeRelay() {
         if (req.method === 'DELETE') { projects.delete(id); return send(200, {}); }
       }
 
+      // SSH hosts (../relay/docs/ssh-hosts.md). ssh_argv here is whatever the
+      // test set it to — normally a fake "ssh" that execs remote-fs-agent.js
+      // locally instead of real ssh, so no network or real host is involved.
+      if (p === '/api/hosts' && req.method === 'GET') return send(200, [...hosts.values()]);
+      if (p === '/api/hosts' && req.method === 'POST') {
+        const id = parsed.id || `h-${++seq}`;
+        const host = { status: 'unknown', ssh_argv: [], ...parsed, id };
+        hosts.set(id, host);
+        return send(201, host);
+      }
+      const hm = p.match(/^\/api\/hosts\/([^/]+)$/);
+      if (hm) {
+        const id = hm[1];
+        if (req.method === 'GET') return hosts.has(id) ? send(200, hosts.get(id)) : send(404, { error: 'Host not found' });
+        if (req.method === 'PUT') {
+          const host = { ...(hosts.get(id) || {}), ...parsed, id };
+          hosts.set(id, host);
+          return send(200, host);
+        }
+        if (req.method === 'DELETE') {
+          const referencing = [...projects.values()].filter((pr) => pr.host_id === id).map((pr) => pr.name);
+          if (referencing.length > 0) return send(409, { error: 'host is referenced by projects', projects: referencing });
+          hosts.delete(id);
+          return send(204, null);
+        }
+      }
+      const probeMatch = p.match(/^\/api\/hosts\/([^/]+)\/probe$/);
+      if (probeMatch && req.method === 'POST') {
+        const id = probeMatch[1];
+        const host = hosts.get(id);
+        if (!host) return send(404, { error: 'Host not found' });
+        host.probe = { at: new Date().toISOString(), ok: true, os: 'Darwin', arch: 'arm64', home: '/tmp', shell: '/bin/zsh', node_path: process.execPath, node_version: process.version, claude_path: '/usr/local/bin/claude', claude_version: '0.0.0', error: '' };
+        host.status = 'connected';
+        return send(200, host);
+      }
+      const disconnectMatch = p.match(/^\/api\/hosts\/([^/]+)\/disconnect$/);
+      if (disconnectMatch && req.method === 'POST') {
+        const id = disconnectMatch[1];
+        const host = hosts.get(id);
+        if (!host) return send(404, { error: 'Host not found' });
+        host.status = 'idle';
+        return send(200, host);
+      }
+
       // Tracked in `sessions` so a later GET /api/sessions — the reconnect/
       // reload restore path's only session source — can see it. Real
       // relayLLM has no concept of eve's UI-only `sessionType` ("chat" vs
@@ -108,6 +153,14 @@ function createFakeRelay() {
             model: parsed.model || 'fake-model',
             name: parsed.name || '',
           };
+          // Mirrors relayLLM resolving the project's host_id through
+          // ResolvePtyEnv (../relay/docs/ssh-hosts.md "Session and terminal
+          // records gain Host").
+          const project = projects.get(session.projectId);
+          if (project?.host_id && hosts.has(project.host_id)) {
+            const host = hosts.get(project.host_id);
+            session.host = { id: host.id, name: host.name };
+          }
           sessions.set(sessionId, session);
           return send(201, session);
         };
@@ -168,6 +221,9 @@ function createFakeRelay() {
 
   return {
     addProject: (proj) => { projects.set(proj.id, proj); },
+    addHost: (host) => { hosts.set(host.id, { status: 'unknown', ssh_argv: [], ...host }); },
+    getHost: (id) => hosts.get(id),
+    listHosts: () => [...hosts.values()],
     // For reload/restore tests that need GET /api/sessions to already know
     // about an id a localStorage fixture references, without a real POST.
     seedSession: (session) => { sessions.set(session.sessionId, session); },
