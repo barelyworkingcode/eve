@@ -139,3 +139,78 @@ watches — has to be re-established on the reconnect path, and "we already have
 it locally" is not evidence that the server still knows that. Reaching for the
 renderer is the wrong instinct here: check whether frames are arriving at all
 before assuming they arrived and failed to paint.
+
+## The same reconnect bug had a second instance: the upstream leg itself
+
+The fix above re-joins terminals after the *browser* socket drops and
+reconnects. The upstream leg — eve's own `RelayClient` connection to
+relayLLM — had the identical bug one layer down, except worse: nothing
+reconnected it at all. `relay-client.js` used to give up for good on the
+upstream `close` event, on the theory that a browser reconnect always builds
+a fresh `RelayClient` anyway. That's true for a browser-initiated drop, but
+the upstream leg can also die on its own — relay's 60s pong timeout, or
+relayLLM restarting behind relay — while the browser socket stays healthy.
+`RelayClient.send()` silently no-ops once `this.ws` is gone, so every chat
+message, keystroke, and permission response was accepted by eve and quietly
+discarded. Nothing looked wrong until a page reload, because a reload is
+again the one path that builds a fresh connection.
+
+Fix: `relay-client.js` retries the upstream leg with the same capped-backoff
+shape `_connectScheduler`/`_scheduleSchedulerReconnect` already used for the
+scheduler leg, and emits `relay_status {connected}` to the browser on loss
+and on recovery (bypassing the batch timer, so the browser hears about it
+without delay). Recovery is a brand-new relayLLM connection with empty
+per-connection subscription state, exactly like a browser reconnect, so it
+needs the same re-join: `public/app.js#resubscribeAfterReconnect` is the
+`onWebSocketReady` re-subscribe block pulled out so both paths — a fresh
+`RelayClient` and a `relay_status:true` on the existing one — share it
+instead of drifting apart.
+
+Chat didn't need the terminal fix's "clear before replay" step:
+`session_joined`'s history replaces `state.sessionHistories` wholesale
+(`Map.set`, not append) and the renderer always clears before repainting from
+that map, so a re-join can't stack a duplicate transcript the way a
+terminal's byte-stream replay can. Only the terminal path needed
+`replayPending`.
+
+Chat did need a fix the terminal path never had to worry about, though:
+`resubscribeAfterReconnect` re-joins *every* open session tab, and
+`handleSessionJoined` (`public/message-dispatcher.js`) always ended by
+switching the active tab to whichever session's reply landed — first the
+browser-reconnect page-load case, where that's fine because there's no
+existing view yet, then the relay-only case, where it isn't. Terminals don't
+have this problem: `onTerminalList` only re-joins the visible pane blind, and
+hidden ones re-join lazily from `showTerminal` when the user actually
+switches to them, so a background terminal rejoin never touches
+`activeTerminalId`. Sessions rejoin eagerly and eagerly assign
+`currentSessionId`, so with two-plus tabs open a relay-only reconnect — one
+the browser socket never saw, so nothing about it looked like a reconnect to
+the user — would silently pull the visible pane out from under whoever was
+typing, or clear-and-repaint the one active tab as a flicker.
+
+Fix: `resubscribeAfterReconnect(opts)` takes a `silent` flag, true only for
+the relay_status trigger (browser reconnect and initial tab restore keep the
+original behavior — there's either no view to protect yet, or the drop
+already unsettled the page). A silent join is marked via
+`MessageDispatcher.markResubscribeJoin(sessionId)` before it's sent;
+`handleSessionJoined` checks-and-consumes that mark *before* touching
+`state.currentSessionId` — unlike the pre-existing `_silentHistoryRefresh`
+short-circuit, which clobbers `currentSessionId` first and only avoids the
+render, a latent flaw not worth copying into new code. A resubscribe join
+still applies metadata and replaces `sessionHistories` (so the tab is correct
+whenever the user does switch to it), but skips `clearMessages`/`openSession`
+entirely, and calls `renderMessages()` only if the joined id is still the
+current session — a repaint-in-place for the one tab actually on screen,
+never a switch. A genuine, user-initiated join (`app.js#joinSession`, used by
+the sidebar and task viewer) clears any pending mark for that id first, so a
+stale resubscribe expectation can never swallow a later real click; a TTL on
+the mark catches the same hazard if the reply itself is simply very late.
+
+**Rule, extended**: "a browser reconnect always gets a fresh object" is not
+the same claim as "every failure mode is a browser reconnect." Any upstream
+leg with its own liveness (relay, a daemon, a socket relay owns) needs its
+own reconnect story, not a free ride on the browser's. And when that story
+re-triggers existing reconnect logic from a new call site, check what that
+logic does to *visible* state, not just to correctness of the underlying
+data — a fix that's invisible from a browser reconnect (the page was already
+settling) can be very visible from a trigger the user never saw coming.

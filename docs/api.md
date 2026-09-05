@@ -93,7 +93,7 @@ Projects are returned camelCase-normalized and cached for file-handler path reso
 
 Connect to `ws://<host>:<port>`. When auth is required, send `{type:'auth', token}` first; all other frames are blocked until it succeeds. High-frequency server frames are coalesced into a `__batch {msgs:[...]}` envelope the client unwraps and dispatches in order.
 
-**Reconnects re-subscribe from scratch.** A browser reconnect builds a whole new chain — new browser socket, new `RelayClient`, new upstream socket to relay — so relayLLM's per-connection subscription state starts empty. Anything the old connection had joined must be re-joined: `join_session` per open session tab, `terminal_reconnect` per live terminal. Terminals are the sharp edge, because `terminal_input` is routed to the PTY by id from any connection while `terminal_output` goes only to registered viewers — skip the re-join and the pane silently becomes write-only. See [learned.md](learned.md).
+**Reconnects re-subscribe from scratch.** A browser reconnect builds a whole new chain — new browser socket, new `RelayClient`, new upstream socket to relay — so relayLLM's per-connection subscription state starts empty. The upstream leg alone can also drop and reconnect without the browser socket ever closing — relay's own pong timeout, or relayLLM restarting behind it — and lands in the same empty state; `relay-client.js` retries it with capped backoff and tells the browser with `relay_status {connected}`. Either path — a fresh `RelayClient` or a `relay_status:true` on the existing one — must re-join anything the old upstream connection had joined: `join_session` per open session tab, `terminal_reconnect` per live terminal (`public/app.js#resubscribeAfterReconnect`, called from both `onWebSocketReady` and the `relay_status` handler). Terminals are the sharp edge, because `terminal_input` is routed to the PTY by id from any connection while `terminal_output` goes only to registered viewers — skip the re-join and the pane silently becomes write-only. See [learned.md](learned.md).
 
 ### Client → Server
 
@@ -131,7 +131,7 @@ Tasks (forwarded from relayScheduler): `task_started`, `task_completed`, `task_e
 
 Voice/TTS/STT: `tts_done`, `tts_error`, `transcription_result`, `transcription_error`.
 
-UI: `ui_command` (LLM-initiated tab control via the eve-control MCP), `auth_success`, `auth_failed`.
+UI: `ui_command` (LLM-initiated tab control via the eve-control MCP), `auth_success`, `auth_failed`, `relay_status` (`{connected}` — the upstream relayLLM leg, not the browser↔eve link `#connectionStatus` already tracks; see reconnect semantics above).
 
 ### Stats object
 
