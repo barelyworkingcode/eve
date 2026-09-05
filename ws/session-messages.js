@@ -63,6 +63,9 @@ async function handleCreateSession(ctx) {
       metadata: data.directory,
       sessionType: message.sessionType || null,
       voice: message.voice || null,
+      // Present when relayLLM resolved the session onto an SSH host
+      // (../relay/docs/ssh-hosts.md); absent/null for a console session.
+      host: data.host || null,
     }));
 
     // Voice mode is controlled by the client via syncVoiceMode — don't force

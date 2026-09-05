@@ -4,6 +4,13 @@ class StateStore {
     this.sessions = new Map();
     this.sessionHistories = new Map();
     this.projects = new Map();
+    // id -> { id, name, status, error? } — SSH hosts (../relay/docs/ssh-hosts.md).
+    // status is 'connecting'|'connected'|'unreachable' while eve's own file
+    // agent is what changed it (host_status frames), or whatever GET
+    // /api/hosts last reported ('idle'|'unreachable'|'unknown'|'connected')
+    // when seeded via setHosts. A project's own `host` field (id/name/status)
+    // is attached server-side and travels with the project record, not here.
+    this.hosts = new Map();
     this.tasks = new Map();
     // Single Set for both chat sessionId and PTY terminalId runs: both are
     // UUIDs from distinct services and never collide.
@@ -239,4 +246,35 @@ class StateStore {
   setMcps(mcps) {
     this.mcps = mcps || [];
   }
+
+  // Seeds/replaces the full host list, e.g. from GET /api/hosts. Does not
+  // clear entries only known from a live `host_status` frame that GET
+  // /api/hosts hasn't reported yet — a host_status broadcast can arrive
+  // before the next hosts fetch resolves.
+  setHosts(hosts) {
+    for (const h of (hosts || [])) {
+      this.hosts.set(h.id, { ...this.hosts.get(h.id), ...h });
+    }
+    this.bus.emit(EVT.HOST_STATUS, { hostId: null });
+  }
+
+  getHost(id) {
+    return this.hosts.get(id);
+  }
+
+  hostStatus(id) {
+    return this.hosts.get(id)?.status || 'unknown';
+  }
+
+  // Applies a server `host_status` WS frame ({hostId, name, status, error?}).
+  setHostStatus({ hostId, name, status, error }) {
+    if (!hostId) return;
+    const prev = this.hosts.get(hostId) || { id: hostId };
+    this.hosts.set(hostId, { ...prev, id: hostId, name: name || prev.name, status, error: error || undefined });
+    this.bus.emit(EVT.HOST_STATUS, { hostId });
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = StateStore;
 }
