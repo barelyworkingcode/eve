@@ -61,9 +61,33 @@ class ProjectDialog extends DialogBase {
 
       this._editingTemplateIdx = -1;
       this._editingShellTemplate = null;
+      this._hostId = this._project?.hostId || this._project?.host?.id || '';
+      this._hostFormOpen = false;
+      this._hostFormBusy = false;
+      this._hostFormError = '';
+      this._draft = { name: this._project?.name || '', path: this._project?.path || '' };
       this.render();
       this.show();
+      this._refreshHosts();
     });
+  }
+
+  _hosts() {
+    const map = this.state.hosts;
+    if (!map) return [];
+    return Array.from(typeof map.values === 'function' ? map.values() : Object.values(map))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }
+
+  async _refreshHosts() {
+    if (typeof this.api.getHosts !== 'function') return;
+    try {
+      const hosts = await this.api.getHosts();
+      if (typeof this.state.setHosts === 'function') this.state.setHosts(hosts);
+      if (this._activeTab === 'general') this._renderGeneralTab();
+    } catch (err) {
+      this.log.warn('Could not load hosts:', err);
+    }
   }
 
   render() {
@@ -95,6 +119,7 @@ class ProjectDialog extends DialogBase {
 
   _showTab(tabName) {
     this._tabContent.innerHTML = '';
+    this._activeTab = tabName;
     if (tabName === 'general') {
       this._renderGeneralTab();
     } else if (tabName === 'permissions') {
@@ -105,18 +130,41 @@ class ProjectDialog extends DialogBase {
   }
 
   _renderGeneralTab() {
+    // The Where control re-renders this tab on every change, so the typed
+    // name and path live in _draft rather than only in the inputs.
+    this._captureDraft();
+    this._tabContent.innerHTML = '';
+
     const form = document.createElement('div');
     form.className = 'project-dialog__form';
 
     const nameInput = this._createField(form, 'Project Name', 'text', {
-      placeholder: 'My Project', required: true, value: this._project?.name || '',
+      placeholder: 'My Project', required: true, value: this._draft.name,
     });
+    nameInput.dataset.testid = 'project-name';
+    nameInput.addEventListener('input', () => { this._draft.name = nameInput.value; });
 
-    const pathInput = this._createField(form, 'Directory Path', 'text', {
-      placeholder: '/path/to/project', required: true, value: this._project?.path || '',
+    this._renderWhere(form);
+
+    const host = this._hostId ? this._hosts().find(h => h.id === this._hostId) : null;
+    const pathInput = this._createField(form, host ? `Path on ${host.name}` : 'Directory Path', 'text', {
+      placeholder: host ? '/home/you/project' : '/path/to/project', required: true, value: this._draft.path,
     });
+    pathInput.dataset.testid = 'project-path';
+    pathInput.addEventListener('input', () => { this._draft.path = pathInput.value; });
 
-    this._renderMcpsPicker(form);
+    if (this._hostId) {
+      const label = document.createElement('label');
+      label.className = 'dialog__label';
+      label.textContent = 'Allowed MCPs';
+      form.appendChild(label);
+      const note = document.createElement('div');
+      note.className = 'where-note';
+      note.textContent = 'Relay tools aren’t available on a host yet — the agent uses its built-in tools there.';
+      form.appendChild(note);
+    } else {
+      this._renderMcpsPicker(form);
+    }
     this._renderModelsPicker(form);
 
     const actions = document.createElement('div');
@@ -129,6 +177,7 @@ class ProjectDialog extends DialogBase {
 
     const saveBtn = document.createElement('button');
     saveBtn.className = 'dialog__btn dialog__btn--primary';
+    saveBtn.dataset.testid = 'project-save';
     saveBtn.textContent = this._projectId ? 'Save' : 'Create Project';
     saveBtn.addEventListener('click', () => {
       this._saveProject(nameInput.value.trim(), pathInput.value.trim());
@@ -139,7 +188,262 @@ class ProjectDialog extends DialogBase {
     form.appendChild(actions);
 
     this._tabContent.appendChild(form);
-    nameInput.focus();
+    this._nameInput = nameInput;
+    this._pathInput = pathInput;
+    if (!this._hostFormOpen) nameInput.focus();
+  }
+
+  _captureDraft() {
+    if (this._nameInput?.isConnected) this._draft.name = this._nameInput.value;
+    if (this._pathInput?.isConnected) this._draft.path = this._pathInput.value;
+  }
+
+  // — Where: this Mac or an SSH host ------------------------------------------
+
+  _renderWhere(parent) {
+    const label = document.createElement('label');
+    label.className = 'dialog__label';
+    label.textContent = 'Where';
+    parent.appendChild(label);
+
+    const control = document.createElement('div');
+    control.className = 'where-control';
+    control.dataset.testid = 'project-where';
+
+    const seg = (text, { active, hostStatus = null, onClick, testid }) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `where-control__seg${active ? ' where-control__seg--active' : ''}`;
+      if (hostStatus) btn.classList.add(`where-control__seg--${hostStatus}`);
+      if (testid) btn.dataset.testid = testid;
+      if (hostStatus) {
+        const dot = document.createElement('span');
+        dot.className = 'host-chip__dot';
+        btn.appendChild(dot);
+      }
+      const t = document.createElement('span');
+      t.textContent = text;
+      btn.appendChild(t);
+      btn.addEventListener('click', onClick);
+      control.appendChild(btn);
+      return btn;
+    };
+
+    seg('This Mac', {
+      active: !this._hostId,
+      testid: 'project-where-local',
+      onClick: () => { this._hostId = ''; this._hostFormOpen = false; this._renderGeneralTab(); },
+    });
+    for (const h of this._hosts()) {
+      const status = this.state.hostStatus?.(h.id) || h.status || 'unknown';
+      seg(h.name, {
+        active: this._hostId === h.id,
+        hostStatus: status,
+        testid: `project-where-host-${h.id}`,
+        onClick: () => { this._hostId = h.id; this._hostFormOpen = false; this._renderGeneralTab(); },
+      });
+    }
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'where-control__seg where-control__seg--add';
+    add.dataset.testid = 'project-where-add-host';
+    add.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Host…</span>`;
+    add.addEventListener('click', () => { this._hostFormOpen = !this._hostFormOpen; this._renderGeneralTab(); });
+    control.appendChild(add);
+    parent.appendChild(control);
+
+    if (this._hostFormOpen) {
+      parent.appendChild(this._renderHostForm());
+    } else if (this._hostId) {
+      const h = this._hosts().find(x => x.id === this._hostId);
+      if (h) parent.appendChild(this._renderProbeCard(h, { withReprobe: true }));
+    }
+  }
+
+  _renderHostForm() {
+    const card = document.createElement('div');
+    card.className = 'host-form';
+    card.dataset.testid = 'host-form';
+
+    const title = document.createElement('div');
+    title.className = 'host-form__title';
+    title.textContent = 'New host';
+    card.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'host-form__grid';
+    const draft = this._hostDraft || (this._hostDraft = { name: '', target: '', port: '', identity: '' });
+    const field = (labelText, key, placeholder) => {
+      const wrap = document.createElement('div');
+      const input = this._createField(wrap, labelText, 'text', { placeholder, value: draft[key] });
+      input.dataset.testid = `host-form-${key}`;
+      input.addEventListener('input', () => { draft[key] = input.value; });
+      grid.appendChild(wrap);
+      return input;
+    };
+    const nameInput = field('Name', 'name', 'devbox');
+    field('SSH target', 'target', 'user@host or ssh-config alias');
+    field('Port', 'port', '22');
+    field('Identity file', 'identity', 'optional, absolute path');
+    card.appendChild(grid);
+
+    const row = document.createElement('div');
+    row.className = 'host-form__row';
+    const test = document.createElement('button');
+    test.type = 'button';
+    test.className = 'dialog__btn dialog__btn--primary';
+    test.dataset.testid = 'host-form-add';
+    test.textContent = this._hostFormBusy ? 'Connecting…' : 'Test & add';
+    test.disabled = this._hostFormBusy;
+    test.addEventListener('click', () => this._submitHostForm());
+    row.appendChild(test);
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'dialog__btn dialog__btn--secondary';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => { this._hostFormOpen = false; this._hostFormError = ''; this._renderGeneralTab(); });
+    row.appendChild(cancel);
+    const spacer = document.createElement('span');
+    spacer.className = 'host-form__spacer';
+    row.appendChild(spacer);
+    const hint = document.createElement('span');
+    hint.className = 'field-hint';
+    hint.textContent = 'Uses your own ssh keys and config.';
+    row.appendChild(hint);
+    card.appendChild(row);
+
+    if (this._hostFormBusy) {
+      const busy = document.createElement('div');
+      busy.className = 'probe-card probe-card--busy';
+      busy.textContent = `Connecting to ${draft.target || 'host'}…`;
+      card.appendChild(busy);
+    }
+    if (this._hostFormError) {
+      const err = document.createElement('div');
+      err.className = 'host-form__error';
+      err.textContent = this._hostFormError;
+      card.appendChild(err);
+    }
+    if (this._hostFormResult) {
+      card.appendChild(this._renderProbeCard(this._hostFormResult));
+    }
+    setTimeout(() => nameInput.focus(), 0);
+    return card;
+  }
+
+  async _submitHostForm() {
+    const d = this._hostDraft || {};
+    const name = (d.name || '').trim();
+    const target = (d.target || '').trim();
+    if (!name || !target) {
+      this._hostFormError = 'A name and an ssh target are both needed.';
+      this._renderGeneralTab();
+      return;
+    }
+    const port = parseInt(d.port, 10);
+    const body = { name, target };
+    if (Number.isInteger(port) && port > 0) body.port = port;
+    if ((d.identity || '').trim()) body.identity_file = d.identity.trim();
+
+    this._hostFormBusy = true;
+    this._hostFormError = '';
+    this._hostFormResult = null;
+    this._renderGeneralTab();
+    try {
+      const host = await this.api.createHost(body);
+      if (typeof this.state.setHosts === 'function') {
+        const hosts = this._hosts().filter(h => h.id !== host.id);
+        hosts.push(host);
+        this.state.setHosts(hosts);
+      }
+      this._hostFormBusy = false;
+      this._hostDraft = null;
+      if (host.probe?.ok) {
+        this._hostId = host.id;
+        this._hostFormOpen = false;
+      } else {
+        this._hostFormResult = host;
+        this._hostId = host.id;
+        this._hostFormOpen = false;
+      }
+      this._renderGeneralTab();
+    } catch (err) {
+      this._hostFormBusy = false;
+      this._hostFormError = err?.message ? `Could not add host: ${err.message}` : 'Could not add host.';
+      this._renderGeneralTab();
+    }
+  }
+
+  // What the probe found, as three verdict lines. The missing thing is named
+  // as the thing to fix, so the card reads as a checklist not a log.
+  _renderProbeCard(host, { withReprobe = false } = {}) {
+    const card = document.createElement('div');
+    card.className = 'probe-card';
+    card.dataset.testid = `probe-card-${host.id}`;
+    const p = host.probe || null;
+    const line = (ok, text, path = '', fix = '') => {
+      const el = document.createElement('div');
+      el.className = `probe-card__line probe-card__line--${ok ? 'ok' : 'bad'}`;
+      const mark = document.createElement('span');
+      mark.className = 'probe-card__mark';
+      mark.textContent = ok ? '✓' : '✗';
+      el.appendChild(mark);
+      const body = document.createElement('span');
+      body.className = 'probe-card__text';
+      body.textContent = text;
+      if (path) {
+        const pathEl = document.createElement('span');
+        pathEl.className = 'probe-card__path';
+        pathEl.textContent = `  ${path}`;
+        body.appendChild(pathEl);
+      }
+      if (fix) {
+        const fixEl = document.createElement('span');
+        fixEl.className = 'probe-card__fix';
+        fixEl.textContent = fix;
+        body.appendChild(fixEl);
+      }
+      el.appendChild(body);
+      card.appendChild(el);
+    };
+
+    if (!p) {
+      line(false, `${host.name} hasn’t been checked yet.`, '', 'Run a probe to find node and claude on it.');
+    } else if (!p.ok) {
+      line(false, `Could not reach ${host.target || host.name}.`, '', p.error || 'ssh failed — try it from a terminal first.');
+    } else {
+      line(true, `Reachable as ${host.target}`, `${p.os || ''} ${p.arch || ''}`.trim());
+      if (p.node_path) line(true, `node ${p.node_version || ''}`.trim(), p.node_path);
+      else line(false, 'node not found', '', 'Install Node.js on this host and probe again.');
+      if (p.claude_path) line(true, `claude ${p.claude_version || ''}`.trim(), p.claude_path);
+      else line(false, 'claude not found', '', 'Install Claude Code on this host and probe again.');
+    }
+
+    if (withReprobe && typeof this.api.probeHost === 'function') {
+      const row = document.createElement('div');
+      row.className = 'host-form__row';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dialog__btn dialog__btn--secondary';
+      btn.dataset.testid = `probe-again-${host.id}`;
+      btn.textContent = 'Probe again';
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Probing…';
+        try {
+          const fresh = await this.api.probeHost(host.id);
+          if (typeof this.state.setHosts === 'function') {
+            this.state.setHosts(this._hosts().map(h => (h.id === fresh.id ? fresh : h)));
+          }
+        } catch (err) {
+          this.log.warn('Probe failed:', err);
+        }
+        this._renderGeneralTab();
+      });
+      row.appendChild(btn);
+      card.appendChild(row);
+    }
+    return card;
   }
 
   _renderMcpsPicker(parent) {
@@ -233,7 +537,8 @@ class ProjectDialog extends DialogBase {
       const body = {
         name,
         path,
-        allowed_mcp_ids: Array.from(this._selectedMcpIds),
+        host_id: this._hostId || '',
+        allowed_mcp_ids: this._hostId ? [] : Array.from(this._selectedMcpIds),
         allowed_models: Array.from(this._selectedModels),
         permission_policy: this._serializePolicy(),
       };

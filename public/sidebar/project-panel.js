@@ -52,8 +52,16 @@ class ProjectPanel {
       return;
     }
 
-    this.titleEl.textContent = project.name;
+    this.titleEl.innerHTML = '';
+    const titleText = document.createElement('span');
+    titleText.className = 'panel-header__title-text';
+    titleText.textContent = project.name;
+    this.titleEl.appendChild(titleText);
     this.titleEl.title = project.name;
+    if (project.host && typeof hostChip === 'function') {
+      const chip = hostChip(project.host, { status: this.state.hostStatus?.(project.host.id) });
+      if (chip) this.titleEl.appendChild(chip);
+    }
     this._renderHeaderActions();
     this._renderTabs();
     this._renderContent();
@@ -124,7 +132,7 @@ class ProjectPanel {
         .filter(s => !this.state.isTaskRun(s.id)).length;
       const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
       const project = this.state.getProject(this.projectId);
-      const terminalCount = (termMgr?.getTerminalsForPath(project?.path) || [])
+      const terminalCount = (termMgr?.getTerminalsForPath(project?.path, project?.hostId || '') || [])
         .filter(t => !this.state.isTaskRun(t.id)).length;
       return sessionCount + terminalCount;
     }
@@ -287,7 +295,7 @@ class ProjectPanel {
     const sessions = this.state.getSessionsForProject(this.projectId)
       .filter(s => !this.state.isTaskRun(s.id));
     const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
-    const terminals = (termMgr?.getTerminalsForPath(project?.path) || [])
+    const terminals = (termMgr?.getTerminalsForPath(project?.path, project?.hostId || '') || [])
       .filter(t => !this.state.isTaskRun(t.id));
 
     if (sessions.length === 0 && terminals.length === 0) {

@@ -64,6 +64,16 @@ class ShellLauncherDialog extends DialogBase {
     grid.className = 'shell-launcher__grid';
 
     const project = this.state.getProject(this.projectId);
+    if (project?.host && typeof hostChip === 'function') {
+      const note = document.createElement('div');
+      note.className = 'shell-launcher__host-note';
+      const chip = hostChip(project.host, { status: this.state.hostStatus?.(project.host.id) });
+      if (chip) note.appendChild(chip);
+      const text = document.createElement('span');
+      text.textContent = `Sessions and terminals open on ${project.host.name}.`;
+      note.appendChild(text);
+      this._tabContent.appendChild(note);
+    }
     const chatTemplates = project?.chatTemplates || [];
     for (const tmpl of chatTemplates) {
       const isVoice = tmpl.mode === 'voice';
@@ -210,7 +220,12 @@ class ShellLauncherDialog extends DialogBase {
     modelLabel.className = 'dialog__label';
     modelLabel.textContent = 'Model';
     const modelSelect = document.createElement('select');
-    renderModelSelect(modelSelect, this.state.modelsForProject(this.projectId), { className: 'dialog__select' });
+    // pi runs as a process in the project directory and can't be launched on a
+    // host, so it isn't offered there.
+    const onHost = !!this.state.getProject(this.projectId)?.host;
+    const models = this.state.modelsForProject(this.projectId)
+      .filter(m => !(onHost && String(m.value || '').startsWith('pi/')));
+    renderModelSelect(modelSelect, models, { className: 'dialog__select' });
     form.appendChild(modelLabel);
     form.appendChild(modelSelect);
 

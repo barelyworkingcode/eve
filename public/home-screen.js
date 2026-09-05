@@ -269,6 +269,10 @@ class HomeScreen {
     sub.className = 'home__row-sub';
     const model = session.model ? session.model.split('/').pop() : '';
     sub.textContent = [project?.name, model].filter(Boolean).join(' · ');
+    const chip = project?.host && typeof hostChip === 'function'
+      ? hostChip(project.host, { size: 'sm', status: this.state.hostStatus?.(project.host.id) })
+      : null;
+    if (chip) sub.appendChild(chip);
     body.appendChild(title);
     body.appendChild(sub);
     row.appendChild(body);
@@ -321,6 +325,10 @@ class HomeScreen {
         <span class="home__chip-name">${escapeHtml(p.name)}</span>
         ${running ? `<span class="home__live" title="${running} running"></span>` : ''}
       `;
+      const hostTag = p.host && typeof hostChip === 'function'
+        ? hostChip(p.host, { size: 'sm', status: this.state.hostStatus?.(p.host.id) })
+        : null;
+      if (hostTag) chip.appendChild(hostTag);
       chip.addEventListener('click', () => this.bus.emit(EVT.PROJECT_ACTIVATED, { projectId: p.id }));
       wrap.appendChild(chip);
     }

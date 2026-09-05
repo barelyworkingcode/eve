@@ -1,0 +1,276 @@
+/* ============================================================================
+   SSH hosts — the chip that marks a project as living on another machine,
+   the "Where" control in the project dialog, the inline host form + probe
+   card, and the Files tab's connecting / unreachable states.
+
+   A console project has no chip. The chip's dot is the host's live status:
+   green connected, amber (pulsing) connecting, red unreachable, grey idle.
+   ========================================================================== */
+
+/* — Host chip --------------------------------------------------------------- */
+.host-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  max-width: 150px;
+  padding: 0 7px 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.host-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.host-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.host-chip--connected .host-chip__dot { background: var(--success); }
+.host-chip--connecting .host-chip__dot {
+  background: var(--warning);
+  animation: host-dot-pulse 1.1s ease-in-out infinite;
+}
+.host-chip--unreachable { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+.host-chip--unreachable .host-chip__dot { background: var(--danger); }
+.host-chip--sm { height: 16px; font-size: 10px; padding: 0 6px 0 5px; gap: 4px; }
+.host-chip--sm .host-chip__dot { width: 5px; height: 5px; }
+
+@keyframes host-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+
+/* Placement: sidebar panel title, Home chips/rows, palette rows. */
+.panel-header__title { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.panel-header__title-text { overflow: hidden; text-overflow: ellipsis; }
+.home__chip .host-chip { margin-left: -2px; }
+.home__row-sub .host-chip { margin-left: 6px; }
+.palette__item-sub .host-chip { margin-left: 6px; }
+.palette__item[aria-selected="true"] .host-chip {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.shell-launcher__host-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--sp-5);
+  font-size: var(--text-subhead);
+  color: var(--text-secondary);
+}
+
+/* — "Where" segmented control (project dialog) -------------------------------- */
+.where-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+}
+.where-control__seg {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--text-callout);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.where-control__seg:hover { color: var(--text-primary); }
+.where-control__seg--active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-1);
+}
+.where-control__seg--add {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.where-control__seg--add svg { width: 13px; height: 13px; }
+.where-control__seg .host-chip__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+.where-control__seg--connected .host-chip__dot { background: var(--success); }
+.where-control__seg--unreachable .host-chip__dot { background: var(--danger); }
+
+.where-note {
+  margin-top: var(--sp-3);
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+}
+
+/* — Inline host form ----------------------------------------------------------- */
+.host-form {
+  margin-top: var(--sp-4);
+  padding: var(--sp-5) var(--sp-5) var(--sp-5);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+}
+.host-form__title {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-2);
+}
+.host-form__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  column-gap: var(--sp-5);
+}
+.host-form__grid .dialog__label { margin-top: var(--sp-4); }
+.host-form__row {
+  display: flex;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+  align-items: center;
+}
+.host-form__row .dialog__btn { height: var(--ctl-h); padding: 0 var(--sp-5); font-size: var(--text-callout); }
+.host-form__spacer { flex: 1; }
+.host-form__error {
+  margin-top: var(--sp-4);
+  font-size: var(--text-footnote);
+  color: var(--danger);
+}
+
+/* — Probe card ---------------------------------------------------------------- */
+.probe-card {
+  margin-top: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  font-size: var(--text-subhead);
+  color: var(--text-primary);
+}
+.probe-card--busy {
+  color: var(--text-secondary);
+  animation: host-text-pulse 1.4s ease-in-out infinite;
+}
+.probe-card__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  min-width: 0;
+}
+.probe-card__mark {
+  width: 14px;
+  flex-shrink: 0;
+  font-weight: var(--weight-semibold);
+  text-align: center;
+}
+.probe-card__line--ok .probe-card__mark { color: var(--success); }
+.probe-card__line--bad .probe-card__mark { color: var(--danger); }
+.probe-card__line--bad { color: var(--danger); }
+.probe-card__text { min-width: 0; }
+.probe-card__path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.probe-card__fix {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+}
+@keyframes host-text-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* — Files tab: connecting / unreachable ---------------------------------------- */
+.file-tree__host-state {
+  padding: 12px 14px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--font-ui);
+  font-size: var(--text-subhead);
+  color: var(--text-secondary);
+}
+.file-tree__host-state-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.file-tree__host-state--error { color: var(--danger); }
+.file-tree__host-state--error .file-tree__host-state-detail {
+  color: var(--text-secondary);
+  font-size: var(--text-footnote);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.file-tree__retry {
+  align-self: flex-start;
+  height: var(--ctl-h-sm);
+  padding: 0 10px;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.file-tree__retry:hover { background: var(--bg-hover); }
+
+.file-tree__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 4px 0 2px 2px;
+}
+.file-tree__skeleton-row {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 0%, var(--bg-hover) 50%, var(--bg-tertiary) 100%);
+  background-size: 200% 100%;
+  animation: host-shimmer 1.6s linear infinite;
+}
+.file-tree__skeleton-row:nth-child(1) { width: 58%; }
+.file-tree__skeleton-row:nth-child(2) { width: 72%; }
+.file-tree__skeleton-row:nth-child(3) { width: 44%; }
+.file-tree__skeleton-row:nth-child(4) { width: 64%; }
+@keyframes host-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .host-chip--connecting .host-chip__dot,
+  .probe-card--busy,
+  .file-tree__skeleton-row { animation: none; }
+}

@@ -129,6 +129,7 @@ class CommandPalette extends DialogBase {
         id: `session:${session.id}`,
         label,
         sub: project?.name || '',
+        host: project?.host || null,
         session,
         iconMonogram: project ? { text: projectMonogram(project.name), color: this.state.projectColor(project.id) } : null,
         meta: { live: !!session.active, chip: chip || null },
@@ -148,6 +149,7 @@ class CommandPalette extends DialogBase {
         id: `project:${project.id}`,
         label: project.name,
         sub: `${sessionCount} session${sessionCount === 1 ? '' : 's'}`,
+        host: project.host || null,
         iconMonogram: { text: projectMonogram(project.name), color: this.state.projectColor(project.id) },
         run: () => {
           app.projectTree?.setActive(project.id);
@@ -446,10 +448,14 @@ class CommandPalette extends DialogBase {
       labelEl.className = 'palette__item-label';
       labelEl.innerHTML = item.labelHtml || escapeHtml(item.label);
       body.appendChild(labelEl);
-      if (item.sub) {
+      if (item.sub || item.host) {
         const subEl = document.createElement('span');
         subEl.className = 'palette__item-sub';
-        subEl.textContent = item.sub;
+        subEl.textContent = item.sub || '';
+        const chip = item.host && typeof hostChip === 'function'
+          ? hostChip(item.host, { size: 'sm', status: this.state.hostStatus?.(item.host.id) })
+          : null;
+        if (chip) subEl.appendChild(chip);
         body.appendChild(subEl);
       }
       row.appendChild(body);
