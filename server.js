@@ -25,6 +25,7 @@ const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
 const { Logger } = require('./logger');
 const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
+const { HostPool } = require('./ssh-host-pool');
 
 const log = new Logger(process.env.LOG_LEVEL || 'info');
 const serverLog = log.child('Server');
@@ -166,6 +167,11 @@ function loadSettings() {
 loadSettings();
 
 const projectCache = new Map();
+// id -> relay's hostView (../relay/docs/ssh-hosts.md), INCLUDING ssh_argv —
+// this cache is server-side only. ssh_argv must never reach resolveProject's
+// output or any HTTP/WS response; routes/index.js strips it explicitly on
+// every hosts response.
+const hostCache = new Map();
 
 // The eve-control MCP POSTs to a loopback-only endpoint; this fans the
 // ui_command out to browser(s) viewing the calling project. Secret arrives via
@@ -196,22 +202,43 @@ try {
   throw err;
 }
 
+// Attaches the derived, browser-safe `host` field (null for a console
+// project) to a cached project without mutating the cache entry itself —
+// host status can change between two resolveProject() calls for the same
+// cached project, independent of any project-cache refresh.
+function resolveProject(id) {
+  const project = projectCache.get(id);
+  if (!project) return null;
+  if (!project.hostId) return { ...project, host: null };
+  const hostView = hostCache.get(project.hostId);
+  return {
+    ...project,
+    host: hostView ? { id: hostView.id, name: hostView.name, status: hostView.status } : null,
+  };
+}
+
+const hostPool = new HostPool({
+  resolveHost: (id) => hostCache.get(id),
+  log: log.child('HostPool'),
+});
+
 const searchService = new SearchService();
 const fileHandlers = new FileHandlers({
-  resolveProject: (id) => projectCache.get(id),
+  resolveProject,
   searchService,
+  hostPool,
 });
 const moduleService = new ModuleService(fileHandlers.fileService);
 const moduleInvoker = new ModuleInvoker({
   relayTransport,
   moduleService,
   fileService: fileHandlers.fileService,
-  resolveProject: (id) => projectCache.get(id),
+  resolveProject,
   log,
 });
 const searchSummarizer = new SearchSummarizer({
   relayTransport,
-  resolveProject: (id) => projectCache.get(id),
+  resolveProject,
   log,
 });
 
@@ -238,7 +265,24 @@ async function refreshProjectCache(data) {
   }
 }
 
+async function refreshHostCache(data) {
+  try {
+    if (Array.isArray(data)) {
+      for (const h of data) hostCache.set(h.id, h);
+      return;
+    }
+    const { status, data: fetched } = await relayTransport.fetch('GET', '/api/hosts');
+    if (status < 200 || status >= 300) throw new Error(`relay returned ${status}`);
+    if (!Array.isArray(fetched)) return;
+    hostCache.clear();
+    for (const h of fetched) hostCache.set(h.id, h);
+  } catch (err) {
+    log.child('HostCache').error('Refresh failed:', err.message);
+  }
+}
+
 refreshProjectCache();
+refreshHostCache();
 
 // Regenerated per server start so script/stylesheet URLs change after a
 // restart and Chrome can't serve stale JS against a new server. Computed once
@@ -312,8 +356,12 @@ registerRoutes(app, {
   relayTransport,
   refreshProjectCache,
   removeFromProjectCache: (id) => projectCache.delete(id),
-  resolveProject: (id) => projectCache.get(id),
+  resolveProject,
   fileService: fileHandlers.fileService,
+  fileServiceFor: (project) => fileHandlers.fileServiceFor(project),
+  refreshHostCache,
+  removeFromHostCache: (id) => hostCache.delete(id),
+  hostPool,
   ttsService,
   sttService,
   moduleService,
@@ -335,7 +383,8 @@ wss.on('connection', createWsHandler({
   moduleService,
   moduleInvoker,
   searchSummarizer,
-  resolveProject: (id) => projectCache.get(id),
+  resolveProject,
+  hostPool,
   ttsService,
   sttService,
   uiBus: uiCommandBus,
@@ -425,6 +474,7 @@ function gracefulShutdown(signal) {
   }
 
   authService.stop();
+  hostPool.disconnectAll();
   server.closeAllConnections?.();
   httpServer?.closeAllConnections?.();
   server.close();
