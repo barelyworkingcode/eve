@@ -26,6 +26,10 @@ describe('routes/index proxy + auth surface', () => {
       removeFromProjectCache: jest.fn(),
       resolveProject: jest.fn((id) => (id === 'p1' ? { id: 'p1', path: '/tmp/p1', displayName: 'P1' } : null)),
       fileService: new FileService(),
+      fileServiceFor: jest.fn(() => new FileService()),
+      refreshHostCache: jest.fn(),
+      removeFromHostCache: jest.fn(),
+      hostPool: { disconnect: jest.fn() },
       ttsService: { listVoices: jest.fn() },
       sttService: { isAvailable: jest.fn(), transcribe: jest.fn() },
       moduleService: {},
@@ -121,6 +125,20 @@ describe('routes/index proxy + auth surface', () => {
       expect(deps.refreshProjectCache).toHaveBeenCalledWith([{ id: 'p1', name: 'p1-raw' }]);
       expect(await res.json()).toEqual([{ id: 'p1', path: '/tmp/p1', displayName: 'P1' }]);
     });
+
+    it('never projects ssh_argv, even for a host project resolveProject attaches a host onto', async () => {
+      // Simulates server.js#resolveProject attaching {id,name,status} from
+      // its hostCache — never the raw hostView, which carries ssh_argv.
+      deps.resolveProject.mockImplementation((id) => (id === 'p1'
+        ? { id: 'p1', path: '/srv/app', hostId: 'h1', host: { id: 'h1', name: 'devbox', status: 'connected' } }
+        : null));
+      deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: [{ id: 'p1', name: 'p1-raw', host_id: 'h1' }] });
+      const res = await fetch(`${baseUrl}/api/projects`);
+      const body = await res.json();
+      expect(JSON.stringify(body)).not.toContain('ssh_argv');
+      expect(JSON.stringify(body)).not.toContain('BatchMode');
+      expect(body[0].host).toEqual({ id: 'h1', name: 'devbox', status: 'connected' });
+    });
   });
 
   describe('project mutations update the cache', () => {
@@ -138,6 +156,82 @@ describe('routes/index proxy + auth surface', () => {
       const res = await fetch(`${baseUrl}/api/projects/p1`, { method: 'DELETE' });
       expect(res.status).toBe(200);
       expect(deps.removeFromProjectCache).toHaveBeenCalledWith('p1');
+    });
+  });
+
+  describe('SSH hosts routes (../relay/docs/ssh-hosts.md) — ssh_argv must never reach the browser', () => {
+    const hostViewWithSecret = {
+      id: 'h1', name: 'devbox', target: 'admin@devbox.local', port: 0, identity_file: '',
+      status: 'connected',
+      ssh_argv: ['ssh', '-o', 'BatchMode=yes', 'admin@devbox.local'],
+    };
+
+    it('GET /api/hosts refreshes the host cache and strips ssh_argv', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: [hostViewWithSecret] });
+      const res = await fetch(`${baseUrl}/api/hosts`);
+      const list = await res.json();
+      expect(deps.refreshHostCache).toHaveBeenCalledWith([hostViewWithSecret]);
+      expect(list).toHaveLength(1);
+      expect(list[0]).not.toHaveProperty('ssh_argv');
+      expect(list[0]).toMatchObject({ id: 'h1', name: 'devbox', status: 'connected' });
+      expect(JSON.stringify(list)).not.toContain('BatchMode');
+    });
+
+    it('POST /api/hosts strips ssh_argv from the created hostView and refreshes the cache', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 201, data: hostViewWithSecret });
+      const res = await fetch(`${baseUrl}/api/hosts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'devbox', target: 'admin@devbox.local' }),
+      });
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body).not.toHaveProperty('ssh_argv');
+      expect(deps.refreshHostCache).toHaveBeenCalledWith([hostViewWithSecret]);
+    });
+
+    it('PUT /api/hosts/:id strips ssh_argv', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: hostViewWithSecret });
+      const res = await fetch(`${baseUrl}/api/hosts/h1`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'devbox2' }),
+      });
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body).not.toHaveProperty('ssh_argv');
+    });
+
+    it('POST /api/hosts/:id/probe strips ssh_argv from the re-probed hostView', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: hostViewWithSecret });
+      const res = await fetch(`${baseUrl}/api/hosts/h1/probe`, { method: 'POST' });
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body).not.toHaveProperty('ssh_argv');
+    });
+
+    it('POST /api/hosts/:id/disconnect strips ssh_argv and tears down the pool agent', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: hostViewWithSecret });
+      const res = await fetch(`${baseUrl}/api/hosts/h1/disconnect`, { method: 'POST' });
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body).not.toHaveProperty('ssh_argv');
+      expect(deps.hostPool.disconnect).toHaveBeenCalledWith('h1');
+    });
+
+    it('DELETE /api/hosts/:id removes it from the cache and disconnects the pool agent', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 204, data: null });
+      const res = await fetch(`${baseUrl}/api/hosts/h1`, { method: 'DELETE' });
+      expect(res.status).toBe(204);
+      expect(deps.removeFromHostCache).toHaveBeenCalledWith('h1');
+      expect(deps.hostPool.disconnect).toHaveBeenCalledWith('h1');
+    });
+
+    it('a 409 (host referenced by a project) does not touch the cache or pool', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({
+        status: 409, data: { error: 'host in use', projects: ['relayfs'] },
+      });
+      const res = await fetch(`${baseUrl}/api/hosts/h1`, { method: 'DELETE' });
+      expect(res.status).toBe(409);
+      expect(deps.removeFromHostCache).not.toHaveBeenCalled();
+      expect(deps.hostPool.disconnect).not.toHaveBeenCalled();
     });
   });
 

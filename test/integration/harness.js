@@ -86,9 +86,10 @@ function makeWsClient(wsUrl) {
   };
 }
 
-async function startEve({ projects = [], env: envOverride = {} } = {}) {
+async function startEve({ projects = [], hosts = [], env: envOverride = {} } = {}) {
   const relay = createFakeRelay();
   const relayPort = await relay.listen();
+  for (const h of hosts) relay.addHost(h);
   for (const p of projects) relay.addProject(p);
 
   const port = await freePort();

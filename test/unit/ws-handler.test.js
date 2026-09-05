@@ -75,6 +75,7 @@ describe('createWsHandler', () => {
   });
 
   function makeDeps(overrides = {}) {
+    const fileServiceMock = { validatePath: jest.fn(() => '/proj1/abs.txt') };
     return {
       authService: { isEnrolled: jest.fn(() => false), validateSession: jest.fn(() => true) },
       trustedNetwork: { isTrusted: jest.fn(() => true) },
@@ -83,7 +84,8 @@ describe('createWsHandler', () => {
         createWebSocket: jest.fn(),
       },
       fileHandlers: {
-        fileService: { validatePath: jest.fn(() => '/proj1/abs.txt') },
+        fileService: fileServiceMock,
+        fileServiceFor: jest.fn(() => fileServiceMock),
         searchService: { cancel: jest.fn() },
         listDirectory: jest.fn(),
         readFile: jest.fn(),
@@ -463,6 +465,84 @@ describe('createWsHandler', () => {
       expect(relayClient.close).toHaveBeenCalled();
       expect(fileWatcher.closeAll).toHaveBeenCalled();
       expect(deps.uiBus.unregister).toHaveBeenCalledWith(relayClient);
+    });
+  });
+
+  describe('host_status broadcast (../relay/docs/ssh-hosts.md)', () => {
+    function fakeHostPool(initialStatuses = []) {
+      const { EventEmitter } = require('events');
+      const pool = new EventEmitter();
+      pool.statuses = jest.fn(() => initialStatuses);
+      return pool;
+    }
+
+    it('sends the pool\'s current statuses once a connection authenticates', async () => {
+      const hostPool = fakeHostPool([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
+      const deps = makeDeps({ hostPool });
+      const ws = mount(deps);
+      await flush();
+      const sent = ws.send.mock.calls.map((c) => JSON.parse(c[0]));
+      expect(sent).toContainEqual({ type: 'host_status', hostId: 'h1', name: 'devbox', status: 'connected' });
+    });
+
+    it('does not send host_status to an unauthenticated connection', async () => {
+      const hostPool = fakeHostPool([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
+      const deps = makeDeps({
+        hostPool,
+        authService: { isEnrolled: () => true, validateSession: () => true },
+        trustedNetwork: { isTrusted: () => false },
+      });
+      const ws = mount(deps);
+      await flush();
+      const sent = ws.send.mock.calls.map((c) => JSON.parse(c[0]));
+      expect(sent.some((m) => m.type === 'host_status')).toBe(false);
+    });
+
+    it('sends the catch-up statuses only after a late auth succeeds', async () => {
+      const hostPool = fakeHostPool([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
+      const deps = makeDeps({
+        hostPool,
+        authService: { isEnrolled: () => true, validateSession: () => true },
+        trustedNetwork: { isTrusted: () => false },
+      });
+      const ws = mount(deps);
+      await sendMsg(ws, { type: 'auth', token: 'good' });
+      const sent = ws.send.mock.calls.map((c) => JSON.parse(c[0]));
+      expect(sent).toContainEqual({ type: 'host_status', hostId: 'h1', name: 'devbox', status: 'connected' });
+    });
+
+    it('broadcasts a pool status change to every authenticated connection sharing the handler', async () => {
+      const hostPool = fakeHostPool([]);
+      const deps = makeDeps({ hostPool });
+      const handler = createWsHandler(deps);
+      const wsA = makeWs();
+      const wsB = makeWs();
+      handler(wsA, makeReq());
+      handler(wsB, makeReq());
+      await flush();
+      wsA.send.mockClear();
+      wsB.send.mockClear();
+
+      hostPool.emit('status', { hostId: 'h1', name: 'devbox', status: 'unreachable', error: 'timed out' });
+
+      const expected = JSON.stringify({ type: 'host_status', hostId: 'h1', name: 'devbox', status: 'unreachable', error: 'timed out' });
+      expect(wsA.send).toHaveBeenCalledWith(expected);
+      expect(wsB.send).toHaveBeenCalledWith(expected);
+    });
+
+    it('stops broadcasting to a connection after it closes', async () => {
+      const hostPool = fakeHostPool([]);
+      const deps = makeDeps({ hostPool });
+      const handler = createWsHandler(deps);
+      const wsA = makeWs();
+      handler(wsA, makeReq());
+      await flush();
+      wsA.emit('close');
+      wsA.send.mockClear();
+
+      hostPool.emit('status', { hostId: 'h1', name: 'devbox', status: 'connected' });
+
+      expect(wsA.send).not.toHaveBeenCalled();
     });
   });
 });

@@ -52,6 +52,19 @@ Projects are returned camelCase-normalized and cached for file-handler path reso
 | DELETE | `/api/projects/:id` | Delete (sessions become ungrouped, not deleted). |
 | GET | `/api/mcps` | List MCPs (populates the project dialog's allowed-MCPs picker). |
 
+### SSH hosts (relay-served; see [ssh-hosts.md](../../relay/docs/ssh-hosts.md))
+
+A project either lives on the console (as today) or on one SSH host (`project.hostId`, `project.host: {id, name, status} | null`). `ssh_argv` — the ready-to-exec ssh prefix relay derives — is never sent to the browser; every response below has it stripped even though relay's own `hostView` carries it.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/hosts` | List hosts; refreshes Eve's host cache. |
+| POST | `/api/hosts` | Create `{name, target, port?, identity_file?}`; relay probes synchronously. |
+| PUT | `/api/hosts/:id` | Update; relay re-probes if `target`/`port`/`identity_file` changed. |
+| DELETE | `/api/hosts/:id` | Delete; 409 `{error, projects:[names]}` if a project still references it. Also disconnects Eve's own file-agent connection for that host, if any. |
+| POST | `/api/hosts/:id/probe` | Re-probe (checks for `node`/`claude` on the host); 30 s cap. |
+| POST | `/api/hosts/:id/disconnect` | `ssh -O exit` on relay's side, and tears down Eve's HostAgent for it. |
+
 ### Tasks (relay → relayScheduler)
 
 | Method | Path | Description |
@@ -85,7 +98,7 @@ Projects are returned camelCase-normalized and cached for file-handler path reso
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/files/:projectId/*` | Serve a project file. Path-traversal checked; `nosniff` + locked-down CSP on every file; HTML/SVG/XML are sandboxed and forced to download (`?preview=1` renders HTML inline in a sandboxed opaque origin). |
+| GET | `/api/files/:projectId/*` | Serve a project file. Path-traversal checked; `nosniff` + locked-down CSP on every file; HTML/SVG/XML are sandboxed and forced to download (`?preview=1` renders HTML inline in a sandboxed opaque origin). On a host project this streams through the SSH host agent's `stream` op in 64 KiB chunks (chunked transfer, no `Content-Length`) instead of `res.sendFile`; same CSP/disposition rules by extension. |
 | GET | `/api/generated/:filename` | Generated image (binary, proxied from relayLLM, immutable cache). |
 | GET | `/api/modules` · `/api/modules/:projectId/:moduleName` · `/api/modules/serve/.../*` | Module list, manifest, static asset serving. AI invocation is WS-only. See [docs/modules.md](modules.md). |
 
@@ -132,6 +145,8 @@ Tasks (forwarded from relayScheduler): `task_started`, `task_completed`, `task_e
 Voice/TTS/STT: `tts_done`, `tts_error`, `transcription_result`, `transcription_error`.
 
 UI: `ui_command` (LLM-initiated tab control via the eve-control MCP), `auth_success`, `auth_failed`, `relay_status` (`{connected}` — the upstream relayLLM leg, not the browser↔eve link `#connectionStatus` already tracks; see reconnect semantics above).
+
+SSH hosts: `host_status` (`{hostId, name, status:'connecting'|'connected'|'unreachable', error?}`) — Eve's own SSH-host file-agent connectivity (`ssh-host-pool.js`), distinct from relay's ssh `ControlMaster`/`hostView.status`. Sent on every pool status change, plus once per authenticated connection for every host the pool has already spawned an agent for (not necessarily every host relay knows about). See [ssh-hosts.md](../../relay/docs/ssh-hosts.md).
 
 ### Stats object
 

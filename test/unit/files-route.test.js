@@ -140,3 +140,91 @@ describe('/api/files route hardening', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// A host project (../relay/docs/ssh-hosts.md) has no local path Express can
+// sendFile — the route must instead stream through fileServiceFor(project),
+// chunked (no Content-Length), with the same CSP/disposition rules by extension.
+describe('/api/files route on a host project (streamed, no local disk)', () => {
+  let server, baseUrl;
+
+  function fakeRemoteFileService({ content, chunkSize = 5 } = {}) {
+    return {
+      hostAgent: {},
+      validatePath(root, rel) {
+        const normalized = String(rel || '').replace(/^\/+/, '');
+        if (normalized.includes('..')) throw Object.assign(new Error('Path traversal not allowed'), { code: 'TRAVERSAL' });
+        return `${root}/${normalized}`;
+      },
+      async stream(root, rel, onChunk) {
+        if (content === undefined) {
+          throw Object.assign(new Error('File not found'), { code: 'ENOENT' });
+        }
+        const buf = Buffer.from(content, 'utf8');
+        for (let i = 0; i < buf.length; i += chunkSize) {
+          onChunk(buf.subarray(i, Math.min(i + chunkSize, buf.length)));
+        }
+        return { size: buf.length };
+      },
+    };
+  }
+
+  function buildApp(remoteFs) {
+    const app = express();
+    const project = { id: 'h1', path: '/srv/app', hostId: 'host1' };
+    registerRoutes(app, {
+      authService: { isEnrolled: () => false, validateSession: () => false },
+      trustedNetwork: { isTrusted: () => false },
+      relayTransport: { fetch: async () => ({ status: 200, data: [] }), fetchRaw: async () => ({ status: 404 }) },
+      refreshProjectCache: () => {},
+      removeFromProjectCache: () => {},
+      resolveProject: (id) => (id === 'h1' ? project : null),
+      fileService: new FileService(),
+      fileServiceFor: () => remoteFs,
+      ttsService: {}, sttService: {}, moduleService: {},
+      log: null,
+    });
+    return app;
+  }
+
+  function listen(app) {
+    return new Promise((resolve) => {
+      server = http.createServer(app).listen(0, () => {
+        baseUrl = `http://127.0.0.1:${server.address().port}`;
+        resolve();
+      });
+    });
+  }
+
+  afterEach((done) => { server ? server.close(done) : done(); });
+
+  it('streams the file content assembled from chunks, with a content-type from the extension', async () => {
+    await listen(buildApp(fakeRemoteFileService({ content: 'hello from the host' })));
+    const res = await fetch(`${baseUrl}/api/files/h1/note.txt`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/^text\/plain/);
+    expect(await res.text()).toBe('hello from the host');
+  });
+
+  it('sets the same download/sandbox rules as a local HTML file', async () => {
+    await listen(buildApp(fakeRemoteFileService({ content: '<script>1</script>' })));
+    const res = await fetch(`${baseUrl}/api/files/h1/page.html`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+  });
+
+  it('maps an agent ENOENT to a 404', async () => {
+    await listen(buildApp(fakeRemoteFileService({})));
+    const res = await fetch(`${baseUrl}/api/files/h1/missing.txt`);
+    expect(res.status).toBe(404);
+  });
+
+  it('maps an agent TRAVERSAL to a 403 without ever calling stream', async () => {
+    const remoteFs = fakeRemoteFileService({ content: 'x' });
+    const streamSpy = jest.spyOn(remoteFs, 'stream');
+    await listen(buildApp(remoteFs));
+    const res = await fetch(`${baseUrl}/api/files/h1/..%2f..%2fetc%2fpasswd`);
+    expect(res.status).toBe(403);
+    expect(streamSpy).not.toHaveBeenCalled();
+  });
+});

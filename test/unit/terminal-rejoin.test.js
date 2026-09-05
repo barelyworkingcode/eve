@@ -107,7 +107,7 @@ describe('TerminalManager.onTerminalList after a reconnect', () => {
     const self = ctx();
     list.call(self, [{ id: 'new', templateId: 'zsh', name: 'sh', directory: '/p', state: 'running' }]);
 
-    expect(self.reconnectTerminal).toHaveBeenCalledWith('new', 'zsh', 'sh', '/p', false);
+    expect(self.reconnectTerminal).toHaveBeenCalledWith('new', 'zsh', 'sh', '/p', false, undefined);
     expect(self._sent).toEqual([]);
   });
 
