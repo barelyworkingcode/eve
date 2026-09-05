@@ -415,7 +415,7 @@ class ProjectPanel {
       item.appendChild(live);
     }
 
-    const openedAt = this._sessionOpenedAt(session.id);
+    const openedAt = this._sessionOpenedAt(session);
     if (openedAt) {
       const time = document.createElement('span');
       time.className = 'project-tree__session-time';
@@ -457,9 +457,13 @@ class ProjectPanel {
     container.appendChild(wrapper);
   }
 
-  _sessionOpenedAt(sessionId) {
-    if (typeof SessionRecents === 'undefined') return null;
-    return SessionRecents.get(sessionId)?.lastOpenedAt || null;
+  // Local "last opened" wins (it's what you did); otherwise the server's
+  // last-message / created time, when the list carries them.
+  _sessionOpenedAt(session) {
+    const local = (typeof SessionRecents !== 'undefined') ? SessionRecents.get(session.id)?.lastOpenedAt : null;
+    if (local) return local;
+    const server = Date.parse(session.lastMessageAt || session.createdAt || '');
+    return Number.isNaN(server) ? null : server;
   }
 
   _showSessionMenu(x, y, session) {

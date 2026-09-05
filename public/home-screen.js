@@ -211,8 +211,16 @@ class HomeScreen {
       seen.add(s.id);
       ordered.push({ session: s, openedAt: ts || null });
     };
+    const serverTime = (s) => {
+      const t = Date.parse(s.lastMessageAt || s.createdAt || '');
+      return Number.isNaN(t) ? 0 : t;
+    };
     for (const r of recents) push(byId.get(r.id), r.lastOpenedAt);
-    for (const s of byId.values()) if (s.active) push(s, null);
+    for (const s of byId.values()) if (s.active) push(s, serverTime(s) || null);
+    // Sessions this browser never opened, newest server activity first.
+    const rest = [...byId.values()].filter(s => !seen.has(s.id) && serverTime(s) > 0)
+      .sort((a, b) => serverTime(b) - serverTime(a));
+    for (const s of rest) push(s, serverTime(s));
     return ordered.slice(0, HomeScreen.MAX_RECENT);
   }
 

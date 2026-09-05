@@ -241,7 +241,9 @@ function sessionDisplayName(session, project, { stripProject = true } = {}) {
   const shown = stripProject ? name : fullName;
   if (!isAutoName) return shown;
   const remembered = (typeof SessionRecents !== 'undefined') ? SessionRecents.get(session?.id)?.title : '';
-  return remembered || shown;
+  // `preview` is relayLLM's first-user-turn text when the list carries it;
+  // it covers sessions this browser never opened.
+  return remembered || (session?.preview || '').trim() || shown;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
