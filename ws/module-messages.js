@@ -9,6 +9,7 @@ async function handleModuleFileOp(ctx, op) {
 
   const project = resolveProject(projectId);
   if (!project) return reply({ ok: false, error: 'Project not found' });
+  if (project.hostId) return reply({ ok: false, error: 'Modules are not available on a host project' });
 
   let manifest;
   try {
