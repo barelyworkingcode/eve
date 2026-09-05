@@ -455,19 +455,7 @@ class EveWorkspaceClient {
     // Order matters: task session IDs must be known before sessions load
     // so task sessions are filtered from the sidebar.
     this.loadProjects().then(() => this.loadSessions()).then(() => {
-      const recentIds = this.tabManager.getRecentSessionIds();
-      for (const sessionId of recentIds) {
-        if (this.sessions.has(sessionId)) {
-          this.joinSession(sessionId);
-        }
-      }
-
-      const sessionTabs = this.tabManager.tabs.filter(t => t.type === 'session');
-      for (const tab of sessionTabs) {
-        if (!recentIds.includes(tab.id)) {
-          this.wsClient.send({ type: 'join_session', sessionId: tab.id, projectId: tab.projectId });
-        }
-      }
+      this.resubscribeAfterReconnect();
 
       const recentFiles = this.tabManager.getRecentFiles();
       for (const file of recentFiles) {
@@ -495,15 +483,53 @@ class EveWorkspaceClient {
       }
     });
 
-    // Runs on every auth_success, so this is also the reconnect path: panes
-    // that survived the drop must re-join before the list, which only ever
-    // joins terminals it doesn't already have locally.
+    this.tabManager.reestablishFileWatches();
+  }
+
+  // Re-establishes everything that lives as per-connection subscription state
+  // upstream — session joins and terminal viewership — rather than in eve or
+  // the browser. Runs after a browser reconnect / initial tab restore on page
+  // load (this.sessions/tabManager state survives a browser reconnect) and
+  // after an upstream relay reconnect signalled by `relay_status`
+  // (message-dispatcher's handleRelayStatus), where the browser socket never
+  // dropped at all. Local-only state (projects, sessions list, file watches)
+  // is reloaded by onWebSocketReady itself and does not belong here — an
+  // upstream-only drop never touches it.
+  //
+  // `silent` is true only for the relay_status trigger: the browser socket
+  // never dropped there, so the user may be looking at (and typing into) a
+  // tab that isn't whichever session's join reply happens to land last —
+  // unlike a browser reconnect or a fresh page load, where there's either no
+  // existing view to protect yet, or the disconnect itself already unsettled
+  // the page. Silent joins are marked via markResubscribeJoin so
+  // handleSessionJoined refreshes state without switching the visible tab.
+  resubscribeAfterReconnect({ silent = false } = {}) {
+    const recentIds = this.tabManager.getRecentSessionIds();
+    for (const sessionId of recentIds) {
+      if (this.sessions.has(sessionId)) {
+        if (silent) {
+          this.messageDispatcher.markResubscribeJoin(sessionId);
+          const projectId = this.sessions.get(sessionId)?.projectId || null;
+          this.wsClient.send({ type: 'join_session', sessionId, projectId });
+        } else {
+          this.joinSession(sessionId);
+        }
+      }
+    }
+
+    const sessionTabs = this.tabManager.tabs.filter(t => t.type === 'session');
+    for (const tab of sessionTabs) {
+      if (!recentIds.includes(tab.id)) {
+        if (silent) this.messageDispatcher.markResubscribeJoin(tab.id);
+        this.wsClient.send({ type: 'join_session', sessionId: tab.id, projectId: tab.projectId });
+      }
+    }
+
     this.terminalManager.onReady(() => {
       this.terminalManager.markTerminalsForRejoin();
       this.terminalManager.requestTerminalList();
       this.terminalManager.requestTemplates();
     });
-    this.tabManager.reestablishFileWatches();
   }
 
   // Must run before setProjects() so the single PROJECTS_LOADED emit already
@@ -799,6 +825,9 @@ class EveWorkspaceClient {
   }
 
   joinSession(sessionId) {
+    // A genuine, explicit join always wins over a stale resubscribe
+    // expectation for the same id — see message-dispatcher.js clearResubscribeJoin.
+    this.messageDispatcher.clearResubscribeJoin(sessionId);
     // Server uses projectId to route LLM-initiated ui_command tab pushes.
     const projectId = this.sessions.get(sessionId)?.projectId || null;
     this.wsClient.send({ type: 'join_session', sessionId, projectId });

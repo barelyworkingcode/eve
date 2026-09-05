@@ -196,7 +196,13 @@ function createFakeRelay() {
       inboundWaiters.push({ pred, resolve: (m) => { clearTimeout(t); resolve(m); } });
     }),
     requests,
-    listen: () => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port))),
+    // port is only ever passed by a test reviving a fake relay on the exact
+    // port a still-running eve was pointed at (RELAY_FRONTEND_URL is fixed at
+    // eve's spawn time, so a reconnect test has no other way to be found).
+    listen: (port = 0) => new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', () => resolve(server.address().port));
+    }),
     close: () => new Promise((resolve) => {
       if (closed) return resolve(); // a resilience test may close the relay before the harness does
       closed = true;

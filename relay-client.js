@@ -20,6 +20,8 @@ class RelayClient {
     this.schedulerWs = null;
     this._closed = false;
     this._schedulerReconnectDelay = 2000;
+    this._upstreamReconnectDelay = 2000;
+    this._upstreamDown = false;
     this.suppressNextJoin = false;
     this.sessionDirectory = null;
     this.currentSessionId = null;
@@ -48,40 +50,84 @@ class RelayClient {
 
   connect() {
     return new Promise((resolve, reject) => {
-      this.ws = this.relayTransport.createWebSocket('/ws');
-
-      this.ws.on('open', () => {
-        this.log.info('Connected to relayLLM');
-        resolve();
-      });
-
-      this.ws.on('message', (data) => {
-        try {
-          const msg = JSON.parse(data.toString());
-          this._handleRelayMessage(msg);
-        } catch (err) {
-          this.log.error('Failed to parse relay message:', err.message);
-        }
-      });
-
-      // Deliberately no reconnect: a browser reconnect spawns a fresh RelayClient;
-      // only the scheduler upstream self-heals.
-      this.ws.on('close', () => {
-        this.log.info('Disconnected from relayLLM');
-        this.ws = null;
-      });
-
-      this.ws.on('error', (err) => {
-        this.log.error('WebSocket error:', err.message);
-        if (this.ws?.readyState === WebSocket.CONNECTING) {
-          reject(err);
-        }
-      });
+      this._connectUpstream(resolve, reject);
 
       // Independent of the relayLLM connection above; never blocks/rejects this
       // connect() promise — task events are nice-to-have, not core session traffic.
       this._connectScheduler();
     });
+  }
+
+  // onOpen/onError settle the promise from the original connect() call and are
+  // only ever passed on the first invocation; every reconnect calls this with
+  // no arguments, so it can never re-resolve or re-reject that promise.
+  _connectUpstream(onOpen, onError) {
+    if (this._closed) return;
+
+    // Mirrors _connectScheduler's guard: harmless insurance for a reconnect
+    // attempt, which runs from a bare setTimeout callback where a synchronous
+    // throw would be an uncaught exception, not just a rejected promise.
+    let ws;
+    try {
+      ws = this.relayTransport.createWebSocket('/ws');
+    } catch (err) {
+      this.log.debug('Upstream WS create failed:', err.message);
+      if (onError) onError(err);
+      this._scheduleUpstreamReconnect();
+      return;
+    }
+    this.ws = ws;
+
+    ws.on('open', () => {
+      this.log.info('Connected to relayLLM');
+      this._upstreamReconnectDelay = 2000;
+      if (this._upstreamDown) {
+        this._upstreamDown = false;
+        this._sendToBrowser({ type: 'relay_status', connected: true });
+      }
+      if (onOpen) onOpen();
+    });
+
+    ws.on('message', (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        this._handleRelayMessage(msg);
+      } catch (err) {
+        this.log.error('Failed to parse relay message:', err.message);
+      }
+    });
+
+    ws.on('close', () => {
+      if (this.ws === ws) this.ws = null;
+      if (this._closed) return;
+      this.log.info('Disconnected from relayLLM');
+      if (!this._upstreamDown) {
+        this._upstreamDown = true;
+        this._sendToBrowser({ type: 'relay_status', connected: false });
+      }
+      this._scheduleUpstreamReconnect();
+    });
+
+    ws.on('error', (err) => {
+      this.log.error('WebSocket error:', err.message);
+      if (onError && ws.readyState === WebSocket.CONNECTING) {
+        onError(err);
+      }
+    });
+  }
+
+  // The frontend socket path (RELAY_FRONTEND_SOCKET) is injected once, at
+  // spawn, and is only valid for the relay process that spawned Eve. Retrying
+  // it recovers relay's own pong-timeout drops and a relayLLM restart behind
+  // relay, since the path is unaffected by either. It cannot recover relay
+  // itself restarting — that changes the path — but relay respawns Eve with a
+  // fresh one when it does, so retrying forever against a now-dead path here
+  // is harmless rather than wrong.
+  _scheduleUpstreamReconnect() {
+    if (this._closed) return;
+    const delay = this._upstreamReconnectDelay;
+    this._upstreamReconnectDelay = Math.min(delay * 2, 30000);
+    setTimeout(() => this._connectUpstream(), delay);
   }
 
   _connectScheduler() {
@@ -221,6 +267,7 @@ class RelayClient {
       case 'tts_done':
       case 'tts_error':
       case 'mode_changed':
+      case 'relay_status':
         return true;
       default:
         return false;

@@ -1,6 +1,11 @@
 // Bumped in lockstep with relayLLM's event protocol; must match the server's v.
 const EVENT_PROTOCOL_VERSION = 2;
 
+// A resubscribe join_session (see markResubscribeJoin) normally gets answered
+// within one round trip. Treating a wildly late reply as a resubscribe would
+// risk swallowing a later, genuine user-initiated join of the same session.
+const RESUBSCRIBE_JOIN_TTL_MS = 15000;
+
 class MessageDispatcher {
   constructor(container) {
     this.container = container;
@@ -33,6 +38,11 @@ class MessageDispatcher {
     this._sidechainStack = [];
     this._clientTTSAccum = '';
     this._ttsSessionId = null;
+    // sessionId -> markedAt (ms). Populated by app.js#resubscribeAfterReconnect()
+    // right before each join_session it sends after an upstream relay
+    // reconnect, so handleSessionJoined can tell that reply apart from a
+    // genuine, user-facing join and avoid stealing the active tab.
+    this._resubscribeJoins = new Map();
 
     this._sessionScopedTypes = new Set([
       'llm_event', 'message_complete', 'stats_update', 'raw_output',
@@ -81,6 +91,7 @@ class MessageDispatcher {
       terminal_templates:   (d) => this._handleTerminalTemplates(d),
       permission_request:   (d) => this.modalManager.showPermissionModal(d),
       mode_changed:         (d) => this._applyPermissionMode(d.mode || 'default'),
+      relay_status:         (d) => this._handleRelayStatus(d),
       warning:              (d) => this.renderer.appendSystemMessage(d.message, 'warning'),
       ui_command:           (d) => this._handleUiCommand(d),
       task_started:         (d) => this.handleSchedulerTaskEvent(d),
@@ -132,6 +143,30 @@ class MessageDispatcher {
         break;
       default:
         break;
+    }
+  }
+
+  // The upstream relayLLM leg self-heals (relay-client.js); recovery gets a
+  // fresh connection with empty join_session/terminal_reconnect state even
+  // though the browser socket never dropped, so open panes need re-joining
+  // exactly like a browser reconnect does.
+  _handleRelayStatus(data) {
+    if (data.connected) {
+      this.bus.emit(EVT.TOAST_DISMISS, { id: 'relay-status' });
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'relay-status-restored',
+        message: 'Reconnected to relay.',
+        type: 'info',
+        duration: 3000,
+      });
+      this.app.resubscribeAfterReconnect({ silent: true });
+    } else {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'relay-status',
+        message: 'Lost connection to relay — chat and terminals are paused. Reconnecting…',
+        type: 'warning',
+        persistent: true,
+      });
     }
   }
 
@@ -553,7 +588,37 @@ class MessageDispatcher {
     }
   }
 
+  // Marked by app.js#resubscribeAfterReconnect() right before it sends each
+  // join_session so the reply below can be told apart from a genuine,
+  // user-facing join.
+  markResubscribeJoin(sessionId) {
+    this._resubscribeJoins.set(sessionId, Date.now());
+  }
+
+  // A genuine, user-initiated join (sidebar click, task viewer) always
+  // supersedes an outstanding resubscribe expectation for the same session —
+  // its reply must switch/repaint the tab like any other explicit join, even
+  // if it happens to land while a resubscribe for the same id is in flight.
+  clearResubscribeJoin(sessionId) {
+    this._resubscribeJoins.delete(sessionId);
+  }
+
+  _consumeResubscribeJoin(sessionId) {
+    const markedAt = this._resubscribeJoins.get(sessionId);
+    if (markedAt === undefined) return false;
+    this._resubscribeJoins.delete(sessionId);
+    return (Date.now() - markedAt) < RESUBSCRIBE_JOIN_TTL_MS;
+  }
+
   handleSessionJoined(data) {
+    // A relay reconnect re-joins every open session tab to refresh upstream
+    // subscription state the new connection lost, but the user never dropped
+    // their own socket — they may be sitting on an unrelated tab typing.
+    // Checked before currentSessionId is touched (unlike _silentHistoryRefresh
+    // below, which clobbers it first and only avoids the render): a
+    // resubscribe reply must never steal focus, only silently refresh state.
+    const isResubscribeJoin = this._consumeResubscribeJoin(data.sessionId);
+
     // Redundant with the per-event v gate, but surfaces the mismatch on
     // join rather than waiting for the first llm_event.
     const serverMajor = parseInt(data.protocolVersion, 10);
@@ -563,7 +628,10 @@ class MessageDispatcher {
       console.error('[message-dispatcher] protocol version mismatch on session_joined', { expected: EVENT_PROTOCOL_VERSION, got: data.protocolVersion });
       this.renderer.appendSystemMessage(msg, 'error');
     }
-    this.state.currentSessionId = data.sessionId;
+
+    if (!isResubscribeJoin) {
+      this.state.currentSessionId = data.sessionId;
+    }
 
     const savedMeta = this.tabManager.getSessionMeta(data.sessionId);
     const sessionType = data.sessionType || savedMeta?.sessionType || null;
@@ -598,6 +666,17 @@ class MessageDispatcher {
 
     const serverHistory = (data.history && data.history.length > 0) ? data.history : [];
     this.state.sessionHistories.set(data.sessionId, serverHistory);
+
+    if (isResubscribeJoin) {
+      this.flushBackgroundBuffer(data.sessionId);
+      if (data.stats) this.app.updateStats(data.stats);
+      // Only the tab already on screen gets repainted, to pick up anything
+      // that streamed during the outage — never a tab switch.
+      if (data.sessionId === this.state.currentSessionId) {
+        this.app.renderMessages();
+      }
+      return;
+    }
 
     // Used by the deferred re-join after task completion.
     if (this._silentHistoryRefresh === data.sessionId) {
