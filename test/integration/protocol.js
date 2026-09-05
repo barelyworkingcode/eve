@@ -62,6 +62,14 @@ const relayFrames = {
   //   terminal_output: relayLLM/main.go base64-encodes `data`; the browser _decodeBase64s it
   terminalOutput: ({ terminalId, data }) =>
     ({ type: 'terminal_output', terminalId, data: Buffer.from(String(data)).toString('base64') }),
+  //   terminal_created / terminal_joined / terminal_list: relayLLM/ws.go.
+  //   joinTerminalConn always answers a join with the full scrollback, which is
+  //   why a re-join has to land on a cleared grid.
+  terminalCreated: ({ terminalId, templateId = 'zsh', name = 'sh', directory = '/fake' }) =>
+    ({ type: 'terminal_created', terminalId, templateId, name, directory }),
+  terminalJoined: ({ terminalId, templateId = 'zsh', name = 'sh', directory = '/fake', state = 'running', cols = 80, rows = 24, scrollback = '' }) =>
+    ({ type: 'terminal_joined', terminalId, templateId, name, directory, state, cols, rows, scrollback: Buffer.from(String(scrollback)).toString('base64') }),
+  terminalList: ({ terminals }) => ({ type: 'terminal_list', terminals }),
 };
 
 // Mirrors eve's accumulation across all three assistant-text shapes, so a

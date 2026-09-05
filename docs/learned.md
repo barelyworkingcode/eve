@@ -98,3 +98,44 @@ just the one that triggered it — so `ws/voice-messages.js` explicitly
 serializes `tts_speak` against the daemon's own global generation lock. Any
 new call path into the daemon must go through the same serialization; there
 is no "fast path" that's safe to bypass it.
+
+## A reconnect has to re-join terminals, because input and output aren't symmetric
+
+A shell pane would go dead after the browser's WebSocket dropped and
+reconnected: keystrokes still went somewhere, nothing ever came back, and a
+reload showed everything that had been typed in the meantime. It reads like a
+rendering freeze, and it isn't one — xterm's renderer is running and its grid
+matches the DOM. Nothing is being *sent* to the pane.
+
+The asymmetry is in relayLLM (`ws.go`):
+
+- `handleTerminalInput` writes to a PTY looked up **by id**, from any
+  connection, with no membership check.
+- `terminal_output` goes only to connections registered as viewers by
+  `joinTerminalConn`, which runs for `terminal_create`, `join_terminal` and
+  `terminal_reconnect`.
+
+A browser reconnect builds a whole new chain — new browser WS, new
+`RelayClient`, new upstream WS to relayLLM — so the new connection's viewer set
+is empty while the PTY is untouched and still accepting input. The pane is
+write-only.
+
+Sessions were fine because `app.js#onWebSocketReady` re-sends `join_session`
+for open tabs. Terminals were not: `onTerminalList` only joins ids it doesn't
+already hold locally, and after a reconnect it holds all of them. A reload
+"fixed" it because a reload is the one path that rebuilds `this.terminals` from
+empty, which makes every id look new again.
+
+Fix: `markTerminalsForRejoin()` flags live panes on every `auth_success`;
+`onTerminalList` re-joins the visible one (the list proves it's still resident,
+so it can't draw a spurious "terminal not found"), and hidden ones re-join from
+`showTerminal`, which fits them against a real viewport first. Because a join
+always replays full scrollback, `onTerminalJoined` resets the grid first when
+`replayPending` is set — otherwise the replay stacks a second copy of the
+screen under the first.
+
+**Rule**: any per-connection subscription upstream — terminals, sessions,
+watches — has to be re-established on the reconnect path, and "we already have
+it locally" is not evidence that the server still knows that. Reaching for the
+renderer is the wrong instinct here: check whether frames are arriving at all
+before assuming they arrived and failed to paint.
