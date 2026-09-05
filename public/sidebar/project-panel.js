@@ -52,16 +52,9 @@ class ProjectPanel {
       return;
     }
 
-    this.titleEl.innerHTML = '';
-    const titleText = document.createElement('span');
-    titleText.className = 'panel-header__title-text';
-    titleText.textContent = project.name;
-    this.titleEl.appendChild(titleText);
+    this.titleEl.textContent = project.name;
     this.titleEl.title = project.name;
-    if (project.host && typeof hostChip === 'function') {
-      const chip = hostChip(project.host, { status: this.state.hostStatus?.(project.host.id) });
-      if (chip) this.titleEl.appendChild(chip);
-    }
+    this._renderHostBar(project);
     this._renderHeaderActions();
     this._renderTabs();
     this._renderContent();
@@ -813,6 +806,45 @@ class ProjectPanel {
     this.bus.on(EVT.MODULE_LIST_UPDATED, ({ projectId }) => {
       if (projectId === this.projectId) this._refresh();
     });
+    if (EVT.HOST_STATUS) {
+      this.bus.on(EVT.HOST_STATUS, ({ hostId }) => {
+        const project = this.state.getProject(this.projectId);
+        if (project?.host?.id === hostId) this._renderHostBar(project);
+      });
+    }
+  }
+
+  // The header is one short line, so the host gets its own strip beneath
+  // it: dot, host name, and the status word. Console projects hide it; the
+  // strip's absence is the "this Mac" signal.
+  _renderHostBar(project) {
+    const bar = document.getElementById('panelHostBar');
+    if (!bar) return;
+    if (!project?.host) {
+      bar.hidden = true;
+      bar.innerHTML = '';
+      bar.className = 'panel-host-bar';
+      return;
+    }
+    const status = this.state.hostStatus?.(project.host.id) || project.host.status || 'unknown';
+    bar.hidden = false;
+    bar.className = `panel-host-bar panel-host-bar--${status}`;
+    bar.innerHTML = '';
+    bar.dataset.testid = `panel-host-bar-${project.host.id}`;
+    const dot = document.createElement('span');
+    dot.className = 'host-chip__dot';
+    bar.appendChild(dot);
+    const name = document.createElement('span');
+    name.className = 'panel-host-bar__name';
+    name.textContent = project.host.name;
+    bar.appendChild(name);
+    const word = document.createElement('span');
+    word.className = 'panel-host-bar__status';
+    word.textContent = {
+      connected: 'connected', connecting: 'connecting…', unreachable: 'unreachable', idle: 'idle', unknown: '',
+    }[status] ?? status;
+    bar.appendChild(word);
+    if (typeof hostStatusLabel === 'function') bar.title = hostStatusLabel(project.host, status);
   }
 }
 
