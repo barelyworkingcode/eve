@@ -246,6 +246,40 @@ function sessionDisplayName(session, project, { stripProject = true } = {}) {
   return remembered || (session?.preview || '').trim() || shown;
 }
 
+// The chip that marks a project as living on an SSH host. `host` is the
+// project's `{id, name, status}`; a console project (null host) renders
+// nothing, which is the design: the absence is the "this Mac" signal.
+// `status` overrides host.status when the caller has a fresher one
+// (StateStore.hostStatus tracks the live pool state pushed over the WS).
+function hostChip(host, { size = '', status = null, title = null } = {}) {
+  if (!host || !host.name) return null;
+  const s = status || host.status || 'unknown';
+  const el = document.createElement('span');
+  el.className = `host-chip host-chip--${s}${size ? ` host-chip--${size}` : ''}`;
+  el.dataset.hostId = host.id || '';
+  el.title = title || hostStatusLabel(host, s);
+  const dot = document.createElement('span');
+  dot.className = 'host-chip__dot';
+  el.appendChild(dot);
+  const name = document.createElement('span');
+  name.className = 'host-chip__name';
+  name.textContent = host.name;
+  el.appendChild(name);
+  return el;
+}
+
+function hostStatusLabel(host, status) {
+  const word = {
+    connected: 'connected',
+    connecting: 'connecting…',
+    unreachable: 'unreachable',
+    idle: 'idle',
+    unknown: 'not checked yet',
+  }[status] || status;
+  const target = host.target ? ` (${host.target})` : '';
+  return `${host.name}${target} — ${word}`;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { projectMonogram, projectHue, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName };
+  module.exports = { projectMonogram, projectHue, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName, hostChip, hostStatusLabel };
 }
