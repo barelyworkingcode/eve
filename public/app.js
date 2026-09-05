@@ -495,7 +495,11 @@ class EveWorkspaceClient {
       }
     });
 
+    // Runs on every auth_success, so this is also the reconnect path: panes
+    // that survived the drop must re-join before the list, which only ever
+    // joins terminals it doesn't already have locally.
     this.terminalManager.onReady(() => {
+      this.terminalManager.markTerminalsForRejoin();
       this.terminalManager.requestTerminalList();
       this.terminalManager.requestTemplates();
     });
