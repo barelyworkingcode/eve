@@ -33,9 +33,16 @@ class ActivityRail {
 
       const avatar = document.createElement('span');
       avatar.className = 'rail__avatar';
-      avatar.textContent = (project.name || '?').trim().charAt(0).toUpperCase() || '?';
-      avatar.style.setProperty('--project-avatar-bg', this._avatarColor(project.name || project.id));
+      avatar.textContent = projectMonogram(project.name);
+      avatar.style.setProperty('--project-avatar-bg', this.state.projectColor(project.id));
       item.appendChild(avatar);
+
+      if (this._hasRunningSession(project.id)) {
+        const live = document.createElement('span');
+        live.className = 'rail__live';
+        live.title = 'Session running';
+        item.appendChild(live);
+      }
 
       item.addEventListener('click', () => {
         if (this.onSelect) this.onSelect(project.id);
@@ -45,14 +52,17 @@ class ActivityRail {
     }
   }
 
+  _hasRunningSession(projectId) {
+    return this.state.getSessionsForProject(projectId)
+      .some(s => s.active && !this.state.isTaskRun(s.id));
+  }
+
   _avatarColor(seed) {
     const key = String(seed || '');
     if (this._colorCache.has(key)) {
       return this._colorCache.get(key);
     }
-    let h = 0;
-    for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-    const color = `hsl(${h % 360}, 38%, 38%)`;
+    const color = projectColor(key);
     this._colorCache.set(key, color);
     return color;
   }

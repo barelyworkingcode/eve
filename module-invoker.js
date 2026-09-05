@@ -27,6 +27,7 @@ class ModuleInvoker {
 
     const project = this.resolveProject(projectId);
     if (!project) throw new Error('Project not found');
+    if (project.hostId) throw new Error('Modules are not available on a host project');
 
     const manifest = await this.moduleService.getModule(project.path, moduleName);
     const denied = files.filter(f => !this.moduleService.isFilePermitted(manifest, f));

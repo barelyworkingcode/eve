@@ -338,8 +338,10 @@ class TerminalManager {
   }
 
   // relayLLM auto-joins the creator, so no separate join_terminal is needed.
-  onTerminalCreated(terminalId, templateId, name, directory) {
-    this.setupTerminal(terminalId, templateId, name, directory, false);
+  // host ({id,name}) is present when relayLLM resolved the session onto an
+  // SSH host (../relay/docs/ssh-hosts.md); undefined for a console terminal.
+  onTerminalCreated(terminalId, templateId, name, directory, host) {
+    this.setupTerminal(terminalId, templateId, name, directory, false, false, host);
     this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
@@ -355,7 +357,7 @@ class TerminalManager {
 
     // Fallback for terminal_joined arriving without prior setup.
     if (!terminal) {
-      this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped');
+      this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped', false, data.host);
       this.app.bus.emit(EVT.TERMINAL_LIST);
       terminal = this.terminals.get(terminalId);
       if (terminal && Number.isInteger(data.cols) && data.cols > 0 &&
@@ -421,11 +423,19 @@ class TerminalManager {
   // keystrokes into the live PTY and never receives another byte back. That
   // reads as "the UI froze", and only a reload clears it — a reload rebuilds
   // this.terminals from empty, which is the one path that re-joins. Marking
-  // them here makes onTerminalList/showTerminal re-join instead. No-op on the
-  // first connect, when nothing is open yet.
-  markTerminalsForRejoin() {
-    for (const terminal of this.terminals.values()) {
-      if (!terminal.exited) terminal.needsReconnect = true;
+  // them here makes onTerminalList/showTerminal re-join instead.
+  //
+  // `onlyIds` scopes the marking to terminals that existed when the socket
+  // opened. The caller runs after async project/session loads, and a terminal
+  // created inside that window is already a viewer on the new socket —
+  // relayLLM auto-joins the creator — so re-joining it would send a spurious
+  // terminal_reconnect and a second replay. null marks everything (used for
+  // an upstream-only relay reconnect, where every viewer set was lost).
+  markTerminalsForRejoin(onlyIds = null) {
+    for (const [id, terminal] of this.terminals) {
+      if (terminal.exited) continue;
+      if (onlyIds && !onlyIds.has(id)) continue;
+      terminal.needsReconnect = true;
     }
   }
 
@@ -494,7 +504,7 @@ class TerminalManager {
       for (const t of terminalList) {
         this.allTerminals.set(t.id, t);
         if (!this.terminals.has(t.id)) {
-          this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped');
+          this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped', t.host);
         } else if (t.id === this.activeTerminalId) {
           // Being in the list proves it's still resident upstream, so this
           // can't draw a "terminal not found" error. Hidden panes wait for
@@ -506,13 +516,17 @@ class TerminalManager {
     this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
-  reconnectTerminal(terminalId, templateId, name, directory, exited) {
+  reconnectTerminal(terminalId, templateId, name, directory, exited, host) {
     // terminal_reconnect is deferred until showTerminal so xterm can fit()
     // against the visible container first and report the real viewport size.
-    this.setupTerminal(terminalId, templateId, name, directory, exited, /* needsReconnect */ true);
+    this.setupTerminal(terminalId, templateId, name, directory, exited, /* needsReconnect */ true, host);
   }
 
-  setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect = false) {
+  // host ({id,name}) is present for a terminal opened on an SSH host
+  // (../relay/docs/ssh-hosts.md); the tab title becomes "<host.name> · <name>"
+  // and the raw object is stored on both terminal records so the sidebar
+  // (someone else's file) can read `terminal.host`.
+  setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect = false, host = null) {
     if (!this.xtermLoaded) {
       this.log.error('xterm not loaded yet');
       return;
@@ -537,6 +551,7 @@ class TerminalManager {
       directory,
       templateId,
       name,
+      host: host || null,
       exited: !!exited,
       needsReconnect: !!needsReconnect,
       replayPending: false,
@@ -546,7 +561,7 @@ class TerminalManager {
       resizeTimer: null,
     });
     this.allTerminals.set(terminalId, {
-      id: terminalId, templateId, name, directory,
+      id: terminalId, templateId, name, directory, host: host || null,
       state: exited ? 'stopped' : 'running'
     });
 
@@ -582,7 +597,8 @@ class TerminalManager {
       }, 120);
     });
 
-    const label = name || templateId || 'Terminal';
+    const baseLabel = name || templateId || 'Terminal';
+    const label = host ? `${host.name} · ${baseLabel}` : baseLabel;
     this.app.tabManager.openTerminal(terminalId, label, directory);
   }
 
@@ -630,6 +646,7 @@ class TerminalManager {
         templateId: meta.templateId || '',
         name: meta.name || '',
         directory: meta.directory || '',
+        host: meta.host || null,
         state: meta.state || 'running',
       });
     }
@@ -648,6 +665,7 @@ class TerminalManager {
         meta.name || opts.name || 'Terminal',
         meta.directory || opts.directory || '',
         meta.state === 'stopped',
+        meta.host,
       );
       this.showTerminal(terminalId);
       return;
@@ -664,7 +682,7 @@ class TerminalManager {
 
     const meta = this.allTerminals.get(terminalId) || {};
     const label = opts.name || meta.name || 'Past Run';
-    this.setupTerminal(terminalId, meta.templateId || '', label, meta.directory || opts.directory || '', true);
+    this.setupTerminal(terminalId, meta.templateId || '', label, meta.directory || opts.directory || '', true, false, meta.host);
     this.showTerminal(terminalId);
 
     const terminal = this.terminals.get(terminalId);
@@ -699,11 +717,17 @@ class TerminalManager {
     return bytes;
   }
 
-  getTerminalsForPath(projectPath) {
+  // hostId keys the match alongside directory (../relay/docs/ssh-hosts.md):
+  // two hosts can share a directory string, and a console project must not
+  // pick up a host terminal that merely happens to share its path text.
+  // '' (the default) means "console" — matches a terminal with no host.
+  getTerminalsForPath(projectPath, hostId = '') {
     if (!projectPath) return [];
     const normPath = projectPath.toLowerCase();
+    const wantHostId = hostId || '';
     const result = [];
     for (const [id, t] of this.allTerminals) {
+      if ((t.host?.id || '') !== wantHostId) continue;
       if (t.directory && t.directory.toLowerCase().startsWith(normPath)) {
         result.push({ ...t, id });
       }
@@ -711,12 +735,14 @@ class TerminalManager {
     return result;
   }
 
-  getDetachedCountForPath(projectPath) {
+  getDetachedCountForPath(projectPath, hostId = '') {
     if (!projectPath) return 0;
     const normPath = projectPath.toLowerCase();
+    const wantHostId = hostId || '';
     let count = 0;
     for (const [id, t] of this.allTerminals) {
       if (t.state === 'stopped') continue;
+      if ((t.host?.id || '') !== wantHostId) continue;
       // Case-insensitive match for macOS
       if (t.directory && t.directory.toLowerCase().startsWith(normPath)) {
         if (!this.terminals.has(id)) {

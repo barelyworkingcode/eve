@@ -635,3 +635,23 @@
     padding-bottom: 10px;
   }
 }
+
+/* — Session rows: liveness + last-opened time ------------------------------ */
+.project-tree__live {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--success) 22%, transparent);
+}
+.project-tree__session-time {
+  flex-shrink: 0;
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.project-tree__session-item--active .project-tree__session-time {
+  color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
+}

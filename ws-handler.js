@@ -6,12 +6,37 @@ const { messages } = require('./ws/message-registry');
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, ttsService, sttService, uiBus, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, hostPool, ttsService, sttService, uiBus, log }) {
+  // Shared across every connection this factory serves (the factory itself
+  // runs once, at server.js startup) — a host_status change must reach every
+  // authenticated browser tab, not just the one that happened to trigger it.
+  const authenticatedSockets = new Set();
+
+  function sendHostStatus(ws, evt) {
+    const frame = { type: 'host_status', hostId: evt.hostId, name: evt.name, status: evt.status };
+    if (evt.error) frame.error = evt.error;
+    try { ws.send(JSON.stringify(frame)); } catch { /* socket closing */ }
+  }
+
+  hostPool?.on('status', (evt) => {
+    for (const client of authenticatedSockets) sendHostStatus(client, evt);
+  });
+
   return (ws, req) => {
     // Never consult req.headers.host or X-Forwarded-For here — both are
     // attacker-controllable. See docs/security-review-auth-transport.md Section A.
     const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !trustedNetwork.isTrusted(req);
     let isAuthenticated = !requiresAuth;
+
+    // Sent once per newly-authenticated connection so a fresh browser tab is
+    // caught up on every host the pool has already observed a status for —
+    // it does not, itself, spawn a HostAgent for a host nobody has touched yet.
+    function onAuthenticated() {
+      authenticatedSockets.add(ws);
+      if (!hostPool) return;
+      for (const s of hostPool.statuses()) sendHostStatus(ws, { hostId: s.hostId, name: s.name, status: s.status });
+    }
+    if (isAuthenticated) onAuthenticated();
 
     const relayClient = new RelayClient(relayTransport, ws, ttsService, log?.child('Relay'));
 
@@ -20,7 +45,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
     uiBus?.register(relayClient);
-    const fileWatcher = new FileWatcher(ws, fileHandlers.fileService, resolveProject);
+    const fileWatcher = new FileWatcher(ws, (project) => fileHandlers.fileServiceFor(project), resolveProject);
     // SearchService and SearchSummarizer track in-flight work by requestId
     // only, so this connection must track which IDs belong to it to cancel
     // cleanly on drop.
@@ -44,6 +69,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
           }
           if (authService.validateSession(message.token)) {
             isAuthenticated = true;
+            onAuthenticated();
             ws.send(JSON.stringify({ type: 'auth_success' }));
           } else {
             ws.send(JSON.stringify({ type: 'auth_failed', message: 'Invalid or expired token' }));
@@ -93,7 +119,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             inflightSearchIds,
             inflightAiIds,
             log,
-            deps: { relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, ttsService, sttService },
+            deps: { relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, hostPool, ttsService, sttService },
           });
         }
       } catch (err) {
@@ -115,6 +141,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
       relayClient.close();
       fileWatcher.closeAll();
       uiBus?.unregister(relayClient);
+      authenticatedSockets.delete(ws);
     });
   };
 }

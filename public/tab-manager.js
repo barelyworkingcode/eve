@@ -78,6 +78,7 @@ class TabManager {
   openSession(sessionId, { skipRender = false } = {}) {
     const session = this.app.sessions.get(sessionId);
     if (!session) return;
+    if (typeof SessionRecents !== 'undefined') SessionRecents.touch(sessionId);
 
     const existingTab = this.tabs.find(t => t.id === sessionId);
     if (existingTab) {
@@ -771,6 +772,10 @@ class TabManager {
 
   getRecentSessionIds() {
     return this._getRecentEntries(TabManager.SESSION_STORAGE_KEY).map(e => e.id);
+  }
+
+  getRecentSessionEntries() {
+    return this._getRecentEntries(TabManager.SESSION_STORAGE_KEY);
   }
 
   getRecentFiles() {

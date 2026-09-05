@@ -31,6 +31,7 @@ describe('normalizeProject', () => {
       id: 'p1',
       name: 'Zed',
       path: '/work/zed',
+      hostId: '',
       allowedMcpIds: ['fs', '*'],
       allowedModels: ['haiku'],
       chatTemplates: [{
@@ -57,6 +58,7 @@ describe('normalizeProject', () => {
   it('fills safe defaults for a minimal project', () => {
     const out = normalizeProject({ id: 'p2', name: 'Bare', path: '/x' });
     expect(out).toMatchObject({
+      hostId: '',
       allowedMcpIds: [],
       allowedModels: [],
       chatTemplates: [],
@@ -87,5 +89,19 @@ describe('normalizeProject', () => {
       mode: 'text', voice: '', systemPrompt: '', appendClaudeMd: false, useRelayTools: false,
     });
     expect(out.permissionPolicy).toBeNull();
+  });
+
+  it('maps host_id to hostId, defaulting to empty for a console project', () => {
+    expect(normalizeProject({ id: 'p5', name: 'Host', path: '/srv', host_id: 'h_abc' }).hostId).toBe('h_abc');
+    expect(normalizeProject({ id: 'p6', name: 'Console', path: '/x' }).hostId).toBe('');
+  });
+
+  it('never projects ssh_argv even if a caller mistakenly hands the whole hostView through', () => {
+    const out = normalizeProject({
+      id: 'p7', name: 'Host', path: '/srv', host_id: 'h_abc',
+      ssh_argv: ['ssh', '-o', 'BatchMode=yes', 'admin@devbox.local'],
+    });
+    expect(out).not.toHaveProperty('ssh_argv');
+    expect(JSON.stringify(out)).not.toContain('BatchMode');
   });
 });

@@ -57,6 +57,9 @@ class EveWorkspaceClient {
     this.container.register('sidebarRenderer', this.sidebarRenderer);
     this.tabManager = new TabManager(this.container);
     this.container.register('tabManager', this.tabManager);
+    this.homeScreen = new HomeScreen(this.container);
+    this.container.register('homeScreen', this.homeScreen);
+    this.homeScreen.init();
     this.fileBrowser = new FileBrowser(this.container);
     this.container.register('fileBrowser', this.fileBrowser);
     this.fileEditor = new FileEditor(this.container);
@@ -93,6 +96,8 @@ class EveWorkspaceClient {
     this.projectDialog.init();
     this.searchDialog = new SearchDialog(this.container);
     this.searchDialog.init();
+    this.commandPalette = new CommandPalette(this.container);
+    this.commandPalette.init();
 
     this.terminalManager = new TerminalManager(this.container);
     this.container.register('terminalManager', this.terminalManager);
@@ -231,6 +236,7 @@ class EveWorkspaceClient {
     });
 
     window.addEventListener('keydown', (e) => this._handleSearchHotkey(e));
+    window.addEventListener('keydown', (e) => this.commandPalette.handleHotkey(e));
 
     this.bus.on(EVT.DIALOG_CONFIRM, (data) => {
       if (confirm(data.message)) {
@@ -452,10 +458,14 @@ class EveWorkspaceClient {
 
     if (this.ttsManager.enabled) this.ttsManager.syncVoiceMode(this.wsClient);
 
+    // Terminals that already exist right now lost their viewership with the
+    // old socket; anything created during the loads below is already joined.
+    const terminalsBeforeLoad = new Set(this.terminalManager?.terminals?.keys() || []);
+
     // Order matters: task session IDs must be known before sessions load
     // so task sessions are filtered from the sidebar.
     this.loadProjects().then(() => this.loadSessions()).then(() => {
-      this.resubscribeAfterReconnect();
+      this.resubscribeAfterReconnect({ terminalIds: terminalsBeforeLoad });
 
       const recentFiles = this.tabManager.getRecentFiles();
       for (const file of recentFiles) {
@@ -503,7 +513,7 @@ class EveWorkspaceClient {
   // existing view to protect yet, or the disconnect itself already unsettled
   // the page. Silent joins are marked via markResubscribeJoin so
   // handleSessionJoined refreshes state without switching the visible tab.
-  resubscribeAfterReconnect({ silent = false } = {}) {
+  resubscribeAfterReconnect({ silent = false, terminalIds = null } = {}) {
     const recentIds = this.tabManager.getRecentSessionIds();
     for (const sessionId of recentIds) {
       if (this.sessions.has(sessionId)) {
@@ -526,7 +536,7 @@ class EveWorkspaceClient {
     }
 
     this.terminalManager.onReady(() => {
-      this.terminalManager.markTerminalsForRejoin();
+      this.terminalManager.markTerminalsForRejoin(terminalIds);
       this.terminalManager.requestTerminalList();
       this.terminalManager.requestTemplates();
     });
@@ -1211,6 +1221,7 @@ class EveWorkspaceClient {
   showWelcomeScreen() {
     this.elements.welcomeScreen.classList.remove('hidden');
     this.elements.chatScreen.classList.add('hidden');
+    this.homeScreen?.render();
   }
 
   showChatScreen() {
@@ -1328,7 +1339,10 @@ class EveWorkspaceClient {
   getSessionDisplayName(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return sessionId;
-    return session.name || this.shortenPath(session.directory);
+    const project = session.projectId ? this.state.getProject(session.projectId) : null;
+    // Tabs keep the full "Project - model" auto name (the tab bar is where
+    // project context lives), but still prefer the remembered first ask.
+    return sessionDisplayName(session, project, { stripProject: false }) || this.shortenPath(session.directory);
   }
 
   initSidebarResize() {

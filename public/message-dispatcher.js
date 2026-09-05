@@ -82,7 +82,7 @@ class MessageDispatcher {
       file_uploaded:        (d) => this._handleFileEvent(d, 'handleFileUploaded', [d.projectId, d.destDirectory, d.fileName], EVT.FILE_UPLOADED),
       file_changed:         (d) => this.app.handleFileChanged(d.projectId, d.path, d.content),
       dir_changed:          (d) => { if (this.bus) this.bus.emit(EVT.DIR_CHANGED, d); },
-      terminal_created:     (d) => this.terminal.onTerminalCreated(d.terminalId, d.templateId, d.name, d.directory),
+      terminal_created:     (d) => this.terminal.onTerminalCreated(d.terminalId, d.templateId, d.name, d.directory, d.host),
       terminal_joined:      (d) => this.terminal.onTerminalJoined(d),
       terminal_output:      (d) => this.terminal.onTerminalOutput(d.terminalId, d.data),
       terminal_exit:        (d) => this.terminal.onTerminalExit(d.terminalId, d.exitCode),
@@ -92,6 +92,7 @@ class MessageDispatcher {
       permission_request:   (d) => this.modalManager.showPermissionModal(d),
       mode_changed:         (d) => this._applyPermissionMode(d.mode || 'default'),
       relay_status:         (d) => this._handleRelayStatus(d),
+      host_status:          (d) => this._handleHostStatus(d),
       warning:              (d) => this.renderer.appendSystemMessage(d.message, 'warning'),
       ui_command:           (d) => this._handleUiCommand(d),
       task_started:         (d) => this.handleSchedulerTaskEvent(d),
@@ -168,6 +169,14 @@ class MessageDispatcher {
         persistent: true,
       });
     }
+  }
+
+  // SSH host connectivity (../relay/docs/ssh-hosts.md) — eve's own file-agent
+  // connection state for a host, not relay's ssh ControlMaster. Just updates
+  // StateStore.hosts and republishes as an EventBus event; the host chip /
+  // Files-tab connecting states are someone else's UI to render from it.
+  _handleHostStatus(data) {
+    this.state.setHostStatus(data);
   }
 
   _trackStreaming(sessionId) {
@@ -428,6 +437,10 @@ class MessageDispatcher {
         history = [];
         this.state.sessionHistories.set(sid, history);
       }
+      if (history.length === 0 && typeof SessionRecents !== 'undefined' && SessionRecents.setTitle(sid, data.text)) {
+        this.state.updateSession(sid, {});
+        this.tabManager?.updateTabLabel(sid, this.app.getSessionDisplayName(sid));
+      }
       history.push({ role: 'user', content: data.text });
       return;
     }
@@ -666,6 +679,10 @@ class MessageDispatcher {
 
     const serverHistory = (data.history && data.history.length > 0) ? data.history : [];
     this.state.sessionHistories.set(data.sessionId, serverHistory);
+    if (typeof SessionRecents !== 'undefined'
+        && SessionRecents.setTitle(data.sessionId, SessionRecents.titleFromHistory(serverHistory))) {
+      this.state.updateSession(data.sessionId, {});
+    }
 
     if (isResubscribeJoin) {
       this.flushBackgroundBuffer(data.sessionId);
