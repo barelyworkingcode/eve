@@ -1,4 +1,9 @@
 const ENROLLMENT_POLL_MS = 3000;
+// After this long on the login screen the poll slows to the idle rate: every
+// poll is a relay round-trip that lands in relay's audit log, and a tab left
+// on the login screen overnight has no operator walking towards it.
+const ENROLLMENT_POLL_BRISK_MS = 3 * 60 * 1000;
+const ENROLLMENT_POLL_IDLE_MS = 15000;
 
 class AuthClient {
   constructor(log) {
@@ -57,25 +62,32 @@ class AuthClient {
   // fresh box" screen, which has no window to poll for) is visible.
   startEnrollmentPoll() {
     if (this.pollTimer) return;
-    this.pollTimer = setInterval(async () => {
-      if (this.elements.screen.classList.contains('hidden')) {
-        this.stopEnrollmentPoll();
-        return;
+    const startedAt = Date.now();
+    const tick = async () => {
+      this.pollTimer = null;
+      if (this.elements.screen.classList.contains('hidden')) return;
+      // A hidden tab keeps its timer but skips the fetch: nobody is looking
+      // at the button, and relay's audit log doesn't need to hear from it.
+      if (!document.hidden) {
+        try {
+          const token = localStorage.getItem('eve_session');
+          const headers = token ? { 'X-Session-Token': token } : {};
+          const res = await fetch('/api/auth/status', { headers });
+          this.applyEnrollmentWindow(await res.json());
+        } catch (err) {
+          this.log.error('Enrolment window poll failed:', err);
+        }
       }
-      try {
-        const token = localStorage.getItem('eve_session');
-        const headers = token ? { 'X-Session-Token': token } : {};
-        const res = await fetch('/api/auth/status', { headers });
-        this.applyEnrollmentWindow(await res.json());
-      } catch (err) {
-        this.log.error('Enrolment window poll failed:', err);
-      }
-    }, ENROLLMENT_POLL_MS);
+      if (this.elements.screen.classList.contains('hidden')) return;
+      const brisk = Date.now() - startedAt < ENROLLMENT_POLL_BRISK_MS;
+      this.pollTimer = setTimeout(tick, brisk ? ENROLLMENT_POLL_MS : ENROLLMENT_POLL_IDLE_MS);
+    };
+    this.pollTimer = setTimeout(tick, ENROLLMENT_POLL_MS);
   }
 
   stopEnrollmentPoll() {
     if (this.pollTimer) {
-      clearInterval(this.pollTimer);
+      clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
   }
