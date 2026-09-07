@@ -1,6 +1,6 @@
 // The only eve code that knows relay's passkey-enrolment routes
 // (../relay/docs/eve-passkey-enrolment.md). isOpen() caches its answer for
-// EVE_ENROLMENT_CACHE_MS so a login-screen poll and an enrol request racing
+// CACHE_TTL_MS so a login-screen poll and an enrol request racing
 // within the same couple of seconds don't double-hit relay.
 
 const { NullLogger } = require('./logger');
