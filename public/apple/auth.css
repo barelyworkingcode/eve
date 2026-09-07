@@ -81,6 +81,30 @@
   cursor: not-allowed;
 }
 
+/* — Secondary button: "Add this browser", hidden unless an enrolment
+   window is open (see public/auth.js applyEnrollmentWindow) ------------- */
+.auth-card .btn-secondary {
+  width: 100%;
+  height: var(--ctl-h-lg);
+  margin-top: var(--sp-4);
+}
+
+.auth-card .btn-secondary.hidden {
+  display: none !important;
+}
+
+/* — Hint: shown alongside the secondary button while the window is open - */
+.auth-hint {
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: var(--text-footnote);
+  margin-top: var(--sp-4);
+  font-family: var(--font-ui);
+}
+
+.auth-hint.hidden {
+  display: none !important;
+}
+
 /* — Error message: red footnote-style inline notice -------------------- */
 #authError {
   margin-top: var(--sp-6);

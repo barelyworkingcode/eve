@@ -86,7 +86,7 @@ function makeWsClient(wsUrl) {
   };
 }
 
-async function startEve({ projects = [], hosts = [], env: envOverride = {} } = {}) {
+async function startEve({ projects = [], hosts = [], env: envOverride = {}, seedDataDir } = {}) {
   const relay = createFakeRelay();
   const relayPort = await relay.listen();
   for (const h of hosts) relay.addHost(h);
@@ -101,6 +101,10 @@ async function startEve({ projects = [], hosts = [], env: envOverride = {} } = {
   const ttsPort = await freePort();
   const sttPort = await freePort();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-data-'));
+  // Lets a test seed e.g. a pre-enrolled auth.json before the server ever
+  // reads dataDir — there's no other hook point, since the directory path
+  // isn't known until mkdtempSync runs above.
+  if (seedDataDir) await seedDataDir(dataDir);
   const baseUrl = `http://127.0.0.1:${port}`;
 
   const env = {

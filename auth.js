@@ -13,8 +13,17 @@ const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_LIMIT_MAX_ATTEMPTS = 10;
+const LABEL_MAX_LENGTH = 120;
 
 const { NullLogger } = require('./logger');
+
+// Enrolling browser's User-Agent, kept only as a display label for a future
+// credential-listing surface — never used for any security decision.
+function sanitizeLabel(userAgent) {
+  if (!userAgent) return '';
+  // eslint-disable-next-line no-control-regex
+  return userAgent.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, LABEL_MAX_LENGTH);
+}
 
 class AuthService {
   constructor(dataDir, log) {
@@ -88,7 +97,14 @@ class AuthService {
     }
   }
 
+  // Back-fills `userId` on any pre-existing file that predates it (one user
+  // handle for every credential — see verifyEnrollment/addCredential) so a
+  // legacy single-passkey file gets one on its very next save, not just the
+  // next enrolment.
   saveCredentials(data) {
+    if (!data.userId) {
+      data.userId = crypto.randomBytes(32).toString('base64url');
+    }
     try {
       fs.writeFileSync(this.authFile, JSON.stringify(data, null, 2));
       this.setSecurePermissions(this.authFile);
@@ -207,14 +223,28 @@ class AuthService {
   }
 
   async generateEnrollmentOptions(req) {
-    const rpId = this.getRpId(req);
+    // Reuse the recorded RP ID / user handle once one exists — a second
+    // browser may reach eve by a different hostname than the first did, and
+    // every credential must belong to the one WebAuthn user (see
+    // ../relay/docs/eve-passkey-enrolment.md decisions 5-6).
+    const existing = this.loadCredentials();
+    const rpId = existing?.rpId || this.getRpId(req);
+    const userID = existing?.userId
+      ? Buffer.from(existing.userId, 'base64url')
+      : crypto.randomBytes(32);
+    const excludeCredentials = (existing?.credentials || []).map((c) => ({
+      id: c.id,
+      transports: c.transports || ['internal']
+    }));
 
     const options = await generateRegistrationOptions({
       rpName: this.rpName,
       rpID: rpId,
       userName: 'eve-user',
+      userID,
       userDisplayName: 'Home|Work User',
       attestationType: 'none',
+      excludeCredentials,
       authenticatorSelection: {
         authenticatorAttachment: 'platform',
         residentKey: 'required',
@@ -230,10 +260,15 @@ class AuthService {
     };
   }
 
+  // Verifies the WebAuthn ceremony only — does not persist. Callers append
+  // the result with addCredential() once any additional-enrolment window has
+  // been consumed, so a failed or refused enrolment writes nothing (see
+  // ../relay/docs/eve-passkey-enrolment.md decision 3: verify -> consume -> save).
   async verifyEnrollment(req, response, challengeId) {
     const expectedChallenge = this.consumeChallenge(challengeId);
 
-    const rpId = this.getRpId(req);
+    const existing = this.loadCredentials();
+    const rpId = existing?.rpId || this.getRpId(req);
 
     const verification = await verifyRegistrationResponse({
       response,
@@ -253,18 +288,36 @@ class AuthService {
       ? credential.id
       : Buffer.from(credential.id).toString('base64url');
 
-    const credentialData = {
-      rpId: rpId,
-      credentials: [{
-        id: storedId,
-        publicKey: Buffer.from(credential.publicKey).toString('base64url'),
-        counter: credential.counter,
-        transports: response.response.transports || ['internal']
-      }],
+    return {
+      rpId,
+      id: storedId,
+      publicKey: Buffer.from(credential.publicKey).toString('base64url'),
+      counter: credential.counter,
+      transports: response.response.transports || ['internal'],
+      label: sanitizeLabel(req.get('user-agent')),
       createdAt: new Date().toISOString()
     };
+  }
 
-    this.saveCredentials(credentialData);
+  // Persists a credential returned by verifyEnrollment and mints a session.
+  // Dedupes by id so a retried finish (or an authenticator that ignored
+  // excludeCredentials) can't create a duplicate entry. The file's top-level
+  // createdAt is set once, at first enrolment, and never touched again.
+  addCredential(pending) {
+    const { rpId, ...credential } = pending;
+    let data = this.loadCredentials();
+    if (!data) {
+      data = { rpId, credentials: [], createdAt: credential.createdAt };
+    }
+
+    const idx = data.credentials.findIndex((c) => c.id === credential.id);
+    if (idx === -1) {
+      data.credentials.push(credential);
+    } else {
+      data.credentials[idx] = { ...data.credentials[idx], ...credential };
+    }
+
+    this.saveCredentials(data);
     return this.createSession();
   }
 
