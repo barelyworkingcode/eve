@@ -22,6 +22,7 @@ const { isAllowedWsOrigin, parsePublicOrigin } = require('./ws-origin');
 const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('./security-headers');
 const { ipHostGuard } = require('./ip-host-guard');
 const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
+const EnrollmentWindow = require('./enrollment-window');
 const { Logger } = require('./logger');
 const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
@@ -202,6 +203,11 @@ try {
   throw err;
 }
 
+// Null-transport-safe (see enrollment-window.js) — kept that way even though
+// relayTransport is always constructed above, so a future split where eve
+// can run relay-less doesn't have to touch this call site.
+const enrollmentWindow = new EnrollmentWindow({ relayTransport, log: log.child('EnrollmentWindow') });
+
 // Attaches the derived, browser-safe `host` field (null for a console
 // project) to a cached project without mutating the cache entry itself —
 // host status can change between two resolveProject() calls for the same
@@ -354,6 +360,7 @@ registerRoutes(app, {
   authService,
   trustedNetwork,
   relayTransport,
+  enrollmentWindow,
   refreshProjectCache,
   removeFromProjectCache: (id) => projectCache.delete(id),
   resolveProject,

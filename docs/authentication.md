@@ -25,6 +25,10 @@ Until the first passkey is enrolled, Eve refuses **remote** traffic with a plain
 
 A public (internet) source IP can **never** bootstrap the first passkey — a hard rule that holds even with `EVE_ALLOW_ENROLLMENT=1` (that escape hatch only broadens enrollment to private networks). Bootstrap from the LAN / WireGuard; loopback always works. This assumes Eve sees the real client IP (a NAT port-forward), not a loopback-terminating reverse proxy. Once enrolled, the gate is a no-op.
 
+### Adding another browser
+
+A second browser (phone, laptop, fresh profile) enrolls its own passkey through a five-minute window opened at the console — tray → **Allow Eve Passkey Enrolment…**, or `relay eve enrol` — rather than by deleting `data/auth.json` and re-bootstrapping. Eve never decides the window is open on its own: `enrollment-window.js` asks relay's frontend socket on every enrol request and caches the answer for 2 seconds. Full design, the wire contract, and why relay (not eve) owns the window: [`../relay/docs/eve-passkey-enrolment.md`](../../relay/docs/eve-passkey-enrolment.md).
+
 ### Trusted-subnet bypass
 
 Eve can skip the passkey prompt for clients on a trusted subnet — e.g. Claude-driven Chrome automation hitting Eve's UI from the same machine / LAN.

@@ -23,9 +23,9 @@ WebAuthn enrollment/login, rate-limited per IP (429 on excess).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/auth/status` | Enrollment/auth state. Returns `trusted: true` for trusted-subnet callers (UI then skips the passkey). |
-| POST | `/api/auth/enroll/start` | Begin enrollment. Returns `{ options, challengeId }`. 400 if already enrolled. |
-| POST | `/api/auth/enroll/finish` | Body `{ response, challengeId }`. Returns `{ token }`. |
+| GET | `/api/auth/status` | Enrollment/auth state. Returns `trusted: true` for trusted-subnet callers (UI then skips the passkey). When `enrolled && !authenticated`, also carries `enrollmentOpen` (and `enrollmentExpires` when open) — whether relay's second-browser enrolment window is currently open. See [docs/authentication.md](authentication.md) "Adding another browser". |
+| POST | `/api/auth/enroll/start` | Begin enrollment. Returns `{ options, challengeId }`. 403 `{"error":"Enrollment is not open. …"}` if already enrolled and no enrolment window is open. |
+| POST | `/api/auth/enroll/finish` | Body `{ response, challengeId }`. Returns `{ token }`. Same 403 as `enroll/start` if enrolled and closed; for an open-window (additional) enrolment, a 403 also means the window was consumed by someone else between `start` and `finish` — nothing is saved either way. |
 | POST | `/api/auth/login/start` | Begin login. Returns `{ options, challengeId }`. 400 if not enrolled. |
 | POST | `/api/auth/login/finish` | Body `{ response, challengeId }`. Returns `{ token }`. |
 | GET | `/api/auth/safari-login` | Standalone passkey page for the iOS app (WKWebView can't run WebAuthn). Returns the token via `relayclient://auth-callback?token=...`. |

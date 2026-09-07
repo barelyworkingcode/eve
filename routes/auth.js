@@ -3,8 +3,20 @@ const { getClientIp } = require('../trusted-network');
 
 const { NullLogger } = require('../logger');
 
-function createAuthRoutes(authService, trustedNetwork, log) {
+// Enrolled-and-closed response for both enroll routes and a refused
+// enrolment-window consume — same text so a browser sees one message
+// regardless of which check caught it.
+const ENROLLMENT_CLOSED_MESSAGE =
+  'Enrollment is not open. Open it from the Relay tray or with `relay eve enrol`.';
+
+// No enrollmentWindow (legacy positional call, or eve started without relay)
+// means the additional-enrolment path can never be confirmed open — fail
+// closed, same as a null-transport EnrollmentWindow.
+const CLOSED_WINDOW = { isOpen: async () => ({ open: false }) };
+
+function createAuthRoutes(authService, trustedNetwork, log, { enrollmentWindow } = {}) {
   log = log || new NullLogger();
+  const window = enrollmentWindow || CLOSED_WINDOW;
   const router = express.Router();
 
   function rateLimit(req, res, next) {
@@ -22,11 +34,16 @@ function createAuthRoutes(authService, trustedNetwork, log) {
     next();
   }
 
-  function requireNotEnrolled(req, res, next) {
-    if (authService.isEnrolled()) {
-      return res.status(400).json({ error: 'Already enrolled' });
-    }
-    next();
+  // Not enrolled -> proceed (the pre-enrollment gate already applied its
+  // network rules upstream). Enrolled -> only proceed while relay's
+  // enrolment window is open; a second browser adding itself ignores the
+  // first-passkey network rules entirely (see
+  // ../relay/docs/eve-passkey-enrolment.md decision 4).
+  async function requireEnrollable(req, res, next) {
+    if (!authService.isEnrolled()) return next();
+    const { open } = await window.isOpen();
+    if (open) return next();
+    return res.status(403).json({ error: ENROLLMENT_CLOSED_MESSAGE });
   }
 
   function validateFinishBody(req, res, next) {
@@ -37,17 +54,25 @@ function createAuthRoutes(authService, trustedNetwork, log) {
     next();
   }
 
-  router.get('/auth/status', (req, res) => {
+  router.get('/auth/status', async (req, res) => {
     if (trustedNetwork.isTrusted(req) || process.env.EVE_NO_AUTH === '1') {
       return res.json({ enrolled: false, authenticated: true, trusted: true });
     }
     const enrolled = authService.isEnrolled();
     const token = req.headers['x-session-token'];
     const authenticated = enrolled && authService.validateSession(token);
-    res.json({ enrolled, authenticated });
+    const status = { enrolled, authenticated };
+    // Only an unauthenticated-but-enrolled tab needs this — an authenticated
+    // tab (or a fresh box with no owner yet) never has a reason to ask relay.
+    if (enrolled && !authenticated) {
+      const { open, expires } = await window.isOpen();
+      status.enrollmentOpen = open;
+      if (open) status.enrollmentExpires = expires;
+    }
+    res.json(status);
   });
 
-  router.post('/auth/enroll/start', rateLimit, requireNotEnrolled, async (req, res) => {
+  router.post('/auth/enroll/start', rateLimit, requireEnrollable, async (req, res) => {
     try {
       const { options, challengeId } = await authService.generateEnrollmentOptions(req);
       res.json({ options, challengeId });
@@ -57,10 +82,25 @@ function createAuthRoutes(authService, trustedNetwork, log) {
     }
   });
 
-  router.post('/auth/enroll/finish', rateLimit, requireNotEnrolled, validateFinishBody, async (req, res) => {
+  router.post('/auth/enroll/finish', rateLimit, requireEnrollable, validateFinishBody, async (req, res) => {
     try {
       const { response, challengeId } = req.body;
-      const token = await authService.verifyEnrollment(req, response, challengeId);
+      // Captured before verification: an additional enrolment (as opposed to
+      // the very first) is the one case that must consume relay's window
+      // before the credential is written. See
+      // ../relay/docs/eve-passkey-enrolment.md decision 3: verify -> consume -> save.
+      const additionalEnrollment = authService.isEnrolled();
+
+      const pending = await authService.verifyEnrollment(req, response, challengeId);
+
+      if (additionalEnrollment) {
+        const consumed = await window.consume({ ip: getClientIp(req), label: pending.label });
+        if (!consumed) {
+          return res.status(403).json({ error: ENROLLMENT_CLOSED_MESSAGE });
+        }
+      }
+
+      const token = authService.addCredential(pending);
       res.json({ token });
     } catch (err) {
       log.error('Enrollment finish failed:', err);
