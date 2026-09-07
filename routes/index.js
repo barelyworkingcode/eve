@@ -12,7 +12,7 @@ function isHiddenSession(name) {
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, fileServiceFor, refreshHostCache, removeFromHostCache, hostPool, ttsService, sttService, moduleService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, fileServiceFor, refreshHostCache, removeFromHostCache, hostPool, ttsService, sttService, moduleService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
@@ -25,7 +25,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, refr
     next();
   }
 
-  app.use('/api', createAuthRoutes(authService, trustedNetwork, routeLog.child('Auth')));
+  app.use('/api', createAuthRoutes(authService, trustedNetwork, routeLog.child('Auth'), { enrollmentWindow, passkeySync }));
 
   function proxy(req, res, method, relayPath, body) {
     return relayTransport.fetch(method, relayPath, body)
