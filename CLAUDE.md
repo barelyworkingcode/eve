@@ -22,7 +22,7 @@ Per-project policy relayLLM can't see is enforced at relay: `allowed_models` is 
 
 **iOS native app (relayClient)**: WKWebView blocks WebAuthn for local hostnames. Eve serves a Safari-based fallback passkey page at `/api/auth/safari-login` (`routes/auth.js`); the iOS app opens it via `ASWebAuthenticationSession` and gets the token back via the `relayclient://auth-callback?token=...` scheme.
 
-**Adding a second browser**: a relay-owned, presence-gated, five-minute window (`enrollment-window.js` asks relay's frontend socket; `routes/auth.js`'s `requireEnrollable`). Design and wire contract: [../relay/docs/eve-passkey-enrolment.md](../relay/docs/eve-passkey-enrolment.md).
+**Adding a second browser**: a relay-owned, presence-gated, five-minute window (`enrollment-window.js` asks relay's frontend socket; `routes/auth.js`'s `requireEnrollable`). **Listing/revoking eve passkeys**: eve reports its credential list to relay and pulls pending revocations (`passkey-sync.js`), checked on every login attempt before the ceremony runs, failing open if relay is unreachable. Design and wire contract for both: [../relay/docs/eve-passkey-enrolment.md](../relay/docs/eve-passkey-enrolment.md).
 
 ## Architecture
 

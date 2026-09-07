@@ -35,10 +35,11 @@ describe('auth routes', () => {
       addCredential: jest.fn(),
       generateLoginOptions: jest.fn(),
       verifyLogin: jest.fn(),
+      credentialIdFromAssertion: jest.fn((r) => r?.id),
     };
     trustedNetwork = { isTrusted: jest.fn(() => false) };
 
-    // No `enrollmentWindow` passed — the legacy positional-signature call.
+    // No `enrollmentWindow` or `passkeySync` passed — the legacy positional-signature call.
     // requireEnrollable must fail closed in this mode (see routes/auth.js
     // CLOSED_WINDOW), so every "already enrolled" case here is the
     // window-closed case.
@@ -296,5 +297,71 @@ describe('auth routes — additional enrolment (window open)', () => {
     const res = await post('/api/auth/enroll/start');
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe(ENROLLMENT_CLOSED_MESSAGE);
+  });
+});
+
+describe('auth routes — passkey revocation check (login)', () => {
+  let server;
+  let baseUrl;
+  let authService;
+  let trustedNetwork;
+  let passkeySync;
+
+  beforeAll(async () => {
+    authService = {
+      isEnrolled: jest.fn(() => true),
+      validateSession: jest.fn(() => false),
+      checkRateLimit: jest.fn(() => true),
+      generateLoginOptions: jest.fn(),
+      verifyLogin: jest.fn(),
+      credentialIdFromAssertion: jest.fn((r) => r?.id),
+    };
+    trustedNetwork = { isTrusted: jest.fn(() => false) };
+    passkeySync = { checkRevoked: jest.fn(), apply: jest.fn(), report: jest.fn() };
+
+    ({ server, baseUrl } = await startApp(
+      createAuthRoutes(authService, trustedNetwork, null, { passkeySync })
+    ));
+  });
+
+  afterAll((done) => { server.close(done); });
+
+  beforeEach(() => {
+    authService.verifyLogin.mockReset();
+    passkeySync.checkRevoked.mockReset().mockResolvedValue(false);
+    passkeySync.apply.mockReset().mockResolvedValue();
+    passkeySync.report.mockReset().mockResolvedValue();
+  });
+
+  const post = (p, body) => fetch(`${baseUrl}${p}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+
+  it('refuses a revoked credential with 401 before verifyLogin ever runs, and applies the revocation', async () => {
+    passkeySync.checkRevoked.mockResolvedValue(true);
+
+    const res = await post('/api/auth/login/finish', { response: { id: 'revoked-cred' }, challengeId: 'cid' });
+
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe('This passkey has been revoked.');
+    expect(passkeySync.checkRevoked).toHaveBeenCalledWith('revoked-cred');
+    expect(passkeySync.apply).toHaveBeenCalledWith(['revoked-cred']);
+    expect(authService.verifyLogin).not.toHaveBeenCalled();
+  });
+
+  it('proceeds to verifyLogin and reports afterward when the credential is not revoked', async () => {
+    authService.verifyLogin.mockResolvedValue('tok');
+
+    const res = await post('/api/auth/login/finish', { response: { id: 'good-cred' }, challengeId: 'cid' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ token: 'tok' });
+    expect(passkeySync.checkRevoked).toHaveBeenCalledWith('good-cred');
+    expect(authService.verifyLogin).toHaveBeenCalled();
+    expect(passkeySync.apply).not.toHaveBeenCalled();
+    await new Promise((r) => setImmediate(r)); // fire-and-forget report() microtask
+    expect(passkeySync.report).toHaveBeenCalled();
   });
 });

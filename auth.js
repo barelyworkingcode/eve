@@ -162,8 +162,8 @@ class AuthService {
     return true;
   }
 
-  createSession() {
-    return this.sessionStore.create();
+  createSession(credentialId) {
+    return this.sessionStore.create(credentialId);
   }
 
   validateSession(token) {
@@ -318,7 +318,7 @@ class AuthService {
     }
 
     this.saveCredentials(data);
-    return this.createSession();
+    return this.createSession(credential.id);
   }
 
   async generateLoginOptions(req) {
@@ -380,9 +380,47 @@ class AuthService {
     }
 
     credential.counter = verification.authenticationInfo.newCounter;
+    credential.lastUsedAt = new Date().toISOString();
     this.saveCredentials(authData);
 
-    return this.createSession();
+    return this.createSession(credentialId);
+  }
+
+  // The id WebAuthn asserted, available before verifyLogin runs the ceremony
+  // — lets the login route ask PasskeySync.checkRevoked() ahead of
+  // verification (../relay/docs/eve-passkey-enrolment.md decision 10).
+  credentialIdFromAssertion(response) {
+    return response?.id;
+  }
+
+  // Public metadata only — never a public key or counter — because this is
+  // exactly what gets reported to relay (decision 8).
+  listCredentials() {
+    const data = this.loadCredentials();
+    if (!data) return [];
+    return data.credentials.map((c) => ({
+      id: c.id,
+      label: c.label || '',
+      created: c.createdAt,
+      last_used: c.lastUsedAt || null,
+    }));
+  }
+
+  // Refuses to remove the last credential — an owned box with none is only
+  // reachable again through the first-enrolment path, which off-subnet is a
+  // lock-out (decision 13). Ends every session that credential minted.
+  removeCredential(id) {
+    const data = this.loadCredentials();
+    if (!data) throw new Error('Not enrolled');
+    const idx = data.credentials.findIndex((c) => c.id === id);
+    if (idx === -1) throw new Error('Unknown credential');
+    if (data.credentials.length <= 1) {
+      throw new Error('Refusing to remove the last passkey — eve would be locked out');
+    }
+    data.credentials.splice(idx, 1);
+    this.saveCredentials(data);
+    const sessionsEnded = this.sessionStore.revokeByCredential(id);
+    return { removed: true, sessionsEnded };
   }
 }
 

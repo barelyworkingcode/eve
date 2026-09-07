@@ -41,12 +41,32 @@ class SessionStore {
     }
   }
 
-  create() {
+  // credentialId is the passkey that minted this token — absent for tokens
+  // minted before that field existed. It's what lets revokeByCredential()
+  // sign a device out when its passkey is revoked (see
+  // ../relay/docs/eve-passkey-enrolment.md decision 11).
+  create(credentialId) {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = Date.now() + SESSION_TTL_MS;
-    this.sessions.set(token, { expiresAt });
+    const entry = { expiresAt };
+    if (credentialId) entry.credentialId = credentialId;
+    this.sessions.set(token, entry);
     this._save();
     return token;
+  }
+
+  // Deletes every token minted by credentialId. A session with no
+  // credentialId (minted before this field existed) is never touched.
+  revokeByCredential(credentialId) {
+    let count = 0;
+    for (const [token, session] of this.sessions) {
+      if (session.credentialId === credentialId) {
+        this.sessions.delete(token);
+        count++;
+      }
+    }
+    if (count > 0) this._save();
+    return count;
   }
 
   validate(token) {

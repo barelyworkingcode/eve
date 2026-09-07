@@ -14,9 +14,19 @@ const ENROLLMENT_CLOSED_MESSAGE =
 // closed, same as a null-transport EnrollmentWindow.
 const CLOSED_WINDOW = { isOpen: async () => ({ open: false }) };
 
-function createAuthRoutes(authService, trustedNetwork, log, { enrollmentWindow } = {}) {
+// No passkeySync (legacy positional call, or eve started without relay)
+// means there is nothing to report to and nothing pending to check — a
+// login must proceed exactly as it did before this feature existed.
+const NOOP_PASSKEY_SYNC = {
+  checkRevoked: async () => false,
+  apply: async () => {},
+  report: async () => {},
+};
+
+function createAuthRoutes(authService, trustedNetwork, log, { enrollmentWindow, passkeySync } = {}) {
   log = log || new NullLogger();
   const window = enrollmentWindow || CLOSED_WINDOW;
+  const sync = passkeySync || NOOP_PASSKEY_SYNC;
   const router = express.Router();
 
   function rateLimit(req, res, next) {
@@ -101,6 +111,7 @@ function createAuthRoutes(authService, trustedNetwork, log, { enrollmentWindow }
       }
 
       const token = authService.addCredential(pending);
+      sync.report().catch((err) => log.error('Passkey report failed after enrolment:', err.message));
       res.json({ token });
     } catch (err) {
       log.error('Enrollment finish failed:', err);
@@ -121,7 +132,18 @@ function createAuthRoutes(authService, trustedNetwork, log, { enrollmentWindow }
   router.post('/auth/login/finish', rateLimit, requireEnrolled, validateFinishBody, async (req, res) => {
     try {
       const { response, challengeId } = req.body;
+
+      // Checked before the ceremony runs — the security property is that a
+      // revoked passkey stops working on its very next use, not on some
+      // later poll (../relay/docs/eve-passkey-enrolment.md decision 10).
+      const credentialId = authService.credentialIdFromAssertion(response);
+      if (credentialId && await sync.checkRevoked(credentialId)) {
+        await sync.apply([credentialId]);
+        return res.status(401).json({ error: 'This passkey has been revoked.' });
+      }
+
       const token = await authService.verifyLogin(req, response, challengeId);
+      sync.report().catch((err) => log.error('Passkey report failed after login:', err.message));
       res.json({ token });
     } catch (err) {
       log.error('Login finish failed:', err);
