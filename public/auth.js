@@ -1,7 +1,15 @@
+const ENROLLMENT_POLL_MS = 3000;
+// After this long on the login screen the poll slows to the idle rate: every
+// poll is a relay round-trip that lands in relay's audit log, and a tab left
+// on the login screen overnight has no operator walking towards it.
+const ENROLLMENT_POLL_BRISK_MS = 3 * 60 * 1000;
+const ENROLLMENT_POLL_IDLE_MS = 15000;
+
 class AuthClient {
   constructor(log) {
     this.log = log || new NullLogger();
     this.elements = null;
+    this.pollTimer = null;
   }
 
   init() {
@@ -10,10 +18,13 @@ class AuthClient {
       title: document.getElementById('authTitle'),
       message: document.getElementById('authMessage'),
       action: document.getElementById('authAction'),
+      enroll: document.getElementById('authEnroll'),
+      enrollHint: document.getElementById('authEnrollHint'),
       error: document.getElementById('authError')
     };
 
     this.elements.action.addEventListener('click', () => this.handleAction());
+    this.elements.enroll.addEventListener('click', () => this.handleEnrollClick());
   }
 
   async checkStatus() {
@@ -35,12 +46,56 @@ class AuthClient {
       }
 
       this.showLoginScreen();
+      this.applyEnrollmentWindow(status);
+      this.startEnrollmentPoll();
       return false;
     } catch (err) {
       this.log.error('Status check failed:', err);
       this.showError('Failed to check authentication status');
       return false;
     }
+  }
+
+  // Lets the *Add this browser* button appear within a few seconds of an
+  // operator opening the window from the Relay tray, without the tab needing
+  // a reload. Polls only while the login screen (not the initial "set up a
+  // fresh box" screen, which has no window to poll for) is visible.
+  startEnrollmentPoll() {
+    if (this.pollTimer) return;
+    const startedAt = Date.now();
+    const tick = async () => {
+      this.pollTimer = null;
+      if (this.elements.screen.classList.contains('hidden')) return;
+      // A hidden tab keeps its timer but skips the fetch: nobody is looking
+      // at the button, and relay's audit log doesn't need to hear from it.
+      if (!document.hidden) {
+        try {
+          const token = localStorage.getItem('eve_session');
+          const headers = token ? { 'X-Session-Token': token } : {};
+          const res = await fetch('/api/auth/status', { headers });
+          this.applyEnrollmentWindow(await res.json());
+        } catch (err) {
+          this.log.error('Enrolment window poll failed:', err);
+        }
+      }
+      if (this.elements.screen.classList.contains('hidden')) return;
+      const brisk = Date.now() - startedAt < ENROLLMENT_POLL_BRISK_MS;
+      this.pollTimer = setTimeout(tick, brisk ? ENROLLMENT_POLL_MS : ENROLLMENT_POLL_IDLE_MS);
+    };
+    this.pollTimer = setTimeout(tick, ENROLLMENT_POLL_MS);
+  }
+
+  stopEnrollmentPoll() {
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  applyEnrollmentWindow(status) {
+    const open = !!status.enrollmentOpen;
+    this.elements.enroll.classList.toggle('hidden', !open);
+    this.elements.enrollHint.classList.toggle('hidden', !open);
   }
 
   showEnrollScreen() {
@@ -66,6 +121,7 @@ class AuthClient {
 
   hide() {
     this.elements.screen.classList.add('hidden');
+    this.stopEnrollmentPoll();
   }
 
   showError(message) {
@@ -79,15 +135,19 @@ class AuthClient {
 
   async handleAction() {
     const mode = this.elements.action.dataset.mode;
-    this.elements.action.disabled = true;
+    await this.runCeremony(this.elements.action, () => (mode === 'enroll' ? this.enroll() : this.login()));
+  }
+
+  async handleEnrollClick() {
+    await this.runCeremony(this.elements.enroll, () => this.enroll());
+  }
+
+  async runCeremony(button, action) {
+    button.disabled = true;
     this.hideError();
 
     try {
-      if (mode === 'enroll') {
-        await this.enroll();
-      } else {
-        await this.login();
-      }
+      await action();
     } catch (err) {
       // DOMException from navigator.credentials doesn't serialize with
       // JSON.stringify — extract the useful fields explicitly.
@@ -121,7 +181,7 @@ class AuthClient {
 
       this.showError(err.message || 'Authentication failed');
     } finally {
-      this.elements.action.disabled = false;
+      button.disabled = false;
     }
   }
 

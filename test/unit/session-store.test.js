@@ -85,6 +85,51 @@ describe('SessionStore', () => {
     const token = store.create();
     expect(store.validate(token)).toBe(true);
   });
+
+  describe('credentialId parent tracking', () => {
+    it('records credentialId when given, and omits it when not', () => {
+      const store = new SessionStore(dataDir);
+      const withParent = store.create('cred-1');
+      const withoutParent = store.create();
+      expect(store.sessions.get(withParent).credentialId).toBe('cred-1');
+      expect(store.sessions.get(withoutParent).credentialId).toBeUndefined();
+    });
+
+    it('revokeByCredential deletes every token minted by that credential, and only those', () => {
+      const store = new SessionStore(dataDir);
+      const a1 = store.create('cred-a');
+      const a2 = store.create('cred-a');
+      const b1 = store.create('cred-b');
+      const legacy = store.create(); // no parent
+
+      const count = store.revokeByCredential('cred-a');
+
+      expect(count).toBe(2);
+      expect(store.validate(a1)).toBe(false);
+      expect(store.validate(a2)).toBe(false);
+      expect(store.validate(b1)).toBe(true);
+      expect(store.validate(legacy)).toBe(true);
+    });
+
+    it('revokeByCredential returns 0 and does not touch the file when nothing matches', () => {
+      const store = new SessionStore(dataDir);
+      store.create('cred-a');
+      const before = fs.readFileSync(path.join(dataDir, 'sessions.json'), 'utf8');
+
+      const count = store.revokeByCredential('cred-nonexistent');
+
+      expect(count).toBe(0);
+      expect(fs.readFileSync(path.join(dataDir, 'sessions.json'), 'utf8')).toBe(before);
+    });
+
+    it('persists credentialId across instances over the same data dir', () => {
+      const store = new SessionStore(dataDir);
+      store.create('cred-1');
+      const reopened = new SessionStore(dataDir);
+      const [, session] = [...reopened.sessions.entries()][0];
+      expect(session.credentialId).toBe('cred-1');
+    });
+  });
 });
 
 // SESSION_TTL_MS is derived from EVE_SESSION_TTL_DAYS once at module load, so the

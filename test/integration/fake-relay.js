@@ -35,6 +35,17 @@ function createFakeRelay() {
   const inbound = [];
   const inboundWaiters = [];
   const relayWs = new Set();
+  // Mirrors relay's `eve_enrolment` settings record (../relay/docs/eve-passkey-enrolment.md):
+  // absent/expired reads as closed, opening replaces any existing record.
+  let eveEnrolment = null; // { expires: ISOString } | null
+  const consumedEnrolments = [];
+  // Mirrors relay's `eve_passkeys` / `eve_passkey_revocations` settings
+  // records (../relay/docs/eve-passkey-enrolment.md "Listing and revoking
+  // eve passkeys"). reportedPasskeys is whatever eve's last PUT contained;
+  // pendingRevocations is what a test (standing in for relay's presence-gated
+  // Revoke) has queued.
+  let reportedPasskeys = [];
+  const pendingRevocations = new Set();
   // Lets a test tell which of eve's (possibly several) relay upstreams a
   // frame arrived on — the only cover for the two-connection isolation tests.
   const relaySocketIds = new WeakMap();
@@ -179,6 +190,34 @@ function createFakeRelay() {
       // to the 404 below): it must 404, not return [] — a wrong shape, since
       // the real endpoint returns one object.
 
+      if (p === '/api/eve/passkey-enrolment' && req.method === 'GET') {
+        const open = !!eveEnrolment && Date.parse(eveEnrolment.expires) > Date.now();
+        return send(200, open ? { open: true, expires: eveEnrolment.expires } : { open: false });
+      }
+      if (p === '/api/eve/passkey-enrolment/consume' && req.method === 'POST') {
+        const open = !!eveEnrolment && Date.parse(eveEnrolment.expires) > Date.now();
+        if (!open) return send(409, { error: 'not open' });
+        const { expires } = eveEnrolment;
+        eveEnrolment = null;
+        consumedEnrolments.push({ ip: parsed.ip, label: parsed.label, at: new Date().toISOString() });
+        return send(200, { expires });
+      }
+
+      // Report is the acknowledgement (decision 12): drop every pending
+      // revocation whose id is absent from this report, or that would empty
+      // it (mirrors relay's own last-credential guard, decision 13).
+      if (p === '/api/eve/passkeys' && req.method === 'PUT') {
+        reportedPasskeys = Array.isArray(parsed.passkeys) ? parsed.passkeys : [];
+        const ids = new Set(reportedPasskeys.map((pk) => pk.id));
+        for (const id of [...pendingRevocations]) {
+          if (!ids.has(id) || reportedPasskeys.length === 1) pendingRevocations.delete(id);
+        }
+        return send(200, { revocations: [...pendingRevocations] });
+      }
+      if (p === '/api/eve/passkeys/revocations' && req.method === 'GET') {
+        return send(200, { revocations: [...pendingRevocations] });
+      }
+
       if (p.startsWith('/api/generated/') && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'image/png' });
         return res.end(Buffer.from('FAKE-PNG-BYTES'));
@@ -231,6 +270,14 @@ function createFakeRelay() {
     listProjects: () => [...projects.values()],
     listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
+    // Test-side equivalent of the tray's "Allow Eve Passkey Enrolment…" / `relay eve enrol`.
+    openEveEnrolment: (ttlMs = 5 * 60 * 1000) => { eveEnrolment = { expires: new Date(Date.now() + ttlMs).toISOString() }; },
+    closeEveEnrolment: () => { eveEnrolment = null; },
+    listConsumedEnrolments: () => [...consumedEnrolments],
+    // Test-side equivalent of relay's presence-gated `eve.passkey.revoke`.
+    seedPasskeyRevocation: (id) => { pendingRevocations.add(id); },
+    listReportedPasskeys: () => [...reportedPasskeys],
+    listPendingRevocations: () => [...pendingRevocations],
     emitToRelay: (frame) => { for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
     emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
     waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
