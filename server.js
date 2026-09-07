@@ -23,6 +23,7 @@ const { computeInlineScriptHashes, buildShellCsp, securityHeaders } = require('.
 const { ipHostGuard } = require('./ip-host-guard');
 const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
 const EnrollmentWindow = require('./enrollment-window');
+const PasskeySync = require('./passkey-sync');
 const { Logger } = require('./logger');
 const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
@@ -208,6 +209,10 @@ try {
 // can run relay-less doesn't have to touch this call site.
 const enrollmentWindow = new EnrollmentWindow({ relayTransport, log: log.child('EnrollmentWindow') });
 
+// Null-transport-safe (see passkey-sync.js) for the same reason as
+// enrollmentWindow above.
+const passkeySync = new PasskeySync({ authService, relayTransport, log: log.child('PasskeySync') });
+
 // Attaches the derived, browser-safe `host` field (null for a console
 // project) to a cached project without mutating the cache entry itself —
 // host status can change between two resolveProject() calls for the same
@@ -361,6 +366,7 @@ registerRoutes(app, {
   trustedNetwork,
   relayTransport,
   enrollmentWindow,
+  passkeySync,
   refreshProjectCache,
   removeFromProjectCache: (id) => projectCache.delete(id),
   resolveProject,
@@ -458,6 +464,11 @@ server.listen(PORT, bindHost, () => {
     serverLog.info('Authentication: disabled (no passkey enrolled - first visitor will become owner)');
   }
 
+  // Started only once eve is actually reachable, so the initial report()
+  // it fires immediately reflects a server that can also answer relay's
+  // /api/eve/passkeys/revocations poll back.
+  passkeySync.start();
+
   if (httpServer) {
     // Loopback-only so DUAL_LISTEN cannot accidentally expose plaintext Eve
     // traffic to the LAN; remote access must go through the HTTPS listener.
@@ -481,6 +492,7 @@ function gracefulShutdown(signal) {
   }
 
   authService.stop();
+  passkeySync.stop();
   hostPool.disconnectAll();
   server.closeAllConnections?.();
   httpServer?.closeAllConnections?.();

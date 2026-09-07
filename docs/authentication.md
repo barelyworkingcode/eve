@@ -29,6 +29,10 @@ A public (internet) source IP can **never** bootstrap the first passkey — a ha
 
 A second browser (phone, laptop, fresh profile) enrolls its own passkey through a five-minute window opened at the console — tray → **Allow Eve Passkey Enrolment…**, or `relay eve enrol` — rather than by deleting `data/auth.json` and re-bootstrapping. Eve never decides the window is open on its own: `enrollment-window.js` asks relay's frontend socket on every enrol request and caches the answer for 2 seconds. Full design, the wire contract, and why relay (not eve) owns the window: [`../relay/docs/eve-passkey-enrolment.md`](../../relay/docs/eve-passkey-enrolment.md).
 
+### Revoking a browser
+
+Eve doesn't have its own "remove this passkey" UI — that lives in relay's Settings → Passkeys (*Eve passkeys* section) and `relay eve list` / `relay eve revoke`, the same place an operator already manages relay's own passkeys. Eve's side is `passkey-sync.js`: it reports its credential list (id/label/created/last-used, never a public key or counter) at startup and after every enrolment, login, or applied revocation, and pulls pending revocations on a 30-second poll and, decisively, on every login attempt — so a revoked passkey stops working on its very next use rather than waiting for the poll. A relay-unreachable login check fails **open** (accepts the assertion) rather than locking every device out during a relay restart. Eve refuses to apply a revocation that would remove its last passkey. Full design and wire contract: [`../relay/docs/eve-passkey-enrolment.md`](../../relay/docs/eve-passkey-enrolment.md) ("Listing and revoking eve passkeys").
+
 ### Trusted-subnet bypass
 
 Eve can skip the passkey prompt for clients on a trusted subnet — e.g. Claude-driven Chrome automation hitting Eve's UI from the same machine / LAN.

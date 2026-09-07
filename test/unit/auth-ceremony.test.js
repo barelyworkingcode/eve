@@ -203,6 +203,14 @@ describe('AuthService', () => {
       expect(after.credentials.map((c) => c.id)).toEqual(['cred-1', 'cred-2']);
     });
 
+    it('mints the session with the new credential\'s id as its parent', async () => {
+      const token = auth.addCredential({
+        rpId: 'localhost', id: 'cred-1', publicKey: 'pk1', counter: 0,
+        transports: ['internal'], label: 'Browser A', createdAt: '2026-01-01T00:00:00.000Z',
+      });
+      expect(auth.sessionStore.sessions.get(token).credentialId).toBe('cred-1');
+    });
+
     it('dedupes by credential id instead of appending a duplicate', async () => {
       auth.addCredential({
         rpId: 'localhost', id: 'cred-1', publicKey: 'pk1', counter: 0,
@@ -287,6 +295,23 @@ describe('AuthService', () => {
         .rejects.toThrow('Challenge expired or invalid');
     });
 
+    it('stamps lastUsedAt on the asserted credential', async () => {
+      enroll(auth, 5);
+      const before = JSON.parse(fs.readFileSync(path.join(dataDir, 'auth.json'), 'utf8'));
+      expect(before.credentials[0].lastUsedAt).toBeUndefined();
+
+      await auth.verifyLogin(req, { id: 'cred-1' }, auth.storeChallenge('c'));
+
+      const after = JSON.parse(fs.readFileSync(path.join(dataDir, 'auth.json'), 'utf8'));
+      expect(typeof after.credentials[0].lastUsedAt).toBe('string');
+    });
+
+    it('mints the session with the asserted credential\'s id as its parent', async () => {
+      enroll(auth, 5);
+      const token = await auth.verifyLogin(req, { id: 'cred-1' }, auth.storeChallenge('c'));
+      expect(auth.sessionStore.sessions.get(token).credentialId).toBe('cred-1');
+    });
+
     it('back-fills userId on a pre-existing (legacy) file on its next save', async () => {
       // Written directly (bypassing saveCredentials, which now always
       // backfills) to simulate a file from before userId existed.
@@ -301,6 +326,96 @@ describe('AuthService', () => {
       await auth.verifyLogin(req, { id: 'cred-1' }, auth.storeChallenge('c'));
 
       expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'auth.json'), 'utf8')).userId).toEqual(expect.any(String));
+    });
+  });
+
+  function enrollTwo(a) {
+    a.saveCredentials({
+      rpId: 'localhost',
+      credentials: [
+        { id: 'cred-1', publicKey: 'pk1', counter: 0, transports: ['internal'], label: 'Browser A', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'cred-2', publicKey: 'pk2', counter: 0, transports: ['internal'], label: 'Browser B', createdAt: '2026-01-02T00:00:00.000Z' },
+      ],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+  }
+
+  describe('removeCredential', () => {
+    it('deletes the credential, ends its sessions, and reports how many', () => {
+      enrollTwo(auth);
+      const s1 = auth.createSession('cred-1');
+      const s2 = auth.createSession('cred-1');
+      const other = auth.createSession('cred-2');
+
+      const result = auth.removeCredential('cred-1');
+
+      expect(result).toEqual({ removed: true, sessionsEnded: 2 });
+      expect(auth.validateSession(s1)).toBe(false);
+      expect(auth.validateSession(s2)).toBe(false);
+      expect(auth.validateSession(other)).toBe(true);
+      const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'auth.json'), 'utf8'));
+      expect(persisted.credentials.map((c) => c.id)).toEqual(['cred-2']);
+    });
+
+    it('refuses to remove the last credential, and writes nothing', () => {
+      auth.saveCredentials({
+        rpId: 'localhost',
+        credentials: [{ id: 'cred-1', publicKey: 'pk1', counter: 0, transports: ['internal'], createdAt: '2026-01-01T00:00:00.000Z' }],
+        createdAt: '2026-01-01T00:00:00.000Z',
+      });
+      const before = fs.readFileSync(path.join(dataDir, 'auth.json'), 'utf8');
+
+      expect(() => auth.removeCredential('cred-1')).toThrow(/last passkey/);
+      expect(fs.readFileSync(path.join(dataDir, 'auth.json'), 'utf8')).toBe(before);
+    });
+
+    it('throws on an unknown credential id', () => {
+      enrollTwo(auth);
+      expect(() => auth.removeCredential('does-not-exist')).toThrow('Unknown credential');
+    });
+
+    it('throws when nothing is enrolled', () => {
+      expect(() => auth.removeCredential('cred-1')).toThrow('Not enrolled');
+    });
+  });
+
+  describe('listCredentials (public metadata only)', () => {
+    it('returns id/label/created/last_used in relay\'s snake_case shape', () => {
+      enrollTwo(auth);
+      expect(auth.listCredentials()).toEqual([
+        { id: 'cred-1', label: 'Browser A', created: '2026-01-01T00:00:00.000Z', last_used: null },
+        { id: 'cred-2', label: 'Browser B', created: '2026-01-02T00:00:00.000Z', last_used: null },
+      ]);
+    });
+
+    it('never includes publicKey or counter', () => {
+      enrollTwo(auth);
+      for (const entry of auth.listCredentials()) {
+        expect(entry).not.toHaveProperty('publicKey');
+        expect(entry).not.toHaveProperty('counter');
+      }
+    });
+
+    it('reflects lastUsedAt once a credential has logged in', async () => {
+      enroll(auth, 5);
+      await auth.verifyLogin(req, { id: 'cred-1' }, auth.storeChallenge('c'));
+      const [entry] = auth.listCredentials();
+      expect(typeof entry.last_used).toBe('string');
+    });
+
+    it('returns an empty array when nothing is enrolled', () => {
+      expect(auth.listCredentials()).toEqual([]);
+    });
+  });
+
+  describe('credentialIdFromAssertion', () => {
+    it('reads the id off the assertion response before verification runs', () => {
+      expect(auth.credentialIdFromAssertion({ id: 'cred-1' })).toBe('cred-1');
+    });
+
+    it('returns undefined for a malformed/missing response', () => {
+      expect(auth.credentialIdFromAssertion(undefined)).toBeUndefined();
+      expect(auth.credentialIdFromAssertion({})).toBeUndefined();
     });
   });
 });
