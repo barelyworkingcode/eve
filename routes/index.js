@@ -48,7 +48,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/projects');
       if (data && Array.isArray(data)) {
-        refreshProjectCache(data);
+        refreshProjectCache(data, { replace: true });
         const normalized = data.map(p => resolveProject(p.id)).filter(Boolean);
         res.status(status).json(normalized);
       } else {
@@ -123,7 +123,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/hosts');
       if (status >= 200 && status < 300 && Array.isArray(data)) {
-        refreshHostCache(data);
+        refreshHostCache(data, { replace: true });
         res.status(status).json(data.map(stripSshArgv));
       } else {
         res.status(status).json(data);
