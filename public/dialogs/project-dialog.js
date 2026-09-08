@@ -65,6 +65,7 @@ class ProjectDialog extends DialogBase {
       this._hostFormOpen = false;
       this._hostFormBusy = false;
       this._hostFormError = '';
+      this._hostRemoveError = '';
       this._draft = { name: this._project?.name || '', path: this._project?.path || '' };
       this.render();
       this.show();
@@ -441,7 +442,40 @@ class ProjectDialog extends DialogBase {
         this._renderGeneralTab();
       });
       row.appendChild(btn);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'dialog__btn dialog__btn--secondary';
+      removeBtn.dataset.testid = `remove-host-${host.id}`;
+      removeBtn.textContent = 'Remove host';
+      removeBtn.addEventListener('click', async () => {
+        removeBtn.disabled = true;
+        removeBtn.textContent = 'Removing…';
+        try {
+          await this.api.deleteHost(host.id);
+          this.state.setHosts(this._hosts().filter(h => h.id !== host.id));
+          if (this._hostId === host.id) { this._hostId = ''; this._hostFormOpen = false; }
+          this._hostRemoveError = '';
+          this._renderGeneralTab();
+        } catch (err) {
+          removeBtn.disabled = false;
+          removeBtn.textContent = 'Remove host';
+          this._hostRemoveError = err?.status === 409
+            ? `Still in use by ${(err.body?.projects || []).join(', ') || 'a project'} — change that project's host first.`
+            : `Could not remove host: ${err?.message || 'unknown error'}`;
+          this._renderGeneralTab();
+        }
+      });
+      row.appendChild(removeBtn);
+
       card.appendChild(row);
+    }
+
+    if (this._hostRemoveError) {
+      const err = document.createElement('div');
+      err.className = 'host-form__error';
+      err.textContent = this._hostRemoveError;
+      card.appendChild(err);
     }
     return card;
   }

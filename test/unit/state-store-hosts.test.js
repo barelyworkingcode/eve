@@ -61,6 +61,25 @@ describe('StateStore hosts', () => {
     expect(store.hosts.size).toBe(0);
   });
 
+  it('setHosts drops a host the previous list had and the new one does not', () => {
+    const store = new StateStore(makeBus());
+    store.setHosts([
+      { id: 'h1', name: 'devbox', status: 'idle' },
+      { id: 'h2', name: 'other', status: 'idle' },
+    ]);
+    expect(store.getHost('h1')).toBeDefined();
+    store.setHosts([{ id: 'h2', name: 'other', status: 'idle' }]);
+    expect(store.getHost('h1')).toBeUndefined();
+    expect(store.getHost('h2')).toBeDefined();
+  });
+
+  it('setHosts keeps an entry known only from a live host_status frame', () => {
+    const store = new StateStore(makeBus());
+    store.setHostStatus({ hostId: 'h-live', name: 'live-only', status: 'connecting' });
+    store.setHosts([{ id: 'h1', name: 'devbox', status: 'idle' }]);
+    expect(store.getHost('h-live')).toMatchObject({ id: 'h-live', name: 'live-only', status: 'connecting' });
+  });
+
   it("a project's own host field is untouched by StateStore.hosts (they are separate namespaces)", () => {
     const store = new StateStore(makeBus());
     store.setProjects([{ id: 'p1', name: 'proj', host: { id: 'h1', name: 'devbox', status: 'connected' } }]);

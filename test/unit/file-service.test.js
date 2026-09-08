@@ -266,6 +266,31 @@ describe('FileService', () => {
         await expect(fileService.renameFile(tmpDir, 'ghost.md', 'new.md'))
           .rejects.toThrow();
       });
+
+      // fs.access('Beta.txt') resolves to 'beta.txt' on a case-insensitive
+      // volume (macOS APFS default) — only a runtime probe can tell whether
+      // this box's filesystem actually behaves that way.
+      const caseSensitiveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-fs-case-probe-'));
+      fs.writeFileSync(path.join(caseSensitiveDir, 'a'), '', 'utf8');
+      const isCaseSensitiveFs = !fs.existsSync(path.join(caseSensitiveDir, 'A'));
+      fs.rmSync(caseSensitiveDir, { recursive: true, force: true });
+
+      (isCaseSensitiveFs ? it.skip : it)('allows a case-only rename on a case-insensitive filesystem', async () => {
+        fs.writeFileSync(path.join(tmpDir, 'case.md'), 'hi', 'utf8');
+        const newRelPath = await fileService.renameFile(tmpDir, 'case.md', 'CASE.md');
+
+        expect(newRelPath).toBe('CASE.md');
+        const names = fs.readdirSync(tmpDir);
+        expect(names).toContain('CASE.md');
+        expect(names.filter(n => n.toLowerCase() === 'case.md')).toEqual(['CASE.md']);
+      });
+
+      it('still refuses a destination that is a different existing entry', async () => {
+        fs.writeFileSync(path.join(tmpDir, 'one.md'), 'one', 'utf8');
+        fs.writeFileSync(path.join(tmpDir, 'two.md'), 'two', 'utf8');
+        await expect(fileService.renameFile(tmpDir, 'one.md', 'two.md'))
+          .rejects.toThrow('already exists');
+      });
     });
 
     describe('moveFile', () => {

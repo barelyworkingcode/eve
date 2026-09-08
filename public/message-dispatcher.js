@@ -73,10 +73,12 @@ class MessageDispatcher {
       directory_listing:    (d) => this._handleDirectoryListing(d),
       file_content:         (d) => this.app.handleFileContent(d.projectId, d.path, d.content),
       plan_file_content:    (d) => this.app.handleFileContent(PLAN_PROJECT_ID, d.path, d.content),
-      file_error:           (d) => this.fileBrowser.handleFileError(d.projectId, d.path, d.error),
+      file_error:           (d) => { this.fileBrowser.handleFileError(d.projectId, d.path, d.error); if (this.bus) this.bus.emit(EVT.FILE_ERROR, d); },
       file_saved:           (d) => this.app.handleFileSaved(d.projectId, d.path),
-      file_renamed:         (d) => this._handleFileEvent(d, 'handleFileRenamed', [d.projectId, d.oldPath, d.newPath], EVT.FILE_RENAMED),
-      file_moved:           (d) => this._handleFileEvent(d, 'handleFileMoved', [d.projectId, d.oldPath, d.newPath], EVT.FILE_MOVED),
+      file_renamed:         (d) => { this.tabManager?.renameFileTab(d.projectId, d.oldPath, d.newPath);
+                                      this._handleFileEvent(d, 'handleFileRenamed', [d.projectId, d.oldPath, d.newPath], EVT.FILE_RENAMED); },
+      file_moved:           (d) => { this.tabManager?.renameFileTab(d.projectId, d.oldPath, d.newPath);
+                                      this._handleFileEvent(d, 'handleFileMoved', [d.projectId, d.oldPath, d.newPath], EVT.FILE_MOVED); },
       file_deleted:         (d) => this._handleFileEvent(d, 'handleFileDeleted', [d.projectId, d.path], EVT.FILE_DELETED),
       directory_created:    (d) => this._handleFileEvent(d, 'handleDirectoryCreated', [d.projectId, d.path, d.name], EVT.DIRECTORY_CREATED),
       file_uploaded:        (d) => this._handleFileEvent(d, 'handleFileUploaded', [d.projectId, d.destDirectory, d.fileName], EVT.FILE_UPLOADED),

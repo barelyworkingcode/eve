@@ -200,7 +200,23 @@ class FileService {
       throw new Error('Path traversal not allowed');
     }
 
-    await this._assertNotExists(newPath, 'A file or directory with that name already exists');
+    // On a case-insensitive filesystem (macOS APFS default) the destination of
+    // a case-only rename resolves to the SOURCE, so fs.access reports it as
+    // taken. fs.rename handles that case correctly — only a genuinely
+    // different entry may block the rename. lstat, not stat: a symlink whose
+    // target collides must still be treated as a different entry, or renaming
+    // a link over its target would silently destroy the target.
+    let sameEntry = false;
+    try {
+      const src = await fs.lstat(fullPath);
+      const dst = await fs.lstat(newPath);
+      sameEntry = src.ino === dst.ino && src.dev === dst.dev;
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+    if (!sameEntry) {
+      await this._assertNotExists(newPath, 'A file or directory with that name already exists');
+    }
 
     try {
       await fs.rename(fullPath, newPath);

@@ -499,6 +499,17 @@
   font-style: italic;
 }
 
+/* Transient line for a rejected file op (e.g. a blocked rename); dismissed
+   on click or replaced by the next renderTree() call, whichever comes first. */
+.file-tree__error {
+  padding: 6px 14px;
+  color: var(--danger);
+  font-size: var(--text-footnote);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
 .file-tree__item {
   min-height: 22px;
   padding-top: 2px;
