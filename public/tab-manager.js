@@ -559,6 +559,43 @@ class TabManager {
     }
   }
 
+  // A rename (file OR directory — file_renamed carries both) re-keys every
+  // open file tab under oldPath. The tab id, the eve-open-files entry and the
+  // server-side watch are each keyed by path, so none survives a rename alone.
+  renameFileTab(projectId, oldPath, newPath) {
+    const normOld = oldPath.startsWith('/') ? oldPath : '/' + oldPath;
+    const normNew = newPath.startsWith('/') ? newPath : '/' + newPath;
+    const d = panes.type('file');
+    for (const tab of this.tabs) {
+      if (tab.type !== 'file' || tab.projectId !== projectId) continue;
+      if (tab.path !== normOld && !tab.path.startsWith(normOld + '/')) continue;
+      const nextPath = tab.path === normOld ? normNew : normNew + tab.path.slice(normOld.length);
+      const oldId = tab.id;
+
+      d.dispose?.(tab, this._ctx());
+      if (d.persist) this._removeFromStorage(d.persist.key, d.persist.entryId(tab));
+
+      this.app.fileEditor?.notePathRenamed(projectId, tab.path, nextPath);
+
+      tab.path = nextPath;
+      tab.id = `${tab.projectId}:${tab.path}`;
+      tab.label = tab.path.split('/').pop();
+
+      if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
+      d.watchFile?.(tab, this._ctx());
+
+      if (this.activeTabId === oldId) { this.activeTabId = tab.id; this._updateHash(tab); }
+      for (const [pid, id] of this._lastActiveByProject) {
+        if (id === oldId) this._lastActiveByProject.set(pid, tab.id);
+      }
+      for (const other of this.tabs) {
+        if (other.split?.paneTabId === oldId) other.split.paneTabId = tab.id;
+        if (other._nestedIn === oldId) other._nestedIn = tab.id;
+      }
+    }
+    this.render();
+  }
+
   updateTabLabel(tabId, newLabel) {
     const tab = this.tabs.find(t => t.id === tabId);
     if (tab) {

@@ -253,10 +253,19 @@ const searchSummarizer = new SearchSummarizer({
   log,
 });
 
-async function refreshProjectCache(data) {
+async function refreshProjectCache(data, { replace = false } = {}) {
   try {
     if (Array.isArray(data)) {
-      // Partial upsert from a mutation response, not a full refresh.
+      // Partial upsert from a mutation response, not a full refresh — unless
+      // `replace` says this array IS the full list (a list-GET), in which case
+      // a project relay no longer reports must be evicted, or its files stay
+      // servable over WS (resolveProject/HostPool) after relay revoked it.
+      if (replace) {
+        const nextIds = new Set(data.map((p) => p.id));
+        for (const id of projectCache.keys()) {
+          if (!nextIds.has(id)) projectCache.delete(id);
+        }
+      }
       for (const p of data) {
         const normalized = normalizeProject(p);
         projectCache.set(normalized.id, normalized);
@@ -276,9 +285,15 @@ async function refreshProjectCache(data) {
   }
 }
 
-async function refreshHostCache(data) {
+async function refreshHostCache(data, { replace = false } = {}) {
   try {
     if (Array.isArray(data)) {
+      if (replace) {
+        const nextIds = new Set(data.map((h) => h.id));
+        for (const id of hostCache.keys()) {
+          if (!nextIds.has(id)) hostCache.delete(id);
+        }
+      }
       for (const h of data) hostCache.set(h.id, h);
       return;
     }

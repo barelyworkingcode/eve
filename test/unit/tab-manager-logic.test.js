@@ -375,6 +375,70 @@ describe('terminal dispose', () => {
   });
 });
 
+// Issue #41 root cause A: a rename leaves an open tab's id/watch/persist-entry
+// keyed under the old path, so the next Cmd+S recreates the old file.
+describe('renameFileTab', () => {
+  function tmWithWs() {
+    const sent = [];
+    const ws = { send: (msg) => sent.push(JSON.parse(msg)) };
+    const app = { showChatScreen: () => {}, ws };
+    const tm = makeTabManager({ container: { app } });
+    return { tm, sent };
+  }
+
+  it('re-keys the tab id, moves the eve-open-files entry, and unwatches then watches in order', () => {
+    const { tm, sent } = tmWithWs();
+    tm.openFile('p1', '/a.txt', 'a.txt');
+    sent.length = 0; // drop the initial watch_file from openFile
+
+    tm.renameFileTab('p1', '/a.txt', '/b.txt');
+
+    const tab = tm.tabs.find(t => t.projectId === 'p1');
+    expect(tab.id).toBe('p1:/b.txt');
+    expect(tab.path).toBe('/b.txt');
+    expect(tab.label).toBe('b.txt');
+
+    const stored = JSON.parse(localStorage.getItem('eve-open-files'));
+    expect(stored['p1:/b.txt']).toBeDefined();
+    expect(stored['p1:/a.txt']).toBeUndefined();
+
+    expect(sent.map(m => m.type)).toEqual(['unwatch_file', 'watch_file']);
+    expect(sent[0]).toMatchObject({ type: 'unwatch_file', projectId: 'p1', path: '/a.txt' });
+    expect(sent[1]).toMatchObject({ type: 'watch_file', projectId: 'p1', path: '/b.txt' });
+  });
+
+  it('updates the active tab id and re-hashes when the renamed tab was active', () => {
+    const { tm } = tmWithWs();
+    tm.openFile('p1', '/a.txt', 'a.txt');
+    expect(tm.activeTabId).toBe('p1:/a.txt');
+
+    tm.renameFileTab('p1', '/a.txt', '/b.txt');
+    expect(tm.activeTabId).toBe('p1:/b.txt');
+  });
+
+  it('notifies fileEditor.notePathRenamed so an open editor buffer stops saving to the old path', () => {
+    const notePathRenamed = jest.fn();
+    const sent = [];
+    const app = { showChatScreen: () => {}, ws: { send: (m) => sent.push(m) }, fileEditor: { notePathRenamed, showFile: () => {} } };
+    const tm = makeTabManager({ container: { app } });
+    tm.openFile('p1', '/a.txt', 'a.txt');
+
+    tm.renameFileTab('p1', '/a.txt', '/b.txt');
+
+    expect(notePathRenamed).toHaveBeenCalledWith('p1', '/a.txt', '/b.txt');
+  });
+
+  it('leaves tabs in other projects and non-matching paths untouched', () => {
+    const { tm } = tmWithWs();
+    tm.openFile('p1', '/a.txt', 'a.txt');
+    tm.openFile('p2', '/a.txt', 'a.txt');
+
+    tm.renameFileTab('p1', '/a.txt', '/b.txt');
+
+    expect(tm.tabs.find(t => t.projectId === 'p2').path).toBe('/a.txt');
+  });
+});
+
 // Pins the write shapes, including the legacy bare-number session entry, so e.g.
 // dropping `moduleName` from module-pane.js's `entry()` fails here instead of
 // only surfacing at reload-restore time.
