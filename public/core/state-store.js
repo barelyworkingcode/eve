@@ -11,6 +11,10 @@ class StateStore {
     // when seeded via setHosts. A project's own `host` field (id/name/status)
     // is attached server-side and travels with the project record, not here.
     this.hosts = new Map();
+    // Ids last seen in a full setHosts() list — lets setHosts prune a host
+    // that's gone from the server's list without evicting one only ever
+    // known from a live host_status frame (see setHosts).
+    this._listedHostIds = new Set();
     this.tasks = new Map();
     // Single Set for both chat sessionId and PTY terminalId runs: both are
     // UUIDs from distinct services and never collide.
@@ -252,6 +256,11 @@ class StateStore {
   // /api/hosts hasn't reported yet — a host_status broadcast can arrive
   // before the next hosts fetch resolves.
   setHosts(hosts) {
+    const next = new Set((hosts || []).map(h => h.id));
+    for (const id of this._listedHostIds) {
+      if (!next.has(id)) this.hosts.delete(id);
+    }
+    this._listedHostIds = next;
     for (const h of (hosts || [])) {
       this.hosts.set(h.id, { ...this.hosts.get(h.id), ...h });
     }

@@ -22,6 +22,22 @@ class FileTreeNode {
     this.bus.on(EVT.DIR_CHANGED, (data) => this._onExternalDirChange(data.projectId, data.path));
     this.bus.on(EVT.SETTINGS_CHANGED, (s) => this._onSettingsChanged(s));
     if (EVT.HOST_STATUS) this.bus.on(EVT.HOST_STATUS, (data) => this._onHostStatus(data));
+    this.bus.on(EVT.FILE_ERROR, (data) => this._onFileError(data));
+  }
+
+  // A rejected file op (blocked rename, disallowed extension, ...) otherwise
+  // only reaches the dead legacy file browser — surface it here so a blocked
+  // rename doesn't just look like nothing happened.
+  _onFileError(data) {
+    const el = document.querySelector(`.file-tree[data-project-id="${data.projectId}"]`);
+    if (!el) return;
+    el.querySelector('.file-tree__error')?.remove();
+    const box = document.createElement('div');
+    box.className = 'file-tree__error';
+    box.textContent = data.error || 'File operation failed';
+    box.title = 'Dismiss';
+    box.addEventListener('click', () => box.remove());
+    el.insertBefore(box, el.firstChild);
   }
 
   // A host project's root listing is only as live as the SSH connection

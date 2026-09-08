@@ -122,7 +122,7 @@ describe('routes/index proxy + auth surface', () => {
     it('refreshes the cache and returns normalized projects', async () => {
       deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: [{ id: 'p1', name: 'p1-raw' }] });
       const res = await fetch(`${baseUrl}/api/projects`);
-      expect(deps.refreshProjectCache).toHaveBeenCalledWith([{ id: 'p1', name: 'p1-raw' }]);
+      expect(deps.refreshProjectCache).toHaveBeenCalledWith([{ id: 'p1', name: 'p1-raw' }], { replace: true });
       expect(await res.json()).toEqual([{ id: 'p1', path: '/tmp/p1', displayName: 'P1' }]);
     });
 
@@ -139,6 +139,13 @@ describe('routes/index proxy + auth surface', () => {
       expect(JSON.stringify(body)).not.toContain('BatchMode');
       expect(body[0].host).toEqual({ id: 'h1', name: 'devbox', status: 'connected' });
     });
+
+    it('passes {replace: true} on the list-GET so a project relay no longer reports is evicted, not just merged', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: [{ id: 'p1', name: 'p1-raw' }] });
+      await fetch(`${baseUrl}/api/projects`);
+      const [, opts] = deps.refreshProjectCache.mock.calls[0];
+      expect(opts).toEqual({ replace: true });
+    });
   });
 
   describe('project mutations update the cache', () => {
@@ -149,6 +156,14 @@ describe('routes/index proxy + auth surface', () => {
       });
       expect(res.status).toBe(201);
       expect(deps.refreshProjectCache).toHaveBeenCalledWith([{ id: 'p1', name: 'new' }]);
+    });
+
+    it('does not pass a replace option on a mutation route (upsert only, no eviction)', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 201, data: { id: 'p1', name: 'new' } });
+      await fetch(`${baseUrl}/api/projects`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'new' }),
+      });
+      expect(deps.refreshProjectCache.mock.calls[0]).toHaveLength(1);
     });
 
     it('DELETE removes the project from the cache on success', async () => {
@@ -170,11 +185,18 @@ describe('routes/index proxy + auth surface', () => {
       deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: [hostViewWithSecret] });
       const res = await fetch(`${baseUrl}/api/hosts`);
       const list = await res.json();
-      expect(deps.refreshHostCache).toHaveBeenCalledWith([hostViewWithSecret]);
+      expect(deps.refreshHostCache).toHaveBeenCalledWith([hostViewWithSecret], { replace: true });
       expect(list).toHaveLength(1);
       expect(list[0]).not.toHaveProperty('ssh_argv');
       expect(list[0]).toMatchObject({ id: 'h1', name: 'devbox', status: 'connected' });
       expect(JSON.stringify(list)).not.toContain('BatchMode');
+    });
+
+    it('passes {replace: true} on the list-GET so a host removed in relay is evicted, not just merged', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: [hostViewWithSecret] });
+      await fetch(`${baseUrl}/api/hosts`);
+      const [, opts] = deps.refreshHostCache.mock.calls[0];
+      expect(opts).toEqual({ replace: true });
     });
 
     it('POST /api/hosts strips ssh_argv from the created hostView and refreshes the cache', async () => {
@@ -187,6 +209,15 @@ describe('routes/index proxy + auth surface', () => {
       const body = await res.json();
       expect(body).not.toHaveProperty('ssh_argv');
       expect(deps.refreshHostCache).toHaveBeenCalledWith([hostViewWithSecret]);
+    });
+
+    it('does not pass a replace option on a mutation route (upsert only, no eviction)', async () => {
+      deps.relayTransport.fetch.mockResolvedValue({ status: 201, data: hostViewWithSecret });
+      await fetch(`${baseUrl}/api/hosts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'devbox', target: 'admin@devbox.local' }),
+      });
+      expect(deps.refreshHostCache.mock.calls[0]).toHaveLength(1);
     });
 
     it('PUT /api/hosts/:id strips ssh_argv', async () => {

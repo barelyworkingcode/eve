@@ -374,6 +374,15 @@ class FileEditor {
     this._refreshHtmlPreview();
   }
 
+  // Cmd+S writes to currentFile.path; without this a rename would make the
+  // next save recreate the old filename and look like the rename reverted.
+  notePathRenamed(projectId, oldPath, newPath) {
+    if (!this.currentFile) return;
+    if (this.currentFile.projectId !== projectId || this.currentFile.path !== oldPath) return;
+    this.currentFile.path = newPath;
+    if (this.editorPath) this.editorPath.textContent = newPath;
+  }
+
   handleExternalChange(projectId, path, content) {
     if (!this.currentFile) return;
     if (this.currentFile.projectId !== projectId || this.currentFile.path !== path) return;
