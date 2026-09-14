@@ -35,6 +35,7 @@ class SlashCommandHandler {
           type: 'terminal_request',
           sessionId,
           directory: relayClient.sessionDirectory,
+          projectId: relayClient.currentProjectId || '',
           command: 'shell'
         }));
         sendComplete();
@@ -45,16 +46,26 @@ class SlashCommandHandler {
           type: 'terminal_request',
           sessionId,
           directory: relayClient.sessionDirectory,
+          projectId: relayClient.currentProjectId || '',
           command: 'claude-code'
         }));
         sendComplete();
         return true;
 
       case 'rh':
+        // rh exits immediately without a project-scoped token (H/cmd/rh/main.go),
+        // unlike shell/claude-code which degrade to a token-free ad-hoc terminal —
+        // so refuse here instead of handing the browser a terminal that will die.
+        if (!relayClient.currentProjectId) {
+          sendSystemMessage('/rh needs an open project — relayHarness has no ad-hoc mode. Open a project first.');
+          sendComplete();
+          return true;
+        }
         ws.send(JSON.stringify({
           type: 'terminal_request',
           sessionId,
           directory: relayClient.sessionDirectory,
+          projectId: relayClient.currentProjectId,
           command: 'rh'
         }));
         sendComplete();

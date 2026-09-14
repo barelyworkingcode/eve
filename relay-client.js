@@ -25,6 +25,7 @@ class RelayClient {
     this.suppressNextJoin = false;
     this.sessionDirectory = null;
     this.currentSessionId = null;
+    this.currentProjectId = null;
 
     this.moduleSessions = new Map();
 
