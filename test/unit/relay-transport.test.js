@@ -30,7 +30,7 @@ describe('isLoopbackHost', () => {
 });
 
 describe('RelayTransport.fromEnv', () => {
-  test('builds a socket-mode transport when RELAY_FRONTEND_SOCKET is set', () => {
+  test('builds a socket-mode transport that ignores a stray RELAY_FRONTEND_TOKEN', () => {
     const t = RelayTransport.fromEnv({
       env: {
         RELAY_FRONTEND_SOCKET: '/tmp/relay-llm.sock',
@@ -40,7 +40,7 @@ describe('RelayTransport.fromEnv', () => {
     });
     expect(t.mode).toBe('socket');
     expect(t.socketPath).toBe('/tmp/relay-llm.sock');
-    expect(t.token).toBe('deadbeef');
+    expect(t.token).toBeNull();
   });
 
   test('defaults to TCP mode on loopback when only the URL default is used', () => {
@@ -116,14 +116,15 @@ describe('assertStartupConfig', () => {
     expect(() => t.assertStartupConfig()).toThrow(/RELAY_FRONTEND_TOKEN/);
   });
 
-  test('refuses socket mode without a token', () => {
+  test('socket mode without RELAY_FRONTEND_TOKEN is not an error and does not warn', () => {
     const log = mkLog();
     const t = RelayTransport.fromEnv({
       env: { RELAY_FRONTEND_SOCKET: '/tmp/x.sock' },
       log,
     });
-    expect(() => t.assertStartupConfig()).toThrow(RelayConfigError);
-    expect(() => t.assertStartupConfig()).toThrow(/RELAY_FRONTEND_TOKEN/);
+    expect(() => t.assertStartupConfig()).not.toThrow();
+    expect(log.calls.warn).toHaveLength(0);
+    expect(log.calls.info[0][0]).not.toMatch(/token set/);
   });
 });
 
@@ -222,5 +223,39 @@ describe('fetch() HTTP roundtrip over loopback', () => {
     await t.fetch('GET', '/api/models');
     expect(seenAuth).toBeUndefined();
     server.close();
+  });
+});
+
+describe('socket mode over a real Unix socket', () => {
+  const http = require('http');
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+
+  test('fetch and fetchRaw send no Authorization header even with RELAY_FRONTEND_TOKEN set', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-rt-'));
+    const socketPath = path.join(dir, 'frontend.sock');
+    const seen = [];
+    const server = http.createServer((req, res) => {
+      seen.push(req.headers);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('[]');
+    });
+    await new Promise((r) => server.listen(socketPath, r));
+    try {
+      const t = RelayTransport.fromEnv({
+        env: { RELAY_FRONTEND_SOCKET: socketPath, RELAY_FRONTEND_TOKEN: 'must-not-be-sent' },
+        log: mkLog(),
+      });
+      const result = await t.fetch('POST', '/api/projects', { name: 'x' });
+      await t.fetchRaw('GET', '/api/generated/a.png');
+      expect(result).toEqual({ status: 200, data: [] });
+      expect(seen).toHaveLength(2);
+      for (const headers of seen) expect(headers.authorization).toBeUndefined();
+      t.agent.destroy();
+    } finally {
+      await new Promise((r) => server.close(r));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
