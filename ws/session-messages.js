@@ -74,6 +74,7 @@ async function handleCreateSession(ctx) {
     relayClient.setSuppressNextJoin(data.sessionId);
     relayClient.currentSessionId = data.sessionId;
     relayClient.sessionDirectory = data.directory;
+    relayClient.currentProjectId = data.projectId || null;
     relayClient.joinSession(data.sessionId);
 
   } catch (err) {
