@@ -258,6 +258,7 @@ describe('createWsHandler', () => {
       expect(created).toMatchObject({ sessionId: 'S1', model: 'gpt' });
       expect(relayClient.setSuppressNextJoin).toHaveBeenCalledWith('S1');
       expect(relayClient.joinSession).toHaveBeenCalledWith('S1');
+      expect(relayClient.currentProjectId).toBe('p1');
     });
 
     it('surfaces a non-2xx relay response as an error frame', async () => {
