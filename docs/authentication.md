@@ -88,28 +88,27 @@ Eve's only outbound channel is a single connection to the `relay` orchestrator's
 
 | Mode | When | Transport | Auth | TLS |
 |---|---|---|---|---|
-| **Socket (preferred)** | `RELAY_FRONTEND_SOCKET` set — typically by the orchestrator when it spawns Eve | Unix domain socket (mode `0600`) | Ephemeral bearer token in `Authorization` header | N/A — kernel FS permissions anchor authorization |
-| **TCP (fallback)** | Split-host: Eve and relay on different machines | HTTPS + WSS | Ephemeral bearer token + TLS cert validation | Required. Plain `http://` to an off-loopback host is refused at startup. |
+| **Socket (preferred)** | `RELAY_FRONTEND_SOCKET` set — by the orchestrator when it launches Eve | Unix domain socket (mode `0600`) | None on the wire — relay authenticates the connection by Eve's process identity (launch Hello, below) | N/A |
+| **TCP (fallback)** | Split-host / dev: not relay-launched | HTTPS + WSS | Explicit `RELAY_FRONTEND_TOKEN` bearer + TLS cert validation | Required. Plain `http://` to an off-loopback host is refused at startup. |
 
 Both modes go through a single `RelayTransport` (`relay-transport.js`); call sites never pick between them.
 
-### Ephemeral bearer token
+### Launch identity (relay-launched Eve)
 
-Mirrors the Go orchestrator's MCP-token scheme (`../relay/service_registry.go`, `frontend_server.go`, `bridge/server.go`):
+Eve holds no relay credential in its environment or argv — on macOS any same-user process can read both. Contract: `../spec-launch-identity.md`; Eve's side is `launch-identity.js`.
 
-1. At spawn time the orchestrator generates a fresh 32-byte hex frontend token (`crypto/rand`).
-2. relay's frontend listener is configured with it; the plaintext is injected into Eve via `RELAY_FRONTEND_TOKEN`. Eve is the only holder — it is **not** shared with relayLLM.
-3. Every outbound HTTP request and WS upgrade from Eve carries `Authorization: Bearer <token>`, so relay's `frontendBearerAuth` rejects unauthenticated upgrades **before** protocol-switching.
-4. relay strips Eve's token and injects each managed service's own **internal** token before dialing it (`../relay/enhanced_services.go`), so Eve↔relay and relay↔service never share a credential.
-5. When Eve exits, the orchestrator tears down the listener. The token never touches disk and is invalid beyond that process lifetime.
+1. relay writes a one-shot 64-hex secret into a pipe, passes the read end as fd 3, and sets `RELAY_LAUNCH_FD=3` alongside `RELAY_BRIDGE_SOCKET`, `RELAY_SERVICE_ID` and `RELAY_FRONTEND_SOCKET`. No `RELAY_FRONTEND_TOKEN` / `RELAY_SERVICE_TOKEN` / `RELAY_MCP_TOKEN` is set.
+2. At the top of `server.js`, before anything that can spawn a child, Eve reads fd 3 to EOF, closes it, validates the shape, and removes `RELAY_LAUNCH_FD` from its environment so no child inherits it.
+3. Eve sends `{"type":"Hello","name":"<RELAY_SERVICE_ID>","token":"<secret>"}` on `RELAY_BRIDGE_SOCKET` and waits for `{"type":"OK","data":{"service_id":…,"relay_pid":…}}`. relay binds the connection peer's kernel audit token (pid + pidversion) as Eve's identity and spends the secret.
+4. Only then does Eve make its first frontend call and start listening. Every frontend-socket request and WS upgrade goes out with **no** `Authorization` header; relay recognises Eve's process. A stray `RELAY_FRONTEND_TOKEN` is ignored in socket mode.
+5. relay injects each managed service's own **internal** token when it proxies onward, so Eve never sees a backend credential.
 
-`RELAY_FRONTEND_TOKEN` is **separate** from the `RELAY_MCP_TOKEN` bridge channel (relayLLM/MCP servers → relay) — distinct sockets, distinct tokens.
+Any failure while `RELAY_LAUNCH_FD` is set — unreadable fd, wrong shape, missing bridge socket or service id, Hello refused, malformed, or timed out — logs `Refusing to start: relay launch identity failed: …` (never the secret) and exits `1`. There is no fallback to an environment token.
 
 ### Startup validation
 
 `relayTransport.assertStartupConfig()` hard-fails the process if:
 
-- Socket mode (`RELAY_FRONTEND_SOCKET` set) but `RELAY_FRONTEND_TOKEN` missing.
 - TCP mode (`RELAY_FRONTEND_URL`) off-loopback and `RELAY_FRONTEND_TOKEN` missing.
 - TCP mode off-loopback and not `https://`.
 
@@ -137,9 +136,11 @@ Provider credentials (Anthropic, Gemini, OpenAI-compatible / LM Studio, Claude C
 
 **Remote client gets a bare 404** — No passkey is enrolled yet and the client isn't loopback / in a trusted subnet (pre-enrollment gate). Enroll from the LAN/WireGuard/loopback first; public IPs can never bootstrap.
 
-**"Relay service unavailable" / 502** — Check the `relay` orchestrator is running (relay returns `502` if the upstream service for a route is down). Under the orchestrator, confirm `RELAY_FRONTEND_SOCKET` + `RELAY_FRONTEND_TOKEN` are in Eve's environment. In TCP mode, confirm `RELAY_FRONTEND_URL` is `https://` off loopback with `RELAY_FRONTEND_TOKEN` set.
+**"Relay service unavailable" / 502** — Check the `relay` orchestrator is running (relay returns `502` if the upstream service for a route is down). Under the orchestrator, confirm `RELAY_FRONTEND_SOCKET` is in Eve's environment and the log shows `Relay launch identity bound`. In TCP mode, confirm `RELAY_FRONTEND_URL` is `https://` off loopback with `RELAY_FRONTEND_TOKEN` set.
 
-**Startup fails with insecure relay config** — `RELAY_FRONTEND_URL` points at a remote host over plain `http://`, or `RELAY_FRONTEND_TOKEN` is missing. Fix the config — do not bypass the check.
+**Startup fails with insecure relay config** — `RELAY_FRONTEND_URL` points at a remote host over plain `http://`, or `RELAY_FRONTEND_TOKEN` is missing for an off-loopback TCP relay. Fix the config — do not bypass the check.
+
+**"Refusing to start: relay launch identity failed"** — Eve was started with `RELAY_LAUNCH_FD` set but could not complete the Hello. Start Eve through relay (`npm run relay:restart`), not by hand with that variable copied from another process: the secret is one-shot per launch.
 
 **Passkey prompt on a LAN client you expected to trust** — Its IP isn't in the trusted set. Eve logs the resolved trusted CIDRs at boot; add the subnet to `EVE_TRUSTED_SUBNETS` or fix the NAT/routing that makes the client appear from an unexpected source address.
 

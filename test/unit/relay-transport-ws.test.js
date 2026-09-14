@@ -12,11 +12,11 @@ jest.mock('ws', () => jest.fn().mockImplementation(function (url, options) {
 const { RelayTransport } = require('../../relay-transport');
 
 describe('RelayTransport.createWebSocket (egress contract)', () => {
-  it('socket mode: carries the bearer token, no TLS opts', () => {
+  it('socket mode: no Authorization header even when a token is passed, no TLS opts', () => {
     const t = new RelayTransport({ socketPath: '/tmp/relay.sock', url: 'http://localhost:3001', token: 'sekret' });
     const ws = t.createWebSocket('/ws');
     expect(ws.url).toBe('ws://relay-frontend.localsocket/ws');
-    expect(ws.options.headers.Authorization).toBe('Bearer sekret');
+    expect(ws.options.headers).toBeUndefined();
     expect(ws.options.rejectUnauthorized).toBeUndefined();
     expect(ws.options.ca).toBeUndefined();
   });
@@ -40,10 +40,10 @@ describe('RelayTransport.createWebSocket (egress contract)', () => {
     expect(ws.options.headers).toBeUndefined();
   });
 
-  it('builds the scheduler upstream path on the same authenticated transport', () => {
+  it('builds the scheduler upstream path on the same identity-authenticated transport', () => {
     const t = new RelayTransport({ socketPath: '/tmp/relay.sock', url: 'http://localhost:3001', token: 'tok' });
     const ws = t.createWebSocket('/ws/tasks');
     expect(ws.url).toBe('ws://relay-frontend.localsocket/ws/tasks');
-    expect(ws.options.headers.Authorization).toBe('Bearer tok');
+    expect(ws.options.headers).toBeUndefined();
   });
 });

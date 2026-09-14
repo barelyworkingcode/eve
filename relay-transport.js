@@ -1,9 +1,11 @@
 /**
  * RelayTransport is the single egress point for all Eve<->relay traffic; no
- * other module may open a raw fetch()/WebSocket to relay. Socket mode's 0600
- * perms anchor authorization (bearer token is defense-in-depth); TCP fallback
- * refuses off-loopback plaintext at startup. assertStartupConfig() must never
- * gain a skip-verify escape. See docs/security-review-auth-transport.md Section B.
+ * other module may open a raw fetch()/WebSocket to relay. Socket mode carries
+ * no credential: relay authenticates the connection by the kernel audit token
+ * of the process that completed the launch Hello (launch-identity.js). TCP
+ * fallback refuses off-loopback plaintext at startup. assertStartupConfig()
+ * must never gain a skip-verify escape. See
+ * docs/security-review-auth-transport.md Section B.
  */
 
 const http = require('http');
@@ -43,9 +45,11 @@ class RelayTransport {
   constructor({ socketPath, url, token, caPath = null, log }) {
     this.log = log || new NullLogger();
     this.socketPath = socketPath;
-    this.token = token;
-
     this.mode = socketPath ? 'socket' : 'tcp';
+    // Deliberately dropped in socket mode: relay authenticates a relay-launched
+    // eve by process identity, and a stray RELAY_FRONTEND_TOKEN must never
+    // reach the wire there.
+    this.token = this.mode === 'socket' ? null : token;
 
     // Parsed even in socket mode: its pathname is still used for path-joining
     // when the orchestrator passes both (rare but legal).
@@ -89,10 +93,7 @@ class RelayTransport {
   // Fail-closed: call once in server.js before listen(). Throws
   // RelayConfigError on any insecure configuration.
   assertStartupConfig() {
-    if (!this.token) {
-      if (this.mode === 'socket') {
-        throw new RelayConfigError('RELAY_FRONTEND_SOCKET is set but RELAY_FRONTEND_TOKEN is missing — refusing to start.');
-      }
+    if (this.mode === 'tcp' && !this.token) {
       if (!this.loopback) {
         throw new RelayConfigError(
           `RELAY_FRONTEND_URL points off-loopback (${this.parsedUrl.hostname}) but RELAY_FRONTEND_TOKEN is missing — refusing to start.`
@@ -112,7 +113,7 @@ class RelayTransport {
     }
 
     if (this.mode === 'socket') {
-      this.log.info(`Relay transport: unix socket at ${this.socketPath}${this.token ? ' (token set)' : ' (NO TOKEN — dev only)'}`);
+      this.log.info(`Relay transport: unix socket at ${this.socketPath} (authenticated by launch identity, no token)`);
     } else {
       this.log.info(
         `Relay transport: ${this.parsedUrl.protocol}//${this.parsedUrl.host}` +

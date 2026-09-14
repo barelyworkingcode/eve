@@ -36,10 +36,26 @@ allowlist) is enforced in-path, and because it lets Eve hold exactly one
 credential regardless of how many backends sit behind relay — dialing
 backends directly would mean N credentials and no policy chokepoint.
 
-Socket mode (`RELAY_FRONTEND_SOCKET` set) is preferred: the Unix socket's
-kernel-enforced `0600` permission is the actual authorization boundary; the
-bearer token on top is defense in depth, not the primary one. TCP mode
-(`RELAY_FRONTEND_URL`) exists only for a split-host deployment and hard-fails
+Socket mode (`RELAY_FRONTEND_SOCKET` set) is how relay launches Eve, and it
+carries no credential at all. The environment and argv of a macOS process are
+readable by every other process of the same user, so relay instead passes a
+one-shot secret on an inherited pipe (`RELAY_LAUNCH_FD`), and Eve spends it on
+a bridge `Hello` (`launch-identity.js`). relay then binds the kernel audit
+token of that connection's peer — Eve's exact process, not its children — and
+authenticates every later frontend-socket connection from that process by
+peer identity. `RelayTransport` therefore sends no `Authorization` header in
+socket mode and ignores any `RELAY_FRONTEND_TOKEN` it finds.
+
+Ordering is what makes this hold. `server.js` consumes the fd and strips
+`RELAY_LAUNCH_FD` synchronously before any object that can spawn a child
+exists, and the first relay call and the HTTP listener (through which every
+spawn and relay call is reached) wait on the Hello. Any failure while
+`RELAY_LAUNCH_FD` is set exits non-zero; there is no degraded relay-less or
+token-in-environment mode. Contract: `../spec-launch-identity.md`.
+
+TCP mode
+(`RELAY_FRONTEND_URL`) is never relay-launched; it exists only for a split-host
+or dev deployment, keeps an explicit `RELAY_FRONTEND_TOKEN`, and hard-fails
 at `assertStartupConfig()` on any off-loopback plaintext URL —
 `rejectUnauthorized: true` is not configurable, so there is no skip-verify
 escape to (re)introduce. The one deliberately-tolerated soft spot is loopback

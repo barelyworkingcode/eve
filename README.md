@@ -40,8 +40,8 @@ node server.js --data /var/eve/data
 
 Eve's one *backend* connection is to the relay orchestrator's frontend, which proxies onward to relayLLM/relayScheduler. (Voice is separate: Eve also dials local TTS/STT daemons directly over loopback TCP — see Security model below.)
 
-- **Orchestrator-managed (preferred):** relay injects `RELAY_FRONTEND_SOCKET` + `RELAY_FRONTEND_TOKEN` at spawn; no configuration needed.
-- **Standalone/dev:** set `RELAY_FRONTEND_URL` (default `http://localhost:3001`).
+- **Orchestrator-managed (preferred):** relay sets `RELAY_FRONTEND_SOCKET` and hands Eve a one-shot launch secret on fd 3 (`RELAY_LAUNCH_FD`), which Eve exchanges for a process identity at startup — no token in the environment, no configuration needed. See [docs/authentication.md](docs/authentication.md).
+- **Standalone/dev:** set `RELAY_FRONTEND_URL` (default `http://localhost:3001`), with `RELAY_FRONTEND_TOKEN` off loopback.
 
 Provider configuration (models, API keys) lives in relayLLM. An optional `data/settings.json` overrides only Eve-local bits, e.g. the `/claude` terminal command path:
 
