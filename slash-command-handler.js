@@ -24,7 +24,7 @@ class SlashCommandHandler {
 
       case 'help':
         sendSystemMessage(
-          `Commands:\n/clear - Clear conversation history\n/zsh - Open terminal\n/bash - Open terminal\n/claude - Open Claude CLI terminal\n/help - Show this help`
+          `Commands:\n/clear - Clear conversation history\n/zsh - Open terminal\n/bash - Open terminal\n/claude - Open Claude CLI terminal\n/rh - Open relayHarness\n/help - Show this help`
         );
         sendComplete();
         return true;
@@ -45,7 +45,17 @@ class SlashCommandHandler {
           type: 'terminal_request',
           sessionId,
           directory: relayClient.sessionDirectory,
-          command: 'claude'
+          command: 'claude-code'
+        }));
+        sendComplete();
+        return true;
+
+      case 'rh':
+        ws.send(JSON.stringify({
+          type: 'terminal_request',
+          sessionId,
+          directory: relayClient.sessionDirectory,
+          command: 'rh'
         }));
         sendComplete();
         return true;

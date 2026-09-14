@@ -69,7 +69,14 @@ describe('SlashCommandHandler', () => {
     const ws = mockWs();
     expect(handler.handle(ws, mockRelay(), '/claude')).toBe(true);
     const req = ws.sent.find(m => m.type === 'terminal_request');
-    expect(req).toMatchObject({ command: 'claude' });
+    expect(req).toMatchObject({ command: 'claude-code' });
+  });
+
+  it('/rh requests a relayHarness terminal', () => {
+    const ws = mockWs();
+    expect(handler.handle(ws, mockRelay(), '/rh')).toBe(true);
+    const req = ws.sent.find(m => m.type === 'terminal_request');
+    expect(req).toMatchObject({ command: 'rh', directory: '/work/proj' });
   });
 
   it('is case-insensitive and tolerates trailing args', () => {
