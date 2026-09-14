@@ -28,9 +28,26 @@ const { Logger } = require('./logger');
 const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
 const { HostPool } = require('./ssh-host-pool');
+const { establishLaunchIdentity } = require('./launch-identity');
 
 const log = new Logger(process.env.LOG_LEVEL || 'info');
 const serverLog = log.child('Server');
+
+// Ordering is load-bearing. The launch fd is consumed and RELAY_LAUNCH_FD
+// stripped synchronously here, before anything below exists that could spawn
+// a child; startServing() — the first relay call, and the listener every
+// request-driven spawn or relay call is reached through — runs only after the
+// Hello resolves. See docs/security-review-auth-transport.md Section B.
+function refuseToStart(err) {
+  serverLog.error(`Refusing to start: relay launch identity failed: ${err.message}`);
+  process.exit(1);
+}
+let launchHello;
+try {
+  launchHello = establishLaunchIdentity({ env: process.env });
+} catch (err) {
+  refuseToStart(err);
+}
 
 const app = express();
 
@@ -307,9 +324,6 @@ async function refreshHostCache(data, { replace = false } = {}) {
   }
 }
 
-refreshProjectCache();
-refreshHostCache();
-
 // Regenerated per server start so script/stylesheet URLs change after a
 // restart and Chrome can't serve stale JS against a new server. Computed once
 // and reused — neither the file nor the token changes without a restart.
@@ -469,29 +483,46 @@ if (isPlaintext && !isLoopbackHost(bindHost)) {
   );
 }
 
-server.listen(PORT, bindHost, () => {
-  const protocol = isPlaintext ? 'http' : 'https';
-  const scope = bindHost === '0.0.0.0' ? '' : ` (bound ${bindHost})`;
-  serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}${scope}`);
-  if (authService.isEnrolled()) {
-    serverLog.info('Authentication: enabled (passkey enrolled)');
-  } else {
-    serverLog.info('Authentication: disabled (no passkey enrolled - first visitor will become owner)');
-  }
+function startServing() {
+  refreshProjectCache();
+  refreshHostCache();
 
-  // Started only once eve is actually reachable, so the initial report()
-  // it fires immediately reflects a server that can also answer relay's
-  // /api/eve/passkeys/revocations poll back.
-  passkeySync.start();
+  server.listen(PORT, bindHost, () => {
+    const protocol = isPlaintext ? 'http' : 'https';
+    const scope = bindHost === '0.0.0.0' ? '' : ` (bound ${bindHost})`;
+    serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}${scope}`);
+    if (authService.isEnrolled()) {
+      serverLog.info('Authentication: enabled (passkey enrolled)');
+    } else {
+      serverLog.info('Authentication: disabled (no passkey enrolled - first visitor will become owner)');
+    }
 
-  if (httpServer) {
-    // Loopback-only so DUAL_LISTEN cannot accidentally expose plaintext Eve
-    // traffic to the LAN; remote access must go through the HTTPS listener.
-    httpServer.listen(HTTP_PORT, '127.0.0.1', () => {
-      serverLog.info(`HTTP server listening on http://127.0.0.1:${HTTP_PORT} (loopback-only)`);
-    });
-  }
-});
+    // Started only once eve is actually reachable, so the initial report()
+    // it fires immediately reflects a server that can also answer relay's
+    // /api/eve/passkeys/revocations poll back.
+    passkeySync.start();
+
+    if (httpServer) {
+      // Loopback-only so DUAL_LISTEN cannot accidentally expose plaintext Eve
+      // traffic to the LAN; remote access must go through the HTTPS listener.
+      httpServer.listen(HTTP_PORT, '127.0.0.1', () => {
+        serverLog.info(`HTTP server listening on http://127.0.0.1:${HTTP_PORT} (loopback-only)`);
+      });
+    }
+  });
+}
+
+Promise.resolve(launchHello)
+  .then((identity) => {
+    if (identity) {
+      serverLog.info(`Relay launch identity bound (service ${identity.serviceId}, relay pid ${identity.relayPid})`);
+    }
+    startServing();
+  }, refuseToStart)
+  .catch((err) => {
+    serverLog.error('Startup failed:', err);
+    process.exit(1);
+  });
 
 let shuttingDown = false;
 
