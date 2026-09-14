@@ -66,6 +66,11 @@ test.describe('chat input row', () => {
   test('stop is hidden while idle and the mic reflects STT availability', async ({ page }) => {
     await page.route('**/api/stt/status', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available: true }) }));
+    // The page fixture already navigated before this test body runs, and
+    // STTManager checks availability once during that earlier boot — so the
+    // route above must apply to a fresh navigation to have any effect
+    // (same pattern as passkey-enrolment.spec.js).
+    await page.reload();
     await openChat(page);
     await expect(page.getByTestId('chat-stop')).toBeHidden();
     await expect(page.getByTestId('chat-mic')).toBeVisible();

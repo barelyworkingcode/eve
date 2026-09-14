@@ -120,11 +120,21 @@ describe('HostAgent (spawned via a fake "ssh" that runs remote-fs-agent.js local
     await agent.unwatch(root); // drops to 1 ref, must NOT send unwatch yet
 
     const changeSeen = new Promise((resolve) => agent.once('change', resolve));
-    fs.writeFileSync(path.join(root, 'b.txt'), 'x');
-    await expect(changeSeen).resolves.toBeDefined();
+    // The 'watch' round trip only confirms fs.watch() was *called* on the
+    // remote side — recursive FSEvents watches on macOS arm asynchronously
+    // and, under load, can take well over a second to start delivering.
+    // Rewrite on an interval instead of once, so the test is bounded by "the
+    // first write after the watcher is actually armed" rather than betting
+    // the whole run on a single write landing inside that warm-up window.
+    const rewrite = setInterval(() => fs.writeFileSync(path.join(root, 'b.txt'), 'x'), 200);
+    try {
+      await expect(changeSeen).resolves.toBeDefined();
+    } finally {
+      clearInterval(rewrite);
+    }
 
     await agent.unwatch(root); // last ref
-  });
+  }, 15000);
 });
 
 describe('HostPool', () => {
