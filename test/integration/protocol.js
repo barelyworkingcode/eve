@@ -14,12 +14,15 @@
 // events transparently, so this contract is enforced by the client, not eve.
 const EVENT_PROTOCOL_VERSION = 2;
 
-// Frames eve SENDS to relay (relay/fake must accept these).
+// Frames eve SENDS to relay (relay/fake must accept these). `terminal_create`
+// is deliberately absent: C11 retired it from the WS surface in favor of
+// `POST /api/terminals` (relay's own ws_terminal.go answers a stray one with
+// an error frame naming the HTTP route instead) — eve must never send it here.
 const EVE_TO_RELAY_TYPES = new Set([
   'join_session', 'send_message', 'leave_session', 'end_session', 'delete_session',
   'rename_session', 'set_session_folder', 'stop_generation', 'clear_session',
   'permission_response', 'set_permission_mode',
-  'terminal_create', 'terminal_input', 'terminal_resize', 'terminal_close',
+  'terminal_input', 'terminal_resize', 'terminal_close',
   'terminal_list', 'terminal_reconnect', 'join_terminal', 'leave_terminal', 'terminal_templates',
 ]);
 
@@ -52,6 +55,11 @@ const relayFrames = {
   // cannot produce.
   messageComplete: ({ sessionId } = {}) => ({ type: 'message_complete', sessionId }),
   error: ({ message }) => ({ type: 'error', message }),
+  // SH-6 / C11's distinct, typed refusal for a send_message against a
+  // dormant session (relay internal/sessions/api/ws_session.go
+  // sendResumeRequired) — deliberately no `message` field, unlike a normal
+  // error frame.
+  resumeRequired: ({ sessionId }) => ({ type: 'error', code: 'resume_required', sessionId }),
 
   // Control frames eve forwards verbatim. Field names verified against the
   // real relayLLM source, not guessed — earlier guesses (`tool`/`input`, raw
@@ -97,7 +105,13 @@ function validateRelayFrame(frame) {
   } else if (frame.type === 'message_complete') {
     if (!('sessionId' in frame)) errors.push('message_complete: missing sessionId');
   } else if (frame.type === 'error') {
-    if (typeof frame.message !== 'string') errors.push('error: missing/invalid message');
+    // resume_required is a distinct, typed refusal with no `message` field
+    // (relay ws_session.go sendResumeRequired) — every other error carries one.
+    if (frame.code === 'resume_required') {
+      if (typeof frame.sessionId !== 'string') errors.push('error(resume_required): missing sessionId');
+    } else if (typeof frame.message !== 'string') {
+      errors.push('error: missing/invalid message');
+    }
   } else if (frame.type === 'llm_event') {
     if (!frame.event || typeof frame.event !== 'object') errors.push('llm_event: missing event');
     else if (frame.event.v !== EVENT_PROTOCOL_VERSION) {

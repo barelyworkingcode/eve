@@ -92,7 +92,11 @@ describe('WsMessageRegistry.expensiveTypes', () => {
 // fire-and-forget rejection into a browser-visible `{type:'error'}` frame it never
 // produced before, and an unawaited async handler changes ordering on the wire.
 describe('constraint C2 — handle is async iff its case arm is awaited today', () => {
-  const AWAITED_TYPES = new Set(['create_session', 'module_read_file', 'module_write_file']);
+  // terminal_create (C11) now does its own await (relayTransport.fetch to
+  // POST /api/terminals) before answering — ws-handler.js already awaits
+  // every descriptor unconditionally, so this is just recording that the
+  // handler itself is genuinely async now, same reasoning as create_session.
+  const AWAITED_TYPES = new Set(['create_session', 'module_read_file', 'module_write_file', 'terminal_create']);
 
   it('every registered descriptor matches the awaited-arm set', () => {
     for (const type of messages.types()) {

@@ -167,6 +167,75 @@ describe('RelayClient', () => {
     });
   });
 
+  describe('resume_required (C11, SH-6: resume only on a real user turn)', () => {
+    it('with a matching pending user message: resumes then resends exactly once', async () => {
+      transport.fetch = jest.fn().mockResolvedValue({ status: 200, data: {} });
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).toHaveBeenCalledWith('POST', '/api/sessions/s1/resume');
+      expect(transport.fetch).toHaveBeenCalledTimes(1);
+      expect(client.ws.sent).toContainEqual({ type: 'send_message', text: 'hi', files: [], sessionId: 's1' });
+      expect(client.pendingUserMessage).toBeNull();
+      expect(browserWs.sent.some((m) => m.type === 'error')).toBe(false);
+    });
+
+    it('a second resume_required after the resend is consumed (pending already cleared) — no second resume, browser gets an error', async () => {
+      transport.fetch = jest.fn().mockResolvedValue({ status: 200, data: {} });
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).toHaveBeenCalledTimes(1);
+      expect(client.ws.sent.filter((m) => m.type === 'send_message')).toHaveLength(1);
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it('no pending message at all: reports an error and never calls resume — resume is never host-driven', async () => {
+      transport.fetch = jest.fn();
+      client.pendingUserMessage = null;
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).not.toHaveBeenCalled();
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it('a pending message for a different session is left alone and untouched', async () => {
+      transport.fetch = jest.fn();
+      client.pendingUserMessage = { sessionId: 'other', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).not.toHaveBeenCalled();
+      expect(client.pendingUserMessage).toBeNull();
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it('resume POST failing (non-2xx): browser gets an error, no resend, no loop', async () => {
+      transport.fetch = jest.fn().mockResolvedValue({ status: 500, data: { error: 'nope' } });
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).toHaveBeenCalledTimes(1);
+      expect(client.ws.sent.filter((m) => m.type === 'send_message')).toHaveLength(0);
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it('resume POST throwing (relay unreachable): browser gets an error, no resend', async () => {
+      transport.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(client.ws.sent.filter((m) => m.type === 'send_message')).toHaveLength(0);
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+  });
+
   describe('close()', () => {
     it('closes the upstream socket, clears module sessions, and marks closed', () => {
       const upstream = client.ws;

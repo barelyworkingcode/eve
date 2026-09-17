@@ -56,6 +56,11 @@ function createFakeRelay() {
   let seq = 0;
   let closed = false;
   let sessionCreateGate = null;
+  const terminals = new Map();
+  // null => normal success path. A test forces a specific non-2xx to drive
+  // C11's terminal-create-failure and resume-failure branches.
+  let terminalCreateFailStatus = null;
+  let resumeFailStatus = null;
 
   const recordInbound = (msg) => {
     inbound.push(msg);
@@ -183,6 +188,33 @@ function createFakeRelay() {
       if (sm && req.method === 'DELETE') { sessions.delete(sm[1]); return send(200, {}); }
       if (p === '/api/sessions' && req.method === 'GET') return send(200, [...sessions.values()]);
 
+      // C11 SH-6 resume: eve calls this exactly once per resume_required it
+      // decides to act on. Status is whatever the test last set via
+      // failResumeWith() / clearResumeFail(); defaults to a real 200.
+      const resumeMatch = p.match(/^\/api\/sessions\/([^/]+)\/resume$/);
+      if (resumeMatch && req.method === 'POST') {
+        const id = resumeMatch[1];
+        if (resumeFailStatus) return send(resumeFailStatus, { error: 'forced resume failure' });
+        return send(200, { session_id: id, resumed: true });
+      }
+
+      // C11: eve's terminal_create WS frame is answered by this HTTP route,
+      // not forwarded to relay over WS (see protocol.js). 201 body mirrors
+      // relay's real CreatedBody (internal/sessions/terminal/types.go) —
+      // `terminalId`, not `id`.
+      if (p === '/api/terminals' && req.method === 'POST') {
+        if (terminalCreateFailStatus) return send(terminalCreateFailStatus, { error: 'forced terminal create failure' });
+        const terminalId = parsed.terminalId || `term-${++seq}`;
+        const terminal = {
+          terminalId,
+          templateId: parsed.templateId || '',
+          name: parsed.name || '',
+          directory: parsed.directory || '',
+        };
+        terminals.set(terminalId, terminal);
+        return send(201, terminal);
+      }
+
       if (p === '/api/models' && req.method === 'GET') return send(200, [{ id: 'fake-model', name: 'Fake Model' }]);
       if (p === '/api/mcps' && req.method === 'GET') return send(200, []);
       if (p === '/api/tasks' && req.method === 'GET') return send(200, []);
@@ -270,6 +302,11 @@ function createFakeRelay() {
     listProjects: () => [...projects.values()],
     listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
+    listTerminals: () => [...terminals.values()],
+    failTerminalCreateWith: (status) => { terminalCreateFailStatus = status; },
+    clearTerminalCreateFail: () => { terminalCreateFailStatus = null; },
+    failResumeWith: (status) => { resumeFailStatus = status; },
+    clearResumeFail: () => { resumeFailStatus = null; },
     // Test-side equivalent of the tray's "Allow Eve Passkey Enrolment…" / `relay eve enrol`.
     openEveEnrolment: (ttlMs = 5 * 60 * 1000) => { eveEnrolment = { expires: new Date(Date.now() + ttlMs).toISOString() }; },
     closeEveEnrolment: () => { eveEnrolment = null; },
