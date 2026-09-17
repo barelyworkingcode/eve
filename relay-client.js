@@ -11,6 +11,22 @@ const DEFAULT_TTS_VOICE = 'af_heart';
 
 const { NullLogger } = require('./logger');
 
+// The three frame types the session engine emits when it stops processing a
+// turn (each corresponds to a `SetProcessing(false)` call site that also
+// pushes a WS frame with the session's id): message_complete, process_exited,
+// error. Authoritative source is relay's own session-host,
+// `internal/sessions/session/manager.go`'s `handleProviderEvent` — until G2
+// cuts over, the live emitter is relayLLM's `internal/session/session.go`,
+// which relay's own doc comments confirm has the identical three-case shape
+// (both get deleted/replaced together by L-S1, so this comment doesn't need
+// updating again when that happens). This is one named set, not a trigger
+// enumerated per call site, purely so there's one place to update if that
+// ever changes — it does not, by itself, guarantee nothing was missed; see
+// pendingUserMessage below for the other paths (clearSession, a session-less
+// error, an upstream disconnect) that need their own explicit handling
+// because they never reach here at all.
+const TURN_TERMINAL_TYPES = new Set(['message_complete', 'process_exited', 'error']);
+
 class RelayClient {
   constructor(relayTransport, browserWs, ttsService, log) {
     this.log = log || new NullLogger();
@@ -26,6 +42,28 @@ class RelayClient {
     this.sessionDirectory = null;
     this.currentSessionId = null;
     this.currentProjectId = null;
+
+    // Set only by a real user chat turn (ws/session-messages.js
+    // handleUserInput), never by a hidden/background sendMessage call
+    // (search-summarizer.js, module-invoker.js) — SH-6 removed host-driven
+    // resume, so eve must never resume a session on its own initiative.
+    // Disarmed (set back to null) the moment that turn is done, so a stale,
+    // already-finished turn can never be resent by some later, unrelated
+    // resume_required for the same session (relay emits it from more than
+    // one place: send_message AND clear_session):
+    //   - a matched resume_required (_handleResumeRequired)
+    //   - any of TURN_TERMINAL_TYPES (message_complete/process_exited/error)
+    //   - clearSession specifically — its own server-side path suppresses
+    //     process_exited, so no TURN_TERMINAL_TYPES frame ever arrives to
+    //     disarm on otherwise (see clearSession's own comment)
+    //   - a session-less error (no sessionId to match at all — disarmed
+    //     unconditionally, same as a WS close)
+    //   - leaveSession/endSession/deleteSession/stopGeneration
+    //     (_disarmPendingIfSession, all session-scoped)
+    //   - the upstream WS closing at all (unscoped — a disconnect straddling
+    //     the turn's own completion means eve can no longer tell whether it
+    //     finished during the outage, so nothing survives a reconnect)
+    this.pendingUserMessage = null;
 
     this.moduleSessions = new Map();
 
@@ -100,6 +138,15 @@ class RelayClient {
 
     ws.on('close', () => {
       if (this.ws === ws) this.ws = null;
+      // A disconnect straddling a turn's own completion is a live gap, not
+      // just a theoretical one: relayLLM can finish the turn (message_complete
+      // / process_exited / error) while eve's upstream leg is down, and the
+      // browser's post-reconnect resubscribe (rejoin) never replays that
+      // missed frame — so pendingUserMessage would otherwise survive
+      // indefinitely across the gap. Eve can no longer tell whether this
+      // turn finished during the outage, so it must not treat it as still
+      // safely resendable once the connection comes back.
+      this.pendingUserMessage = null;
       if (this._closed) return;
       this.log.info('Disconnected from relayLLM');
       if (!this._upstreamDown) {
@@ -204,6 +251,40 @@ class RelayClient {
     if (msg.type === 'session_joined' && msg.directory) {
       this.sessionDirectory = msg.directory;
       this.currentSessionId = msg.sessionId;
+    }
+
+    // SH-6 / C11: relay refuses a send_message against a dormant session
+    // with this distinct, typed error instead of silently respawning it.
+    // Swallowed here rather than forwarded raw — the browser only ever sees
+    // the outcome (a normal reply on resend, or the error below on failure).
+    if (msg.type === 'error' && msg.code === 'resume_required') {
+      // Returned (not just fired) so a caller that wants to await the whole
+      // resume-and-resend round trip — tests, mainly — can.
+      return this._handleResumeRequired(msg.sessionId);
+    }
+
+    // A turn that finished on its own — any of the three turn-terminating
+    // frames, not just message_complete — disarms pendingUserMessage: relay
+    // emits resume_required from more than one place (send_message AND
+    // clear_session), so an armed-but-already-finished turn can otherwise
+    // outlive its own completion and get resent by an unrelated later
+    // resume_required for the same session (e.g. a /clear against a session
+    // that only went dormant afterward). process_exited in particular is the
+    // event that makes a session dormant in the first place, so it's the
+    // likeliest predecessor of a later resume_required, not an edge case.
+    if (TURN_TERMINAL_TYPES.has(msg.type)) {
+      // Some `error` frames carry no sessionId at all — relay/relayLLM's
+      // sendWSError on a send-path failure before any provider event ever
+      // fires (e.g. "sessionId required", or an ad-hoc respawn/SendMessage
+      // failure) — so there is nothing to match against. Eve can't know
+      // which session it belongs to, so the safe default is the same one
+      // used for a WS close: disarm unconditionally rather than risk
+      // leaving something stale armed.
+      if (msg.type === 'error' && !msg.sessionId) {
+        this.pendingUserMessage = null;
+      } else {
+        this._disarmPendingIfSession(msg.sessionId);
+      }
     }
 
     if (this.voiceMode && this.ttsService) {
@@ -311,18 +392,59 @@ class RelayClient {
     this._send({ type: 'send_message', text, files, sessionId });
   }
 
+  // Clears pendingUserMessage only when it belongs to the given session, so
+  // a lifecycle event on session A can never disturb a legitimate pending
+  // arm for an unrelated session B on the same connection.
+  _disarmPendingIfSession(sessionId) {
+    if (this.pendingUserMessage && this.pendingUserMessage.sessionId === sessionId) {
+      this.pendingUserMessage = null;
+    }
+  }
+
+  // C11 resume_required handling (SH-6: resume only on user action, never
+  // host-driven). The session-id match is checked before pendingUserMessage
+  // is consumed — a mismatched resume_required (wrong session, or none
+  // pending) must never disturb an unrelated pending arm — and then
+  // consumed unconditionally on a match, so at most one resend — and
+  // therefore at most one resume POST — ever happens per user turn; a
+  // resume_required on the resend itself just reports an error.
+  async _handleResumeRequired(sessionId) {
+    const pending = this.pendingUserMessage;
+
+    if (!pending || pending.sessionId !== sessionId) {
+      this._sendToBrowser({ type: 'error', message: 'Session needs to be resumed', sessionId });
+      return;
+    }
+
+    this.pendingUserMessage = null;
+    try {
+      const { status } = await this.relayTransport.fetch('POST', `/api/sessions/${sessionId}/resume`);
+      if (status >= 200 && status < 300) {
+        this.sendMessage(pending.text, pending.files, pending.sessionId);
+      } else {
+        this._sendToBrowser({ type: 'error', message: `Resume failed (${status})`, sessionId });
+      }
+    } catch (err) {
+      this.log.error('Resume failed:', err.message);
+      this._sendToBrowser({ type: 'error', message: 'Resume failed: relay unavailable', sessionId });
+    }
+  }
+
   leaveSession(sessionId) {
     this._send({ type: 'leave_session', sessionId });
+    this._disarmPendingIfSession(sessionId);
     this.voiceMode = false;
     this._resetTTSState();
   }
 
   endSession(sessionId) {
     this._send({ type: 'end_session', sessionId });
+    this._disarmPendingIfSession(sessionId);
   }
 
   deleteSession(sessionId) {
     this._send({ type: 'delete_session', sessionId });
+    this._disarmPendingIfSession(sessionId);
   }
 
   renameSession(sessionId, name) {
@@ -335,11 +457,23 @@ class RelayClient {
 
   clearSession(sessionId) {
     this._send({ type: 'clear_session', sessionId });
+    // relay's ClearSession (internal/sessions/session/manager.go) suppresses
+    // the process_exited event this would otherwise end on — its own
+    // handleProviderEvent guard drops any process_exited whose source no
+    // longer matches sess.Provider(), which ClearSession has already swapped
+    // to nil by the time the killed provider's exit actually fires — so no
+    // TURN_TERMINAL_TYPES frame ever arrives to disarm on for this path. A
+    // project-bound session then unconditionally answers with
+    // resume_required, exactly the shape that would otherwise resend a
+    // stale turn. Disarm here, immediately, the same as the other lifecycle
+    // methods below — not waiting for any server response.
+    this._disarmPendingIfSession(sessionId);
   }
 
   stopGeneration(sessionId) {
     this._resetTTSState();
     this._send({ type: 'stop_generation', sessionId });
+    this._disarmPendingIfSession(sessionId);
   }
 
   sendPermissionResponse(permissionId, approved, reason) {

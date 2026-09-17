@@ -167,6 +167,192 @@ describe('RelayClient', () => {
     });
   });
 
+  describe('resume_required (C11, SH-6: resume only on a real user turn)', () => {
+    it('with a matching pending user message: resumes then resends exactly once', async () => {
+      transport.fetch = jest.fn().mockResolvedValue({ status: 200, data: {} });
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).toHaveBeenCalledWith('POST', '/api/sessions/s1/resume');
+      expect(transport.fetch).toHaveBeenCalledTimes(1);
+      expect(client.ws.sent).toContainEqual({ type: 'send_message', text: 'hi', files: [], sessionId: 's1' });
+      expect(client.pendingUserMessage).toBeNull();
+      expect(browserWs.sent.some((m) => m.type === 'error')).toBe(false);
+    });
+
+    it('a second resume_required after the resend is consumed (pending already cleared) — no second resume, browser gets an error', async () => {
+      transport.fetch = jest.fn().mockResolvedValue({ status: 200, data: {} });
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).toHaveBeenCalledTimes(1);
+      expect(client.ws.sent.filter((m) => m.type === 'send_message')).toHaveLength(1);
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it('no pending message at all: reports an error and never calls resume — resume is never host-driven', async () => {
+      transport.fetch = jest.fn();
+      client.pendingUserMessage = null;
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).not.toHaveBeenCalled();
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it('a pending message for a different session is left alone and untouched (E2)', async () => {
+      transport.fetch = jest.fn();
+      const other = { sessionId: 'other', text: 'hi', files: [] };
+      client.pendingUserMessage = other;
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).not.toHaveBeenCalled();
+      // A mismatched resume_required must never consume an unrelated
+      // session's legitimate pending arm (e.g. a late frame for a hidden
+      // module session after unregisterModuleSession) — only a match
+      // consumes it.
+      expect(client.pendingUserMessage).toBe(other);
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it('resume POST failing (non-2xx): browser gets an error, no resend, no loop', async () => {
+      transport.fetch = jest.fn().mockResolvedValue({ status: 500, data: { error: 'nope' } });
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(transport.fetch).toHaveBeenCalledTimes(1);
+      expect(client.ws.sent.filter((m) => m.type === 'send_message')).toHaveLength(0);
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it('resume POST throwing (relay unreachable): browser gets an error, no resend', async () => {
+      transport.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(client.ws.sent.filter((m) => m.type === 'send_message')).toHaveLength(0);
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+  });
+
+  describe('E1 regression: pendingUserMessage must not outlive its own turn', () => {
+    // Root cause (Opus review, 2026-09-17, round 1): pendingUserMessage was
+    // armed by a real user turn but only ever consumed inside
+    // _handleResumeRequired — never on the turn's own successful completion.
+    // Relay emits resume_required from two places (send_message AND
+    // clear_session), so a /clear issued later against a now-dormant
+    // session — with no new pending message of its own — matched the OLD,
+    // already-completed turn's still-armed pendingUserMessage and resent it.
+    //
+    // Round 1's fix only disarmed on message_complete. Round 2 (Opus review,
+    // reproduced against 96b293e): relayLLM ends a turn on THREE frames, not
+    // one — message_complete, process_exited, and error (session.go's
+    // HandleEvent switch, each calling SetProcessing(false)) — and
+    // process_exited in particular is the event that makes a session dormant
+    // in the first place, so it's the likeliest predecessor of a later
+    // resume_required, not an edge case. Parameterized over all three so this
+    // can't silently drift back to covering only some of them again.
+    it.each(['message_complete', 'process_exited', 'error'])(
+      'a normal %s disarms pendingUserMessage — a later unrelated resume_required is not resent',
+      async (terminalType) => {
+        transport.fetch = jest.fn().mockResolvedValue({ status: 200, data: {} });
+        client.pendingUserMessage = { sessionId: 's1', text: 'old message', files: [] };
+
+        // The turn finishes normally, exactly as relay reports it, through the
+        // real dispatch path (not poked directly).
+        client._handleRelayMessage({ type: terminalType, sessionId: 's1' });
+        client._flushBatch();
+
+        // Later, e.g. a /clear against the now-dormant session (relay
+        // ws_session.go handleClearSession) gets the same distinct refusal.
+        await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+        expect(client.ws.sent.some((m) => m.type === 'send_message')).toBe(false);
+        expect(transport.fetch).not.toHaveBeenCalled();
+        expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+      }
+    );
+
+    it.each([
+      ['leaveSession', (c) => c.leaveSession('s1')],
+      ['endSession', (c) => c.endSession('s1')],
+      ['deleteSession', (c) => c.deleteSession('s1')],
+      ['stopGeneration', (c) => c.stopGeneration('s1')],
+      // B1 (round 3, Opus): clearSession() was the one lifecycle method with
+      // no disarm at all — relay's ClearSession suppresses the process_exited
+      // that would otherwise cover it (its own handleProviderEvent guard
+      // drops a process_exited whose source no longer matches the session's
+      // current, already-nil'd provider), so nothing in TURN_TERMINAL_TYPES
+      // ever arrives for this path.
+      ['clearSession', (c) => c.clearSession('s1')],
+    ])('%s disarms a pending message for that session', (_name, act) => {
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+      act(client);
+      expect(client.pendingUserMessage).toBeNull();
+    });
+
+    it('a lifecycle call for a different session leaves an unrelated pending arm alone', () => {
+      client.pendingUserMessage = { sessionId: 'other', text: 'hi', files: [] };
+      client.endSession('s1');
+      expect(client.pendingUserMessage).toEqual({ sessionId: 'other', text: 'hi', files: [] });
+    });
+
+    // Round 2, second gap (Opus): a disconnect straddling the turn's own
+    // completion is live, not theoretical — relayLLM can finish the turn
+    // while eve's upstream leg is down, and the browser's post-reconnect
+    // resubscribe never replays the missed terminal frame. Eve can no
+    // longer tell whether the turn finished during the outage, so nothing
+    // should survive the reconnect as still safely resendable — unscoped,
+    // unlike the session-scoped lifecycle disarms above.
+    it('an upstream disconnect disarms pendingUserMessage unconditionally (reconnect-window gap)', () => {
+      // client.ws (the outer beforeEach's makeSocket()) has no 'close' event
+      // at all — that handler only exists on a socket _connectUpstream
+      // itself wired up, so drive a real one through it, same as the
+      // "connect() self-heals" block below. Fake timers because 'close'
+      // schedules a real reconnect via _scheduleUpstreamReconnect.
+      jest.useFakeTimers();
+      const upstream = makeFakeUpstream();
+      transport.createWebSocket = jest.fn(() => upstream);
+      client._connectUpstream();
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      upstream.emit('close');
+
+      expect(client.pendingUserMessage).toBeNull();
+    });
+
+    // B2 (round 3, Opus): relay/relayLLM's sendWSError sometimes emits
+    // `{type:'error',message}` with no sessionId at all (a send-path
+    // failure before any provider event ever fires — e.g. an ad-hoc
+    // respawn or SendMessage failing synchronously) — eve can't match that
+    // against any particular session, so the safe default is the same one
+    // used for a WS close: disarm unconditionally rather than risk leaving
+    // something stale armed.
+    it('a session-less error disarms pendingUserMessage unconditionally, regardless of which session it belongs to', () => {
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      client._handleRelayMessage({ type: 'error', message: 'failed to restart provider: boom' });
+      client._flushBatch();
+
+      expect(client.pendingUserMessage).toBeNull();
+    });
+
+    it('an error that does carry a sessionId still only disarms a match, same as any other terminal type', () => {
+      client.pendingUserMessage = { sessionId: 'other', text: 'hi', files: [] };
+
+      client._handleRelayMessage({ type: 'error', sessionId: 's1', message: 'boom' });
+      client._flushBatch();
+
+      expect(client.pendingUserMessage).toEqual({ sessionId: 'other', text: 'hi', files: [] });
+    });
+  });
+
   describe('close()', () => {
     it('closes the upstream socket, clears module sessions, and marks closed', () => {
       const upstream = client.ws;

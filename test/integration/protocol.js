@@ -14,19 +14,22 @@
 // events transparently, so this contract is enforced by the client, not eve.
 const EVENT_PROTOCOL_VERSION = 2;
 
-// Frames eve SENDS to relay (relay/fake must accept these).
+// Frames eve SENDS to relay (relay/fake must accept these). `terminal_create`
+// is deliberately absent: C11 retired it from the WS surface in favor of
+// `POST /api/terminals` (relay's own ws_terminal.go answers a stray one with
+// an error frame naming the HTTP route instead) — eve must never send it here.
 const EVE_TO_RELAY_TYPES = new Set([
   'join_session', 'send_message', 'leave_session', 'end_session', 'delete_session',
   'rename_session', 'set_session_folder', 'stop_generation', 'clear_session',
   'permission_response', 'set_permission_mode',
-  'terminal_create', 'terminal_input', 'terminal_resize', 'terminal_close',
+  'terminal_input', 'terminal_resize', 'terminal_close',
   'terminal_list', 'terminal_reconnect', 'join_terminal', 'leave_terminal', 'terminal_templates',
 ]);
 
 // Frames relay SENDS to eve that eve PARSES (vs. blindly forwards). These are
 // the only shapes we assert on — relay may send other types that eve passes
 // through to the browser untouched, so unknown types are NOT a contract error.
-const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error']);
+const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error', 'process_exited']);
 
 const relayFrames = {
   sessionJoined: ({ sessionId, directory = '/fake' }) => ({ type: 'session_joined', sessionId, directory }),
@@ -51,7 +54,22 @@ const relayFrames = {
   // Don't reintroduce an `error` field; it would bless a shape the real relay
   // cannot produce.
   messageComplete: ({ sessionId } = {}) => ({ type: 'message_complete', sessionId }),
-  error: ({ message }) => ({ type: 'error', message }),
+  // sessionId is explicitly included even when omitted by the caller (as
+  // `undefined`, not a missing key) — the fake's stampFrame treats an own
+  // `sessionId` property of `undefined` as "this frame deliberately has
+  // none," matching real relay's sendWSError (internal/sessions/api/
+  // ws_terminal.go), which sometimes emits `{type:'error',message}` with no
+  // sessionId at all on a send-path failure.
+  error: ({ message, sessionId } = {}) => ({ type: 'error', message, sessionId }),
+  // relayLLM's other two turn-terminating frames alongside message_complete
+  // (session.go's HandleEvent switch, each calling SetProcessing(false)) —
+  // process_exited in particular is what makes a session dormant.
+  processExited: ({ sessionId } = {}) => ({ type: 'process_exited', sessionId }),
+  // SH-6 / C11's distinct, typed refusal for a send_message against a
+  // dormant session (relay internal/sessions/api/ws_session.go
+  // sendResumeRequired) — deliberately no `message` field, unlike a normal
+  // error frame.
+  resumeRequired: ({ sessionId }) => ({ type: 'error', code: 'resume_required', sessionId }),
 
   // Control frames eve forwards verbatim. Field names verified against the
   // real relayLLM source, not guessed — earlier guesses (`tool`/`input`, raw
@@ -96,8 +114,16 @@ function validateRelayFrame(frame) {
     if (!frame.sessionId) errors.push('session_joined: missing sessionId');
   } else if (frame.type === 'message_complete') {
     if (!('sessionId' in frame)) errors.push('message_complete: missing sessionId');
+  } else if (frame.type === 'process_exited') {
+    if (!('sessionId' in frame)) errors.push('process_exited: missing sessionId');
   } else if (frame.type === 'error') {
-    if (typeof frame.message !== 'string') errors.push('error: missing/invalid message');
+    // resume_required is a distinct, typed refusal with no `message` field
+    // (relay ws_session.go sendResumeRequired) — every other error carries one.
+    if (frame.code === 'resume_required') {
+      if (typeof frame.sessionId !== 'string') errors.push('error(resume_required): missing sessionId');
+    } else if (typeof frame.message !== 'string') {
+      errors.push('error: missing/invalid message');
+    }
   } else if (frame.type === 'llm_event') {
     if (!frame.event || typeof frame.event !== 'object') errors.push('llm_event: missing event');
     else if (frame.event.v !== EVENT_PROTOCOL_VERSION) {
