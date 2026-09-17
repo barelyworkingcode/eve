@@ -36,8 +36,9 @@ WebAuthn enrollment/login, rate-limited per IP (429 on excess).
 |--------|------|-------------|
 | GET | `/api/models` | List models. |
 | GET | `/api/sessions` | List sessions. `__module:` / `__search:` ephemeral sessions are filtered out. |
+| POST | `/api/sessions/:id/resume` | Resume a dormant session. Called automatically by eve, at most once per user turn, when relay answers a `send_message` with the `resume_required` error below — never host-driven (SH-6). |
 
-Session create/message/delete happen over WebSocket, not HTTP.
+Session creation is HTTP (`POST /api/sessions`, triggered by the WS `create_session` frame, see below); messages and the rest of the session lifecycle stay on WebSocket.
 
 ### Projects & MCPs (relay-served)
 
@@ -82,6 +83,7 @@ A project either lives on the console (as today) or on one SSH host (`project.ho
 
 | Method | Path | Description |
 |--------|------|-------------|
+| POST | `/api/terminals` | Create a terminal. Triggered by the WS `terminal_create` frame (below), not sent by the browser directly. 201 body is relay's own WS `terminal_created` frame minus `type` (`{terminalId, templateId, name, directory, host}`); non-2xx becomes a WS `error` to the browser. On success eve joins it over WS (`join_terminal`) — the old WS `terminal_create`-to-relay path is retired. |
 | GET/POST | `/api/terminal/templates` | List / create terminal templates. |
 | PUT/DELETE | `/api/terminal/templates/:id` | Update / delete a template. |
 | GET | `/api/terminals/:id/log` | Raw PTY byte stream for a completed task (binary, `no-store`). |
@@ -118,7 +120,7 @@ Files: `list_directory`, `read_file`, `write_file`, `rename_file`, `move_file`, 
 
 Search: `search_project`, `search_cancel`, `search_ai_summarize`, `search_ai_stop`.
 
-Terminals (proxied to relayLLM): `terminal_create` (`{templateId?, name?, directory, projectId?, cols?, rows?}`), `terminal_input`, `terminal_resize`, `terminal_close`, `terminal_list`, `terminal_reconnect`, `join_terminal`, `leave_terminal`, `terminal_templates`.
+Terminals (proxied to relayLLM): `terminal_create` (`{templateId?, name?, directory, projectId?, cols?, rows?}` — eve answers this over HTTP via `POST /api/terminals`, above, not by forwarding the frame to relay), `terminal_input`, `terminal_resize`, `terminal_close`, `terminal_list`, `terminal_reconnect`, `join_terminal`, `leave_terminal`, `terminal_templates`.
 
 Modules: `module_read_file`, `module_write_file`, `module_invoke_ai`, `module_ai_stop`. See [docs/modules.md](modules.md).
 
@@ -131,6 +133,8 @@ Diagnostics: `device_log` (`{lines: [...]}` — appended to a server-side log wi
 Connection: `pong` (reply to `ping`).
 
 Sessions: `session_created`, `session_joined`, `session_renamed`, `session_folder_changed`, `session_ended`, `user_message`, `llm_event`, `message_complete`, `stats_update`, `raw_output`, `stderr`, `system_message`, `warning`, `error`, `process_exited`, `clear_messages`, `mode_changed`, `permission_request`, `terminal_request` (`{sessionId, directory, command}` — from local slash commands), `plan_file_content`.
+
+`error` from relay can carry `code:'resume_required'` (`{type:'error', code:'resume_required', sessionId}`, no `message`) when a `send_message` targets a dormant session. eve never forwards this frame as-is: it calls `POST /api/sessions/:id/resume` and, on success, re-sends the driving user turn's `send_message` exactly once; the browser only ever sees the eventual outcome — a normal reply, or a plain `error` if the resume call itself fails or nothing was actually pending. Never host-driven (SH-6) — a `resume_required` with no matching pending user turn is reported as an error too, not retried.
 
 Files: `directory_listing`, `file_content`, `file_saved`, `file_renamed`, `file_moved`, `file_deleted`, `file_uploaded`, `directory_created`, `file_error`, `file_changed`, `dir_changed`.
 

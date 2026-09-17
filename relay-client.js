@@ -27,6 +27,15 @@ class RelayClient {
     this.currentSessionId = null;
     this.currentProjectId = null;
 
+    // Set only by a real user chat turn (ws/session-messages.js
+    // handleUserInput), never by a hidden/background sendMessage call
+    // (search-summarizer.js, module-invoker.js) — SH-6 removed host-driven
+    // resume, so eve must never resume a session on its own initiative.
+    // Consumed (set back to null) the instant a resume_required frame is
+    // seen, whether or not it actually matches, so a resend can only ever
+    // happen once per user turn — see _handleResumeRequired.
+    this.pendingUserMessage = null;
+
     this.moduleSessions = new Map();
 
     // Buffered and flushed as one `__batch` frame on a timer to cut frame
@@ -206,6 +215,16 @@ class RelayClient {
       this.currentSessionId = msg.sessionId;
     }
 
+    // SH-6 / C11: relay refuses a send_message against a dormant session
+    // with this distinct, typed error instead of silently respawning it.
+    // Swallowed here rather than forwarded raw — the browser only ever sees
+    // the outcome (a normal reply on resend, or the error below on failure).
+    if (msg.type === 'error' && msg.code === 'resume_required') {
+      // Returned (not just fired) so a caller that wants to await the whole
+      // resume-and-resend round trip — tests, mainly — can.
+      return this._handleResumeRequired(msg.sessionId);
+    }
+
     if (this.voiceMode && this.ttsService) {
       this._handleTTSAccumulation(msg);
     } else if (msg.type === 'message_complete' && this.ttsService) {
@@ -309,6 +328,33 @@ class RelayClient {
   sendMessage(text, files, sessionId) {
     this.log.debug(`→ relay (${text.length} chars, ${files.length} files)`);
     this._send({ type: 'send_message', text, files, sessionId });
+  }
+
+  // C11 resume_required handling (SH-6: resume only on user action, never
+  // host-driven). Always consumes pendingUserMessage up front, matched or
+  // not, so at most one resend — and therefore at most one resume POST —
+  // ever happens per user turn; a resume_required on the resend itself (or
+  // one with no driving message at all) just reports an error.
+  async _handleResumeRequired(sessionId) {
+    const pending = this.pendingUserMessage;
+    this.pendingUserMessage = null;
+
+    if (!pending || pending.sessionId !== sessionId) {
+      this._sendToBrowser({ type: 'error', message: 'Session needs to be resumed', sessionId });
+      return;
+    }
+
+    try {
+      const { status } = await this.relayTransport.fetch('POST', `/api/sessions/${sessionId}/resume`);
+      if (status >= 200 && status < 300) {
+        this.sendMessage(pending.text, pending.files, pending.sessionId);
+      } else {
+        this._sendToBrowser({ type: 'error', message: `Resume failed (${status})`, sessionId });
+      }
+    } catch (err) {
+      this.log.error('Resume failed:', err.message);
+      this._sendToBrowser({ type: 'error', message: 'Resume failed: relay unavailable', sessionId });
+    }
   }
 
   leaveSession(sessionId) {
