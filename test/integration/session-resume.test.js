@@ -81,15 +81,28 @@ describe('resume_required (eve <-> fake relay)', () => {
     }
   });
 
-  it('E1: /clear on a now-dormant session does not resurrect the previous, already-completed turn', async () => {
+  // relayLLM ends a turn on any of three frames (session.go's HandleEvent
+  // switch, each calling SetProcessing(false)): message_complete,
+  // process_exited, and error. Round 1 of this fix only disarmed
+  // pendingUserMessage on message_complete — Opus reproduced the same stale
+  // resend against 96b293e via the other two, process_exited especially,
+  // since that's the event that makes a session dormant in the first place
+  // (the likeliest predecessor of a later resume_required, not an edge
+  // case). Parameterized so this can't silently regress to two-of-three.
+  it.each([
+    ['message_complete', (sessionId) => relayFrames.messageComplete({ sessionId })],
+    ['process_exited', (sessionId) => relayFrames.processExited({ sessionId })],
+    ['error', () => relayFrames.error({ message: 'the model crashed' })],
+  ])('E1: /clear on a now-dormant session does not resurrect the previous turn (ends via %s)', async (terminalType, buildFrame) => {
     const created = await createSession();
     const sessionId = created.sessionId;
 
-    // A real turn that completes normally (relay's default scripted stream
-    // ends in message_complete) — this must disarm pendingUserMessage.
+    // A real turn that ends via this terminal frame — this must disarm
+    // pendingUserMessage.
+    eve.relay.scriptSession(sessionId, [buildFrame(sessionId)]);
     let from = ws.mark();
     ws.send({ type: 'user_input', text: 'the old message', sessionId });
-    await ws.waitFor((f) => f.type === 'message_complete' && f.sessionId === sessionId, 5000, from);
+    await ws.waitFor((f) => f.type === terminalType && f.sessionId === sessionId, 5000, from);
 
     // Now the session goes dormant; relay's own handleClearSession (not
     // handleSendMessage) answers a later /clear with the same distinct

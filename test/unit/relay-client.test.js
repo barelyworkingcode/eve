@@ -242,30 +242,42 @@ describe('RelayClient', () => {
   });
 
   describe('E1 regression: pendingUserMessage must not outlive its own turn', () => {
-    // Root cause (Opus review, 2026-09-17): pendingUserMessage was armed by a
-    // real user turn but only ever consumed inside _handleResumeRequired —
-    // never on the turn's own successful completion. Relay emits
-    // resume_required from two places (send_message AND clear_session), so a
-    // /clear issued later against a now-dormant session — with no new
-    // pending message of its own — matched the OLD, already-completed
-    // turn's still-armed pendingUserMessage and resent it.
-    it('a normal message_complete disarms pendingUserMessage — a later unrelated resume_required is not resent', async () => {
-      transport.fetch = jest.fn().mockResolvedValue({ status: 200, data: {} });
-      client.pendingUserMessage = { sessionId: 's1', text: 'old message', files: [] };
+    // Root cause (Opus review, 2026-09-17, round 1): pendingUserMessage was
+    // armed by a real user turn but only ever consumed inside
+    // _handleResumeRequired — never on the turn's own successful completion.
+    // Relay emits resume_required from two places (send_message AND
+    // clear_session), so a /clear issued later against a now-dormant
+    // session — with no new pending message of its own — matched the OLD,
+    // already-completed turn's still-armed pendingUserMessage and resent it.
+    //
+    // Round 1's fix only disarmed on message_complete. Round 2 (Opus review,
+    // reproduced against 96b293e): relayLLM ends a turn on THREE frames, not
+    // one — message_complete, process_exited, and error (session.go's
+    // HandleEvent switch, each calling SetProcessing(false)) — and
+    // process_exited in particular is the event that makes a session dormant
+    // in the first place, so it's the likeliest predecessor of a later
+    // resume_required, not an edge case. Parameterized over all three so this
+    // can't silently drift back to covering only some of them again.
+    it.each(['message_complete', 'process_exited', 'error'])(
+      'a normal %s disarms pendingUserMessage — a later unrelated resume_required is not resent',
+      async (terminalType) => {
+        transport.fetch = jest.fn().mockResolvedValue({ status: 200, data: {} });
+        client.pendingUserMessage = { sessionId: 's1', text: 'old message', files: [] };
 
-      // The turn finishes normally, exactly as relay reports it, through the
-      // real dispatch path (not poked directly).
-      client._handleRelayMessage({ type: 'message_complete', sessionId: 's1' });
-      client._flushBatch();
+        // The turn finishes normally, exactly as relay reports it, through the
+        // real dispatch path (not poked directly).
+        client._handleRelayMessage({ type: terminalType, sessionId: 's1' });
+        client._flushBatch();
 
-      // Later, e.g. a /clear against the now-dormant session (relay
-      // ws_session.go handleClearSession) gets the same distinct refusal.
-      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+        // Later, e.g. a /clear against the now-dormant session (relay
+        // ws_session.go handleClearSession) gets the same distinct refusal.
+        await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
 
-      expect(client.ws.sent.some((m) => m.type === 'send_message')).toBe(false);
-      expect(transport.fetch).not.toHaveBeenCalled();
-      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
-    });
+        expect(client.ws.sent.some((m) => m.type === 'send_message')).toBe(false);
+        expect(transport.fetch).not.toHaveBeenCalled();
+        expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+      }
+    );
 
     it.each([
       ['leaveSession', (c) => c.leaveSession('s1')],
@@ -282,6 +294,30 @@ describe('RelayClient', () => {
       client.pendingUserMessage = { sessionId: 'other', text: 'hi', files: [] };
       client.endSession('s1');
       expect(client.pendingUserMessage).toEqual({ sessionId: 'other', text: 'hi', files: [] });
+    });
+
+    // Round 2, second gap (Opus): a disconnect straddling the turn's own
+    // completion is live, not theoretical — relayLLM can finish the turn
+    // while eve's upstream leg is down, and the browser's post-reconnect
+    // resubscribe never replays the missed terminal frame. Eve can no
+    // longer tell whether the turn finished during the outage, so nothing
+    // should survive the reconnect as still safely resendable — unscoped,
+    // unlike the session-scoped lifecycle disarms above.
+    it('an upstream disconnect disarms pendingUserMessage unconditionally (reconnect-window gap)', () => {
+      // client.ws (the outer beforeEach's makeSocket()) has no 'close' event
+      // at all — that handler only exists on a socket _connectUpstream
+      // itself wired up, so drive a real one through it, same as the
+      // "connect() self-heals" block below. Fake timers because 'close'
+      // schedules a real reconnect via _scheduleUpstreamReconnect.
+      jest.useFakeTimers();
+      const upstream = makeFakeUpstream();
+      transport.createWebSocket = jest.fn(() => upstream);
+      client._connectUpstream();
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      upstream.emit('close');
+
+      expect(client.pendingUserMessage).toBeNull();
     });
   });
 
