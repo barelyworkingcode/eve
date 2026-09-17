@@ -93,10 +93,10 @@ module.exports = [
     },
   },
 
-  {
-    type: 'terminal_templates',
-    handle(ctx) {
-      ctx.relayClient.send({ type: 'terminal_templates' });
-    },
-  },
+  // terminal_templates is retired: the template catalog is relay's own
+  // (GET /api/terminal/templates), reached by the browser directly over
+  // HTTP (public/terminal-manager.js's requestTemplates, via
+  // api-client.js's getTerminalTemplates) rather than round-tripped through
+  // this WS relay. relay-sessions never mounted a handler for the WS
+  // message this used to forward, so this path only ever hung.
 ];

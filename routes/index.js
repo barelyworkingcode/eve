@@ -199,8 +199,17 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   app.get('/api/sessions', requireAuth, async (req, res) => {
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/sessions');
-      if (status >= 200 && status < 300 && Array.isArray(data)) {
-        const filtered = data.filter(s => !isHiddenSession(s.name));
+      // relay's session-host handler (internal/sessions/api.HandleListSessions)
+      // returns `{ sessions: [...] }`, object-wrapped — unlike the bare array
+      // the old relayLLM implementation returned. Accept both shapes rather
+      // than assuming the new one landed everywhere at once: a bare array is
+      // still handled so this route degrades gracefully against an older
+      // relay build during a staged rollout. Eve's own browser-facing
+      // contract is unchanged either way — always a bare, filtered array.
+      const sessions = Array.isArray(data) ? data
+        : (data && Array.isArray(data.sessions) ? data.sessions : null);
+      if (status >= 200 && status < 300 && sessions) {
+        const filtered = sessions.filter(s => !isHiddenSession(s.name));
         res.status(status).json(filtered);
       } else {
         res.status(status).json(data);

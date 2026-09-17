@@ -48,7 +48,6 @@ const EVT = {
   TERMINAL_EXIT: 'terminal:exit',
   TERMINAL_CLOSED: 'terminal:closed',
   TERMINAL_LIST: 'terminal:list',
-  TERMINAL_TEMPLATES: 'terminal:templates',
   TERMINAL_TEMPLATES_LOADED: 'terminal:templatesLoaded',
 
   FILE_CONTENT: 'file:content',
