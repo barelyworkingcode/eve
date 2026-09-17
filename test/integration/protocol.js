@@ -29,7 +29,7 @@ const EVE_TO_RELAY_TYPES = new Set([
 // Frames relay SENDS to eve that eve PARSES (vs. blindly forwards). These are
 // the only shapes we assert on — relay may send other types that eve passes
 // through to the browser untouched, so unknown types are NOT a contract error.
-const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error']);
+const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error', 'process_exited']);
 
 const relayFrames = {
   sessionJoined: ({ sessionId, directory = '/fake' }) => ({ type: 'session_joined', sessionId, directory }),
@@ -55,6 +55,10 @@ const relayFrames = {
   // cannot produce.
   messageComplete: ({ sessionId } = {}) => ({ type: 'message_complete', sessionId }),
   error: ({ message }) => ({ type: 'error', message }),
+  // relayLLM's other two turn-terminating frames alongside message_complete
+  // (session.go's HandleEvent switch, each calling SetProcessing(false)) —
+  // process_exited in particular is what makes a session dormant.
+  processExited: ({ sessionId } = {}) => ({ type: 'process_exited', sessionId }),
   // SH-6 / C11's distinct, typed refusal for a send_message against a
   // dormant session (relay internal/sessions/api/ws_session.go
   // sendResumeRequired) — deliberately no `message` field, unlike a normal
@@ -104,6 +108,8 @@ function validateRelayFrame(frame) {
     if (!frame.sessionId) errors.push('session_joined: missing sessionId');
   } else if (frame.type === 'message_complete') {
     if (!('sessionId' in frame)) errors.push('message_complete: missing sessionId');
+  } else if (frame.type === 'process_exited') {
+    if (!('sessionId' in frame)) errors.push('process_exited: missing sessionId');
   } else if (frame.type === 'error') {
     // resume_required is a distinct, typed refusal with no `message` field
     // (relay ws_session.go sendResumeRequired) — every other error carries one.

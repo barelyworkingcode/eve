@@ -11,6 +11,14 @@ const DEFAULT_TTS_VOICE = 'af_heart';
 
 const { NullLogger } = require('./logger');
 
+// relayLLM's session engine stops processing a turn on exactly these three
+// frame types — its own HandleEvent switch calls SetProcessing(false) on
+// each one, and no other case (session.go: message_complete, process_exited,
+// error). Named as one set, not enumerated separately per call site, so a
+// fourth terminating frame ever added upstream doesn't silently reopen the
+// resend-a-stale-turn gap this closes (see pendingUserMessage below).
+const TURN_TERMINAL_TYPES = new Set(['message_complete', 'process_exited', 'error']);
+
 class RelayClient {
   constructor(relayTransport, browserWs, ttsService, log) {
     this.log = log || new NullLogger();
@@ -31,13 +39,19 @@ class RelayClient {
     // handleUserInput), never by a hidden/background sendMessage call
     // (search-summarizer.js, module-invoker.js) — SH-6 removed host-driven
     // resume, so eve must never resume a session on its own initiative.
-    // Disarmed (set back to null) for its own session the moment that turn
-    // is done — a matched resume_required (_handleResumeRequired), a normal
-    // message_complete, or any of leaveSession/endSession/deleteSession/
-    // stopGeneration (_disarmPendingIfSession) — so a stale, already-
-    // finished turn can never be resent by some later, unrelated
+    // Disarmed (set back to null) the moment that turn is done, so a stale,
+    // already-finished turn can never be resent by some later, unrelated
     // resume_required for the same session (relay emits it from more than
-    // one place: send_message AND clear_session).
+    // one place: send_message AND clear_session):
+    //   - a matched resume_required (_handleResumeRequired)
+    //   - any of TURN_TERMINAL_TYPES (message_complete/process_exited/
+    //     error — relayLLM's own three turn-ending frames, treated as one
+    //     signal so a fourth one added upstream can't reopen this)
+    //   - leaveSession/endSession/deleteSession/stopGeneration
+    //     (_disarmPendingIfSession, all session-scoped)
+    //   - the upstream WS closing at all (unscoped — a disconnect straddling
+    //     the turn's own completion means eve can no longer tell whether it
+    //     finished during the outage, so nothing survives a reconnect)
     this.pendingUserMessage = null;
 
     this.moduleSessions = new Map();
@@ -113,6 +127,15 @@ class RelayClient {
 
     ws.on('close', () => {
       if (this.ws === ws) this.ws = null;
+      // A disconnect straddling a turn's own completion is a live gap, not
+      // just a theoretical one: relayLLM can finish the turn (message_complete
+      // / process_exited / error) while eve's upstream leg is down, and the
+      // browser's post-reconnect resubscribe (rejoin) never replays that
+      // missed frame — so pendingUserMessage would otherwise survive
+      // indefinitely across the gap. Eve can no longer tell whether this
+      // turn finished during the outage, so it must not treat it as still
+      // safely resendable once the connection comes back.
+      this.pendingUserMessage = null;
       if (this._closed) return;
       this.log.info('Disconnected from relayLLM');
       if (!this._upstreamDown) {
@@ -229,13 +252,17 @@ class RelayClient {
       return this._handleResumeRequired(msg.sessionId);
     }
 
-    // A turn that finished on its own disarms pendingUserMessage: relay
-    // emits resume_required from more than one place (send_message AND
-    // clear_session), so an armed-but-already-answered turn can otherwise
-    // outlive its own completion and get resent by an unrelated later
-    // resume_required for the same session (e.g. a /clear against a
-    // session that only went dormant afterward).
-    if (msg.type === 'message_complete') {
+    // A turn that finished on its own — any of relayLLM's three
+    // turn-terminating frames, not just message_complete — disarms
+    // pendingUserMessage: relay emits resume_required from more than one
+    // place (send_message AND clear_session), so an armed-but-already-
+    // finished turn can otherwise outlive its own completion and get resent
+    // by an unrelated later resume_required for the same session (e.g. a
+    // /clear against a session that only went dormant afterward).
+    // process_exited in particular is the event that makes a session
+    // dormant in the first place, so it's the likeliest predecessor of a
+    // later resume_required, not an edge case.
+    if (TURN_TERMINAL_TYPES.has(msg.type)) {
       this._disarmPendingIfSession(msg.sessionId);
     }
 
