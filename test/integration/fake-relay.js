@@ -200,7 +200,11 @@ function createFakeRelay() {
       }
       const sm = p.match(/^\/api\/sessions\/([^/]+)$/);
       if (sm && req.method === 'DELETE') { sessions.delete(sm[1]); return send(200, {}); }
-      if (p === '/api/sessions' && req.method === 'GET') return send(200, [...sessions.values()]);
+      // Object-wrapped, matching relay's real session-host handler
+      // (internal/sessions/api.HandleListSessions) — eve's own route
+      // (routes/index.js) unwraps this before it ever reaches a test's
+      // assertions, so this is what actually exercises that unwrap.
+      if (p === '/api/sessions' && req.method === 'GET') return send(200, { sessions: [...sessions.values()] });
 
       // C11 SH-6 resume: eve calls this exactly once per resume_required it
       // decides to act on. Status is whatever the test last set via
@@ -231,6 +235,13 @@ function createFakeRelay() {
 
       if (p === '/api/models' && req.method === 'GET') return send(200, [{ id: 'fake-model', name: 'Fake Model' }]);
       if (p === '/api/mcps' && req.method === 'GET') return send(200, []);
+      // Bare array, matching relay's real GET /api/terminal/templates
+      // (cmd/relay/template_routes.go: config.EffectiveTerminalTemplates) —
+      // relay's own route, unrelated to relay-sessions' object-wrapped
+      // /api/sessions and /api/terminals. Empty by default so the picker's
+      // "no templates available"/pty-card-absent branches are what a test
+      // sees unless it seeds otherwise.
+      if (p === '/api/terminal/templates' && req.method === 'GET') return send(200, []);
       if (p === '/api/tasks' && req.method === 'GET') return send(200, []);
       // GET /api/tasks/:id is deliberately left unimplemented (falls through
       // to the 404 below): it must 404, not return [] — a wrong shape, since

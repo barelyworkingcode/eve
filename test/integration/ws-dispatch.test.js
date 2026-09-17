@@ -23,7 +23,12 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
     fs.rmSync(projectDir, { recursive: true, force: true });
   });
 
-  // Pure relayClient.send field-picks, forwarded verbatim.
+  // Pure relayClient.send field-picks, forwarded verbatim. `terminal_templates`
+  // is deliberately absent: it is retired (GET /api/terminal/templates
+  // replaces it — see test/integration/protocol.js's own comment on
+  // EVE_TO_RELAY_TYPES), and eve's ws/terminal-messages.js no longer
+  // registers a handler for it at all, so sending it now reaches relay
+  // never.
   const terminalCases = [
     ['terminal_list', { type: 'terminal_list' }, { type: 'terminal_list' }],
     ['terminal_reconnect',
@@ -31,7 +36,6 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
       { type: 'terminal_reconnect', terminalId: 't1', cols: 90, rows: 30 }],
     ['join_terminal', { type: 'join_terminal', terminalId: 't1' }, { type: 'join_terminal', terminalId: 't1' }],
     ['leave_terminal', { type: 'leave_terminal', terminalId: 't1' }, { type: 'leave_terminal', terminalId: 't1' }],
-    ['terminal_templates', { type: 'terminal_templates' }, { type: 'terminal_templates' }],
   ];
 
   it.each(terminalCases)('%s reaches relay verbatim', async (_label, frame, expected) => {

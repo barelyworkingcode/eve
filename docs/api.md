@@ -35,7 +35,7 @@ WebAuthn enrollment/login, rate-limited per IP (429 on excess).
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/models` | List models. |
-| GET | `/api/sessions` | List sessions. `__module:` / `__search:` ephemeral sessions are filtered out. |
+| GET | `/api/sessions` | List sessions. relay answers `{ sessions: [...] }` (object-wrapped); eve unwraps it and returns a bare, filtered array to the browser — `__module:` / `__search:` ephemeral sessions are filtered out here, not by relay. |
 | POST | `/api/sessions/:id/resume` | Resume a dormant session. Called automatically by eve, at most once per user turn, when relay answers a `send_message` with the `resume_required` error below — never host-driven (SH-6). |
 
 Session creation is HTTP (`POST /api/sessions`, triggered by the WS `create_session` frame, see below); messages and the rest of the session lifecycle stay on WebSocket.

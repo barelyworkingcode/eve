@@ -157,19 +157,47 @@ class TerminalManager {
     }
   }
 
-  requestTemplates() {
-    this.app.wsClient.send({ type: 'terminal_templates' });
+  // The template catalog is relay's own (GET /api/terminal/templates,
+  // cmd/relay/template_routes.go) — not relay-sessions', and never was a
+  // session-host WS concern. This used to round-trip over the shared
+  // session-host WebSocket (`terminal_templates`), which relay-sessions
+  // never actually mounted a handler for: the request went out, nothing
+  // ever answered it, and showTemplatePicker's "still empty, keep waiting"
+  // branch never got un-stuck — exactly the hang the Shell Launcher's "New"
+  // tab was stuck on. HTTP, through the same api-client method
+  // task-dialog.js already uses, has no such gap: it either resolves or
+  // rejects.
+  async requestTemplates() {
+    try {
+      const list = await this.app.api.getTerminalTemplates();
+      this.onTemplates(Array.isArray(list) ? list : []);
+    } catch (err) {
+      this.log.error('Failed to load terminal templates:', err);
+      this.onTemplates([]);
+    }
   }
 
   onTemplates(templates) {
     this.templates = templates || [];
+    // Keep the shared state store in sync too: task-dialog.js reads
+    // state.terminalTemplates independently (its own lazy HTTP fetch,
+    // api-client.js's getTerminalTemplates) and should see a catalog this
+    // fetch already loaded rather than issuing a redundant one.
+    this.app.state?.setTerminalTemplates?.(this.templates);
+    if (this._pendingPickerDirectory !== undefined) {
+      const directory = this._pendingPickerDirectory;
+      const projectId = this._pendingPickerProjectId;
+      this._pendingPickerDirectory = undefined;
+      this._pendingPickerProjectId = undefined;
+      this._showPickerUI(directory, projectId);
+    }
   }
 
   showTemplatePicker(directory, projectId) {
     if (this.templates.length === 0) {
-      this.requestTemplates();
       this._pendingPickerDirectory = directory;
       this._pendingPickerProjectId = projectId || '';
+      this.requestTemplates();
       return;
     }
     this._showPickerUI(directory, projectId);
