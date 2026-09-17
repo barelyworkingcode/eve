@@ -284,6 +284,13 @@ describe('RelayClient', () => {
       ['endSession', (c) => c.endSession('s1')],
       ['deleteSession', (c) => c.deleteSession('s1')],
       ['stopGeneration', (c) => c.stopGeneration('s1')],
+      // B1 (round 3, Opus): clearSession() was the one lifecycle method with
+      // no disarm at all — relay's ClearSession suppresses the process_exited
+      // that would otherwise cover it (its own handleProviderEvent guard
+      // drops a process_exited whose source no longer matches the session's
+      // current, already-nil'd provider), so nothing in TURN_TERMINAL_TYPES
+      // ever arrives for this path.
+      ['clearSession', (c) => c.clearSession('s1')],
     ])('%s disarms a pending message for that session', (_name, act) => {
       client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
       act(client);
@@ -318,6 +325,31 @@ describe('RelayClient', () => {
       upstream.emit('close');
 
       expect(client.pendingUserMessage).toBeNull();
+    });
+
+    // B2 (round 3, Opus): relay/relayLLM's sendWSError sometimes emits
+    // `{type:'error',message}` with no sessionId at all (a send-path
+    // failure before any provider event ever fires — e.g. an ad-hoc
+    // respawn or SendMessage failing synchronously) — eve can't match that
+    // against any particular session, so the safe default is the same one
+    // used for a WS close: disarm unconditionally rather than risk leaving
+    // something stale armed.
+    it('a session-less error disarms pendingUserMessage unconditionally, regardless of which session it belongs to', () => {
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+
+      client._handleRelayMessage({ type: 'error', message: 'failed to restart provider: boom' });
+      client._flushBatch();
+
+      expect(client.pendingUserMessage).toBeNull();
+    });
+
+    it('an error that does carry a sessionId still only disarms a match, same as any other terminal type', () => {
+      client.pendingUserMessage = { sessionId: 'other', text: 'hi', files: [] };
+
+      client._handleRelayMessage({ type: 'error', sessionId: 's1', message: 'boom' });
+      client._flushBatch();
+
+      expect(client.pendingUserMessage).toEqual({ sessionId: 'other', text: 'hi', files: [] });
     });
   });
 

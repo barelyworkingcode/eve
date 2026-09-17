@@ -11,12 +11,20 @@ const DEFAULT_TTS_VOICE = 'af_heart';
 
 const { NullLogger } = require('./logger');
 
-// relayLLM's session engine stops processing a turn on exactly these three
-// frame types — its own HandleEvent switch calls SetProcessing(false) on
-// each one, and no other case (session.go: message_complete, process_exited,
-// error). Named as one set, not enumerated separately per call site, so a
-// fourth terminating frame ever added upstream doesn't silently reopen the
-// resend-a-stale-turn gap this closes (see pendingUserMessage below).
+// The three frame types the session engine emits when it stops processing a
+// turn (each corresponds to a `SetProcessing(false)` call site that also
+// pushes a WS frame with the session's id): message_complete, process_exited,
+// error. Authoritative source is relay's own session-host,
+// `internal/sessions/session/manager.go`'s `handleProviderEvent` — until G2
+// cuts over, the live emitter is relayLLM's `internal/session/session.go`,
+// which relay's own doc comments confirm has the identical three-case shape
+// (both get deleted/replaced together by L-S1, so this comment doesn't need
+// updating again when that happens). This is one named set, not a trigger
+// enumerated per call site, purely so there's one place to update if that
+// ever changes — it does not, by itself, guarantee nothing was missed; see
+// pendingUserMessage below for the other paths (clearSession, a session-less
+// error, an upstream disconnect) that need their own explicit handling
+// because they never reach here at all.
 const TURN_TERMINAL_TYPES = new Set(['message_complete', 'process_exited', 'error']);
 
 class RelayClient {
@@ -44,9 +52,12 @@ class RelayClient {
     // resume_required for the same session (relay emits it from more than
     // one place: send_message AND clear_session):
     //   - a matched resume_required (_handleResumeRequired)
-    //   - any of TURN_TERMINAL_TYPES (message_complete/process_exited/
-    //     error — relayLLM's own three turn-ending frames, treated as one
-    //     signal so a fourth one added upstream can't reopen this)
+    //   - any of TURN_TERMINAL_TYPES (message_complete/process_exited/error)
+    //   - clearSession specifically — its own server-side path suppresses
+    //     process_exited, so no TURN_TERMINAL_TYPES frame ever arrives to
+    //     disarm on otherwise (see clearSession's own comment)
+    //   - a session-less error (no sessionId to match at all — disarmed
+    //     unconditionally, same as a WS close)
     //   - leaveSession/endSession/deleteSession/stopGeneration
     //     (_disarmPendingIfSession, all session-scoped)
     //   - the upstream WS closing at all (unscoped — a disconnect straddling
@@ -252,18 +263,28 @@ class RelayClient {
       return this._handleResumeRequired(msg.sessionId);
     }
 
-    // A turn that finished on its own — any of relayLLM's three
-    // turn-terminating frames, not just message_complete — disarms
-    // pendingUserMessage: relay emits resume_required from more than one
-    // place (send_message AND clear_session), so an armed-but-already-
-    // finished turn can otherwise outlive its own completion and get resent
-    // by an unrelated later resume_required for the same session (e.g. a
-    // /clear against a session that only went dormant afterward).
-    // process_exited in particular is the event that makes a session
-    // dormant in the first place, so it's the likeliest predecessor of a
-    // later resume_required, not an edge case.
+    // A turn that finished on its own — any of the three turn-terminating
+    // frames, not just message_complete — disarms pendingUserMessage: relay
+    // emits resume_required from more than one place (send_message AND
+    // clear_session), so an armed-but-already-finished turn can otherwise
+    // outlive its own completion and get resent by an unrelated later
+    // resume_required for the same session (e.g. a /clear against a session
+    // that only went dormant afterward). process_exited in particular is the
+    // event that makes a session dormant in the first place, so it's the
+    // likeliest predecessor of a later resume_required, not an edge case.
     if (TURN_TERMINAL_TYPES.has(msg.type)) {
-      this._disarmPendingIfSession(msg.sessionId);
+      // Some `error` frames carry no sessionId at all — relay/relayLLM's
+      // sendWSError on a send-path failure before any provider event ever
+      // fires (e.g. "sessionId required", or an ad-hoc respawn/SendMessage
+      // failure) — so there is nothing to match against. Eve can't know
+      // which session it belongs to, so the safe default is the same one
+      // used for a WS close: disarm unconditionally rather than risk
+      // leaving something stale armed.
+      if (msg.type === 'error' && !msg.sessionId) {
+        this.pendingUserMessage = null;
+      } else {
+        this._disarmPendingIfSession(msg.sessionId);
+      }
     }
 
     if (this.voiceMode && this.ttsService) {
@@ -436,6 +457,17 @@ class RelayClient {
 
   clearSession(sessionId) {
     this._send({ type: 'clear_session', sessionId });
+    // relay's ClearSession (internal/sessions/session/manager.go) suppresses
+    // the process_exited event this would otherwise end on — its own
+    // handleProviderEvent guard drops any process_exited whose source no
+    // longer matches sess.Provider(), which ClearSession has already swapped
+    // to nil by the time the killed provider's exit actually fires — so no
+    // TURN_TERMINAL_TYPES frame ever arrives to disarm on for this path. A
+    // project-bound session then unconditionally answers with
+    // resume_required, exactly the shape that would otherwise resend a
+    // stale turn. Disarm here, immediately, the same as the other lifecycle
+    // methods below — not waiting for any server response.
+    this._disarmPendingIfSession(sessionId);
   }
 
   stopGeneration(sessionId) {

@@ -18,8 +18,18 @@ function defaultStream(sessionId) {
 // The real browser drops version-less llm_event frames, so the fake must
 // never emit them — otherwise a test could pass against frames production
 // would silently discard.
+//
+// sessionId is defaulted onto a script frame that doesn't already have an
+// opinion about it — but a frame that explicitly sets its own `sessionId`
+// property to `undefined` (relayFrames.error's default, e.g.) is left with
+// none at all on the wire (JSON.stringify drops undefined-valued keys).
+// This used to unconditionally overwrite every scripted frame's sessionId,
+// which meant a script built specifically to have none (relayFrames.error's
+// session-less shape, matching real relay's sendWSError bug) silently got
+// one anyway — masking exactly the gap that shape exists to test.
 function stampFrame(f, sessionId) {
-  const out = { ...f, sessionId };
+  const explicitlyNone = Object.prototype.hasOwnProperty.call(f, 'sessionId') && f.sessionId === undefined;
+  const out = explicitlyNone ? { ...f } : { ...f, sessionId };
   if (out.type === 'llm_event' && out.event && out.event.v === undefined) {
     out.event = { ...out.event, v: EVENT_PROTOCOL_VERSION };
   }
