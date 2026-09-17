@@ -120,7 +120,7 @@ Files: `list_directory`, `read_file`, `write_file`, `rename_file`, `move_file`, 
 
 Search: `search_project`, `search_cancel`, `search_ai_summarize`, `search_ai_stop`.
 
-Terminals (proxied to relayLLM): `terminal_create` (`{templateId?, name?, directory, projectId?, cols?, rows?}` — eve answers this over HTTP via `POST /api/terminals`, above, not by forwarding the frame to relay), `terminal_input`, `terminal_resize`, `terminal_close`, `terminal_list`, `terminal_reconnect`, `join_terminal`, `leave_terminal`, `terminal_templates`.
+Terminals (proxied to relayLLM): `terminal_create` (`{templateId?, name?, directory, projectId?, cols?, rows?}` — eve answers this over HTTP via `POST /api/terminals`, above, not by forwarding the frame to relay), `terminal_input`, `terminal_resize`, `terminal_close`, `terminal_list`, `terminal_reconnect`, `join_terminal`, `leave_terminal`. Templates are fetched over HTTP (`GET /api/terminal/templates`, above), not this frame — relay-sessions answers a `terminal_templates` WS message with an explicit refusal, since the pty template list was never something relay-sessions owned.
 
 Modules: `module_read_file`, `module_write_file`, `module_invoke_ai`, `module_ai_stop`. See [docs/modules.md](modules.md).
 
@@ -140,7 +140,7 @@ Files: `directory_listing`, `file_content`, `file_saved`, `file_renamed`, `file_
 
 Search: `search_results`, `search_error`, `search_ai_started`, `search_ai_event`, `search_ai_completed`, `search_ai_failed`.
 
-Terminals: `terminal_created` (`{terminalId, templateId, name, directory}`), `terminal_joined`, `terminal_output`, `terminal_exit`, `terminal_closed`, `terminal_list`, `terminal_templates`.
+Terminals: `terminal_created` (`{terminalId, templateId, name, directory}`), `terminal_joined`, `terminal_output`, `terminal_exit`, `terminal_closed`, `terminal_list`.
 
 Modules: `module_file_response`, `module_ai_started`, `module_ai_event`, `module_ai_completed`, `module_ai_failed`.
 
