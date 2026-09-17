@@ -89,11 +89,15 @@ describe('resume_required (eve <-> fake relay)', () => {
   // since that's the event that makes a session dormant in the first place
   // (the likeliest predecessor of a later resume_required, not an edge
   // case). Parameterized so this can't silently regress to two-of-three.
+  // The `error` row is deliberately session-less on the wire (real relay's
+  // sendWSError sometimes omits sessionId on a send-path failure — see
+  // relayFrames.error/stampFrame) — its match predicate can't key off
+  // sessionId like the other two, so each row supplies its own.
   it.each([
-    ['message_complete', (sessionId) => relayFrames.messageComplete({ sessionId })],
-    ['process_exited', (sessionId) => relayFrames.processExited({ sessionId })],
-    ['error', () => relayFrames.error({ message: 'the model crashed' })],
-  ])('E1: /clear on a now-dormant session does not resurrect the previous turn (ends via %s)', async (terminalType, buildFrame) => {
+    ['message_complete', (sessionId) => relayFrames.messageComplete({ sessionId }), (f, sid) => f.type === 'message_complete' && f.sessionId === sid],
+    ['process_exited', (sessionId) => relayFrames.processExited({ sessionId }), (f, sid) => f.type === 'process_exited' && f.sessionId === sid],
+    ['session-less error', () => relayFrames.error({ message: 'the model crashed' }), (f) => f.type === 'error' && f.sessionId === undefined],
+  ])('E1: /clear on a now-dormant session does not resurrect the previous turn (ends via %s)', async (_label, buildFrame, matchesTerminal) => {
     const created = await createSession();
     const sessionId = created.sessionId;
 
@@ -102,7 +106,7 @@ describe('resume_required (eve <-> fake relay)', () => {
     eve.relay.scriptSession(sessionId, [buildFrame(sessionId)]);
     let from = ws.mark();
     ws.send({ type: 'user_input', text: 'the old message', sessionId });
-    await ws.waitFor((f) => f.type === terminalType && f.sessionId === sessionId, 5000, from);
+    await ws.waitFor((f) => matchesTerminal(f, sessionId), 5000, from);
 
     // Now the session goes dormant; relay's own handleClearSession (not
     // handleSendMessage) answers a later /clear with the same distinct
@@ -118,6 +122,35 @@ describe('resume_required (eve <-> fake relay)', () => {
 
     // The only send_message relay ever saw for this session is the original
     // turn — "the old message" must never be resent a second time.
+    const sendMessages = eve.relay.inbound.filter((f) => f.type === 'send_message' && f.sessionId === sessionId);
+    expect(sendMessages).toHaveLength(1);
+    expect(resumeRequests(sessionId)).toHaveLength(0);
+  });
+
+  // B1 (round 3, Opus): the exact reproduction the round-2 fix missed —
+  // relay's ClearSession suppresses process_exited for the very provider it
+  // just killed (handleProviderEvent's `sess.Provider() != source` guard: by
+  // the time the kill's own exit event fires, ClearSession has already
+  // swapped the session to a nil provider), so a /clear on a turn that is
+  // still in flight — no terminal frame has arrived at all yet, not even a
+  // dormant-session one — reaches eve with nothing to disarm on except
+  // clearSession() itself.
+  it('B1: /clear on a turn still in flight (no terminal frame at all yet) does not resurrect it', async () => {
+    const created = await createSession();
+    const sessionId = created.sessionId;
+    // Empty script: the fake never answers send_message at all, modeling a
+    // turn that's still generating when /clear interrupts it.
+    eve.relay.scriptSession(sessionId, []);
+
+    ws.send({ type: 'user_input', text: 'the old message', sessionId });
+
+    eve.relay.scriptClearSession(sessionId, [relayFrames.resumeRequired({ sessionId })]);
+    const from = ws.mark();
+    ws.send({ type: 'user_input', text: '/clear', sessionId });
+
+    const err = await ws.waitFor((f) => f.type === 'error' && f.sessionId === sessionId, 5000, from);
+    expect(err.message).toBeTruthy();
+
     const sendMessages = eve.relay.inbound.filter((f) => f.type === 'send_message' && f.sessionId === sessionId);
     expect(sendMessages).toHaveLength(1);
     expect(resumeRequests(sessionId)).toHaveLength(0);

@@ -54,7 +54,13 @@ const relayFrames = {
   // Don't reintroduce an `error` field; it would bless a shape the real relay
   // cannot produce.
   messageComplete: ({ sessionId } = {}) => ({ type: 'message_complete', sessionId }),
-  error: ({ message }) => ({ type: 'error', message }),
+  // sessionId is explicitly included even when omitted by the caller (as
+  // `undefined`, not a missing key) — the fake's stampFrame treats an own
+  // `sessionId` property of `undefined` as "this frame deliberately has
+  // none," matching real relay's sendWSError (internal/sessions/api/
+  // ws_terminal.go), which sometimes emits `{type:'error',message}` with no
+  // sessionId at all on a send-path failure.
+  error: ({ message, sessionId } = {}) => ({ type: 'error', message, sessionId }),
   // relayLLM's other two turn-terminating frames alongside message_complete
   // (session.go's HandleEvent switch, each calling SetProcessing(false)) —
   // process_exited in particular is what makes a session dormant.
