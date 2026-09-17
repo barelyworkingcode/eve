@@ -81,6 +81,35 @@ describe('resume_required (eve <-> fake relay)', () => {
     }
   });
 
+  it('E1: /clear on a now-dormant session does not resurrect the previous, already-completed turn', async () => {
+    const created = await createSession();
+    const sessionId = created.sessionId;
+
+    // A real turn that completes normally (relay's default scripted stream
+    // ends in message_complete) — this must disarm pendingUserMessage.
+    let from = ws.mark();
+    ws.send({ type: 'user_input', text: 'the old message', sessionId });
+    await ws.waitFor((f) => f.type === 'message_complete' && f.sessionId === sessionId, 5000, from);
+
+    // Now the session goes dormant; relay's own handleClearSession (not
+    // handleSendMessage) answers a later /clear with the same distinct
+    // resume_required, for the same sessionId — matching the (bug: still
+    // armed) old turn if pendingUserMessage was never disarmed on completion.
+    eve.relay.scriptClearSession(sessionId, [relayFrames.resumeRequired({ sessionId })]);
+
+    from = ws.mark();
+    ws.send({ type: 'user_input', text: '/clear', sessionId });
+
+    const err = await ws.waitFor((f) => f.type === 'error' && f.sessionId === sessionId, 5000, from);
+    expect(err.message).toBeTruthy();
+
+    // The only send_message relay ever saw for this session is the original
+    // turn — "the old message" must never be resent a second time.
+    const sendMessages = eve.relay.inbound.filter((f) => f.type === 'send_message' && f.sessionId === sessionId);
+    expect(sendMessages).toHaveLength(1);
+    expect(resumeRequests(sessionId)).toHaveLength(0);
+  });
+
   it('a resume_required with no driving user turn (e.g. a stray one) is reported, not resumed', async () => {
     const created = await createSession();
     const sessionId = created.sessionId;

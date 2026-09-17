@@ -31,9 +31,13 @@ class RelayClient {
     // handleUserInput), never by a hidden/background sendMessage call
     // (search-summarizer.js, module-invoker.js) — SH-6 removed host-driven
     // resume, so eve must never resume a session on its own initiative.
-    // Consumed (set back to null) the instant a resume_required frame is
-    // seen, whether or not it actually matches, so a resend can only ever
-    // happen once per user turn — see _handleResumeRequired.
+    // Disarmed (set back to null) for its own session the moment that turn
+    // is done — a matched resume_required (_handleResumeRequired), a normal
+    // message_complete, or any of leaveSession/endSession/deleteSession/
+    // stopGeneration (_disarmPendingIfSession) — so a stale, already-
+    // finished turn can never be resent by some later, unrelated
+    // resume_required for the same session (relay emits it from more than
+    // one place: send_message AND clear_session).
     this.pendingUserMessage = null;
 
     this.moduleSessions = new Map();
@@ -225,6 +229,16 @@ class RelayClient {
       return this._handleResumeRequired(msg.sessionId);
     }
 
+    // A turn that finished on its own disarms pendingUserMessage: relay
+    // emits resume_required from more than one place (send_message AND
+    // clear_session), so an armed-but-already-answered turn can otherwise
+    // outlive its own completion and get resent by an unrelated later
+    // resume_required for the same session (e.g. a /clear against a
+    // session that only went dormant afterward).
+    if (msg.type === 'message_complete') {
+      this._disarmPendingIfSession(msg.sessionId);
+    }
+
     if (this.voiceMode && this.ttsService) {
       this._handleTTSAccumulation(msg);
     } else if (msg.type === 'message_complete' && this.ttsService) {
@@ -330,20 +344,31 @@ class RelayClient {
     this._send({ type: 'send_message', text, files, sessionId });
   }
 
+  // Clears pendingUserMessage only when it belongs to the given session, so
+  // a lifecycle event on session A can never disturb a legitimate pending
+  // arm for an unrelated session B on the same connection.
+  _disarmPendingIfSession(sessionId) {
+    if (this.pendingUserMessage && this.pendingUserMessage.sessionId === sessionId) {
+      this.pendingUserMessage = null;
+    }
+  }
+
   // C11 resume_required handling (SH-6: resume only on user action, never
-  // host-driven). Always consumes pendingUserMessage up front, matched or
-  // not, so at most one resend — and therefore at most one resume POST —
-  // ever happens per user turn; a resume_required on the resend itself (or
-  // one with no driving message at all) just reports an error.
+  // host-driven). The session-id match is checked before pendingUserMessage
+  // is consumed — a mismatched resume_required (wrong session, or none
+  // pending) must never disturb an unrelated pending arm — and then
+  // consumed unconditionally on a match, so at most one resend — and
+  // therefore at most one resume POST — ever happens per user turn; a
+  // resume_required on the resend itself just reports an error.
   async _handleResumeRequired(sessionId) {
     const pending = this.pendingUserMessage;
-    this.pendingUserMessage = null;
 
     if (!pending || pending.sessionId !== sessionId) {
       this._sendToBrowser({ type: 'error', message: 'Session needs to be resumed', sessionId });
       return;
     }
 
+    this.pendingUserMessage = null;
     try {
       const { status } = await this.relayTransport.fetch('POST', `/api/sessions/${sessionId}/resume`);
       if (status >= 200 && status < 300) {
@@ -359,16 +384,19 @@ class RelayClient {
 
   leaveSession(sessionId) {
     this._send({ type: 'leave_session', sessionId });
+    this._disarmPendingIfSession(sessionId);
     this.voiceMode = false;
     this._resetTTSState();
   }
 
   endSession(sessionId) {
     this._send({ type: 'end_session', sessionId });
+    this._disarmPendingIfSession(sessionId);
   }
 
   deleteSession(sessionId) {
     this._send({ type: 'delete_session', sessionId });
+    this._disarmPendingIfSession(sessionId);
   }
 
   renameSession(sessionId, name) {
@@ -386,6 +414,7 @@ class RelayClient {
   stopGeneration(sessionId) {
     this._resetTTSState();
     this._send({ type: 'stop_generation', sessionId });
+    this._disarmPendingIfSession(sessionId);
   }
 
   sendPermissionResponse(permissionId, approved, reason) {

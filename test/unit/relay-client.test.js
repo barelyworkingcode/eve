@@ -203,14 +203,19 @@ describe('RelayClient', () => {
       expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
     });
 
-    it('a pending message for a different session is left alone and untouched', async () => {
+    it('a pending message for a different session is left alone and untouched (E2)', async () => {
       transport.fetch = jest.fn();
-      client.pendingUserMessage = { sessionId: 'other', text: 'hi', files: [] };
+      const other = { sessionId: 'other', text: 'hi', files: [] };
+      client.pendingUserMessage = other;
 
       await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
 
       expect(transport.fetch).not.toHaveBeenCalled();
-      expect(client.pendingUserMessage).toBeNull();
+      // A mismatched resume_required must never consume an unrelated
+      // session's legitimate pending arm (e.g. a late frame for a hidden
+      // module session after unregisterModuleSession) — only a match
+      // consumes it.
+      expect(client.pendingUserMessage).toBe(other);
       expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
     });
 
@@ -233,6 +238,50 @@ describe('RelayClient', () => {
 
       expect(client.ws.sent.filter((m) => m.type === 'send_message')).toHaveLength(0);
       expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+  });
+
+  describe('E1 regression: pendingUserMessage must not outlive its own turn', () => {
+    // Root cause (Opus review, 2026-09-17): pendingUserMessage was armed by a
+    // real user turn but only ever consumed inside _handleResumeRequired —
+    // never on the turn's own successful completion. Relay emits
+    // resume_required from two places (send_message AND clear_session), so a
+    // /clear issued later against a now-dormant session — with no new
+    // pending message of its own — matched the OLD, already-completed
+    // turn's still-armed pendingUserMessage and resent it.
+    it('a normal message_complete disarms pendingUserMessage — a later unrelated resume_required is not resent', async () => {
+      transport.fetch = jest.fn().mockResolvedValue({ status: 200, data: {} });
+      client.pendingUserMessage = { sessionId: 's1', text: 'old message', files: [] };
+
+      // The turn finishes normally, exactly as relay reports it, through the
+      // real dispatch path (not poked directly).
+      client._handleRelayMessage({ type: 'message_complete', sessionId: 's1' });
+      client._flushBatch();
+
+      // Later, e.g. a /clear against the now-dormant session (relay
+      // ws_session.go handleClearSession) gets the same distinct refusal.
+      await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
+
+      expect(client.ws.sent.some((m) => m.type === 'send_message')).toBe(false);
+      expect(transport.fetch).not.toHaveBeenCalled();
+      expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
+    });
+
+    it.each([
+      ['leaveSession', (c) => c.leaveSession('s1')],
+      ['endSession', (c) => c.endSession('s1')],
+      ['deleteSession', (c) => c.deleteSession('s1')],
+      ['stopGeneration', (c) => c.stopGeneration('s1')],
+    ])('%s disarms a pending message for that session', (_name, act) => {
+      client.pendingUserMessage = { sessionId: 's1', text: 'hi', files: [] };
+      act(client);
+      expect(client.pendingUserMessage).toBeNull();
+    });
+
+    it('a lifecycle call for a different session leaves an unrelated pending arm alone', () => {
+      client.pendingUserMessage = { sessionId: 'other', text: 'hi', files: [] };
+      client.endSession('s1');
+      expect(client.pendingUserMessage).toEqual({ sessionId: 'other', text: 'hi', files: [] });
     });
   });
 

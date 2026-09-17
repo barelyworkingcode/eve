@@ -57,6 +57,10 @@ function createFakeRelay() {
   let closed = false;
   let sessionCreateGate = null;
   const terminals = new Map();
+  // Mirrors relay's own handleClearSession (ws_session.go), which — like
+  // handleSendMessage — can answer a dormant session with resume_required
+  // instead of clearing it (SH-6/C11's E1 regression coverage).
+  const clearSessionScripts = new Map();
   // null => normal success path. A test forces a specific non-2xx to drive
   // C11's terminal-create-failure and resume-failure branches.
   let terminalCreateFailStatus = null;
@@ -284,6 +288,11 @@ function createFakeRelay() {
           ? script.map((f) => stampFrame(f, msg.sessionId))
           : defaultStream(msg.sessionId);
         for (const f of frames) ws.send(JSON.stringify(f));
+      } else if (msg.type === 'clear_session') {
+        const script = clearSessionScripts.get(msg.sessionId);
+        if (script) {
+          for (const f of script.map((fr) => stampFrame(fr, msg.sessionId))) ws.send(JSON.stringify(f));
+        }
       }
     });
     ws.on('close', () => { relayWs.delete(ws); schedulerWs.delete(ws); });
@@ -302,6 +311,7 @@ function createFakeRelay() {
     listProjects: () => [...projects.values()],
     listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
+    scriptClearSession: (sessionId, frames) => { clearSessionScripts.set(sessionId, frames); },
     listTerminals: () => [...terminals.values()],
     failTerminalCreateWith: (status) => { terminalCreateFailStatus = status; },
     clearTerminalCreateFail: () => { terminalCreateFailStatus = null; },
