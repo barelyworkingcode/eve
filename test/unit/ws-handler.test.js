@@ -211,16 +211,40 @@ describe('createWsHandler', () => {
       expect(relayClient.sendPermissionResponse).toHaveBeenCalledWith('perm', false, 'no');
     });
 
-    it('user_input (non-slash) is forwarded to relay as a message', async () => {
+    it('user_input (non-slash) is forwarded to relay as a message, and arms resume_required (C11)', async () => {
       await sendMsg(ws, { type: 'user_input', text: 'hello world', sessionId: 's' });
       expect(relayClient.sendMessage).toHaveBeenCalled();
       const [text] = relayClient.sendMessage.mock.calls[0];
       expect(text).toContain('hello world');
+      // Only a real user turn may drive a later resume — see relay-client.js
+      // _handleResumeRequired and ws/session-messages.js's own comment.
+      expect(relayClient.pendingUserMessage).toEqual({ sessionId: 's', text, files: [] });
     });
 
-    it('terminal_create is proxied to relay with the projectId', async () => {
-      await sendMsg(ws, { type: 'terminal_create', templateId: 't', projectId: 'p1' });
-      expect(relayClient.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'terminal_create', projectId: 'p1' }));
+    it('terminal_create POSTs /api/terminals (C11) and never sends the frame to relay over WS', async () => {
+      deps.relayTransport.fetch.mockResolvedValueOnce({
+        status: 201,
+        data: { terminalId: 'term-1', templateId: 't', name: '', directory: '/proj1' },
+      });
+      await sendMsg(ws, { type: 'terminal_create', templateId: 't', directory: '/proj1', projectId: 'p1' });
+
+      expect(deps.relayTransport.fetch).toHaveBeenCalledWith('POST', '/api/terminals', expect.objectContaining({
+        templateId: 't', directory: '/proj1', projectId: 'p1',
+      }));
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: 'terminal_created', terminalId: 'term-1', templateId: 't', name: '', directory: '/proj1',
+      }));
+      expect(relayClient.send).toHaveBeenCalledWith({ type: 'join_terminal', terminalId: 'term-1' });
+      expect(relayClient.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'terminal_create' }));
+    });
+
+    it('terminal_create on a non-2xx sends the browser an error and never joins', async () => {
+      deps.relayTransport.fetch.mockResolvedValueOnce({ status: 500, data: { error: 'boom' } });
+      ws.send.mockClear();
+      await sendMsg(ws, { type: 'terminal_create', templateId: 't', directory: '/proj1', projectId: 'p1' });
+
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', message: 'terminal create failed (500)' }));
+      expect(relayClient.send).not.toHaveBeenCalled();
     });
 
     it('list_directory starts the project watcher and lists', async () => {

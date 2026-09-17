@@ -18,8 +18,18 @@ function defaultStream(sessionId) {
 // The real browser drops version-less llm_event frames, so the fake must
 // never emit them — otherwise a test could pass against frames production
 // would silently discard.
+//
+// sessionId is defaulted onto a script frame that doesn't already have an
+// opinion about it — but a frame that explicitly sets its own `sessionId`
+// property to `undefined` (relayFrames.error's default, e.g.) is left with
+// none at all on the wire (JSON.stringify drops undefined-valued keys).
+// This used to unconditionally overwrite every scripted frame's sessionId,
+// which meant a script built specifically to have none (relayFrames.error's
+// session-less shape, matching real relay's sendWSError bug) silently got
+// one anyway — masking exactly the gap that shape exists to test.
 function stampFrame(f, sessionId) {
-  const out = { ...f, sessionId };
+  const explicitlyNone = Object.prototype.hasOwnProperty.call(f, 'sessionId') && f.sessionId === undefined;
+  const out = explicitlyNone ? { ...f } : { ...f, sessionId };
   if (out.type === 'llm_event' && out.event && out.event.v === undefined) {
     out.event = { ...out.event, v: EVENT_PROTOCOL_VERSION };
   }
@@ -56,6 +66,15 @@ function createFakeRelay() {
   let seq = 0;
   let closed = false;
   let sessionCreateGate = null;
+  const terminals = new Map();
+  // Mirrors relay's own handleClearSession (ws_session.go), which — like
+  // handleSendMessage — can answer a dormant session with resume_required
+  // instead of clearing it (SH-6/C11's E1 regression coverage).
+  const clearSessionScripts = new Map();
+  // null => normal success path. A test forces a specific non-2xx to drive
+  // C11's terminal-create-failure and resume-failure branches.
+  let terminalCreateFailStatus = null;
+  let resumeFailStatus = null;
 
   const recordInbound = (msg) => {
     inbound.push(msg);
@@ -183,6 +202,33 @@ function createFakeRelay() {
       if (sm && req.method === 'DELETE') { sessions.delete(sm[1]); return send(200, {}); }
       if (p === '/api/sessions' && req.method === 'GET') return send(200, [...sessions.values()]);
 
+      // C11 SH-6 resume: eve calls this exactly once per resume_required it
+      // decides to act on. Status is whatever the test last set via
+      // failResumeWith() / clearResumeFail(); defaults to a real 200.
+      const resumeMatch = p.match(/^\/api\/sessions\/([^/]+)\/resume$/);
+      if (resumeMatch && req.method === 'POST') {
+        const id = resumeMatch[1];
+        if (resumeFailStatus) return send(resumeFailStatus, { error: 'forced resume failure' });
+        return send(200, { session_id: id, resumed: true });
+      }
+
+      // C11: eve's terminal_create WS frame is answered by this HTTP route,
+      // not forwarded to relay over WS (see protocol.js). 201 body mirrors
+      // relay's real CreatedBody (internal/sessions/terminal/types.go) —
+      // `terminalId`, not `id`.
+      if (p === '/api/terminals' && req.method === 'POST') {
+        if (terminalCreateFailStatus) return send(terminalCreateFailStatus, { error: 'forced terminal create failure' });
+        const terminalId = parsed.terminalId || `term-${++seq}`;
+        const terminal = {
+          terminalId,
+          templateId: parsed.templateId || '',
+          name: parsed.name || '',
+          directory: parsed.directory || '',
+        };
+        terminals.set(terminalId, terminal);
+        return send(201, terminal);
+      }
+
       if (p === '/api/models' && req.method === 'GET') return send(200, [{ id: 'fake-model', name: 'Fake Model' }]);
       if (p === '/api/mcps' && req.method === 'GET') return send(200, []);
       if (p === '/api/tasks' && req.method === 'GET') return send(200, []);
@@ -252,6 +298,11 @@ function createFakeRelay() {
           ? script.map((f) => stampFrame(f, msg.sessionId))
           : defaultStream(msg.sessionId);
         for (const f of frames) ws.send(JSON.stringify(f));
+      } else if (msg.type === 'clear_session') {
+        const script = clearSessionScripts.get(msg.sessionId);
+        if (script) {
+          for (const f of script.map((fr) => stampFrame(fr, msg.sessionId))) ws.send(JSON.stringify(f));
+        }
       }
     });
     ws.on('close', () => { relayWs.delete(ws); schedulerWs.delete(ws); });
@@ -270,6 +321,12 @@ function createFakeRelay() {
     listProjects: () => [...projects.values()],
     listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
+    scriptClearSession: (sessionId, frames) => { clearSessionScripts.set(sessionId, frames); },
+    listTerminals: () => [...terminals.values()],
+    failTerminalCreateWith: (status) => { terminalCreateFailStatus = status; },
+    clearTerminalCreateFail: () => { terminalCreateFailStatus = null; },
+    failResumeWith: (status) => { resumeFailStatus = status; },
+    clearResumeFail: () => { resumeFailStatus = null; },
     // Test-side equivalent of the tray's "Allow Eve Passkey Enrolment…" / `relay eve enrol`.
     openEveEnrolment: (ttlMs = 5 * 60 * 1000) => { eveEnrolment = { expires: new Date(Date.now() + ttlMs).toISOString() }; },
     closeEveEnrolment: () => { eveEnrolment = null; },

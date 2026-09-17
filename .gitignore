@@ -1,4 +1,8 @@
 **/node_modules/*
+# The pattern above only ignores a real directory's contents — a worktree's
+# node_modules is sometimes a symlink (e.g. to another worktree's, to skip a
+# reinstall), which that pattern doesn't match at all. This one covers both.
+**/node_modules
 */.env
 .env
 .env.local
