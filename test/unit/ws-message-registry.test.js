@@ -8,7 +8,6 @@ describe('the process-wide singleton', () => {
     expect(messages.types()).toEqual(expect.arrayContaining([
       'terminal_create', 'terminal_input', 'terminal_resize', 'terminal_close',
       'terminal_list', 'terminal_reconnect', 'join_terminal', 'leave_terminal',
-      'terminal_templates',
     ]));
   });
 });

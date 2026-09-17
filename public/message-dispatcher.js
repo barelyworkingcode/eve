@@ -91,7 +91,6 @@ class MessageDispatcher {
       terminal_exit:        (d) => this.terminal.onTerminalExit(d.terminalId, d.exitCode),
       terminal_closed:      (d) => this.terminal.onTerminalExit(d.terminalId, 0),
       terminal_list:        (d) => this.terminal.onTerminalList(d.terminals),
-      terminal_templates:   (d) => this._handleTerminalTemplates(d),
       permission_request:   (d) => this.modalManager.showPermissionModal(d),
       mode_changed:         (d) => this._applyPermissionMode(d.mode || 'default'),
       relay_status:         (d) => this._handleRelayStatus(d),
@@ -353,19 +352,6 @@ class MessageDispatcher {
   _handleFileEvent(data, fileBrowserMethod, args, busEvent) {
     this.fileBrowser[fileBrowserMethod](...args);
     if (this.bus) this.bus.emit(busEvent, data);
-  }
-
-  _handleTerminalTemplates(data) {
-    this.terminal.onTemplates(data.templates);
-    this.state.setTerminalTemplates(data.templates || []);
-    if (this.terminal._pendingPickerDirectory !== undefined) {
-      const dir = this.terminal._pendingPickerDirectory;
-      const projectId = this.terminal._pendingPickerProjectId || '';
-      delete this.terminal._pendingPickerDirectory;
-      delete this.terminal._pendingPickerProjectId;
-      this.terminal._showPickerUI(dir, projectId);
-    }
-    if (this.bus) this.bus.emit(EVT.TERMINAL_TEMPLATES, data);
   }
 
   handleSchedulerTaskEvent(data) {
