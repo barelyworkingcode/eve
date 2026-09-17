@@ -1,5 +1,5 @@
 /**
- * Frozen wire-type inventory: 46 client message types. If a change forces
+ * Frozen wire-type inventory: 45 client message types. If a change forces
  * an edit to this file to stay green, production is wrong — fix
  * production, not this test.
  */
@@ -48,7 +48,6 @@ const FROZEN_TYPES = [
   'terminal_reconnect',
   'join_terminal',
   'leave_terminal',
-  'terminal_templates',
   'voice_mode',
   'tts_speak',
   'tts_speak_cancel',
@@ -57,9 +56,9 @@ const FROZEN_TYPES = [
 ];
 
 describe('ws protocol surface (frozen)', () => {
-  it('has exactly 46 types', () => {
-    expect(FROZEN_TYPES.length).toBe(46);
-    expect(new Set(FROZEN_TYPES).size).toBe(46);
+  it('has exactly 45 types', () => {
+    expect(FROZEN_TYPES.length).toBe(45);
+    expect(new Set(FROZEN_TYPES).size).toBe(45);
   });
 
   it('matches every case label, pre-switch guard, and registered descriptor', () => {
@@ -73,7 +72,7 @@ describe('ws protocol surface (frozen)', () => {
 
     const measured = new Set([...caseLabels, ...guardTypes, ...registered]);
 
-    expect(measured.size).toBe(46);
+    expect(measured.size).toBe(45);
     expect([...measured].sort()).toEqual([...FROZEN_TYPES].sort());
   });
 

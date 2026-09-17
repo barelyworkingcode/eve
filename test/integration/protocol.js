@@ -15,15 +15,18 @@
 const EVENT_PROTOCOL_VERSION = 2;
 
 // Frames eve SENDS to relay (relay/fake must accept these). `terminal_create`
-// is deliberately absent: C11 retired it from the WS surface in favor of
-// `POST /api/terminals` (relay's own ws_terminal.go answers a stray one with
-// an error frame naming the HTTP route instead) — eve must never send it here.
+// and `terminal_templates` are both deliberately absent: C11 retired
+// `terminal_create` from the WS surface in favor of `POST /api/terminals`,
+// and `terminal_templates` is retired the same way in favor of
+// `GET /api/terminal/templates` (relay's own ws_terminal.go answers a stray
+// one of either with an error frame naming the HTTP route instead) — eve
+// must never send either here.
 const EVE_TO_RELAY_TYPES = new Set([
   'join_session', 'send_message', 'leave_session', 'end_session', 'delete_session',
   'rename_session', 'set_session_folder', 'stop_generation', 'clear_session',
   'permission_response', 'set_permission_mode',
   'terminal_input', 'terminal_resize', 'terminal_close',
-  'terminal_list', 'terminal_reconnect', 'join_terminal', 'leave_terminal', 'terminal_templates',
+  'terminal_list', 'terminal_reconnect', 'join_terminal', 'leave_terminal',
 ]);
 
 // Frames relay SENDS to eve that eve PARSES (vs. blindly forwards). These are

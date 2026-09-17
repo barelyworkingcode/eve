@@ -3,6 +3,7 @@ class ShellLauncherDialog extends DialogBase {
     super(container, 'shell-launcher-dialog');
     this.state = container.get('state');
     this.projectId = null;
+    this._ptyLoadingPlaceholder = null;
   }
 
   init() {
@@ -13,8 +14,35 @@ class ShellLauncherDialog extends DialogBase {
       this._applyIntent(data.intent);
     });
 
+    // A targeted DOM patch, not a full _showTab('new') re-render: this used
+    // to be safe only because the WS terminal_templates round trip it was
+    // originally written against never actually resolved (relay-sessions
+    // never mounted a handler for it), so this listener effectively never
+    // fired against a dialog a user was already interacting with. Now that
+    // the real fetch (terminal-manager.js's requestTemplates, over HTTP)
+    // actually completes, a blind _showTab('new') would wipe and rebuild
+    // the whole tab — including the always-present Web Chat/Voice Chat
+    // cards that have nothing to do with pty templates — out from under a
+    // click already in flight. Replacing only the loading placeholder, in
+    // place, is what keeps a fast template fetch from ever detaching an
+    // element the user is mid-click on.
     this.bus.on(EVT.TERMINAL_TEMPLATES_LOADED, () => {
-      if (this.isVisible) this._showTab('new');
+      if (!this.isVisible) return;
+      const placeholder = this._ptyLoadingPlaceholder;
+      if (!placeholder || !placeholder.isConnected) return; // nothing waiting, or the tab has since been rebuilt
+      this._ptyLoadingPlaceholder = null;
+      const grid = placeholder.parentNode;
+      if (!grid) return;
+      for (const tmpl of this.state.terminalTemplates) {
+        grid.insertBefore(this._createCard({
+          iconHtml: this._iconSVG(tmpl.icon || tmpl.id),
+          name: tmpl.name,
+          description: tmpl.description || '',
+          onClick: () => this._launchTerminal(tmpl.id),
+          testid: `shell-card-${tmpl.id}`,
+        }), placeholder);
+      }
+      placeholder.remove();
     });
   }
 
@@ -62,6 +90,9 @@ class ShellLauncherDialog extends DialogBase {
   _renderNewTab() {
     const grid = document.createElement('div');
     grid.className = 'shell-launcher__grid';
+    // Reset on every fresh render — a stale reference from a previous open
+    // of this dialog must never be patched by a load that resolves late.
+    this._ptyLoadingPlaceholder = null;
 
     const project = this.state.getProject(this.projectId);
     if (project?.host && typeof hostChip === 'function') {
@@ -121,6 +152,7 @@ class ShellLauncherDialog extends DialogBase {
       const loading = document.createElement('div');
       loading.className = 'shell-launcher__empty';
       loading.textContent = 'Loading terminal templates…';
+      this._ptyLoadingPlaceholder = loading;
       grid.appendChild(loading);
     } else {
       for (const tmpl of templates) {

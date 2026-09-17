@@ -103,18 +103,34 @@ describe('routes/index proxy + auth surface', () => {
 
   describe('GET /api/sessions hidden-session filter (load-bearing)', () => {
     it('strips __module: and __search: ephemeral sessions from the list', async () => {
+      // relay's session-host handler answers object-wrapped: { sessions: [...] }.
+      deps.relayTransport.fetch.mockResolvedValue({
+        status: 200,
+        data: {
+          sessions: [
+            { id: '1', name: 'My chat' },
+            { id: '2', name: '__module:demo:abcdef' },
+            { id: '3', name: '__search:abc123' },
+            { id: '4', name: 'Another chat' },
+          ],
+        },
+      });
+      const res = await fetch(`${baseUrl}/api/sessions`);
+      const list = await res.json();
+      expect(list.map(s => s.name)).toEqual(['My chat', 'Another chat']);
+    });
+
+    it('also accepts a bare array (older relay build) without losing the filter', async () => {
       deps.relayTransport.fetch.mockResolvedValue({
         status: 200,
         data: [
           { id: '1', name: 'My chat' },
           { id: '2', name: '__module:demo:abcdef' },
-          { id: '3', name: '__search:abc123' },
-          { id: '4', name: 'Another chat' },
         ],
       });
       const res = await fetch(`${baseUrl}/api/sessions`);
       const list = await res.json();
-      expect(list.map(s => s.name)).toEqual(['My chat', 'Another chat']);
+      expect(list.map(s => s.name)).toEqual(['My chat']);
     });
   });
 
