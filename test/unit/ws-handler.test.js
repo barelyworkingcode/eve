@@ -238,6 +238,14 @@ describe('createWsHandler', () => {
       expect(relayClient.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'terminal_create' }));
     });
 
+    it('terminal_create with no project is refused before it reaches relay', async () => {
+      ws.send.mockClear();
+      await sendMsg(ws, { type: 'terminal_create', templateId: 't', directory: '/proj1' });
+
+      expect(deps.relayTransport.fetch).not.toHaveBeenCalledWith('POST', '/api/terminals', expect.anything());
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', message: 'terminal create failed: a terminal needs a project' }));
+    });
+
     it('terminal_create on a non-2xx sends the browser an error and never joins', async () => {
       deps.relayTransport.fetch.mockResolvedValueOnce({ status: 500, data: { error: 'boom' } });
       ws.send.mockClear();

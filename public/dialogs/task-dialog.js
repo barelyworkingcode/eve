@@ -234,7 +234,7 @@ class TaskDialog extends DialogBase {
     tplSelect.name = 'taskTemplateId';
     const populateTemplates = () => {
       tplSelect.innerHTML = '';
-      const templates = this.state.terminalTemplates || [];
+      const templates = this.state.terminalTemplatesProjectId === this.projectId ? this.state.terminalTemplates || [] : [];
       if (templates.length === 0) {
         const opt = document.createElement('option');
         opt.value = '';
@@ -250,10 +250,11 @@ class TaskDialog extends DialogBase {
       }
     };
     populateTemplates();
-    if ((this.state.terminalTemplates || []).length === 0) {
-      this.api.getTerminalTemplates?.().then(list => {
-        if (list && list.length) {
-          this.state.terminalTemplates = list;
+    if (this.state.terminalTemplatesProjectId !== this.projectId) {
+      const projectId = this.projectId;
+      this.api.getTerminalTemplates?.(projectId).then(list => {
+        if (Array.isArray(list)) {
+          this.state.setTerminalTemplates(list, projectId);
           populateTemplates();
         }
       }).catch(() => { /* swallow — template list is non-critical */ });

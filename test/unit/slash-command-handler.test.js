@@ -66,11 +66,12 @@ describe('SlashCommandHandler', () => {
     expect(req).toMatchObject({ command: 'shell', directory: '/work/proj', projectId: 'proj-1' });
   });
 
-  it.each(['/zsh', '/bash'])('%s still opens an ad-hoc terminal with no project active', (cmd) => {
+  it.each(['/zsh', '/bash', '/claude'])('%s with no project active refuses with a system message', (cmd) => {
     const ws = mockWs();
     expect(handler.handle(ws, mockRelay({ currentProjectId: null }), cmd)).toBe(true);
-    const req = ws.sent.find(m => m.type === 'terminal_request');
-    expect(req).toMatchObject({ command: 'shell', projectId: '' });
+    expect(ws.sent.map(m => m.type)).toEqual(['system_message', 'message_complete']);
+    expect(ws.sent[0].message).toMatch(/project/i);
+    expect(ws.sent.find(m => m.type === 'terminal_request')).toBeUndefined();
   });
 
   it('/claude requests a claude terminal, carrying the project id', () => {

@@ -30,6 +30,7 @@ class ShellLauncherDialog extends DialogBase {
       if (!this.isVisible) return;
       const placeholder = this._ptyLoadingPlaceholder;
       if (!placeholder || !placeholder.isConnected) return; // nothing waiting, or the tab has since been rebuilt
+      if (this.state.terminalTemplatesProjectId !== this.projectId) return; // a list for another project
       this._ptyLoadingPlaceholder = null;
       const grid = placeholder.parentNode;
       if (!grid) return;
@@ -141,13 +142,14 @@ class ShellLauncherDialog extends DialogBase {
       grid.appendChild(card);
     }
 
-    // Terminal templates (relayLLM's config.json pty section) are fetched once
-    // on connect; if that response was missed (relay hiccup), the cache stays
-    // empty forever, so re-request on open.
-    const templates = this.state.terminalTemplates;
-    if (templates.length === 0) {
+    // Terminal templates are per project: fetch on open unless the cache is
+    // already this project's. A loaded-but-empty list is a project that may
+    // launch none, not a fetch still waiting.
+    const loaded = this.state.terminalTemplatesProjectId === this.projectId;
+    const templates = loaded ? this.state.terminalTemplates : [];
+    if (!loaded) {
       const termMgr = this.container.has('terminalManager') ? this.container.get('terminalManager') : null;
-      if (termMgr) termMgr.requestTemplates();
+      if (termMgr) termMgr.requestTemplates(this.projectId);
 
       const loading = document.createElement('div');
       loading.className = 'shell-launcher__empty';
@@ -164,20 +166,6 @@ class ShellLauncherDialog extends DialogBase {
           testid: `shell-card-${tmpl.id}`,
         }));
       }
-    }
-
-    // These ride the project record, not relayLLM's global pty map, so they
-    // render unconditionally rather than being gated on templates.length above
-    // — relayLLM resolves them by id at launch via the bridge.
-    const shellTemplates = project?.shellTemplates || [];
-    for (const tmpl of shellTemplates) {
-      grid.appendChild(this._createCard({
-        iconHtml: this._iconSVG(tmpl.icon || tmpl.id),
-        name: tmpl.name,
-        description: tmpl.description || '',
-        onClick: () => this._launchTerminal(tmpl.id),
-        testid: `shell-card-${tmpl.id}`,
-      }));
     }
 
     grid.appendChild(this._createCard({
@@ -479,8 +467,7 @@ class ShellLauncherDialog extends DialogBase {
 
   _launchTerminal(templateId) {
     const project = this.state.getProject(this.projectId);
-    const tmpl = this.state.terminalTemplates.find(t => t.id === templateId)
-      || (project?.shellTemplates || []).find(t => t.id === templateId);
+    const tmpl = this.state.terminalTemplates.find(t => t.id === templateId);
     const tmplName = tmpl?.name || templateId;
     const name = project ? `${project.name} - ${tmplName}` : tmplName;
     const ws = this.container.get('ws');

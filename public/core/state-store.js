@@ -22,6 +22,7 @@ class StateStore {
     this.models = [];
     this.mcps = [];
     this.terminalTemplates = [];
+    this.terminalTemplatesProjectId = null;
     this.modules = new Map(); // projectId -> Module[]
     this.providerSettings = {};
     this.currentSessionId = null;
@@ -210,8 +211,12 @@ class StateStore {
     this.updateTask(taskId, updates);
   }
 
-  setTerminalTemplates(templates) {
+  // The catalog is per project (relay lists only what a project may launch),
+  // so it carries the project it was loaded for. A consumer for another
+  // project must not read it: check terminalTemplatesProjectId first.
+  setTerminalTemplates(templates, projectId = null) {
     this.terminalTemplates = templates || [];
+    this.terminalTemplatesProjectId = projectId;
     this.bus.emit(EVT.TERMINAL_TEMPLATES_LOADED);
   }
 

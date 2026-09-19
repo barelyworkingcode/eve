@@ -11,16 +11,19 @@ module.exports = [
     async handle(ctx) {
       const { ws, relayClient, message } = ctx;
       const { relayTransport } = ctx.deps;
+      if (!message.projectId) {
+        ws.send(JSON.stringify({ type: 'error', message: 'terminal create failed: a terminal needs a project' }));
+        return;
+      }
       let status, data;
       try {
         ({ status, data } = await relayTransport.fetch('POST', '/api/terminals', {
           templateId: message.templateId,
           name: message.name,
           directory: message.directory,
-          // Forward projectId so relay can resolve a project-scoped token for
-          // the PTY (validating directory against the project). Empty/absent
-          // projectId yields a token-free ad-hoc terminal.
-          projectId: message.projectId || '',
+          // Relay permits a template per project, and resolves the project's
+          // token for the PTY (validating directory against the project).
+          projectId: message.projectId,
           cols: message.cols,
           rows: message.rows,
         }));

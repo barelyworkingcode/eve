@@ -167,23 +167,25 @@ class TerminalManager {
   // tab was stuck on. HTTP, through the same api-client method
   // task-dialog.js already uses, has no such gap: it either resolves or
   // rejects.
-  async requestTemplates() {
+  async requestTemplates(projectId) {
+    if (this._templatesLoading === projectId) return;
+    this._templatesLoading = projectId;
     try {
-      const list = await this.app.api.getTerminalTemplates();
-      this.onTemplates(Array.isArray(list) ? list : []);
+      const list = await this.app.api.getTerminalTemplates(projectId);
+      this.onTemplates(Array.isArray(list) ? list : [], projectId);
     } catch (err) {
       this.log.error('Failed to load terminal templates:', err);
-      this.onTemplates([]);
+      this.onTemplates([], projectId);
+    } finally {
+      this._templatesLoading = undefined;
     }
   }
 
-  onTemplates(templates) {
+  onTemplates(templates, projectId) {
     this.templates = templates || [];
-    // Keep the shared state store in sync too: task-dialog.js reads
-    // state.terminalTemplates independently (its own lazy HTTP fetch,
-    // api-client.js's getTerminalTemplates) and should see a catalog this
-    // fetch already loaded rather than issuing a redundant one.
-    this.app.state?.setTerminalTemplates?.(this.templates);
+    // The shared store is what the home tiles, the shell launcher and the
+    // task dialog read; it is tagged with the project the list is for.
+    this.app.state?.setTerminalTemplates?.(this.templates, projectId || null);
     if (this._pendingPickerDirectory !== undefined) {
       const directory = this._pendingPickerDirectory;
       const projectId = this._pendingPickerProjectId;
@@ -193,14 +195,12 @@ class TerminalManager {
     }
   }
 
+  // The catalog is per project (relay lists only what the project may
+  // launch), so it is fetched on every open rather than cached.
   showTemplatePicker(directory, projectId) {
-    if (this.templates.length === 0) {
-      this._pendingPickerDirectory = directory;
-      this._pendingPickerProjectId = projectId || '';
-      this.requestTemplates();
-      return;
-    }
-    this._showPickerUI(directory, projectId);
+    this._pendingPickerDirectory = directory;
+    this._pendingPickerProjectId = projectId || '';
+    this.requestTemplates(projectId);
   }
 
   _showPickerUI(directory, projectId) {
@@ -275,8 +275,9 @@ class TerminalManager {
       type: 'terminal_create',
       templateId,
       directory: directory || '',
-      // projectId lets relay resolve a project-scoped token for the PTY,
-      // validated against the project's directory; empty is token-free.
+      // projectId is required: relay permits a template per project and
+      // resolves the project's token for the PTY, validated against the
+      // project's directory.
       projectId: projectId || '',
       cols: 80,
       rows: 24

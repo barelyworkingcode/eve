@@ -13,10 +13,6 @@ const fullRelayProject = {
     id: 't1', name: 'Quick', model: 'sonnet', mode: 'voice', voice: 'af_heart',
     system_prompt: 'be brief', append_claude_md: true, use_relay_tools: true,
   }],
-  shell_templates: [{
-    id: 's1', name: 'Prod SSH', command: 'ssh', args: ['me@prod'],
-    env: { TERM: 'xterm' }, description: 'private', icon: 'shell',
-  }],
   permission_policy: { default_mode: 'plan', allowed_tools: ['Read'], denied_tools: ['Bash'] },
   session_folders: ['Bugs', 'Experiments'],
   created_at: '2026-06-13T00:00:00Z',
@@ -38,10 +34,6 @@ describe('normalizeProject', () => {
         id: 't1', name: 'Quick', model: 'sonnet', mode: 'voice', voice: 'af_heart',
         systemPrompt: 'be brief', appendClaudeMd: true, useRelayTools: true,
       }],
-      shellTemplates: [{
-        id: 's1', name: 'Prod SSH', command: 'ssh', args: ['me@prod'],
-        env: { TERM: 'xterm' }, description: 'private', icon: 'shell',
-      }],
       permissionPolicy: { defaultMode: 'plan', allowedTools: ['Read'], deniedTools: ['Bash'] },
       sessionFolders: ['Bugs', 'Experiments'],
       createdAt: '2026-06-13T00:00:00Z',
@@ -62,20 +54,9 @@ describe('normalizeProject', () => {
       allowedMcpIds: [],
       allowedModels: [],
       chatTemplates: [],
-      shellTemplates: [],
       permissionPolicy: null,
       sessionFolders: [],
       createdAt: '',
-    });
-  });
-
-  it('maps shell templates and fills defaults for sparse entries', () => {
-    const out = normalizeProject({
-      id: 'p4', name: 'S', path: '/x',
-      shell_templates: [{ id: 'a', name: 'A', command: 'ssh' }],
-    });
-    expect(out.shellTemplates[0]).toEqual({
-      id: 'a', name: 'A', command: 'ssh', args: [], env: {}, description: '', icon: '',
     });
   });
 

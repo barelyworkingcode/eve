@@ -146,7 +146,14 @@ class HomeScreen {
       onClick: () => open('web-chat'),
     }));
 
-    const templates = this.state.terminalTemplates || [];
+    let templates = [];
+    if (projectId) {
+      if (this.state.terminalTemplatesProjectId === projectId) {
+        templates = this.state.terminalTemplates || [];
+      } else if (this.container.has('terminalManager')) {
+        this.container.get('terminalManager').requestTemplates(projectId);
+      }
+    }
     const tones = ['orange', 'gray', 'purple', 'green'];
     templates.slice(0, 2).forEach((tmpl, i) => {
       grid.appendChild(this._tile({

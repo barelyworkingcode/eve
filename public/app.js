@@ -538,7 +538,6 @@ class EveWorkspaceClient {
     this.terminalManager.onReady(() => {
       this.terminalManager.markTerminalsForRejoin(terminalIds);
       this.terminalManager.requestTerminalList();
-      this.terminalManager.requestTemplates();
     });
   }
 

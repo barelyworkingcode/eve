@@ -11,16 +11,11 @@ class ProjectDialog extends DialogBase {
     // unchanged", so it's only included in the body once the user actually
     // edits a template here.
     this._templatesDirty = false;
-    // Same relay contract as chat_templates: shell_templates is only
-    // included in the save body once edited here.
-    this._shellTemplates = [];
-    this._shellTemplatesDirty = false;
     // The '*' wildcard is just another id, matching relay's isWildcard
     // convention.
     this._selectedMcpIds = new Set();
     this._selectedModels = new Set();
     this._editingTemplateIdx = -1;
-    this._editingShellTemplate = null;
     this._policy = this._defaultPolicy();
   }
 
@@ -44,8 +39,6 @@ class ProjectDialog extends DialogBase {
       this._project = this._projectId ? this.state.getProject(this._projectId) : null;
       this._templates = this._project?.chatTemplates ? JSON.parse(JSON.stringify(this._project.chatTemplates)) : [];
       this._templatesDirty = false;
-      this._shellTemplates = this._project?.shellTemplates ? JSON.parse(JSON.stringify(this._project.shellTemplates)) : [];
-      this._shellTemplatesDirty = false;
 
       this._selectedMcpIds = new Set(this._project?.allowedMcpIds || []);
       this._selectedModels = new Set(this._project?.allowedModels || []);
@@ -60,7 +53,6 @@ class ProjectDialog extends DialogBase {
         : this._defaultPolicy();
 
       this._editingTemplateIdx = -1;
-      this._editingShellTemplate = null;
       this._hostId = this._project?.hostId || this._project?.host?.id || '';
       this._hostFormOpen = false;
       this._hostFormBusy = false;
@@ -588,17 +580,6 @@ class ProjectDialog extends DialogBase {
           use_relay_tools: !!t.useRelayTools,
         }));
       }
-      if (this._shellTemplatesDirty) {
-        body.shell_templates = this._shellTemplates.map(t => ({
-          id: t.id,
-          name: t.name,
-          command: t.command || '',
-          args: t.args || [],
-          env: t.env || {},
-          description: t.description || '',
-          icon: t.icon || '',
-        }));
-      }
       const project = this._projectId
         ? await this.api.updateProject(this._projectId, body)
         : await this.api.createProject(body);
@@ -723,8 +704,6 @@ class ProjectDialog extends DialogBase {
 
     if (this._editingTemplateIdx >= 0) {
       this._renderTemplateForm(container, this._editingTemplateIdx);
-    } else if (this._editingShellTemplate !== null) {
-      this._renderShellTemplateForm(container, this._editingShellTemplate);
     } else {
       this._renderTemplateList(container);
     }
@@ -762,31 +741,6 @@ class ProjectDialog extends DialogBase {
       this._showTab('templates');
     });
     container.appendChild(addBtn);
-
-    const shellHeader = document.createElement('div');
-    shellHeader.className = 'project-dialog__section-title';
-    shellHeader.textContent = 'Shell Templates';
-    container.appendChild(shellHeader);
-
-    if (this._shellTemplates.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'project-dialog__empty';
-      empty.textContent = 'No project shell templates yet.';
-      container.appendChild(empty);
-    } else {
-      for (const tmpl of this._shellTemplates) {
-        container.appendChild(this._renderShellTemplateItem(tmpl));
-      }
-    }
-
-    const addShellBtn = document.createElement('button');
-    addShellBtn.className = 'dialog__btn dialog__btn--primary project-dialog__add-btn';
-    addShellBtn.textContent = '+ Add Shell Template';
-    addShellBtn.addEventListener('click', () => {
-      this._editingShellTemplate = { id: null, name: '', command: '', args: [], env: {}, description: '', icon: '' };
-      this._showTab('templates');
-    });
-    container.appendChild(addShellBtn);
 
     if (this._projectId) {
       const actions = document.createElement('div');
@@ -994,152 +948,6 @@ class ProjectDialog extends DialogBase {
 
     container.appendChild(form);
     nameInput.focus();
-  }
-
-  _renderShellTemplateItem(tmpl) {
-    const item = document.createElement('div');
-    item.className = 'project-dialog__template-item';
-
-    const info = document.createElement('div');
-    info.className = 'project-dialog__template-info';
-
-    const name = document.createElement('span');
-    name.className = 'project-dialog__template-name';
-    name.textContent = tmpl.name || 'Untitled';
-
-    const badges = document.createElement('span');
-    badges.className = 'project-dialog__template-badges';
-
-    const cmdBadge = document.createElement('span');
-    cmdBadge.className = 'project-dialog__badge';
-    cmdBadge.textContent = this._templateToCommandLine(tmpl) || '—';
-    badges.appendChild(cmdBadge);
-
-    info.appendChild(name);
-    info.appendChild(badges);
-
-    const actions = document.createElement('div');
-    actions.className = 'project-dialog__template-actions';
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'project-dialog__icon-btn';
-    editBtn.title = 'Edit';
-    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-    editBtn.addEventListener('click', () => {
-      this._editingShellTemplate = { ...tmpl };
-      this._showTab('templates');
-    });
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'project-dialog__icon-btn project-dialog__icon-btn--danger';
-    deleteBtn.title = 'Delete';
-    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
-    deleteBtn.addEventListener('click', () => {
-      this._shellTemplates = this._shellTemplates.filter(t => t.id !== tmpl.id);
-      this._shellTemplatesDirty = true;
-      this._showTab('templates');
-    });
-
-    actions.appendChild(editBtn);
-    actions.appendChild(deleteBtn);
-
-    item.appendChild(info);
-    item.appendChild(actions);
-    return item;
-  }
-
-  _renderShellTemplateForm(container, tmpl) {
-    const isEdit = !!tmpl.id;
-    const form = document.createElement('div');
-    form.className = 'project-dialog__template-form';
-
-    const nameInput = this._createField(form, 'Template Name', 'text', {
-      placeholder: 'e.g. Advanced Claude', value: tmpl.name,
-    });
-
-    const cmdInput = this._createField(form, 'Command', 'text', {
-      placeholder: 'e.g. claude --dangerously-skip-permissions',
-      value: this._templateToCommandLine(tmpl),
-    });
-
-    const descInput = this._createField(form, 'Description (optional)', 'text', {
-      placeholder: 'Brief description', value: tmpl.description || '',
-    });
-
-    const actions = document.createElement('div');
-    actions.className = 'dialog__actions';
-
-    const backBtn = document.createElement('button');
-    backBtn.className = 'dialog__btn dialog__btn--secondary';
-    backBtn.textContent = 'Back';
-    backBtn.addEventListener('click', () => {
-      this._editingShellTemplate = null;
-      this._showTab('templates');
-    });
-
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'dialog__btn dialog__btn--primary';
-    saveBtn.textContent = isEdit ? 'Update Template' : 'Create Template';
-    saveBtn.addEventListener('click', () => {
-      const name = nameInput.value.trim();
-      const cmdLine = cmdInput.value.trim();
-      if (!name || !cmdLine) { (name ? cmdInput : nameInput).focus(); return; }
-
-      const { command, args } = this._parseCommandLine(cmdLine);
-      // relay doesn't mint an id for project-scoped templates, so the client
-      // generates one. env/icon aren't editable in this form — carry them
-      // over from the working-copy entry so an edit doesn't drop them.
-      const entry = {
-        id: tmpl.id || crypto.randomUUID(),
-        name,
-        command,
-        args,
-        env: tmpl.env || {},
-        description: descInput.value.trim(),
-        icon: tmpl.icon || '',
-      };
-      const idx = this._shellTemplates.findIndex(t => t.id === entry.id);
-      if (idx >= 0) this._shellTemplates[idx] = entry;
-      else this._shellTemplates.push(entry);
-      this._shellTemplatesDirty = true;
-      this._editingShellTemplate = null;
-      this._showTab('templates');
-    });
-
-    actions.appendChild(backBtn);
-    actions.appendChild(saveBtn);
-    form.appendChild(actions);
-
-    container.appendChild(form);
-    nameInput.focus();
-  }
-
-  _parseCommandLine(str) {
-    const tokens = [];
-    let current = '';
-    let inQuote = false;
-    let quoteChar = '';
-    for (const ch of str) {
-      if (inQuote) {
-        if (ch === quoteChar) { inQuote = false; }
-        else { current += ch; }
-      } else if (ch === '"' || ch === "'") {
-        inQuote = true;
-        quoteChar = ch;
-      } else if (ch === ' ' || ch === '\t') {
-        if (current) { tokens.push(current); current = ''; }
-      } else {
-        current += ch;
-      }
-    }
-    if (current) tokens.push(current);
-    return { command: tokens[0] || '', args: tokens.slice(1) };
-  }
-
-  _templateToCommandLine(tmpl) {
-    if (!tmpl.command) return '';
-    const parts = [tmpl.command, ...(tmpl.args || [])];
-    return parts.map(p => p.includes(' ') ? `"${p}"` : p).join(' ');
   }
 
   _createField(parent, labelText, type, opts = {}) {

@@ -258,7 +258,8 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   });
 
   app.get('/api/terminal/templates', requireAuth, (req, res) => {
-    proxy(req, res, 'GET', '/api/terminal/templates');
+    const project = req.query.project ? `?project=${encodeURIComponent(req.query.project)}` : '';
+    proxy(req, res, 'GET', `/api/terminal/templates${project}`);
   });
 
   app.post('/api/terminal/templates', requireAuth, (req, res) => {
