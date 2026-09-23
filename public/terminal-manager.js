@@ -649,6 +649,59 @@ class TerminalManager {
     }
   }
 
+  // xterm forwards only text, and a CLI on an SSH host reads that host's
+  // clipboard, never the browser's. So a pasted or dropped image is saved to
+  // a temp file where the terminal runs and its path is pasted instead —
+  // Claude Code attaches a pasted image path as [Image #n]. The paste
+  // listener is capture-phase so it runs before xterm's own textarea handler;
+  // text-only pastes fall through to xterm untouched.
+  _attachImagePaste(containerDiv, terminalId) {
+    containerDiv.addEventListener('paste', (e) => {
+      const images = this._imageFilesFrom(e.clipboardData);
+      if (!images.length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this._pasteImages(terminalId, images);
+    }, true);
+    containerDiv.addEventListener('dragover', (e) => {
+      if (e.dataTransfer?.types?.includes?.('Files')) e.preventDefault();
+    });
+    containerDiv.addEventListener('drop', (e) => {
+      const images = this._imageFilesFrom(e.dataTransfer);
+      if (!images.length) return;
+      e.preventDefault();
+      this._pasteImages(terminalId, images);
+    });
+  }
+
+  _imageFilesFrom(dataTransfer) {
+    const files = [];
+    for (const item of dataTransfer?.items || []) {
+      if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+    return files;
+  }
+
+  async _pasteImages(terminalId, files) {
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal || terminal.exited) return;
+    const paths = [];
+    for (const file of files) {
+      try {
+        const { path } = await this.app.api.pasteTerminalImage(file, terminal.host?.id);
+        paths.push(path);
+      } catch (err) {
+        this.log.error('Terminal image paste failed:', err?.message || err);
+        this.app.messageRenderer?.appendSystemMessage?.(`Image paste failed: ${err?.message || err}`, 'error');
+      }
+    }
+    // The tab may have closed while the upload was in flight.
+    if (!paths.length || this.terminals.get(terminalId) !== terminal) return;
+    terminal.term.paste(paths.join(' '));
+  }
+
   reconnectTerminal(terminalId, templateId, name, directory, exited, host) {
     // terminal_reconnect is deferred until showTerminal so xterm can fit()
     // against the visible container first and report the real viewport size.
@@ -677,6 +730,7 @@ class TerminalManager {
 
     term.open(containerDiv);
     this._attachTouchScroll(containerDiv, term);
+    this._attachImagePaste(containerDiv, terminalId);
 
     this.terminals.set(terminalId, {
       term,
