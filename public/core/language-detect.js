@@ -16,6 +16,8 @@ const LANGUAGE_OVERRIDES = {
   '.nuspec': 'xml',
   '.config': 'xml',
   '.svg': 'xml',
+  // Monaco registers razor for .cshtml only.
+  '.razor': 'razor',
   '.toml': 'ini',
   '.env': 'ini',
 };
