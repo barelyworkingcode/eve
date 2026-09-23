@@ -570,12 +570,14 @@ describe('ChangesPanel git:changed debounce', () => {
     expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
   });
 
-  it('before any data, any change triggers a full request', () => {
+  it('before any data, any change triggers a full request once the in-flight one replies', () => {
     const { panel, bus, ws } = setup();
     panel.setProject('p1');
     ws.send.mockClear();
     bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '/feat-login' });
     jest.advanceTimersByTime(300);
+    expect(ws.send).not.toHaveBeenCalled(); // never a second full request over the first (#15)
+    reply(bus);
     expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
   });
 
