@@ -16,6 +16,7 @@ const fsp = fs.promises;
 const path = require('path');
 const os = require('os');
 const readline = require('readline');
+const { execFile } = require('child_process');
 
 const DEFAULT_MAX_READ_BYTES = 10 * 1024 * 1024;
 const SEARCH_MAX_MATCHES = 500;
@@ -24,12 +25,15 @@ const SEARCH_TIME_LIMIT_MS = 5000;
 const STREAM_CHUNK_BYTES = 64 * 1024;
 const SKIP_DIR_NAMES = new Set(['.git', 'node_modules']);
 const PASTE_DIR = '/tmp';
+const GIT_TIMEOUT_MS = 10000;
+const GIT_DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+const GIT_MAX_BYTES_CAP = 32 * 1024 * 1024;
 const PASTE_NAME_RE = /^eve-paste-[0-9]+-[0-9a-f]+\.(png|jpg|gif|webp)$/;
 
 // Errors thrown with one of these codes cross the wire verbatim; anything
 // else (a validation slip, an unexpected fs code) collapses to ERROR rather
 // than leaking a code the client protocol doesn't know about.
-const KNOWN_CODES = new Set(['ENOENT', 'EACCES', 'EISDIR', 'TOO_LARGE', 'TRAVERSAL', 'UNSUPPORTED']);
+const KNOWN_CODES = new Set(['ENOENT', 'EACCES', 'EISDIR', 'TOO_LARGE', 'TRAVERSAL', 'UNSUPPORTED', 'GIT_MISSING', 'TIMEOUT', 'NO_DIR']);
 
 class AgentError extends Error {
   constructor(message, code) {
@@ -190,6 +194,32 @@ async function searchWalk(rootFull, query, opts) {
   return { matches, truncated };
 }
 
+// Runs git with an argv array (never a shell). A non-zero exit resolves with
+// its code — git-service.js decides what that means. Only spawn failure,
+// timeout and output overflow reject, each with a code GitError knows.
+function runGit(cwd, args, maxBytes) {
+  const limit = Math.min(Number(maxBytes) > 0 ? Number(maxBytes) : GIT_DEFAULT_MAX_BYTES, GIT_MAX_BYTES_CAP);
+  return new Promise((resolve, reject) => {
+    execFile('git', args, {
+      cwd,
+      encoding: 'buffer',
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: limit,
+      // Inherited GIT_* (GIT_DIR, GIT_WORK_TREE, …) would redirect git away from cwd.
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' },
+    }, (err, stdout, stderr) => {
+      const stderrText = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : String(stderr || '');
+      if (err) {
+        if (err.code === 'ENOENT') return reject(new AgentError('git is not installed on the host', 'GIT_MISSING'));
+        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return reject(new AgentError('git output too large', 'TOO_LARGE'));
+        if (err.killed) return reject(new AgentError('git timed out', 'TIMEOUT'));
+        if (typeof err.code !== 'number') return reject(new AgentError(err.message || 'git failed', 'ERROR'));
+      }
+      resolve({ code: err ? err.code : 0, stdout, stderr: stderrText });
+    });
+  });
+}
+
 const watchers = new Map(); // root -> fs.FSWatcher
 
 async function handleMessage(msg) {
@@ -346,6 +376,22 @@ async function handleMessage(msg) {
         maxMatches: msg.maxMatches,
       });
       send({ id, ok: true, matches, truncated });
+      return;
+    }
+
+    case 'git': {
+      const cwd = resolveInRoot(msg.root, msg.cwd);
+      const args = msg.args;
+      if (!Array.isArray(args) || !args.every((a) => typeof a === 'string')) {
+        throw new AgentError('git args must be an array of strings', 'ERROR');
+      }
+      // execFile reports a missing cwd as ENOENT, indistinguishable from a
+      // missing git binary — check it first.
+      let cwdStat = null;
+      try { cwdStat = await fsp.stat(cwd); } catch { /* reported below */ }
+      if (!cwdStat || !cwdStat.isDirectory()) throw new AgentError('Directory not found', 'NO_DIR');
+      const { code, stdout, stderr } = await runGit(cwd, args, msg.maxBytes);
+      send({ id, ok: true, code, stdout: stdout.toString('base64'), stderr });
       return;
     }
 

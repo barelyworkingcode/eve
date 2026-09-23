@@ -78,10 +78,12 @@ describe('WsMessageRegistry.expensiveTypes', () => {
   // descriptor.expensive is the only source of rate-limit membership left in the
   // process, so this is the sole guard against an expensive type silently losing
   // its rate-limit cap.
-  it('carries exactly the six frozen expensive types', () => {
+  // git_changes joined with the Changes panel (docs/design-git-changes.md,
+  // "Safety"): it fans out to several git processes per worktree.
+  it('carries exactly the seven frozen expensive types', () => {
     expect(messages.expensiveTypes()).toEqual(new Set([
       'create_session', 'search_project', 'search_ai_summarize', 'module_invoke_ai',
-      'transcribe_audio', 'tts_speak',
+      'transcribe_audio', 'tts_speak', 'git_changes',
     ]));
   });
 });

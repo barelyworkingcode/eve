@@ -54,6 +54,10 @@ Design and cross-repo contract: [../relay/docs/ssh-hosts.md](../relay/docs/ssh-h
 - **`ssh-host-pool.js`** — `HostPool`/`HostAgent`: spawns and reconnects the agent over `ssh_argv`, JSON-lines request/response, ref-counted `watch`/`unwatch`, emits `status` (`connecting|connected|unreachable`) fanned out to browsers as the WS `host_status` frame.
 - **`remote-file-service.js`** — `RemoteFileService`, the same method surface as `FileService` but backed by a `HostAgent`. `FileHandlers#fileServiceFor(project)` picks local vs. remote; every file/search/watch call site goes through it.
 
+### Git changes (Changes tab + diff pane)
+
+Design and pinned contract: [docs/design-git-changes.md](docs/design-git-changes.md). **`git-service.js`** is the one implementation of repo/worktree discovery, porcelain parsing and file versions; only its injected `run` differs — `execFile('git')` locally, the agent's `git` op remotely. Read-only by design. Git runs with argv arrays only, `-c core.fsmonitor=false`, scrubbed `GIT_*` env; `repo`/`path` from the browser are untrusted and refs are always server-derived. `file-watcher.js` pushes debounced `git_changed` frames (it lets `.git/index`/`HEAD` through for this purpose only).
+
 ## Module architecture
 
 Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work in this area.
@@ -74,9 +78,9 @@ Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work i
 
 ## Client architecture
 
-Frontend is vanilla JS (no framework, no build step), mid-migration from a legacy orchestrator (`app.js`) to an EventBus + DI-container + StateStore core (`public/core/`). New code: `public/core/`, `public/sidebar/` (VS Code-style explorer), `public/dialogs/` (`DialogBase` + shell-launcher/task dialogs). Legacy still active: `app.js`, `ws-client.js`, `message-dispatcher.js`, `message-renderer.js`, `file-attachment-manager.js`, `modal-manager.js`, `tab-manager.js`, `file-browser.js`, `file-editor.js`, `terminal-manager.js`.
+Frontend is vanilla JS (no framework, no build step), mid-migration from a legacy orchestrator (`app.js`) to an EventBus + DI-container + StateStore core (`public/core/`). New code: `public/core/`, `public/sidebar/` (VS Code-style explorer, incl. `changes-panel.js`), `public/diff-viewer.js` + `panes/diff-pane.js` (Monaco diff pane), `public/dialogs/` (`DialogBase` + shell-launcher/task dialogs). Legacy still active: `app.js`, `ws-client.js`, `message-dispatcher.js`, `message-renderer.js`, `file-attachment-manager.js`, `modal-manager.js`, `tab-manager.js`, `file-browser.js`, `file-editor.js`, `terminal-manager.js`.
 
-**localStorage keys:** `eve-open-sessions` and `eve-open-files` (24h expiry); `eve-tree-expand` (no TTL); `eve-session-recents` (`core/session-recents.js` — per-session `{title, lastOpenedAt}` learned from the first user turn and each open; outlives the tab, pruned to 80). Project expand state is read from the DOM at render time, not persisted.
+**localStorage keys:** `eve-open-sessions` and `eve-open-files` (24h expiry); `eve-tree-expand` (no TTL); `eve-changes-scope` / `eve-changes-collapsed` / `eve-diff-mode` (Changes tab + diff pane, no TTL); `eve-session-recents` (`core/session-recents.js` — per-session `{title, lastOpenedAt}` learned from the first user turn and each open; outlives the tab, pruned to 80). Project expand state is read from the DOM at render time, not persisted.
 
 **Orientation surfaces** (design rationale: [docs/design-home-and-palette.md](docs/design-home-and-palette.md)): `home-screen.js` renders behind `#welcomeScreen`; `dialogs/command-palette.js` is ⌘K. Session labels everywhere go through `sessionDisplayName()` in `core/ui-utils.js`; project avatar colours through `StateStore.projectColor(id)` (rank-based, not hashed).
 

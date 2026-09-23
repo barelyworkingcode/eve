@@ -239,4 +239,184 @@ describe('FileWatcher', () => {
       expect(() => watcher.closeAll()).not.toThrow();
     });
   });
+  // Changes panel refresh (docs/design-git-changes.md, "Refresh").
+  describe('git_changed attribution (_gitRepoFor)', () => {
+    it.each([
+      ['a.js', '/'],
+      ['README.md', '/'],
+      ['feat-login/src/auth.js', '/feat-login'],
+      ['feat-login/x', '/feat-login'],
+      ['feat-login\\src\\auth.js', '/feat-login'], // raw fs.watch name on Windows
+      ['/leading/slash.js', '/leading'],
+      ['.git/index', '*'],
+      ['.git/HEAD', '*'],
+      ['.git/ORIG_HEAD', '*'],
+      ['.git/MERGE_HEAD', '*'],
+      ['main/.git/index', '*'],
+      ['.git/worktrees/feat-login/index', '*'],
+      ['.git/worktrees/feat-login/HEAD', '*'],
+      ['.git', null],
+      ['feat-login/.git', null], // a worktree's gitlink file
+      ['.git/config', null],
+      ['.git/FETCH_HEAD', null],
+      ['.git/objects/ab/cdef0123', null],
+      ['.git/refs/heads/main', null],
+      ['.git/index.lock', null],
+      ['node_modules/pkg/index.js', null],
+      ['src/node_modules/pkg/index', null],
+      ['.DS_Store', null],
+      ['src/.DS_Store', null],
+      ['', null],
+      ['/', null],
+    ])('%j -> %j', (p, expected) => {
+      expect(watcher._gitRepoFor(p)).toBe(expected);
+    });
+  });
+
+  describe('git_changed debounce', () => {
+    const gitFrames = () => mockWs.sent.filter((m) => m.type === 'git_changed');
+
+    it('coalesces a burst for one repo into one push, 500 ms after the last event', () => {
+      jest.useFakeTimers();
+      watcher._maybeScheduleGitChange(PROJECT_ID, 'src/a.js');
+      jest.advanceTimersByTime(300);
+      watcher._maybeScheduleGitChange(PROJECT_ID, 'src/b.js');
+      jest.advanceTimersByTime(499);
+      expect(gitFrames()).toEqual([]);
+      jest.advanceTimersByTime(1);
+      expect(gitFrames()).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '/src' }]);
+      expect(watcher.gitTimers.size).toBe(0);
+    });
+
+    it('debounces each repo independently', () => {
+      jest.useFakeTimers();
+      watcher._maybeScheduleGitChange(PROJECT_ID, 'a/x.js');
+      watcher._maybeScheduleGitChange(PROJECT_ID, 'b/y.js');
+      watcher._maybeScheduleGitChange(PROJECT_ID, '.git/index');
+      jest.advanceTimersByTime(500);
+      expect(gitFrames().map((m) => m.repo).sort()).toEqual(['*', '/a', '/b']);
+    });
+
+    it('schedules nothing for paths that cannot change git status', () => {
+      jest.useFakeTimers();
+      watcher._maybeScheduleGitChange(PROJECT_ID, 'node_modules/x/y.js');
+      watcher._maybeScheduleGitChange(PROJECT_ID, '.git/objects/ab/cd');
+      watcher._maybeScheduleGitChange(PROJECT_ID, '.DS_Store');
+      expect(watcher.gitTimers.size).toBe(0);
+      jest.advanceTimersByTime(1000);
+      expect(gitFrames()).toEqual([]);
+    });
+
+    it("still emits for eve's own writes (an editor save changes git status)", () => {
+      jest.useFakeTimers();
+      watcher.markSelfWrite(fileService.validatePath(tmpDir, '/test.js'));
+      watcher._maybeScheduleGitChange(PROJECT_ID, 'test.js');
+      jest.advanceTimersByTime(500);
+      expect(gitFrames()).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '/' }]);
+    });
+
+    it('closeAll clears pending git timers', () => {
+      jest.useFakeTimers();
+      watcher._maybeScheduleGitChange(PROJECT_ID, 'src/a.js');
+      watcher._maybeScheduleGitChange(PROJECT_ID, '.git/HEAD');
+      expect(watcher.gitTimers.size).toBe(2);
+      watcher.closeAll();
+      expect(watcher.gitTimers.size).toBe(0);
+      jest.advanceTimersByTime(1000);
+      expect(gitFrames()).toEqual([]);
+    });
+
+    it("git timers are unref'd so a leak can't hold the worker open", () => {
+      watcher._maybeScheduleGitChange(PROJECT_ID, 'src/a.js');
+      const [timer] = watcher.gitTimers.values();
+      expect(timer.hasRef()).toBe(false);
+    });
+  });
+
+  describe('git_changed end-to-end (real fs.watch)', () => {
+    it('a write in the tree and a .git/index write both push git_changed', async () => {
+      fs.mkdirSync(path.join(tmpDir, '.git'));
+      watcher.watchProject(PROJECT_ID);
+      if (!watcher.projectWatchers.has(PROJECT_ID)) return; // unsupported platform
+      await delay(50);
+      fs.writeFileSync(path.join(tmpDir, 'fresh.txt'), 'hi', 'utf8');
+      fs.writeFileSync(path.join(tmpDir, '.git', 'index'), 'idx', 'utf8');
+      await delay(1200);
+      const repos = mockWs.sent.filter((m) => m.type === 'git_changed').map((m) => m.repo);
+      expect(repos).toEqual(expect.arrayContaining(['/', '*']));
+      // .git churn still never asks the tree to refresh.
+      expect(mockWs.sent.some((m) => m.type === 'dir_changed' && m.path.startsWith('/.git'))).toBe(false);
+    });
+  });
+
+  describe('remote (host agent) change events', () => {
+    const { EventEmitter } = require('events');
+    let agent, remoteFs, remoteWs, rw;
+    const RP = 'remote-project';
+    const ROOT = '/srv/app';
+
+    beforeEach(() => {
+      agent = new EventEmitter();
+      agent.watch = jest.fn().mockResolvedValue();
+      agent.unwatch = jest.fn().mockResolvedValue();
+      remoteFs = {
+        hostAgent: agent,
+        listDirectory: jest.fn().mockResolvedValue([]),
+        readFile: jest.fn(),
+        validatePath: (root, rel) => path.posix.resolve(root, String(rel).replace(/^\/+/, '') || '.'),
+      };
+      remoteWs = createMockWs();
+      const project = { id: RP, path: ROOT, hostId: 'h1' };
+      rw = new FileWatcher(remoteWs, () => remoteFs, (id) => (id === RP ? project : undefined));
+      rw.watchProject(RP);
+    });
+
+    afterEach(() => {
+      rw.closeAll();
+    });
+
+    it('registers with the agent', () => {
+      expect(agent.watch).toHaveBeenCalledWith(ROOT);
+      expect(rw.projectWatchers.get(RP)).toMatchObject({ remote: true });
+    });
+
+    it('.git/index pushes git_changed "*" and no longer triggers dir_changed', async () => {
+      jest.useFakeTimers();
+      agent.emit('change', { root: ROOT, path: '.git/index' });
+      expect(rw.dirTimers.size).toBe(0);
+      expect(rw.gitTimers.size).toBe(1);
+      await jest.advanceTimersByTimeAsync(600);
+      expect(remoteWs.sent).toEqual([{ type: 'git_changed', projectId: RP, repo: '*' }]);
+      expect(remoteFs.listDirectory).not.toHaveBeenCalled();
+    });
+
+    it('node_modules / .DS_Store / other .git churn triggers nothing at all', async () => {
+      jest.useFakeTimers();
+      agent.emit('change', { root: ROOT, path: 'node_modules/pkg/index.js' });
+      agent.emit('change', { root: ROOT, path: 'web/node_modules/pkg/a.js' });
+      agent.emit('change', { root: ROOT, path: '.DS_Store' });
+      agent.emit('change', { root: ROOT, path: '.git/objects/ab/cd' });
+      expect(rw.dirTimers.size).toBe(0);
+      expect(rw.gitTimers.size).toBe(0);
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(remoteWs.sent).toEqual([]);
+    });
+
+    it('a normal file change pushes both dir_changed and git_changed for its repo', async () => {
+      jest.useFakeTimers();
+      agent.emit('change', { root: ROOT, path: 'feat/src/app.js' });
+      await jest.advanceTimersByTimeAsync(600);
+      expect(remoteWs.sent).toEqual(expect.arrayContaining([
+        { type: 'dir_changed', projectId: RP, path: '/feat/src' },
+        { type: 'git_changed', projectId: RP, repo: '/feat' },
+      ]));
+    });
+
+    it('ignores events for another root served by the same agent', async () => {
+      jest.useFakeTimers();
+      agent.emit('change', { root: '/srv/other', path: 'a.js' });
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(remoteWs.sent).toEqual([]);
+    });
+  });
 });

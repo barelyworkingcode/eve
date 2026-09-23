@@ -145,6 +145,18 @@ class TabManager {
     this.switchToTab(tabId);
   }
 
+  /** Open-or-focus for pane types with no bespoke open path (e.g. `diff`). The descriptor's `create` must be side-effect free: it runs to learn the id. */
+  openPane(type, spec) {
+    const d = panes.type(type);
+    if (!d) return;
+    const tab = d.create(spec, this._ctx());
+    if (!this.tabs.some(t => t.id === tab.id)) {
+      this.tabs.push(tab);
+      if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
+    }
+    this.switchToTab(tab.id);
+  }
+
   switchToTab(tabId) {
     let tab = this.tabs.find(t => t.id === tabId);
     if (!tab) return;

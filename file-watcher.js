@@ -12,6 +12,15 @@
  * into the same debounce/dedup path below. The agent doesn't distinguish
  * rename from in-place write, so a remote event is treated as both — an
  * extra, idempotent `dir_changed` is cheap; missing one is a stale tree.
+ *
+ * The same stream drives the Changes panel's `git_changed` push
+ * (docs/design-git-changes.md, "Refresh"). Attribution is a cheap path
+ * guess, no git exec: a change at `<seg>/...` → repo `/<seg>`, a file
+ * directly in the root → `/`. Inside any `.git` dir only index/HEAD-style
+ * basenames count (commits, staging, branch switches, merges) and map to
+ * `*` (refresh all) — a `.git/worktrees/<name>/index` can't be tied to its
+ * worktree folder without git. The client falls back to a full refresh for
+ * a repo it doesn't know, so an imprecise guess is fine; a missed one isn't.
  */
 const fs = require('fs');
 const fsp = require('fs').promises;
@@ -20,9 +29,14 @@ const path = require('path');
 // Still received from the kernel; dropped here so installs / git ops don't
 // spam tree refreshes.
 const IGNORED_SEGMENTS = new Set(['.git', 'node_modules', '.DS_Store']);
+// Ignored for git refresh too; `.git` is handled separately below.
+const GIT_IGNORED_SEGMENTS = new Set(['node_modules', '.DS_Store']);
+// The only `.git/**` basenames that signal a status change worth a refresh.
+const GIT_REFRESH_BASENAMES = new Set(['index', 'HEAD', 'ORIG_HEAD', 'MERGE_HEAD']);
 
 const FILE_DEBOUNCE_MS = 100; // coalesce rapid writes before reading content
 const DIR_DEBOUNCE_MS = 200;  // coalesce rapid structural churn before refresh
+const GIT_DEBOUNCE_MS = 500;  // coalesce a checkout/commit burst into one git status
 const SELF_WRITE_TTL_MS = 1000;
 
 class FileWatcher {
@@ -39,6 +53,7 @@ class FileWatcher {
     this.watchedFiles = new Map();
     this.fileTimers = new Map();
     this.dirTimers = new Map();
+    this.gitTimers = new Map();
     this.selfWrites = new Set();
   }
 
@@ -87,8 +102,10 @@ class FileWatcher {
     this.selfWrites.clear();
     for (const t of this.fileTimers.values()) clearTimeout(t);
     for (const t of this.dirTimers.values()) clearTimeout(t);
+    for (const t of this.gitTimers.values()) clearTimeout(t);
     this.fileTimers.clear();
     this.dirTimers.clear();
+    this.gitTimers.clear();
   }
 
   _ensureProjectWatcher(projectId) {
@@ -113,6 +130,9 @@ class FileWatcher {
     try {
       watcher = fs.watch(root, { recursive: true }, (eventType, filename) => {
         if (!filename) return; // some platforms omit the name on overflow
+        // Before the ignore check: a `.git/index` / `.git/HEAD` write is
+        // dropped for the tree but still means git status changed.
+        this._maybeScheduleGitChange(projectId, filename);
         // Checked before canonicalizing: node_modules/.git churn is the
         // highest-volume event source, so this keeps the hot path cheap.
         if (this._isIgnored(filename)) return;
@@ -140,6 +160,10 @@ class FileWatcher {
     const root = project.path;
     const onChange = (evt) => {
       if (evt.root !== root) return; // this agent may serve other projects on the same host
+      // The agent forwards every event unfiltered, so apply the same
+      // git-then-ignore split as the local backend here.
+      this._maybeScheduleGitChange(projectId, evt.path);
+      if (this._isIgnored(evt.path)) return;
       const canon = this._canonRel(evt.path);
       // A remote event carries no rename/change distinction — treat every
       // one as a potential rename so the directory listing refreshes too.
@@ -250,6 +274,39 @@ class FileWatcher {
       }
       this._send({ type: 'dir_changed', projectId, path: this._toClientDir(canonDir) });
     }, DIR_DEBOUNCE_MS).unref());
+  }
+
+  _maybeScheduleGitChange(projectId, p) {
+    const repo = this._gitRepoFor(p);
+    if (repo) this._scheduleGitChange(projectId, repo);
+  }
+
+  // Self-writes are deliberately NOT filtered: an editor save changes git
+  // status just like an external write does.
+  _scheduleGitChange(projectId, repo) {
+    const key = this._key(projectId, repo);
+    clearTimeout(this.gitTimers.get(key));
+    this.gitTimers.set(key, setTimeout(() => {
+      this.gitTimers.delete(key);
+      this._send({ type: 'git_changed', projectId, repo });
+    }, GIT_DEBOUNCE_MS).unref());
+  }
+
+  // Returns the repo guess for a changed path ('/<seg>', '/', or '*'), or
+  // null when the event can't affect git status. Accepts a raw fs.watch
+  // filename (path.sep) or a forward-slashed agent path.
+  _gitRepoFor(p) {
+    const segs = String(p).split(/[\\/]/).filter(Boolean);
+    if (segs.length === 0) return null;
+    if (segs.some((seg) => GIT_IGNORED_SEGMENTS.has(seg))) return null;
+    const gitIdx = segs.indexOf('.git');
+    if (gitIdx !== -1) {
+      // `.git` as the final segment is a worktree's gitlink file or the dir
+      // itself — neither is a status change.
+      if (gitIdx === segs.length - 1) return null;
+      return GIT_REFRESH_BASENAMES.has(segs[segs.length - 1]) ? '*' : null;
+    }
+    return segs.length === 1 ? '/' : `/${segs[0]}`;
   }
 
   _key(projectId, canon) {

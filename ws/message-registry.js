@@ -42,6 +42,7 @@ const messages = new WsMessageRegistry();
 for (const mod of [
   require('./session-messages'),
   require('./file-messages'),
+  require('./git-messages'),
   require('./terminal-messages'),
   require('./search-messages'),
   require('./module-messages'),
