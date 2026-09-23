@@ -274,6 +274,24 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     proxy(req, res, 'DELETE', `/api/terminal/templates/${req.params.id}`);
   });
 
+  // Persistent (tmux) sessions on a host project's remote host. relay owns
+  // enumeration, the name/ownership checks and the kill; eve only forwards.
+  app.get('/api/projects/:id/persistent-sessions', requireAuth, (req, res) => {
+    proxy(req, res, 'GET', `/api/projects/${encodeURIComponent(req.params.id)}/persistent-sessions`);
+  });
+
+  app.delete('/api/projects/:id/persistent-sessions/:name', requireAuth, async (req, res) => {
+    const relayPath = `/api/projects/${encodeURIComponent(req.params.id)}/persistent-sessions/${encodeURIComponent(req.params.name)}`;
+    try {
+      const { status, data } = await relayTransport.fetch('DELETE', relayPath);
+      if (status === 204) return res.status(204).end();
+      res.status(status).json(data || {});
+    } catch (err) {
+      routeLog.error(`DELETE ${relayPath} failed:`, err.message);
+      res.status(502).json({ error: 'Service unavailable' });
+    }
+  });
+
   // The id is forwarded without shape validation here: relayLLM rejects ids it
   // won't accept before joining one into a log filename.
   app.get('/api/terminals/:id/log', requireAuth, async (req, res) => {

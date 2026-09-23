@@ -98,6 +98,62 @@
   color: var(--text-secondary);
 }
 
+/* — Remote sessions (persistent tmux sessions on a host project) ------------- */
+.remote-sessions { margin: 0 0 var(--sp-5); }
+.remote-sessions--picker { margin: 0; padding: var(--sp-4) var(--sp-5) var(--sp-2); }
+.remote-sessions__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.remote-sessions__header .shell-launcher__section-title { padding: 0 0 var(--sp-2); }
+.remote-sessions__refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.remote-sessions__refresh:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.remote-sessions__row { padding: var(--sp-2) var(--sp-3); }
+.remote-sessions__info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: 1;
+  min-width: 0;
+}
+.remote-sessions__info .shell-launcher__resume-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remote-sessions__age {
+  font-size: var(--text-footnote);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.remote-sessions__btn {
+  height: auto;
+  padding: var(--sp-1) var(--sp-4);
+  font-size: var(--text-footnote);
+}
+.remote-sessions__btn--danger:hover { color: var(--danger); background: var(--danger-soft); }
+.remote-sessions__message {
+  font-size: var(--text-subhead);
+  color: var(--text-muted);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+/* The confirm modal must stack above the New Terminal picker overlay, which
+   shares its z-index but is appended to <body> later. */
+#confirmModal { z-index: 210; }
+
 /* — "Where" segmented control (project dialog) -------------------------------- */
 .where-control {
   display: flex;

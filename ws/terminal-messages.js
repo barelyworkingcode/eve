@@ -26,6 +26,9 @@ module.exports = [
           projectId: message.projectId,
           cols: message.cols,
           rows: message.rows,
+          // Reattach to an existing tmux session on a host project instead
+          // of starting a fresh one. relay's name for the field is snake_case.
+          ...(message.persistSession ? { persist_session: message.persistSession } : {}),
         }));
       } catch (err) {
         ws.send(JSON.stringify({ type: 'error', message: 'terminal create failed: relay unavailable' }));

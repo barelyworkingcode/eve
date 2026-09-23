@@ -254,6 +254,26 @@ class TerminalManager {
       list.appendChild(btn);
     }
 
+    // Host projects: persistent sessions left running on the host, above the
+    // templates so a returning user sees them first.
+    const project = this.app.state?.getProject?.(projectId);
+    if (project?.host && typeof RemoteSessionsSection === 'function') {
+      const section = new RemoteSessionsSection({
+        api: this.app.api,
+        bus: this.app.bus,
+        state: this.app.state,
+        modalManager: this.app.modalManager,
+        projectId,
+        onReattach: (s) => {
+          overlay.remove();
+          this.createTerminal(s.template_id, directory, projectId, s.name);
+        },
+      });
+      section.el.classList.add('remote-sessions--picker');
+      list.parentNode.insertBefore(section.el, list);
+      section.refresh();
+    }
+
     document.body.appendChild(overlay);
 
     overlay.querySelector('#templatePickerClose').addEventListener('click', () => overlay.remove());
@@ -270,10 +290,12 @@ class TerminalManager {
     }
   }
 
-  createTerminal(templateId, directory, projectId) {
+  // persistSession reattaches to a named tmux session on a host project.
+  createTerminal(templateId, directory, projectId, persistSession) {
     this.app.wsClient.send({
       type: 'terminal_create',
       templateId,
+      ...(persistSession ? { persistSession } : {}),
       directory: directory || '',
       // projectId is required: relay permits a template per project and
       // resolves the project's token for the PTY, validated against the

@@ -105,6 +105,7 @@ class ShellLauncherDialog extends DialogBase {
       text.textContent = `Sessions and terminals open on ${project.host.name}.`;
       note.appendChild(text);
       this._tabContent.appendChild(note);
+      this._tabContent.appendChild(this._createRemoteSessions());
     }
     const chatTemplates = project?.chatTemplates || [];
     for (const tmpl of chatTemplates) {
@@ -465,7 +466,22 @@ class ShellLauncherDialog extends DialogBase {
     this._tabContent.appendChild(container);
   }
 
-  _launchTerminal(templateId) {
+  _createRemoteSessions() {
+    const section = new RemoteSessionsSection({
+      api: this.container.get('api'),
+      bus: this.bus,
+      state: this.state,
+      modalManager: this.container.get('modalManager'),
+      projectId: this.projectId,
+      onReattach: (s) => this._launchTerminal(s.template_id, s.name),
+    });
+    section.refresh();
+    return section.el;
+  }
+
+  // persistSession names an existing tmux session on the project's host to
+  // reattach to instead of starting a fresh one.
+  _launchTerminal(templateId, persistSession) {
     const project = this.state.getProject(this.projectId);
     const tmpl = this.state.terminalTemplates.find(t => t.id === templateId);
     const tmplName = tmpl?.name || templateId;
@@ -479,6 +495,7 @@ class ShellLauncherDialog extends DialogBase {
       // projectId lets relay resolve a project-scoped token for the PTY. eve
       // never sends the token itself — relay brokers it.
       projectId: this.projectId || '',
+      ...(persistSession ? { persistSession } : {}),
       cols: 80,
       rows: 24,
     });
