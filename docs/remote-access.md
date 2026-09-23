@@ -11,9 +11,9 @@ DNS). One name → one cert → one passkey that works on LAN, WireGuard, and th
 internet.
 
 ```
-At home / on WireGuard:   eve.example.com → 10.20.20.10   (Firewalla local DNS)
+At home / on WireGuard:   eve.example.com → 192.168.50.10   (Firewalla local DNS)
 On the internet:          eve.example.com → your WAN IP   (Firewalla DDNS)
-                                            → port-forward 443 → 10.20.20.10
+                                            → port-forward 443 → 192.168.50.10
 ```
 
 The name never changes, so the TLS cert (issued for `eve.example.com`) is valid at
@@ -35,7 +35,7 @@ Firewalla has a built-in **Custom DNS Rules** feature — the officially support
 override, no command line ([guide][fw-customdns]):
 
 > **Services → Custom DNS Rules → Add Custom DNS Rule** → domain
-> `eve.example.com`, IP `10.20.20.10` → save.
+> `eve.example.com`, IP `192.168.50.10` → save.
 
 From Firewalla's docs:
 - Works on A (IPv4) and AAAA (IPv6) records. A bare TLD includes subdomains; for a
@@ -52,7 +52,7 @@ From Firewalla's docs:
 Custom DNS Rules **do** apply to WireGuard VPN clients — *but only if the WG
 client's DNS points at Firewalla*. Set `DNS = <Firewalla>` in the WireGuard client
 config (device rules don't apply over VPN; the VPN connection's DNS does)
-([WireGuard + DNS][fw-wg-dns]). Also push a route to `10.20.20.10`.
+([WireGuard + DNS][fw-wg-dns]). Also push a route to `192.168.50.10`.
 
 ### Gotchas others hit
 
@@ -81,7 +81,7 @@ guaranteed across firmware updates ([dnsmasq on Firewalla][fw-dnsmasq]):
 
 ```sh
 # ssh pi@<firewalla-ip>
-echo 'address=/eve.example.com/10.20.20.10' \
+echo 'address=/eve.example.com/192.168.50.10' \
   > ~/.firewalla/config/dnsmasq_local/eve.conf
 # make it survive reboots/updates: re-assert from a post_main.d hook
 ```
@@ -95,7 +95,7 @@ this if the UI rule won't stick.
 
 ```sh
 # On a LAN/WireGuard client — should return the INTERNAL IP:
-dig +short eve.example.com        # → 10.20.20.10
+dig +short eve.example.com        # → 192.168.50.10
 # From cellular (Firewalla not in path) — should return your WAN IP.
 ```
 
@@ -104,10 +104,10 @@ dig +short eve.example.com        # → 10.20.20.10
 ## Certificate
 
 One name → one **Let's Encrypt** cert via **HTTP-01** (forward inbound `:80` →
-`10.20.20.10` during issuance/renewal). DNS-01 needs API control of the zone; if
+`192.168.50.10` during issuance/renewal). DNS-01 needs API control of the zone; if
 your public name is a Firewalla DDNS name you won't have that, so HTTP-01 is the
 path. The cert validates the *name*, so it's valid whether the name resolved to
-`10.20.20.10` or the WAN IP. Port-forward **443/tcp** (and 80/tcp during cert
+`192.168.50.10` or the WAN IP. Port-forward **443/tcp** (and 80/tcp during cert
 issuance) from the Firewalla to the Eve host; restrict the forward to those ports.
 
 Issue the cert with **only the hostname** as a SAN (no IP SAN). Then `https://<ip>`
