@@ -448,38 +448,7 @@ class FileEditor {
   }
 
   detectLanguage(path) {
-    const ext = path.split('.').pop().toLowerCase();
-
-    const languageMap = {
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'ts': 'typescript',
-      'tsx': 'typescript',
-      'json': 'json',
-      'html': 'html',
-      'css': 'css',
-      'scss': 'scss',
-      'md': 'markdown',
-      'py': 'python',
-      'rb': 'ruby',
-      'go': 'go',
-      'rs': 'rust',
-      'java': 'java',
-      'c': 'c',
-      'cpp': 'cpp',
-      'h': 'c',
-      'hpp': 'cpp',
-      'sh': 'shell',
-      'bash': 'shell',
-      'yml': 'yaml',
-      'yaml': 'yaml',
-      'toml': 'ini',
-      'sql': 'sql',
-      'xml': 'xml',
-      'svg': 'xml'
-    };
-
-    return languageMap[ext] || 'plaintext';
+    return languageForPath(path, window.monaco?.languages?.getLanguages?.() || []);
   }
 }
 

@@ -5,7 +5,7 @@
  * for:
  *
  *   <root>/main/          main repo, branch main            — clean
- *   <root>/feat-login/    worktree, branch feat/login       — M, A, D, ? + one commit
+ *   <root>/feat-login/    worktree, branch feat/login       — M, A, D, ? + one commit (adds a .cs file)
  *   <root>/fix-timeouts/  worktree, branch fix/timeouts     — one M
  *
  * The commit on feat/login is what only the "vs base" scope shows. Real git
@@ -65,7 +65,8 @@ function buildWorktreeFixture(root) {
 
   const feat = path.join(root, 'feat-login');
   write(feat, 'routes/session.js', 'module.exports = () => {};\n');
-  git(feat, 'add', 'routes/session.js');
+  write(feat, 'src/Program.cs', 'class Program { static void Main() {} }\n');
+  git(feat, 'add', 'routes/session.js', 'src/Program.cs');
   git(feat, 'commit', '-q', '-m', 'add session route');
   write(feat, 'src/auth.js', 'const t = await read();\nmodule.exports = t;\n'); // M
   write(feat, 'src/token-store.js', 'module.exports = new Map();\n');
@@ -218,6 +219,18 @@ test.describe('changes panel', () => {
     // Re-clicking the row focuses the same tab instead of opening another.
     await fileRow(page, '/feat-login', 'src/auth.js').click();
     await expect(page.locator('[data-testid^="tab-diff:"]')).toHaveCount(1);
+  });
+
+  test('a C# file opens in the diff pane with a csharp model', async ({ page }) => {
+    await openChanges(page);
+    await page.getByTestId('changes-scope-base').click();
+    const row = fileRow(page, '/feat-login', 'src/Program.cs');
+    await expect(row).toBeVisible({ timeout: 15000 });
+    await row.click();
+    await expect(page.getByTestId('diff-editor').locator('.monaco-diff-editor')).toBeVisible({ timeout: 15000 });
+    await expect.poll(() => page.evaluate(() =>
+      window.monaco.editor.getModels().map((m) => m.getLanguageId())), { timeout: 10000 })
+      .toContain('csharp');
   });
 
   test('Side by side and Inline toggle the diff layout and persist', async ({ page }) => {
