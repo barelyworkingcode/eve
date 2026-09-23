@@ -2,7 +2,9 @@
 
 Browser-based LLM frontend that proxies all LLM concerns to [relayLLM](https://github.com/barelyworkingcode/relayLLM) through the `relay` orchestrator. Eve owns local concerns: UI, file browsing/editing, terminals (proxied), voice, and authentication.
 
-**See also**: [AGENTS.md](AGENTS.md) (build/test/patch rules) · [docs/learned.md](docs/learned.md) (pitfalls/patterns) · [docs/api.md](docs/api.md) (HTTP/WS protocol) · [docs/authentication.md](docs/authentication.md) (security model).
+Vanilla JS, **no bundler, no build step, no modules**: `public/index.html` loads plain `<script>` tags in dependency order and every class lands on `window`. Node/Express backend at the repo root.
+
+**See also**: [docs/learned.md](docs/learned.md) (pitfalls/patterns) · [docs/api.md](docs/api.md) (HTTP/WS protocol) · [docs/authentication.md](docs/authentication.md) (security model).
 
 ## Security (eve-specific rules)
 
@@ -78,14 +80,15 @@ Frontend is vanilla JS (no framework, no build step), mid-migration from a legac
 
 **Orientation surfaces** (design rationale: [docs/design-home-and-palette.md](docs/design-home-and-palette.md)): `home-screen.js` renders behind `#welcomeScreen`; `dialogs/command-palette.js` is ⌘K. Session labels everywhere go through `sessionDisplayName()` in `core/ui-utils.js`; project avatar colours through `StateStore.projectColor(id)` (rank-based, not hashed).
 
-**Local server restart** — see [AGENTS.md](AGENTS.md) for the index.html-cached-at-startup gotcha (editing `index.html` needs a restart; other `public/` files reload live). Eve runs as a Relay-managed service (`relay service list` → id `eve`); restart with `npm run relay:restart`.
+**Local server restart**: `server.js` reads `public/index.html` into memory **once at startup**, so an `index.html` edit needs a restart. Other `public/` files reload live. Eve runs as a Relay-managed service (`relay service list` → id `eve`); restart with `npm run relay:restart`.
 
 ## Testing
 
 ```bash
-npm test                  # unit (hermetic, no external deps)
+node --check <file.js>    # THE build gate. There is no compiler.
+npm test                  # unit (hermetic, no external deps). Must stay green.
 npm run test:integration  # integration tier
-npm run test:e2e          # Playwright end-to-end
+npm run test:e2e          # Playwright end-to-end. Must stay green.
 ```
 
 ```
@@ -99,12 +102,21 @@ test/
   visual/           - pixel-diff baselines (pre-push only, not in test:e2e)
 ```
 
-**Local gates** (`.githooks/`; install once: `git config core.hooksPath .githooks`). Skip either in emergencies with `--no-verify`.
+**Local gates** (`.githooks/`; install once: `git config core.hooksPath .githooks`). `--no-verify` is for the operator in an emergency, never the agent.
 
 - **pre-commit** — on any commit staging `.js` / `jest.config.js` / `package.json`, runs `node --check` on staged JS then the unit suite.
 - **pre-push** — on any push whose range touches `.js` / `.css` / `.html` / test config, runs unit, integration, e2e and visual. The unit tier alone cannot see the frozen behavioural gates — the chat input row, the voice drawer, the pane characterisation suite, two-connection WebSocket isolation, the pixel baselines — which is the tier where regressions in this codebase actually surface. `test:voice` is excluded from both gates: it needs the live voice daemons, so it would fail whenever they are down.
 
 When using `jest.useFakeTimers()`, you don't need to restore manually — `test/setup.js` does. Keep fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked timer can't hang a worker on teardown. Full testing guide: [docs/test.md](docs/test.md).
+
+## Patch rules
+
+Rules that make an otherwise-correct patch wrong here.
+
+- **Script order in `index.html` is load-bearing** (globals, not modules). If you delete a `<script>` tag, make sure nothing later still references its class.
+- **Never weaken or skip a test to go green.** If a test covers code you removed, say so and tighten it rather than deleting the assertion.
+- **Don't reformat or restyle code you aren't otherwise changing.**
+- **CRLF files.** `package-lock.json` and five source files are committed with CRLF: `public/tab-manager.js`, `public/file-editor.js`, `public/sidebar-renderer.js`, `routes/index.js`, `ws-handler.js`. `npm install` rewrites the lockfile as LF, and a tool that rewrites a whole file (rather than patching in place) silently converts it to LF. Either one turns a small change into a whole-file diff. Check with `grep -c $'\r' <file>`, and restore with `perl -pi -e 's/\r?\n/\r\n/' <file>`.
 
 ## Gotchas
 
@@ -118,8 +130,8 @@ When using `jest.useFakeTimers()`, you don't need to restore manually — `test/
 
 - `../relay/` — orchestrator; runs Eve as a managed service and fronts all relay-proxied backend traffic.
 - `../relayLLM/` — LLM engine; Eve's backend for session/model/permission ops and generated images (`/api/generated/`), reached through relay.
-- **relayScheduler** (not checked out here) — task scheduler; reached via relay's `/api/tasks` HTTP dispatch and relay's `/ws/tasks` WS route (both still through `RelayTransport`, not a separate egress).
-- **relayComfy** (not checked out here) — ComfyUI service for image/video generation (relayLLM proxies generated images from it; see `public/message-renderer.js`).
-- **relayClient** (not checked out here) — iOS native app (WKWebView) using the Safari passkey fallback above.
+- `../relayScheduler/` — task scheduler; reached via relay's `/api/tasks` HTTP dispatch and relay's `/ws/tasks` WS route (both still through `RelayTransport`, not a separate egress).
+- `../relayComfy/` — ComfyUI service for image/video generation (relayLLM proxies generated images from it; see `public/message-renderer.js`).
+- `../relayClient/` — iOS native app (WKWebView) using the Safari passkey fallback above.
 - `../relayTTS/` — local TTS daemon; `tts-service.js` talks to it directly over loopback TCP (`TTS_PORT`, default 9997), not through relay.
 - `../relaySTT/` — local STT daemon; `stt-service.js` talks to it the same way (`STT_PORT`, default 9998).
