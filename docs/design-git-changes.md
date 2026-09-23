@@ -92,16 +92,24 @@ Clicking a row opens a document-area pane keyed
 
 ### Discovery
 
-For a project root, collect repos in this order, de-duplicated by top-level
-path:
+Discovery must stay cheap on a remote host with dozens of worktrees, so it
+is built around one command:
 
-1. The root itself, if `git rev-parse --show-toplevel` succeeds inside it.
-2. Each immediate child directory containing a `.git` entry (a file for a
-   worktree, a directory for a clone).
-3. `git worktree list --porcelain` from each repo found, keeping only
-   worktrees whose path is inside the project root.
+1. `listDirectory(root)` once, for the candidate child folders.
+2. `git worktree list --porcelain` run at the root. This works for a normal
+   repo at the root and for a bare-repo layout (`.bare/` plus a `.git` file
+   pointing at it), and returns every worktree's path, HEAD and branch in a
+   single exec. Keep entries inside the project root (compare against the
+   root as given and as git reports it); skip `bare` and `prunable` entries.
+   Worktrees deeper than one level are kept.
+3. Child folders not covered by step 2 are probed for a `.git` entry
+   (independent clones), bounded by the concurrency limit. If step 2 fails
+   (root isn't a git context), every child is probed this way, and each repo
+   found also contributes its own `git worktree list`.
 
-Depth is capped at 1 below root to keep discovery cheap on large trees.
+`repos()` does **not** compute upstream / ahead / behind — that moves into
+`status()`, which gets it for free from `git status --porcelain=v2 --branch`.
+`defaultBranch` is resolved once per common git dir, not per worktree.
 
 ### Operations
 
@@ -160,6 +168,10 @@ new GitService({
   // #_readFileForGit; remote: the agent's `read` with maxBytes, plus a
   // `stat` for the size on overflow.
   readFile: (root, rel) => Promise<{ content, size }>,
+  // Max concurrent runner calls (run + listDirectory + readFile) for this
+  // instance — FIFO queue. Local: one instance, so a global cap. Remote:
+  // one instance per host, so a per-host cap.
+  concurrency: 6,
 })
 ```
 
@@ -176,9 +188,10 @@ Methods (also exposed 1:1 on `FileService` and `RemoteFileService` as
   - `branch`/`upstream`/`defaultBranch` are `null` when unknown.
     `defaultBranch` is `origin/HEAD`'s target (e.g. `origin/main`) when
     set, else local `main`, else `master`;
-    `head` is the 7-char short SHA; `ahead`/`behind` are `0` without upstream.
+    `head` is the 7-char short SHA. `upstream` is always `null` and
+    `ahead`/`behind` `0` here — `status()` supplies them.
 - `status(projectPath, repoPath, scope)` — `scope` is `'uncommitted' | 'base'` →
-  `{ repo, scope, base, files: [{ path, status, oldPath?, staged }], truncated }`
+  `{ repo, scope, base, upstream, ahead, behind, files: [{ path, status, oldPath?, staged }], truncated }`
   - `path`/`oldPath` are repo-relative, no leading slash.
   - `status` ∈ `M A D R U ?` (copies fold into `A`, type changes into `M`).
   - `base` is the merge-base short SHA for `'base'`, else `null`. A `'base'`
@@ -212,6 +225,19 @@ grants nothing new; the browser never supplies `args`.
 | ← client | `{ type: 'git_file_versions', projectId, repo, path, scope, original, modified, binary, tooLarge, originalSize, modifiedSize }` |
 | ← client | `{ type: 'git_error', projectId, repo?, path?, code, error }` |
 | ← client (push) | `{ type: 'git_changed', projectId, repo }` — from the file watcher |
+
+**Streaming.** A full `git_changes` request (no `repo`) is answered in two
+phases, so no single request waits on every repo:
+
+1. At once, a full-list frame (no `repo` field): every repo's meta with
+   `pending: true`, `files: []`, `base: null`, `truncated: false`.
+2. Then one single-repo frame per repo (`repo` set) as its status completes,
+   in completion order: meta plus `upstream`, `ahead`, `behind`, `files`,
+   `base`, `truncated`, `pending: false`, or `error`.
+
+The client already replaces on a frame without `repo` and merges on one with
+it. Pending groups render with a spinner and no count; the badge sums the
+repos that have arrived. A single-repo request is unchanged: one frame.
 
 `git_error.code` is a `GitError` code, or `INVALID` (bad scope/repo/path)
 or `NOT_FOUND` (unknown project). A per-repo failure inside `git_changes`
