@@ -8,6 +8,8 @@ class ProjectPanel {
     this.log = container.get('logger').child('ProjectPanel');
     this.state = container.get('state');
     this.fileTreeNode = fileTreeNode;
+    this.changesPanel = new ChangesPanel(container);
+    this.changesPanel.onUpdate = (opts) => this._onChangesUpdate(opts);
 
     this.projectId = null;
     this.activeTab = this._restoreTab();
@@ -32,6 +34,8 @@ class ProjectPanel {
 
   setProject(projectId) {
     this.projectId = projectId;
+    // Fetch on selection, not just tab activation, so the badge is populated.
+    this.changesPanel.setProject(projectId);
     this.render();
   }
 
@@ -74,6 +78,7 @@ class ProjectPanel {
       { key: 'sessions', label: 'Sessions', icon: PANEL_ICONS.sessions, count: this._sectionCount('sessions') },
       { key: 'tasks', label: 'Tasks', icon: PANEL_ICONS.tasks, count: this._sectionCount('tasks') },
       { key: 'modules', label: 'Modules', icon: PANEL_ICONS.modules, count: this._sectionCount('modules') },
+      { key: 'changes', label: 'Changes', icon: PANEL_ICONS.changes, count: this.changesPanel.count() },
     ];
   }
 
@@ -85,6 +90,7 @@ class ProjectPanel {
       btn.className = `panel-tab${tab.key === this.activeTab ? ' panel-tab--active' : ''}`;
       btn.title = tab.label;
       btn.dataset.tab = tab.key;
+      btn.dataset.testid = `panel-tab-${tab.key}`;
 
       const icon = document.createElement('span');
       icon.className = 'panel-tab__icon';
@@ -110,6 +116,7 @@ class ProjectPanel {
         this._renderHeaderActions();
         this._renderTabs();
         this._renderContent();
+        if (tab.key === 'changes') this.changesPanel.setProject(this.projectId);
       });
 
       this.tabsEl.appendChild(btn);
@@ -148,6 +155,10 @@ class ProjectPanel {
         () => this.container.get('app').createSessionFolder(this.projectId),
         `sidebar-new-session-folder-${this.projectId}`));
     }
+    if (this.activeTab === 'changes') {
+      this.headerActionsEl.appendChild(this._iconBtn('Refresh', UI_ICONS.refresh(16),
+        () => this.changesPanel.refresh(), 'changes-refresh'));
+    }
     this.headerActionsEl.appendChild(this._iconBtn('Search', UI_ICONS.search(16),
       () => this.bus.emit(EVT.DIALOG_SEARCH, { projectId: this.projectId }),
       `sidebar-project-search-${this.projectId}`));
@@ -175,8 +186,28 @@ class ProjectPanel {
       case 'sessions': return this._renderSessionsContent(this.contentEl);
       case 'tasks': return this._renderTasksContent(this.contentEl);
       case 'modules': return this._renderModulesContent(this.contentEl);
+      case 'changes': return this.changesPanel.render(this.contentEl);
       case 'files':
       default: return this._renderFilesContent(this.contentEl);
+    }
+  }
+
+  // ChangesPanel data arrived (or scope/collapse changed): the badge always
+  // follows; the list re-renders only when visible, keeping scroll and focus.
+  _onChangesUpdate({ focusTestId } = {}) {
+    if (!this.projectId || !this.state.getProject(this.projectId)) return;
+    this._renderTabs();
+    if (this.activeTab !== 'changes') return;
+    const scrollTop = this.contentEl.scrollTop;
+    const active = document.activeElement;
+    const refocus = focusTestId
+      || (active && this.contentEl.contains(active) ? active.dataset.testid : null);
+    this._renderContent();
+    this.contentEl.scrollTop = scrollTop;
+    if (refocus) {
+      const el = [...this.contentEl.querySelectorAll('[data-testid]')]
+        .find(n => n.dataset.testid === refocus);
+      if (el) el.focus({ preventScroll: true });
     }
   }
 
@@ -792,7 +823,7 @@ class ProjectPanel {
 
   _restoreTab() {
     const t = localStorage.getItem(ProjectPanel.TAB_STORAGE_KEY);
-    return ['files', 'sessions', 'tasks', 'modules'].includes(t) ? t : 'files';
+    return ['files', 'sessions', 'tasks', 'modules', 'changes'].includes(t) ? t : 'files';
   }
 
   _saveTab() {
@@ -815,7 +846,12 @@ class ProjectPanel {
     if (EVT.HOST_STATUS) {
       this.bus.on(EVT.HOST_STATUS, ({ hostId }) => {
         const project = this.state.getProject(this.projectId);
-        if (project?.host?.id === hostId) this._renderHostBar(project);
+        // hostId null = bulk host refresh; it may cover this project too.
+        if (project?.host && (hostId === null || project.host.id === hostId)) {
+          this._renderHostBar(project);
+          this.changesPanel.onHostStatus();
+          if (this.activeTab === 'changes') this._renderContent();
+        }
       });
     }
   }
@@ -859,5 +895,7 @@ const PANEL_ICONS = {
   sessions: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5h12v7H9l-3 2.5V11.5H2z"/></svg>',
   tasks: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg>',
   modules: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>',
+  changes: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="4.5" r="1.5"/><path d="M5 5v6"/><path d="M11 6c0 3-6 2.5-6 5"/></svg>',
+  branchSmall: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="4.5" r="1.5"/><path d="M5 5v6"/><path d="M11 6c0 3-6 2.5-6 5"/></svg>',
   plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
 };

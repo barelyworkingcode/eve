@@ -375,6 +375,9 @@
 
         <!-- HTML preview content area (live preview iframe for a split pane) -->
         <div id="htmlPreview" class="html-preview-content hidden"></div>
+
+        <!-- Git diff content area (diff tabs; built by diff-viewer.js) -->
+        <div id="diffPane" class="diff-pane hidden" data-testid="diff-pane"></div>
         </div><!-- /#contentArea -->
 
       </div>
@@ -516,10 +519,12 @@
   <script src="panes/terminal-pane.js"></script>
   <script src="panes/file-pane.js"></script>
   <script src="panes/session-pane.js"></script>
+  <script src="panes/diff-pane.js"></script>
   <script src="tab-manager.js"></script>
   <script src="file-browser.js"></script>
   <script src="file-editor.js"></script>
   <script src="html-preview-pane.js"></script>
+  <script src="diff-viewer.js"></script>
   <script src="terminal-keybar.js"></script>
   <script src="remote-sessions.js"></script>
   <script src="terminal-manager.js"></script>
@@ -562,6 +567,7 @@
   <script src="sidebar/file-icons.js"></script>
   <script src="sidebar/file-tree-node.js"></script>
   <script src="sidebar/activity-rail.js"></script>
+  <script src="sidebar/changes-panel.js"></script>
   <script src="sidebar/project-panel.js"></script>
   <script src="sidebar/project-tree.js"></script>
   <script src="home-screen.js"></script>

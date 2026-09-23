@@ -123,6 +123,8 @@ Files: `list_directory`, `read_file`, `write_file`, `rename_file`, `move_file`, 
 
 Search: `search_project`, `search_cancel`, `search_ai_summarize`, `search_ai_stop`.
 
+Git (read-only, [design-git-changes.md](design-git-changes.md)): `git_changes` (`{projectId, scope?, repo?}` — `scope` is `'uncommitted'` (default) or `'base'`; without `repo`, every repo under the project root; rate-limited as expensive; also starts the project's recursive watcher, like `list_directory`), `git_file_versions` (`{projectId, repo, path, scope?}` — `repo` is root-relative with a leading slash, `path` repo-relative).
+
 Terminals (proxied to relayLLM): `terminal_create` (`{templateId?, name?, directory, projectId?, cols?, rows?, persistSession?}` — `persistSession` reattaches to a named persistent session and is forwarded to relay as `persist_session` — eve answers this over HTTP via `POST /api/terminals`, above, not by forwarding the frame to relay), `terminal_input`, `terminal_resize`, `terminal_close`, `terminal_list`, `terminal_reconnect`, `join_terminal`, `leave_terminal`. Templates are fetched over HTTP (`GET /api/terminal/templates`, above), not this frame — relay-sessions answers a `terminal_templates` WS message with an explicit refusal, since the pty template list was never something relay-sessions owned.
 
 Modules: `module_read_file`, `module_write_file`, `module_invoke_ai`, `module_ai_stop`. See [docs/modules.md](modules.md).
@@ -142,6 +144,8 @@ Sessions: `session_created`, `session_joined`, `session_renamed`, `session_folde
 Files: `directory_listing`, `file_content`, `file_saved`, `file_renamed`, `file_moved`, `file_deleted`, `file_uploaded`, `directory_created`, `file_error`, `file_changed`, `dir_changed`.
 
 Search: `search_results`, `search_error`, `search_ai_started`, `search_ai_event`, `search_ai_completed`, `search_ai_failed`.
+
+Git: `git_changes` (`{projectId, scope, repos: [{path, name, branch, head, detached, upstream, ahead, behind, defaultBranch, files: [{path, status, oldPath?, staged}], base, truncated, error?}]}` — one entry per repo, or only the requested one; `status` ∈ `M A D R U ?`; a failure in one repo sets that entry's `error: {code, message}` instead of failing the frame), `git_file_versions` (`{projectId, repo, path, scope, original, modified, binary, tooLarge, originalSize, modifiedSize}` — `original`/`modified` are `null` when the file is absent on that side, and both `null` when `binary` or `tooLarge`), `git_error` (`{projectId, repo?, path?, code, error}` — `code` ∈ `NOT_A_REPO GIT_MISSING TOO_LARGE TIMEOUT FAILED`, plus `INVALID` for a bad `scope`/`repo`/`path` and `NOT_FOUND` for an unknown project; `error` never carries the server-side absolute path), `git_changed` (`{projectId, repo}` — pushed by the file watcher when a watched repo's status may have changed; clients re-request `git_changes`).
 
 Terminals: `terminal_created` (`{terminalId, templateId, name, directory}`), `terminal_joined`, `terminal_output`, `terminal_exit`, `terminal_closed`, `terminal_list`.
 

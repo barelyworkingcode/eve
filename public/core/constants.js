@@ -65,6 +65,14 @@ const EVT = {
   DIRECTORY_CREATED: 'directory:created',
   DIR_CHANGED: 'directory:changed',
 
+  // Changes panel (docs/design-git-changes.md): inbound git_* frames re-emitted
+  // by message-dispatcher; GIT_OPEN_DIFF is sidebar -> diff viewer.
+  GIT_CHANGES: 'git:changes',
+  GIT_FILE_VERSIONS: 'git:file-versions',
+  GIT_ERROR: 'git:error',
+  GIT_CHANGED: 'git:changed',
+  GIT_OPEN_DIFF: 'git:open-diff',
+
   TASKS_LOADED: 'tasks:loaded',
   TASK_UPDATED: 'task:updated',
   TASK_STARTED: 'task:started',

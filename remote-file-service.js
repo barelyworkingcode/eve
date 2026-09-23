@@ -15,6 +15,14 @@
 
 const path = require('path').posix;
 
+const GIT_ERROR_CODES = new Set(['NOT_A_REPO', 'GIT_MISSING', 'TOO_LARGE', 'TIMEOUT', 'FAILED']);
+
+// Required lazily so a host project that never opens the Changes panel
+// doesn't pay for git-service.js at startup.
+function loadGitModule() {
+  return require('./git-service');
+}
+
 class RemoteFileService {
   constructor(hostAgent) {
     this.hostAgent = hostAgent;
@@ -113,6 +121,74 @@ class RemoteFileService {
     if (!this.hostAgent) throw new Error('Host is not connected');
     const res = await this.hostAgent.stream('stream', { root: projectPath, path: relativePath }, onChunk);
     return { size: res.size };
+  }
+
+  // GitService's `run`, backed by the agent's `git` op. The agent resolves
+  // `cwd` inside root itself (realpath half); stdout crosses as base64.
+  async _gitRun(root, cwdRel, args, { maxBytes } = {}) {
+    const { GitError } = loadGitModule();
+    if (!this.hostAgent) throw new GitError('FAILED', 'Host is not connected');
+    let res;
+    try {
+      res = await this.hostAgent.request('git', { root, cwd: cwdRel, args, maxBytes });
+    } catch (err) {
+      // The agent reports a missing/non-directory cwd as NO_DIR — the local
+      // runner calls that NOT_A_REPO.
+      const raw = err && err.code === 'NO_DIR' ? 'NOT_A_REPO' : err && err.code;
+      const code = GIT_ERROR_CODES.has(raw) ? raw : 'FAILED';
+      throw new GitError(code, (err && err.message) || 'git failed on host');
+    }
+    return { code: res.code, stdout: Buffer.from(res.stdout || '', 'base64'), stderr: res.stderr || '' };
+  }
+
+  // Mirrors FileService#_readFileForGit: the agent's `read` enforces the diff
+  // pane's 2 MB cap itself, so an oversize file never crosses SSH. Its
+  // TOO_LARGE reply carries no size; one `stat` round-trip (only on that path)
+  // recovers it for the pane.
+  async _readFileForGit(projectPath, relativePath) {
+    const { GitService, GitError } = loadGitModule();
+    this.validatePath(projectPath, relativePath);
+    try {
+      const res = await this._request('read', { root: projectPath, path: relativePath, maxBytes: GitService.FILE_MAX_BYTES });
+      return { content: res.content, size: res.size };
+    } catch (err) {
+      if (!err || err.code !== 'TOO_LARGE') throw err;
+      const tooLarge = new GitError('TOO_LARGE', 'File too large to diff');
+      try {
+        const st = await this._request('stat', { root: projectPath, path: relativePath });
+        tooLarge.size = st.size;
+      } catch { /* size stays unknown */ }
+      throw tooLarge;
+    }
+  }
+
+  _git() {
+    if (!this._gitService) {
+      const { GitService } = loadGitModule();
+      this._gitService = new GitService({
+        run: (root, cwdRel, args, opts) => this._gitRun(root, cwdRel, args, opts),
+        listDirectory: (root, rel, opts) => this.listDirectory(root, rel, opts),
+        readFile: (root, rel) => this._readFileForGit(root, rel),
+      });
+    }
+    return this._gitService;
+  }
+
+  async gitRepos(projectPath) {
+    this.validatePath(projectPath, '/');
+    return this._git().repos(projectPath);
+  }
+
+  async gitStatus(projectPath, repoPath, scope) {
+    this.validatePath(projectPath, repoPath);
+    return this._git().status(projectPath, repoPath, scope);
+  }
+
+  async gitFileVersions(projectPath, repoPath, filePath, scope) {
+    this.validatePath(projectPath, repoPath);
+    const repoRel = String(repoPath || '').replace(/^\/+/, '');
+    this.validatePath(projectPath, path.join(repoRel || '.', String(filePath || '')));
+    return this._git().fileVersions(projectPath, repoPath, filePath, scope);
   }
 }
 

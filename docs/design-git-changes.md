@@ -56,7 +56,9 @@ Modules. Its badge is the total count of changed files across all repos.
   `file-icons.js`. Renames show `old → new` on hover.
 - **Scope toggle**: *Uncommitted* (working tree + index vs `HEAD`, the
   default) or *vs base* (everything on this branch since its merge-base with
-  the default branch — the "what does this branch change" view).
+  the default branch — the "what does this branch change" view). With no
+  default branch or no merge-base it falls back to the uncommitted list and
+  reports `base: null`.
 - **Header ⟳** forces a refresh; the list otherwise refreshes on file-watch
   events (debounced).
 - Remote projects reuse the existing `panelHostBar` connection state; while
@@ -64,7 +66,8 @@ Modules. Its badge is the total count of changed files across all repos.
 
 ## Opening a file: the diff pane
 
-Clicking a row opens a document-area pane keyed `diff:<repo>:<path>`
+Clicking a row opens a document-area pane keyed
+`diff:<projectId>:<repo>:<path>`
 (re-clicking focuses it). The pane header carries a segmented control:
 
 ```
@@ -123,13 +126,19 @@ modified side from disk.
   "File too large to diff".
 - `GIT_OPTIONAL_LOCKS=0` so a status poll never contends with an agent's
   running git command.
+- Every call runs with `-c core.fsmonitor=false`, so a repo's own config
+  can't make a status poll spawn a hook command. Both runners also drop
+  inherited `GIT_*` env vars that would redirect git elsewhere.
+- `git_changes` is registered `expensive`, so it shares the WS rate limit.
 
 ### Refresh
 
 Piggy-back on the existing `watch` stream. Any change event under a repo
 schedules a debounced (500 ms) `gitStatus` for that repo only. Events inside
-`.git/` are ignored except `index` and `HEAD`, which cover commits, staging,
-and branch switches.
+`.git/` are ignored except `index`, `HEAD`, `ORIG_HEAD` and `MERGE_HEAD`,
+which cover commits, staging, branch switches and merges. Remote watch events
+pass through the same ignore filter as local ones, so `.git` and
+`node_modules` churn never triggers a tree refresh.
 
 ## Contract (pinned — every task builds against this)
 
@@ -146,7 +155,10 @@ new GitService({
   run: (root, cwdRel, args, { maxBytes }) => Promise<{ code, stdout: Buffer, stderr: string }>,
   // Existing FileService/RemoteFileService.listDirectory (showHidden: true).
   listDirectory: (root, rel, opts) => Promise<[{ name, type }]>,
-  // Existing FileService/RemoteFileService.readFile -> { content, size }.
+  // readFile -> { content, size }, minus the extension allowlist and capped
+  // at 2 MB (GitError('TOO_LARGE') with .size). Local: FileService
+  // #_readFileForGit; remote: the agent's `read` with maxBytes, plus a
+  // `stat` for the size on overflow.
   readFile: (root, rel) => Promise<{ content, size }>,
 })
 ```
@@ -161,13 +173,17 @@ Methods (also exposed 1:1 on `FileService` and `RemoteFileService` as
   `[{ path, name, branch, head, detached, upstream, ahead, behind, defaultBranch }]`
   - `path` is root-relative with a leading slash (`'/'` for the root repo,
     `'/feat-login'` for a child). `name` is the folder basename.
-  - `branch`/`upstream`/`defaultBranch` are `null` when unknown;
+  - `branch`/`upstream`/`defaultBranch` are `null` when unknown.
+    `defaultBranch` is `origin/HEAD`'s target (e.g. `origin/main`) when
+    set, else local `main`, else `master`;
     `head` is the 7-char short SHA; `ahead`/`behind` are `0` without upstream.
 - `status(projectPath, repoPath, scope)` — `scope` is `'uncommitted' | 'base'` →
   `{ repo, scope, base, files: [{ path, status, oldPath?, staged }], truncated }`
   - `path`/`oldPath` are repo-relative, no leading slash.
   - `status` ∈ `M A D R U ?` (copies fold into `A`, type changes into `M`).
-  - `base` is the merge-base short SHA for `'base'`, else `null`.
+  - `base` is the merge-base short SHA for `'base'`, else `null`. A `'base'`
+    request with no default branch or merge-base returns the uncommitted
+    list with `base: null`.
   - `truncated` is true when the file list was capped (5 000 entries).
 - `fileVersions(projectPath, repoPath, filePath, scope)` →
   `{ original, modified, binary, tooLarge, originalSize, modifiedSize }`
@@ -179,7 +195,9 @@ Methods (also exposed 1:1 on `FileService` and `RemoteFileService` as
 
 `remote-fs-agent.js` gains one op, `git`:
 `{ op: 'git', root, cwd, args, maxBytes }` → `{ ok, code, stdout (base64), stderr }`.
-`cwd` is confined to `root` with the agent's existing `resolveInRoot`. Eve
+`cwd` is confined to `root` with the agent's existing `resolveInRoot`; a
+missing or non-directory `cwd` fails with `NO_DIR`, which
+`RemoteFileService` maps to `NOT_A_REPO` (matching the local runner). Eve
 already holds full read/write authority over the agent, so a generic git op
 grants nothing new; the browser never supplies `args`.
 `RemoteFileService` wraps it as the `run` for its `GitService`.
@@ -195,8 +213,10 @@ grants nothing new; the browser never supplies `args`.
 | ← client | `{ type: 'git_error', projectId, repo?, path?, code, error }` |
 | ← client (push) | `{ type: 'git_changed', projectId, repo }` — from the file watcher |
 
-A per-repo failure inside `git_changes` sets that repo's `error: { code, message }`
-rather than failing the whole frame.
+`git_error.code` is a `GitError` code, or `INVALID` (bad scope/repo/path)
+or `NOT_FOUND` (unknown project). A per-repo failure inside `git_changes`
+sets that repo's `error: { code, message }` rather than failing the whole
+frame.
 
 ### Client bus events
 
@@ -204,7 +224,8 @@ rather than failing the whole frame.
 `git:changes`, `git:file-versions`, `git:error`, `git:changed` (payload = the
 frame). The sidebar emits `git:open-diff` with
 `{ projectId, repo, repoName, branch, path, oldPath, status, scope }`; the diff
-pane listens for it.
+pane listens for it. The names are `EVT.GIT_CHANGES`, `GIT_FILE_VERSIONS`,
+`GIT_ERROR`, `GIT_CHANGED` and `GIT_OPEN_DIFF` (`public/core/constants.js`).
 
 ## Out of scope for v1
 

@@ -1,6 +1,29 @@
 const FileService = require('./file-service');
 const RemoteFileService = require('./remote-file-service');
 
+const GIT_SCOPES = new Set(['uncommitted', 'base']);
+// Each gitStatus is several git processes; a project with many worktrees
+// shouldn't fork them all at once.
+const GIT_STATUS_CONCURRENCY = 4;
+
+function isNonEmptyString(v) {
+  return typeof v === 'string' && v.length > 0;
+}
+
+// Order-preserving map with at most `limit` promises in flight.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 class FileHandlers {
   constructor({ resolveProject, searchService, hostPool } = {}) {
     this.resolveProject = resolveProject;
@@ -191,6 +214,101 @@ class FileHandlers {
       }));
     } catch (err) {
       ws.send(JSON.stringify({ type: 'search_error', requestId, projectId, error: err.message }));
+    }
+  }
+
+  // --- Git changes (docs/design-git-changes.md) ---------------------------
+
+  _sendGitError(ws, fields, err, project) {
+    ws.send(JSON.stringify({
+      type: 'git_error',
+      ...fields,
+      code: (err && err.code) || 'FAILED',
+      error: this._gitErrorMessage(err, project),
+    }));
+  }
+
+  // git's stderr routinely names the absolute repo path; the browser only
+  // ever deals in project-relative paths, so strip the server-side root.
+  _gitErrorMessage(err, project) {
+    let msg = (err && err.message) || 'git failed';
+    if (project && project.path) msg = msg.split(project.path).join('');
+    return msg;
+  }
+
+  _gitScope(scope) {
+    if (scope === undefined || scope === null) return 'uncommitted';
+    return GIT_SCOPES.has(scope) ? scope : null;
+  }
+
+  async gitChanges(ws, message) {
+    const { projectId, repo } = message;
+    const scope = this._gitScope(message.scope);
+    const fields = { projectId };
+    if (repo !== undefined) fields.repo = repo;
+
+    if (!scope) return this._sendGitError(ws, fields, { code: 'INVALID', message: 'Invalid scope' });
+    if (repo !== undefined && !isNonEmptyString(repo)) {
+      return this._sendGitError(ws, fields, { code: 'INVALID', message: 'Invalid repo' });
+    }
+    const project = this._resolveProject(projectId);
+    if (!project) return this._sendGitError(ws, fields, { code: 'NOT_FOUND', message: 'Project not found' });
+
+    try {
+      const fs = this.fileServiceFor(project);
+      let metas = await fs.gitRepos(project.path);
+      if (repo !== undefined) {
+        metas = metas.filter((m) => m.path === repo);
+        if (metas.length === 0) {
+          return this._sendGitError(ws, fields, { code: 'NOT_A_REPO', message: 'Not a git repository' });
+        }
+      }
+
+      const repos = await mapWithConcurrency(metas, GIT_STATUS_CONCURRENCY, async (meta) => {
+        try {
+          const st = await fs.gitStatus(project.path, meta.path, scope);
+          return { ...meta, files: st.files, base: st.base, truncated: !!st.truncated };
+        } catch (err) {
+          return {
+            ...meta, files: [], base: null, truncated: false,
+            error: { code: err.code || 'FAILED', message: this._gitErrorMessage(err, project) },
+          };
+        }
+      });
+
+      ws.send(JSON.stringify({ type: 'git_changes', projectId, scope, repos }));
+    } catch (err) {
+      this._sendGitError(ws, fields, err, project);
+    }
+  }
+
+  async gitFileVersions(ws, message) {
+    const { projectId, repo, path: filePath } = message;
+    const scope = this._gitScope(message.scope);
+    const fields = { projectId, repo, path: filePath };
+
+    if (!scope) return this._sendGitError(ws, fields, { code: 'INVALID', message: 'Invalid scope' });
+    if (!isNonEmptyString(repo) || !isNonEmptyString(filePath)) {
+      return this._sendGitError(ws, fields, { code: 'INVALID', message: 'Invalid repo or path' });
+    }
+    const project = this._resolveProject(projectId);
+    if (!project) return this._sendGitError(ws, fields, { code: 'NOT_FOUND', message: 'Project not found' });
+
+    try {
+      const fs = this.fileServiceFor(project);
+      const v = await fs.gitFileVersions(project.path, repo, filePath, scope);
+      ws.send(JSON.stringify({
+        type: 'git_file_versions',
+        projectId, repo, path: filePath, scope,
+        original: v.original,
+        modified: v.modified,
+        binary: !!v.binary,
+        tooLarge: !!v.tooLarge,
+        originalSize: v.originalSize,
+        modifiedSize: v.modifiedSize,
+      }));
+    } catch (err) {
+      this._sendGitError(ws, fields, err, project);
     }
   }
 }

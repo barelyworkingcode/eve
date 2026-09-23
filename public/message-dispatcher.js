@@ -112,6 +112,11 @@ class MessageDispatcher {
       search_ai_event:      (d) => this.bus.emit(EVT.SEARCH_AI_EVENT, d),
       search_ai_completed:  (d) => this.bus.emit(EVT.SEARCH_AI_COMPLETED, d),
       search_ai_failed:     (d) => this.bus.emit(EVT.SEARCH_AI_FAILED, d),
+      // Event names pinned by docs/design-git-changes.md (Client bus events).
+      git_changes:          (d) => this.bus.emit(EVT.GIT_CHANGES, d),
+      git_file_versions:    (d) => this.bus.emit(EVT.GIT_FILE_VERSIONS, d),
+      git_error:            (d) => this.bus.emit(EVT.GIT_ERROR, d),
+      git_changed:          (d) => this.bus.emit(EVT.GIT_CHANGED, d),
     };
   }
 

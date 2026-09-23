@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
+const { GitService, GitError, createLocalRunner } = require('./git-service');
 
 class FileService {
   constructor() {
@@ -332,6 +333,59 @@ class FileService {
         ENOENT: 'Parent directory not found'
       });
     }
+  }
+
+  // --- Git (Changes panel, docs/design-git-changes.md) ---
+
+  // Lazily built so a FileService that never touches git never probes for it.
+  _git() {
+    if (!this._gitService) {
+      this._gitService = new GitService({
+        run: createLocalRunner({ validatePath: (root, rel) => this.validatePath(root, rel) }),
+        listDirectory: (root, rel, opts) => this.listDirectory(root, rel, opts),
+        readFile: (root, rel) => this._readFileForGit(root, rel),
+      });
+    }
+    return this._gitService;
+  }
+
+  // readFile minus the extension allowlist (a diff must be able to see a .png
+  // to call it binary) and with the diff pane's 2 MB cap; the error carries
+  // the size so the pane can still show it.
+  async _readFileForGit(projectPath, relativePath) {
+    const fullPath = this.validatePath(projectPath, relativePath);
+    let stats;
+    try {
+      stats = await fs.stat(fullPath);
+    } catch (err) {
+      this._handleFsError(err);
+    }
+    if (stats.isDirectory()) throw new Error('Path is a directory');
+    if (stats.size > GitService.FILE_MAX_BYTES) {
+      const err = new GitError('TOO_LARGE', 'File too large to diff');
+      err.size = stats.size;
+      throw err;
+    }
+    try {
+      const content = await fs.readFile(fullPath, 'utf8');
+      return { content, size: stats.size };
+    } catch (err) {
+      this._handleFsError(err);
+    }
+  }
+
+  async gitRepos(projectPath) {
+    return this._git().repos(projectPath);
+  }
+
+  async gitStatus(projectPath, repoPath, scope) {
+    GitService.assertScope(scope);
+    return this._git().status(projectPath, repoPath, scope);
+  }
+
+  async gitFileVersions(projectPath, repoPath, filePath, scope) {
+    GitService.assertScope(scope);
+    return this._git().fileVersions(projectPath, repoPath, filePath, scope);
   }
 }
 
