@@ -34,6 +34,9 @@ class ChangesPanel {
     this._pendingFull = new Set();
     this._pendingRepos = new Set();
     this._refreshTimer = null;
+    // A watcher-driven full refresh asked for while one was running; sent
+    // once the current request and its stream settle.
+    this._fullQueued = false;
 
     // Set by ProjectPanel: re-render tabs (badge) and, when active, content.
     this.onUpdate = null;
@@ -46,6 +49,7 @@ class ChangesPanel {
   setProject(projectId) {
     if (this.projectId !== projectId) {
       this._pendingRepos.clear();
+      this._fullQueued = false;
       if (this._refreshTimer) { clearTimeout(this._refreshTimer); this._refreshTimer = null; }
     }
     this.projectId = projectId;
@@ -163,6 +167,44 @@ class ChangesPanel {
       && Date.now() - (entry.streamedAt || 0) < ChangesPanel.REQUEST_TIMEOUT_MS;
   }
 
+  // Watcher-driven: never start a full request over a running one. Queue one
+  // follow-up instead; _sendQueuedFull() sends it when the stream settles.
+  _requestFull() {
+    const entry = this._entry();
+    if (entry && (this._inFlight(entry) || this._streaming(entry))) {
+      this._fullQueued = true;
+      return;
+    }
+    this._requestAll(true);
+  }
+
+  _sendQueuedFull() {
+    const entry = this._entry();
+    if (!this._fullQueued || !entry || entry.loading || entry.repos.some(r => r.pending)) return;
+    this._fullQueued = false;
+    this._requestAll(true);
+  }
+
+  // Maps watcher repo guesses ('/', '/<seg>', '*') onto known repos. The
+  // watcher only sees the first path segment, so a guess may sit inside a
+  // known repo (root is the repo) or above several (nested worktrees). Only
+  // '*' or a path matching nothing needs full discovery (a new worktree).
+  static resolveRefresh(paths, known) {
+    const repos = new Set();
+    let full = false;
+    for (const p of paths) {
+      if (p === '*') { full = true; continue; }
+      if (known.includes(p)) { repos.add(p); continue; }
+      const outer = known.filter(k => k === '/' || p.startsWith(k + '/'))
+        .sort((a, b) => b.length - a.length)[0];
+      if (outer) { repos.add(outer); continue; }
+      const inner = known.filter(k => k.startsWith(p + '/'));
+      if (inner.length) inner.forEach(k => repos.add(k));
+      else full = true;
+    }
+    return { repos: [...repos], full };
+  }
+
   _requestRepo(repoPath) {
     if (!this.projectId || this._hostUnreachable()) return;
     this.ws.send({ type: 'git_changes', projectId: this.projectId, scope: this.scope, repo: repoPath });
@@ -176,13 +218,14 @@ class ChangesPanel {
       const repos = [...this._pendingRepos];
       this._pendingRepos.clear();
       const entry = this._entry();
-      const known = new Set((entry?.repos || []).map(r => r.path));
-      // An unknown repo may be a brand-new worktree; only a full discovery finds it.
-      if (!entry || !entry.hasData || repos.some(p => p === '*' || !known.has(p))) {
-        this._requestAll(true);
+      // No list yet: full discovery, but not over a request still in flight.
+      if (!entry || !entry.hasData) {
+        this._requestFull();
         return;
       }
-      for (const p of repos) this._requestRepo(p);
+      const plan = ChangesPanel.resolveRefresh(repos, entry.repos.map(r => r.path));
+      if (plan.full) this._requestFull();
+      else for (const p of plan.repos) this._requestRepo(p);
     }, ChangesPanel.REFRESH_DEBOUNCE_MS);
   }
 
@@ -218,6 +261,7 @@ class ChangesPanel {
     entry.hasData = true;
     entry.error = null;
     this._notify(msg.projectId);
+    if (key === this._key()) this._sendQueuedFull();
   }
 
   _onError(msg) {
@@ -238,6 +282,7 @@ class ChangesPanel {
         else entry.repos[i] = { ...entry.repos[i], error: { code, message } };
       }
       this._notify(msg.projectId);
+      if (msg.projectId === this.projectId) this._sendQueuedFull();
       return;
     }
 
@@ -251,6 +296,7 @@ class ChangesPanel {
       entry.error = { code, message };
     }
     this._notify(msg.projectId);
+    if (msg.projectId === this.projectId) this._sendQueuedFull();
   }
 
   _onChanged(msg) {

@@ -570,12 +570,14 @@ describe('ChangesPanel git:changed debounce', () => {
     expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
   });
 
-  it('before any data, any change triggers a full request', () => {
+  it('before any data, any change triggers a full request once the in-flight one replies', () => {
     const { panel, bus, ws } = setup();
     panel.setProject('p1');
     ws.send.mockClear();
     bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '/feat-login' });
     jest.advanceTimersByTime(300);
+    expect(ws.send).not.toHaveBeenCalled(); // never a second full request over the first (#15)
+    reply(bus);
     expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
   });
 
@@ -905,5 +907,196 @@ describe('ProjectPanel Changes tab', () => {
     hosts.status = 'connected';
     bus.emit(EVT.HOST_STATUS, { hostId: null });
     expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
+  });
+});
+
+// Issue #15: the watcher guesses a repo from the first path segment only, so
+// a root-level repo or deep worktrees produced "unknown" repos, each of which
+// forced a full rediscovery on top of the one still streaming. The panel now
+// resolves a guess against the known repos, and a watcher-driven full refresh
+// waits for a running one to settle (one queued follow-up at most).
+describe('ChangesPanel refresh storm (#15)', () => {
+  const DEBOUNCE = () => ChangesPanel.REFRESH_DEBOUNCE_MS;
+  let ChangesPanel;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    ({ ChangesPanel } = setup());
+  });
+
+  const full = (projectId = 'p1') => ({ type: 'git_changes', projectId, scope: 'uncommitted' });
+  const single = (repo, projectId = 'p1') => ({ ...full(projectId), repo });
+  const repoAt = (p, extra = {}) => repoMeta({ path: p, name: p === '/' ? 'p1' : p.split('/').pop(), branch: 'main', ...extra });
+
+  describe('resolveRefresh (pure)', () => {
+    const resolve = (paths, known) => {
+      const out = ChangesPanel.resolveRefresh(paths, known);
+      return { full: out.full, repos: [...out.repos].sort() };
+    };
+
+    it('an exact match refreshes that repo', () => {
+      expect(resolve(['/a'], ['/', '/a'])).toEqual({ full: false, repos: ['/a'] });
+    });
+
+    it('a path inside a known repo resolves to the longest containing repo', () => {
+      expect(resolve(['/src'], ['/'])).toEqual({ full: false, repos: ['/'] });
+      expect(resolve(['/a/b/c'], ['/', '/a', '/a/b'])).toEqual({ full: false, repos: ['/a/b'] });
+      expect(resolve(['/b'], ['/', '/a'])).toEqual({ full: false, repos: ['/'] });
+    });
+
+    it('does not treat a sibling with a shared prefix as an ancestor', () => {
+      expect(resolve(['/ab'], ['/a'])).toEqual({ full: true, repos: [] });
+    });
+
+    it('with no containing repo, refreshes the known repos that sit under the path', () => {
+      expect(resolve(['/group'], ['/group/w1', '/group/w2', '/other']))
+        .toEqual({ full: false, repos: ['/group/w1', '/group/w2'] });
+    });
+
+    it('falls back to full discovery when nothing matches', () => {
+      expect(resolve(['/docs-update'], ['/main', '/feat-login']).full).toBe(true);
+      expect(resolve(['/x'], []).full).toBe(true);
+    });
+
+    it('"*" means full discovery', () => {
+      expect(ChangesPanel.resolveRefresh(['*'], ['/', '/a']).full).toBe(true);
+    });
+
+    it('deduplicates repos', () => {
+      expect(resolve(['/src', '/lib', '/'], ['/'])).toEqual({ full: false, repos: ['/'] });
+      expect(resolve(['/group', '/group/w1'], ['/group/w1', '/group/w2']))
+        .toEqual({ full: false, repos: ['/group/w1', '/group/w2'] });
+    });
+
+    it('a mix of resolvable paths and "*" is full', () => {
+      expect(ChangesPanel.resolveRefresh(['/src', '*'], ['/']).full).toBe(true);
+    });
+  });
+
+  describe('watcher-driven requests', () => {
+    function loadedWith(paths, opts) {
+      const ctx = setup(opts);
+      ctx.panel.setProject('p1');
+      reply(ctx.bus, paths.map((p) => repoAt(p)));
+      ctx.ws.send.mockClear();
+      return ctx;
+    }
+
+    it('project root is the repo: a change under /src refreshes "/" only, no full discovery', () => {
+      const { bus, ws } = loadedWith(['/']);
+      bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '/src' });
+      jest.advanceTimersByTime(DEBOUNCE());
+      expect(sentFrames(ws)).toEqual([single('/')]);
+    });
+
+    it('a steady stream of edits under the root repo never asks for full discovery', () => {
+      const { bus, ws } = loadedWith(['/']);
+      for (let i = 0; i < 5; i++) {
+        bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: i % 2 ? '/src' : '/lib' });
+        jest.advanceTimersByTime(DEBOUNCE());
+        reply(bus, [repoAt('/')], { repo: '/' });
+      }
+      const frames = sentFrames(ws);
+      expect(frames.length).toBeGreaterThan(0);
+      expect(frames.every((f) => f.repo === '/')).toBe(true);
+    });
+
+    it('deep worktrees: a change reported as /group refreshes each worktree under it, no full', () => {
+      const { bus, ws } = loadedWith(['/group/w1', '/group/w2']);
+      bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '/group' });
+      jest.advanceTimersByTime(DEBOUNCE());
+      const frames = sentFrames(ws);
+      expect(frames.every((f) => f.repo !== undefined)).toBe(true);
+      expect(frames.map((f) => f.repo).sort()).toEqual(['/group/w1', '/group/w2']);
+    });
+  });
+
+  describe('full refresh does not interrupt a running one', () => {
+    const pendingRepo = (p) => repoAt(p, { pending: true, files: [] });
+    const arrive = (bus, p, projectId = 'p1') =>
+      reply(bus, [repoAt(p, { pending: false })], { repo: p, projectId });
+
+    // Full request answered by a full frame; /alpha and /beta still pending.
+    function streaming(opts) {
+      const ctx = setup(opts);
+      ctx.panel.setProject('p1');
+      reply(ctx.bus, ['/alpha', '/beta'].map(pendingRepo));
+      ctx.ws.send.mockClear();
+      return ctx;
+    }
+
+    it('"*" while streaming sends nothing, then exactly one full request once the stream settles', () => {
+      const { bus, ws } = streaming();
+      bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '*' });
+      jest.advanceTimersByTime(DEBOUNCE());
+      expect(ws.send).not.toHaveBeenCalled();
+
+      arrive(bus, '/alpha');
+      expect(ws.send).not.toHaveBeenCalled(); // /beta still pending
+
+      arrive(bus, '/beta');
+      expect(sentFrames(ws)).toEqual([full()]);
+    });
+
+    it('several "*" during one stream still yield a single follow-up', () => {
+      const { bus, ws } = streaming();
+      bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '*' });
+      jest.advanceTimersByTime(DEBOUNCE());
+      arrive(bus, '/alpha');
+      bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '*' });
+      jest.advanceTimersByTime(DEBOUNCE());
+      expect(ws.send).not.toHaveBeenCalled();
+
+      arrive(bus, '/beta');
+      expect(sentFrames(ws)).toEqual([full()]);
+
+      // The follow-up is not repeated by later frames.
+      reply(bus, ['/alpha', '/beta'].map((p) => repoAt(p)));
+      expect(sentFrames(ws)).toEqual([full()]);
+    });
+
+    it('"*" while a full request is in flight waits for its reply, then sends one full request', () => {
+      const { panel, bus, ws } = setup();
+      panel.setProject('p1'); // full request in flight, no reply yet
+      ws.send.mockClear();
+      bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '*' });
+      jest.advanceTimersByTime(DEBOUNCE());
+      expect(ws.send).not.toHaveBeenCalled();
+
+      reply(bus, [repoAt('/alpha')]);
+      expect(sentFrames(ws)).toEqual([full()]);
+    });
+
+    it('an unresolvable path while streaming is queued the same way', () => {
+      const { bus, ws } = streaming();
+      bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '/new-worktree' });
+      jest.advanceTimersByTime(DEBOUNCE());
+      expect(ws.send).not.toHaveBeenCalled();
+      arrive(bus, '/alpha');
+      arrive(bus, '/beta');
+      expect(sentFrames(ws)).toEqual([full()]);
+    });
+
+    it('refresh() still sends a full request immediately while streaming', () => {
+      const { panel, ws } = streaming();
+      panel.refresh();
+      expect(sentFrames(ws)).toEqual([full()]);
+    });
+
+    it('switching project drops the queued follow-up', () => {
+      const { panel, bus, ws } = streaming({ projects: [{ id: 'p1' }, { id: 'p2' }] });
+      bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '*' });
+      jest.advanceTimersByTime(DEBOUNCE());
+
+      panel.setProject('p2');
+      expect(sentFrames(ws)).toEqual([full('p2')]);
+
+      // p1's stream settles in the background; p2's reply lands.
+      arrive(bus, '/alpha');
+      arrive(bus, '/beta');
+      reply(bus, [repoAt('/main')], { projectId: 'p2' });
+      jest.advanceTimersByTime(DEBOUNCE());
+
+      expect(sentFrames(ws)).toEqual([full('p2')]);
+    });
   });
 });
