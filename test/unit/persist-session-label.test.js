@@ -63,3 +63,17 @@ describe('persistSessionLabel', () => {
     expect(persistSessionLabel(name, templates)).toBe(expected);
   });
 });
+
+describe('sessionDisplayName for a persistent host terminal', () => {
+  const { sessionDisplayName } = require('../../public/core/ui-utils');
+  afterEach(() => { delete global.window; });
+
+  test('sidebar lists show the tab label, not the tmux name', () => {
+    global.window = { app: { state: { terminalTemplates: [{ id: 'shell', name: 'Shell' }] } } };
+    expect(sessionDisplayName({ name: 'relay-0123abcd-shell-1' }, { name: 'Acme' })).toBe('Shell #1');
+  });
+
+  test('ordinary session names are unaffected', () => {
+    expect(sessionDisplayName({ name: 'Acme - Shell' }, { name: 'Acme' })).toBe('Shell');
+  });
+});

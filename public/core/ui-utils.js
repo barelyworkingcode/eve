@@ -234,6 +234,11 @@ function relativeTime(ts, now = Date.now()) {
 // user actually asked, once SessionRecents has seen it.
 function sessionDisplayName(session, project, { stripProject = true } = {}) {
   const fullName = session?.name || '';
+  // A persistent host terminal is named after its tmux session; show the same
+  // "<Template> #n" label its tab does.
+  const templates = (typeof window !== 'undefined' && window.app?.state?.terminalTemplates) || [];
+  const persisted = persistSessionLabel(fullName, templates);
+  if (persisted !== fullName) return persisted;
   let name = fullName;
   if (project && name.startsWith(project.name + ' - ')) name = name.slice(project.name.length + 3) || fullName;
   const model = session?.model || '';
