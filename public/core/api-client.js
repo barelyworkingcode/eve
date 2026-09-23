@@ -80,6 +80,20 @@ class ApiClient {
     return this._request('DELETE', `/api/projects/${encodeURIComponent(projectId)}/persistent-sessions/${encodeURIComponent(name)}`);
   }
 
+  // Body is the raw image; resolves to {path} of the temp file written where
+  // the terminal runs (on the SSH host when hostId is set).
+  async pasteTerminalImage(blob, hostId) {
+    const query = hostId ? `?host=${encodeURIComponent(hostId)}` : '';
+    const response = await fetch(`/api/terminal/paste-image${query}`, {
+      method: 'POST',
+      headers: { ...this._headers(false), 'Content-Type': blob.type },
+      body: blob,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  }
+
   // Payload is raw PTY bytes (ANSI escapes, possibly invalid UTF-8), not JSON.
   async getTerminalLog(terminalId) {
     const response = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/log`, {

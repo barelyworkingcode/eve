@@ -3,6 +3,8 @@ const moduleRoutes = require('./modules');
 const { HIDDEN_SESSION_PREFIX } = require('../module-invoker');
 const { HIDDEN_SEARCH_PREFIX } = require('../search-summarizer');
 const path = require('path');
+const express = require('express');
+const { saveTerminalPaste, MAX_PASTE_BYTES } = require('../terminal-paste');
 
 const HIDDEN_SESSION_PREFIXES = [HIDDEN_SESSION_PREFIX, HIDDEN_SEARCH_PREFIX];
 function isHiddenSession(name) {
@@ -309,6 +311,24 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       res.status(502).json({ error: 'Terminal log unavailable' });
     }
   });
+
+  // An image pasted into a terminal pane: saved to a temp file where the
+  // terminal runs (the host when ?host= is set) and answered with its path,
+  // which the pane then pastes as text. See terminal-paste.js.
+  app.post('/api/terminal/paste-image', requireAuth,
+    express.raw({ type: 'image/*', limit: MAX_PASTE_BYTES }),
+    async (req, res) => {
+      const hostId = typeof req.query.host === 'string' ? req.query.host : '';
+      try {
+        const filePath = await saveTerminalPaste(
+          { buffer: Buffer.isBuffer(req.body) ? req.body : null, mimeType: (req.get('content-type') || '').split(';')[0].trim(), hostId },
+          { hostPool });
+        res.json({ path: filePath });
+      } catch (err) {
+        routeLog.error(`POST /api/terminal/paste-image failed (host=${hostId || 'console'}):`, err.message);
+        res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to save image' });
+      }
+    });
 
   let voiceCache = null;
   let voiceCacheTime = 0;

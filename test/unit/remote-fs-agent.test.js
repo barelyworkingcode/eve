@@ -130,6 +130,30 @@ describe('remote-fs-agent.js (spawned over pipes, no ssh)', () => {
     expect(fs.readFileSync(path.join(root, 'up.bin'))).toEqual(Buffer.from('binary-ish'));
   });
 
+  it('writes a pasted image into /tmp, owner-only, and returns its path', async () => {
+    const name = `eve-paste-${Date.now()}-${process.pid.toString(16)}.png`;
+    const full = path.join('/tmp', name);
+    try {
+      const data = Buffer.from('png-bytes').toString('base64');
+      const res = await agent.request('pastetmp', { name, data });
+      expect(res).toMatchObject({ ok: true, path: full });
+      expect(fs.readFileSync(full)).toEqual(Buffer.from('png-bytes'));
+      expect(fs.statSync(full).mode & 0o777).toBe(0o600);
+      // 'wx': a second write to the same name (or a planted symlink) fails.
+      const again = await agent.request('pastetmp', { name, data });
+      expect(again.ok).toBe(false);
+    } finally {
+      fs.rmSync(full, { force: true });
+    }
+  });
+
+  it('refuses a pastetmp name that is not an eve-paste file', async () => {
+    for (const name of ['../etc/passwd', 'eve-paste-1-ab.sh', 'sub/eve-paste-1-ab.png', '']) {
+      const res = await agent.request('pastetmp', { name, data: '' });
+      expect(res.ok).toBe(false);
+    }
+  });
+
   it('renames a file', async () => {
     const res = await agent.request('rename', { root, path: 'a.txt', newName: 'renamed.txt' });
     expect(res.ok).toBe(true);

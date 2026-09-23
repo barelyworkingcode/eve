@@ -23,6 +23,8 @@ const SEARCH_MAX_BYTES = 10 * 1024 * 1024;
 const SEARCH_TIME_LIMIT_MS = 5000;
 const STREAM_CHUNK_BYTES = 64 * 1024;
 const SKIP_DIR_NAMES = new Set(['.git', 'node_modules']);
+const PASTE_DIR = '/tmp';
+const PASTE_NAME_RE = /^eve-paste-[0-9]+-[0-9a-f]+\.(png|jpg|gif|webp)$/;
 
 // Errors thrown with one of these codes cross the wire verbatim; anything
 // else (a validation slip, an unexpected fs code) collapses to ERROR rather
@@ -242,6 +244,18 @@ async function handleMessage(msg) {
       const full = resolveInRoot(msg.root, msg.path);
       await fsp.writeFile(full, Buffer.from(msg.data || '', 'base64'));
       send({ id, ok: true });
+      return;
+    }
+
+    // An image pasted into a host terminal (terminal-paste.js). Deliberately
+    // outside any project root, so no resolveInRoot: the name is a single
+    // eve-generated segment, and 'wx' refuses an existing file or symlink.
+    case 'pastetmp': {
+      const name = String(msg.name || '');
+      if (!PASTE_NAME_RE.test(name)) throw new AgentError('Invalid paste file name', 'ERROR');
+      const full = path.join(PASTE_DIR, name);
+      await fsp.writeFile(full, Buffer.from(msg.data || '', 'base64'), { flag: 'wx', mode: 0o600 });
+      send({ id, ok: true, path: full });
       return;
     }
 

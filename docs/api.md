@@ -89,6 +89,7 @@ A project either lives on the console (as today) or on one SSH host (`project.ho
 | GET | `/api/projects/:id/persistent-sessions` | Host project's persistent (tmux) sessions, proxied from relay: `[{name, template_id, n, created, attached, attached_here}]`. 404 not a host project, 409 host has no tmux, 502 ssh failure. |
 | DELETE | `/api/projects/:id/persistent-sessions/:name` | Kill one persistent session. 204. |
 | GET | `/api/terminals/:id/log` | Raw PTY byte stream for a completed task (binary, `no-store`). |
+| POST | `/api/terminal/paste-image?host=` | Raw image body (png/jpeg/gif/webp, ≤10MB) pasted into a terminal pane. Saved owner-only to eve's tmpdir, or to `/tmp` on the SSH host when `host` is set (agent op `pastetmp`); returns `{path}`, which the pane pastes as text. |
 
 ### TTS / STT (local)
 
