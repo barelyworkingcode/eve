@@ -1,5 +1,7 @@
 'use strict';
 
+const zlib = require('zlib');
+
 /**
  * The one Node implementation of relay's RemoteCommand derivation (decision 8
  * in ../relay/docs/ssh-hosts.md). A login shell may be sh, bash, zsh or fish;
@@ -39,10 +41,12 @@ function wrapShLauncher(script) {
 // eve's own agent launches the same way (decision 8's last sentence) but as
 // `node -e` rather than `sh -c`: the base64 payload only ever contains
 // [A-Za-z0-9+/=], which is safe unescaped inside the double-quoted -e
-// argument on every login shell, so no further wrapping is needed.
+// argument on every login shell, so no further wrapping is needed. The
+// source is gzipped first: a Windows host's cmd.exe refuses a command line
+// over 8191 characters, and the plain base64 agent is more than twice that.
 function nodeLauncher(scriptSource) {
-  const b64 = Buffer.from(scriptSource, 'utf8').toString('base64');
-  return `node -e "eval(Buffer.from('${b64}','base64').toString())"`;
+  const b64 = zlib.gzipSync(Buffer.from(scriptSource, 'utf8'), { level: 9 }).toString('base64');
+  return `node -e "eval(require('zlib').gunzipSync(Buffer.from('${b64}','base64')).toString())"`;
 }
 
 module.exports = { remoteCommand, nodeLauncher, shQuote, wrapShLauncher };
