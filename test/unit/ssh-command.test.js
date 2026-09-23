@@ -58,22 +58,35 @@ describe('ssh-command shQuote', () => {
 });
 
 describe('ssh-command nodeLauncher', () => {
-  it('produces the exact node -e / Buffer.from decode form', () => {
+  const zlib = require('zlib');
+  const payloadOf = (launcher) => launcher.match(/Buffer\.from\('([^']+)','base64'\)/)[1];
+
+  it('produces the exact node -e / gunzip / Buffer.from decode form', () => {
     const launcher = nodeLauncher('console.log(1)');
-    const b64 = Buffer.from('console.log(1)', 'utf8').toString('base64');
-    expect(launcher).toBe(`node -e "eval(Buffer.from('${b64}','base64').toString())"`);
+    expect(launcher).toMatch(/^node -e "eval\(require\('zlib'\)\.gunzipSync\(Buffer\.from\('[A-Za-z0-9+/]+=*','base64'\)\)\.toString\(\)\)"$/);
   });
 
-  it('round-trips arbitrary JS source through the base64 payload', () => {
+  it('round-trips arbitrary JS source through the gzipped base64 payload', () => {
     const source = "const x = 'a\\'b' + \"c\"; console.log(x);";
-    const launcher = nodeLauncher(source);
-    const b64 = launcher.match(/Buffer\.from\('([^']+)','base64'\)/)[1];
-    expect(Buffer.from(b64, 'base64').toString('utf8')).toBe(source);
+    const b64 = payloadOf(nodeLauncher(source));
+    expect(zlib.gunzipSync(Buffer.from(b64, 'base64')).toString('utf8')).toBe(source);
   });
 
   it('uses only base64-alphabet characters inside the payload', () => {
-    const launcher = nodeLauncher('/* anything */');
-    const b64 = launcher.match(/Buffer\.from\('([^']+)','base64'\)/)[1];
-    expect(b64).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    expect(payloadOf(nodeLauncher('/* anything */'))).toMatch(/^[A-Za-z0-9+/]+=*$/);
+  });
+
+  it('keeps the real fs agent under cmd.exe\'s 8191-character command line limit', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(path.join(__dirname, '../../remote-fs-agent.js'), 'utf8');
+    expect(nodeLauncher(source).length).toBeLessThan(8191);
+  });
+
+  it('runs under node exactly as the remote host would', () => {
+    const { execFileSync } = require('child_process');
+    const launcher = nodeLauncher("process.stdout.write('ok ' + typeof require)");
+    const arg = launcher.match(/^node -e "(.*)"$/)[1];
+    expect(execFileSync(process.execPath, ['-e', arg]).toString()).toBe('ok function');
   });
 });
