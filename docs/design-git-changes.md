@@ -82,7 +82,7 @@ Clicking a row opens a document-area pane keyed `diff:<repo>:<path>`
   (< 768px) default to Inline.
 - Added / untracked files diff against empty; deleted files diff to empty
   and disable **File**. Binary files show "Binary file changed" plus size
-  delta; images reuse `image-viewer.js` for a before/after pair.
+  delta (image before/after is out of scope for v1).
 - The diff pane is read-only in v1. Edits go through **File**.
 
 ## Server side
@@ -102,13 +102,7 @@ Depth is capped at 1 below root to keep discovery cheap on large trees.
 
 ### Operations
 
-Same surface on `FileService` (local) and `RemoteFileService` (remote agent):
-
-| op | input | output |
-|---|---|---|
-| `gitRepos` | — | `[{ path, branch, head, upstream, ahead, behind }]` |
-| `gitStatus` | `repo`, `scope` | `[{ path, status, oldPath? }]` |
-| `gitFileVersions` | `repo`, `path`, `scope` | `{ original, modified, binary, language }` |
+Exact shapes are in **Contract** below.
 
 `gitStatus` uses `git status --porcelain=v2 -z --untracked-files=all`
 (uncommitted) or `git diff --name-status -z <merge-base>` (vs base).
@@ -136,6 +130,81 @@ Piggy-back on the existing `watch` stream. Any change event under a repo
 schedules a debounced (500 ms) `gitStatus` for that repo only. Events inside
 `.git/` are ignored except `index` and `HEAD`, which cover commits, staging,
 and branch switches.
+
+## Contract (pinned — every task builds against this)
+
+### Server: `GitService` (`git-service.js`)
+
+One implementation for local and remote. Discovery, porcelain parsing,
+merge-base, and binary detection live here once; only the runner differs.
+
+```js
+new GitService({
+  // Run git. cwdRel is root-relative ('/' = root). Resolves, never rejects on
+  // non-zero exit. stdout is a Buffer. Enforces timeout + maxBytes and
+  // rejects with GitError('TIMEOUT'|'TOO_LARGE'|'GIT_MISSING').
+  run: (root, cwdRel, args, { maxBytes }) => Promise<{ code, stdout: Buffer, stderr: string }>,
+  // Existing FileService/RemoteFileService.listDirectory (showHidden: true).
+  listDirectory: (root, rel, opts) => Promise<[{ name, type }]>,
+  // Existing FileService/RemoteFileService.readFile -> { content, size }.
+  readFile: (root, rel) => Promise<{ content, size }>,
+})
+```
+
+`GitError extends Error` with `.code` in
+`NOT_A_REPO | GIT_MISSING | TOO_LARGE | TIMEOUT | FAILED`.
+
+Methods (also exposed 1:1 on `FileService` and `RemoteFileService` as
+`gitRepos` / `gitStatus` / `gitFileVersions`, each taking `projectPath` first):
+
+- `repos(projectPath)` →
+  `[{ path, name, branch, head, detached, upstream, ahead, behind, defaultBranch }]`
+  - `path` is root-relative with a leading slash (`'/'` for the root repo,
+    `'/feat-login'` for a child). `name` is the folder basename.
+  - `branch`/`upstream`/`defaultBranch` are `null` when unknown;
+    `head` is the 7-char short SHA; `ahead`/`behind` are `0` without upstream.
+- `status(projectPath, repoPath, scope)` — `scope` is `'uncommitted' | 'base'` →
+  `{ repo, scope, base, files: [{ path, status, oldPath?, staged }], truncated }`
+  - `path`/`oldPath` are repo-relative, no leading slash.
+  - `status` ∈ `M A D R U ?` (copies fold into `A`, type changes into `M`).
+  - `base` is the merge-base short SHA for `'base'`, else `null`.
+  - `truncated` is true when the file list was capped (5 000 entries).
+- `fileVersions(projectPath, repoPath, filePath, scope)` →
+  `{ original, modified, binary, tooLarge, originalSize, modifiedSize }`
+  - `original`: text at `HEAD` (uncommitted) or merge-base (base); `null` when
+    the file didn't exist there. `modified`: working-tree text, `null` when
+    deleted. Both `null` when `binary` or `tooLarge`.
+
+### Remote agent op
+
+`remote-fs-agent.js` gains one op, `git`:
+`{ op: 'git', root, cwd, args, maxBytes }` → `{ ok, code, stdout (base64), stderr }`.
+`cwd` is confined to `root` with the agent's existing `resolveInRoot`. Eve
+already holds full read/write authority over the agent, so a generic git op
+grants nothing new; the browser never supplies `args`.
+`RemoteFileService` wraps it as the `run` for its `GitService`.
+
+### WebSocket frames (`ws/git-messages.js`)
+
+| direction | frame |
+|---|---|
+| → server | `{ type: 'git_changes', projectId, scope, repo? }` |
+| ← client | `{ type: 'git_changes', projectId, scope, repos: [{ ...repoMeta, files, base, truncated, error? }] }` — one entry per repo, or just `repo` when given |
+| → server | `{ type: 'git_file_versions', projectId, repo, path, scope }` |
+| ← client | `{ type: 'git_file_versions', projectId, repo, path, scope, original, modified, binary, tooLarge, originalSize, modifiedSize }` |
+| ← client | `{ type: 'git_error', projectId, repo?, path?, code, error }` |
+| ← client (push) | `{ type: 'git_changed', projectId, repo }` — from the file watcher |
+
+A per-repo failure inside `git_changes` sets that repo's `error: { code, message }`
+rather than failing the whole frame.
+
+### Client bus events
+
+`message-dispatcher.js` re-emits each inbound frame on the EventBus:
+`git:changes`, `git:file-versions`, `git:error`, `git:changed` (payload = the
+frame). The sidebar emits `git:open-diff` with
+`{ projectId, repo, repoName, branch, path, oldPath, status, scope }`; the diff
+pane listens for it.
 
 ## Out of scope for v1
 
