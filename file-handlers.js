@@ -2,26 +2,11 @@ const FileService = require('./file-service');
 const RemoteFileService = require('./remote-file-service');
 
 const GIT_SCOPES = new Set(['uncommitted', 'base']);
-// Each gitStatus is several git processes; a project with many worktrees
-// shouldn't fork them all at once.
-const GIT_STATUS_CONCURRENCY = 4;
+// WebSocket CLOSING / CLOSED. A streamed git_changes can outlive the socket.
+const WS_CLOSING = 2;
 
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0;
-}
-
-// Order-preserving map with at most `limit` promises in flight.
-async function mapWithConcurrency(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i], i);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
 }
 
 class FileHandlers {
@@ -241,6 +226,29 @@ class FileHandlers {
     return GIT_SCOPES.has(scope) ? scope : null;
   }
 
+  // One repo's git_changes entry: its meta merged with status(), which owns
+  // upstream/ahead/behind (repos() leaves them null/0). A failure becomes the
+  // entry's `error` rather than failing the frame.
+  async _gitRepoEntry(fs, project, meta, scope) {
+    try {
+      const st = await fs.gitStatus(project.path, meta.path, scope);
+      const entry = { ...meta };
+      for (const k of ['upstream', 'ahead', 'behind']) {
+        if (st[k] !== undefined) entry[k] = st[k];
+      }
+      return { ...entry, pending: false, files: st.files, base: st.base, truncated: !!st.truncated };
+    } catch (err) {
+      return {
+        ...meta, pending: false, files: [], base: null, truncated: false,
+        error: { code: err.code || 'FAILED', message: this._gitErrorMessage(err, project) },
+      };
+    }
+  }
+
+  // Full request (no `repo`) streams per the design doc's "Streaming"
+  // contract: a full-list frame with every repo pending, then one
+  // single-repo frame per repo in completion order. GitService caps how many
+  // git processes actually run at once.
   async gitChanges(ws, message) {
     const { projectId, repo } = message;
     const scope = this._gitScope(message.scope);
@@ -254,35 +262,35 @@ class FileHandlers {
     const project = this._resolveProject(projectId);
     if (!project) return this._sendGitError(ws, fields, { code: 'NOT_FOUND', message: 'Project not found' });
 
+    let fs;
+    let metas;
     try {
-      const fs = this.fileServiceFor(project);
-      let metas = await fs.gitRepos(project.path);
-      if (repo !== undefined) {
-        metas = metas.filter((m) => m.path === repo);
-        if (metas.length === 0) {
-          return this._sendGitError(ws, fields, { code: 'NOT_A_REPO', message: 'Not a git repository' });
-        }
-      }
-
-      const repos = await mapWithConcurrency(metas, GIT_STATUS_CONCURRENCY, async (meta) => {
-        try {
-          const st = await fs.gitStatus(project.path, meta.path, scope);
-          return { ...meta, files: st.files, base: st.base, truncated: !!st.truncated };
-        } catch (err) {
-          return {
-            ...meta, files: [], base: null, truncated: false,
-            error: { code: err.code || 'FAILED', message: this._gitErrorMessage(err, project) },
-          };
-        }
-      });
-
-      // Echo `repo` so the client can tell a single-repo reply from a full one.
-      const reply = { type: 'git_changes', projectId, scope, repos };
-      if (repo !== undefined) reply.repo = repo;
-      ws.send(JSON.stringify(reply));
+      fs = this.fileServiceFor(project);
+      metas = await fs.gitRepos(project.path);
     } catch (err) {
-      this._sendGitError(ws, fields, err, project);
+      return this._sendGitError(ws, fields, err, project);
     }
+
+    // `repo` is echoed only on a single-repo frame; its absence tells the
+    // client to replace its list rather than merge.
+    const send = (repos, repoPath) => {
+      if (ws.readyState >= WS_CLOSING) return;
+      const frame = { type: 'git_changes', projectId, scope, repos };
+      if (repoPath !== undefined) frame.repo = repoPath;
+      ws.send(JSON.stringify(frame));
+    };
+
+    if (repo !== undefined) {
+      const meta = metas.find((m) => m.path === repo);
+      if (!meta) return this._sendGitError(ws, fields, { code: 'NOT_A_REPO', message: 'Not a git repository' });
+      return send([await this._gitRepoEntry(fs, project, meta, scope)], repo);
+    }
+
+    send(metas.map((m) => ({ ...m, pending: true, files: [], base: null, truncated: false })));
+    await Promise.all(metas.map(async (meta) => {
+      const entry = await this._gitRepoEntry(fs, project, meta, scope);
+      send([entry], meta.path);
+    }));
   }
 
   async gitFileVersions(ws, message) {

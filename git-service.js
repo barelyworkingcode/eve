@@ -25,6 +25,7 @@ const SMALL_MAX_BYTES = 64 * 1024;
 const MAX_FILES = 5000;
 const BINARY_SNIFF_BYTES = 8000;
 const RUN_TIMEOUT_MS = 10000;
+const DEFAULT_CONCURRENCY = 6;
 
 // Prepended to every git invocation. quotepath=off keeps non-ASCII paths
 // verbatim; fsmonitor=false stops a repo's own config from making a status
@@ -228,15 +229,105 @@ function parseNameStatus(buf) {
   return files;
 }
 
+// `git worktree list --porcelain` (newline form; -z needs git >= 2.36) ->
+// [{ path, head, branch, detached, bare, prunable }]. First entry is the main
+// worktree (or the bare git dir), so its path identifies the repository.
+function parseWorktreeList(text) {
+  const out = [];
+  let cur = null;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      cur = { path: line.slice('worktree '.length), head: null, branch: null, detached: false, bare: false, prunable: false };
+      out.push(cur);
+    } else if (!cur) {
+      continue;
+    } else if (line === '') {
+      cur = null;
+    } else if (line.startsWith('HEAD ')) {
+      cur.head = line.slice('HEAD '.length);
+    } else if (line.startsWith('branch ')) {
+      cur.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+    } else if (line === 'detached') {
+      cur.detached = true;
+    } else if (line === 'bare') {
+      cur.bare = true;
+    } else if (line === 'prunable' || line.startsWith('prunable ')) {
+      cur.prunable = true;
+    }
+  }
+  return out;
+}
+
+// `# branch.upstream` / `# branch.ab` headers of `git status --porcelain=v2
+// --branch -z` -> { upstream, ahead, behind }.
+function parseBranchHeaders(buf) {
+  const tracking = { upstream: null, ahead: 0, behind: 0 };
+  for (const rec of splitNul(buf)) {
+    if (rec.startsWith('# branch.upstream ')) {
+      tracking.upstream = rec.slice('# branch.upstream '.length) || null;
+    } else if (rec.startsWith('# branch.ab ')) {
+      const m = /^# branch\.ab \+(\d+) -(\d+)/.exec(rec);
+      if (m) {
+        tracking.ahead = parseInt(m[1], 10);
+        tracking.behind = parseInt(m[2], 10);
+      }
+    }
+  }
+  return tracking;
+}
+
+// abs -> root-relative ('/x'), trying each form of the root (as given, as git
+// reports it); null when outside every form.
+function relUnder(abs, bases) {
+  for (const base of bases) {
+    if (abs === base) return '/';
+    if (abs.startsWith(base === '/' ? '/' : base + '/')) return path.resolve('/', path.relative(base, abs));
+  }
+  return null;
+}
+
+const ZERO_SHA = /^0+$/;
+
 class GitService {
   static assertScope(scope) {
     if (!SCOPES.has(scope)) throw new GitError('FAILED', `Invalid scope: ${scope}`);
   }
 
-  constructor({ run, listDirectory, readFile }) {
-    this._runRaw = run;
-    this.listDirectory = listDirectory;
-    this.readFile = readFile;
+  constructor({ run, listDirectory, readFile, concurrency = DEFAULT_CONCURRENCY }) {
+    this._concurrency = Math.max(1, concurrency | 0);
+    this._active = 0;
+    this._queue = [];
+    // Every runner call goes through the limiter. Each slot covers exactly
+    // one runner call and is released before its caller awaits anything
+    // else, so no call ever waits for a slot while holding one.
+    this._runRaw = (...a) => this._limit(() => run(...a));
+    this.listDirectory = (...a) => this._limit(() => listDirectory(...a));
+    this.readFile = (...a) => this._limit(() => readFile(...a));
+  }
+
+  // FIFO limiter: at most `_concurrency` runner calls in flight.
+  _limit(fn) {
+    return new Promise((resolve, reject) => {
+      this._queue.push({ fn, resolve, reject });
+      this._drain();
+    });
+  }
+
+  _drain() {
+    while (this._active < this._concurrency && this._queue.length) {
+      const { fn, resolve, reject } = this._queue.shift();
+      this._active++;
+      let p;
+      try {
+        p = Promise.resolve(fn());
+      } catch (err) {
+        p = Promise.reject(err);
+      }
+      p.then(resolve, reject).finally(() => {
+        this._active--;
+        this._drain();
+      });
+    }
   }
 
   _run(root, cwdRel, args, maxBytes = SMALL_MAX_BYTES) {
@@ -263,6 +354,19 @@ class GitService {
     return { toplevel: lines[0], prefix: lines[1] || '' };
   }
 
+  // Parsed worktree list run at cwdRel, or null when cwdRel isn't a git context.
+  async _worktreeList(root, cwdRel) {
+    let res;
+    try {
+      res = await this._run(root, cwdRel, ['worktree', 'list', '--porcelain'], STATUS_MAX_BYTES);
+    } catch (err) {
+      if (err instanceof GitError && err.code === 'NOT_A_REPO') return null;
+      throw err;
+    }
+    if (res.code !== 0) return null;
+    return parseWorktreeList(res.stdout.toString('utf8'));
+  }
+
   // Confirms an untrusted repoPath is a git top-level inside the root.
   async _resolveRepo(projectPath, repoPath) {
     const rel = normalizeRepoPath(repoPath);
@@ -273,110 +377,155 @@ class GitService {
     return rel;
   }
 
+  /**
+   * Discovery (docs/design-git-changes.md, "Discovery"): one listDirectory of
+   * the root plus one `git worktree list` at the root cover every worktree of
+   * the root's repo in two calls. Only child folders that list doesn't cover
+   * are probed for a `.git` entry; each independent repo found that way costs
+   * a probe plus its own worktree list. defaultBranch runs once per repository
+   * (common git dir), not per worktree.
+   */
   async repos(projectPath) {
-    const candidates = ['/'];
-    let entries = [];
-    try {
-      entries = await this.listDirectory(projectPath, '/', { showHidden: true });
-    } catch (_) {}
-    const children = entries.filter(e => e.type === 'directory' && e.name !== '.git');
-    const childHits = await Promise.all(children.map(async (e) => {
-      try {
-        const inner = await this.listDirectory(projectPath, '/' + e.name, { showHidden: true });
-        return inner.some(x => x.name === '.git') ? '/' + e.name : null;
-      } catch (_) {
-        return null;
-      }
-    }));
-    for (const hit of childHits) if (hit) candidates.push(hit);
-
-    // rel -> toplevel, only for candidates that are themselves top-levels.
-    const found = new Map();
-    const probes = await Promise.all(candidates.map(rel => this._probe(projectPath, rel)));
-    // git prints the realpath of the top-level; derive the root's realpath
-    // from any hit so worktree paths (also realpaths) can be mapped back.
-    let realRoot = null;
-    probes.forEach((p, i) => {
-      if (!p || p.prefix !== '') return;
-      const rel = candidates[i];
-      found.set(rel, p.toplevel);
-      if (!realRoot) {
-        if (rel === '/') realRoot = p.toplevel;
-        else if (p.toplevel.endsWith(rel)) realRoot = p.toplevel.slice(0, -rel.length) || '/';
-      }
-    });
-
-    // Worktrees registered with any found repo, kept only when inside root.
     const lexicalRoot = path.resolve(projectPath);
-    const worktreeRels = new Set();
-    await Promise.all([...found.keys()].map(async (rel) => {
-      // Newline-separated (not -z, which needs git >= 2.36).
-      const res = await this._run(projectPath, rel, ['worktree', 'list', '--porcelain'], STATUS_MAX_BYTES)
-        .catch(() => null);
-      if (!res || res.code !== 0) return;
-      for (const field of res.stdout.toString('utf8').split('\n')) {
-        if (!field.startsWith('worktree ')) continue;
-        const abs = field.slice('worktree '.length);
-        for (const base of [realRoot, lexicalRoot]) {
-          if (!base) continue;
-          if (abs === base || abs.startsWith(base === '/' ? '/' : base + '/')) {
-            worktreeRels.add(path.resolve('/', path.relative(base, abs)));
-            break;
-          }
+    const [entries, rootList] = await Promise.all([
+      this.listDirectory(projectPath, '/', { showHidden: true }).catch(() => []),
+      this._worktreeList(projectPath, '/'),
+    ]);
+    const children = entries.filter(e => e.type === 'directory' && e.name !== '.git').map(e => '/' + e.name);
+    const rootGit = entries.find(e => e.name === '.git');
+
+    // git prints realpaths; the root may have been given through a symlink.
+    const bases = [lexicalRoot];
+    let realRootKnown = false;
+    const learnRealRoot = (real) => {
+      if (realRootKnown || !real) return;
+      realRootKnown = true;
+      if (!bases.includes(real)) bases.push(real);
+    };
+
+    const found = new Map();   // rel -> { abs, branch, head, detached, key, fromList }
+    const absSeen = new Set();
+    const covered = new Set(); // rels that need no probe (bare git dir)
+    const groups = new Map();  // repository key -> cwdRel to resolve defaultBranch at
+
+    const addListEntries = (list, cwdRel) => {
+      if (!list || !list.length) return;
+      const key = list[0].path;
+      if (!groups.has(key)) groups.set(key, cwdRel);
+      for (const wt of list) {
+        const rel = relUnder(wt.path, bases);
+        if (wt.bare) {
+          if (rel) covered.add(rel);
+          continue;
         }
+        if (wt.prunable || !rel || found.has(rel) || absSeen.has(wt.path)) continue;
+        found.set(rel, { ...wt, abs: wt.path, key, fromList: true });
+        absSeen.add(wt.path);
+      }
+    };
+
+    if (rootList) {
+      const bare = rootList.find(wt => wt.bare);
+      if (bare && rootGit && rootGit.type === 'file' && children.includes('/' + path.basename(bare.path))) {
+        // Bare-repo layout: `.bare/` (or similar) sits directly in the root.
+        learnRealRoot(path.dirname(bare.path));
+      } else if (rootGit && rootGit.type === 'directory' && rootList[0] && !rootList[0].bare) {
+        // Root is the main worktree, always listed first.
+        learnRealRoot(rootList[0].path);
+      }
+      if (!realRootKnown && rootList.some(wt => !relUnder(wt.path, bases))) {
+        // Root is a linked worktree or a subfolder of a repo: ask git once.
+        const probe = await this._probe(projectPath, '/');
+        if (probe) learnRealRoot(path.join(probe.toplevel, probe.prefix));
+      }
+      addListEntries(rootList, '/');
+    }
+
+    // Children the root's worktree list doesn't cover: independent clones, or
+    // every child when the root isn't a git context.
+    const uncovered = children.filter(rel => !found.has(rel) && !covered.has(rel));
+    const hasGit = await Promise.all(uncovered.map(async (rel) => {
+      try {
+        const inner = await this.listDirectory(projectPath, rel, { showHidden: true });
+        return inner.some(x => x.name === '.git');
+      } catch (_) {
+        return false;
       }
     }));
-    const extra = [...worktreeRels].filter(r => !found.has(r));
-    const extraProbes = await Promise.all(extra.map(rel => this._probe(projectPath, rel).catch(() => null)));
-    extraProbes.forEach((p, i) => {
-      if (p && p.prefix === '') found.set(extra[i], p.toplevel);
-    });
+    const pending = uncovered.filter((_, i) => hasGit[i]);
 
-    // De-dupe by top-level (a symlinked child could alias another repo).
-    const seen = new Set();
-    const rels = [];
-    for (const [rel, top] of found) {
-      if (seen.has(top)) continue;
-      seen.add(top);
-      rels.push(rel);
+    // In waves, so worktrees of one repo found as separate children (no git
+    // context at the root) are covered by the first list rather than each
+    // paying for their own.
+    while (pending.length) {
+      const wave = pending.splice(0, this._concurrency);
+      const results = await Promise.all(wave.map(rel => Promise.all([
+        this._probe(projectPath, rel),
+        this._worktreeList(projectPath, rel),
+      ])));
+      results.forEach(([probe], i) => {
+        const rel = wave[i];
+        if (probe && probe.prefix === '' && probe.toplevel.endsWith(rel)) {
+          learnRealRoot(probe.toplevel.slice(0, -rel.length) || '/');
+        }
+      });
+      results.forEach(([probe, list], i) => {
+        const rel = wave[i];
+        if (!probe || probe.prefix !== '' || found.has(rel) || absSeen.has(probe.toplevel)) return;
+        const own = list && list.find(wt => wt.path === probe.toplevel && !wt.bare);
+        const key = list && list.length ? list[0].path : `toplevel:${probe.toplevel}`;
+        if (!groups.has(key)) groups.set(key, rel);
+        found.set(rel, own
+          ? { ...own, abs: probe.toplevel, key, fromList: true }
+          : { abs: probe.toplevel, key, fromList: false });
+        absSeen.add(probe.toplevel);
+        addListEntries(list, rel);
+      });
+      for (let i = pending.length - 1; i >= 0; i--) {
+        if (found.has(pending[i])) pending.splice(i, 1);
+      }
     }
-    rels.sort((a, b) => {
+
+    const defaults = new Map();
+    for (const { key } of found.values()) {
+      if (!defaults.has(key)) defaults.set(key, this._defaultBranch(projectPath, groups.get(key)));
+    }
+
+    const rels = [...found.keys()].sort((a, b) => {
       if (a === '/') return -1;
       if (b === '/') return 1;
       return a.localeCompare(b);
     });
-
-    return Promise.all(rels.map(rel => this._repoMeta(projectPath, rel)));
+    return Promise.all(rels.map(async (rel) => {
+      const wt = found.get(rel);
+      const [head, def] = await Promise.all([
+        wt.fromList ? wt : this._headMeta(projectPath, rel),
+        defaults.get(wt.key),
+      ]);
+      const sha = head.head && !ZERO_SHA.test(head.head) ? head.head : null;
+      return {
+        path: rel,
+        name: rel === '/' ? path.basename(lexicalRoot) : path.basename(rel),
+        branch: head.branch || null,
+        head: sha ? sha.slice(0, 7) : null,
+        detached: !head.branch,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        defaultBranch: def ? def.name : null,
+      };
+    }));
   }
 
-  async _repoMeta(root, rel) {
-    const [sym, head, upstream, defaultBranch] = await Promise.all([
+  // branch/head for a repo its own worktree list didn't describe.
+  async _headMeta(root, rel) {
+    const [sym, head] = await Promise.all([
       this._text(root, rel, ['symbolic-ref', '-q', '--short', 'HEAD']),
       this._text(root, rel, ['rev-parse', '-q', '--verify', 'HEAD']),
-      this._text(root, rel, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
-      this._defaultBranch(root, rel),
     ]);
-    let ahead = 0;
-    let behind = 0;
-    const hasUpstream = upstream.code === 0 && upstream.out && upstream.out !== '@{upstream}';
-    if (hasUpstream) {
-      const counts = await this._text(root, rel, ['rev-list', '--left-right', '--count', '@{upstream}...HEAD']);
-      if (counts.code === 0) {
-        const [b, a] = counts.out.split(/\s+/).map(n => parseInt(n, 10));
-        behind = Number.isFinite(b) ? b : 0;
-        ahead = Number.isFinite(a) ? a : 0;
-      }
-    }
     return {
-      path: rel,
-      name: rel === '/' ? path.basename(path.resolve(root)) : path.basename(rel),
       branch: sym.code === 0 && sym.out ? sym.out : null,
-      head: head.code === 0 && head.out ? head.out.slice(0, 7) : null,
-      detached: sym.code !== 0,
-      upstream: hasUpstream ? upstream.out : null,
-      ahead,
-      behind,
-      defaultBranch: defaultBranch ? defaultBranch.name : null,
+      head: head.code === 0 && head.out ? head.out : null,
     };
   }
 
@@ -415,26 +564,50 @@ class GitService {
     GitService.assertScope(scope);
     const rel = await this._resolveRepo(projectPath, repoPath);
     const base = scope === 'base' ? await this._mergeBase(projectPath, rel) : null;
-    const files = await this._listFiles(projectPath, rel, base);
+    // Uncommitted: upstream/ahead/behind come free with `status --branch`.
+    // Base: the file list comes from diff, so ask for tracking alongside it.
+    const [{ files, tracking }, baseTracking] = await Promise.all([
+      base ? this._listFiles(projectPath, rel, base).then(f => ({ files: f, tracking: null }))
+        : this._uncommitted(projectPath, rel),
+      base ? this._tracking(projectPath, rel) : null,
+    ]);
+    const { upstream, ahead, behind } = tracking || baseTracking;
     const truncated = files.length > MAX_FILES;
     return {
       repo: rel,
       scope,
       base: base ? base.slice(0, 7) : null,
+      upstream,
+      ahead,
+      behind,
       files: truncated ? files.slice(0, MAX_FILES) : files,
       truncated,
     };
   }
 
+  // Working-tree status vs HEAD plus the branch's tracking info.
+  async _uncommitted(root, rel) {
+    const res = await this._run(root, rel,
+      ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], STATUS_MAX_BYTES);
+    if (res.code !== 0) throw new GitError('FAILED', res.stderr.trim() || 'git status failed');
+    return { files: parseStatusV2(res.stdout), tracking: parseBranchHeaders(res.stdout) };
+  }
+
+  // Upstream name and ahead/behind vs it: one exec without an upstream, two with.
+  async _tracking(root, rel) {
+    const none = { upstream: null, ahead: 0, behind: 0 };
+    const up = await this._text(root, rel, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']);
+    if (up.code !== 0 || !up.out || up.out === '@{upstream}') return none;
+    const counts = await this._text(root, rel, ['rev-list', '--left-right', '--count', '@{upstream}...HEAD']);
+    if (counts.code !== 0) return { ...none, upstream: up.out };
+    const [b, a] = counts.out.split(/\s+/).map(n => parseInt(n, 10));
+    return { upstream: up.out, ahead: Number.isFinite(a) ? a : 0, behind: Number.isFinite(b) ? b : 0 };
+  }
+
   // Uncommitted status when base is null, else everything vs the merge-base
   // (committed + uncommitted) plus untracked files.
   async _listFiles(root, rel, base) {
-    if (!base) {
-      const res = await this._run(root, rel,
-        ['status', '--porcelain=v2', '-z', '--untracked-files=all'], STATUS_MAX_BYTES);
-      if (res.code !== 0) throw new GitError('FAILED', res.stderr.trim() || 'git status failed');
-      return parseStatusV2(res.stdout);
-    }
+    if (!base) return (await this._uncommitted(root, rel)).files;
     const [diff, others] = await Promise.all([
       this._run(root, rel, ['diff', '--no-ext-diff', '--name-status', '-z', '-M', base, '--'], STATUS_MAX_BYTES),
       this._run(root, rel, ['ls-files', '--others', '--exclude-standard', '-z'], STATUS_MAX_BYTES),

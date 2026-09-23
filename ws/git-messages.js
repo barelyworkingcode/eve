@@ -3,9 +3,10 @@
 module.exports = [
   {
     type: 'git_changes',
-    // Fans out to several git processes per worktree with no cap on worktree
-    // count, and the client re-requests on every git_changed push; same
-    // cost class as search_project.
+    // Fans out to several git processes per worktree (GitService caps how
+    // many run at once, but not the total) and the client re-requests on
+    // every git_changed push; same cost class as search_project. A full
+    // request streams one frame per repo after the pending list.
     expensive: true,
     handle(ctx) {
       // An open Changes tab needs the project's recursive watcher running so

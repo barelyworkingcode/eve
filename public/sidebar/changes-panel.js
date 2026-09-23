@@ -52,11 +52,12 @@ class ChangesPanel {
     if (projectId) this._ensureFresh();
   }
 
-  // Total changed files across repos for the current scope; null hides the badge.
+  // Total changed files across the repos that have arrived for the current
+  // scope (pending repos contribute nothing yet); null hides the badge.
   count() {
     const entry = this._entry();
     if (!entry || !entry.hasData) return null;
-    return entry.repos.reduce((n, r) => n + (r.files ? r.files.length : 0), 0);
+    return entry.repos.reduce((n, r) => n + (!r.pending && r.files ? r.files.length : 0), 0);
   }
 
   refresh() {
@@ -131,7 +132,8 @@ class ChangesPanel {
 
   _ensureFresh() {
     const entry = this._entry();
-    if (entry && (this._inFlight(entry) || (!entry.stale && Date.now() - entry.fetchedAt < ChangesPanel.FRESH_MS))) return;
+    if (entry && (this._inFlight(entry) || this._streaming(entry)
+      || (!entry.stale && Date.now() - entry.fetchedAt < ChangesPanel.FRESH_MS))) return;
     this._requestAll(false);
   }
 
@@ -148,6 +150,17 @@ class ChangesPanel {
 
   _inFlight(entry) {
     return entry.loading && Date.now() - (entry.requestedAt || 0) < ChangesPanel.REQUEST_TIMEOUT_MS;
+  }
+
+  // A full reply streams: the full-list frame settles the request (so the
+  // request timeout never covers the stream), then per-repo frames fill the
+  // pending repos in. While repos are still pending and frames keep coming,
+  // don't start a second full request over the top of the first. The
+  // timeout is measured from the last frame, so a long but progressing
+  // stream counts as live and a dropped one is eventually abandoned.
+  _streaming(entry) {
+    return entry.repos.some(r => r.pending)
+      && Date.now() - (entry.streamedAt || 0) < ChangesPanel.REQUEST_TIMEOUT_MS;
   }
 
   _requestRepo(repoPath) {
@@ -193,7 +206,9 @@ class ChangesPanel {
       entry.loading = false;
       entry.stale = false;
       entry.fetchedAt = Date.now();
+      entry.streamedAt = entry.fetchedAt;
     } else {
+      entry.streamedAt = Date.now();
       // Single-repo refresh: replace just that group, append if new.
       for (const repo of msg.repos) {
         const i = entry.repos.findIndex(r => r.path === repo.path);
@@ -302,14 +317,17 @@ class ChangesPanel {
     if (this.onUpdate) this.onUpdate();
   }
 
+  // Clean repos last. A pending repo isn't known to be clean, so it stays
+  // up top until its status arrives.
   _sortedRepos(repos) {
-    const isClean = (r) => !r.error && (!r.files || r.files.length === 0);
+    const isClean = (r) => !r.pending && !r.error && (!r.files || r.files.length === 0);
     return [...repos.filter(r => !isClean(r)), ...repos.filter(isClean)];
   }
 
   _renderRepoGroup(list, repo, disabled) {
-    const files = repo.files || [];
-    const clean = !repo.error && files.length === 0;
+    const pending = !!repo.pending;
+    const files = pending ? [] : (repo.files || []);
+    const clean = !pending && !repo.error && files.length === 0;
     const collapsed = this._isCollapsed(repo, clean);
     const bodyId = `changes-body-${this._domId(repo.path)}`;
 
@@ -359,11 +377,23 @@ class ChangesPanel {
       header.appendChild(sync);
     }
 
-    const count = document.createElement('span');
-    count.className = `changes-panel__count${clean ? ' changes-panel__count--clean' : ''}`;
-    count.textContent = repo.error ? '!' : (clean ? 'clean' : String(files.length));
-    if (repo.error) count.classList.add('changes-panel__count--error');
-    header.appendChild(count);
+    if (pending) {
+      // Status still streaming in: a spinner where the count will go.
+      const spinner = document.createElement('span');
+      spinner.className = 'changes-panel__pending';
+      spinner.dataset.testid = `changes-repo-pending-${repo.path}`;
+      spinner.setAttribute('role', 'status');
+      spinner.setAttribute('aria-label', 'Loading changes');
+      spinner.title = 'Loading changes…';
+      header.appendChild(spinner);
+      header.setAttribute('aria-busy', 'true');
+    } else {
+      const count = document.createElement('span');
+      count.className = `changes-panel__count${clean ? ' changes-panel__count--clean' : ''}`;
+      count.textContent = repo.error ? '!' : (clean ? 'clean' : String(files.length));
+      if (repo.error) count.classList.add('changes-panel__count--error');
+      header.appendChild(count);
+    }
 
     header.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -375,7 +405,7 @@ class ChangesPanel {
     body.className = 'changes-panel__files';
     body.id = bodyId;
     body.hidden = collapsed;
-    if (!collapsed) {
+    if (!collapsed && !pending) {
       if (repo.error) {
         const err = document.createElement('div');
         err.className = 'changes-panel__repo-error';

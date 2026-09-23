@@ -805,6 +805,25 @@
 }
 .changes-panel__count--error { color: var(--danger); }
 
+/* Pending repo (streamed git_changes): spinner in the count's slot. */
+.changes-panel__pending {
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--separator);
+  border-top-color: var(--text-muted);
+  border-radius: 50%;
+  animation: changes-panel-spin 0.8s linear infinite;
+}
+@keyframes changes-panel-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No spin: a still, dimmed ring still marks the repo as pending. */
+  .changes-panel__pending { animation: none; opacity: 0.6; }
+}
+
 .changes-panel__repo-error {
   padding: 3px 12px 3px 28px;
   font-size: var(--text-caption);
