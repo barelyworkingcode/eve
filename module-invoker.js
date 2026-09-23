@@ -203,13 +203,10 @@ function buildSystemPrompt({ moduleName, displayName, files, schema, tools, proj
     // Relay tools don't chdir to the session directory — they require
     // absolute paths, or the model's first tool call errors.
     parts.push(
-      `\nYou have these tools available: ${tools.join(', ')}. ` +
-      `The project root is \`${projectRoot}\`. ` +
-      `Tool paths must be ABSOLUTE — always prefix relative paths with the ` +
-      `project root (e.g. \`${projectRoot}/todo.md\`, not \`todo.md\`). ` +
-      `Use tools when the task requires reading, writing, or searching ` +
-      `files. Prefer the inlined context files above when they already ` +
-      `contain what you need.`
+      `\nThe project root is \`${projectRoot}\`. Tool paths must be absolute ` +
+      `(\`${projectRoot}/todo.md\`, not \`todo.md\`), because the tools do ` +
+      `not run in the project directory. Use tools when the task needs ` +
+      `files the context files below don't already cover.`
     );
   }
   if (files.length > 0) {
@@ -217,7 +214,7 @@ function buildSystemPrompt({ moduleName, displayName, files, schema, tools, proj
   }
   if (schema) {
     parts.push(
-      `\nYou MUST respond with a single JSON value matching this schema. Output ONLY the JSON, no prose, no markdown fences:\n` +
+      `\nRespond with a single JSON value matching this schema, with no surrounding prose or code fences, because the caller parses your reply directly:\n` +
       JSON.stringify(schema, null, 2)
     );
   }

@@ -35,7 +35,7 @@ Eve is a relay proxy — it delegates all LLM concerns to relayLLM via HTTP/WS p
 ### Communication flow
 
 ```
-Browser ──WS──►  Eve (ws-handler) ──WS──► relay ──► relayLLM       (sessions, messages, permissions, terminals)
+Browser ──WS──►  Eve (ws-handler) ──WS──► relay ──► relay-sessions (sessions, messages, permissions, terminals)
 Browser ──WS──►  Eve (ws-handler) ──local─► FileService            (file ops)
 Browser ──HTTP─► Eve (routes) ──HTTP─► relay ──► relayLLM           (models, sessions list, generated images)
 Browser ──HTTP─► Eve (routes) ──HTTP─► relay                        (projects, MCPs — served by relay)
@@ -124,16 +124,16 @@ Rules that make an otherwise-correct patch wrong here.
 
 ## Gotchas
 
-- **Data dir (`./data`).** `auth.json` (WebAuthn enrollment) and `sessions.json` (session tokens) are persisted; `settings.json` is optional and **read-only to Eve** — the operator creates it by hand to override the terminal `claude` path; Eve never writes it. All session/project/task data lives in relayLLM.
+- **Data dir (`./data`).** `auth.json` (WebAuthn enrollment) and `sessions.json` (session tokens) are persisted; `settings.json` is optional and **read-only to Eve** — the operator creates it by hand to override the terminal `claude` path; Eve never writes it. Session data lives in relay-sessions, projects in relay, tasks in relayScheduler.
 - **Voice bypasses relay entirely.** `tts-service.js` / `stt-service.js` are raw TCP clients to `127.0.0.1:TTS_PORT`/`STT_PORT` (relayTTS/relaySTT daemons) — no `RelayTransport`, no bearer token, no cert verification. They are loopback-only by construction (hardcoded `127.0.0.1`), which is what makes the lack of auth acceptable; don't parameterize the host without adding auth.
 - **Reconnection.** A browser reconnect spawns a fresh `RelayClient`, with a fresh upstream connection — relayLLM's per-connection subscription state (joined sessions, etc.) starts empty either way. But the upstream leg of an *existing* `RelayClient` also self-heals on its own, with capped backoff (`relay-client.js#_scheduleUpstreamReconnect`), independent of the browser socket — relay's own pong timeout or a relayLLM restart behind it can drop and restore it without the browser ever seeing a close; see `relay_status` in docs/api.md. The secondary relayScheduler `/ws/tasks` connection (`relay-client.js#_connectScheduler`) self-heals the same way.
 - **Permission auto-approval** is governed by the session/project permission mode (`bypassPermissions` = all tools, `acceptEdits` = file writes) — there is no per-connection `alwaysAllow` flag.
-- **Relay disconnection** — file and terminal-UI ops keep working (local); session state lives in relayLLM, so the sidebar persists across a relay drop.
+- **Relay disconnection** — file and terminal-UI ops keep working (local); session state lives in relay-sessions, so the sidebar persists across a relay drop.
 
 ## Ecosystem
 
 - `../relay/` — orchestrator; runs Eve as a managed service and fronts all relay-proxied backend traffic.
-- `../relayLLM/` — LLM engine; Eve's backend for session/model/permission ops and generated images (`/api/generated/`), reached through relay.
+- `../relayLLM/` — model host (llama.cpp / MLX / OpenAI-compatible routing), reached through relay. Sessions, terminals and the permission hook live in relay-sessions (`../relay/cmd/relaysessions`, see `../relay/docs/session-host.md`).
 - `../relayScheduler/` — task scheduler; reached via relay's `/api/tasks` HTTP dispatch and relay's `/ws/tasks` WS route (both still through `RelayTransport`, not a separate egress).
 - `../relayComfy/` — ComfyUI service for image/video generation (relayLLM proxies generated images from it; see `public/message-renderer.js`).
 - `../relayClient/` — iOS native app (WKWebView) using the Safari passkey fallback above.
