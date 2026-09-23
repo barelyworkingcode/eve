@@ -65,46 +65,130 @@ describe('FileHandlers#gitChanges', () => {
     });
   });
 
-  it('one entry per repo: meta + files/base/truncated', async () => {
-    const fakeFs = {
-      gitRepos: jest.fn().mockResolvedValue([meta('/a'), meta('/b')]),
-      gitStatus: jest.fn(async (root, repo) => ({
-        repo, scope: 'base', base: '1234567', truncated: repo === '/b',
-        files: [{ path: `${repo.slice(1)}.txt`, status: 'M', staged: false }],
-      })),
-    };
-    await handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'base' });
-    expect(last()).toEqual({
-      type: 'git_changes', projectId: 'p1', scope: 'base',
-      repos: [
-        { ...meta('/a'), files: [{ path: 'a.txt', status: 'M', staged: false }], base: '1234567', truncated: false },
-        { ...meta('/b'), files: [{ path: 'b.txt', status: 'M', staged: false }], base: '1234567', truncated: true },
-      ],
-    });
-    // No `repo` on a full reply: that absence is how the client knows to replace.
-    expect(last()).not.toHaveProperty('repo');
-  });
+  // Contract "Streaming": a full request answers at once with every repo
+  // pending, then one single-repo frame per repo in completion order.
+  describe('streamed full reply', () => {
+    function deferred() {
+      let resolve, reject;
+      const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+      return { promise, resolve, reject };
+    }
+    const flush = () => new Promise((r) => setImmediate(r));
 
-  it('isolates a per-repo failure into that repo\'s error, without the absolute server path', async () => {
-    const fakeFs = {
-      gitRepos: jest.fn().mockResolvedValue([meta('/a'), meta('/b'), meta('/c')]),
-      gitStatus: jest.fn(async (root, repo) => {
-        if (repo === '/b') throw new GitError('TIMEOUT', `git timed out in ${PROJECT_PATH}/b`);
-        if (repo === '/c') throw new Error(`fatal: bad object in ${PROJECT_PATH}/c/.git`);
-        return { files: [{ path: 'ok.txt', status: '?', staged: false }], base: null, truncated: false };
-      }),
-    };
-    await handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
-    const frame = last();
-    expect(frame.type).toBe('git_changes');
-    expect(frame.repos[0]).toMatchObject({ path: '/a', files: [{ path: 'ok.txt' }] });
-    expect(frame.repos[0].error).toBeUndefined();
-    expect(frame.repos[1]).toMatchObject({
-      path: '/b', files: [], base: null, truncated: false,
-      error: { code: 'TIMEOUT', message: 'git timed out in /b' },
+    // gitStatus parks on a per-repo deferred the test settles by hand.
+    function streamingFs(paths) {
+      const pending = Object.fromEntries(paths.map((p) => [p, deferred()]));
+      return {
+        pending,
+        fakeFs: {
+          gitRepos: jest.fn().mockResolvedValue(paths.map(meta)),
+          gitStatus: jest.fn((root, repo) => pending[repo].promise),
+        },
+      };
+    }
+
+    it('sends a full-list frame with every repo pending before any status resolves', async () => {
+      const { fakeFs, pending } = streamingFs(['/a', '/b', '/c']);
+      const done = handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
+      await flush();
+
+      expect(ws.sent).toHaveLength(1);
+      expect(ws.sent[0]).toEqual({
+        type: 'git_changes', projectId: 'p1', scope: 'uncommitted',
+        repos: ['/a', '/b', '/c'].map((p) => ({ ...meta(p), pending: true, files: [], base: null, truncated: false })),
+      });
+      // No `repo`: the client replaces its list with this one.
+      expect(ws.sent[0]).not.toHaveProperty('repo');
+
+      for (const p of ['/a', '/b', '/c']) pending[p].resolve({ files: [], base: null, truncated: false, upstream: null, ahead: 0, behind: 0 });
+      await done;
     });
-    expect(frame.repos[2].error).toEqual({ code: 'FAILED', message: 'fatal: bad object in /c/.git' });
-    expect(JSON.stringify(ws.sent)).not.toContain(PROJECT_PATH);
+
+    it('then one single-repo frame per repo, in completion order, with pending: false', async () => {
+      const { fakeFs, pending } = streamingFs(['/a', '/b', '/c']);
+      const done = handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'base' });
+      await flush();
+
+      pending['/c'].resolve({
+        repo: '/c', scope: 'base', base: '1234567', truncated: true,
+        upstream: 'origin/c', ahead: 2, behind: 1,
+        files: [{ path: 'c.txt', status: 'M', staged: false }],
+      });
+      await flush();
+      expect(ws.sent).toHaveLength(2);
+      expect(ws.sent[1]).toEqual({
+        type: 'git_changes', projectId: 'p1', scope: 'base', repo: '/c',
+        repos: [{
+          ...meta('/c'), upstream: 'origin/c', ahead: 2, behind: 1, pending: false,
+          files: [{ path: 'c.txt', status: 'M', staged: false }], base: '1234567', truncated: true,
+        }],
+      });
+
+      pending['/a'].resolve({ repo: '/a', scope: 'base', base: null, truncated: false, upstream: null, ahead: 0, behind: 0, files: [] });
+      await flush();
+      pending['/b'].resolve({
+        repo: '/b', scope: 'base', base: '1234567', truncated: false, upstream: null, ahead: 0, behind: 0,
+        files: [{ path: 'b.txt', status: 'A', staged: false }],
+      });
+      await done;
+
+      expect(ws.sent.map((f) => f.repo)).toEqual([undefined, '/c', '/a', '/b']);
+      for (const f of ws.sent.slice(1)) {
+        expect(f.repos).toHaveLength(1);
+        expect(f.repos[0].path).toBe(f.repo);
+        expect(f.repos[0].pending).toBe(false);
+      }
+      expect(ws.sent[3].repos[0]).toMatchObject({ files: [{ path: 'b.txt', status: 'A', staged: false }], base: '1234567' });
+    });
+
+    it("a per-repo failure arrives as that repo's own frame with error, without the absolute server path", async () => {
+      const { fakeFs, pending } = streamingFs(['/a', '/b', '/c']);
+      const done = handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
+      await flush();
+
+      pending['/b'].reject(new GitError('TIMEOUT', `git timed out in ${PROJECT_PATH}/b`));
+      await flush();
+      pending['/c'].reject(new Error(`fatal: bad object in ${PROJECT_PATH}/c/.git`));
+      await flush();
+      pending['/a'].resolve({ files: [{ path: 'ok.txt', status: '?', staged: false }], base: null, truncated: false, upstream: null, ahead: 0, behind: 0 });
+      await done;
+
+      expect(ws.sent.map((f) => f.repo)).toEqual([undefined, '/b', '/c', '/a']);
+      const b = ws.sent[1];
+      expect(b).toMatchObject({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted', repo: '/b' });
+      expect(b.repos).toHaveLength(1);
+      expect(b.repos[0]).toMatchObject({
+        path: '/b', files: [], base: null, truncated: false,
+        error: { code: 'TIMEOUT', message: 'git timed out in /b' },
+      });
+      expect(b.repos[0].pending).not.toBe(true);
+      expect(ws.sent[2].repos[0].error).toEqual({ code: 'FAILED', message: 'fatal: bad object in /c/.git' });
+      expect(ws.sent[3].repos[0]).toMatchObject({ path: '/a', pending: false, files: [{ path: 'ok.txt' }] });
+      expect(ws.sent[3].repos[0].error).toBeUndefined();
+      expect(ws.sent.some((f) => f.type === 'git_error')).toBe(false);
+      expect(JSON.stringify(ws.sent)).not.toContain(PROJECT_PATH);
+    });
+
+    it('does not wait on every repo: 70 repos, the first frame goes out while all are still running', async () => {
+      const paths = Array.from({ length: 70 }, (_, i) => `/wt-${String(i + 1).padStart(2, '0')}`);
+      const { fakeFs, pending } = streamingFs(paths);
+      const done = handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
+      await flush();
+      expect(ws.sent).toHaveLength(1);
+      expect(ws.sent[0].repos).toHaveLength(70);
+      expect(ws.sent[0].repos.every((r) => r.pending === true)).toBe(true);
+
+      for (const p of paths) pending[p].resolve({ files: [], base: null, truncated: false, upstream: null, ahead: 0, behind: 0 });
+      await done;
+      expect(ws.sent).toHaveLength(71);
+      expect(new Set(ws.sent.slice(1).map((f) => f.repo))).toEqual(new Set(paths));
+    });
+
+    it('a project with no repos sends just the empty full frame', async () => {
+      const fakeFs = { gitRepos: jest.fn().mockResolvedValue([]), gitStatus: jest.fn() };
+      await handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
+      expect(ws.sent).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted', repos: [] }]);
+    });
   });
 
   it('a discovery failure becomes one git_error with the GitError code, path stripped', async () => {
@@ -119,6 +203,8 @@ describe('FileHandlers#gitChanges', () => {
       gitStatus: jest.fn().mockResolvedValue({ files: [], base: null, truncated: false }),
     };
     await handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted', repo: '/b' });
+    // Unchanged by streaming: one frame, no pending phase.
+    expect(ws.sent).toHaveLength(1);
     expect(fakeFs.gitStatus).toHaveBeenCalledTimes(1);
     expect(fakeFs.gitStatus).toHaveBeenCalledWith(PROJECT_PATH, '/b', 'uncommitted');
     expect(last().repos.map((r) => r.path)).toEqual(['/b']);
@@ -126,32 +212,23 @@ describe('FileHandlers#gitChanges', () => {
     expect(last()).toMatchObject({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted', repo: '/b' });
   });
 
+  it('with repo: upstream/ahead/behind come from status(), not the (null) repos() meta', async () => {
+    const fakeFs = {
+      gitRepos: jest.fn().mockResolvedValue([meta('/a')]),
+      gitStatus: jest.fn().mockResolvedValue({
+        files: [], base: null, truncated: false, upstream: 'origin/main', ahead: 3, behind: 1,
+      }),
+    };
+    await handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted', repo: '/a' });
+    expect(ws.sent).toHaveLength(1);
+    expect(last().repos[0]).toMatchObject({ path: '/a', upstream: 'origin/main', ahead: 3, behind: 1 });
+  });
+
   it('with an unknown repo: git_error NOT_A_REPO echoing repo', async () => {
     const fakeFs = { gitRepos: jest.fn().mockResolvedValue([meta('/a')]), gitStatus: jest.fn() };
     await handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted', repo: '/zzz' });
     expect(last()).toMatchObject({ type: 'git_error', projectId: 'p1', repo: '/zzz', code: 'NOT_A_REPO' });
     expect(fakeFs.gitStatus).not.toHaveBeenCalled();
-  });
-
-  it('runs at most 4 gitStatus calls at once and keeps repo order', async () => {
-    const repos = Array.from({ length: 10 }, (_, i) => meta(`/r${String(i).padStart(2, '0')}`));
-    let inFlight = 0;
-    let peak = 0;
-    const fakeFs = {
-      gitRepos: jest.fn().mockResolvedValue(repos),
-      gitStatus: jest.fn(async (root, repo) => {
-        inFlight++;
-        peak = Math.max(peak, inFlight);
-        // Later repos finish first, so order must come from the index, not completion.
-        await new Promise((r) => setImmediate(r));
-        await new Promise((r) => setTimeout(r, 20 - Number(repo.slice(2))));
-        inFlight--;
-        return { files: [{ path: repo, status: 'M', staged: false }], base: null, truncated: false };
-      }),
-    };
-    await handlersWith(fakeFs).gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
-    expect(peak).toBe(4);
-    expect(last().repos.map((r) => r.path)).toEqual(repos.map((r) => r.path));
   });
 
   it('routes a local project to the local FileService', async () => {
@@ -261,12 +338,19 @@ describe('FileHandlers git frames against a real repo', () => {
     ws = makeWs();
   });
 
-  it('git_changes lists the root repo with its files', async () => {
+  it('git_changes lists the root repo pending, then streams it with its files', async () => {
     await handlers.gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
+    expect(ws.sent).toHaveLength(2);
+    expect(ws.sent[0]).toMatchObject({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' });
+    expect(ws.sent[0]).not.toHaveProperty('repo');
+    expect(ws.sent[0].repos).toEqual([expect.objectContaining({ path: '/', pending: true, files: [] })]);
     const frame = last();
-    expect(frame).toMatchObject({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' });
+    expect(frame).toMatchObject({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted', repo: '/' });
     expect(frame.repos).toHaveLength(1);
-    expect(frame.repos[0]).toMatchObject({ path: '/', name: 'proj', branch: 'main', base: null, truncated: false });
+    expect(frame.repos[0]).toMatchObject({
+      path: '/', name: 'proj', branch: 'main', base: null, truncated: false, pending: false,
+      upstream: null, ahead: 0, behind: 0,
+    });
     expect(frame.repos[0].files).toEqual(expect.arrayContaining([
       { path: 'a.txt', status: 'M', staged: false },
       { path: 'new.txt', status: '?', staged: false },

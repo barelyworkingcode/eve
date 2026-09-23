@@ -431,6 +431,99 @@ describe('ChangesPanel merging replies', () => {
   });
 });
 
+// Contract "Streaming": a full request is answered first by a full-list frame
+// with every repo `pending: true`, then by one single-repo frame per repo.
+describe('ChangesPanel streamed replies (pending repos)', () => {
+  const pendingRepo = (p) => repoMeta({ path: p, name: p.slice(1), branch: p.slice(1), pending: true, files: [] });
+
+  // Server order: /alpha, /beta, /gamma — all pending.
+  function streaming() {
+    const ctx = setup();
+    ctx.panel.setProject('p1');
+    reply(ctx.bus, ['/alpha', '/beta', '/gamma'].map(pendingRepo));
+    return ctx;
+  }
+
+  function arrive(bus, p, files, extra = {}) {
+    reply(bus, [repoMeta({ path: p, name: p.slice(1), branch: p.slice(1), pending: false, files, ...extra })], { repo: p });
+  }
+
+  it('renders a group header per pending repo with a pending marker and no count', () => {
+    const { panel } = streaming();
+    const root = render(panel);
+    expect(byTestId(root, 'changes-loading')).toBeNull();
+    for (const p of ['/alpha', '/beta', '/gamma']) {
+      const header = byTestId(root, `changes-repo-${p}`);
+      expect(header).not.toBeNull();
+      expect(header.querySelector('.changes-panel__repo-name').textContent).toBe(p.slice(1));
+      expect(byTestId(header, `changes-repo-pending-${p}`)).not.toBeNull();
+      // Not "clean", not "0": the count is simply absent until status arrives.
+      expect(header.querySelector('.changes-panel__count')).toBeNull();
+    }
+  });
+
+  it('the badge counts nothing while every repo is pending', () => {
+    const { panel } = streaming();
+    expect(panel.count() || 0).toBe(0);
+  });
+
+  it('the badge sums only the repos that have arrived', () => {
+    const { panel, bus } = streaming();
+    arrive(bus, '/beta', [{ path: 'b1.js', status: 'M' }, { path: 'b2.js', status: '?' }]);
+    expect(panel.count()).toBe(2);
+    arrive(bus, '/gamma', [{ path: 'g.js', status: 'A' }]);
+    expect(panel.count()).toBe(3);
+    expect(panel.onUpdate).toHaveBeenCalled();
+  });
+
+  it('a later single-repo frame fills its group in and drops the pending marker', () => {
+    const { panel, bus } = streaming();
+    arrive(bus, '/beta', [{ path: 'src/b1.js', status: 'M' }], { upstream: 'origin/beta', ahead: 2, behind: 0 });
+    const root = render(panel);
+    const header = byTestId(root, 'changes-repo-/beta');
+    expect(byTestId(root, 'changes-repo-pending-/beta')).toBeNull();
+    expect(header.querySelector('.changes-panel__count').textContent).toBe('1');
+    expect(header.querySelector('.changes-panel__sync').textContent).toBe('↑2');
+    expect(byTestId(root, 'changes-file-/beta:src/b1.js')).not.toBeNull();
+    // The others are still pending.
+    expect(byTestId(root, 'changes-repo-pending-/alpha')).not.toBeNull();
+    expect(byTestId(root, 'changes-repo-pending-/gamma')).not.toBeNull();
+    expect(groupOrder(root)).toHaveLength(3);
+  });
+
+  it('re-sorts as repos arrive: clean repos go last', () => {
+    const { panel, bus } = streaming();
+    arrive(bus, '/alpha', []); // clean
+    expect(groupOrder(render(panel))[2]).toBe('changes-repo-/alpha');
+
+    arrive(bus, '/gamma', [{ path: 'g.js', status: 'M' }]);
+    arrive(bus, '/beta', [{ path: 'b.js', status: 'M' }]);
+    const root = render(panel);
+    expect(groupOrder(root)).toEqual(['changes-repo-/beta', 'changes-repo-/gamma', 'changes-repo-/alpha']);
+    const alpha = byTestId(root, 'changes-repo-/alpha');
+    expect(alpha.querySelector('.changes-panel__count').textContent).toBe('clean');
+    expect(alpha.getAttribute('aria-expanded')).toBe('false');
+    expect(allTestIds(root).some((id) => id.startsWith('changes-repo-pending-'))).toBe(false);
+  });
+
+  it('a per-repo error frame replaces the pending marker with the error', () => {
+    const { panel, bus } = streaming();
+    reply(bus, [repoMeta({ path: '/gamma', name: 'gamma', pending: false, files: [],
+      error: { code: 'TIMEOUT', message: 'git timed out' } })], { repo: '/gamma' });
+    const root = render(panel);
+    expect(byTestId(root, 'changes-repo-pending-/gamma')).toBeNull();
+    expect(byTestId(root, 'changes-repo-error-/gamma').textContent).toBe('git timed out');
+    expect(byTestId(root, 'changes-repo-/gamma').querySelector('.changes-panel__count').textContent).toBe('!');
+  });
+
+  it('a pending group has no file rows and is not collapsed as clean', () => {
+    const { panel } = streaming();
+    const header = byTestId(render(panel), 'changes-repo-/alpha');
+    expect(header.classList.contains('changes-panel__repo--collapsed')).toBe(false);
+    expect(render(panel).querySelectorAll('.changes-panel__file')).toHaveLength(0);
+  });
+});
+
 describe('ChangesPanel git:changed debounce', () => {
   beforeEach(() => jest.useFakeTimers());
 

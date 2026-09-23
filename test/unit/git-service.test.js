@@ -148,6 +148,57 @@ describe('GitService', () => {
       const repos = await svc.repos('/proj');
       expect(repos.map((r) => r.path)).toEqual(['/a']);
     });
+
+    // The layout from issue #6: root holds `.bare/` plus a `.git` FILE
+    // (`gitdir: ./.bare`), and every worktree is a child folder.
+    describe('bare-repo root (.bare + .git file) with worktree children', () => {
+      let bareRoot, seedSha;
+
+      beforeAll(() => {
+        const seed = initRepo(path.join(tmp, 'bare-seed'), { 'a.txt': 'one\n' });
+        seedSha = headSha(seed);
+        bareRoot = path.join(tmp, 'bare-layout');
+        fs.mkdirSync(bareRoot, { recursive: true });
+        git(tmp, ['clone', '-q', '--bare', seed, path.join(bareRoot, '.bare')]);
+        fs.writeFileSync(path.join(bareRoot, '.git'), 'gitdir: ./.bare\n');
+        git(bareRoot, ['worktree', 'add', '-q', 'main', 'main']);
+        git(bareRoot, ['worktree', 'add', '-q', '-b', 'feat-a', 'feat-a']);
+        git(bareRoot, ['worktree', 'add', '-q', '-b', 'feat-b', 'feat-b']);
+        git(bareRoot, ['worktree', 'add', '-q', '--detach', 'det']);
+        // A worktree whose folder was moved away: `prunable` in the porcelain.
+        git(bareRoot, ['worktree', 'add', '-q', '-b', 'gone', 'gone']);
+        fs.renameSync(path.join(bareRoot, 'gone'), path.join(tmp, 'bare-layout-gone-moved'));
+        // Non-repo folders and an independent clone next to the worktrees.
+        write(bareRoot, '.claude/settings.json', '{}\n');
+        write(bareRoot, 'Branding/logo.txt', 'logo\n');
+        initRepo(path.join(bareRoot, 'vendor-clone'), { 'v.txt': 'v\n' });
+      });
+
+      it('finds every worktree and the independent clone, skipping the bare entry and prunable ones', async () => {
+        const repos = await localService().repos(bareRoot);
+        expect(repos.map((r) => r.path)).toEqual(['/det', '/feat-a', '/feat-b', '/main', '/vendor-clone']);
+      });
+
+      it('reports branch / head / detached per worktree, with upstream null and ahead/behind 0', async () => {
+        const repos = await localService().repos(bareRoot);
+        const by = Object.fromEntries(repos.map((r) => [r.path, r]));
+        const head = seedSha.slice(0, 7);
+        expect(by['/main']).toEqual({
+          path: '/main', name: 'main', branch: 'main', head, detached: false,
+          upstream: null, ahead: 0, behind: 0, defaultBranch: 'main',
+        });
+        expect(by['/feat-a']).toMatchObject({ name: 'feat-a', branch: 'feat-a', head, detached: false, upstream: null, ahead: 0, behind: 0 });
+        expect(by['/det']).toMatchObject({ name: 'det', branch: null, head, detached: true, upstream: null, ahead: 0, behind: 0 });
+        expect(by['/vendor-clone']).toMatchObject({ name: 'vendor-clone', branch: 'main', detached: false, upstream: null });
+      });
+
+      it('status() works on a worktree child of the bare root', async () => {
+        write(bareRoot, 'feat-b/new.txt', 'n\n');
+        const st = await localService().status(bareRoot, '/feat-b', 'uncommitted');
+        expect(st).toMatchObject({ repo: '/feat-b', upstream: null, ahead: 0, behind: 0 });
+        expect(st.files).toEqual([{ path: 'new.txt', status: '?', staged: false }]);
+      });
+    });
   });
 
   describe('repo metadata: HEAD states, upstream, defaultBranch', () => {
@@ -164,26 +215,69 @@ describe('GitService', () => {
       expect(meta).toMatchObject({ branch: 'main', head: null, detached: false, defaultBranch: null });
     });
 
-    it('reports upstream with ahead/behind counts', async () => {
-      const r = initRepo(path.join(tmp, 'upstream'), { 'a.txt': 'a\n' });
-      git(r, ['checkout', '-q', '-b', 'feat']);
-      write(r, 'f1.txt', '1'); commitAll(r, 'f1');
-      write(r, 'f2.txt', '2'); commitAll(r, 'f2');
-      git(r, ['checkout', '-q', 'main']);
-      write(r, 'm1.txt', 'm'); commitAll(r, 'm1');
-      git(r, ['checkout', '-q', 'feat']);
-      git(r, ['branch', '-q', '--set-upstream-to=main']);
-      const [meta] = await localService().repos(r);
-      expect(meta).toMatchObject({ branch: 'feat', upstream: 'main', ahead: 2, behind: 1 });
+    // Contract: repos() no longer computes upstream / ahead / behind (one
+    // fewer pair of execs per worktree); status() supplies them from
+    // `git status --porcelain=v2 --branch`.
+    describe('upstream / ahead / behind moved to status()', () => {
+      let r;
+
+      beforeAll(() => {
+        r = initRepo(path.join(tmp, 'upstream'), { 'a.txt': 'a\n' });
+        git(r, ['checkout', '-q', '-b', 'feat']);
+        write(r, 'f1.txt', '1'); commitAll(r, 'f1');
+        write(r, 'f2.txt', '2'); commitAll(r, 'f2');
+        git(r, ['checkout', '-q', 'main']);
+        write(r, 'm1.txt', 'm'); commitAll(r, 'm1');
+        git(r, ['checkout', '-q', 'feat']);
+        git(r, ['branch', '-q', '--set-upstream-to=main']);
+        write(r, 'dirty.txt', 'd\n');
+      });
+
+      it('repos() reports upstream null and ahead/behind 0 even when an upstream is set', async () => {
+        const [meta] = await localService().repos(r);
+        expect(meta).toMatchObject({ branch: 'feat', upstream: null, ahead: 0, behind: 0 });
+      });
+
+      it("status() reports the upstream with ahead/behind counts in 'uncommitted' scope", async () => {
+        const st = await localService().status(r, '/', 'uncommitted');
+        expect(st).toMatchObject({ repo: '/', upstream: 'main', ahead: 2, behind: 1 });
+        expect(st.files).toEqual([{ path: 'dirty.txt', status: '?', staged: false }]);
+      });
+
+      it("status() reports them in 'base' scope too", async () => {
+        const st = await localService().status(r, '/', 'base');
+        expect(st).toMatchObject({ scope: 'base', upstream: 'main', ahead: 2, behind: 1 });
+      });
+
+      it('status() without an upstream: upstream null, ahead/behind 0', async () => {
+        const n = initRepo(path.join(tmp, 'no-upstream'), { 'a.txt': 'a\n' });
+        const st = await localService().status(n, '/', 'uncommitted');
+        expect(st).toMatchObject({ upstream: null, ahead: 0, behind: 0 });
+      });
+
+      it('status() on a detached HEAD: upstream null, ahead/behind 0', async () => {
+        const d = initRepo(path.join(tmp, 'detached-status'), { 'a.txt': 'a\n' });
+        git(d, ['checkout', '-q', '--detach']);
+        const st = await localService().status(d, '/', 'uncommitted');
+        expect(st).toMatchObject({ upstream: null, ahead: 0, behind: 0 });
+      });
+
+      it('status() on an unborn branch: upstream null, ahead/behind 0', async () => {
+        const u = initRepo(path.join(tmp, 'unborn-status'));
+        const st = await localService().status(u, '/', 'uncommitted');
+        expect(st).toMatchObject({ upstream: null, ahead: 0, behind: 0 });
+      });
     });
 
-    it("defaultBranch prefers origin/HEAD's target", async () => {
+    it("defaultBranch prefers origin/HEAD's target; the clone's upstream comes from status()", async () => {
       const src = initRepo(path.join(tmp, 'origin-src'), { 'a.txt': 'a\n' }, { branch: 'trunk' });
       const clone = path.join(tmp, 'origin-clone');
       git(tmp, ['clone', '-q', src, clone]);
       const [meta] = await localService().repos(clone);
       expect(meta.defaultBranch).toBe('origin/trunk');
-      expect(meta.upstream).toBe('origin/trunk');
+      expect(meta.upstream).toBeNull();
+      const st = await localService().status(clone, '/', 'uncommitted');
+      expect(st).toMatchObject({ upstream: 'origin/trunk', ahead: 0, behind: 0 });
     });
 
     it('defaultBranch falls back to master, and is null with neither main nor master', async () => {
@@ -281,7 +375,9 @@ describe('GitService', () => {
     it('a clean repo has no files', async () => {
       const c = initRepo(path.join(tmp, 'clean'), { 'a.txt': 'a\n' });
       const st = await localService().status(c, '/', 'uncommitted');
-      expect(st).toEqual({ repo: '/', scope: 'uncommitted', base: null, files: [], truncated: false });
+      expect(st).toEqual({
+        repo: '/', scope: 'uncommitted', base: null, upstream: null, ahead: 0, behind: 0, files: [], truncated: false,
+      });
     });
 
     it('works on a child repo addressed by its root-relative path', async () => {
@@ -429,7 +525,7 @@ describe('GitService', () => {
       write(d, 'a.txt', 'b\n');
       const st = await localService().status(d, '/', 'base');
       expect(st).toEqual({
-        repo: '/', scope: 'base', base: null, truncated: false,
+        repo: '/', scope: 'base', base: null, upstream: null, ahead: 0, behind: 0, truncated: false,
         files: [{ path: 'a.txt', status: 'M', staged: false }],
       });
     });
@@ -692,6 +788,240 @@ describe('GitService', () => {
       expect(res.code).toBe(0);
       expect(res.stdout.toString().trim()).toBe(fs.realpathSync(r));
     });
+  });
+});
+
+// ─── Scale: a bare-repo root holding ~70 worktrees (issue #6) ───────────────
+//
+// A fake runner models the layout so exec counts and concurrency can be
+// measured exactly. Contract: discovery is one `git worktree list --porcelain`
+// at the root plus a bounded probe of uncovered children; every runner call
+// (run + listDirectory + readFile) goes through a FIFO limiter, default 6.
+
+const BIG_ROOT = '/work/big-project';
+const WT_COUNT = 70;
+const wtName = (n) => `wt-${String(n).padStart(2, '0')}`;
+const wtSha = (n) => n.toString(16).padStart(2, '0').repeat(20);
+const CLONE_SHA = 'c'.repeat(40);
+const DETACHED_N = WT_COUNT; // the last worktree is on a detached HEAD
+
+function bigPorcelain() {
+  const blocks = [`worktree ${BIG_ROOT}/.bare\nbare\n`];
+  for (let n = 1; n <= WT_COUNT; n++) {
+    blocks.push(n === DETACHED_N
+      ? `worktree ${BIG_ROOT}/${wtName(n)}\nHEAD ${wtSha(n)}\ndetached\n`
+      : `worktree ${BIG_ROOT}/${wtName(n)}\nHEAD ${wtSha(n)}\nbranch refs/heads/${wtName(n)}\n`);
+  }
+  blocks.push(`worktree ${BIG_ROOT}/wt-gone\nHEAD ${wtSha(99)}\nbranch refs/heads/wt-gone\nprunable gitdir file points to non-existent location\n`);
+  blocks.push(`worktree /elsewhere/wt-outside\nHEAD ${wtSha(98)}\nbranch refs/heads/wt-outside\n`);
+  return blocks.join('\n') + '\n';
+}
+
+// Which repo (if any) a cwdRel is: { kind: 'bare-root' | 'worktree' | 'clone', n? }.
+function bigRepoAt(cwdRel) {
+  if (cwdRel === '/') return { kind: 'bare-root' };
+  if (cwdRel === '/vendor-clone') return { kind: 'clone' };
+  const m = /^\/wt-(\d\d)$/.exec(cwdRel);
+  if (m && Number(m[1]) >= 1 && Number(m[1]) <= WT_COUNT) return { kind: 'worktree', n: Number(m[1]) };
+  return null;
+}
+
+// Answers the git subcommands a GitService plausibly issues for this layout.
+function bigGitHandler(a, cwdRel) {
+  const repo = bigRepoAt(cwdRel);
+  if (!repo) return { code: 128, stderr: 'fatal: not a git repository' };
+  const sub = a[0];
+  if (sub === 'worktree' && a[1] === 'list') {
+    if (repo.kind === 'clone') return { stdout: `worktree ${BIG_ROOT}/vendor-clone\nHEAD ${CLONE_SHA}\nbranch refs/heads/main\n\n` };
+    return { stdout: bigPorcelain() };
+  }
+  if (sub === 'rev-parse') {
+    if (a.includes('--show-toplevel')) {
+      if (repo.kind === 'bare-root') return { code: 128, stderr: 'fatal: this operation must be run in a work tree' };
+      return { stdout: `${BIG_ROOT}${cwdRel}\n\n` };
+    }
+    if (a.includes('--git-common-dir') || a.includes('--absolute-git-dir') || a.includes('--git-dir')) {
+      return { stdout: repo.kind === 'clone' ? `${BIG_ROOT}/vendor-clone/.git\n` : `${BIG_ROOT}/.bare\n` };
+    }
+    if (a.includes('--is-bare-repository')) return { stdout: repo.kind === 'bare-root' ? 'true\n' : 'false\n' };
+    if (a.includes('@{upstream}') || a.some((x) => String(x).includes('@{u'))) return { code: 128, stderr: 'fatal: no upstream configured' };
+    if (a.includes('HEAD')) {
+      if (repo.kind === 'clone') return { stdout: `${CLONE_SHA}\n` };
+      if (repo.kind === 'worktree') return { stdout: `${wtSha(repo.n)}\n` };
+      return { stdout: `${wtSha(1)}\n` };
+    }
+    return { code: 1 };
+  }
+  if (sub === 'symbolic-ref') {
+    if (repo.kind === 'clone') return { stdout: 'main\n' };
+    if (repo.kind === 'worktree' && repo.n !== DETACHED_N) return { stdout: `${wtName(repo.n)}\n` };
+    return { code: 1 };
+  }
+  if (sub === 'for-each-ref') return { stdout: 'refs/heads/main\0\n' };
+  if (sub === 'status') {
+    const branch = repo.kind === 'worktree' && repo.n !== DETACHED_N ? wtName(repo.n) : '(detached)';
+    return { stdout: `# branch.oid ${repo.kind === 'worktree' ? wtSha(repo.n) : CLONE_SHA}\0# branch.head ${branch}\0` };
+  }
+  if (sub === 'rev-list') return { stdout: '0\t0\n' };
+  return { code: 1 };
+}
+
+const BIG_CHILDREN = [
+  { name: '.bare', type: 'directory' },
+  { name: '.git', type: 'file' },
+  { name: '.claude', type: 'directory' },
+  { name: '.idea', type: 'directory' },
+  { name: 'Branding', type: 'directory' },
+  { name: 'vendor-clone', type: 'directory' },
+  { name: 'README.md', type: 'file' },
+  ...Array.from({ length: WT_COUNT }, (_, i) => ({ name: wtName(i + 1), type: 'directory' })),
+];
+
+function bigListDirectory(rel) {
+  if (rel === '/') return BIG_CHILDREN;
+  if (rel === '/vendor-clone') return [{ name: '.git', type: 'directory' }, { name: 'v.txt', type: 'file' }];
+  if (bigRepoAt(rel)) return [{ name: '.git', type: 'file' }, { name: 'a.txt', type: 'file' }];
+  if (rel === '/.bare') return [{ name: 'HEAD', type: 'file' }, { name: 'objects', type: 'directory' }, { name: 'worktrees', type: 'directory' }];
+  if (rel === '/.claude') return [{ name: 'settings.json', type: 'file' }];
+  if (rel === '/.idea') return [{ name: 'workspace.xml', type: 'file' }];
+  if (rel === '/Branding') return [{ name: 'logo.svg', type: 'file' }];
+  throw Object.assign(new Error(`ENOENT: ${rel}`), { code: 'ENOENT' });
+}
+
+// A GitService over the fake layout. Records every runner call and tracks how
+// many are in flight; `delay(kind, rel)` returns a promise the call awaits
+// before answering (default: one macrotask, so calls genuinely overlap).
+function bigService({ concurrency, delay } = {}) {
+  const stats = { run: [], list: [], starts: [], inFlight: 0, peak: 0 };
+  const wait = delay || (() => new Promise((r) => setTimeout(r, 0)));
+  async function tracked(kind, rel, fn) {
+    stats.inFlight++;
+    stats.peak = Math.max(stats.peak, stats.inFlight);
+    stats.starts.push({ kind, rel });
+    try {
+      await wait(kind, rel);
+      return await fn();
+    } finally {
+      stats.inFlight--;
+    }
+  }
+  const handlerRun = fakeRun(bigGitHandler);
+  const opts = {
+    run: (root, cwdRel, args, o) => {
+      stats.run.push({ cwdRel, args: stripPrefix(args) });
+      return tracked('run', cwdRel, () => handlerRun(root, cwdRel, args, o));
+    },
+    listDirectory: (root, rel) => {
+      stats.list.push(rel);
+      return tracked('list', rel, async () => bigListDirectory(rel));
+    },
+    readFile: (root, rel) => tracked('read', rel, async () => ({ content: '', size: 0 })),
+  };
+  if (concurrency !== undefined) opts.concurrency = concurrency;
+  return { svc: new GitService(opts), stats };
+}
+
+describe('GitService at scale: bare-repo root with 70 worktrees (fake runner)', () => {
+  it('repos() returns all 70 worktrees plus the independent clone, and nothing else', async () => {
+    const { svc } = bigService();
+    const repos = await svc.repos(BIG_ROOT);
+    const expected = ['/vendor-clone', ...Array.from({ length: WT_COUNT }, (_, i) => `/${wtName(i + 1)}`)];
+    expect(repos.map((r) => r.path)).toEqual(expected);
+    // Bare entry, prunable entry, out-of-root entry and plain folders are skipped.
+    for (const skipped of ['/', '/.bare', '/wt-gone', '/.claude', '/.idea', '/Branding']) {
+      expect(repos.some((r) => r.path === skipped)).toBe(false);
+    }
+  });
+
+  it('takes branch / head / detached from the porcelain; upstream null, ahead/behind 0', async () => {
+    const { svc } = bigService();
+    const repos = await svc.repos(BIG_ROOT);
+    const by = Object.fromEntries(repos.map((r) => [r.path, r]));
+    expect(by['/wt-05']).toEqual({
+      path: '/wt-05', name: 'wt-05', branch: 'wt-05', head: wtSha(5).slice(0, 7), detached: false,
+      upstream: null, ahead: 0, behind: 0, defaultBranch: 'main',
+    });
+    expect(by[`/${wtName(DETACHED_N)}`]).toMatchObject({
+      branch: null, head: wtSha(DETACHED_N).slice(0, 7), detached: true, upstream: null, ahead: 0, behind: 0,
+    });
+    expect(by['/vendor-clone']).toMatchObject({ name: 'vendor-clone', branch: 'main', head: 'ccccccc', detached: false });
+  });
+
+  it('issues a small, bounded number of runner calls — not one set per worktree', async () => {
+    const { svc, stats } = bigService();
+    await svc.repos(BIG_ROOT);
+    // One worktree list at the root, the clone's own probe/meta, and one
+    // defaultBranch lookup per common git dir. ~70 x k would be hundreds.
+    expect(stats.run.length).toBeLessThanOrEqual(10);
+    // The root listing plus the handful of children the worktree list does
+    // not cover (.bare, .claude, .idea, Branding, vendor-clone).
+    expect(stats.list.length).toBeLessThanOrEqual(10);
+    const worktreeLists = stats.run.filter((c) => c.args[0] === 'worktree' && c.args[1] === 'list');
+    expect(worktreeLists.some((c) => c.cwdRel === '/')).toBe(true);
+    // No per-worktree execs for the 70 worktrees.
+    const perWorktree = stats.run.filter((c) => /^\/wt-\d\d$/.test(c.cwdRel));
+    expect(perWorktree.length).toBeLessThanOrEqual(2);
+  });
+
+  it('resolves defaultBranch once per common git dir, not per worktree', async () => {
+    const { svc, stats } = bigService();
+    await svc.repos(BIG_ROOT);
+    const lookups = stats.run.filter((c) => c.args[0] === 'for-each-ref');
+    // One for the shared .bare, one for the independent clone.
+    expect(lookups.length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('GitService concurrency limiter', () => {
+  const statusAll = (svc) => Array.from({ length: WT_COUNT }, (_, i) => svc.status(BIG_ROOT, `/${wtName(i + 1)}`, 'uncommitted'));
+
+  it('never has more than 6 runner calls in flight by default (repos() + 70 status())', async () => {
+    const { svc, stats } = bigService();
+    await Promise.all([svc.repos(BIG_ROOT), ...statusAll(svc)]);
+    expect(stats.peak).toBe(6);
+  });
+
+  it('respects a custom concurrency', async () => {
+    const { svc, stats } = bigService({ concurrency: 2 });
+    await Promise.all([svc.repos(BIG_ROOT), ...statusAll(svc)]);
+    expect(stats.peak).toBe(2);
+  });
+
+  it('counts listDirectory and readFile against the same cap', async () => {
+    const { svc, stats } = bigService({ concurrency: 3 });
+    await Promise.all([
+      svc.repos(BIG_ROOT),
+      ...statusAll(svc).slice(0, 20),
+      ...Array.from({ length: 10 }, (_, i) => svc.fileVersions(BIG_ROOT, `/${wtName(i + 1)}`, 'a.txt', 'uncommitted').catch(() => null)),
+    ]);
+    expect(stats.peak).toBe(3);
+    expect(stats.starts.some((s) => s.kind === 'list')).toBe(true);
+    expect(stats.starts.some((s) => s.kind === 'read')).toBe(true);
+  });
+
+  it('is FIFO: queued calls start in the order they were requested', async () => {
+    const { svc, stats } = bigService({ concurrency: 1 });
+    const order = Array.from({ length: 10 }, (_, i) => `/${wtName(i + 1)}`);
+    await Promise.all(order.map((rel) => svc.status(BIG_ROOT, rel, 'uncommitted')));
+    expect(stats.peak).toBe(1);
+    // Each status() queues its first call before the first one finishes, so
+    // with one slot the first ten starts are the ten repos in request order.
+    expect(stats.starts.slice(0, 10).map((s) => s.rel)).toEqual(order);
+  });
+
+  it('a failing call releases its slot', async () => {
+    let fail = true;
+    const svc = new GitService({
+      run: async () => {
+        if (fail) { fail = false; throw new GitError('TIMEOUT', 'git timed out'); }
+        return { code: 0, stdout: Buffer.from('/abs\n\n'), stderr: '' };
+      },
+      listDirectory: async () => [],
+      readFile: async () => ({ content: '', size: 0 }),
+      concurrency: 1,
+    });
+    await expect(svc.status('/p', '/', 'uncommitted')).rejects.toMatchObject({ code: 'TIMEOUT' });
+    await expect(svc.status('/p', '/', 'uncommitted')).resolves.toMatchObject({ repo: '/' });
   });
 });
 

@@ -37,10 +37,17 @@ describe('git changes over WS', () => {
   it('git_changes lists the project repo and its changed files', async () => {
     const from = wsA.mark();
     wsA.send({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' });
-    const reply = await wsA.waitFor((f) => f.type === 'git_changes', 10000, from);
+    // Streamed: the full list arrives first with every repo pending...
+    const first = await wsA.waitFor((f) => f.type === 'git_changes', 10000, from);
+    expect(first).not.toHaveProperty('repo');
+    expect(first.repos).toEqual([expect.objectContaining({ path: '/', pending: true, files: [] })]);
+    // ...then one single-repo frame per repo with its files.
+    const reply = await wsA.waitFor((f) => f.type === 'git_changes' && f.repo === '/', 10000, from);
     expect(reply).toMatchObject({ projectId: 'p1', scope: 'uncommitted' });
     expect(reply.repos).toHaveLength(1);
-    expect(reply.repos[0]).toMatchObject({ path: '/', name: path.basename(projectDir), branch: 'main', base: null, truncated: false });
+    expect(reply.repos[0]).toMatchObject({
+      path: '/', name: path.basename(projectDir), branch: 'main', base: null, truncated: false, pending: false,
+    });
     expect([...reply.repos[0].files].sort((x, y) => x.path.localeCompare(y.path))).toEqual([
       { path: 'a.txt', status: 'M', staged: false },
       { path: 'b.txt', status: 'M', staged: false },
