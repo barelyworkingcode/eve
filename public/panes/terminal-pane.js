@@ -27,6 +27,7 @@ panes.registerType({
       id: spec.terminalId,
       type: 'terminal',
       label: spec.label,
+      title: spec.title || '',
       directory: spec.directory,
     };
   },

@@ -19,6 +19,9 @@ const EVT = {
   // SSH host connectivity (../relay/docs/ssh-hosts.md) — fired on the
   // server's `host_status` WS frame; see StateStore.hosts / setHostStatus.
   HOST_STATUS: 'host:status',
+  // TerminalManager.autoReattachPersistentSessions reattached some; open
+  // Remote sessions lists for { projectId } re-fetch.
+  PERSISTENT_SESSIONS_CHANGED: 'persistentSessions:changed',
 
   MODELS_LOADED: 'models:loaded',
 

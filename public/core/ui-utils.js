@@ -234,6 +234,11 @@ function relativeTime(ts, now = Date.now()) {
 // user actually asked, once SessionRecents has seen it.
 function sessionDisplayName(session, project, { stripProject = true } = {}) {
   const fullName = session?.name || '';
+  // A persistent host terminal is named after its tmux session; show the same
+  // "<Template> #n" label its tab does.
+  const templates = (typeof window !== 'undefined' && window.app?.state?.terminalTemplates) || [];
+  const persisted = persistSessionLabel(fullName, templates);
+  if (persisted !== fullName) return persisted;
   let name = fullName;
   if (project && name.startsWith(project.name + ' - ')) name = name.slice(project.name.length + 3) || fullName;
   const model = session?.model || '';
@@ -280,6 +285,21 @@ function hostStatusLabel(host, status) {
   return `${host.name}${target} — ${word}`;
 }
 
+// Persistent host terminals are named after relay's tmux session,
+// relay-<project8>-<templateId>-<n> (../relay/docs/ssh-hosts.md). Shows them as
+// "<template name> #<n>"; any other name comes back unchanged. relay sanitizes
+// the template id (anything outside [A-Za-z0-9_-] becomes "_"), so catalog ids
+// are compared the same way.
+const PERSIST_SESSION_RE = /^relay-[A-Za-z0-9_-]{8}-(.+)-([1-9][0-9]*)$/;
+function persistSessionLabel(name, templates) {
+  const m = typeof name === 'string' ? PERSIST_SESSION_RE.exec(name) : null;
+  if (!m) return name;
+  const [, templatePart, n] = m;
+  const sanitize = (id) => String(id).replace(/[^A-Za-z0-9_-]/g, '_');
+  const tmpl = (templates || []).find(t => t && t.id != null && sanitize(t.id) === templatePart);
+  return `${tmpl?.name || templatePart} #${n}`;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { projectMonogram, projectHue, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName, hostChip, hostStatusLabel };
+  module.exports = { projectMonogram, projectHue, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName, hostChip, hostStatusLabel, persistSessionLabel };
 }

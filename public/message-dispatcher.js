@@ -265,6 +265,11 @@ class MessageDispatcher {
     this._untrackStreaming(data.sessionId);
     this.renderer.hideThinkingIndicator();
     this.renderer.appendSystemMessage(data.message, 'error');
+    // A failed terminal create happens from a terminal dialog, where the chat
+    // pane may not be on screen; a toast makes sure it is seen.
+    if (data.context === 'terminal_create' && this.bus) {
+      this.bus.emit(EVT.TOAST_SHOW, { id: 'terminal-create-error', message: data.message, type: 'error', duration: 6000 });
+    }
     this._notifyVoiceError(data.message);
     this.app.hideStopButton();
     this.app.clearSessionStarting();

@@ -564,7 +564,13 @@ class ProjectPanel {
     if (project && displayName.startsWith(project.name + ' - ')) {
       displayName = displayName.slice(project.name.length + 3);
     }
-    nameEl.textContent = displayName;
+    // A persistent host terminal is named after its tmux session; show the
+    // same "<Template> #n" label its tab does, with the session name on hover.
+    const friendly = typeof persistSessionLabel === "function"
+      ? persistSessionLabel(displayName, this.state.terminalTemplates || [])
+      : displayName;
+    if (friendly !== displayName) nameEl.title = displayName;
+    nameEl.textContent = friendly;
     item.appendChild(nameEl);
 
     const isRunning = terminal.state !== 'stopped';

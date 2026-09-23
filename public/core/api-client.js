@@ -72,6 +72,14 @@ class ApiClient {
   updateTerminalTemplate(id, data) { return this._request('PUT', `/api/terminal/templates/${id}`, data); }
   deleteTerminalTemplate(id) { return this._request('DELETE', `/api/terminal/templates/${id}`); }
 
+  // Persistent (tmux) sessions on a host project's host.
+  getPersistentSessions(projectId) {
+    return this._request('GET', `/api/projects/${encodeURIComponent(projectId)}/persistent-sessions`);
+  }
+  deletePersistentSession(projectId, name) {
+    return this._request('DELETE', `/api/projects/${encodeURIComponent(projectId)}/persistent-sessions/${encodeURIComponent(name)}`);
+  }
+
   // Payload is raw PTY bytes (ANSI escapes, possibly invalid UTF-8), not JSON.
   async getTerminalLog(terminalId) {
     const response = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/log`, {

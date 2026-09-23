@@ -117,16 +117,18 @@ class TabManager {
     this.switchToTab(tabId);
   }
 
-  openTerminal(terminalId, label, directory) {
+  // activate=false adds the tab in the background (auto-reattach).
+  openTerminal(terminalId, label, directory, { activate = true, title = '' } = {}) {
     const existingTab = this.tabs.find(t => t.id === terminalId);
     if (existingTab) {
-      this.switchToTab(terminalId);
+      if (activate) this.switchToTab(terminalId);
       return;
     }
 
-    const tab = panes.type('terminal').create({ terminalId, label, directory }, this._ctx());
+    const tab = panes.type('terminal').create({ terminalId, label, directory, title }, this._ctx());
     this.tabs.push(tab);
-    this.switchToTab(terminalId);
+    if (activate) this.switchToTab(terminalId);
+    else this.render();
   }
 
   openModule(projectId, moduleName, label) {
@@ -693,6 +695,7 @@ class TabManager {
       tabEl.className = 'tab';
       tabEl.dataset.tabId = tab.id;
       tabEl.dataset.testid = `tab-${tab.id}`;
+      if (tab.title) tabEl.title = tab.title;
       if (tab.id === this.activeTabId) {
         tabEl.classList.add('active');
       }

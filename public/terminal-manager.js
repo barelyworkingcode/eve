@@ -33,6 +33,11 @@ class TerminalManager {
     document.addEventListener('visibilitychange', this._onForeground);
     window.addEventListener('pageshow', this._onForeground);
     window.addEventListener('focus', this._onForeground);
+
+    // A host coming back is when its persistent sessions become reachable.
+    if (typeof EVT !== 'undefined' && EVT.HOST_STATUS) {
+      this.app.bus?.on?.(EVT.HOST_STATUS, ({ hostId } = {}) => this._onHostStatusForReattach(hostId));
+    }
   }
 
   activeTerm() {
@@ -254,6 +259,26 @@ class TerminalManager {
       list.appendChild(btn);
     }
 
+    // Host projects: persistent sessions left running on the host, above the
+    // templates so a returning user sees them first.
+    const project = this.app.state?.getProject?.(projectId);
+    if (project?.host && typeof RemoteSessionsSection === 'function') {
+      const section = new RemoteSessionsSection({
+        api: this.app.api,
+        bus: this.app.bus,
+        state: this.app.state,
+        modalManager: this.app.modalManager,
+        projectId,
+        onReattach: (s) => {
+          overlay.remove();
+          this.createTerminal(s.template_id, directory, projectId, s.name);
+        },
+      });
+      section.el.classList.add('remote-sessions--picker');
+      list.parentNode.insertBefore(section.el, list);
+      section.refresh();
+    }
+
     document.body.appendChild(overlay);
 
     overlay.querySelector('#templatePickerClose').addEventListener('click', () => overlay.remove());
@@ -270,10 +295,12 @@ class TerminalManager {
     }
   }
 
-  createTerminal(templateId, directory, projectId) {
+  // persistSession reattaches to a named tmux session on a host project.
+  createTerminal(templateId, directory, projectId, persistSession) {
     this.app.wsClient.send({
       type: 'terminal_create',
       templateId,
+      ...(persistSession ? { persistSession } : {}),
       directory: directory || '',
       // projectId is required: relay permits a template per project and
       // resolves the project's token for the PTY, validated against the
@@ -370,7 +397,14 @@ class TerminalManager {
   // host ({id,name}) is present when relayLLM resolved the session onto an
   // SSH host (../relay/docs/ssh-hosts.md); undefined for a console terminal.
   onTerminalCreated(terminalId, templateId, name, directory, host) {
-    this.setupTerminal(terminalId, templateId, name, directory, false, false, host);
+    const auto = this._autoReattachPending?.get(name);
+    if (auto) {
+      clearTimeout(auto.timer);
+      this._autoReattachPending.delete(name);
+      // Relay now reports it attached_here; let open Remote sessions lists catch up.
+      this.app.bus.emit(EVT.PERSISTENT_SESSIONS_CHANGED, { projectId: auto.projectId });
+    }
+    this.setupTerminal(terminalId, templateId, name, directory, false, false, host, !auto || auto.focus);
     this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
@@ -543,6 +577,76 @@ class TerminalManager {
       }
     }
     this.app.bus.emit(EVT.TERMINAL_LIST);
+    this._autoReattachHostProjects?.();
+  }
+
+  // After a relay restart relay-sessions has forgotten its terminals, so
+  // terminal_list comes back empty while the persistent (tmux) sessions still
+  // run on the host (attached_here false). Reattach each one no open eve
+  // terminal already holds (a persist terminal's name is its tmux session
+  // name), in the background — unless no terminal is active, in which case the
+  // first one takes focus. One run per project at a time; a session stays
+  // pending until its terminal_created lands so a second run can't double it;
+  // that landing also refreshes any open Remote sessions list.
+  async autoReattachPersistentSessions(projectId) {
+    this._autoReattachRunning ||= new Set();
+    this._autoReattachPending ||= new Map();
+    const project = this.app.state?.getProject?.(projectId);
+    if (!project?.host || this._autoReattachRunning.has(projectId)) return;
+    this._autoReattachRunning.add(projectId);
+    try {
+      let sessions;
+      try {
+        sessions = await this.app.api.getPersistentSessions(projectId);
+      } catch (err) {
+        // 404 not a host project, 409 no tmux, 502 host unreachable: nothing to do.
+        const quiet = [404, 409, 502].includes(err?.status);
+        this.log[quiet ? 'debug' : 'warn'](`Auto-reattach: listing persistent sessions for ${projectId} failed: ${err?.message || err}`);
+        return;
+      }
+      // A pane relay no longer lists (stale after a restart) or that has exited
+      // doesn't count as holding the session.
+      const open = new Set();
+      for (const [id, t] of this.terminals) {
+        if (!t.exited && this.allTerminals.has(id)) open.add(t.name);
+      }
+      let focus = !this.activeTerminalId;
+      let started = 0;
+      for (const s of Array.isArray(sessions) ? sessions : []) {
+        if (s.attached_here !== false || !s.name) continue;
+        if (open.has(s.name) || this._autoReattachPending.has(s.name)) continue;
+        // A create relay refuses never yields terminal_created; let it retry later.
+        const timer = setTimeout(() => this._autoReattachPending.delete(s.name), 30000);
+        timer?.unref?.();
+        this._autoReattachPending.set(s.name, { focus, timer, projectId });
+        focus = false;
+        this.createTerminal(s.template_id, project.path, projectId, s.name);
+        started++;
+      }
+      if (started) this.log.info(`Auto-reattaching ${started} persistent session(s) for ${projectId}`);
+    } finally {
+      this._autoReattachRunning.delete(projectId);
+    }
+  }
+
+  // hostId null (a full hosts refresh) means every host project.
+  _autoReattachHostProjects(hostId = null) {
+    const projects = this.app.state?.projects?.values?.() || [];
+    for (const p of projects) {
+      if (!p.host || (hostId && p.host.id !== hostId)) continue;
+      this.autoReattachPersistentSessions(p.id);
+    }
+  }
+
+  _onHostStatusForReattach(hostId) {
+    this._hostStatusSeen ||= new Map();
+    const hostIds = hostId ? [hostId] : [...(this.app.state?.hosts?.keys?.() || [])];
+    for (const id of hostIds) {
+      const status = this.app.state?.hostStatus?.(id);
+      const prev = this._hostStatusSeen.get(id);
+      this._hostStatusSeen.set(id, status);
+      if (status === 'connected' && prev !== 'connected') this._autoReattachHostProjects(id);
+    }
   }
 
   reconnectTerminal(terminalId, templateId, name, directory, exited, host) {
@@ -555,7 +659,8 @@ class TerminalManager {
   // (../relay/docs/ssh-hosts.md); the tab title becomes "<host.name> · <name>"
   // and the raw object is stored on both terminal records so the sidebar
   // (someone else's file) can read `terminal.host`.
-  setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect = false, host = null) {
+  // activate=false opens the tab without switching to it.
+  setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect = false, host = null, activate = true) {
     if (!this.xtermLoaded) {
       this.log.error('xterm not loaded yet');
       return;
@@ -626,9 +731,23 @@ class TerminalManager {
       }, 120);
     });
 
-    const baseLabel = name || templateId || 'Terminal';
-    const label = host ? `${host.name} · ${baseLabel}` : baseLabel;
-    this.app.tabManager.openTerminal(terminalId, label, directory);
+    // A persist terminal's name is relay's tmux session name; the tab shows
+    // the friendly "<template> #n" and keeps the full name as its tooltip.
+    const withHost = (text) => (host ? `${host.name} · ${text}` : text);
+    const friendly = typeof persistSessionLabel === 'function'
+      ? persistSessionLabel(name, this.app.state?.terminalTemplates)
+      : name;
+    const label = withHost(friendly || templateId || 'Terminal');
+    const title = name && friendly !== name ? withHost(name) : '';
+    this.app.tabManager.openTerminal(terminalId, label, directory, { activate, title });
+
+    // A title the program sets (OSC 0/2) wins while the terminal lives; a
+    // cleared or generic console title falls back to the label above.
+    term.onTitleChange?.((raw) => {
+      const t = (raw || '').trim();
+      const useful = t && !/\.exe$/i.test(t);
+      this.app.tabManager.updateTabLabel(terminalId, useful ? withHost(t) : label);
+    });
   }
 
   // xterm.js doesn't translate a touch drag into scrollback — the

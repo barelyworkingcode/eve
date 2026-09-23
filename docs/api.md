@@ -86,6 +86,8 @@ A project either lives on the console (as today) or on one SSH host (`project.ho
 | POST | `/api/terminals` | Create a terminal. Triggered by the WS `terminal_create` frame (below), not sent by the browser directly. 201 body is relay's own WS `terminal_created` frame minus `type` (`{terminalId, templateId, name, directory, host}`); non-2xx becomes a WS `error` to the browser. On success eve joins it over WS (`join_terminal`) — the old WS `terminal_create`-to-relay path is retired. |
 | GET/POST | `/api/terminal/templates` | List / create terminal templates. |
 | PUT/DELETE | `/api/terminal/templates/:id` | Update / delete a template. |
+| GET | `/api/projects/:id/persistent-sessions` | Host project's persistent (tmux) sessions, proxied from relay: `[{name, template_id, n, created, attached, attached_here}]`. 404 not a host project, 409 host has no tmux, 502 ssh failure. |
+| DELETE | `/api/projects/:id/persistent-sessions/:name` | Kill one persistent session. 204. |
 | GET | `/api/terminals/:id/log` | Raw PTY byte stream for a completed task (binary, `no-store`). |
 
 ### TTS / STT (local)
@@ -120,7 +122,7 @@ Files: `list_directory`, `read_file`, `write_file`, `rename_file`, `move_file`, 
 
 Search: `search_project`, `search_cancel`, `search_ai_summarize`, `search_ai_stop`.
 
-Terminals (proxied to relayLLM): `terminal_create` (`{templateId?, name?, directory, projectId?, cols?, rows?}` — eve answers this over HTTP via `POST /api/terminals`, above, not by forwarding the frame to relay), `terminal_input`, `terminal_resize`, `terminal_close`, `terminal_list`, `terminal_reconnect`, `join_terminal`, `leave_terminal`. Templates are fetched over HTTP (`GET /api/terminal/templates`, above), not this frame — relay-sessions answers a `terminal_templates` WS message with an explicit refusal, since the pty template list was never something relay-sessions owned.
+Terminals (proxied to relayLLM): `terminal_create` (`{templateId?, name?, directory, projectId?, cols?, rows?, persistSession?}` — `persistSession` reattaches to a named persistent session and is forwarded to relay as `persist_session` — eve answers this over HTTP via `POST /api/terminals`, above, not by forwarding the frame to relay), `terminal_input`, `terminal_resize`, `terminal_close`, `terminal_list`, `terminal_reconnect`, `join_terminal`, `leave_terminal`. Templates are fetched over HTTP (`GET /api/terminal/templates`, above), not this frame — relay-sessions answers a `terminal_templates` WS message with an explicit refusal, since the pty template list was never something relay-sessions owned.
 
 Modules: `module_read_file`, `module_write_file`, `module_invoke_ai`, `module_ai_stop`. See [docs/modules.md](modules.md).
 
