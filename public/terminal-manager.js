@@ -731,9 +731,23 @@ class TerminalManager {
       }, 120);
     });
 
-    const baseLabel = name || templateId || 'Terminal';
-    const label = host ? `${host.name} · ${baseLabel}` : baseLabel;
-    this.app.tabManager.openTerminal(terminalId, label, directory, { activate });
+    // A persist terminal's name is relay's tmux session name; the tab shows
+    // the friendly "<template> #n" and keeps the full name as its tooltip.
+    const withHost = (text) => (host ? `${host.name} · ${text}` : text);
+    const friendly = typeof persistSessionLabel === 'function'
+      ? persistSessionLabel(name, this.app.state?.terminalTemplates)
+      : name;
+    const label = withHost(friendly || templateId || 'Terminal');
+    const title = name && friendly !== name ? withHost(name) : '';
+    this.app.tabManager.openTerminal(terminalId, label, directory, { activate, title });
+
+    // A title the program sets (OSC 0/2) wins while the terminal lives; a
+    // cleared or generic console title falls back to the label above.
+    term.onTitleChange?.((raw) => {
+      const t = (raw || '').trim();
+      const useful = t && !/\.exe$/i.test(t);
+      this.app.tabManager.updateTabLabel(terminalId, useful ? withHost(t) : label);
+    });
   }
 
   // xterm.js doesn't translate a touch drag into scrollback — the

@@ -128,9 +128,14 @@ class RemoteSessionsSection {
     this._list.appendChild(msg);
   }
 
-  _templateName(templateId) {
-    const tmpl = (this.state.terminalTemplates || []).find(t => t.id === templateId);
-    return tmpl?.name || templateId || 'Terminal';
+  // Same label a reattached tab shows (persistSessionLabel, core/ui-utils.js);
+  // a name relay didn't build falls back to the listed template_id and n.
+  _label(s) {
+    const templates = this.state.terminalTemplates || [];
+    const friendly = typeof persistSessionLabel === 'function' ? persistSessionLabel(s.name, templates) : s.name;
+    if (friendly && friendly !== s.name) return friendly;
+    const tmpl = templates.find(t => t.id === s.template_id);
+    return `${tmpl?.name || s.template_id || 'Terminal'} #${s.n}`;
   }
 
   _render() {
@@ -152,7 +157,8 @@ class RemoteSessionsSection {
     info.className = 'remote-sessions__info';
     const name = document.createElement('span');
     name.className = 'shell-launcher__resume-name';
-    name.textContent = `${this._templateName(s.template_id)} #${s.n}`;
+    name.textContent = this._label(s);
+    name.title = s.name;
     info.appendChild(name);
 
     const age = typeof relativeTime === 'function' && s.created ? relativeTime(s.created * 1000) : '';
@@ -187,7 +193,7 @@ class RemoteSessionsSection {
   }
 
   _confirmKill(s) {
-    const label = `${this._templateName(s.template_id)} #${s.n}`;
+    const label = this._label(s);
     this.modalManager.showConfirmModal(
       `Kill remote session "${label}"? Anything running in it on the host stops.`,
       async () => {
