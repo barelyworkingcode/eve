@@ -145,6 +145,7 @@ class TerminalManager {
       this.Terminal = xtermModule.Terminal;
       this.FitAddon = fitModule.FitAddon;
       this.WebLinksAddon = webLinksModule.WebLinksAddon;
+      await this._loadClipboardAddon();
       this.xtermLoaded = true;
       this.log.info('xterm loaded');
       for (const cb of this._readyCallbacks) cb();
@@ -152,6 +153,42 @@ class TerminalManager {
     } catch (err) {
       this.log.error('Failed to load xterm:', err);
     }
+  }
+
+  // Optional: without it, OSC 52 copies (tmux copy-mode, Claude Code) are
+  // dropped, but the terminal itself still works.
+  async _loadClipboardAddon() {
+    try {
+      const mod = await import('/xterm-addon-clipboard/lib/addon-clipboard.mjs');
+      this.ClipboardAddon = mod.ClipboardAddon;
+    } catch (err) {
+      this.ClipboardAddon = null;
+      this.log.warn('Clipboard addon failed to load; OSC 52 copy disabled:', err?.message || err);
+    }
+  }
+
+  // Write-only OSC 52: a program on the host may set the browser clipboard
+  // but never read it back (a `?` query answers empty), or anything running
+  // over ssh could exfiltrate whatever the user last copied.
+  _clipboardProvider() {
+    return {
+      readText: () => '',
+      writeText: (_selection, text) => this._writeClipboard(text),
+    };
+  }
+
+  _writeClipboard(text) {
+    if (!text || !navigator.clipboard?.writeText) return;
+    return navigator.clipboard.writeText(text).catch((err) => {
+      this.log.warn('Clipboard write refused:', err?.message || err);
+    });
+  }
+
+  // Copy on select, iTerm-style. Called from mouseup/dblclick directly (not
+  // from onSelectionChange, which fires on every drag step) so the write
+  // stays inside the user gesture Safari requires.
+  _copySelection(term) {
+    if (term.hasSelection()) this._writeClipboard(term.getSelection());
   }
 
   onReady(fn) {
@@ -348,6 +385,10 @@ class TerminalManager {
       lineHeight: 1.2,
       cursorBlink: true,
       cursorStyle: 'block',
+      // A TUI with mouse reporting on (Claude Code, tmux) takes every drag, so
+      // nothing can be selected. Option-drag forces a local selection on Mac;
+      // Shift-drag already does elsewhere.
+      macOptionClickForcesSelection: true,
       allowProposedApi: true
     });
 
@@ -356,6 +397,9 @@ class TerminalManager {
 
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
+    if (this.ClipboardAddon) {
+      term.loadAddon(new this.ClipboardAddon(undefined, this._clipboardProvider()));
+    }
 
     this.registerGeneratedImageLinks(term);
 
@@ -731,6 +775,8 @@ class TerminalManager {
     term.open(containerDiv);
     this._attachTouchScroll(containerDiv, term);
     this._attachImagePaste(containerDiv, terminalId);
+    containerDiv.addEventListener('mouseup', () => this._copySelection(term));
+    containerDiv.addEventListener('dblclick', () => this._copySelection(term));
 
     this.terminals.set(terminalId, {
       term,
