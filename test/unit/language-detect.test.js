@@ -18,7 +18,7 @@ const MONACO_LANGUAGES = [
   { id: 'javascript', extensions: ['.js', '.es6', '.jsx', '.mjs', '.cjs'], filenames: ['jakefile'] },
   { id: 'typescript', extensions: ['.ts', '.tsx', '.cts', '.mts'] },
   { id: 'powershell', extensions: ['.ps1', '.psm1', '.psd1'] },
-  { id: 'razor', extensions: ['.cshtml', '.razor'] },
+  { id: 'razor', extensions: ['.cshtml'] },
   {
     id: 'xml',
     extensions: [
