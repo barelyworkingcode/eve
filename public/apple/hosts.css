@@ -150,6 +150,12 @@
   padding: var(--sp-2) var(--sp-3);
 }
 
+.remote-sessions__error {
+  font-size: var(--text-subhead);
+  color: var(--danger);
+  padding: var(--sp-2) var(--sp-3);
+}
+
 /* The confirm modal must stack above the New Terminal picker overlay, which
    shares its z-index but is appended to <body> later. */
 #confirmModal { z-index: 210; }

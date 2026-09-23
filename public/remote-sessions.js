@@ -32,10 +32,17 @@ class RemoteSessionsSection {
     header.appendChild(title);
     header.appendChild(refreshBtn);
 
+    // Action errors (a failed Kill) sit above the list so the rows stay put.
+    this._error = document.createElement('div');
+    this._error.className = 'remote-sessions__error';
+    this._error.dataset.testid = 'remote-sessions-error';
+    this._error.hidden = true;
+
     this._list = document.createElement('div');
     this._list.className = 'remote-sessions__list';
 
     this.el.appendChild(header);
+    this.el.appendChild(this._error);
     this.el.appendChild(this._list);
 
     this._sessions = [];
@@ -79,6 +86,7 @@ class RemoteSessionsSection {
   async refresh() {
     const seq = ++this._fetchSeq;
     this._loaded = false;
+    this._setError('');
     this._setMessage('Loading…');
     try {
       const list = await this.api.getPersistentSessions(this.projectId);
@@ -101,6 +109,11 @@ class RemoteSessionsSection {
         ? (detail || 'tmux is not available on this host.')
         : `Couldn't reach the host${detail ? `: ${detail}` : '.'}`);
     }
+  }
+
+  _setError(text) {
+    this._error.textContent = text;
+    this._error.hidden = !text;
   }
 
   _setMessage(text) {
@@ -177,7 +190,8 @@ class RemoteSessionsSection {
         try {
           await this.api.deletePersistentSession(this.projectId, s.name);
         } catch (err) {
-          this._setMessage(`Couldn't kill "${label}": ${err.body?.error || err.message}`);
+          // Leave the list as it was; the session may well still be there.
+          this._setError(`Couldn't kill "${label}": ${err.body?.error || err.message}`);
           return;
         }
         this.refresh();

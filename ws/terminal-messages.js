@@ -36,7 +36,16 @@ module.exports = [
       }
 
       if (status < 200 || status >= 300) {
-        ws.send(JSON.stringify({ type: 'error', message: `terminal create failed (${status})` }));
+        // Pass relay's own reason through (e.g. a Reattach whose tmux session
+        // is gone) rather than a bare status; the status is the fallback.
+        const detail = data && data.error;
+        const code = data && data.code;
+        ws.send(JSON.stringify({
+          type: 'error',
+          context: 'terminal_create',
+          message: detail ? `terminal create failed: ${detail}` : `terminal create failed (${status})`,
+          ...(code ? { code } : {}),
+        }));
         return;
       }
 

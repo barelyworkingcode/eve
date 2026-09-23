@@ -114,6 +114,24 @@ describe('RemoteSessionsSection', () => {
     expect(api.getPersistentSessions).toHaveBeenCalledTimes(2); // re-listed after the kill
   });
 
+  it('a failed Kill keeps the rows and shows the error above them, without re-listing', async () => {
+    const { section, api, modalManager } = build({ list: SESSIONS });
+    await section.refresh();
+    api.deletePersistentSession.mockRejectedValueOnce(httpError(502, { error: 'ssh: connect timed out' }));
+    button(rows(section)[0], 'Kill').click();
+    await modalManager.showConfirmModal.mock.calls[0][1]();
+    await flush();
+
+    expect(rows(section)).toHaveLength(2);
+    const error = section.el.byClass('remote-sessions__error')[0];
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe('Couldn\'t kill "Shell #1": ssh: connect timed out');
+    expect(api.getPersistentSessions).toHaveBeenCalledTimes(1);
+
+    await section.refresh();
+    expect(error.hidden).toBe(true);
+  });
+
   it('hides the whole section on 404 (not a host project)', async () => {
     const { section } = build({ getError: httpError(404, { error: 'not found' }) });
     await section.refresh();

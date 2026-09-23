@@ -246,13 +246,23 @@ describe('createWsHandler', () => {
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', message: 'terminal create failed: a terminal needs a project' }));
     });
 
-    it('terminal_create on a non-2xx sends the browser an error and never joins', async () => {
-      deps.relayTransport.fetch.mockResolvedValueOnce({ status: 500, data: { error: 'boom' } });
+    it("terminal_create on a non-2xx sends the browser relay's error (and code) and never joins", async () => {
+      deps.relayTransport.fetch.mockResolvedValueOnce({ status: 404, data: { error: 'persistent session not found', code: 'session_gone' } });
+      ws.send.mockClear();
+      await sendMsg(ws, { type: 'terminal_create', templateId: 't', directory: '/proj1', projectId: 'p1', persistSession: 'eve-p1-t-1' });
+
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: 'error', context: 'terminal_create', message: 'terminal create failed: persistent session not found', code: 'session_gone',
+      }));
+      expect(relayClient.send).not.toHaveBeenCalled();
+    });
+
+    it('terminal_create on a non-2xx with no relay error falls back to the status', async () => {
+      deps.relayTransport.fetch.mockResolvedValueOnce({ status: 500, data: null });
       ws.send.mockClear();
       await sendMsg(ws, { type: 'terminal_create', templateId: 't', directory: '/proj1', projectId: 'p1' });
 
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', message: 'terminal create failed (500)' }));
-      expect(relayClient.send).not.toHaveBeenCalled();
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', context: 'terminal_create', message: 'terminal create failed (500)' }));
     });
 
     it('list_directory starts the project watcher and lists', async () => {

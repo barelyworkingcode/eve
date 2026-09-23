@@ -60,7 +60,7 @@ describe('terminal proxying (eve <-> relay)', () => {
       const from = ws.mark();
       ws.send({ type: 'terminal_create', templateId: 'zsh', name: 'boom', directory: projectDir, projectId: 'p1', cols: 80, rows: 24 });
       const err = await ws.waitFor((f) => f.type === 'error', 5000, from);
-      expect(err.message).toBe('terminal create failed (500)');
+      expect(err.message).toBe('terminal create failed: forced terminal create failure');
       expect(ws.frames.slice(from).some((f) => f.type === 'terminal_created')).toBe(false);
     } finally {
       eve.relay.clearTerminalCreateFail();
