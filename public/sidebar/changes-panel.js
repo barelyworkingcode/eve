@@ -29,8 +29,8 @@ class ChangesPanel {
     this.scope = this._restoreScope();
     // key `${projectId}|${scope}` -> { repos: [], error, loading, stale, fetchedAt, hasData }
     this._cache = new Map();
-    // Keys with a full (all-repo) request in flight; a git_changes frame
-    // carries no `repo` echo, so this is how a reply is known to be complete.
+    // Keys with a full (all-repo) request in flight. A reply without a `repo`
+    // echo is a full list and settles the key; one with `repo` only merges.
     this._pendingFull = new Set();
     this._pendingRepos = new Set();
     this._refreshTimer = null;
@@ -187,7 +187,7 @@ class ChangesPanel {
     const key = this._key(msg.projectId, scope);
     const entry = this._entryFor(key);
 
-    if (this._pendingFull.has(key)) {
+    if (msg.repo === undefined) {
       this._pendingFull.delete(key);
       entry.repos = msg.repos.slice();
       entry.loading = false;

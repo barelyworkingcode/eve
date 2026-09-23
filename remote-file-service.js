@@ -132,9 +132,10 @@ class RemoteFileService {
     try {
       res = await this.hostAgent.request('git', { root, cwd: cwdRel, args, maxBytes });
     } catch (err) {
-      // The agent reports a missing/non-directory cwd as NO_DIR — the local
-      // runner calls that NOT_A_REPO.
-      const raw = err && err.code === 'NO_DIR' ? 'NOT_A_REPO' : err && err.code;
+      // The agent reports a missing/non-directory cwd as NO_DIR and a cwd
+      // that resolves outside root (e.g. via symlink) as TRAVERSAL — the
+      // local runner calls both NOT_A_REPO.
+      const raw = err && (err.code === 'NO_DIR' || err.code === 'TRAVERSAL') ? 'NOT_A_REPO' : err && err.code;
       const code = GIT_ERROR_CODES.has(raw) ? raw : 'FAILED';
       throw new GitError(code, (err && err.message) || 'git failed on host');
     }
@@ -179,15 +180,26 @@ class RemoteFileService {
     return this._git().repos(projectPath);
   }
 
+  // Lexical pre-check with the same GitError codes GitService uses, so an
+  // escaping repo/file path fails identically on both backends.
+  _validateGitPath(projectPath, relativePath, code, message) {
+    try {
+      this.validatePath(projectPath, relativePath);
+    } catch (_) {
+      const { GitError } = loadGitModule();
+      throw new GitError(code, message);
+    }
+  }
+
   async gitStatus(projectPath, repoPath, scope) {
-    this.validatePath(projectPath, repoPath);
+    this._validateGitPath(projectPath, repoPath, 'NOT_A_REPO', 'Invalid repository path');
     return this._git().status(projectPath, repoPath, scope);
   }
 
   async gitFileVersions(projectPath, repoPath, filePath, scope) {
-    this.validatePath(projectPath, repoPath);
+    this._validateGitPath(projectPath, repoPath, 'NOT_A_REPO', 'Invalid repository path');
     const repoRel = String(repoPath || '').replace(/^\/+/, '');
-    this.validatePath(projectPath, path.join(repoRel || '.', String(filePath || '')));
+    this._validateGitPath(projectPath, path.join(repoRel || '.', String(filePath || '')), 'FAILED', 'Invalid file path');
     return this._git().fileVersions(projectPath, repoPath, filePath, scope);
   }
 }

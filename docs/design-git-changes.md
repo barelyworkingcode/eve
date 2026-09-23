@@ -207,7 +207,7 @@ grants nothing new; the browser never supplies `args`.
 | direction | frame |
 |---|---|
 | → server | `{ type: 'git_changes', projectId, scope, repo? }` |
-| ← client | `{ type: 'git_changes', projectId, scope, repos: [{ ...repoMeta, files, base, truncated, error? }] }` — one entry per repo, or just `repo` when given |
+| ← client | `{ type: 'git_changes', projectId, scope, repo?, repos: [{ ...repoMeta, files, base, truncated, error? }] }` — one entry per repo, or just `repo` when given; `repo` is echoed only on a single-repo reply, so a reply without it is the full list |
 | → server | `{ type: 'git_file_versions', projectId, repo, path, scope }` |
 | ← client | `{ type: 'git_file_versions', projectId, repo, path, scope, original, modified, binary, tooLarge, originalSize, modifiedSize }` |
 | ← client | `{ type: 'git_error', projectId, repo?, path?, code, error }` |

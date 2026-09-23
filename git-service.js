@@ -101,12 +101,15 @@ function createLocalRunner({ validatePath } = {}) {
   };
 }
 
-// '/', '', undefined -> '/'; 'a/b/' -> '/a/b'. Resolving against '/' clamps
-// any '..' at the root, so the result is always a root-relative path.
+// '/', '', undefined -> '/'; 'a/b/' -> '/a/b'. A path that climbs above the
+// root ('/../x') is rejected rather than clamped, matching the remote side.
 function normalizeRepoPath(repoPath) {
   const s = String(repoPath == null ? '/' : repoPath);
-  if (s.includes('\0')) throw new GitError('NOT_A_REPO', 'Invalid repository path');
-  return path.resolve('/', s);
+  const lexical = path.normalize(s.replace(/^\/+/, '') || '.');
+  if (s.includes('\0') || lexical === '..' || lexical.startsWith('../')) {
+    throw new GitError('NOT_A_REPO', 'Invalid repository path');
+  }
+  return path.resolve('/', lexical);
 }
 
 function stripSlash(rel) {
@@ -161,7 +164,20 @@ function parseStatusV2(buf) {
       if (p == null) continue;
       const x = xy[0];
       const y = xy[1];
-      files.push({ path: p, status: letterFor(y !== '.' ? y : x), staged: x !== '.' });
+      // Report the change vs HEAD (what `git diff HEAD` shows), not the last
+      // step: new in the index stays A even when edited again, and a
+      // worktree delete wins over any index change. Added-then-deleted
+      // (`AD`) is absent on both sides vs HEAD, so it isn't a change.
+      let status;
+      if (y === 'D') {
+        if (x === 'A') continue;
+        status = 'D';
+      } else if (x === 'A') {
+        status = 'A';
+      } else {
+        status = letterFor(y !== '.' ? y : x);
+      }
+      files.push({ path: p, status, staged: x !== '.' });
     } else if (kind === '2') {
       const xy = rec.slice(2, 4);
       const p = afterFields(rec, 9);

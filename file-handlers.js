@@ -276,7 +276,10 @@ class FileHandlers {
         }
       });
 
-      ws.send(JSON.stringify({ type: 'git_changes', projectId, scope, repos }));
+      // Echo `repo` so the client can tell a single-repo reply from a full one.
+      const reply = { type: 'git_changes', projectId, scope, repos };
+      if (repo !== undefined) reply.repo = repo;
+      ws.send(JSON.stringify(reply));
     } catch (err) {
       this._sendGitError(ws, fields, err, project);
     }

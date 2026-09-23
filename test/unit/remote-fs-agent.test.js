@@ -15,8 +15,8 @@ const AGENT_PATH = path.join(__dirname, '..', '..', 'remote-fs-agent.js');
 // pattern: every parsed line is kept in `log` (so an already-arrived message
 // is found immediately, without racing a waiter that was registered too
 // late) as well as offered to any pending waiter.
-function startAgent() {
-  const proc = spawn(process.execPath, [AGENT_PATH], { stdio: ['pipe', 'pipe', 'pipe'] });
+function startAgent({ env } = {}) {
+  const proc = spawn(process.execPath, [AGENT_PATH], { stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) });
   let buf = '';
   const log = [];
   const waiters = [];
@@ -276,5 +276,110 @@ describe('remote-fs-agent.js (spawned over pipes, no ssh)', () => {
 
     const stopped = await agent.request('unwatch', { root });
     expect(stopped.ok).toBe(true);
+  });
+});
+
+// The `git` op behind RemoteFileService#_gitRun (docs/design-git-changes.md,
+// "Remote agent op"). The 10 s timeout path is not exercised here — it would
+// cost 10 s per run; TIMEOUT mapping is covered on the eve side
+// (remote-file-service-git.test.js) and the local runner (git-service.test.js).
+describe('remote-fs-agent.js git op', () => {
+  const { initRepo, write } = require('../helpers/git-fixture');
+  let tmpDir, root, agent;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-agent-git-'));
+    root = fs.realpathSync(tmpDir);
+    initRepo(root, { 'a.txt': 'one\n', 'bin.dat': Buffer.from([0, 1, 2, 255, 0]) });
+    write(root, 'sub/file.txt', 'x');
+    agent = startAgent();
+  });
+
+  afterEach(() => {
+    agent.stop();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('runs git in cwd and returns stdout as base64', async () => {
+    const res = await agent.request('git', { root, cwd: '/', args: ['rev-parse', '--show-toplevel'] });
+    expect(res).toMatchObject({ ok: true, code: 0 });
+    expect(Buffer.from(res.stdout, 'base64').toString('utf8').trim()).toBe(root);
+  });
+
+  it('round-trips binary stdout (NUL bytes) intact', async () => {
+    const res = await agent.request('git', { root, cwd: '/', args: ['cat-file', 'blob', 'HEAD:bin.dat'] });
+    expect(res.ok).toBe(true);
+    expect(Buffer.from(res.stdout, 'base64')).toEqual(Buffer.from([0, 1, 2, 255, 0]));
+  });
+
+  it('a non-zero exit is ok: true with the exit code and stderr', async () => {
+    const res = await agent.request('git', { root, cwd: '/', args: ['rev-parse', '--verify', 'no-such-ref'] });
+    expect(res.ok).toBe(true);
+    expect(res.code).not.toBe(0);
+    expect(typeof res.stderr).toBe('string');
+    expect(res.stderr.length).toBeGreaterThan(0);
+  });
+
+  it('runs in a subdirectory cwd', async () => {
+    const res = await agent.request('git', { root, cwd: '/sub', args: ['rev-parse', '--show-prefix'] });
+    expect(res.ok).toBe(true);
+    expect(Buffer.from(res.stdout, 'base64').toString('utf8').trim()).toBe('sub/');
+  });
+
+  it.each([
+    ['a string', 'status'],
+    ['missing', undefined],
+    ['an array with a non-string', ['status', 1]],
+  ])('refuses args given as %s', async (_label, args) => {
+    const res = await agent.request('git', { root, cwd: '/', args });
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe('ERROR');
+  });
+
+  it('refuses a cwd that escapes root lexically with TRAVERSAL', async () => {
+    const res = await agent.request('git', { root, cwd: '../..', args: ['status'] });
+    expect(res).toMatchObject({ ok: false, code: 'TRAVERSAL' });
+  });
+
+  it('refuses a cwd symlinked outside root with TRAVERSAL', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-agent-git-out-'));
+    fs.symlinkSync(outside, path.join(root, 'escape'));
+    try {
+      const res = await agent.request('git', { root, cwd: '/escape', args: ['status'] });
+      expect(res).toMatchObject({ ok: false, code: 'TRAVERSAL' });
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('a missing cwd is NO_DIR (not GIT_MISSING)', async () => {
+    const res = await agent.request('git', { root, cwd: '/nope', args: ['status'] });
+    expect(res).toMatchObject({ ok: false, code: 'NO_DIR' });
+  });
+
+  it('a cwd that is a file is NO_DIR', async () => {
+    const res = await agent.request('git', { root, cwd: '/a.txt', args: ['status'] });
+    expect(res).toMatchObject({ ok: false, code: 'NO_DIR' });
+  });
+
+  it('output over maxBytes is TOO_LARGE', async () => {
+    const res = await agent.request('git', { root, cwd: '/', args: ['--version'], maxBytes: 3 });
+    expect(res).toMatchObject({ ok: false, code: 'TOO_LARGE' });
+  });
+
+  it('git absent from PATH is GIT_MISSING', async () => {
+    agent.stop();
+    const emptyBin = fs.mkdtempSync(path.join(root, 'bin-'));
+    agent = startAgent({ env: { ...process.env, PATH: emptyBin } });
+    const res = await agent.request('git', { root, cwd: '/', args: ['--version'] });
+    expect(res).toMatchObject({ ok: false, code: 'GIT_MISSING' });
+  });
+
+  it('ignores inherited GIT_* env that would redirect git elsewhere', async () => {
+    agent.stop();
+    agent = startAgent({ env: { ...process.env, GIT_DIR: path.join(root, 'no-such', '.git'), GIT_WORK_TREE: '/' } });
+    const res = await agent.request('git', { root, cwd: '/', args: ['rev-parse', '--show-toplevel'] });
+    expect(res).toMatchObject({ ok: true, code: 0 });
+    expect(Buffer.from(res.stdout, 'base64').toString('utf8').trim()).toBe(root);
   });
 });

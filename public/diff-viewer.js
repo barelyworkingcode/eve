@@ -188,7 +188,10 @@ class DiffViewer {
     if (!frame) return;
     for (const st of this.states.values()) {
       if (st.spec.projectId !== frame.projectId) continue;
-      if (frame.repo !== '*' && frame.repo !== st.spec.repo) continue;
+      // The watcher attributes root-repo files to their first path segment
+      // (it can't tell `/src` from a child repo), so a root-repo diff
+      // refetches on any change in its project.
+      if (st.spec.repo !== '/' && frame.repo !== '*' && frame.repo !== st.spec.repo) continue;
       if (!this._isVisible(st)) { st.stale = true; continue; }
       clearTimeout(st.refreshTimer);
       st.refreshTimer = setTimeout(() => {
