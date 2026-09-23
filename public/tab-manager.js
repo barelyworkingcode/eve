@@ -117,16 +117,18 @@ class TabManager {
     this.switchToTab(tabId);
   }
 
-  openTerminal(terminalId, label, directory) {
+  // activate=false adds the tab in the background (auto-reattach).
+  openTerminal(terminalId, label, directory, { activate = true } = {}) {
     const existingTab = this.tabs.find(t => t.id === terminalId);
     if (existingTab) {
-      this.switchToTab(terminalId);
+      if (activate) this.switchToTab(terminalId);
       return;
     }
 
     const tab = panes.type('terminal').create({ terminalId, label, directory }, this._ctx());
     this.tabs.push(tab);
-    this.switchToTab(terminalId);
+    if (activate) this.switchToTab(terminalId);
+    else this.render();
   }
 
   openModule(projectId, moduleName, label) {

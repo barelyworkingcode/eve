@@ -53,6 +53,10 @@ class RemoteSessionsSection {
     // element detached unsubscribes itself.
     this._unsubs = [
       this.bus.on(EVT.HOST_STATUS, ({ hostId }) => this._onHostStatus(hostId)),
+      this.bus.on(EVT.PERSISTENT_SESSIONS_CHANGED, ({ projectId } = {}) => {
+        if (this._detachIfGone() || projectId !== this.projectId) return;
+        this.refresh();
+      }),
       this.bus.on(EVT.TERMINAL_TEMPLATES_LOADED, () => {
         if (this._detachIfGone()) return;
         this._render();
