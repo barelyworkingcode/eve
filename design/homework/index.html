@@ -68,13 +68,13 @@
 <header class="hero">
   <div class="mark"><span class="h">Home</span><span class="bar">|</span><span class="w">Work</span></div>
   <p>A proposal to turn eve into something you open every day: it opens to your day, answers with sources, runs your routines overnight and keeps your agents in view, on the Mac, the iPad and the phone.</p>
-  <p style="font-size:13px;color:var(--t3)">Draft for review · 24 September 2026 · local branch <code>design/homework-next</code>, not pushed</p>
+  <p style="font-size:13px;color:var(--t3)">Draft for review · 24 September 2026 · branch <code>design/homework-next</code></p>
 </header>
 
 <nav class="toc"><div>
   <a href="#thesis">Thesis</a><a href="#found">What we found</a><a href="#bugs">Fix first</a><a href="#shape">The new shape</a>
   <a href="#mockups">Mockups</a><a href="#stories">User stories</a><a href="#delight">Delight</a><a href="#kill">Kill · move · keep</a>
-  <a href="#relay">Relay's part</a><a href="#answers">Answers</a><a href="#plan">Plan</a><a href="#decide">Your calls</a><a href="#appendix">Appendix</a>
+  <a href="#relay">Relay's part</a><a href="#answers">Answers</a><a href="#plan">Plan</a><a href="#decide">Decisions</a><a href="#appendix">Appendix</a>
 </div></nav>
 
 <main>
@@ -125,7 +125,7 @@
     <tr><td>Send enabled while disconnected</td><td>ws-client / chat form</td><td>"Thinking…" forever; the message goes nowhere.</td></tr>
     <tr><td>Stale voice labels</td><td>README and Settings say Kokoro / Whisper</td><td>The daemons run Qwen3 now.</td></tr>
   </table>
-  <div class="callout warn">During the audit, <b>chat didn't work on the devbox</b>: one local model returned <code>unknown model</code>, and pi and Claude Haiku returned "Provider process exited". The scheduler wasn't running either (Tasks returned 404). That may be the VM's current state, not eve, but it's worth a look before any build work.</div>
+  <div class="callout">During the audit, <b>chat didn't work on the devbox</b>. Since fixed: the sandbox had no <code>claude-code</code>/<code>pi</code> templates after a Homebrew update (relay#11), relayScheduler had never been registered, the host's model router is no longer reachable from the VM by design (relay#12), and pi sessions sent the wrong model id to the broker (relay#15).</div>
 </section>
 
 <section id="shape">
@@ -392,19 +392,31 @@
 </section>
 
 <section id="decide">
-  <h2>Your calls</h2>
-  <p class="lede">Decisions that change what gets built. My recommendation is first in each.</p>
-  <ol class="decisions">
-    <li><b>Where does a mode live?</b> A <code>mode</code> field on relay projects (recommended: syncs live, Relay enforces scopes), or an eve-owned <code>data/modes.json</code>.</li>
-    <li><b>Web search for local models:</b> a self-hosted metasearch engine (private, no key) or a keyed search API (better results, leaves the box). Decides Relay's external-access grants.</li>
-    <li><b>Should routine failures reach you outside the app?</b> Native iOS notifications (recommended, later) vs. a message to yourself via <code>messages_send</code> (powerful tool for a headless session).</li>
-    <li><b>What counts as "mail that needs a reply"</b> in the brief: flagged, or unread from known contacts?</li>
-    <li><b>Front-door rule:</b> is "Today after 60 minutes away, restore tabs otherwise" right for your desktop habit?</li>
-    <li><b>Terminal-type routines:</b> keep behind Advanced, or move to Relay?</li>
-    <li><b>Session folders:</b> OK to hide the UI (data kept)?</li>
-    <li><b>Where should this work live?</b> See below.</li>
-  </ol>
-  <div class="callout"><b>On keeping it private.</b> GitHub can't make individual issues private in a public repo. Two options: (a) keep this local branch as the home for the design until you're ready (what I did: nothing was pushed, no issues filed), or (b) a private companion repo, e.g. <code>homework-design</code>, where the stories become issues and this page becomes its README. Say which and I'll set it up.</div>
+  <h2>Decisions</h2>
+  <p class="lede">Made in review on 24 September 2026.</p>
+  <table class="card" style="padding:0">
+    <tr><th style="width:30%">Question</th><th>Decision</th></tr>
+    <tr><td>Where does a mode live?</td><td>A <code>mode</code> field on relay projects plus a default project per mode (relay#16). Relay keeps enforcing scopes.</td></tr>
+    <tr><td>Web search for local models</td><td>Use a search API through an MCP. The owner has a search MCP in mind; it isn't in the org's repos or installed on the devbox yet, so locating or building it is the first research task.</td></tr>
+    <tr><td>Reaching you outside the app</td><td>There's no notification infrastructure yet. Start with a small <b>Notifier</b> interface whose first implementation wraps the devbox's existing Pushover script, so routine failures and "Needs you" items can ping the phone. Later builds swap in or add native iOS push behind the same interface.</td></tr>
+    <tr><td>"Mail that needs a reply" in the brief</td><td>For now: unread mail in the mode's own scoped mailboxes. Put it behind a classifier interface so a trained, JEV-style classifier can replace the rule later without touching the brief.</td></tr>
+    <tr><td>Front-door rule</td><td>Today after 60 minutes away; otherwise restore open tabs.</td></tr>
+    <tr><td>Terminal-type routines</td><td>Stay in eve, behind Advanced.</td></tr>
+    <tr><td>Session folders</td><td>Hide the UI, keep the data. Try it.</td></tr>
+    <tr><td>Where the design lives</td><td>Published as an Epic on GitHub with the mockups and screenshots. This page stays in the repo under <code>design/homework/</code>.</td></tr>
+    <tr><td>Claude placement and routines</td><td>Claude stays in relay-sessions for compliance. Routines may use Claude until Anthropic clarifies (see <a href="#answers">Questions answered</a>).</td></tr>
+  </table>
+  <h3>Tracked issues</h3>
+  <table class="card" style="padding:0">
+    <tr><th>Order</th><th>Issue</th><th>What</th></tr>
+    <tr><td>1</td><td>relay#15</td><td>pi sessions return an empty reply for <code>pi/&lt;provider&gt;/&lt;model&gt;</code> ids</td></tr>
+    <tr><td>2</td><td>relay#14</td><td>Chat and Claude sessions never get relay tools or skills</td></tr>
+    <tr><td>3</td><td>eve#31</td><td>Task schedules, running state and small UX breakages</td></tr>
+    <tr><td>4</td><td>relay#11</td><td>Sandboxed sessions die silently when a provider binary moves; model catalog goes stale</td></tr>
+    <tr><td>5</td><td>relay#13</td><td>Pick a project's allowed models from a live list</td></tr>
+    <tr><td>6</td><td>relay#16</td><td>Projects carry a Home/Work mode, with a default project per mode</td></tr>
+    <tr><td>7</td><td>relay#12</td><td>Let a VM on the host bridge reach relay's model endpoint (low)</td></tr>
+  </table>
 </section>
 
 <section id="appendix">
