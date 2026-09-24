@@ -74,7 +74,7 @@
 <nav class="toc"><div>
   <a href="#thesis">Thesis</a><a href="#found">What we found</a><a href="#bugs">Fix first</a><a href="#shape">The new shape</a>
   <a href="#mockups">Mockups</a><a href="#stories">User stories</a><a href="#delight">Delight</a><a href="#kill">Kill · move · keep</a>
-  <a href="#relay">Relay's part</a><a href="#plan">Plan</a><a href="#decide">Your calls</a><a href="#appendix">Appendix</a>
+  <a href="#relay">Relay's part</a><a href="#answers">Answers</a><a href="#plan">Plan</a><a href="#decide">Your calls</a><a href="#appendix">Appendix</a>
 </div></nav>
 
 <main>
@@ -323,6 +323,9 @@
   <p class="lede">Relay already covers nearly all of eve's admin, usually in more depth. Six things have no Relay equivalent and stay in eve: routines, chat presets, launching threads and agents, appearance and voice preferences, file-tree preferences, and host tmux reattach. To let eve shed the rest, Relay needs a few small additions.</p>
   <table class="card" style="padding:0">
     <tr><th>Gap</th><th>Size</th><th>Why</th></tr>
+    <tr><td><b>Wire relay tools for chat and Claude sessions</b> (<code>RelayMCPCommand</code> is never set in production)</td><td>M</td><td>Blocks the brief, capture and local-model research. Touches the sandbox and tool permissions, so it needs its own design.</td></tr>
+    <tr><td><code>GET /api/permissions/pending</code> + broadcast of permission requests to every connection</td><td>S</td><td>Powers "Needs you" across projects and devices.</td></tr>
+    <tr><td>Run one tool call on behalf of a project</td><td>S</td><td>Lets the brief fetch facts without a model.</td></tr>
     <tr><td>A <b>mode</b> on relay projects (home / work / both) plus a default project per mode</td><td>S</td><td>Projects already sync live between eve and the tray; modes ride on the same path.</td></tr>
     <tr><td>Live model picker for allowed models (replace the comma-separated field)</td><td>S</td><td>Needed before eve drops its model checkboxes.</td></tr>
     <tr><td><code>preview</code> / title on the session <code>Summary</code></td><td>S</td><td>Titles live in each device's localStorage today, so the iPad and the phone disagree.</td></tr>
@@ -337,10 +340,49 @@
   <p style="font-size:14px;color:var(--t2)">Backends eve already has but barely uses: scheduler run history with reply text, cost and tokens (<code>GET /api/tasks/:id/history</code>); <code>task_completed</code> events with an "interactive" flag; a blocking <code>POST /api/sessions/:id/message</code> for Shortcuts and a share sheet; <code>/api/status/detailed</code> for a "model warming up" hint; and macMCP's 51 tools (calendar, reminders, mail, messages, contacts, weather, maps, shortcuts; no Notes, but Shortcuts can reach it).</p>
 </section>
 
+
+<section id="answers">
+  <h2>Questions answered</h2>
+  <p class="lede">Settled in review on 24 September. These override anything earlier in this page.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:0">Claude stays in relay-sessions</h3>
+      <p style="font-size:14.5px;margin:0 0 8px">The "Claude as just another model" bridge already exists: relay-sessions runs the unmodified <code>claude</code> binary with stream-json in and out, keeps it open between turns (15-minute idle timeout), and lists Haiku, Sonnet and Opus beside every other model.</p>
+      <p style="font-size:14.5px;margin:0">It does <b>not</b> move into relayLLM. There it would become a chat-completion endpoint any harness could call with your subscription, which loses Claude Code's own tools and permission hook and drifts toward what Anthropic's terms forbid ("route requests through Free, Pro, or Max plan credentials", "intermediate … credentials or session tokens"). Staying in relay-sessions keeps it the permitted case: your own sign-in, the unmodified binary, one user.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Routines may run on Claude, for now</h3>
+      <p style="font-size:14.5px;margin:0 0 8px">Scheduled routines may target Claude until Anthropic clarifies. The terms say Pro/Max limits "assume ordinary, individual usage of Claude Code and the Agent SDK"; a morning brief is you, for you, but unattended. If clarification says otherwise, switch those routines to an API key (clearly allowed) or a local model. The routine sheet shows which model a routine uses, so the switch is visible.</p>
+      <p style="font-size:14.5px;margin:0"><b>Claude Code's own schedulers don't replace relayScheduler.</b> Cloud routines (<code>/schedule</code>) run in Anthropic's cloud and can't reach this Mac, its files or local MCP tools. <code>/loop</code> needs an open session and expires after 7 days. Desktop scheduled tasks need the Desktop app running. The documented pattern for unattended local runs is headless <code>claude -p</code> from a scheduler with <code>--mcp-config</code>, which is what relayScheduler already does. Keep it.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Today aggregates by mode, not everything</h3>
+      <p style="font-size:14.5px;margin:0 0 8px">Work's Today covers every Work project; Home's covers every Home project. Every row carries its project monogram, and clicking one narrows Today to that project (Esc widens it again).</p>
+      <ul style="font-size:14px;color:var(--t2);margin:0;padding-left:18px">
+        <li><b>Threads and agents:</b> already global with <code>projectId</code>; filter by the project's mode.</li>
+        <li><b>Calendar, mail, reminders, weather:</b> not per project. They come from the mode's brief, which runs in the mode's own project; Relay scopes that project to the right accounts. One source per mode, nothing to merge.</li>
+        <li><b>Needs you:</b> permission requests only reach a connection that joined that session. Relay-sessions needs <code>GET /api/permissions/pending</code> and a broadcast of new/resolved requests to all connections (<code>Hub.Broadcast</code> exists). Failed routines already arrive on the global scheduler stream.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">How the Morning brief is built</h3>
+      <p style="font-size:14.5px;margin:0 0 8px">A routine per mode at 07:00 in the mode's project, read-only tools, results read from the task's run history. Two refinements:</p>
+      <ul style="font-size:14px;color:var(--t2);margin:0;padding-left:18px">
+        <li><b>Structured output.</b> The model returns JSON (<code>{time, title, note}</code> rows, mail and due counts), so Today renders clean rows instead of whatever markdown it chose that morning.</li>
+        <li><b>Facts fetched, judgment generated.</b> Events, reminders, weather and unread counts are fetched directly (exact, instant, free); the model only adds notes like "Dana asked about Q4 in yesterday's mail". The brief stays correct on times and still shows something if the model is down. Needs a small relay endpoint that runs one tool call for a project.</li>
+      </ul>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <h3 style="margin-top:0">Blocker: relay tools are off for chat and Claude sessions</h3>
+      <p style="font-size:14.5px;margin:0">Relay only spawns its tool server (mail, calendar, reminders, files) for a session when <code>RelayMCPCommand</code> is set, and production never sets it (<code>relay/docs/session-host.md</code>, documented gap). eve's "use relay tools" default therefore does nothing today; a local model answers "I don't have access to your file system". The brief, capture-to-Reminders, "Ask in Work" refusals and research on local models all depend on it. It's the first relay item in the plan.</p>
+    </div>
+  </div>
+</section>
+
 <section id="plan">
   <h2>Plan</h2>
   <p class="lede">Each phase is shippable alone and leaves the app better. The client is mid-migration, so new spaces are built as new <code>public/core</code> modules behind <code>#welcomeScreen</code>, leaving the legacy panes alone. The frozen e2e and visual gates will move on purpose; each phase budgets a re-baseline.</p>
-  <div class="phase"><h4>0 · Truth (days)</h4><p>The bugs above: running dot, weekly and once tasks, search focus, send-while-offline, cold deep links, stale voice labels. Stop auto-opening terminals. Plain-language chat errors that keep your prompt.</p></div>
+  <div class="phase"><h4>0 · Truth (days)</h4><p>Wire relay tools for chat and Claude sessions. The bugs above: running dot, weekly and once tasks, search focus, send-while-offline, cold deep links, stale voice labels. Stop auto-opening terminals. Plain-language chat errors that keep your prompt.</p></div>
   <div class="phase"><h4>1 · The front door</h4><p>Today with the Ask box, Needs you, Continue, Running. Ask-without-choosing. Auto-titles. Inline permission cards. Settings cut to one sheet. The three breakpoints plus coarse-pointer sizing. Phone bottom bar and push navigation. Two spikes run alongside: brief safety (injection mail) and research quality (ten real questions, Claude vs local with a stub search tool).</p></div>
   <div class="phase"><h4>2 · Home | Work</h4><p>Modes on relay projects, the wordmark switch, the per-mode presets, "Ask in Work" on refusal, the Morning brief, the Action Button on the mode's voice preset. Project dialog trimmed to name, folder, mode and presets.</p></div>
   <div class="phase"><h4>3 · Research</h4><p>Sources row, citation chips and hollow citations, one working line, Keep as page, pasted-URL chips. Local-model search once the MCP exists.</p></div>
