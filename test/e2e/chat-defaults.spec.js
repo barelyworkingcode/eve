@@ -80,12 +80,16 @@ test.describe('chat defaults', () => {
     // Fired as a hashchange: a hash present at cold load is dropped by the
     // app's URL syncing before the route handler runs.
     await page.waitForFunction(() => window.client?._hashListenerAdded && window.client.projects.has('p1'));
-    await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
-    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
+    for (let press = 0; press < 2; press++) {
+      await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
+      await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
+    }
     await page.waitForTimeout(500);
     expect(eve.relay.sessionCreates).toHaveLength(0);
     hold.release();
     const body = await relayedCreate(eve);
+    await page.waitForTimeout(500);
+    expect(eve.relay.sessionCreates).toHaveLength(1);
     expect(body.model).toBe('chat-a');
     expectFlags(body, true);
   });

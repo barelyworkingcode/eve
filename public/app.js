@@ -681,7 +681,7 @@ class EveWorkspaceClient {
   }
 
   async _launchFavoriteTemplate() {
-    if (!FAVORITE_TEMPLATE_ENABLED) return;
+    if (!FAVORITE_TEMPLATE_ENABLED || this._favoriteLaunching) return;
 
     const fav = this.settings.getFavoriteTemplate();
     if (!fav) {
@@ -720,8 +720,13 @@ class EveWorkspaceClient {
       return;
     }
 
-    await this._modelsReady;
-    this.shellLauncher.launchTemplate(fav.projectId, template);
+    this._favoriteLaunching = true;
+    try {
+      await this._modelsReady;
+      this.shellLauncher.launchTemplate(fav.projectId, template);
+    } finally {
+      this._favoriteLaunching = false;
+    }
   }
 
   handleServerMessage(data) {

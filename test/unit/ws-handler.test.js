@@ -303,6 +303,14 @@ describe('createWsHandler', () => {
       expect(relayClient.currentProjectId).toBe('p1');
     });
 
+    it('sends appendClaudeMd: false when the frame omits it', async () => {
+      const deps = makeDeps();
+      const ws = mount(deps);
+      await sendMsg(ws, { type: 'create_session', projectId: 'p1' });
+      const body = deps.relayTransport.fetch.mock.calls.find(c => c[1] === '/api/sessions')[2];
+      expect(body.appendClaudeMd).toBe(false);
+    });
+
     it('merges client useRelayTools with the project permissionPolicy and forwards appendClaudeMd', async () => {
       const policy = { defaultMode: 'default', allowedTools: ['Read'], deniedTools: ['Bash'] };
       const deps = makeDeps({ resolveProject: jest.fn(() => ({ path: '/proj1', permissionPolicy: policy })) });
