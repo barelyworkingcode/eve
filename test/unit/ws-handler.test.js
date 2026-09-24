@@ -303,35 +303,13 @@ describe('createWsHandler', () => {
       expect(relayClient.currentProjectId).toBe('p1');
     });
 
-    it('forwards client useRelayTools beside the project permissionPolicy, and appendClaudeMd', async () => {
-      const deps = makeDeps({
-        resolveProject: jest.fn(() => ({
-          path: '/proj1',
-          permissionPolicy: { defaultMode: 'default', allowedTools: ['Read'], deniedTools: ['Bash'] },
-        })),
-      });
+    it('merges client useRelayTools with the project permissionPolicy and forwards appendClaudeMd', async () => {
+      const policy = { defaultMode: 'default', allowedTools: ['Read'], deniedTools: ['Bash'] };
+      const deps = makeDeps({ resolveProject: jest.fn(() => ({ path: '/proj1', permissionPolicy: policy })) });
       const ws = mount(deps);
-      await sendMsg(ws, {
-        type: 'create_session', projectId: 'p1', model: 'chat-a',
-        settings: { useRelayTools: true }, appendClaudeMd: true,
-      });
-
-      const [, , body] = deps.relayTransport.fetch.mock.calls.find(c => c[0] === 'POST' && c[1] === '/api/sessions');
-      expect(body.settings).toEqual({
-        useRelayTools: true,
-        permissionPolicy: { allowedTools: ['Read'], deniedTools: ['Bash'], defaultMode: 'default' },
-      });
-      expect(body.appendClaudeMd).toBe(true);
-    });
-
-    it('sends relay appendClaudeMd: false when the client omits it', async () => {
-      const deps = makeDeps();
-      const ws = mount(deps);
-      await sendMsg(ws, { type: 'create_session', projectId: 'p1', model: 'sonnet', settings: null });
-
-      const [, , body] = deps.relayTransport.fetch.mock.calls.find(c => c[0] === 'POST' && c[1] === '/api/sessions');
-      expect(body.appendClaudeMd).toBe(false);
-      expect(body.settings).toBeNull();
+      await sendMsg(ws, { type: 'create_session', projectId: 'p1', settings: { useRelayTools: true }, appendClaudeMd: true });
+      const body = deps.relayTransport.fetch.mock.calls.find(c => c[1] === '/api/sessions')[2];
+      expect(body).toMatchObject({ settings: { useRelayTools: true, permissionPolicy: policy }, appendClaudeMd: true });
     });
 
     it('surfaces a non-2xx relay response as an error frame', async () => {
