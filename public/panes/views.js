@@ -136,20 +136,6 @@ panes.registerView({
 });
 
 panes.registerView({
-  view: 'module',
-  elementId: 'moduleContent',
-  splittable: true,
-  show(ref, ctx, el) {
-    el?.classList.remove('hidden');
-    ctx.app.moduleHost?.activate({
-      id: `module:${ref.projectId}:${ref.moduleName}`,
-      projectId: ref.projectId,
-      moduleName: ref.moduleName,
-    });
-  },
-});
-
-panes.registerView({
   view: 'htmlPreview',
   elementId: 'htmlPreview',
   splittable: true,

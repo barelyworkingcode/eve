@@ -45,7 +45,6 @@ for (const mod of [
   require('./git-messages'),
   require('./terminal-messages'),
   require('./search-messages'),
-  require('./module-messages'),
   require('./voice-messages'),
   require('./diagnostics-messages'),
 ]) {

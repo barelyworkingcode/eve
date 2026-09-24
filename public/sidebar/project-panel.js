@@ -77,7 +77,6 @@ class ProjectPanel {
       { key: 'files', label: 'Files', icon: PANEL_ICONS.files, count: null },
       { key: 'sessions', label: 'Sessions', icon: PANEL_ICONS.sessions, count: this._sectionCount('sessions') },
       { key: 'tasks', label: 'Tasks', icon: PANEL_ICONS.tasks, count: this._sectionCount('tasks') },
-      { key: 'modules', label: 'Modules', icon: PANEL_ICONS.modules, count: this._sectionCount('modules') },
       { key: 'changes', label: 'Changes', icon: PANEL_ICONS.changes, count: this.changesPanel.count() },
     ];
   }
@@ -136,9 +135,6 @@ class ProjectPanel {
         .filter(t => !this.state.isTaskRun(t.id)).length;
       return sessionCount + terminalCount;
     }
-    if (key === 'modules') {
-      return this.state.getModulesForProject(this.projectId).length;
-    }
     return null;
   }
 
@@ -185,7 +181,6 @@ class ProjectPanel {
     switch (this.activeTab) {
       case 'sessions': return this._renderSessionsContent(this.contentEl);
       case 'tasks': return this._renderTasksContent(this.contentEl);
-      case 'modules': return this._renderModulesContent(this.contentEl);
       case 'changes': return this.changesPanel.render(this.contentEl);
       case 'files':
       default: return this._renderFilesContent(this.contentEl);
@@ -620,77 +615,6 @@ class ProjectPanel {
     container.appendChild(item);
   }
 
-  _renderModulesContent(container) {
-    const store = this.container.has('moduleStore') ? this.container.get('moduleStore') : null;
-    if (store && !this.state.modules.has(this.projectId)) {
-      store.loadModulesForProject(this.projectId);
-    }
-
-    const modules = this.state.getModulesForProject(this.projectId);
-    if (modules.length === 0 && this.state.modules.has(this.projectId)) {
-      this._renderEmpty(container, 'No modules. Click + to ask Claude to build one.');
-    } else if (modules.length === 0) {
-      this._renderLoading(container);
-    } else {
-      for (const m of modules) {
-        this._renderModuleItem(container, m);
-      }
-    }
-
-    const newItem = document.createElement('div');
-    newItem.className = 'project-tree__module-item project-tree__module-item--new';
-    newItem.dataset.testid = `sidebar-module-new-${this.projectId}`;
-    const label = document.createElement('span');
-    label.className = 'project-tree__module-name';
-    label.textContent = '+ New Module';
-    newItem.appendChild(label);
-    newItem.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.bus.emit(EVT.MODULE_CREATE_REQUEST, { projectId: this.projectId });
-      this._closeSidebarOnMobile();
-    });
-    container.appendChild(newItem);
-  }
-
-  _renderModuleItem(container, m) {
-    const item = document.createElement('div');
-    item.className = 'project-tree__module-item';
-    if (m.broken) item.classList.add('project-tree__module-item--broken');
-    item.dataset.testid = `sidebar-module-${m.name}`;
-
-    const iconEl = document.createElement('span');
-    iconEl.className = 'project-tree__module-icon';
-    iconEl.innerHTML = UI_ICONS.module(12);
-    item.appendChild(iconEl);
-
-    const nameEl = document.createElement('span');
-    nameEl.className = 'project-tree__module-name';
-    nameEl.textContent = m.displayName || m.name;
-    if (m.broken) nameEl.title = m.error || 'Module failed to load';
-    item.appendChild(nameEl);
-
-    if (!m.broken) {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.bus.emit(EVT.MODULE_LAUNCH_REQUEST, {
-          projectId: this.projectId,
-          moduleName: m.name,
-          displayName: m.displayName || m.name,
-        });
-        this._closeSidebarOnMobile();
-      });
-    }
-
-    container.appendChild(item);
-  }
-
-  _renderLoading(container) {
-    const el = document.createElement('div');
-    el.className = 'project-tree__section-empty';
-    el.textContent = 'Loading...';
-    container.appendChild(el);
-  }
-
   _renderEmpty(container, message) {
     const el = document.createElement('div');
     el.className = 'project-tree__section-empty';
@@ -823,7 +747,7 @@ class ProjectPanel {
 
   _restoreTab() {
     const t = localStorage.getItem(ProjectPanel.TAB_STORAGE_KEY);
-    return ['files', 'sessions', 'tasks', 'modules', 'changes'].includes(t) ? t : 'files';
+    return ['files', 'sessions', 'tasks', 'changes'].includes(t) ? t : 'files';
   }
 
   _saveTab() {
@@ -840,9 +764,6 @@ class ProjectPanel {
     this.bus.on(EVT.SESSION_UPDATED, refresh);
     this.bus.on(EVT.SESSION_REMOVED, refresh);
     this.bus.on(EVT.TERMINAL_LIST, refresh);
-    this.bus.on(EVT.MODULE_LIST_UPDATED, ({ projectId }) => {
-      if (projectId === this.projectId) this._refresh();
-    });
     if (EVT.HOST_STATUS) {
       this.bus.on(EVT.HOST_STATUS, ({ hostId }) => {
         const project = this.state.getProject(this.projectId);
@@ -894,7 +815,6 @@ const PANEL_ICONS = {
   files: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9 1.5H4.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5z"/><path d="M9 1.5V5h3.5"/></svg>',
   sessions: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5h12v7H9l-3 2.5V11.5H2z"/></svg>',
   tasks: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg>',
-  modules: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>',
   changes: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="4.5" r="1.5"/><path d="M5 5v6"/><path d="M11 6c0 3-6 2.5-6 5"/></svg>',
   branchSmall: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="4.5" r="1.5"/><path d="M5 5v6"/><path d="M11 6c0 3-6 2.5-6 5"/></svg>',
   plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',

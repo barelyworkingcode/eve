@@ -2,9 +2,8 @@
  * Characterisation suite for tab-manager.js (pane-registry refactor,
  * docs/decisions/001-feature-registry.md's sibling for panes) — pins CURRENT
  * behaviour, bugs included, as a refactor safety net, not a correctness spec.
- * Two deliberately-pinned oddities: an image tab clears location.hash
- * instead of linking to it, and a restored module tab's label is the raw
- * moduleName, not the manifest's displayName.
+ * One deliberately-pinned oddity: an image tab clears location.hash
+ * instead of linking to it.
  *
  * Tests 9-13 drive TabManager's API via page.evaluate instead of
  * synthesizing pointer events, because PaneDnd is timing-sensitive and this
@@ -21,7 +20,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const base = require('@playwright/test');
-const { test, expect, testWithModule } = require('./fixtures');
+const { test, expect } = require('./fixtures');
 const { startEve } = require('../integration/harness');
 const legacyStorageTemplate = require('./fixtures/legacy-tab-storage.json');
 
@@ -371,8 +370,8 @@ function buildLegacyStorage({ sessionId, projectId, ts }) {
   return parsed;
 }
 
-testWithModule(
-  "15. restore: today's four localStorage keys reopen the same session/file/module tabs, with the same labels",
+test(
+  "15. restore: the legacy localStorage keys reopen the same session/file tabs; a leftover eve-open-modules entry opens nothing",
   async ({ page, eve }) => {
     const sessionId = 'sess-restore-1';
     // The restore loop only re-joins a session GET /api/sessions still knows
@@ -388,18 +387,17 @@ testWithModule(
 
     await page.goto(eve.baseUrl);
 
-    // Session/file tabs land asynchronously (join_session / read_file);
-    // the module tab lands synchronously in the same restore loop
-    // (app.js onWebSocketReady) — order below is what it actually produces.
+    // Session/file tabs land asynchronously (join_session / read_file), so
+    // once both are visible the restore loop has long since run: a module tab
+    // would already be there if the stale eve-open-modules key were still read.
     await expect(page.getByTestId(`tab-${sessionId}`)).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId('tab-p1:/README.md')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId('tab-module:p1:demo-module')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('tab-module:p1:demo-module')).toHaveCount(0);
 
     const tabs = await page.$$eval('#tabBar .tab', (els) =>
       els.map((e) => ({ id: e.dataset.tabId, label: e.querySelector('.tab-label').textContent }))
     );
     expect(tabs).toEqual([
-      { id: 'module:p1:demo-module', label: 'demo-module' }, // pinned: restore labels a module with its raw moduleName, not the manifest displayName
       { id: sessionId, label: 'Restored Session' },
       { id: 'p1:/README.md', label: 'README.md' },
     ]);

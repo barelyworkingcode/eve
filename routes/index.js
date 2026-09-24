@@ -1,20 +1,16 @@
 const createAuthRoutes = require('./auth');
-const moduleRoutes = require('./modules');
-const { HIDDEN_SESSION_PREFIX } = require('../module-invoker');
 const { HIDDEN_SEARCH_PREFIX } = require('../search-summarizer');
 const path = require('path');
 const express = require('express');
 const { saveTerminalPaste, MAX_PASTE_BYTES } = require('../terminal-paste');
 
-const HIDDEN_SESSION_PREFIXES = [HIDDEN_SESSION_PREFIX, HIDDEN_SEARCH_PREFIX];
 function isHiddenSession(name) {
-  const n = name || '';
-  return HIDDEN_SESSION_PREFIXES.some(p => n.startsWith(p));
+  return (name || '').startsWith(HIDDEN_SEARCH_PREFIX);
 }
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, fileServiceFor, refreshHostCache, removeFromHostCache, hostPool, ttsService, sttService, moduleService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, fileServiceFor, refreshHostCache, removeFromHostCache, hostPool, ttsService, sttService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
@@ -196,8 +192,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   });
 
   // A sidebar list fetched mid-call would otherwise show these in-flight
-  // sessions. Prefixes are defined in module-invoker.js and
-  // search-summarizer.js — keep in lockstep.
+  // sessions. The prefix is defined in search-summarizer.js.
   app.get('/api/sessions', requireAuth, async (req, res) => {
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/sessions');
@@ -220,10 +215,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       routeLog.error('GET /api/sessions failed:', err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
-  });
-
-  moduleRoutes.register(app, {
-    requireAuth, moduleService, resolveProject, log: parentLog,
   });
 
   app.get('/api/tasks', requireAuth, (req, res) => {

@@ -6,7 +6,7 @@
 `switch` in `ws-handler.js` with the same register-by-key idiom as
 `PaneRegistry` (register-nothing, `get()` returns a descriptor or `null`),
 but loaded in batches from seven domain files (`ws/session-messages.js`,
-`file-messages.js`, `search-messages.js`, `module-messages.js`,
+`file-messages.js`, `search-messages.js`, `git-messages.js`,
 `terminal-messages.js`, `voice-messages.js`, `diagnostics-messages.js`)
 rather than one file per message type.
 
@@ -48,22 +48,22 @@ receiving another user's file contents, terminal output, or LLM stream.
 Nothing throws; the leak is silent and only shows up with two concurrent
 connections. `test/integration/ws-dispatch.test.js`'s two-connection
 isolation suite is what catches this class of bug — it exercises every
-domain (file, session, search, module, voice, terminal).
+domain (file, session, search, voice, terminal).
 
 **C2 — a descriptor's `handle` is only `async` if the pre-registry `case`
-arm was `await`ed.** Exactly three types were: `create_session`,
-`module_read_file`, `module_write_file`. `ws-handler.js` does
-`await descriptor.handle(ctx)` unconditionally; making a fourth handler
+arm was `await`ed.** Exactly two types were: `create_session`,
+`terminal_create`. `ws-handler.js` does
+`await descriptor.handle(ctx)` unconditionally; making a third handler
 async would turn what was an unhandled rejection into a browser-visible
 `{type:'error'}` frame — arguably better, but a protocol change, and out of
 scope here. `test/unit/ws-message-registry.test.js` asserts
 `handle.constructor.name === 'AsyncFunction'` iff the type is one of the
-three.
+two.
 
 **C3 — `descriptor.expensive` is the sole source of rate-limit truth.**
 There is no fallback list. The six types that carry `expensive: true`
 (`create_session`, `search_project`, `search_ai_summarize`,
-`module_invoke_ai`, `transcribe_audio`, `tts_speak`) are asserted by
+`transcribe_audio`, `tts_speak`, `git_changes`) are asserted by
 `test/unit/ws-message-registry.test.js`'s `expensiveTypes()` check — that
 test is the only thing that would catch a forgotten or mistyped flag on a
 new expensive message type.

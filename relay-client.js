@@ -45,7 +45,7 @@ class RelayClient {
 
     // Set only by a real user chat turn (ws/session-messages.js
     // handleUserInput), never by a hidden/background sendMessage call
-    // (search-summarizer.js, module-invoker.js) — SH-6 removed host-driven
+    // (search-summarizer.js) — SH-6 removed host-driven
     // resume, so eve must never resume a session on its own initiative.
     // Disarmed (set back to null) the moment that turn is done, so a stale,
     // already-finished turn can never be resent by some later, unrelated
@@ -65,7 +65,7 @@ class RelayClient {
     //     finished during the outage, so nothing survives a reconnect)
     this.pendingUserMessage = null;
 
-    this.moduleSessions = new Map();
+    this.hiddenSessions = new Map();
 
     // Buffered and flushed as one `__batch` frame on a timer to cut frame
     // count (radio wakeups on mobile); see _shouldFlushImmediately for bypass.
@@ -223,16 +223,16 @@ class RelayClient {
   }
 
   _handleRelayMessage(msg) {
-    // Module-invocation sessions are intercepted first: forwarding them as
+    // Hidden sessions are intercepted first: forwarding them as
     // llm_event/message_complete would let the browser dispatcher buffer them
-    // as an unknown background session. Handler (from ModuleInvoker) wraps
-    // into module_ai_event instead.
+    // as an unknown background session. Handler (from SearchSummarizer) wraps
+    // into search_ai_event instead.
     const sid = msg.sessionId;
-    if (sid && this.moduleSessions.has(sid)) {
+    if (sid && this.hiddenSessions.has(sid)) {
       try {
-        this.moduleSessions.get(sid)(msg);
+        this.hiddenSessions.get(sid)(msg);
       } catch (err) {
-        this.log.error('Module session handler threw:', err.message);
+        this.log.error('Hidden session handler threw:', err.message);
       }
       return;
     }
@@ -371,15 +371,15 @@ class RelayClient {
     this.suppressNextJoin = value;
   }
 
-  // Last writer wins for a given sessionId; caller (ModuleInvoker) must
+  // Last writer wins for a given sessionId; caller (SearchSummarizer) must
   // unregister on terminal events.
-  registerModuleSession(sessionId, handler) {
+  registerHiddenSession(sessionId, handler) {
     if (!sessionId || typeof handler !== 'function') return;
-    this.moduleSessions.set(sessionId, handler);
+    this.hiddenSessions.set(sessionId, handler);
   }
 
-  unregisterModuleSession(sessionId) {
-    this.moduleSessions.delete(sessionId);
+  unregisterHiddenSession(sessionId) {
+    this.hiddenSessions.delete(sessionId);
   }
 
   joinSession(sessionId) {
@@ -610,7 +610,7 @@ class RelayClient {
       this.schedulerWs.close();
       this.schedulerWs = null;
     }
-    this.moduleSessions.clear();
+    this.hiddenSessions.clear();
   }
 }
 

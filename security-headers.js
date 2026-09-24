@@ -1,6 +1,5 @@
 // The strict CSP built by buildShellCsp() applies ONLY to the main app HTML
-// document, deliberately NOT to: module iframes (isolated by the iframe
-// sandbox / opaque origin — the real trust boundary there), the standalone
+// document, deliberately NOT to: the standalone
 // /api/auth/safari-login page, or /api/files/* (sets its own
 // default-src 'none'; sandbox). See docs/security-audit-frontend.md (C3).
 const crypto = require('crypto');

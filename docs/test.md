@@ -35,7 +35,7 @@ test/
 
 **Unit** (`jest.config.js`) — pure logic and lightly-mocked modules: path security
 (`file-service`), watch/debounce (`file-watcher`), auth ceremony/origin, relay
-client/transport, ws dispatch, route handlers, module service/invoker, security
+client/transport, ws dispatch, route handlers, security
 headers, rate limiter, slash commands, project normalize, and more. Zero external
 deps; this is the pre-commit gate. `collectCoverageFrom` enumerates the server-side
 surface explicitly so untested files count as 0% instead of vanishing.
@@ -43,7 +43,7 @@ surface explicitly so untested files count as 0% instead of vanishing.
 **Integration** (`jest.integration.config.js`) — `test/integration/harness.js` spawns
 the real `node server.js` on an ephemeral port with a throwaway data dir, pointed at
 `fake-relay.js`. Covers the relay contract, session forwarding, file ops, permissions,
-tasks, terminals, binary proxy, module AI, and search end-to-end. Not hermetic
+tasks, terminals, binary proxy, and search end-to-end. Not hermetic
 (processes + ports), so it stays out of the unit gate. Serial (`maxWorkers: 1`).
 
 **E2E** (`playwright.config.js`) — same spawned-eve + fake-relay harness, driven through

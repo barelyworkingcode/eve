@@ -11,7 +11,6 @@ class TabManager {
   static SESSION_STORAGE_KEY = 'eve-open-sessions';
   static SESSION_META_KEY = 'eve-session-meta';
   static FILE_STORAGE_KEY = 'eve-open-files';
-  static MODULE_STORAGE_KEY = 'eve-open-modules';
   static MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
   constructor(container) {
@@ -47,7 +46,6 @@ class TabManager {
     this.editorContent = this._viewEls.get('editor');
     this.viewerContent = this._viewEls.get('viewer'); // shared with 'image' — see panes/views.js
     this.terminalContent = this._viewEls.get('terminal');
-    this.moduleContent = this._viewEls.get('module');
     this.htmlPreviewContent = this._viewEls.get('htmlPreview');
 
     this.viewerCanvas = document.getElementById('fileViewerCanvas');
@@ -131,20 +129,6 @@ class TabManager {
     else this.render();
   }
 
-  openModule(projectId, moduleName, label) {
-    const tabId = `module:${projectId}:${moduleName}`;
-    const existingTab = this.tabs.find(t => t.id === tabId);
-    if (existingTab) {
-      this.switchToTab(tabId);
-      return;
-    }
-    const d = panes.type('module');
-    const tab = d.create({ projectId, moduleName, label }, this._ctx());
-    this.tabs.push(tab);
-    if (d.persist) this._saveToStorage(d.persist.key, d.persist.entryId(tab), d.persist.entry(tab));
-    this.switchToTab(tabId);
-  }
-
   /** Open-or-focus for pane types with no bespoke open path (e.g. `diff`). The descriptor's `create` must be side-effect free: it runs to learn the id. */
   openPane(type, spec) {
     const d = panes.type(type);
@@ -197,7 +181,7 @@ class TabManager {
 
   /**
    * Rebuilt on every call, never captured: services reached through `app`
-   * (fileEditor, terminalManager, moduleHost, voiceChatManager, ...) are
+   * (fileEditor, terminalManager, voiceChatManager, ...) are
    * constructed after `new TabManager` runs (app.js), so a descriptor that
    * memoised this would get `undefined` on first use.
    */
@@ -832,10 +816,6 @@ class TabManager {
 
   getRecentFiles() {
     return this._getRecentEntries(TabManager.FILE_STORAGE_KEY);
-  }
-
-  getRecentModules() {
-    return this._getRecentEntries(TabManager.MODULE_STORAGE_KEY);
   }
 }
 

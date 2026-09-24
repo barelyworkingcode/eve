@@ -132,7 +132,6 @@
   <link rel="stylesheet" href="apple/terminal.css">
   <link rel="stylesheet" href="apple/viewers.css">
   <link rel="stylesheet" href="apple/voice.css">
-  <link rel="stylesheet" href="apple/modules-orb.css">
   <link rel="stylesheet" href="apple/toast.css">
   <link rel="stylesheet" href="apple/dialogs.css">
   <link rel="stylesheet" href="apple/modals.css">
@@ -171,7 +170,7 @@
         <button id="settingsBtn" class="sidebar-rail__btn" title="Settings" data-testid="sidebar-settings"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M3.1 12.9l1.4-1.4M11.5 4.5l1.4-1.4"/></svg></button>
       </nav>
 
-      <!-- Explorer panel: active project's files/sessions/tasks/modules -->
+      <!-- Explorer panel: active project's files/sessions/tasks/changes -->
       <section class="sidebar-panel" id="sidebarPanel">
         <header class="panel-header">
           <span class="panel-header__title" id="panelTitle"></span>
@@ -296,9 +295,6 @@
         <div id="terminal" class="terminal-content hidden">
           <div id="terminalContainer" class="terminal-container"></div>
         </div>
-
-        <!-- Module content area (sandboxed iframes for static-HTML modules) -->
-        <div id="moduleContent" class="module-content hidden"></div>
 
         <!-- Voice Chat content area -->
         <div id="voiceChat" class="voice-chat-content hidden">
@@ -515,7 +511,6 @@
   <script src="core/pane-registry.js"></script>
   <script src="panes/views.js"></script>
   <script src="panes/image-pane.js"></script>
-  <script src="panes/module-pane.js"></script>
   <script src="panes/terminal-pane.js"></script>
   <script src="panes/file-pane.js"></script>
   <script src="panes/session-pane.js"></script>
@@ -572,10 +567,6 @@
   <script src="sidebar/project-panel.js"></script>
   <script src="sidebar/project-tree.js"></script>
   <script src="home-screen.js"></script>
-
-  <script src="modules/module-store.js"></script>
-  <script src="modules/module-host.js"></script>
-  <script src="modules/module-activity-orb.js"></script>
 
   <!-- Feature modules -->
   <script src="features/file-attachments.js"></script>

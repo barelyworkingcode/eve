@@ -23,34 +23,9 @@ class StateStore {
     this.mcps = [];
     this.terminalTemplates = [];
     this.terminalTemplatesProjectId = null;
-    this.modules = new Map(); // projectId -> Module[]
     this.providerSettings = {};
     this.currentSessionId = null;
     this.scopedProjectId = null;
-  }
-
-  setModulesForProject(projectId, modules) {
-    const next = Array.isArray(modules) ? modules : [];
-    const prev = this.modules.get(projectId);
-    // loadModulesForProject runs on every sidebar re-render; skip the emit on
-    // a cache hit or it cascades into another re-render via MODULE_LIST_UPDATED.
-    if (prev && this._modulesEqual(prev, next)) return;
-    this.modules.set(projectId, next);
-    this.bus.emit(EVT.MODULE_LIST_UPDATED, { projectId });
-  }
-
-  _modulesEqual(a, b) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      const x = a[i], y = b[i];
-      if (x.name !== y.name || x.displayName !== y.displayName ||
-          x.broken !== y.broken || x.error !== y.error) return false;
-    }
-    return true;
-  }
-
-  getModulesForProject(projectId) {
-    return this.modules.get(projectId) || [];
   }
 
   setCurrentSession(id) {

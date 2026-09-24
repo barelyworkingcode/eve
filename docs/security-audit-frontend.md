@@ -32,10 +32,10 @@ must stay loud; don't quiet it to `debug`.
 The two inline bootstrap scripts in `index.html` are allowed only by exact
 SHA-256 hash. Adding a third inline script without adding its hash breaks the
 page at load; the fix is to add the hash, never to add `'unsafe-inline'` —
-that reopens the exact injection class the CSP exists to close. Module
-iframes and `/auth/safari-login` are deliberately outside this CSP — they
-have their own isolation model (opaque origin / standalone page) and must not
-be folded into the app-shell policy.
+that reopens the exact injection class the CSP exists to close.
+`/auth/safari-login` is deliberately outside this CSP; it is a standalone
+page with its own isolation model and must not be folded into the app-shell
+policy.
 
 ## H1 — path containment must be separator-aware
 

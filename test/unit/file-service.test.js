@@ -367,7 +367,7 @@ describe('FileService', () => {
   // validatePath's lexical traversal check cannot see through a symlink that
   // lives *inside* the project but points outside it: without realpath
   // resolution, `proj/link -> /etc` lets `readFile('link/passwd')` escape the
-  // sandbox. module-service.js already defends this via fs.realpath; file-service must too.
+  // sandbox. file-service must defend this via fs.realpath.
   describe('symlink escape defense', () => {
     let projDir;
     let outsideDir;

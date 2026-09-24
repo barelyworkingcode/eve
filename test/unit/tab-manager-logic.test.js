@@ -325,12 +325,6 @@ describe('_updateHash', () => {
     expect(history.replaceState).toHaveBeenCalledWith(null, '', '#terminal/term-1');
   });
 
-  it('builds #module/<projectId>/<moduleName>', () => {
-    const tm = setup();
-    tm._updateHash({ type: 'module', projectId: 'p1', moduleName: 'demo-module' });
-    expect(history.replaceState).toHaveBeenCalledWith(null, '', '#module/p1/demo-module');
-  });
-
   // Known bug, pinned deliberately: `_updateHash` has no `image` arm, so activating
   // an image tab clears the hash instead of linking to it. Don't "fix" this test.
   it('an image tab has no hash arm, so activating one clears the hash instead of linking to it', () => {
@@ -440,7 +434,7 @@ describe('renameFileTab', () => {
 });
 
 // Pins the write shapes, including the legacy bare-number session entry, so e.g.
-// dropping `moduleName` from module-pane.js's `entry()` fails here instead of
+// dropping `path` from file-pane.js's `entry()` fails here instead of
 // only surfacing at reload-restore time.
 describe('persistence write shapes (pinning, not changing)', () => {
   const NOW = 1_700_000_000_000;
@@ -459,12 +453,5 @@ describe('persistence write shapes (pinning, not changing)', () => {
     tm.openFile('p1', '/a.js', 'a.js');
     expect(JSON.parse(localStorage.getItem('eve-open-files'))['p1:/a.js'])
       .toEqual({ projectId: 'p1', path: '/a.js', ts: NOW });
-  });
-
-  it('openModule writes {projectId, moduleName, ts} to eve-open-modules', () => {
-    const tm = makeTabManager({ container: { app: { showChatScreen: () => {} } } });
-    tm.openModule('p1', 'demo', 'Demo');
-    expect(JSON.parse(localStorage.getItem('eve-open-modules'))['p1:demo'])
-      .toEqual({ projectId: 'p1', moduleName: 'demo', ts: NOW });
   });
 });

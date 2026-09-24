@@ -1,8 +1,8 @@
 # API Reference
 
-Eve exposes HTTP endpoints and a single WebSocket interface. Eve owns local concerns (auth, file ops, file watch, search, modules, TTS/STT); everything LLM-related is forwarded over relay's frontend socket — relay serves project/MCP routes itself, reverse-proxies sessions/models to relayLLM, and dispatches tasks to relayScheduler.
+Eve exposes HTTP endpoints and a single WebSocket interface. Eve owns local concerns (auth, file ops, file watch, search, TTS/STT); everything LLM-related is forwarded over relay's frontend socket — relay serves project/MCP routes itself, reverse-proxies sessions/models to relayLLM, and dispatches tasks to relayScheduler.
 
-This file is a quick reference. The authoritative field lists live in `routes/index.js`, `routes/auth.js`, `routes/modules.js` (HTTP), and `ws-handler.js` (auth/dispatch) + `ws/*.js` (per-domain message descriptors) / `public/message-dispatcher.js` (WS) — check there when a field here looks stale.
+This file is a quick reference. The authoritative field lists live in `routes/index.js`, `routes/auth.js` (HTTP), and `ws-handler.js` (auth/dispatch) + `ws/*.js` (per-domain message descriptors) / `public/message-dispatcher.js` (WS) — check there when a field here looks stale.
 
 ## Authentication
 
@@ -35,7 +35,7 @@ WebAuthn enrollment/login, rate-limited per IP (429 on excess).
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/models` | List models. |
-| GET | `/api/sessions` | List sessions. relay answers `{ sessions: [...] }` (object-wrapped); eve unwraps it and returns a bare, filtered array to the browser — `__module:` / `__search:` ephemeral sessions are filtered out here, not by relay. |
+| GET | `/api/sessions` | List sessions. relay answers `{ sessions: [...] }` (object-wrapped); eve unwraps it and returns a bare, filtered array to the browser — `__search:` ephemeral sessions are filtered out here, not by relay. |
 | POST | `/api/sessions/:id/resume` | Resume a dormant session. Called automatically by eve, at most once per user turn, when relay answers a `send_message` with the `resume_required` error below — never host-driven (SH-6). |
 
 Session creation is HTTP (`POST /api/sessions`, triggered by the WS `create_session` frame, see below); messages and the rest of the session lifecycle stay on WebSocket.
@@ -105,7 +105,6 @@ A project either lives on the console (as today) or on one SSH host (`project.ho
 |--------|------|-------------|
 | GET | `/api/files/:projectId/*` | Serve a project file. Path-traversal checked; `nosniff` + locked-down CSP on every file; HTML/SVG/XML are sandboxed and forced to download (`?preview=1` renders HTML inline in a sandboxed opaque origin). On a host project this streams through the SSH host agent's `stream` op in 64 KiB chunks (chunked transfer, no `Content-Length`) instead of `res.sendFile`; same CSP/disposition rules by extension. |
 | GET | `/api/generated/:filename` | Generated image (binary, proxied from relayLLM, immutable cache). |
-| GET | `/api/modules` · `/api/modules/:projectId/:moduleName` · `/api/modules/serve/.../*` | Module list, manifest, static asset serving. AI invocation is WS-only. See [docs/modules.md](modules.md). |
 
 ## WebSocket
 
@@ -127,8 +126,6 @@ Git (read-only, [design-git-changes.md](design-git-changes.md)): `git_changes` (
 
 Terminals (proxied to relayLLM): `terminal_create` (`{templateId?, name?, directory, projectId?, cols?, rows?, persistSession?}` — `persistSession` reattaches to a named persistent session and is forwarded to relay as `persist_session` — eve answers this over HTTP via `POST /api/terminals`, above, not by forwarding the frame to relay), `terminal_input`, `terminal_resize`, `terminal_close`, `terminal_list`, `terminal_reconnect`, `join_terminal`, `leave_terminal`. Templates are fetched over HTTP (`GET /api/terminal/templates`, above), not this frame — relay-sessions answers a `terminal_templates` WS message with an explicit refusal, since the pty template list was never something relay-sessions owned.
 
-Modules: `module_read_file`, `module_write_file`, `module_invoke_ai`, `module_ai_stop`. See [docs/modules.md](modules.md).
-
 Voice/TTS/STT: `voice_mode` (`{enabled, voice?, speed?}`), `tts_speak`, `tts_speak_cancel`, `transcribe_audio`.
 
 Diagnostics: `device_log` (`{lines: [...]}` — appended to a server-side log with timestamp and source IP; no reply frame).
@@ -148,8 +145,6 @@ Search: `search_results`, `search_error`, `search_ai_started`, `search_ai_event`
 Git: `git_changes` (`{projectId, scope, repo?, repos: [{path, name, branch, head, detached, upstream, ahead, behind, defaultBranch, pending, files: [{path, status, oldPath?, staged}], base, truncated, error?}]}` — `repo` is set on a single-repo frame and absent on a full-list frame, so a client replaces its list on a frame without `repo` and merges on one with it; `status` ∈ `M A D R U ?`; a failure in one repo sets that entry's `error: {code, message}` instead of failing the frame). A full request (no `repo`) is answered in two phases: first, at once, one full-list frame with every repo's meta and `pending: true, files: [], base: null, truncated: false`; then one single-repo frame per repo, in completion order, carrying `upstream`, `ahead`, `behind`, `files`, `base`, `truncated` and `pending: false` (or `error`). A project with no repos gets only the empty full-list frame. A request with `repo` gets exactly one single-repo frame. `upstream`/`ahead`/`behind` are only meaningful once a repo is no longer pending, `git_file_versions` (`{projectId, repo, path, scope, original, modified, binary, tooLarge, originalSize, modifiedSize}` — `original`/`modified` are `null` when the file is absent on that side, and both `null` when `binary` or `tooLarge`), `git_error` (`{projectId, repo?, path?, code, error}` — `code` ∈ `NOT_A_REPO GIT_MISSING TOO_LARGE TIMEOUT FAILED`, plus `INVALID` for a bad `scope`/`repo`/`path` and `NOT_FOUND` for an unknown project; `error` never carries the server-side absolute path), `git_changed` (`{projectId, repo}` — pushed by the file watcher when a watched repo's status may have changed; clients re-request `git_changes`).
 
 Terminals: `terminal_created` (`{terminalId, templateId, name, directory}`), `terminal_joined`, `terminal_output`, `terminal_exit`, `terminal_closed`, `terminal_list`.
-
-Modules: `module_file_response`, `module_ai_started`, `module_ai_event`, `module_ai_completed`, `module_ai_failed`.
 
 Tasks (forwarded from relayScheduler): `task_started`, `task_completed`, `task_error`, `task_status`.
 

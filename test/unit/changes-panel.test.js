@@ -828,7 +828,6 @@ function setupProjectPanel({ storage = {}, project = { id: 'p1', name: 'P1', pat
   Object.assign(ctx.state, {
     getTasksForProject: () => [],
     getSessionsForProject: () => [],
-    getModulesForProject: () => [],
     isTaskRun: () => false,
   });
   for (const id of ['panelTitle', 'panelHeaderActions', 'panelTabs', 'panelContent', 'panelActions', 'panelHostBar']) {
@@ -843,14 +842,14 @@ function setupProjectPanel({ storage = {}, project = { id: 'p1', name: 'P1', pat
 }
 
 describe('ProjectPanel Changes tab', () => {
-  it('renders a fifth "Changes" tab with the panel-tab-changes testid', () => {
+  it('renders a fourth "Changes" tab with the panel-tab-changes testid', () => {
     const { pp } = setupProjectPanel();
     pp._renderTabs();
     const tabs = document.getElementById('panelTabs').children;
     expect(tabs.map((t) => t.dataset.testid)).toEqual([
-      'panel-tab-files', 'panel-tab-sessions', 'panel-tab-tasks', 'panel-tab-modules', 'panel-tab-changes',
+      'panel-tab-files', 'panel-tab-sessions', 'panel-tab-tasks', 'panel-tab-changes',
     ]);
-    expect(tabs[4].querySelector('.panel-tab__label').textContent).toBe('Changes');
+    expect(tabs[3].querySelector('.panel-tab__label').textContent).toBe('Changes');
   });
 
   it('badges the tab with the total changed-file count once data arrives', () => {

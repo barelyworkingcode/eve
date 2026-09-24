@@ -1,4 +1,4 @@
-// The module/preview trust model depends on every project-content iframe being
+// The preview trust model depends on every project-content iframe being
 // sandboxed WITHOUT allow-same-origin; that invariant was previously guarded only
 // by a code comment, so this scans source text across ALL iframe sites at once
 // rather than only the paths a behavioral test happens to instantiate.
@@ -62,7 +62,6 @@ describe('iframe sandbox invariant', () => {
   });
 
   const lockedSites = [
-    'modules/module-host.js',
     'html-preview-pane.js',
     'file-editor.js',
   ];

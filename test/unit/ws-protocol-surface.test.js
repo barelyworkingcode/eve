@@ -1,5 +1,5 @@
 /**
- * Frozen wire-type inventory: 47 client message types. If a change forces
+ * Frozen wire-type inventory: 43 client message types. If a change forces
  * an edit to this file to stay green, production is wrong — fix
  * production, not this test.
  *
@@ -39,10 +39,6 @@ const FROZEN_TYPES = [
   'search_ai_stop',
   'watch_file',
   'unwatch_file',
-  'module_read_file',
-  'module_write_file',
-  'module_invoke_ai',
-  'module_ai_stop',
   'terminal_create',
   'terminal_input',
   'terminal_resize',
@@ -61,9 +57,9 @@ const FROZEN_TYPES = [
 ];
 
 describe('ws protocol surface (frozen)', () => {
-  it('has exactly 47 types', () => {
-    expect(FROZEN_TYPES.length).toBe(47);
-    expect(new Set(FROZEN_TYPES).size).toBe(47);
+  it('has exactly 43 types', () => {
+    expect(FROZEN_TYPES.length).toBe(43);
+    expect(new Set(FROZEN_TYPES).size).toBe(43);
   });
 
   it('matches every case label, pre-switch guard, and registered descriptor', () => {
@@ -72,12 +68,12 @@ describe('ws protocol surface (frozen)', () => {
     const caseLabels = [...src.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1]);
     const guardTypes = [...src.matchAll(/message\.type === '([a-z_]+)'/g)].map((m) => m[1]);
     // A migrated type's `case` label can be gone from the switch and live only as a
-    // registered descriptor; union it in so the dispatch surface stays 47 either way.
+    // registered descriptor; union it in so the dispatch surface stays 43 either way.
     const registered = messages.types();
 
     const measured = new Set([...caseLabels, ...guardTypes, ...registered]);
 
-    expect(measured.size).toBe(47);
+    expect(measured.size).toBe(43);
     expect([...measured].sort()).toEqual([...FROZEN_TYPES].sort());
   });
 

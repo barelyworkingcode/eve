@@ -201,7 +201,6 @@ class CommandPalette extends DialogBase {
     switch (type) {
       case 'session': return 'Session';
       case 'terminal': return 'Terminal';
-      case 'module': return 'Module';
       case 'file': return 'File';
       default: return type || '';
     }
@@ -211,7 +210,6 @@ class CommandPalette extends DialogBase {
     switch (type) {
       case 'session': return UI_ICONS.chat(16);
       case 'terminal': return UI_ICONS.terminal(16);
-      case 'module': return UI_ICONS.module(16);
       default: return '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 1.5h5l3 3v10a1 1 0 01-1 1H4a1 1 0 01-1-1v-12a1 1 0 011-1z"/><path d="M9 1.5V5h3.5"/></svg>';
     }
   }

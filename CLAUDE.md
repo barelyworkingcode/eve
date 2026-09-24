@@ -58,23 +58,11 @@ Design and cross-repo contract: [../relay/docs/ssh-hosts.md](../relay/docs/ssh-h
 
 Design and pinned contract: [docs/design-git-changes.md](docs/design-git-changes.md). **`git-service.js`** is the one implementation of repo/worktree discovery, porcelain parsing and file versions; only its injected `run` differs — `execFile('git')` locally, the agent's `git` op remotely. Read-only by design. Git runs with argv arrays only, `-c core.fsmonitor=false`, scrubbed `GIT_*` env; `repo`/`path` from the browser are untrusted and refs are always server-derived. `file-watcher.js` pushes debounced `git_changed` frames (it lets `.git/index`/`HEAD` through for this purpose only).
 
-## Module architecture
+### Hidden sessions and iframes
 
-Full reference: [docs/modules.md](docs/modules.md). Quick contract for AI work in this area.
+The `__search:` prefix (`HIDDEN_SEARCH_PREFIX` in `search-summarizer.js`) is load-bearing: `routes/index.js` filters it out of `GET /api/sessions`. Any server path that creates a background relay session must use a filtered prefix. It must also call `relayClient.registerHiddenSession(sessionId, handler)` before `joinSession`, or its frames leak into the user's chat.
 
-**What a module is** — a folder `<project>/modules/<name>/` with `module.json` + static HTML/CSS/JS, loaded into Eve's document area in an iframe with `sandbox="allow-scripts"` (NO `allow-same-origin`; opaque origin). The page loads `/eve-module-sdk.js` exposing `window.eve` with `invokeAI`, `readFile`, `writeFile`, `getManifest`.
-
-**Two independent trust boundaries**
-- `permissions.files` — what the iframe SDK can read/write. Exact paths only, server-validated on every call (`module-service.js#isFilePermitted`).
-- `permissions.tools` — what tools the LLM may call during `invokeAI` (default `[]`). When set, `ModuleInvoker._createHiddenSession()` passes `settings.useRelayTools: true` and `permissionPolicy: { allowedTools, defaultMode: 'bypassPermissions' }`. Eve passes **no** project token — relay brokers it. Bypass mode is required because the orb has no UI to answer prompts. Tools see the whole project dir — no per-tool path scoping.
-
-**Load-bearing invariants**
-1. **Scope is server-derived, never client-derived.** `projectId` + `moduleName` come from the host's WeakMap (browser, `module-host.js`: `event.source === iframe.contentWindow`) or the authenticated WS session re-validated against the manifest (server). An AI-authored iframe cannot lie about what it is.
-2. **Manifest is re-read on every gated call** — it's a file an AI can rewrite between calls. Don't cache `permissions.files`.
-3. **`__module:` session-name prefix is load-bearing** (`HIDDEN_SESSION_PREFIX` in `module-invoker.js`; imported by `routes/index.js` for the session-list filter; checked in `relay-client.js`). Any new module-session path must use this prefix AND `relayClient.registerModuleSession(...)` BEFORE joining, or events leak into the user's chat.
-4. **Iframe sandbox is load-bearing.** Never add `allow-same-origin`.
-5. **File MIME allowlist is load-bearing** — `SERVE_MIME` in `routes/modules.js` is the only set the static serve returns; dotfiles denied.
-6. **Single-responsibility split** — AI invoke in `module-invoker.js`, file r/w in `ws/module-messages.js`, static serve in `routes/modules.js`. Don't add a third file-permission gate.
+Project-content iframes (`html-preview-pane.js`, `file-editor.js`) get `sandbox="allow-scripts"` only. Never add `allow-same-origin`. `test/unit/iframe-sandbox-guard.test.js` enforces this.
 
 ## Client architecture
 

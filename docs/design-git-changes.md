@@ -22,14 +22,14 @@ Today the Files tab shows the tree but not what changed. Finding "what did the
 agent touch on which branch" means a terminal and `git status` per folder.
 Remote (SSH host) projects make it worse: the files live on another machine.
 
-## Sidebar: a fifth panel tab
+## Sidebar: a Changes panel tab
 
-`ProjectPanel` gains a **Changes** tab next to Files / Sessions / Tasks /
-Modules. Its badge is the total count of changed files across all repos.
+`ProjectPanel` gains a **Changes** tab next to Files / Sessions / Tasks. Its
+badge is the total count of changed files across all repos.
 
 ```
 ┌ project-name ─────────────────── ⟳ ┐
-│ Files  Sessions  Tasks  Modules  Changes 12 │
+│ Files  Sessions  Tasks  Changes 12 │
 ├─────────────────────────────────────┤
 │ Scope: [Uncommitted | vs base]      │
 │                                     │

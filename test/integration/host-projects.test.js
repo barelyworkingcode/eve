@@ -131,10 +131,4 @@ describe('host projects (../relay/docs/ssh-hosts.md)', () => {
       await ws2.close();
     }
   });
-
-  it('a module list on a host project is empty rather than an error', async () => {
-    const res = await eve.get('/api/modules?projectId=hp1');
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ modules: [] });
-  });
 });

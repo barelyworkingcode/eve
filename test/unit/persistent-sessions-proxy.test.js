@@ -25,7 +25,7 @@ describe('persistent-sessions proxy routes', () => {
       refreshHostCache: jest.fn(),
       removeFromHostCache: jest.fn(),
       hostPool: { disconnect: jest.fn() },
-      ttsService: {}, sttService: {}, moduleService: {},
+      ttsService: {}, sttService: {},
       log: null,
     };
     delete process.env.EVE_NO_AUTH;

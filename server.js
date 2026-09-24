@@ -10,8 +10,6 @@ const AuthService = require('./auth');
 const FileHandlers = require('./file-handlers');
 const SearchService = require('./search-service');
 const SearchSummarizer = require('./search-summarizer');
-const ModuleService = require('./module-service');
-const ModuleInvoker = require('./module-invoker');
 const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
 const TTSService = require('./tts-service');
@@ -256,14 +254,6 @@ const fileHandlers = new FileHandlers({
   searchService,
   hostPool,
 });
-const moduleService = new ModuleService(fileHandlers.fileService);
-const moduleInvoker = new ModuleInvoker({
-  relayTransport,
-  moduleService,
-  fileService: fileHandlers.fileService,
-  resolveProject,
-  log,
-});
 const searchSummarizer = new SearchSummarizer({
   relayTransport,
   resolveProject,
@@ -364,13 +354,6 @@ app.use(compression({
 app.get('/', serveIndexWithCachebust);
 app.get('/index.html', serveIndexWithCachebust);
 
-// Module-authored iframe HTML can't carry our server-injected cachebust
-// query, so force revalidation every load instead.
-app.get('/eve-module-sdk.js', (req, res, next) => {
-  res.set('Cache-Control', 'no-cache');
-  next();
-});
-
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/monaco', express.static(path.join(__dirname, 'node_modules/monaco-editor/min')));
 app.use('/xterm', express.static(path.join(__dirname, 'node_modules/@xterm/xterm')));
@@ -407,7 +390,6 @@ registerRoutes(app, {
   hostPool,
   ttsService,
   sttService,
-  moduleService,
   log,
 });
 
@@ -423,8 +405,6 @@ wss.on('connection', createWsHandler({
   trustedNetwork,
   relayTransport,
   fileHandlers,
-  moduleService,
-  moduleInvoker,
   searchSummarizer,
   resolveProject,
   hostPool,
