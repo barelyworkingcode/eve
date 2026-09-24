@@ -51,8 +51,9 @@ isolation suite is what catches this class of bug — it exercises every
 domain (file, session, search, voice, terminal).
 
 **C2 — a descriptor's `handle` is only `async` if the pre-registry `case`
-arm was `await`ed.** Exactly two types were: `create_session`,
-`terminal_create`. `ws-handler.js` does
+arm was `await`ed.** Exactly two handlers are async: `create_session`,
+whose pre-registry arm was awaited, and `terminal_create`, which later
+gained its own await on `POST /api/terminals`. `ws-handler.js` does
 `await descriptor.handle(ctx)` unconditionally; making a third handler
 async would turn what was an unhandled rejection into a browser-visible
 `{type:'error'}` frame — arguably better, but a protocol change, and out of

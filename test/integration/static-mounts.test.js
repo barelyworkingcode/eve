@@ -43,15 +43,30 @@ describe('voice static mounts on a live server', () => {
 });
 
 describe('removed Modules surface on a live server', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
   const { startEve } = require('./harness');
   let eve;
+  let projectDir;
 
+  // A registered project with a real module on disk: without it the removed
+  // handlers would also have 404'd ("Project not found"), proving nothing.
   beforeAll(async () => {
-    eve = await startEve({});
+    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-modules-'));
+    const moduleDir = path.join(projectDir, 'modules', 'demo');
+    fs.mkdirSync(moduleDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(moduleDir, 'module.json'),
+      JSON.stringify({ displayName: 'Demo', entry: 'index.html' }),
+    );
+    fs.writeFileSync(path.join(moduleDir, 'index.html'), '<!doctype html><p>demo</p>');
+    eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
   }, 60000);
 
   afterAll(async () => {
     await eve.stop();
+    fs.rmSync(projectDir, { recursive: true, force: true });
   });
 
   for (const p of [
