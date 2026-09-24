@@ -12,7 +12,6 @@ A browser-based LLM chat interface — AI for Home and for Work (and your homewo
 - **Integrated terminal** — open a shell in the project directory (xterm.js in the browser; the PTY runs in relayLLM and survives Eve restarts).
 - **Voice** — on-device text-to-speech (Kokoro) and speech-to-text (Whisper), with a hands-free voice mode.
 - **Scheduled tasks** — run LLM prompts on a schedule via relayScheduler.
-- **Modules** — AI-backed mini-apps that live in a project (`<project>/modules/<name>/`) and run in a sandboxed iframe with a small `window.eve` SDK ([docs/modules.md](docs/modules.md)).
 - **Passkey authentication** — WebAuthn passkeys; the first visitor becomes the owner.
 - **File attachments** — drag/drop, click, or paste files and images into a prompt.
 

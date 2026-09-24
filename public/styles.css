@@ -1042,43 +1042,6 @@ html, body {
 
 /* Terminal Content */
 
-/* Module content (sandboxed iframes for static-HTML modules) */
-.module-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  position: relative;
-}
-
-.module-content.hidden {
-  display: none;
-}
-
-.module-host__iframe {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-
-.module-host__iframe.hidden {
-  display: none;
-}
-
-.module-host__error {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  padding: 10px 12px;
-  background: var(--bg-danger, #b33);
-  color: #fff;
-  border-radius: 4px;
-  font-size: 13px;
-  z-index: 10;
-}
-
 /* The terminal surface is scrolled by a JS touch handler (see
    TerminalManager._attachTouchScroll), so the browser must not also claim the
    vertical pan — otherwise the viewport scrolls twice. */
@@ -2131,7 +2094,7 @@ html, body {
   .panel-header { min-height: 50px; }
 }
 
-/* Sidebar content rows (sessions / tasks / modules / files) */
+/* Sidebar content rows (sessions / tasks / files) */
 
 /* Task items in sidebar */
 
@@ -2149,20 +2112,6 @@ html, body {
 
 .project-tree__task-btn {
   padding: 2px 4px;
-}
-
-/* Module items in sidebar (same indent/sizing as tasks for visual consistency) */
-.project-tree__module-item {
-  display: flex;
-  align-items: center;
-  padding: 2px 4px 2px 38px;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.project-tree__module-item--new {
-  padding-left: 38px;
 }
 
 /* Session items in sidebar */
@@ -2453,35 +2402,6 @@ html, body {
 /* Push-to-talk: amber dot to visually distinguish from hands-free. */
 
 /* Mobile responsive */
-
-/* --- Module Activity Orb -------------------------------------------------
-   Pinned lower-right indicator for in-flight module invokeAI() calls.
-   Click opens a read-only event log dialog. */
-
-@keyframes module-orb-pulse {
-  0%, 100% { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 0 0 rgba(59, 130, 246, 0.45); }
-  50%      { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 0 10px rgba(59, 130, 246, 0); }
-}
-
-@keyframes module-orb-rotate {
-  to { transform: rotate(360deg); }
-}
-
-/* Dialog */
-.module-orb-dialog__tab {
-  border-bottom: none;
-}
-.module-orb-dialog__tab.is-active {
-  border-color: var(--border-color);
-}
-.module-orb-dialog__tab.is-failed    .module-orb-dialog__tab-dot { background: var(--danger); }
-.module-orb-dialog__event.is-text     .module-orb-dialog__event-tag { color: var(--accent); }
-.module-orb-dialog__event.is-tool     .module-orb-dialog__event-tag { color: var(--warning); }
-.module-orb-dialog__event.is-error    .module-orb-dialog__event-tag { color: var(--danger); }
-.module-orb-dialog__event.is-error    .module-orb-dialog__event-body { color: var(--danger); }
-.module-orb-dialog__event.is-done     .module-orb-dialog__event-tag { color: var(--success); }
-.module-orb-dialog__event.is-meta     .module-orb-dialog__event-tag { color: var(--text-secondary); }
-.module-orb-dialog__event.is-meta     .module-orb-dialog__event-body { color: var(--text-secondary); }
 
 /* --- Search dialog --- */
 

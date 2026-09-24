@@ -101,17 +101,6 @@ const EVT = {
   SEARCH_AI_COMPLETED: 'search:aiCompleted',
   SEARCH_AI_FAILED: 'search:aiFailed',
 
-  MODULE_LIST_UPDATED: 'module:listUpdated',
-  MODULE_LAUNCH_REQUEST: 'module:launchRequest',
-  MODULE_CREATE_REQUEST: 'module:createRequest',
-  MODULE_OPENED: 'module:opened',
-  MODULE_CLOSED: 'module:closed',
-  MODULE_FILE_RESPONSE: 'module:fileResponse',
-  MODULE_AI_STARTED: 'module:aiStarted',
-  MODULE_AI_EVENT: 'module:aiEvent',
-  MODULE_AI_COMPLETED: 'module:aiCompleted',
-  MODULE_AI_FAILED: 'module:aiFailed',
-
   SETTINGS_CHANGED: 'settings:changed',
 
   VOICE_BACKEND_CHANGED: 'voice:backendChanged',

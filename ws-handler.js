@@ -6,7 +6,7 @@ const { messages } = require('./ws/message-registry');
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, hostPool, ttsService, sttService, uiBus, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, searchSummarizer, resolveProject, hostPool, ttsService, sttService, uiBus, log }) {
   // Shared across every connection this factory serves (the factory itself
   // runs once, at server.js startup) — a host_status change must reach every
   // authenticated browser tab, not just the one that happened to trigger it.
@@ -119,7 +119,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             inflightSearchIds,
             inflightAiIds,
             log,
-            deps: { relayTransport, fileHandlers, moduleService, moduleInvoker, searchSummarizer, resolveProject, hostPool, ttsService, sttService },
+            deps: { relayTransport, fileHandlers, searchSummarizer, resolveProject, hostPool, ttsService, sttService },
           });
         }
       } catch (err) {

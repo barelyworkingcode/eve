@@ -123,7 +123,7 @@ function handleUserInput(ctx) {
 
   log?.debug('→ LLM:', finalText);
   // Only a real user turn arms resume_required's one-shot resend (C11,
-  // SH-6) — search-summarizer.js and module-invoker.js call sendMessage
+  // SH-6) — search-summarizer.js calls sendMessage
   // directly for hidden/background sessions and must never arm it, since
   // those are expected to die rather than resume on a host restart (R7).
   relayClient.pendingUserMessage = { sessionId: message.sessionId, text: finalText, files };

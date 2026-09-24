@@ -45,15 +45,6 @@ class ApiClient {
   probeHost(id) { return this._request('POST', `/api/hosts/${id}/probe`); }
   disconnectHost(id) { return this._request('POST', `/api/hosts/${id}/disconnect`); }
 
-  // Module invocation is WS-only (module_invoke_ai / module_ai_*); there is
-  // deliberately no HTTP invoke() method here.
-  listModules(projectId) {
-    return this._request('GET', `/api/modules?projectId=${encodeURIComponent(projectId)}`);
-  }
-  getModuleManifest(projectId, moduleName) {
-    return this._request('GET', `/api/modules/${encodeURIComponent(projectId)}/${encodeURIComponent(moduleName)}`);
-  }
-
   getTasks(projectId) {
     const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
     return this._request('GET', `/api/tasks${qs}`);

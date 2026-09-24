@@ -4,11 +4,11 @@
  *
  * Lifecycle:
  *   1. POST /api/sessions  (name "__search:<rand>") — invisible to the user
- *   2. relayClient.registerModuleSession(sid, handler) — intercept relay frames
+ *   2. relayClient.registerHiddenSession(sid, handler) — intercept relay frames
  *   3. join_session + send_message
  *   4. Forward each frame as `search_ai_event` (client accumulates the text)
  *   5. On message_complete → `search_ai_completed` (or `search_ai_failed`)
- *   6. finally: unregisterModuleSession + DELETE /api/sessions/<sid>
+ *   6. finally: unregisterHiddenSession + DELETE /api/sessions/<sid>
  */
 const crypto = require('crypto');
 
@@ -69,7 +69,7 @@ class SearchSummarizer {
 
     const handler = (msg) => {
       // Forward the raw relay frame so the client can re-use its existing
-      // text-accumulation walk (same shape as module_ai_event).
+      // text-accumulation walk.
       sendFrame(relayClient, browserWs, {
         type: 'search_ai_event', requestId, sessionId, event: msg,
       });
@@ -81,7 +81,7 @@ class SearchSummarizer {
       }
     };
 
-    relayClient.registerModuleSession(sessionId, handler);
+    relayClient.registerHiddenSession(sessionId, handler);
     this.active.set(requestId, { sessionId, relayClient });
 
     try {
@@ -105,7 +105,7 @@ class SearchSummarizer {
       throw err;
     } finally {
       clearTimeout(timeoutTimer);
-      relayClient.unregisterModuleSession(sessionId);
+      relayClient.unregisterHiddenSession(sessionId);
       this.active.delete(requestId);
       this.relayTransport.fetch('DELETE', `/api/sessions/${sessionId}`).catch(err => {
         this.log?.error(`Failed to delete ephemeral session ${sessionId.slice(0, 8)}: ${err.message}`);

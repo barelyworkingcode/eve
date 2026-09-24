@@ -1,6 +1,6 @@
 /**
- * Search AI summarize — the `__search:` hidden ephemeral session (sibling of
- * `__module:`). The fake relay streams the summary; eve intercepts the hidden
+ * Search AI summarize — the `__search:` hidden ephemeral session. The fake
+ * relay streams the summary; eve intercepts the hidden
  * session and surfaces it as `search_ai_*` frames (never plain llm_event), then
  * deletes the session.
  */

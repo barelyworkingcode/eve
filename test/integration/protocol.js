@@ -4,7 +4,7 @@
  * fake's output and, against a live relay, relayLLM's real output (see
  * contract.test.js) — so a shape change on either side is caught.
  *
- * Ground truth: eve's relay-client.js, module-invoker.js, and docs/api.md's
+ * Ground truth: eve's relay-client.js, search-summarizer.js, and docs/api.md's
  * "WebSocket" section. Keep in lockstep with those.
  */
 'use strict';

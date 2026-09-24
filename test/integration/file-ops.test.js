@@ -1,8 +1,7 @@
 /**
  * File operations over WS that weren't in local-surface: rename/move/upload,
- * watch_file → file_changed (real fs.watch with content), and the module
- * server-side permissions.files gate. All real disk; the fake relay only
- * supplies the project→path mapping.
+ * and watch_file → file_changed (real fs.watch with content). All real disk;
+ * the fake relay only supplies the project→path mapping.
  */
 const os = require('os');
 const fs = require('fs');
@@ -17,15 +16,8 @@ describe('file ops over WebSocket', () => {
   beforeEach(async () => {
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-fileops-'));
     fs.mkdirSync(path.join(projectDir, 'src'));
-    fs.mkdirSync(path.join(projectDir, 'data'));
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# hi', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'src', 'index.js'), 'const a = 1;', 'utf8');
-    fs.writeFileSync(path.join(projectDir, 'data', 'notes.txt'), 'secret notes', 'utf8');
-    const modDir = path.join(projectDir, 'modules', 'demo');
-    fs.mkdirSync(modDir, { recursive: true });
-    fs.writeFileSync(path.join(modDir, 'module.json'), JSON.stringify({
-      displayName: 'Demo', entry: 'index.html', permissions: { files: ['data/notes.txt'] },
-    }), 'utf8');
 
     eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
     ws = await eve.connectWs();
@@ -62,44 +54,5 @@ describe('file ops over WebSocket', () => {
     fs.writeFileSync(path.join(projectDir, 'src', 'index.js'), 'const a = 2; // edited', 'utf8');
     const frame = await ws.waitFor((f) => f.type === 'file_changed' && f.path === 'src/index.js', 8000);
     expect(frame.projectId).toBe('p1');
-  });
-
-  describe('module file permission gate', () => {
-    it('reads a file listed in permissions.files', async () => {
-      ws.send({ type: 'module_read_file', requestId: 'r1', projectId: 'p1', moduleName: 'demo', path: 'data/notes.txt' });
-      const res = await ws.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'r1');
-      expect(res).toMatchObject({ ok: true, content: 'secret notes' });
-    });
-
-    it('denies a file NOT in permissions.files', async () => {
-      ws.send({ type: 'module_read_file', requestId: 'r2', projectId: 'p1', moduleName: 'demo', path: 'README.md' });
-      const res = await ws.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'r2');
-      expect(res.ok).toBe(false);
-      expect(res.error).toMatch(/permission denied/i);
-    });
-
-    // Runs the same manifest re-read + permissions.files gate as read
-    // (module architecture invariant #2), against real disk and a real
-    // spawned eve — previously only unit-covered with a mocked FileService.
-    it('writes a file listed in permissions.files, and it lands on disk', async () => {
-      ws.send({
-        type: 'module_write_file', requestId: 'w1', projectId: 'p1', moduleName: 'demo',
-        path: 'data/notes.txt', content: 'updated by module',
-      });
-      const res = await ws.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'w1');
-      expect(res).toMatchObject({ ok: true });
-      expect(fs.readFileSync(path.join(projectDir, 'data', 'notes.txt'), 'utf8')).toBe('updated by module');
-    });
-
-    it('denies a write to a path NOT in permissions.files, and the disk is untouched', async () => {
-      ws.send({
-        type: 'module_write_file', requestId: 'w2', projectId: 'p1', moduleName: 'demo',
-        path: 'README.md', content: 'hijacked',
-      });
-      const res = await ws.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'w2');
-      expect(res.ok).toBe(false);
-      expect(res.error).toMatch(/permission denied/i);
-      expect(fs.readFileSync(path.join(projectDir, 'README.md'), 'utf8')).toBe('# hi');
-    });
   });
 });

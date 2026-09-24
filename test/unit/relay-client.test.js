@@ -50,10 +50,10 @@ describe('RelayClient', () => {
     client.close();
   });
 
-  describe('module-session interception (load-bearing: keeps hidden sessions out of chat)', () => {
+  describe('hidden-session interception (load-bearing: keeps hidden sessions out of chat)', () => {
     it('routes a registered session to its handler and does NOT forward to the browser', () => {
       const handler = jest.fn();
-      client.registerModuleSession('mod-1', handler);
+      client.registerHiddenSession('mod-1', handler);
 
       client._handleRelayMessage({ sessionId: 'mod-1', type: 'llm_event', event: { type: 'assistant' } });
       client._flushBatch();
@@ -65,8 +65,8 @@ describe('RelayClient', () => {
 
     it('forwards messages to the browser once the session is unregistered', () => {
       const handler = jest.fn();
-      client.registerModuleSession('mod-1', handler);
-      client.unregisterModuleSession('mod-1');
+      client.registerHiddenSession('mod-1', handler);
+      client.unregisterHiddenSession('mod-1');
 
       // 'error' is an immediate-flush type, so it reaches the browser synchronously.
       client._handleRelayMessage({ sessionId: 'mod-1', type: 'error', message: 'x' });
@@ -76,13 +76,13 @@ describe('RelayClient', () => {
     });
 
     it('ignores registration with a falsy id or a non-function handler', () => {
-      client.registerModuleSession('', jest.fn());
-      client.registerModuleSession('has-id', null);
-      expect(client.moduleSessions.size).toBe(0);
+      client.registerHiddenSession('', jest.fn());
+      client.registerHiddenSession('has-id', null);
+      expect(client.hiddenSessions.size).toBe(0);
     });
 
-    it('catches a throwing module-session handler and still suppresses the frame', () => {
-      client.registerModuleSession('mod-1', () => { throw new Error('boom'); });
+    it('catches a throwing hidden-session handler and still suppresses the frame', () => {
+      client.registerHiddenSession('mod-1', () => { throw new Error('boom'); });
       expect(() => client._handleRelayMessage({ sessionId: 'mod-1', type: 'llm_event' })).not.toThrow();
       client._flushBatch();
       expect(browserWs.send).not.toHaveBeenCalled();
@@ -213,7 +213,7 @@ describe('RelayClient', () => {
       expect(transport.fetch).not.toHaveBeenCalled();
       // A mismatched resume_required must never consume an unrelated
       // session's legitimate pending arm (e.g. a late frame for a hidden
-      // module session after unregisterModuleSession) — only a match
+      // search session after unregisterHiddenSession) — only a match
       // consumes it.
       expect(client.pendingUserMessage).toBe(other);
       expect(browserWs.sent).toContainEqual(expect.objectContaining({ type: 'error', sessionId: 's1' }));
@@ -354,15 +354,15 @@ describe('RelayClient', () => {
   });
 
   describe('close()', () => {
-    it('closes the upstream socket, clears module sessions, and marks closed', () => {
+    it('closes the upstream socket, clears hidden sessions, and marks closed', () => {
       const upstream = client.ws;
-      client.registerModuleSession('s', jest.fn());
+      client.registerHiddenSession('s', jest.fn());
 
       client.close();
 
       expect(upstream.close).toHaveBeenCalled();
       expect(client.ws).toBeNull();
-      expect(client.moduleSessions.size).toBe(0);
+      expect(client.hiddenSessions.size).toBe(0);
       expect(client._closed).toBe(true);
     });
   });

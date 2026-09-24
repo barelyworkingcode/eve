@@ -1,6 +1,6 @@
 /* ============================================================================
-   Apple-Native Sidebar Tree — Finder/list rows for files, sessions, tasks,
-   and modules inside the explorer panel.
+   Apple-Native Sidebar Tree — Finder/list rows for files, sessions and tasks
+   inside the explorer panel.
 
    Loaded AFTER styles.css and apple/shell.css so equal-specificity selectors
    win by source order. DOM/classes/data-testid/ids are NEVER changed.
@@ -317,64 +317,6 @@
   cursor: default;
 }
 
-/* ── Module items ─────────────────────────────────────────────────────── */
-
-.project-tree__module-item {
-  min-height: 26px;
-  padding-top: 3px;
-  padding-bottom: 3px;
-  padding-right: 6px;
-  gap: 6px;
-  font-size: var(--text-subhead);
-  font-family: var(--font-ui);
-  color: var(--text-primary);
-  border-radius: var(--radius-sm);
-  margin: 0 4px;
-  transition: background var(--dur-1) var(--ease-out);
-}
-.project-tree__module-item:hover {
-  background: var(--bg-hover);
-}
-
-.project-tree__module-icon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--purple);
-  flex-shrink: 0;
-}
-
-.project-tree__module-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: var(--text-subhead);
-}
-
-/* "+ New Module" affordance */
-.project-tree__module-item--new {
-  cursor: pointer;
-  color: var(--text-muted);
-  font-style: italic;
-}
-.project-tree__module-item--new:hover {
-  color: var(--accent);
-  background: var(--accent-soft);
-  font-style: normal;
-}
-.project-tree__module-item--new .project-tree__module-icon {
-  color: var(--text-muted);
-}
-
-/* Broken module: muted + danger icon */
-.project-tree__module-item--broken {
-  cursor: not-allowed;
-  color: var(--text-muted);
-  opacity: 0.7;
-}
-.project-tree__module-item--broken .project-tree__module-icon {
-  color: var(--danger);
-}
-
 /* ── Session items ────────────────────────────────────────────────────── */
 
 /* Swipe-to-delete container — must preserve overflow:hidden for the
@@ -597,8 +539,7 @@
 
 @media (max-width: 768px) {
   .project-tree__task-item,
-  .project-tree__session-item,
-  .project-tree__module-item {
+  .project-tree__session-item {
     min-height: 44px;
     padding-top: 10px;
     padding-bottom: 10px;

@@ -49,7 +49,7 @@ describe('SearchSummarizer prompt construction', () => {
 // bare `await Promise.resolve()` isn't enough to observe it — poll instead.
 async function waitForHandler(relayClient, timeoutMs = 200) {
   const t0 = Date.now();
-  while (relayClient.registerModuleSession.mock.calls.length === 0) {
+  while (relayClient.registerHiddenSession.mock.calls.length === 0) {
     if (Date.now() - t0 > timeoutMs) throw new Error('Timed out waiting for handler registration');
     await new Promise(r => setImmediate(r));
   }
@@ -74,8 +74,8 @@ describe('SearchSummarizer.run', () => {
     const relayClient = {
       browserWs,
       sendToBrowser: jest.fn((p) => browserWs.send(JSON.stringify(p))),
-      registerModuleSession: jest.fn(),
-      unregisterModuleSession: jest.fn(),
+      registerHiddenSession: jest.fn(),
+      unregisterHiddenSession: jest.fn(),
       joinSession: jest.fn(),
       sendMessage: jest.fn(),
       stopGeneration: jest.fn(),
@@ -118,17 +118,20 @@ describe('SearchSummarizer.run', () => {
     expect(body.settings).toBeNull();
     expect(body.model).toBe('model-x');
 
-    expect(relayClient.registerModuleSession).toHaveBeenCalledWith('sess-abc', expect.any(Function));
-    const handler = relayClient.registerModuleSession.mock.calls[0][1];
+    expect(relayClient.registerHiddenSession).toHaveBeenCalledWith('sess-abc', expect.any(Function));
+    const handler = relayClient.registerHiddenSession.mock.calls[0][1];
 
     expect(relayClient.joinSession).toHaveBeenCalledWith('sess-abc');
+    // Registering after the join would let the first frames leak into the user's chat.
+    expect(relayClient.registerHiddenSession.mock.invocationCallOrder[0])
+      .toBeLessThan(relayClient.joinSession.mock.invocationCallOrder[0]);
     expect(relayClient.sendMessage).toHaveBeenCalledWith(expect.stringContaining('"foo"'), [], 'sess-abc');
 
     handler({ type: 'message_complete', sessionId: 'sess-abc' });
 
     await run;
 
-    expect(relayClient.unregisterModuleSession).toHaveBeenCalledWith('sess-abc');
+    expect(relayClient.unregisterHiddenSession).toHaveBeenCalledWith('sess-abc');
     const deleteCall = relayTransport.fetch.mock.calls.find(c => c[0] === 'DELETE');
     expect(deleteCall[1]).toBe('/api/sessions/sess-abc');
 
@@ -146,7 +149,7 @@ describe('SearchSummarizer.run', () => {
       relayClient, browserWs,
     });
     await waitForHandler(relayClient);
-    const handler = relayClient.registerModuleSession.mock.calls[0][1];
+    const handler = relayClient.registerHiddenSession.mock.calls[0][1];
     handler({ type: 'message_complete', sessionId: 'sess-abc', error: 'boom' });
 
     await expect(run).rejects.toThrow('boom');
@@ -172,7 +175,7 @@ describe('SearchSummarizer.run', () => {
     expect(relayClient.stopGeneration).toHaveBeenCalledWith('sess-abc');
 
     // Stop doesn't resolve on its own — settle the run promise so jest exits cleanly.
-    const handler = relayClient.registerModuleSession.mock.calls[0][1];
+    const handler = relayClient.registerHiddenSession.mock.calls[0][1];
     handler({ type: 'message_complete', sessionId: 'sess-abc' });
     await run;
   });
@@ -214,7 +217,7 @@ describe('SearchSummarizer.run', () => {
       .find(f => f.type === 'search_ai_failed');
     expect(failFrame.error).toMatch(/timed out/i);
 
-    expect(relayClient.unregisterModuleSession).toHaveBeenCalledWith('sess-abc');
+    expect(relayClient.unregisterHiddenSession).toHaveBeenCalledWith('sess-abc');
     const deleteCall = relayTransport.fetch.mock.calls.find(c => c[0] === 'DELETE');
     expect(deleteCall[1]).toBe('/api/sessions/sess-abc');
   });

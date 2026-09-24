@@ -588,8 +588,6 @@ class SearchDialog extends DialogBase {
   }
 }
 
-// Mirrors module-invoker.js#accumulateAssistantText server-side; keep both
-// in sync or streamed summaries silently lose text.
 function accumulateAssistantText(msg) {
   if (!msg || msg.type !== 'llm_event' || msg.event?.type !== 'assistant') return '';
   const ev = msg.event;

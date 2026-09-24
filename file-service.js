@@ -64,7 +64,7 @@ class FileService {
     // would slip past — recheck containment in realpath space. Comparing
     // realRoot vs realResolved (not projectPath vs realResolved) is required
     // so a project living under a symlinked ancestor (e.g. macOS `/var` ->
-    // `/private/var`) isn't false-flagged. Mirrors module-service.js resolveModuleFile().
+    // `/private/var`) isn't false-flagged.
     const realRoot = this._realpathExistingPrefix(projectPath);
     const realResolved = this._realpathExistingPrefix(resolved);
     if (!this._isWithin(realRoot, realResolved)) {

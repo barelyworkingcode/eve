@@ -72,14 +72,6 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
     await eve.relay.waitForInbound((f) => f.type === 'terminal_list');
     expect(ws.frames.slice(from).some((f) => f.requestId === 'no-such-search')).toBe(false);
   });
-
-  it('module_ai_stop with no matching request in flight: no crash, no frame', async () => {
-    const from = ws.mark();
-    ws.send({ type: 'module_ai_stop', requestId: 'no-such-invoke' });
-    ws.send({ type: 'terminal_list' });
-    await eve.relay.waitForInbound((f) => f.type === 'terminal_list');
-    expect(ws.frames.slice(from).some((f) => f.requestId === 'no-such-invoke')).toBe(false);
-  });
 });
 
 /**
@@ -100,13 +92,6 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     fs.writeFileSync(path.join(projectDir, 'secretB.txt'), 'BBB-ONLY-FOR-B', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'needleA.txt'), 'ZEBRAALPHA marker', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'needleB.txt'), 'ZEBRABRAVO marker', 'utf8');
-    fs.writeFileSync(path.join(projectDir, 'dataA.txt'), 'MODULE-DATA-A', 'utf8');
-    fs.writeFileSync(path.join(projectDir, 'dataB.txt'), 'MODULE-DATA-B', 'utf8');
-    // Same fixture shape as file-ops.test.js.
-    fs.mkdirSync(path.join(projectDir, 'modules', 'demo'), { recursive: true });
-    fs.writeFileSync(path.join(projectDir, 'modules', 'demo', 'module.json'), JSON.stringify({
-      displayName: 'Demo', entry: 'index.html', permissions: { files: ['dataA.txt', 'dataB.txt'] },
-    }), 'utf8');
     eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
     wsA = await eve.connectWs();
     wsB = await eve.connectWs();
@@ -160,7 +145,7 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     expect(wsB.frames.slice(fromB).some((f) => f.type === 'session_created' && f.sessionId === createdA.sessionId)).toBe(false);
   });
 
-  // C1's "accepted limits" named search, module, and voice as
+  // C1's "accepted limits" named search and voice as
   // review-checklist-only; terminal is covered below too, closing that gap.
   it('search_project on each connection replies only to the connection that asked', async () => {
     const fromA = wsA.mark();
@@ -177,23 +162,6 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
 
     expect(wsA.frames.slice(fromA).some((f) => f.requestId === 'search-B')).toBe(false);
     expect(wsB.frames.slice(fromB).some((f) => f.requestId === 'search-A')).toBe(false);
-  });
-
-  it('module_read_file on each connection replies only to the connection that asked', async () => {
-    const fromA = wsA.mark();
-    const fromB = wsB.mark();
-
-    wsA.send({ type: 'module_read_file', projectId: 'p1', moduleName: 'demo', path: 'dataA.txt', requestId: 'mod-A' });
-    wsB.send({ type: 'module_read_file', projectId: 'p1', moduleName: 'demo', path: 'dataB.txt', requestId: 'mod-B' });
-
-    const respA = await wsA.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'mod-A', 5000, fromA);
-    const respB = await wsB.waitFor((f) => f.type === 'module_file_response' && f.requestId === 'mod-B', 5000, fromB);
-
-    expect(respA).toMatchObject({ ok: true, content: 'MODULE-DATA-A' });
-    expect(respB).toMatchObject({ ok: true, content: 'MODULE-DATA-B' });
-
-    expect(wsA.frames.slice(fromA).some((f) => f.requestId === 'mod-B')).toBe(false);
-    expect(wsB.frames.slice(fromB).some((f) => f.requestId === 'mod-A')).toBe(false);
   });
 
   it('transcribe_audio on each connection replies with its own error, never the other\'s', async () => {

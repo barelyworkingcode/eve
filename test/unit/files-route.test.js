@@ -39,7 +39,7 @@ describe('/api/files route hardening', () => {
       removeFromProjectCache: () => {},
       resolveProject: (id) => (id === 'p1' ? project : null),
       fileService: new FileService(),
-      ttsService: {}, sttService: {}, moduleService: {},
+      ttsService: {}, sttService: {},
       log: null,
     });
 
@@ -180,7 +180,7 @@ describe('/api/files route on a host project (streamed, no local disk)', () => {
       resolveProject: (id) => (id === 'h1' ? project : null),
       fileService: new FileService(),
       fileServiceFor: () => remoteFs,
-      ttsService: {}, sttService: {}, moduleService: {},
+      ttsService: {}, sttService: {},
       log: null,
     });
     return app;

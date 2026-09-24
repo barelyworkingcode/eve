@@ -80,9 +80,9 @@ describe('WsMessageRegistry.expensiveTypes', () => {
   // its rate-limit cap.
   // git_changes joined with the Changes panel (docs/design-git-changes.md,
   // "Safety"): it fans out to several git processes per worktree.
-  it('carries exactly the seven frozen expensive types', () => {
+  it('carries exactly the six frozen expensive types', () => {
     expect(messages.expensiveTypes()).toEqual(new Set([
-      'create_session', 'search_project', 'search_ai_summarize', 'module_invoke_ai',
+      'create_session', 'search_project', 'search_ai_summarize',
       'transcribe_audio', 'tts_speak', 'git_changes',
     ]));
   });
@@ -97,7 +97,7 @@ describe('constraint C2 — handle is async iff its case arm is awaited today', 
   // POST /api/terminals) before answering — ws-handler.js already awaits
   // every descriptor unconditionally, so this is just recording that the
   // handler itself is genuinely async now, same reasoning as create_session.
-  const AWAITED_TYPES = new Set(['create_session', 'module_read_file', 'module_write_file', 'terminal_create']);
+  const AWAITED_TYPES = new Set(['create_session', 'terminal_create']);
 
   it('every registered descriptor matches the awaited-arm set', () => {
     for (const type of messages.types()) {

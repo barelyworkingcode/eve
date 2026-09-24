@@ -40,7 +40,7 @@ panes.registerType({
 
   hash(tab) { return `#session/${encodeURIComponent(tab.id)}`; },
 
-  // Entry is a bare `Date.now()` number, not an object like `file`/`module` —
+  // Entry is a bare `Date.now()` number, not an object like `file`'s —
   // pinned by test/e2e/tab-panes.spec.js against a pre-refactor fixture.
   // `_getRecentEntries` keeps tolerating both forms.
   persist: {
