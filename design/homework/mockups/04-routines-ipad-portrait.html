@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="frame" content="ipad-portrait">
+<link rel="stylesheet" href="kit.css">
+<style>
+  .status { position: absolute; top: 8px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 22px; font-size: 12px; font-weight: 600; }
+  .titlebar { display: flex; align-items: center; height: 60px; padding: 26px 18px 0; position: relative; }
+  .titlebar .icon-btn { width: 44px; height: 44px; color: var(--accent); }
+  .titlebar .center { position: absolute; left: 50%; transform: translateX(-50%); top: 30px; }
+  .modeswitch.touch { font-size: 14px; }
+  .modeswitch.touch > span { padding: 7px 14px; }
+  .modeswitch.touch .bar { padding: 7px 0; }
+  .page { width: 720px; margin: 0 auto; }
+  .large { font-family: var(--display); font-size: 32px; font-weight: 700; letter-spacing: -.02em; margin-top: 22px; }
+  .sub { color: var(--text-2); font-size: 15px; margin-top: 2px; }
+  .list { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .rt { display: flex; gap: 14px; padding: 14px 16px; align-items: flex-start; min-height: 76px; }
+  .rt.sel { box-shadow: var(--shadow-1), 0 0 0 2px var(--accent); }
+  .rt .when { width: 44px; height: 44px; border-radius: 12px; background: var(--fill); display: grid; place-items: center; flex: none; color: var(--text-2); }
+  .rt .sentence { font-size: 16px; line-height: 1.35; }
+  .rt .sentence b { font-weight: 600; }
+  .rt .meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--text-2); }
+  .rt .snip { margin-top: 6px; font-size: 13.5px; color: var(--text-2); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .rt.fail { box-shadow: var(--shadow-1), inset 3px 0 0 var(--red); }
+  .rt.fail .when { background: rgba(229,72,77,.10); color: var(--red); }
+  .btn.touch { height: 40px; padding: 0 16px; font-size: 14px; border-radius: 20px; }
+  .ok { color: var(--green); font-weight: 600; }
+  .bad { color: var(--red); font-weight: 600; }
+
+  .scrim { position: absolute; inset: 0; background: rgba(30,25,20,.08); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 548px; background: var(--surface); border-radius: 22px 22px 0 0; box-shadow: 0 -10px 40px rgba(30,25,20,.14), 0 0 0 .5px rgba(30,25,20,.08); padding: 8px 0 0; }
+  .grabber { width: 40px; height: 5px; border-radius: 3px; background: var(--line-strong); margin: 0 auto 10px; }
+  .sheet .head { display: flex; align-items: flex-start; gap: 12px; padding: 6px 0 16px; }
+  .sheet h2 { font-family: var(--display); font-size: 22px; font-weight: 650; letter-spacing: -.01em; line-height: 1.25; }
+  .sheet h2 em { font-style: normal; color: var(--accent); }
+  .toggle { width: 51px; height: 31px; border-radius: 16px; background: var(--green); position: relative; flex: none; margin-top: 2px; }
+  .toggle::after { content: ""; position: absolute; right: 2px; top: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.2); }
+  .cols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 28px; }
+  .cols h5 { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); margin-bottom: 6px; }
+  .run { display: flex; align-items: center; gap: 12px; min-height: 48px; border-top: 1px solid var(--line); font-size: 14px; }
+  .run:first-of-type { border-top: 0; }
+  .run .d { width: 76px; font-variant-numeric: tabular-nums; flex: none; }
+  .run .d span { display: block; font-size: 12px; color: var(--text-3); }
+  .run .r { color: var(--text-2); font-size: 13px; }
+  .reach { background: var(--surface-2); border-radius: 14px; padding: 6px 14px; }
+  .can { display: flex; gap: 12px; align-items: center; min-height: 48px; font-size: 14px; border-top: 1px solid var(--line); }
+  .can:first-child { border-top: 0; }
+  .can .ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+  .can.yes .ic { background: var(--accent-soft); color: var(--accent); }
+  .can.no .ic { background: var(--fill); color: var(--text-3); }
+  .can.no { color: var(--text-2); }
+  .foot { display: flex; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .homebar { position: absolute; bottom: 8px; left: 50%; width: 300px; margin-left: -150px; height: 5px; border-radius: 3px; background: rgba(0,0,0,.8); }
+</style></head>
+<body class="">
+<div class="status"><span>10:20&nbsp; Thu 24 Sep</span><span>Wi-Fi&nbsp; 88%</span></div>
+
+<div class="titlebar">
+  <span class="icon-btn"><svg class="i lg" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></span>
+  <div class="center"><div class="modeswitch touch"><span>Home</span><span class="bar">|</span><span class="on"><span class="dot blue"></span>Work</span></div></div>
+  <span class="grow"></span>
+  <span class="icon-btn"><svg class="i lg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+  <span class="icon-btn"><svg class="i lg" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+</div>
+
+<div class="page">
+  <div class="large">Routines</div>
+  <div class="sub">3 in Work · next: Morning brief, tomorrow at 07:00</div>
+
+  <div class="list">
+    <div class="card rt sel">
+      <span class="when"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span>
+      <div class="grow">
+        <div class="sentence">Every weekday at <b>07:00</b>, brief me on my day.</div>
+        <div class="meta">Morning brief · ran 07:00 · <span class="ok">ok</span></div>
+        <div class="snip">"3 meetings. Stand-up is Acme billing, invoice export bug still open. 1:1 with Dana at 11:00…"</div>
+      </div>
+    </div>
+
+    <div class="card rt fail">
+      <span class="when"><svg class="i" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l4-4 3 3 5-6"/></svg></span>
+      <div class="grow">
+        <div class="sentence">Every Monday at <b>08:00</b>, sum up last week's metrics.</div>
+        <div class="meta">Weekly metrics · <span class="bad">failed</span> Monday 08:00</div>
+        <div class="snip" style="color:var(--text)">Couldn't reach the metrics folder. Work mode can't read it yet.</div>
+        <div class="row" style="margin-top:10px; gap:8px"><span class="btn touch accent">Run again</span><span class="btn touch">Ask in Relay</span></div>
+      </div>
+    </div>
+
+    <div class="card rt">
+      <span class="when"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg></span>
+      <div class="grow">
+        <div class="sentence">Every day at <b>17:30</b>, list mail I still owe a reply.</div>
+        <div class="meta">Owed replies · ran yesterday 17:30 · <span class="ok">ok</span></div>
+        <div class="snip">"3 threads: Priya on the vendor contract, Sam re offsite dates, Acme finance on PO numbers."</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="sheet">
+  <div class="grabber"></div>
+  <div class="page">
+    <div class="head">
+      <div class="grow">
+        <div class="eyebrow" style="margin-bottom:6px">Morning brief</div>
+        <h2>Every <em>weekday</em> at <em>07:00</em>, brief me on my day: meetings, mail that needs me, and what's due.</h2>
+      </div>
+      <span class="toggle"></span>
+    </div>
+
+    <div class="cols">
+      <div>
+        <h5>Last 5 runs</h5>
+        <div class="run"><span class="d">Today<span>07:00</span></span><span class="check"><svg class="i" viewBox="0 0 24 24" style="width:11px;height:11px;stroke-width:3"><path d="m5 12 5 5 9-10"/></svg></span><span class="grow r ellip">3 meetings · 3 replies · 2 due</span><svg class="i sm faint" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+        <div class="run"><span class="d">Wed<span>07:00</span></span><span class="check"><svg class="i" viewBox="0 0 24 24" style="width:11px;height:11px;stroke-width:3"><path d="m5 12 5 5 9-10"/></svg></span><span class="grow r ellip">2 meetings · 5 replies</span><svg class="i sm faint" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+        <div class="run"><span class="d">Tue<span>07:00</span></span><span class="check" style="background:var(--amber)"><svg class="i" viewBox="0 0 24 24" style="width:11px;height:11px;stroke-width:3"><path d="M12 7v6M12 17h.01"/></svg></span><span class="grow r ellip">Mail was slow · retried 07:04, ok</span><svg class="i sm faint" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+        <div class="run"><span class="d">Mon<span>07:00</span></span><span class="check"><svg class="i" viewBox="0 0 24 24" style="width:11px;height:11px;stroke-width:3"><path d="m5 12 5 5 9-10"/></svg></span><span class="grow r ellip">4 meetings · 8 replies · 1 due</span><svg class="i sm faint" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+        <div class="run"><span class="d">Fri<span>07:00</span></span><span class="check"><svg class="i" viewBox="0 0 24 24" style="width:11px;height:11px;stroke-width:3"><path d="m5 12 5 5 9-10"/></svg></span><span class="grow r ellip">1 meeting · 2 replies</span><svg class="i sm faint" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+      </div>
+      <div>
+        <h5>What it can reach</h5>
+        <div class="reach">
+          <div class="can yes"><span class="ic"><svg class="i sm" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><span>Reads your calendar</span></div>
+          <div class="can yes"><span class="ic"><svg class="i sm" viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg></span><span>Reads your mail</span></div>
+          <div class="can yes"><span class="ic"><svg class="i sm" viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></span><span>Reads your reminders</span></div>
+          <div class="can no"><span class="ic"><svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg></span><span>Can't send mail or reply</span></div>
+          <div class="can no"><span class="ic"><svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg></span><span>Can't open files or the web</span></div>
+        </div>
+        <div class="small faint" style="margin-top:10px; line-height:1.45">Set by Work mode. Change it in Relay on your Mac.</div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span class="btn touch accent"><svg class="i sm" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>Run now</span>
+      <span class="btn touch">Edit sentence</span>
+      <span class="btn touch">Open last run</span>
+      <span class="grow"></span>
+      <span class="btn touch" style="color:var(--red); background:transparent">Delete</span>
+    </div>
+  </div>
+</div>
+<div class="homebar"></div>
+
+<div class="note" style="left: 440px; top: 90px; max-width: 350px"><b>1 · Sidebar tucks away</b>Portrait gives the column the width. The rail slides over from the top-left button.</div>
+<div class="note" style="left: 57px; top: 552px; max-width: 340px"><b>2 · Sentences, not cron</b>Each routine reads the way you'd say it. Time and days are the only tappable parts.</div>
+<div class="note" style="left: 430px; top: 552px; max-width: 348px"><b>3 · Reach in words</b>What Relay grants, as plain can and can't. No tool names, no scopes.</div>
+</body></html>

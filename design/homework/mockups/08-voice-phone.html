@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="frame" content="phone">
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { font-size: 15px; }
+  .phone { position: relative; width: 393px; height: 852px; overflow: hidden;
+    background: radial-gradient(120% 60% at 50% 28%, #2a1d15 0%, #15110e 55%, #0e0d0c 100%); }
+  .status { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 4px 34px 0 46px; font-weight: 600; font-size: 16px; z-index: 20; color: #fff; }
+  .island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 124px; height: 36px; border-radius: 20px; background: #000; }
+  .sys { display: flex; gap: 6px; align-items: center; }
+  .home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 136px; height: 5px; border-radius: 3px; background: #fff; z-index: 30; }
+
+  .top { position: absolute; top: 58px; left: 0; right: 0; height: 44px; display: grid; grid-template-columns: 60px 1fr 60px; align-items: center; }
+  .top .nb { width: 44px; height: 44px; margin-left: 10px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); }
+  .ttl { text-align: center; }
+  .ttl .t { font-weight: 600; font-size: 17px; }
+  .cap { font-size: 12.5px; color: var(--text-3); margin-top: 1px; }
+  .in { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; background: var(--home-soft); color: var(--home); font-size: 12.5px; font-weight: 600; margin-bottom: 14px; }
+
+  .orb-wrap { position: absolute; top: 132px; left: 50%; transform: translateX(-50%); width: 260px; height: 260px; display: grid; place-items: center; }
+  .halo { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle closest-side, rgba(255,150,90,.42) 0%, rgba(255,140,80,.30) 62%, rgba(255,130,70,.10) 80%, rgba(255,130,70,0) 100%); }
+  .glow { position: absolute; width: 190px; height: 190px; border-radius: 50%; background: #ff8a4c; filter: blur(34px); opacity: .55; }
+  .ring { position: absolute; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,190,140,.14); }
+  .orb { position: relative; width: 168px; height: 168px; border-radius: 50%;
+    background:
+      radial-gradient(circle at 34% 28%, rgba(255,255,255,.85) 0%, rgba(255,240,220,.35) 14%, rgba(255,255,255,0) 32%),
+      radial-gradient(circle at 70% 76%, rgba(214,72,110,.75) 0%, rgba(214,72,110,0) 48%),
+      radial-gradient(circle at 24% 72%, rgba(255,196,90,.9) 0%, rgba(255,196,90,0) 50%),
+      radial-gradient(circle at 60% 40%, #ff9a5c 0%, #e8793a 55%, #b8502a 100%);
+    box-shadow: inset 0 -10px 30px rgba(90,20,10,.35), inset 0 6px 18px rgba(255,255,255,.18); }
+  .state { position: absolute; top: 396px; left: 0; right: 0; text-align: center; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--home); display: flex; justify-content: center; align-items: center; gap: 8px; }
+  .bars { display: inline-flex; gap: 2px; align-items: center; height: 14px; }
+  .bars i { width: 3px; border-radius: 2px; background: var(--home); display: block; }
+
+  .tx { position: absolute; top: 432px; left: 24px; right: 24px; }
+  .you { font-size: 16px; color: var(--text-3); line-height: 1.4; }
+  .you b { color: var(--text-2); font-weight: 600; }
+  .said { font-family: var(--display); font-size: 26px; line-height: 1.26; font-weight: 600; letter-spacing: -.015em; color: var(--text); margin-top: 12px; }
+  .said .next { color: rgba(243,241,236,.28); }
+  .src { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; height: 28px; padding: 0 11px 0 8px; border-radius: 14px; background: var(--fill); color: var(--text-2); font-size: 12.5px; }
+  .fav { width: 16px; height: 16px; font-size: 9px; border-radius: 4px; }
+
+  .controls { position: absolute; bottom: 44px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 22px; }
+  .cbtn { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.10); color: #fff; }
+  .cbtn svg.i { width: 26px; height: 26px; }
+  .cbtn.end { background: #e5484d; }
+  .type { height: 52px; padding: 0 20px; border-radius: 26px; background: rgba(255,255,255,.10); color: #fff; display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
+  .clabel { position: absolute; bottom: 20px; left: 0; right: 0; display: flex; justify-content: center; gap: 0; font-size: 11px; color: var(--text-3); }
+  .note { font-size: 11.5px; padding: 6px 9px; }
+</style></head>
+<body class="dark mode-home">
+<div class="phone">
+  <div class="status"><span>9:41</span><div class="island"></div>
+    <div class="sys">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 11.5 5.6 9a3.4 3.4 0 0 1 4.8 0zM3.5 6.9a6.4 6.4 0 0 1 9 0l-1.4 1.4a4.4 4.4 0 0 0-6.2 0zM1.3 4.7a9.5 9.5 0 0 1 13.4 0l-1.4 1.4a7.5 7.5 0 0 0-10.6 0z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="9" rx="2" fill="currentColor"/><path d="M25 4.5v4a2 2 0 0 0 0-4z" fill="currentColor" opacity=".45"/></svg>
+    </div>
+  </div>
+
+  <div class="top">
+    <span class="nb"><svg class="i lg" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>
+    <div class="ttl">
+      <div class="t">Weekend plans</div><div class="cap">Voice · Home</div>
+    </div>
+    <span></span>
+  </div>
+
+  <div class="orb-wrap">
+    <div class="halo"></div><div class="glow"></div>
+    <div class="ring" style="inset: 22px"></div>
+    <div class="ring" style="inset: 4px; opacity:.6"></div>
+    <div class="orb"></div>
+  </div>
+  <div class="state"><span class="bars"><i style="height:6px"></i><i style="height:12px"></i><i style="height:8px"></i><i style="height:14px"></i><i style="height:5px"></i></span>Speaking</div>
+
+  <div class="tx">
+    <span class="in"><span class="dot" style="background:var(--home)"></span>in: Weekend plans<span style="opacity:.7;font-weight:500">· 12 earlier</span></span>
+    <div class="you"><b>You</b> · Will it rain Saturday morning? The plumber's coming at ten.</div>
+    <div class="said">Dry until about two, then showers. You'll be fine for the plumber, <span class="next">and I've added a 9:30 reminder to clear under the sink.</span></div>
+    <span class="src"><span class="fav" style="background:#3a86c8">M</span>Met Office · Sat forecast</span>
+  </div>
+
+  <div class="controls">
+    <span class="cbtn"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.3 2M12 18v3M3 3l18 18"/></svg></span>
+    <span class="type"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>Type instead</span>
+    <span class="cbtn end"><svg class="i" viewBox="0 0 24 24" style="stroke-width:2.2"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+  </div>
+  <div class="home-ind"></div>
+</div>
+<div class="note" style="left: 10px; top: 296px; max-width: 106px"><b>1 · Same thread</b>The pill below: voice continues the typed thread.</div>
+<div class="note" style="left: 272px; top: 150px; max-width: 110px"><b>2 · A calm orb</b>Swells with the voice, no waveform to watch.</div>
+<div class="note" style="left: 222px; top: 664px; max-width: 160px"><b>3 · Read along</b>Unspoken words wait dimmed. Big enough from arm's length.</div>
+</body></html>

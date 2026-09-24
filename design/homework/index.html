@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home|Work: next — design proposal</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --text:#1d1c1a; --t2:rgba(40,36,30,.64); --t3:rgba(40,36,30,.4); --line:rgba(40,36,30,.12);
+    --work:#2f6bff; --home:#e8793a; --green:#2fb55d; --red:#e5484d; --amber:#e0930f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; -webkit-font-smoothing:antialiased; }
+  header.hero { padding:72px 24px 40px; text-align:center; }
+  .mark { font:700 56px/1 -apple-system,"SF Pro Display",sans-serif; letter-spacing:-.03em; }
+  .mark .h { color:var(--home) } .mark .w { color:var(--work) } .mark .bar { color:var(--t3); font-weight:200; margin:0 2px; }
+  .hero p { color:var(--t2); max-width:640px; margin:16px auto 0; font-size:18px; }
+  nav.toc { position:sticky; top:0; z-index:5; background:rgba(246,245,242,.86); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-bottom:1px solid var(--line); }
+  nav.toc div { max-width:1120px; margin:0 auto; display:flex; gap:18px; overflow-x:auto; padding:10px 24px; font-size:13.5px; white-space:nowrap; }
+  nav.toc a { color:var(--t2); text-decoration:none; } nav.toc a:hover { color:var(--text); }
+  main { max-width:1120px; margin:0 auto; padding:0 24px 120px; }
+  section { padding-top:64px; }
+  h2 { font:700 30px/1.2 -apple-system,"SF Pro Display",sans-serif; letter-spacing:-.02em; margin:0 0 6px; }
+  h2 + .lede { color:var(--t2); margin:0 0 24px; max-width:760px; }
+  h3 { font-size:18px; margin:32px 0 10px; }
+  .card { background:var(--card); border-radius:16px; box-shadow:0 1px 2px rgba(0,0,0,.05),0 0 0 .5px rgba(0,0,0,.06); padding:20px 24px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; }
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:16px; }
+  .principle b { display:block; font-size:16px; margin-bottom:4px; }
+  .principle { font-size:14.5px; color:var(--t2); }
+  .principle b { color:var(--text); }
+  figure { margin:0 0 40px; }
+  figure img { width:100%; display:block; border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,.14),0 0 0 .5px rgba(0,0,0,.08); background:#fff; }
+  figure.phone img, figure.phone-row img { max-width:393px; margin:0 auto; }
+  .phone-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:20px; }
+  figcaption { margin-top:14px; font-size:14.5px; color:var(--t2); max-width:860px; }
+  figcaption b { color:var(--text); }
+  .tag { display:inline-block; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; padding:2px 8px; border-radius:99px; background:#ecebe6; color:var(--t2); margin-right:6px; vertical-align:2px; }
+  .tag.now { background:rgba(47,181,93,.14); color:#1d7d3e; } .tag.next { background:rgba(47,107,255,.12); color:var(--work); } .tag.later { background:#ecebe6; }
+  .tag.high { background:rgba(229,72,77,.12); color:#b4262b; } .tag.med { background:rgba(224,147,15,.14); color:#8a5a00; } .tag.low { background:#ecebe6; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--t3); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line); }
+  td { padding:10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:0; }
+  code { font:13px "SF Mono",ui-monospace,Menlo,monospace; background:#efeee9; padding:1px 5px; border-radius:5px; }
+  .story { margin-bottom:12px; }
+  .story h4 { margin:0 0 4px; font-size:15.5px; }
+  .story p { margin:0 0 6px; color:var(--t2); font-size:14.5px; }
+  .story ul { margin:0; padding-left:18px; font-size:13.5px; color:var(--t2); }
+  .theme { font-size:13px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--t3); margin:28px 0 10px; }
+  .before-after { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  .before-after .lbl { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--t3); margin-bottom:8px; }
+  .thumbs { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:10px; }
+  .thumbs a { display:block; font-size:12px; color:var(--t2); text-decoration:none; }
+  .thumbs img { width:100%; height:120px; object-fit:cover; object-position:top; border-radius:8px; border:1px solid var(--line); background:#fff; }
+  .callout { border-left:3px solid var(--work); padding:14px 18px; background:#fff; border-radius:0 12px 12px 0; margin:16px 0; font-size:15px; }
+  .callout.warn { border-color:var(--red); }
+  .decisions li { margin-bottom:10px; }
+  .phase { position:relative; padding-left:28px; margin-bottom:22px; }
+  .phase:before { content:""; position:absolute; left:6px; top:8px; bottom:-18px; width:2px; background:var(--line); }
+  .phase:after { content:""; position:absolute; left:0; top:4px; width:14px; height:14px; border-radius:50%; background:var(--work); }
+  .phase:last-child:before { display:none; }
+  .phase h4 { margin:0 0 4px; }
+  .phase p { margin:0; color:var(--t2); font-size:14.5px; }
+  a { color:var(--work); }
+  footer { text-align:center; color:var(--t3); font-size:13px; padding:40px 0 60px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="mark"><span class="h">Home</span><span class="bar">|</span><span class="w">Work</span></div>
+  <p>A proposal to turn eve into something you open every day: it opens to your day, answers with sources, runs your routines overnight and keeps your agents in view, on the Mac, the iPad and the phone.</p>
+  <p style="font-size:13px;color:var(--t3)">Draft for review · 24 September 2026 · local branch <code>design/homework-next</code>, not pushed</p>
+</header>
+
+<nav class="toc"><div>
+  <a href="#thesis">Thesis</a><a href="#found">What we found</a><a href="#bugs">Fix first</a><a href="#shape">The new shape</a>
+  <a href="#mockups">Mockups</a><a href="#stories">User stories</a><a href="#delight">Delight</a><a href="#kill">Kill · move · keep</a>
+  <a href="#relay">Relay's part</a><a href="#plan">Plan</a><a href="#decide">Your calls</a><a href="#appendix">Appendix</a>
+</div></nav>
+
+<main>
+
+<section id="thesis">
+  <h2>The thesis</h2>
+  <p class="lede">Home|Work is one window onto the intelligence on your own Mac. It opens to your day. It answers with sources you can check. It runs your routines overnight and keeps your coding agents in view, on whichever screen is nearest. It stays quiet: no dashboards, no knobs. The heavy machinery (models, tools, grants, hosts, audit) lives in Relay, and Relay enforces it. Home and Work are two rooms, not two apps.</p>
+  <div class="grid3">
+    <div class="card principle"><b>1 · Open to the day, not to a tool.</b>The first screen shows what matters now, with a cursor already blinking. Terminals, editors and dialogs are one keystroke away, never the first thing you see.</div>
+    <div class="card principle"><b>2 · One thread, any surface.</b>Typed, spoken, scheduled or picked up on another device, a conversation is one thing: a thread. "Session", "Web Chat" and "Shell Launcher" leave the vocabulary.</div>
+    <div class="card principle"><b>3 · Context is a room.</b>Home and Work are modes. Relay decides what each can reach (mail accounts, calendars, folders). The UI only decides where new things start.</div>
+    <div class="card principle"><b>4 · Show your work in one line.</b>Sources first. Tool activity collapses to one honest line. Refusals are shown. "Stayed on this Mac" when it's true.</div>
+    <div class="card principle"><b>5 · Earn every pixel.</b>Anything used less than weekly moves to ⌘K or to Relay. Settings shrinks to one small sheet.</div>
+  </div>
+</section>
+
+<section id="found">
+  <h2>What we found</h2>
+  <p class="lede">A designer agent drove every surface at desktop, iPad (both orientations) and iPhone sizes and logged 26 friction points (full log in the <a href="#appendix">appendix</a>). Five of them decide the first impression.</p>
+
+  <div class="before-after">
+    <div><div class="lbl">Today, first open on iPad</div><img src="current/ipad-home.png" style="width:100%;border-radius:12px;border:1px solid var(--line)"></div>
+    <div><div class="lbl">Today, first open on iPhone</div><img src="current/phone-home.png" style="width:100%;border-radius:12px;border:1px solid var(--line)"></div>
+  </div>
+
+  <h3>The five that matter most</h3>
+  <table class="card" style="padding:0">
+    <tr><th style="width:34%">What happens</th><th>Why it hurts</th></tr>
+    <tr><td><b>You land in a terminal, not Home.</b> Every live server terminal auto-opens as a tab on every device and takes focus.</td><td>The front door is skipped. On a phone the first screen is a wall of old shell output in two tabs both called "shell".</td></tr>
+    <tr><td><b>Everything says "running".</b> Relay sends <code>live</code>; eve reads <code>active</code> and defaults it to true.</td><td>"11 sessions running" and green dots on three-week-old chats. The one signal Home exists to give is wrong.</td></tr>
+    <tr><td><b>Three steps and a modal to ask a question.</b> Tile → "Shell Launcher" → model form → Start. Then a blank chat.</td><td>Chat is the most frequent action and it has the most ceremony. Perplexity is one box.</td></tr>
+    <tr><td><b>Failures are raw or silent.</b> <code>HTTP 400: {"error":"unknown model…"}</code>; the typed prompt is lost; creating a project from an iPad hangs on a password prompt only the Mac can see; Tasks shows "No tasks" when the scheduler is down.</td><td>Daily use needs trust. Each of these teaches you the app might be lying.</td></tr>
+    <tr><td><b>iPad gets the desktop layout at portrait.</b> One breakpoint at 768px; the sidebar is pinned and takes about 29% of the width.</td><td>The iPad is the main mobile device. Voice, diff and chat never get full width.</td></tr>
+  </table>
+  <div class="callout"><b>Good bones to keep:</b> the ⌘K palette, the chat reading column, the Changes tab and diff pane, bottom sheets on phone, project monograms, the native iOS audio path, SSH host projects, HTML live preview.</div>
+</section>
+
+<section id="bugs">
+  <h2>Fix first (real bugs, independent of the redesign)</h2>
+  <p class="lede">Confirmed in code. These can go through the normal public flow now; none of them reveal the design.</p>
+  <table class="card" style="padding:0">
+    <tr><th>Bug</th><th>Where</th><th>Effect</th></tr>
+    <tr><td>Weekly tasks always rejected</td><td><code>public/dialogs/task-dialog.js:340</code> sends <code>mon</code>…<code>sun</code>; <code>relayScheduler/schedule.go</code> accepts only <code>monday</code>…</td><td>Every weekly task fails to save (400).</td></tr>
+    <tr><td>"Once" tasks always rejected</td><td><code>task-dialog.js:452</code> sends <code>datetime</code> (local, no zone); the scheduler reads <code>at</code> (RFC 3339)</td><td>Every one-off task fails to save.</td></tr>
+    <tr><td>Every session shows as running</td><td><code>public/core/state-store.js:42</code> reads <code>active</code>, defaults true; relay sends <code>live</code></td><td>False "running" dots and counts everywhere.</td></tr>
+    <tr><td>Search dialog focuses the close button</td><td><code>dialogs/search-dialog.js</code></td><td>Typing does nothing; Enter closes the dialog.</td></tr>
+    <tr><td>Deep link on cold load lands on Home</td><td><code>#session/&lt;id&gt;</code> hash routing</td><td>Links from notifications or Shortcuts won't work.</td></tr>
+    <tr><td>Send enabled while disconnected</td><td>ws-client / chat form</td><td>"Thinking…" forever; the message goes nowhere.</td></tr>
+    <tr><td>Stale voice labels</td><td>README and Settings say Kokoro / Whisper</td><td>The daemons run Qwen3 now.</td></tr>
+  </table>
+  <div class="callout warn">During the audit, <b>chat didn't work on the devbox</b>: one local model returned <code>unknown model</code>, and pi and Claude Haiku returned "Provider process exited". The scheduler wasn't running either (Tasks returned 404). That may be the VM's current state, not eve, but it's worth a look before any build work.</div>
+</section>
+
+<section id="shape">
+  <h2>The new shape</h2>
+  <p class="lede">Four spaces, the same in both modes. One noun per thing. A layout that changes with the device rather than shrinking.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:0">Spaces</h3>
+      <p style="margin:0 0 8px"><b>Today</b>: the front door. Ask box already focused, the Morning brief, Needs you (permission asks, failed routines, exited agents), Continue (with "from iPad, 12 min ago"), Running agents, Changes (Work only).</p>
+      <p style="margin:0 0 8px"><b>Threads</b>: every conversation in the current mode. Auto-titled, pinned first, grouped by day, searchable.</p>
+      <p style="margin:0 0 8px"><b>Projects</b>: one page per project with its threads, agents, changes and files. The Work workbench. Hidden in Home until a second project exists.</p>
+      <p style="margin:0"><b>Routines</b>: scheduled prompts written as sentences, each with its last result.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Nouns</h3>
+      <table>
+        <tr><th>You see</th><th>Backed by</th></tr>
+        <tr><td>Thread</td><td>relay-sessions session (chat, voice, research; type is internal)</td></tr>
+        <tr><td>Agent</td><td>a live terminal from a template (Claude Code, pi, shell)</td></tr>
+        <tr><td>Project</td><td>relay project (a folder, local or on a host)</td></tr>
+        <tr><td>Routine</td><td>relayScheduler task</td></tr>
+        <tr><td>Mode</td><td>a relay project + its scopes, presets and brief</td></tr>
+        <tr><td>Preset</td><td>a chat template (model + prompt + voice)</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Home | Work</h3>
+      <p style="margin:0 0 8px">The wordmark <i>is</i> the switch. Tap it and the bar slides under the other word: Home warms the accent, Work cools it. On a fresh open it follows your work hours; it never switches mid-thread.</p>
+      <p style="margin:0">Each mode maps to a relay project whose scopes Relay enforces: Home can read the personal mail and family calendar, Work can read the work ones. Threads keep the mode they started in. A refused tool call offers "Ask in Work". A toggle without enforcement leaks, and enforcement without a visible place produces refusals nobody can explain; this gives you both.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">By device</h3>
+      <table>
+        <tr><th></th><th>Navigation</th><th>Work tools</th></tr>
+        <tr><td><b>Wide</b><br><span style="color:var(--t3);font-size:12px">desktop, iPad landscape</span></td><td>Left rail: mode switch, 4 spaces, pinned projects, ⌘K</td><td>Terminal, editor, diff side by side</td></tr>
+        <tr><td><b>Regular</b><br><span style="color:var(--t3);font-size:12px">iPad portrait, Split View</span></td><td>Slide-over sidebar, one 720pt column</td><td>Terminal + keybar; unified diff</td></tr>
+        <tr><td><b>Compact</b><br><span style="color:var(--t3);font-size:12px">iPhone</span></td><td>Bottom bar: Today · Threads · Capture · Projects. Push navigation, no tabs</td><td>Read-mostly; editor read-only</td></tr>
+      </table>
+      <p style="font-size:13px;color:var(--t2);margin:10px 0 0">A coarse pointer switches on 44pt targets at any width, so iPad landscape gets the wide layout with touch-sized controls.</p>
+    </div>
+  </div>
+</section>
+
+<section id="mockups">
+  <h2>Mockups</h2>
+  <p class="lede">Twelve screens, rendered from static HTML in <code>mockups/</code> (open any <code>.html</code> to inspect, or re-render with <code>node design/homework/tools/render-mockups.js</code>). Yellow notes mark the decisions worth arguing about.</p>
+
+  <figure><img src="mockups/01-today-desktop-work.png">
+    <figcaption><b>01 · Today on the Mac, Work mode.</b> One box: type and press Return, with chips pre-filled by the mode (Research, model, project). The Morning brief is a routine's output, not a widget. Needs you collects permission asks from every agent, answerable here or from the phone. Live terminals are listed with their last line; nothing opens on its own.</figcaption></figure>
+
+  <figure><img src="mockups/02-today-ipad-home-dark.png">
+    <figcaption><b>02 · Today on iPad, Home mode, evening, dark.</b> Home drops Projects, Running and Changes, so the evening screen stays calm. The brief leads with weather, the family calendar and reminders. The parcel left with a neighbour sits in Needs you with a one-tap "Remind me at 20:00". The composer carries a "Stays on this Mac" chip because Home leans on local models.</figcaption></figure>
+
+  <figure><img src="mockups/03-research-ipad.png">
+    <figcaption><b>03 · Research on iPad.</b> The reading order is fixed: question, one working line ("Searched 4 · read 6 sources"), sources, answer. Citation chips open an excerpt popover. [6] is hollow because it came from a mail, not a fetched page; honesty is visible without a warning banner. "Make this a routine" is the one tinted action, because it leads somewhere new.</figcaption></figure>
+
+  <figure><img src="mockups/04-routines-ipad-portrait.png" style="max-width:560px;margin:0 auto">
+    <figcaption><b>04 · Routines, iPad portrait.</b> Each routine reads as a sentence: "Every weekday at 07:00, brief me on my day." The failed one says why in plain words and offers Run again. The detail sheet lists the last five runs and what it can reach in words: reads calendar, mail and reminders; can't send mail. Scope is set by Relay, and the sheet says so.</figcaption></figure>
+
+  <h3>iPhone</h3>
+  <div class="phone-row">
+    <figure class="phone"><img src="mockups/05-today-phone.png"><figcaption><b>05 · Today.</b> The same wordmark switch, thumb-sized. Deny and Allow are 46pt, with Allow on the right under the thumb. "Continue from Mac" leads the list. Capture is the raised button in the tab bar.</figcaption></figure>
+    <figure class="phone"><img src="mockups/06-thread-phone.png"><figcaption><b>06 · A permission ask inside the thread.</b> Tool activity collapses to one line. The ask is a card in the conversation, not a modal, so a stray tap can't deny it. Choices run in falling order of trust: Allow once, Always in this project, Deny.</figcaption></figure>
+    <figure class="phone"><img src="mockups/07-capture-phone.png"><figcaption><b>07 · Capture.</b> One field that parses as you type ("Saturday" becomes a date chip). It goes to Reminders in the current mode. The previous capture shrinks into "Filed to Reminders · Home" with Undo. "Ask instead" turns the same words into a thread.</figcaption></figure>
+    <figure class="phone"><img src="mockups/08-voice-phone.png"><figcaption><b>08 · Hands-free voice.</b> A calm orb, no debug text. The pill "in: Weekend plans · 12 earlier" shows that voice continues the same thread. Unspoken words wait dimmed, big enough to read at arm's length.</figcaption></figure>
+  </div>
+
+  <h3>Mac</h3>
+  <figure><img src="mockups/09-project-desktop.png">
+    <figcaption><b>09 · The project workbench.</b> Where it lives (devbox, connected, branch) sits in one line. Claude Code, pi and Shell are one-tap starts on ⌘1–3, with no launcher form. Agents are rows with state and last line, and approvals are answered in the row. Changes are read-only: look, then ask. Commits go through an agent, so every write has an author. A calmer VS Code, not a clone.</figcaption></figure>
+
+  <figure><img src="mockups/10-palette-desktop.png">
+    <figcaption><b>10 · ⌘K.</b> One field over a blurred Today, searching both modes with Home/Work pills on each thread. Rarely used things live here as actions: Switch to Home, New research, Make a routine, Open Relay settings on Mac. On touch, the magnifier in the header opens the same palette.</figcaption></figure>
+
+  <figure><img src="mockups/11-settings-desktop.png">
+    <figcaption><b>11 · Settings, all of it.</b> Display (Auto/Light/Dark, text size), Voice (picker with preview, speed), Modes (work hours, auto-switch, which preset each mode starts with), Signed-in devices. It ends in "Models, tools, hosts and permissions live in Relay on your Mac → Open Relay". The point is how little there is.</figcaption></figure>
+
+  <figure><img src="mockups/12-routine-from-thread-desktop.png">
+    <figcaption><b>12 · Make this a routine.</b> A panel docked beside the thread that inspired it. Schedule in plain chips, where results land, and what it can reach with lock icons labelled "set by Relay for Work". The confirmation is the sentence read back: "Every Monday at 08:00, in Work, using Sonnet 5." It's the same sentence the Routines list will show.</figcaption></figure>
+</section>
+
+<section id="stories">
+  <h2>User stories</h2>
+  <p class="lede">Priority: <span class="tag now">Now</span> first release, <span class="tag next">Next</span> the release after, <span class="tag later">Later</span> when the rest has settled. Sizes are S / M / L.</p>
+
+  <div class="theme">Daily start</div>
+  <div class="grid2">
+    <div class="card story"><h4><span class="tag now">Now · M</span>Today is the front door</h4><p>As the owner opening Home|Work on any device, I want to land on Today with the Ask box focused, so I can start or pick up in one step.</p><ul><li>A fresh open (no hash route, no activity on this device for 60 min) shows Today. Live terminals are listed under Running, never auto-opened.</li><li>Within 60 minutes, open tabs restore as today.</li><li>On desktop, the first printable keystroke lands in the Ask box.</li><li>Opening Today makes no LLM call.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · M</span>Morning brief</h4><p>As the owner, I want a brief waiting each morning (events, due reminders, mail needing a reply, overnight routine results, weather), so I can plan the day in a minute.</p><ul><li>It's a headless routine; Today renders its latest reply with the run time.</li><li>Its project allows read tools only. <code>relay audit</code> shows mail_send and web_fetch denied.</li><li>Refresh runs it now. A failure shows one line with Retry. Continue opens the run as a thread.</li><li>Doesn't ship until an injection email in the test mailbox fails to make it send anything.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · S</span>Needs you</h4><p>As the owner, I want one list of what's waiting on me, so nothing stalls unseen.</p><ul><li>Pending permission asks from any thread or agent, with Allow and Deny.</li><li>Failed routines stay until opened. Exited agents show their exit code.</li><li>Hidden when empty.</li></ul></div>
+    <div class="card story"><h4><span class="tag next">Next · M</span>Continue on any device</h4><p>As the owner moving between iPad and desk, I want the thread I was just in to be first everywhere, so handoff takes no hunting.</p><ul><li>eve records <code>{deviceClass, lastInputAt}</code> per thread and exposes it on the list.</li><li>Continue orders by server activity first, local recents second.</li><li>Input on another device in the last 15 min shows "Continue from iPhone".</li></ul></div>
+  </div>
+
+  <div class="theme">Ask &amp; research</div>
+  <div class="grid2">
+    <div class="card story"><h4><span class="tag now">Now · M</span>Ask without choosing anything</h4><p>As the owner, I want to type and press Return, so I can ask without picking a project, template or model.</p><ul><li>Return starts a thread in the mode's default project with its Ask preset, through <code>_launchSession</code> so chat defaults still apply.</li><li>A model chip shows the preset model; changing it affects only this thread.</li><li>⌘N anywhere opens the same box as a sheet. No dialog between typing and the first token.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now (Claude) · L</span>Research with sources</h4><p>As the owner, I want a Research depth that searches and shows its sources above the answer, so I can check what it tells me.</p><ul><li>A Research preset per mode asks for numbered citations; its policy allows search and fetch so it doesn't stop to ask.</li><li>eve builds the source list from the turn's tool calls, never from the model's prose.</li><li>Phase 1 uses Claude's built-in search. Phase 2 adds <code>web_search</code> and <code>web_read</code> (page text, not raw HTML) for local models, with the provider set in Relay.</li><li>Tool activity shows as one live line that expands to the raw blocks.</li></ul></div>
+    <div class="card story"><h4><span class="tag next">Next · M</span>Citations you can check</h4><p>As the owner, I want inline [n] markers that show their source, so I can verify a claim in place.</p><ul><li>Hover (pointer) or tap (touch) shows domain, title and fetched excerpt.</li><li>A marker with no fetched source renders hollow.</li><li>No third-party requests: domain monograms, not favicons; CSP unchanged.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · M</span>Threads name themselves</h4><p>As the owner, I want every thread titled and searchable, so the list reads like a table of contents.</p><ul><li>After the first reply a hidden <code>__title:</code> session proposes ≤6 words and renames, unless you already did. Filtered and registered like <code>__search:</code>.</li><li>Uses a local model; skipped silently if none.</li><li>Threads search and ⌘K match title and first turn.</li></ul></div>
+    <div class="card story"><h4><span class="tag later">Later · S</span>Keep an answer</h4><p>As the owner, I want to save an answer as a page, so research outlives the thread.</p><ul><li>Keep writes <code>pages/&lt;slug&gt;.md</code> with sources as footnotes; the toast offers Open.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · S</span>Better failure</h4><p>As the owner, I want a failed reply to keep my words and offer a way forward, so a broken model never costs me a thought.</p><ul><li>Errors read in plain words, with Retry and Try another model.</li><li>The failed prompt stays in the thread and in history.</li><li>Send is disabled while disconnected, with a visible "Reconnecting" state app-wide.</li></ul></div>
+  </div>
+
+  <div class="theme">Work in projects</div>
+  <div class="grid2">
+    <div class="card story"><h4><span class="tag next">Next · M</span>Project page</h4><p>As the owner in Work, I want one page per project, so I stop hunting across sidebar tabs and dialogs.</p><ul><li>Replaces the Sessions and Tasks tabs and the launcher's Resume tab; reuses Files and Changes as is.</li><li>Agent templates and host sessions start in one tap.</li><li>Changes show per-repo counts; a file opens the existing diff pane.</li></ul></div>
+    <div class="card story"><h4><span class="tag next">Next · M</span>Agent board</h4><p>As the owner running several agents, I want every live terminal in one list, so I know which one to look at.</p><ul><li>Rows show project, template, state, time since last output and the last non-empty line.</li><li>Tapping attaches; no terminal opens by itself. Closing a tab never kills the shell without asking.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · S</span>Ask about this</h4><p>As the owner, I want to ask about a file, selection, diff or search result, so the answer is grounded in what I'm looking at.</p><ul><li>⌘N or a context-menu item starts Ask with the item attached.</li><li>Replaces the search dialog's "AI enhanced" summary.</li></ul></div>
+  </div>
+
+  <div class="theme">Capture on the go</div>
+  <div class="grid2">
+    <div class="card story"><h4><span class="tag next">Next · M</span>Quick capture</h4><p>As the owner on iPhone, I want to jot or say one line and have it filed, so I can empty my head in five seconds.</p><ul><li>One field; hold to dictate.</li><li>A hidden session that can only call <code>reminders_create</code> files it in the mode's list, and says where it went.</li><li>A line that reads as a question offers "Ask instead".</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · S</span>Action Button opens voice in the current mode</h4><p>As the owner, I want the Action Button to open a voice thread in my current mode, so I don't have to manage a favourite.</p><ul><li><code>#/voice-chat</code> launches the mode's voice preset; the favourite star goes.</li><li>A live voice thread younger than 30 min resumes instead.</li></ul></div>
+    <div class="card story"><h4><span class="tag later">Later · M</span>Share into Home|Work</h4><p>As the owner, I want to share a link, photo or text from any iOS app, so it becomes a capture or a question.</p><ul><li>Share extension in the native app; a URL offers Summarize, Ask or Keep. Uses the blocking <code>POST /api/sessions/:id/message</code>.</li></ul></div>
+  </div>
+
+  <div class="theme">Voice</div>
+  <div class="grid2">
+    <div class="card story"><h4><span class="tag next">Next · M</span>Voice is a way into any thread</h4><p>As the owner, I want to talk into any thread and go hands-free without starting a new session.</p><ul><li>Hold the mic (touch) or a key (desktop) to dictate; release sends.</li><li>Hands-free opens the orb on the same thread; ending returns to text with the transcript in place.</li><li>No debug text, no orb tuning sheet; voice and speed live in Settings.</li></ul></div>
+    <div class="card story"><h4><span class="tag next">Next · S</span>Listen</h4><p>As the owner, I want the brief or any answer read aloud.</p><ul><li>A visible speaker action on every answer (not hover-only), with the spoken sentence highlighted.</li><li>Code and tables become a short spoken placeholder; native audio keeps playing with the screen off.</li></ul></div>
+  </div>
+
+  <div class="theme">Automations</div>
+  <div class="grid2">
+    <div class="card story"><h4><span class="tag next">Next · M</span>Routines read as sentences</h4><p>As the owner, I want routines shown as plain sentences with their last result.</p><ul><li>"Every day at 08:30 · Morning brief · Home · ran 08:30, ok".</li><li>"Make this a routine" on any thread pre-fills prompt, model and project; reach is shown in words before saving.</li><li>Weekdays needs a scheduler change (<code>days: [...]</code> on daily).</li></ul></div>
+    <div class="card story"><h4><span class="tag next">Next · S</span>Results land in Today</h4><p>As the owner, I want routine results as quiet cards, not tabs.</p><ul><li>Completion updates a Today card; nothing opens by itself; the unseen count shows on Today only.</li><li>A scheduler that's down says so instead of "No tasks".</li></ul></div>
+  </div>
+
+  <div class="theme">Trust &amp; control</div>
+  <div class="grid2">
+    <div class="card story"><h4><span class="tag now">Now · M</span>Permission asks inside the thread</h4><p>As the owner, I want permission requests shown in the thread, so I see them in context and can't dismiss one by accident.</p><ul><li>A card with tool, target and a one-line reason; raw JSON behind a disclosure.</li><li>Allow once is primary; "Always in this project" is secondary; there's no "Allow All" at equal weight.</li><li>Pending asks also appear in Needs you on every device.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · S</span>Running means running</h4><p>As the owner, I want the live dot and the running count to be true.</p><ul><li><code>addSession</code> reads <code>live</code>; missing means not running. A unit test pins it.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · M</span>Home and Work are separate rooms</h4><p>As the owner, I want Home threads unable to reach Work mail, and the reverse.</p><ul><li>Each mode maps to a relay project whose scopes are set in Relay.</li><li>A refused call offers "Ask in Work" (or Home), rerunning the turn there.</li><li>Switching modes never moves or re-scopes an existing thread.</li></ul></div>
+    <div class="card story"><h4><span class="tag next">Next · M</span>What did it touch</h4><p>As the owner, I want to see every tool call a thread or routine made, including refusals.</p><ul><li>eve passes through relay's <code>GET /api/audit</code> read-only, scoped to the project and time window.</li><li>Exact per-thread filtering needs a session id on audit records (relay change).</li></ul></div>
+    <div class="card story"><h4><span class="tag next">Next · S</span>Stayed on this Mac</h4><p>As the owner, I want to know when an answer never left my machine.</p><ul><li>Shown when the model is local and no open-world tool ran. Needs a locality flag per model in relayLLM.</li></ul></div>
+    <div class="card story"><h4><span class="tag now">Now · S</span>Admin that can't finish here says so</h4><p>As the owner on an iPad, I want anything that needs my Mac to tell me, instead of hanging.</p><ul><li>Actions needing presence on the Mac show "Approve on your Mac" with a timeout.</li><li>Delete and create have the same weight of confirmation.</li></ul></div>
+  </div>
+</section>
+
+<section id="delight">
+  <h2>Delight moments</h2>
+  <p class="lede">Small, specific and cheap to build once the structure is right.</p>
+  <div class="grid3">
+    <div class="card principle"><b>The wordmark is the switch.</b>Tap "Home|Work": the bar slides under the other word, the accent warms or cools, and Today crossfades.</div>
+    <div class="card principle"><b>Type anywhere.</b>On Today the first keystroke becomes the question. There's no "New chat" button to find.</div>
+    <div class="card principle"><b>The title writes itself.</b>A thread starts named after your first words and settles into a four-word title with a soft fade after the first answer.</div>
+    <div class="card principle"><b>One working line.</b>"Checking calendar · reading 2 emails" beside the streaming caret. Click to expand.</div>
+    <div class="card principle"><b>Sources before the answer.</b>Chips slide in as searches return, so the wait has something to look at.</div>
+    <div class="card principle"><b>Hollow citations.</b>A claim without a fetched source shows as an outline, with no warning banner.</div>
+    <div class="card principle"><b>A brief you can listen to.</b>A tiny orb on the brief card. Sentences highlight as they're spoken; tap one to jump.</div>
+    <div class="card principle"><b>Handoff row.</b>Open the iPad after a walk: "Continue 'Lisbon flights' from iPhone · 2 min ago".</div>
+    <div class="card principle"><b>Approve from the couch.</b>An agent's ask shows up on the phone. One tap, and the Mac's pane unblocks live.</div>
+    <div class="card principle"><b>Capture confirms in place.</b>The field shrinks into a chip: "Filed to Reminders · Home", with Undo.</div>
+    <div class="card principle"><b>"Every morning?"</b>A quiet "Make this a routine" at the end of a useful thread, confirmed by reading the sentence back.</div>
+    <div class="card principle"><b>A pasted URL becomes chips.</b>Summarize · Ask about it · Keep.</div>
+    <div class="card principle"><b>Quick-ask over a diff.</b>⌘N over the diff pane opens Ask with "diff: 3 files" already attached.</div>
+    <div class="card principle"><b>Late night.</b>After 22:00 in Home, Today dims, hides Work counts, and says "Working late?" only if you are.</div>
+  </div>
+</section>
+
+<section id="kill">
+  <h2>Kill · move · keep</h2>
+  <p class="lede">The goal is fewer, better things. "Move to Relay" means the Mac app already does it (usually better). Relay's admin is Mac-only by design, so moving something there means it's gone from iPad and phone; that's intended for admin, not for daily actions.</p>
+  <table class="card" style="padding:0">
+    <tr><th>What</th><th>Verdict</th><th>Why</th></tr>
+    <tr><td>Shell Launcher as the way to chat</td><td><b>Replace</b> with the Ask box; agents move to the Project page</td><td>Three steps before the first token.</td></tr>
+    <tr><td>Launcher "Resume" tab</td><td><b>Kill</b></td><td>A third copy of Continue and the Sessions list.</td></tr>
+    <tr><td>Auto-opening every live terminal on load</td><td><b>Kill</b>; list them under Running</td><td>This is what hides Home today.</td></tr>
+    <tr><td>Home start tiles and project chips</td><td><b>Replace</b> with Today</td><td>Tiles open dialogs; chips duplicate the rail.</td></tr>
+    <tr><td>Settings: Colors tab (9 pickers × 2), Typography tab</td><td><b>Kill</b> / merge into one text-size control</td><td>A theme builder, not a daily tool. Auto / Light / Dark and one accent per mode.</td></tr>
+    <tr><td>TTS/STT prompt tags, backend pickers</td><td><b>Kill</b> from UI (backend picker only in the iOS app)</td><td>Jargon, one real option in browsers.</td></tr>
+    <tr><td>Voice orb tuning sheet, device-log streaming, "TTS: server" line, TTFT/tps line</td><td><b>Hide</b> behind a debug flag</td><td>Debug output shown to the user.</td></tr>
+    <tr><td>Voice drawer in text chats</td><td><b>Merge</b> into Settings plus one hands-free button</td><td>Choosing a voice is a once-a-month decision.</td></tr>
+    <tr><td>Favourite-template star</td><td><b>Kill</b>; use the mode's voice preset</td><td>One less concept.</td></tr>
+    <tr><td>Cost pill in every header</td><td><b>Hide</b>; show in thread info for paid models</td><td>"$0.00" on a file tab is noise.</td></tr>
+    <tr><td>Tab bar on phone</td><td><b>Replace</b> with push navigation</td><td>Tabs are unreadable at 393pt.</td></tr>
+    <tr><td>Long-press a tab's × to delete the session</td><td><b>Kill</b></td><td>An invisible destructive gesture, easy to trigger on touch.</td></tr>
+    <tr><td>Plan-mode hexagon</td><td><b>Replace</b> with a labelled chip, only in Work agent threads</td><td>Unlabelled, and meaningless in Home or Ask.</td></tr>
+    <tr><td>Permission modal</td><td><b>Replace</b> with the inline card</td><td>A backdrop tap counts as Deny; "Allow All" sits first.</td></tr>
+    <tr><td>Search "AI enhanced" summary</td><td><b>Merge</b> into "Ask about these results"</td><td>One AI surface instead of two. Keep the hidden-session plumbing for titling.</td></tr>
+    <tr><td>Session folders</td><td><b>Hide</b> the UI, keep the data</td><td>Auto-titles, pinning and search replace filing.</td></tr>
+    <tr><td>Local slash commands <code>/zsh /bash /claude /help</code></td><td><b>Merge</b> into ⌘K; keep <code>/clear</code> and provider commands</td><td>Hard to discover and project-bound.</td></tr>
+    <tr><td>Project dialog: host form and probe, MCP picker, model allow-list, permission policy</td><td><b>Move to Relay</b> (it already has all four)</td><td>Two editors for one setting invites races; eve's MCP checkbox can grant <code>*</code> without Relay's breadth warnings. eve keeps name, folder, mode and presets.</td></tr>
+    <tr><td>"Regenerate Skills"</td><td><b>Move to Relay</b> (already there)</td><td>Admin, sitting next to Delete Project.</td></tr>
+    <tr><td>Terminal-type routines</td><td><b>Hide</b> behind Advanced</td><td>Rare; chat routines cover the daily need.</td></tr>
+    <tr><td>Monaco editing on phone</td><td><b>Read-only</b> on compact</td><td>Nobody edits code on a phone keyboard.</td></tr>
+    <tr><td>Legacy sidebar entry points (<code>sidebar-renderer.js</code>)</td><td><b>Kill</b></td><td>Duplicates the project panel.</td></tr>
+  </table>
+  <p style="font-size:14.5px;color:var(--t2)"><b style="color:var(--text)">Keep and polish:</b> ⌘K; the chat reading column; Changes + diff pane (default to inline under 1000pt); HTML live preview; SSH host projects; the native iOS audio path and TTS director; the terminal keybar (fix the clipped arrows and 32pt keys); project monograms (but stop colours re-ranking when a project is added).</p>
+</section>
+
+<section id="relay">
+  <h2>Relay's part</h2>
+  <p class="lede">Relay already covers nearly all of eve's admin, usually in more depth. Six things have no Relay equivalent and stay in eve: routines, chat presets, launching threads and agents, appearance and voice preferences, file-tree preferences, and host tmux reattach. To let eve shed the rest, Relay needs a few small additions.</p>
+  <table class="card" style="padding:0">
+    <tr><th>Gap</th><th>Size</th><th>Why</th></tr>
+    <tr><td>A <b>mode</b> on relay projects (home / work / both) plus a default project per mode</td><td>S</td><td>Projects already sync live between eve and the tray; modes ride on the same path.</td></tr>
+    <tr><td>Live model picker for allowed models (replace the comma-separated field)</td><td>S</td><td>Needed before eve drops its model checkboxes.</td></tr>
+    <tr><td><code>preview</code> / title on the session <code>Summary</code></td><td>S</td><td>Titles live in each device's localStorage today, so the iPad and the phone disagree.</td></tr>
+    <tr><td>A read-only "needs attention" count on the frontend route</td><td>S</td><td>Lets eve say "Relay needs attention on your Mac" instead of tool calls failing silently.</td></tr>
+    <tr><td>Session id on audit records</td><td>S</td><td>Exact "what did this thread touch".</td></tr>
+    <tr><td>Project delete disables that project's scheduler tasks</td><td>S</td><td>Today eve does the cleanup client-side.</td></tr>
+    <tr><td>Scheduler <code>days: [...]</code> on daily schedules</td><td>S</td><td>"Every weekday" is the most natural routine and it can't be expressed today.</td></tr>
+    <tr><td>eve's signed-in devices listed in the Passkeys tab, with sign-out</td><td>M</td><td>Tokens in eve's data dir aren't visible or revocable anywhere.</td></tr>
+    <tr><td>A <code>web_search</code> + <code>web_read</code> tool for local models (macMCP or a new MCP)</td><td>M</td><td>Research on local models has nothing but raw-HTML <code>web_fetch</code> today.</td></tr>
+    <tr><td>A locality flag per model in relayLLM</td><td>S</td><td>Powers "Stayed on this Mac".</td></tr>
+  </table>
+  <p style="font-size:14px;color:var(--t2)">Backends eve already has but barely uses: scheduler run history with reply text, cost and tokens (<code>GET /api/tasks/:id/history</code>); <code>task_completed</code> events with an "interactive" flag; a blocking <code>POST /api/sessions/:id/message</code> for Shortcuts and a share sheet; <code>/api/status/detailed</code> for a "model warming up" hint; and macMCP's 51 tools (calendar, reminders, mail, messages, contacts, weather, maps, shortcuts; no Notes, but Shortcuts can reach it).</p>
+</section>
+
+<section id="plan">
+  <h2>Plan</h2>
+  <p class="lede">Each phase is shippable alone and leaves the app better. The client is mid-migration, so new spaces are built as new <code>public/core</code> modules behind <code>#welcomeScreen</code>, leaving the legacy panes alone. The frozen e2e and visual gates will move on purpose; each phase budgets a re-baseline.</p>
+  <div class="phase"><h4>0 · Truth (days)</h4><p>The bugs above: running dot, weekly and once tasks, search focus, send-while-offline, cold deep links, stale voice labels. Stop auto-opening terminals. Plain-language chat errors that keep your prompt.</p></div>
+  <div class="phase"><h4>1 · The front door</h4><p>Today with the Ask box, Needs you, Continue, Running. Ask-without-choosing. Auto-titles. Inline permission cards. Settings cut to one sheet. The three breakpoints plus coarse-pointer sizing. Phone bottom bar and push navigation. Two spikes run alongside: brief safety (injection mail) and research quality (ten real questions, Claude vs local with a stub search tool).</p></div>
+  <div class="phase"><h4>2 · Home | Work</h4><p>Modes on relay projects, the wordmark switch, the per-mode presets, "Ask in Work" on refusal, the Morning brief, the Action Button on the mode's voice preset. Project dialog trimmed to name, folder, mode and presets.</p></div>
+  <div class="phase"><h4>3 · Research</h4><p>Sources row, citation chips and hollow citations, one working line, Keep as page, pasted-URL chips. Local-model search once the MCP exists.</p></div>
+  <div class="phase"><h4>4 · Workbench and routines</h4><p>Project page, agent board, Ask-about-this, Routines as sentences, Make this a routine, results in Today, "What did it touch".</p></div>
+  <div class="phase"><h4>5 · On the go</h4><p>Quick capture, voice into any thread, Listen, handoff rows, then the iOS share extension and native notifications for Needs you.</p></div>
+  <div class="callout"><b>How we'll know it worked:</b> opened on at least 6 days out of 7, and a median under 5 seconds from open to first send.</div>
+</section>
+
+<section id="decide">
+  <h2>Your calls</h2>
+  <p class="lede">Decisions that change what gets built. My recommendation is first in each.</p>
+  <ol class="decisions">
+    <li><b>Where does a mode live?</b> A <code>mode</code> field on relay projects (recommended: syncs live, Relay enforces scopes), or an eve-owned <code>data/modes.json</code>.</li>
+    <li><b>Web search for local models:</b> a self-hosted metasearch engine (private, no key) or a keyed search API (better results, leaves the box). Decides Relay's external-access grants.</li>
+    <li><b>Should routine failures reach you outside the app?</b> Native iOS notifications (recommended, later) vs. a message to yourself via <code>messages_send</code> (powerful tool for a headless session).</li>
+    <li><b>What counts as "mail that needs a reply"</b> in the brief: flagged, or unread from known contacts?</li>
+    <li><b>Front-door rule:</b> is "Today after 60 minutes away, restore tabs otherwise" right for your desktop habit?</li>
+    <li><b>Terminal-type routines:</b> keep behind Advanced, or move to Relay?</li>
+    <li><b>Session folders:</b> OK to hide the UI (data kept)?</li>
+    <li><b>Where should this work live?</b> See below.</li>
+  </ol>
+  <div class="callout"><b>On keeping it private.</b> GitHub can't make individual issues private in a public repo. Two options: (a) keep this local branch as the home for the design until you're ready (what I did: nothing was pushed, no issues filed), or (b) a private companion repo, e.g. <code>homework-design</code>, where the stories become issues and this page becomes its README. Say which and I'll set it up.</div>
+</section>
+
+<section id="appendix">
+  <h2>Appendix</h2>
+  <h3>Full friction log (hands-on audit, 4 viewports)</h3>
+  <table class="card" style="padding:0">
+    <tr><th>#</th><th>Finding</th><th>Sev.</th></tr>
+    <tr><td>1</td><td>Live server terminals auto-open on every device and take focus; Home is skipped.</td><td><span class="tag high">High</span></td></tr>
+    <tr><td>2</td><td>Every session shows as running (<code>active</code> vs <code>live</code>).</td><td><span class="tag high">High</span></td></tr>
+    <tr><td>3</td><td>Sessions indistinguishable: "Chat Test - host/omlx/Chat" ×4; failed first messages never set a title; orphans show "?".</td><td><span class="tag high">High</span></td></tr>
+    <tr><td>4</td><td>Continue and Sessions order looks arbitrary; recent sessions sort below old ones.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>5</td><td>Raw JSON errors; no retry or switch model; the failed prompt is lost from history.</td><td><span class="tag high">High</span></td></tr>
+    <tr><td>6</td><td>"Shell Launcher" for chat, inconsistent names, "i" icon, pointless Back, defaults to Haiku not your last model, lists broken models.</td><td><span class="tag high">High</span></td></tr>
+    <tr><td>7</td><td>3 clicks and a modal to chat; the new chat is blank with a mystery chevron and no visible model.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>8</td><td>No copy on code or messages; tool pill says only "Bash"; TTFT/tps shown; read-aloud hover-only; no regenerate or edit.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>9</td><td>Permission sheet: "Allow All" first and equal weight; raw JSON; no session context.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>10</td><td>Unlabelled plan-mode hexagon; composer icons change per model without explanation.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>11</td><td>Cost pill on file and terminal tabs, and for free models; covers tabs on phone.</td><td><span class="tag low">Low</span></td></tr>
+    <tr><td>12</td><td>Creating a project from iPad hangs on a Mac-only password prompt, with no feedback. Delete needs no approval.</td><td><span class="tag high">High</span></td></tr>
+    <tr><td>13</td><td>Project dialog: inverted "unchecked = all", internal MCP names, Regenerate Skills beside Delete.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>14</td><td>Search dialog focuses the close button; "AI enhanced" inside a file grep.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>15</td><td>Icon-only sidebar tabs shift width; Changes pill overflows; "New Folder" means two things.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>16</td><td>Tasks hides a scheduler 404 as "No tasks"; "+ New Task" looks disabled; two-step new form.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>17</td><td>.csv, .swift, .cs, .kt, .vue refused for editing; file menu only Rename/Delete (no Add to chat, Copy path).</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>18</td><td>Splits only by drag; once split the chat tab vanishes and renders empty.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>19</td><td>Closing a terminal tab kills the shell unasked; long-press × deletes a session; no tab overflow.</td><td><span class="tag high">High</span></td></tr>
+    <tr><td>20</td><td>Deep links fail on cold load.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>21</td><td>Disconnect shown only in the chat header; Send stays enabled offline.</td><td><span class="tag high">High</span></td></tr>
+    <tr><td>22</td><td>Voice starts push-to-talk under a "Hands-free" tile; debug line; red Safari tip every time; developer orb controls.</td><td><span class="tag med">Med</span></td></tr>
+    <tr><td>23</td><td>Settings is mostly theme tinkering; jargon; no Done button.</td><td><span class="tag low">Low</span></td></tr>
+    <tr><td>24</td><td>Adding a project recolours existing project avatars.</td><td><span class="tag low">Low</span></td></tr>
+    <tr><td>25</td><td>Terminal: black band in light theme, zero left padding, zsh <code>%</code> markers.</td><td><span class="tag low">Low</span></td></tr>
+    <tr><td>26</td><td>Diff defaults to side by side at iPad portrait; truncated labels.</td><td><span class="tag low">Low</span></td></tr>
+  </table>
+  <h3>iPad and iPhone breakage</h3>
+  <ul style="font-size:14.5px;color:var(--t2)">
+    <li>iPad portrait (834) gets the desktop layout; the sidebar can't collapse.</li>
+    <li>iPhone composer: the textarea is ~157px between five buttons; the placeholder clips.</li>
+    <li>Attachment remove × is a 9×14px target. Keybar arrows scroll under the fixed "⋯"; iPad keys are 32pt.</li>
+    <li>Phone editor opens in split mode; tabs clip under the cost pill.</li>
+    <li>No ⌘K entry point on touch. Hover-only controls are invisible. Split is drag-only.</li>
+  </ul>
+
+  <h3>Screenshots of the current UI</h3>
+  <div class="thumbs" id="thumbs"></div>
+</section>
+
+</main>
+<footer>Home|Work · design proposal · generated from <code>design/homework/</code></footer>
+
+<script>
+  const shots = ["desktop-home","ipad-home","ipadl-home","phone-home","desktop-launcher-chat","desktop-launcher-generic","desktop-launcher-resume","phone-launcher","desktop-voice-launcher","desktop-chat-empty","desktop-chat-error","desktop-chat-history","desktop-chat-rendered","ipadl-chat-attach","phone-chat-attach","desktop-permission","phone-permission","desktop-palette","ipadl-palette","desktop-search","desktop-settings","phone-settings","desktop-project-dialog","desktop-new-project-error","desktop-more-menu","desktop-sidebar-sessions","desktop-sidebar-tasks","desktop-task-new","desktop-sidebar-changes","desktop-diff","ipad-diff","desktop-editor-split","desktop-file-context","desktop-tabs-many","phone-editor","desktop-terminal","ipad-terminal","phone-terminal","desktop-split-drag","desktop-split","ipad-voice","desktop-disconnected","phone-disconnected","phone-drawer","phone-drawer-sessions"];
+  const el = document.getElementById('thumbs');
+  for (const s of shots) {
+    const a = document.createElement('a'); a.href = 'current/' + s + '.png'; a.target = '_blank';
+    const img = document.createElement('img'); img.src = a.href; img.loading = 'lazy';
+    a.append(img, document.createTextNode(s)); el.append(a);
+  }
+</script>
+</body></html>

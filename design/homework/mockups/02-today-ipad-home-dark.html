@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="frame" content="ipad">
+<link rel="stylesheet" href="kit.css">
+<style>
+  .app { display: grid; grid-template-columns: 236px 1fr; height: 100vh; }
+  .rail { background: var(--surface-2); border-right: 1px solid var(--line); padding: 30px 12px 18px; display: flex; flex-direction: column; gap: 4px; }
+  .modeswitch.touch { font-size: 14px; }
+  .modeswitch.touch > span { padding: 8px 14px; }
+  .modeswitch.touch .bar { padding: 8px 0; }
+  .nav { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 12px; border-radius: 11px; color: var(--text-2); font-weight: 500; font-size: 15px; }
+  .nav.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
+  .nav .count { margin-left: auto; font-size: 12px; color: var(--text-3); }
+  .nav .badge { margin-left: auto; min-width: 20px; height: 20px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; display: grid; place-items: center; padding: 0 6px; }
+  .main { overflow: hidden; display: flex; flex-direction: column; align-items: center; position: relative; }
+  .status { position: absolute; top: 8px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 22px; font-size: 12px; font-weight: 600; color: var(--text); }
+  .col-wrap { width: 860px; padding-top: 44px; }
+  .greet { font-family: var(--display); font-size: 30px; font-weight: 650; letter-spacing: -.02em; }
+  .sub { color: var(--text-2); margin-top: 4px; font-size: 15px; }
+  .composer { margin-top: 20px; }
+  .composer .ph { font-size: 17px; }
+  .composer .pill { height: 32px; padding: 0 12px; font-size: 13px; }
+  .composer .icon-btn { width: 40px; height: 40px; }
+  .send { width: 40px; height: 40px; }
+  .grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-top: 18px; }
+  .section { padding: 16px 18px 14px; }
+  .section h4 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .section h4 .muted { font-weight: 400; margin-left: auto; font-size: 12.5px; }
+  .brief li { list-style: none; display: flex; gap: 12px; padding: 7px 0; font-size: 14px; align-items: baseline; line-height: 1.4; }
+  .brief .t { width: 46px; color: var(--text-3); font-size: 12.5px; flex: none; font-variant-numeric: tabular-nums; }
+  .weather { display: flex; align-items: center; gap: 14px; padding: 4px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .weather .deg { font-family: var(--display); font-size: 30px; font-weight: 300; letter-spacing: -.02em; line-height: 1; }
+  .hours { display: flex; gap: 14px; margin-left: auto; font-size: 12px; color: var(--text-2); text-align: center; }
+  .hours div span { display: block; color: var(--text-3); font-size: 11px; }
+  .who { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 9.5px; font-weight: 700; color: #fff; vertical-align: 1px; margin-right: 4px; }
+  .btn.touch { height: 40px; padding: 0 16px; font-size: 14px; border-radius: 20px; }
+  .cont { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 2px; border-top: 1px solid var(--line); }
+  .cont.first { border-top: 0; }
+  .glyph { width: 32px; height: 32px; border-radius: 9px; background: var(--fill); display: grid; place-items: center; color: var(--text-2); flex: none; }
+  .handoff { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 500; }
+  .chev { color: var(--text-3); }
+  .need { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+  .need:first-of-type { border-top: 0; padding-top: 4px; }
+  .track { display: flex; gap: 4px; margin-top: 8px; }
+  .track i { height: 4px; flex: 1; border-radius: 2px; background: var(--fill); }
+  .track i.on { background: var(--accent); }
+  .pkg { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+  .dark .modeswitch > span.on { background: #46453f; }
+  .homebar { position: absolute; bottom: 8px; left: 50%; width: 320px; margin-left: -160px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.55); }
+</style></head>
+<body class="dark mode-home">
+<div class="app">
+  <aside class="rail">
+    <div class="row" style="padding: 0 4px 18px">
+      <div class="modeswitch touch"><span class="on"><span class="dot" style="background:var(--home)"></span>Home</span><span class="bar">|</span><span>Work</span></div>
+    </div>
+    <div class="nav on"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Today<span class="badge">1</span></div>
+    <div class="nav"><svg class="i" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>Threads<span class="count">24</span></div>
+    <div class="nav"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Routines<span class="count">3</span></div>
+    <div style="flex:1"></div>
+    <div class="nav" style="color:var(--text-3)"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search<span class="kbd" style="margin-left:auto">⌘K</span></div>
+    <div class="nav" style="color:var(--text-3)"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</div>
+  </aside>
+
+  <main class="main">
+    <div class="status"><span>19:42&nbsp; Thu 24 Sep</span><span>Wi-Fi&nbsp; 78%</span></div>
+    <div class="col-wrap">
+      <div class="greet">Good evening.</div>
+      <div class="sub">Thursday, 24 September · swim kit for tomorrow · a parcel arrived</div>
+
+      <div class="composer">
+        <div class="ph">Ask anything, or hold the mic to talk…<span style="display:inline-block;width:2px;height:20px;background:var(--accent);vertical-align:-4px;margin-left:1px"></span></div>
+        <div class="tools">
+          <span class="icon-btn"><svg class="i" viewBox="0 0 24 24"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7L14 4.5a3.5 3.5 0 0 1 5 5L10.5 18a2 2 0 0 1-3-3L15 7.5"/></svg></span>
+          <span class="pill accent"><svg class="i sm" viewBox="0 0 24 24"><path d="M12 3 4 7v5c0 5 3.5 8 8 9 4.5-1 8-4 8-9V7z"/></svg>Stays on this Mac</span>
+          <span class="pill">Family</span>
+          <span class="grow"></span>
+          <span class="icon-btn filled"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+          <span class="send idle"><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card section">
+          <h4><svg class="i sm" viewBox="0 0 24 24" style="color:var(--home)"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Evening brief<span class="muted">ran 18:00 · <u>listen</u></span></h4>
+          <div class="weather">
+            <svg class="i lg" viewBox="0 0 24 24" style="color:var(--text-2);width:30px;height:30px"><path d="M7 18a4.5 4.5 0 1 1 1-8.9A6 6 0 0 1 19.5 11 3.5 3.5 0 0 1 18 18z"/><path d="M9 21l.5-1M13 21l.5-1M17 21l.5-1"/></svg>
+            <div><div class="deg">14°</div><div class="small muted">Rain from 22:00</div></div>
+            <div class="hours"><div>13°<span>21</span></div><div>12°<span>23</span></div><div>11°<span>07</span></div><div>16°<span>12</span></div></div>
+          </div>
+          <ul class="brief">
+            <li><span class="t">Tonight</span><span>Bins out. <span class="muted">Recycling week.</span></span></li>
+            <li><span class="t">07:45</span><span><span class="who" style="background:#1fa37a">S</span>Sam, swim club. <span class="muted">Kit is still in the dryer.</span></span></li>
+            <li><span class="t">18:30</span><span><span class="who" style="background:#8e5cf0">P</span>Priya's parents' evening. <span class="muted">You said you'd both go.</span></span></li>
+            <li><span class="t">Due</span><span>Renew car insurance · Book dentist for Sam</span></li>
+          </ul>
+          <div class="row" style="margin-top:10px; gap:8px"><span class="btn touch">Continue in a thread</span><span class="btn touch">Add to Reminders</span></div>
+        </div>
+
+        <div class="col" style="gap: 16px">
+          <div class="card section" style="box-shadow: var(--shadow-1), inset 3px 0 0 var(--accent)">
+            <h4>Needs you<span class="muted">1</span></h4>
+            <div class="need">
+              <span class="pkg"><svg class="i" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg></span>
+              <div class="grow">
+                <div class="b" style="font-size:14px">Parcel left with a neighbour</div>
+                <div class="small muted" style="margin-top:1px">No. 14 took it at 16:20. From the courier's mail.</div>
+                <div class="row" style="margin-top:10px; gap:8px"><span class="btn touch accent">Remind me at 20:00</span><span class="btn touch">Done</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card section">
+            <h4>On its way<span class="muted">Deliveries</span></h4>
+            <div class="row" style="gap:12px; align-items:flex-start; padding-top:4px">
+              <span class="pkg" style="background:var(--fill);color:var(--text-2)"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/></svg></span>
+              <div class="grow">
+                <div class="b" style="font-size:14px">Groceries · tomorrow 08:00–09:00</div>
+                <div class="small muted">24 items · 2 substitutions to check</div>
+                <div class="track"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section" style="margin-top:16px">
+        <h4>Continue<span class="muted">Threads</span></h4>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; column-gap: 28px">
+          <div class="cont first"><span class="glyph"><svg class="i sm" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/></svg></span><div class="grow"><div class="b ellip" style="font-size:14.5px">Half-term trip: train or drive?</div><div class="small muted"><span class="handoff"><svg class="i sm" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/></svg>from iPhone</span> · 25 min ago</div></div><svg class="i sm chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+          <div class="cont first"><span class="glyph"><svg class="i sm" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></span><div class="grow"><div class="b ellip" style="font-size:14.5px">Meal plan for the week</div><div class="small muted">Yesterday</div></div><svg class="i sm chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+          <div class="cont"><span class="glyph"><svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span><div class="grow"><div class="b ellip" style="font-size:14.5px">Why does the boiler keep losing pressure?</div><div class="small muted">Research · 5 sources · Tuesday</div></div><svg class="i sm chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+          <div class="cont"><span class="glyph"><svg class="i sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><div class="grow"><div class="b ellip" style="font-size:14.5px">Sunday: week ahead for the family</div><div class="small muted">Routine run · Sunday 19:00</div></div><svg class="i sm chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>
+        </div>
+      </div>
+    </div>
+    <div class="homebar"></div>
+  </main>
+</div>
+<div class="note" style="left: 16px; top: 250px; max-width: 204px"><b>1 · Projects hidden in Home</b>Only three spaces until a second Home project exists. Nothing to explain, nothing to learn.</div>
+<div class="note" style="left: 16px; top: 395px; max-width: 204px"><b>2 · No Changes card</b>Home Today has no diffs or agents. The brief turns to evening at 18:00.</div>
+<div class="note" style="left: 16px; top: 520px; max-width: 204px"><b>3 · Handoff is a label</b>The iPhone thread is the same thread. Tap to pick it up here, voice history and all.</div>
+<div class="note" style="left: 890px; top: 44px; max-width: 250px"><b>4 · 44pt everywhere</b>Rail rows, chips and buttons grow for a finger. The layout stays the desktop one.</div>
+</body></html>

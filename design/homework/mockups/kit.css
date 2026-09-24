@@ -1,0 +1,133 @@
+/* Mockup kit — static, no app code. Evolves eve's apple/tokens.css:
+   same system font, radii and blues, plus a mode tint (Home warm, Work cool). */
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
+  --serif: "New York", "Iowan Old Style", Charter, Georgia, serif;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+
+  --canvas: #f4f3f0;
+  --surface: #ffffff;
+  --surface-2: #f8f7f5;
+  --fill: #efeee9;
+  --hover: #e8e6e0;
+  --line: rgba(40, 36, 30, 0.10);
+  --line-strong: rgba(40, 36, 30, 0.18);
+  --text: #1d1c1a;
+  --text-2: rgba(40, 36, 30, 0.62);
+  --text-3: rgba(40, 36, 30, 0.38);
+
+  --work: #2f6bff;
+  --work-soft: rgba(47, 107, 255, 0.10);
+  --home: #e8793a;
+  --home-soft: rgba(232, 121, 58, 0.12);
+  --accent: var(--work);
+  --accent-soft: var(--work-soft);
+  --green: #2fb55d;
+  --amber: #f0a020;
+  --red: #e5484d;
+  --purple: #8e5cf0;
+
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(30, 25, 20, .06), 0 0 0 .5px rgba(30, 25, 20, .06);
+  --shadow-2: 0 8px 28px rgba(30, 25, 20, .10), 0 0 0 .5px rgba(30, 25, 20, .06);
+  --shadow-3: 0 24px 70px rgba(30, 25, 20, .22), 0 0 0 .5px rgba(30, 25, 20, .08);
+}
+.dark {
+  --canvas: #111110;
+  --surface: #1b1b1a;
+  --surface-2: #222220;
+  --fill: #2a2a28;
+  --hover: #33332f;
+  --line: rgba(255, 250, 240, 0.08);
+  --line-strong: rgba(255, 250, 240, 0.14);
+  --text: #f3f1ec;
+  --text-2: rgba(243, 241, 236, 0.62);
+  --text-3: rgba(243, 241, 236, 0.36);
+  --work: #5b8cff;
+  --work-soft: rgba(91, 140, 255, 0.16);
+  --home: #ff9a5c;
+  --home-soft: rgba(255, 154, 92, 0.16);
+  --shadow-2: 0 8px 28px rgba(0,0,0,.45), 0 0 0 .5px rgba(255,255,255,.06);
+  --shadow-3: 0 24px 70px rgba(0,0,0,.6), 0 0 0 .5px rgba(255,255,255,.08);
+}
+.mode-home { --accent: var(--home); --accent-soft: var(--home-soft); }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font: 14px/1.45 var(--font); color: var(--text); background: var(--canvas);
+  -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+
+/* — primitives — */
+.row { display: flex; align-items: center; gap: 8px; }
+.col { display: flex; flex-direction: column; }
+.grow { flex: 1; min-width: 0; }
+.muted { color: var(--text-2); }
+.faint { color: var(--text-3); }
+.small { font-size: 12px; }
+.tiny { font-size: 11px; }
+.b { font-weight: 600; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.ellip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  border-radius: var(--r-pill); background: var(--fill); font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.pill.accent { background: var(--accent-soft); color: var(--accent); }
+.pill.outline { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
+.dot.amber { background: var(--amber); } .dot.red { background: var(--red); } .dot.blue { background: var(--work); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 14px;
+  border-radius: var(--r-pill); background: var(--fill); font-weight: 500; font-size: 13px; }
+.btn.primary { background: var(--text); color: var(--surface); }
+.btn.accent { background: var(--accent); color: #fff; }
+.icon-btn { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); }
+.icon-btn.filled { background: var(--fill); }
+.kbd { font: 11px var(--font); padding: 1px 6px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text-3); }
+.card { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-1); }
+.sep { height: 1px; background: var(--line); }
+.avatar { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 12px; flex: none; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg.i.sm { width: 15px; height: 15px; }
+svg.i.lg { width: 22px; height: 22px; }
+
+/* — the mode switch, the product's signature — */
+.modeswitch { display: inline-flex; padding: 3px; border-radius: var(--r-pill); background: var(--fill); gap: 2px; font-weight: 600; font-size: 13px; }
+.modeswitch > span { padding: 5px 12px; border-radius: var(--r-pill); color: var(--text-3); display: inline-flex; align-items: center; gap: 6px; }
+.modeswitch > span.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
+.modeswitch .bar { padding: 5px 0; color: var(--text-3); font-weight: 300; }
+.wordmark { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: -.01em; }
+.wordmark i { font-style: normal; color: var(--text-3); font-weight: 300; margin: 0 1px; }
+
+/* — composer — */
+.composer { background: var(--surface); border-radius: var(--r-xl); box-shadow: var(--shadow-2); padding: 14px 14px 10px 18px; }
+.composer .ph { font-size: 16px; color: var(--text-3); min-height: 26px; }
+.composer .ph.typed { color: var(--text); }
+.composer .tools { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.send { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; }
+.send.idle { background: var(--fill); color: var(--text-3); }
+
+/* — chat — */
+.msg-user { align-self: flex-end; max-width: 72%; background: var(--fill); padding: 10px 14px; border-radius: 18px 18px 6px 18px; font-size: 15px; }
+.answer { font-family: var(--font); font-size: 15.5px; line-height: 1.6; color: var(--text); }
+.answer p + p { margin-top: 10px; }
+.answer h3 { font-size: 16px; margin: 14px 0 6px; }
+.cite { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 5px; background: var(--fill);
+  font-size: 10.5px; font-weight: 600; color: var(--text-2); vertical-align: 2px; margin: 0 1px; }
+.cite.hot { background: var(--accent); color: #fff; }
+.src { display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-1); min-width: 0; }
+.fav { width: 18px; height: 18px; border-radius: 5px; flex: none; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; }
+.step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.check { width: 16px; height: 16px; border-radius: 50%; background: var(--green); display: grid; place-items: center; color: #fff; flex: none; }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--accent-soft); border-top-color: var(--accent); flex: none; }
+
+/* — annotations drawn on mockups — */
+.note { position: absolute; background: #fff7c2; color: #3a3000; font-size: 12px; line-height: 1.35; padding: 7px 10px; border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); max-width: 230px; z-index: 50; font-weight: 500; }
+.note b { display: block; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; opacity: .6; margin-bottom: 2px; }
+.dark .note { background: #fff1a8; }
+.marker { position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #ffd400; color: #3a3000; font-weight: 700; font-size: 12px;
+  display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0,0,0,.25); z-index: 51; }
