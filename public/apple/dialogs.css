@@ -509,18 +509,6 @@
   text-align: center;
 }
 
-/* CLAUDE.md checkbox row in new-session form. */
-.shell-launcher__claudemd-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  margin-top: var(--sp-5);
-  font-size: var(--text-body);
-  color: var(--text-secondary);
-}
-
-.shell-launcher__claudemd-row input[type="checkbox"] { margin: 0; }
-
 /* Web form section (below grid on New tab). */
 .shell-launcher__web-form { padding-top: var(--sp-2); }
 

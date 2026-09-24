@@ -42,8 +42,17 @@ function renderModelSelect(selectEl, models, options = {}) {
   }
 }
 
-function isClaudeModel(models, value) {
-  return models.find(m => m.value === value)?.provider === 'claude';
+/** Returns a new create_session frame; never mutates `frame`. */
+function applyChatDefaults(frame, models) {
+  const provider = models.find(m => m.value === frame.model)?.provider;
+  // Claude is deliberately left alone: it reads CLAUDE.md natively, and relay
+  // grants it tools on `useRelayTools`. An unknown model might be Claude too.
+  if (!provider || provider === 'claude') return { ...frame };
+  return {
+    ...frame,
+    settings: { ...(frame.settings || {}), useRelayTools: true },
+    appendClaudeMd: true,
+  };
 }
 
 function escapeHtml(str) {
@@ -300,5 +309,5 @@ function persistSessionLabel(name, templates) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { projectMonogram, projectHue, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName, hostChip, hostStatusLabel, persistSessionLabel };
+  module.exports = { projectMonogram, projectHue, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName, hostChip, hostStatusLabel, persistSessionLabel, applyChatDefaults };
 }

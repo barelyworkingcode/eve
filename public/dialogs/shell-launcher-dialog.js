@@ -219,7 +219,7 @@ class ShellLauncherDialog extends DialogBase {
   _showWebUIForm() {
     this._showModelForm({
       buttonText: 'Start Chat',
-      onSubmit: (model, settings, voice, appendClaudeMd) => this._launchWebUI(model, settings, appendClaudeMd),
+      onSubmit: (model, settings) => this._launchWebUI(model, settings),
     });
   }
 
@@ -227,7 +227,7 @@ class ShellLauncherDialog extends DialogBase {
     this._showModelForm({
       buttonText: 'Start Voice Chat',
       showVoice: true,
-      onSubmit: (model, settings, voice, appendClaudeMd) => this._launchVoiceChat(model, voice, settings, appendClaudeMd),
+      onSubmit: (model, settings, voice) => this._launchVoiceChat(model, voice, settings),
     });
   }
 
@@ -241,6 +241,7 @@ class ShellLauncherDialog extends DialogBase {
     modelLabel.className = 'dialog__label';
     modelLabel.textContent = 'Model';
     const modelSelect = document.createElement('select');
+    modelSelect.dataset.testid = 'launcher-model-select';
     // pi runs as a process in the project directory and can't be launched on a
     // host, so it isn't offered there.
     const onHost = !!this.state.getProject(this.projectId)?.host;
@@ -260,16 +261,7 @@ class ShellLauncherDialog extends DialogBase {
       form.appendChild(voiceSelect);
     }
 
-    const claudeMdExtra = {
-      key: '_appendClaudeMd',
-      label: 'Append CLAUDE.md',
-      type: 'boolean',
-      default: true,
-      visibleWhen: (models, modelValue) => !isClaudeModel(models, modelValue),
-    };
-    const settingsContainer = this._addProviderSettings(
-      form, modelSelect, { useRelayTools: true }, [claudeMdExtra]
-    );
+    const settingsContainer = this._addProviderSettings(form, modelSelect);
 
     const actions = document.createElement('div');
     actions.className = 'dialog__actions';
@@ -285,9 +277,7 @@ class ShellLauncherDialog extends DialogBase {
     startBtn.addEventListener('click', () => {
       const model = modelSelect.value;
       const settings = this._collectSettings(settingsContainer);
-      const appendClaudeMd = settings?._appendClaudeMd || false;
-      if (settings) delete settings._appendClaudeMd;
-      onSubmit(model, settings, voiceSelect?.value, appendClaudeMd);
+      onSubmit(model, settings, voiceSelect?.value);
     });
 
     actions.appendChild(backBtn);
@@ -297,10 +287,10 @@ class ShellLauncherDialog extends DialogBase {
     this._tabContent.appendChild(form);
   }
 
-  _launchSession({ model, settings, systemPrompt, appendClaudeMd, voice, sessionType, nameSuffix }) {
+  _launchSession({ model, settings, systemPrompt, voice, sessionType, nameSuffix }) {
     const project = this.state.getProject(this.projectId);
     const name = project ? `${project.name} - ${nameSuffix}` : nameSuffix;
-    const msg = {
+    let msg = {
       type: 'create_session',
       projectId: this.projectId,
       model,
@@ -308,24 +298,25 @@ class ShellLauncherDialog extends DialogBase {
       name,
     };
     if (systemPrompt) msg.systemPrompt = systemPrompt;
-    if (appendClaudeMd) msg.appendClaudeMd = true;
     if (sessionType === 'voice' || voice) {
       msg.sessionType = 'voice';
       msg.voice = voice || 'af_heart';
     }
+    msg = applyChatDefaults(msg, this.state.models);
     this.container.get('app').showSessionStarting();
     this.container.get('ws').send(msg);
     this.hide();
   }
 
+  launchTemplate(projectId, template) {
+    this.projectId = projectId;
+    this._launchFromTemplate(template);
+  }
+
   _launchFromTemplate(template) {
-    const settings = { ...(template.settings || {}) };
-    if (template.useRelayTools) settings.useRelayTools = true;
     this._launchSession({
       model: template.model,
-      settings,
       systemPrompt: template.systemPrompt,
-      appendClaudeMd: template.appendClaudeMd,
       voice: template.mode === 'voice' ? (template.voice || 'af_heart') : undefined,
       sessionType: template.mode === 'voice' ? 'voice' : undefined,
       nameSuffix: template.name,
@@ -363,10 +354,10 @@ class ShellLauncherDialog extends DialogBase {
     this._showTab('new');
   }
 
-  _launchVoiceChat(model, voice, settings, appendClaudeMd) {
+  _launchVoiceChat(model, voice, settings) {
     const modelInfo = this.state.models.find(m => m.value === model);
     this._launchSession({
-      model, settings, appendClaudeMd, voice,
+      model, settings, voice,
       sessionType: 'voice',
       nameSuffix: `Voice - ${modelInfo?.label || model}`,
     });
@@ -502,10 +493,10 @@ class ShellLauncherDialog extends DialogBase {
     this.hide();
   }
 
-  _launchWebUI(model, settings, appendClaudeMd) {
+  _launchWebUI(model, settings) {
     const modelInfo = this.state.models.find(m => m.value === model);
     this._launchSession({
-      model, settings, appendClaudeMd,
+      model, settings,
       nameSuffix: modelInfo?.label || model,
     });
   }

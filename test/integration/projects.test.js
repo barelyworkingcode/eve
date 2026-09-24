@@ -87,7 +87,8 @@ describe('project CRUD (eve <-> fake relay)', () => {
       id: 'rich', name: 'Rich', path: projDir,
       token: 'PLAINTEXT-SECRET', // relay must never forward this; normalizeProject drops it
       allowed_models: ['m1', 'm2'],
-      chat_templates: [{ id: 'ct1', name: 'Fast', model: 'm1', system_prompt: 'be brief', append_claude_md: true }],
+      // Stale per-template flags relay may still hold; eve must drop them.
+      chat_templates: [{ id: 'ct1', name: 'Fast', model: 'm1', system_prompt: 'be brief', append_claude_md: true, use_relay_tools: true }],
       permission_policy: { default_mode: 'plan', allowed_tools: ['Read'], denied_tools: [] },
       session_folders: ['Inbox', 'Done'],
       created_at: '2026-01-01T00:00:00Z',
@@ -101,7 +102,11 @@ describe('project CRUD (eve <-> fake relay)', () => {
       permissionPolicy: { defaultMode: 'plan', allowedTools: ['Read'], deniedTools: [] },
       createdAt: '2026-01-01T00:00:00Z',
     });
-    expect(rich.chatTemplates[0]).toMatchObject({ id: 'ct1', name: 'Fast', systemPrompt: 'be brief', appendClaudeMd: true });
+    expect(rich.chatTemplates[0]).toMatchObject({ id: 'ct1', name: 'Fast', systemPrompt: 'be brief' });
+    expect(rich.chatTemplates[0]).not.toHaveProperty('appendClaudeMd');
+    expect(rich.chatTemplates[0]).not.toHaveProperty('useRelayTools');
+    expect(rich.chatTemplates[0]).not.toHaveProperty('append_claude_md');
+    expect(rich.chatTemplates[0]).not.toHaveProperty('use_relay_tools');
     expect(JSON.stringify(rich)).not.toContain('PLAINTEXT-SECRET');
   });
 });

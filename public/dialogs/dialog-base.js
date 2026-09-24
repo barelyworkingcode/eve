@@ -1,4 +1,4 @@
-const HIDDEN_SETTING_KEYS = new Set(['mcpServers']);
+const HIDDEN_SETTING_KEYS = new Set(['mcpServers', 'useRelayTools']);
 
 class DialogBase {
   constructor(container, dialogId) {
@@ -153,25 +153,17 @@ class DialogBase {
     return select;
   }
 
-  _addProviderSettings(form, modelSelect, existingSettings, extraFields) {
+  _addProviderSettings(form, modelSelect) {
     const state = this.container.get('state');
     const settingsContainer = document.createElement('div');
     settingsContainer.className = 'dialog__settings';
     form.appendChild(settingsContainer);
 
-    const parsed = existingSettings && typeof existingSettings === 'string'
-      ? JSON.parse(existingSettings)
-      : existingSettings || {};
-
     const renderSettings = () => {
       settingsContainer.innerHTML = '';
       const selectedModel = state.models.find(m => m.value === modelSelect.value);
       if (!selectedModel) return;
-      const providerFields = state.providerSettings[selectedModel.provider] || [];
-      const visibleExtras = (extraFields || []).filter(
-        f => !f.visibleWhen || f.visibleWhen(state.models, modelSelect.value)
-      );
-      const fields = [...providerFields, ...visibleExtras];
+      const fields = state.providerSettings[selectedModel.provider] || [];
 
       const createField = (field) => {
         const row = document.createElement('div');
@@ -186,13 +178,13 @@ class DialogBase {
           const input = document.createElement('input');
           input.type = 'checkbox';
           input.name = field.key;
-          input.checked = parsed[field.key] !== undefined ? parsed[field.key] : !!field.default;
+          input.checked = !!field.default;
           row.insertBefore(input, lbl);
         } else if (field.type === 'number') {
           const input = document.createElement('input');
           input.type = 'number';
           input.name = field.key;
-          input.value = parsed[field.key] !== undefined ? parsed[field.key] : '';
+          input.value = '';
           if (field.min !== undefined) input.min = field.min;
           if (field.max !== undefined) input.max = field.max;
           input.step = field.step || 'any';
@@ -204,10 +196,7 @@ class DialogBase {
           input.type = 'text';
           input.name = field.key;
           input.dataset.settingType = field.type;
-          const val = parsed[field.key];
-          input.value = val !== undefined
-            ? (Array.isArray(val) ? val.join(' ') : val)
-            : (field.default ?? '');
+          input.value = field.default ?? '';
           if (field.placeholder) input.placeholder = field.placeholder;
           input.className = 'dialog__input';
           row.appendChild(input);

@@ -115,7 +115,9 @@ describe('SearchSummarizer.run', () => {
     const body = createCall[2];
     expect(body.name.startsWith(HIDDEN_SEARCH_PREFIX)).toBe(true);
     expect(body).not.toHaveProperty('mcpToken');
+    // Hidden sessions get neither chat default: no relay tools, no CLAUDE.md.
     expect(body.settings).toBeNull();
+    expect(body.appendClaudeMd).toBe(false);
     expect(body.model).toBe('model-x');
 
     expect(relayClient.registerHiddenSession).toHaveBeenCalledWith('sess-abc', expect.any(Function));

@@ -301,6 +301,23 @@ describe('createWsHandler', () => {
       expect(relayClient.currentProjectId).toBe('p1');
     });
 
+    it('sends appendClaudeMd: false when the frame omits it', async () => {
+      const deps = makeDeps();
+      const ws = mount(deps);
+      await sendMsg(ws, { type: 'create_session', projectId: 'p1' });
+      const body = deps.relayTransport.fetch.mock.calls.find(c => c[1] === '/api/sessions')[2];
+      expect(body.appendClaudeMd).toBe(false);
+    });
+
+    it('merges client useRelayTools with the project permissionPolicy and forwards appendClaudeMd', async () => {
+      const policy = { defaultMode: 'default', allowedTools: ['Read'], deniedTools: ['Bash'] };
+      const deps = makeDeps({ resolveProject: jest.fn(() => ({ path: '/proj1', permissionPolicy: policy })) });
+      const ws = mount(deps);
+      await sendMsg(ws, { type: 'create_session', projectId: 'p1', settings: { useRelayTools: true }, appendClaudeMd: true });
+      const body = deps.relayTransport.fetch.mock.calls.find(c => c[1] === '/api/sessions')[2];
+      expect(body).toMatchObject({ settings: { useRelayTools: true, permissionPolicy: policy }, appendClaudeMd: true });
+    });
+
     it('surfaces a non-2xx relay response as an error frame', async () => {
       const deps = makeDeps({
         relayTransport: { fetch: jest.fn().mockResolvedValue({ status: 500, data: { error: 'boom' } }), createWebSocket: jest.fn() },
