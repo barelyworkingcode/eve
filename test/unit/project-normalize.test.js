@@ -32,12 +32,23 @@ describe('normalizeProject', () => {
       allowedModels: ['haiku'],
       chatTemplates: [{
         id: 't1', name: 'Quick', model: 'sonnet', mode: 'voice', voice: 'af_heart',
-        systemPrompt: 'be brief', appendClaudeMd: true, useRelayTools: true,
+        systemPrompt: 'be brief',
       }],
       permissionPolicy: { defaultMode: 'plan', allowedTools: ['Read'], deniedTools: ['Bash'] },
       sessionFolders: ['Bugs', 'Experiments'],
       createdAt: '2026-06-13T00:00:00Z',
     });
+  });
+
+  // relay still stores both flags on older templates; eve applies them per
+  // launch from the model's provider, so they must not reach the client.
+  it('filters stale per-template relay-tools / CLAUDE.md flags out', () => {
+    const [tmpl] = normalizeProject(fullRelayProject).chatTemplates;
+    expect(tmpl).not.toHaveProperty('appendClaudeMd');
+    expect(tmpl).not.toHaveProperty('useRelayTools');
+    expect(tmpl).not.toHaveProperty('append_claude_md');
+    expect(tmpl).not.toHaveProperty('use_relay_tools');
+    expect(Object.keys(tmpl).sort()).toEqual(['id', 'mode', 'model', 'name', 'systemPrompt', 'voice']);
   });
 
   it('never projects the project token or its hash', () => {
@@ -60,15 +71,17 @@ describe('normalizeProject', () => {
     });
   });
 
-  it('defaults chat template mode/flags and tolerates a null policy', () => {
+  it('defaults chat template mode and tolerates a null policy', () => {
     const out = normalizeProject({
       id: 'p3', name: 'T', path: '/x',
       chat_templates: [{ id: 'a', name: 'A', model: 'm' }],
       permission_policy: null,
     });
     expect(out.chatTemplates[0]).toMatchObject({
-      mode: 'text', voice: '', systemPrompt: '', appendClaudeMd: false, useRelayTools: false,
+      mode: 'text', voice: '', systemPrompt: '',
     });
+    expect(out.chatTemplates[0]).not.toHaveProperty('appendClaudeMd');
+    expect(out.chatTemplates[0]).not.toHaveProperty('useRelayTools');
     expect(out.permissionPolicy).toBeNull();
   });
 

@@ -66,6 +66,11 @@ function createFakeRelay() {
   let seq = 0;
   let closed = false;
   let sessionCreateGate = null;
+  // null => the default models response below. A test swaps in relay's real
+  // `{ models, providerSettings }` shape via setModels().
+  let modelsPayload = null;
+  let modelsGate = null;
+  const sessionCreates = [];
   const terminals = new Map();
   // Mirrors relay's own handleClearSession (ws_session.go), which — like
   // handleSendMessage — can answer a dormant session with resume_required
@@ -174,6 +179,7 @@ function createFakeRelay() {
       // "voice"), so it's deliberately not stored here: restoring that
       // distinction after a reload is `eve-session-meta`'s job alone.
       if (p === '/api/sessions' && req.method === 'POST') {
+        sessionCreates.push(parsed);
         const respond = () => {
           const sessionId = parsed.sessionId || `sess-${++seq}`;
           const session = {
@@ -233,7 +239,12 @@ function createFakeRelay() {
         return send(201, terminal);
       }
 
-      if (p === '/api/models' && req.method === 'GET') return send(200, [{ id: 'fake-model', name: 'Fake Model' }]);
+      if (p === '/api/models' && req.method === 'GET') {
+        const respond = () => send(200, modelsPayload ?? [{ id: 'fake-model', name: 'Fake Model' }]);
+        // Held open until the test releases it — see holdModels().
+        if (modelsGate) return modelsGate.then(respond);
+        return respond();
+      }
       if (p === '/api/mcps' && req.method === 'GET') return send(200, []);
       // Bare array, matching relay's real GET /api/terminal/templates
       // (cmd/relay/template_routes.go: config.EffectiveTerminalTemplates) —
@@ -358,6 +369,16 @@ function createFakeRelay() {
       sessionCreateGate = new Promise((resolve) => { release = resolve; });
       return { release: () => { release(); sessionCreateGate = null; } };
     },
+    setModels: (payload) => { modelsPayload = payload; },
+    // Same pattern as holdSessionCreate, for GET /api/models: lets a test
+    // prove a launch waits for the model list instead of racing it.
+    holdModels: () => {
+      let release;
+      modelsGate = new Promise((resolve) => { release = resolve; });
+      return { release: () => { release(); modelsGate = null; } };
+    },
+    // Parsed POST /api/sessions bodies, in arrival order.
+    sessionCreates,
     waitForScheduler: () => (schedulerWs.size > 0 ? Promise.resolve() : new Promise((r) => schedulerResolvers.push(r))),
     inbound,
     waitForInbound: (pred, timeoutMs = 5000) => new Promise((resolve, reject) => {

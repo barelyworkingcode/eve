@@ -4,6 +4,7 @@
  *
  * Usage:
  *   const eve = await startEve({ projects: [{ id, name, path }] });
+ *   (optional `models`: the GET /api/models body, relay's `{ models, providerSettings }`)
  *   ...drive eve.baseUrl over HTTP, or eve.connectWs() over WebSocket...
  *   await eve.stop();
  */
@@ -86,9 +87,10 @@ function makeWsClient(wsUrl) {
   };
 }
 
-async function startEve({ projects = [], hosts = [], env: envOverride = {}, seedDataDir } = {}) {
+async function startEve({ projects = [], hosts = [], models, env: envOverride = {}, seedDataDir } = {}) {
   const relay = createFakeRelay();
   const relayPort = await relay.listen();
+  if (models !== undefined) relay.setModels(models);
   for (const h of hosts) relay.addHost(h);
   for (const p of projects) relay.addProject(p);
 
