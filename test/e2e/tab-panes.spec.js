@@ -19,7 +19,6 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const base = require('@playwright/test');
 const { test, hermeticTest, expect } = require('./fixtures');
 const { startEve } = require('../integration/harness');
 const legacyStorageTemplate = require('./fixtures/legacy-tab-storage.json');

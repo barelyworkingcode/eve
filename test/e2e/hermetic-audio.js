@@ -5,10 +5,14 @@
 // constructed, and blocks the page's main thread until the device answers.
 // On a host whose audio stack is unresponsive that block lasts ~20s, so the
 // first click (TTSManager's warm-up) or a restored voice session stalls the
-// page past the test's own timeouts. No e2e test asserts on audio output
-// (voice.spec.js, which does, launches its own browser), so the suite swaps in
-// a context that never touches the device: an OfflineAudioContext, which
-// builds the same node graph without an output, reporting itself as running.
+// page past the test's own timeouts. No e2e test asserts on audio output, so
+// the suite swaps in a context that never touches the device: an
+// OfflineAudioContext reporting itself as running.
+//
+// Deliberately partial. There is no mic path (createMediaStreamSource and
+// friends don't exist on an OfflineAudioContext, so STT/VAD setup throws) and
+// playback never finishes (nothing renders, so a source's onended never
+// fires). A test that needs either must use real audio, as test:voice does.
 (() => {
   class HermeticAudioContext extends OfflineAudioContext {
     constructor(options = {}) {
@@ -20,9 +24,17 @@
     get baseLatency() { return 0; }
     get outputLatency() { return 0; }
 
-    resume() { this._hermeticState = 'running'; return Promise.resolve(); }
-    suspend() { this._hermeticState = 'suspended'; return Promise.resolve(); }
+    resume() { return this._setState('running'); }
+    suspend() { return this._setState('suspended'); }
     close() { this._hermeticState = 'closed'; return Promise.resolve(); }
+
+    _setState(next) {
+      if (this._hermeticState === 'closed') {
+        return Promise.reject(new DOMException('AudioContext is closed', 'InvalidStateError'));
+      }
+      this._hermeticState = next;
+      return Promise.resolve();
+    }
   }
 
   window.AudioContext = HermeticAudioContext;

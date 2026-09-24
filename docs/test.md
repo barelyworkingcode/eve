@@ -72,7 +72,7 @@ host's output device, for ~20s when the host audio stack is unresponsive. The
 e2e and visual tiers therefore inject `test/e2e/hermetic-audio.js`, which swaps
 in a device-free `OfflineAudioContext`. A spec with its own `eve` fixture must
 extend `hermeticTest` from `test/e2e/fixtures.js`, not `base.test`, or it loses
-the swap. `voice.spec.js` launches its own browser and keeps real audio.
+the swap. The shim has no mic path and never finishes playback, so anything that needs real audio belongs in `test:voice`, whose speech-to-transcript test launches its own browser.
 
 **Pre-commit hook** (`.githooks/pre-commit`) — install once per clone:
 
