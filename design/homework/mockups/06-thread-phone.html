@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="frame" content="phone">
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { font-size: 15px; }
+  .phone { position: relative; width: 393px; height: 852px; overflow: hidden; background: var(--canvas); }
+  .status { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 4px 34px 0 46px; font-weight: 600; font-size: 16px; z-index: 20; }
+  .island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 124px; height: 36px; border-radius: 20px; background: #000; }
+  .sys { display: flex; gap: 6px; align-items: center; }
+  .home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 136px; height: 5px; border-radius: 3px; background: var(--text); z-index: 30; }
+
+  .nav { position: absolute; top: 0; left: 0; right: 0; height: 100px; padding-top: 54px; background: rgba(244, 243, 240, .86); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: .5px solid var(--line-strong); z-index: 10; display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; }
+  .back { display: flex; align-items: center; gap: 1px; height: 44px; padding-left: 8px; color: var(--accent); font-size: 17px; }
+  .back svg.i { width: 26px; height: 26px; stroke-width: 2.3; }
+  .title { text-align: center; min-width: 0; }
+  .title .t { font-weight: 600; font-size: 16px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .title .s { font-size: 11.5px; color: var(--text-3); margin-top: -1px; }
+  .navr { display: flex; justify-content: flex-end; padding-right: 8px; }
+  .nb { width: 44px; height: 44px; display: grid; place-items: center; color: var(--accent); }
+
+  .scroll { position: absolute; top: 100px; left: 0; right: 0; bottom: 104px; padding: 18px 16px 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; overflow: hidden; }
+  .scroll > * { flex: none; }
+  .day { text-align: center; font-size: 12px; color: var(--text-3); font-weight: 500; }
+  .msg-user { max-width: 84%; font-size: 16px; line-height: 1.4; padding: 10px 14px; }
+  .answer { font-size: 16px; line-height: 1.5; }
+  .answer code { font-family: var(--mono); font-size: 13.5px; background: var(--fill); padding: 1px 5px; border-radius: 5px; }
+  .by { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-3); margin-bottom: 6px; font-weight: 500; }
+  .by .agent-glyph { width: 20px; height: 20px; border-radius: 6px; background: #1d1c1a; color: #fff; display: grid; place-items: center; }
+
+  .working { display: flex; align-items: center; gap: 9px; height: 44px; padding: 0 14px; border-radius: 22px; background: var(--surface); box-shadow: var(--shadow-1); font-size: 14px; color: var(--text-2); align-self: stretch; }
+  .working .wait { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 4px rgba(240,160,32,.18); flex: none; }
+  .working b { color: var(--text); font-weight: 600; }
+
+  .perm { background: var(--surface); border-radius: 20px; box-shadow: var(--shadow-2), inset 0 0 0 1.5px var(--accent-soft); padding: 16px; }
+  .perm .hd { display: flex; align-items: center; gap: 10px; }
+  .toolchip { width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex: none; }
+  .perm .q { font-weight: 600; font-size: 16px; }
+  .perm .meta { font-size: 12.5px; color: var(--text-2); }
+  .cmd { margin-top: 12px; background: #1d1c1a; color: #f3f1ec; border-radius: 12px; padding: 11px 13px; font-family: var(--mono); font-size: 13.5px; line-height: 1.45; }
+  .cmd .p { color: rgba(243,241,236,.45); }
+  .cmd .dim { color: rgba(243,241,236,.55); font-size: 12px; display: block; margin-top: 3px; }
+  .why { font-size: 14px; color: var(--text-2); margin-top: 10px; line-height: 1.4; }
+  .acts { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .acts .deny { margin-bottom: -6px; }
+  .big { height: 44px; border-radius: 23px; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 7px; }
+  .big.allow { background: var(--accent); color: #fff; }
+  .big.always { background: var(--accent-soft); color: var(--accent); }
+  .big.deny { background: transparent; color: var(--red); height: 44px; }
+  .scope { font-weight: 400; opacity: .75; }
+
+  .composer-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 104px; padding: 10px 12px 0; background: rgba(244, 243, 240, .9); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-top: .5px solid var(--line-strong); display: flex; align-items: flex-start; gap: 8px; z-index: 10; }
+  .plus { width: 44px; height: 44px; border-radius: 50%; background: var(--surface); box-shadow: var(--shadow-1); display: grid; place-items: center; color: var(--text-2); flex: none; }
+  .field { flex: 1; height: 44px; border-radius: 22px; background: var(--surface); box-shadow: var(--shadow-1); display: flex; align-items: center; padding: 0 16px; color: var(--text-3); font-size: 16px; }
+  .hold { width: 54px; height: 54px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; flex: none; margin-top: -5px; box-shadow: 0 6px 16px rgba(47,107,255,.32); }
+  .hold svg.i { width: 24px; height: 24px; stroke-width: 2; }
+  .note { font-size: 11.5px; padding: 6px 9px; }
+</style></head>
+<body class="">
+<div class="phone">
+  <div class="status"><span>9:41</span><div class="island"></div>
+    <div class="sys">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 11.5 5.6 9a3.4 3.4 0 0 1 4.8 0zM3.5 6.9a6.4 6.4 0 0 1 9 0l-1.4 1.4a4.4 4.4 0 0 0-6.2 0zM1.3 4.7a9.5 9.5 0 0 1 13.4 0l-1.4 1.4a7.5 7.5 0 0 0-10.6 0z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="9" rx="2" fill="currentColor"/><path d="M25 4.5v4a2 2 0 0 0 0-4z" fill="currentColor" opacity=".45"/></svg>
+    </div>
+  </div>
+
+  <header class="nav">
+    <div class="back"><svg class="i" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></div>
+    <div class="title"><div class="t"><span class="dot blue"></span><span class="ellip">Invoice export fails on staging</span></div><div class="s">Claude Code · Acme billing</div></div>
+    <div class="navr"><span class="nb"><svg class="i" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></svg></span></div>
+  </header>
+
+  <div class="scroll">
+        <div class="msg-user">The invoice export test fails on staging. Find out why and fix it.</div>
+    <div>
+      <div class="by"><span class="agent-glyph"><svg class="i sm" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m5 8 4 4-4 4M12 17h7"/></svg></span>Claude Code</div>
+      <div class="answer">The export reads <code>currency_code</code>, but staging never ran the migration that adds it. I'll apply it, then re-run the test.</div>
+    </div>
+    <div class="working"><span class="wait"></span><span class="grow ellip">Read 3 files · <b>wants to run a command</b></span><svg class="i sm" viewBox="0 0 24 24" style="color:var(--text-3)"><path d="m6 9 6 6 6-6"/></svg></div>
+
+    <div class="perm">
+      <div class="hd">
+        <span class="toolchip"><svg class="i" viewBox="0 0 24 24"><path d="m5 8 4 4-4 4M12 17h7"/></svg></span>
+        <div class="grow"><div class="q">Run a command?</div><div class="meta">Terminal · in acme-billing</div></div>
+      </div>
+      <div class="cmd"><span class="p">$</span> npm run migrate -- --env staging</div>
+      <div class="why">Adds the <code style="font-family:var(--mono);font-size:13px">currency_code</code> column the export needs. Touches the staging database only.</div>
+      <div class="acts">
+        <span class="big allow">Allow once</span>
+        <span class="big always">Always in this project</span>
+        <span class="big deny">Deny</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="composer-bar">
+    <span class="plus"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+    <div class="field">Reply…</div>
+    <span class="hold"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+  </div>
+  <div class="home-ind"></div>
+</div>
+<div class="note" style="left: 128px; top: 104px; max-width: 254px"><b>1 · Auto title, mode dot</b>Blue dot = Work. Subtitle names agent and project.</div>
+<div class="note" style="left: 230px; top: 408px; max-width: 152px"><b>2 · One honest line</b>Tap the line above for raw tool calls.</div>
+<div class="note" style="left: 12px; top: 668px; max-width: 140px"><b>3 · Hold to talk</b>Hold the mic (bottom right), speak, let go to send.</div>
+</body></html>

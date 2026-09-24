@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="frame" content="phone">
+<link rel="stylesheet" href="kit.css">
+<style>
+  body { font-size: 15px; }
+  .phone { position: relative; width: 393px; height: 852px; overflow: hidden; background: var(--canvas); }
+  .status { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 4px 34px 0 46px; font-weight: 600; font-size: 16px; z-index: 20; }
+  .island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 124px; height: 36px; border-radius: 20px; background: #000; }
+  .sys { display: flex; gap: 6px; align-items: center; }
+  .home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 136px; height: 5px; border-radius: 3px; background: var(--text); z-index: 30; }
+
+  /* the Today screen underneath, pushed back like an iOS sheet presentation */
+  .under { position: absolute; inset: 0; padding: 60px 16px 0; transform: scale(.94) translateY(8px); border-radius: 38px; background: var(--canvas); overflow: hidden; }
+  .under .greet { font-family: var(--display); font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin-top: 56px; }
+  .under .sub { color: var(--text-2); font-size: 14px; }
+  .under .askrow { margin-top: 16px; height: 54px; border-radius: 22px; background: var(--surface); box-shadow: var(--shadow-2); }
+  .under .blk { margin-top: 18px; height: 150px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-1); padding: 16px; }
+  .under .blk .ln { height: 11px; border-radius: 6px; background: var(--fill); margin-top: 12px; }
+  .dim { position: absolute; inset: 0; background: rgba(20, 16, 12, .34); z-index: 2; }
+
+  /* confirmation of the previous capture, mid-shrink */
+  .filed { position: absolute; left: 50%; top: 250px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 10px; border-radius: 20px; background: var(--surface); box-shadow: var(--shadow-2); font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .filed .ok { width: 22px; height: 22px; border-radius: 50%; background: var(--green); color: #fff; display: grid; place-items: center; }
+  .filed .undo { color: var(--accent); font-weight: 600; padding: 0 10px; height: 40px; display: grid; place-items: center; border-left: 1px solid var(--line); margin-left: 4px; }
+  .ghost { position: absolute; left: 50%; transform: translateX(-50%); z-index: 5; border-radius: 22px; background: transparent; box-shadow: 0 0 0 1.5px rgba(255,255,255,.55); }
+
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 312px; background: var(--surface-2); border-radius: 22px 22px 0 0; z-index: 8; box-shadow: 0 -8px 30px rgba(0,0,0,.12); }
+  .grab { width: 36px; height: 5px; border-radius: 3px; background: var(--line-strong); margin: 7px auto 0; }
+  .sheet .hd { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px 0 20px; height: 44px; }
+  .sheet .hd .t { font-weight: 600; font-size: 16px; }
+  .x { width: 32px; height: 32px; border-radius: 50%; background: var(--fill); display: grid; place-items: center; color: var(--text-2); }
+  .field { margin: 4px 16px 0; background: var(--surface); border-radius: 18px; box-shadow: var(--shadow-1); padding: 14px 16px 12px; }
+  .field .txt { font-size: 19px; line-height: 1.35; font-weight: 500; letter-spacing: -.005em; }
+  .caret { display: inline-block; width: 2px; height: 22px; background: var(--accent); vertical-align: -4px; margin-left: 1px; border-radius: 1px; }
+  .hl { background: var(--accent-soft); color: var(--accent); border-radius: 5px; padding: 0 3px; }
+  .chips { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border-radius: 16px; font-size: 14px; font-weight: 600; }
+  .chip.dest { background: var(--accent); color: #fff; }
+  .chip.when { background: var(--fill); color: var(--text-2); font-weight: 500; }
+  .actions { display: flex; align-items: center; gap: 10px; padding: 12px 16px 0; }
+  .ask-instead { display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px; border-radius: 22px; font-weight: 600; font-size: 15px; color: var(--text-2); background: var(--fill); }
+  .talk { width: 48px; height: 48px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+  .file { height: 48px; padding: 0 22px; border-radius: 24px; background: var(--accent); color: #fff; font-weight: 600; font-size: 16px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 6px 16px rgba(232,121,58,.35); }
+
+  .kb { position: absolute; left: 0; right: 0; bottom: 0; height: 291px; background: #d4d5da; z-index: 9; padding: 8px 3px 0; }
+  .sugg { display: flex; height: 36px; align-items: center; margin: -2px 0 6px; }
+  .sugg span { flex: 1; text-align: center; font-size: 16px; color: #111; }
+  .sugg span + span { border-left: 1px solid rgba(0,0,0,.14); }
+  .kr { display: flex; justify-content: center; gap: 6px; margin-bottom: 11px; }
+  .k { width: 33px; height: 43px; border-radius: 5px; background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.3); display: grid; place-items: center; font-size: 22px; color: #111; font-weight: 400; }
+  .k.fn { background: #abafb8; width: 44px; font-size: 16px; }
+  .k.space { width: 190px; font-size: 16px; }
+  .k.ret { width: 90px; background: #abafb8; font-size: 16px; }
+  .kb .bar { display: flex; justify-content: space-between; padding: 6px 20px 0; color: #444; }
+  .note { font-size: 11.5px; padding: 6px 9px; }
+</style></head>
+<body class="mode-home">
+<div class="phone" style="background:#000">
+  <div class="under">
+    <div class="modeswitch" style="font-size:14px"><span class="on"><span class="dot" style="background:var(--home)"></span>Home</span><span class="bar">|</span><span>Work</span></div>
+    <div class="greet">Good morning.</div>
+    <div class="sub">Saturday · bins tonight · Sam's birthday tomorrow</div>
+    <div class="askrow"></div>
+    <div class="blk"><div class="b">Needs you</div><div class="ln" style="width:80%"></div><div class="ln" style="width:55%"></div><div class="ln" style="width:70%"></div></div>
+  </div>
+  <div class="dim"></div>
+
+  <div class="status" style="color:#fff"><span>9:41</span><div class="island"></div>
+    <div class="sys">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 11.5 5.6 9a3.4 3.4 0 0 1 4.8 0zM3.5 6.9a6.4 6.4 0 0 1 9 0l-1.4 1.4a4.4 4.4 0 0 0-6.2 0zM1.3 4.7a9.5 9.5 0 0 1 13.4 0l-1.4 1.4a7.5 7.5 0 0 0-10.6 0z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="9" rx="2" fill="currentColor"/><path d="M25 4.5v4a2 2 0 0 0 0-4z" fill="currentColor" opacity=".45"/></svg>
+    </div>
+  </div>
+
+  <div class="ghost" style="top: 241px; width: 322px; height: 58px; opacity: .5"></div>
+  <div class="filed"><span class="ok"><svg class="i sm" viewBox="0 0 24 24" style="stroke-width:2.6;width:13px;height:13px"><path d="m5 12 5 5 9-10"/></svg></span>Filed to Reminders · Home<span class="undo">Undo</span></div>
+
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="hd"><span class="t">Capture</span><span class="x"><svg class="i sm" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></span></div>
+    <div class="field">
+      <div class="txt">Call the plumber about the kitchen tap <span class="hl">Saturday</span><span class="caret"></span></div>
+      <div class="chips">
+        <span class="chip dest"><svg class="i sm" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></svg>Reminders · Home<svg class="i sm" viewBox="0 0 24 24" style="width:12px;height:12px;opacity:.8"><path d="m6 9 6 6 6-6"/></svg></span>
+        <span class="chip when"><svg class="i sm" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Sat 26 Sep</span>
+      </div>
+    </div>
+    <div class="actions">
+      <span class="ask-instead"><svg class="i sm" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>Ask instead</span>
+      <span class="grow"></span>
+      <span class="talk"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+      <span class="file">File</span>
+    </div>
+  </div>
+
+  <div class="kb">
+    <div class="sugg"><span>"Saturday"</span><span>Saturday's</span><span>Saturdays</span></div>
+    <div class="kr"><span class="k">q</span><span class="k">w</span><span class="k">e</span><span class="k">r</span><span class="k">t</span><span class="k">y</span><span class="k">u</span><span class="k">i</span><span class="k">o</span><span class="k">p</span></div>
+    <div class="kr"><span class="k">a</span><span class="k">s</span><span class="k">d</span><span class="k">f</span><span class="k">g</span><span class="k">h</span><span class="k">j</span><span class="k">k</span><span class="k">l</span></div>
+    <div class="kr"><span class="k fn" style="margin-right:8px">⇧</span><span class="k">z</span><span class="k">x</span><span class="k">c</span><span class="k">v</span><span class="k">b</span><span class="k">n</span><span class="k">m</span><span class="k fn" style="margin-left:8px">⌫</span></div>
+    <div class="kr"><span class="k fn">123</span><span class="k space">space</span><span class="k ret">return</span></div>
+  </div>
+  <div class="home-ind"></div>
+</div>
+<div class="note" style="left: 14px; top: 124px; max-width: 200px"><b>1 · Last capture, shrinking</b>The previous capture folds into a chip and drifts off after 3s. Undo is one tap.</div>
+<div class="note" style="left: 222px; top: 124px; max-width: 160px"><b>2 · Mode sets the room</b>Home picks Home's lists. The chip changes it.</div>
+<div class="note" style="left: 12px; top: 584px; max-width: 190px"><b>3 · Ask instead</b>Same words become the first message of a new thread.</div>
+</body></html>
