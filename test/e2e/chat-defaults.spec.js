@@ -5,6 +5,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { startEve } = require('../integration/harness');
+const { hermeticTest } = require('./fixtures');
 
 const { expect } = base;
 
@@ -21,7 +22,7 @@ const TEMPLATES = [
   { id: 't-claude', name: 'Claude Stale', model: 'sonnet', mode: 'text', voice: '', system_prompt: '', append_claude_md: true, use_relay_tools: true },
 ];
 
-const test = base.test.extend({
+const test = hermeticTest.extend({
   eve: async ({}, use) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-defaults-'));
     const eve = await startEve({ projects: [{ id: 'p1', name: 'Acme', path: dir, chat_templates: TEMPLATES }], models: MODELS });

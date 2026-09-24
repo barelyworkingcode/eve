@@ -44,6 +44,7 @@ for (const viewport of VIEWPORTS) {
       // rows show "opened Nm ago" — pin the clock or the pixels drift daily.
       await context.clock.setFixedTime(new Date('2026-09-04T15:30:00'));
       await stubVoiceDaemons(context);
+      await context.addInitScript({ path: path.join(__dirname, '..', 'e2e', 'hermetic-audio.js') });
       const page = await context.newPage();
 
       try {

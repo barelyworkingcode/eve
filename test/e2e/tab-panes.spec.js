@@ -19,8 +19,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const base = require('@playwright/test');
-const { test, expect } = require('./fixtures');
+const { test, hermeticTest, expect } = require('./fixtures');
 const { startEve } = require('../integration/harness');
 const legacyStorageTemplate = require('./fixtures/legacy-tab-storage.json');
 
@@ -309,7 +308,7 @@ test.describe('tab-panes', () => {
 // also what test/visual/capture.spec.js screenshots, and a second
 // activity-rail icon would diff every one of its baselines for a reason
 // unrelated to tab-manager.js.
-const twoProjectTest = base.test.extend({
+const twoProjectTest = hermeticTest.extend({
   eve: async ({}, use) => {
     const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-proj1-'));
     fs.writeFileSync(path.join(dir1, 'README.md'), '# Project One', 'utf8');

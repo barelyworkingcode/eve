@@ -18,6 +18,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const base = require('@playwright/test');
 const { startEve } = require('../integration/harness');
+const { hermeticTest } = require('./fixtures');
 
 const { expect } = base;
 
@@ -77,7 +78,7 @@ function buildWorktreeFixture(root) {
   write(path.join(root, 'fix-timeouts'), 'lib/relay-client.js', 'const TIMEOUT = 30000;\n'); // M
 }
 
-const test = base.test.extend({
+const test = hermeticTest.extend({
   eve: async ({}, use) => {
     const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-git-'));
     buildWorktreeFixture(projectDir);
