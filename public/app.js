@@ -123,7 +123,8 @@ class EveWorkspaceClient {
     this.initSidebarResize();
     this.initSwipeGesture();
     this._initBusListeners();
-    Promise.all([this.loadModels(), this.loadMcps()]);
+    this._modelsReady = this.loadModels();
+    Promise.all([this._modelsReady, this.loadMcps()]);
     this.wsClient.connect();
   }
 
@@ -679,7 +680,7 @@ class EveWorkspaceClient {
     return null;
   }
 
-  _launchFavoriteTemplate() {
+  async _launchFavoriteTemplate() {
     if (!FAVORITE_TEMPLATE_ENABLED) return;
 
     const fav = this.settings.getFavoriteTemplate();
@@ -719,21 +720,8 @@ class EveWorkspaceClient {
       return;
     }
 
-    const name = `${project.name} - ${template.name}`;
-    const msg = {
-      type: 'create_session',
-      projectId: fav.projectId,
-      model: template.model,
-      settings: template.settings || null,
-      name,
-    };
-    if (template.systemPrompt) msg.systemPrompt = template.systemPrompt;
-    if (template.appendClaudeMd) msg.appendClaudeMd = true;
-    if (template.mode === 'voice') {
-      msg.sessionType = 'voice';
-      msg.voice = template.voice || 'af_heart';
-    }
-    this.wsClient.send(msg);
+    await this._modelsReady;
+    this.shellLauncher.launchTemplate(fav.projectId, template);
   }
 
   handleServerMessage(data) {

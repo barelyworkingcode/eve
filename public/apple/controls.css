@@ -204,8 +204,7 @@
 
    Covered contexts (all "settings" checkboxes in the app):
    - .provider-setting-checkbox   (task enabled / catch-up, provider booleans)
-   - .shell-launcher__claudemd-row  (include CLAUDE.md when launching shell)
-   - .project-dialog__checkbox-row  (relay tools, CLAUDE.md flags)
+   - .project-dialog__checkbox-row  (MCP and model allow-lists)
    - .dialog__setting-row--checkbox  (settings dialog boolean rows)
    - .dialog__checkbox-row  (task enabled in task dialog, search AI mode)
    - .search-dialog__toggle  (inline AI-enhanced search toggle)
@@ -217,7 +216,6 @@
 /* --- Shared toggle pill ---------------------------------------------------- */
 
 .provider-setting-checkbox input[type="checkbox"],
-.shell-launcher__claudemd-row input[type="checkbox"],
 .project-dialog__checkbox-row input[type="checkbox"],
 .dialog__setting-row--checkbox input[type="checkbox"],
 .dialog__checkbox-row input[type="checkbox"],
@@ -250,7 +248,6 @@
 
 /* Knob — a white circle sliding inside the pill. */
 .provider-setting-checkbox input[type="checkbox"]::before,
-.shell-launcher__claudemd-row input[type="checkbox"]::before,
 .project-dialog__checkbox-row input[type="checkbox"]::before,
 .dialog__setting-row--checkbox input[type="checkbox"]::before,
 .dialog__checkbox-row input[type="checkbox"]::before,
@@ -270,7 +267,6 @@
 
 /* On state: accent track, knob translates to the right. */
 .provider-setting-checkbox input[type="checkbox"]:checked,
-.shell-launcher__claudemd-row input[type="checkbox"]:checked,
 .project-dialog__checkbox-row input[type="checkbox"]:checked,
 .dialog__setting-row--checkbox input[type="checkbox"]:checked,
 .dialog__checkbox-row input[type="checkbox"]:checked,
@@ -280,7 +276,6 @@
 }
 
 .provider-setting-checkbox input[type="checkbox"]:checked::before,
-.shell-launcher__claudemd-row input[type="checkbox"]:checked::before,
 .project-dialog__checkbox-row input[type="checkbox"]:checked::before,
 .dialog__setting-row--checkbox input[type="checkbox"]:checked::before,
 .dialog__checkbox-row input[type="checkbox"]:checked::before,
@@ -290,7 +285,6 @@
 
 /* Keyboard focus ring on the pill. */
 .provider-setting-checkbox input[type="checkbox"]:focus-visible,
-.shell-launcher__claudemd-row input[type="checkbox"]:focus-visible,
 .project-dialog__checkbox-row input[type="checkbox"]:focus-visible,
 .dialog__setting-row--checkbox input[type="checkbox"]:focus-visible,
 .dialog__checkbox-row input[type="checkbox"]:focus-visible,
@@ -300,7 +294,6 @@
 }
 
 .provider-setting-checkbox input[type="checkbox"]:checked:focus-visible,
-.shell-launcher__claudemd-row input[type="checkbox"]:checked:focus-visible,
 .project-dialog__checkbox-row input[type="checkbox"]:checked:focus-visible,
 .dialog__setting-row--checkbox input[type="checkbox"]:checked:focus-visible,
 .dialog__checkbox-row input[type="checkbox"]:checked:focus-visible,
@@ -311,7 +304,6 @@
 
 /* Disabled toggle. */
 .provider-setting-checkbox input[type="checkbox"]:disabled,
-.shell-launcher__claudemd-row input[type="checkbox"]:disabled,
 .project-dialog__checkbox-row input[type="checkbox"]:disabled,
 .dialog__setting-row--checkbox input[type="checkbox"]:disabled,
 .dialog__checkbox-row input[type="checkbox"]:disabled,
@@ -323,7 +315,6 @@
 /* Mobile: iOS native toggle dimensions (34×20). */
 @media (max-width: 768px) {
   .provider-setting-checkbox input[type="checkbox"],
-  .shell-launcher__claudemd-row input[type="checkbox"],
   .project-dialog__checkbox-row input[type="checkbox"],
   .dialog__setting-row--checkbox input[type="checkbox"],
   .dialog__checkbox-row input[type="checkbox"],
@@ -333,7 +324,6 @@
   }
 
   .provider-setting-checkbox input[type="checkbox"]::before,
-  .shell-launcher__claudemd-row input[type="checkbox"]::before,
   .project-dialog__checkbox-row input[type="checkbox"]::before,
   .dialog__setting-row--checkbox input[type="checkbox"]::before,
   .dialog__checkbox-row input[type="checkbox"]::before,
@@ -343,7 +333,6 @@
   }
 
   .provider-setting-checkbox input[type="checkbox"]:checked::before,
-  .shell-launcher__claudemd-row input[type="checkbox"]:checked::before,
   .project-dialog__checkbox-row input[type="checkbox"]:checked::before,
   .dialog__setting-row--checkbox input[type="checkbox"]:checked::before,
   .dialog__checkbox-row input[type="checkbox"]:checked::before,

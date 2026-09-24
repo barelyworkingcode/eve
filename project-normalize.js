@@ -22,8 +22,6 @@ function normalizeProject(p) {
       mode: t.mode || 'text',
       voice: t.voice || '',
       systemPrompt: t.system_prompt || '',
-      appendClaudeMd: !!t.append_claude_md,
-      useRelayTools: !!t.use_relay_tools,
     })),
     permissionPolicy: p.permission_policy ? {
       defaultMode: p.permission_policy.default_mode || 'default',

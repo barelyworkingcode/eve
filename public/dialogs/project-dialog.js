@@ -576,8 +576,6 @@ class ProjectDialog extends DialogBase {
           mode: t.mode || MODE_TEXT,
           voice: t.voice || '',
           system_prompt: t.systemPrompt || '',
-          append_claude_md: !!t.appendClaudeMd,
-          use_relay_tools: !!t.useRelayTools,
         }));
       }
       const project = this._projectId
@@ -734,8 +732,6 @@ class ProjectDialog extends DialogBase {
         mode: 'text',
         voice: '',
         systemPrompt: '',
-        appendClaudeMd: false,
-        useRelayTools: false,
       });
       this._editingTemplateIdx = this._templates.length - 1;
       this._showTab('templates');
@@ -885,26 +881,6 @@ class ProjectDialog extends DialogBase {
     promptArea.rows = 4;
     form.appendChild(promptArea);
 
-    // Hidden for Claude models and force-cleared below regardless of checkbox
-    // state: Claude reads CLAUDE.md natively, and although relayLLM's
-    // ClaudeProvider does wire useRelayTools into --mcp-config
-    // (relayMCPConfigJSON in relayLLM/provider_claude.go), this UI never
-    // offers the option for Claude models.
-    const { wrapper: relayToolsWrapper, check: relayToolsCheck } = this._checkboxRow(
-      'Use Relay Tools (mail, calendar, contacts, web search)', !!tmpl.useRelayTools);
-    const { wrapper: claudeMdWrapper, check: claudeMdCheck } = this._checkboxRow(
-      'Append CLAUDE.md to system prompt', !!tmpl.appendClaudeMd);
-    form.append(relayToolsWrapper, claudeMdWrapper);
-
-    const isClaude = () => isClaudeModel(this.state.models, modelSelect.value);
-    const updateClaudeOnlyRows = () => {
-      const display = isClaude() ? 'none' : '';
-      relayToolsWrapper.style.display = display;
-      claudeMdWrapper.style.display = display;
-    };
-    modelSelect.addEventListener('change', updateClaudeOnlyRows);
-    updateClaudeOnlyRows();
-
     const actions = document.createElement('div');
     actions.className = 'dialog__actions';
 
@@ -935,8 +911,6 @@ class ProjectDialog extends DialogBase {
         mode: voiceRadio.checked ? MODE_VOICE : MODE_TEXT,
         voice: voiceRadio.checked ? voiceSelect.value : '',
         systemPrompt: promptArea.value.trim(),
-        appendClaudeMd: claudeMdCheck.checked && !isClaude(),
-        useRelayTools: relayToolsCheck.checked && !isClaude(),
       };
       this._editingTemplateIdx = -1;
       this._showTab('templates');
@@ -964,20 +938,6 @@ class ProjectDialog extends DialogBase {
     if (opts.required) input.required = true;
     parent.appendChild(input);
     return input;
-  }
-
-  _checkboxRow(label, checked) {
-    const wrapper = document.createElement('div');
-    const row = document.createElement('label');
-    row.className = 'project-dialog__checkbox-row';
-    const check = document.createElement('input');
-    check.type = 'checkbox';
-    check.checked = checked;
-    const text = document.createElement('span');
-    text.textContent = label;
-    row.append(check, text);
-    wrapper.appendChild(row);
-    return { wrapper, check };
   }
 
   _createRadio(parent, name, value, label, checked) {
