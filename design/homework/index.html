@@ -397,7 +397,7 @@
   <table class="card" style="padding:0">
     <tr><th style="width:30%">Question</th><th>Decision</th></tr>
     <tr><td>Where does a mode live?</td><td>A <code>mode</code> field on relay projects plus a default project per mode (relay#16). Relay keeps enforcing scopes.</td></tr>
-    <tr><td>Web search for local models</td><td>Use a search API through an MCP. The owner has a search MCP in mind; it isn't in the org's repos or installed on the devbox yet, so locating or building it is the first research task.</td></tr>
+    <tr><td>Web search for local models</td><td>The official <a href="https://github.com/brave/brave-search-mcp-server">Brave Search MCP server</a>, already in use on the owner's other machine. Register it in Relay as an HTTP/stdio MCP with its API key held by Relay, and grant it only to Research presets. <code>web_read</code> (page text rather than raw HTML) still needs a small addition, or macMCP's <code>web_fetch</code> with text extraction.</td></tr>
     <tr><td>Reaching you outside the app</td><td>There's no notification infrastructure yet. Start with a small <b>Notifier</b> interface whose first implementation wraps the devbox's existing Pushover script, so routine failures and "Needs you" items can ping the phone. Later builds swap in or add native iOS push behind the same interface.</td></tr>
     <tr><td>"Mail that needs a reply" in the brief</td><td>For now: unread mail in the mode's own scoped mailboxes. Put it behind a classifier interface so a trained, JEV-style classifier can replace the rule later without touching the brief.</td></tr>
     <tr><td>Front-door rule</td><td>Today after 60 minutes away; otherwise restore open tabs.</td></tr>
