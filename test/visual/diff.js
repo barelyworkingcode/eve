@@ -25,7 +25,8 @@ function main() {
 
   if (baselineFiles.length === 0) {
     console.error(`No baseline images found in ${BASELINE_DIR}. Run: npm run test:visual:baseline`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   fs.mkdirSync(DIFF_DIR, { recursive: true });
@@ -73,7 +74,10 @@ function main() {
   console.log('=='.repeat(30));
   console.log(anyFail ? 'RESULT: FAIL' : 'RESULT: PASS');
 
-  process.exit(anyFail ? 1 : 0);
+  // Deliberately not process.exit(): exiting while V8 still has a concurrent
+  // compile job waiting on a GC can deadlock Node's platform teardown and
+  // hang the push gate (nodejs/node#54918). Returning lets V8 shut down first.
+  process.exitCode = anyFail ? 1 : 0;
 }
 
 main();
