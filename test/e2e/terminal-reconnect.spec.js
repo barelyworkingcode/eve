@@ -83,3 +83,53 @@ test('a re-join replay replaces the screen instead of stacking a second copy', a
   await expect.poll(() => gridText(page)).toContain('ONCE');
   expect((await gridText(page)).match(/ONCE/g)).toHaveLength(1);
 });
+
+// xterm loads through a dynamic import, so eve can forward a terminal_created
+// before the browser can build a terminal for it. The gate parks xterm's
+// module request until the test has seen that frame land in the browser.
+const EARLY = 't-early';
+
+const heldXtermTest = test.extend({
+  xtermGate: async ({}, use) => {
+    const gate = {};
+    gate.held = new Promise((resolve) => { gate.markHeld = resolve; });
+    gate.released = new Promise((resolve) => { gate.release = resolve; });
+    gate.frameSeen = new Promise((resolve) => { gate.markFrameSeen = resolve; });
+    await use(gate);
+    gate.release();
+  },
+  context: async ({ context, xtermGate }, use) => {
+    await context.route('**/xterm/lib/xterm.mjs', async (route) => {
+      xtermGate.markHeld();
+      await xtermGate.released;
+      // A failing run closes the context with this request still parked.
+      await route.continue().catch(() => {});
+    });
+    context.on('page', (p) => p.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
+      if (typeof payload !== 'string') return;
+      let frame;
+      try { frame = JSON.parse(payload); } catch { return; }
+      if (frame.type === 'terminal_created' && frame.terminalId === EARLY) xtermGate.markFrameSeen();
+    })));
+    await use(context);
+  },
+});
+
+heldXtermTest('a terminal created before xterm finishes loading still opens', async ({ page, eve, xtermGate }) => {
+  await eve.relay.waitForRelay();
+  await xtermGate.held;
+
+  eve.relay.emitToRelay(relayFrames.terminalCreated({ terminalId: EARLY, name: 'shell' }));
+  await xtermGate.frameSeen;
+  xtermGate.release();
+
+  await expect
+    .poll(() => page.evaluate((id) => window.client.terminalManager.activeTerminalId === id, EARLY))
+    .toBe(true);
+  // A project-less terminal never renders into the project-filtered tab bar,
+  // so the tab model is the observable.
+  await expect
+    .poll(() => page.evaluate((id) =>
+      window.client.tabManager.tabs.some((t) => t.id === id && t.type === 'terminal'), EARLY))
+    .toBe(true);
+});

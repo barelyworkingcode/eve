@@ -758,8 +758,10 @@ class TerminalManager {
   // (someone else's file) can read `terminal.host`.
   // activate=false opens the tab without switching to it.
   setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect = false, host = null, activate = true) {
+    // A terminal_created can reach the browser before xterm's async imports
+    // finish; queue the setup rather than drop the terminal.
     if (!this.xtermLoaded) {
-      this.log.error('xterm not loaded yet');
+      this.onReady(() => this.setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect, host, activate));
       return;
     }
 
