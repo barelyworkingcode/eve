@@ -1,5 +1,9 @@
 class EveWorkspaceClient {
   constructor() {
+    // Captured before tab restore or an empty-state render can rewrite it;
+    // routed once sessions have loaded (onWebSocketReady).
+    this._initialHash = window.location.hash;
+    this._deepLinkPin = null;
 
     this.bus = new EventBus();
     this.container = new Container();
@@ -45,7 +49,6 @@ class EveWorkspaceClient {
       onMessage: (data) => this.handleServerMessage(data),
       onAudio: (buf) => this.ttsManager?.enqueueServerAudioBuffer(buf),
     });
-    this.wsClient.setConnectionStatusEl(this.elements.connectionStatus);
     this.container.register('ws', this.wsClient);
     this.messageRenderer = new MessageRenderer(this.container);
     this.container.register('messageRenderer', this.messageRenderer);
@@ -185,6 +188,7 @@ class EveWorkspaceClient {
       planApprove: document.getElementById('planApprove'),
       planRevise: document.getElementById('planRevise'),
       connectionStatus: document.getElementById('connectionStatus'),
+      connectionBanner: document.getElementById('connectionBanner'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
       voiceUIBtn: document.getElementById('voiceUIBtn'),
       voiceDrawer: document.getElementById('voiceDrawer'),
@@ -244,6 +248,8 @@ class EveWorkspaceClient {
       this.sidebarRenderer.renderProjectList();
       this.updateProjectSelect();
     });
+
+    this.bus.on(EVT.CONNECTION_CHANGED, ({ online }) => this._applyConnectionState(online));
 
     this.bus.on(EVT.MODELS_LOADED, () => {
       this._updateChatInputCapabilities(this._activeModelValue());
@@ -403,6 +409,7 @@ class EveWorkspaceClient {
     // Order matters: task session IDs must be known before sessions load
     // so task sessions are filtered from the sidebar.
     this.loadProjects().then(() => this.loadSessions()).then(() => {
+      const restoredSessionIds = this.tabManager.getRecentSessionIds().filter(id => this.sessions.has(id));
       this.resubscribeAfterReconnect({ terminalIds: terminalsBeforeLoad });
 
       const recentFiles = this.tabManager.getRecentFiles();
@@ -417,6 +424,7 @@ class EveWorkspaceClient {
         }
       }
 
+      if (this._initialHash !== null) this._restoreInitialHash(restoredSessionIds);
       this._handleHashRoute();
       if (!this._hashListenerAdded) {
         window.addEventListener('hashchange', () => this._handleHashRoute());
@@ -517,6 +525,37 @@ class EveWorkspaceClient {
   _hashRouteError(message) {
     this.bus.emit(EVT.TOAST_SHOW, { id: 'hash-route-error', message, type: 'warning', duration: 3000 });
     this._clearHash();
+  }
+
+  _restoreInitialHash(restoredSessionIds) {
+    const hash = this._initialHash;
+    this._initialHash = null;
+    if (!hash) return;
+    if (window.location.hash !== hash) {
+      history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+    }
+    const match = hash.match(/^#session\/(.+)$/);
+    if (!match) return;
+    const sessionId = decodeURIComponent(match[1]);
+    const awaiting = new Set(restoredSessionIds.filter(id => id !== sessionId));
+    this._deepLinkPin = awaiting.size ? { sessionId, awaiting } : null;
+  }
+
+  // The restored tabs' session_joined replies can land after the deep-linked
+  // one and would each take focus; hand it back until all of them are in.
+  _holdDeepLinkFocus(joinedId) {
+    const pin = this._deepLinkPin;
+    if (!pin || !pin.awaiting.delete(joinedId)) return;
+    if (!pin.awaiting.size) this._deepLinkPin = null;
+    if (this.tabManager.activeTabId !== pin.sessionId && this.tabManager.tabs.some(t => t.id === pin.sessionId)) {
+      this.tabManager.switchToTab(pin.sessionId);
+    }
+  }
+
+  _applyConnectionState(online) {
+    this.chatForm.setOffline(!online);
+    this.elements.connectionBanner?.classList.toggle('hidden', online);
+    this.elements.connectionStatus?.classList.toggle('hidden', online);
   }
 
   _handleHashRoute() {
@@ -651,6 +690,7 @@ class EveWorkspaceClient {
 
   handleServerMessage(data) {
     this.messageDispatcher.dispatch(data);
+    if (data.type === 'session_joined') this._holdDeepLinkFocus(data.sessionId);
   }
 
   updateStats(stats) {
@@ -924,7 +964,7 @@ class EveWorkspaceClient {
   handleSubmit(e) {
     e.preventDefault();
     const text = this.elements.userInput.value.trim();
-    if (!text || !this.currentSessionId) return;
+    if (!text || !this.currentSessionId || !this.state.isOnline()) return;
 
     this.inputHistory.push(text);
 

@@ -2,6 +2,7 @@ const EVT = {
   WS_READY: 'ws:ready',
   WS_MESSAGE: 'ws:message',
   WS_DISCONNECTED: 'ws:disconnected',
+  CONNECTION_CHANGED: 'connection:changed',
 
   SESSION_CREATED: 'session:created',
   SESSION_JOINED: 'session:joined',

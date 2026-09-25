@@ -417,6 +417,17 @@ html, body {
   animation: pulse 2s ease-in-out infinite;
 }
 
+.connection-banner {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: pulse 2s ease-in-out infinite;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }

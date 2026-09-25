@@ -2,7 +2,7 @@ class WsClient {
   constructor(container, callbacks) {
     this.log = container.get('logger').child('WS');
     this.bus = container.get('bus');
-    this._connectionStatusEl = null;
+    this.state = container.get('state');
     this._onReady = callbacks.onReady;
     this._onMessage = callbacks.onMessage;
     this._onAudio = callbacks.onAudio;
@@ -17,13 +17,10 @@ class WsClient {
     this._heartbeatTimer = null;
     this._reconnectTimer = null;
     this._lastInbound = 0;
+    this._authenticated = false;
     this._reconnecting = false;
     this._listenersWired = false;
     this._wireConnectivityListeners();
-  }
-
-  setConnectionStatusEl(el) {
-    this._connectionStatusEl = el;
   }
 
   connect() {
@@ -32,15 +29,13 @@ class WsClient {
     // TTS audio arrives as binary frames; receive them as ArrayBuffer so they
     // can be decoded directly without a Blob round-trip.
     this.ws.binaryType = 'arraybuffer';
+    this._authenticated = false;
 
     this.ws.onopen = () => {
       this.log.info('Connected to server');
       this.reconnectDelay = 2000;
       this._lastInbound = Date.now();
       if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
-      if (this._connectionStatusEl) {
-        this._connectionStatusEl.classList.add('hidden');
-      }
       const token = localStorage.getItem('eve_session');
       this.ws.send(JSON.stringify({ type: 'auth', token: token || null }));
       this._startHeartbeat();
@@ -48,6 +43,8 @@ class WsClient {
 
     this.ws.onmessage = (event) => {
       this._lastInbound = Date.now();
+      // Recovers from a window 'offline' event whose socket never closed.
+      if (this._authenticated) this.state.setConnection({ browser: true });
       // Binary frames are TTS audio chunks (the only binary the server sends).
       if (event.data instanceof ArrayBuffer) {
         this._onAudio?.(event.data);
@@ -71,9 +68,8 @@ class WsClient {
     this.ws.onclose = () => {
       this.log.info(`Disconnected from server, reconnecting in ${this.reconnectDelay / 1000}s`);
       this._stopHeartbeat();
-      if (this._connectionStatusEl) {
-        this._connectionStatusEl.classList.remove('hidden');
-      }
+      this._authenticated = false;
+      this.state.setConnection({ browser: false });
       if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
       this._reconnectTimer = setTimeout(() => this.connect(), this.reconnectDelay);
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
@@ -148,13 +144,13 @@ class WsClient {
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) this.checkConnection();
     });
-    window.addEventListener('offline', () => {
-      if (this._connectionStatusEl) this._connectionStatusEl.classList.remove('hidden');
-    });
+    window.addEventListener('offline', () => this.state.setConnection({ browser: false }));
   }
 
   _dispatchOne(data) {
     if (data.type === 'auth_success') {
+      this._authenticated = true;
+      this.state.setConnection({ browser: true, relay: true });
       this._onReady();
       return;
     }

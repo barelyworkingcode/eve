@@ -41,9 +41,13 @@ class DialogBase {
     this.el.classList.remove('hidden');
     document.addEventListener('keydown', this._boundEscape);
     requestAnimationFrame(() => {
-      const focusable = this._panel.querySelector('button, input, select, textarea, [tabindex]');
-      if (focusable) focusable.focus();
+      const target = this._initialFocusTarget();
+      if (target) target.focus();
     });
+  }
+
+  _initialFocusTarget() {
+    return this._panel.querySelector('button, input, select, textarea, [tabindex]');
   }
 
   hide() {

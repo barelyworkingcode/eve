@@ -1,15 +1,23 @@
 // relayScheduler accepts full lowercase day names and RFC 3339 `at`; the
 // dialog's own inputs are short day names and zone-less datetime-local
-// values. TZ is pinned before any Date use so offsets are deterministic.
-process.env.TZ = 'Europe/Berlin';
+// values.
+const { execFileSync } = require('child_process');
+const path = require('path');
 
 const TaskSchedule = require('../../public/core/task-schedule');
 
-function withTz(tz, fn) {
-  const prev = process.env.TZ;
-  process.env.TZ = tz;
-  try { return fn(); } finally { process.env.TZ = prev; }
+const MODULE_PATH = path.join(__dirname, '../../public/core/task-schedule.js');
+
+// Deliberate: jest sandboxes process.env per test file, so assigning TZ here
+// never reaches Date. Zone-dependent calls run in a child node with TZ set.
+function inZone(tz, fn, ...args) {
+  const script = `const TS = require(${JSON.stringify(MODULE_PATH)});
+process.stdout.write(JSON.stringify((${fn.toString()})(TS, ...${JSON.stringify(args)})));`;
+  const out = execFileSync(process.execPath, ['-e', script], { env: { ...process.env, TZ: tz } });
+  return JSON.parse(out.toString());
 }
+
+const BERLIN = 'Europe/Berlin';
 
 describe('TaskSchedule', () => {
   it('lists the seven weekdays relayScheduler accepts, Monday first', () => {
@@ -46,11 +54,11 @@ describe('TaskSchedule', () => {
     ['Asia/Kolkata', '2026-09-24T09:30', '2026-09-24T09:30:00+05:30'],
     ['UTC', '2026-09-24T09:30', '2026-09-24T09:30:00+00:00'],
   ])('toRfc3339 in %s: %s -> %s', (tz, input, expected) => {
-    expect(withTz(tz, () => TaskSchedule.toRfc3339(input))).toBe(expected);
+    expect(inZone(tz, (TS, v) => TS.toRfc3339(v), input)).toBe(expected);
   });
 
   it.each(['', 'not-a-date'])('toRfc3339(%p) -> empty string', (input) => {
-    expect(TaskSchedule.toRfc3339(input)).toBe('');
+    expect(inZone(BERLIN, (TS, v) => TS.toRfc3339(v), input)).toBe('');
   });
 
   it.each([
@@ -60,11 +68,11 @@ describe('TaskSchedule', () => {
     [{ type: 'once', datetime: '2026-09-24T09:30' }, '2026-09-24T09:30'],
     [{ type: 'once' }, ''],
   ])('toLocalInput(%j) -> %p', (schedule, expected) => {
-    expect(TaskSchedule.toLocalInput(schedule)).toBe(expected);
+    expect(inZone(BERLIN, (TS, s) => TS.toLocalInput(s), schedule)).toBe(expected);
   });
 
   it('round-trips a local value through toRfc3339 and back', () => {
-    const at = TaskSchedule.toRfc3339('2026-03-29T12:00');
-    expect(TaskSchedule.toLocalInput({ type: 'once', at })).toBe('2026-03-29T12:00');
+    const roundTrip = (TS, v) => TS.toLocalInput({ type: 'once', at: TS.toRfc3339(v) });
+    expect(inZone(BERLIN, roundTrip, '2026-03-29T12:00')).toBe('2026-03-29T12:00');
   });
 });

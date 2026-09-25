@@ -10,7 +10,7 @@ A browser-based LLM chat interface — AI for Home and for Work (and your homewo
 - **Projects** — group sessions under a named project with a default model, directory, and allowed tools.
 - **File browser & editor** — browse project files and edit them in a Monaco editor; rename/move/delete via context menu.
 - **Integrated terminal** — open a shell in the project directory (xterm.js in the browser; the PTY runs in relayLLM and survives Eve restarts).
-- **Voice** — on-device text-to-speech (Kokoro) and speech-to-text (Whisper), with a hands-free voice mode.
+- **Voice** — text-to-speech and speech-to-text from the local relayTTS/relaySTT daemons (Qwen3-TTS / Qwen3-ASR), with a hands-free voice mode. The iOS app can use on-device voice instead (Kokoro / WhisperKit).
 - **Scheduled tasks** — run LLM prompts on a schedule via relayScheduler.
 - **Passkey authentication** — WebAuthn passkeys; the first visitor becomes the owner.
 - **File attachments** — drag/drop, click, or paste files and images into a prompt.

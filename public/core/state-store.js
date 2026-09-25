@@ -26,6 +26,19 @@ class StateStore {
     this.providerSettings = {};
     this.currentSessionId = null;
     this.scopedProjectId = null;
+    // browser: eve's own WebSocket; relay: eve's upstream leg (relay_status).
+    this.connection = { browser: false, relay: true };
+  }
+
+  setConnection(partial) {
+    const next = { ...this.connection, ...partial };
+    if (next.browser === this.connection.browser && next.relay === this.connection.relay) return;
+    this.connection = next;
+    this.bus.emit(EVT.CONNECTION_CHANGED, { ...next, online: this.isOnline() });
+  }
+
+  isOnline() {
+    return this.connection.browser && this.connection.relay;
   }
 
   setCurrentSession(id) {
@@ -39,7 +52,9 @@ class StateStore {
     this.sessions.set(id, {
       ...session,
       id,
-      active: session.active !== undefined ? session.active : true,
+      active: typeof session.active === 'boolean' ? session.active
+        : typeof session.live === 'boolean' ? session.live
+        : false,
       costUsd: session.costUsd || 0,
     });
     this.bus.emit(EVT.SESSION_UPDATED, { sessionId: id });

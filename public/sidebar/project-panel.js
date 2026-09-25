@@ -300,7 +300,7 @@ class ProjectPanel {
     switch (schedule.type) {
       case 'daily': return `Daily ${schedule.time || '09:00'}`;
       case 'hourly': return `Hourly :${schedule.minute || '00'}`;
-      case 'weekly': return `${schedule.day || 'mon'} ${schedule.time || '09:00'}`;
+      case 'weekly': return `${TaskSchedule.shortDay(schedule.day || 'monday')} ${schedule.time || '09:00'}`;
       case 'cron': return schedule.expression || 'cron';
       case 'interval': return `Every ${schedule.minutes || 60}m`;
       case 'once': return 'Once';
