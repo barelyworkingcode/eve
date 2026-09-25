@@ -101,3 +101,24 @@ test('a failed models fetch is retried and the select fills without a reload', a
   expect(calls).toBeGreaterThanOrEqual(2);
   expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
 });
+
+test('a scheduler 400 on create shows its error in a toast and the dialog stays open', async ({ page, eve }) => {
+  const error = 'task "Acme": model is required for chat tasks';
+  eve.relay.failTaskCreateWith(400, { error });
+  await load(page, eve);
+
+  const dialog = await openNewTask(page);
+  const select = dialog.locator('[name="taskModel"]');
+  await expect.poll(() => optionValues(select)).toEqual(ALLOWED);
+  await select.selectOption('acme-fast');
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => isTaskPost(r.request())),
+    dialog.getByRole('button', { name: 'Create Task' }).click(),
+  ]);
+  expect(response.status()).toBe(400);
+
+  const toast = page.locator('.toast.toast--error[data-toast-id="task-save-error"]');
+  await expect(toast.locator('.toast__message')).toHaveText(`Couldn't save the task: ${error}`);
+  await expect(dialog).not.toHaveClass(/\bhidden\b/);
+  expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
+});
