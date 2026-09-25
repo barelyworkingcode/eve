@@ -95,6 +95,12 @@ for (const viewport of VIEWPORTS) {
           const line = document.querySelector('#monacoEditor .view-line');
           return !!(line && line.textContent && line.textContent.trim().length > 0);
         }, { timeout: 15000 });
+        // Monaco paints the text in the default foreground (mtk1) first and
+        // colours it only once the markdown tokenizer has loaded, so wait for
+        // any other token class before shooting.
+        await page.waitForFunction(() => {
+          return !!document.querySelector('#monacoEditor .view-line span[class^="mtk"]:not(.mtk1)');
+        }, { timeout: 15000 });
         await blurActiveElement(page);
         await shoot(page, `file-editor-${suffix}`);
 
