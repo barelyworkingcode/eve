@@ -177,6 +177,16 @@
   border-radius: var(--radius-pill);
 }
 
+.connection-banner {
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, var(--bg-primary));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+}
+
 /* — macOS capsule tabs ----------------------------------------------------- */
 .tab-bar { gap: 5px; margin: 0; align-items: center; }
 .tab-bar::-webkit-scrollbar { height: 0; }

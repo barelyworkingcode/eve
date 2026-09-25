@@ -161,6 +161,7 @@
   </div>
 
   <div class="app">
+    <div id="connectionBanner" class="connection-banner hidden" data-testid="connection-banner" role="status">Reconnecting…</div>
     <aside class="sidebar" id="sidebar">
       <!-- Activity rail: project avatars (dynamic) + add/settings (static) -->
       <nav class="sidebar-rail" id="sidebarRail" aria-label="Projects">
@@ -496,6 +497,7 @@
   <script src="core/state-store.js"></script>
   <script src="core/api-client.js"></script>
   <script src="core/ui-utils.js"></script>
+  <script src="core/task-schedule.js"></script>
   <script src="core/session-recents.js"></script>
   <script src="core/settings-manager.js"></script>
   <script src="core/feature-registry.js"></script>

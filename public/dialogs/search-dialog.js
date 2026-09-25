@@ -204,6 +204,11 @@ class SearchDialog extends DialogBase {
     }
   }
 
+  _initialFocusTarget() {
+    if (this._queryInput.value) this._queryInput.select();
+    return this._queryInput;
+  }
+
   _createToggle(name, label, onChange) {
     const wrap = document.createElement('label');
     wrap.className = 'search-dialog__toggle';

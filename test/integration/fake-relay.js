@@ -70,6 +70,8 @@ function createFakeRelay() {
   // `{ models, providerSettings }` shape via setModels().
   let modelsPayload = null;
   let modelsGate = null;
+  // sessionId -> Promise; a held join_session reply waits on it (holdJoin()).
+  const joinGates = new Map();
   const sessionCreates = [];
   const terminals = new Map();
   // Mirrors relay's own handleClearSession (ws_session.go), which — like
@@ -313,7 +315,9 @@ function createFakeRelay() {
       recordInbound(msg);
       if (isScheduler) return;
       if (msg.type === 'join_session') {
-        ws.send(JSON.stringify(relayFrames.sessionJoined({ sessionId: msg.sessionId })));
+        const reply = () => ws.send(JSON.stringify(relayFrames.sessionJoined({ sessionId: msg.sessionId })));
+        const gate = joinGates.get(msg.sessionId);
+        if (gate) gate.then(reply); else reply();
       } else if (msg.type === 'send_message') {
         const script = sessionScripts.get(msg.sessionId);
         const frames = script
@@ -370,6 +374,13 @@ function createFakeRelay() {
       return { release: () => { release(); sessionCreateGate = null; } };
     },
     setModels: (payload) => { modelsPayload = payload; },
+    // Same pattern, per session id: holds the session_joined reply for that
+    // id so a test can force it to land after another session's.
+    holdJoin: (sessionId) => {
+      let release;
+      joinGates.set(sessionId, new Promise((resolve) => { release = resolve; }));
+      return { release: () => { release(); joinGates.delete(sessionId); } };
+    },
     // Same pattern as holdSessionCreate, for GET /api/models: lets a test
     // prove a launch waits for the model list instead of racing it.
     holdModels: () => {

@@ -5,6 +5,8 @@ class ChatFormControls {
   constructor() {
     this.sendBtn = null;
     this.stopBtn = null;
+    this._submitEnabled = true;
+    this._offline = false;
   }
 
   showStop() {
@@ -18,7 +20,17 @@ class ChatFormControls {
   }
 
   setSubmitEnabled(enabled) {
-    if (this.sendBtn) this.sendBtn.disabled = !enabled;
+    this._submitEnabled = enabled;
+    this._applySendDisabled();
+  }
+
+  setOffline(offline) {
+    this._offline = offline;
+    this._applySendDisabled();
+  }
+
+  _applySendDisabled() {
+    if (this.sendBtn) this.sendBtn.disabled = this._offline || !this._submitEnabled;
   }
 }
 

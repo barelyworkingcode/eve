@@ -69,6 +69,25 @@ describe('ChatFormControls', () => {
     expect(controls.sendBtn.disabled).toBe(false);
   });
 
+  it('setOffline and setSubmitEnabled combine: Send is enabled only when neither blocks it', () => {
+    const feature = loadChatForm();
+    const controls = feature.init(fakeContainer());
+    controls.sendBtn = fakeButton();
+
+    controls.setOffline(true);
+    expect(controls.sendBtn.disabled).toBe(true);
+    controls.setSubmitEnabled(true);
+    expect(controls.sendBtn.disabled).toBe(true);
+    controls.setOffline(false);
+    expect(controls.sendBtn.disabled).toBe(false);
+
+    controls.setSubmitEnabled(false);
+    controls.setOffline(false);
+    expect(controls.sendBtn.disabled).toBe(true);
+    controls.setSubmitEnabled(true);
+    expect(controls.sendBtn.disabled).toBe(false);
+  });
+
   // The `?.` guards here are the whole point of this class existing instead of
   // two raw classList calls in app.js.
   it('is a no-op, not a throw, before the buttons are assigned', () => {

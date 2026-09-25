@@ -337,11 +337,12 @@ class TaskDialog extends DialogBase {
         const daySelect = document.createElement('select');
         daySelect.name = 'schedDay';
         daySelect.className = 'dialog__select';
-        for (const d of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+        const selectedDay = TaskSchedule.normalizeDay(sched.day) || 'monday';
+        for (const d of TaskSchedule.WEEKDAYS) {
           const opt = document.createElement('option');
           opt.value = d;
-          opt.textContent = d.charAt(0).toUpperCase() + d.slice(1);
-          if (sched.day === d) opt.selected = true;
+          opt.textContent = TaskSchedule.shortDay(d);
+          if (selectedDay === d) opt.selected = true;
           daySelect.appendChild(opt);
         }
         schedConfig.appendChild(dayLbl);
@@ -398,7 +399,7 @@ class TaskDialog extends DialogBase {
         const dtInput = document.createElement('input');
         dtInput.type = 'datetime-local';
         dtInput.name = 'schedDatetime';
-        dtInput.value = sched.datetime || '';
+        dtInput.value = TaskSchedule.toLocalInput(sched);
         dtInput.className = 'dialog__input';
         schedConfig.appendChild(dtLbl);
         schedConfig.appendChild(dtInput);
@@ -449,7 +450,7 @@ class TaskDialog extends DialogBase {
       const expression = form.querySelector('[name="schedExpression"]');
       if (expression) schedule.expression = expression.value;
       const datetime = form.querySelector('[name="schedDatetime"]');
-      if (datetime) schedule.datetime = datetime.value;
+      if (datetime) schedule.at = TaskSchedule.toRfc3339(datetime.value);
 
       const sessionType = form.querySelector('[name="taskType"]').value;
       const data = {
@@ -537,10 +538,10 @@ class TaskDialog extends DialogBase {
     switch (schedule.type) {
       case 'daily': return `Daily at ${schedule.time || '09:00'}`;
       case 'hourly': return `Hourly at :${schedule.minute || '00'}`;
-      case 'weekly': return `Weekly ${schedule.day || 'mon'} at ${schedule.time || '09:00'}`;
+      case 'weekly': return `Weekly ${TaskSchedule.shortDay(schedule.day || 'monday')} at ${schedule.time || '09:00'}`;
       case 'cron': return `Cron: ${schedule.expression || ''}`;
       case 'interval': return `Every ${schedule.minutes || 60}m`;
-      case 'once': return `Once at ${schedule.datetime || ''}`;
+      case 'once': return `Once at ${TaskSchedule.toLocalInput(schedule).replace('T', ' ')}`;
       case 'on_demand': return 'On demand';
       default: return schedule.type;
     }

@@ -384,7 +384,7 @@ class SettingsDialog extends DialogBase {
     if (tts.isNativeApp) {
       const backendSelect = document.createElement('select');
       backendSelect.className = 'dialog__select';
-      const ttsOptions = [['native', 'Native (on-device)'], ['server', 'Server (Kokoro daemon)']];
+      const ttsOptions = [['native', 'Native (on-device)'], ['server', 'Server (Qwen3-TTS daemon)']];
       for (const [value, label] of ttsOptions) {
         const opt = document.createElement('option');
         opt.value = value;
@@ -400,7 +400,7 @@ class SettingsDialog extends DialogBase {
     } else {
       const backendLine = document.createElement('div');
       backendLine.className = 'dialog__value';
-      backendLine.textContent = 'Server (Kokoro daemon)';
+      backendLine.textContent = 'Server (Qwen3-TTS daemon)';
       container.appendChild(backendLine);
     }
 
@@ -408,7 +408,7 @@ class SettingsDialog extends DialogBase {
     hint.className = 'field-hint';
     hint.textContent = tts.isNativeApp
       ? 'Native uses Kokoro TTS via the iOS Neural Engine.'
-      : 'Speech is synthesized by the local Kokoro daemon.';
+      : 'Speech is synthesized by the local relayTTS daemon (Qwen3-TTS).';
     container.appendChild(hint);
 
     const ttsStatusEl = document.createElement('div');
@@ -450,7 +450,7 @@ class SettingsDialog extends DialogBase {
     if (stt.isNativeApp) {
       const sttSelect = document.createElement('select');
       sttSelect.className = 'dialog__select';
-      const sttOptions = [['native', 'Native (on-device)'], ['server', 'Server (Whisper daemon)']];
+      const sttOptions = [['native', 'Native (on-device)'], ['server', 'Server (Qwen3-ASR daemon)']];
       for (const [value, label] of sttOptions) {
         const opt = document.createElement('option');
         opt.value = value;
@@ -466,7 +466,7 @@ class SettingsDialog extends DialogBase {
     } else {
       const sttBackendLine = document.createElement('div');
       sttBackendLine.className = 'dialog__value';
-      sttBackendLine.textContent = 'Server (Whisper daemon)';
+      sttBackendLine.textContent = 'Server (Qwen3-ASR daemon)';
       container.appendChild(sttBackendLine);
     }
 
@@ -474,7 +474,7 @@ class SettingsDialog extends DialogBase {
     sttHint.className = 'field-hint';
     sttHint.textContent = stt.isNativeApp
       ? 'Native uses WhisperKit STT via the iOS Neural Engine.'
-      : 'Speech is transcribed by the local Whisper daemon.';
+      : 'Speech is transcribed by the local relaySTT daemon (Qwen3-ASR).';
     container.appendChild(sttHint);
 
     const sttStatusEl = document.createElement('div');
@@ -531,12 +531,12 @@ class SettingsDialog extends DialogBase {
 
   _getTtsStatus(tts) {
     if (tts.backend === 'native') return 'Using native Kokoro TTS via iOS Neural Engine.';
-    return 'Using server-side Kokoro TTS daemon.';
+    return 'Using the server-side relayTTS daemon (Qwen3-TTS).';
   }
 
   _getSttStatus(stt) {
     if (stt.backend === 'native') return 'Using native WhisperKit STT via iOS Neural Engine.';
-    return 'Using server-side Whisper daemon.';
+    return 'Using the server-side relaySTT daemon (Qwen3-ASR).';
   }
 
 }

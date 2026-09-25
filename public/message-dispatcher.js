@@ -154,6 +154,7 @@ class MessageDispatcher {
   // though the browser socket never dropped, so open panes need re-joining
   // exactly like a browser reconnect does.
   _handleRelayStatus(data) {
+    this.state.setConnection({ relay: !!data.connected });
     if (data.connected) {
       this.bus.emit(EVT.TOAST_DISMISS, { id: 'relay-status' });
       this.bus.emit(EVT.TOAST_SHOW, {
@@ -610,6 +611,11 @@ class MessageDispatcher {
     this._resubscribeJoins.delete(sessionId);
   }
 
+  isResubscribeJoin(sessionId) {
+    const markedAt = this._resubscribeJoins.get(sessionId);
+    return markedAt !== undefined && (Date.now() - markedAt) < RESUBSCRIBE_JOIN_TTL_MS;
+  }
+
   _consumeResubscribeJoin(sessionId) {
     const markedAt = this._resubscribeJoins.get(sessionId);
     if (markedAt === undefined) return false;
@@ -654,6 +660,9 @@ class MessageDispatcher {
       if (sessionType && !existingSession.sessionType) {
         existingSession.sessionType = sessionType;
       }
+      if (typeof data.live === 'boolean') {
+        existingSession.active = data.live;
+      }
     } else {
       const newSession = {
         id: data.sessionId,
@@ -661,7 +670,7 @@ class MessageDispatcher {
         projectId: data.projectId || null,
         name: data.name || null,
         model: data.model || null,
-        active: true,
+        active: typeof data.live === 'boolean' ? data.live : true,
         sessionType,
       };
       this.state.addSession(newSession);
