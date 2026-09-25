@@ -106,6 +106,42 @@ test.describe('chat defaults', () => {
     expect(await page.evaluate(() => window.location.hash)).not.toBe('#/voice-chat');
   });
 
+  for (const withOther of [false, true]) {
+    test(`a cold #/voice-chat load focuses a restored voice tab${withOther ? ' beside another restored tab' : ''}`, async ({ page, eve }) => {
+      const VOICE = 'sess-voice-restored';
+      const OTHER = withOther ? 'sess-plain-restored' : null;
+      // Relay's session list carries no sessionType; only eve-session-meta knows.
+      const seed = (sessionId, name) => eve.relay.seedSession({
+        sessionId, directory: eve.relay.getProject('p1').path, projectId: 'p1', model: 'chat-a', name,
+      });
+      seed(VOICE, 'Voice Chat');
+      if (OTHER) seed(OTHER, 'Plain Chat');
+      await page.addInitScript(({ voice, other }) => {
+        const open = { [voice]: Date.now() };
+        if (other) open[other] = Date.now();
+        localStorage.setItem('eve-settings', JSON.stringify({
+          palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
+        }));
+        localStorage.setItem('eve-open-sessions', JSON.stringify(open));
+        localStorage.setItem('eve-session-meta', JSON.stringify({ [voice]: { sessionType: 'voice' } }));
+      }, { voice: VOICE, other: OTHER });
+      // The other tab's join lands last, the order that would steal focus.
+      const otherJoin = OTHER ? eve.relay.holdJoin(OTHER) : null;
+
+      await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
+      await expect(page.getByTestId(`tab-${VOICE}`)).toBeVisible({ timeout: 15000 });
+      await expect.poll(() => page.evaluate(() => window.client.state.models.length)).toBe(2);
+      if (OTHER) {
+        await eve.relay.waitForInbound((f) => f.type === 'join_session' && f.sessionId === OTHER, 15000);
+        otherJoin.release();
+        await expect(page.getByTestId(`tab-${OTHER}`)).toBeVisible({ timeout: 15000 });
+      }
+      await page.waitForTimeout(1000);
+      expect(eve.relay.sessionCreates).toHaveLength(0);
+      await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(VOICE);
+    });
+  }
+
   test('the template editor shows neither checkbox, and saved templates carry neither key', async ({ page, eve }) => {
     await openLauncher(page, eve);
     await page.evaluate(() => window.client.bus.emit('dialog:project', { projectId: 'p1' }));

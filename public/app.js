@@ -551,6 +551,7 @@ class EveWorkspaceClient {
   // all in, and gives up on any user input or after a deadline, so a reply
   // that never comes can't steal focus later.
   _pinDeepLink(sessionId, awaiting) {
+    this._releaseDeepLinkPin();
     const release = () => this._releaseDeepLinkPin();
     const timer = setTimeout(release, DEEP_LINK_PIN_MS);
     document.addEventListener('pointerdown', release, true);
@@ -592,7 +593,11 @@ class EveWorkspaceClient {
 
       const existingId = this._findVoiceSession();
       if (existingId) {
-        this.tabManager.switchToTab(existingId);
+        if (this.tabManager.tabs.some(t => t.id === existingId)) {
+          this.tabManager.switchToTab(existingId);
+        } else {
+          this._pinRestoredVoiceSession(existingId);
+        }
         return;
       }
 
@@ -660,7 +665,20 @@ class EveWorkspaceClient {
     for (const [id, session] of this.sessions) {
       if (session.sessionType === 'voice') return id;
     }
-    return null;
+    // A restored tab's sessionType arrives with its session_joined reply,
+    // which lands after this route runs on a cold load.
+    return this._restoredSessionIds()
+      .find(id => this.tabManager.getSessionMeta(id)?.sessionType === 'voice') || null;
+  }
+
+  _restoredSessionIds() {
+    return this.tabManager.getRecentSessionIds().filter(id => this.sessions.has(id));
+  }
+
+  // Its join is already in flight from the tab restore.
+  _pinRestoredVoiceSession(sessionId) {
+    const awaiting = new Set(this._restoredSessionIds().filter(id => id !== sessionId));
+    if (awaiting.size) this._pinDeepLink(sessionId, awaiting);
   }
 
   async _launchFavoriteTemplate() {
