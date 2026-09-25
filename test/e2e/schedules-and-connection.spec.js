@@ -62,12 +62,20 @@ test.describe('cold-load deep link', () => {
         }, OTHER);
       }
 
+      // OTHER's reply is held until TARGET's has landed, so the restored tab
+      // is the last join to arrive — the order that would steal focus.
+      const otherJoin = withOther ? eve.relay.holdJoin(OTHER) : null;
+
       // A same-URL goto with only a new hash is a same-document navigation.
       await page.goto('about:blank');
       await page.goto(`${eve.baseUrl}/#session/${TARGET}`);
 
       await expect(page.getByTestId(`tab-${TARGET}`)).toBeVisible({ timeout: 15000 });
-      if (withOther) await expect(page.getByTestId(`tab-${OTHER}`)).toBeVisible({ timeout: 15000 });
+      if (withOther) {
+        await eve.relay.waitForInbound((f) => f.type === 'join_session' && f.sessionId === OTHER, 15000);
+        otherJoin.release();
+        await expect(page.getByTestId(`tab-${OTHER}`)).toBeVisible({ timeout: 15000 });
+      }
       await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(TARGET);
       expect(await page.evaluate(() => location.hash)).toBe(`#session/${TARGET}`);
     });

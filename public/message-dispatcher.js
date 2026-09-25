@@ -611,6 +611,11 @@ class MessageDispatcher {
     this._resubscribeJoins.delete(sessionId);
   }
 
+  isResubscribeJoin(sessionId) {
+    const markedAt = this._resubscribeJoins.get(sessionId);
+    return markedAt !== undefined && (Date.now() - markedAt) < RESUBSCRIBE_JOIN_TTL_MS;
+  }
+
   _consumeResubscribeJoin(sessionId) {
     const markedAt = this._resubscribeJoins.get(sessionId);
     if (markedAt === undefined) return false;

@@ -164,3 +164,20 @@ describe('MessageDispatcher resubscribe joins (upstream relay reconnect must not
     expect(tabManager.openSession).toHaveBeenCalledWith('A');
   });
 });
+
+describe('MessageDispatcher session_joined running flag', () => {
+  it.each([
+    ['new session, live:false', undefined, { live: false }, false],
+    ['existing session, live:false', { id: 'S', active: true }, { live: false }, false],
+    ['new session, live absent', undefined, {}, true],
+    ['existing session, live absent', { id: 'S', active: true }, {}, true],
+  ])('%s', (_label, existing, flags, expected) => {
+    const { container, state } = makeContainer();
+    const dispatcher = new MessageDispatcher(container);
+    if (existing) state.sessions.set('S', { ...existing });
+
+    dispatcher.handleSessionJoined({ sessionId: 'S', directory: '/s', ...flags });
+
+    expect(state.sessions.get('S').active).toBe(expected);
+  });
+});

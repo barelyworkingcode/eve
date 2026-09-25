@@ -36,6 +36,9 @@ class WsClient {
       this.reconnectDelay = 2000;
       this._lastInbound = Date.now();
       if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+      // Before auth: relay-client can report relay_status:false ahead of
+      // auth_success, and that report must not be overwritten.
+      this.state.setConnection({ relay: true });
       const token = localStorage.getItem('eve_session');
       this.ws.send(JSON.stringify({ type: 'auth', token: token || null }));
       this._startHeartbeat();
@@ -69,7 +72,7 @@ class WsClient {
       this.log.info(`Disconnected from server, reconnecting in ${this.reconnectDelay / 1000}s`);
       this._stopHeartbeat();
       this._authenticated = false;
-      this.state.setConnection({ browser: false });
+      this._markDisconnected();
       if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
       this._reconnectTimer = setTimeout(() => this.connect(), this.reconnectDelay);
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
@@ -110,9 +113,16 @@ class WsClient {
       old.onopen = old.onmessage = old.onclose = old.onerror = null;
       try { old.close(); } catch (e) { /* ignore */ }
     }
+    this._authenticated = false;
+    this._markDisconnected();
     this.reconnectDelay = 2000;
     this.connect();
     this._reconnecting = false;
+  }
+
+  _markDisconnected() {
+    this.state.setConnection({ browser: false });
+    this.bus.emit(EVT.WS_DISCONNECTED);
   }
 
   // May be a zombie link from a previous network; probes before reconnecting
@@ -144,13 +154,13 @@ class WsClient {
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) this.checkConnection();
     });
-    window.addEventListener('offline', () => this.state.setConnection({ browser: false }));
+    window.addEventListener('offline', () => this._markDisconnected());
   }
 
   _dispatchOne(data) {
     if (data.type === 'auth_success') {
       this._authenticated = true;
-      this.state.setConnection({ browser: true, relay: true });
+      this.state.setConnection({ browser: true });
       this._onReady();
       return;
     }
