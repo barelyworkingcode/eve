@@ -6,6 +6,20 @@ const EVENT_PROTOCOL_VERSION = 2;
 // risk swallowing a later, genuine user-initiated join of the same session.
 const RESUBSCRIBE_JOIN_TTL_MS = 15000;
 
+// relay forwards provider events it has no translation for as raw_output.
+// Those are JSON objects with a string `type`; genuine raw output never is.
+function isProviderEventLine(text) {
+  if (typeof text !== 'string' || !text.trim().startsWith('{')) return false;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    && typeof parsed.type === 'string' && parsed.type.length > 0;
+}
+
 class MessageDispatcher {
   constructor(container) {
     this.container = container;
@@ -58,7 +72,7 @@ class MessageDispatcher {
       session_ended:        (d) => this.handleSessionEnded(d),
       user_message:         (d) => this._handleUserMessage(d),
       llm_event:            (d) => this._handleLlmEventMessage(d),
-      raw_output:           (d) => this.renderer.appendRawOutput(d.text),
+      raw_output:           (d) => this._handleRawOutput(d),
       stderr:               (d) => this.renderer.appendSystemMessage(d.text, 'error'),
       process_exited:       (d) => this._handleProcessExited(d),
       error:                (d) => this._handleError(d),
@@ -232,6 +246,14 @@ class MessageDispatcher {
     this.renderer.appendUserMessage(data.text);
     this.renderer.showThinkingIndicator();
     this.app.showStopButton();
+  }
+
+  _handleRawOutput(data) {
+    if (isProviderEventLine(data.text)) {
+      this.log.debug(`Dropped untranslated provider event ${JSON.parse(data.text).type} for session ${data.sessionId}`);
+      return;
+    }
+    this.renderer.appendRawOutput(data.text);
   }
 
   _handleLlmEventMessage(data) {
@@ -1189,6 +1211,8 @@ class MessageDispatcher {
     this.renderer.appendSystemMessage(`Stop hook error: ${detail}`, 'warning');
   }
 }
+
+MessageDispatcher.isProviderEventLine = isProviderEventLine;
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = MessageDispatcher;
