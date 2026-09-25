@@ -2,6 +2,7 @@ class TaskManager {
   constructor(container) {
     this.api = container.get('api');
     this.state = container.get('state');
+    this.bus = container.get('bus');
     this.log = container.get('logger').child('TaskManager');
     this.userTriggeredRuns = new Set();
   }
@@ -30,6 +31,7 @@ class TaskManager {
       return task;
     } catch (err) {
       this.log.error('Failed to create task:', err);
+      this.bus.emit(EVT.TOAST_SHOW, { id: 'task-save-error', message: `Couldn't save the task: ${err.message}`, type: 'error', duration: 8000 });
       return null;
     }
   }
@@ -41,6 +43,7 @@ class TaskManager {
       return task;
     } catch (err) {
       this.log.error('Failed to update task:', err);
+      this.bus.emit(EVT.TOAST_SHOW, { id: 'task-save-error', message: `Couldn't save the task: ${err.message}`, type: 'error', duration: 8000 });
       return null;
     }
   }

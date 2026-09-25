@@ -82,6 +82,8 @@ function createFakeRelay() {
   // C11's terminal-create-failure and resume-failure branches.
   let terminalCreateFailStatus = null;
   let resumeFailStatus = null;
+  // null => POST /api/tasks falls through to the unhandled-route 404 below.
+  let taskCreateFailure = null; // { status, body }
 
   const recordInbound = (msg) => {
     inbound.push(msg);
@@ -256,6 +258,9 @@ function createFakeRelay() {
       // sees unless it seeds otherwise.
       if (p === '/api/terminal/templates' && req.method === 'GET') return send(200, []);
       if (p === '/api/tasks' && req.method === 'GET') return send(200, []);
+      if (p === '/api/tasks' && req.method === 'POST' && taskCreateFailure) {
+        return send(taskCreateFailure.status, taskCreateFailure.body);
+      }
       // GET /api/tasks/:id is deliberately left unimplemented (falls through
       // to the 404 below): it must 404, not return [] — a wrong shape, since
       // the real endpoint returns one object.
@@ -353,6 +358,7 @@ function createFakeRelay() {
     clearTerminalCreateFail: () => { terminalCreateFailStatus = null; },
     failResumeWith: (status) => { resumeFailStatus = status; },
     clearResumeFail: () => { resumeFailStatus = null; },
+    failTaskCreateWith: (status, body) => { taskCreateFailure = { status, body }; },
     // Test-side equivalent of the tray's "Allow Eve Passkey Enrolment…" / `relay eve enrol`.
     openEveEnrolment: (ttlMs = 5 * 60 * 1000) => { eveEnrolment = { expires: new Date(Date.now() + ttlMs).toISOString() }; },
     closeEveEnrolment: () => { eveEnrolment = null; },
