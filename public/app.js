@@ -551,6 +551,7 @@ class EveWorkspaceClient {
   // all in, and gives up on any user input or after a deadline, so a reply
   // that never comes can't steal focus later.
   _pinDeepLink(sessionId, awaiting) {
+    this._releaseDeepLinkPin();
     const release = () => this._releaseDeepLinkPin();
     const timer = setTimeout(release, DEEP_LINK_PIN_MS);
     document.addEventListener('pointerdown', release, true);
