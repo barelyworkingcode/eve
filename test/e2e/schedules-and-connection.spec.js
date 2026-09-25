@@ -4,7 +4,10 @@ const { createFakeRelay } = require('../integration/fake-relay');
 test.describe('task dialog schedule wire shapes', () => {
   test.use({ timezoneId: 'Europe/Berlin' });
 
-  async function createTask(page, fillSchedule) {
+  async function createTask(page, eve, fillSchedule) {
+    eve.relay.setModels({ models: [{ value: 'acme-model', label: 'Acme Model', provider: 'chat' }], providerSettings: {} });
+    // The startup fetch has to settle first, or its empty answer can land after ours.
+    await page.evaluate(async () => { await window.client._modelsReady; await window.client.loadModels(); });
     await page.evaluate(() => window.client.bus.emit('dialog:task', { projectId: 'p1' }));
     const dialog = page.getByTestId('dialog-task-dialog');
     await dialog.locator('.dialog__tab[data-tab="new"]').click();
@@ -14,11 +17,13 @@ test.describe('task dialog schedule wire shapes', () => {
       page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/tasks'),
       dialog.getByRole('button', { name: 'Create Task' }).click(),
     ]);
-    return request.postDataJSON().schedule;
+    const body = request.postDataJSON();
+    expect(body.model).toBe('acme-model');
+    return body.schedule;
   }
 
-  test('weekly sends the full lowercase day name', async ({ page }) => {
-    const schedule = await createTask(page, async (dialog) => {
+  test('weekly sends the full lowercase day name', async ({ page, eve }) => {
+    const schedule = await createTask(page, eve, async (dialog) => {
       await dialog.locator('[name="scheduleType"]').selectOption('weekly');
       await dialog.locator('[name="schedDay"]').selectOption({ label: 'Tue' });
       await dialog.locator('[name="schedTime"]').fill('09:00');
@@ -26,8 +31,8 @@ test.describe('task dialog schedule wire shapes', () => {
     expect(schedule).toEqual({ type: 'weekly', day: 'tuesday', time: '09:00' });
   });
 
-  test('once sends `at` as RFC 3339 with the browser offset and no datetime key', async ({ page }) => {
-    const schedule = await createTask(page, async (dialog) => {
+  test('once sends `at` as RFC 3339 with the browser offset and no datetime key', async ({ page, eve }) => {
+    const schedule = await createTask(page, eve, async (dialog) => {
       await dialog.locator('[name="scheduleType"]').selectOption('once');
       await dialog.locator('[name="schedDatetime"]').fill('2026-09-24T09:30');
     });

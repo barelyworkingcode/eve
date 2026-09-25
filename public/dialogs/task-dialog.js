@@ -50,6 +50,26 @@ class TaskDialog extends DialogBase {
     };
     this.bus.on(EVT.TASKS_LOADED, refresh);
     this.bus.on(EVT.TASK_UPDATED, refresh);
+    this.bus.on(EVT.MODELS_LOADED, () => {
+      if (!this.isVisible || this._activeTab !== 'new') return;
+      const select = this._tabContent.querySelector('[name="taskModel"]');
+      if (!select) return;
+      const editTask = this._editTaskId ? this.state.getTask(this._editTaskId) : null;
+      this._fillModelSelect(select, select.value || editTask?.model);
+    });
+  }
+
+  _fillModelSelect(select, selectedValue) {
+    const models = this.state.modelsForProject(this.projectId);
+    renderModelSelect(select, models, { className: 'dialog__select', name: 'taskModel', selectedValue });
+    if (models.length === 0) {
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Loading models…';
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      select.appendChild(placeholder);
+    }
   }
 
   _loadAndShow() {
@@ -214,11 +234,7 @@ class TaskDialog extends DialogBase {
     modelLabel.textContent = 'Model';
     chatFields.appendChild(modelLabel);
     const modelSelect = document.createElement('select');
-    renderModelSelect(modelSelect, this.state.modelsForProject(this.projectId), {
-      className: 'dialog__select',
-      name: 'taskModel',
-      selectedValue: editTask?.model,
-    });
+    this._fillModelSelect(modelSelect, editTask?.model);
     chatFields.appendChild(modelSelect);
     form.appendChild(chatFields);
 
@@ -472,6 +488,15 @@ class TaskDialog extends DialogBase {
       } else {
         data.prompt = form.querySelector('[name="taskPrompt"]').value;
         data.model = form.querySelector('[name="taskModel"]').value;
+        if (data.model === '') {
+          this.bus.emit(EVT.TOAST_SHOW, {
+            id: 'task-model-required',
+            message: 'Choose a model before saving this task.',
+            type: 'error',
+            duration: 5000,
+          });
+          return;
+        }
       }
       if (editTask) {
         this._updateTask(editTask.id, data);

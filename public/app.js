@@ -737,16 +737,34 @@ class EveWorkspaceClient {
     this.elements.costStat.title = `Session cost: $${cost.toFixed(6)}`;
   }
 
+  // Resolves on the first attempt's outcome; a failure keeps retrying in the
+  // background so the model list can't stay empty for the life of the page.
   async loadModels() {
+    if (!(await this._fetchModels())) this._scheduleModelsRetry(1000);
+  }
+
+  async _fetchModels() {
     try {
       const response = await fetch('/api/models', { headers: this.getAuthHeaders() });
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
       const data = await response.json();
+      clearTimeout(this._modelsRetryTimer);
+      this._modelsRetryTimer = null;
       this.state.setModels(data.models || [], data.providerSettings || {});
       this.renderModelSelect(this.elements.sessionModelSelect);
+      return true;
     } catch (err) {
       this.log.error('Failed to load models:', err);
+      return false;
     }
+  }
+
+  _scheduleModelsRetry(delayMs) {
+    clearTimeout(this._modelsRetryTimer);
+    this._modelsRetryTimer = setTimeout(async () => {
+      this._modelsRetryTimer = null;
+      if (!(await this._fetchModels())) this._scheduleModelsRetry(Math.min(delayMs * 2, 30000));
+    }, delayMs);
   }
 
   _activeModelValue() {
