@@ -19,7 +19,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { test, hermeticTest, expect } = require('./fixtures');
+const { test, hermeticTest, gotoEve, expect } = require('./fixtures');
 const { startEve } = require('../integration/harness');
 const legacyStorageTemplate = require('./fixtures/legacy-tab-storage.json');
 
@@ -330,7 +330,7 @@ const twoProjectTest = hermeticTest.extend({
     }
   },
   page: async ({ page, eve }, use) => {
-    await page.goto(eve.baseUrl);
+    await gotoEve(page, eve.baseUrl);
     await use(page);
   },
 });

@@ -14,6 +14,13 @@ const hermeticTest = base.test.extend({
   },
 });
 
+// `load` can fire before auth status resolves, and only then does initApp()
+// build client.state, wsClient and the dialogs.
+async function gotoEve(page, url) {
+  await page.goto(url);
+  await page.waitForFunction(() => !!window.client?.state && !!window.client?.wsClient);
+}
+
 const test = hermeticTest.extend({
   eve: async ({}, use) => {
     const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-proj-'));
@@ -37,9 +44,9 @@ const test = hermeticTest.extend({
   },
 
   page: async ({ page, eve }, use) => {
-    await page.goto(eve.baseUrl);
+    await gotoEve(page, eve.baseUrl);
     await use(page);
   },
 });
 
-module.exports = { test, hermeticTest, expect: base.expect };
+module.exports = { test, hermeticTest, gotoEve, expect: base.expect };
