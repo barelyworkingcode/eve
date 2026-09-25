@@ -78,8 +78,8 @@ test.describe('chat defaults', () => {
     })));
     const hold = eve.relay.holdModels();
     await page.goto(eve.baseUrl);
-    // Fired as a hashchange: a hash present at cold load is dropped by the
-    // app's URL syncing before the route handler runs.
+    // Fired as a hashchange so this covers the route's listener path; the
+    // cold-load path is covered below.
     await page.waitForFunction(() => window.client?._hashListenerAdded && window.client.projects.has('p1'));
     for (let press = 0; press < 2; press++) {
       await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
@@ -93,6 +93,17 @@ test.describe('chat defaults', () => {
     expect(eve.relay.sessionCreates).toHaveLength(1);
     expect(body.model).toBe('chat-a');
     expectFlags(body, true);
+  });
+
+  test('a cold #/voice-chat load launches the favourite once', async ({ page, eve }) => {
+    await page.addInitScript(() => localStorage.setItem('eve-settings', JSON.stringify({
+      palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
+    })));
+    await page.goto(`${eve.baseUrl}/#/voice-chat`);
+    expect((await relayedCreate(eve)).model).toBe('chat-a');
+    await page.waitForTimeout(500);
+    expect(eve.relay.sessionCreates).toHaveLength(1);
+    expect(await page.evaluate(() => window.location.hash)).not.toBe('#/voice-chat');
   });
 
   test('the template editor shows neither checkbox, and saved templates carry neither key', async ({ page, eve }) => {
