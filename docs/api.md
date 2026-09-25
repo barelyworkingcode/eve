@@ -134,7 +134,7 @@ Diagnostics: `device_log` (`{lines: [...]}` — appended to a server-side log wi
 
 Connection: `pong` (reply to `ping`).
 
-Sessions: `session_created`, `session_joined`, `session_renamed`, `session_folder_changed`, `session_ended`, `user_message`, `llm_event`, `message_complete`, `stats_update`, `raw_output`, `stderr`, `system_message`, `warning`, `error`, `process_exited`, `clear_messages`, `mode_changed`, `permission_request`, `terminal_request` (`{sessionId, directory, command}` — from local slash commands), `plan_file_content`.
+Sessions: `session_created`, `session_joined`, `session_renamed`, `session_folder_changed`, `session_ended`, `user_message`, `llm_event`, `message_complete`, `stats_update`, `raw_output`, `stderr`, `system_message`, `warning`, `error`, `process_exited`, `clear_messages`, `mode_changed`, `permission_request`, `terminal_request` (`{sessionId, directory, command}` — from local slash commands), `plan_file_content`. A `raw_output` whose text is a JSON object with a string `type` is an untranslated provider event, and the browser drops it.
 
 `error` from relay can carry `code:'resume_required'` (`{type:'error', code:'resume_required', sessionId}`, no `message`) when a `send_message` targets a dormant session. eve never forwards this frame as-is: it calls `POST /api/sessions/:id/resume` and, on success, re-sends the driving user turn's `send_message` exactly once; the browser only ever sees the eventual outcome — a normal reply, or a plain `error` if the resume call itself fails or nothing was actually pending. Never host-driven (SH-6) — a `resume_required` with no matching pending user turn is reported as an error too, not retried.
 
