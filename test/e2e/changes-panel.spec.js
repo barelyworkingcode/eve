@@ -18,7 +18,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const base = require('@playwright/test');
 const { startEve } = require('../integration/harness');
-const { hermeticTest } = require('./fixtures');
+const { hermeticTest, gotoEve } = require('./fixtures');
 
 const { expect } = base;
 
@@ -94,7 +94,7 @@ const test = hermeticTest.extend({
   },
 
   page: async ({ page, eve }, use) => {
-    await page.goto(eve.baseUrl);
+    await gotoEve(page, eve.baseUrl);
     await use(page);
   },
 });

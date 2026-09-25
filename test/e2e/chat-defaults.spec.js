@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { startEve } = require('../integration/harness');
-const { hermeticTest } = require('./fixtures');
+const { hermeticTest, gotoEve } = require('./fixtures');
 
 const { expect } = base;
 
@@ -31,7 +31,7 @@ const test = hermeticTest.extend({
 });
 
 async function openLauncher(page, eve) {
-  await page.goto(eve.baseUrl);
+  await gotoEve(page, eve.baseUrl);
   await expect.poll(() => page.evaluate(() => window.client.state.models.length)).toBe(2);
   await page.getByTestId('sidebar-project-p1').click();
   await page.getByTestId('sidebar-new-session-p1').click();
@@ -77,7 +77,7 @@ test.describe('chat defaults', () => {
       palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
     })));
     const hold = eve.relay.holdModels();
-    await page.goto(eve.baseUrl);
+    await gotoEve(page, eve.baseUrl);
     // Fired as a hashchange so this covers the route's listener path; the
     // cold-load path is covered below.
     await page.waitForFunction(() => window.client?._hashListenerAdded && window.client.projects.has('p1'));
@@ -99,7 +99,7 @@ test.describe('chat defaults', () => {
     await page.addInitScript(() => localStorage.setItem('eve-settings', JSON.stringify({
       palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
     })));
-    await page.goto(`${eve.baseUrl}/#/voice-chat`);
+    await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
     expect((await relayedCreate(eve)).model).toBe('chat-a');
     await page.waitForTimeout(500);
     expect(eve.relay.sessionCreates).toHaveLength(1);

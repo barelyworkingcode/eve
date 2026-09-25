@@ -3,7 +3,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { startEve } = require('../integration/harness');
-const { hermeticTest } = require('./fixtures');
+const { hermeticTest, gotoEve } = require('./fixtures');
 
 const MODELS = {
   models: [
@@ -30,7 +30,7 @@ const test = hermeticTest.extend({
 const isTaskPost = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/tasks';
 
 async function load(page, eve) {
-  await page.goto(eve.baseUrl);
+  await gotoEve(page, eve.baseUrl);
   await page.waitForFunction(() => window.client?.projects?.has('p1'));
   // Survives only if the page is never reloaded.
   await page.evaluate(() => { window.__sameDocument = true; });
