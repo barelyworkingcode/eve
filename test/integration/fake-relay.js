@@ -355,6 +355,7 @@ function createFakeRelay() {
     // about an id a localStorage fixture references, without a real POST.
     seedSession: (session) => { sessions.set(session.sessionId, session); },
     getProject: (id) => projects.get(id),
+    listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
     scriptClearSession: (sessionId, frames) => { clearSessionScripts.set(sessionId, frames); },
     listTerminals: () => [...terminals.values()],
