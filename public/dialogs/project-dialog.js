@@ -562,7 +562,8 @@ class ProjectDialog extends DialogBase {
     if (this._templatesDirty) {
       const blank = this._templates.find(t => !(t.model || '').trim());
       if (blank) {
-        this._showError(`Template "${blank.name}" has no model. Pick one before saving.`);
+        const label = (blank.name || '').trim() ? blank.name : 'Untitled';
+        this._showError(`Template "${label}" has no model. Pick one before saving.`);
         return;
       }
     }

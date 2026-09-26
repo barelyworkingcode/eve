@@ -21,9 +21,10 @@ const TEMPLATES = [
 
 const test = hermeticTest.extend({
   modelsPayload: [MODELS, { option: true }],
-  eve: async ({ modelsPayload }, use) => {
+  templates: [TEMPLATES, { option: true }],
+  eve: async ({ modelsPayload, templates }, use) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-blank-model-'));
-    const eve = await startEve({ projects: [{ id: 'p1', name: 'Acme', path: dir, chat_templates: TEMPLATES }], models: modelsPayload });
+    const eve = await startEve({ projects: [{ id: 'p1', name: 'Acme', path: dir, chat_templates: templates }], models: modelsPayload });
     try { await use(eve); } finally { await eve.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
   },
 });
@@ -40,6 +41,11 @@ async function openTemplatesTab(page, eve) {
 
 const projectPuts = (eve) => eve.relay.requests.filter((r) => r.method === 'PUT' && r.path === '/api/projects/p1');
 const noModelToast = (page, name) => page.locator('.toast--error').filter({ hasText: `Pick a model for "${name}" before starting a chat.` });
+
+async function expectNotStarting(page) {
+  await expect(page.locator('#userInput')).toBeEnabled();
+  await expect(page.locator('#thinkingIndicator')).toHaveCount(0);
+}
 
 async function expectNoSessionCreated(eve) {
   await new Promise((r) => setTimeout(r, 750));
@@ -91,6 +97,7 @@ test.describe('blank-model templates', () => {
 
       await expect(noModelToast(page, name)).toBeVisible();
       await expect(page.getByTestId('dialog-shell-launcher-dialog')).toBeVisible();
+      await expectNotStarting(page);
       await expectNoSessionCreated(eve);
     });
   }
@@ -102,6 +109,27 @@ test.describe('blank-model templates', () => {
     await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
 
     await expect(noModelToast(page, 'Blank')).toBeVisible({ timeout: 10000 });
+    await expectNotStarting(page);
     await expectNoSessionCreated(eve);
   });
 });
+
+const NAMELESS = { id: 't-nameless', name: '', model: '', mode: 'text', voice: '', system_prompt: '' };
+for (const { label, templates, remove, shown } of [
+  { label: 'a whitespace-only model', templates: TEMPLATES, remove: 'Blank', shown: 'Spaces' },
+  { label: 'a nameless template', templates: [TEMPLATES[0], NAMELESS], remove: 'Ready', shown: 'Untitled' },
+]) {
+  test.describe(`the only blank-model template has ${label}`, () => {
+    test.use({ templates: [templates, { option: true }] });
+
+    test(`saving dirty templates names "${shown}" and sends nothing`, async ({ page, eve }) => {
+      const dialog = await openTemplatesTab(page, eve);
+      await dialog.locator('.project-dialog__template-item').filter({ hasText: remove }).getByTitle('Delete').click();
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+
+      await expect(dialog.locator('.project-dialog__error')).toContainText(`Template "${shown}" has no model. Pick one before saving.`);
+      await new Promise((r) => setTimeout(r, 750));
+      expect(projectPuts(eve)).toHaveLength(0);
+    });
+  });
+}
