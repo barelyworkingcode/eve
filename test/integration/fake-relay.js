@@ -246,7 +246,7 @@ function createFakeRelay() {
       }
 
       if (p === '/api/models' && req.method === 'GET') {
-        const respond = () => send(200, modelsPayload ?? [{ id: 'fake-model', name: 'Fake Model' }]);
+        const respond = () => send(200, modelsPayload ?? { models: [{ value: 'fake-model', label: 'Fake Model' }] });
         // Held open until the test releases it — see holdModels().
         if (modelsGate) return modelsGate.then(respond);
         return respond();

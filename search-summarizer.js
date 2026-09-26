@@ -42,7 +42,14 @@ class SearchSummarizer {
     const project = this.resolveProject(projectId);
     if (!project) throw new Error('Project not found');
 
-    const resolvedModel = model || (project.allowedModels || [])[0] || '';
+    const resolvedModel = await this._resolveModel(model, project);
+    if (!resolvedModel) {
+      const error = 'No model available';
+      sendFrame(relayClient, browserWs, {
+        type: 'search_ai_failed', requestId, sessionId: null, error,
+      });
+      throw new Error(error);
+    }
     const prompt = buildPrompt(query, matches, project.name || '');
 
     const sessionId = await this._createHiddenSession({
@@ -87,7 +94,7 @@ class SearchSummarizer {
     try {
       relayClient.joinSession(sessionId);
       relayClient.sendMessage(prompt, [], sessionId);
-      this.log?.info(`summary req=${requestId.slice(0, 8)} session=${sessionId.slice(0, 8)} model=${resolvedModel || '(default)'}`);
+      this.log?.info(`summary req=${requestId.slice(0, 8)} session=${sessionId.slice(0, 8)} model=${resolvedModel}`);
 
       await done;
 
@@ -126,6 +133,25 @@ class SearchSummarizer {
     return true;
   }
 
+  // '*' in allowedModels means unrestricted, not a model name.
+  async _resolveModel(model, project) {
+    const requested = nonBlank(model);
+    if (requested) return requested;
+
+    const allowed = (project.allowedModels || []).map(nonBlank).find(m => m && m !== '*');
+    if (allowed) return allowed;
+
+    try {
+      const res = await this.relayTransport.fetch('GET', '/api/models');
+      if (res.status < 200 || res.status >= 300) return null;
+      const models = Array.isArray(res.data?.models) ? res.data.models : [];
+      return models.map(m => nonBlank(m?.value)).find(Boolean) || null;
+    } catch (err) {
+      this.log?.warn?.(`model discovery failed: ${err.message}`);
+      return null;
+    }
+  }
+
   async _createHiddenSession({ projectId, directory, model }) {
     const sessionName = `${HIDDEN_SEARCH_PREFIX}${crypto.randomBytes(6).toString('hex')}`;
     const create = await this.relayTransport.fetch('POST', '/api/sessions', {
@@ -142,6 +168,10 @@ class SearchSummarizer {
     }
     return create.data.sessionId;
   }
+}
+
+function nonBlank(value) {
+  return typeof value === 'string' ? value.trim() || null : null;
 }
 
 function sendFrame(relayClient, browserWs, payload) {
