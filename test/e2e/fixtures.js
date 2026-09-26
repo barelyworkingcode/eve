@@ -22,18 +22,19 @@ async function gotoEve(page, url) {
 }
 
 const test = hermeticTest.extend({
-  eve: async ({}, use) => {
+  // Extra env for the spawned eve. Specs that need the real speech daemons
+  // (voice.spec.js) point TTS_PORT/STT_PORT at them; everything else keeps
+  // the harness's free, daemon-less ports.
+  eveEnv: [{}, { option: true }],
+  eve: async ({ eveEnv }, use) => {
     const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-proj-'));
     fs.mkdirSync(path.join(projectDir, 'src'));
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# Hello E2E', 'utf8');
     fs.writeFileSync(path.join(projectDir, 'src', 'index.js'), 'console.log("e2e");', 'utf8');
 
-    // Overrides the harness's default pinned TTS_PORT/STT_PORT (see
-    // harness.js) — chat-input-row and voice-buttons assert against the real
-    // speech daemons this box runs.
     const eve = await startEve({
       projects: [{ id: 'p1', name: 'E2E Project', path: projectDir }],
-      env: { TTS_PORT: process.env.TTS_PORT || '9997', STT_PORT: process.env.STT_PORT || '9998' },
+      env: eveEnv,
     });
     try {
       await use({ ...eve, projectDir });

@@ -67,21 +67,8 @@ test('a terminal keeps receiving output after the socket drops and reconnects', 
   eve.relay.emitToRelay(relayFrames.terminalJoined({ terminalId: TERM, name: 'shell', scrollback: 'BEFORE' }));
   eve.relay.emitToRelay(relayFrames.terminalOutput({ terminalId: TERM, data: 'AFTER' }));
   await expect.poll(() => gridText(page)).toContain('AFTER');
-});
-
-test('a re-join replay replaces the screen instead of stacking a second copy', async ({ page, eve }) => {
-  await openTerminal(page, eve);
-
-  eve.relay.emitToRelay(relayFrames.terminalOutput({ terminalId: TERM, data: 'ONCE' }));
-  await expect.poll(() => gridText(page)).toContain('ONCE');
-
-  await reconnectAndAnswerList(page, eve);
-  await eve.relay.waitForInbound((f) => f.type === 'terminal_reconnect');
-
-  eve.relay.emitToRelay(relayFrames.terminalJoined({ terminalId: TERM, name: 'shell', scrollback: 'ONCE' }));
-
-  await expect.poll(() => gridText(page)).toContain('ONCE');
-  expect((await gridText(page)).match(/ONCE/g)).toHaveLength(1);
+  // The replay replaces the screen rather than stacking a second copy.
+  expect((await gridText(page)).match(/BEFORE/g)).toHaveLength(1);
 });
 
 // xterm loads through a dynamic import, so eve can forward a terminal_created
