@@ -32,6 +32,15 @@ function fakeContainer() {
   };
 }
 
+describe('the page singleton', () => {
+  // Feature files register against `features` the moment their <script> tag is
+  // parsed, long before initApp() runs, so the instance must already exist.
+  it('exposes a ready-to-use `features` instance', () => {
+    expect(sandbox.features).toBeInstanceOf(FeatureRegistry);
+    expect(sandbox.features.ids()).toEqual([]);
+  });
+});
+
 describe('FeatureRegistry', () => {
   it('register() does not construct anything', () => {
     const r = new FeatureRegistry();

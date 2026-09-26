@@ -951,6 +951,10 @@ describe('ChangesPanel refresh storm (#15)', () => {
         .toEqual({ full: false, repos: ['/group/w1', '/group/w2'] });
     });
 
+    it('a project with no known repos still needs full discovery', () => {
+      expect(resolve(['/x'], []).full).toBe(true);
+    });
+
     it('deduplicates repos', () => {
       expect(resolve(['/src', '/lib', '/'], ['/'])).toEqual({ full: false, repos: ['/'] });
       expect(resolve(['/group', '/group/w1'], ['/group/w1', '/group/w2']))
