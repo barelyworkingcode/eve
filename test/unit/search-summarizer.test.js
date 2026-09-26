@@ -56,13 +56,20 @@ async function waitForHandler(relayClient, timeoutMs = 200) {
 }
 
 describe('SearchSummarizer.run', () => {
-  function makeMocks({ createStatus = 200, createData = { sessionId: 'sess-abc' } } = {}) {
+  // `models` answers GET /api/models: a `{status, data}` reply, or an Error to throw.
+  function makeMocks({
+    createStatus = 200, createData = { sessionId: 'sess-abc' },
+    allowedModels = ['model-x'], models = null,
+  } = {}) {
     const transportCalls = [];
     const relayTransport = {
       fetch: jest.fn().mockImplementation((method, path, body) => {
         transportCalls.push({ method, path, body });
         if (method === 'POST' && path === '/api/sessions') {
           return Promise.resolve({ status: createStatus, data: createData });
+        }
+        if (method === 'GET' && path === '/api/models' && models) {
+          return models instanceof Error ? Promise.reject(models) : Promise.resolve(models);
         }
         if (method === 'DELETE') {
           return Promise.resolve({ status: 200, data: {} });
@@ -81,10 +88,90 @@ describe('SearchSummarizer.run', () => {
       stopGeneration: jest.fn(),
     };
     const resolveProject = jest.fn(() => ({
-      id: 'p1', name: 'demo', path: '/projects/demo', allowedModels: ['model-x'],
+      id: 'p1', name: 'demo', path: '/projects/demo', allowedModels,
     }));
     return { relayTransport, relayClient, browserWs, resolveProject, transportCalls };
   }
+
+  const browserFrames = (browserWs) => browserWs.send.mock.calls.map(c => JSON.parse(c[0]));
+  const sessionCreates = (relayTransport) => relayTransport.fetch.mock.calls
+    .filter(c => c[0] === 'POST' && c[1] === '/api/sessions');
+  const discovered = { status: 200, data: { models: [{ value: 'disc-1' }] } };
+
+  it.each([
+    ['uses the requested model over the allowlist and discovery', 'req-1', ['allowed-1'], discovered, 'req-1'],
+    ['skips a "*" allowlist entry and uses the discovered model', '', ['*'], discovered, 'disc-1'],
+    ['skips a leading "*" allowlist entry and uses the next one', '', ['*', 'allowed-1'], discovered, 'allowed-1'],
+    ['skips a blank allowlist entry and uses the next one', '', ['', 'allowed-1'], discovered, 'allowed-1'],
+    ['uses the discovered model when the allowlist is empty', '', [], discovered, 'disc-1'],
+    ['skips a blank discovered model and uses the next one', '', [],
+      { status: 200, data: { models: [{ value: '' }, { value: 'disc-2' }] } }, 'disc-2'],
+    ['treats a whitespace model as blank and uses the allowlist', '   ', ['allowed-1'], discovered, 'allowed-1'],
+  ])('%s', async (_name, model, allowedModels, models, expected) => {
+    const { relayTransport, relayClient, browserWs, resolveProject } =
+      makeMocks({ allowedModels, models });
+    const svc = new SearchSummarizer({ relayTransport, resolveProject, log: null });
+
+    const run = svc.run({
+      requestId: 'r5', projectId: 'p1', query: 'foo', matches: [], model, relayClient, browserWs,
+    });
+    await waitForHandler(relayClient);
+    relayClient.registerHiddenSession.mock.calls[0][1]({ type: 'message_complete', sessionId: 'sess-abc' });
+    await run;
+
+    const creates = sessionCreates(relayTransport);
+    expect(creates).toHaveLength(1);
+    expect(creates[0][2].model).toBe(expected);
+    const frames = browserFrames(browserWs);
+    expect(frames.find(f => f.type === 'search_ai_started').model).toBe(expected);
+    expect(frames.find(f => f.type === 'search_ai_completed').model).toBe(expected);
+  });
+
+  it('does not query /api/models when the request names a model', async () => {
+    const { relayTransport, relayClient, browserWs, resolveProject } =
+      makeMocks({ allowedModels: ['allowed-1'], models: discovered });
+    const svc = new SearchSummarizer({ relayTransport, resolveProject, log: null });
+
+    const run = svc.run({
+      requestId: 'r7', projectId: 'p1', query: 'foo', matches: [], model: 'req-1', relayClient, browserWs,
+    });
+    await waitForHandler(relayClient);
+    relayClient.registerHiddenSession.mock.calls[0][1]({ type: 'message_complete', sessionId: 'sess-abc' });
+    await run;
+
+    expect(relayTransport.fetch.mock.calls.filter(c => c[1] === '/api/models')).toHaveLength(0);
+  });
+
+  it.each([
+    ['/api/models lists nothing', { status: 200, data: {} }],
+    ['/api/models answers non-2xx', { status: 502, data: { models: [{ value: 'disc-1' }] } }],
+    ['/api/models throws', new Error('relay down')],
+  ])('fails with "No model available" and creates no session when %s', async (_name, models) => {
+    const { relayTransport, relayClient, browserWs, resolveProject } =
+      makeMocks({ allowedModels: [], models });
+    const svc = new SearchSummarizer({ relayTransport, resolveProject, log: null });
+
+    const run = svc.run({
+      requestId: 'r6', projectId: 'p1', query: 'foo', matches: [], model: '', relayClient, browserWs,
+    });
+    const outcome = await Promise.race([
+      run.then(() => 'resolved', err => err),
+      waitForHandler(relayClient).then(() => 'session created', () => 'no session'),
+    ]);
+    // Settle before asserting so a failed expectation can't leave the run's timer alive.
+    if (relayClient.registerHiddenSession.mock.calls.length > 0) {
+      relayClient.registerHiddenSession.mock.calls[0][1]({ type: 'message_complete', sessionId: 'sess-abc' });
+      await run.catch(() => {});
+    }
+
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome.message).toBe('No model available');
+    expect(sessionCreates(relayTransport)).toHaveLength(0);
+    const failed = browserFrames(browserWs).filter(f => f.type === 'search_ai_failed');
+    expect(failed).toEqual([
+      { type: 'search_ai_failed', requestId: 'r6', sessionId: null, error: 'No model available' },
+    ]);
+  });
 
   it('rejects when projectId is unknown', async () => {
     const { relayTransport, relayClient, browserWs } = makeMocks();
