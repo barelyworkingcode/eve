@@ -99,12 +99,17 @@ describe('SearchSummarizer.run', () => {
   const discovered = { status: 200, data: { models: [{ value: 'disc-1' }] } };
 
   it.each([
-    ['skips a "*" allowlist entry and uses the discovered model', '', ['*'], 'disc-1'],
-    ['uses the discovered model when the allowlist is empty', '', [], 'disc-1'],
-    ['treats a whitespace model as blank and uses the allowlist', '   ', ['allowed-1'], 'allowed-1'],
-  ])('%s', async (_name, model, allowedModels, expected) => {
+    ['uses the requested model over the allowlist and discovery', 'req-1', ['allowed-1'], discovered, 'req-1'],
+    ['skips a "*" allowlist entry and uses the discovered model', '', ['*'], discovered, 'disc-1'],
+    ['skips a leading "*" allowlist entry and uses the next one', '', ['*', 'allowed-1'], discovered, 'allowed-1'],
+    ['skips a blank allowlist entry and uses the next one', '', ['', 'allowed-1'], discovered, 'allowed-1'],
+    ['uses the discovered model when the allowlist is empty', '', [], discovered, 'disc-1'],
+    ['skips a blank discovered model and uses the next one', '', [],
+      { status: 200, data: { models: [{ value: '' }, { value: 'disc-2' }] } }, 'disc-2'],
+    ['treats a whitespace model as blank and uses the allowlist', '   ', ['allowed-1'], discovered, 'allowed-1'],
+  ])('%s', async (_name, model, allowedModels, models, expected) => {
     const { relayTransport, relayClient, browserWs, resolveProject } =
-      makeMocks({ allowedModels, models: discovered });
+      makeMocks({ allowedModels, models });
     const svc = new SearchSummarizer({ relayTransport, resolveProject, log: null });
 
     const run = svc.run({
@@ -117,8 +122,24 @@ describe('SearchSummarizer.run', () => {
     const creates = sessionCreates(relayTransport);
     expect(creates).toHaveLength(1);
     expect(creates[0][2].model).toBe(expected);
-    const started = browserFrames(browserWs).find(f => f.type === 'search_ai_started');
-    expect(started.model).toBe(expected);
+    const frames = browserFrames(browserWs);
+    expect(frames.find(f => f.type === 'search_ai_started').model).toBe(expected);
+    expect(frames.find(f => f.type === 'search_ai_completed').model).toBe(expected);
+  });
+
+  it('does not query /api/models when the request names a model', async () => {
+    const { relayTransport, relayClient, browserWs, resolveProject } =
+      makeMocks({ allowedModels: ['allowed-1'], models: discovered });
+    const svc = new SearchSummarizer({ relayTransport, resolveProject, log: null });
+
+    const run = svc.run({
+      requestId: 'r7', projectId: 'p1', query: 'foo', matches: [], model: 'req-1', relayClient, browserWs,
+    });
+    await waitForHandler(relayClient);
+    relayClient.registerHiddenSession.mock.calls[0][1]({ type: 'message_complete', sessionId: 'sess-abc' });
+    await run;
+
+    expect(relayTransport.fetch.mock.calls.filter(c => c[1] === '/api/models')).toHaveLength(0);
   });
 
   it.each([
