@@ -9,14 +9,6 @@ class Logger {
     return new ChildLogger(this, prefix);
   }
 
-  setLevel(level) {
-    this._level = LOG_LEVELS[level] ?? this._level;
-  }
-
-  get level() {
-    return Object.keys(LOG_LEVELS).find(k => LOG_LEVELS[k] === this._level);
-  }
-
   debug(...args) { if (this._level <= 0) console.debug(...args); }
   info(...args)  { if (this._level <= 1) console.log(...args); }
   warn(...args)  { if (this._level <= 2) console.warn(...args); }
@@ -42,8 +34,6 @@ class ChildLogger {
 
 class NullLogger {
   child() { return this; }
-  setLevel() {}
-  get level() { return 'none'; }
   debug() {}
   info() {}
   warn() {}

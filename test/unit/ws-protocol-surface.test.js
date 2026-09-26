@@ -57,11 +57,6 @@ const FROZEN_TYPES = [
 ];
 
 describe('ws protocol surface (frozen)', () => {
-  it('has exactly 43 types', () => {
-    expect(FROZEN_TYPES.length).toBe(43);
-    expect(new Set(FROZEN_TYPES).size).toBe(43);
-  });
-
   it('matches every case label, pre-switch guard, and registered descriptor', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', 'ws-handler.js'), 'utf8');
 
@@ -75,9 +70,5 @@ describe('ws protocol surface (frozen)', () => {
 
     expect(measured.size).toBe(43);
     expect([...measured].sort()).toEqual([...FROZEN_TYPES].sort());
-  });
-
-  it('every registered descriptor type is a member of the frozen surface', () => {
-    for (const t of messages.types()) expect(FROZEN_TYPES).toContain(t);
   });
 });

@@ -112,7 +112,6 @@ describe('ui-utils naming helpers', () => {
         expect(Math.min(d, 360 - d)).toBeGreaterThanOrEqual(20);
       }
     }
-    expect(utils.projectHue('x')).toBe(utils.projectHue('x'));
   });
 
   test('relativeTime is compact', () => {

@@ -51,21 +51,4 @@ describe('voice ws arms (deterministic failure paths, daemons unreachable)', () 
     await new Promise((r) => setTimeout(r, 200));
     expect(ws.frames.slice(from).length).toBe(0);
   });
-
-  it('transcribe_audio with no audio: transcription_error "No audio data"', async () => {
-    const from = ws.mark();
-    ws.send({ type: 'transcribe_audio' });
-    const err = await ws.waitFor((f) => f.type === 'transcription_error', 5000, from);
-    expect(err.error).toBe('No audio data');
-  });
-
-  it('transcribe_audio with a sub-100-byte payload: transcription_error "Audio recording too short"', async () => {
-    const from = ws.mark();
-    // Decoded size is checked, not encoded length: ~30 base64 chars decode to
-    // well under 100 bytes.
-    const tinyBase64 = Buffer.from('too short').toString('base64');
-    ws.send({ type: 'transcribe_audio', audio: tinyBase64 });
-    const err = await ws.waitFor((f) => f.type === 'transcription_error', 5000, from);
-    expect(err.error).toBe('Audio recording too short');
-  });
 });

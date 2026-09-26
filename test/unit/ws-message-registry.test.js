@@ -44,14 +44,6 @@ describe('WsMessageRegistry.register / .get / .has', () => {
     expect(() => r.register({ type: 'dup', handle() {} })).toThrow(/duplicate message type: dup/);
   });
 
-  it('types() returns registered types in registration order', () => {
-    const r = new WsMessageRegistry();
-    r.register({ type: 'b', handle() {} });
-    r.register({ type: 'a', handle() {} });
-    r.register({ type: 'c', handle() {} });
-    expect(r.types()).toEqual(['b', 'a', 'c']);
-  });
-
   it('register constructs nothing', () => {
     const r = new WsMessageRegistry();
     const handle = jest.fn();

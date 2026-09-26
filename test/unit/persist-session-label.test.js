@@ -1,38 +1,8 @@
 // persistSessionLabel(name, templates) maps a persistent tmux session name
 // (`relay-<8 hex>-<template id>-<n>`) to a human label (`<template name> #<n>`).
-//
-// Location assumption: the helper is a pure function exported from
-// public/remote-sessions.js — either as a property of the module export
-// (`module.exports.persistSessionLabel`, which may be the class's static) or as
-// a browser global set when the classic script loads. As a fallback, any
-// public/core/*.js module exporting `persistSessionLabel` is accepted.
-const fs = require('fs');
-const path = require('path');
-
-function locatePersistSessionLabel() {
-  const candidates = [];
-  try {
-    const mod = require('../../public/remote-sessions.js');
-    candidates.push(mod && mod.persistSessionLabel);
-  } catch (_) { /* fall through */ }
-  candidates.push(global.persistSessionLabel);
-  const coreDir = path.join(__dirname, '../../public/core');
-  for (const file of fs.readdirSync(coreDir).filter((f) => f.endsWith('.js'))) {
-    try {
-      const mod = require(path.join(coreDir, file));
-      candidates.push(mod && mod.persistSessionLabel);
-    } catch (_) { /* browser-only module; skip */ }
-  }
-  return candidates.find((fn) => typeof fn === 'function');
-}
-
-const persistSessionLabel = locatePersistSessionLabel();
+const { persistSessionLabel } = require('../../public/core/ui-utils');
 
 describe('persistSessionLabel', () => {
-  test('helper is exported', () => {
-    expect(typeof persistSessionLabel).toBe('function');
-  });
-
   const cases = [
     ['simple template',
       'relay-0123abcd-shell-1', [{ id: 'shell', name: 'Shell' }], 'Shell #1'],

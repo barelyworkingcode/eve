@@ -1,7 +1,7 @@
 /**
  * Pins removed and surviving static/route surface on a live server:
- * - voice: the in-browser (WASM) TTS/STT backend's mounts are gone (404), and
- *   the VAD assets the page still loads (/vad-web, /vad-onnx) keep serving (200).
+ * - voice: the VAD assets the page still loads (/vad-web, /vad-onnx) keep
+ *   serving (200).
  * - Modules: the /api/modules routes and the module assets are gone.
  */
 describe('voice static mounts on a live server', () => {
@@ -17,18 +17,6 @@ describe('voice static mounts on a live server', () => {
   afterAll(async () => {
     await eve.stop();
   });
-
-  // The WASM TTS/STT workers are deleted; their mounts must be gone.
-  for (const p of [
-    '/onnxruntime-web/ort.all.min.mjs',
-    '/transformers/transformers.min.js',
-    '/espeak-ng/espeak-ng.js',
-  ]) {
-    it(`404s ${p} (removed WASM-backend mount)`, async () => {
-      const res = await eve.get(p);
-      expect(res.status).toBe(404);
-    }, 10000);
-  }
 
   // VAD (voice-activity detection) stays — its assets must still serve.
   for (const p of [

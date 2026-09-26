@@ -343,14 +343,10 @@ function createFakeRelay() {
   return {
     addProject: (proj) => { projects.set(proj.id, proj); },
     addHost: (host) => { hosts.set(host.id, { status: 'unknown', ssh_argv: [], ...host }); },
-    getHost: (id) => hosts.get(id),
-    listHosts: () => [...hosts.values()],
     // For reload/restore tests that need GET /api/sessions to already know
     // about an id a localStorage fixture references, without a real POST.
     seedSession: (session) => { sessions.set(session.sessionId, session); },
     getProject: (id) => projects.get(id),
-    listProjects: () => [...projects.values()],
-    listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
     scriptClearSession: (sessionId, frames) => { clearSessionScripts.set(sessionId, frames); },
     listTerminals: () => [...terminals.values()],
@@ -361,7 +357,6 @@ function createFakeRelay() {
     failTaskCreateWith: (status, body) => { taskCreateFailure = { status, body }; },
     // Test-side equivalent of the tray's "Allow Eve Passkey Enrolment…" / `relay eve enrol`.
     openEveEnrolment: (ttlMs = 5 * 60 * 1000) => { eveEnrolment = { expires: new Date(Date.now() + ttlMs).toISOString() }; },
-    closeEveEnrolment: () => { eveEnrolment = null; },
     listConsumedEnrolments: () => [...consumedEnrolments],
     // Test-side equivalent of relay's presence-gated `eve.passkey.revoke`.
     seedPasskeyRevocation: (id) => { pendingRevocations.add(id); },

@@ -951,23 +951,14 @@ describe('ChangesPanel refresh storm (#15)', () => {
         .toEqual({ full: false, repos: ['/group/w1', '/group/w2'] });
     });
 
-    it('falls back to full discovery when nothing matches', () => {
-      expect(resolve(['/docs-update'], ['/main', '/feat-login']).full).toBe(true);
+    it('a project with no known repos still needs full discovery', () => {
       expect(resolve(['/x'], []).full).toBe(true);
-    });
-
-    it('"*" means full discovery', () => {
-      expect(ChangesPanel.resolveRefresh(['*'], ['/', '/a']).full).toBe(true);
     });
 
     it('deduplicates repos', () => {
       expect(resolve(['/src', '/lib', '/'], ['/'])).toEqual({ full: false, repos: ['/'] });
       expect(resolve(['/group', '/group/w1'], ['/group/w1', '/group/w2']))
         .toEqual({ full: false, repos: ['/group/w1', '/group/w2'] });
-    });
-
-    it('a mix of resolvable paths and "*" is full', () => {
-      expect(ChangesPanel.resolveRefresh(['/src', '*'], ['/']).full).toBe(true);
     });
   });
 

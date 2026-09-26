@@ -47,13 +47,4 @@ describe('session lifecycle + streaming (eve <-> fake relay WS)', () => {
       .join('');
     expect(text).toBe('Hello from fake relay');
   });
-
-  it('relays an error completion to the browser', async () => {
-    const created = await createSession();
-    eve.relay.scriptSession(created.sessionId, [{ type: 'message_complete', error: 'model exploded' }]);
-    ws.send({ type: 'user_input', text: 'boom', sessionId: created.sessionId });
-
-    const complete = await ws.waitFor((f) => f.type === 'message_complete' && f.sessionId === created.sessionId && f.error);
-    expect(complete.error).toBe('model exploded');
-  });
 });

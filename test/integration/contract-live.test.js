@@ -8,7 +8,7 @@
  * Optional: EVE_BASE_URL, EVE_CONTRACT_MODEL, EVE_CONTRACT_DIR.
  */
 const WebSocket = require('ws');
-const { validateRelayFrame, extractAssistantText } = require('./protocol');
+const { validateRelayFrame, extractAssistantText, MODELED_RELAY_TO_EVE_TYPES } = require('./protocol');
 
 const RUN = process.env.EVE_CONTRACT === '1';
 const BASE = process.env.EVE_BASE_URL || 'http://localhost:3000';
@@ -60,8 +60,7 @@ function liveClient(wsUrl) {
       client.send({ type: 'user_input', text: 'Reply with exactly the single word: hi', sessionId });
       await client.waitFor((f) => f.type === 'message_complete' && f.sessionId === sessionId, 60000);
 
-      const MODELED = new Set(['session_joined', 'llm_event', 'message_complete', 'error']);
-      const seen = client.frames.filter((f) => MODELED.has(f.type));
+      const seen = client.frames.filter((f) => MODELED_RELAY_TO_EVE_TYPES.has(f.type));
       const failures = seen
         .map((f) => ({ type: f.type, result: validateRelayFrame(f), frame: f }))
         .filter((x) => !x.result.ok);

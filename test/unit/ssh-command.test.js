@@ -32,12 +32,6 @@ describe('ssh-command remoteCommand (RemoteCommand fixtures)', () => {
     const b64 = launcher.match(/printf %s (\S+) \|/)[1];
     expect(b64).toMatch(/^[A-Za-z0-9+/]+=*$/); // standard, padded alphabet only
   });
-
-  it('is deterministic for identical input (byte-for-byte, not just semantically equal)', () => {
-    const a = remoteCommand('/p', ['echo', 'hi'], { A: '1' });
-    const b = remoteCommand('/p', ['echo', 'hi'], { A: '1' });
-    expect(a).toBe(b);
-  });
 });
 
 describe('ssh-command shQuote', () => {

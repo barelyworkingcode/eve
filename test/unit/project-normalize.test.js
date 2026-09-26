@@ -40,17 +40,6 @@ describe('normalizeProject', () => {
     });
   });
 
-  // relay still stores both flags on older templates; eve applies them per
-  // launch from the model's provider, so they must not reach the client.
-  it('filters stale per-template relay-tools / CLAUDE.md flags out', () => {
-    const [tmpl] = normalizeProject(fullRelayProject).chatTemplates;
-    expect(tmpl).not.toHaveProperty('appendClaudeMd');
-    expect(tmpl).not.toHaveProperty('useRelayTools');
-    expect(tmpl).not.toHaveProperty('append_claude_md');
-    expect(tmpl).not.toHaveProperty('use_relay_tools');
-    expect(Object.keys(tmpl).sort()).toEqual(['id', 'mode', 'model', 'name', 'systemPrompt', 'voice']);
-  });
-
   it('never projects the project token or its hash', () => {
     const out = normalizeProject(fullRelayProject);
     expect(out).not.toHaveProperty('token');

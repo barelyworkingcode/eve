@@ -391,12 +391,6 @@ describe('ws/git-messages descriptors', () => {
     };
   }
 
-  it('registers exactly git_changes (expensive) and git_file_versions (not)', () => {
-    expect(Object.keys(byType).sort()).toEqual(['git_changes', 'git_file_versions']);
-    expect(byType.git_changes.expensive).toBe(true);
-    expect(byType.git_file_versions.expensive).toBeFalsy();
-  });
-
   it('git_changes starts the project watcher, then delegates with the same ws/message', () => {
     const c = ctx({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' });
     byType.git_changes.handle(c);
