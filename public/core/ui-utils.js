@@ -309,5 +309,5 @@ function persistSessionLabel(name, templates) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { projectMonogram, projectHue, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName, hostChip, hostStatusLabel, persistSessionLabel, applyChatDefaults };
+  module.exports = { projectMonogram, projectColor, projectColorAtRank, relativeTime, sessionDisplayName, escapeHtml, slugifyProjectName, hostChip, hostStatusLabel, persistSessionLabel, applyChatDefaults };
 }

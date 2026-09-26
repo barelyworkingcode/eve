@@ -67,7 +67,6 @@ function makeWsClient(wsUrl) {
   });
 
   return {
-    raw: ws,
     frames,
     ready: () => new Promise((resolve, reject) => {
       ws.once('open', resolve);

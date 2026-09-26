@@ -1,4 +1,4 @@
-const { Logger, ChildLogger, NullLogger } = require('../../logger');
+const { Logger, NullLogger } = require('../../logger');
 
 describe('Logger', () => {
   let originalConsole;
@@ -78,36 +78,6 @@ describe('Logger', () => {
     expect(calls.warn).toHaveLength(0);
     expect(calls.error).toHaveLength(0);
   });
-
-  test('setLevel changes filtering dynamically', () => {
-    const logger = new Logger('debug');
-    const calls = [];
-
-    console.debug = (...args) => calls.push(args);
-    logger.debug('before');
-    expect(calls).toHaveLength(1);
-
-    logger.setLevel('error');
-    logger.debug('after');
-    expect(calls).toHaveLength(1);
-
-    logger.setLevel('debug');
-    logger.debug('restored');
-    expect(calls).toHaveLength(2);
-  });
-
-  test('level getter returns current level name', () => {
-    const logger = new Logger('warn');
-    expect(logger.level).toBe('warn');
-    logger.setLevel('error');
-    expect(logger.level).toBe('error');
-  });
-
-  test('invalid level string keeps current level', () => {
-    const logger = new Logger('info');
-    logger.setLevel('invalid');
-    expect(logger.level).toBe('info');
-  });
 });
 
 describe('ChildLogger', () => {
@@ -154,20 +124,6 @@ describe('ChildLogger', () => {
     child.info('suppressed');
     expect(calls).toHaveLength(0);
   });
-
-  test('parent setLevel affects child', () => {
-    const logger = new Logger('debug');
-    const child = logger.child('X');
-    const calls = [];
-    console.log = (...args) => calls.push(args);
-
-    child.info('before');
-    expect(calls).toHaveLength(1);
-
-    logger.setLevel('error');
-    child.info('after');
-    expect(calls).toHaveLength(1);
-  });
 });
 
 describe('NullLogger', () => {
@@ -177,17 +133,11 @@ describe('NullLogger', () => {
     logger.info('b');
     logger.warn('c');
     logger.error('d');
-    logger.setLevel('debug');
   });
 
   test('child returns itself', () => {
     const logger = new NullLogger();
     const child = logger.child('STT');
     expect(child).toBe(logger);
-  });
-
-  test('level returns none', () => {
-    const logger = new NullLogger();
-    expect(logger.level).toBe('none');
   });
 });

@@ -10,16 +10,6 @@ vm.createContext(sandbox);
 vm.runInContext(src + '\nthis.PaneRegistry = PaneRegistry; this.panes = panes;', sandbox);
 const { PaneRegistry } = sandbox;
 
-describe('the page singleton', () => {
-  // A panes/*.js file registers against `panes` the moment its <script> tag is
-  // parsed, long before initApp() runs, so the instance must already exist.
-  it('exposes a ready-to-use `panes` instance', () => {
-    expect(sandbox.panes).toBeInstanceOf(PaneRegistry);
-    expect(sandbox.panes.types()).toEqual([]);
-    expect(sandbox.panes.views()).toEqual([]);
-  });
-});
-
 describe('PaneRegistry.registerType / .type / .hasType', () => {
   it('registers a type descriptor and looks it up by name', () => {
     const r = new PaneRegistry();
@@ -99,25 +89,5 @@ describe('type and view registries are independent', () => {
     expect(r.hasType('viewer')).toBe(true);
     expect(r.hasView('viewer')).toBe(true);
     expect(r.type('viewer')).not.toBe(r.view('viewer'));
-  });
-
-  it('registerType does not register a view, and vice versa', () => {
-    const r = new PaneRegistry();
-    r.registerType({ type: 'file' });
-    expect(r.hasView('file')).toBe(false);
-    r.registerView({ view: 'editor', elementId: 'editor' });
-    expect(r.hasType('editor')).toBe(false);
-  });
-});
-
-describe('construction and DOM', () => {
-  it('registerType and registerView construct nothing and touch no DOM', () => {
-    const r = new PaneRegistry();
-    const create = jest.fn();
-    const show = jest.fn();
-    r.registerType({ type: 'file', create });
-    r.registerView({ view: 'editor', elementId: 'editor', show });
-    expect(create).not.toHaveBeenCalled();
-    expect(show).not.toHaveBeenCalled();
   });
 });

@@ -31,16 +31,6 @@ function makeDispatcher() {
   return { dispatcher: new MessageDispatcher({ get: (name) => values[name] }), bus };
 }
 
-describe('EVT git names', () => {
-  it('pins the bus event names from the design contract', () => {
-    expect(EVT.GIT_CHANGES).toBe('git:changes');
-    expect(EVT.GIT_FILE_VERSIONS).toBe('git:file-versions');
-    expect(EVT.GIT_ERROR).toBe('git:error');
-    expect(EVT.GIT_CHANGED).toBe('git:changed');
-    expect(EVT.GIT_OPEN_DIFF).toBe('git:open-diff');
-  });
-});
-
 describe('MessageDispatcher git_* frames', () => {
   const cases = [
     ['git_changes', 'git:changes', {

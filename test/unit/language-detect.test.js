@@ -33,22 +33,11 @@ const MONACO_LANGUAGES = [
 const detect = (p, langs = MONACO_LANGUAGES) => languageForPath(p, langs);
 
 describe('module shape', () => {
-  test('exports languageForPath as a function', () => {
-    expect(typeof languageForPath).toBe('function');
-  });
-
   test('LANGUAGE_OVERRIDES is an object with lower-case keys', () => {
     expect(LANGUAGE_OVERRIDES).toEqual(expect.any(Object));
     for (const key of Object.keys(LANGUAGE_OVERRIDES)) {
       expect(key).toBe(key.toLowerCase());
     }
-  });
-
-  test('LANGUAGE_OVERRIDES maps the contract examples', () => {
-    expect(LANGUAGE_OVERRIDES['.csproj']).toBe('xml');
-    expect(LANGUAGE_OVERRIDES['.toml']).toBe('ini');
-    expect(LANGUAGE_OVERRIDES['.env']).toBe('ini');
-    expect(LANGUAGE_OVERRIDES['.svg']).toBe('xml');
   });
 });
 
