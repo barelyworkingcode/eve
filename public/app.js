@@ -1,4 +1,5 @@
 const DEEP_LINK_PIN_MS = 10000;
+const VOICE_JOIN_TIMEOUT_MS = 5000;
 
 class EveWorkspaceClient {
   constructor() {
@@ -595,9 +596,14 @@ class EveWorkspaceClient {
       if (existingId) {
         if (this.tabManager.tabs.some(t => t.id === existingId)) {
           this.tabManager.switchToTab(existingId);
-        } else {
-          this._pinRestoredVoiceSession(existingId);
+          return;
         }
+        if (this._restoredSessionIds().includes(existingId)) {
+          this._pinRestoredVoiceSession(existingId);
+        } else {
+          this.joinSession(existingId);
+        }
+        this._armVoiceFallback(existingId);
         return;
       }
 
@@ -681,6 +687,39 @@ class EveWorkspaceClient {
     if (awaiting.size) this._pinDeepLink(sessionId, awaiting);
   }
 
+  // Relay's failed join carries no sessionId, only the id inside its message,
+  // so any other failure is caught by the timeout instead.
+  _armVoiceFallback(sessionId) {
+    this._disarmVoiceFallback();
+    const timer = setTimeout(() => this._fireVoiceFallback(), VOICE_JOIN_TIMEOUT_MS);
+    this._voiceFallback = { sessionId, timer };
+  }
+
+  _disarmVoiceFallback() {
+    const fallback = this._voiceFallback;
+    if (!fallback) return null;
+    this._voiceFallback = null;
+    clearTimeout(fallback.timer);
+    return fallback;
+  }
+
+  _fireVoiceFallback() {
+    const fallback = this._disarmVoiceFallback();
+    if (!fallback) return;
+    if (this._deepLinkPin?.sessionId === fallback.sessionId) this._releaseDeepLinkPin();
+    this._launchFavoriteTemplate();
+  }
+
+  _observeVoiceFallback(data) {
+    const fallback = this._voiceFallback;
+    if (!fallback) return;
+    if (data.type === 'session_joined' && data.sessionId === fallback.sessionId) {
+      this._disarmVoiceFallback();
+    } else if (data.type === 'error' && data.message === `session not found: ${fallback.sessionId}`) {
+      this._fireVoiceFallback();
+    }
+  }
+
   async _launchFavoriteTemplate() {
     if (!FAVORITE_TEMPLATE_ENABLED || this._favoriteLaunching) return;
 
@@ -735,6 +774,7 @@ class EveWorkspaceClient {
       && !this.messageDispatcher.isResubscribeJoin(data.sessionId);
     this.messageDispatcher.dispatch(data);
     if (pinnedJoin) this._holdDeepLinkFocus(data.sessionId);
+    this._observeVoiceFallback(data);
   }
 
   updateStats(stats) {

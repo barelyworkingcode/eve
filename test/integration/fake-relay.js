@@ -72,6 +72,8 @@ function createFakeRelay() {
   let modelsGate = null;
   // sessionId -> Promise; a held join_session reply waits on it (holdJoin()).
   const joinGates = new Map();
+  // Session ids whose join_session gets relay's "not found" reply (failJoinWith()).
+  const failedJoins = new Set();
   const sessionCreates = [];
   const terminals = new Map();
   // Mirrors relay's own handleClearSession (ws_session.go), which — like
@@ -320,6 +322,12 @@ function createFakeRelay() {
       recordInbound(msg);
       if (isScheduler) return;
       if (msg.type === 'join_session') {
+        // Relay's handleJoinSession (ws_session.go) names the id only in the
+        // message; the frame itself carries no sessionId.
+        if (failedJoins.has(msg.sessionId)) {
+          ws.send(JSON.stringify(relayFrames.error({ message: `session not found: ${msg.sessionId}` })));
+          return;
+        }
         const reply = () => ws.send(JSON.stringify(relayFrames.sessionJoined({ sessionId: msg.sessionId })));
         const gate = joinGates.get(msg.sessionId);
         if (gate) gate.then(reply); else reply();
@@ -387,6 +395,7 @@ function createFakeRelay() {
       joinGates.set(sessionId, new Promise((resolve) => { release = resolve; }));
       return { release: () => { release(); joinGates.delete(sessionId); } };
     },
+    failJoinWith: (sessionId) => { failedJoins.add(sessionId); },
     // Same pattern as holdSessionCreate, for GET /api/models: lets a test
     // prove a launch waits for the model list instead of racing it.
     holdModels: () => {
