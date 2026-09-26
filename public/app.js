@@ -1,5 +1,4 @@
 const DEEP_LINK_PIN_MS = 10000;
-const VOICE_JOIN_TIMEOUT_MS = 5000;
 
 class EveWorkspaceClient {
   constructor() {
@@ -431,7 +430,7 @@ class EveWorkspaceClient {
       }
 
       if (this._initialHash !== null) this._restoreInitialHash(restoredSessionIds);
-      this._handleHashRoute();
+      this._handleHashRoute(true);
       if (!this._hashListenerAdded) {
         window.addEventListener('hashchange', () => this._handleHashRoute());
         this._hashListenerAdded = true;
@@ -584,7 +583,7 @@ class EveWorkspaceClient {
     this.elements.connectionStatus?.classList.toggle('hidden', online);
   }
 
-  _handleHashRoute() {
+  _handleHashRoute(fromReady = false) {
     const hash = window.location.hash;
     if (!hash) return;
 
@@ -598,7 +597,7 @@ class EveWorkspaceClient {
           this.tabManager.switchToTab(existingId);
           return;
         }
-        if (this._restoredSessionIds().includes(existingId)) {
+        if (fromReady && this._restoredSessionIds().includes(existingId)) {
           this._pinRestoredVoiceSession(existingId);
         } else {
           this.joinSession(existingId);
@@ -688,19 +687,17 @@ class EveWorkspaceClient {
   }
 
   // Relay's failed join carries no sessionId, only the id inside its message,
-  // so any other failure is caught by the timeout instead.
+  // so the fallback matches that exact text. There is deliberately no timeout:
+  // relay serialises joins per connection and a slow one (an SSH history read)
+  // would otherwise launch a second voice session.
   _armVoiceFallback(sessionId) {
-    this._disarmVoiceFallback();
-    const timer = setTimeout(() => this._fireVoiceFallback(), VOICE_JOIN_TIMEOUT_MS);
-    this._voiceFallback = { sessionId, timer };
+    this._voiceFallback = { sessionId };
   }
 
   _disarmVoiceFallback() {
     const fallback = this._voiceFallback;
-    if (!fallback) return null;
     this._voiceFallback = null;
-    clearTimeout(fallback.timer);
-    return fallback;
+    return fallback ?? null;
   }
 
   _fireVoiceFallback() {
@@ -710,10 +707,10 @@ class EveWorkspaceClient {
     this._launchFavoriteTemplate();
   }
 
-  _observeVoiceFallback(data) {
+  _observeVoiceFallback(data, resubscribeJoin) {
     const fallback = this._voiceFallback;
     if (!fallback) return;
-    if (data.type === 'session_joined' && data.sessionId === fallback.sessionId) {
+    if (data.type === 'session_joined' && data.sessionId === fallback.sessionId && !resubscribeJoin) {
       this._disarmVoiceFallback();
     } else if (data.type === 'error' && data.message === `session not found: ${fallback.sessionId}`) {
       this._fireVoiceFallback();
@@ -770,11 +767,12 @@ class EveWorkspaceClient {
   }
 
   handleServerMessage(data) {
-    const pinnedJoin = data.type === 'session_joined' && this._deepLinkPin
-      && !this.messageDispatcher.isResubscribeJoin(data.sessionId);
+    const resubscribeJoin = data.type === 'session_joined'
+      && this.messageDispatcher.isResubscribeJoin(data.sessionId);
+    const pinnedJoin = data.type === 'session_joined' && this._deepLinkPin && !resubscribeJoin;
     this.messageDispatcher.dispatch(data);
     if (pinnedJoin) this._holdDeepLinkFocus(data.sessionId);
-    this._observeVoiceFallback(data);
+    this._observeVoiceFallback(data, resubscribeJoin);
   }
 
   updateStats(stats) {

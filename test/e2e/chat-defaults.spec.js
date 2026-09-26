@@ -182,8 +182,8 @@ test.describe('chat defaults', () => {
 
     await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
     await eve.relay.waitForInbound((f) => f.type === 'join_session' && f.sessionId === VOICE, 15000);
-    // Longer than the join timeout, so either fallback trigger can satisfy it.
-    await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 15000 }).toBe(1);
+    // Only relay's join error can trigger the fallback, and it answers at once.
+    await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 5000 }).toBe(1);
     expect(eve.relay.sessionCreates[0].model).toBe('chat-a');
     const created = eve.relay.listSessions().find((s) => s.sessionId !== VOICE).sessionId;
     await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(created);
