@@ -288,6 +288,15 @@ class ShellLauncherDialog extends DialogBase {
   }
 
   _launchSession({ model, settings, systemPrompt, voice, sessionType, nameSuffix }) {
+    if (!(model || '').trim()) {
+      this.bus.emit(EVT.TOAST_SHOW, {
+        id: 'launch-no-model',
+        type: 'error',
+        duration: 5000,
+        message: `Pick a model for "${nameSuffix}" before starting a chat.`,
+      });
+      return;
+    }
     const project = this.state.getProject(this.projectId);
     const name = project ? `${project.name} - ${nameSuffix}` : nameSuffix;
     let msg = {
