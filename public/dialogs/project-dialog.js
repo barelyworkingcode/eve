@@ -559,6 +559,14 @@ class ProjectDialog extends DialogBase {
   async _saveProject(name, path) {
     if (!name || !path) return;
 
+    if (this._templatesDirty) {
+      const blank = this._templates.find(t => !(t.model || '').trim());
+      if (blank) {
+        this._showError(`Template "${blank.name}" has no model. Pick one before saving.`);
+        return;
+      }
+    }
+
     try {
       const body = {
         name,
@@ -589,16 +597,20 @@ class ProjectDialog extends DialogBase {
       this.hide();
     } catch (err) {
       this.log.error('Failed to save project:', err);
-      const existing = this._panel.querySelector('.project-dialog__error');
-      if (existing) existing.remove();
-      const errEl = document.createElement('div');
-      errEl.className = 'project-dialog__error';
-      errEl.textContent = err?.message
+      this._showError(err?.message
         ? `Failed to save project: ${err.message}`
-        : 'Failed to save project. Please try again.';
-      this._tabContent.prepend(errEl);
-      errEl.scrollIntoView({ block: 'nearest' });
+        : 'Failed to save project. Please try again.');
     }
+  }
+
+  _showError(message) {
+    const existing = this._panel.querySelector('.project-dialog__error');
+    if (existing) existing.remove();
+    const errEl = document.createElement('div');
+    errEl.className = 'project-dialog__error';
+    errEl.textContent = message;
+    this._tabContent.prepend(errEl);
+    errEl.scrollIntoView({ block: 'nearest' });
   }
 
   _renderPermissionsTab() {
@@ -902,6 +914,11 @@ class ProjectDialog extends DialogBase {
     saveBtn.addEventListener('click', () => {
       const name = nameInput.value.trim();
       if (!name) { nameInput.focus(); return; }
+      if (!modelSelect.value.trim()) {
+        this._showError('Pick a model for this template.');
+        modelSelect.focus();
+        return;
+      }
 
       this._templatesDirty = true;
       this._templates[idx] = {
