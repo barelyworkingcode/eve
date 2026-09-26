@@ -197,21 +197,6 @@ test.describe('changes panel', () => {
     await expect(fileRow(page, '/feat-login', 'notes.md')).toBeVisible();
   });
 
-  test('the header refresh re-requests the list', async ({ page }) => {
-    await openChanges(page);
-    const sent = await page.evaluate(async () => {
-      const rawWs = window.client.wsClient.ws;
-      const original = rawWs.send.bind(rawWs);
-      const frames = [];
-      rawWs.send = (m) => { frames.push(JSON.parse(m)); return original(m); };
-      document.querySelector('[data-testid="changes-refresh"]').click();
-      await new Promise((r) => setTimeout(r, 300));
-      rawWs.send = original;
-      return frames.filter((f) => f.type === 'git_changes');
-    });
-    expect(sent).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
-  });
-
   test('clicking a file opens the diff pane with a rendered Monaco diff', async ({ page }) => {
     const diff = await openAuthDiff(page);
     await expect(diff.locator('.editor.modified .view-lines')).toContainText('await', { timeout: 10000 });

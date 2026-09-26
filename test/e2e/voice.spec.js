@@ -28,6 +28,8 @@ const PHRASE = 'The quick brown fox jumps over the lazy dog';
 // flaky.
 const MIN_OVERLAP = 0.7;
 
+test.use({ eveEnv: { TTS_PORT: process.env.TTS_PORT || '9997', STT_PORT: process.env.STT_PORT || '9998' } });
+
 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 function overlap(spoken, heard) {
   const want = norm(spoken).split(' ').filter(Boolean);

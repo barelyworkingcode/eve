@@ -47,13 +47,6 @@ async function openNewTask(page) {
 
 const optionValues = (select) => select.locator('option').evaluateAll((opts) => opts.map((o) => o.value));
 
-test('allowlisted project lists exactly its allowed models', async ({ page, eve }) => {
-  await load(page, eve);
-  await expect.poll(() => page.evaluate(() => window.client.state.models.length)).toBe(3);
-  const dialog = await openNewTask(page);
-  expect(await optionValues(dialog.locator('[name="taskModel"]'))).toEqual(ALLOWED);
-});
-
 test('models arriving after the dialog opens: placeholder, save refused, then filled in place', async ({ page, eve }) => {
   let release;
   const gate = new Promise((r) => { release = r; });

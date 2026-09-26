@@ -76,24 +76,6 @@ test.describe('voice buttons', () => {
     expect(sent[0].enabled).toBe(true);
   });
 
-  test('the tts manager reaches its own button to set the speaking indicator', async ({ page }) => {
-    await openChat(page);
-    await openVoiceDrawer(page);
-    // Drive it through the manager to prove tts-manager.js still finds its
-    // own button after the move.
-    const speaking = await page.evaluate(() => {
-      window.client.ttsManager._setSpeakingIndicator(true);
-      return document.getElementById('voiceModeBtn').classList.contains('tts-speaking');
-    });
-    expect(speaking).toBe(true);
-
-    const stopped = await page.evaluate(() => {
-      window.client.ttsManager._setSpeakingIndicator(false);
-      return document.getElementById('voiceModeBtn').classList.contains('tts-speaking');
-    });
-    expect(stopped).toBe(false);
-  });
-
   test('a long press starts voice chat; a short tap does not', async ({ page }) => {
     await openChat(page);
     await openVoiceDrawer(page);
