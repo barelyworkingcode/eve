@@ -142,6 +142,56 @@ test.describe('chat defaults', () => {
     });
   }
 
+  test('#/voice-chat reopens a voice chat whose tab was closed, without launching another', async ({ page, eve }) => {
+    await openLauncher(page, eve);
+    await page.getByTestId('shell-card-voice-chat').click();
+    await page.getByRole('button', { name: 'Start Voice Chat' }).click();
+    await relayedCreate(eve);
+    const id = eve.relay.listSessions()[0].sessionId;
+    await expect(page.getByTestId(`tab-${id}`)).toBeVisible();
+    expect(await page.evaluate((sid) => window.client.sessions.get(sid)?.sessionType, id)).toBe('voice');
+
+    const joins = () => eve.relay.inbound.filter((f) => f.type === 'join_session' && f.sessionId === id).length;
+    await page.getByTestId(`tab-close-${id}`).click();
+    await expect(page.getByTestId(`tab-${id}`)).toHaveCount(0);
+    const joinsBefore = joins();
+
+    await page.waitForFunction(() => window.client?._hashListenerAdded);
+    await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
+    await expect.poll(joins, { timeout: 10000 }).toBe(joinsBefore + 1);
+    await expect(page.getByTestId(`tab-${id}`)).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(id);
+    await page.waitForTimeout(1000);
+    expect(joins()).toBe(joinsBefore + 1);
+    expect(eve.relay.sessionCreates).toHaveLength(1);
+  });
+
+  test('a cold #/voice-chat load launches the favourite when the restored voice session cannot be joined', async ({ page, eve }) => {
+    const VOICE = 'sess-voice-gone';
+    eve.relay.seedSession({
+      sessionId: VOICE, directory: eve.relay.getProject('p1').path, projectId: 'p1', model: 'chat-a', name: 'Voice Chat',
+    });
+    eve.relay.failJoinWith(VOICE);
+    await page.addInitScript((voice) => {
+      localStorage.setItem('eve-settings', JSON.stringify({
+        palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
+      }));
+      localStorage.setItem('eve-open-sessions', JSON.stringify({ [voice]: Date.now() }));
+      localStorage.setItem('eve-session-meta', JSON.stringify({ [voice]: { sessionType: 'voice' } }));
+    }, VOICE);
+
+    await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
+    await eve.relay.waitForInbound((f) => f.type === 'join_session' && f.sessionId === VOICE, 15000);
+    // Only relay's join error can trigger the fallback, and it answers at once.
+    await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 5000 }).toBe(1);
+    expect(eve.relay.sessionCreates[0].model).toBe('chat-a');
+    const created = eve.relay.listSessions().find((s) => s.sessionId !== VOICE).sessionId;
+    await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(created);
+    await page.waitForTimeout(1000);
+    expect(eve.relay.sessionCreates).toHaveLength(1);
+    await expect(page.getByTestId(`tab-${VOICE}`)).toHaveCount(0);
+  });
+
   test('the template editor shows neither checkbox, and saved templates carry neither key', async ({ page, eve }) => {
     await openLauncher(page, eve);
     await page.evaluate(() => window.client.bus.emit('dialog:project', { projectId: 'p1' }));

@@ -430,7 +430,7 @@ class EveWorkspaceClient {
       }
 
       if (this._initialHash !== null) this._restoreInitialHash(restoredSessionIds);
-      this._handleHashRoute();
+      this._handleHashRoute(true);
       if (!this._hashListenerAdded) {
         window.addEventListener('hashchange', () => this._handleHashRoute());
         this._hashListenerAdded = true;
@@ -583,7 +583,7 @@ class EveWorkspaceClient {
     this.elements.connectionStatus?.classList.toggle('hidden', online);
   }
 
-  _handleHashRoute() {
+  _handleHashRoute(fromReady = false) {
     const hash = window.location.hash;
     if (!hash) return;
 
@@ -595,9 +595,14 @@ class EveWorkspaceClient {
       if (existingId) {
         if (this.tabManager.tabs.some(t => t.id === existingId)) {
           this.tabManager.switchToTab(existingId);
-        } else {
-          this._pinRestoredVoiceSession(existingId);
+          return;
         }
+        if (fromReady && this._restoredSessionIds().includes(existingId)) {
+          this._pinRestoredVoiceSession(existingId);
+        } else {
+          this.joinSession(existingId);
+        }
+        this._armVoiceFallback(existingId);
         return;
       }
 
@@ -681,6 +686,37 @@ class EveWorkspaceClient {
     if (awaiting.size) this._pinDeepLink(sessionId, awaiting);
   }
 
+  // Relay's failed join carries no sessionId, only the id inside its message,
+  // so the fallback matches that exact text. There is deliberately no timeout:
+  // relay serialises joins per connection and a slow one (an SSH history read)
+  // would otherwise launch a second voice session.
+  _armVoiceFallback(sessionId) {
+    this._voiceFallback = { sessionId };
+  }
+
+  _disarmVoiceFallback() {
+    const fallback = this._voiceFallback;
+    this._voiceFallback = null;
+    return fallback ?? null;
+  }
+
+  _fireVoiceFallback() {
+    const fallback = this._disarmVoiceFallback();
+    if (!fallback) return;
+    if (this._deepLinkPin?.sessionId === fallback.sessionId) this._releaseDeepLinkPin();
+    this._launchFavoriteTemplate();
+  }
+
+  _observeVoiceFallback(data, resubscribeJoin) {
+    const fallback = this._voiceFallback;
+    if (!fallback) return;
+    if (data.type === 'session_joined' && data.sessionId === fallback.sessionId && !resubscribeJoin) {
+      this._disarmVoiceFallback();
+    } else if (data.type === 'error' && data.message === `session not found: ${fallback.sessionId}`) {
+      this._fireVoiceFallback();
+    }
+  }
+
   async _launchFavoriteTemplate() {
     if (!FAVORITE_TEMPLATE_ENABLED || this._favoriteLaunching) return;
 
@@ -731,10 +767,12 @@ class EveWorkspaceClient {
   }
 
   handleServerMessage(data) {
-    const pinnedJoin = data.type === 'session_joined' && this._deepLinkPin
-      && !this.messageDispatcher.isResubscribeJoin(data.sessionId);
+    const resubscribeJoin = data.type === 'session_joined'
+      && this.messageDispatcher.isResubscribeJoin(data.sessionId);
+    const pinnedJoin = data.type === 'session_joined' && this._deepLinkPin && !resubscribeJoin;
     this.messageDispatcher.dispatch(data);
     if (pinnedJoin) this._holdDeepLinkFocus(data.sessionId);
+    this._observeVoiceFallback(data, resubscribeJoin);
   }
 
   updateStats(stats) {
