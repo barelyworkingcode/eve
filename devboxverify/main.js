@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EveApi, added, onlyOutside } = require('./eve-api');
+const { acquire } = require('../scripts/browser-lock');
 
 const LIVE_EVE_PORT = 3000;
 const SCRIPT_TIMEOUT_MS = 300000;
@@ -203,6 +204,22 @@ async function run(argv) {
     process.stderr.write((err.usage ? USAGE : `run from inside an eve checkout: ${firstLine(err)}`) + '\n');
     return 2;
   }
+  let release;
+  try {
+    release = await acquire({ command: scrub(['devboxverify/main.js', ...argv].join(' '), home), log });
+  } catch (err) {
+    emit('PREFLIGHT', 'lock', 'FAIL', firstLine(err));
+    return 2;
+  }
+  emit('PREFLIGHT', 'lock', 'OK', 'acquired');
+  try {
+    return await runLocked({ home, emit, log, toolRoot, opts });
+  } finally {
+    await release();
+  }
+}
+
+async function runLocked({ home, emit, log, toolRoot, opts }) {
   const toolCommit = await git(toolRoot, 'rev-parse', 'HEAD').catch(() => '');
   const checkout = fs.existsSync(opts.checkout) ? fs.realpathSync(opts.checkout) : path.resolve(opts.checkout);
   const port = Number(new URL(opts.url).port);

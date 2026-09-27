@@ -26,6 +26,8 @@
     <string>@RELAY_CHECKOUT@</string>
     <key>NIGHTLY_EVE_CHECKOUT</key>
     <string>@EVE_CHECKOUT@</string>
+    <key>EVE_BROWSER_LOCK_TIMEOUT</key>
+    <string>600</string>
   </dict>
   <key>StandardOutPath</key>
   <string>@HOME@/Library/Logs/devboxverify/launchd.log</string>

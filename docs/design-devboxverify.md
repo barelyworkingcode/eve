@@ -89,6 +89,7 @@ Preflight, in order, stopping at the first FAIL (exit 2):
 
 | Check | OK when | Detail on OK |
 |---|---|---|
+| `lock` | the shared browser-test lock is taken (`scripts/browser-lock.js`), waiting up to `EVE_BROWSER_LOCK_TIMEOUT` s; FAIL on timeout (detail names the holder's pid and command) or when the lock cannot be taken | `acquired` |
 | `head` | `git -C <checkout> rev-parse HEAD` succeeds | sha |
 | `tree` | `git status --porcelain --untracked-files=no` is empty | `clean` |
 | `service` | `serviceRowProblem` is null | `<id> running` |
@@ -99,6 +100,10 @@ Preflight, in order, stopping at the first FAIL (exit 2):
 | `browser` | Chromium launches and closes | `chromium` |
 | `bootstrap` | `bootstrap.sh --check` exits 0 | `complete` |
 | `world` | `verify.sh` exits 0 and its last summary has `fail=0` | `green` |
+
+The lock is held until `run()` returns, on every path, and released by the
+kernel if the process dies. Taking it after argument parsing keeps usage
+errors immediate.
 
 Then `WORLD`, then `RESET`: OK when `reset.sh` exits 0 and the sweep leaves
 zero world items. Each world script has a 300 s timeout; `verify.sh` stdout is
@@ -287,7 +292,9 @@ Environment (from the plist): `NIGHTLY_RELAY_CHECKOUT`, `NIGHTLY_EVE_CHECKOUT`,
 Label `local.devboxverify.nightly`; `StartCalendarInterval` 03:30; `RunAtLoad`
 false; `ProgramArguments` `@NODE@ @HOME@/.local/share/devboxverify/nightly.js`;
 `EnvironmentVariables` `PATH=@PATH@`, `NIGHTLY_RELAY_CHECKOUT=@RELAY_CHECKOUT@`,
-`NIGHTLY_EVE_CHECKOUT=@EVE_CHECKOUT@`; stdout/stderr to
+`NIGHTLY_EVE_CHECKOUT=@EVE_CHECKOUT@`, `EVE_BROWSER_LOCK_TIMEOUT=600` (so a
+held lock shows as `PREFLIGHT lock FAIL` inside the nightly's 30-minute kill);
+stdout/stderr to
 `@HOME@/Library/Logs/devboxverify/launchd.log`. Placeholders only.
 
 Install (README): create `~/.local/share/devboxverify` and the log dir; copy

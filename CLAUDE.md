@@ -83,6 +83,8 @@ npm run test:integration  # integration tier
 npm run test:e2e          # Playwright end-to-end. Must stay green.
 ```
 
+**Browser-test lock.** `test:e2e`, `test:visual` and `verify:devbox` share one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
+
 ```
 test/
   setup.js          - setupFilesAfterEach: force-restores real timers after every test
