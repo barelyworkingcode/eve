@@ -22,6 +22,7 @@ const { ipHostGuard } = require('./ip-host-guard');
 const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
 const EnrollmentWindow = require('./enrollment-window');
 const PasskeySync = require('./passkey-sync');
+const { passkeySyncMode } = PasskeySync;
 const { Logger } = require('./logger');
 const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
@@ -45,6 +46,12 @@ try {
   launchHello = establishLaunchIdentity({ env: process.env });
 } catch (err) {
   refuseToStart(err);
+}
+
+const passkeySyncConfig = passkeySyncMode(process.env);
+if (passkeySyncConfig.refuse) {
+  serverLog.error(`Refusing to start: ${passkeySyncConfig.refuse}`);
+  process.exit(1);
 }
 
 const app = express();
@@ -226,7 +233,10 @@ const enrollmentWindow = new EnrollmentWindow({ relayTransport, log: log.child('
 
 // Null-transport-safe (see passkey-sync.js) for the same reason as
 // enrollmentWindow above.
-const passkeySync = new PasskeySync({ authService, relayTransport, log: log.child('PasskeySync') });
+const passkeySync = new PasskeySync({ authService, relayTransport, log: log.child('PasskeySync'), enabled: passkeySyncConfig.enabled });
+if (!passkeySyncConfig.enabled) {
+  serverLog.info('Passkey sync: off (EVE_PASSKEY_SYNC=off); no report or revocation poll to relay');
+}
 
 // Attaches the derived, browser-safe `host` field (null for a console
 // project) to a cached project without mutating the cache entry itself —
