@@ -359,7 +359,7 @@ describe('createWsHandler', () => {
         // handleReadPlanFile makes two sequential real fs round trips
         // (realpath, then readFile) — a single microtask flush can land
         // before both resolve, so poll a few more ticks.
-        let ticks = 0; for (; ticks < 5000 && ws.send.mock.calls.length === 0; ticks++) await flush(); console.log('PLANDEBUG ticks=' + ticks + ' calls=' + JSON.stringify(ws.send.mock.calls));
+        for (let i = 0; i < 20 && ws.send.mock.calls.length === 0; i++) await flush();
         expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
           type: 'plan_file_content', path: planPath, content: '# The Plan\n',
         }));
