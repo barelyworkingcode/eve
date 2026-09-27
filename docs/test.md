@@ -61,6 +61,18 @@ passkey/auth to set up. No relay orchestrator, relayLLM, or real LLM is involved
 
 ## Gotchas
 
+**Browser-test lock** — `test:e2e`, `test:visual` and `verify:devbox` each hold
+one machine-wide advisory lock for the whole run (`scripts/browser-lock.js`), so
+two browser runs never overlap. The lock file is `~/.cache/eve/browser-tests.lock`
+(`EVE_BROWSER_LOCK` overrides the path). A second run prints the holder's pid and
+command and waits up to `EVE_BROWSER_LOCK_TIMEOUT` seconds (default 1800), then
+exits 75. The lock is a kernel `flock` held by a small `perl` child, so `perl` must
+be on PATH, and the kernel drops it when the holder dies, even by SIGKILL. Pass
+Playwright args with `npm run test:e2e -- <args>`: a bare `npx playwright test`
+skips the lock. The lock is not reentrant, so a locked run that starts another
+locked run waits on itself until it times out. To clear a stuck lock, kill the
+holder named in the message; don't delete the file.
+
 **Timer globals** — Under Jest 30 + Node 26, `jest.useRealTimers()` can leave
 `setTimeout`/`clearTimeout` undefined. `test/setup.js` snapshots the real timer
 functions and force-restores them after every test, so a fake-timer test can't break
