@@ -66,7 +66,8 @@ one machine-wide advisory lock for the whole run (`scripts/browser-lock.js`), so
 two browser runs never overlap. The lock file is `~/.cache/eve/browser-tests.lock`
 (`EVE_BROWSER_LOCK` overrides the path). A second run prints the holder's pid and
 command and waits up to `EVE_BROWSER_LOCK_TIMEOUT` seconds (default 1800), then
-exits 75. The lock is a kernel `flock` held by a small `perl` child, so `perl` must
+gives up: the npm scripts exit 75, `verify:devbox` exits 2 with a
+`PREFLIGHT lock FAIL` row. The lock is a kernel `flock` held by a small `perl` child, so `perl` must
 be on PATH, and the kernel drops it when the holder dies, even by SIGKILL. Pass
 Playwright args with `npm run test:e2e -- <args>`: a bare `npx playwright test`
 skips the lock. The lock is not reentrant, so a locked run that starts another

@@ -1,6 +1,6 @@
 // The shared browser-test lock through its real entry points: the CLI wrapper,
-// the npm scripts and devboxverify/main.js. Every process gets its own lock
-// file; no browser ever launches (the npm scripts only run with the lock held
+// the npm scripts and devboxverify/main.js. Every test gets its own lock
+// file, shared by that test's processes; no browser ever launches (the npm scripts only run with the lock held
 // and a zero timeout).
 const { spawn } = require('child_process');
 const fs = require('fs');

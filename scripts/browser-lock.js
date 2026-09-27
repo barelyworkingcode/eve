@@ -71,8 +71,6 @@ function describe(holder) {
   return holder ? `pid ${holder.pid} (${holder.command}) since ${holder.since}` : 'an unknown holder';
 }
 
-// Resolves { state: 'busy' } or { state: 'locked', helper }. Rejects only
-// with ELOCKUNAVAILABLE.
 function attempt(file) {
   return new Promise((resolve, reject) => {
     const unavailable = reason => reject(lockError('ELOCKUNAVAILABLE', `cannot take ${file}: ${reason}`));
@@ -129,7 +127,13 @@ function hold(file, helper, command, log) {
     log(`browser-lock: lost ${file}: lock helper exited`);
   });
 
-  fs.writeFileSync(file, JSON.stringify({ pid: process.pid, command, since: new Date().toISOString() }) + '\n');
+  try {
+    fs.writeFileSync(file, JSON.stringify({ pid: process.pid, command, since: new Date().toISOString() }) + '\n');
+  } catch (err) {
+    released = exited;
+    try { helper.stdin.end(); } catch {}
+    throw err;
+  }
 
   return function release() {
     if (!released) {
@@ -166,7 +170,6 @@ async function acquire({
       try {
         release = hold(file, result.helper, String(command), log);
       } catch (err) {
-        result.helper.stdin.end();
         throw lockError('ELOCKUNAVAILABLE', `cannot take ${file}: ${err.message}`);
       }
       if (waited) log(`browser-lock: acquired ${file} after ${Math.round((Date.now() - start) / 1000)}s`);
@@ -175,12 +178,12 @@ async function acquire({
 
     const holder = readHolder(file);
     const seen = describe(holder);
-    if (Date.now() - start >= timeoutMs) {
-      throw lockError('ELOCKTIMEOUT', `gave up after ${Math.round(timeoutMs / 1000)}s; ${file} is held by ${seen}`, { holder });
-    }
     if (seen !== lastSeen) {
       log(`browser-lock: ${file} is held by ${seen}; waiting up to ${Math.round(timeoutMs / 1000)}s`);
       lastSeen = seen;
+    }
+    if (Date.now() - start >= timeoutMs) {
+      throw lockError('ELOCKTIMEOUT', `gave up after ${Math.round(timeoutMs / 1000)}s; ${file} is held by ${seen}`, { holder });
     }
     waited = true;
     await new Promise(resolve => setTimeout(resolve, RETRY_MS));
@@ -203,14 +206,22 @@ async function cli(argv) {
     return EXIT[err.code] || 70;
   }
 
-  const child = spawn(argv[0], argv.slice(1), { stdio: 'inherit' });
+  const cannotRun = err => process.stderr.write(`browser-lock: cannot run ${printable(argv[0])}: ${err.message}\n`);
+  let child;
+  try {
+    child = spawn(argv[0], argv.slice(1), { stdio: 'inherit' });
+  } catch (err) {
+    cannotRun(err);
+    await release();
+    return 127;
+  }
   const forward = signal => () => { try { child.kill(signal); } catch {} };
   process.on('SIGINT', forward('SIGINT'));
   process.on('SIGTERM', forward('SIGTERM'));
 
   const code = await new Promise(resolve => {
     child.once('error', err => {
-      process.stderr.write(`browser-lock: cannot run ${printable(argv[0])}: ${err.message}\n`);
+      cannotRun(err);
       resolve(127);
     });
     child.once('exit', (exitCode, signal) => {
