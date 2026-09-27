@@ -482,3 +482,9 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   absolute path.
 - **A4 · Hidden sessions.** `GET /api/sessions` filters `__search:` sessions,
   so the sweep and leak check cannot see one. No journey creates one.
+- **A5 · Model choice.** D9 picks an exact match first, then the first
+  `…/<model>` suffix match: a suffix match can name a provider the project may
+  not launch.
+- **A6 · Launch refusal.** Recognised by a WS error frame naming
+  `template "chat"`; it only decides BLOCKED vs FAIL. Journeys wait for the
+  model list before opening the launcher, which does not refill late models.
