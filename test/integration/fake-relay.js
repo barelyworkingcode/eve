@@ -308,6 +308,16 @@ function createFakeRelay() {
     });
   });
 
+  // Registered before the WebSocketServer's own upgrade listener, so the
+  // cork is in place when ws writes the 101 and fires `connection`.
+  let handshakeHoldMs = 0;
+  server.on('upgrade', (req, socket) => {
+    if (!handshakeHoldMs || new URL(req.url, 'http://relay.local').pathname !== '/ws') return;
+    const ms = handshakeHoldMs;
+    handshakeHoldMs = 0;
+    socket.cork();
+    setTimeout(() => socket.uncork(), ms);
+  });
   const wss = new WebSocketServer({ server });
   wss.on('connection', (ws, req) => {
     const isScheduler = (req.url || '').startsWith('/ws/tasks');
@@ -375,6 +385,9 @@ function createFakeRelay() {
     emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
     waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
     relayConnectionCount: () => relayWs.size,
+    // Holds the next /ws upgrade's 101 reply for `ms`: waitForRelay() then
+    // resolves while eve's side of the socket is still CONNECTING.
+    holdRelayHandshake: (ms) => { handshakeHoldMs = ms; },
     // Delays the reply to POST /api/sessions until release() is called, so a
     // test can pin down a state window that would otherwise race the real
     // cross-process round trip (HTTP POST, then a WS session_created push).
