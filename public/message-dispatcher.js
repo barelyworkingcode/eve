@@ -57,6 +57,15 @@ class MessageDispatcher {
     // reconnect, so handleSessionJoined can tell that reply apart from a
     // genuine, user-facing join and avoid stealing the active tab.
     this._resubscribeJoins = new Map();
+    // Sessions whose in-flight turn the user stopped. Relay still sends that
+    // turn's late chunks and may send more than one message_complete, so the
+    // mark lasts until the next turn's user_message; message_complete only
+    // reads it.
+    this._stoppedTurns = new Set();
+    // Stopped sessions whose own user_message echo was still in flight at
+    // Stop. Relay delivers each connection's frames in order, so that echo
+    // arrives before the next turn's and must not end the stop.
+    this._stopEchoExpected = new Set();
 
     this._sessionScopedTypes = new Set([
       'llm_event', 'message_complete', 'stats_update', 'raw_output',
@@ -130,6 +139,16 @@ class MessageDispatcher {
   }
 
   dispatch(data) {
+    if (data.type === 'user_message') {
+      if (!this._stopEchoExpected.delete(data.sessionId)) this._stoppedTurns.delete(data.sessionId);
+    }
+    // These frames prove this browser's in-flight Send will never echo.
+    if (data.type === 'error' && !data.sessionId) {
+      this._stopEchoExpected.clear();
+    } else if (data.type === 'error' || data.type === 'session_joined') {
+      this._stopEchoExpected.delete(data.sessionId);
+    }
+    if (data.type === 'llm_event' && this._stoppedTurns.has(data.sessionId)) return;
     if (data.sessionId && data.sessionId !== this.state.currentSessionId && this._sessionScopedTypes.has(data.type)) {
       this._handleBackgroundEvent(data);
       return;
@@ -220,6 +239,12 @@ class MessageDispatcher {
     this._streamingToolInputBuffer = '';
   }
 
+  markTurnStopped(sessionId) {
+    if (!sessionId) return;
+    this._stoppedTurns.add(sessionId);
+    if (this._localSubmitSession === sessionId) this._stopEchoExpected.add(sessionId);
+  }
+
   _notifyVoiceError(message) {
     this.voice?.handleError(message);
   }
@@ -234,6 +259,7 @@ class MessageDispatcher {
   }
 
   markLocalSubmit(sessionId) {
+    this._stopEchoExpected.delete(sessionId);
     this._localSubmitSession = sessionId;
   }
 
@@ -300,6 +326,7 @@ class MessageDispatcher {
 
   _handleMessageComplete(data) {
     this._untrackStreaming(data.sessionId);
+    const stopped = this._stoppedTurns.has(data.sessionId);
     this._openBlockKindByIndex = {};
     this._streamingToolInputBuffer = '';
     // An Agent call with no matching tool_result would otherwise leak its
@@ -320,7 +347,7 @@ class MessageDispatcher {
     this._lastTurnMetrics = null;
     this.renderer.finishAssistantMessage(metrics);
     this.app.hideStopButton();
-    if (!hadContent && !data.error) {
+    if (!hadContent && !data.error && !stopped) {
       const msg = data.errorMessage || 'No response from model';
       this.renderer.appendSystemMessage(msg, 'error');
       this._notifyVoiceError(msg);

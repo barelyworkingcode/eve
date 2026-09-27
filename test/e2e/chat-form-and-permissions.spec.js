@@ -84,4 +84,35 @@ test.describe('chat form and permissions, beyond the gate specs', () => {
     await expect(page.getByTestId('chat-submit')).toBeVisible();
     await expect(page.getByTestId('chat-stop')).toBeHidden();
   });
+
+  test('stop mid-stream keeps the reply, adds no error row, and draws no chunk sent after it', async ({ page, eve }) => {
+    await page.getByTestId('sidebar-project-p1').click();
+    await page.getByTestId('sidebar-new-session-p1').click();
+    await page.getByTestId('shell-card-web-chat').click();
+    await page.getByRole('button', { name: 'Start Chat' }).click();
+    await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15000 });
+
+    const sessionId = await page.evaluate(() => window.client.currentSessionId);
+    eve.relay.scriptSession(sessionId, [relayFrames.assistantDelta({ sessionId, text: 'Counting: 1, 2, 3' })]);
+
+    await page.getByTestId('chat-input').fill('count to 100');
+    await page.getByTestId('chat-submit').click();
+    await expect(page.getByTestId('messages-container')).toContainText('Counting: 1, 2, 3');
+
+    await page.getByTestId('chat-stop').click();
+    await eve.relay.waitForInbound((f) => f.type === 'stop_generation' && f.sessionId === sessionId);
+    eve.relay.emitToRelay(relayFrames.messageComplete({ sessionId }));
+    eve.relay.emitToRelay(relayFrames.assistantDelta({ sessionId, text: ', 4, 5, LATE' }));
+
+    // The last two assertions are negatives; a sentinel sent last on the same
+    // socket proves the complete and the late chunk were already handled.
+    eve.relay.emitToRelay({ type: 'mode_changed', sessionId, mode: 'plan' });
+    await expect.poll(() =>
+      page.evaluate(() => document.getElementById('planModeBtn').classList.contains('active'))
+    ).toBe(true);
+
+    await expect(page.getByTestId('messages-container')).toContainText('Counting: 1, 2, 3');
+    await expect(page.getByTestId('messages-container')).not.toContainText('LATE');
+    await expect(page.getByTestId('messages-container').locator('.message.system.error')).toHaveCount(0);
+  });
 });
