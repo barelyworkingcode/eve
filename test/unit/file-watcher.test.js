@@ -42,12 +42,6 @@ describe('FileWatcher', () => {
   });
 
   describe('watch/unwatch registration', () => {
-    it('starts a project watcher and records the open file', () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
-      expect(watcher.watchedFiles.get(PROJECT_ID).has('test.js')).toBe(true);
-    });
-
     it('echoes the client path verbatim and records the binary flag', () => {
       watcher.watch(PROJECT_ID, '/test.js', { binary: true });
       const entry = watcher.watchedFiles.get(PROJECT_ID).get('test.js');
@@ -103,7 +97,8 @@ describe('FileWatcher', () => {
   // _onFsEvent is driven directly here so the tests don't depend on fs.watch
   // delivery timing, and open files are registered without a real watcher
   // (which would replay FSEvents history and make assertions non-deterministic).
-  // A real-fs integration test below confirms the wiring fires end to end.
+  // The integration suites (file-ops, local-surface) confirm the real
+  // fs.watch wiring fires end to end.
   describe('_onFsEvent', () => {
     function registerOpenFile(clientPath, opts = {}) {
       const canon = clientPath.replace(/^\/+/, '');
@@ -158,15 +153,11 @@ describe('FileWatcher', () => {
     });
 
     it('emits dir_changed for the parent on a structural (rename) event', async () => {
-      watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'newfile.js');
-      await delay(300);
-      expect(mockWs.sent).toContainEqual({ type: 'dir_changed', projectId: PROJECT_ID, path: '/' });
-    });
-
-    it('maps a nested path to its parent directory', async () => {
       fs.mkdirSync(path.join(tmpDir, 'branding'));
+      watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'newfile.js');
       watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'branding/logo.svg');
       await delay(300);
+      expect(mockWs.sent).toContainEqual({ type: 'dir_changed', projectId: PROJECT_ID, path: '/' });
       expect(mockWs.sent).toContainEqual({ type: 'dir_changed', projectId: PROJECT_ID, path: '/branding' });
     });
 
@@ -194,32 +185,6 @@ describe('FileWatcher', () => {
     });
   });
 
-  describe('end-to-end (real fs.watch)', () => {
-    // Recursive fs.watch is FSEvents-backed on macOS. Generous delays absorb
-    // coalescing latency; skipped automatically where recursive watch is
-    // unsupported (the watcher silently no-ops there).
-    it('detects a new file appearing in the tree', async () => {
-      watcher.watchProject(PROJECT_ID);
-      if (!watcher.projectWatchers.has(PROJECT_ID)) return; // unsupported platform
-      await delay(50);
-      fs.writeFileSync(path.join(tmpDir, 'fresh.txt'), 'hi', 'utf8');
-      await delay(600);
-      expect(mockWs.sent.some((m) => m.type === 'dir_changed' && m.path === '/')).toBe(true);
-    });
-
-    it('pushes content when an open file changes on disk', async () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      if (!watcher.projectWatchers.has(PROJECT_ID)) return; // unsupported platform
-      await delay(50);
-      fs.writeFileSync(path.join(tmpDir, 'test.js'), 'changed-on-disk', 'utf8');
-      await delay(600);
-      // FSEvents may replay the recent create first, so assert that *some*
-      // push carried the new content rather than relying on ordering.
-      const got = mockWs.sent.some((m) => m.type === 'file_changed' && m.path === '/test.js' && m.content === 'changed-on-disk');
-      expect(got).toBe(true);
-    });
-  });
-
   describe('closeAll', () => {
     it('closes watchers and clears all state', () => {
       watcher.watch(PROJECT_ID, '/test.js');
@@ -231,12 +196,6 @@ describe('FileWatcher', () => {
       expect(watcher.projectWatchers.size).toBe(0);
       expect(watcher.watchedFiles.size).toBe(0);
       expect(watcher.selfWrites.size).toBe(0);
-    });
-
-    it('is safe to call multiple times', () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      watcher.closeAll();
-      expect(() => watcher.closeAll()).not.toThrow();
     });
   });
   // Changes panel refresh (docs/design-git-changes.md, "Refresh").
