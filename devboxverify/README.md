@@ -29,7 +29,11 @@ value equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
 for relay's presence helper).
 The tool never builds eve, registers a service or edits settings. Its only
 writes are the owner reset below and the `verify-<nonce>-*` folders journeys
-make in Acme Corp and remove. It never touches the live eve on :3000.
+make in Acme Corp and remove. It never targets the live eve on :3000, and
+preflight refuses it. It does share one thing with the live eve: relay has
+a single eve enrolment window. An add-browser-in-window run that fails
+between opening the window and consuming it leaves it open for up to
+5 minutes, and the live eve would accept a new browser in that time.
 
 ## Output
 
@@ -201,7 +205,8 @@ chat straight away.
   `devboxpresence answer --expect <text>` before the command that raises the
   dialog, and only after the helper prints `devboxpresence: ready` on stderr,
   since it refuses a dialog already open when it took its snapshot;
-  `closeConsole` runs `devboxpresence cancel --any` to clear a stray one.
+  `closeConsole` runs `devboxpresence cancel --any` to clear a stray one,
+  and exits the shell in the Terminal window `consoleRun` opened, if any.
   Exit codes: 0 answered, 1 no dialog in time, 3 refused (locked screen, not
   relay's dialog, text lacks the expected words, several dialogs, or one
   older than the helper); 2, 4 and 5 are errors.
@@ -240,8 +245,9 @@ chat straight away.
   FAIL. One registered after its journey timed out runs at the end of the run.
   A leftover `verify-<nonce>-*` folder fails the next `world` preflight.
 - Every run makes the sign-in ceremonies plus the negative journeys' calls:
-  8 of eve's 10 limited auth calls per IP per 15 minutes. Two full runs inside
-  15 minutes can hit the limit. Never raise it; wait.
+  9 of eve's 10 limited auth calls per IP per 15 minutes. The limiter is in
+  memory and the owner reset restarts eve-verify, so each run starts at zero.
+  Never raise it.
 - The owner reset leaves eve-verify with this run's owner. A browser you
   signed in to eve-verify by hand is signed out by the next run.
 - Model latency can turn chat-reply red for reasons outside eve.

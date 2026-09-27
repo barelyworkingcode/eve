@@ -54,25 +54,30 @@ function createScreen({ helperBin = process.env.DEVBOXPRESENCE_BIN || DEFAULT_HE
   const act = (...args) => run(computer, args);
   const haveHelper = () => fs.existsSync(helperBin);
 
+  let opened = false;
+
   async function consoleRun(argv) {
     await run('open', ['-a', 'Terminal']);
     await sleep(SETTLE_MS);
     await act('key', 'cmd+n');
+    opened = true;
     await sleep(SETTLE_MS);
     await act('type', shellQuote(argv));
     await act('key', 'return');
   }
 
-  // A stray dialog is cancelled first; it holds focus over Terminal.
+  // A stray dialog is cancelled first; it holds focus over Terminal. Only a
+  // window consoleRun opened gets keystrokes, and it is closed by ending its
+  // shell: a cmd+w after the window is gone would close someone else's.
   async function closeConsole() {
     if (haveHelper()) await new Promise(resolve => execFile(helperBin, ['cancel', '--any'], { timeout: COMMAND_TIMEOUT_MS }, () => resolve()));
+    if (!opened) return;
+    opened = false;
     await run('open', ['-a', 'Terminal']);
     await sleep(SETTLE_MS);
     await act('key', 'ctrl+c');
     await act('type', 'exit');
     await act('key', 'return');
-    await sleep(SETTLE_MS);
-    await act('key', 'cmd+w');
   }
 
   // This is subtle: it starts the helper now and returns two promises. The

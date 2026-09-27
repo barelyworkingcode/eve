@@ -431,11 +431,21 @@ describe('devboxverify journey table', () => {
     expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['add-browser-in-window']);
     expect(journeys.filter(j => j.fixture).map(j => j.id).sort()).toEqual(['passkey-first-enrol', 'passkey-sign-in']);
   });
+
+  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, agent-sign-in-refused, add-browser-in-window', () => {
+    const { orderJourneys } = require('../../devboxverify/main');
+    expect(orderJourneys(journeys, { screen: true }).run.map(j => j.id)).toEqual([
+      'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
+      'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
+      'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save',
+      'agent-sign-in-refused', 'add-browser-in-window',
+    ]);
+  });
 });
 
 describe('devboxverify/main.js run plan and owner reset', () => {
   const {
-    JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, authStatusProblem, ownerResetPaths,
+    JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
     relayAuditRows, serviceLogReader,
   } = require('../../devboxverify/main');
   const ids = list => list.map(j => j.id);
@@ -453,7 +463,7 @@ describe('devboxverify/main.js run plan and owner reset', () => {
     expect(ids(skipped)).toEqual(['s']);
   });
 
-  it('caps the journey phase at 480 s', () => {
+  it('pins the contract constant JOURNEY_BUDGET_MS at 480 s', () => {
     expect(JOURNEY_BUDGET_MS).toBe(480000);
   });
 
@@ -482,6 +492,21 @@ describe('devboxverify/main.js run plan and owner reset', () => {
       ['--data only on the eve row', row('eve', `--data ${dataDir}`)],
     ])('is null for %s', (_label, line) => {
       expect(pinnedDataDir(`${header}\n${line}\n`)).toBeNull();
+    });
+  });
+
+  describe('liveDataDir', () => {
+    const header = 'ID          NAME        COMMAND                    URL                    AUTOSTART  CAPABILITIES  STATE';
+    const row = args => `eve  eve  node server.js ${args}  http://localhost:3000  yes  frontend  running`;
+
+    it.each([
+      ['an absolute --data on the eve row', row('--data /srv/live/data'), null, '/srv/live/data'],
+      ['a relative --data against the live cwd', row('--data state'), '/srv/acme/eve', '/srv/acme/eve/state'],
+      ['<cwd>/data without --data', row(''), '/srv/acme/eve', '/srv/acme/eve/data'],
+      ['<cwd>/data without an eve row', '', '/srv/acme/eve', '/srv/acme/eve/data'],
+      ['null with neither', row(''), null, null],
+    ])('gives %s', (_label, line, cwd, expected) => {
+      expect(liveDataDir(`${header}\n${line}\n`, cwd)).toBe(expected);
     });
   });
 
@@ -623,7 +648,7 @@ describe('devboxverify/screen.js', () => {
 describe('devboxverify/nightly.js run order', () => {
   const { NIGHTS, relayVerifyArgs } = require('../../devboxverify/nightly');
 
-  it('runs relay api, then eve, then relay screen', () => {
+  it('pins the contract night order: relay api, then eve, then relay screen', () => {
     expect(NIGHTS.map(n => (n.repo === 'relay' ? `relay:${n.phase}` : n.repo))).toEqual(['relay:api', 'eve', 'relay:screen']);
   });
 

@@ -364,21 +364,23 @@ areas:
 - **Nightly budget.** The journey phase has a 480 s budget; a journey that
   would start past it is `BLOCKED run budget spent`. A green run is about
   4 minutes (preflight and reset ~50 s, journeys ~165 s, leak snapshots
-  ~20 s). Timeouts sum to 975 s, so the budget is what holds the worst case
+  ~20 s). Timeouts sum to 1290 s, so the budget is what holds the worst case
   under 10 minutes.
 - **Run order.** The passkey journeys run first against eve-verify, which
   runs untrusted: passkey-first-enrol claims it and passkey-sign-in signs
   in, and every later journey reuses that session. If either is not PASS,
-  the rest are `BLOCKED no signed-in owner`. Journeys 1–9 and the two
-  negatives follow.
+  the rest are `BLOCKED no signed-in owner`. Then agent-enrol-refused,
+  which waits out an enrolment window left open by an earlier run (up to
+  5 minutes), then journeys 1–9, then agent-sign-in-refused.
 - **Screen journeys run last.** The nightly passes `--screen`, so
-  add-browser-in-window runs every night after the rest. A manual run passes
+  add-browser-in-window runs every night after the rest and consumes the
+  enrolment window it opens. A manual run passes
   `--screen` only with a SCREEN grant; without it the journey is
   `NOTRUN screen journey; run with --screen`.
 - **Negative journeys** (agent-sign-in-refused, agent-enrol-refused) are
-  audited in relay's eve-verify service log. An enrolment refused outside
-  the window is not logged by eve today, so agent-enrol-refused carries a
-  known bug and stays red until eve records the refusal.
+  audited in relay's eve-verify service log. eve does not log an enrolment
+  refused outside the window, so agent-enrol-refused runs and stays red
+  until the enrolment-refusal logging bug is fixed.
 - **Model-dependent features** (tool blocks, question options, generated
   images, AI search summary, agent image tabs) need a scripted or
   deterministic model in the devbox world before a journey can judge them.

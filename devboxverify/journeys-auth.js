@@ -10,7 +10,6 @@ const LOG_WAIT_MS = 5000;
 const AGENT_WAIT_MS = 20000;
 const CONSUME_PATH = '/api/eve/passkey-enrolment/consume';
 // The line eve must write when it refuses an enrolment outside the window.
-// eve writes none today; the fix for that bug has to match this.
 const ENROL_REFUSAL = /enrol{1,2}ment[^\n]*(refused|rejected|denied|closed|not open)/i;
 
 async function passkeyFirstEnrol(env) {
@@ -57,6 +56,9 @@ async function agentAttempt(env, id, gate, line) {
   await openProject(page, env, env.projects.acme);
   const probe = await openWorldProbe(page, env);
   if (!probe) return { blocked: result(id, BLOCKED, 'no "World probe" card for Acme Corp') };
+  // Deliberate: a running terminal comes back as the active tab in every
+  // later page and covers Home.
+  env.cleanup('close the World probe terminal', () => env.api.closeTerminal(probe.terminalId));
   const mark = await env.serviceLog.mark();
   await probe.typeLine(line);
   env.step('wait for the agent\'s answer');
@@ -80,11 +82,15 @@ const eveOrigin = (env) => `http://127.0.0.1:${new URL(env.url).port}`;
 async function agentSignInRefused(env) {
   const id = 'agent-sign-in-refused';
   const o = eveOrigin(env);
-  // Deliberate: the JSON content type and object shape get the forged body
-  // past validateFinishBody into verifyLogin, the check being judged.
+  // Deliberate: b asks login/start for a real challenge first, so the forged
+  // answer gets past validateFinishBody and the challenge lookup into
+  // verifyLogin, where its made-up credential is refused. The line cannot
+  // reach the signature check itself: that needs the owner's credential id,
+  // which never goes into the typed line.
   const line = `a=$(curl -s -m 10 -o /dev/null -w '%{http_code}' ${o}/api/sessions); `
+    + `c=$(curl -s -m 10 -X POST ${o}/api/auth/login/start | sed -n 's/.*"challengeId":"\\([0-9a-f]*\\)".*/\\1/p'); `
     + `b=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' `
-    + `-d '{"response":{"id":"x"},"challengeId":"x"}' ${o}/api/auth/login/finish); `
+    + `-d "{\\"response\\":{\\"id\\":\\"x\\"},\\"challengeId\\":\\"$c\\"}" ${o}/api/auth/login/finish); `
     + `printf '%s_%s signin %s %s\\n' EVE NEG "$a" "$b"`;
   const r = await agentAttempt(env, id, 'signin', line);
   if (r.blocked || r.failed) return r.blocked || r.failed;
@@ -189,12 +195,13 @@ async function addBrowserInWindow(env) {
   return result(id, PASS, 'Add this browser reached the app; the window was consumed and audited');
 }
 
-const journeys = [
-  { id: 'passkey-first-enrol', timeoutMs: 45000, areas: ['auth'], fixture: true, run: passkeyFirstEnrol },
-  { id: 'passkey-sign-in', timeoutMs: 45000, areas: ['auth'], fixture: true, run: passkeySignIn },
-  { id: 'agent-enrol-refused', timeoutMs: 360000, areas: ['auth', 'terminal'], run: agentEnrolRefused },
-  { id: 'agent-sign-in-refused', timeoutMs: 60000, areas: ['auth', 'terminal'], run: agentSignInRefused },
-  { id: 'add-browser-in-window', timeoutMs: 90000, areas: ['auth'], screen: true, run: addBrowserInWindow },
-];
+// Placed one by one in journeys.js, which owns the run order.
+const journeys = {
+  passkeyFirstEnrol: { id: 'passkey-first-enrol', timeoutMs: 45000, areas: ['auth'], fixture: true, run: passkeyFirstEnrol },
+  passkeySignIn: { id: 'passkey-sign-in', timeoutMs: 45000, areas: ['auth'], fixture: true, run: passkeySignIn },
+  agentEnrolRefused: { id: 'agent-enrol-refused', timeoutMs: 360000, areas: ['auth', 'terminal'], run: agentEnrolRefused },
+  agentSignInRefused: { id: 'agent-sign-in-refused', timeoutMs: 60000, areas: ['auth', 'terminal'], run: agentSignInRefused },
+  addBrowserInWindow: { id: 'add-browser-in-window', timeoutMs: 90000, areas: ['auth'], screen: true, run: addBrowserInWindow },
+};
 
 module.exports = { journeys };

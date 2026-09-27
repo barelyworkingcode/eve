@@ -518,13 +518,18 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   `{ id, timeoutMs, areas, fixture?, screen?, knownBug?, run(env) }`.
   `areas` names the `devboxverify/FEATURES.md` areas it exercises. Journeys
   1–9 live in `journeys.js`, the passkey journeys in `journeys-auth.js`,
-  appended to the same table; both require with no side effects. Shared
+  exported by name and placed one by one in `journeys.js`'s table; both
+  require with no side effects. Shared
   helpers live in `journey-kit.js`, including `openWorldProbe` (a World probe
   terminal in Acme Corp, or null without the card) and `parseAgentAttempt`
   (the last `EVE_NEG <gate> <ddd>… <rest>` line; the typed line builds the
   marker with printf, so its echo never matches).
 - **A11 · Run order.** `orderJourneys` puts `fixture` journeys first and
-  `screen` journeys last. Without `--screen` a screen journey reports
+  `screen` journeys last, keeping table order within each group: the two
+  passkey fixtures, `agent-enrol-refused`, journeys 1–9,
+  `agent-sign-in-refused`, `add-browser-in-window`. `agent-enrol-refused`
+  goes first because relay has one enrolment window with no way to close it
+  unused; it waits out a leftover one. Without `--screen` a screen journey reports
   `NOTRUN screen journey; run with --screen`. The nightly passes `--screen`;
   a manual run passes it only with a SCREEN grant.
 - **A12 · Budget.** The journeys share `JOURNEY_BUDGET_MS` (480 s), counted
@@ -575,8 +580,9 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   `{ state, code, detail }`: `PRESENCE_EXIT` maps exit 0 → `answered`,
   1 → `no-prompt`, 3 → `refused`, anything else → `error`; a missing binary is
   `no-helper`. `detail` is the helper's `DIALOG` line and is never logged.
-  `closeConsole` runs `devboxpresence cancel --any` first. Eve never reads the
-  account password.
+  `closeConsole` runs `devboxpresence cancel --any` first, then ends the
+  shell in the Terminal window `consoleRun` opened, and touches Terminal only
+  if it did. Eve never reads the account password.
 - **A19 · Nightly order.** relay `--phase api` (record `relay`), eve
   `--screen` (record `eve`), relay `--phase screen` (record `relay-screen`).
   relay owns the `--phase` selector; the call sits in `relayVerifyArgs`.

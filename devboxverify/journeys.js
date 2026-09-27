@@ -30,7 +30,7 @@ async function reloadEve(page, env) {
 // A `verify-<nonce>-<kind>-XXXXXX` folder in Acme Corp's world folder, removed
 // by cleanup whatever the verdict. A leftover fails the next world preflight.
 async function scratchFolder(env, kind) {
-  const root = env.projects.acme.path;
+  const root = path.resolve(env.projects.acme.path);
   const prefix = `verify-${env.nonce}-${kind}-`;
   const dir = await fs.promises.mkdtemp(path.join(root, prefix));
   env.cleanup(`remove ${kind} folder`, async () => {
@@ -583,8 +583,15 @@ async function fileEditSave(env) {
   return result(id, PASS, 'saved to disk; a clean editor took an outside change; a dirty one asked and reloaded');
 }
 
+const auth = require('./journeys-auth').journeys;
+
+// The table order is the run order. agent-enrol-refused runs before anything
+// that could open relay's one enrolment window; add-browser-in-window runs
+// last and consumes the window it opens.
 const journeys = [
-  ...require('./journeys-auth').journeys,
+  auth.passkeyFirstEnrol,
+  auth.passkeySignIn,
+  auth.agentEnrolRefused,
   { id: 'landing-view', timeoutMs: 30000, areas: ['auth', 'home'], run: landingView },
   { id: 'world-projects-listed', timeoutMs: 45000, areas: ['home', 'projects'], run: worldProjectsListed },
   { id: 'chat-reply', timeoutMs: 150000, areas: ['chat'], run: chatReply },
@@ -594,6 +601,8 @@ const journeys = [
   { id: 'voice-deep-link', timeoutMs: 60000, areas: ['voice'], run: voiceDeepLink },
   { id: 'changes-diff', timeoutMs: 60000, areas: ['git'], run: changesDiff },
   { id: 'file-edit-save', timeoutMs: 75000, areas: ['files'], run: fileEditSave },
+  auth.agentSignInRefused,
+  auth.addBrowserInWindow,
 ];
 
 module.exports = { journeys };

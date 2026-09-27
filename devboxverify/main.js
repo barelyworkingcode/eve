@@ -135,6 +135,18 @@ function pinnedDataDir(listOut, service = 'eve-verify') {
   return dir && path.isAbsolute(dir) ? path.normalize(dir) : null;
 }
 
+// Where the live eve keeps its data, resolved as server.js does: the `eve`
+// row's --data against the live eve's cwd, else `<cwd>/data`. Null when
+// neither can be known.
+function liveDataDir(listOut, liveCwd) {
+  const row = serviceRow(listOut, 'eve');
+  const at = row ? row.indexOf('--data') : -1;
+  const dir = at >= 0 ? row[at + 1] : null;
+  if (dir && path.isAbsolute(dir)) return path.normalize(dir);
+  if (!liveCwd) return null;
+  return dir ? path.resolve(liveCwd, dir) : path.join(liveCwd, 'data');
+}
+
 function authStatusProblem(status) {
   if (!status || typeof status !== 'object') return 'GET /api/auth/status answered no status';
   if (status.trusted === true) return 'loopback is trusted; register eve-verify with EVE_DISABLE_SUBNET_BYPASS=1';
@@ -463,8 +475,8 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
     // Deliberate: this deletes eve-verify's owner so the run can enrol its
     // own. Only the two owner files in the pinned dir, never the live eve's.
     ['owner', async () => {
-      const real = fs.existsSync(dataDir) ? fs.realpathSync(dataDir) : dataDir;
-      const files = ownerResetPaths(real, { liveDataDir: liveCwd ? path.join(liveCwd, 'data') : null });
+      const real = dir => (dir && fs.existsSync(dir) ? fs.realpathSync(dir) : dir);
+      const files = ownerResetPaths(real(dataDir), { liveDataDir: real(liveDataDir(listOut, liveCwd)) });
       for (const f of files) await fs.promises.rm(f, { force: true });
       await exec(relayBin, ['service', 'restart', '--id', opts.service], { timeout: RESTART_TIMEOUT_MS });
       const deadline = Date.now() + OWNER_RESET_WAIT_MS;
@@ -590,7 +602,7 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
 module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run,
-  JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, authStatusProblem, ownerResetPaths,
+  JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader,
 };
 

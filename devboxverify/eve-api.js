@@ -6,6 +6,7 @@ const SWEEP_WAIT_MS = 10000;
 const WS_READY_MS = 10000;
 const FETCH_TIMEOUT_MS = 15000;
 const TERMINAL_LIST_MS = 10000;
+const CLOSE_TERMINAL_WAIT_MS = 5000;
 
 function isUnder(dir, root) {
   return !!dir && (dir === root || dir.startsWith(root + '/'));
@@ -178,6 +179,20 @@ class EveApi {
       await new Promise(r => setTimeout(r, 500));
     }
     return { sessions: world.sessions.length, tasks: world.tasks.length, terminals: world.terminals.length };
+  }
+
+  async closeTerminal(terminalId) {
+    const conn = await this._connect();
+    try {
+      conn.send({ type: 'terminal_close', terminalId });
+      const deadline = Date.now() + CLOSE_TERMINAL_WAIT_MS;
+      while ((await conn.terminals()).some(t => t.id === terminalId)) {
+        if (Date.now() > deadline) throw new Error(`terminal still open ${CLOSE_TERMINAL_WAIT_MS / 1000}s after terminal_close`);
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } finally {
+      conn.close();
+    }
   }
 }
 
