@@ -87,6 +87,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Send a message (Enter / Shift+Enter) | UI: `public/features/chat-form.js`; WS `user_input` | Composer | chat-reply | chat |
 | Streaming reply, Markdown, code, Mermaid | UI: `public/message-renderer.js` | Any reply | chat-reply (non-empty reply only) | chat |
 | Stop generation | UI: `chat-stop`; WS `stop_generation` | Stop button while replying | chat-reply (clicks Stop mid-reply) | chat |
+| Same chat open in two browsers | UI: `message-dispatcher.js` (`user_message` from another viewer) | Open one thread in a second browser, send from either | none yet — needs two browser contexts and a turn long enough to Send into; unit `message-dispatcher-stale-submit.test.js` only | chat |
 | Thinking, tool-use and agent blocks | UI: `message-renderer.js` | Replies that use tools or think | none yet — model-dependent | chat |
 | Interactive question options | UI: `message-renderer.js` | Model offers choices | none yet — model-dependent | chat |
 | Errors shown in the thread | UI: `message-system.error` | A refused or failed turn | chat-reply (classifies FAIL/BLOCKED) | chat |
