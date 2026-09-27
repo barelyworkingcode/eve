@@ -222,11 +222,6 @@ const NIGHTS = [
   { label: 'relay-screen', repo: 'relay', phase: 'screen' },
 ];
 
-function eveVerifyEnv() {
-  const relayCheckout = process.env.RELAY_CHECKOUT || process.env.NIGHTLY_RELAY_CHECKOUT;
-  return relayCheckout ? { ...process.env, RELAY_CHECKOUT: relayCheckout } : process.env;
-}
-
 async function runNight({ label, repo, phase }, checkout, at, logDir) {
   const envName = `NIGHTLY_${repo.toUpperCase()}_CHECKOUT`;
   const night = new Night(repo, checkout);
@@ -237,8 +232,7 @@ async function runNight({ label, repo, phase }, checkout, at, logDir) {
   if (!blockedReason) {
     res = repo === 'relay'
       ? await night.step('go', relayVerifyArgs(checkout, phase), { timeoutMs: RUN_TIMEOUT_MS })
-      : await night.step(process.execPath, ['devboxverify/main.js', '--checkout', checkout, '--screen'],
-        { timeoutMs: RUN_TIMEOUT_MS, env: eveVerifyEnv() });
+      : await night.step(process.execPath, ['devboxverify/main.js', '--checkout', checkout, '--screen'], { timeoutMs: RUN_TIMEOUT_MS });
   }
   const result = classify({ exitCode: res.code, timedOut: res.timedOut, blockedReason, stdout: res.stdout });
   const summary = blockedReason || (res.timedOut ? `timed out after 30 min; ${summaryOf(res.stdout)}` : summaryOf(res.stdout));

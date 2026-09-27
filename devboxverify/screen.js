@@ -11,21 +11,28 @@ const path = require('path');
 
 const SETTLE_MS = 1500;
 const COMMAND_TIMEOUT_MS = 15000;
-const HELPER_BUILD_TIMEOUT_MS = 120000;
 const HELPER_GRACE_MS = 10000;
+const DEFAULT_HELPER = path.join(os.homedir(), '.local', 'share', 'devboxverify', 'bin', 'devboxpresence');
 
-// Deliberate: relay has not pinned the helper's exit codes yet. This table is
-// the one place to change when it does. Any code not listed is an error.
+// `devboxpresence answer` exit codes. 2 is a usage error, 4 an unusable
+// password file, 5 a dialog still open 5 s after the helper acted; those and
+// any unlisted code are 'error'.
 const PRESENCE_EXIT = {
   0: 'answered',
-  2: 'no-prompt',
-  3: 'locked',
+  1: 'no-prompt',
+  3: 'refused',
 };
 
 function presenceOutcome(code) {
-  const outcome = PRESENCE_EXIT[code];
-  if (!outcome) throw new Error(`presence helper exited ${code === null ? 'on a signal' : code}`);
-  return outcome;
+  return PRESENCE_EXIT[code] || 'error';
+}
+
+// The helper prints one line, `DIALOG\t<word>\t<detail>`.
+function dialogDetail(stdout) {
+  const line = String(stdout).split('\n').find(l => l.startsWith('DIALOG\t'));
+  if (!line) return '';
+  const [, word, ...rest] = line.split('\t');
+  return [word, rest.join(' ')].filter(Boolean).join(': ').slice(0, 200);
 }
 
 function shellQuote(argv) {
@@ -34,22 +41,18 @@ function shellQuote(argv) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-function run(cmd, args, { cwd, timeoutMs = COMMAND_TIMEOUT_MS } = {}) {
+function run(cmd, args, { timeoutMs = COMMAND_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 1 << 20 }, (err) => {
+    execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 1 << 20 }, (err) => {
       if (err) reject(new Error(`${path.basename(cmd)} ${args[0] || ''} failed: ${String(err.message).split('\n')[0]}`));
       else resolve();
     });
   });
 }
 
-function helperDir(relayDir) {
-  return relayDir && fs.existsSync(path.join(relayDir, 'cmd', 'devboxpresence')) ? relayDir : null;
-}
-
-// `relayDir` is a relay checkout that holds cmd/devboxpresence.
-function createScreen({ relayDir, computer = 'computer' } = {}) {
+function createScreen({ helperBin = process.env.DEVBOXPRESENCE_BIN || DEFAULT_HELPER, computer = 'computer' } = {}) {
   const act = (...args) => run(computer, args);
+  const haveHelper = () => fs.existsSync(helperBin);
 
   async function consoleRun(argv) {
     await run('open', ['-a', 'Terminal']);
@@ -60,8 +63,9 @@ function createScreen({ relayDir, computer = 'computer' } = {}) {
     await act('key', 'return');
   }
 
-  // The presence dialog takes focus, so Terminal is brought back first.
+  // A stray dialog is cancelled first; it holds focus over Terminal.
   async function closeConsole() {
+    if (haveHelper()) await new Promise(resolve => execFile(helperBin, ['cancel', '--any'], { timeout: COMMAND_TIMEOUT_MS }, () => resolve()));
     await run('open', ['-a', 'Terminal']);
     await sleep(SETTLE_MS);
     await act('key', 'ctrl+c');
@@ -69,30 +73,29 @@ function createScreen({ relayDir, computer = 'computer' } = {}) {
     await act('key', 'return');
   }
 
-  // Deliberate: the helper is built, then run, rather than `go run`: `go run`
-  // turns every non-zero exit into 1, which would hide which outcome it was.
-  async function answerPresence({ timeoutMs = 30000 } = {}) {
-    const dir = helperDir(relayDir);
-    if (!dir) return 'no-helper';
-    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'devboxpresence-'));
-    try {
-      const bin = path.join(scratch, 'devboxpresence');
-      await run('go', ['build', '-o', bin, './cmd/devboxpresence'], { cwd: dir, timeoutMs: HELPER_BUILD_TIMEOUT_MS });
-      const code = await new Promise((resolve, reject) => {
-        // Deliberate: the helper's output is not forwarded, so nothing it
-        // prints can reach a log.
-        const child = spawn(bin, ['--timeout', `${Math.max(1, Math.ceil(timeoutMs / 1000))}s`], { cwd: dir, stdio: 'ignore' });
-        const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs + HELPER_GRACE_MS);
-        child.on('error', (err) => { clearTimeout(timer); reject(err); });
-        child.on('exit', (c) => { clearTimeout(timer); resolve(c); });
+  // This is subtle: it starts the helper now and returns the promise, and the
+  // caller triggers the dialog after. The helper refuses a dialog that was
+  // already open when it started.
+  function answerPresence({ expect, timeoutMs = 20000 }) {
+    if (!haveHelper()) return Promise.resolve({ state: 'no-helper', code: null, detail: '' });
+    return new Promise((resolve) => {
+      const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+      const child = spawn(helperBin, ['answer', '--expect', expect, '--timeout', `${seconds}s`], { stdio: ['ignore', 'pipe', 'ignore'] });
+      let out = '';
+      child.stdout.on('data', (d) => { out += d; });
+      const timer = setTimeout(() => child.kill('SIGKILL'), seconds * 1000 + HELPER_GRACE_MS);
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        resolve({ state: 'error', code: null, detail: `presence helper did not start: ${err.code || err.message}` });
       });
-      return presenceOutcome(code);
-    } finally {
-      if (scratch && scratch.startsWith(os.tmpdir())) fs.rmSync(scratch, { recursive: true, force: true });
-    }
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        resolve({ state: presenceOutcome(code), code, detail: dialogDetail(out) });
+      });
+    });
   }
 
   return { consoleRun, closeConsole, answerPresence };
 }
 
-module.exports = { createScreen, presenceOutcome, shellQuote, PRESENCE_EXIT };
+module.exports = { createScreen, presenceOutcome, dialogDetail, shellQuote, PRESENCE_EXIT };

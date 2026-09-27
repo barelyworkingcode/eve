@@ -24,8 +24,9 @@ Keep `-s` on the npm form. npm's banner would break the stdout grammar.
 Environment: `RELAY_BIN` (default `/Applications/Relay.app/Contents/MacOS/relay`;
 used for `relay service list`, `relay service restart --id eve-verify` and
 `relay audit`), `EVE_VERIFY_MODEL` (default `Chat`; the first model whose
-value equals it or ends in `/<it>`), `RELAY_CHECKOUT` (default `../relay`
-beside this checkout; only `--screen` uses it, for relay's presence helper).
+value equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
+`~/.local/share/devboxverify/bin/devboxpresence`; only `--screen` uses it,
+for relay's presence helper).
 The tool never builds eve, registers a service or edits settings. Its only
 writes are the owner reset below and the `verify-<nonce>-*` folders journeys
 make in Acme Corp and remove. It never touches the live eve on :3000.
@@ -191,10 +192,18 @@ chat straight away.
   `EVE_VERIFY_MODEL`, added from eve's Edit Project → Chat Templates.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
-  nightly plist's too), and a relay checkout holding `cmd/devboxpresence` at
-  `RELAY_CHECKOUT` or `../relay`. Without the helper, a presence journey gets
-  `no-helper` and reports BLOCKED. Eve never reads the account password: the
-  helper does, and checks the dialog is relay's before it types.
+  nightly plist's too), and relay's presence helper built at
+  `DEVBOXPRESENCE_BIN` (default
+  `~/.local/share/devboxverify/bin/devboxpresence`; relay documents the
+  build). Without it, a presence journey gets `no-helper` and reports
+  BLOCKED. Eve never reads the account password: the helper does, and checks
+  the dialog is relay's before it types. Journeys start
+  `devboxpresence answer --expect <text>` before the command that raises the
+  dialog, since the helper refuses a dialog already open when it started;
+  `closeConsole` runs `devboxpresence cancel --any` to clear a stray one.
+  Exit codes: 0 answered, 1 no dialog in time, 3 refused (locked screen, not
+  relay's dialog, text lacks the expected words, several dialogs, or one
+  older than the helper); 2, 4 and 5 are errors.
 
 ## Verifying a PR
 
@@ -244,8 +253,7 @@ chat straight away.
 A launchd job runs the verifiers every night at 03:30, one after the other:
 relay's api journeys (`--phase api`, record `relay`), eve with `--screen`
 (record `eve`), then relay's screen journeys (`--phase screen`, record
-`relay-screen`). It never retries a verify. The eve run gets `RELAY_CHECKOUT`
-from `NIGHTLY_RELAY_CHECKOUT` when it is not set.
+`relay-screen`). It never retries a verify.
 
 - **Relay** is verified as installed. The nightly never builds relay, because
   its build signs and its register needs you at the console. After a merge to

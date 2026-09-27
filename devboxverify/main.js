@@ -509,9 +509,7 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
       await exec(relayBin, ['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
   };
-  const screen = opts.screen
-    ? createScreen({ relayDir: process.env.RELAY_CHECKOUT || path.join(toolRoot, '..', 'relay') })
-    : null;
+  const screen = opts.screen ? createScreen() : null;
   const results = [];
   const pending = [];
   let spentMs = 0;

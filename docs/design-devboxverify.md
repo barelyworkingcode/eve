@@ -566,11 +566,17 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   `shared`.
 - **A18 · Screen.** `screen.js` types into a desktop Terminal with the
   `computer` CLI, never AppleScript, which would block on a consent dialog.
-  `answerPresence` builds relay's `cmd/devboxpresence` (at `RELAY_CHECKOUT` or
-  `../relay`) and runs the binary, since `go run` turns every non-zero exit
-  into 1. Exit codes map through one table, `PRESENCE_EXIT`, to
-  `answered | no-prompt | locked`; relay has not pinned them yet. No helper is
-  `no-helper`. Eve never reads the account password.
+  `answerPresence({ expect, timeoutMs })` runs relay's presence helper
+  (`DEVBOXPRESENCE_BIN`, default
+  `~/.local/share/devboxverify/bin/devboxpresence`) as
+  `devboxpresence answer --expect <text> --timeout <n>s`. It starts the helper
+  at once and returns a promise, because the helper refuses a dialog that
+  predates it: start it, trigger the dialog, then await. It resolves
+  `{ state, code, detail }`: `PRESENCE_EXIT` maps exit 0 → `answered`,
+  1 → `no-prompt`, 3 → `refused`, anything else → `error`; a missing binary is
+  `no-helper`. `detail` is the helper's `DIALOG` line and is never logged.
+  `closeConsole` runs `devboxpresence cancel --any` first. Eve never reads the
+  account password.
 - **A19 · Nightly order.** relay `--phase api` (record `relay`), eve
   `--screen` (record `eve`), relay `--phase screen` (record `relay-screen`).
   relay owns the `--phase` selector; the call sits in `relayVerifyArgs`.
