@@ -57,6 +57,9 @@ describe('MessageDispatcher local submit that never echoes', () => {
     ['the Send is lost on a closed socket and the browser rejoins', (d) => {
       d.dispatch({ type: 'session_joined', sessionId: 'S', directory: '/p1', history: [] });
     }],
+    ['relay reports an error for the session', (d) => {
+      d.dispatch({ type: 'error', sessionId: 'S', message: 'turn failed' });
+    }],
   ])('draws another viewer\'s next message when %s', (_label, afterLostSend) => {
     const { container, state, renderer } = makeContainer();
     const dispatcher = new MessageDispatcher(container);
@@ -70,5 +73,18 @@ describe('MessageDispatcher local submit that never echoes', () => {
     dispatcher.dispatch({ type: 'user_message', sessionId: 'S', text: 'And now?' });
 
     expect(renderer.appendUserMessage).toHaveBeenCalledWith('And now?');
+  });
+
+  it('still skips its own echo after an error for another session', () => {
+    const { container, state, renderer } = makeContainer();
+    const dispatcher = new MessageDispatcher(container);
+    state.currentSessionId = 'S';
+    state.sessions.set('S', { id: 'S' });
+
+    dispatcher.markLocalSubmit('S');
+    dispatcher.dispatch({ type: 'error', sessionId: 'T', message: 'turn failed' });
+    dispatcher.dispatch({ type: 'user_message', sessionId: 'S', text: 'My question' });
+
+    expect(renderer.appendUserMessage).not.toHaveBeenCalled();
   });
 });
