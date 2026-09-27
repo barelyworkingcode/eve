@@ -8,18 +8,19 @@ const { NullLogger } = require('./logger');
 const DEFAULT_POLL_MS = 30000;
 
 class PasskeySync {
-  constructor({ authService, relayTransport, log, pollMs = DEFAULT_POLL_MS } = {}) {
+  constructor({ authService, relayTransport, log, pollMs = DEFAULT_POLL_MS, enabled = true } = {}) {
     this.authService = authService;
     this.relayTransport = relayTransport || null;
     this.log = log || new NullLogger();
     this.pollMs = pollMs;
+    this.enabled = enabled;
     this.timer = null;
   }
 
   // PUTs the current credential list and applies whatever revocations relay
   // returns in the same round-trip. No-op with no transport.
   async report() {
-    if (!this.relayTransport) return;
+    if (!this.enabled || !this.relayTransport) return;
     const passkeys = this.authService.listCredentials();
     try {
       const { status, data } = await this.relayTransport.fetch('PUT', '/api/eve/passkeys', { passkeys });
@@ -56,7 +57,7 @@ class PasskeySync {
   // credential list (mirrors relay's own last-credential guard — decision
   // 13), then reports once, which is the acknowledgement.
   async apply(ids) {
-    if (!this.relayTransport || !Array.isArray(ids) || ids.length === 0) return;
+    if (!this.enabled || !this.relayTransport || !Array.isArray(ids) || ids.length === 0) return;
     const existing = new Set(this.authService.listCredentials().map((c) => c.id));
     let removedAny = false;
     for (const id of ids) {
@@ -76,7 +77,7 @@ class PasskeySync {
   // Runs an initial report immediately, then polls. `.unref()`'d so this
   // timer never keeps the process alive.
   start() {
-    if (!this.relayTransport || this.timer) return;
+    if (!this.enabled || !this.relayTransport || this.timer) return;
     this.report();
     this.timer = setInterval(() => this.report(), this.pollMs);
     this.timer.unref?.();
@@ -90,4 +91,19 @@ class PasskeySync {
   }
 }
 
+// relay keeps one passkey list for "eve": any second eve instance that
+// reports would overwrite it and drop the live eve's pending revocations.
+// The live eve itself must never run with sync off, so that pairing refuses.
+function passkeySyncMode(env) {
+  if (env.EVE_PASSKEY_SYNC !== 'off') return { enabled: true, refuse: null };
+  if (env.RELAY_SERVICE_ID === 'eve') {
+    return {
+      enabled: false,
+      refuse: 'EVE_PASSKEY_SYNC=off is not allowed on the live eve service: relay would stop applying its passkey revocations',
+    };
+  }
+  return { enabled: false, refuse: null };
+}
+
 module.exports = PasskeySync;
+module.exports.passkeySyncMode = passkeySyncMode;
