@@ -436,7 +436,29 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   `eve-verify` with a fresh `--data` reports `[]` every 30 s, so a revocation the
   owner requested for the live eve could be dropped. Read from the code, not yet
   proven. Recommended: a separate eve issue adding an env switch that turns
-  passkey sync off, set only on `eve-verify`. Blocks S1.
+  passkey sync off, set only on `eve-verify`. Blocks S1, and blocks pointing
+  the live eve service at another data dir.
+
+  Draft for that issue (filed by the coordinator once the owner answers,
+  `needs-review`):
+
+  > **A verify-only eve instance must not report passkeys to relay**
+  >
+  > As the owner I would like a second, verify-only eve to leave relay's
+  > passkey list alone, so running devbox verification can never drop a
+  > revocation I asked for on my real eve.
+  >
+  > Acceptance criteria:
+  > 1. With `EVE_PASSKEY_SYNC=off` in its environment, eve neither reports
+  >    its credential list to relay nor pulls revocations; it logs once at
+  >    startup that sync is off.
+  > 2. Unset or any other value: behaviour is unchanged.
+  > 3. The login-time revocation check keeps its current fail-open
+  >    behaviour; with sync off there are no pending revocations to apply.
+  > 4. A unit test covers both settings.
+  >
+  > Tasks: `- [ ] **T1 · env switch in passkey-sync.js wiring in server.js,
+  > with test**`
 
 ## Risks
 
@@ -446,3 +468,17 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
 - Conversation mode may not start in headless Chromium; T2 checks this first.
 - `osascript display notification` may need permission; `status.html` is the
   durable report.
+
+## Amendments
+
+- **A1 · Relay readiness on the WS.** eve answers `auth_success` before its own
+  upstream to relay is open and drops frames sent before then. The eve-api WS
+  client re-sends `terminal_list` every 500 ms after auth and treats the first
+  reply as ready (10 s limit); each snapshot and sweep opens its own socket.
+- **A2 · Runner states.** A snapshot that throws makes the journey BLOCKED
+  (`could not snapshot: <msg>`); a failed after-snapshot only downgrades PASS
+  to BLOCKED. A journey returning no valid result is FAIL.
+- **A3 · CLI.** `--flag=value` is accepted too; `--world` is resolved to an
+  absolute path.
+- **A4 · Hidden sessions.** `GET /api/sessions` filters `__search:` sessions,
+  so the sweep and leak check cannot see one. No journey creates one.
