@@ -584,6 +584,7 @@ async function fileEditSave(env) {
 }
 
 const journeys = [
+  ...require('./journeys-auth').journeys,
   { id: 'landing-view', timeoutMs: 30000, areas: ['auth', 'home'], run: landingView },
   { id: 'world-projects-listed', timeoutMs: 45000, areas: ['home', 'projects'], run: worldProjectsListed },
   { id: 'chat-reply', timeoutMs: 150000, areas: ['chat'], run: chatReply },
@@ -593,7 +594,6 @@ const journeys = [
   { id: 'voice-deep-link', timeoutMs: 60000, areas: ['voice'], run: voiceDeepLink },
   { id: 'changes-diff', timeoutMs: 60000, areas: ['git'], run: changesDiff },
   { id: 'file-edit-save', timeoutMs: 75000, areas: ['files'], run: fileEditSave },
-  ...require('./journeys-auth').journeys,
 ];
 
 module.exports = { journeys };

@@ -2,7 +2,7 @@
 // No detail here ever holds a token, credential id, key material or password.
 const { expect } = require('@playwright/test');
 const {
-  PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, openProject, openWorldProbe, parseAgentAttempt,
+  PASS, FAIL, BLOCKED, result, firstLine, sleep, need, poll, openEve, openProject, openWorldProbe, parseAgentAttempt,
 } = require('./journey-kit');
 const { enrolOwner, signIn, addAuthenticator, awaitSignedIn } = require('./owner');
 
@@ -99,10 +99,27 @@ async function agentSignInRefused(env) {
   return result(id, PASS, 'sessions 401, forged login 400 and logged');
 }
 
+const WINDOW_TTL_MS = 5 * 60 * 1000;
+const WINDOW_GRACE_MS = 3000;
+
+function windowLeftMs(expires) {
+  const at = typeof expires === 'number' ? expires : Date.parse(expires);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
+}
+
 async function agentEnrolRefused(env) {
   const id = 'agent-enrol-refused';
   env.step('check the enrolment window is closed');
-  if ((await env.api.authStatus()).enrollmentOpen !== false) return result(id, BLOCKED, 'the enrolment window is not closed');
+  const status = await env.api.authStatus();
+  if (status.enrollmentOpen !== false) {
+    // Relay has one eve enrolment window and no way to close it unused, so a
+    // window left by an earlier run is waited out rather than raced.
+    const left = windowLeftMs(status.enrollmentExpires);
+    if (left === null || left > WINDOW_TTL_MS) return result(id, BLOCKED, 'the enrolment window is open with no usable expiry');
+    env.step(`wait ${Math.ceil(left / 1000)}s for an open enrolment window to expire`);
+    await sleep(left + WINDOW_GRACE_MS);
+    if ((await env.api.authStatus()).enrollmentOpen !== false) return result(id, BLOCKED, 'the enrolment window is still open after its expiry');
+  }
   const line = `r=$(curl -s -m 10 -X POST -w ' %{http_code}' ${eveOrigin(env)}/api/auth/enroll/start); `
     + `printf '%s_%s enrol %s %s\\n' EVE NEG "\${r##* }" "\${r% *}"`;
   const r = await agentAttempt(env, id, 'enrol', line);
@@ -175,8 +192,8 @@ async function addBrowserInWindow(env) {
 const journeys = [
   { id: 'passkey-first-enrol', timeoutMs: 45000, areas: ['auth'], fixture: true, run: passkeyFirstEnrol },
   { id: 'passkey-sign-in', timeoutMs: 45000, areas: ['auth'], fixture: true, run: passkeySignIn },
+  { id: 'agent-enrol-refused', timeoutMs: 360000, areas: ['auth', 'terminal'], run: agentEnrolRefused },
   { id: 'agent-sign-in-refused', timeoutMs: 60000, areas: ['auth', 'terminal'], run: agentSignInRefused },
-  { id: 'agent-enrol-refused', timeoutMs: 60000, areas: ['auth', 'terminal'], run: agentEnrolRefused },
   { id: 'add-browser-in-window', timeoutMs: 90000, areas: ['auth'], screen: true, run: addBrowserInWindow },
 ];
 
