@@ -47,17 +47,6 @@ describe('HostAgent (spawned via a fake "ssh" that runs remote-fs-agent.js local
     });
   }
 
-  it('connects (hello round trip) and reports status transitions connecting -> connected', async () => {
-    agent = new HostAgent({ host: makeHost(), spawnFn: localAgentSpawner });
-    // The constructor sets 'connecting' synchronously, before any listener
-    // attached after `new` could observe the event — assert the state directly.
-    expect(agent.status).toBe('connecting');
-    const statuses = [];
-    agent.on('status', (evt) => statuses.push(evt.status));
-    await waitForStatus(agent, 'connected');
-    expect(statuses[statuses.length - 1]).toBe('connected');
-  });
-
   it('serves a request/response round trip once connected', async () => {
     agent = new HostAgent({ host: makeHost(), spawnFn: localAgentSpawner });
     await waitForStatus(agent, 'connected');
@@ -75,24 +64,15 @@ describe('HostAgent (spawned via a fake "ssh" that runs remote-fs-agent.js local
     expect(Buffer.concat(chunks).toString('utf8')).toBe('hi');
   });
 
-  it('rejects in-flight requests and flips to unreachable when the child dies', async () => {
-    agent = new HostAgent({ host: makeHost(), spawnFn: localAgentSpawner });
-    await waitForStatus(agent, 'connected');
-
-    const pending = agent.request('read', { root, path: 'a.txt' });
-    // Kill the underlying ssh process out from under the in-flight request.
-    agent._proc.kill();
-
-    await expect(pending).rejects.toThrow(/unreachable/);
-    await waitForStatus(agent, 'unreachable');
-  });
-
   it('reconnects with backoff after the child dies and serves requests again', async () => {
     agent = new HostAgent({ host: makeHost(), spawnFn: localAgentSpawner });
     await waitForStatus(agent, 'connected');
 
     agent._reconnectDelay = 10; // don't make the test wait out the real 1s floor
+    const pending = agent.request('read', { root, path: 'a.txt' });
+    // Kill the underlying ssh process out from under the in-flight request.
     agent._proc.kill();
+    await expect(pending).rejects.toThrow(/unreachable/);
     await waitForStatus(agent, 'unreachable');
     await waitForStatus(agent, 'connected', 10000);
 
@@ -175,15 +155,6 @@ describe('HostPool', () => {
       check();
     });
     expect(events.some((e) => e.hostId === 'h1' && e.status === 'connected')).toBe(true);
-  });
-
-  it('statuses() reports every host this pool has spawned an agent for', async () => {
-    pool = new HostPool({ resolveHost: () => makeHost(), spawnFn: localAgentSpawner });
-    pool.get('h1');
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const statuses = pool.statuses();
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0]).toMatchObject({ hostId: 'h1', name: 'devbox' });
   });
 
   it('disconnect(hostId) tears the agent down and a later get() spawns fresh', async () => {

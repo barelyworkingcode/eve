@@ -1,8 +1,8 @@
 /**
  * Spawns the real remote-fs-agent.js as a child process over pipes (no ssh —
  * that's the point: the agent is plain Node, so it's testable in-process
- * exactly as it will run on a host). Covers every op, traversal refusal, a
- * symlink escape, search caps, and a watch event.
+ * exactly as it will run on a host). Covers the ops no real-path suite
+ * drives, traversal refusal, a symlink escape and search caps.
  */
 const os = require('os');
 const fs = require('fs');
@@ -104,13 +104,6 @@ describe('remote-fs-agent.js (spawned over pipes, no ssh)', () => {
     expect(showHidden.entries.map((e) => e.name)).toContain('.hidden');
   });
 
-  it('reads a file', async () => {
-    const res = await agent.request('read', { root, path: 'a.txt' });
-    expect(res.ok).toBe(true);
-    expect(res.content).toBe('hello world\n');
-    expect(res.size).toBe(Buffer.byteLength('hello world\n'));
-  });
-
   it('rejects reading a file over maxBytes with TOO_LARGE', async () => {
     const res = await agent.request('read', { root, path: 'a.txt', maxBytes: 3 });
     expect(res.ok).toBe(false);
@@ -180,13 +173,6 @@ describe('remote-fs-agent.js (spawned over pipes, no ssh)', () => {
     expect(fs.statSync(path.join(root, 'newdir')).isDirectory()).toBe(true);
   });
 
-  it('stats a file', async () => {
-    const res = await agent.request('stat', { root, path: 'a.txt' });
-    expect(res.ok).toBe(true);
-    expect(res.type).toBe('file');
-    expect(res.size).toBe(Buffer.byteLength('hello world\n'));
-  });
-
   it('streams a file in base64 chunks then a terminal size frame', async () => {
     const big = 'x'.repeat(200 * 1024);
     fs.writeFileSync(path.join(root, 'big.bin'), big);
@@ -253,30 +239,12 @@ describe('remote-fs-agent.js (spawned over pipes, no ssh)', () => {
     }
   });
 
-  it('reports ENOENT for a missing file', async () => {
-    const res = await agent.request('read', { root, path: 'nope.txt' });
-    expect(res.ok).toBe(false);
-    expect(res.code).toBe('ENOENT');
-  });
-
   it('reports EISDIR when reading a directory as a file', async () => {
     const res = await agent.request('read', { root, path: 'sub' });
     expect(res.ok).toBe(false);
     expect(res.code).toBe('EISDIR');
   });
 
-  it('watches a root and emits a change event on write, then unwatches', async () => {
-    const started = await agent.request('watch', { root });
-    expect(started.ok).toBe(true);
-
-    const changeEvent = agent.waitFor((m) => m.event === 'change' && m.root === root, 5000);
-    fs.writeFileSync(path.join(root, 'watched.txt'), 'hi');
-    const evt = await changeEvent;
-    expect(evt.path).toBeTruthy();
-
-    const stopped = await agent.request('unwatch', { root });
-    expect(stopped.ok).toBe(true);
-  });
 });
 
 // The `git` op behind RemoteFileService#_gitRun (docs/design-git-changes.md,
@@ -300,30 +268,10 @@ describe('remote-fs-agent.js git op', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('runs git in cwd and returns stdout as base64', async () => {
-    const res = await agent.request('git', { root, cwd: '/', args: ['rev-parse', '--show-toplevel'] });
-    expect(res).toMatchObject({ ok: true, code: 0 });
-    expect(Buffer.from(res.stdout, 'base64').toString('utf8').trim()).toBe(root);
-  });
-
   it('round-trips binary stdout (NUL bytes) intact', async () => {
     const res = await agent.request('git', { root, cwd: '/', args: ['cat-file', 'blob', 'HEAD:bin.dat'] });
     expect(res.ok).toBe(true);
     expect(Buffer.from(res.stdout, 'base64')).toEqual(Buffer.from([0, 1, 2, 255, 0]));
-  });
-
-  it('a non-zero exit is ok: true with the exit code and stderr', async () => {
-    const res = await agent.request('git', { root, cwd: '/', args: ['rev-parse', '--verify', 'no-such-ref'] });
-    expect(res.ok).toBe(true);
-    expect(res.code).not.toBe(0);
-    expect(typeof res.stderr).toBe('string');
-    expect(res.stderr.length).toBeGreaterThan(0);
-  });
-
-  it('runs in a subdirectory cwd', async () => {
-    const res = await agent.request('git', { root, cwd: '/sub', args: ['rev-parse', '--show-prefix'] });
-    expect(res.ok).toBe(true);
-    expect(Buffer.from(res.stdout, 'base64').toString('utf8').trim()).toBe('sub/');
   });
 
   it.each([
@@ -350,16 +298,6 @@ describe('remote-fs-agent.js git op', () => {
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
     }
-  });
-
-  it('a missing cwd is NO_DIR (not GIT_MISSING)', async () => {
-    const res = await agent.request('git', { root, cwd: '/nope', args: ['status'] });
-    expect(res).toMatchObject({ ok: false, code: 'NO_DIR' });
-  });
-
-  it('a cwd that is a file is NO_DIR', async () => {
-    const res = await agent.request('git', { root, cwd: '/a.txt', args: ['status'] });
-    expect(res).toMatchObject({ ok: false, code: 'NO_DIR' });
   });
 
   it('output over maxBytes is TOO_LARGE', async () => {

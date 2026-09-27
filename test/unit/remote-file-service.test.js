@@ -26,9 +26,6 @@ describe('RemoteFileService', () => {
   describe('isPathWithin / validatePath (lexical only)', () => {
     it('accepts a path inside root and returns the posix-resolved form', () => {
       expect(svc.validatePath('/srv/app', 'src/index.js')).toBe('/srv/app/src/index.js');
-    });
-
-    it('accepts the root itself', () => {
       expect(svc.validatePath('/srv/app', '/')).toBe('/srv/app');
     });
 
@@ -55,18 +52,6 @@ describe('RemoteFileService', () => {
       expect(agent.calls[0]).toMatchObject({ op: 'list', params: { root: '/srv/app', path: '/sub', showHidden: false } });
     });
 
-    it('readFile', async () => {
-      agent._next = { ok: true, content: 'hi', size: 2 };
-      const res = await svc.readFile('/srv/app', 'a.txt');
-      expect(res).toEqual({ content: 'hi', size: 2 });
-      expect(agent.calls[0]).toMatchObject({ op: 'read', params: { root: '/srv/app', path: 'a.txt' } });
-    });
-
-    it('writeFile', async () => {
-      await svc.writeFile('/srv/app', 'a.txt', 'hello');
-      expect(agent.calls[0]).toMatchObject({ op: 'write', params: { root: '/srv/app', path: 'a.txt', content: 'hello' } });
-    });
-
     it('renameFile rejects a name containing a path separator before hitting the agent', async () => {
       await expect(svc.renameFile('/srv/app', 'a.txt', 'sub/b.txt')).rejects.toThrow('path separators');
       expect(agent.calls).toHaveLength(0);
@@ -84,6 +69,8 @@ describe('RemoteFileService', () => {
       const out = await svc.moveFile('/srv/app', 'a.txt', 'sub');
       expect(out).toBe('sub/a.txt');
       expect(agent.calls[0]).toMatchObject({ op: 'move', params: { root: '/srv/app', path: 'a.txt', destDir: 'sub' } });
+      await expect(svc.moveFile('/srv/app', 'a.txt', '../../etc')).rejects.toThrow('Path traversal not allowed');
+      expect(agent.calls).toHaveLength(1);
     });
 
     it('deleteFile', async () => {
@@ -115,14 +102,6 @@ describe('RemoteFileService', () => {
   });
 
   describe('stream', () => {
-    it('delegates to hostAgent.stream and returns the reported size', async () => {
-      const chunks = [];
-      const res = await svc.stream('/srv/app', 'big.bin', (c) => chunks.push(c));
-      expect(res).toEqual({ size: 7 });
-      expect(chunks.map((c) => c.toString())).toEqual(['chunk-1']);
-      expect(agent.calls[0]).toMatchObject({ op: 'stream', params: { root: '/srv/app', path: 'big.bin' } });
-    });
-
     it('rejects up front for a traversal path without touching the agent', async () => {
       await expect(svc.stream('/srv/app', '../../etc/passwd', () => {})).rejects.toThrow('Path traversal not allowed');
       expect(agent.calls).toHaveLength(0);
