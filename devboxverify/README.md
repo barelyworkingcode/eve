@@ -46,8 +46,9 @@ Preflight runs in order and stops at the first FAIL: `lock`, `head`, `tree`,
 terminal and task in the three world projects. The sweep runs again after the
 journeys, best effort.
 
-`audio FAIL` means the host audio stack is wedged: eve's first click creates an
-`AudioContext`, and the renderer would block there. Restart `coreaudiod`.
+`audio FAIL` means the host audio stack is wedged or unavailable: eve's first
+click creates an `AudioContext`, and the renderer would block or fail there.
+A timeout usually clears after restarting `coreaudiod`.
 
 `lock` takes the shared browser-test lock (`scripts/browser-lock.js`, the same
 one `npm run test:e2e` and `npm run test:visual` take) and holds it for the

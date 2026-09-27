@@ -163,7 +163,6 @@ async function audioProblem(browser, { timeoutMs = 5000 } = {}) {
   let timer;
   const timeout = new Promise((resolve) => {
     timer = setTimeout(() => resolve('timeout'), timeoutMs);
-    timer.unref();
   });
   try {
     if (await Promise.race([creating, timeout]) === 'timeout') {
