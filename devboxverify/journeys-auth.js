@@ -2,7 +2,7 @@
 // No detail here ever holds a token, credential id, key material or password.
 const { expect } = require('@playwright/test');
 const {
-  GREETING, PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, openProject, openWorldProbe, parseAgentAttempt,
+  PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, openProject, openWorldProbe, parseAgentAttempt,
 } = require('./journey-kit');
 const { enrolOwner, signIn, addAuthenticator } = require('./owner');
 
@@ -152,12 +152,15 @@ async function addBrowserInWindow(env) {
 
   env.step('add this browser');
   await add.click({ timeout: 5000 });
-  const home = page.getByTestId('home-screen').getByText(GREETING);
+  // Deliberate: the rail, not Home. Terminals earlier journeys left open take
+  // the pane until the final sweep.
+  const rail = page.getByRole('navigation', { name: 'Projects' });
   const error = page.locator('#authError');
-  await need('Add this browser showed neither Home nor an error within 15s', expect(async () => {
-    if (!(await home.isVisible()) && !(await error.isVisible())) throw new Error('neither is visible');
+  await need('Add this browser showed neither the app nor an error within 15s', expect(async () => {
+    if (!(await rail.isVisible()) && !(await error.isVisible())) throw new Error('neither is visible');
   }).toPass({ timeout: 15000 }));
   if (await error.isVisible()) return result(id, FAIL, `Add this browser failed: ${(await error.innerText()).slice(0, 120)}`);
+  if (await page.locator('#authScreen').isVisible()) return result(id, FAIL, 'the passkey screen still shows after Add this browser');
 
   env.step('check the window was consumed');
   const closed = await poll(async () => (await env.api.authStatus()).enrollmentOpen === false, { timeoutMs: 5000 });
@@ -168,7 +171,7 @@ async function addBrowserInWindow(env) {
   if (!rows.some((row) => row.credId === cred && row.outcome === 'ok')) {
     return result(id, FAIL, `relay audit has no consume row from ${cred}`);
   }
-  return result(id, PASS, 'Add this browser reached Home; the window was consumed and audited');
+  return result(id, PASS, 'Add this browser reached the app; the window was consumed and audited');
 }
 
 const journeys = [

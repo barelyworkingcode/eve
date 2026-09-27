@@ -71,6 +71,8 @@ function createScreen({ helperBin = process.env.DEVBOXPRESENCE_BIN || DEFAULT_HE
     await act('key', 'ctrl+c');
     await act('type', 'exit');
     await act('key', 'return');
+    await sleep(SETTLE_MS);
+    await act('key', 'cmd+w');
   }
 
   // This is subtle: it starts the helper now and returns two promises. The
