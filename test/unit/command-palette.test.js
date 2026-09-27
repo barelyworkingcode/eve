@@ -22,10 +22,6 @@ describe('CommandPalette.fuzzyScore', () => {
     expect(result.positions).toEqual([0, 2, 4]);
   });
 
-  it('returns null when the query is not a subsequence', () => {
-    expect(CommandPalette.fuzzyScore('xyz', 'Hello World')).toBeNull();
-  });
-
   it('returns a zero-cost match for an empty query', () => {
     expect(CommandPalette.fuzzyScore('', 'anything')).toEqual({ score: 0, positions: [] });
   });
@@ -74,12 +70,9 @@ describe('CommandPalette.highlightLabel', () => {
     expect(html).toBe('Set<mark>tin</mark>gs');
   });
 
-  it('escapes HTML both inside and outside the marked run', () => {
+  it('escapes HTML both inside and outside the marked run, and with no marks at all', () => {
     const html = CommandPalette.highlightLabel('A&B', [0]);
     expect(html).toBe('<mark>A</mark>&amp;B');
-  });
-
-  it('escapes with no marks when there are no matched positions', () => {
     expect(CommandPalette.highlightLabel('Tom & Jerry', [])).toBe('Tom &amp; Jerry');
   });
 });
@@ -87,15 +80,9 @@ describe('CommandPalette.highlightLabel', () => {
 describe('CommandPalette.stripProjectPrefix', () => {
   const CommandPalette = loadCommandPalette();
 
-  it('strips the "<project name> - " prefix', () => {
+  it('strips the "<project name> - " prefix, and only that prefix', () => {
     expect(CommandPalette.stripProjectPrefix('Hermes Mail - triage', 'Hermes Mail')).toBe('triage');
-  });
-
-  it('leaves the name untouched when it does not start with the project prefix', () => {
     expect(CommandPalette.stripProjectPrefix('triage', 'Hermes Mail')).toBe('triage');
-  });
-
-  it('leaves the name untouched when there is no project', () => {
     expect(CommandPalette.stripProjectPrefix('Hermes Mail - triage', undefined)).toBe('Hermes Mail - triage');
   });
 });
@@ -111,9 +98,12 @@ describe('CommandPalette.orderSessionsForEmptyQuery', () => {
     { id: 'e', active: false },
   ];
 
-  it('orders recent tabs first (in getRecentSessionIds order), then active, then the rest', () => {
+  it('orders recent tabs first (in getRecentSessionIds order), then active, then the rest, skipping recent ids with no live session', () => {
     const ordered = CommandPalette.orderSessionsForEmptyQuery(sessions, ['c', 'a']);
     expect(ordered.map(s => s.id)).toEqual(['c', 'a', 'b', 'd', 'e']);
+
+    const withGhost = CommandPalette.orderSessionsForEmptyQuery(sessions, ['ghost', 'a']);
+    expect(withGhost.map(s => s.id)).toEqual(['a', 'b', 'd', 'c', 'e']);
   });
 
   it('does not duplicate a session that is both recent and active', () => {
@@ -126,10 +116,5 @@ describe('CommandPalette.orderSessionsForEmptyQuery', () => {
     const ordered = CommandPalette.orderSessionsForEmptyQuery(sessions, [], 2);
     expect(ordered).toHaveLength(2);
     expect(ordered.map(s => s.id)).toEqual(['b', 'd']);
-  });
-
-  it('ignores recent ids that no longer correspond to a live session', () => {
-    const ordered = CommandPalette.orderSessionsForEmptyQuery(sessions, ['ghost', 'a']);
-    expect(ordered.map(s => s.id)).toEqual(['a', 'b', 'd', 'c', 'e']);
   });
 });

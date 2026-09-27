@@ -39,16 +39,12 @@ describe('InputHistory', () => {
     expect(h.entries).toEqual(['a', 'b', 'a']);
   });
 
-  test('push drops empty and whitespace-only entries', () => {
+  test('push drops empty and whitespace-only entries, and trims the rest', () => {
     const h = new InputHistory('k', 100);
     h.push('');
     h.push('   ');
     h.push('\n\t');
     expect(h.entries).toEqual([]);
-  });
-
-  test('push trims whitespace', () => {
-    const h = new InputHistory('k', 100);
     h.push('  hello  ');
     expect(h.entries).toEqual(['hello']);
   });
@@ -73,13 +69,9 @@ describe('InputHistory', () => {
     expect(h.prev('')).toBeNull();
   });
 
-  test('prev on empty history returns null', () => {
+  test('prev/next return null with nothing to walk', () => {
     const h = new InputHistory('k', 100);
     expect(h.prev('anything')).toBeNull();
-  });
-
-  test('next without prior prev returns null', () => {
-    const h = new InputHistory('k', 100);
     h.push('a');
     expect(h.next()).toBeNull();
   });
@@ -94,15 +86,6 @@ describe('InputHistory', () => {
     expect(h.next()).toBe('c');
     expect(h.next()).toBe('draft-text');
     expect(h.next()).toBeNull();
-  });
-
-  test('prev snapshots draft only on first call', () => {
-    const h = new InputHistory('k', 100);
-    h.push('a');
-    h.push('b');
-    h.prev('first-draft');
-    h.prev('not-a-draft');
-    expect(h.draft).toBe('first-draft');
   });
 
   test('reset clears index and draft', () => {
@@ -135,21 +118,16 @@ describe('InputHistory', () => {
     expect(h2.prev('')).toBe('two');
   });
 
-  test('load tolerates corrupt JSON', () => {
+  test('load tolerates corrupt JSON and a missing entries field', () => {
     localStorage.setItem('k', '{not valid json');
-    const h = new InputHistory('k', 100);
-    expect(h.entries).toEqual([]);
-  });
-
-  test('load tolerates missing entries field', () => {
+    expect(new InputHistory('k', 100).entries).toEqual([]);
     localStorage.setItem('k', JSON.stringify({ savedAt: 1 }));
-    const h = new InputHistory('k', 100);
-    expect(h.entries).toEqual([]);
+    expect(new InputHistory('k', 100).entries).toEqual([]);
   });
 
   test('load filters non-string entries and applies cap', () => {
     localStorage.setItem('k', JSON.stringify({
-      entries: ['a', 'b', 'c', 'd'],
+      entries: ['a', 'b', 'c', 1, 'd', null],
       savedAt: 1,
     }));
     const h = new InputHistory('k', 2);

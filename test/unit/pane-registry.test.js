@@ -11,27 +11,18 @@ vm.runInContext(src + '\nthis.PaneRegistry = PaneRegistry; this.panes = panes;',
 const { PaneRegistry } = sandbox;
 
 describe('PaneRegistry.registerType / .type / .hasType', () => {
-  it('registers a type descriptor and looks it up by name', () => {
+  it('type registry: lookup, null for unknown, requires a type, rejects a duplicate', () => {
     const r = new PaneRegistry();
     const d = { type: 'file', create() {}, view() {}, ref() {} };
     r.registerType(d);
     expect(r.type('file')).toBe(d);
     expect(r.hasType('file')).toBe(true);
-  });
 
-  it('returns null, not undefined, for an unregistered type', () => {
-    const r = new PaneRegistry();
     expect(r.type('nope')).toBeNull();
     expect(r.hasType('nope')).toBe(false);
-  });
 
-  it('requires a type', () => {
     expect(() => new PaneRegistry().registerType({})).toThrow(/needs a type/);
-  });
 
-  it('rejects a duplicate type id', () => {
-    const r = new PaneRegistry();
-    r.registerType({ type: 'file' });
     expect(() => r.registerType({ type: 'file' })).toThrow(/duplicate pane type: file/);
   });
 
@@ -45,27 +36,18 @@ describe('PaneRegistry.registerType / .type / .hasType', () => {
 });
 
 describe('PaneRegistry.registerView / .view / .hasView', () => {
-  it('registers a view descriptor and looks it up by name', () => {
+  it('view registry: lookup, null for unknown, requires a view, rejects a duplicate', () => {
     const r = new PaneRegistry();
     const d = { view: 'editor', elementId: 'editor', show() {} };
     r.registerView(d);
     expect(r.view('editor')).toBe(d);
     expect(r.hasView('editor')).toBe(true);
-  });
 
-  it('returns null, not undefined, for an unregistered view', () => {
-    const r = new PaneRegistry();
     expect(r.view('nope')).toBeNull();
     expect(r.hasView('nope')).toBe(false);
-  });
 
-  it('requires a view', () => {
     expect(() => new PaneRegistry().registerView({})).toThrow(/needs a view/);
-  });
 
-  it('rejects a duplicate view id', () => {
-    const r = new PaneRegistry();
-    r.registerView({ view: 'editor', elementId: 'editor' });
     expect(() => r.registerView({ view: 'editor', elementId: 'editor' })).toThrow(
       /duplicate pane view: editor/,
     );

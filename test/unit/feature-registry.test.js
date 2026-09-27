@@ -55,53 +55,31 @@ describe('FeatureRegistry', () => {
     const instance = { name: 'tts' };
     const init = jest.fn(() => instance);
     r.register({ id: 'tts', init });
+    r.register({ id: 'markup-only', slots: [] });
     const c = fakeContainer();
-    r.boot(c);
+    expect(() => r.boot(c)).not.toThrow();
     expect(init).toHaveBeenCalledTimes(1);
     expect(c.get('tts')).toBe(instance);
   });
 
-  it('boot() tolerates a feature with no init', () => {
-    const r = new FeatureRegistry();
-    r.register({ id: 'markup-only', slots: [] });
-    expect(() => r.boot(fakeContainer())).not.toThrow();
-  });
+  it('requires an id and rejects a duplicate one', () => {
+    expect(() => new FeatureRegistry().register({})).toThrow(/needs an id/);
 
-  it('rejects a duplicate id', () => {
     const r = new FeatureRegistry();
     r.register({ id: 'dup' });
     expect(() => r.register({ id: 'dup' })).toThrow(/duplicate feature id: dup/);
   });
 
-  it('requires an id', () => {
-    expect(() => new FeatureRegistry().register({})).toThrow(/needs an id/);
-  });
-
-  it('renders slot contributions in order, not registration order', () => {
+  it('renders slot contributions in order, not registration order, breaking ties by registration', () => {
     const r = new FeatureRegistry();
     r.register({ id: 'late', slots: [{ slot: 's', order: 30, render: () => 'c' }] });
     r.register({ id: 'early', slots: [{ slot: 's', order: 10, render: () => 'a' }] });
     r.register({ id: 'mid', slots: [{ slot: 's', order: 20, render: () => 'b' }] });
-    const root = fakeRoot('s');
-    r.renderSlots(root, fakeContainer());
-    expect(root.els[0].children).toEqual(['a', 'b', 'c']);
-  });
-
-  it('breaks ties by registration order', () => {
-    const r = new FeatureRegistry();
     r.register({ id: 'first', slots: [{ slot: 's', order: 5, render: () => 'first' }] });
     r.register({ id: 'second', slots: [{ slot: 's', order: 5, render: () => 'second' }] });
     const root = fakeRoot('s');
     r.renderSlots(root, fakeContainer());
-    expect(root.els[0].children).toEqual(['first', 'second']);
-  });
-
-  it('skips a contribution that renders nothing', () => {
-    const r = new FeatureRegistry();
-    r.register({ id: 'maybe', slots: [{ slot: 's', order: 1, render: () => null }] });
-    const root = fakeRoot('s');
-    r.renderSlots(root, fakeContainer());
-    expect(root.els[0].children).toEqual([]);
+    expect(root.els[0].children).toEqual(['first', 'second', 'a', 'b', 'c']);
   });
 
   // A silently missing button is the failure this design exists to prevent.
@@ -112,11 +90,13 @@ describe('FeatureRegistry', () => {
       .toThrow(/no \[data-slot="nope"\] in the DOM, contributed by: tts/);
   });
 
-  it('an empty slot is fine', () => {
+  it('leaves a slot empty when its only contribution renders nothing, or when it has none', () => {
     const r = new FeatureRegistry();
-    const root = fakeRoot('empty');
+    r.register({ id: 'maybe', slots: [{ slot: 's', order: 1, render: () => null }] });
+    const root = fakeRoot('s', 'empty');
     expect(() => r.renderSlots(root, fakeContainer())).not.toThrow();
     expect(root.els[0].children).toEqual([]);
+    expect(root.els[1].children).toEqual([]);
   });
 
   it('subscribes event handlers to the bus with the container bound', () => {

@@ -98,30 +98,20 @@ describe('_getRecentEntries', () => {
       'p1:/a.js': { projectId: 'p1', path: '/a.js', ts: NOW - 2000 },
       'p1:/b.js': { projectId: 'p1', path: '/b.js', ts: NOW - MAX_AGE_MS - 1 },
       'no-ts': { projectId: 'p1', path: '/c.js' },
-    };
-    const tm = makeTabManager({ localStorageContents: { [KEY]: JSON.stringify(stored) } });
-
-    const result = tm._getRecentEntries(KEY);
-    const ids = result.map((e) => e.id).sort();
-    expect(ids).toEqual(['p1:/a.js', 'sess-fresh']);
-
-    expect(result.find((e) => e.id === 'sess-fresh')).toEqual({ id: 'sess-fresh', ts: NOW - 1000 });
-    expect(result.find((e) => e.id === 'p1:/a.js')).toEqual({ id: 'p1:/a.js', projectId: 'p1', path: '/a.js', ts: NOW - 2000 });
-
-    const written = JSON.parse(localStorage.getItem(KEY));
-    expect(Object.keys(written).sort()).toEqual(['p1:/a.js', 'sess-fresh']);
-  });
-
-  it('excludes an entry exactly at the MAX_AGE_MS boundary (now - ts === MAX_AGE_MS)', () => {
-    jest.spyOn(Date, 'now').mockReturnValue(NOW);
-    const stored = {
       'just-under': NOW - (MAX_AGE_MS - 1),
       'exactly-at': NOW - MAX_AGE_MS,
     };
     const tm = makeTabManager({ localStorageContents: { [KEY]: JSON.stringify(stored) } });
 
-    const ids = tm._getRecentEntries(KEY).map((e) => e.id);
-    expect(ids).toEqual(['just-under']);
+    const result = tm._getRecentEntries(KEY);
+    const ids = result.map((e) => e.id).sort();
+    expect(ids).toEqual(['just-under', 'p1:/a.js', 'sess-fresh']);
+
+    expect(result.find((e) => e.id === 'sess-fresh')).toEqual({ id: 'sess-fresh', ts: NOW - 1000 });
+    expect(result.find((e) => e.id === 'p1:/a.js')).toEqual({ id: 'p1:/a.js', projectId: 'p1', path: '/a.js', ts: NOW - 2000 });
+
+    const written = JSON.parse(localStorage.getItem(KEY));
+    expect(Object.keys(written).sort()).toEqual(['just-under', 'p1:/a.js', 'sess-fresh']);
   });
 
   it('does not rewrite storage when nothing needed pruning', () => {
@@ -141,31 +131,25 @@ describe('_projectIdForDirectory', () => {
     return makeTabManager({ container: { app } });
   }
 
-  it('returns null for a falsy directory without inspecting projects', () => {
-    const tm = tmWithProjects([{ id: 'p1', path: '/work' }]);
-    expect(tm._projectIdForDirectory('')).toBeNull();
-    expect(tm._projectIdForDirectory(undefined)).toBeNull();
-  });
+  it('resolves a directory by case-insensitive longest prefix; null when nothing matches', () => {
+    const single = tmWithProjects([{ id: 'p1', path: '/work' }]);
+    expect(single._projectIdForDirectory('')).toBeNull();
+    expect(single._projectIdForDirectory(undefined)).toBeNull();
 
-  it('picks the longest matching prefix when one project path nests inside another', () => {
-    const tm = tmWithProjects([
+    const nested = tmWithProjects([
       { id: 'outer', path: '/Users/x/work' },
       { id: 'inner', path: '/Users/x/work/sub' },
     ]);
-    expect(tm._projectIdForDirectory('/Users/x/work/sub/deep')).toBe('inner');
-    expect(tm._projectIdForDirectory('/Users/x/work/other')).toBe('outer');
-    expect(tm._projectIdForDirectory('/Users/x/work')).toBe('outer');
-  });
+    expect(nested._projectIdForDirectory('/Users/x/work/sub/deep')).toBe('inner');
+    expect(nested._projectIdForDirectory('/Users/x/work/other')).toBe('outer');
+    expect(nested._projectIdForDirectory('/Users/x/work')).toBe('outer');
 
-  it('is case-insensitive and tolerates trailing slashes on either side', () => {
-    const tm = tmWithProjects([{ id: 'p1', path: '/Users/x/Work/' }]);
-    expect(tm._projectIdForDirectory('/USERS/X/WORK')).toBe('p1');
-    expect(tm._projectIdForDirectory('/users/x/work/sub')).toBe('p1');
-  });
+    const trailing = tmWithProjects([{ id: 'p1', path: '/Users/x/Work/' }]);
+    expect(trailing._projectIdForDirectory('/USERS/X/WORK')).toBe('p1');
+    expect(trailing._projectIdForDirectory('/users/x/work/sub')).toBe('p1');
 
-  it('returns null when nothing matches, and skips projects with no path', () => {
-    const tm = tmWithProjects([{ id: 'p1' }, { id: 'p2', path: '/elsewhere' }]);
-    expect(tm._projectIdForDirectory('/Users/x/work')).toBeNull();
+    const unmatched = tmWithProjects([{ id: 'p1' }, { id: 'p2', path: '/elsewhere' }]);
+    expect(unmatched._projectIdForDirectory('/Users/x/work')).toBeNull();
   });
 });
 
@@ -177,66 +161,54 @@ describe('_nextTabInProject / _lastActiveTabForProject', () => {
     return tm;
   }
 
-  it('_nextTabInProject prefers the tab that shifted into the closed index', () => {
-    const tm = tmWithTabs([
+  it('_nextTabInProject prefers the shifted-in tab, then scans left, skips nested panes, else null', () => {
+    const shifted = tmWithTabs([
       { id: 'x0', type: 'file', projectId: 'other' },
       { id: 'x1', type: 'file', projectId: 'p1' },
       { id: 'x2', type: 'file', projectId: 'p1' },
     ], 'p1');
-    expect(tm._nextTabInProject(1).id).toBe('x1');
-  });
+    expect(shifted._nextTabInProject(1).id).toBe('x1');
 
-  it('_nextTabInProject falls back to scanning left when nothing matches at or after the index', () => {
-    const tm = tmWithTabs([
+    const leftOnly = tmWithTabs([
       { id: 'y0', type: 'file', projectId: 'p1' },
       { id: 'y1', type: 'file', projectId: 'other' },
     ], 'p1');
-    expect(tm._nextTabInProject(1).id).toBe('y0');
-  });
+    expect(leftOnly._nextTabInProject(1).id).toBe('y0');
 
-  it('_nextTabInProject skips nested panes even when their project matches', () => {
-    const tm = tmWithTabs([
+    const nested = tmWithTabs([
       { id: 'z0', type: 'file', projectId: 'p1', _nestedIn: 'host' },
       { id: 'z1', type: 'file', projectId: 'p1' },
     ], 'p1');
-    expect(tm._nextTabInProject(0).id).toBe('z1');
+    expect(nested._nextTabInProject(0).id).toBe('z1');
+
+    const none = tmWithTabs([{ id: 'w0', type: 'file', projectId: 'other' }], 'p1');
+    expect(none._nextTabInProject(0)).toBeNull();
   });
 
-  it('_nextTabInProject returns null when no tab in the active project remains', () => {
-    const tm = tmWithTabs([{ id: 'w0', type: 'file', projectId: 'other' }], 'p1');
-    expect(tm._nextTabInProject(0)).toBeNull();
-  });
-
-  it('_lastActiveTabForProject returns the remembered tab when it still qualifies', () => {
-    const tm = tmWithTabs([
+  it('_lastActiveTabForProject returns the remembered tab, else the rightmost un-nested one, else null', () => {
+    const remembered = tmWithTabs([
       { id: 'r1', type: 'file', projectId: 'p1' },
       { id: 'r2', type: 'file', projectId: 'p1' },
     ]);
-    tm._lastActiveByProject.set('p1', 'r1');
-    expect(tm._lastActiveTabForProject('p1').id).toBe('r1');
-  });
+    remembered._lastActiveByProject.set('p1', 'r1');
+    expect(remembered._lastActiveTabForProject('p1').id).toBe('r1');
 
-  it('_lastActiveTabForProject falls back to the rightmost matching tab once the remembered one is nested', () => {
-    const tm = tmWithTabs([
+    const rememberedNested = tmWithTabs([
       { id: 'r1', type: 'file', projectId: 'p1', _nestedIn: 'host' },
       { id: 'r2', type: 'file', projectId: 'p1' },
       { id: 'r3', type: 'file', projectId: 'other' },
     ]);
-    tm._lastActiveByProject.set('p1', 'r1');
-    expect(tm._lastActiveTabForProject('p1').id).toBe('r2');
-  });
+    rememberedNested._lastActiveByProject.set('p1', 'r1');
+    expect(rememberedNested._lastActiveTabForProject('p1').id).toBe('r2');
 
-  it('_lastActiveTabForProject falls back to a rightmost scan with no remembered entry at all', () => {
-    const tm = tmWithTabs([
+    const unremembered = tmWithTabs([
       { id: 'r1', type: 'file', projectId: 'p1' },
       { id: 'r2', type: 'file', projectId: 'p1' },
     ]);
-    expect(tm._lastActiveTabForProject('p1').id).toBe('r2');
-  });
+    expect(unremembered._lastActiveTabForProject('p1').id).toBe('r2');
 
-  it('_lastActiveTabForProject returns null when the project has no tabs at all', () => {
-    const tm = tmWithTabs([{ id: 'r1', type: 'file', projectId: 'other' }]);
-    expect(tm._lastActiveTabForProject('p1')).toBeNull();
+    const empty = tmWithTabs([{ id: 'r1', type: 'file', projectId: 'other' }]);
+    expect(empty._lastActiveTabForProject('p1')).toBeNull();
   });
 });
 
@@ -305,36 +277,28 @@ describe('_updateHash', () => {
     return tm;
   }
 
-  it('builds #session/<id> with the id encoded', () => {
-    const tm = setup();
+  it('builds #session, #file and #terminal hashes; an image or null tab clears the hash', () => {
+    let tm = setup();
     tm._updateHash({ type: 'session', id: 'sess a/b' });
     expect(history.replaceState).toHaveBeenCalledWith(null, '', `#session/${encodeURIComponent('sess a/b')}`);
-  });
 
-  it('builds #file/<projectId>/<path> with both segments encoded independently', () => {
-    const tm = setup();
+    tm = setup();
     tm._updateHash({ type: 'file', projectId: 'p1', path: '/dir/a.js' });
     expect(history.replaceState).toHaveBeenCalledWith(
       null, '', `#file/p1/${encodeURIComponent('/dir/a.js')}`
     );
-  });
 
-  it('builds #terminal/<id>', () => {
-    const tm = setup();
+    tm = setup();
     tm._updateHash({ type: 'terminal', id: 'term-1' });
     expect(history.replaceState).toHaveBeenCalledWith(null, '', '#terminal/term-1');
-  });
 
-  // Known bug, pinned deliberately: `_updateHash` has no `image` arm, so activating
-  // an image tab clears the hash instead of linking to it. Don't "fix" this test.
-  it('an image tab has no hash arm, so activating one clears the hash instead of linking to it', () => {
-    const tm = setup('#session/old');
+    // Known bug, pinned deliberately: `_updateHash` has no `image` arm, so activating
+    // an image tab clears the hash instead of linking to it. Don't "fix" this case.
+    tm = setup('#session/old');
     tm._updateHash({ type: 'image', id: 'eve-llm-1' });
     expect(history.replaceState).toHaveBeenCalledWith(null, '', '/app?x=1');
-  });
 
-  it('a null tab (empty state) also clears the hash', () => {
-    const tm = setup('#session/old');
+    tm = setup('#session/old');
     tm._updateHash(null);
     expect(history.replaceState).toHaveBeenCalledWith(null, '', '/app?x=1');
   });
@@ -372,17 +336,20 @@ describe('terminal dispose', () => {
 // Issue #41 root cause A: a rename leaves an open tab's id/watch/persist-entry
 // keyed under the old path, so the next Cmd+S recreates the old file.
 describe('renameFileTab', () => {
-  function tmWithWs() {
+  function tmWithWs({ withEditor = false } = {}) {
     const sent = [];
     const ws = { send: (msg) => sent.push(JSON.parse(msg)) };
+    const notePathRenamed = jest.fn();
     const app = { showChatScreen: () => {}, ws };
+    if (withEditor) app.fileEditor = { notePathRenamed, showFile: () => {} };
     const tm = makeTabManager({ container: { app } });
-    return { tm, sent };
+    return { tm, sent, notePathRenamed };
   }
 
-  it('re-keys the tab id, moves the eve-open-files entry, and unwatches then watches in order', () => {
-    const { tm, sent } = tmWithWs();
+  it('re-keys the tab id, moves the eve-open-files entry, unwatches then watches, follows the active id, and tells the editor', () => {
+    const { tm, sent, notePathRenamed } = tmWithWs({ withEditor: true });
     tm.openFile('p1', '/a.txt', 'a.txt');
+    expect(tm.activeTabId).toBe('p1:/a.txt');
     sent.length = 0; // drop the initial watch_file from openFile
 
     tm.renameFileTab('p1', '/a.txt', '/b.txt');
@@ -399,26 +366,8 @@ describe('renameFileTab', () => {
     expect(sent.map(m => m.type)).toEqual(['unwatch_file', 'watch_file']);
     expect(sent[0]).toMatchObject({ type: 'unwatch_file', projectId: 'p1', path: '/a.txt' });
     expect(sent[1]).toMatchObject({ type: 'watch_file', projectId: 'p1', path: '/b.txt' });
-  });
 
-  it('updates the active tab id and re-hashes when the renamed tab was active', () => {
-    const { tm } = tmWithWs();
-    tm.openFile('p1', '/a.txt', 'a.txt');
-    expect(tm.activeTabId).toBe('p1:/a.txt');
-
-    tm.renameFileTab('p1', '/a.txt', '/b.txt');
     expect(tm.activeTabId).toBe('p1:/b.txt');
-  });
-
-  it('notifies fileEditor.notePathRenamed so an open editor buffer stops saving to the old path', () => {
-    const notePathRenamed = jest.fn();
-    const sent = [];
-    const app = { showChatScreen: () => {}, ws: { send: (m) => sent.push(m) }, fileEditor: { notePathRenamed, showFile: () => {} } };
-    const tm = makeTabManager({ container: { app } });
-    tm.openFile('p1', '/a.txt', 'a.txt');
-
-    tm.renameFileTab('p1', '/a.txt', '/b.txt');
-
     expect(notePathRenamed).toHaveBeenCalledWith('p1', '/a.txt', '/b.txt');
   });
 
