@@ -1,3 +1,6 @@
+const { execFileSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const HOME = '/Users/someone';
@@ -38,6 +41,13 @@ describe('devboxverify/main.js', () => {
       expect(Number(args.post)).toBe(7);
     });
 
+    it('leaves screen off by default and takes --screen without consuming the next flag', () => {
+      expect(parseArgs([], { toolRoot }).screen).toBe(false);
+      const args = parseArgs(['--screen', '--post', '7'], { toolRoot });
+      expect(args.screen).toBe(true);
+      expect(Number(args.post)).toBe(7);
+    });
+
     it.each([
       ['--post without a value', ['--post']],
       ['--post 0', ['--post', '0']],
@@ -46,6 +56,7 @@ describe('devboxverify/main.js', () => {
       ['a url without an explicit port', ['--url', 'http://localhost']],
       ['a positional argument', ['extra']],
       ['an unknown flag', ['--only', 'chat-reply']],
+      ['--screen with a value', ['--screen=1']],
     ])('throws a usage error for %s', (_label, argv) => {
       let err;
       try { parseArgs(argv, { toolRoot }); } catch (e) { err = e; }
@@ -354,5 +365,304 @@ describe('devboxverify/nightly.js', () => {
       expect(html).not.toContain('night-01x');
       expect(html).toContain('night-02x');
     });
+  });
+});
+
+function removeScratch(dir) {
+  if (dir && dir.startsWith(os.tmpdir()) && dir.length > os.tmpdir().length + 1) fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// Area name -> its `journeys:` value ('all', a list, or undefined) from the
+// fenced YAML Areas block. Only the `journeys:` field is read.
+function areaJourneys(markdown) {
+  const block = /```yaml\n([\s\S]*?)```/.exec(markdown)[1];
+  const areas = {};
+  let area = null;
+  let value = null;
+  for (const line of block.split('\n')) {
+    if (value !== null) value += ` ${line.trim()}`;
+    else {
+      const key = /^ {2}([\w-]+):\s*$/.exec(line);
+      if (key) { area = key[1]; areas[area] = undefined; continue; }
+      const field = /^ {4}journeys:\s*(.*)$/.exec(line);
+      if (!field) continue;
+      value = field[1].trim();
+    }
+    if (value === 'all' || value.endsWith(']')) {
+      areas[area] = value === 'all' ? 'all' : value.replace(/^\[|\]$/g, '').split(',').map(s => s.trim()).filter(Boolean);
+      value = null;
+    }
+  }
+  return areas;
+}
+
+describe('devboxverify journey table', () => {
+  const { journeys } = require('../../devboxverify/journeys');
+  const areas = areaJourneys(fs.readFileSync(path.join(__dirname, '..', '..', 'devboxverify', 'FEATURES.md'), 'utf8'));
+  const contractIds = [
+    'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
+    'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'passkey-first-enrol',
+    'passkey-sign-in', 'agent-sign-in-refused', 'agent-enrol-refused', 'add-browser-in-window',
+  ];
+
+  it('holds exactly the contract journeys, each id once', () => {
+    const ids = journeys.map(j => j.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect([...ids].sort()).toEqual([...contractIds].sort());
+  });
+
+  it.each(journeys.map(j => [j.id, j]))('%s has a timeout, known areas, and screen true or absent', (_id, j) => {
+    expect(j.timeoutMs).toBeGreaterThan(0);
+    expect(j.areas.length).toBeGreaterThan(0);
+    for (const a of j.areas) expect(Object.keys(areas)).toContain(a);
+    expect(!('screen' in j) || j.screen === true).toBe(true);
+  });
+
+  it('agrees with every Areas journeys list in both directions', () => {
+    const listed = Object.entries(areas).filter(([, declared]) => declared !== 'all');
+    expect(listed.length).toBeGreaterThan(0);
+    for (const [area, declared] of listed) {
+      const tagged = journeys.filter(j => j.areas.includes(area)).map(j => j.id).sort();
+      expect({ area, journeys: declared && [...declared].sort() }).toEqual({ area, journeys: tagged });
+    }
+  });
+
+  it('marks only add-browser-in-window as screen and only the two passkey journeys as fixtures', () => {
+    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['add-browser-in-window']);
+    expect(journeys.filter(j => j.fixture).map(j => j.id).sort()).toEqual(['passkey-first-enrol', 'passkey-sign-in']);
+  });
+
+  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, agent-sign-in-refused, add-browser-in-window', () => {
+    const { orderJourneys } = require('../../devboxverify/main');
+    expect(orderJourneys(journeys, { screen: true }).run.map(j => j.id)).toEqual([
+      'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
+      'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
+      'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save',
+      'agent-sign-in-refused', 'add-browser-in-window',
+    ]);
+  });
+});
+
+describe('devboxverify/main.js run plan and owner reset', () => {
+  const {
+    JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
+    relayAuditRows, serviceLogReader,
+  } = require('../../devboxverify/main');
+  const ids = list => list.map(j => j.id);
+  const mixed = [{ id: 's', screen: true }, { id: 'a' }, { id: 'f1', fixture: true }, { id: 'b' }, { id: 'f2', fixture: true }];
+
+  it('runs fixtures first and screen journeys last with --screen', () => {
+    const { run, skipped } = orderJourneys(mixed, { screen: true });
+    expect(ids(run)).toEqual(['f1', 'f2', 'a', 'b', 's']);
+    expect(skipped).toEqual([]);
+  });
+
+  it('skips screen journeys without --screen', () => {
+    const { run, skipped } = orderJourneys(mixed, { screen: false });
+    expect(ids(run)).toEqual(['f1', 'f2', 'a', 'b']);
+    expect(ids(skipped)).toEqual(['s']);
+  });
+
+  it('pins the contract constant JOURNEY_BUDGET_MS at 480 s', () => {
+    expect(JOURNEY_BUDGET_MS).toBe(480000);
+  });
+
+  it.each([
+    ['the journey timeout while the budget lasts', 0, 30000],
+    ['what is left of the budget', 470000, 10000],
+    ['exactly 1000 ms left', 479000, 1000],
+    ['null under 1000 ms left', 479001, null],
+    ['null once the budget is overspent', 500000, null],
+  ])('journeyTimeout gives %s', (_label, spentMs, expected) => {
+    expect(journeyTimeout(30000, spentMs, 480000)).toBe(expected);
+  });
+
+  describe('pinnedDataDir', () => {
+    const dataDir = `${HOME}/.local/state/eve-verify/data`;
+    const header = 'ID          NAME        COMMAND                    URL                    AUTOSTART  CAPABILITIES  STATE';
+    const row = (id, args) => `${id}  eve verify  node server.js ${args}  http://localhost:3100  yes  frontend  running`;
+
+    it('reads the --data dir from the eve-verify row', () => {
+      const list = [header, row('eve', '--data /srv/live/data'), row('eve-verify', `--data ${dataDir}`)].join('\n');
+      expect(pinnedDataDir(list)).toBe(dataDir);
+    });
+
+    it.each([
+      ['a row without --data', row('eve-verify', '')],
+      ['--data only on the eve row', row('eve', `--data ${dataDir}`)],
+    ])('is null for %s', (_label, line) => {
+      expect(pinnedDataDir(`${header}\n${line}\n`)).toBeNull();
+    });
+  });
+
+  describe('liveDataDir', () => {
+    const header = 'ID          NAME        COMMAND                    URL                    AUTOSTART  CAPABILITIES  STATE';
+    const row = args => `eve  eve  node server.js ${args}  http://localhost:3000  yes  frontend  running`;
+
+    it.each([
+      ['an absolute --data on the eve row', row('--data /srv/live/data'), null, '/srv/live/data'],
+      ['a relative --data against the live cwd', row('--data state'), '/srv/acme/eve', '/srv/acme/eve/state'],
+      ['<cwd>/data without --data', row(''), '/srv/acme/eve', '/srv/acme/eve/data'],
+      ['<cwd>/data without an eve row', '', '/srv/acme/eve', '/srv/acme/eve/data'],
+      ['null with neither', row(''), null, null],
+    ])('gives %s', (_label, line, cwd, expected) => {
+      expect(liveDataDir(`${header}\n${line}\n`, cwd)).toBe(expected);
+    });
+  });
+
+  it.each([
+    [{ enrolled: false }],
+    [{ enrolled: true, authenticated: false }],
+    [{ enrolled: true, authenticated: true, trusted: false }],
+  ])('authStatusProblem passes an untrusted status %o', (status) => {
+    expect(authStatusProblem(status)).toBeNull();
+  });
+
+  it('authStatusProblem reports a trusted loopback', () => {
+    expect(authStatusProblem({ enrolled: true, authenticated: true, trusted: true }))
+      .toContain('EVE_DISABLE_SUBNET_BYPASS=1');
+  });
+
+  describe('ownerResetPaths', () => {
+    const dir = '/srv/acme/eve-verify/data';
+
+    it('names exactly auth.json and sessions.json in the pinned dir', () => {
+      expect(ownerResetPaths(dir, { liveDataDir: '/srv/acme/eve/data' }).sort())
+        .toEqual([`${dir}/auth.json`, `${dir}/sessions.json`]);
+    });
+
+    it.each([
+      ['no pinned dir', null, {}],
+      ['a relative dir', 'data', {}],
+      ['a dir that climbs out', '/srv/acme/x/../data', {}],
+      ['the live eve data dir', '/srv/acme/data', { liveDataDir: '/srv/acme/eve/../data' }],
+    ])('refuses %s', (_label, d, opts) => {
+      expect(() => ownerResetPaths(d, opts)).toThrow();
+    });
+  });
+
+  it('relayAuditRows keeps rows on the path since the mark and skips the rest', () => {
+    const want = '/eve/enrolment/consume';
+    const ev = (ts, p) => JSON.stringify({
+      ts, event: 'control_decision', actor: { cred_id: 'launch:service:eve-verify' }, method: 'POST', path: p, outcome: 'ok',
+    });
+    const jsonl = [ev('2026-09-27T03:29:59Z', want), 'not json', ev('2026-09-27T03:30:05Z', '/eve/other'),
+      ev('2026-09-27T03:30:10Z', want), ''].join('\n');
+    const rows = relayAuditRows(jsonl, { path: want, sinceMs: Date.parse('2026-09-27T03:30:00Z') });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ credId: 'launch:service:eve-verify', method: 'POST', path: want, outcome: 'ok' });
+  });
+
+  it('serviceLogReader returns what follows the mark, and a shrunk file from 0', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbv-log-'));
+    try {
+      const file = path.join(dir, 'eve-verify.log');
+      fs.writeFileSync(file, 'before the mark\n');
+      const log = serviceLogReader(file);
+      const mark = await log.mark();
+      fs.appendFileSync(file, 'Login finish failed\n');
+      expect(await log.since(mark)).toBe('Login finish failed\n');
+      fs.writeFileSync(file, 'rotated\n');
+      expect(await log.since(mark)).toBe('rotated\n');
+    } finally {
+      removeScratch(dir);
+    }
+  });
+});
+
+describe('devboxverify/journey-kit.js parseAgentAttempt', () => {
+  const { parseAgentAttempt } = require('../../devboxverify/journey-kit');
+  const echo = `$ a=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/api/sessions); printf '%s_%s signin %s\\n' EVE NEG "$a"`;
+
+  it('takes the last line for the gate, past an echoed command', () => {
+    expect(parseAgentAttempt(`EVE_NEG signin 200 200\n${echo}\nEVE_NEG signin 401 400\n${echo}\n`, 'signin').codes)
+      .toEqual([401, 400]);
+  });
+
+  it('keeps the body after the codes and reads 000 as 0', () => {
+    const got = parseAgentAttempt('EVE_NEG enrol 403 {"error":"Enrollment is not open"}\n', 'enrol');
+    expect(got.codes).toEqual([403]);
+    expect(got.rest).toContain('Enrollment is not open');
+    expect(parseAgentAttempt('EVE_NEG signin 000 000\n', 'signin').codes).toEqual([0, 0]);
+  });
+
+  it.each([
+    ['only the echoed command', echo],
+    ['another gate', 'EVE_NEG enrol 403 x\n'],
+    ['no output', ''],
+  ])('returns null for %s', (_label, text) => {
+    expect(parseAgentAttempt(text, 'signin')).toBeNull();
+  });
+});
+
+describe('devboxverify/screen.js', () => {
+  const { createScreen, presenceOutcome, dialogDetail, shellQuote, frontTerminalIsConsole } = require('../../devboxverify/screen');
+
+  it.each([[0, 'answered'], [1, 'no-prompt'], [3, 'refused'], [2, 'error'], [5, 'error'], [null, 'error']])(
+    'maps helper exit %p to %s', (code, state) => {
+      expect(presenceOutcome(code)).toBe(state);
+    });
+
+  it.each([
+    ['Terminal  [1, 2, 3, 4]  devboxverify-console\nTerminal  [5, 6, 7, 8]  admin', true],
+    ['Terminal  [1, 2, 3, 4]  admin\nTerminal  [5, 6, 7, 8]  devboxverify-console', false],
+    ['Finder  [0, 0, 1, 1]  devboxverify-console\nTerminal  [1, 2, 3, 4]  admin', false],
+    ['', false],
+  ])('frontTerminalIsConsole judges only the frontmost Terminal window (%#)', (out, want) => {
+    expect(frontTerminalIsConsole(out)).toBe(want);
+  });
+
+  it('dialogDetail reads the DIALOG line only', () => {
+    const detail = dialogDetail('noise\nDIALOG\tanswered\trelay presence\n');
+    expect(detail).toContain('answered');
+    expect(detail).toContain('relay presence');
+    expect(detail).not.toContain('noise');
+    expect(dialogDetail('noise\n')).toBe('');
+  });
+
+  it('shellQuote gives words sh reads back unchanged', () => {
+    const argv = ['/opt/relay bin/relay', 'eve', "it's", '$HOME', '`id`', '', 'a;b'];
+    const out = execFileSync('sh', ['-c', `printf '%s\\n' ${shellQuote(argv)}`], { encoding: 'utf8' });
+    expect(out).toBe(argv.map(a => `${a}\n`).join(''));
+  });
+
+  describe('answerPresence', () => {
+    let dir;
+    beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbv-helper-')); });
+    afterEach(() => removeScratch(dir));
+    const answer = helperBin => createScreen({ helperBin }).answerPresence({ expect: 'relay.presence', timeoutMs: 5000 });
+    const fakeHelper = (body) => {
+      const bin = path.join(dir, 'devboxpresence');
+      fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+      return bin;
+    };
+
+    it('is never ready and reports no-helper when the helper is missing', async () => {
+      const { ready, result } = answer(path.join(dir, 'missing'));
+      expect(await ready).toBe(false);
+      expect((await result).state).toBe('no-helper');
+    });
+
+    it.each([
+      ['a helper that says ready and answers', "echo 'devboxpresence: ready' >&2\nprintf 'DIALOG\\tanswered\\tx\\n'\nexit 0", true, 'answered'],
+      ['a helper that exits 1 without saying ready', 'exit 1', false, 'no-prompt'],
+    ])('with %s', async (_label, body, isReady, state) => {
+      const { ready, result } = answer(fakeHelper(body));
+      expect(await ready).toBe(isReady);
+      expect((await result).state).toBe(state);
+    });
+  });
+});
+
+describe('devboxverify/nightly.js run order', () => {
+  const { NIGHTS, relayVerifyArgs } = require('../../devboxverify/nightly');
+
+  it('pins the contract night order: relay api, then eve, then relay screen', () => {
+    expect(NIGHTS.map(n => (n.repo === 'relay' ? `relay:${n.phase}` : n.repo))).toEqual(['relay:api', 'eve', 'relay:screen']);
+  });
+
+  it.each(['api', 'screen'])('hands relay its %s phase', (phase) => {
+    const args = relayVerifyArgs('/srv/relay', phase);
+    expect(args[args.indexOf('--phase') + 1]).toBe(phase);
   });
 });

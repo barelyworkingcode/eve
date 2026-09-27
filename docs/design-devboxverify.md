@@ -514,3 +514,77 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
 - **A9 · Nightly classification.** RED needs exit 1 and a `SUMMARY` line:
   `go run` turns relay's exit 2 (preflight) into 1, so exit 1 alone is not
   proof that journeys ran. Anything else non-zero is BLOCKED.
+- **A10 · Journey table.** A journey is
+  `{ id, timeoutMs, areas, fixture?, screen?, knownBug?, run(env) }`.
+  `areas` names the `devboxverify/FEATURES.md` areas it exercises. Journeys
+  1–9 live in `journeys.js`, the passkey journeys in `journeys-auth.js`,
+  exported by name and placed one by one in `journeys.js`'s table; both
+  require with no side effects. Shared
+  helpers live in `journey-kit.js`, including `openWorldProbe` (a World probe
+  terminal in Acme Corp, or null without the card) and `parseAgentAttempt`
+  (the last `EVE_NEG <gate> <ddd>… <rest>` line; the typed line builds the
+  marker with printf, so its echo never matches).
+- **A11 · Run order.** `orderJourneys` puts `fixture` journeys first and
+  `screen` journeys last, keeping table order within each group: the two
+  passkey fixtures, `agent-enrol-refused`, journeys 1–9,
+  `agent-sign-in-refused`, `add-browser-in-window`. `agent-enrol-refused`
+  goes first because relay has one enrolment window with no way to close it
+  unused; it waits out a leftover one. Without `--screen` a screen journey reports
+  `NOTRUN screen journey; run with --screen`. The nightly passes `--screen`;
+  a manual run passes it only with a SCREEN grant.
+- **A12 · Budget.** The journeys share `JOURNEY_BUDGET_MS` (480 s), counted
+  as time spent running journeys. `journeyTimeout` cuts each timeout to what is
+  left; under 1 s the journey is `BLOCKED run budget spent`. With preflight,
+  reset and snapshots this keeps eve's nightly under 10 minutes.
+- **A13 · eve-verify is untrusted.** It runs with `EVE_DISABLE_SUBNET_BYPASS=1`
+  and `EVE_PASSKEY_SYNC=off`; both only tighten. `PREFLIGHT eve` also needs an
+  absolute `--data <dir>` on the service row (`pinnedDataDir`) and an auth
+  status without `trusted: true` (`authStatusProblem`).
+- **A14 · Owner reset.** `PREFLIGHT owner`, the last preflight, deletes
+  exactly `auth.json` and `sessions.json` in the pinned dir (`ownerResetPaths`
+  refuses any dir that is not a normalised absolute path or is the live eve's
+  `data` dir), restarts eve-verify, waits up to 30 s for a new process and
+  needs `enrolled: false` with no `trusted`.
+- **A15 · Sign-in fixture.** `owner.js` runs the real ceremonies in Chromium
+  with a CDP virtual authenticator (ctap2, internal, resident key, user
+  verification): `enrolOwner(browser, url)` → `{ credential, token,
+  storageState }`, `signIn(browser, url, credential)` → `{ token,
+  storageState }`. No request is intercepted and no session is seeded. The
+  fixture journeys `passkey-first-enrol` and `passkey-sign-in` wrap them and
+  set `shared.owner` and `env.session`. Then `PREFLIGHT api`, `WORLD` and
+  `RESET` run with the token, and the other journeys follow. Unless both
+  fixture journeys pass, every later journey is `BLOCKED no signed-in owner`.
+- **A16 · Token.** Every `env.newPage()` context starts from
+  `env.session.storageState`, which holds only `eve_session`;
+  `newPage({ signedIn: false })` starts a signed-out one. `EveApi` sends the
+  token as `X-Session-Token` and in the WS `auth` frame;
+  `authStatus(token?)` sends one only when given. The token and credential
+  stay in memory: never logged, written to disk or put in a detail.
+- **A17 · JourneyEnv.** Besides A15–A16: `browser`; `relayBin`; `serviceLog`
+  (`mark()` → byte offset, `since(mark)` → text; read-only on relay's log for
+  the service, a shrunk file read from the start); `relayAudit({ path,
+  sinceMs })` (`relay audit -json -tail 500 -grep <path>`, then filtered on
+  exact path and time, as `{ ts, credId, method, path, outcome }`);
+  `cleanup(label, fn)` (runs after the journey's contexts close, whatever the
+  verdict, 10 s each; a throw turns PASS into FAIL; one registered late runs
+  at the end of the run); `screen` (non-null only for a screen journey);
+  `shared`.
+- **A18 · Screen.** `screen.js` types into a desktop Terminal with the
+  `computer` CLI, never AppleScript, which would block on a consent dialog.
+  `answerPresence({ expect, timeoutMs })` runs relay's presence helper
+  (`DEVBOXPRESENCE_BIN`, default
+  `~/.local/share/devboxverify/bin/devboxpresence`) as
+  `devboxpresence answer --expect <text> --timeout <n>s`. It starts the helper
+  at once and returns `{ ready, result }`, because the helper refuses a dialog
+  that predates it: start it, trigger the dialog only once `ready` is true
+  (the helper's `devboxpresence: ready` on stderr), then await `result`,
+  `{ state, code, detail }`: `PRESENCE_EXIT` maps exit 0 → `answered`,
+  1 → `no-prompt`, 3 → `refused`, anything else → `error`; a missing binary is
+  `no-helper`. `detail` is the helper's `DIALOG` line and is never logged.
+  `consoleRun` titles its window `devboxverify-console`. `closeConsole` runs
+  `devboxpresence cancel --any` first; then, only if `consoleRun` opened a
+  window and the frontmost Terminal window carries that title, it ends the
+  shell and closes the window if the profile left it open. Eve never reads the account password.
+- **A19 · Nightly order.** relay `--phase api` (record `relay`), eve
+  `--screen` (record `eve`), relay `--phase screen` (record `relay-screen`).
+  relay owns the `--phase` selector; the call sits in `relayVerifyArgs`.

@@ -209,7 +209,20 @@ async function prepareEve(night) {
   return null;
 }
 
-async function runNight(repo, checkout, at, logDir) {
+// relay's own phase selector: relay's api journeys run before eve, its screen
+// journeys after eve's.
+function relayVerifyArgs(checkout, phase) {
+  return ['run', './cmd/devboxverify', '--checkout', checkout, '--phase', phase];
+}
+
+// Run order. The label names the night's record and run file.
+const NIGHTS = [
+  { label: 'relay', repo: 'relay', phase: 'api' },
+  { label: 'eve', repo: 'eve' },
+  { label: 'relay-screen', repo: 'relay', phase: 'screen' },
+];
+
+async function runNight({ label, repo, phase }, checkout, at, logDir) {
   const envName = `NIGHTLY_${repo.toUpperCase()}_CHECKOUT`;
   const night = new Night(repo, checkout);
   let blockedReason = checkout ? null : `${envName} not set`;
@@ -218,15 +231,15 @@ async function runNight(repo, checkout, at, logDir) {
   const commit = checkout ? await night.head() : '';
   if (!blockedReason) {
     res = repo === 'relay'
-      ? await night.step('go', ['run', './cmd/devboxverify', '--checkout', checkout], { timeoutMs: RUN_TIMEOUT_MS })
-      : await night.step(process.execPath, ['devboxverify/main.js', '--checkout', checkout], { timeoutMs: RUN_TIMEOUT_MS });
+      ? await night.step('go', relayVerifyArgs(checkout, phase), { timeoutMs: RUN_TIMEOUT_MS })
+      : await night.step(process.execPath, ['devboxverify/main.js', '--checkout', checkout, '--screen'], { timeoutMs: RUN_TIMEOUT_MS });
   }
   const result = classify({ exitCode: res.code, timedOut: res.timedOut, blockedReason, stdout: res.stdout });
   const summary = blockedReason || (res.timedOut ? `timed out after 30 min; ${summaryOf(res.stdout)}` : summaryOf(res.stdout));
-  const record = { at, repo, result, commit, behind: night.behind, summary };
+  const record = { at, repo: label, result, commit, behind: night.behind, summary };
   const runs = path.join(logDir, 'runs');
   fs.mkdirSync(runs, { recursive: true });
-  fs.writeFileSync(path.join(runs, `${at.slice(0, 10)}-${repo}.txt`), `${formatRecord(record)}\n\n${night.log.join('\n')}\n`);
+  fs.writeFileSync(path.join(runs, `${at.slice(0, 10)}-${label}.txt`), `${formatRecord(record)}\n\n${night.log.join('\n')}\n`);
   fs.appendFileSync(path.join(logDir, 'nightly.log'), `${formatRecord(record)}\n`);
   return record;
 }
@@ -241,10 +254,10 @@ async function main() {
   const logDir = process.env.NIGHTLY_LOG_DIR || path.join(os.homedir(), 'Library', 'Logs', 'devboxverify');
   fs.mkdirSync(logDir, { recursive: true });
   const at = new Date().toISOString();
-  const records = [
-    await runNight('relay', process.env.NIGHTLY_RELAY_CHECKOUT, at, logDir),
-    await runNight('eve', process.env.NIGHTLY_EVE_CHECKOUT, at, logDir),
-  ];
+  const records = [];
+  for (const night of NIGHTS) {
+    records.push(await runNight(night, process.env[`NIGHTLY_${night.repo.toUpperCase()}_CHECKOUT`], at, logDir));
+  }
   const all = parseRecords(fs.readFileSync(path.join(logDir, 'nightly.log'), 'utf8'));
   fs.writeFileSync(path.join(logDir, 'status.html'), renderStatusPage(all, { now: new Date() }));
   for (const r of records) process.stdout.write(`${formatRecord(r)}\n`);
@@ -252,7 +265,7 @@ async function main() {
   if (bad.length) await notify(bad.map((r) => `${r.repo} ${r.result}: ${r.summary}`).join('; '));
 }
 
-module.exports = { classify, summaryOf, formatRecord, parseRecords, renderStatusPage };
+module.exports = { classify, summaryOf, formatRecord, parseRecords, renderStatusPage, relayVerifyArgs, NIGHTS };
 
 if (require.main === module) {
   main().then(() => process.exit(0), (err) => {
