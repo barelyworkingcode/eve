@@ -67,4 +67,8 @@ describe('ipHostGuard middleware', () => {
     expect(res.body).toContain('https://eve.example.com');
   });
 
+  it('still allows loopback IP (local tooling/health checks)', () => {
+    const { nexted } = run(ipHostGuard({ origin }), '127.0.0.1:3000');
+    expect(nexted).toBe(true);
+  });
 });
