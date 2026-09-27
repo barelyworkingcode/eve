@@ -6,6 +6,7 @@ const { FakeElement, createDocument, fakeLocalStorage, loadScript, loadConstants
 const { EVT } = loadConstants();
 
 const SESSION = 's1';
+const OTHER_SESSION = 's2';
 
 // fake-dom keeps innerHTML as an opaque string. The renderer builds each
 // message as `<div class="message-content">…</div>` and reads that child
@@ -40,11 +41,17 @@ function makeChat() {
 
   const messages = doc.createElement('div');
   const app = Object.create(EveWorkspaceClient.prototype);
+  const sessions = new Map([SESSION, OTHER_SESSION].map((id) => [id, { id }]));
   Object.assign(app, {
-    state: { currentSessionId: SESSION, sessionHistories: new Map(), sessions: new Map() },
-    elements: { messages },
+    state: { currentSessionId: SESSION, sessionHistories: new Map(), sessions },
+    elements: {
+      messages,
+      userInput: doc.createElement('textarea'),
+      welcomeScreen: doc.createElement('div'),
+      chatScreen: doc.createElement('div'),
+    },
     wsClient: { send: jest.fn() },
-    chatForm: { showStop: jest.fn(), hideStop: jest.fn() },
+    chatForm: { showStop: jest.fn(), hideStop: jest.fn(), setSubmitEnabled: jest.fn() },
   });
   const log = { debug() {}, info() {}, warn() {}, error() {} };
   const values = {
@@ -55,6 +62,9 @@ function makeChat() {
     ws: app.wsClient,
     voiceChatManager: null,
     ttsManager: null,
+    tabManager: { getSessionMeta: () => null, openSession: jest.fn() },
+    sidebarRenderer: { renderProjectList: jest.fn() },
+    modalManager: { hidePlanApproval: jest.fn() },
   };
   const container = { get: (name) => values[name] };
   app.messageRenderer = new MessageRenderer(container);
@@ -65,7 +75,11 @@ function makeChat() {
   return {
     streamText: (text) => dispatch({ type: 'llm_event', event: { v: 2, type: 'assistant', delta: { type: 'text_delta', text } } }),
     stop: () => app.handleStop(),
-    complete: () => dispatch({ type: 'message_complete' }),
+    complete: (sessionId = SESSION) => dispatch({ type: 'message_complete', sessionId }),
+    error: (message) => dispatch({ type: 'error', message }),
+    submitLocally: () => app.messageDispatcher.markLocalSubmit(SESSION),
+    userMessage: (text) => dispatch({ type: 'user_message', text }),
+    join: (sessionId) => dispatch({ type: 'session_joined', sessionId, history: [] }),
     threadText: () => messages.querySelectorAll('.message-content').map((el) => el.innerHTML).join('\n'),
     errors: () => messages.querySelectorAll('.error').map((el) => el.querySelector('.message-content').innerHTML),
   };
@@ -125,5 +139,52 @@ describe('MessageDispatcher: a turn with no content and no Stop', () => {
     chat.complete();
 
     expect(chat.errors()).toEqual(['No response from model']);
+  });
+});
+
+describe('MessageDispatcher: the turn after a Stop that relay never completes', () => {
+  function newTurn(chat, text) {
+    chat.userMessage('And now?');
+    chat.streamText(text);
+    chat.complete();
+  }
+
+  it.each([
+    ['sent from another viewer', () => {}],
+    ['sent from this browser', (chat) => chat.submitLocally()],
+  ])('draws the next reply when its user_message was %s', (_label, beforeUserMessage) => {
+    const chat = makeChat();
+    chat.streamText('Counting: 1, 2, 3');
+    chat.stop();
+
+    beforeUserMessage(chat);
+    newTurn(chat, 'Next turn reply');
+
+    expect(chat.threadText()).toContain('Next turn reply');
+  });
+
+  it('draws the next reply after an error ends the stopped turn', () => {
+    const chat = makeChat();
+    chat.streamText('Counting: 1, 2, 3');
+    chat.stop();
+    chat.error('Provider failed');
+
+    newTurn(chat, 'Next turn reply');
+
+    expect(chat.threadText()).toContain('Next turn reply');
+    expect(chat.errors()).not.toContain('No response from model');
+  });
+
+  it('draws the next reply after the stopped turn completed while another session was open', () => {
+    const chat = makeChat();
+    chat.streamText('Counting: 1, 2, 3');
+    chat.stop();
+
+    chat.join(OTHER_SESSION);
+    chat.complete(SESSION);
+    chat.join(SESSION);
+    newTurn(chat, 'Next turn reply');
+
+    expect(chat.threadText()).toContain('Next turn reply');
   });
 });

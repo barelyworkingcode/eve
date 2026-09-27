@@ -248,6 +248,9 @@ class MessageDispatcher {
   }
 
   _handleUserMessage(data) {
+    // A new turn ends any stopped one, even if the Stop never reached relay
+    // and that turn's message_complete never comes.
+    this._stoppedTurns.delete(data.sessionId);
     // The message was already rendered optimistically on local submit.
     if (this._localSubmitSession === data.sessionId) {
       this._localSubmitSession = null;
@@ -461,6 +464,7 @@ class MessageDispatcher {
     }
 
     if (data.type === 'user_message') {
+      this._stoppedTurns.delete(sid);
       let history = this.state.sessionHistories.get(sid);
       if (!history) {
         history = [];
