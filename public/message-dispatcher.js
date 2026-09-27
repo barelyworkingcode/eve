@@ -57,6 +57,10 @@ class MessageDispatcher {
     // reconnect, so handleSessionJoined can tell that reply apart from a
     // genuine, user-facing join and avoid stealing the active tab.
     this._resubscribeJoins = new Map();
+    // Sessions whose in-flight turn the user stopped. Relay still sends that
+    // turn's late chunks and its message_complete; both belong to the stopped
+    // turn, so they are dropped rather than drawn or reported as empty.
+    this._stoppedTurns = new Set();
 
     this._sessionScopedTypes = new Set([
       'llm_event', 'message_complete', 'stats_update', 'raw_output',
@@ -130,6 +134,7 @@ class MessageDispatcher {
   }
 
   dispatch(data) {
+    if (data.type === 'llm_event' && this._stoppedTurns.has(data.sessionId)) return;
     if (data.sessionId && data.sessionId !== this.state.currentSessionId && this._sessionScopedTypes.has(data.type)) {
       this._handleBackgroundEvent(data);
       return;
@@ -218,6 +223,11 @@ class MessageDispatcher {
     this._openBlockKindByIndex = {};
     this._sidechainStack = [];
     this._streamingToolInputBuffer = '';
+    this._stoppedTurns.delete(sessionId);
+  }
+
+  markTurnStopped(sessionId) {
+    if (sessionId) this._stoppedTurns.add(sessionId);
   }
 
   _notifyVoiceError(message) {
@@ -286,6 +296,7 @@ class MessageDispatcher {
 
   _handleError(data) {
     this._untrackStreaming(data.sessionId);
+    this._stoppedTurns.delete(data.sessionId);
     this.renderer.hideThinkingIndicator();
     this.renderer.appendSystemMessage(data.message, 'error');
     // A failed terminal create happens from a terminal dialog, where the chat
@@ -300,6 +311,7 @@ class MessageDispatcher {
 
   _handleMessageComplete(data) {
     this._untrackStreaming(data.sessionId);
+    const stopped = this._stoppedTurns.delete(data.sessionId);
     this._openBlockKindByIndex = {};
     this._streamingToolInputBuffer = '';
     // An Agent call with no matching tool_result would otherwise leak its
@@ -320,7 +332,7 @@ class MessageDispatcher {
     this._lastTurnMetrics = null;
     this.renderer.finishAssistantMessage(metrics);
     this.app.hideStopButton();
-    if (!hadContent && !data.error) {
+    if (!hadContent && !data.error && !stopped) {
       const msg = data.errorMessage || 'No response from model';
       this.renderer.appendSystemMessage(msg, 'error');
       this._notifyVoiceError(msg);
@@ -529,6 +541,7 @@ class MessageDispatcher {
 
     if (data.type === 'message_complete') {
       this.streamingSessions.delete(sid);
+      this._stoppedTurns.delete(sid);
       this._flushClientTTS(sid);
       const buf = this.backgroundBuffers.get(sid);
       if (buf) {
@@ -551,6 +564,7 @@ class MessageDispatcher {
 
     if (data.type === 'error' || data.type === 'process_exited') {
       this.streamingSessions.delete(sid);
+      this._stoppedTurns.delete(sid);
       return;
     }
   }
