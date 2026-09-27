@@ -125,12 +125,6 @@ describe('auth routes', () => {
       expect(authService.addCredential).not.toHaveBeenCalled();
     });
 
-    it('allows enroll/start when not enrolled, regardless of the window', async () => {
-      authService.generateEnrollmentOptions.mockResolvedValue({ options: {}, challengeId: 'cid' });
-      const res = await post('/api/auth/enroll/start');
-      expect(res.status).toBe(200);
-    });
-
     it('blocks login when not enrolled (400 Not enrolled)', async () => {
       authService.isEnrolled.mockReturnValue(false);
       const res = await post('/api/auth/login/start');

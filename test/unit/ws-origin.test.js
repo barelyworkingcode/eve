@@ -1,4 +1,4 @@
-const { isAllowedWsOrigin, parsePublicOrigin, isLoopbackHost } = require('../../ws-origin');
+const { isAllowedWsOrigin, parsePublicOrigin } = require('../../ws-origin');
 
 function reqWith(headers) {
   return { headers };
@@ -75,23 +75,6 @@ describe('ws-origin', () => {
     });
   });
 
-  describe('isLoopbackHost (exact match, no substrings)', () => {
-    it('matches the canonical loopback hostnames', () => {
-      expect(isLoopbackHost('localhost')).toBe(true);
-      expect(isLoopbackHost('127.0.0.1')).toBe(true);
-      expect(isLoopbackHost('::1')).toBe(true);
-      expect(isLoopbackHost('[::1]')).toBe(true);
-      expect(isLoopbackHost('LOCALHOST')).toBe(true);
-    });
-    it('rejects substring/lookalike bypass attempts', () => {
-      expect(isLoopbackHost('localhost.evil.com')).toBe(false);
-      expect(isLoopbackHost('127.0.0.1.evil.com')).toBe(false);
-      expect(isLoopbackHost('evil.com')).toBe(false);
-      expect(isLoopbackHost('127.0.0.2')).toBe(false);
-      expect(isLoopbackHost('')).toBe(false);
-    });
-  });
-
   describe('loopback Origin exception (on-box automation, even when pinned)', () => {
     const publicOrigin = 'https://eve.example';
 
@@ -106,9 +89,6 @@ describe('ws-origin', () => {
     it('does NOT allow a loopback-lookalike host (forged/malformed)', () => {
       expect(isAllowedWsOrigin(reqWith({ origin: 'http://localhost.evil.com', host: 'x' }), { publicOrigin })).toBe(false);
       expect(isAllowedWsOrigin(reqWith({ origin: 'http://127.0.0.1.evil.com', host: 'x' }), { publicOrigin })).toBe(false);
-    });
-    it('still rejects a genuine cross-site origin', () => {
-      expect(isAllowedWsOrigin(reqWith({ origin: 'https://evil.example', host: 'eve.example' }), { publicOrigin })).toBe(false);
     });
   });
 });

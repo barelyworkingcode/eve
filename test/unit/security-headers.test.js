@@ -25,8 +25,9 @@ describe('security-headers', () => {
     });
 
     it('hashes multiple inline scripts in order', () => {
+      const hash = (body) => `'sha256-${crypto.createHash('sha256').update(body, 'utf8').digest('base64')}'`;
       const html = '<script>a()</script><script>b()</script>';
-      expect(computeInlineScriptHashes(html)).toHaveLength(2);
+      expect(computeInlineScriptHashes(html)).toEqual([hash('a()'), hash('b()')]);
     });
 
     // Browsers normalise CRLF to LF before hashing an inline script body; hashing

@@ -45,11 +45,8 @@ function sandboxValues(file) {
 describe('iframe sandbox invariant', () => {
   const files = collectFiles(PUBLIC_DIR);
 
-  test('public/ is being scanned (sanity)', () => {
-    expect(files.length).toBeGreaterThan(0);
-  });
-
   test('no iframe anywhere under public/ is granted allow-same-origin', () => {
+    expect(files.length).toBeGreaterThan(0);
     const offenders = [];
     for (const file of files) {
       for (const value of sandboxValues(file)) {
