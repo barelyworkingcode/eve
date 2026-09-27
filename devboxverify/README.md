@@ -148,8 +148,11 @@ chat straight away.
 - Edit a tracked file and the running eve is stale: preflight fails `eve`
   until `relay service restart --id eve-verify`.
 - A dirty tree fails `tree`. Untracked files are ignored.
-- `--url` at :3000, or an `eve-verify` sharing the live eve's process or
-  checkout, fails `live`.
+- `--url` at :3000 with the default `--service` fails `service`: the
+  `eve-verify` row is not registered at that URL. Run from the live checkout
+  with `--service eve --url http://localhost:3000` and it fails `live`
+  instead. An `eve-verify` sharing the live eve's process or checkout also
+  fails `live`.
 - Journeys create things only in Acme Corp. A journey that leaves anything
   outside the world projects is FAIL, and the item stays for a human to
   remove.

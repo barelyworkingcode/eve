@@ -488,3 +488,15 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
 - **A6 · Launch refusal.** Recognised by a WS error frame naming
   `template "chat"`; it only decides BLOCKED vs FAIL. Journeys wait for the
   model list before opening the launcher, which does not refill late models.
+- **A7 · Registration.** `eve-verify` runs `node server.js --data <dir>` with
+  `--env PORT=3100 --env EVE_PASSKEY_SYNC=off`; no `--env-file` (the only value
+  there is the eve-control secret, which the verify instance does not need). It
+  must only point at a checkout that honours `EVE_PASSKEY_SYNC`, and runs only
+  during a verify: stop it afterwards (`relay service stop --id eve-verify`).
+- **A8 · Review round 1.** Verdicts rest on visible outcomes; WS error frames
+  only choose BLOCKED over FAIL. The leak detail names kind and id, never the
+  item's name, since details are posted publicly. Every eve request has a
+  timeout, and world projects must have absolute paths. Readiness gates may
+  wait on `window.client` internals (they are setup, not verdicts); a redesign
+  updates them. The `:3000` refusal shows as `service FAIL` with the default
+  `--service`, or `live FAIL` with `--service eve`.

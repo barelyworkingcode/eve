@@ -34,7 +34,7 @@ function renderComment({ commit, toolCommit, worldSummary, home, results }) {
     '',
     '| Journey | Result | Detail |',
     '|---|---|---|',
-    ...results.map((r) => `| \`${r.id}\` | ${r.state} | ${String(r.detail).replaceAll('|', '\\|')} |`),
+    ...results.map((r) => `| \`${r.id}\` | ${r.state} | ${String(r.detail).replace(/\s+/g, ' ').trim().replaceAll('|', '\\|')} |`),
   ];
   return scrub(lines.join('\n') + '\n', home);
 }

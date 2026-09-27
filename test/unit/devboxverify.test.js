@@ -239,7 +239,7 @@ describe('devboxverify/post.js', () => {
   it('renders every journey, scrubbed and with | escaped', () => {
     const body = renderComment({
       pr: 7, commit: 'a'.repeat(40), toolCommit: 'b'.repeat(40),
-      worldSummary: { pass: 12, fail: 0 }, home: HOME,
+      worldSummary: 'pass=1 fail=0', home: HOME,
       results: [
         r('landing-view', 'PASS'),
         r('chat-reply', 'FAIL', `read ${HOME}/x`),

@@ -1,8 +1,11 @@
+const nodePath = require('path');
 const WebSocket = require('ws');
 
 const KINDS = ['sessions', 'tasks', 'terminals'];
 const SWEEP_WAIT_MS = 10000;
 const WS_READY_MS = 10000;
+const FETCH_TIMEOUT_MS = 15000;
+const TERMINAL_LIST_MS = 10000;
 
 function isUnder(dir, root) {
   return !!dir && (dir === root || dir.startsWith(root + '/'));
@@ -43,7 +46,7 @@ class EveApi {
   }
 
   async _json(method, path) {
-    const res = await fetch(this.baseUrl + path, { method });
+    const res = await fetch(this.baseUrl + path, { method, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     const text = await res.text();
     if (!res.ok) throw new Error(`${method} ${path} answered ${res.status}`);
     return text ? JSON.parse(text) : null;
@@ -63,6 +66,9 @@ class EveApi {
         throw new Error(matches.length ? `project "${entry.name}" appears ${matches.length} times` : `project "${entry.name}" is missing`);
       }
       const { id, name, path } = matches[0];
+      if (typeof path !== 'string' || !nodePath.isAbsolute(path)) {
+        throw new Error(`project "${entry.name}" has no absolute path`);
+      }
       return { key: entry.key, id, name, path };
     });
   }
@@ -80,7 +86,18 @@ class EveApi {
       const conn = {
         send: msg => ws.send(JSON.stringify(msg)),
         close: () => ws.close(),
-        terminals: () => new Promise((res, rej) => { waiters.push({ res, rej }); conn.send({ type: 'terminal_list' }); }),
+        terminals: () => new Promise((res, rej) => {
+          const waiter = {
+            res: (list) => { clearTimeout(waiter.timer); res(list); },
+            rej: (err) => { clearTimeout(waiter.timer); rej(err); },
+          };
+          waiter.timer = setTimeout(() => {
+            waiters.splice(waiters.indexOf(waiter), 1);
+            rej(new Error(`no terminal_list reply within ${TERMINAL_LIST_MS / 1000}s`));
+          }, TERMINAL_LIST_MS);
+          waiters.push(waiter);
+          conn.send({ type: 'terminal_list' });
+        }),
       };
       ws.on('close', () => { for (const w of waiters.splice(0)) w.rej(new Error('eve WebSocket closed')); });
       ws.on('open', () => conn.send({ type: 'auth' }));

@@ -95,7 +95,9 @@ ${table(sorted.slice(0, HISTORY_ROWS))}
 }
 
 // Runs a child in its own process group so a timeout kills the whole tree
-// (go run's compiled binary, Chromium under main.js), not just the direct child.
+// (go run's compiled binary, main.js), not just the direct child. Chromium is
+// not caught by the group kill: Playwright starts it in its own process group
+// and closes it from its own exit handler when main.js dies.
 function runChild(cmd, args, { cwd, timeoutMs, env }) {
   return new Promise((resolve) => {
     let stdout = '';

@@ -12,6 +12,8 @@ const result = (id, state, detail) => ({ id, state, detail });
 const firstLine = (err) => String(err?.message || err).split('\n')[0];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const seconds = (since) => Math.round((Date.now() - since) / 1000);
+// Deliberate floor of 1 ms: Playwright reads a timeout of 0 as "no timeout".
+const left = (deadline) => Math.max(1, deadline - Date.now());
 
 // A failed wait throws with the step it belongs to, since expect's own first
 // line ("expect(locator).toBeVisible() failed") names nothing.
@@ -48,11 +50,11 @@ async function optionValues(select) {
 
 // App readiness is setup, not a verdict: initApp() builds client.state and
 // the socket only once the auth status resolves.
-async function openEve(page, env, suffix = '') {
+async function openEve(page, env, suffix = '', deadline = null) {
   env.step('open eve');
   await page.goto(env.url.replace(/\/?$/, '/') + suffix, { timeout: 30000 });
   await need('eve did not finish loading within 20s', page.waitForFunction(
-    () => !!window.client?.state && !!window.client?.wsClient, null, { timeout: 20000 }));
+    () => !!window.client?.state && !!window.client?.wsClient, null, { timeout: deadline ? left(deadline) : 20000 }));
 }
 
 // The launcher's model form reads the list once, when it opens.
@@ -71,10 +73,13 @@ async function openProject(page, env, project) {
     expect(page.locator('#panelTitle')).toHaveText(project.name, { timeout: 10000 }));
 }
 
-async function acmeIds(env, kind) {
-  const snap = await env.api.snapshot([env.projects.acme]);
+async function worldIds(env, projects, kind) {
+  const snap = await env.api.snapshot(projects);
   return snap[kind].filter((i) => i.world).map((i) => i.id);
 }
+
+const acmeIds = (env, kind) => worldIds(env, [env.projects.acme], kind);
+const allWorldIds = (env, kind) => worldIds(env, [env.projects.acme, env.projects.globex, env.projects.home], kind);
 
 const addedIds = (before, after) => after.filter((id) => !before.includes(id));
 
@@ -106,35 +111,40 @@ async function thread(page) {
   return page.getByTestId('messages-container').evaluate((root) =>
     [...root.children].filter((el) => el.offsetParent !== null).map((el) => ({
       who: el.dataset.testid || '',
-      text: (el.innerText || '').trim(),
+      text: (el.querySelector('.message-content')?.innerText || '').trim(),
       error: el.classList.contains('error'),
-    })));
+    })), null, { timeout: 10000 });
 }
+
+const threadError = (messages) => messages.find((m) => m.who === 'message-system' && m.error)?.text || '';
 
 function replyAfter(messages, marker) {
   const at = messages.findIndex((m) => m.who === 'message-user' && m.text.includes(marker));
   if (at < 0) return { asked: false, reply: '', error: '' };
   const later = messages.slice(at + 1);
-  const error = later.find((m) => m.who === 'message-system' && m.error)?.text || '';
-  const reply = later.filter((m) => m.who === 'message-assistant').map((m) => m.text).join('\n').trim();
-  return { asked: true, reply, error };
+  const reply = later.filter((m) => m.who === 'message-assistant' && m.text).map((m) => m.text).join('\n').trim();
+  return { asked: true, reply, error: threadError(later) };
 }
 
 async function landingView(env) {
   const id = 'landing-view';
   const page = await env.newPage();
-  await openEve(page, env);
+  const deadline = Date.now() + 20000;
+  await openEve(page, env, '', deadline);
   env.step('wait for the greeting');
   const home = page.getByTestId('home-screen');
   const greeting = home.getByText(GREETING);
-  await need('no greeting within 20s', expect(greeting).toBeVisible({ timeout: 20000 }));
-  for (const [testid, name] of [['home-tile-chat', 'Chat'], ['home-tile-voice', 'Voice']]) {
+  await need('no greeting within 20s of opening eve', expect(greeting).toBeVisible({ timeout: left(deadline) }));
+  // A project's terminal template with id "chat" also gets testid home-tile-chat,
+  // so each tile is found by its description as well.
+  for (const [testid, name, desc] of [['home-tile-chat', 'Chat', 'Talk to a model'], ['home-tile-voice', 'Voice', 'Hands-free']]) {
     env.step(`look for the ${name} tile`);
-    await need(`no "${name}" Start tile`, expect(home.getByTestId(testid)).toContainText(name, { timeout: 5000 }));
-    await need(`"${name}" tile not visible`, expect(home.getByTestId(testid)).toBeVisible({ timeout: 5000 }));
+    const tile = home.getByTestId(testid).filter({ hasText: desc });
+    await need(`no "${name}" Start tile`, expect(tile).toContainText(name, { timeout: 5000 }));
+    await need(`"${name}" tile not visible`, expect(tile).toBeVisible({ timeout: 5000 }));
   }
   if (await page.locator('#authScreen').isVisible()) return result(id, FAIL, 'the passkey screen is showing');
-  return result(id, PASS, `"${await greeting.innerText()}" with Chat and Voice tiles`);
+  return result(id, PASS, `"${await greeting.innerText({ timeout: 5000 })}" with Chat and Voice tiles`);
 }
 
 async function worldProjectsListed(env) {
@@ -174,21 +184,24 @@ async function chatReply(env) {
   const select = dialog.getByTestId('launcher-model-select');
   const model = pickModel(await optionValues(select), env.model);
   if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for Acme Corp`);
-  await select.selectOption(model);
+  await select.selectOption(model, { timeout: 5000 });
   env.step('start the chat');
   await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
+  // Called only once a visible failure is in hand: a refusal frame turns it
+  // BLOCKED, anything else leaves it FAIL.
+  const failed = (detail) => {
+    const refusal = errors.find((e) => /template "chat"/.test(e));
+    return refusal ? result(id, BLOCKED, `launch refused: ${refusal}`) : result(id, FAIL, detail);
+  };
 
   env.step('wait for the session');
   const created = await poll(async () => {
-    if (errors.length) return true;
-    return addedIds(before, await acmeIds(env, 'sessions')).length > 0;
+    if (addedIds(before, await acmeIds(env, 'sessions')).length > 0) return {};
+    const error = threadError(await thread(page));
+    return error ? { error } : null;
   }, { timeoutMs: 30000, intervalMs: 1000 });
-  if (errors.length) {
-    const refusal = errors.find((e) => /template "chat"/.test(e));
-    if (refusal) return result(id, BLOCKED, `launch refused: ${refusal}`);
-    return result(id, FAIL, `launch failed: ${errors[0]}`);
-  }
-  if (!created) return result(id, FAIL, 'no Acme Corp session within 30s of Start Chat');
+  if (!created) return failed('no Acme Corp session within 30s of Start Chat');
+  if (created.error) return failed(`error in the thread: ${created.error}`);
   const added = addedIds(before, await acmeIds(env, 'sessions'));
   if (added.length !== 1) return result(id, FAIL, `${added.length} new Acme Corp sessions, expected 1`);
 
@@ -196,7 +209,7 @@ async function chatReply(env) {
   const input = page.getByTestId('chat-input');
   env.step('wait for the composer');
   await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
-  await input.fill(question);
+  await input.fill(question, { timeout: 5000 });
   env.step('send the question');
   await page.getByTestId('chat-submit').click({ timeout: 5000 });
   const sentAt = Date.now();
@@ -212,13 +225,12 @@ async function chatReply(env) {
     if (r.reply && !(await stop.isVisible())) return r;
     return null;
   }, { timeoutMs: 150000, intervalMs: 1000 });
-  if (!settled) return result(id, FAIL, 'no finished assistant reply within 150s');
-  if (settled.error) return result(id, FAIL, `error in the thread: ${settled.error}`);
+  if (!settled) return failed('no finished assistant reply within 150s');
+  if (settled.error) return failed(`error in the thread: ${settled.error}`);
   const took = seconds(sentAt);
   await sleep(500);
   const late = replyAfter(await thread(page), env.nonce);
-  if (late.error) return result(id, FAIL, `error in the thread: ${late.error}`);
-  if (errors.length) return result(id, FAIL, `error from relay: ${errors[0]}`);
+  if (late.error) return failed(`error in the thread: ${late.error}`);
 
   const final = addedIds(before, await acmeIds(env, 'sessions'));
   if (final.length !== 1) return result(id, FAIL, `${final.length} new Acme Corp sessions, expected 1`);
@@ -258,14 +270,15 @@ async function openExistingThread(env) {
 
 async function terminalOnRequest(env) {
   const id = 'terminal-on-request';
+  const worldBefore = await allWorldIds(env, 'terminals');
+  const before = await acmeIds(env, 'terminals');
   const page = await env.newPage();
   await openEve(page, env);
-  const before = await acmeIds(env, 'terminals');
   await openProject(page, env, env.projects.acme);
   env.step('settle before asking');
   await sleep(3000);
   const pane = page.locator('#terminal');
-  const unasked = addedIds(before, await acmeIds(env, 'terminals'));
+  const unasked = addedIds(worldBefore, await allWorldIds(env, 'terminals'));
   if (unasked.length || await pane.isVisible()) {
     return result(id, FAIL, 'a terminal opened without being asked');
   }
@@ -315,9 +328,9 @@ async function taskCreatedListed(env) {
   await dialog.getByRole('button', { name: 'New', exact: true }).click({ timeout: 5000 });
 
   env.step('fill the task form');
-  await dialog.locator('[name="taskName"]').fill(name);
-  await dialog.locator('[name="taskType"]').selectOption({ label: 'Chat (LLM)' });
-  await dialog.locator('[name="taskPrompt"]').fill('Say hello.');
+  await dialog.locator('[name="taskName"]').fill(name, { timeout: 5000 });
+  await dialog.locator('[name="taskType"]').selectOption({ label: 'Chat (LLM)' }, { timeout: 5000 });
+  await dialog.locator('[name="taskPrompt"]').fill('Say hello.', { timeout: 5000 });
   const select = dialog.locator('[name="taskModel"]');
   const values = await poll(async () => {
     const v = await optionValues(select);
@@ -325,8 +338,8 @@ async function taskCreatedListed(env) {
   }, { timeoutMs: 20000 }) || [];
   const model = pickModel(values, env.model);
   if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for Acme Corp tasks`);
-  await select.selectOption(model);
-  await dialog.locator('[name="scheduleType"]').selectOption({ label: 'On demand' });
+  await select.selectOption(model, { timeout: 5000 });
+  await dialog.locator('[name="scheduleType"]').selectOption({ label: 'On demand' }, { timeout: 5000 });
 
   env.step('create the task');
   await dialog.getByRole('button', { name: 'Create Task' }).click({ timeout: 5000 });

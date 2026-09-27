@@ -80,11 +80,11 @@ function isNodeServer(command) {
   return path.basename(tokens[0] || '') === 'node' && tokens.some(t => t === 'server.js' || t.endsWith('/server.js'));
 }
 
-function eveProcessProblem({ pids, cwd, command, startedAtMs, checkout, newestChangeMs }) {
-  const restart = 'relay service restart --id eve-verify';
+function eveProcessProblem({ pids, cwd, command, startedAtMs, checkout, newestChangeMs, service = 'eve-verify' }) {
+  const restart = `relay service restart --id ${service}`;
   if (pids.length !== 1) return `${pids.length} processes listen on the port, want 1; ${restart}`;
   if (!cwd) return `cannot read the working directory of pid ${pids[0]}`;
-  if (cwd !== checkout) return `eve runs from ${cwd}, not ${checkout}; re-register eve-verify with --workdir ${checkout}`;
+  if (cwd !== checkout) return `eve runs from ${cwd}, not ${checkout}; re-register ${service} with --workdir ${checkout}`;
   if (!isNodeServer(command)) return `pid ${pids[0]} is not node running server.js`;
   if (startedAtMs === null || startedAtMs === undefined) return `cannot read the start time of pid ${pids[0]}`;
   if (startedAtMs < Math.floor(newestChangeMs / 1000) * 1000) return `eve predates the checkout's newest change; ${restart}`;
@@ -133,9 +133,10 @@ function worldScript(world, name, args, { capture = false } = {}) {
     const child = spawn(path.join(world, name), args, { cwd: world, stdio: ['ignore', capture ? 'pipe' : 2, 'inherit'] });
     let out = '';
     let code = -1;
+    let timedOut = false;
     if (capture) child.stdout.on('data', d => { out += d; });
-    const timer = setTimeout(() => { child.kill('SIGKILL'); child.stdout?.destroy(); }, SCRIPT_TIMEOUT_MS);
-    const done = () => { clearTimeout(timer); resolve({ code, out }); };
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); child.stdout?.destroy(); }, SCRIPT_TIMEOUT_MS);
+    const done = () => { clearTimeout(timer); resolve({ code, out, timedOut }); };
     child.on('error', done);
     child.on('exit', (c) => {
       code = c === null ? -1 : c;
@@ -144,6 +145,8 @@ function worldScript(world, name, args, { capture = false } = {}) {
     child.on('close', done);
   });
 }
+
+const timedOutDetail = `timed out after ${SCRIPT_TIMEOUT_MS / 1000}s`;
 
 function firstLine(err) {
   return String((err && err.message) || err).split('\n')[0].slice(0, 200);
@@ -180,7 +183,7 @@ async function runJourney(j, env, browser, api, projects) {
   try {
     const leaked = onlyOutside(added(before, await api.snapshot(projects)));
     const kind = Object.keys(leakKinds).find(k => leaked[k].length);
-    if (kind) result = { id: j.id, state: 'FAIL', detail: `left ${leakKinds[kind]} "${leaked[kind][0].name}" outside the world` };
+    if (kind) result = { id: j.id, state: 'FAIL', detail: `left ${leakKinds[kind]} ${leaked[kind][0].id} outside the world` };
   } catch (err) {
     if (result.state === 'PASS') result = { id: j.id, state: 'BLOCKED', detail: `could not snapshot: ${firstLine(err)}` };
   }
@@ -225,7 +228,7 @@ async function run(argv) {
       cwd = pids.length === 1 ? await realCwd(pid) : null;
       const ps = field => (pids.length === 1 ? exec('ps', ['-o', `${field}=`, '-p', String(pid)], lsEnv).catch(() => '') : '');
       const problem = eveProcessProblem({
-        pids, cwd, checkout, command: await ps('args'), startedAtMs: parseLstart(await ps('lstart')),
+        pids, cwd, checkout, service: opts.service, command: await ps('args'), startedAtMs: parseLstart(await ps('lstart')),
         newestChangeMs: await newestChangeMs(checkout),
       });
       if (problem) throw new Error(problem);
@@ -254,12 +257,15 @@ async function run(argv) {
       return 'chromium';
     }],
     ['bootstrap', async () => {
-      if ((await worldScript(opts.world, 'bootstrap.sh', ['--check'])).code !== 0) throw new Error('bootstrap incomplete; run bootstrap.sh');
+      const { code, timedOut } = await worldScript(opts.world, 'bootstrap.sh', ['--check']);
+      if (timedOut) throw new Error(`bootstrap.sh --check ${timedOutDetail}`);
+      if (code !== 0) throw new Error('bootstrap incomplete; run bootstrap.sh');
       return 'complete';
     }],
     ['world', async () => {
-      const { code, out } = await worldScript(opts.world, 'verify.sh', [], { capture: true });
+      const { code, out, timedOut } = await worldScript(opts.world, 'verify.sh', [], { capture: true });
       process.stderr.write(out);
+      if (timedOut) throw new Error(`verify.sh ${timedOutDetail}`);
       try { world = parseWorldSummary(out); } catch { throw new Error('verify.sh printed no summary'); }
       if (code !== 0 || world.fail !== 0) throw new Error('verify.sh is not green');
       return 'green';
@@ -280,8 +286,13 @@ async function run(argv) {
     const counts = await api.sweep(projects);
     log(`sweep: sessions=${counts.sessions} tasks=${counts.tasks} terminals=${counts.terminals}`);
   };
+  const reset = await worldScript(opts.world, 'reset.sh', []);
+  if (reset.timedOut) {
+    emit('RESET', 'FAIL', `reset.sh ${timedOutDetail}`);
+    return 2;
+  }
   try {
-    if ((await worldScript(opts.world, 'reset.sh', [])).code !== 0) throw new Error('reset.sh failed');
+    if (reset.code !== 0) throw new Error('reset.sh failed');
     await sweep();
   } catch (err) {
     log(firstLine(err));
