@@ -155,6 +155,13 @@ describe('SearchService', () => {
       expect(spawnCalls).toHaveLength(0);
     });
 
+    it('accepts exactly the maximum number of globs', async () => {
+      const svc = new SearchService();
+      globalThis.__nextSpawnHandler = (proc) => setImmediate(() => proc.emit('close', 1));
+      await svc.run('/proj', 'foo', { globs: ['a', 'b', 'c', 'd', 'e'] });
+      expect(spawnCalls).toHaveLength(1);
+    });
+
     it('rejects more than the maximum number of globs', async () => {
       const svc = new SearchService();
       await expect(svc.run('/proj', 'foo', { globs: ['a', 'b', 'c', 'd', 'e', 'f'] })).rejects.toThrow(/Too many globs/);

@@ -357,9 +357,10 @@ describe('createWsHandler', () => {
         const ws = mount(makeDeps());
         await sendMsg(ws, { type: 'read_plan_file', path: planPath });
         // handleReadPlanFile makes two sequential real fs round trips
-        // (realpath, then readFile) — a single microtask flush can land
-        // before both resolve, so poll a few more ticks.
-        for (let i = 0; i < 20 && ws.send.mock.calls.length === 0; i++) await flush();
+        // (realpath, then readFile), and how many event-loop turns they take
+        // depends on the machine: wait for the reply by time, not by turns.
+        const deadline = Date.now() + 2000;
+        while (ws.send.mock.calls.length === 0 && Date.now() < deadline) await flush();
         expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
           type: 'plan_file_content', path: planPath, content: '# The Plan\n',
         }));
