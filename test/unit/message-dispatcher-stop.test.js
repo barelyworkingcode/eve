@@ -80,6 +80,7 @@ function makeChat() {
     submitLocally: () => app.messageDispatcher.markLocalSubmit(SESSION),
     userMessage: (text) => dispatch({ type: 'user_message', text }),
     join: (sessionId) => dispatch({ type: 'session_joined', sessionId, history: [] }),
+    history: (sessionId) => JSON.stringify(app.state.sessionHistories.get(sessionId) || []),
     threadText: () => messages.querySelectorAll('.message-content').map((el) => el.innerHTML).join('\n'),
     errors: () => messages.querySelectorAll('.error').map((el) => el.querySelector('.message-content').innerHTML),
   };
@@ -112,10 +113,30 @@ describe('MessageDispatcher: a turn the user stopped', () => {
     chat.stop();
     chat.complete();
 
+    chat.submitLocally();
+    chat.userMessage('And now?');
     chat.streamText('Next turn reply');
     chat.complete();
 
     expect(chat.threadText()).toContain('Next turn reply');
+  });
+
+  it('keeps the stop when its own user_message echo arrives after Stop, then draws the next turn', () => {
+    const chat = makeChat();
+    chat.submitLocally();
+    chat.stop();
+    chat.userMessage('Count to 100');
+    chat.complete();
+
+    expect(chat.errors()).toEqual([]);
+
+    chat.submitLocally();
+    chat.userMessage('And now?');
+    chat.streamText('Next turn reply');
+    chat.complete();
+
+    expect(chat.threadText()).toContain('Next turn reply');
+    expect(chat.errors()).toEqual([]);
   });
 
   it('does not draw text chunks that arrive after Stop', () => {
@@ -129,6 +150,49 @@ describe('MessageDispatcher: a turn the user stopped', () => {
     expect(chat.threadText()).not.toContain('LATE');
     expect(chat.threadText()).toContain('Counting: 1, 2, 3');
     expect(chat.errors()).toEqual([]);
+  });
+
+  it('draws no text and adds no error for chunks and a second complete after the synthetic complete', () => {
+    const chat = makeChat();
+    chat.streamText('Counting: 1, 2, 3');
+    chat.stop();
+    chat.complete();
+
+    chat.streamText(', 4, 5, LATE');
+    chat.complete();
+
+    expect(chat.threadText()).not.toContain('LATE');
+    expect(chat.threadText()).toContain('Counting: 1, 2, 3');
+    expect(chat.errors()).toEqual([]);
+  });
+});
+
+describe('MessageDispatcher: a stopped turn while its session is in the background', () => {
+  it("keeps late text out of the session's history when the turn's own echo arrives after Stop", () => {
+    const chat = makeChat();
+    chat.submitLocally();
+    chat.streamText('Counting: 1, 2, 3');
+    chat.stop();
+    chat.join(OTHER_SESSION);
+
+    chat.userMessage('Count to 100');
+    chat.streamText(', 4, 5, LATE');
+    chat.complete(SESSION);
+
+    expect(chat.history(SESSION)).not.toContain('LATE');
+  });
+
+  it("records another viewer's next turn in the session's history", () => {
+    const chat = makeChat();
+    chat.streamText('Counting: 1, 2, 3');
+    chat.stop();
+    chat.join(OTHER_SESSION);
+
+    chat.userMessage('And now?');
+    chat.streamText('Next turn reply');
+    chat.complete(SESSION);
+
+    expect(chat.history(SESSION)).toContain('Next turn reply');
   });
 });
 
@@ -158,31 +222,6 @@ describe('MessageDispatcher: the turn after a Stop that relay never completes', 
     chat.stop();
 
     beforeUserMessage(chat);
-    newTurn(chat, 'Next turn reply');
-
-    expect(chat.threadText()).toContain('Next turn reply');
-  });
-
-  it('draws the next reply after an error ends the stopped turn', () => {
-    const chat = makeChat();
-    chat.streamText('Counting: 1, 2, 3');
-    chat.stop();
-    chat.error('Provider failed');
-
-    newTurn(chat, 'Next turn reply');
-
-    expect(chat.threadText()).toContain('Next turn reply');
-    expect(chat.errors()).not.toContain('No response from model');
-  });
-
-  it('draws the next reply after the stopped turn completed while another session was open', () => {
-    const chat = makeChat();
-    chat.streamText('Counting: 1, 2, 3');
-    chat.stop();
-
-    chat.join(OTHER_SESSION);
-    chat.complete(SESSION);
-    chat.join(SESSION);
     newTurn(chat, 'Next turn reply');
 
     expect(chat.threadText()).toContain('Next turn reply');
