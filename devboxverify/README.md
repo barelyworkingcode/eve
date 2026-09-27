@@ -40,11 +40,19 @@ SUMMARY pass=<n> fail=<n> blocked=<n> notrun=<n>
 POSTED success|failure|error <comment URL>
 ```
 
-Preflight runs in order and stops at the first FAIL: `head`, `tree`,
+Preflight runs in order and stops at the first FAIL: `lock`, `head`, `tree`,
 `service`, `eve`, `live`, `pr` (only with `--post`), `api`, `browser`,
 `bootstrap`, `world`. Then `reset.sh` and a sweep of every session, terminal
 and task in the three world projects. The sweep runs again after the
 journeys, best effort.
+
+`lock` takes the shared browser-test lock (`scripts/browser-lock.js`, the same
+one `npm run test:e2e` and `npm run test:visual` take) and holds it for the
+whole run. While another run holds it, the lock waits up to
+`EVE_BROWSER_LOCK_TIMEOUT` seconds (default 1800; the nightly plist sets 600),
+logging the holder's pid and command to stderr. `lock FAIL` means it gave up
+waiting, or could not take the lock at all (for example `perl` is not on
+PATH); the detail names the holder or the reason.
 
 Exit 0 when every journey is PASS or NOTRUN, 1 on any FAIL or BLOCKED, 2 on a
 usage, preflight, reset or post failure.
