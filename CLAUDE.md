@@ -94,7 +94,7 @@ test/
   visual/           - pixel-diff baselines (pre-push only, not in test:e2e)
 ```
 
-**Local gates** (`.githooks/`; install once: `git config core.hooksPath .githooks`). `--no-verify` is for the operator in an emergency, never the agent.
+**Local gates** (`.githooks/`, run by the machine's global hooks dispatcher; never set a repo-local `core.hooksPath`, which skips the push guard). `--no-verify` is for the operator in an emergency, never the agent.
 
 - **pre-commit** — on any commit staging `.js` / `jest.config.js` / `package.json`, runs `node --check` on staged JS then the unit suite.
 - **pre-push** — on any push whose range touches `.js` / `.css` / `.html` / test config, runs unit, integration, e2e and visual. The unit tier alone cannot see the frozen behavioural gates — the chat input row, the voice drawer, the pane characterisation suite, two-connection WebSocket isolation, the pixel baselines — which is the tier where regressions in this codebase actually surface. `test:voice` is excluded from both gates: it needs the live voice daemons, so it would fail whenever they are down.
