@@ -8,7 +8,14 @@ const { acquire } = require('../scripts/browser-lock');
 
 const LIVE_EVE_PORT = 3000;
 const SCRIPT_TIMEOUT_MS = 300000;
-const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--world DIR] [--url URL] [--service ID] [--post PR]';
+const JOURNEY_BUDGET_MS = 480000;
+const MIN_JOURNEY_MS = 1000;
+const CLEANUP_TIMEOUT_MS = 10000;
+const RESTART_TIMEOUT_MS = 60000;
+const OWNER_RESET_WAIT_MS = 30000;
+const OWNER_FILES = ['auth.json', 'sessions.json'];
+const RELAY_AUDIT_TAIL = '500';
+const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--world DIR] [--url URL] [--service ID] [--post PR] [--screen]';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function scrub(s, home) {
@@ -24,10 +31,17 @@ function usageError(msg) {
 }
 
 function parseArgs(argv, { toolRoot }) {
-  const opts = { checkout: toolRoot, world: path.join(toolRoot, '..', 'devboxWorld'), url: 'http://localhost:3100', service: 'eve-verify', post: null };
+  const opts = {
+    checkout: toolRoot, world: path.join(toolRoot, '..', 'devboxWorld'), url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false,
+  };
   const names = new Set(['checkout', 'world', 'url', 'service', 'post']);
   for (let i = 0; i < argv.length; i++) {
     const m = /^--([a-z]+)(?:=(.*))?$/.exec(argv[i]);
+    if (m && m[1] === 'screen') {
+      if (m[2] !== undefined) throw usageError('--screen takes no value');
+      opts.screen = true;
+      continue;
+    }
     if (!m || !names.has(m[1])) throw usageError(`unexpected argument ${argv[i]}`);
     const value = m[2] !== undefined ? m[2] : argv[++i];
     if (value === undefined || value === '') throw usageError(`--${m[1]} needs a value`);
@@ -101,11 +115,100 @@ function liveEveProblem({ port, pid, cwd, livePids, liveCwd }) {
 }
 
 function serviceRowProblem(listOut, service, url) {
-  const row = String(listOut).split('\n').map(l => l.trim().split(/\s+/)).find(t => t[0] === service);
+  const row = serviceRow(listOut, service);
   if (!row) return `no ${service} row in relay service list; register it (see devboxverify/README.md)`;
   if (!row.includes(url)) return `${service} is not registered with --url ${url}`;
   if (row[row.length - 1] !== 'running') return `${service} is ${row[row.length - 1]}; relay service restart --id ${service}`;
   return null;
+}
+
+function serviceRow(listOut, service) {
+  return String(listOut).split('\n').map(l => l.trim().split(/\s+/)).find(t => t[0] === service) || null;
+}
+
+// The --data dir from the service row's command, or null. The row is split on
+// whitespace, so a dir with a space in it reads as missing.
+function pinnedDataDir(listOut, service = 'eve-verify') {
+  const row = serviceRow(listOut, service);
+  const at = row ? row.indexOf('--data') : -1;
+  const dir = at >= 0 ? row[at + 1] : null;
+  return dir && path.isAbsolute(dir) ? path.normalize(dir) : null;
+}
+
+// Where the live eve keeps its data: the `eve` row's --data against the live
+// eve's cwd, else `<cwd>/data`. server.js defaults to its own directory, which
+// is the cwd when the service's workdir is its checkout. Null when neither
+// can be known.
+function liveDataDir(listOut, liveCwd) {
+  const row = serviceRow(listOut, 'eve');
+  const at = row ? row.indexOf('--data') : -1;
+  const dir = at >= 0 ? row[at + 1] : null;
+  if (dir && path.isAbsolute(dir)) return path.normalize(dir);
+  if (!liveCwd) return null;
+  return dir ? path.resolve(liveCwd, dir) : path.join(liveCwd, 'data');
+}
+
+function authStatusProblem(status) {
+  if (!status || typeof status !== 'object') return 'GET /api/auth/status answered no status';
+  if (status.trusted === true) return 'loopback is trusted; register eve-verify with EVE_DISABLE_SUBNET_BYPASS=1';
+  return null;
+}
+
+// Exactly the two owner files in the pinned dir, and only when that dir is
+// not the live eve's own data dir.
+function ownerResetPaths(dir, { liveDataDir = null } = {}) {
+  if (!dir || !path.isAbsolute(dir) || path.normalize(dir) !== dir) throw new Error(`refusing to reset a data dir that is not a normalised absolute path`);
+  if (liveDataDir && path.normalize(liveDataDir) === dir) throw new Error('the pinned data dir is the live eve\'s; refusing to reset it');
+  return OWNER_FILES.map(f => path.join(dir, f));
+}
+
+// Fixture journeys run first, screen journeys last. Without --screen the
+// screen journeys are skipped and reported NOTRUN.
+function orderJourneys(journeys, { screen }) {
+  const fixtures = journeys.filter(j => j.fixture);
+  const plain = journeys.filter(j => !j.fixture && !j.screen);
+  const onScreen = journeys.filter(j => !j.fixture && j.screen);
+  return screen
+    ? { run: [...fixtures, ...plain, ...onScreen], skipped: [] }
+    : { run: [...fixtures, ...plain], skipped: onScreen };
+}
+
+function journeyTimeout(timeoutMs, spentMs, budgetMs) {
+  const left = budgetMs - spentMs;
+  return left < MIN_JOURNEY_MS ? null : Math.min(timeoutMs, left);
+}
+
+function relayAuditRows(jsonl, { path: want, sinceMs }) {
+  const rows = [];
+  for (const line of String(jsonl).split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    const ts = Date.parse(o && o.ts);
+    if (!o || o.path !== want || !(ts >= sinceMs)) continue;
+    rows.push({ ts, credId: (o.actor && o.actor.cred_id) || '', method: o.method || '', path: o.path, outcome: o.outcome || '' });
+  }
+  return rows;
+}
+
+// Read-only. A file that shrank since the mark (rotated) is read from the start.
+function serviceLogReader(file) {
+  const size = () => fs.promises.stat(file).then(s => s.size, () => 0);
+  return {
+    mark: size,
+    since: async (mark) => {
+      let fh;
+      try { fh = await fs.promises.open(file, 'r'); } catch { return ''; }
+      try {
+        const { size: end } = await fh.stat();
+        const from = end < mark ? 0 : mark;
+        const buf = Buffer.alloc(end - from);
+        await fh.read(buf, 0, buf.length, from);
+        return buf.toString('utf8');
+      } finally {
+        await fh.close();
+      }
+    },
+  };
 }
 
 function exec(cmd, args, opts = {}) {
@@ -177,33 +280,84 @@ async function audioProblem(browser, { timeoutMs = 5000 } = {}) {
 }
 
 const leakKinds = { sessions: 'session', tasks: 'task', terminals: 'terminal' };
+const VIEWPORT = { width: 1280, height: 800 };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function runJourney(j, env, browser, api, projects) {
+// Each cleanup gets its own time limit; the first failure is reported.
+async function runCleanups(entries) {
+  let failure = null;
+  for (const { label, fn } of entries) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timed out after ${CLEANUP_TIMEOUT_MS / 1000}s`)), CLEANUP_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([Promise.resolve().then(fn), timeout]);
+    } catch (err) {
+      failure = failure || `cleanup ${label} failed: ${firstLine(err)}`;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return failure;
+}
+
+function takeCleanups(pending, id) {
+  const mine = pending.filter(c => c.id === id);
+  for (const c of mine) pending.splice(pending.indexOf(c), 1);
+  return mine;
+}
+
+// `projects` is null for the fixture journeys, which run before the world
+// projects are known and create nothing in them, so they get no leak check.
+async function runJourney(j, env, browser, { timeoutMs, projects, pending, screen, log }) {
   if (j.knownBug) return { id: j.id, state: 'NOTRUN', detail: `omitted: known bug ${j.knownBug}` };
-  let before;
-  try { before = await api.snapshot(projects); } catch (err) {
-    return { id: j.id, state: 'BLOCKED', detail: `could not snapshot: ${firstLine(err)}` };
+  if (timeoutMs === null) return { id: j.id, state: 'BLOCKED', detail: 'run budget spent' };
+  const api = env.api;
+  let before = null;
+  if (projects) {
+    try { before = await api.snapshot(projects); } catch (err) {
+      return { id: j.id, state: 'BLOCKED', detail: `could not snapshot: ${firstLine(err)}` };
+    }
   }
   const contexts = [];
   let lastStep = 'start';
   const jEnv = {
     ...env,
-    newPage: async () => { const c = await browser.newContext({ viewport: { width: 1280, height: 800 } }); contexts.push(c); return c.newPage(); },
+    browser,
+    screen: j.screen ? screen : null,
+    newPage: async ({ signedIn = true } = {}) => {
+      const state = signedIn && env.session ? { storageState: env.session.storageState } : {};
+      const c = await browser.newContext({ viewport: VIEWPORT, ...state });
+      contexts.push(c);
+      return c.newPage();
+    },
     step: (label) => { lastStep = label; process.stderr.write(`  ${j.id}: ${label}\n`); },
+    // A journey that timed out can still register one; runLocked runs those.
+    cleanup: (label, fn) => { pending.push({ id: j.id, label, fn }); },
   };
+  // This is subtle: the sign-in fixture sets env.session, and a spread copy
+  // would keep that to itself. The accessor carries it back to the run.
+  Object.defineProperty(jEnv, 'session', { get: () => env.session, set: (v) => { env.session = v; }, enumerable: true });
   let timer;
   const running = Promise.resolve().then(() => j.run(jEnv));
   running.catch(() => {});
   const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => resolve({ state: 'FAIL', detail: `timed out after ${Math.round(j.timeoutMs / 1000)}s at ${lastStep}` }), j.timeoutMs);
+    timer = setTimeout(() => resolve({ state: 'FAIL', detail: `timed out after ${Math.round(timeoutMs / 1000)}s at ${lastStep}` }), timeoutMs);
   });
   let result;
   try { result = await Promise.race([running, timeout]); } catch (err) { result = { state: 'FAIL', detail: firstLine(err) }; }
   clearTimeout(timer);
   await Promise.all(contexts.map(c => c.close().catch(() => {})));
+  const cleanupFailure = await runCleanups(takeCleanups(pending, j.id));
   result = result && ['PASS', 'FAIL', 'BLOCKED', 'NOTRUN'].includes(result.state)
     ? { ...result, id: j.id, detail: result.detail || '' }
     : { id: j.id, state: 'FAIL', detail: 'journey returned no result' };
+  if (cleanupFailure) {
+    log(`${j.id}: ${cleanupFailure}`);
+    if (result.state === 'PASS') result = { id: j.id, state: 'FAIL', detail: cleanupFailure };
+  }
+  if (!before) return result;
   try {
     const leaked = onlyOutside(added(before, await api.snapshot(projects)));
     const kind = Object.keys(leakKinds).find(k => leaked[k].length);
@@ -246,10 +400,11 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
   const toolCommit = await git(toolRoot, 'rev-parse', 'HEAD').catch(() => '');
   const checkout = fs.existsSync(opts.checkout) ? fs.realpathSync(opts.checkout) : path.resolve(opts.checkout);
   const port = Number(new URL(opts.url).port);
-  const api = new EveApi(`http://127.0.0.1:${port}`);
+  const base = `http://127.0.0.1:${port}`;
+  const anonymous = new EveApi(base);
   const relayBin = process.env.RELAY_BIN || '/Applications/Relay.app/Contents/MacOS/relay';
   const lsEnv = { env: { ...process.env, LC_ALL: 'C' } };
-  let head, pid, cwd, projects, world;
+  let head, pid, cwd, liveCwd, listOut, dataDir, projects, world;
 
   const checks = [
     ['head', async () => (head = await git(checkout, 'rev-parse', 'HEAD'))],
@@ -258,7 +413,8 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
       return 'clean';
     }],
     ['service', async () => {
-      const problem = serviceRowProblem(await exec(relayBin, ['service', 'list']), opts.service, opts.url);
+      listOut = await exec(relayBin, ['service', 'list']);
+      const problem = serviceRowProblem(listOut, opts.service, opts.url);
       if (problem) throw new Error(problem);
       return `${opts.service} running`;
     }],
@@ -272,11 +428,15 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
         newestChangeMs: await newestChangeMs(checkout),
       });
       if (problem) throw new Error(problem);
+      dataDir = pinnedDataDir(listOut, opts.service);
+      if (!dataDir) throw new Error(`${opts.service} has no absolute --data dir; register it as in devboxverify/README.md`);
+      const statusProblem = authStatusProblem(await anonymous.authStatus());
+      if (statusProblem) throw new Error(statusProblem);
       return `pid ${pid}`;
     }],
     ['live', async () => {
       const livePids = await lsofPids(LIVE_EVE_PORT);
-      const liveCwd = livePids.length === 1 ? await realCwd(livePids[0]) : null;
+      liveCwd = livePids.length === 1 ? await realCwd(livePids[0]) : null;
       const problem = liveEveProblem({ port, pid, cwd, livePids, liveCwd });
       if (problem) throw new Error(problem);
       return `separate from :${LIVE_EVE_PORT}`;
@@ -285,11 +445,6 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
       const prHead = await require('./post').prHead(opts.post, { cwd: toolRoot });
       if (prHead !== head) throw new Error(`PR head ${prHead.slice(0, 12)} is not the checkout HEAD`);
       return 'PR head is HEAD';
-    }],
-    ['api', async () => {
-      const entries = JSON.parse(fs.readFileSync(path.join(opts.world, 'data', 'world.json'), 'utf8')).projects;
-      projects = await api.worldProjects(entries);
-      return projects.map(p => p.name).join(', ');
     }],
     ['browser', async () => {
       const { chromium } = require('@playwright/test');
@@ -318,6 +473,27 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
       if (code !== 0 || world.fail !== 0) throw new Error('verify.sh is not green');
       return 'green';
     }],
+    // Deliberate: this deletes eve-verify's owner so the run can enrol its
+    // own. Only the two owner files in the pinned dir, never the live eve's.
+    ['owner', async () => {
+      const real = dir => (dir && fs.existsSync(dir) ? fs.realpathSync(dir) : dir);
+      const files = ownerResetPaths(real(dataDir), { liveDataDir: real(liveDataDir(listOut, liveCwd)) });
+      for (const f of files) await fs.promises.rm(f, { force: true });
+      await exec(relayBin, ['service', 'restart', '--id', opts.service], { timeout: RESTART_TIMEOUT_MS });
+      const deadline = Date.now() + OWNER_RESET_WAIT_MS;
+      let status = null;
+      while (!status) {
+        const pids = await lsofPids(port);
+        if (pids.length === 1 && pids[0] !== pid) status = await anonymous.authStatus().catch(() => null);
+        if (status) break;
+        if (Date.now() > deadline) throw new Error(`${opts.service} did not answer on :${port} within ${OWNER_RESET_WAIT_MS / 1000}s of the restart`);
+        await sleep(500);
+      }
+      const problem = authStatusProblem(status);
+      if (problem) throw new Error(problem);
+      if (status.enrolled !== false) throw new Error('eve still has an owner after the reset');
+      return 'owner removed; not enrolled';
+    }],
   ];
   for (const [name, check] of checks) {
     if (name === 'pr' && !opts.post) continue;
@@ -328,46 +504,85 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
       return 2;
     }
   }
-  emit('WORLD', `pass=${world.pass}`, `fail=${world.fail}`);
 
+  let api = anonymous;
   const sweep = async () => {
     const counts = await api.sweep(projects);
     log(`sweep: sessions=${counts.sessions} tasks=${counts.tasks} terminals=${counts.terminals}`);
   };
-  const reset = await worldScript(opts.world, 'reset.sh', []);
-  if (reset.timedOut) {
-    emit('RESET', 'FAIL', `reset.sh ${timedOutDetail}`);
-    return 2;
-  }
-  try {
-    if (reset.code !== 0) throw new Error('reset.sh failed');
-    await sweep();
-  } catch (err) {
-    log(firstLine(err));
-    emit('RESET', 'FAIL');
-    return 2;
-  }
-  emit('RESET', 'OK');
-
   const { journeys } = require('./journeys');
+  const { run: ordered, skipped } = orderJourneys(journeys, opts);
   const { chromium } = require('@playwright/test');
+  const { createScreen } = require('./screen');
   const browser = await chromium.launch({ args: CHROMIUM_ARGS });
-  const byKey = Object.fromEntries(projects.map(p => [p.key, p]));
   const env = {
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
-    projects: { acme: byKey.acme, globex: byKey.globex, home: byKey.home }, api, shared: {},
+    projects: {}, api, shared: {}, session: null, relayBin, service: opts.service,
+    serviceLog: serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`)),
+    relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
+      await exec(relayBin, ['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
   };
+  const screen = opts.screen ? createScreen() : null;
   const results = [];
+  const pending = [];
+  let spentMs = 0;
+  const record = (r) => {
+    results.push(r);
+    emit('JOURNEY', r.id, r.state, r.detail);
+  };
+  const runOne = async (j) => {
+    log(`running ${j.id}`);
+    const startedAt = Date.now();
+    const timeoutMs = journeyTimeout(j.timeoutMs, spentMs, JOURNEY_BUDGET_MS);
+    record(await runJourney(j, env, browser, { timeoutMs, projects: j.fixture ? null : projects, pending, screen, log }));
+    spentMs += Date.now() - startedAt;
+  };
+  let failedEarly = false;
   try {
-    for (const j of journeys) {
-      log(`running ${j.id}`);
-      const r = await runJourney(j, env, browser, api, projects);
-      results.push(r);
-      emit('JOURNEY', r.id, r.state, r.detail);
+    for (const j of ordered.filter(j => j.fixture)) await runOne(j);
+    const rest = ordered.filter(j => !j.fixture);
+    const signedIn = results.every(r => r.state === 'PASS') && !!(env.session && env.session.token);
+    if (!signedIn) {
+      for (const j of rest) record({ id: j.id, state: 'BLOCKED', detail: 'no signed-in owner' });
+    } else {
+      api = new EveApi(base, { token: env.session.token });
+      env.api = api;
+      try {
+        const entries = JSON.parse(fs.readFileSync(path.join(opts.world, 'data', 'world.json'), 'utf8')).projects;
+        projects = await api.worldProjects(entries);
+        emit('PREFLIGHT', 'api', 'OK', projects.map(p => p.name).join(', '));
+      } catch (err) {
+        emit('PREFLIGHT', 'api', 'FAIL', firstLine(err));
+        failedEarly = true;
+        return 2;
+      }
+      emit('WORLD', `pass=${world.pass}`, `fail=${world.fail}`);
+      const reset = await worldScript(opts.world, 'reset.sh', []);
+      if (reset.timedOut) {
+        emit('RESET', 'FAIL', `reset.sh ${timedOutDetail}`);
+        failedEarly = true;
+        return 2;
+      }
+      try {
+        if (reset.code !== 0) throw new Error('reset.sh failed');
+        await sweep();
+      } catch (err) {
+        log(firstLine(err));
+        emit('RESET', 'FAIL');
+        failedEarly = true;
+        return 2;
+      }
+      emit('RESET', 'OK');
+      const byKey = Object.fromEntries(projects.map(p => [p.key, p]));
+      env.projects = { acme: byKey.acme, globex: byKey.globex, home: byKey.home };
+      for (const j of rest) await runOne(j);
     }
+    for (const j of skipped) record({ id: j.id, state: 'NOTRUN', detail: 'screen journey; run with --screen' });
   } finally {
     await browser.close().catch(() => {});
-    await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
+    const late = await runCleanups(pending.splice(0));
+    if (late) log(late);
+    if (projects && !failedEarly) await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
   }
 
   const { counts, exitCode } = tally(results);
@@ -388,6 +603,8 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
 module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run,
+  JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
+  relayAuditRows, serviceLogReader,
 };
 
 if (require.main === module) {

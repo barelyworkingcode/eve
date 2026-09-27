@@ -6,6 +6,7 @@ const SWEEP_WAIT_MS = 10000;
 const WS_READY_MS = 10000;
 const FETCH_TIMEOUT_MS = 15000;
 const TERMINAL_LIST_MS = 10000;
+const CLOSE_TERMINAL_WAIT_MS = 5000;
 
 function isUnder(dir, root) {
   return !!dir && (dir === root || dir.startsWith(root + '/'));
@@ -40,13 +41,17 @@ const onlyOutside = snap => mapSnapshot(snap, items => items.filter(i => !i.worl
 const countOf = snap => KINDS.reduce((n, k) => n + snap[k].length, 0);
 
 class EveApi {
-  constructor(baseUrl) {
+  // The token is a signed-in owner's session token, sent as X-Session-Token
+  // and in the WS auth frame. It is never logged.
+  constructor(baseUrl, { token = null } = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.wsUrl = this.baseUrl.replace(/^http/, 'ws');
+    this.token = token;
   }
 
-  async _json(method, path) {
-    const res = await fetch(this.baseUrl + path, { method, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  async _json(method, path, { token = this.token } = {}) {
+    const headers = token ? { 'X-Session-Token': token } : {};
+    const res = await fetch(this.baseUrl + path, { method, headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     const text = await res.text();
     if (!res.ok) throw new Error(`${method} ${path} answered ${res.status}`);
     return text ? JSON.parse(text) : null;
@@ -71,6 +76,14 @@ class EveApi {
       }
       return { key: entry.key, id, name, path };
     });
+  }
+
+  // Sends a token only when given one, whatever this client holds, so a
+  // caller can see what an unauthenticated browser sees.
+  async authStatus(token) {
+    const status = await this._json('GET', '/api/auth/status', { token: token || null });
+    if (!status || typeof status !== 'object') throw new Error('GET /api/auth/status did not answer an object');
+    return status;
   }
 
   // This is subtle: eve answers auth_success before its upstream relay socket
@@ -100,7 +113,7 @@ class EveApi {
         }),
       };
       ws.on('close', () => { for (const w of waiters.splice(0)) w.rej(new Error('eve WebSocket closed')); });
-      ws.on('open', () => conn.send({ type: 'auth' }));
+      ws.on('open', () => conn.send({ type: 'auth', token: this.token }));
       ws.on('error', err => fail(new Error(`eve WebSocket: ${err.message}`)));
       ws.on('message', (data) => {
         let frame;
@@ -166,6 +179,20 @@ class EveApi {
       await new Promise(r => setTimeout(r, 500));
     }
     return { sessions: world.sessions.length, tasks: world.tasks.length, terminals: world.terminals.length };
+  }
+
+  async closeTerminal(terminalId) {
+    const conn = await this._connect();
+    try {
+      conn.send({ type: 'terminal_close', terminalId });
+      const deadline = Date.now() + CLOSE_TERMINAL_WAIT_MS;
+      while ((await conn.terminals()).some(t => t.id === terminalId)) {
+        if (Date.now() > deadline) throw new Error(`terminal still open ${CLOSE_TERMINAL_WAIT_MS / 1000}s after terminal_close`);
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } finally {
+      conn.close();
+    }
   }
 }
 

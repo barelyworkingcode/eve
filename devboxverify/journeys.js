@@ -1,129 +1,70 @@
-// The seven devbox journeys. Each drives eve's real UI as a person would and
+// The devbox journeys. Each drives eve's real UI as a person would and
 // judges a user-visible outcome. Test ids are only click targets and anchors;
 // verdicts rest on visible text or visibility. See docs/design-devboxverify.md.
+/** @typedef {{ id: string, timeoutMs: number, areas: string[], fixture?: true, screen?: true, knownBug?: string, run(env): Promise<object> }} Journey */
+const { execFile } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { promisify } = require('util');
 const { expect } = require('@playwright/test');
+const {
+  GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
+  openEve, waitForModels, openProject, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
+  thread, threadError, replyAfter, openWorldProbe,
+} = require('./journey-kit');
 
-const GREETING = /^(Good morning\.|Good afternoon\.|Good evening\.|Working late\.)$/;
-const PASS = 'PASS';
-const FAIL = 'FAIL';
-const BLOCKED = 'BLOCKED';
+const exec = promisify(execFile);
+const TASK_PROMPT = 'Say hello.';
+const EXTERNAL_BANNER = 'This file has been modified externally.';
+// Deliberate: longer than file-watcher.js's SELF_WRITE_TTL_MS. eve drops any
+// change to a file within that window of its own save, taking it for the echo.
+const SELF_WRITE_WINDOW_MS = 1500;
 
-const result = (id, state, detail) => ({ id, state, detail });
-const firstLine = (err) => String(err?.message || err).split('\n')[0];
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const seconds = (since) => Math.round((Date.now() - since) / 1000);
-// Deliberate floor of 1 ms: Playwright reads a timeout of 0 as "no timeout".
-const left = (deadline) => Math.max(1, deadline - Date.now());
-
-// A failed wait throws with the step it belongs to, since expect's own first
-// line ("expect(locator).toBeVisible() failed") names nothing.
-async function need(what, promise) {
-  try {
-    return await promise;
-  } catch (err) {
-    throw new Error(`${what} (${firstLine(err)})`);
-  }
+async function reloadEve(page, env) {
+  env.step('reload');
+  await page.reload({ timeout: 30000 });
+  await need('eve did not finish reloading within 20s', page.waitForFunction(
+    () => !!window.client?.state && !!window.client?.wsClient, null, { timeout: 20000 }));
 }
 
-async function poll(fn, { timeoutMs, intervalMs = 500 }) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = await fn();
-    if (value) return value;
-    if (Date.now() >= deadline) return null;
-    await sleep(intervalMs);
-  }
+// A `verify-<nonce>-<kind>-XXXXXX` folder in Acme Corp's world folder, removed
+// by cleanup whatever the verdict. A leftover fails the next world preflight.
+async function scratchFolder(env, kind) {
+  const root = path.resolve(env.projects.acme.path);
+  const prefix = `verify-${env.nonce}-${kind}-`;
+  const dir = await fs.promises.mkdtemp(path.join(root, prefix));
+  env.cleanup(`remove ${kind} folder`, async () => {
+    if (!dir || path.dirname(dir) !== root || !path.basename(dir).startsWith(prefix)) {
+      throw new Error('refusing to remove a scratch folder outside Acme Corp');
+    }
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+  return dir;
 }
 
-// D9: an exact match wins over a suffix match, because a box can offer the
-// same model through several routes ("pi/…/Chat", "…/Chat") and only some of
-// them are the chat kind Acme Corp may launch.
-function pickModel(values, want) {
-  return values.find((v) => v === want)
-    || values.find((v) => v.endsWith(`/${want}`))
-    || null;
+// Deliberate: both chords. Monaco binds end-of-file to Cmd+Down on macOS and
+// Ctrl+End elsewhere, and each is harmless where it is not bound.
+async function endOfFile(page, text) {
+  await text.click({ timeout: 5000 });
+  await page.keyboard.press('ControlOrMeta+ArrowDown');
+  await page.keyboard.press('ControlOrMeta+End');
 }
 
-async function optionValues(select) {
-  return select.locator('option').evaluateAll((opts) => opts.map((o) => o.value).filter(Boolean));
-}
-
-// App readiness is setup, not a verdict: initApp() builds client.state and
-// the socket only once the auth status resolves.
-async function openEve(page, env, suffix = '', deadline = null) {
-  env.step('open eve');
-  await page.goto(env.url.replace(/\/?$/, '/') + suffix, { timeout: 30000 });
-  await need('eve did not finish loading within 20s', page.waitForFunction(
-    () => !!window.client?.state && !!window.client?.wsClient, null, { timeout: deadline ? left(deadline) : 20000 }));
-}
-
-// The launcher's model form reads the list once, when it opens.
-async function waitForModels(page, env) {
-  env.step('wait for the model list');
-  await need('no models loaded within 20s', page.waitForFunction(
-    () => (window.client?.state?.models?.length || 0) > 0, null, { timeout: 20000 }));
-}
-
-async function openProject(page, env, project) {
-  env.step(`open ${project.name}`);
-  const rail = page.getByRole('navigation', { name: 'Projects' });
-  await need(`${project.name} is not in the rail`,
-    rail.getByTitle(project.name, { exact: true }).click({ timeout: 15000 }));
-  await need(`${project.name} panel did not open`,
-    expect(page.locator('#panelTitle')).toHaveText(project.name, { timeout: 10000 }));
-}
-
-async function worldIds(env, projects, kind) {
-  const snap = await env.api.snapshot(projects);
-  return snap[kind].filter((i) => i.world).map((i) => i.id);
-}
-
-const acmeIds = (env, kind) => worldIds(env, [env.projects.acme], kind);
-const allWorldIds = (env, kind) => worldIds(env, [env.projects.acme, env.projects.globex, env.projects.home], kind);
-
-const addedIds = (before, after) => after.filter((id) => !before.includes(id));
-
-async function openLauncher(page, env) {
-  env.step('open the session launcher');
-  await page.getByTestId(`sidebar-new-session-${env.projects.acme.id}`).click({ timeout: 10000 });
-  const dialog = page.getByTestId('dialog-shell-launcher-dialog');
-  await need('the launcher did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
-  return dialog;
-}
-
-// Relay's refusals and session errors arrive as {type:'error'} frames. They
-// only classify an outcome and fill the detail; the verdict stays visible.
-function captureErrors(page) {
-  const errors = [];
-  const take = (m) => { if (m && m.type === 'error') errors.push(String(m.message || m.error || '')); };
-  page.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
-    if (typeof payload !== 'string') return;
-    let frame;
-    try { frame = JSON.parse(payload); } catch { return; }
-    if (frame.type === '__batch' && Array.isArray(frame.msgs)) frame.msgs.forEach(take);
-    else take(frame);
-  }));
-  return errors;
-}
-
-// The thread as a reader sees it, top to bottom.
-async function thread(page) {
-  return page.getByTestId('messages-container').evaluate((root) =>
-    [...root.children].filter((el) => el.offsetParent !== null).map((el) => ({
-      who: el.dataset.testid || '',
-      text: (el.querySelector('.message-content')?.innerText || '').trim(),
-      error: el.classList.contains('error'),
-    })), null, { timeout: 10000 });
-}
-
-const threadError = (messages) => messages.find((m) => m.who === 'message-system' && m.error)?.text || '';
-
-function replyAfter(messages, marker) {
-  const at = messages.findIndex((m) => m.who === 'message-user' && m.text.includes(marker));
-  if (at < 0) return { asked: false, reply: '', error: '' };
-  const later = messages.slice(at + 1);
-  const reply = later.filter((m) => m.who === 'message-assistant' && m.text).map((m) => m.text).join('\n').trim();
-  return { asked: true, reply, error: threadError(later) };
+// Plumbing only, so no hook of any kind runs, with a neutral identity and a
+// scrubbed environment: an inherited GIT_DIR would point at another repo.
+async function commitOneFile(dir, name) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+  Object.assign(env, {
+    GIT_AUTHOR_NAME: 'verify', GIT_AUTHOR_EMAIL: 'verify@example.invalid',
+    GIT_COMMITTER_NAME: 'verify', GIT_COMMITTER_EMAIL: 'verify@example.invalid',
+  });
+  const git = async (...args) => (await exec('git', ['-C', dir, ...args], { env, timeout: 10000 })).stdout.trim();
+  await git('init', '-q', '-b', 'main');
+  const blob = await git('hash-object', '-w', '--', name);
+  await git('update-index', '--add', '--cacheinfo', `100644,${blob},${name}`);
+  const tree = await git('write-tree');
+  const commit = await git('commit-tree', '--no-gpg-sign', '-m', 'verify', tree);
+  await git('update-ref', 'HEAD', commit);
 }
 
 async function landingView(env) {
@@ -224,8 +165,8 @@ async function chatReply(env) {
     if (r.error) return r;
     if (r.reply && !(await stop.isVisible())) return r;
     return null;
-  }, { timeoutMs: 150000, intervalMs: 1000 });
-  if (!settled) return failed('no finished assistant reply within 150s');
+  }, { timeoutMs: 90000, intervalMs: 1000 });
+  if (!settled) return failed('no finished assistant reply within 90s');
   if (settled.error) return failed(`error in the thread: ${settled.error}`);
   const took = seconds(sentAt);
   await sleep(500);
@@ -236,36 +177,138 @@ async function chatReply(env) {
   if (final.length !== 1) return result(id, FAIL, `${final.length} new Acme Corp sessions, expected 1`);
   env.shared.thread = { sessionId: final[0], question };
   const said4 = /(^|[^\d])4([^\d]|$)|\bfour\b/i.test(late.reply);
-  return result(id, PASS, `reply in ${took}s, ${said4 ? 'said 4' : `did not say 4: "${late.reply.slice(0, 40)}"`}`);
+
+  const marker = `stop ${env.nonce}`;
+  env.step('ask for a long count');
+  await need('the composer did not come back after the reply', expect(input).toBeEnabled({ timeout: 10000 }));
+  await input.fill(`Count from 1 to 400, one number per line. (${marker})`, { timeout: 5000 });
+  await page.getByTestId('chat-submit').click({ timeout: 5000 });
+  await need('the count request is not shown as the user message', expect(
+    page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: marker }),
+  ).toBeVisible({ timeout: 10000 }));
+
+  env.step('wait for the count to stream');
+  // The count, not a thinking model's "Thinking..." summary that precedes it.
+  const streaming = await poll(async () => {
+    const r = replyAfter(await answers(page), marker);
+    if (r.error) return r;
+    if (!r.reply) return null;
+    return { ...r, finished: !(await stop.isVisible()) };
+  }, { timeoutMs: 30000, intervalMs: 250 });
+  if (!streaming) return failed('no count text within 30s of asking');
+  if (streaming.error) return failed(`error in the thread: ${streaming.error}`);
+  if (streaming.finished) return result(id, BLOCKED, 'the count finished before Stop could be clicked');
+
+  env.step('click Stop');
+  if (!await stop.click({ timeout: 2000 }).then(() => true, () => false)) {
+    if (!(await stop.isVisible())) return result(id, BLOCKED, 'the count finished before Stop could be clicked');
+    return result(id, FAIL, 'Stop is showing but could not be clicked');
+  }
+  await need('Stop still showing 5s after it was clicked', expect(stop).toBeHidden({ timeout: 5000 }));
+  const atStop = replyAfter(await thread(page), marker).reply.length;
+  env.step('watch the reply after Stop');
+  await sleep(3000);
+  const after = replyAfter(await thread(page), marker);
+  if (after.error) return failed(`error in the thread after Stop: ${after.error}`);
+  if (after.reply.length !== atStop) return result(id, FAIL, `the reply grew from ${atStop} to ${after.reply.length} characters in the 3s after Stop`);
+  if (await stop.isVisible()) return result(id, FAIL, 'Stop came back after it was clicked');
+  await need('the composer is not usable after Stop', expect(input).toBeEnabled({ timeout: 5000 }));
+  const stopped = addedIds(before, await acmeIds(env, 'sessions'));
+  if (stopped.length !== 1) return result(id, FAIL, `${stopped.length} new Acme Corp sessions after Stop, expected 1`);
+  return result(id, PASS, `reply in ${took}s, ${said4 ? 'said 4' : `did not say 4: "${late.reply.slice(0, 40)}"`}; Stop ended the count`);
 }
 
 async function openExistingThread(env) {
   const id = 'open-existing-thread';
   const t = env.shared.thread;
   if (!t) return result(id, BLOCKED, 'no thread from chat-reply');
-  const page = await env.newPage();
-  await openEve(page, env);
-  await openProject(page, env, env.projects.acme);
   const before = await acmeIds(env, 'sessions');
 
-  env.step('open the Sessions tab');
-  await page.getByTestId('panel-tab-sessions').click({ timeout: 10000 });
-  env.step('open the thread');
-  await need('the thread is not in the Sessions list',
-    page.getByTestId(`sidebar-session-${t.sessionId}`).click({ timeout: 15000 }));
+  // Each door gets a fresh context, so no door rides on another's open tab.
+  const doors = [
+    ['Sessions tab', async (page) => {
+      await openProject(page, env, env.projects.acme);
+      env.step('open the Sessions tab');
+      await page.getByTestId('panel-tab-sessions').click({ timeout: 10000 });
+      env.step('open the thread');
+      await need('the thread is not in the Sessions list',
+        page.getByTestId(`sidebar-session-${t.sessionId}`).click({ timeout: 15000 }));
+      return null;
+    }],
+    ['Home Continue row', async (page) => {
+      env.step('open the thread from Continue');
+      await need('the thread is not in Continue on Home',
+        page.getByTestId('home-screen').getByTestId(`home-session-${t.sessionId}`).click({ timeout: 15000 }));
+      return null;
+    }],
+    ['⌘K', async (page) => {
+      env.step('read the thread\'s title on Home');
+      const row = page.getByTestId('home-screen').getByTestId(`home-session-${t.sessionId}`);
+      const title = (await need('the thread is not in Continue on Home',
+        row.locator('.home__row-title').innerText({ timeout: 15000 }))).trim();
+      env.step('open the palette');
+      await page.keyboard.press('ControlOrMeta+k');
+      const input = page.getByTestId('palette-input');
+      await need('⌘K did not open the palette', expect(input).toBeVisible({ timeout: 5000 }));
+      // The title alone is not unique ("Chat" names every web chat), so the
+      // user narrows it by project; the palette matches label and project.
+      await input.fill(`${title} ${env.projects.acme.name}`, { timeout: 5000 });
+      env.step('pick the first session');
+      const list = page.getByTestId('palette-list');
+      const at = await poll(async () => {
+        const i = await list.evaluate((el) => {
+          let group = null;
+          let n = -1;
+          for (const child of el.children) {
+            if (child.classList.contains('palette__section')) {
+              group = child.textContent;
+            } else if (child.dataset.testid === 'palette-item') {
+              n += 1;
+              if (group === 'Sessions') return n;
+            }
+          }
+          return -1;
+        });
+        return i >= 0 ? { i } : null;
+      }, { timeoutMs: 5000 });
+      if (!at) return `no Sessions item for "${title}"`;
+      for (let k = 0; k < at.i; k++) await page.keyboard.press('ArrowDown');
+      const item = list.getByTestId('palette-item').nth(at.i);
+      await need('the first session is not selected', expect(item).toHaveAttribute('aria-selected', 'true', { timeout: 2000 }));
+      const label = (await item.locator('.palette__item-label').innerText({ timeout: 2000 })).trim();
+      const sub = (await item.locator('.palette__item-sub').innerText({ timeout: 2000 }).catch(() => '')).trim();
+      if (label !== title || sub !== env.projects.acme.name) {
+        return `the first Sessions item is "${label}" in "${sub}", not "${title}" in ${env.projects.acme.name}`;
+      }
+      await page.keyboard.press('Enter');
+      return null;
+    }],
+  ];
 
-  env.step('wait for the history');
-  const seen = await poll(async () => {
-    const r = replyAfter(await thread(page), t.question);
-    return r.asked && r.reply ? r : null;
-  }, { timeoutMs: 30000, intervalMs: 1000 });
-  if (!seen) {
-    const r = replyAfter(await thread(page), t.question);
-    return result(id, FAIL, r.asked ? 'the question shows but no reply after it' : 'the question is not in the pane');
+  for (const [door, open] of doors) {
+    const page = await env.newPage();
+    await openEve(page, env);
+    let problem;
+    try {
+      problem = await open(page);
+    } catch (err) {
+      problem = firstLine(err);
+    }
+    if (problem) return result(id, FAIL, `${door}: ${problem}`);
+
+    env.step(`wait for the history (${door})`);
+    const seen = await poll(async () => {
+      const r = replyAfter(await thread(page), t.question);
+      return r.asked && r.reply ? r : null;
+    }, { timeoutMs: 20000, intervalMs: 1000 });
+    if (!seen) {
+      const r = replyAfter(await thread(page), t.question);
+      return result(id, FAIL, `${door}: ${r.asked ? 'the question shows but no reply after it' : 'the question is not in the pane'}`);
+    }
+    const added = addedIds(before, await acmeIds(env, 'sessions'));
+    if (added.length) return result(id, FAIL, `${door}: opening the thread created ${added.length} session(s)`);
   }
-  const added = addedIds(before, await acmeIds(env, 'sessions'));
-  if (added.length) return result(id, FAIL, `opening the thread created ${added.length} session(s)`);
-  return result(id, PASS, 'question and reply shown, no new session');
+  return result(id, PASS, 'question and reply shown from the Sessions tab, Continue and ⌘K; no new session');
 }
 
 async function terminalOnRequest(env) {
@@ -283,34 +326,26 @@ async function terminalOnRequest(env) {
     return result(id, FAIL, 'a terminal opened without being asked');
   }
 
-  const dialog = await openLauncher(page, env);
-  env.step('look for the World probe card');
-  const card = dialog.getByRole('button', { name: /World probe/ });
-  const loading = dialog.getByText('Loading terminal templates…');
-  await need('terminal templates never loaded', expect(loading).toHaveCount(0, { timeout: 15000 }));
-  if (await card.count() === 0) return result(id, BLOCKED, 'no "World probe" card for Acme Corp');
-  await card.first().click({ timeout: 5000 });
-
-  env.step('wait for the terminal');
-  const mine = await poll(async () => {
-    const added = addedIds(before, await acmeIds(env, 'terminals'));
-    return added.length ? added : null;
-  }, { timeoutMs: 20000, intervalMs: 1000 });
-  if (!mine) return result(id, FAIL, 'no Acme Corp terminal within 20s of World probe');
-  await need('no terminal pane shown', expect(pane).toBeVisible({ timeout: 15000 }));
-
-  env.step('type the probe');
-  const screen = pane.locator('.xterm-screen').filter({ visible: true }).last();
-  await screen.click({ timeout: 5000 });
-  await page.keyboard.type("printf '%s_%s\\n' EVE OK");
-  await page.keyboard.press('Enter');
+  const probe = await openWorldProbe(page, env);
+  if (!probe) return result(id, BLOCKED, 'no "World probe" card for Acme Corp');
+  await probe.typeLine("printf '%s_%s\\n' EVE OK");
   const typedAt = Date.now();
   await need('EVE_OK did not show in the terminal within 20s',
     expect(pane).toContainText('EVE_OK', { timeout: 20000 }));
 
+  const tookOk = seconds(typedAt);
+
+  await reloadEve(page, env);
+  env.step('wait for the terminal to come back');
+  await need('the terminal pane did not come back within 15s of a reload', expect(pane).toBeVisible({ timeout: 15000 }));
+  await need('EVE_OK is not in the terminal 15s after a reload', expect(pane).toContainText('EVE_OK', { timeout: 15000 }));
+  await probe.typeLine("printf '%s_%s\\n' EVE AGAIN");
+  await need('EVE_AGAIN did not show within 10s of typing after a reload',
+    expect(pane).toContainText('EVE_AGAIN', { timeout: 10000 }));
+
   const added = addedIds(before, await acmeIds(env, 'terminals'));
   if (added.length !== 1) return result(id, FAIL, `${added.length} new Acme Corp terminals, expected 1`);
-  return result(id, PASS, `EVE_OK in ${seconds(typedAt)}s, one terminal`);
+  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload the same terminal answered EVE_AGAIN`);
 }
 
 async function taskCreatedListed(env) {
@@ -330,7 +365,7 @@ async function taskCreatedListed(env) {
   env.step('fill the task form');
   await dialog.locator('[name="taskName"]').fill(name, { timeout: 5000 });
   await dialog.locator('[name="taskType"]').selectOption({ label: 'Chat (LLM)' }, { timeout: 5000 });
-  await dialog.locator('[name="taskPrompt"]').fill('Say hello.', { timeout: 5000 });
+  await dialog.locator('[name="taskPrompt"]').fill(TASK_PROMPT, { timeout: 5000 });
   const select = dialog.locator('[name="taskModel"]');
   const values = await poll(async () => {
     const v = await optionValues(select);
@@ -350,14 +385,70 @@ async function taskCreatedListed(env) {
     return result(id, FAIL, toasts.length ? `not listed; toast: ${toasts.join(' / ')}` : 'not listed after Create Task');
   }
 
-  env.step('reload and look again');
-  await page.reload({ timeout: 30000 });
-  await need('eve did not finish reloading within 20s', page.waitForFunction(
-    () => !!window.client?.state && !!window.client?.wsClient, null, { timeout: 20000 }));
-  await openProject(page, env, env.projects.acme);
-  await page.getByTestId('panel-tab-tasks').click({ timeout: 10000 });
-  await need(`${name} is gone after a reload`, expect(listed).toBeVisible({ timeout: 15000 }));
-  return result(id, PASS, `${name} listed, still there after a reload`);
+  const openTasks = async (on) => {
+    await openProject(on, env, env.projects.acme);
+    await on.getByTestId('panel-tab-tasks').click({ timeout: 10000 });
+    const item = on.locator('#panelContent [data-testid^="sidebar-task-"]')
+      .filter({ hasText: name });
+    await need(`${name} is gone after a reload`, expect(item).toBeVisible({ timeout: 15000 }));
+    return item;
+  };
+  await reloadEve(page, env);
+  const row = await openTasks(page);
+
+  env.step('Run Now');
+  await row.getByTitle('Run Now').click({ timeout: 5000 });
+  env.step('wait for the run\'s reply');
+  // A run's pane shows no Stop, so a settled reply is one that stopped growing.
+  let last = '';
+  const ran = await poll(async () => {
+    const r = runReply(await answers(page).catch(() => []));
+    if (r.error) return r;
+    const settledReply = r.reply && r.reply === last;
+    last = r.reply;
+    return settledReply ? r : null;
+  }, { timeoutMs: 60000, intervalMs: 1000 });
+  if (!ran) return result(id, FAIL, 'no reply from the run within 60s of Run Now');
+  if (ran.error) return result(id, FAIL, `error in the run: ${ran.error}`);
+
+  // Deliberate: a fresh context, not a reload. A reload restores the run's
+  // open tab, which would show the reply without the row ever being clicked.
+  const later = await env.newPage();
+  await openEve(later, env);
+  const again = await openTasks(later);
+  env.step('open the last run');
+  await again.locator('.project-tree__task-name').click({ timeout: 5000 });
+  // Only the start is compared: a reply re-rendered from history can wrap or
+  // trim differently from the one that streamed in.
+  const opening = ran.reply.replace(/\s+/g, ' ').slice(0, 30);
+  const reread = await poll(async () => {
+    const r = runReply(await answers(later).catch(() => []));
+    return r.reply.replace(/\s+/g, ' ').includes(opening) ? r : null;
+  }, { timeoutMs: 15000, intervalMs: 1000 });
+  if (!reread) return result(id, FAIL, 'the last run does not show the run\'s reply in a new page');
+  return result(id, PASS, `${name} listed after a reload; Run Now replied and its last run shows the reply`);
+}
+
+// The thread without its folded thinking. A thinking model's reply opens with
+// a think block whose summary reads "Thinking..." while it streams and
+// "Thinking" once re-rendered, so it is no part of the reply a user reads.
+async function answers(page) {
+  return page.getByTestId('messages-container').evaluate((root) =>
+    [...root.children].filter((el) => el.offsetParent !== null).map((el) => {
+      const content = el.querySelector('.message-content');
+      let text = content?.innerText || '';
+      for (const block of content ? content.querySelectorAll('.think-block') : []) text = text.replace(block.innerText, '');
+      return { who: el.dataset.testid || '', text: text.trim(), error: el.classList.contains('error') };
+    }), null, { timeout: 10000 });
+}
+
+// The run's reply: what follows the task prompt, or every assistant turn when
+// the run's thread does not show the prompt as a user message.
+function runReply(messages) {
+  const r = replyAfter(messages, TASK_PROMPT);
+  if (r.asked) return r;
+  const reply = messages.filter((m) => m.who === 'message-assistant' && m.text).map((m) => m.text).join('\n').trim();
+  return { asked: false, reply, error: threadError(messages) };
 }
 
 async function voiceDeepLink(env) {
@@ -399,14 +490,119 @@ async function voiceDeepLink(env) {
   return result(id, PASS, `voice view in ${took}s, one session`);
 }
 
+async function changesDiff(env) {
+  const id = 'changes-diff';
+  env.step('set up a repo with one modified file');
+  const dir = await scratchFolder(env, 'git');
+  const repo = path.basename(dir);
+  const file = path.join(dir, 'notes.md');
+  await fs.promises.writeFile(file, 'status: draft\n');
+  await commitOneFile(dir, 'notes.md');
+  const shipped = `status: shipped ${env.nonce}`;
+  await fs.promises.writeFile(file, `${shipped}\n`);
+
+  const page = await env.newPage();
+  await openEve(page, env);
+  await openProject(page, env, env.projects.acme);
+  env.step('open the Changes tab');
+  await page.getByTestId('panel-tab-changes').click({ timeout: 10000 });
+  const panel = page.getByTestId('changes-panel');
+  await need(`the Changes tab does not list ${repo} within 15s`,
+    expect(panel.getByTestId(`changes-repo-/${repo}`)).toContainText(repo, { timeout: 15000 }));
+  const row = panel.getByTestId(`changes-file-/${repo}:notes.md`);
+  await need('notes.md is not listed under the repo', expect(row).toContainText('notes.md', { timeout: 15000 }));
+  await need('notes.md is not marked modified', expect(row.locator('.changes-panel__status')).toHaveText('M', { timeout: 5000 }));
+
+  env.step('open the diff');
+  await row.click({ timeout: 5000 });
+  const pane = page.getByTestId('diff-pane');
+  await need('no diff pane within 10s of clicking notes.md', expect(pane).toBeVisible({ timeout: 10000 }));
+  await need('the diff pane does not name notes.md', expect(pane.getByTestId('diff-name')).toHaveText('notes.md', { timeout: 10000 }));
+  const editor = pane.getByTestId('diff-editor');
+  await need('the diff does not show the committed line', expect(editor).toContainText('status: draft', { timeout: 10000 }));
+  await need('the diff does not show the changed line', expect(editor).toContainText(shipped, { timeout: 10000 }));
+  return result(id, PASS, 'Changes listed the modified notes.md; its diff shows both lines');
+}
+
+async function fileEditSave(env) {
+  const id = 'file-edit-save';
+  env.step('set up a notes file');
+  const dir = await scratchFolder(env, 'files');
+  const folder = `/${path.basename(dir)}`;
+  const file = path.join(dir, 'notes.md');
+  await fs.promises.writeFile(file, '# Notes\nfirst line\n');
+  // The harness writes as another program would; a line always starts on a
+  // fresh one, whatever the editor left at the end.
+  const appendLine = async (line) => {
+    const now = await fs.promises.readFile(file, 'utf8');
+    await fs.promises.appendFile(file, `${now.endsWith('\n') ? '' : '\n'}${line}\n`);
+  };
+
+  const page = await env.newPage();
+  await openEve(page, env);
+  await openProject(page, env, env.projects.acme);
+  env.step('open the Files tab');
+  await page.getByTestId('panel-tab-files').click({ timeout: 10000 });
+  for (const entry of ['todo.txt', 'budget']) {
+    await need(`the Files tab does not show ${entry}`,
+      expect(page.getByTestId(`file-tree-item-/${entry}`)).toContainText(entry, { timeout: 15000 }));
+  }
+  env.step('open notes.md');
+  await page.getByTestId(`file-tree-item-${folder}`).click({ timeout: 10000 });
+  await page.getByTestId(`file-tree-item-${folder}/notes.md`).click({ timeout: 10000 });
+  const text = page.locator('#monacoEditor .view-lines');
+  await need('notes.md did not open with "first line" within 15s', expect(text).toContainText('first line', { timeout: 15000 }));
+
+  env.step('edit and save');
+  const saved = `saved ${env.nonce}`;
+  await endOfFile(page, text);
+  await page.keyboard.type(saved);
+  await page.keyboard.press('ControlOrMeta+s');
+  const onDisk = await poll(async () => (await fs.promises.readFile(file, 'utf8')).includes(saved), { timeoutMs: 5000, intervalMs: 250 });
+  if (!onDisk) return result(id, FAIL, 'the saved line is not on disk 5s after ⌘S');
+  await sleep(SELF_WRITE_WINDOW_MS);
+
+  env.step('change the file outside the editor');
+  const banner = page.getByText(EXTERNAL_BANNER);
+  const outside1 = `outside-1 ${env.nonce}`;
+  await appendLine(outside1);
+  await need('the saved editor did not pick up an outside change within 10s', expect(text).toContainText(outside1, { timeout: 10000 }));
+  if (await banner.isVisible()) return result(id, FAIL, 'a saved editor showed the modified-externally banner');
+
+  env.step('change it again under an unsaved edit');
+  await endOfFile(page, text);
+  await page.keyboard.type(' draft');
+  const outside2 = `outside-2 ${env.nonce}`;
+  await appendLine(outside2);
+  await need('no modified-externally banner within 10s of an outside change under an unsaved edit',
+    expect(banner).toBeVisible({ timeout: 10000 }));
+  env.step('reload from disk');
+  await page.locator('.external-change-bar').getByRole('button', { name: 'Reload' }).click({ timeout: 5000 });
+  await need('Reload did not bring in the outside change', expect(text).toContainText(outside2, { timeout: 10000 }));
+  await need('the banner is still showing after Reload', expect(banner).toBeHidden({ timeout: 5000 }));
+  return result(id, PASS, 'saved to disk; a clean editor took an outside change; a dirty one asked and reloaded');
+}
+
+const auth = require('./journeys-auth').journeys;
+
+// The table order is the run order. agent-enrol-refused runs before anything
+// that could open relay's one enrolment window; add-browser-in-window runs
+// last and consumes the window it opens.
 const journeys = [
-  { id: 'landing-view', timeoutMs: 60000, run: landingView },
-  { id: 'world-projects-listed', timeoutMs: 60000, run: worldProjectsListed },
-  { id: 'chat-reply', timeoutMs: 180000, run: chatReply },
-  { id: 'open-existing-thread', timeoutMs: 60000, run: openExistingThread },
-  { id: 'terminal-on-request', timeoutMs: 90000, run: terminalOnRequest },
-  { id: 'task-created-listed', timeoutMs: 90000, run: taskCreatedListed },
-  { id: 'voice-deep-link', timeoutMs: 90000, run: voiceDeepLink },
+  auth.passkeyFirstEnrol,
+  auth.passkeySignIn,
+  auth.agentEnrolRefused,
+  { id: 'landing-view', timeoutMs: 30000, areas: ['auth', 'home'], run: landingView },
+  { id: 'world-projects-listed', timeoutMs: 45000, areas: ['home', 'projects'], run: worldProjectsListed },
+  { id: 'chat-reply', timeoutMs: 150000, areas: ['chat'], run: chatReply },
+  { id: 'open-existing-thread', timeoutMs: 75000, areas: ['chat', 'home'], run: openExistingThread },
+  { id: 'terminal-on-request', timeoutMs: 75000, areas: ['terminal'], run: terminalOnRequest },
+  { id: 'task-created-listed', timeoutMs: 120000, areas: ['tasks'], run: taskCreatedListed },
+  { id: 'voice-deep-link', timeoutMs: 60000, areas: ['voice'], run: voiceDeepLink },
+  { id: 'changes-diff', timeoutMs: 60000, areas: ['git'], run: changesDiff },
+  { id: 'file-edit-save', timeoutMs: 75000, areas: ['files'], run: fileEditSave },
+  auth.agentSignInRefused,
+  auth.addBrowserInWindow,
 ];
 
 module.exports = { journeys };
