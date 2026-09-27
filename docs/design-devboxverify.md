@@ -491,8 +491,12 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
 - **A7 · Registration.** `eve-verify` runs `node server.js --data <dir>` with
   `--env PORT=3100 --env EVE_PASSKEY_SYNC=off`; no `--env-file` (the only value
   there is the eve-control secret, which the verify instance does not need). It
-  must only point at a checkout that honours `EVE_PASSKEY_SYNC`, and runs only
-  during a verify: stop it afterwards (`relay service stop --id eve-verify`).
+  must only point at a checkout that honours `EVE_PASSKEY_SYNC`. Relay
+  supervises services (a killed process restarts; there is no stop), so the
+  owner chose to keep it registered permanently on a dedicated clean `main`
+  worktree that only the nightly updates, resetting it to `origin/main` before
+  each run (this replaces D10's fast-forward). PR verification re-registers
+  it at the PR worktree and back afterwards.
 - **A8 · Review round 1.** Verdicts rest on visible outcomes; WS error frames
   only choose BLOCKED over FAIL. The leak detail names kind and id, never the
   item's name, since details are posted publicly. Every eve request has a

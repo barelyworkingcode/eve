@@ -109,19 +109,24 @@ chat straight away.
 ## One-time setup
 
 - **S1 · Register `eve-verify`.** Presence-gated, so run it in a desktop
-  Terminal. Run `npm ci` in the checkout first.
+  Terminal. It stays registered, on a dedicated clean worktree of `main` that
+  only the nightly updates; no one else writes to it. Run `npm ci` there first.
+  It must only ever point at a checkout that honours `EVE_PASSKEY_SYNC`: a
+  second eve with passkey sync on overwrites relay's passkey list.
 
   ```bash
   relay service register --id eve-verify --name "eve verify" \
-    --command node --args --env-file=<main eve checkout>/.env --args server.js \
+    --command node --args server.js \
     --args --data --args ~/.local/state/eve-verify/data \
-    --workdir <checkout under test> --url http://localhost:3100 --env PORT=3100 \
-    --capability frontend
+    --workdir <verify worktree> --url http://localhost:3100 \
+    --env PORT=3100 --env EVE_PASSKEY_SYNC=off --capability frontend
   relay service restart --id eve-verify
   ```
 
   A re-register restates every flag, `--capability frontend` included. A
-  missing flag strips that grant. The data dir stays outside any repo.
+  missing flag strips that grant. Relay supervises the service: killing it
+  restarts it, and there is no stop command; `relay service unregister --id
+  eve-verify` removes it. The data dir stays outside any repo.
 - **S2 · P1–P3** are shared with relay's tool: the `world-probe` and `chat`
   templates, and Acme Corp's allowed templates `chat` and `world-probe`.
 - **S3 · V1.** An Acme Corp chat template `World voice`, mode Voice, model =
@@ -170,12 +175,11 @@ one after the other. It never retries a verify.
   its build signs and its register needs you at the console. After a merge to
   relay's `main`, the night is BLOCKED by preflight until you rebuild and
   re-register. That is expected, not a defect. The record shows `behind=<n>`.
-- **Eve** runs from a dedicated nightly worktree registered as `eve-verify`
-  (see One-time setup). The nightly fast-forwards it to `origin/main`
-  (`git merge --ff-only`) and runs `npm ci` only when `package-lock.json`
+- **Eve** runs from the dedicated verify worktree registered as `eve-verify`
+  (see S1). The nightly resets it to `origin/main` (`git reset --hard`),
+  discarding any drift, and runs `npm ci` only when `package-lock.json`
   changed. It then runs `relay service restart --id eve-verify` and waits up
-  to 60 s for port 3100 before verifying. Keep that worktree clean and on a
-  branch. Anything that stops the fast-forward makes the night BLOCKED.
+  to 60 s for port 3100 before verifying.
 
 ### Install
 

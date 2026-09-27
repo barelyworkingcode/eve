@@ -187,13 +187,11 @@ async function prepareRelay(night) {
 
 async function prepareEve(night) {
   if ((await night.git('fetch', '--quiet', 'origin')).code !== 0) return 'git fetch origin failed';
-  const dirty = await night.git('status', '--porcelain', '--untracked-files=no');
-  if (dirty.code !== 0 || dirty.stdout.trim()) return 'worktree is not clean';
-  if ((await night.git('symbolic-ref', '-q', 'HEAD')).code !== 0) return 'worktree is not on a branch';
-  if ((await night.git('merge-base', '--is-ancestor', 'HEAD', 'origin/main')).code !== 0) return 'branch cannot fast-forward to origin/main';
   await night.countBehind();
   const lockBefore = await night.git('rev-parse', 'HEAD:package-lock.json');
-  if ((await night.git('merge', '--ff-only', 'origin/main')).code !== 0) return 'git merge --ff-only origin/main failed';
+  // Deliberate: this worktree belongs to the nightly alone, so any drift in it
+  // is discarded rather than reported.
+  if ((await night.git('reset', '--quiet', '--hard', 'origin/main')).code !== 0) return 'git reset --hard origin/main failed';
   night.behind = 0;
   const lockAfter = await night.git('rev-parse', 'HEAD:package-lock.json');
   if (lockBefore.stdout.trim() !== lockAfter.stdout.trim()) {
