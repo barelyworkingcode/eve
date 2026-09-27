@@ -359,3 +359,95 @@ describe('auth routes — passkey revocation check (login)', () => {
     expect(passkeySync.report).toHaveBeenCalled();
   });
 });
+
+describe('auth routes — enrolment refusal logging', () => {
+  const REFUSAL_LINE = /enrol{1,2}ment[^\n]*(refused|rejected|denied|closed|not open)/i;
+  const SPOOFED_HOST = 'acme.example';
+  const SPOOFED_XFF = '203.0.113.9';
+
+  let server;
+  let port;
+  let authService;
+  let enrollmentWindow;
+  let log;
+
+  beforeAll(async () => {
+    authService = {
+      isEnrolled: jest.fn(),
+      validateSession: jest.fn(() => false),
+      checkRateLimit: jest.fn(() => true),
+      generateEnrollmentOptions: jest.fn(),
+      verifyEnrollment: jest.fn(),
+      addCredential: jest.fn(),
+    };
+    enrollmentWindow = { isOpen: jest.fn(), consume: jest.fn() };
+    log = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    let baseUrl;
+    ({ server, baseUrl } = await startApp(
+      createAuthRoutes(authService, { isTrusted: () => false }, log, { enrollmentWindow })
+    ));
+    port = new URL(baseUrl).port;
+  });
+
+  afterAll((done) => { server.close(done); });
+
+  beforeEach(() => {
+    Object.values(log).forEach((fn) => fn.mockReset());
+    authService.generateEnrollmentOptions.mockReset();
+    authService.verifyEnrollment.mockReset();
+  });
+
+  // fetch rewrites Host from the URL; http.request lets a spoofed Host through.
+  const post = (p, body) => new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body || {});
+    const req = http.request({
+      host: '127.0.0.1', port, path: p, method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        Host: SPOOFED_HOST,
+        'X-Forwarded-For': SPOOFED_XFF,
+      },
+    }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    req.on('error', reject);
+    req.end(payload);
+  });
+
+  const refusalLines = () => Object.entries(log).flatMap(([level, fn]) =>
+    fn.mock.calls.map((args) => ({ level, line: args.map(String).join(' ') })))
+    .filter(({ line }) => REFUSAL_LINE.test(line));
+
+  const finishBody = { response: {}, challengeId: 'cid' };
+
+  it.each([
+    ['enroll/start, window closed', 'enroll/start', undefined, { open: false }],
+    ['enroll/finish, window closed', 'enroll/finish', finishBody, { open: false }],
+    ['enroll/finish, window consume refused', 'enroll/finish', finishBody, { open: true }],
+  ])('refusal (%s) logs one warn line naming the socket address', async (_label, route, body, windowState) => {
+    authService.isEnrolled.mockReturnValue(true);
+    enrollmentWindow.isOpen.mockResolvedValue(windowState);
+    authService.verifyEnrollment.mockResolvedValue({ id: 'c', label: 'ua' });
+    enrollmentWindow.consume.mockResolvedValue(false);
+
+    expect(await post(`/api/auth/${route}`, body)).toBe(403);
+
+    const lines = refusalLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0].level).toBe('warn');
+    expect(lines[0].line).toContain('127.0.0.1');
+    expect(lines[0].line).not.toContain(SPOOFED_XFF);
+    expect(lines[0].line).not.toContain(SPOOFED_HOST);
+  });
+
+  it.each([
+    ['enrolled, window open', true],
+    ['not enrolled', false],
+  ])('an allowed enroll/start (%s) logs no refusal', async (_label, enrolled) => {
+    authService.isEnrolled.mockReturnValue(enrolled);
+    enrollmentWindow.isOpen.mockResolvedValue({ open: true, expires: '2026-09-07T10:15:00Z' });
+    authService.generateEnrollmentOptions.mockResolvedValue({ options: {}, challengeId: 'cid' });
+
+    expect(await post('/api/auth/enroll/start')).toBe(200);
+    expect(refusalLines()).toEqual([]);
+  });
+});
