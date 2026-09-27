@@ -142,6 +142,12 @@ class MessageDispatcher {
     if (data.type === 'user_message') {
       if (!this._stopEchoExpected.delete(data.sessionId)) this._stoppedTurns.delete(data.sessionId);
     }
+    // These frames prove this browser's in-flight Send will never echo.
+    if (data.type === 'error' && !data.sessionId) {
+      this._stopEchoExpected.clear();
+    } else if (data.type === 'error' || data.type === 'session_joined') {
+      this._stopEchoExpected.delete(data.sessionId);
+    }
     if (data.type === 'llm_event' && this._stoppedTurns.has(data.sessionId)) return;
     if (data.sessionId && data.sessionId !== this.state.currentSessionId && this._sessionScopedTypes.has(data.type)) {
       this._handleBackgroundEvent(data);
