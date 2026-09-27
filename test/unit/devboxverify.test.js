@@ -596,12 +596,21 @@ describe('devboxverify/journey-kit.js parseAgentAttempt', () => {
 });
 
 describe('devboxverify/screen.js', () => {
-  const { createScreen, presenceOutcome, dialogDetail, shellQuote } = require('../../devboxverify/screen');
+  const { createScreen, presenceOutcome, dialogDetail, shellQuote, frontTerminalIsConsole } = require('../../devboxverify/screen');
 
   it.each([[0, 'answered'], [1, 'no-prompt'], [3, 'refused'], [2, 'error'], [5, 'error'], [null, 'error']])(
     'maps helper exit %p to %s', (code, state) => {
       expect(presenceOutcome(code)).toBe(state);
     });
+
+  it.each([
+    ['Terminal  [1, 2, 3, 4]  devboxverify-console\nTerminal  [5, 6, 7, 8]  admin', true],
+    ['Terminal  [1, 2, 3, 4]  admin\nTerminal  [5, 6, 7, 8]  devboxverify-console', false],
+    ['Finder  [0, 0, 1, 1]  devboxverify-console\nTerminal  [1, 2, 3, 4]  admin', false],
+    ['', false],
+  ])('frontTerminalIsConsole judges only the frontmost Terminal window (%#)', (out, want) => {
+    expect(frontTerminalIsConsole(out)).toBe(want);
+  });
 
   it('dialogDetail reads the DIALOG line only', () => {
     const detail = dialogDetail('noise\nDIALOG\tanswered\trelay presence\n');

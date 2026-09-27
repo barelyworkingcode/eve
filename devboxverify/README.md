@@ -206,7 +206,9 @@ chat straight away.
   dialog, and only after the helper prints `devboxpresence: ready` on stderr,
   since it refuses a dialog already open when it took its snapshot;
   `closeConsole` runs `devboxpresence cancel --any` to clear a stray one,
-  and exits the shell in the Terminal window `consoleRun` opened, if any.
+  and, only when the frontmost Terminal window carries the
+  `devboxverify-console` title `consoleRun` gave it, exits its shell and
+  closes the window if the profile left it open.
   Exit codes: 0 answered, 1 no dialog in time, 3 refused (locked screen, not
   relay's dialog, text lacks the expected words, several dialogs, or one
   older than the helper); 2, 4 and 5 are errors.

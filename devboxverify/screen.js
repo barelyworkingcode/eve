@@ -83,8 +83,8 @@ function createScreen({ helperBin = process.env.DEVBOXPRESENCE_BIN || DEFAULT_HE
   }
 
   // A stray dialog is cancelled first; it holds focus over Terminal. Keystrokes
-  // go only to a window that carries this run's title, so a Terminal someone
-  // else is using never gets a ctrl+c, an exit or a cmd+w.
+  // go only to a frontmost Terminal window titled as a devboxverify console,
+  // so a Terminal someone else is using never gets a ctrl+c, an exit or a cmd+w.
   async function closeConsole() {
     if (haveHelper()) await new Promise(resolve => execFile(helperBin, ['cancel', '--any'], { timeout: COMMAND_TIMEOUT_MS }, () => resolve()));
     if (!opened) return;

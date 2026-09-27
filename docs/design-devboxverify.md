@@ -575,14 +575,16 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   (`DEVBOXPRESENCE_BIN`, default
   `~/.local/share/devboxverify/bin/devboxpresence`) as
   `devboxpresence answer --expect <text> --timeout <n>s`. It starts the helper
-  at once and returns a promise, because the helper refuses a dialog that
-  predates it: start it, trigger the dialog, then await. It resolves
+  at once and returns `{ ready, result }`, because the helper refuses a dialog
+  that predates it: start it, trigger the dialog only once `ready` is true
+  (the helper's `devboxpresence: ready` on stderr), then await `result`,
   `{ state, code, detail }`: `PRESENCE_EXIT` maps exit 0 → `answered`,
   1 → `no-prompt`, 3 → `refused`, anything else → `error`; a missing binary is
   `no-helper`. `detail` is the helper's `DIALOG` line and is never logged.
-  `closeConsole` runs `devboxpresence cancel --any` first, then ends the
-  shell in the Terminal window `consoleRun` opened, and touches Terminal only
-  if it did. Eve never reads the account password.
+  `consoleRun` titles its window `devboxverify-console`. `closeConsole` runs
+  `devboxpresence cancel --any` first; then, only if `consoleRun` opened a
+  window and the frontmost Terminal window carries that title, it ends the
+  shell and closes the window if the profile left it open. Eve never reads the account password.
 - **A19 · Nightly order.** relay `--phase api` (record `relay`), eve
   `--screen` (record `eve`), relay `--phase screen` (record `relay-screen`).
   relay owns the `--phase` selector; the call sits in `relayVerifyArgs`.

@@ -135,9 +135,10 @@ function pinnedDataDir(listOut, service = 'eve-verify') {
   return dir && path.isAbsolute(dir) ? path.normalize(dir) : null;
 }
 
-// Where the live eve keeps its data, resolved as server.js does: the `eve`
-// row's --data against the live eve's cwd, else `<cwd>/data`. Null when
-// neither can be known.
+// Where the live eve keeps its data: the `eve` row's --data against the live
+// eve's cwd, else `<cwd>/data`. server.js defaults to its own directory, which
+// is the cwd when the service's workdir is its checkout. Null when neither
+// can be known.
 function liveDataDir(listOut, liveCwd) {
   const row = serviceRow(listOut, 'eve');
   const at = row ? row.indexOf('--data') : -1;
