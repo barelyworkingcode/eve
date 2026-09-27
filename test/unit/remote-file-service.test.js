@@ -26,9 +26,6 @@ describe('RemoteFileService', () => {
   describe('isPathWithin / validatePath (lexical only)', () => {
     it('accepts a path inside root and returns the posix-resolved form', () => {
       expect(svc.validatePath('/srv/app', 'src/index.js')).toBe('/srv/app/src/index.js');
-    });
-
-    it('accepts the root itself', () => {
       expect(svc.validatePath('/srv/app', '/')).toBe('/srv/app');
     });
 
@@ -84,6 +81,8 @@ describe('RemoteFileService', () => {
       const out = await svc.moveFile('/srv/app', 'a.txt', 'sub');
       expect(out).toBe('sub/a.txt');
       expect(agent.calls[0]).toMatchObject({ op: 'move', params: { root: '/srv/app', path: 'a.txt', destDir: 'sub' } });
+      await expect(svc.moveFile('/srv/app', 'a.txt', '../../etc')).rejects.toThrow('Path traversal not allowed');
+      expect(agent.calls).toHaveLength(1);
     });
 
     it('deleteFile', async () => {

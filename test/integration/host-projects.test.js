@@ -126,7 +126,7 @@ describe('host projects (../relay/docs/ssh-hosts.md)', () => {
     const ws2 = await eve.connectWs();
     try {
       const frame = await ws2.waitFor((f) => f.type === 'host_status' && f.hostId === 'h1');
-      expect(frame.status).toBe('connected');
+      expect(frame).toMatchObject({ status: 'connected', name: 'devbox' });
     } finally {
       await ws2.close();
     }

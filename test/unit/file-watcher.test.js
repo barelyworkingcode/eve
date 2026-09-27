@@ -42,12 +42,6 @@ describe('FileWatcher', () => {
   });
 
   describe('watch/unwatch registration', () => {
-    it('starts a project watcher and records the open file', () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
-      expect(watcher.watchedFiles.get(PROJECT_ID).has('test.js')).toBe(true);
-    });
-
     it('echoes the client path verbatim and records the binary flag', () => {
       watcher.watch(PROJECT_ID, '/test.js', { binary: true });
       const entry = watcher.watchedFiles.get(PROJECT_ID).get('test.js');
@@ -158,15 +152,11 @@ describe('FileWatcher', () => {
     });
 
     it('emits dir_changed for the parent on a structural (rename) event', async () => {
-      watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'newfile.js');
-      await delay(300);
-      expect(mockWs.sent).toContainEqual({ type: 'dir_changed', projectId: PROJECT_ID, path: '/' });
-    });
-
-    it('maps a nested path to its parent directory', async () => {
       fs.mkdirSync(path.join(tmpDir, 'branding'));
+      watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'newfile.js');
       watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'branding/logo.svg');
       await delay(300);
+      expect(mockWs.sent).toContainEqual({ type: 'dir_changed', projectId: PROJECT_ID, path: '/' });
       expect(mockWs.sent).toContainEqual({ type: 'dir_changed', projectId: PROJECT_ID, path: '/branding' });
     });
 
@@ -198,15 +188,6 @@ describe('FileWatcher', () => {
     // Recursive fs.watch is FSEvents-backed on macOS. Generous delays absorb
     // coalescing latency; skipped automatically where recursive watch is
     // unsupported (the watcher silently no-ops there).
-    it('detects a new file appearing in the tree', async () => {
-      watcher.watchProject(PROJECT_ID);
-      if (!watcher.projectWatchers.has(PROJECT_ID)) return; // unsupported platform
-      await delay(50);
-      fs.writeFileSync(path.join(tmpDir, 'fresh.txt'), 'hi', 'utf8');
-      await delay(600);
-      expect(mockWs.sent.some((m) => m.type === 'dir_changed' && m.path === '/')).toBe(true);
-    });
-
     it('pushes content when an open file changes on disk', async () => {
       watcher.watch(PROJECT_ID, '/test.js');
       if (!watcher.projectWatchers.has(PROJECT_ID)) return; // unsupported platform

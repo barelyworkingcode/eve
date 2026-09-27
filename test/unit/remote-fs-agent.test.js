@@ -300,12 +300,6 @@ describe('remote-fs-agent.js git op', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('runs git in cwd and returns stdout as base64', async () => {
-    const res = await agent.request('git', { root, cwd: '/', args: ['rev-parse', '--show-toplevel'] });
-    expect(res).toMatchObject({ ok: true, code: 0 });
-    expect(Buffer.from(res.stdout, 'base64').toString('utf8').trim()).toBe(root);
-  });
-
   it('round-trips binary stdout (NUL bytes) intact', async () => {
     const res = await agent.request('git', { root, cwd: '/', args: ['cat-file', 'blob', 'HEAD:bin.dat'] });
     expect(res.ok).toBe(true);

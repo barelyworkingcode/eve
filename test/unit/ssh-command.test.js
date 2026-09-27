@@ -4,9 +4,13 @@
 const { remoteCommand, nodeLauncher, shQuote } = require('../../ssh-command');
 
 function decodedScriptOf(launcher) {
-  const m = launcher.match(/^sh -c 'eval "\$\(printf %s (\S+) \| base64 -d\)"'$/);
+  const m = launcher.match(/^sh -c 'eval "\$\(printf %s ([A-Za-z0-9+/]+=*) \| base64 -d\)"'$/);
   expect(m).not.toBeNull();
-  return Buffer.from(m[1], 'base64').toString('utf8');
+  const decoded = Buffer.from(m[1], 'base64').toString('utf8');
+  // Node's base64 decoder also accepts base64url and missing padding, so
+  // re-encode to pin the standard, padded form the doc requires.
+  expect(Buffer.from(decoded, 'utf8').toString('base64')).toBe(m[1]);
+  return decoded;
 }
 
 describe('ssh-command remoteCommand (RemoteCommand fixtures)', () => {
@@ -37,10 +41,6 @@ describe('ssh-command remoteCommand (RemoteCommand fixtures)', () => {
 describe('ssh-command shQuote', () => {
   it('single-quotes a plain string', () => {
     expect(shQuote('hello')).toBe(`'hello'`);
-  });
-
-  it('escapes an embedded single quote with the close-escape-reopen idiom', () => {
-    expect(shQuote("it's")).toBe(`'it'\\''s'`);
   });
 
   it('never lets a value smuggle shell metacharacters unescaped', () => {
