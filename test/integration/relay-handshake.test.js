@@ -23,7 +23,7 @@ describe('relay handshake: a test can wait for eve\'s relay leg to be open', () 
 
   // Without this, a hold that stopped holding would let the test below pass
   // without ever exercising the window.
-  it('the held handshake keeps eve\'s side closed after relay sees it', () => {
+  it('the held handshake keeps eve\'s side CONNECTING after relay sees it', () => {
     expect(openedAfterMs).toBeGreaterThanOrEqual(HOLD_MS - 50);
   });
 
