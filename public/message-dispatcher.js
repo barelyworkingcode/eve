@@ -58,9 +58,14 @@ class MessageDispatcher {
     // genuine, user-facing join and avoid stealing the active tab.
     this._resubscribeJoins = new Map();
     // Sessions whose in-flight turn the user stopped. Relay still sends that
-    // turn's late chunks and its message_complete; both belong to the stopped
-    // turn, so they are dropped rather than drawn or reported as empty.
+    // turn's late chunks and may send more than one message_complete, so the
+    // mark lasts until the next turn's user_message; message_complete only
+    // reads it.
     this._stoppedTurns = new Set();
+    // Stopped sessions whose own user_message echo was still in flight at
+    // Stop. Relay delivers each connection's frames in order, so that echo
+    // arrives before the next turn's and must not end the stop.
+    this._stopEchoExpected = new Set();
 
     this._sessionScopedTypes = new Set([
       'llm_event', 'message_complete', 'stats_update', 'raw_output',
@@ -134,6 +139,9 @@ class MessageDispatcher {
   }
 
   dispatch(data) {
+    if (data.type === 'user_message') {
+      if (!this._stopEchoExpected.delete(data.sessionId)) this._stoppedTurns.delete(data.sessionId);
+    }
     if (data.type === 'llm_event' && this._stoppedTurns.has(data.sessionId)) return;
     if (data.sessionId && data.sessionId !== this.state.currentSessionId && this._sessionScopedTypes.has(data.type)) {
       this._handleBackgroundEvent(data);
@@ -223,11 +231,12 @@ class MessageDispatcher {
     this._openBlockKindByIndex = {};
     this._sidechainStack = [];
     this._streamingToolInputBuffer = '';
-    this._stoppedTurns.delete(sessionId);
   }
 
   markTurnStopped(sessionId) {
-    if (sessionId) this._stoppedTurns.add(sessionId);
+    if (!sessionId) return;
+    this._stoppedTurns.add(sessionId);
+    if (this._localSubmitSession === sessionId) this._stopEchoExpected.add(sessionId);
   }
 
   _notifyVoiceError(message) {
@@ -244,13 +253,11 @@ class MessageDispatcher {
   }
 
   markLocalSubmit(sessionId) {
+    this._stopEchoExpected.delete(sessionId);
     this._localSubmitSession = sessionId;
   }
 
   _handleUserMessage(data) {
-    // A new turn ends any stopped one, even if the Stop never reached relay
-    // and that turn's message_complete never comes.
-    this._stoppedTurns.delete(data.sessionId);
     // The message was already rendered optimistically on local submit.
     if (this._localSubmitSession === data.sessionId) {
       this._localSubmitSession = null;
@@ -299,7 +306,6 @@ class MessageDispatcher {
 
   _handleError(data) {
     this._untrackStreaming(data.sessionId);
-    this._stoppedTurns.delete(data.sessionId);
     this.renderer.hideThinkingIndicator();
     this.renderer.appendSystemMessage(data.message, 'error');
     // A failed terminal create happens from a terminal dialog, where the chat
@@ -314,7 +320,7 @@ class MessageDispatcher {
 
   _handleMessageComplete(data) {
     this._untrackStreaming(data.sessionId);
-    const stopped = this._stoppedTurns.delete(data.sessionId);
+    const stopped = this._stoppedTurns.has(data.sessionId);
     this._openBlockKindByIndex = {};
     this._streamingToolInputBuffer = '';
     // An Agent call with no matching tool_result would otherwise leak its
@@ -464,7 +470,6 @@ class MessageDispatcher {
     }
 
     if (data.type === 'user_message') {
-      this._stoppedTurns.delete(sid);
       let history = this.state.sessionHistories.get(sid);
       if (!history) {
         history = [];
@@ -545,7 +550,6 @@ class MessageDispatcher {
 
     if (data.type === 'message_complete') {
       this.streamingSessions.delete(sid);
-      this._stoppedTurns.delete(sid);
       this._flushClientTTS(sid);
       const buf = this.backgroundBuffers.get(sid);
       if (buf) {
@@ -568,7 +572,6 @@ class MessageDispatcher {
 
     if (data.type === 'error' || data.type === 'process_exited') {
       this.streamingSessions.delete(sid);
-      this._stoppedTurns.delete(sid);
       return;
     }
   }
