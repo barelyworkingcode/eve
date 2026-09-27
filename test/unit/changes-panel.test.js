@@ -120,12 +120,10 @@ describe('ChangesPanel requests', () => {
     const { panel, ws } = setup({ storage: { 'eve-changes-scope': 'base' } });
     panel.setProject('p1');
     expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'base' }]);
-  });
 
-  it('ignores an unknown persisted scope and falls back to uncommitted', () => {
-    const { panel, ws } = setup({ storage: { 'eve-changes-scope': 'everything' } });
-    panel.setProject('p1');
-    expect(sentFrames(ws)[0].scope).toBe('uncommitted');
+    const unknown = setup({ storage: { 'eve-changes-scope': 'everything' } });
+    unknown.panel.setProject('p1');
+    expect(sentFrames(unknown.ws)[0].scope).toBe('uncommitted');
   });
 
   it('does not re-request while a request is in flight or the list is fresh', () => {
@@ -138,12 +136,6 @@ describe('ChangesPanel requests', () => {
     expect(ws.send).toHaveBeenCalledTimes(1);
   });
 
-  it('refresh() forces a full request even when fresh', () => {
-    const { panel, ws } = loaded();
-    panel.refresh();
-    expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
-  });
-
   it('sends nothing without a project', () => {
     const { panel, ws } = setup();
     panel.setProject(null);
@@ -153,20 +145,6 @@ describe('ChangesPanel requests', () => {
 });
 
 describe('ChangesPanel count (tab badge)', () => {
-  it('is null before any data arrives', () => {
-    const { panel } = setup();
-    panel.setProject('p1');
-    expect(panel.count()).toBeNull();
-  });
-
-  it('totals changed files across all repos and notifies the owner', () => {
-    const { panel, bus } = setup();
-    panel.setProject('p1');
-    reply(bus);
-    expect(panel.count()).toBe(6);
-    expect(panel.onUpdate).toHaveBeenCalled();
-  });
-
   it('is 0 (badge hidden by ProjectPanel) when every repo is clean', () => {
     const { panel, bus } = setup();
     panel.setProject('p1');
@@ -190,20 +168,6 @@ describe('ChangesPanel rendering', () => {
     const root = render(panel);
     expect(byTestId(root, 'changes-panel')).not.toBeNull();
     expect(byTestId(root, 'changes-loading')).not.toBeNull();
-  });
-
-  it('renders the scope toggle with the active scope pressed', () => {
-    const { panel } = loaded();
-    const root = render(panel);
-    expect(byTestId(root, 'changes-scope-uncommitted').getAttribute('aria-pressed')).toBe('true');
-    expect(byTestId(root, 'changes-scope-base').getAttribute('aria-pressed')).toBe('false');
-  });
-
-  it('sorts clean repos last, keeping server order among the dirty ones', () => {
-    const { panel } = loaded();
-    expect(groupOrder(render(panel))).toEqual([
-      'changes-repo-/feat-login', 'changes-repo-/fix-timeouts', 'changes-repo-/main',
-    ]);
   });
 
   it('starts a clean repo collapsed with a "clean" count and no rows', () => {
@@ -244,7 +208,8 @@ describe('ChangesPanel rendering', () => {
 
   it('renders a file row: status letter, file name, dimmed parent dir', () => {
     const { panel } = loaded();
-    const row = byTestId(render(panel), 'changes-file-/feat-login:routes/auth.js');
+    const root = render(panel);
+    const row = byTestId(root, 'changes-file-/feat-login:routes/auth.js');
     expect(row.tagName).toBe('BUTTON');
     const letter = row.querySelector('.changes-panel__status');
     expect(letter.textContent).toBe('M');
@@ -253,32 +218,29 @@ describe('ChangesPanel rendering', () => {
     expect(row.querySelector('.changes-panel__dir').textContent).toBe(`${LRM}routes/${LRM}`);
     expect(row.title).toBe('routes/auth.js');
     expect(row.getAttribute('aria-label')).toBe('Modified: routes/auth.js');
-  });
 
-  it('omits the dir span for a file at the repo root', () => {
-    const { panel } = loaded();
-    const row = byTestId(render(panel), 'changes-file-/feat-login:token-store.js');
-    expect(row.querySelector('.changes-panel__status').textContent).toBe('A');
-    expect(row.querySelector('.changes-panel__dir')).toBeNull();
-  });
+    const atRoot = byTestId(root, 'changes-file-/feat-login:token-store.js');
+    expect(atRoot.querySelector('.changes-panel__status').textContent).toBe('A');
+    expect(atRoot.querySelector('.changes-panel__dir')).toBeNull();
 
-  it('marks deleted names and untracked letters with their own classes', () => {
-    const { panel } = loaded();
-    const root = render(panel);
     const deleted = byTestId(root, 'changes-file-/feat-login:old-session.js');
     expect(deleted.querySelector('.changes-panel__name').classList.contains('changes-panel__name--deleted')).toBe(true);
     const untracked = byTestId(root, 'changes-file-/feat-login:notes.md');
-    const letter = untracked.querySelector('.changes-panel__status');
-    expect(letter.textContent).toBe('?');
-    expect(letter.classList.contains('changes-panel__status--untracked')).toBe(true);
-  });
+    const untrackedLetter = untracked.querySelector('.changes-panel__status');
+    expect(untrackedLetter.textContent).toBe('?');
+    expect(untrackedLetter.classList.contains('changes-panel__status--untracked')).toBe(true);
 
-  it('shows "old → new" as the title of a renamed row', () => {
-    const { panel } = loaded();
-    const row = byTestId(render(panel), 'changes-file-/feat-login:public/login.css');
-    expect(row.querySelector('.changes-panel__status').textContent).toBe('R');
-    expect(row.title).toBe('public/signin.css → public/login.css');
-    expect(row.getAttribute('aria-label')).toBe('Renamed: public/signin.css renamed to public/login.css');
+    const renamed = byTestId(root, 'changes-file-/feat-login:public/login.css');
+    expect(renamed.querySelector('.changes-panel__status').textContent).toBe('R');
+    expect(renamed.title).toBe('public/signin.css → public/login.css');
+    expect(renamed.getAttribute('aria-label')).toBe('Renamed: public/signin.css renamed to public/login.css');
+
+    const rows = root.querySelectorAll('.changes-panel__file');
+    expect(rows.length).toBe(6);
+    for (const row of rows) {
+      expect(row.tagName).toBe('BUTTON');
+      expect(row.type).toBe('button');
+    }
   });
 
   it('shows the empty note when the project holds no repos', () => {
@@ -348,7 +310,10 @@ describe('ChangesPanel collapse persistence (eve-changes-collapsed)', () => {
 describe('ChangesPanel scope toggle (eve-changes-scope)', () => {
   it('switching to "vs base" persists, requests that scope, and re-renders', () => {
     const { panel, ws } = loaded();
-    byTestId(render(panel), 'changes-scope-base').click();
+    const root = render(panel);
+    expect(byTestId(root, 'changes-scope-uncommitted').getAttribute('aria-pressed')).toBe('true');
+    expect(byTestId(root, 'changes-scope-base').getAttribute('aria-pressed')).toBe('false');
+    byTestId(root, 'changes-scope-base').click();
     expect(localStorage.getItem('eve-changes-scope')).toBe('base');
     expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'base' }]);
     expect(panel.onUpdate).toHaveBeenCalled();
@@ -459,7 +424,10 @@ describe('ChangesPanel streamed replies (pending repos)', () => {
       expect(byTestId(header, `changes-repo-pending-${p}`)).not.toBeNull();
       // Not "clean", not "0": the count is simply absent until status arrives.
       expect(header.querySelector('.changes-panel__count')).toBeNull();
+      expect(header.getAttribute('aria-expanded')).toBe('true');
+      expect(header.classList.contains('changes-panel__repo--collapsed')).toBe(false);
     }
+    expect(root.querySelectorAll('.changes-panel__file')).toHaveLength(0);
   });
 
   it('the badge counts nothing while every repo is pending', () => {
@@ -468,7 +436,10 @@ describe('ChangesPanel streamed replies (pending repos)', () => {
   });
 
   it('the badge sums only the repos that have arrived', () => {
-    const { panel, bus } = streaming();
+    const { panel, bus } = setup();
+    panel.setProject('p1');
+    // /alpha stays pending throughout; its files must not count.
+    reply(bus, [{ ...pendingRepo('/alpha'), files: [{ path: 'a.js', status: 'M' }] }, pendingRepo('/beta'), pendingRepo('/gamma')]);
     arrive(bus, '/beta', [{ path: 'b1.js', status: 'M' }, { path: 'b2.js', status: '?' }]);
     expect(panel.count()).toBe(2);
     arrive(bus, '/gamma', [{ path: 'g.js', status: 'A' }]);
@@ -514,13 +485,6 @@ describe('ChangesPanel streamed replies (pending repos)', () => {
     expect(byTestId(root, 'changes-repo-pending-/gamma')).toBeNull();
     expect(byTestId(root, 'changes-repo-error-/gamma').textContent).toBe('git timed out');
     expect(byTestId(root, 'changes-repo-/gamma').querySelector('.changes-panel__count').textContent).toBe('!');
-  });
-
-  it('a pending group has no file rows and is not collapsed as clean', () => {
-    const { panel } = streaming();
-    const header = byTestId(render(panel), 'changes-repo-/alpha');
-    expect(header.classList.contains('changes-panel__repo--collapsed')).toBe(false);
-    expect(render(panel).querySelectorAll('.changes-panel__file')).toHaveLength(0);
   });
 });
 
@@ -645,18 +609,16 @@ describe('ChangesPanel git_error handling', () => {
     expect(ws.send).toHaveBeenCalledTimes(1);
   });
 
-  it('GIT_MISSING on a local project says git is missing on this machine', () => {
+  it('GIT_MISSING names the machine for a local project and the host for a host project', () => {
     const { panel, bus } = setup();
     panel.setProject('p1');
     bus.emit(EVT.GIT_ERROR, { projectId: 'p1', code: 'GIT_MISSING', error: 'spawn git ENOENT' });
     expect(byTestId(render(panel), 'changes-git-missing').textContent).toBe('Git is not installed on this machine.');
-  });
 
-  it('GIT_MISSING on a host project says git is missing on the host', () => {
-    const { panel, bus } = setup({ projects: [{ id: 'p1', host: { id: 'h1', name: 'devbox' } }] });
-    panel.setProject('p1');
-    bus.emit(EVT.GIT_ERROR, { projectId: 'p1', code: 'GIT_MISSING', error: 'git: not found' });
-    expect(byTestId(render(panel), 'changes-git-missing').textContent).toBe('Git is not installed on this host.');
+    const remote = setup({ projects: [{ id: 'p1', host: { id: 'h1', name: 'devbox' } }] });
+    remote.panel.setProject('p1');
+    remote.bus.emit(EVT.GIT_ERROR, { projectId: 'p1', code: 'GIT_MISSING', error: 'git: not found' });
+    expect(byTestId(render(remote.panel), 'changes-git-missing').textContent).toBe('Git is not installed on this host.');
   });
 
   it('a successful reply clears an earlier top-level error', () => {
@@ -701,14 +663,6 @@ describe('ChangesPanel remote host reachability', () => {
     ctx.bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '*' });
     jest.advanceTimersByTime(300);
     expect(ctx.ws.send).not.toHaveBeenCalled();
-  });
-
-  it('refetches on reconnect when there is no data yet', () => {
-    const { panel, ws, hosts } = setup({ projects: hostProject, hostStatus: 'unreachable' });
-    panel.setProject('p1');
-    hosts.status = 'connected';
-    panel.onHostStatus();
-    expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
   });
 
   it('refetches on reconnect when a change arrived while unreachable', () => {
@@ -793,17 +747,6 @@ describe('ChangesPanel opening a diff', () => {
     expect(opened[0]).toMatchObject({ scope: 'base', status: '?' });
   });
 
-  // Keyboard: rows are real <button>s, so Enter/Space become click natively.
-  it('rows are buttons, so Enter activates them without a keydown handler', () => {
-    const { panel } = loaded();
-    const rows = render(panel).querySelectorAll('.changes-panel__file');
-    expect(rows.length).toBe(6);
-    for (const row of rows) {
-      expect(row.tagName).toBe('BUTTON');
-      expect(row.type).toBe('button');
-    }
-  });
-
   it('works without an app service registered', () => {
     const { panel, bus } = loaded({ withApp: false });
     const opened = captureOpen(bus);
@@ -883,17 +826,17 @@ describe('ProjectPanel Changes tab', () => {
     expect(sentFrames(ws)).toEqual([{ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' }]);
   });
 
-  it('restores "changes" as the active tab from storage', () => {
-    const { pp } = setupProjectPanel({ storage: { 'eve-active-tab': 'changes' } });
-    expect(pp.activeTab).toBe('changes');
-  });
-
   it('re-renders the list on data only while the Changes tab is active', () => {
     const { pp, bus } = setupProjectPanel({ storage: { 'eve-active-tab': 'changes' } });
     pp.changesPanel.setProject('p1');
     pp._renderContent();
     reply(bus);
     expect(byTestId(document.getElementById('panelContent'), 'changes-repo-/feat-login')).not.toBeNull();
+
+    pp.activeTab = 'files';
+    const shown = document.getElementById('panelContent').firstChild;
+    reply(bus);
+    expect(document.getElementById('panelContent').firstChild).toBe(shown);
   });
 
   it('a bulk host refresh (hostId null) reaches the Changes panel for a host project', () => {

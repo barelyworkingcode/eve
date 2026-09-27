@@ -169,8 +169,13 @@ describe('diff pane descriptor', () => {
   });
 
   it('is not persisted across reloads', () => {
-    const { panes } = setup();
-    expect(panes.type('diff').persist).toBeUndefined();
+    setup();
+    const TabManager = require('../../public/tab-manager.js');
+    const tm = new TabManager({ get: (k) => (k === 'bus' ? { on() {} } : {}), has: () => false });
+    tm.switchToTab = jest.fn();
+    tm.openPane('diff', spec());
+    expect(tm.tabs).toHaveLength(1);
+    expect(localStorage._raw()).toEqual({});
   });
 });
 
@@ -209,6 +214,8 @@ describe('DiffViewer opening a diff', () => {
     expect(sent(ws)).toEqual([{
       type: 'git_file_versions', projectId: 'p1', repo: '/feat-login', path: 'routes/auth.js', scope: 'uncommitted',
     }]);
+    expect(message(host).dataset.testid).toBe('diff-loading');
+    expect(message(host).classList.contains('hidden')).toBe(false);
   });
 
   it('defaults a missing scope to uncommitted', () => {
@@ -257,13 +264,6 @@ describe('DiffViewer opening a diff', () => {
     bus.emit(EVT.GIT_OPEN_DIFF, spec({ status: 'R', path: 'public/login.css', oldPath: 'public/signin.css' }));
     expect(byTestId(host, 'diff-name').textContent).toBe('signin.css → login.css');
     expect(byTestId(host, 'diff-name').title).toBe('public/signin.css → public/login.css');
-  });
-
-  it('shows the loading state until versions arrive', () => {
-    const { bus, host } = setup();
-    bus.emit(EVT.GIT_OPEN_DIFF, spec());
-    expect(message(host).dataset.testid).toBe('diff-loading');
-    expect(message(host).classList.contains('hidden')).toBe(false);
   });
 
   it('shows an error without sending when the socket is down', () => {
@@ -404,9 +404,6 @@ describe('DiffViewer mode (eve-diff-mode)', () => {
   it('a stored choice wins over the viewport default', () => {
     expect(setup({ innerWidth: 600, storage: { 'eve-diff-mode': 'side-by-side' } }).viewer.mode).toBe('side-by-side');
     expect(setup({ innerWidth: 1200, storage: { 'eve-diff-mode': 'inline' } }).viewer.mode).toBe('inline');
-  });
-
-  it('ignores an unknown stored value', () => {
     expect(setup({ innerWidth: 1200, storage: { 'eve-diff-mode': 'file' } }).viewer.mode).toBe('side-by-side');
   });
 
@@ -523,11 +520,18 @@ describe('DiffViewer live refresh (git:changed)', () => {
   });
 
   it('"*" refreshes every tab of the project', async () => {
-    const { bus, ws } = await loadedTab();
+    const { bus, ws, tabManager, s } = await loadedTab();
+    const other = spec({ repo: '/fix-timeouts', repoName: 'fix-timeouts', branch: null, path: 'relay-client.js' });
+    bus.emit(EVT.GIT_OPEN_DIFF, other);
+    bus.emit(EVT.GIT_FILE_VERSIONS, versions(other));
+    await flush();
+    ws.send.mockClear();
     jest.useFakeTimers();
     bus.emit(EVT.GIT_CHANGED, { projectId: 'p1', repo: '*' });
     jest.advanceTimersByTime(300);
-    expect(ws.send).toHaveBeenCalledTimes(1);
+    expect(sent(ws).map((f) => f.path)).toEqual(['relay-client.js']);
+    tabManager.show(`diff:p1:/feat-login:${s.path}`);
+    expect(sent(ws).map((f) => f.path)).toEqual(['relay-client.js', 'routes/auth.js']);
   });
 
   it('ignores changes in another repo or another project', async () => {
