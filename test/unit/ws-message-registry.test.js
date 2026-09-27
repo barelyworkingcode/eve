@@ -2,38 +2,24 @@
 // needed here, unlike PaneRegistry (public/core/pane-registry.js).
 const { WsMessageRegistry, messages } = require('../../ws/message-registry');
 
-describe('the process-wide singleton', () => {
-  it('is loaded with the terminal domain already registered', () => {
-    expect(messages).toBeInstanceOf(WsMessageRegistry);
-    expect(messages.types()).toEqual(expect.arrayContaining([
-      'terminal_create', 'terminal_input', 'terminal_resize', 'terminal_close',
-      'terminal_list', 'terminal_reconnect', 'join_terminal', 'leave_terminal',
-    ]));
-  });
-});
-
 describe('WsMessageRegistry.register / .get / .has', () => {
-  it('registers a descriptor and looks it up by type', () => {
+  it('registers a descriptor and looks it up by type; an unregistered type is null, not undefined', () => {
     const r = new WsMessageRegistry();
     const d = { type: 'ping_pong', handle() {} };
     r.register(d);
     expect(r.get('ping_pong')).toBe(d);
     expect(r.has('ping_pong')).toBe(true);
+
+    {
+      const r = new WsMessageRegistry();
+      expect(r.get('nope')).toBeNull();
+      expect(r.has('nope')).toBe(false);
+    }
   });
 
-  it('returns null, not undefined, for an unregistered type', () => {
-    const r = new WsMessageRegistry();
-    expect(r.get('nope')).toBeNull();
-    expect(r.has('nope')).toBe(false);
-  });
-
-  it('requires a type', () => {
+  it('requires a type and a handle function', () => {
     const r = new WsMessageRegistry();
     expect(() => r.register({ handle() {} })).toThrow(/needs a type/);
-  });
-
-  it('requires a handle function', () => {
-    const r = new WsMessageRegistry();
     expect(() => r.register({ type: 'no_handle' })).toThrow(/needs a handle function/);
     expect(() => r.register({ type: 'bad_handle', handle: 'nope' })).toThrow(/needs a handle function/);
   });

@@ -97,7 +97,7 @@ describe('resume_required (eve <-> fake relay)', () => {
     ['message_complete', (sessionId) => relayFrames.messageComplete({ sessionId }), (f, sid) => f.type === 'message_complete' && f.sessionId === sid],
     ['process_exited', (sessionId) => relayFrames.processExited({ sessionId }), (f, sid) => f.type === 'process_exited' && f.sessionId === sid],
     ['session-less error', () => relayFrames.error({ message: 'the model crashed' }), (f) => f.type === 'error' && f.sessionId === undefined],
-  ])('E1: /clear on a now-dormant session does not resurrect the previous turn (ends via %s)', async (_label, buildFrame, matchesTerminal) => {
+  ])('E1: a later resume_required on a now-dormant session does not resurrect the previous turn (ends via %s)', async (_label, buildFrame, matchesTerminal) => {
     const created = await createSession();
     const sessionId = created.sessionId;
 
@@ -108,14 +108,12 @@ describe('resume_required (eve <-> fake relay)', () => {
     ws.send({ type: 'user_input', text: 'the old message', sessionId });
     await ws.waitFor((f) => matchesTerminal(f, sessionId), 5000, from);
 
-    // Now the session goes dormant; relay's own handleClearSession (not
-    // handleSendMessage) answers a later /clear with the same distinct
-    // resume_required, for the same sessionId — matching the (bug: still
-    // armed) old turn if pendingUserMessage was never disarmed on completion.
-    eve.relay.scriptClearSession(sessionId, [relayFrames.resumeRequired({ sessionId })]);
-
+    // Now the session goes dormant, and relay answers a later action on it
+    // with resume_required for the same sessionId. Emitted with no new user
+    // turn and no /clear, so only the terminal frame's own disarm stands
+    // between it and a resend of the old turn (clearSession() plays no part).
     from = ws.mark();
-    ws.send({ type: 'user_input', text: '/clear', sessionId });
+    eve.relay.emitToRelay(relayFrames.resumeRequired({ sessionId }));
 
     const err = await ws.waitFor((f) => f.type === 'error' && f.sessionId === sessionId, 5000, from);
     expect(err.message).toBeTruthy();

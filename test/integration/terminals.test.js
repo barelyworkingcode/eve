@@ -29,7 +29,7 @@ describe('terminal proxying (eve <-> relay)', () => {
     fs.rmSync(projectDir, { recursive: true, force: true });
   });
 
-  it('creates over HTTP with the fetch body carrying the projectId, then the browser gets terminal_created', async () => {
+  it('creates over HTTP (POST /api/terminals), then the browser gets terminal_created', async () => {
     const from = ws.mark();
     ws.send({ type: 'terminal_create', templateId: 'zsh', name: 'sh', directory: projectDir, projectId: 'p1', cols: 80, rows: 24 });
 
@@ -58,10 +58,18 @@ describe('terminal proxying (eve <-> relay)', () => {
     eve.relay.failTerminalCreateWith(500);
     try {
       const from = ws.mark();
+      const inboundFrom = eve.relay.inbound.length;
       ws.send({ type: 'terminal_create', templateId: 'zsh', name: 'boom', directory: projectDir, projectId: 'p1', cols: 80, rows: 24 });
       const err = await ws.waitFor((f) => f.type === 'error', 5000, from);
       expect(err.message).toBe('terminal create failed: forced terminal create failure');
       expect(ws.frames.slice(from).some((f) => f.type === 'terminal_created')).toBe(false);
+
+      // The join (if any) travels on the relay socket, not the browser one, so
+      // it can land after the error: a frame sent later on the same relay
+      // socket arrives after it.
+      ws.send({ type: 'terminal_input', terminalId: 'join-barrier', data: '' });
+      await eve.relay.waitForInbound((f) => f.type === 'terminal_input' && f.terminalId === 'join-barrier');
+      expect(eve.relay.inbound.slice(inboundFrom).some((f) => f.type === 'join_terminal')).toBe(false);
     } finally {
       eve.relay.clearTerminalCreateFail();
     }

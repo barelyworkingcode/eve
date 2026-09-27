@@ -22,7 +22,7 @@ const fullRelayProject = {
 };
 
 describe('normalizeProject', () => {
-  it('maps every field to camelCase', () => {
+  it('maps every field to camelCase and never projects the project token or its hash', () => {
     expect(normalizeProject(fullRelayProject)).toEqual({
       id: 'p1',
       name: 'Zed',
@@ -38,9 +38,6 @@ describe('normalizeProject', () => {
       sessionFolders: ['Bugs', 'Experiments'],
       createdAt: '2026-06-13T00:00:00Z',
     });
-  });
-
-  it('never projects the project token or its hash', () => {
     const out = normalizeProject(fullRelayProject);
     expect(out).not.toHaveProperty('token');
     expect(out).not.toHaveProperty('token_hash');
