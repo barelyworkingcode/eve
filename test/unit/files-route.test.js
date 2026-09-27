@@ -97,13 +97,6 @@ describe('/api/files route hardening', () => {
     expect(res.headers.get('content-security-policy')).toBe('sandbox allow-scripts');
   });
 
-  it('ignores ?preview=1 for non-HTML types (still locked down)', async () => {
-    const res = await fetch(`${baseUrl}/api/files/p1/note.txt?preview=1`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-disposition')).toBeNull();
-    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'");
-  });
-
   // SVG and XML are script-capable (SVG can carry inline <script>), so they must
   // be neutralized exactly like HTML — sandboxed + forced to download, never
   // rendered inline in Eve's origin.
@@ -121,11 +114,16 @@ describe('/api/files route hardening', () => {
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
   });
 
-  it('does not honor ?preview=1 for SVG (only HTML previews inline)', async () => {
+  it('does not honor ?preview=1 for SVG or other non-HTML types (only HTML previews inline)', async () => {
     const res = await fetch(`${baseUrl}/api/files/p1/art.svg?preview=1`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+
+    const txt = await fetch(`${baseUrl}/api/files/p1/note.txt?preview=1`);
+    expect(txt.status).toBe(200);
+    expect(txt.headers.get('content-disposition')).toBeNull();
+    expect(txt.headers.get('content-security-policy')).toBe("default-src 'none'");
   });
 
   it('blocks traversal into a sibling dir sharing the project name prefix', async () => {

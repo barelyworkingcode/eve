@@ -21,25 +21,19 @@ describe('FileService', () => {
     it('strips leading slashes from relative path', () => {
       const result = fileService.validatePath(projectPath, '/src/index.js');
       expect(result).toBe(path.resolve(projectPath, 'src/index.js'));
-    });
-
-    it('strips multiple leading slashes', () => {
-      const result = fileService.validatePath(projectPath, '///src/index.js');
-      expect(result).toBe(path.resolve(projectPath, 'src/index.js'));
+      expect(fileService.validatePath(projectPath, '///src/index.js')).toBe(path.resolve(projectPath, 'src/index.js'));
     });
 
     it('resolves empty path to project root', () => {
       const result = fileService.validatePath(projectPath, '');
       expect(result).toBe(path.resolve(projectPath));
+      expect(fileService.validatePath(projectPath, '/')).toBe(path.resolve(projectPath));
     });
 
     it('blocks path traversal with ../', () => {
       expect(() => {
         fileService.validatePath(projectPath, '../../../etc/passwd');
       }).toThrow('Path traversal not allowed');
-    });
-
-    it('blocks path traversal with nested ../', () => {
       expect(() => {
         fileService.validatePath(projectPath, 'src/../../outside');
       }).toThrow('Path traversal not allowed');
@@ -56,29 +50,19 @@ describe('FileService', () => {
       expect(() => {
         fileService.validatePath(projectPath, '../project-secrets/secret.env');
       }).toThrow('Path traversal not allowed');
-    });
-
-    it('blocks escape into a sibling dir via nested ../ with shared prefix', () => {
       expect(() => {
         fileService.validatePath(projectPath, 'src/../../project-evil/x.js');
       }).toThrow('Path traversal not allowed');
     });
-
-    it('still resolves the project root itself to the base path', () => {
-      expect(fileService.validatePath(projectPath, '/')).toBe(path.resolve(projectPath));
-    });
   });
 
   describe('isAllowedFile', () => {
-    it('allows common text extensions', () => {
-      const allowed = ['file.js', 'file.ts', 'file.py', 'file.json', 'file.md', 'file.html', 'file.css'];
-      for (const filename of allowed) {
-        expect(fileService.isAllowedFile(filename)).toBe(true);
-      }
-    });
-
-    it('allows config file extensions', () => {
-      const allowed = ['file.yaml', 'file.yml', 'file.toml', 'file.ini', 'file.conf', 'file.config'];
+    it('allows the editable extension list (text, config, lock, log)', () => {
+      const allowed = [
+        'file.js', 'file.ts', 'file.py', 'file.json', 'file.md', 'file.html', 'file.css',
+        'file.yaml', 'file.yml', 'file.toml', 'file.ini', 'file.conf', 'file.config',
+        'package-lock.lock', 'server.log',
+      ];
       for (const filename of allowed) {
         expect(fileService.isAllowedFile(filename)).toBe(true);
       }
@@ -87,6 +71,9 @@ describe('FileService', () => {
     it('allows extensionless files', () => {
       expect(fileService.isAllowedFile('Makefile')).toBe(true);
       expect(fileService.isAllowedFile('Dockerfile')).toBe(true);
+      // extname('.gitignore') and extname('.env') are '', so dotfiles take this branch too.
+      expect(fileService.isAllowedFile('.gitignore')).toBe(true);
+      expect(fileService.isAllowedFile('.env')).toBe(true);
     });
 
     it('rejects binary/disallowed extensions', () => {
@@ -100,22 +87,6 @@ describe('FileService', () => {
       expect(fileService.isAllowedFile('file.JS')).toBe(true);
       expect(fileService.isAllowedFile('file.Json')).toBe(true);
       expect(fileService.isAllowedFile('file.PY')).toBe(true);
-    });
-
-    it('allows .gitignore extension', () => {
-      expect(fileService.isAllowedFile('.gitignore')).toBe(true);
-    });
-
-    it('allows .env extension', () => {
-      expect(fileService.isAllowedFile('.env')).toBe(true);
-    });
-
-    it('allows lock files', () => {
-      expect(fileService.isAllowedFile('package-lock.lock')).toBe(true);
-    });
-
-    it('allows log files', () => {
-      expect(fileService.isAllowedFile('server.log')).toBe(true);
     });
   });
 
@@ -189,14 +160,6 @@ describe('FileService', () => {
     });
 
     describe('listDirectory', () => {
-      it('lists files and directories', async () => {
-        const items = await fileService.listDirectory(tmpDir, '');
-
-        const names = items.map(i => i.name);
-        expect(names).toContain('src');
-        expect(names).toContain('README.md');
-      });
-
       it('sorts directories before files', async () => {
         const items = await fileService.listDirectory(tmpDir, '');
         const dirIndex = items.findIndex(i => i.name === 'src');

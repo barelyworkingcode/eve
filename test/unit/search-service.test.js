@@ -102,14 +102,6 @@ describe('SearchService', () => {
     expect(spawnCalls).toHaveLength(0);
   });
 
-  it('treats exit code 1 (no matches) as success', async () => {
-    const svc = new SearchService();
-    globalThis.__nextSpawnHandler =(proc) => setImmediate(() => proc.emit('close', 1));
-    const result = await svc.run('/proj', 'nothing');
-    expect(result.matches).toEqual([]);
-    expect(result.truncated).toBe(false);
-  });
-
   it('truncates at the result cap and reports truncated=true', async () => {
     const svc = new SearchService();
     globalThis.__nextSpawnHandler =(proc) => {

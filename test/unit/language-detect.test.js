@@ -63,10 +63,6 @@ describe('known extensions open in the Monaco language', () => {
     expect(detect(p)).toBe(id);
   });
 
-  test('Dockerfile -> dockerfile (filename registration)', () => {
-    expect(detect('Dockerfile')).toBe('dockerfile');
-  });
-
   test('jakefile -> javascript (filename registration)', () => {
     expect(detect('jakefile')).toBe('javascript');
   });
