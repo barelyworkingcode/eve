@@ -95,6 +95,7 @@ describe('EVE_PASSKEY_SYNC switch (fake relay)', () => {
     expect(code).not.toBeNull();
     expect(code).not.toBe(0);
     expect(output).toMatch(/EVE_PASSKEY_SYNC/);
-    expect(passkeyCalls(relay)).toEqual([]);
+    // Any relay call at all means eve got as far as serving before refusing.
+    expect(relay.requests).toEqual([]);
   });
 });

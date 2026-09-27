@@ -18,7 +18,7 @@ class PasskeySync {
   }
 
   // PUTs the current credential list and applies whatever revocations relay
-  // returns in the same round-trip. No-op with no transport.
+  // returns in the same round-trip. No-op with no transport or with sync disabled.
   async report() {
     if (!this.enabled || !this.relayTransport) return;
     const passkeys = this.authService.listCredentials();

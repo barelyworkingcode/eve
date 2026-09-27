@@ -280,6 +280,8 @@ describe('passkeySyncMode', () => {
   it.each([
     ['unset', {}, { enabled: true, refuse: null }],
     ['a value other than off', { EVE_PASSKEY_SYNC: 'on' }, { enabled: true, refuse: null }],
+    ['OFF in capitals', { EVE_PASSKEY_SYNC: 'OFF' }, { enabled: true, refuse: null }],
+    ['off with a trailing space', { EVE_PASSKEY_SYNC: 'off ' }, { enabled: true, refuse: null }],
     ['unset on the live eve', { RELAY_SERVICE_ID: 'eve' }, { enabled: true, refuse: null }],
     ['off with no service id', { EVE_PASSKEY_SYNC: 'off' }, { enabled: false, refuse: null }],
     ['off on another service', { EVE_PASSKEY_SYNC: 'off', RELAY_SERVICE_ID: 'eve-verify' }, { enabled: false, refuse: null }],
