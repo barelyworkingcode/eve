@@ -155,6 +155,16 @@ async function startEve({ projects = [], hosts = [], models, env: envOverride = 
       await client.ready();
       return client;
     },
+    // waitForRelay() resolves on the fake relay's side of the upgrade, when
+    // eve's side can still be CONNECTING and eve would drop a frame sent now.
+    // eve forwards unknown relay frames to the browser, and only once its
+    // socket is open, so the probe arriving on `ws` proves the leg is usable.
+    waitForRelayOpen: async (ws) => {
+      await relay.waitForRelay();
+      const from = ws.mark();
+      relay.emitToRelay({ type: '__relay_probe' });
+      await ws.waitFor((f) => f.type === '__relay_probe', 5000, from);
+    },
     stop: async () => {
       stopping = true;
       child.kill('SIGTERM');
