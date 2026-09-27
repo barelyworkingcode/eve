@@ -26,6 +26,8 @@ jobs:
       # No bundler, so a parse of every source file is the build.
       - name: node --check
         run: git ls-files '*.js' '*.cjs' '*.mjs' | xargs -n1 node --check
+      - name: debug plan-file test
+        run: npx jest test/unit/ws-handler.test.js -t "success path" 2>&1 | grep -E "PLANDEBUG|Tests:" ; npm test 2>&1 | grep -E "PLANDEBUG|Tests:"
       - run: npm test
       - run: npm run test:integration
       - run: npx playwright install --with-deps chromium
