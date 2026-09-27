@@ -77,6 +77,7 @@ function makeChat() {
     stop: () => app.handleStop(),
     complete: (sessionId = SESSION) => dispatch({ type: 'message_complete', sessionId }),
     error: (message) => dispatch({ type: 'error', message }),
+    connectionError: (message) => dispatch({ type: 'error', sessionId: undefined, message }),
     submitLocally: () => app.messageDispatcher.markLocalSubmit(SESSION),
     userMessage: (text) => dispatch({ type: 'user_message', text }),
     join: (sessionId) => dispatch({ type: 'session_joined', sessionId, history: [] }),
@@ -223,6 +224,26 @@ describe('MessageDispatcher: the turn after a Stop that relay never completes', 
 
     beforeUserMessage(chat);
     newTurn(chat, 'Next turn reply');
+
+    expect(chat.threadText()).toContain('Next turn reply');
+  });
+});
+
+describe("MessageDispatcher: another viewer's turn after a Stop whose own Send never echoed", () => {
+  it.each([
+    ['relay refused the Send', (chat) => { chat.connectionError('Session is busy'); chat.complete(); }],
+    ['the socket closed and the browser rejoined', (chat) => chat.join(SESSION)],
+  ])('draws the reply when %s', (_label, afterStop) => {
+    const chat = makeChat();
+    chat.userMessage('Count to 100');
+    chat.streamText('Counting: 1, 2, 3');
+    chat.submitLocally();
+    chat.stop();
+    afterStop(chat);
+
+    chat.userMessage('And now?');
+    chat.streamText('Next turn reply');
+    chat.complete();
 
     expect(chat.threadText()).toContain('Next turn reply');
   });
