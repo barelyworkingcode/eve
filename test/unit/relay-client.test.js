@@ -162,8 +162,8 @@ describe('RelayClient', () => {
     });
 
     it('sendPermissionResponse emits the relay frame verbatim', () => {
-      client.sendPermissionResponse('perm-1', true, 'ok');
-      expect(client.ws.sent).toContainEqual({ type: 'permission_response', permissionId: 'perm-1', approved: true, reason: 'ok' });
+      client.sendPermissionResponse('perm-1', false, 'ok');
+      expect(client.ws.sent).toContainEqual({ type: 'permission_response', permissionId: 'perm-1', approved: false, reason: 'ok' });
     });
   });
 

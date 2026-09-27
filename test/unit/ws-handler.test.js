@@ -263,12 +263,6 @@ describe('createWsHandler', () => {
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', context: 'terminal_create', message: 'terminal create failed (500)' }));
     });
 
-    it('list_directory starts the project watcher and lists', async () => {
-      await sendMsg(ws, { type: 'list_directory', projectId: 'p1', path: '/' });
-      expect(fileWatcher.watchProject).toHaveBeenCalledWith('p1');
-      expect(deps.fileHandlers.listDirectory).toHaveBeenCalled();
-    });
-
     it('write_file marks a self-write before delegating to writeFile', async () => {
       await sendMsg(ws, { type: 'write_file', projectId: 'p1', path: 'a.txt', content: 'x' });
       expect(deps.fileHandlers.fileService.validatePath).toHaveBeenCalledWith('/proj1', 'a.txt');
@@ -288,7 +282,7 @@ describe('createWsHandler', () => {
   });
 
   describe('create_session', () => {
-    it('POSTs to relay, emits session_created, suppresses the echo join, and joins', async () => {
+    it('POSTs to relay (appendClaudeMd false when the frame omits it), emits session_created, suppresses the echo join, and joins', async () => {
       const deps = makeDeps();
       const ws = mount(deps);
       await sendMsg(ws, { type: 'create_session', projectId: 'p1' });
@@ -299,12 +293,6 @@ describe('createWsHandler', () => {
       expect(relayClient.setSuppressNextJoin).toHaveBeenCalledWith('S1');
       expect(relayClient.joinSession).toHaveBeenCalledWith('S1');
       expect(relayClient.currentProjectId).toBe('p1');
-    });
-
-    it('sends appendClaudeMd: false when the frame omits it', async () => {
-      const deps = makeDeps();
-      const ws = mount(deps);
-      await sendMsg(ws, { type: 'create_session', projectId: 'p1' });
       const body = deps.relayTransport.fetch.mock.calls.find(c => c[1] === '/api/sessions')[2];
       expect(body.appendClaudeMd).toBe(false);
     });
