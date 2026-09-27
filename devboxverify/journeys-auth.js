@@ -42,12 +42,10 @@ async function passkeySignIn(env) {
   const page = await env.newPage();
   await openEve(page, env);
   env.step('look for Acme Corp in the rail');
-  await need('no greeting within 15s of opening eve signed in',
-    expect(page.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 15000 }));
   await need('Acme Corp is not in the rail', expect(
     page.getByRole('navigation', { name: 'Projects' }).getByTitle('Acme Corp', { exact: true })).toBeVisible({ timeout: 15000 }));
   if (await page.locator('#authScreen').isVisible()) return result(id, FAIL, 'the passkey screen shows on a signed-in page');
-  return result(id, PASS, 'Sign In reached Home; a new page is signed in with Acme Corp in the rail');
+  return result(id, PASS, 'Sign In reached the app; a new page is signed in with Acme Corp in the rail');
 }
 
 // The agent is a World probe terminal in Acme Corp typing one fixed shell

@@ -4,11 +4,11 @@
 // session. The token and credential stay in memory: never logged, written to
 // disk or put in an error message.
 const { expect } = require('@playwright/test');
-const { GREETING, need } = require('./journey-kit');
+const { need } = require('./journey-kit');
 
 const VIEWPORT = { width: 1280, height: 800 };
 const SCREEN_MS = 20000;
-const HOME_MS = 15000;
+const APP_MS = 15000;
 
 async function addAuthenticator(page) {
   const cdp = await page.context().newCDPSession(page);
@@ -37,13 +37,16 @@ async function authScreen(page, url, title) {
 
 async function ceremony(page, what) {
   await page.locator('#authAction').click({ timeout: 5000 });
-  const home = page.getByTestId('home-screen').getByText(GREETING);
+  // Deliberate: signed in means the rail, not Home. The fixture runs before
+  // the world sweep, so terminals a previous run left open take the pane.
+  const rail = page.getByRole('navigation', { name: 'Projects' });
   const error = page.locator('#authError');
-  await need(`${what} showed neither Home nor an error within ${HOME_MS / 1000}s`,
-    expect(home.or(error)).toBeVisible({ timeout: HOME_MS }));
+  await need(`${what} showed neither the app nor an error within ${APP_MS / 1000}s`,
+    expect(rail.or(error)).toBeVisible({ timeout: APP_MS }));
   if (await error.isVisible()) throw new Error(`${what} failed: ${(await error.innerText()).slice(0, 120)}`);
+  await need(`the passkey screen still shows after ${what}`, expect(page.locator('#authScreen')).toBeHidden({ timeout: 5000 }));
   const token = await page.evaluate(() => localStorage.getItem('eve_session'));
-  if (!token) throw new Error(`${what} reached Home but stored no session`);
+  if (!token) throw new Error(`${what} reached the app but stored no session`);
   return token;
 }
 
