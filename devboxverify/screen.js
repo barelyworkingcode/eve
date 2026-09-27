@@ -48,7 +48,7 @@ function helperDir(relayDir) {
 }
 
 // `relayDir` is a relay checkout that holds cmd/devboxpresence.
-function createScreen({ relayDir, computer = 'computer', log = () => {} } = {}) {
+function createScreen({ relayDir, computer = 'computer' } = {}) {
   const act = (...args) => run(computer, args);
 
   async function consoleRun(argv) {
@@ -79,8 +79,9 @@ function createScreen({ relayDir, computer = 'computer', log = () => {} } = {}) 
       const bin = path.join(scratch, 'devboxpresence');
       await run('go', ['build', '-o', bin, './cmd/devboxpresence'], { cwd: dir, timeoutMs: HELPER_BUILD_TIMEOUT_MS });
       const code = await new Promise((resolve, reject) => {
-        const child = spawn(bin, ['--timeout', `${Math.max(1, Math.ceil(timeoutMs / 1000))}s`], { cwd: dir, stdio: ['ignore', 'ignore', 'pipe'] });
-        child.stderr.on('data', d => log(`presence helper: ${String(d).trim()}`));
+        // Deliberate: the helper's output is not forwarded, so nothing it
+        // prints can reach a log.
+        const child = spawn(bin, ['--timeout', `${Math.max(1, Math.ceil(timeoutMs / 1000))}s`], { cwd: dir, stdio: 'ignore' });
         const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs + HELPER_GRACE_MS);
         child.on('error', (err) => { clearTimeout(timer); reject(err); });
         child.on('exit', (c) => { clearTimeout(timer); resolve(c); });

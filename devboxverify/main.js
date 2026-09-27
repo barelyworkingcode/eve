@@ -504,13 +504,13 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
   const browser = await chromium.launch({ args: CHROMIUM_ARGS });
   const env = {
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
-    projects: {}, api, shared: {}, session: null,
+    projects: {}, api, shared: {}, session: null, relayBin,
     serviceLog: serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`)),
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
       await exec(relayBin, ['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
   };
   const screen = opts.screen
-    ? createScreen({ relayDir: process.env.RELAY_CHECKOUT || path.join(toolRoot, '..', 'relay'), log })
+    ? createScreen({ relayDir: process.env.RELAY_CHECKOUT || path.join(toolRoot, '..', 'relay') })
     : null;
   const results = [];
   const pending = [];

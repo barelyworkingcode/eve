@@ -555,7 +555,7 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   token as `X-Session-Token` and in the WS `auth` frame;
   `authStatus(token?)` sends one only when given. The token and credential
   stay in memory: never logged, written to disk or put in a detail.
-- **A17 · JourneyEnv.** Besides A15–A16: `browser`; `serviceLog`
+- **A17 · JourneyEnv.** Besides A15–A16: `browser`; `relayBin`; `serviceLog`
   (`mark()` → byte offset, `since(mark)` → text; read-only on relay's log for
   the service, a shrunk file read from the start); `relayAudit({ path,
   sinceMs })` (`relay audit -json -tail 500 -grep <path>`, then filtered on
