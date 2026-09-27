@@ -1105,6 +1105,7 @@ class EveWorkspaceClient {
     if (!this.currentSessionId) return;
     this.wsClient.send({ type: 'stop_generation', sessionId: this.currentSessionId });
     this.messageDispatcher.resetTurnState(this.currentSessionId);
+    this.messageDispatcher.markTurnStopped(this.currentSessionId);
     this.messageRenderer.hideThinkingIndicator();
     this.messageRenderer.finishAssistantMessage();
     this.hideStopButton();
