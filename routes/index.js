@@ -460,8 +460,10 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     }
 
     const base = path.resolve(project.path);
-    const resolved = path.resolve(base, relativePath);
-    if (!fileService.isPathWithin(base, resolved)) {
+    let resolved;
+    try {
+      resolved = fileService.validatePath(base, relativePath);
+    } catch (err) {
       return res.status(403).json({ error: 'Path traversal not allowed' });
     }
 
