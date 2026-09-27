@@ -6,7 +6,7 @@ describe('devboxverify/main.js', () => {
   const {
     scrub, formatLine, parseArgs, parseWorldSummary, tally,
     parseListenPids, parseCwd, parseLstart,
-    eveProcessProblem, liveEveProblem, serviceRowProblem,
+    eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem,
   } = require('../../devboxverify/main');
 
   describe('scrub and formatLine', () => {
@@ -172,6 +172,26 @@ describe('devboxverify/main.js', () => {
       ['an eve row asked for eve-verify', list(row('eve', verifyUrl, 'running')), 'eve-verify'],
     ])('reports %s', (_label, listOut, service) => {
       expect(serviceRowProblem(listOut, service, verifyUrl)).not.toBeNull();
+    });
+  });
+
+  describe('audioProblem', () => {
+    const fakeBrowser = (evaluate) => ({
+      newPage: jest.fn(async () => ({ evaluate: jest.fn(evaluate), close: jest.fn(async () => {}) })),
+      close: jest.fn(async () => {}),
+    });
+
+    it.each([
+      ['a hanging AudioContext as wedged', () => new Promise(() => {}),
+        'new AudioContext() did not return within 0.05s; the host audio stack is wedged (restart coreaudiod)'],
+      ['the first line of a thrown error', async () => { throw new Error('boom\nmore'); },
+        'new AudioContext() failed: boom'],
+      ['nothing for a running AudioContext', async () => 'running', null],
+    ])('reports %s and leaves the browser open', async (_label, evaluate, expected) => {
+      const browser = fakeBrowser(evaluate);
+      expect(await audioProblem(browser, { timeoutMs: 50 })).toBe(expected);
+      expect(browser.newPage).toHaveBeenCalled();
+      expect(browser.close).not.toHaveBeenCalled();
     });
   });
 });

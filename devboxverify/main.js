@@ -153,6 +153,30 @@ function firstLine(err) {
   return String((err && err.message) || err).split('\n')[0].slice(0, 200);
 }
 
+const CHROMIUM_ARGS = ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'];
+
+async function audioProblem(browser, { timeoutMs = 5000 } = {}) {
+  const page = await browser.newPage();
+  const creating = page.evaluate(() => { const c = new AudioContext(); return c.state; });
+  // A wedged renderer never settles this; it rejects later, when the caller closes the browser.
+  creating.catch(() => {});
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+    timer.unref();
+  });
+  try {
+    if (await Promise.race([creating, timeout]) === 'timeout') {
+      return `new AudioContext() did not return within ${timeoutMs / 1000}s; the host audio stack is wedged (restart coreaudiod)`;
+    }
+    return null;
+  } catch (err) {
+    return `new AudioContext() failed: ${firstLine(err)}`;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const leakKinds = { sessions: 'session', tasks: 'task', terminals: 'terminal' };
 
 async function runJourney(j, env, browser, api, projects) {
@@ -273,6 +297,14 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
       await (await chromium.launch()).close();
       return 'chromium';
     }],
+    ['audio', async () => {
+      const { chromium } = require('@playwright/test');
+      const browser = await chromium.launch({ args: CHROMIUM_ARGS });
+      let problem;
+      try { problem = await audioProblem(browser); } finally { await browser.close().catch(() => {}); }
+      if (problem) throw new Error(problem);
+      return 'AudioContext running';
+    }],
     ['bootstrap', async () => {
       const { code, timedOut } = await worldScript(opts.world, 'bootstrap.sh', ['--check']);
       if (timedOut) throw new Error(`bootstrap.sh --check ${timedOutDetail}`);
@@ -320,7 +352,7 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
 
   const { journeys } = require('./journeys');
   const { chromium } = require('@playwright/test');
-  const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
+  const browser = await chromium.launch({ args: CHROMIUM_ARGS });
   const byKey = Object.fromEntries(projects.map(p => [p.key, p]));
   const env = {
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
@@ -356,7 +388,7 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
 
 module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, tally, parseListenPids, parseCwd, parseLstart,
-  eveProcessProblem, liveEveProblem, serviceRowProblem, run,
+  eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run,
 };
 
 if (require.main === module) {

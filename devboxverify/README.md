@@ -42,9 +42,12 @@ POSTED success|failure|error <comment URL>
 
 Preflight runs in order and stops at the first FAIL: `lock`, `head`, `tree`,
 `service`, `eve`, `live`, `pr` (only with `--post`), `api`, `browser`,
-`bootstrap`, `world`. Then `reset.sh` and a sweep of every session, terminal
-and task in the three world projects. The sweep runs again after the
+`audio`, `bootstrap`, `world`. Then `reset.sh` and a sweep of every session,
+terminal and task in the three world projects. The sweep runs again after the
 journeys, best effort.
+
+`audio FAIL` means the host audio stack is wedged: eve's first click creates an
+`AudioContext`, and the renderer would block there. Restart `coreaudiod`.
 
 `lock` takes the shared browser-test lock (`scripts/browser-lock.js`, the same
 one `npm run test:e2e` and `npm run test:visual` take) and holds it for the
