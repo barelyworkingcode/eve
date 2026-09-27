@@ -58,6 +58,8 @@ npm run register
 
 Requires the Relay macOS app at `/Applications/Relay.app`. Autostart is enabled at `EVE_PUBLIC_ORIGIN` (default `http://localhost:3000`).
 
+Eve needs the `frontend` capability; relay gives the frontend socket only to services that hold it. Re-registering without `--capability frontend` strips the grant, and eve then starts but can't reach relay (every API call returns 502).
+
 ## Authentication
 
 Eve uses WebAuthn passkeys. The first visitor enrolls (Face ID / Touch ID / device PIN) and becomes the owner; everyone else signs in with a passkey. The passkey is exchanged for a 256-bit session token (7-day TTL) sent as `X-Session-Token` (HTTP) or the first `{type:'auth', token}` WebSocket frame.

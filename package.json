@@ -23,7 +23,7 @@
     "audit": "npm audit --omit=dev",
     "relay:restart": "/Applications/Relay.app/Contents/MacOS/relay service restart --id eve",
     "register": "npm run register:service && npm run register:mcp",
-    "register:service": "/Applications/Relay.app/Contents/MacOS/relay service register --id eve --name 'Home|Work' --command node --args --env-file=.env --args server.js --workdir . --url \"${EVE_PUBLIC_ORIGIN:-http://localhost:3000}\" --autostart",
+    "register:service": "/Applications/Relay.app/Contents/MacOS/relay service register --id eve --name 'Home|Work' --command node --args --env-file=.env --args server.js --workdir . --url \"${EVE_PUBLIC_ORIGIN:-http://localhost:3000}\" --autostart --capability frontend",
     "register:mcp": "bash scripts/register-mcp.sh"
   },
   "dependencies": {
