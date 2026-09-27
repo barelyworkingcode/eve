@@ -1,4 +1,5 @@
 const PasskeySync = require('../../passkey-sync');
+const { passkeySyncMode } = require('../../passkey-sync');
 
 // Stands in for AuthService: enough of the real listCredentials/removeCredential
 // contract (../relay/docs/eve-passkey-enrolment.md) for PasskeySync's own logic,
@@ -160,6 +161,42 @@ describe('PasskeySync', () => {
     });
   });
 
+  describe('with enabled:false', () => {
+    const twoCreds = () => fakeAuthService([
+      { id: 'c1', label: '', created: 't1', last_used: null },
+      { id: 'c2', label: '', created: 't2', last_used: null },
+    ]);
+    const okTransport = (revocations = []) => ({ fetch: jest.fn().mockResolvedValue({ status: 200, data: { revocations } }) });
+
+    it('report() sends nothing to relay', async () => {
+      const transport = okTransport(['c1']);
+      const sync = new PasskeySync({ authService: twoCreds(), relayTransport: transport, enabled: false });
+
+      await sync.report();
+
+      expect(transport.fetch).not.toHaveBeenCalled();
+    });
+
+    it('apply() removes nothing and sends nothing to relay', async () => {
+      const authService = twoCreds();
+      const transport = okTransport();
+      const sync = new PasskeySync({ authService, relayTransport: transport, enabled: false });
+
+      await sync.apply(['c1']);
+
+      expect(authService.removeCredential).not.toHaveBeenCalled();
+      expect(transport.fetch).not.toHaveBeenCalled();
+    });
+
+    it('checkRevoked() still asks relay', async () => {
+      const transport = okTransport(['c1']);
+      const sync = new PasskeySync({ authService: twoCreds(), relayTransport: transport, enabled: false });
+
+      expect(await sync.checkRevoked('c1')).toBe(true);
+      expect(transport.fetch).toHaveBeenCalledWith('GET', '/api/eve/passkeys/revocations');
+    });
+  });
+
   describe('timer lifecycle', () => {
     it('start() reports immediately, then polls every pollMs; stop() clears it', async () => {
       jest.useFakeTimers();
@@ -203,6 +240,27 @@ describe('PasskeySync', () => {
       sync.stop(); // must not throw
     });
 
+    it('start() with enabled:false never reports or polls, even past the interval', async () => {
+      jest.useFakeTimers();
+      const creds = [{ id: 'c1', label: '', created: 't', last_used: null }];
+      const ok = () => ({ fetch: jest.fn().mockResolvedValue({ status: 200, data: { revocations: [] } }) });
+      const offTransport = ok();
+      const onTransport = ok();
+      const off = new PasskeySync({ authService: fakeAuthService(creds), relayTransport: offTransport, pollMs: 1000, enabled: false });
+      const on = new PasskeySync({ authService: fakeAuthService(creds), relayTransport: onTransport, pollMs: 1000 });
+
+      off.start();
+      on.start();
+      await Promise.resolve();
+      jest.advanceTimersByTime(5000);
+      await Promise.resolve();
+
+      expect(offTransport.fetch).not.toHaveBeenCalled();
+      expect(onTransport.fetch).toHaveBeenCalled();
+      off.stop();
+      on.stop();
+    });
+
     it('start() is idempotent (a second call does not stack a second interval)', () => {
       const authService = fakeAuthService([{ id: 'c1', label: '', created: 't', last_used: null }]);
       const transport = { fetch: jest.fn().mockResolvedValue({ status: 200, data: { revocations: [] } }) };
@@ -215,5 +273,21 @@ describe('PasskeySync', () => {
       expect(sync.timer).toBe(timer);
       sync.stop();
     });
+  });
+});
+
+describe('passkeySyncMode', () => {
+  it.each([
+    ['unset', {}, { enabled: true, refuse: null }],
+    ['a value other than off', { EVE_PASSKEY_SYNC: 'on' }, { enabled: true, refuse: null }],
+    ['OFF in capitals', { EVE_PASSKEY_SYNC: 'OFF' }, { enabled: true, refuse: null }],
+    ['off with a trailing space', { EVE_PASSKEY_SYNC: 'off ' }, { enabled: true, refuse: null }],
+    ['unset on the live eve', { RELAY_SERVICE_ID: 'eve' }, { enabled: true, refuse: null }],
+    ['off with no service id', { EVE_PASSKEY_SYNC: 'off' }, { enabled: false, refuse: null }],
+    ['off on another service', { EVE_PASSKEY_SYNC: 'off', RELAY_SERVICE_ID: 'eve-verify' }, { enabled: false, refuse: null }],
+    ['off on the live eve refuses, naming the variable', { EVE_PASSKEY_SYNC: 'off', RELAY_SERVICE_ID: 'eve' },
+      { enabled: expect.any(Boolean), refuse: expect.stringContaining('EVE_PASSKEY_SYNC') }],
+  ])('%s', (_name, env, expected) => {
+    expect(passkeySyncMode(env)).toEqual(expected);
   });
 });

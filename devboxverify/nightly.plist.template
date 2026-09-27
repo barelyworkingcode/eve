@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.devboxverify.nightly</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@NODE@</string>
+    <string>@HOME@/.local/share/devboxverify/nightly.js</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>@PATH@</string>
+    <key>NIGHTLY_RELAY_CHECKOUT</key>
+    <string>@RELAY_CHECKOUT@</string>
+    <key>NIGHTLY_EVE_CHECKOUT</key>
+    <string>@EVE_CHECKOUT@</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>@HOME@/Library/Logs/devboxverify/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>@HOME@/Library/Logs/devboxverify/launchd.log</string>
+</dict>
+</plist>
