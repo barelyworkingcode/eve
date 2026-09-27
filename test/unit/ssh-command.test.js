@@ -27,9 +27,22 @@ describe('ssh-command remoteCommand (RemoteCommand fixtures)', () => {
       `exec env 'TERM'='xterm-256color' 'cat' '/x/y.jsonl'`
     );
   });
+
+  it('wraps every launcher in the exact fixed form with standard base64 and no line breaks', () => {
+    const launcher = remoteCommand('/x', ['true'], {});
+    expect(launcher.startsWith(`sh -c 'eval "$(printf %s `)).toBe(true);
+    expect(launcher.endsWith(` | base64 -d)"'`)).toBe(true);
+    expect(launcher).not.toContain('\n');
+    const b64 = launcher.match(/printf %s (\S+) \|/)[1];
+    expect(b64).toMatch(/^[A-Za-z0-9+/]+=*$/); // standard, padded alphabet only
+  });
 });
 
 describe('ssh-command shQuote', () => {
+  it('single-quotes a plain string', () => {
+    expect(shQuote('hello')).toBe(`'hello'`);
+  });
+
   it('never lets a value smuggle shell metacharacters unescaped', () => {
     const dangerous = `$(rm -rf /); echo pwned`;
     const quoted = shQuote(dangerous);

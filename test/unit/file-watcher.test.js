@@ -97,8 +97,7 @@ describe('FileWatcher', () => {
   // _onFsEvent is driven directly here so the tests don't depend on fs.watch
   // delivery timing, and open files are registered without a real watcher
   // (which would replay FSEvents history and make assertions non-deterministic).
-  // The integration suites (file-ops, local-surface) confirm the real
-  // fs.watch wiring fires end to end.
+  // A real-fs integration test below confirms the wiring fires end to end.
   describe('_onFsEvent', () => {
     function registerOpenFile(clientPath, opts = {}) {
       const canon = clientPath.replace(/^\/+/, '');
@@ -185,6 +184,23 @@ describe('FileWatcher', () => {
     });
   });
 
+  describe('end-to-end (real fs.watch)', () => {
+    // Recursive fs.watch is FSEvents-backed on macOS. Generous delays absorb
+    // coalescing latency; skipped automatically where recursive watch is
+    // unsupported (the watcher silently no-ops there).
+    it('pushes content when an open file changes on disk', async () => {
+      watcher.watch(PROJECT_ID, '/test.js');
+      if (!watcher.projectWatchers.has(PROJECT_ID)) return; // unsupported platform
+      await delay(50);
+      fs.writeFileSync(path.join(tmpDir, 'test.js'), 'changed-on-disk', 'utf8');
+      await delay(600);
+      // FSEvents may replay the recent create first, so assert that *some*
+      // push carried the new content rather than relying on ordering.
+      const got = mockWs.sent.some((m) => m.type === 'file_changed' && m.path === '/test.js' && m.content === 'changed-on-disk');
+      expect(got).toBe(true);
+    });
+  });
+
   describe('closeAll', () => {
     it('closes watchers and clears all state', () => {
       watcher.watch(PROJECT_ID, '/test.js');
@@ -196,6 +212,12 @@ describe('FileWatcher', () => {
       expect(watcher.projectWatchers.size).toBe(0);
       expect(watcher.watchedFiles.size).toBe(0);
       expect(watcher.selfWrites.size).toBe(0);
+    });
+
+    it('is safe to call multiple times', () => {
+      watcher.watch(PROJECT_ID, '/test.js');
+      watcher.closeAll();
+      expect(() => watcher.closeAll()).not.toThrow();
     });
   });
   // Changes panel refresh (docs/design-git-changes.md, "Refresh").

@@ -42,4 +42,10 @@ describe('project search (real ripgrep)', () => {
     const res = await ws.waitFor((f) => f.type === 'search_results' && f.requestId === 's2', 10000);
     expect(res.matches).toEqual([]);
   });
+
+  it('errors on an unknown project', async () => {
+    ws.send({ type: 'search_project', requestId: 's3', projectId: 'ghost', query: 'x', options: {} });
+    const res = await ws.waitFor((f) => f.type === 'search_error' && f.requestId === 's3');
+    expect(res.error).toMatch(/not found/i);
+  });
 });
