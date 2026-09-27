@@ -152,11 +152,13 @@ async function addBrowserInWindow(env) {
 
   env.step('add this browser');
   await add.click({ timeout: 5000 });
+  let token;
   try {
-    await awaitSignedIn(page, 'Add this browser');
+    token = await awaitSignedIn(page, 'Add this browser');
   } catch (err) {
     return result(id, FAIL, firstLine(err));
   }
+  if (!(await env.api.authStatus(token)).authenticated) return result(id, FAIL, 'the new browser\'s session is not authenticated');
 
   env.step('check the window was consumed');
   const closed = await poll(async () => (await env.api.authStatus()).enrollmentOpen === false, { timeoutMs: 5000 });
