@@ -28,15 +28,11 @@ describe('StateStore.addSession running flag', () => {
 describe('StateStore connection', () => {
   const changes = (bus) => bus.events.filter((e) => e.event === 'connection:changed');
 
-  it('starts offline: browser down, relay assumed up', () => {
-    const store = new StateStore(makeBus());
-    expect(store.connection).toEqual({ browser: false, relay: true });
-    expect(store.isOnline()).toBe(false);
-  });
-
-  it('setConnection merges, reports online = browser && relay, and emits only on change', () => {
+  it('starts offline (browser down, relay assumed up); setConnection merges, reports online = browser && relay, and emits only on change', () => {
     const bus = makeBus();
     const store = new StateStore(bus);
+    expect(store.connection).toEqual({ browser: false, relay: true });
+    expect(store.isOnline()).toBe(false);
 
     store.setConnection({ browser: true });
     expect(store.isOnline()).toBe(true);

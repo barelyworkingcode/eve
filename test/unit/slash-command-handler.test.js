@@ -24,16 +24,14 @@ describe('SlashCommandHandler', () => {
   let handler;
   beforeEach(() => { handler = new SlashCommandHandler(); });
 
-  it('ignores non-slash input and sends nothing', () => {
+  it('ignores non-slash input and returns false for an unknown command (forwarded to relay), sending nothing', () => {
     const ws = mockWs();
     expect(handler.handle(ws, mockRelay(), 'hello there')).toBe(false);
     expect(ws.sent).toEqual([]);
-  });
 
-  it('returns false for an unknown command (forwarded to relay)', () => {
-    const ws = mockWs();
-    expect(handler.handle(ws, mockRelay(), '/wat')).toBe(false);
-    expect(ws.sent).toEqual([]);
+    const unknownWs = mockWs();
+    expect(handler.handle(unknownWs, mockRelay(), '/wat')).toBe(false);
+    expect(unknownWs.sent).toEqual([]);
   });
 
   it('/clear clears the active session and completes', () => {

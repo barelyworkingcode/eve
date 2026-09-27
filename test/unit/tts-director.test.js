@@ -69,23 +69,18 @@ describe('Director — emotion-only cue in a normal span', () => {
   });
 });
 
-describe('Director — unknown cue', () => {
-  it('drops [sparkle] silently and does not crash', () => {
+describe('Director — unknown and [pause] cues', () => {
+  it('drops [sparkle] silently and does not crash; [pause] inserts a comma into the spoken text', () => {
     const d = new Director();
     const spans = d.plan('hello [sparkle] world.');
     expect(spans).toHaveLength(1);
     expect(spans[0].text).not.toContain('[sparkle]');
     expect(spans[0].text).toBe('hello world.');
     expect(spans[0].instruct).toBeNull();
-  });
-});
 
-describe('Director — [pause] cue', () => {
-  it('inserts a comma into the spoken text', () => {
-    const d = new Director();
-    const spans = d.plan('hello [pause] world.');
-    expect(spans).toHaveLength(1);
-    expect(spans[0].text).toBe('hello, world.');
+    const paused = new Director().plan('hello [pause] world.');
+    expect(paused).toHaveLength(1);
+    expect(paused[0].text).toBe('hello, world.');
   });
 });
 

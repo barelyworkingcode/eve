@@ -25,17 +25,15 @@ function fakeTerm({ paused = true, rows = 24 } = {}) {
 describe('TerminalManager._resumeRenderer', () => {
   const resume = TerminalManager.prototype._resumeRenderer;
 
-  it('clears the stuck pause flag and forces a full-grid repaint', () => {
+  it('clears the stuck pause flag and forces a full-grid repaint, even when not paused (recovers a dropped partial paint)', () => {
     const term = fakeTerm({ paused: true, rows: 40 });
     resume.call(null, term);
     expect(term._core._renderService._isPaused).toBe(false);
     expect(term._refreshCalls).toEqual([[0, 39, undefined]]);
-  });
 
-  it('repaints even when not paused (recovers a dropped partial paint)', () => {
-    const term = fakeTerm({ paused: false, rows: 10 });
-    resume.call(null, term);
-    expect(term._refreshCalls).toEqual([[0, 9, undefined]]);
+    const unpaused = fakeTerm({ paused: false, rows: 10 });
+    resume.call(null, unpaused);
+    expect(unpaused._refreshCalls).toEqual([[0, 9, undefined]]);
   });
 
   it('no-ops without throwing when the xterm internals are absent', () => {

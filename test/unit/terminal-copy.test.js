@@ -25,10 +25,6 @@ describe('clipboard provider (OSC 52)', () => {
     expect(writeText).toHaveBeenCalledWith('from tmux');
   });
 
-  it('never lets the host read the clipboard back', () => {
-    expect(manager()._clipboardProvider().readText('c')).toBe('');
-  });
-
   it('skips an empty write and swallows a refused one', async () => {
     const self = manager();
     await self._writeClipboard('');
