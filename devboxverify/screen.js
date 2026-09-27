@@ -12,6 +12,7 @@ const path = require('path');
 const SETTLE_MS = 1500;
 const COMMAND_TIMEOUT_MS = 15000;
 const HELPER_GRACE_MS = 10000;
+const CONSOLE_TITLE = 'devboxverify-console';
 const DEFAULT_HELPER = path.join(os.homedir(), '.local', 'share', 'devboxverify', 'bin', 'devboxpresence');
 
 // `devboxpresence answer` exit codes. 2 is a usage error, 4 an unusable
@@ -50,11 +51,26 @@ function run(cmd, args, { timeoutMs = COMMAND_TIMEOUT_MS } = {}) {
   });
 }
 
+function capture(cmd, args) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: COMMAND_TIMEOUT_MS, maxBuffer: 1 << 20 }, (err, stdout) => resolve(err ? '' : String(stdout)));
+  });
+}
+
+// `computer windows` lists windows front to back, one per line: app, frame,
+// title. Only the frontmost Terminal window counts.
+function frontTerminalIsConsole(windowsOut) {
+  const front = String(windowsOut).split('\n').find(l => /^Terminal\s/.test(l));
+  return !!front && front.includes(CONSOLE_TITLE);
+}
+
 function createScreen({ helperBin = process.env.DEVBOXPRESENCE_BIN || DEFAULT_HELPER, computer = 'computer' } = {}) {
   const act = (...args) => run(computer, args);
   const haveHelper = () => fs.existsSync(helperBin);
 
   let opened = false;
+
+  const frontIsConsole = async () => frontTerminalIsConsole(await capture(computer, ['windows']));
 
   async function consoleRun(argv) {
     await run('open', ['-a', 'Terminal']);
@@ -62,22 +78,27 @@ function createScreen({ helperBin = process.env.DEVBOXPRESENCE_BIN || DEFAULT_HE
     await act('key', 'cmd+n');
     opened = true;
     await sleep(SETTLE_MS);
-    await act('type', shellQuote(argv));
+    await act('type', `printf '\\033]2;%s\\007' ${CONSOLE_TITLE}; ${shellQuote(argv)}`);
     await act('key', 'return');
   }
 
-  // A stray dialog is cancelled first; it holds focus over Terminal. Only a
-  // window consoleRun opened gets keystrokes, and it is closed by ending its
-  // shell: a cmd+w after the window is gone would close someone else's.
+  // A stray dialog is cancelled first; it holds focus over Terminal. Keystrokes
+  // go only to a window that carries this run's title, so a Terminal someone
+  // else is using never gets a ctrl+c, an exit or a cmd+w.
   async function closeConsole() {
     if (haveHelper()) await new Promise(resolve => execFile(helperBin, ['cancel', '--any'], { timeout: COMMAND_TIMEOUT_MS }, () => resolve()));
     if (!opened) return;
     opened = false;
     await run('open', ['-a', 'Terminal']);
     await sleep(SETTLE_MS);
+    if (!(await frontIsConsole())) return;
     await act('key', 'ctrl+c');
     await act('type', 'exit');
     await act('key', 'return');
+    await sleep(SETTLE_MS);
+    // Deliberate: a profile that keeps the window after its shell exits
+    // leaves "[Process completed]", so the titled window is closed as well.
+    if (await frontIsConsole()) await act('key', 'cmd+w');
   }
 
   // This is subtle: it starts the helper now and returns two promises. The
@@ -118,4 +139,4 @@ function createScreen({ helperBin = process.env.DEVBOXPRESENCE_BIN || DEFAULT_HE
   return { consoleRun, closeConsole, answerPresence };
 }
 
-module.exports = { createScreen, presenceOutcome, dialogDetail, shellQuote, PRESENCE_EXIT };
+module.exports = { createScreen, presenceOutcome, dialogDetail, shellQuote, frontTerminalIsConsole, PRESENCE_EXIT, CONSOLE_TITLE };
