@@ -9,8 +9,8 @@ describe('FileWatcher', () => {
 
   const PROJECT_ID = 'test-project';
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-  // A push is a debounce timer plus a real file read, so a fixed wait races
-  // a busy machine. Presence is awaited; only absence needs a fixed wait.
+  // A content push is a debounce timer plus a real file read, so a fixed
+  // wait before asserting it races a busy machine.
   async function waitForSent(pred, timeoutMs = 2000) {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
@@ -207,8 +207,7 @@ describe('FileWatcher', () => {
       fs.writeFileSync(path.join(tmpDir, 'test.js'), 'changed-on-disk', 'utf8');
       // FSEvents may replay the recent create first, so wait for *some*
       // push to carry the new content rather than relying on ordering.
-      const got = await waitForSent((m) => m.type === 'file_changed' && m.path === '/test.js' && m.content === 'changed-on-disk', 3000);
-      expect(got).toBeDefined();
+      await waitForSent((m) => m.type === 'file_changed' && m.path === '/test.js' && m.content === 'changed-on-disk', 3000);
     });
   });
 
