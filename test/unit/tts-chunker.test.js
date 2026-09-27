@@ -67,12 +67,14 @@ describe('cleanChunkText', () => {
   });
 
   it('strips bare URLs', () => {
-    expect(cleanChunkText('Visit https://foo.com/bar today')).not.toContain('http');
+    expect(cleanChunkText('Visit https://foo.com/bar today').replace(/\s+/g, ' ')).toBe('Visit today');
   });
 
-  it('removes think tags and code blocks entirely', () => {
+  it('removes think tags and code blocks entirely, leaving an empty string when nothing speakable remains', () => {
     expect(cleanChunkText('<think>secret</think>Hello')).toBe('Hello');
     expect(cleanChunkText('```code block```visible')).toBe('visible');
+    expect(cleanChunkText('```only code```')).toBe('');
+    expect(cleanChunkText('   ')).toBe('');
   });
 
   it('strips a dangling unterminated think tag (half-streamed reasoning)', () => {
@@ -81,11 +83,6 @@ describe('cleanChunkText', () => {
     expect(cleanChunkText('Here is the answer. <think>now let me reason about'))
       .toBe('Here is the answer.');
     expect(cleanChunkText('<think>reasoning with no close')).toBe('');
-  });
-
-  it('returns empty string when nothing speakable remains', () => {
-    expect(cleanChunkText('```only code```')).toBe('');
-    expect(cleanChunkText('   ')).toBe('');
   });
 });
 
@@ -133,7 +130,12 @@ describe('splitIntoChunks', () => {
       + 'The third sentence continues the pattern nicely. '
       + 'The fourth sentence wraps everything up well now.';
     const chunks = splitIntoChunks(text);
-    expect(chunks.length).toBeGreaterThanOrEqual(4);
+    expect(chunks).toEqual([
+      'The first sentence is reasonably long here.',
+      'The second sentence is also reasonably long.',
+      'The third sentence continues the pattern nicely.',
+      'The fourth sentence wraps everything up well now.',
+    ]);
     // This is the latency property: read-aloud starts after the first sentence,
     // not the whole message.
     expect(chunks[0].length).toBeLessThan(text.length / 2);

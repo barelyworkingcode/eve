@@ -40,7 +40,7 @@ function ctx({ terminals = new Map(), activeTerminalId = null } = {}) {
 describe('TerminalManager.markTerminalsForRejoin', () => {
   const mark = TerminalManager.prototype.markTerminalsForRejoin;
 
-  it('marks every live terminal so the list/show paths re-join them', () => {
+  it('marks every live terminal so the list/show paths re-join them, and leaves exited terminals alone', () => {
     const t1 = fakeEntry();
     const t2 = fakeEntry();
     const self = ctx({ terminals: new Map([['t1', t1], ['t2', t2]]), activeTerminalId: 't1' });
@@ -51,13 +51,11 @@ describe('TerminalManager.markTerminalsForRejoin', () => {
     expect(t2.needsReconnect).toBe(true);
     // Marking alone must not talk to the server: the terminal list decides.
     expect(self._sent).toEqual([]);
-  });
 
-  it('leaves exited terminals alone', () => {
     const dead = fakeEntry({ exited: true });
-    const self = ctx({ terminals: new Map([['t1', dead]]), activeTerminalId: 't1' });
+    const withDead = ctx({ terminals: new Map([['t1', dead]]), activeTerminalId: 't1' });
 
-    mark.call(self);
+    mark.call(withDead);
 
     expect(dead.needsReconnect).toBe(false);
   });

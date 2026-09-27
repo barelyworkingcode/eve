@@ -28,21 +28,18 @@ function makeContainer() {
 }
 
 describe('MessageDispatcher terminal_request', () => {
-  it('forwards the projectId carried on the frame to createTerminal', () => {
+  it('forwards the projectId carried on the frame to createTerminal, and falls back to an empty one when the frame carries none', () => {
     const { container, terminalManager } = makeContainer();
     const dispatcher = new MessageDispatcher(container);
 
     dispatcher.dispatch({ type: 'terminal_request', command: 'rh', directory: '/work/proj', projectId: 'proj-1' });
 
     expect(terminalManager.createTerminal).toHaveBeenCalledWith('rh', '/work/proj', 'proj-1');
-  });
 
-  it('falls back to an empty projectId when the frame carries none', () => {
-    const { container, terminalManager } = makeContainer();
-    const dispatcher = new MessageDispatcher(container);
+    const bare = makeContainer();
+    new MessageDispatcher(bare.container)
+      .dispatch({ type: 'terminal_request', command: 'shell', directory: '/work/proj' });
 
-    dispatcher.dispatch({ type: 'terminal_request', command: 'shell', directory: '/work/proj' });
-
-    expect(terminalManager.createTerminal).toHaveBeenCalledWith('shell', '/work/proj', '');
+    expect(bare.terminalManager.createTerminal).toHaveBeenCalledWith('shell', '/work/proj', '');
   });
 });

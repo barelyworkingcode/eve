@@ -90,7 +90,7 @@ describe('PermissionModeControl', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('a click asks the server to toggle: default -> plan', () => {
+  it('a click asks the server to toggle: default -> plan, and plan -> default reading the live .active class', () => {
     const feature = loadPermissions();
     const map = new Map();
     map.set('permissions', feature.init({}));
@@ -103,20 +103,16 @@ describe('PermissionModeControl', () => {
     btn.click();
 
     expect(send).toHaveBeenCalledWith({ type: 'set_permission_mode', sessionId: 'sess-1', mode: 'plan' });
-  });
 
-  it('a click asks the server to toggle: plan -> default, reading the live .active class', () => {
-    const feature = loadPermissions();
-    const map = new Map();
-    map.set('permissions', feature.init({}));
-    const send = jest.fn();
-    map.set('app', { currentSessionId: 'sess-1', wsClient: { send } });
-    const container = fakeContainer(map);
+    const planMap = new Map();
+    planMap.set('permissions', feature.init({}));
+    const planSend = jest.fn();
+    planMap.set('app', { currentSessionId: 'sess-1', wsClient: { send: planSend } });
 
-    const btn = feature.slots[0].render(container);
-    btn.classList.add('active'); // simulate a prior mode_changed('plan') from the server
-    btn.click();
+    const planBtn = feature.slots[0].render(fakeContainer(planMap));
+    planBtn.classList.add('active'); // simulate a prior mode_changed('plan') from the server
+    planBtn.click();
 
-    expect(send).toHaveBeenCalledWith({ type: 'set_permission_mode', sessionId: 'sess-1', mode: 'default' });
+    expect(planSend).toHaveBeenCalledWith({ type: 'set_permission_mode', sessionId: 'sess-1', mode: 'default' });
   });
 });

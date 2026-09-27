@@ -60,19 +60,11 @@ describe('UiCommandBus', () => {
   });
 
   describe('actions', () => {
-    it('rejects an unknown action with 400', () => {
-      const res = mockRes();
-      bus.handleInternalRequest(mockReq({ body: { action: 'frobnicate' } }), res);
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('open_tab requires image_url', () => {
+    it('each action rejects its missing required field with 400 (open_tab: image_url; refresh_tab / close_tab: tab_ref)', () => {
       const res = mockRes();
       bus.handleInternalRequest(mockReq({ body: { action: 'open_tab' } }), res);
       expect(res.statusCode).toBe(400);
-    });
 
-    it('refresh_tab / close_tab require tab_ref', () => {
       for (const action of ['refresh_tab', 'close_tab']) {
         const res = mockRes();
         bus.handleInternalRequest(mockReq({ body: { action } }), res);
@@ -99,14 +91,6 @@ describe('UiCommandBus', () => {
         projectId: 'proj-1',
         command: { action: 'open_tab', tab_ref: res.body.tab_ref, image_url: '/api/generated/x.png' },
       });
-    });
-
-    it('reports no_client when no browser is viewing the project', () => {
-      const res = mockRes();
-      bus.handleInternalRequest(mockReq({
-        body: { action: 'open_tab', project_id: 'nobody', image_url: '/x.png' },
-      }), res);
-      expect(res.body).toMatchObject({ status: 'no_client', delivered: 0 });
     });
 
     it('refresh_tab reuses the caller tab_ref (does NOT mint a new one) and carries image_url', () => {

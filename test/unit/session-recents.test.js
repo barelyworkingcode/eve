@@ -42,14 +42,12 @@ describe('SessionRecents', () => {
     expect(SessionRecents.get('s1')).toBeNull();
   });
 
-  test('titleFromText skips markdown prefixes, slash commands and empty input', () => {
+  test('titleFromText skips markdown prefixes, slash commands and empty input, and truncates long lines at a word boundary with an ellipsis', () => {
     expect(SessionRecents.titleFromText('## Plan\n\nFix the bug')).toBe('Plan');
     expect(SessionRecents.titleFromText('/clear')).toBe('');
     expect(SessionRecents.titleFromText('   ')).toBe('');
     expect(SessionRecents.titleFromText(null)).toBe('');
-  });
 
-  test('titleFromText truncates long lines at a word boundary with an ellipsis', () => {
     const long = 'word '.repeat(40).trim();
     const t = SessionRecents.titleFromText(long);
     expect(t.length).toBeLessThanOrEqual(SessionRecents.TITLE_MAX + 1);
@@ -123,7 +121,7 @@ describe('ui-utils naming helpers', () => {
     expect(utils.relativeTime('not a date', now)).toBe('');
   });
 
-  test('sessionDisplayName prefers a chosen name, then the remembered ask, then the model', () => {
+  test('sessionDisplayName prefers a chosen name, then the remembered ask, then the server preview, then the model', () => {
     const project = { name: 'Chat Test' };
     const auto = { id: 's1', name: 'Chat Test - host/omlx/Chat', model: 'host/omlx/Chat' };
     expect(utils.sessionDisplayName(auto, project)).toBe('host/omlx/Chat');
@@ -131,10 +129,7 @@ describe('ui-utils naming helpers', () => {
     expect(utils.sessionDisplayName(auto, project)).toBe('Summarise the inbox');
     const renamed = { id: 's1', name: 'Inbox triage', model: 'host/omlx/Chat' };
     expect(utils.sessionDisplayName(renamed, project)).toBe('Inbox triage');
-  });
 
-  test('sessionDisplayName falls back to the server preview before the model name', () => {
-    const project = { name: 'Chat Test' };
     const unseen = { id: 's9', name: 'Chat Test - sonnet', model: 'sonnet', preview: 'Plan the migration' };
     expect(utils.sessionDisplayName(unseen, project)).toBe('Plan the migration');
     SessionRecents.setTitle('s9', 'What I actually typed');
