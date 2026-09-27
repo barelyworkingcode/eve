@@ -8,7 +8,7 @@ describe('relay handshake: a test can wait for eve\'s relay leg to be open', () 
     eve = await startEve();
     eve.relay.holdRelayHandshake(500);
     ws = await eve.connectWs();
-    await eve.relay.waitForRelay();
+    await eve.waitForRelayOpen(ws);
   });
 
   afterAll(async () => {

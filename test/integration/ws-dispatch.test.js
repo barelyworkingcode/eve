@@ -14,7 +14,7 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-dispatch-'));
     eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
     ws = await eve.connectWs();
-    await eve.relay.waitForRelay(); // eve drops relay sends on a not-yet-open socket
+    await eve.waitForRelayOpen(ws); // eve drops relay sends on a not-yet-open socket
   });
 
   afterAll(async () => {
@@ -102,6 +102,8 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     for (let i = 0; i < 100 && eve.relay.relayConnectionCount() < 2; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
+    await eve.waitForRelayOpen(wsA);
+    await eve.waitForRelayOpen(wsB);
   });
 
   afterAll(async () => {
