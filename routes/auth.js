@@ -53,6 +53,7 @@ function createAuthRoutes(authService, trustedNetwork, log, { enrollmentWindow, 
     if (!authService.isEnrolled()) return next();
     const { open } = await window.isOpen();
     if (open) return next();
+    log.warn(`Enrollment refused: window not open (remote ${getClientIp(req) || 'unknown'})`);
     return res.status(403).json({ error: ENROLLMENT_CLOSED_MESSAGE });
   }
 
@@ -106,6 +107,7 @@ function createAuthRoutes(authService, trustedNetwork, log, { enrollmentWindow, 
       if (additionalEnrollment) {
         const consumed = await window.consume({ ip: getClientIp(req), label: pending.label });
         if (!consumed) {
+          log.warn(`Enrollment refused: window consume rejected (remote ${getClientIp(req) || 'unknown'})`);
           return res.status(403).json({ error: ENROLLMENT_CLOSED_MESSAGE });
         }
       }
