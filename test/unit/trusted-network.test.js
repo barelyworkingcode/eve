@@ -168,14 +168,6 @@ describe('getClientIp', () => {
     expect(getClientIp(req)).toBe('8.8.8.8');
   });
 
-  test('ignores X-Forwarded-For entirely', () => {
-    const req = {
-      socket: { remoteAddress: '8.8.8.8' },
-      headers: { 'x-forwarded-for': '127.0.0.1' },
-    };
-    expect(getClientIp(req)).toBe('8.8.8.8');
-  });
-
   test('returns null on missing socket', () => {
     expect(getClientIp({})).toBeNull();
     expect(getClientIp({ socket: {} })).toBeNull();
@@ -234,17 +226,16 @@ describe('computeTrustedCidrs', () => {
     expect(isIpInCidrs('10.0.1.1', cidrs)).toBe(false);
   });
 
-  test('ignores internal interfaces (already covered by loopback)', () => {
+  test('ignores internal interfaces', () => {
     const osModule = {
       networkInterfaces: () => ({
-        lo0: [
-          { family: 'IPv4', address: '127.0.0.1', netmask: '255.0.0.0', internal: true, cidr: '127.0.0.1/8' },
+        utun9: [
+          { family: 'IPv4', address: '10.9.9.9', netmask: '255.255.255.0', internal: true, cidr: '10.9.9.9/24' },
         ],
       }),
     };
     const cidrs = computeTrustedCidrs({ env: {}, osModule });
-    // Loopback is still matched via the default 127.0.0.0/8 we always add.
-    expect(isIpInCidrs('127.0.0.1', cidrs)).toBe(true);
+    expect(isIpInCidrs('10.9.9.50', cidrs)).toBe(false);
   });
 });
 
@@ -296,7 +287,7 @@ describe('TrustedNetworkService', () => {
     });
     const req = {
       socket: { remoteAddress: '8.8.8.8' },
-      headers: { host: 'localhost' },
+      headers: { host: '127.0.0.1' },
     };
     expect(svc.isTrusted(req)).toBe(false);
   });

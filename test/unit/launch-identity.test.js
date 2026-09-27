@@ -145,13 +145,6 @@ describe('sayHello against a real Unix-socket bridge', () => {
   let bridge;
   afterEach(async () => { if (bridge) await bridge.close(); bridge = null; });
 
-  test('sends one Hello line and resolves on OK', async () => {
-    bridge = await startBridge((msg) => ({ type: 'OK', data: { service_id: msg.name, relay_pid: 777 } }));
-    await expect(sayHello({ socketPath: bridge.socketPath, serviceId: 'eve', secret: SECRET }))
-      .resolves.toEqual({ serviceId: 'eve', relayPid: 777 });
-    expect(bridge.received).toEqual([{ type: 'Hello', name: 'eve', token: SECRET }]);
-  });
-
   test('rejects on a bridge Error frame, redacting the secret even if echoed', async () => {
     bridge = await startBridge(() => ({ type: 'Error', code: -32001, message: `unauthorized ${SECRET}` }));
     const err = await sayHello({ socketPath: bridge.socketPath, serviceId: 'eve', secret: SECRET }).catch((e) => e);

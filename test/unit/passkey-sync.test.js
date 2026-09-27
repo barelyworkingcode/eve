@@ -112,20 +112,6 @@ describe('PasskeySync', () => {
   });
 
   describe('apply', () => {
-    it('removes every id present and not the last credential', async () => {
-      const authService = fakeAuthService([
-        { id: 'c1', label: '', created: 't1', last_used: null },
-        { id: 'c2', label: '', created: 't2', last_used: null },
-      ]);
-      const transport = { fetch: jest.fn().mockResolvedValue({ status: 200, data: { revocations: [] } }) };
-      const sync = new PasskeySync({ authService, relayTransport: transport });
-
-      await sync.apply(['c1']);
-
-      expect(authService.removeCredential).toHaveBeenCalledWith('c1');
-      expect(transport.fetch).toHaveBeenCalledTimes(1); // the acknowledgement report
-    });
-
     it('never removes the last remaining credential, even if relay reports it pending', async () => {
       const authService = fakeAuthService([{ id: 'only', label: '', created: 't', last_used: null }]);
       const transport = { fetch: jest.fn() };

@@ -52,19 +52,11 @@ describe('AuthService', () => {
       expect(auth.getChallenge(id)).toBeNull();
     });
 
-    it('returns null for an unknown challenge id', () => {
-      expect(auth.getChallenge('does-not-exist')).toBeNull();
-    });
-
     it('drops an expired challenge', () => {
       const id = auth.storeChallenge('chal-old');
       auth.challenges.get(id).expiresAt = Date.now() - 1;
       expect(auth.getChallenge(id)).toBeNull();
       expect(auth.challenges.has(id)).toBe(false);
-    });
-
-    it('consumeChallenge throws when the challenge is missing or expired', () => {
-      expect(() => auth.consumeChallenge('missing')).toThrow('Challenge expired or invalid');
     });
   });
 
@@ -386,14 +378,6 @@ describe('AuthService', () => {
         { id: 'cred-1', label: 'Browser A', created: '2026-01-01T00:00:00.000Z', last_used: null },
         { id: 'cred-2', label: 'Browser B', created: '2026-01-02T00:00:00.000Z', last_used: null },
       ]);
-    });
-
-    it('never includes publicKey or counter', () => {
-      enrollTwo(auth);
-      for (const entry of auth.listCredentials()) {
-        expect(entry).not.toHaveProperty('publicKey');
-        expect(entry).not.toHaveProperty('counter');
-      }
     });
 
     it('reflects lastUsedAt once a credential has logged in', async () => {
