@@ -104,7 +104,7 @@ test.describe('chat form and permissions, beyond the gate specs', () => {
     eve.relay.emitToRelay(relayFrames.messageComplete({ sessionId }));
     eve.relay.emitToRelay(relayFrames.assistantDelta({ sessionId, text: ', 4, 5, LATE' }));
 
-    // Both assertions below are negatives; a sentinel sent last on the same
+    // The last two assertions are negatives; a sentinel sent last on the same
     // socket proves the complete and the late chunk were already handled.
     eve.relay.emitToRelay({ type: 'mode_changed', sessionId, mode: 'plan' });
     await expect.poll(() =>
