@@ -609,7 +609,7 @@ describe('ChangesPanel git_error handling', () => {
     expect(ws.send).toHaveBeenCalledTimes(1);
   });
 
-  it('GIT_MISSING on a local project says git is missing on this machine', () => {
+  it('GIT_MISSING names the machine for a local project and the host for a host project', () => {
     const { panel, bus } = setup();
     panel.setProject('p1');
     bus.emit(EVT.GIT_ERROR, { projectId: 'p1', code: 'GIT_MISSING', error: 'spawn git ENOENT' });
