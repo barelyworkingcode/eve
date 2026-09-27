@@ -16,6 +16,9 @@ const {
 const exec = promisify(execFile);
 const TASK_PROMPT = 'Say hello.';
 const EXTERNAL_BANNER = 'This file has been modified externally.';
+// Deliberate: longer than file-watcher.js's SELF_WRITE_TTL_MS. eve drops any
+// change to a file within that window of its own save, taking it for the echo.
+const SELF_WRITE_WINDOW_MS = 1500;
 
 async function reloadEve(page, env) {
   env.step('reload');
@@ -185,8 +188,9 @@ async function chatReply(env) {
   ).toBeVisible({ timeout: 10000 }));
 
   env.step('wait for the count to stream');
+  // The count, not a thinking model's "Thinking..." summary that precedes it.
   const streaming = await poll(async () => {
-    const r = replyAfter(await thread(page), marker);
+    const r = replyAfter(await answers(page), marker);
     if (r.error) return r;
     if (!r.reply) return null;
     return { ...r, finished: !(await stop.isVisible()) };
@@ -246,7 +250,9 @@ async function openExistingThread(env) {
       await page.keyboard.press('ControlOrMeta+k');
       const input = page.getByTestId('palette-input');
       await need('⌘K did not open the palette', expect(input).toBeVisible({ timeout: 5000 }));
-      await input.fill(title, { timeout: 5000 });
+      // The title alone is not unique ("Chat" names every web chat), so the
+      // user narrows it by project; the palette matches label and project.
+      await input.fill(`${title} ${env.projects.acme.name}`, { timeout: 5000 });
       env.step('pick the first session');
       const list = page.getByTestId('palette-list');
       const at = await poll(async () => {
@@ -270,7 +276,10 @@ async function openExistingThread(env) {
       const item = list.getByTestId('palette-item').nth(at.i);
       await need('the first session is not selected', expect(item).toHaveAttribute('aria-selected', 'true', { timeout: 2000 }));
       const label = (await item.locator('.palette__item-label').innerText({ timeout: 2000 })).trim();
-      if (label !== title) return `the first Sessions item is "${label}", not "${title}"`;
+      const sub = (await item.locator('.palette__item-sub').innerText({ timeout: 2000 }).catch(() => '')).trim();
+      if (label !== title || sub !== env.projects.acme.name) {
+        return `the first Sessions item is "${label}" in "${sub}", not "${title}" in ${env.projects.acme.name}`;
+      }
       await page.keyboard.press('Enter');
       return null;
     }],
@@ -390,11 +399,14 @@ async function taskCreatedListed(env) {
   env.step('Run Now');
   await row.getByTitle('Run Now').click({ timeout: 5000 });
   env.step('wait for the run\'s reply');
-  const stop = page.getByTestId('chat-stop');
+  // A run's pane shows no Stop, so a settled reply is one that stopped growing.
+  let last = '';
   const ran = await poll(async () => {
-    const r = runReply(await thread(page).catch(() => []));
+    const r = runReply(await answers(page).catch(() => []));
     if (r.error) return r;
-    return r.reply && !(await stop.isVisible()) ? r : null;
+    const settledReply = r.reply && r.reply === last;
+    last = r.reply;
+    return settledReply ? r : null;
   }, { timeoutMs: 60000, intervalMs: 1000 });
   if (!ran) return result(id, FAIL, 'no reply from the run within 60s of Run Now');
   if (ran.error) return result(id, FAIL, `error in the run: ${ran.error}`);
@@ -410,11 +422,24 @@ async function taskCreatedListed(env) {
   // trim differently from the one that streamed in.
   const opening = ran.reply.replace(/\s+/g, ' ').slice(0, 30);
   const reread = await poll(async () => {
-    const r = runReply(await thread(later).catch(() => []));
+    const r = runReply(await answers(later).catch(() => []));
     return r.reply.replace(/\s+/g, ' ').includes(opening) ? r : null;
   }, { timeoutMs: 15000, intervalMs: 1000 });
   if (!reread) return result(id, FAIL, 'the last run does not show the run\'s reply in a new page');
   return result(id, PASS, `${name} listed after a reload; Run Now replied and its last run shows the reply`);
+}
+
+// The thread without its folded thinking. A thinking model's reply opens with
+// a think block whose summary reads "Thinking..." while it streams and
+// "Thinking" once re-rendered, so it is no part of the reply a user reads.
+async function answers(page) {
+  return page.getByTestId('messages-container').evaluate((root) =>
+    [...root.children].filter((el) => el.offsetParent !== null).map((el) => {
+      const content = el.querySelector('.message-content');
+      let text = content?.innerText || '';
+      for (const block of content ? content.querySelectorAll('.think-block') : []) text = text.replace(block.innerText, '');
+      return { who: el.dataset.testid || '', text: text.trim(), error: el.classList.contains('error') };
+    }), null, { timeout: 10000 });
 }
 
 // The run's reply: what follows the task prompt, or every assistant turn when
@@ -535,6 +560,7 @@ async function fileEditSave(env) {
   await page.keyboard.press('ControlOrMeta+s');
   const onDisk = await poll(async () => (await fs.promises.readFile(file, 'utf8')).includes(saved), { timeoutMs: 5000, intervalMs: 250 });
   if (!onDisk) return result(id, FAIL, 'the saved line is not on disk 5s after ⌘S');
+  await sleep(SELF_WRITE_WINDOW_MS);
 
   env.step('change the file outside the editor');
   const banner = page.getByText(EXTERNAL_BANNER);
