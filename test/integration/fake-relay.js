@@ -78,7 +78,7 @@ function createFakeRelay() {
   const terminals = new Map();
   // Mirrors relay's own handleClearSession (ws_session.go), which — like
   // handleSendMessage — can answer a dormant session with resume_required
-  // instead of clearing it (SH-6/C11's E1 regression coverage).
+  // instead of clearing it (SH-6/C11's B1 regression coverage).
   const clearSessionScripts = new Map();
   // null => normal success path. A test forces a specific non-2xx to drive
   // C11's terminal-create-failure and resume-failure branches.
