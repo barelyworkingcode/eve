@@ -145,8 +145,10 @@ class MessageDispatcher {
     // These frames prove this browser's in-flight Send will never echo.
     if (data.type === 'error' && !data.sessionId) {
       this._stopEchoExpected.clear();
+      this._localSubmitSession = null;
     } else if (data.type === 'error' || data.type === 'session_joined') {
       this._stopEchoExpected.delete(data.sessionId);
+      if (this._localSubmitSession === data.sessionId) this._localSubmitSession = null;
     }
     if (data.type === 'llm_event' && this._stoppedTurns.has(data.sessionId)) return;
     if (data.sessionId && data.sessionId !== this.state.currentSessionId && this._sessionScopedTypes.has(data.type)) {
