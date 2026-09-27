@@ -95,10 +95,10 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
     wsA = await eve.connectWs();
     wsB = await eve.connectWs();
-    await eve.relay.waitForRelay();
-    // waitForRelay only guarantees the first of eve's two upstreams is open;
-    // the terminal case below needs both (relayClient.send silently no-ops
-    // on a not-yet-open socket).
+    // The terminal case below needs both of eve's upstreams open
+    // (relayClient.send silently no-ops on a not-yet-open socket). The poll
+    // waits until relay has seen both; the probe only reaches upstreams that
+    // exist, so waitForRelayOpen then confirms each is open on eve's side.
     for (let i = 0; i < 100 && eve.relay.relayConnectionCount() < 2; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
