@@ -28,6 +28,7 @@ describe('/api/files route hardening', () => {
     fs.mkdirSync(hiddenDir);
     fs.writeFileSync(path.join(hiddenDir, 'snap.png'), 'PNGDATA', 'utf8');
     fs.writeFileSync(path.join(siblingDir, 'secret.env'), 'API_KEY=topsecret', 'utf8');
+    fs.symlinkSync(siblingDir, path.join(projectDir, 'escape'));
 
     const app = express();
     const project = { id: 'p1', path: projectDir };
@@ -133,6 +134,12 @@ describe('/api/files route hardening', () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error).toMatch(/traversal/i);
+  });
+
+  it('refuses a file reached through a symlink that escapes the project', async () => {
+    const res = await fetch(`${baseUrl}/api/files/p1/escape/secret.env`);
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain('topsecret');
   });
 
   it('returns 404 for an unknown project', async () => {

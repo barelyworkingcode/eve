@@ -172,10 +172,10 @@ class SearchService {
       if (trimmed.startsWith('/') || trimmed.includes('..')) {
         throw new Error(`Invalid glob: ${trimmed}`);
       }
-      out.push(trimmed);
       if (out.length >= MAX_GLOBS) {
         throw new Error(`Too many globs (max ${MAX_GLOBS})`);
       }
+      out.push(trimmed);
     }
     return out;
   }
