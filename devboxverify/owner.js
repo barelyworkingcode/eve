@@ -35,21 +35,28 @@ async function authScreen(page, url, title) {
   await need('the passkey screen is not visible', expect(page.locator('#authScreen')).toBeVisible({ timeout: 5000 }));
 }
 
-async function ceremony(page, what) {
-  await page.locator('#authAction').click({ timeout: 5000 });
-  // Deliberate: signed in means the rail, not Home. The fixture runs before
-  // the world sweep, so terminals a previous run left open take the pane.
+// Signed in means the passkey screen is gone and the rail shows, not Home:
+// terminals a previous journey or run left open take the pane until a sweep.
+// Throws with the ceremony's error text when eve shows one.
+async function awaitSignedIn(page, what) {
+  const auth = page.locator('#authScreen');
   const rail = page.getByRole('navigation', { name: 'Projects' });
   const error = page.locator('#authError');
   await need(`${what} showed neither the app nor an error within ${APP_MS / 1000}s`,
     expect(async () => {
-      if (!(await rail.isVisible()) && !(await error.isVisible())) throw new Error('neither is visible');
+      if (await error.isVisible()) return;
+      if (!(await auth.isVisible()) && await rail.isVisible()) return;
+      throw new Error('still on the passkey screen');
     }).toPass({ timeout: APP_MS }));
   if (await error.isVisible()) throw new Error(`${what} failed: ${(await error.innerText()).slice(0, 120)}`);
-  await need(`the passkey screen still shows after ${what}`, expect(page.locator('#authScreen')).toBeHidden({ timeout: 5000 }));
   const token = await page.evaluate(() => localStorage.getItem('eve_session'));
   if (!token) throw new Error(`${what} reached the app but stored no session`);
   return token;
+}
+
+async function ceremony(page, what) {
+  await page.locator('#authAction').click({ timeout: 5000 });
+  return awaitSignedIn(page, what);
 }
 
 async function withPage(browser, fn) {
@@ -82,4 +89,4 @@ async function signIn(browser, url, credential) {
   });
 }
 
-module.exports = { enrolOwner, signIn, addAuthenticator, sessionState };
+module.exports = { enrolOwner, signIn, addAuthenticator, awaitSignedIn, sessionState };

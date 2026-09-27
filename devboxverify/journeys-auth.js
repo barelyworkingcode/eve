@@ -4,7 +4,7 @@ const { expect } = require('@playwright/test');
 const {
   PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, openProject, openWorldProbe, parseAgentAttempt,
 } = require('./journey-kit');
-const { enrolOwner, signIn, addAuthenticator } = require('./owner');
+const { enrolOwner, signIn, addAuthenticator, awaitSignedIn } = require('./owner');
 
 const LOG_WAIT_MS = 5000;
 const AGENT_WAIT_MS = 20000;
@@ -152,15 +152,11 @@ async function addBrowserInWindow(env) {
 
   env.step('add this browser');
   await add.click({ timeout: 5000 });
-  // Deliberate: the rail, not Home. Terminals earlier journeys left open take
-  // the pane until the final sweep.
-  const rail = page.getByRole('navigation', { name: 'Projects' });
-  const error = page.locator('#authError');
-  await need('Add this browser showed neither the app nor an error within 15s', expect(async () => {
-    if (!(await rail.isVisible()) && !(await error.isVisible())) throw new Error('neither is visible');
-  }).toPass({ timeout: 15000 }));
-  if (await error.isVisible()) return result(id, FAIL, `Add this browser failed: ${(await error.innerText()).slice(0, 120)}`);
-  if (await page.locator('#authScreen').isVisible()) return result(id, FAIL, 'the passkey screen still shows after Add this browser');
+  try {
+    await awaitSignedIn(page, 'Add this browser');
+  } catch (err) {
+    return result(id, FAIL, firstLine(err));
+  }
 
   env.step('check the window was consumed');
   const closed = await poll(async () => (await env.api.authStatus()).enrollmentOpen === false, { timeoutMs: 5000 });
