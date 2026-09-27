@@ -336,17 +336,18 @@ describe('terminal dispose', () => {
 // Issue #41 root cause A: a rename leaves an open tab's id/watch/persist-entry
 // keyed under the old path, so the next Cmd+S recreates the old file.
 describe('renameFileTab', () => {
-  function tmWithWs() {
+  function tmWithWs({ withEditor = false } = {}) {
     const sent = [];
     const ws = { send: (msg) => sent.push(JSON.parse(msg)) };
     const notePathRenamed = jest.fn();
-    const app = { showChatScreen: () => {}, ws, fileEditor: { notePathRenamed, showFile: () => {} } };
+    const app = { showChatScreen: () => {}, ws };
+    if (withEditor) app.fileEditor = { notePathRenamed, showFile: () => {} };
     const tm = makeTabManager({ container: { app } });
     return { tm, sent, notePathRenamed };
   }
 
-  it('re-keys the tab id, moves the eve-open-files entry, unwatches then watches, and tells the editor', () => {
-    const { tm, sent, notePathRenamed } = tmWithWs();
+  it('re-keys the tab id, moves the eve-open-files entry, unwatches then watches, follows the active id, and tells the editor', () => {
+    const { tm, sent, notePathRenamed } = tmWithWs({ withEditor: true });
     tm.openFile('p1', '/a.txt', 'a.txt');
     expect(tm.activeTabId).toBe('p1:/a.txt');
     sent.length = 0; // drop the initial watch_file from openFile
@@ -366,9 +367,7 @@ describe('renameFileTab', () => {
     expect(sent[0]).toMatchObject({ type: 'unwatch_file', projectId: 'p1', path: '/a.txt' });
     expect(sent[1]).toMatchObject({ type: 'watch_file', projectId: 'p1', path: '/b.txt' });
 
-    // The renamed tab was active: the active id follows it.
     expect(tm.activeTabId).toBe('p1:/b.txt');
-    // An open editor buffer must stop saving to the old path.
     expect(notePathRenamed).toHaveBeenCalledWith('p1', '/a.txt', '/b.txt');
   });
 

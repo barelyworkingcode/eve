@@ -98,10 +98,12 @@ describe('CommandPalette.orderSessionsForEmptyQuery', () => {
     { id: 'e', active: false },
   ];
 
-  it('orders recent tabs first (in getRecentSessionIds order), then active, then the rest', () => {
-    // 'ghost' no longer corresponds to a live session and is skipped.
-    const ordered = CommandPalette.orderSessionsForEmptyQuery(sessions, ['c', 'ghost', 'a']);
+  it('orders recent tabs first (in getRecentSessionIds order), then active, then the rest, skipping recent ids with no live session', () => {
+    const ordered = CommandPalette.orderSessionsForEmptyQuery(sessions, ['c', 'a']);
     expect(ordered.map(s => s.id)).toEqual(['c', 'a', 'b', 'd', 'e']);
+
+    const withGhost = CommandPalette.orderSessionsForEmptyQuery(sessions, ['ghost', 'a']);
+    expect(withGhost.map(s => s.id)).toEqual(['a', 'b', 'd', 'c', 'e']);
   });
 
   it('does not duplicate a session that is both recent and active', () => {
