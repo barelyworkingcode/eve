@@ -9,7 +9,6 @@ const { enrolOwner, signIn, addAuthenticator } = require('./owner');
 const LOG_WAIT_MS = 5000;
 const AGENT_WAIT_MS = 20000;
 const CONSUME_PATH = '/api/eve/passkey-enrolment/consume';
-const EVE_VERIFY_CRED = 'launch:service:eve-verify';
 // The line eve must write when it refuses an enrolment outside the window.
 // eve writes none today; the fix for that bug has to match this.
 const ENROL_REFUSAL = /enrol{1,2}ment[^\n]*(refused|rejected|denied|closed|not open)/i;
@@ -132,12 +131,13 @@ async function addBrowserInWindow(env) {
   env.step('open the window with relay eve enrol');
   // This order is fixed: the helper refuses a dialog already open when it starts.
   const presence = env.screen.answerPresence({ expect: 'open a five-minute window' });
+  if (!(await presence.ready)) return result(id, BLOCKED, `presence dialog ${(await presence.result).state}`);
   try {
     await env.screen.consoleRun([env.relayBin, 'eve', 'enrol']);
   } catch (err) {
     return result(id, BLOCKED, `could not run relay eve enrol: ${firstLine(err)}`);
   }
-  const { state } = await presence;
+  const { state } = await presence.result;
   if (state !== 'answered') return result(id, BLOCKED, `presence dialog ${state}`);
 
   env.step('wait for the window to open');
@@ -164,8 +164,9 @@ async function addBrowserInWindow(env) {
   if (!closed) return result(id, FAIL, 'the enrolment window is still open after the browser was added');
   env.step('read relay audit');
   const rows = await env.relayAudit({ path: CONSUME_PATH, sinceMs: startedAt });
-  if (!rows.some((row) => row.credId === EVE_VERIFY_CRED && row.outcome === 'ok')) {
-    return result(id, FAIL, `relay audit has no consume row from ${EVE_VERIFY_CRED}`);
+  const cred = `launch:service:${env.service}`;
+  if (!rows.some((row) => row.credId === cred && row.outcome === 'ok')) {
+    return result(id, FAIL, `relay audit has no consume row from ${cred}`);
   }
   return result(id, PASS, 'Add this browser reached Home; the window was consumed and audited');
 }

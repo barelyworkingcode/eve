@@ -73,26 +73,39 @@ function createScreen({ helperBin = process.env.DEVBOXPRESENCE_BIN || DEFAULT_HE
     await act('key', 'return');
   }
 
-  // This is subtle: it starts the helper now and returns the promise, and the
-  // caller triggers the dialog after. The helper refuses a dialog that was
-  // already open when it started.
+  // This is subtle: it starts the helper now and returns two promises. The
+  // caller triggers the dialog only once `ready` is true: the helper refuses a
+  // dialog that was already open when it took its snapshot, and says it has
+  // taken one with `devboxpresence: ready` on stderr. Stderr is never logged.
   function answerPresence({ expect, timeoutMs = 20000 }) {
-    if (!haveHelper()) return Promise.resolve({ state: 'no-helper', code: null, detail: '' });
-    return new Promise((resolve) => {
+    if (!haveHelper()) {
+      return { ready: Promise.resolve(false), result: Promise.resolve({ state: 'no-helper', code: null, detail: '' }) };
+    }
+    let markReady;
+    const ready = new Promise((r) => { markReady = r; });
+    const result = new Promise((resolve) => {
       const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
-      const child = spawn(helperBin, ['answer', '--expect', expect, '--timeout', `${seconds}s`], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const child = spawn(helperBin, ['answer', '--expect', expect, '--timeout', `${seconds}s`], { stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '';
+      let err = '';
       child.stdout.on('data', (d) => { out += d; });
+      child.stderr.on('data', (d) => {
+        err += d;
+        if (/^devboxpresence: ready$/m.test(err)) markReady(true);
+      });
       const timer = setTimeout(() => child.kill('SIGKILL'), seconds * 1000 + HELPER_GRACE_MS);
-      child.on('error', (err) => {
+      child.on('error', (e) => {
         clearTimeout(timer);
-        resolve({ state: 'error', code: null, detail: `presence helper did not start: ${err.code || err.message}` });
+        markReady(false);
+        resolve({ state: 'error', code: null, detail: `presence helper did not start: ${e.code || e.message}` });
       });
       child.on('close', (code) => {
         clearTimeout(timer);
+        markReady(false);
         resolve({ state: presenceOutcome(code), code, detail: dialogDetail(out) });
       });
     });
+    return { ready, result };
   }
 
   return { consoleRun, closeConsole, answerPresence };

@@ -199,7 +199,8 @@ chat straight away.
   BLOCKED. Eve never reads the account password: the helper does, and checks
   the dialog is relay's before it types. Journeys start
   `devboxpresence answer --expect <text>` before the command that raises the
-  dialog, since the helper refuses a dialog already open when it started;
+  dialog, and only after the helper prints `devboxpresence: ready` on stderr,
+  since it refuses a dialog already open when it took its snapshot;
   `closeConsole` runs `devboxpresence cancel --any` to clear a stray one.
   Exit codes: 0 answered, 1 no dialog in time, 3 refused (locked screen, not
   relay's dialog, text lacks the expected words, several dialogs, or one
