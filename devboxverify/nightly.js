@@ -17,10 +17,13 @@ const EVE_VERIFY_SERVICE = 'eve-verify';
 const OUTPUT_CAP = 8 * 1024 * 1024;
 const HISTORY_ROWS = 60;
 
-function classify({ exitCode, timedOut, blockedReason }) {
+// Subtle: `go run` exits 1 for any non-zero exit of the program, so a relay
+// preflight failure (exit 2) arrives as 1. Only a run that reached SUMMARY ran
+// its journeys, so only such a run can be RED.
+function classify({ exitCode, timedOut, blockedReason, stdout }) {
   if (blockedReason || timedOut) return 'BLOCKED';
   if (exitCode === 0) return 'GREEN';
-  if (exitCode === 1) return 'RED';
+  if (exitCode === 1 && /^SUMMARY\t/m.test(String(stdout || ''))) return 'RED';
   return 'BLOCKED';
 }
 
@@ -218,7 +221,7 @@ async function runNight(repo, checkout, at, logDir) {
       ? await night.step('go', ['run', './cmd/devboxverify', '--checkout', checkout], { timeoutMs: RUN_TIMEOUT_MS })
       : await night.step(process.execPath, ['devboxverify/main.js', '--checkout', checkout], { timeoutMs: RUN_TIMEOUT_MS });
   }
-  const result = classify({ exitCode: res.code, timedOut: res.timedOut, blockedReason });
+  const result = classify({ exitCode: res.code, timedOut: res.timedOut, blockedReason, stdout: res.stdout });
   const summary = blockedReason || (res.timedOut ? `timed out after 30 min; ${summaryOf(res.stdout)}` : summaryOf(res.stdout));
   const record = { at, repo, result, commit, behind: night.behind, summary };
   const runs = path.join(logDir, 'runs');

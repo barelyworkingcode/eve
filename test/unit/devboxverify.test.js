@@ -276,7 +276,8 @@ describe('devboxverify/nightly.js', () => {
 
   it.each([
     [{ exitCode: 0 }, 'GREEN'],
-    [{ exitCode: 1 }, 'RED'],
+    [{ exitCode: 1, stdout: 'JOURNEY\tx\tFAIL\td\nSUMMARY\tpass=0\tfail=1\tblocked=0\tnotrun=0\n' }, 'RED'],
+    [{ exitCode: 1, stdout: 'PREFLIGHT\tbuild\tFAIL\tbuilt from an older commit\n' }, 'BLOCKED'],
     [{ exitCode: 2 }, 'BLOCKED'],
     [{ exitCode: null }, 'BLOCKED'],
     [{ exitCode: 0, timedOut: true }, 'BLOCKED'],

@@ -504,3 +504,6 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   wait on `window.client` internals (they are setup, not verdicts); a redesign
   updates them. The `:3000` refusal shows as `service FAIL` with the default
   `--service`, or `live FAIL` with `--service eve`.
+- **A9 · Nightly classification.** RED needs exit 1 and a `SUMMARY` line:
+  `go run` turns relay's exit 2 (preflight) into 1, so exit 1 alone is not
+  proof that journeys ran. Anything else non-zero is BLOCKED.
