@@ -9,6 +9,17 @@ describe('FileWatcher', () => {
 
   const PROJECT_ID = 'test-project';
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  // A push is a debounce timer plus a real file read, so a fixed wait races
+  // a busy machine. Presence is awaited; only absence needs a fixed wait.
+  async function waitForSent(pred, timeoutMs = 2000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const found = mockWs.sent.find(pred);
+      if (found) return found;
+      if (Date.now() > deadline) throw new Error('waitForSent: timed out');
+      await delay(10);
+    }
+  }
 
   function createMockWs() {
     return {
@@ -109,7 +120,7 @@ describe('FileWatcher', () => {
       registerOpenFile('/test.js');
       watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
       expect(mockWs.sent.length).toBe(0); // debounced
-      await delay(200);
+      await waitForSent((m) => m.type === 'file_changed');
       expect(mockWs.sent).toContainEqual({
         type: 'file_changed', projectId: PROJECT_ID, path: '/test.js', content: 'original', size: 8
       });
@@ -118,7 +129,7 @@ describe('FileWatcher', () => {
     it('treats atomic-save renames of an open file as content changes', async () => {
       registerOpenFile('/test.js');
       watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'test.js');
-      await delay(300);
+      await waitForSent((m) => m.type === 'file_changed');
       const fileMsg = mockWs.sent.find((m) => m.type === 'file_changed');
       expect(fileMsg).toMatchObject({ path: '/test.js', content: 'original' });
     });
@@ -128,7 +139,8 @@ describe('FileWatcher', () => {
       watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
       watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
       watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
-      await delay(200);
+      await waitForSent((m) => m.type === 'file_changed');
+      await delay(200); // room for a second push, if coalescing broke
       expect(mockWs.sent.filter((m) => m.type === 'file_changed').length).toBe(1);
     });
 
@@ -193,11 +205,10 @@ describe('FileWatcher', () => {
       if (!watcher.projectWatchers.has(PROJECT_ID)) return; // unsupported platform
       await delay(50);
       fs.writeFileSync(path.join(tmpDir, 'test.js'), 'changed-on-disk', 'utf8');
-      await delay(600);
-      // FSEvents may replay the recent create first, so assert that *some*
-      // push carried the new content rather than relying on ordering.
-      const got = mockWs.sent.some((m) => m.type === 'file_changed' && m.path === '/test.js' && m.content === 'changed-on-disk');
-      expect(got).toBe(true);
+      // FSEvents may replay the recent create first, so wait for *some*
+      // push to carry the new content rather than relying on ordering.
+      const got = await waitForSent((m) => m.type === 'file_changed' && m.path === '/test.js' && m.content === 'changed-on-disk', 3000);
+      expect(got).toBeDefined();
     });
   });
 
