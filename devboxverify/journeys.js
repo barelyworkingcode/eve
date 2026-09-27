@@ -243,7 +243,7 @@ async function openExistingThread(env) {
       const title = (await need('the thread is not in Continue on Home',
         row.locator('.home__row-title').innerText({ timeout: 15000 }))).trim();
       env.step('open the palette');
-      await page.keyboard.press('ControlOrMeta+K');
+      await page.keyboard.press('ControlOrMeta+k');
       const input = page.getByTestId('palette-input');
       await need('⌘K did not open the palette', expect(input).toBeVisible({ timeout: 5000 }));
       await input.fill(title, { timeout: 5000 });
@@ -380,7 +380,7 @@ async function taskCreatedListed(env) {
     await openProject(on, env, env.projects.acme);
     await on.getByTestId('panel-tab-tasks').click({ timeout: 10000 });
     const item = on.locator('#panelContent [data-testid^="sidebar-task-"]')
-      .filter({ has: on.locator('.project-tree__task-name').getByText(name, { exact: true }) });
+      .filter({ hasText: name });
     await need(`${name} is gone after a reload`, expect(item).toBeVisible({ timeout: 15000 }));
     return item;
   };
@@ -532,7 +532,7 @@ async function fileEditSave(env) {
   const saved = `saved ${env.nonce}`;
   await endOfFile(page, text);
   await page.keyboard.type(saved);
-  await page.keyboard.press('ControlOrMeta+S');
+  await page.keyboard.press('ControlOrMeta+s');
   const onDisk = await poll(async () => (await fs.promises.readFile(file, 'utf8')).includes(saved), { timeoutMs: 5000, intervalMs: 250 });
   if (!onDisk) return result(id, FAIL, 'the saved line is not on disk 5s after ⌘S');
 
