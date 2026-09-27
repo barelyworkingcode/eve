@@ -154,7 +154,9 @@ async function addBrowserInWindow(env) {
   await add.click({ timeout: 5000 });
   const home = page.getByTestId('home-screen').getByText(GREETING);
   const error = page.locator('#authError');
-  await need('Add this browser showed neither Home nor an error within 15s', expect(home.or(error)).toBeVisible({ timeout: 15000 }));
+  await need('Add this browser showed neither Home nor an error within 15s', expect(async () => {
+    if (!(await home.isVisible()) && !(await error.isVisible())) throw new Error('neither is visible');
+  }).toPass({ timeout: 15000 }));
   if (await error.isVisible()) return result(id, FAIL, `Add this browser failed: ${(await error.innerText()).slice(0, 120)}`);
 
   env.step('check the window was consumed');
