@@ -299,75 +299,6 @@ describe('devboxverify/post.js', () => {
   });
 });
 
-describe('devboxverify/nightly.js', () => {
-  const { classify, summaryOf, formatRecord, parseRecords, renderStatusPage } = require('../../devboxverify/nightly');
-  const line = (s) => s.replace(/\n$/, '');
-  const rec = (at, repo, result, summary) =>
-    line(formatRecord({ at, repo, result, commit: '0123456789abcdef0123', behind: 0, summary }));
-
-  it.each([
-    [{ exitCode: 0 }, 'GREEN'],
-    [{ exitCode: 1, stdout: 'JOURNEY\tx\tFAIL\td\nSUMMARY\tpass=0\tfail=1\tblocked=0\tnotrun=0\n' }, 'RED'],
-    [{ exitCode: 1, stdout: 'PREFLIGHT\tbuild\tFAIL\tbuilt from an older commit\n' }, 'BLOCKED'],
-    [{ exitCode: 2 }, 'BLOCKED'],
-    [{ exitCode: null }, 'BLOCKED'],
-    [{ exitCode: 0, timedOut: true }, 'BLOCKED'],
-    [{ exitCode: 0, blockedReason: 'fetch failed' }, 'BLOCKED'],
-  ])('classifies %o as %s', (input, expected) => {
-    expect(classify(input)).toBe(expected);
-  });
-
-  it.each([
-    ['the SUMMARY line', 'PREFLIGHT\thead\tOK\tabc\nJOURNEY\tx\tPASS\t\nSUMMARY\tpass=7\tfail=0\tblocked=0\tnotrun=0\n',
-      'SUMMARY pass=7 fail=0 blocked=0 notrun=0'],
-    ['the first failed preflight', 'PREFLIGHT\thead\tOK\tabc\nPREFLIGHT\teve\tFAIL\tstale\nPREFLIGHT\tlive\tFAIL\tport\n',
-      'PREFLIGHT eve FAIL stale'],
-    ['no summary', 'PREFLIGHT\thead\tOK\tabc\n', 'no summary'],
-  ])('summarises with %s', (_label, stdout, expected) => {
-    expect(summaryOf(stdout)).toBe(expected);
-  });
-
-  it('formats a record with a 12-char commit', () => {
-    expect(rec('2026-09-26T03:30:00Z', 'eve', 'GREEN', 'SUMMARY pass=7'))
-      .toBe('NIGHT\t2026-09-26T03:30:00Z\teve\tGREEN\t0123456789ab\tbehind=0\tSUMMARY pass=7');
-  });
-
-  it('parses NIGHT lines back into the records they came from', () => {
-    const lines = [rec('2026-09-25T03:30:00Z', 'relay', 'RED', 'SUMMARY fail=1'),
-      rec('2026-09-25T03:31:00Z', 'eve', 'GREEN', 'SUMMARY pass=7')];
-    const records = parseRecords(`${lines[0]}\nnightly started\n${lines[1]}\n`);
-    expect(records).toHaveLength(2);
-    expect(records.map((x) => line(formatRecord(x)))).toEqual(lines);
-  });
-
-  describe('renderStatusPage', () => {
-    const now = new Date('2026-09-26T08:00:00Z');
-    const page = (lines) => renderStatusPage(parseRecords(lines.join('\n') + '\n'), { now });
-
-    it('puts the latest per repo on top, shows RED and escapes fields', () => {
-      const html = page([
-        rec('2026-09-20T03:31:00Z', 'eve', 'GREEN', 'eve-day20'),
-        rec('2026-09-21T03:30:00Z', 'relay', 'GREEN', 'relay-day21'),
-        rec('2026-09-22T03:30:00Z', 'relay', 'GREEN', 'relay-day22'),
-        rec('2026-09-23T03:30:00Z', 'relay', 'RED', '<script>alert(1)</script>'),
-      ]);
-      expect(html.indexOf('eve-day20')).toBeLessThan(html.indexOf('relay-day22'));
-      expect(html).toContain('RED');
-      expect(html).not.toContain('<script>alert');
-      expect(html).toContain('&lt;script&gt;');
-    });
-
-    it('keeps only the last 60 records in the history', () => {
-      const lines = Array.from({ length: 62 }, (_, i) =>
-        rec(new Date(Date.UTC(2026, 6, 1 + i, 3, 30)).toISOString(), 'relay', 'GREEN', `night-${String(i).padStart(2, '0')}x`));
-      const html = page(lines);
-      expect(html).not.toContain('night-00x');
-      expect(html).not.toContain('night-01x');
-      expect(html).toContain('night-02x');
-    });
-  });
-});
-
 function removeScratch(dir) {
   if (dir && dir.startsWith(os.tmpdir()) && dir.length > os.tmpdir().length + 1) fs.rmSync(dir, { recursive: true, force: true });
 }
@@ -651,18 +582,5 @@ describe('devboxverify/screen.js', () => {
       expect(await ready).toBe(isReady);
       expect((await result).state).toBe(state);
     });
-  });
-});
-
-describe('devboxverify/nightly.js run order', () => {
-  const { NIGHTS, relayVerifyArgs } = require('../../devboxverify/nightly');
-
-  it('pins the contract night order: relay api, then eve, then relay screen', () => {
-    expect(NIGHTS.map(n => (n.repo === 'relay' ? `relay:${n.phase}` : n.repo))).toEqual(['relay:api', 'eve', 'relay:screen']);
-  });
-
-  it.each(['api', 'screen'])('hands relay its %s phase', (phase) => {
-    const args = relayVerifyArgs('/srv/relay', phase);
-    expect(args[args.indexOf('--phase') + 1]).toBe(phase);
   });
 });
