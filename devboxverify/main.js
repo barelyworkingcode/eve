@@ -11,6 +11,7 @@ const {
 
 const LIVE_EVE_PORT = 3000;
 const SCRIPT_TIMEOUT_MS = 300000;
+const REPAIR_TIMEOUT_MS = 900000;
 const JOURNEY_BUDGET_MS = 480000;
 const MIN_JOURNEY_MS = 1000;
 const CLEANUP_TIMEOUT_MS = 10000;
@@ -68,6 +69,40 @@ function parseWorldSummary(stdout) {
   const m = /^SUMMARY\tpass=(\d+)\tfail=(\d+)\s*$/.exec(lines[lines.length - 1]);
   if (!m) throw new Error('malformed world summary');
   return { pass: Number(m[1]), fail: Number(m[2]) };
+}
+
+// repair.sh's stdout, read as devboxWorld's docs/WORLD.md pins it. The harness
+// adds the prefix and maps lines; repair.sh writes every detail.
+function parseRepair(stdout, { code, timedOut }) {
+  const checks = { bootstrap: {}, world: {} };
+  const repaired = [];
+  for (const line of String(stdout).split('\n')) {
+    const f = line.replace(/\r$/, '').split('\t');
+    if (f[0] === 'CHECK' && f.length === 4 && (f[1] === 'bootstrap' || f[1] === 'world') && (f[2] === 'OK' || f[2] === 'FAIL')) {
+      const c = checks[f[1]];
+      if (f[2] === 'OK') c.ok = f[3];
+      else if (c.fail === undefined) c.fail = f[3];
+    } else if (f[0] === 'REPAIRED' && f.length === 3) {
+      repaired.push({ what: f[1], detail: f[2] });
+    }
+  }
+  const how = timedOut ? `timed out after ${REPAIR_TIMEOUT_MS / 1000}s` : `exited ${code}`;
+  const blocked = detail => ({ ok: false, detail: `BLOCKED environment: ${detail}` });
+  const { bootstrap: b, world: w } = checks;
+  let summary = null;
+  try { summary = parseWorldSummary(stdout); } catch { /* no valid SUMMARY: 0/0 */ }
+  // A FAIL line wins over everything; an OK line counts only with a clean exit and fail=0.
+  const green = w.ok !== undefined && code === 0 && !timedOut && summary !== null && summary.fail === 0;
+  return {
+    bootstrap: b.fail !== undefined ? blocked(b.fail)
+      : b.ok !== undefined ? { ok: true, detail: b.ok }
+        : blocked(`bootstrap incomplete; repair.sh ${how} without a result; run bootstrap.sh`),
+    world: w.fail !== undefined ? blocked(w.fail)
+      : green ? { ok: true, detail: w.ok } : blocked(`repair.sh ${how} without a result`),
+    repaired,
+    pass: summary ? summary.pass : 0,
+    fail: summary ? summary.fail : 0,
+  };
 }
 
 function tally(results) {
@@ -285,14 +320,14 @@ async function newestChangeMs(checkout) {
 // Deliberate: the script's stdout goes to our stderr or into the capture, never
 // our stdout. A grandchild the script leaves behind can hold the captured pipe
 // open, so the pipe is destroyed shortly after the script itself exits.
-function worldScript(checkout, name, args, { capture = false } = {}) {
+function worldScript(checkout, name, args, { capture = false, timeoutMs = SCRIPT_TIMEOUT_MS } = {}) {
   return new Promise((resolve) => {
     const child = spawn(path.join(checkout, name), args, { cwd: checkout, stdio: ['ignore', capture ? 'pipe' : 2, 'inherit'] });
     let out = '';
     let code = -1;
     let timedOut = false;
     if (capture) child.stdout.on('data', d => { out += d; });
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); child.stdout?.destroy(); }, SCRIPT_TIMEOUT_MS);
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); child.stdout?.destroy(); }, timeoutMs);
     const done = () => { clearTimeout(timer); resolve({ code, out, timedOut }); };
     child.on('error', done);
     child.on('exit', (c) => {
@@ -304,7 +339,6 @@ function worldScript(checkout, name, args, { capture = false } = {}) {
 }
 
 const timedOutDetail = `timed out after ${SCRIPT_TIMEOUT_MS / 1000}s`;
-const environmentBlocked = msg => new Error(`BLOCKED environment: ${msg}`);
 
 function firstLine(err) {
   return String((err && err.message) || err).split('\n')[0].slice(0, 200);
@@ -470,7 +504,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   const anonymous = new EveApi(base);
   const relayBin = process.env.RELAY_BIN || '/Applications/Relay.app/Contents/MacOS/relay';
   const lsEnv = { env: { ...process.env, LC_ALL: 'C' } };
-  let head, pid, cwd, liveCwd, listOut, dataDir, projects, worldCounts;
+  let head, pid, cwd, liveCwd, listOut, dataDir, projects, worldCounts, repair;
 
   const checks = [
     ['head', async () => (head = await git(checkout, 'rev-parse', 'HEAD'))],
@@ -525,19 +559,20 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       if (problem) throw new Error(problem);
       return 'AudioContext running';
     }],
+    // One repair.sh call serves both checks: it verifies, and on a red world
+    // resets once and verifies again (devboxWorld#13).
     ['bootstrap', async () => {
-      const { code, timedOut } = await worldScript(world.checkout, 'bootstrap.sh', ['--check']);
-      if (timedOut) throw environmentBlocked(`bootstrap.sh --check ${timedOutDetail}`);
-      if (code !== 0) throw environmentBlocked('bootstrap incomplete; run bootstrap.sh');
-      return 'complete';
+      const result = await worldScript(world.checkout, 'repair.sh', [], { capture: true, timeoutMs: REPAIR_TIMEOUT_MS });
+      process.stderr.write(result.out);
+      repair = parseRepair(result.out, result);
+      worldCounts = { pass: repair.pass, fail: repair.fail };
+      if (!repair.bootstrap.ok) throw new Error(repair.bootstrap.detail);
+      return repair.bootstrap.detail;
     }],
     ['world', async () => {
-      const { code, out, timedOut } = await worldScript(world.checkout, 'verify.sh', [], { capture: true });
-      process.stderr.write(out);
-      if (timedOut) throw environmentBlocked(`verify.sh ${timedOutDetail}`);
-      try { worldCounts = parseWorldSummary(out); } catch { throw environmentBlocked('verify.sh printed no summary'); }
-      if (code !== 0 || worldCounts.fail !== 0) throw environmentBlocked('verify.sh is not green');
-      return 'green';
+      for (const { what, detail } of repair.repaired) emit('REPAIRED', what, detail);
+      if (!repair.world.ok) throw new Error(repair.world.detail);
+      return repair.world.detail;
     }],
     // Deliberate: this deletes eve-verify's owner so the run can enrol its
     // own. Only the two owner files in the pinned dir, never the live eve's.
@@ -666,7 +701,8 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
     const { post, statusState } = require('./post');
     try {
       const ev = {
-        pr: opts.post, commit: head, toolCommit, runMs, worldSummary: `pass=${worldCounts.pass} fail=${worldCounts.fail}`, home, results,
+        pr: opts.post, commit: head, toolCommit, runMs, worldSummary: `pass=${worldCounts.pass} fail=${worldCounts.fail}`,
+        repaired: repair.repaired, home, results,
       };
       emit('POSTED', statusState(results), await post(ev, { cwd: toolRoot }));
     } catch (err) {
@@ -678,7 +714,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
 }
 
 module.exports = {
-  scrub, formatLine, parseArgs, parseWorldSummary, tally, parseListenPids, parseCwd, parseLstart,
+  scrub, formatLine, parseArgs, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader,

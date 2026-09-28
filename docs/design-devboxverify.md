@@ -81,6 +81,7 @@ Progress, script output and sweep counts go to stderr.
 
 ```
 PREFLIGHT <check> OK|FAIL <detail>
+REPAIRED <what> <detail>
 WORLD pass=<n> fail=<n>
 RESET OK|FAIL
 JOURNEY <id> PASS|FAIL|BLOCKED|NOTRUN <detail>
@@ -114,8 +115,8 @@ Preflight, in order, stopping at the first FAIL (exit 2). `machine`, `pin` and
 | `pr` (only with `--post`) | PR `headRefOid` equals HEAD | `PR head is HEAD` |
 | `api` | `GET /api/projects` answers 200 with exactly one project per name in the loaded world (no re-read of world.json) | the names |
 | `browser` | Chromium launches and closes | `chromium` |
-| `bootstrap` | `bootstrap.sh --check`, run from `world_checkout`, exits 0. FAIL detail prefixed `BLOCKED environment: ` | `complete` |
-| `world` | `verify.sh`, run from `world_checkout`, exits 0 and its last summary has `fail=0`. FAIL detail prefixed `BLOCKED environment: ` | `green` |
+| `bootstrap` | `repair.sh`, run once from `world_checkout` (A21), prints `CHECK bootstrap OK`. FAIL: its `CHECK bootstrap FAIL` detail, else `bootstrap incomplete; repair.sh <how> without a result; run bootstrap.sh`; prefixed `BLOCKED environment: ` | its detail (`complete`) |
+| `world` | the same result: each `REPAIRED` line is emitted first; OK needs `CHECK world OK`, exit 0, no timeout and a last summary with `fail=0`. FAIL: its `CHECK world FAIL` detail, else `repair.sh <how> without a result`; prefixed `BLOCKED environment: ` | its detail (`green`, `green after repair`) |
 
 `owner` (A14) runs after `world`, last, so a broken world never resets the
 owner. `reset.sh` also runs from `world_checkout`. `BLOCKED fixture:` blames
@@ -128,8 +129,9 @@ checks keeps usage errors immediate and leaves a machine that is not a test
 machine untouched.
 
 Then `WORLD`, then `RESET`: OK when `reset.sh` exits 0 and the sweep leaves
-zero world items. Each world script has a 300 s timeout; `verify.sh` stdout is
-captured, parsed, then echoed to stderr.
+zero world items. Each world script has a 300 s timeout, except `repair.sh`
+at 900 s; `repair.sh` stdout is captured, parsed, then echoed to stderr.
+`<how>` is `exited <n>` or `timed out after 900s`.
 
 Exit codes: 0 when every journey is PASS or NOTRUN; 1 on any FAIL or BLOCKED;
 2 on usage, preflight, reset or post failure. `--post` runs after `SUMMARY`.
@@ -150,6 +152,7 @@ parseArgs(argv, {toolRoot}) -> {checkout, url, service, post, screen}  // throws
 worldPreflight({markerFile, isVM, journeys, screen}) -> {lines: [check, 'OK'|'FAIL', detail][], world: World|null}
 runJourney(j, env, browser, {timeoutMs, projects, world, pending, screen, log}) -> Promise<Result>
 parseWorldSummary(stdout) -> {pass, fail}                               // throws
+parseRepair(stdout, {code, timedOut}) -> {bootstrap: {ok, detail}, world: {ok, detail}, repaired: [{what, detail}], pass, fail}
 tally(results) -> {counts: {PASS, FAIL, BLOCKED, NOTRUN}, exitCode: 0|1}
 parseListenPids(lsofOut) -> number[]
 parseCwd(lsofOut) -> string|null
@@ -272,14 +275,14 @@ Does not require `main.js`.
 
 ```js
 statusState(results) -> 'success'|'failure'|'error'   // any FAIL → failure; else any BLOCKED → error; else success
-renderComment({pr, commit, toolCommit, runMs, worldSummary, home, results}) -> string
+renderComment({pr, commit, toolCommit, runMs, worldSummary, repaired = [], home, results}) -> string
 commentUrlFrom(ghStdout) -> string                     // last non-empty line; throws unless https://
 prHead(pr, {cwd}) -> Promise<string>
 post(ev, {cwd}) -> Promise<string>                     // comment URL
 ```
 
 `renderComment`: heading `### devbox/verify: <state>`; a two-column table with
-`Eve commit`, `World verify`, `Tool commit`, `Run time` (`Math.round(runMs / 1000)` s); then `| Journey | Result | Detail |`
+`Eve commit`, `World verify`, `Repaired` (`none`, or `<what>: <detail>` joined with `; `, whitespace collapsed, `|` escaped), `Tool commit`, `Run time` (`Math.round(runMs / 1000)` s); then `| Journey | Result | Detail |`
 with the id in backticks and `|` escaped as `\|`; the whole thing scrubbed.
 `post`: `gh pr comment <pr> --body-file -` first, then
 `gh api -X POST repos/{owner}/{repo}/statuses/<commit> -f state=… -f context=devbox/verify -f target_url=<comment URL> -f description="pass=N fail=N blocked=N notrun=N"`,
@@ -587,3 +590,9 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   <id>`. `PREFLIGHT api` matches the loaded world's projects. `TIMING` lines
   and the evidence comment's `Run time` row are new. The nightly runner and
   its plist moved to devboxWorld, which owns them and their install.
+- **A21 · Repair (#115; devboxWorld#13).** `bootstrap` and `world` read one
+  `repair.sh` call (900 s) through `parseRepair` instead of
+  `bootstrap.sh --check` and `verify.sh`. A red world gets one reset and a
+  re-verify; green after that continues, with a `REPAIRED` line and a
+  `Repaired` evidence row (`none` when nothing was repaired). A repaired run
+  resets twice. The wire shape is devboxWorld's `docs/WORLD.md`.
