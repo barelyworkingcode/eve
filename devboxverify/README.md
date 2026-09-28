@@ -29,6 +29,9 @@ for relay's presence helper), `DEVBOXWORLD_MARKER` (default
 `~/.config/devboxWorld/machine.json`; the machine marker, see below).
 There is no `--world` flag, and the tool never reads, sets or clears
 `DEVBOXWORLD_ROOT`; the world scripts inherit the environment unchanged.
+A stray `DEVBOXWORLD_ROOT` fails `bootstrap` with `BLOCKED environment:
+bootstrap incomplete; repair.sh exited 2 without a result; run bootstrap.sh`,
+and the reason is on stderr.
 The tool never builds eve, registers a service or edits settings. Its only
 writes are the owner reset below and the `verify-<nonce>-*` folders journeys
 make in Acme Corp and remove. It never targets the live eve on :3000, and
@@ -44,6 +47,7 @@ output and sweep counts go to stderr. The home directory reads as `~`.
 
 ```
 PREFLIGHT <check> OK|FAIL <detail>
+REPAIRED <what> <detail>
 WORLD pass=<n> fail=<n>
 RESET OK|FAIL
 JOURNEY <id> PASS|FAIL|BLOCKED|NOTRUN <detail>
@@ -76,7 +80,8 @@ result, cleanups and leak check included. A record made without running the
 journey (`no signed-in owner`, a NOTRUN skip) has `0`. `TIMING run` comes
 right before `SUMMARY`, only when `SUMMARY` prints, and counts from the start
 of the run, preflight included. With `--post` the comment gets the same
-figure as a `Run time` row, in seconds.
+figure as a `Run time` row, in seconds, and a `Repaired` row right after
+`World verify`: `none`, or `<what>: <detail>` per repair, joined with `; `.
 
 ### The machine, the pin and the fixtures
 
@@ -108,9 +113,22 @@ What each BLOCKED prefix blames:
 - `BLOCKED fixture:` the test data. The world on this machine is the wrong
   version, its data is malformed, or a fixture a journey needs isn't
   published.
-- `BLOCKED environment:` the world scripts. `bootstrap.sh --check` or
-  `verify.sh` (run from the marker's world checkout) is not green; run
-  `bootstrap.sh`, or `reset.sh`, and look at their stderr.
+- `BLOCKED environment:` the world scripts. `repair.sh` (run from the
+  marker's world checkout) found bootstrap incomplete, a world it could not
+  repair, or a person needed; run `bootstrap.sh`, or `reset.sh`, and look at
+  its stderr.
+
+`bootstrap` runs `repair.sh` once, from `world_checkout`, with a 900 s
+timeout; its stdout is parsed, then echoed to stderr, and `world` reads the
+same result. `repair.sh` verifies the world and, if it is red, resets it once
+and verifies again. Each `REPAIRED` line prints before `PREFLIGHT world`.
+`world` is OK only with a `CHECK world OK` line, exit 0, no timeout and a
+last `SUMMARY` with `fail=0`; `WORLD` counts come from that last `SUMMARY`.
+With no bootstrap line, `bootstrap` fails `bootstrap incomplete; repair.sh
+<how> without a result; run bootstrap.sh`; with no usable world line,
+`world` fails `repair.sh <how> without a result`. `<how>` is `exited <n>` or
+`timed out after 900s`. A repaired run resets twice: once in `repair.sh`,
+once before the journeys. The wire shape is in devboxWorld's `docs/WORLD.md`.
 
 A journey FAIL after a green preflight is a product bug.
 
@@ -273,8 +291,9 @@ chat straight away.
 4. Preflight refuses unless the machine marker is valid, the world version
    matches and every declared fixture is published; then unless the PR head
    is HEAD, the tree is clean, and `eve-verify` runs from that worktree and
-   started after its newest tracked file changed. Then `bootstrap.sh --check`
-   must pass and `verify.sh` must be green. Only then does `reset.sh` run.
+   started after its newest tracked file changed. Then `repair.sh` must find
+   bootstrap complete and the world green, or repair it once. Only then does
+   `reset.sh` run.
 5. `--post` comments the results on the PR, then sets the `devbox/verify`
    status on the head commit, linking the comment.
 6. Re-register `eve-verify` back to the nightly worktree and restart it.

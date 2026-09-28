@@ -208,6 +208,79 @@ describe('devboxverify/main.js', () => {
   });
 });
 
+describe('devboxverify/main.js parseRepair', () => {
+  const { parseRepair, REPAIR_TIMEOUT_MS } = require('../../devboxverify/main');
+  const BLOCKED = 'BLOCKED environment: ';
+  const bootOK = 'CHECK\tbootstrap\tOK\tcomplete\n';
+  const worldGreen = 'CHECK\tworld\tOK\tgreen\n';
+  const summary12 = 'SUMMARY\tpass=12\tfail=0\n';
+  const before = '1/12 failed, first file acme todo.txt: missing';
+  const incomplete = 'bootstrap incomplete; needs a person: helper-build (helper app is not built), helper-authorize; run bootstrap.sh';
+  const lockTimeout = 'timed out waiting for the world lock; another run holds it';
+  const repairFailed = `verify.sh is not green; repair failed; before: ${before}; reset ok; after: ${before}`;
+  const timedOut = 'timed out after 900s';
+  const ok = detail => ({ ok: true, detail });
+  const fail = detail => ({ ok: false, detail: BLOCKED + detail });
+  const noResult = how => ({ ok: false, detail: `${BLOCKED}repair.sh ${how} without a result` });
+  const unbooted = how => ({ ok: false, detail: `${BLOCKED}bootstrap incomplete; repair.sh ${how} without a result; run bootstrap.sh` });
+  const outcome = (bootstrap, world, { repaired = [], pass = 0, failed = 0 } = {}) =>
+    ({ bootstrap, world, repaired, pass, fail: failed });
+
+  it.each([
+    ['green', bootOK + worldGreen + summary12, 0, false,
+      outcome(ok('complete'), ok('green'), { pass: 12 })],
+    ['bootstrap needs a person', `CHECK\tbootstrap\tFAIL\t${incomplete}\n`, 6, false,
+      outcome(fail(incomplete), noResult('exited 6'))],
+    ['world data invalid', 'CHECK\tbootstrap\tFAIL\tworld data: acme has no files\n', 2, false,
+      outcome(fail('world data: acme has no files'), noResult('exited 2'))],
+    ['a lock timeout', `${bootOK}CHECK\tworld\tFAIL\t${lockTimeout}\n`, 2, false,
+      outcome(ok('complete'), fail(lockTimeout))],
+    ['a verify error that needs a person', `${bootOK}CHECK\tworld\tFAIL\tneeds a person: no world manifest\n`, 6, false,
+      outcome(ok('complete'), fail('needs a person: no world manifest'))],
+    ['a repaired world', `${bootOK}REPAIRED\tworld\treset; before: ${before}\nCHECK\tworld\tOK\tgreen after repair\n${summary12}`, 0, false,
+      outcome(ok('complete'), ok('green after repair'), { pass: 12, repaired: [{ what: 'world', detail: `reset; before: ${before}` }] })],
+    ['a failed repair', `${bootOK}CHECK\tworld\tFAIL\t${repairFailed}\n`, 1, false,
+      outcome(ok('complete'), fail(repairFailed))],
+    ['no output at all', '', 2, false,
+      outcome(unbooted('exited 2'), noResult('exited 2'))],
+    ['world OK with exit 1', bootOK + worldGreen + summary12, 1, false,
+      outcome(ok('complete'), noResult('exited 1'), { pass: 12 })],
+    ['world OK without a SUMMARY', bootOK + worldGreen, 0, false,
+      outcome(ok('complete'), noResult('exited 0'))],
+    ['world OK with fail=1', `${bootOK}${worldGreen}SUMMARY\tpass=11\tfail=1\n`, 0, false,
+      outcome(ok('complete'), noResult('exited 0'), { pass: 11, failed: 1 })],
+    ['a timeout with no output', '', null, true,
+      outcome(unbooted(timedOut), noResult(timedOut))],
+    ['a timeout after a green world', bootOK + worldGreen + summary12, 0, true,
+      outcome(ok('complete'), noResult(timedOut), { pass: 12 })],
+    ['FAIL lines with exit 0', `CHECK\tbootstrap\tFAIL\t${incomplete}\nCHECK\tworld\tFAIL\tneeds a person: partial world\n`, 0, false,
+      outcome(fail(incomplete), fail('needs a person: partial world'))],
+    ['unknown and malformed lines around a green run', [
+      'repair: checking', 'PASS\tfile\tacme\ttodo.txt', 'CHECK\tother\tFAIL\tnot ours',
+      'CHECK\tworld\tFAIL', 'CHECK\tworld\tFAIL\ttoo\tmany', 'CHECK\tworld\tWARN\tunknown state',
+      ' CHECK\tworld\tFAIL\tindented', 'CHECK\tworld\tFAIL \tpadded state',
+      'REPAIRED\tworld', 'REPAIRED\tworld\ttoo\tmany', '',
+    ].join('\n') + '\n' + bootOK + worldGreen + summary12, 0, false,
+      outcome(ok('complete'), ok('green'), { pass: 12 })],
+    ['CRLF line endings', (bootOK + worldGreen + summary12).replaceAll('\n', '\r\n'), 0, false,
+      outcome(ok('complete'), ok('green'), { pass: 12 })],
+    ['two SUMMARY lines, counted from the last', `${bootOK}${worldGreen}SUMMARY\tpass=3\tfail=2\n${summary12}`, 0, false,
+      outcome(ok('complete'), ok('green'), { pass: 12 })],
+    ['two REPAIRED lines, kept in stdout order', `${bootOK}REPAIRED\tworld\tfirst\nREPAIRED\tmail\tsecond\n${worldGreen}${summary12}`, 0, false,
+      outcome(ok('complete'), ok('green'), { pass: 12, repaired: [{ what: 'world', detail: 'first' }, { what: 'mail', detail: 'second' }] })],
+    ['a later FAIL and a later OK after a first FAIL', `${bootOK}CHECK\tworld\tFAIL\tneeds a person: a\nCHECK\tworld\tFAIL\tneeds a person: b\n${worldGreen}${summary12}`, 0, false,
+      outcome(ok('complete'), fail('needs a person: a'), { pass: 12 })],
+    ['a later OK over an earlier OK, and a FAIL after an OK', `CHECK\tbootstrap\tOK\tfirst\n${bootOK}${worldGreen}CHECK\tworld\tFAIL\tneeds a person: late\n${summary12}`, 0, false,
+      outcome(ok('complete'), fail('needs a person: late'), { pass: 12 })],
+  ])('maps %s', (_label, stdout, code, isTimedOut, expected) => {
+    expect(parseRepair(stdout, { code, timedOut: isTimedOut })).toEqual(expected);
+  });
+
+  it('pins the contract constant REPAIR_TIMEOUT_MS at 900 s', () => {
+    expect(REPAIR_TIMEOUT_MS).toBe(900000);
+  });
+});
+
 describe('devboxverify/eve-api.js', () => {
   const { classify, added, onlyOutside } = require('../../devboxverify/eve-api');
 
@@ -293,6 +366,21 @@ describe('devboxverify/post.js', () => {
       worldSummary: 'pass=1 fail=0', home: HOME, results: [r('landing-view', 'PASS')],
     });
     expect(body).toContain(`| Tool commit | \`${'b'.repeat(40)}\` |\n| Run time | 246 s |\n\n`);
+  });
+
+  it.each([
+    ['none when repaired is missing', undefined, 'none'],
+    ['none when repaired is empty', [], 'none'],
+    ['each repair joined, whitespace collapsed and | escaped', [
+      { what: 'world', detail: 'reset; before: 1/12 failed, first file acme a|b.txt:\n\t missing' },
+      { what: 'mail', detail: ' reset ok \n' },
+    ], 'world: reset; before: 1/12 failed, first file acme a\\|b.txt: missing; mail: reset ok'],
+  ])('puts a Repaired row right after World verify: %s', (_label, repaired, cell) => {
+    const body = renderComment({
+      pr: 7, commit: 'a'.repeat(40), toolCommit: 'b'.repeat(40), runMs: 1000,
+      worldSummary: 'pass=12 fail=0', repaired, home: HOME, results: [r('landing-view', 'PASS')],
+    });
+    expect(body).toContain(`| World verify | pass=12 fail=0 |\n| Repaired | ${cell} |\n`);
   });
 
   it('takes the comment URL from the last non-empty line', () => {

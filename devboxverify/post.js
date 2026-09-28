@@ -22,7 +22,12 @@ function statusState(results) {
   return 'success';
 }
 
-function renderComment({ commit, toolCommit, runMs, worldSummary, home, results }) {
+function repairedCell(repaired) {
+  if (!repaired || !repaired.length) return 'none';
+  return repaired.map((r) => `${r.what}: ${r.detail}`.replace(/\s+/g, ' ').trim()).join('; ').replaceAll('|', '\\|');
+}
+
+function renderComment({ commit, toolCommit, runMs, worldSummary, repaired = [], home, results }) {
   const lines = [
     `### devbox/verify: ${statusState(results)}`,
     '',
@@ -30,6 +35,7 @@ function renderComment({ commit, toolCommit, runMs, worldSummary, home, results 
     '|---|---|',
     `| Eve commit | \`${commit}\` |`,
     `| World verify | ${worldSummary} |`,
+    `| Repaired | ${repairedCell(repaired)} |`,
     `| Tool commit | \`${toolCommit}\` |`,
     `| Run time | ${Math.round(runMs / 1000)} s |`,
     '',
