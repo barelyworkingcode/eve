@@ -1,7 +1,7 @@
 // The devbox journeys. Each drives eve's real UI as a person would and
 // judges a user-visible outcome. Test ids are only click targets and anchors;
 // verdicts rest on visible text or visibility. See docs/design-devboxverify.md.
-/** @typedef {{ id: string, timeoutMs: number, areas: string[], fixture?: true, screen?: true, knownBug?: string, run(env): Promise<object> }} Journey */
+/** @typedef {{ id: string, timeoutMs: number, areas: string[], needs: string[], fixture?: true, screen?: true, knownBug?: string, run(env): Promise<object> }} Journey */
 const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -30,12 +30,13 @@ async function reloadEve(page, env) {
 // A `verify-<nonce>-<kind>-XXXXXX` folder in Acme Corp's world folder, removed
 // by cleanup whatever the verdict. A leftover fails the next world preflight.
 async function scratchFolder(env, kind) {
-  const root = path.resolve(env.projects.acme.path);
+  const acme = env.world.projects.acme;
+  const root = path.resolve(acme.path);
   const prefix = `verify-${env.nonce}-${kind}-`;
   const dir = await fs.promises.mkdtemp(path.join(root, prefix));
   env.cleanup(`remove ${kind} folder`, async () => {
     if (!dir || path.dirname(dir) !== root || !path.basename(dir).startsWith(prefix)) {
-      throw new Error('refusing to remove a scratch folder outside Acme Corp');
+      throw new Error(`refusing to remove a scratch folder outside ${acme.name}`);
     }
     await fs.promises.rm(dir, { recursive: true, force: true });
   });
@@ -90,6 +91,7 @@ async function landingView(env) {
 
 async function worldProjectsListed(env) {
   const id = 'world-projects-listed';
+  const listed = ['acme', 'globex', 'home'].map((k) => env.world.projects[k]);
   const page = await env.newPage();
   await openEve(page, env);
   env.step('wait for the home screen');
@@ -97,7 +99,7 @@ async function worldProjectsListed(env) {
   await need('no greeting within 20s', expect(home.getByText(GREETING)).toBeVisible({ timeout: 20000 }));
   const rail = page.getByRole('navigation', { name: 'Projects' });
   const missing = [];
-  for (const project of [env.projects.acme, env.projects.globex, env.projects.home]) {
+  for (const project of listed) {
     env.step(`look for ${project.name}`);
     const chip = home.getByTestId(`home-project-${project.id}`);
     const chipShown = await expect(chip).toContainText(project.name, { timeout: 5000 }).then(() => true, () => false);
@@ -107,16 +109,18 @@ async function worldProjectsListed(env) {
     if (!railShown) missing.push(`rail entry "${project.name}"`);
   }
   if (missing.length) return result(id, FAIL, `missing ${missing.join(', ')}`);
-  return result(id, PASS, 'Acme Corp, Globex and Home on Home and in the rail');
+  const names = `${listed.slice(0, -1).map((p) => p.name).join(', ')} and ${listed[listed.length - 1].name}`;
+  return result(id, PASS, `${names} on Home and in the rail`);
 }
 
 async function chatReply(env) {
   const id = 'chat-reply';
+  const acme = env.world.projects.acme;
   const page = await env.newPage();
   const errors = captureErrors(page);
   await openEve(page, env);
   await waitForModels(page, env);
-  await openProject(page, env, env.projects.acme);
+  await openProject(page, env, acme);
   const before = await acmeIds(env, 'sessions');
 
   const dialog = await openLauncher(page, env);
@@ -124,7 +128,7 @@ async function chatReply(env) {
   await dialog.getByTestId('shell-card-web-chat').click({ timeout: 10000 });
   const select = dialog.getByTestId('launcher-model-select');
   const model = pickModel(await optionValues(select), env.model);
-  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for Acme Corp`);
+  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for ${acme.name}`);
   await select.selectOption(model, { timeout: 5000 });
   env.step('start the chat');
   await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
@@ -141,10 +145,10 @@ async function chatReply(env) {
     const error = threadError(await thread(page));
     return error ? { error } : null;
   }, { timeoutMs: 30000, intervalMs: 1000 });
-  if (!created) return failed('no Acme Corp session within 30s of Start Chat');
+  if (!created) return failed(`no ${acme.name} session within 30s of Start Chat`);
   if (created.error) return failed(`error in the thread: ${created.error}`);
   const added = addedIds(before, await acmeIds(env, 'sessions'));
-  if (added.length !== 1) return result(id, FAIL, `${added.length} new Acme Corp sessions, expected 1`);
+  if (added.length !== 1) return result(id, FAIL, `${added.length} new ${acme.name} sessions, expected 1`);
 
   const question = `What is 2 + 2? Reply with the number only. (verify ${env.nonce})`;
   const input = page.getByTestId('chat-input');
@@ -174,7 +178,7 @@ async function chatReply(env) {
   if (late.error) return failed(`error in the thread: ${late.error}`);
 
   const final = addedIds(before, await acmeIds(env, 'sessions'));
-  if (final.length !== 1) return result(id, FAIL, `${final.length} new Acme Corp sessions, expected 1`);
+  if (final.length !== 1) return result(id, FAIL, `${final.length} new ${acme.name} sessions, expected 1`);
   env.shared.thread = { sessionId: final[0], question };
   const said4 = /(^|[^\d])4([^\d]|$)|\bfour\b/i.test(late.reply);
 
@@ -214,12 +218,13 @@ async function chatReply(env) {
   if (await stop.isVisible()) return result(id, FAIL, 'Stop came back after it was clicked');
   await need('the composer is not usable after Stop', expect(input).toBeEnabled({ timeout: 5000 }));
   const stopped = addedIds(before, await acmeIds(env, 'sessions'));
-  if (stopped.length !== 1) return result(id, FAIL, `${stopped.length} new Acme Corp sessions after Stop, expected 1`);
+  if (stopped.length !== 1) return result(id, FAIL, `${stopped.length} new ${acme.name} sessions after Stop, expected 1`);
   return result(id, PASS, `reply in ${took}s, ${said4 ? 'said 4' : `did not say 4: "${late.reply.slice(0, 40)}"`}; Stop ended the count`);
 }
 
 async function openExistingThread(env) {
   const id = 'open-existing-thread';
+  const acme = env.world.projects.acme;
   const t = env.shared.thread;
   if (!t) return result(id, BLOCKED, 'no thread from chat-reply');
   const before = await acmeIds(env, 'sessions');
@@ -227,7 +232,7 @@ async function openExistingThread(env) {
   // Each door gets a fresh context, so no door rides on another's open tab.
   const doors = [
     ['Sessions tab', async (page) => {
-      await openProject(page, env, env.projects.acme);
+      await openProject(page, env, acme);
       env.step('open the Sessions tab');
       await page.getByTestId('panel-tab-sessions').click({ timeout: 10000 });
       env.step('open the thread');
@@ -252,7 +257,7 @@ async function openExistingThread(env) {
       await need('⌘K did not open the palette', expect(input).toBeVisible({ timeout: 5000 }));
       // The title alone is not unique ("Chat" names every web chat), so the
       // user narrows it by project; the palette matches label and project.
-      await input.fill(`${title} ${env.projects.acme.name}`, { timeout: 5000 });
+      await input.fill(`${title} ${acme.name}`, { timeout: 5000 });
       env.step('pick the first session');
       const list = page.getByTestId('palette-list');
       const at = await poll(async () => {
@@ -277,8 +282,8 @@ async function openExistingThread(env) {
       await need('the first session is not selected', expect(item).toHaveAttribute('aria-selected', 'true', { timeout: 2000 }));
       const label = (await item.locator('.palette__item-label').innerText({ timeout: 2000 })).trim();
       const sub = (await item.locator('.palette__item-sub').innerText({ timeout: 2000 }).catch(() => '')).trim();
-      if (label !== title || sub !== env.projects.acme.name) {
-        return `the first Sessions item is "${label}" in "${sub}", not "${title}" in ${env.projects.acme.name}`;
+      if (label !== title || sub !== acme.name) {
+        return `the first Sessions item is "${label}" in "${sub}", not "${title}" in ${acme.name}`;
       }
       await page.keyboard.press('Enter');
       return null;
@@ -313,11 +318,12 @@ async function openExistingThread(env) {
 
 async function terminalOnRequest(env) {
   const id = 'terminal-on-request';
+  const acme = env.world.projects.acme;
   const worldBefore = await allWorldIds(env, 'terminals');
   const before = await acmeIds(env, 'terminals');
   const page = await env.newPage();
   await openEve(page, env);
-  await openProject(page, env, env.projects.acme);
+  await openProject(page, env, acme);
   env.step('settle before asking');
   await sleep(3000);
   const pane = page.locator('#terminal');
@@ -327,7 +333,7 @@ async function terminalOnRequest(env) {
   }
 
   const probe = await openWorldProbe(page, env);
-  if (!probe) return result(id, BLOCKED, 'no "World probe" card for Acme Corp');
+  if (!probe) return result(id, BLOCKED, `no "World probe" card for ${acme.name}`);
   await probe.typeLine("printf '%s_%s\\n' EVE OK");
   const typedAt = Date.now();
   await need('EVE_OK did not show in the terminal within 20s',
@@ -344,20 +350,21 @@ async function terminalOnRequest(env) {
     expect(pane).toContainText('EVE_AGAIN', { timeout: 10000 }));
 
   const added = addedIds(before, await acmeIds(env, 'terminals'));
-  if (added.length !== 1) return result(id, FAIL, `${added.length} new Acme Corp terminals, expected 1`);
+  if (added.length !== 1) return result(id, FAIL, `${added.length} new ${acme.name} terminals, expected 1`);
   return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload the same terminal answered EVE_AGAIN`);
 }
 
 async function taskCreatedListed(env) {
   const id = 'task-created-listed';
+  const acme = env.world.projects.acme;
   const name = `verify-${env.nonce}`;
   const page = await env.newPage();
   await openEve(page, env);
-  await openProject(page, env, env.projects.acme);
+  await openProject(page, env, acme);
 
   env.step('open the Tasks tab');
   await page.getByTestId('panel-tab-tasks').click({ timeout: 10000 });
-  await page.getByTestId(`sidebar-task-new-${env.projects.acme.id}`).click({ timeout: 10000 });
+  await page.getByTestId(`sidebar-task-new-${acme.id}`).click({ timeout: 10000 });
   const dialog = page.getByTestId('dialog-task-dialog');
   await need('the task dialog did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
   await dialog.getByRole('button', { name: 'New', exact: true }).click({ timeout: 5000 });
@@ -372,7 +379,7 @@ async function taskCreatedListed(env) {
     return v.length ? v : null;
   }, { timeoutMs: 20000 }) || [];
   const model = pickModel(values, env.model);
-  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for Acme Corp tasks`);
+  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for ${acme.name} tasks`);
   await select.selectOption(model, { timeout: 5000 });
   await dialog.locator('[name="scheduleType"]').selectOption({ label: 'On demand' }, { timeout: 5000 });
 
@@ -386,7 +393,7 @@ async function taskCreatedListed(env) {
   }
 
   const openTasks = async (on) => {
-    await openProject(on, env, env.projects.acme);
+    await openProject(on, env, acme);
     await on.getByTestId('panel-tab-tasks').click({ timeout: 10000 });
     const item = on.locator('#panelContent [data-testid^="sidebar-task-"]')
       .filter({ hasText: name });
@@ -453,17 +460,18 @@ function runReply(messages) {
 
 async function voiceDeepLink(env) {
   const id = 'voice-deep-link';
+  const acme = env.world.projects.acme;
   const first = await env.newPage();
   await openEve(first, env);
   await waitForModels(first, env);
-  await openProject(first, env, env.projects.acme);
+  await openProject(first, env, acme);
   const dialog = await openLauncher(first, env);
 
   env.step('find the World voice template');
   const card = dialog.getByRole('button', { name: /World voice/ });
   await need('terminal templates never loaded',
     expect(dialog.getByText('Loading terminal templates…')).toHaveCount(0, { timeout: 15000 }));
-  if (await card.count() === 0) return result(id, BLOCKED, 'no "World voice" chat template in Acme Corp (setup V1)');
+  if (await card.count() === 0) return result(id, BLOCKED, `no "World voice" chat template in ${acme.name} (setup V1)`);
 
   env.step('star World voice');
   await card.first().getByTitle('Set as Action Button favorite').click({ timeout: 5000 });
@@ -486,12 +494,13 @@ async function voiceDeepLink(env) {
     { timeoutMs: 10000, intervalMs: 1000 });
   await sleep(1000);
   const final = addedIds(before, await acmeIds(env, 'sessions'));
-  if (final.length !== 1) return result(id, FAIL, `${final.length} new Acme Corp sessions, expected 1`);
+  if (final.length !== 1) return result(id, FAIL, `${final.length} new ${acme.name} sessions, expected 1`);
   return result(id, PASS, `voice view in ${took}s, one session`);
 }
 
 async function changesDiff(env) {
   const id = 'changes-diff';
+  const acme = env.world.projects.acme;
   env.step('set up a repo with one modified file');
   const dir = await scratchFolder(env, 'git');
   const repo = path.basename(dir);
@@ -503,7 +512,7 @@ async function changesDiff(env) {
 
   const page = await env.newPage();
   await openEve(page, env);
-  await openProject(page, env, env.projects.acme);
+  await openProject(page, env, acme);
   env.step('open the Changes tab');
   await page.getByTestId('panel-tab-changes').click({ timeout: 10000 });
   const panel = page.getByTestId('changes-panel');
@@ -524,8 +533,14 @@ async function changesDiff(env) {
   return result(id, PASS, 'Changes listed the modified notes.md; its diff shows both lines');
 }
 
+// Acme's published files this journey declares. Each shows in the Files tab
+// as the first segment of its path: the file itself, or the folder holding it.
+const FILE_EDIT_SHOWN = ['todo.txt', 'budget/q4-budget-draft.csv'];
+
 async function fileEditSave(env) {
   const id = 'file-edit-save';
+  const acme = env.world.projects.acme;
+  const shown = FILE_EDIT_SHOWN.map((rel) => path.relative(acme.folder, env.world.file('acme', rel)).split(path.sep)[0]);
   env.step('set up a notes file');
   const dir = await scratchFolder(env, 'files');
   const folder = `/${path.basename(dir)}`;
@@ -540,10 +555,10 @@ async function fileEditSave(env) {
 
   const page = await env.newPage();
   await openEve(page, env);
-  await openProject(page, env, env.projects.acme);
+  await openProject(page, env, acme);
   env.step('open the Files tab');
   await page.getByTestId('panel-tab-files').click({ timeout: 10000 });
-  for (const entry of ['todo.txt', 'budget']) {
+  for (const entry of shown) {
     await need(`the Files tab does not show ${entry}`,
       expect(page.getByTestId(`file-tree-item-/${entry}`)).toContainText(entry, { timeout: 15000 }));
   }
@@ -592,15 +607,24 @@ const journeys = [
   auth.passkeyFirstEnrol,
   auth.passkeySignIn,
   auth.agentEnrolRefused,
-  { id: 'landing-view', timeoutMs: 30000, areas: ['auth', 'home'], run: landingView },
-  { id: 'world-projects-listed', timeoutMs: 45000, areas: ['home', 'projects'], run: worldProjectsListed },
-  { id: 'chat-reply', timeoutMs: 150000, areas: ['chat'], run: chatReply },
-  { id: 'open-existing-thread', timeoutMs: 75000, areas: ['chat', 'home'], run: openExistingThread },
-  { id: 'terminal-on-request', timeoutMs: 75000, areas: ['terminal'], run: terminalOnRequest },
-  { id: 'task-created-listed', timeoutMs: 120000, areas: ['tasks'], run: taskCreatedListed },
-  { id: 'voice-deep-link', timeoutMs: 60000, areas: ['voice'], run: voiceDeepLink },
-  { id: 'changes-diff', timeoutMs: 60000, areas: ['git'], run: changesDiff },
-  { id: 'file-edit-save', timeoutMs: 75000, areas: ['files'], run: fileEditSave },
+  { id: 'landing-view', timeoutMs: 30000, areas: ['auth', 'home'], needs: [], run: landingView },
+  {
+    id: 'world-projects-listed', timeoutMs: 45000, areas: ['home', 'projects'],
+    needs: ['project:acme', 'project:globex', 'project:home'], run: worldProjectsListed,
+  },
+  { id: 'chat-reply', timeoutMs: 150000, areas: ['chat'], needs: ['project:acme'], run: chatReply },
+  { id: 'open-existing-thread', timeoutMs: 75000, areas: ['chat', 'home'], needs: ['project:acme'], run: openExistingThread },
+  {
+    id: 'terminal-on-request', timeoutMs: 75000, areas: ['terminal'],
+    needs: ['project:acme', 'project:globex', 'project:home'], run: terminalOnRequest,
+  },
+  { id: 'task-created-listed', timeoutMs: 120000, areas: ['tasks'], needs: ['project:acme'], run: taskCreatedListed },
+  { id: 'voice-deep-link', timeoutMs: 60000, areas: ['voice'], needs: ['project:acme'], run: voiceDeepLink },
+  { id: 'changes-diff', timeoutMs: 60000, areas: ['git'], needs: ['project:acme'], run: changesDiff },
+  {
+    id: 'file-edit-save', timeoutMs: 75000, areas: ['files'],
+    needs: ['project:acme', ...FILE_EDIT_SHOWN.map((rel) => `file:acme/${rel}`)], run: fileEditSave,
+  },
   auth.agentSignInRefused,
   auth.addBrowserInWindow,
 ];

@@ -5,6 +5,9 @@ const os = require('os');
 const path = require('path');
 const { EveApi, added, onlyOutside } = require('./eve-api');
 const { acquire } = require('../scripts/browser-lock');
+const {
+  WORLD_VERSION, markerPath, readMarker, loadWorld, scoped, missingFixtures,
+} = require('./world');
 
 const LIVE_EVE_PORT = 3000;
 const SCRIPT_TIMEOUT_MS = 300000;
@@ -15,7 +18,7 @@ const RESTART_TIMEOUT_MS = 60000;
 const OWNER_RESET_WAIT_MS = 30000;
 const OWNER_FILES = ['auth.json', 'sessions.json'];
 const RELAY_AUDIT_TAIL = '500';
-const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--world DIR] [--url URL] [--service ID] [--post PR] [--screen]';
+const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen]';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function scrub(s, home) {
@@ -32,9 +35,9 @@ function usageError(msg) {
 
 function parseArgs(argv, { toolRoot }) {
   const opts = {
-    checkout: toolRoot, world: path.join(toolRoot, '..', 'devboxWorld'), url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false,
+    checkout: toolRoot, url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false,
   };
-  const names = new Set(['checkout', 'world', 'url', 'service', 'post']);
+  const names = new Set(['checkout', 'url', 'service', 'post']);
   for (let i = 0; i < argv.length; i++) {
     const m = /^--([a-z]+)(?:=(.*))?$/.exec(argv[i]);
     if (m && m[1] === 'screen') {
@@ -173,6 +176,56 @@ function orderJourneys(journeys, { screen }) {
     : { run: [...fixtures, ...plain], skipped: onScreen };
 }
 
+// machine, pin and fixtures, in that order, stopping at the first FAIL. It
+// takes no lock and runs no script or network call; the only process it
+// starts is isVM's sysctl. `world` is null after a FAIL.
+function worldPreflight({ markerFile, isVM, journeys, screen }) {
+  const lines = [];
+  const failed = (check, detail) => {
+    lines.push([check, 'FAIL', firstLine(detail)]);
+    return { lines, world: null };
+  };
+  let marker;
+  try {
+    marker = readMarker(markerFile, { isVM });
+  } catch (err) {
+    return failed('machine', firstLine(err));
+  }
+  lines.push(['machine', 'OK', `vm; world v${marker.world_version}`]);
+  if (marker.world_version !== WORLD_VERSION) {
+    return failed('pin', `BLOCKED fixture: this machine's world is v${marker.world_version}; eve needs v${WORLD_VERSION}`);
+  }
+  lines.push(['pin', 'OK', `v${WORLD_VERSION}`]);
+  let world;
+  try {
+    world = loadWorld(marker);
+  } catch (err) {
+    return failed('fixtures', `BLOCKED fixture: ${err.message}`);
+  }
+  const selected = orderJourneys(journeys, { screen }).run.filter(j => !j.knownBug);
+  const missing = missingFixtures(selected, world);
+  if (missing.length) return failed('fixtures', `BLOCKED fixture: ${missing.join('; ')}`);
+  const needed = new Set(selected.flatMap(j => j.needs || []));
+  lines.push(['fixtures', 'OK', `${needed.size} fixtures for ${selected.length} journeys`]);
+  return { lines, world };
+}
+
+// A journey sees only the fixtures it declared. env.projects is the same view
+// with each entry cut to name and path, plus id once the api check has run;
+// an undeclared key throws as the view does.
+function journeyWorld(world, needs) {
+  const view = scoped(world, needs || []);
+  const projects = new Proxy(view.projects, {
+    get(_, key) {
+      if (typeof key === 'symbol') return undefined;
+      const p = view.projects[key];
+      const entry = { name: p.name, path: p.path === undefined ? p.folder : p.path };
+      return p.id === undefined ? entry : { ...entry, id: p.id };
+    },
+  });
+  return { world: view, projects };
+}
+
 function journeyTimeout(timeoutMs, spentMs, budgetMs) {
   const left = budgetMs - spentMs;
   return left < MIN_JOURNEY_MS ? null : Math.min(timeoutMs, left);
@@ -232,9 +285,9 @@ async function newestChangeMs(checkout) {
 // Deliberate: the script's stdout goes to our stderr or into the capture, never
 // our stdout. A grandchild the script leaves behind can hold the captured pipe
 // open, so the pipe is destroyed shortly after the script itself exits.
-function worldScript(world, name, args, { capture = false } = {}) {
+function worldScript(checkout, name, args, { capture = false } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(path.join(world, name), args, { cwd: world, stdio: ['ignore', capture ? 'pipe' : 2, 'inherit'] });
+    const child = spawn(path.join(checkout, name), args, { cwd: checkout, stdio: ['ignore', capture ? 'pipe' : 2, 'inherit'] });
     let out = '';
     let code = -1;
     let timedOut = false;
@@ -251,6 +304,7 @@ function worldScript(world, name, args, { capture = false } = {}) {
 }
 
 const timedOutDetail = `timed out after ${SCRIPT_TIMEOUT_MS / 1000}s`;
+const environmentBlocked = msg => new Error(`BLOCKED environment: ${msg}`);
 
 function firstLine(err) {
   return String((err && err.message) || err).split('\n')[0].slice(0, 200);
@@ -310,7 +364,8 @@ function takeCleanups(pending, id) {
 
 // `projects` is null for the fixture journeys, which run before the world
 // projects are known and create nothing in them, so they get no leak check.
-async function runJourney(j, env, browser, { timeoutMs, projects, pending, screen, log }) {
+// `world` is the loaded world for them and the resolved one (id, path) after.
+async function runJourney(j, env, browser, { timeoutMs, projects, world, pending, screen, log }) {
   if (j.knownBug) return { id: j.id, state: 'NOTRUN', detail: `omitted: known bug ${j.knownBug}` };
   if (timeoutMs === null) return { id: j.id, state: 'BLOCKED', detail: 'run budget spent' };
   const api = env.api;
@@ -324,6 +379,7 @@ async function runJourney(j, env, browser, { timeoutMs, projects, pending, scree
   let lastStep = 'start';
   const jEnv = {
     ...env,
+    ...(world ? journeyWorld(world, j.needs) : {}),
     browser,
     screen: j.screen ? screen : null,
     newPage: async ({ signedIn = true } = {}) => {
@@ -346,7 +402,11 @@ async function runJourney(j, env, browser, { timeoutMs, projects, pending, scree
     timer = setTimeout(() => resolve({ state: 'FAIL', detail: `timed out after ${Math.round(timeoutMs / 1000)}s at ${lastStep}` }), timeoutMs);
   });
   let result;
-  try { result = await Promise.race([running, timeout]); } catch (err) { result = { state: 'FAIL', detail: firstLine(err) }; }
+  try {
+    result = await Promise.race([running, timeout]);
+  } catch (err) {
+    result = err && err.code === 'EUNDECLARED' ? { state: 'BLOCKED', detail: err.message } : { state: 'FAIL', detail: firstLine(err) };
+  }
   clearTimeout(timer);
   await Promise.all(contexts.map(c => c.close().catch(() => {})));
   const cleanupFailure = await runCleanups(takeCleanups(pending, j.id));
@@ -369,6 +429,7 @@ async function runJourney(j, env, browser, { timeoutMs, projects, pending, scree
 }
 
 async function run(argv) {
+  const startedAt = Date.now();
   const home = os.homedir();
   const emit = (...fields) => process.stdout.write(formatLine(home, ...fields) + '\n');
   const log = msg => process.stderr.write(scrub(msg, home) + '\n');
@@ -376,11 +437,16 @@ async function run(argv) {
   try {
     toolRoot = await git(__dirname, 'rev-parse', '--show-toplevel');
     opts = parseArgs(argv, { toolRoot });
-    opts.world = path.resolve(opts.world);
   } catch (err) {
     process.stderr.write((err.usage ? USAGE : `run from inside an eve checkout: ${firstLine(err)}`) + '\n');
     return 2;
   }
+  // Deliberate: before the lock and before any script or network call, so a
+  // machine that is not a bootstrapped VM is never touched.
+  const { journeys } = require('./journeys');
+  const { lines, world } = worldPreflight({ markerFile: markerPath(process.env, home), journeys, screen: opts.screen });
+  for (const [check, state, detail] of lines) emit('PREFLIGHT', check, state, detail);
+  if (!world) return 2;
   let release;
   try {
     release = await acquire({ command: scrub(['devboxverify/main.js', ...argv].join(' '), home), log });
@@ -390,13 +456,13 @@ async function run(argv) {
   }
   emit('PREFLIGHT', 'lock', 'OK', 'acquired');
   try {
-    return await runLocked({ home, emit, log, toolRoot, opts });
+    return await runLocked({ home, emit, log, toolRoot, opts, world, journeys, startedAt });
   } finally {
     await release();
   }
 }
 
-async function runLocked({ home, emit, log, toolRoot, opts }) {
+async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, startedAt }) {
   const toolCommit = await git(toolRoot, 'rev-parse', 'HEAD').catch(() => '');
   const checkout = fs.existsSync(opts.checkout) ? fs.realpathSync(opts.checkout) : path.resolve(opts.checkout);
   const port = Number(new URL(opts.url).port);
@@ -404,7 +470,7 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
   const anonymous = new EveApi(base);
   const relayBin = process.env.RELAY_BIN || '/Applications/Relay.app/Contents/MacOS/relay';
   const lsEnv = { env: { ...process.env, LC_ALL: 'C' } };
-  let head, pid, cwd, liveCwd, listOut, dataDir, projects, world;
+  let head, pid, cwd, liveCwd, listOut, dataDir, projects, worldCounts;
 
   const checks = [
     ['head', async () => (head = await git(checkout, 'rev-parse', 'HEAD'))],
@@ -460,17 +526,17 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
       return 'AudioContext running';
     }],
     ['bootstrap', async () => {
-      const { code, timedOut } = await worldScript(opts.world, 'bootstrap.sh', ['--check']);
-      if (timedOut) throw new Error(`bootstrap.sh --check ${timedOutDetail}`);
-      if (code !== 0) throw new Error('bootstrap incomplete; run bootstrap.sh');
+      const { code, timedOut } = await worldScript(world.checkout, 'bootstrap.sh', ['--check']);
+      if (timedOut) throw environmentBlocked(`bootstrap.sh --check ${timedOutDetail}`);
+      if (code !== 0) throw environmentBlocked('bootstrap incomplete; run bootstrap.sh');
       return 'complete';
     }],
     ['world', async () => {
-      const { code, out, timedOut } = await worldScript(opts.world, 'verify.sh', [], { capture: true });
+      const { code, out, timedOut } = await worldScript(world.checkout, 'verify.sh', [], { capture: true });
       process.stderr.write(out);
-      if (timedOut) throw new Error(`verify.sh ${timedOutDetail}`);
-      try { world = parseWorldSummary(out); } catch { throw new Error('verify.sh printed no summary'); }
-      if (code !== 0 || world.fail !== 0) throw new Error('verify.sh is not green');
+      if (timedOut) throw environmentBlocked(`verify.sh ${timedOutDetail}`);
+      try { worldCounts = parseWorldSummary(out); } catch { throw environmentBlocked('verify.sh printed no summary'); }
+      if (code !== 0 || worldCounts.fail !== 0) throw environmentBlocked('verify.sh is not green');
       return 'green';
     }],
     // Deliberate: this deletes eve-verify's owner so the run can enrol its
@@ -510,14 +576,13 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
     const counts = await api.sweep(projects);
     log(`sweep: sessions=${counts.sessions} tasks=${counts.tasks} terminals=${counts.terminals}`);
   };
-  const { journeys } = require('./journeys');
   const { run: ordered, skipped } = orderJourneys(journeys, opts);
   const { chromium } = require('@playwright/test');
   const { createScreen } = require('./screen');
   const browser = await chromium.launch({ args: CHROMIUM_ARGS });
   const env = {
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
-    projects: {}, api, shared: {}, session: null, relayBin, service: opts.service,
+    api, shared: {}, session: null, relayBin, service: opts.service,
     serviceLog: serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`)),
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
       await exec(relayBin, ['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
@@ -526,16 +591,23 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
   const results = [];
   const pending = [];
   let spentMs = 0;
-  const record = (r) => {
+  let resolved = null;
+  // A record made without running the journey times at 0.
+  const record = (r, ms = 0) => {
     results.push(r);
     emit('JOURNEY', r.id, r.state, r.detail);
+    emit('TIMING', 'journey', r.id, String(Math.trunc(ms)));
   };
   const runOne = async (j) => {
     log(`running ${j.id}`);
-    const startedAt = Date.now();
+    const journeyStartedAt = Date.now();
     const timeoutMs = journeyTimeout(j.timeoutMs, spentMs, JOURNEY_BUDGET_MS);
-    record(await runJourney(j, env, browser, { timeoutMs, projects: j.fixture ? null : projects, pending, screen, log }));
-    spentMs += Date.now() - startedAt;
+    const r = await runJourney(j, env, browser, {
+      timeoutMs, projects: j.fixture ? null : projects, world: j.fixture ? world : resolved, pending, screen, log,
+    });
+    const tookMs = Date.now() - journeyStartedAt;
+    record(r, j.knownBug || timeoutMs === null ? 0 : tookMs);
+    spentMs += tookMs;
   };
   let failedEarly = false;
   try {
@@ -548,16 +620,19 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
       api = new EveApi(base, { token: env.session.token });
       env.api = api;
       try {
-        const entries = JSON.parse(fs.readFileSync(path.join(opts.world, 'data', 'world.json'), 'utf8')).projects;
-        projects = await api.worldProjects(entries);
+        projects = await api.worldProjects(Object.values(world.projects));
         emit('PREFLIGHT', 'api', 'OK', projects.map(p => p.name).join(', '));
       } catch (err) {
         emit('PREFLIGHT', 'api', 'FAIL', firstLine(err));
         failedEarly = true;
         return 2;
       }
-      emit('WORLD', `pass=${world.pass}`, `fail=${world.fail}`);
-      const reset = await worldScript(opts.world, 'reset.sh', []);
+      resolved = {
+        ...world,
+        projects: Object.fromEntries(projects.map(p => [p.key, { ...world.projects[p.key], id: p.id, path: p.path }])),
+      };
+      emit('WORLD', `pass=${worldCounts.pass}`, `fail=${worldCounts.fail}`);
+      const reset = await worldScript(world.checkout, 'reset.sh', []);
       if (reset.timedOut) {
         emit('RESET', 'FAIL', `reset.sh ${timedOutDetail}`);
         failedEarly = true;
@@ -573,8 +648,6 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
         return 2;
       }
       emit('RESET', 'OK');
-      const byKey = Object.fromEntries(projects.map(p => [p.key, p]));
-      env.projects = { acme: byKey.acme, globex: byKey.globex, home: byKey.home };
       for (const j of rest) await runOne(j);
     }
     for (const j of skipped) record({ id: j.id, state: 'NOTRUN', detail: 'screen journey; run with --screen' });
@@ -586,11 +659,15 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
   }
 
   const { counts, exitCode } = tally(results);
+  const runMs = Date.now() - startedAt;
+  emit('TIMING', 'run', String(runMs));
   emit('SUMMARY', `pass=${counts.PASS}`, `fail=${counts.FAIL}`, `blocked=${counts.BLOCKED}`, `notrun=${counts.NOTRUN}`);
   if (opts.post) {
     const { post, statusState } = require('./post');
     try {
-      const ev = { pr: opts.post, commit: head, toolCommit, worldSummary: `pass=${world.pass} fail=${world.fail}`, home, results };
+      const ev = {
+        pr: opts.post, commit: head, toolCommit, runMs, worldSummary: `pass=${worldCounts.pass} fail=${worldCounts.fail}`, home, results,
+      };
       emit('POSTED', statusState(results), await post(ev, { cwd: toolRoot }));
     } catch (err) {
       log(`post failed: ${firstLine(err)}`);
@@ -602,7 +679,7 @@ async function runLocked({ home, emit, log, toolRoot, opts }) {
 
 module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, tally, parseListenPids, parseCwd, parseLstart,
-  eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run,
+  eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader,
 };

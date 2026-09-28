@@ -18,12 +18,29 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 describe('browser-test lock', () => {
-  let tmp, lockFile, children;
+  let tmp, lockFile, markerFile, vmPreload, children;
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-lock-'));
     lockFile = path.join(tmp, 'browser-tests.lock');
-    fs.mkdirSync(path.join(tmp, 'world'));
+    const checkout = path.join(tmp, 'world');
+    fs.mkdirSync(path.join(checkout, 'data'), { recursive: true });
+    const keys = ['acme', 'globex', 'home'];
+    fs.writeFileSync(path.join(checkout, 'data', 'world.json'), JSON.stringify({
+      world_version: 1,
+      relay_mcp: { id: 'macmcp', tools: 'mail_*' },
+      fixtures: [...keys.map((k) => `project:${k}`), ...keys.map((k) => `file:${k}/PROJECT.md`),
+        'file:acme/todo.txt', 'file:acme/budget/q4-budget-draft.csv'],
+      projects: [['acme', 'Acme Corp'], ['globex', 'Globex'], ['home', 'Home']].map(([key, name]) => ({ key, name, mode: 'work' })),
+    }));
+    markerFile = path.join(tmp, 'machine.json');
+    fs.writeFileSync(markerFile, JSON.stringify({
+      schema: 1, world_checkout: checkout, world_root: path.join(tmp, 'root'), world_version: 1, written_at: '2026-09-28T03:30:00Z',
+    }), { mode: 0o600 });
+    fs.chmodSync(markerFile, 0o600);
+    // CI has no sysctl, so the preflight's VM check is stubbed in the child through the real CLI.
+    vmPreload = path.join(tmp, 'vm.js');
+    fs.writeFileSync(vmPreload, `require(${JSON.stringify(path.join(ROOT, 'devboxverify', 'world.js'))}).isVM = () => true;\n`);
     children = [];
   });
 
@@ -56,9 +73,12 @@ describe('browser-test lock', () => {
 
   const wrap = (argv, opts) => start(NODE, [CLI, ...argv], opts);
   const probe = (timeout = 0) => wrap([NODE, '-e', '0'], { timeout }).closed;
-  const verify = (timeout) => start(NODE, [MAIN, '--service', 'no-such-service', '--world', path.join(tmp, 'world')], {
-    timeout, env: { RELAY_BIN: path.join(tmp, 'no-such-relay') },
+  const verify = (timeout) => start(NODE, ['-r', vmPreload, MAIN, '--service', 'no-such-service'], {
+    timeout, env: { RELAY_BIN: path.join(tmp, 'no-such-relay'), DEVBOXWORLD_MARKER: markerFile },
   }).closed;
+  const MACHINE_ROW = 'PREFLIGHT\tmachine\tOK\tvm; world v1';
+  const PIN_ROW = 'PREFLIGHT\tpin\tOK\tv1';
+  const FIXTURES_ROW = 'PREFLIGHT\\tfixtures\\tOK\\t\\d+ fixtures for \\d+ journeys';
 
   async function waitFor(fn, what) {
     const deadline = Date.now() + 10000;
@@ -106,10 +126,15 @@ describe('browser-test lock', () => {
     expect((await probe()).code).toBe(0);
   });
 
-  it('devboxverify takes the free lock as its first preflight row and releases it', async () => {
+  it('devboxverify takes the free lock right after the world rows and releases it', async () => {
     const r = await verify(0);
     const lines = r.stdout.replace(/\n$/, '').split('\n');
-    expect(lines[0]).toBe('PREFLIGHT\tlock\tOK\tacquired');
+    expect(lines.slice(0, 4)).toEqual([
+      MACHINE_ROW,
+      PIN_ROW,
+      expect.stringMatching(new RegExp(`^${FIXTURES_ROW}$`)),
+      'PREFLIGHT\tlock\tOK\tacquired',
+    ]);
     expect(lines[lines.length - 1]).toMatch(/^PREFLIGHT\t(tree|service)\tFAIL\t/);
     expect(r.code).toBe(2);
     expect((await probe()).code).toBe(0);
@@ -129,7 +154,8 @@ describe('browser-test lock', () => {
     const holder = await startHolder();
     const r = await verify(1);
     expect(r.code).toBe(2);
-    expect(r.stdout).toMatch(new RegExp(`^PREFLIGHT\\tlock\\tFAIL\\t[^\\n]*pid ${holder.pid}\\b[^\\n]*\\n$`));
+    expect(r.stdout).toMatch(new RegExp(`^${escape(MACHINE_ROW)}\\n${escape(PIN_ROW)}\\n${FIXTURES_ROW}\\n`
+      + `PREFLIGHT\\tlock\\tFAIL\\t[^\\n]*pid ${holder.pid}\\b[^\\n]*\\n$`));
     expect(r.stderr).toMatch(new RegExp(`browser-lock: ${escape(lockFile)} is held by pid ${holder.pid} \\(.*; waiting up to 1s`));
   });
 
