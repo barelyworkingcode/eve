@@ -52,14 +52,13 @@ Runs on the devbox only, never in CI.
 ## CLI
 
 ```
-node devboxverify/main.js [--checkout DIR] [--world DIR] [--url URL] [--service ID] [--post PR]
+node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen]
 npm run -s verify:devbox -- [flags]     # -s: npm's banner would break the stdout grammar
 ```
 
 | Flag | Default | Rule |
 |---|---|---|
 | `--checkout` | git toplevel of `devboxverify/` | |
-| `--world` | `<tool checkout>/../devboxWorld` | |
 | `--url` | `http://localhost:3100` | `http:`, host `localhost` or `127.0.0.1`, explicit port; else usage error |
 | `--service` | `eve-verify` | |
 | `--post` | none | integer ≥ 1 |
@@ -67,7 +66,11 @@ npm run -s verify:devbox -- [flags]     # -s: npm's banner would break the stdou
 An unknown flag, positional argument, or bad `--post`/`--url` prints one usage
 line to stderr and exits 2. Environment: `RELAY_BIN` (default
 `/Applications/Relay.app/Contents/MacOS/relay`, used only for
-`relay service list`), `EVE_VERIFY_MODEL`. The tool writes no files and never
+`relay service list`), `EVE_VERIFY_MODEL`, `DEVBOXWORLD_MARKER` (the machine
+marker; default `~/.config/devboxWorld/machine.json`). The world comes only
+from the marker (A20): there is no `--world`, and the tool never reads, sets
+or clears `DEVBOXWORLD_ROOT`. The world scripts inherit its environment
+unchanged. The tool writes no files and never
 builds, registers or edits settings. Its own HTTP, WS and `lsof` calls go to
 `127.0.0.1:<port>`; Chromium uses `--url` as given.
 
@@ -81,14 +84,27 @@ PREFLIGHT <check> OK|FAIL <detail>
 WORLD pass=<n> fail=<n>
 RESET OK|FAIL
 JOURNEY <id> PASS|FAIL|BLOCKED|NOTRUN <detail>
+TIMING journey <id> <ms>
+TIMING run <ms>
 SUMMARY pass=<n> fail=<n> blocked=<n> notrun=<n>
 POSTED success|failure|error <comment URL>
 ```
 
-Preflight, in order, stopping at the first FAIL (exit 2):
+`TIMING journey` follows every `JOURNEY` line, one for one: whole ms,
+truncated, from just before the journey starts until its result (cleanups and
+leak check included); a record made without running the journey
+(`no signed-in owner`, a NOTRUN skip) has `0`. `TIMING run` comes immediately
+before `SUMMARY`, only when `SUMMARY` prints, measured from entry to
+`run(argv)`.
+
+Preflight, in order, stopping at the first FAIL (exit 2). `machine`, `pin` and
+`fixtures` run before the lock and before any script or network call:
 
 | Check | OK when | Detail on OK |
 |---|---|---|
+| `machine` | `readMarker` accepts the marker (a VM, checked live; a valid 0600 marker). FAIL: `not a test machine: …` | `vm; world v<N>` |
+| `pin` | the marker's `world_version` equals `WORLD_VERSION`. FAIL: `BLOCKED fixture: this machine's world is v<M>; eve needs v<N>` | `v<N>` |
+| `fixtures` | `loadWorld` reads `<world_checkout>/data/world.json` (FAIL `BLOCKED fixture: <reason>`), and every id the run's journeys declare in `needs` is in its `fixtures` catalogue (FAIL `BLOCKED fixture: <journey> needs <id>[, <id>…][; …]`, journeys in run order) | `<n> fixtures for <m> journeys` |
 | `lock` | the shared browser-test lock is taken (`scripts/browser-lock.js`), waiting up to `EVE_BROWSER_LOCK_TIMEOUT` s; FAIL on timeout (detail names the holder's pid and command) or when the lock cannot be taken | `acquired` |
 | `head` | `git -C <checkout> rev-parse HEAD` succeeds | sha |
 | `tree` | `git status --porcelain --untracked-files=no` is empty | `clean` |
@@ -96,14 +112,20 @@ Preflight, in order, stopping at the first FAIL (exit 2):
 | `eve` | `eveProcessProblem` is null | `pid <n>` |
 | `live` | `liveEveProblem` is null | `separate from :3000` |
 | `pr` (only with `--post`) | PR `headRefOid` equals HEAD | `PR head is HEAD` |
-| `api` | `GET /api/projects` answers 200 with exactly one project per name in `<world>/data/world.json` | the names |
+| `api` | `GET /api/projects` answers 200 with exactly one project per name in the loaded world (no re-read of world.json) | the names |
 | `browser` | Chromium launches and closes | `chromium` |
-| `bootstrap` | `bootstrap.sh --check` exits 0 | `complete` |
-| `world` | `verify.sh` exits 0 and its last summary has `fail=0` | `green` |
+| `bootstrap` | `bootstrap.sh --check`, run from `world_checkout`, exits 0. FAIL detail prefixed `BLOCKED environment: ` | `complete` |
+| `world` | `verify.sh`, run from `world_checkout`, exits 0 and its last summary has `fail=0`. FAIL detail prefixed `BLOCKED environment: ` | `green` |
+
+`owner` (A14) runs after `world`, last, so a broken world never resets the
+owner. `reset.sh` also runs from `world_checkout`. `BLOCKED fixture:` blames
+the test data, `BLOCKED environment:` the world scripts; a journey FAIL after
+a green preflight is a product bug.
 
 The lock is held until `run()` returns, on every path, and released by the
-kernel if the process dies. Taking it after argument parsing keeps usage
-errors immediate.
+kernel if the process dies. Taking it after argument parsing and the world
+checks keeps usage errors immediate and leaves a machine that is not a test
+machine untouched.
 
 Then `WORLD`, then `RESET`: OK when `reset.sh` exits 0 and the sweep leaves
 zero world items. Each world script has a 300 s timeout; `verify.sh` stdout is
@@ -124,7 +146,9 @@ Entry point only when `require.main === module`; `@playwright/test` and
 /** @typedef {{id: string, state: State, detail: string}} Result */
 scrub(s, home) -> string
 formatLine(home, ...fields) -> string
-parseArgs(argv, {toolRoot}) -> {checkout, world, url, service, post}   // throws Error with .usage = true
+parseArgs(argv, {toolRoot}) -> {checkout, url, service, post, screen}  // throws Error with .usage = true
+worldPreflight({markerFile, isVM, journeys, screen}) -> {lines: [check, 'OK'|'FAIL', detail][], world: World|null}
+runJourney(j, env, browser, {timeoutMs, projects, world, pending, screen, log}) -> Promise<Result>
 parseWorldSummary(stdout) -> {pass, fail}                               // throws
 tally(results) -> {counts: {PASS, FAIL, BLOCKED, NOTRUN}, exitCode: 0|1}
 parseListenPids(lsofOut) -> number[]
@@ -144,6 +168,15 @@ run(argv) -> Promise<number>
 - `parseWorldSummary` takes the last line starting at column 0 with `SUMMARY\t`,
   which must match `SUMMARY\tpass=<int>\tfail=<int>`; throws otherwise.
 - `tally`: exit 1 iff FAIL + BLOCKED > 0.
+- `worldPreflight` runs `machine`, `pin`, `fixtures` and stops after the first
+  FAIL. It counts `orderJourneys(journeys, {screen}).run` without `knownBug`
+  journeys; `n` is the distinct ids across their `needs`.
+- `runJourney` sets `env.world = scoped(world, j.needs)` per journey: the
+  loaded world for the fixture journeys, the world resolved with each
+  project's `id` and `path` after `PREFLIGHT api`. `env.projects` is built
+  from the same view (declared keys only; `name` and `path`, plus `id` once
+  known). A rejection with `code === 'EUNDECLARED'` is
+  `BLOCKED undeclared fixture <id>`.
 - `parseListenPids` reads `lsof -nP -iTCP:<port> -sTCP:LISTEN -Fp` → unique
   ascending pids. `parseCwd` reads `lsof -a -p <pid> -d cwd -Fn` → first `n` path
   or null. `parseLstart` reads `LC_ALL=C ps -o lstart= -p <pid>` (local time,
@@ -208,13 +241,13 @@ close the journey's contexts, snapshot `after`. If
 ```js
 /** @typedef {{
  *  url, nonce /* 8 hex per run */, model /* EVE_VERIFY_MODEL */,
- *  projects: {acme: WorldProject, globex: WorldProject, home: WorldProject},
+ *  world: {projects: {[key]: WorldProject}, file(key, rel) -> string, relayMcp},  // only what `needs` declares
  *  api: EveApi,
  *  newPage: () => Promise<Page>,    // fresh context: empty localStorage, 1280x800
  *  step: (label) => void,           // stderr; the last label names a timeout
  *  shared: {thread?: {sessionId, question}},
  * }} JourneyEnv */
-/** @typedef {{id, timeoutMs, knownBug?: string, run: (env: JourneyEnv) => Promise<Result>}} Journey */
+/** @typedef {{id, timeoutMs, areas, needs: string[], knownBug?: string, run: (env: JourneyEnv) => Promise<Result>}} Journey */
 module.exports = { journeys };   // in table order
 ```
 
@@ -239,70 +272,23 @@ Does not require `main.js`.
 
 ```js
 statusState(results) -> 'success'|'failure'|'error'   // any FAIL → failure; else any BLOCKED → error; else success
-renderComment({pr, commit, toolCommit, worldSummary, home, results}) -> string
+renderComment({pr, commit, toolCommit, runMs, worldSummary, home, results}) -> string
 commentUrlFrom(ghStdout) -> string                     // last non-empty line; throws unless https://
 prHead(pr, {cwd}) -> Promise<string>
 post(ev, {cwd}) -> Promise<string>                     // comment URL
 ```
 
 `renderComment`: heading `### devbox/verify: <state>`; a two-column table with
-`Eve commit`, `World verify`, `Tool commit`; then `| Journey | Result | Detail |`
+`Eve commit`, `World verify`, `Tool commit`, `Run time` (`Math.round(runMs / 1000)` s); then `| Journey | Result | Detail |`
 with the id in backticks and `|` escaped as `\|`; the whole thing scrubbed.
 `post`: `gh pr comment <pr> --body-file -` first, then
 `gh api -X POST repos/{owner}/{repo}/statuses/<commit> -f state=… -f context=devbox/verify -f target_url=<comment URL> -f description="pass=N fail=N blocked=N notrun=N"`,
 cwd = tool checkout, 60 s timeout each.
 
-### `devboxverify/nightly.js` (T4)
+### The nightly runner and its launchd job
 
-Node core only (installed as a copy); entry only when `require.main === module`.
-
-```js
-classify({exitCode, timedOut, blockedReason}) -> 'GREEN'|'RED'|'BLOCKED'  // reason or timeout → BLOCKED; 0 → GREEN; 1 → RED; else BLOCKED
-summaryOf(stdout) -> string    // SUMMARY line, else first PREFLIGHT…FAIL line, else 'no summary'; tabs → spaces
-formatRecord({at, repo, result, commit, behind, summary}) -> string
-                               // NIGHT\t<at>\t<repo>\t<result>\t<commit12>\tbehind=<n>\t<summary>
-parseRecords(logText) -> Record[]      // NIGHT lines only
-renderStatusPage(records, {now}) -> string   // static HTML, no JS, all fields escaped; latest per repo on top, then last 60 newest-first
-```
-
-Relay, then eve, sequentially:
-
-1. `git -C <checkout> fetch --quiet origin`; failure → BLOCKED.
-2. Relay: HEAD must be an ancestor of `origin/main`, else BLOCKED; `behind` =
-   `git rev-list --count HEAD..origin/main`. Eve (D10): the worktree must be
-   clean and on a branch that can fast-forward; `merge --ff-only origin/main`,
-   `npm ci` if `package-lock.json` changed, `relay service restart --id eve-verify`,
-   wait up to 60 s for the port; any failure → BLOCKED. `behind` = 0 after.
-3. Eve: no `devboxverify/main.js` in the checkout → BLOCKED.
-4. Run, killed after 30 min: relay `go run ./cmd/devboxverify --checkout <relay>`
-   (cwd relay); eve `node devboxverify/main.js --checkout <eve>` (cwd eve).
-5. Full output to `<logdir>/runs/<YYYY-MM-DD>-<repo>.txt`; append the record to
-   `<logdir>/nightly.log`.
-
-Then rewrite `<logdir>/status.html`, and if either result is not GREEN show one
-macOS notification via `osascript`, the message passed as an argument, not
-interpolated. No retries; launchd does not overlap runs of one job.
-
-Environment (from the plist): `NIGHTLY_RELAY_CHECKOUT`, `NIGHTLY_EVE_CHECKOUT`,
-`NIGHTLY_LOG_DIR` (default `~/Library/Logs/devboxverify`), `PATH`,
-`EVE_VERIFY_MODEL` optional.
-
-### `devboxverify/nightly.plist.template` (T4)
-
-Label `local.devboxverify.nightly`; `StartCalendarInterval` 03:30; `RunAtLoad`
-false; `ProgramArguments` `@NODE@ @HOME@/.local/share/devboxverify/nightly.js`;
-`EnvironmentVariables` `PATH=@PATH@`, `NIGHTLY_RELAY_CHECKOUT=@RELAY_CHECKOUT@`,
-`NIGHTLY_EVE_CHECKOUT=@EVE_CHECKOUT@`, `EVE_BROWSER_LOCK_TIMEOUT=600` (so a
-held lock shows as `PREFLIGHT lock FAIL` inside the nightly's 30-minute kill);
-stdout/stderr to
-`@HOME@/Library/Logs/devboxverify/launchd.log`. Placeholders only.
-
-Install (README): create `~/.local/share/devboxverify` and the log dir; copy
-`nightly.js` there; fill placeholders with `sed` into
-`~/Library/LaunchAgents/local.devboxverify.nightly.plist`;
-`launchctl bootstrap gui/$(id -u) <plist>`; first run with
-`launchctl kickstart gui/$(id -u)/local.devboxverify.nightly`. Uninstall:
-`launchctl bootout gui/$(id -u)/local.devboxverify.nightly`, remove the plist.
+Moved to devboxWorld (A20): `nightly/nightly.js`, `nightly/nightly.plist.template`
+and the install steps in its `docs/vm-stack.md`. eve keeps no copy.
 
 ## One-time setup (README, T3)
 
@@ -388,8 +374,7 @@ doesn't bite, pick another in the same file and say so.
 | `devboxverify/journeys.js` | T2 | ~320 |
 | `devboxverify/post.js` | T3 | ~80 |
 | `devboxverify/README.md` | T3; T4 appends one `## Nightly` section | ~170 + ~50 |
-| `devboxverify/nightly.js` | T4 | ~190 |
-| `devboxverify/nightly.plist.template` | T4 | ~40 |
+| `devboxverify/world.js` | #110 T1 | ~210 |
 | `test/unit/devboxverify.test.js` | test writer | ~300 |
 | `docs/design-devboxverify.md` | coordinator | this file |
 
@@ -406,7 +391,7 @@ a task's rows, or passing ~1.5× its budget, is stop-and-ask.
 | 3 | T2 | AC3 procedure; evidence in the PR (D11 for known bugs) |
 | 4 | T3 + T1 wiring | `post.js`, the `pr` check, `POSTED` |
 | 5 | T3 | README feature map |
-| 6 | T4 | `nightly.js`, plist, README `## Nightly` |
+| 6 | T4 | devboxWorld's nightly runner (A20), README `## Nightly` |
 | 7 | process | red on `main` → proven-bug issue quoting the `JOURNEY` line; `knownBug` |
 
 ## Test surface
@@ -426,9 +411,9 @@ children; `home` passed explicitly):
   task and terminal (including sibling `…/Acme Corp2`) are not.
 - `post.js`: `statusState` combinations; `renderComment` scrubs home, lists
   every journey, escapes `|`; `commentUrlFrom`.
-- `nightly.js`: `classify`; `summaryOf`; `formatRecord`/`parseRecords`
-  round-trip; `renderStatusPage` marks RED, escapes `<script>`, latest per repo
-  on top.
+- `world.js` and `worldPreflight` (A20): every marker refusal, the world data
+  failures, the scoped view, `missingFixtures`, the preflight order, and that
+  every journey declares `needs`. The nightly's tests live in devboxWorld.
 
 Devbox pass (coordinator): a full green run; refusals (`--checkout` elsewhere →
 `eve FAIL`; `touch` a tracked file → stale `eve FAIL`; `--url …:3000` →
@@ -588,3 +573,17 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
 - **A19 · Nightly order.** relay `--phase api` (record `relay`), eve
   `--screen` (record `eve`), relay `--phase screen` (record `relay-screen`).
   relay owns the `--phase` selector; the call sits in `relayVerifyArgs`.
+- **A20 · World marker (#110; devboxWorld#11 with amendments 1 and 2).**
+  The world comes only from devboxWorld's machine marker (`world.js`:
+  `markerPath`, `readMarker`, `loadWorld`, `scoped`, `missingFixtures`).
+  `--world` is gone (this replaces A3's `--world` clause) and nothing reads
+  `DEVBOXWORLD_ROOT`. Preflight gains `machine`, `pin` and `fixtures`, run
+  before the lock and before any script or network call; `bootstrap`,
+  `world` and `reset.sh` run from the marker's `world_checkout`, and their
+  FAIL details carry `BLOCKED environment: `. `owner` stays last. Every
+  journey declares `needs` (`project:<key>`, `file:<key>/<rel>`) and sees only
+  those through `env.world`; no fixture name or folder is a literal in
+  journey code, and an undeclared lookup is `BLOCKED undeclared fixture
+  <id>`. `PREFLIGHT api` matches the loaded world's projects. `TIMING` lines
+  and the evidence comment's `Run time` row are new. The nightly runner and
+  its plist moved to devboxWorld, which owns them and their install.

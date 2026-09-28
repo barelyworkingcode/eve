@@ -30,6 +30,7 @@ async function passkeyFirstEnrol(env) {
 
 async function passkeySignIn(env) {
   const id = 'passkey-sign-in';
+  const acme = env.world.projects.acme;
   const owner = env.shared.owner;
   if (!owner) return result(id, BLOCKED, 'no owner credential from passkey-first-enrol');
   env.step('sign in with the owner passkey');
@@ -37,25 +38,25 @@ async function passkeySignIn(env) {
   env.session = { token, storageState };
 
   // A second page proves the session carries over, which every later journey
-  // relies on. env.projects is still empty here, hence the literal name.
+  // relies on. The name comes from the loaded world; there is no id yet.
   const page = await env.newPage();
   await openEve(page, env);
-  env.step('look for Acme Corp in the rail');
-  await need('Acme Corp is not in the rail', expect(
-    page.getByRole('navigation', { name: 'Projects' }).getByTitle('Acme Corp', { exact: true })).toBeVisible({ timeout: 15000 }));
+  env.step(`look for ${acme.name} in the rail`);
+  await need(`${acme.name} is not in the rail`, expect(
+    page.getByRole('navigation', { name: 'Projects' }).getByTitle(acme.name, { exact: true })).toBeVisible({ timeout: 15000 }));
   if (await page.locator('#authScreen').isVisible()) return result(id, FAIL, 'the passkey screen shows on a signed-in page');
-  return result(id, PASS, 'Sign In reached the app; a new page is signed in with Acme Corp in the rail');
+  return result(id, PASS, `Sign In reached the app; a new page is signed in with ${acme.name} in the rail`);
 }
 
 // The agent is a World probe terminal in Acme Corp typing one fixed shell
 // line with no token. printf builds the EVE_NEG marker, so the echoed command
 // never matches it. Returns { attempt, text, logSince }, or { blocked } / { failed }.
-async function agentAttempt(env, id, gate, line) {
+async function agentAttempt(env, acme, id, gate, line) {
   const page = await env.newPage();
   await openEve(page, env);
-  await openProject(page, env, env.projects.acme);
+  await openProject(page, env, acme);
   const probe = await openWorldProbe(page, env);
-  if (!probe) return { blocked: result(id, BLOCKED, 'no "World probe" card for Acme Corp') };
+  if (!probe) return { blocked: result(id, BLOCKED, `no "World probe" card for ${acme.name}`) };
   // Deliberate: a running terminal comes back as the active tab in every
   // later page and covers Home.
   env.cleanup('close the World probe terminal', () => env.api.closeTerminal(probe.terminalId));
@@ -81,6 +82,7 @@ const eveOrigin = (env) => `http://127.0.0.1:${new URL(env.url).port}`;
 
 async function agentSignInRefused(env) {
   const id = 'agent-sign-in-refused';
+  const acme = env.world.projects.acme;
   const o = eveOrigin(env);
   // Deliberate: b asks login/start for a real challenge first, so the forged
   // answer gets past validateFinishBody and the challenge lookup into
@@ -92,7 +94,7 @@ async function agentSignInRefused(env) {
     + `b=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' `
     + `-d "{\\"response\\":{\\"id\\":\\"x\\"},\\"challengeId\\":\\"$c\\"}" ${o}/api/auth/login/finish); `
     + `printf '%s_%s signin %s %s\\n' EVE NEG "$a" "$b"`;
-  const r = await agentAttempt(env, id, 'signin', line);
+  const r = await agentAttempt(env, acme, id, 'signin', line);
   if (r.blocked || r.failed) return r.blocked || r.failed;
   const [a, b] = r.attempt.codes;
   if (r.attempt.codes.length !== 2) return result(id, FAIL, `unexpected answer: ${r.attempt.codes.join(' ')}`);
@@ -115,6 +117,7 @@ function windowLeftMs(expires) {
 
 async function agentEnrolRefused(env) {
   const id = 'agent-enrol-refused';
+  const acme = env.world.projects.acme;
   env.step('check the enrolment window is closed');
   const status = await env.api.authStatus();
   if (status.enrollmentOpen !== false) {
@@ -128,7 +131,7 @@ async function agentEnrolRefused(env) {
   }
   const line = `r=$(curl -s -m 10 -X POST -w ' %{http_code}' ${eveOrigin(env)}/api/auth/enroll/start); `
     + `printf '%s_%s enrol %s %s\\n' EVE NEG "\${r##* }" "\${r% *}"`;
-  const r = await agentAttempt(env, id, 'enrol', line);
+  const r = await agentAttempt(env, acme, id, 'enrol', line);
   if (r.blocked || r.failed) return r.blocked || r.failed;
   const [code] = r.attempt.codes;
   if (code >= 200 && code < 300) return result(id, FAIL, `an enrolment start outside the window answered ${code}`);
@@ -197,11 +200,17 @@ async function addBrowserInWindow(env) {
 
 // Placed one by one in journeys.js, which owns the run order.
 const journeys = {
-  passkeyFirstEnrol: { id: 'passkey-first-enrol', timeoutMs: 45000, areas: ['auth'], fixture: true, run: passkeyFirstEnrol },
-  passkeySignIn: { id: 'passkey-sign-in', timeoutMs: 45000, areas: ['auth'], fixture: true, run: passkeySignIn },
-  agentEnrolRefused: { id: 'agent-enrol-refused', timeoutMs: 360000, areas: ['auth', 'terminal'], run: agentEnrolRefused },
-  agentSignInRefused: { id: 'agent-sign-in-refused', timeoutMs: 60000, areas: ['auth', 'terminal'], run: agentSignInRefused },
-  addBrowserInWindow: { id: 'add-browser-in-window', timeoutMs: 90000, areas: ['auth'], screen: true, run: addBrowserInWindow },
+  passkeyFirstEnrol: { id: 'passkey-first-enrol', timeoutMs: 45000, areas: ['auth'], needs: [], fixture: true, run: passkeyFirstEnrol },
+  passkeySignIn: {
+    id: 'passkey-sign-in', timeoutMs: 45000, areas: ['auth'], needs: ['project:acme'], fixture: true, run: passkeySignIn,
+  },
+  agentEnrolRefused: {
+    id: 'agent-enrol-refused', timeoutMs: 360000, areas: ['auth', 'terminal'], needs: ['project:acme'], run: agentEnrolRefused,
+  },
+  agentSignInRefused: {
+    id: 'agent-sign-in-refused', timeoutMs: 60000, areas: ['auth', 'terminal'], needs: ['project:acme'], run: agentSignInRefused,
+  },
+  addBrowserInWindow: { id: 'add-browser-in-window', timeoutMs: 90000, areas: ['auth'], needs: [], screen: true, run: addBrowserInWindow },
 };
 
 module.exports = { journeys };

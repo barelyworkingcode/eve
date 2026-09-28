@@ -1,4 +1,4 @@
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -29,7 +29,6 @@ describe('devboxverify/main.js', () => {
     it('applies the defaults', () => {
       const args = parseArgs([], { toolRoot });
       expect(args.checkout).toBe(toolRoot);
-      expect(args.world).toBe(path.resolve(toolRoot, '..', 'devboxWorld'));
       expect(args.url).toBe('http://localhost:3100');
       expect(args.service).toBe('eve-verify');
       expect(args.post == null).toBe(true);
@@ -57,6 +56,8 @@ describe('devboxverify/main.js', () => {
       ['a positional argument', ['extra']],
       ['an unknown flag', ['--only', 'chat-reply']],
       ['--screen with a value', ['--screen=1']],
+      ['--world with a value', ['--world', '/srv/world']],
+      ['--world=', ['--world=/srv/world']],
     ])('throws a usage error for %s', (_label, argv) => {
       let err;
       try { parseArgs(argv, { toolRoot }); } catch (e) { err = e; }
@@ -286,6 +287,14 @@ describe('devboxverify/post.js', () => {
     expect(body).toContain('a \\| b');
   });
 
+  it('puts a Run time row, rounded to seconds, right after Tool commit', () => {
+    const body = renderComment({
+      pr: 7, commit: 'a'.repeat(40), toolCommit: 'b'.repeat(40), runMs: 245600,
+      worldSummary: 'pass=1 fail=0', home: HOME, results: [r('landing-view', 'PASS')],
+    });
+    expect(body).toContain(`| Tool commit | \`${'b'.repeat(40)}\` |\n| Run time | 246 s |\n\n`);
+  });
+
   it('takes the comment URL from the last non-empty line', () => {
     expect(commentUrlFrom('posting\nhttps://github.com/acme/eve/pull/7#issuecomment-1\n\n'))
       .toBe('https://github.com/acme/eve/pull/7#issuecomment-1');
@@ -361,6 +370,29 @@ describe('devboxverify journey table', () => {
   it('marks only add-browser-in-window as screen and only the two passkey journeys as fixtures', () => {
     expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['add-browser-in-window']);
     expect(journeys.filter(j => j.fixture).map(j => j.id).sort()).toEqual(['passkey-first-enrol', 'passkey-sign-in']);
+  });
+
+  it('declares exactly the needs devboxWorld#11 pins for each journey', () => {
+    const acme = ['project:acme'];
+    const all = ['project:acme', 'project:globex', 'project:home'];
+    expect(Object.fromEntries(journeys.map(j => [j.id, [...j.needs].sort()]))).toEqual({
+      'passkey-first-enrol': [], 'landing-view': [], 'add-browser-in-window': [],
+      'world-projects-listed': all, 'terminal-on-request': all,
+      'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
+      ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
+        'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff'].map(id => [id, acme])),
+    });
+  });
+
+  // Declarations (needs, the rels file-edit-save shows) may name fixtures; function bodies may not.
+  it('names no world fixture inside a journey function body', () => {
+    for (const file of ['journeys.js', 'journeys-auth.js', 'journey-kit.js']) {
+      const code = fs.readFileSync(path.join(__dirname, '..', '..', 'devboxverify', file), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '');
+      const bodies = code.match(/^(?:async )?function [\s\S]*?^\}$|^const \w+ = (?:async )?\([^)]*\) =>.*$/gm) || [];
+      expect(bodies.length).toBeGreaterThan(3);
+      expect({ file, hits: bodies.join('\n').match(/Acme Corp|Globex|todo\.txt|\bbudget\b/g) }).toEqual({ file, hits: null });
+    }
   });
 
   it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, agent-sign-in-refused, add-browser-in-window', () => {
@@ -582,5 +614,212 @@ describe('devboxverify/screen.js', () => {
       expect(await ready).toBe(isReady);
       expect((await result).state).toBe(state);
     });
+  });
+});
+
+describe('devboxverify/world.js, worldPreflight and runJourney', () => {
+  const world = require('../../devboxverify/world');
+  const { worldPreflight, runJourney } = require('../../devboxverify/main');
+  const { journeys } = require('../../devboxverify/journeys');
+  const ABSENT = 'not a test machine: run devboxWorld bootstrap on a VM';
+  const refused = reason => `not a test machine: ${reason}; run devboxWorld bootstrap on a VM`;
+  const NOT_VM = refused('not a VM: kern.hv_vmm_present is not 1');
+  const vm = () => true;
+  const CATALOGUE = ['project:acme', 'project:globex', 'project:home', 'file:acme/PROJECT.md', 'file:globex/PROJECT.md',
+    'file:home/PROJECT.md', 'file:acme/todo.txt', 'file:acme/budget/q4-budget-draft.csv'];
+  const PROJECTS = [['acme', 'Acme Corp'], ['globex', 'Globex'], ['home', 'Home']].map(([key, name]) => ({ key, name, mode: 'work' }));
+  // A loaded world: what loadWorld returns for worldDoc() under /srv/world.
+  const loaded = {
+    version: 1, root: '/srv/world', checkout: '/srv/checkout', fixtures: new Set(CATALOGUE),
+    projects: Object.fromEntries(PROJECTS.map(p => [p.key, { ...p, folder: `/srv/world/${p.name}` }])),
+    relayMcp: { id: 'macmcp', tools: 'mail_*' },
+  };
+  let dir;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbv-world-')); });
+  afterEach(() => removeScratch(dir));
+  // Undefined values drop out of the JSON, so { schema: undefined } is a marker without schema.
+  const markerDoc = (over = {}) => ({
+    schema: 1, world_checkout: dir, world_root: '/srv/world', world_version: 1, written_at: '2026-09-28T03:30:00Z', ...over,
+  });
+  const worldDoc = (over = {}) => ({ world_version: 1, relay_mcp: loaded.relayMcp, fixtures: CATALOGUE, projects: PROJECTS, ...over });
+  const text = content => (typeof content === 'string' ? content : JSON.stringify(content));
+  const writeMarker = (content = markerDoc(), mode = 0o600) => {
+    const file = path.join(dir, 'machine.json');
+    fs.writeFileSync(file, text(content));
+    fs.chmodSync(file, mode);
+    return file;
+  };
+  const writeWorld = (content = worldDoc()) => {
+    fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'data', 'world.json'), text(content));
+  };
+  const thrown = (fn) => { try { fn(); } catch (err) { return err; } return null; };
+
+  it.each([
+    ['DEVBOXWORLD_MARKER as given', { DEVBOXWORLD_MARKER: 'rel/m.json' }, 'rel/m.json'],
+    ['the default when unset', {}, `${HOME}/.config/devboxWorld/machine.json`],
+    ['the default when empty', { DEVBOXWORLD_MARKER: '' }, `${HOME}/.config/devboxWorld/machine.json`],
+  ])('markerPath gives %s', (_label, env, expected) => {
+    expect(world.markerPath(env, HOME)).toBe(expected);
+  });
+
+  it('readMarker returns the fields of a valid 0600 marker', () => {
+    expect(world.readMarker(writeMarker(), { isVM: vm })).toEqual(markerDoc());
+  });
+
+  it.each([
+    ['isVM false', {}, () => false, 'not a VM: kern.hv_vmm_present is not 1'],
+    ['isVM throwing', {}, () => { throw new Error('sysctl failed'); }, 'not a VM: kern.hv_vmm_present is not 1'],
+    ['bad JSON', '{"schema":', vm, 'marker is not valid JSON'],
+    ...['[]', 'null', '1'].map(raw => [`JSON ${raw}`, raw, vm, 'marker is not a JSON object']),
+    ['no schema', { schema: undefined }, vm, 'marker schema is not 1'],
+    ['schema 2', { schema: 2 }, vm, 'marker schema is not 1'],
+    ...['world_checkout', 'world_root', 'world_version', 'written_at']
+      .map(f => [`no ${f}`, { [f]: undefined }, vm, `marker lacks ${f}`]),
+    ['neither world_root nor written_at', { world_root: undefined, written_at: undefined }, vm, 'marker lacks world_root'],
+    ['a relative world_checkout', { world_checkout: 'srv/checkout' }, vm, 'marker world_checkout is not an absolute path'],
+    ['a relative world_root', { world_root: 'srv/world' }, vm, 'marker world_root is not an absolute path'],
+    ['a numeric world_root', { world_root: 5 }, vm, 'marker world_root is not an absolute path'],
+    ...[0, 1.5, '1', true].map(v => [`world_version ${JSON.stringify(v)}`, { world_version: v }, vm,
+      'marker world_version is not a positive integer']),
+  ])('readMarker refuses a 0600 marker with %s', (_label, content, isVM, reason) => {
+    const file = writeMarker(typeof content === 'string' ? content : markerDoc(content));
+    expect(() => world.readMarker(file, { isVM })).toThrow(new Error(refused(reason)));
+  });
+
+  it.each([
+    ['an absent marker, before any VM check', () => path.join(dir, 'none'), () => false, ABSENT],
+    ['a symlink to a valid marker', () => {
+      const link = path.join(dir, 'link.json');
+      fs.symlinkSync(writeMarker(), link);
+      return link;
+    }, vm, refused('marker is not a regular file')],
+    ['a directory', () => { fs.mkdirSync(path.join(dir, 'd'), { mode: 0o700 }); return path.join(dir, 'd'); }, vm,
+      refused('marker is not a regular file')],
+    ...['0644', '0640', '0604'].map(m => [`mode ${m}`, () => writeMarker(markerDoc(), parseInt(m, 8)), vm,
+      refused(`marker is open to group or others (mode ${m})`)]),
+    ['mode 0644 and bad JSON', () => writeMarker('{', 0o644), vm, refused('marker is open to group or others (mode 0644)')],
+    ['a file it cannot read', () => writeMarker(markerDoc(), 0o000), vm, refused('marker is not readable')],
+    ['an lstat error other than ENOENT', () => path.join(writeMarker(), 'x'), vm, refused('marker is not readable')],
+    ['an lstat error other than ENOENT on a non-VM', () => path.join(writeMarker(), 'x'), () => false, NOT_VM],
+  ])('readMarker reports %s', (_label, setup, isVM, message) => {
+    const file = setup();
+    expect(() => world.readMarker(file, { isVM })).toThrow(new Error(message));
+  });
+
+  it('loadWorld returns every data project with its folder, the catalogue as a Set and relay_mcp', () => {
+    writeWorld(worldDoc({ projects: [...PROJECTS, { key: 'initech', name: 'Initech', mode: 'work' }] }));
+    expect(world.loadWorld(markerDoc())).toEqual({
+      ...loaded, checkout: dir,
+      projects: { ...loaded.projects, initech: { key: 'initech', name: 'Initech', mode: 'work', folder: '/srv/world/Initech' } },
+    });
+  });
+
+  it.each([
+    ['no world.json', null, 'world data is not readable'],
+    ['bad JSON', '{"world_version":', 'world data is not valid JSON'],
+    ['a top-level array', '[]', 'world data is not valid JSON'],
+    ['world_version "1"', { world_version: '1' }, 'world_version is not a positive integer'],
+    ['world_version 0 and no projects', { world_version: 0, projects: undefined }, 'world_version is not a positive integer'],
+    ['a non-string fixture', { fixtures: ['project:acme', 3] }, 'fixtures is not a list of strings'],
+    ['no projects', { projects: undefined }, 'projects is not a list'],
+    ['a project with an empty name', { projects: [PROJECTS[0], { key: 'globex', name: '', mode: 'work' }] }, 'project 1 is malformed'],
+    ['relay_mcp with empty tools', { relay_mcp: { id: 'macmcp', tools: '' } }, 'relay_mcp is malformed'],
+    ...['thing:acme', 'project:initech', 'file:acme/', 'file:acme//etc/x', 'file:acme/a/../b']
+      .map(id => [`fixture ${id}`, { fixtures: ['project:acme', id, 'file:acme/../x'] }, `fixture ${id} does not resolve`]),
+  ])('loadWorld reports %s', (_label, content, message) => {
+    if (content !== null) writeWorld(typeof content === 'string' ? content : worldDoc(content));
+    expect(() => world.loadWorld(markerDoc())).toThrow(new Error(message));
+  });
+
+  it('scoped returns declared projects and files, relay_mcp, and undefined for a symbol', () => {
+    const view = world.scoped(loaded, ['project:acme', 'file:acme/todo.txt']);
+    expect(view.projects.acme).toEqual(loaded.projects.acme);
+    expect(view.file('acme', 'todo.txt')).toBe('/srv/world/Acme Corp/todo.txt');
+    expect(view.relayMcp).toEqual({ id: 'macmcp', tools: 'mail_*' });
+    expect(view.projects[Symbol.iterator]).toBeUndefined();
+  });
+
+  it.each([
+    ['an undeclared project', v => v.projects.globex, 'undeclared fixture project:globex'],
+    ['a declared project the world lacks', v => v.projects.initech, 'undeclared fixture project:initech'],
+    ['an undeclared file', v => v.file('acme', 'budget/q4-budget-draft.csv'), 'undeclared fixture file:acme/budget/q4-budget-draft.csv'],
+  ])('scoped throws EUNDECLARED for %s', (_label, lookup, message) => {
+    const view = world.scoped(loaded, ['project:acme', 'project:initech', 'file:acme/todo.txt']);
+    expect(thrown(() => lookup(view))).toMatchObject({ message, code: 'EUNDECLARED' });
+  });
+
+  it('missingFixtures lists each journey\'s missing ids in order, and nothing when all are there', () => {
+    const w = { fixtures: new Set(['project:acme']) };
+    expect(world.missingFixtures([{ id: 'a', needs: ['project:acme'] }, { id: 'b' }], w)).toEqual([]);
+    expect(world.missingFixtures([
+      { id: 'b', needs: ['project:home', 'project:acme', 'file:acme/todo.txt'] }, { id: 'c' }, { id: 'a', needs: ['project:globex'] },
+    ], w)).toEqual(['b needs project:home, file:acme/todo.txt', 'a needs project:globex']);
+  });
+
+  describe('worldPreflight', () => {
+    const preflight = (list, { screen = false, markerFile = path.join(dir, 'machine.json') } = {}) =>
+      worldPreflight({ markerFile, isVM: vm, journeys: list, screen });
+    const few = [{ id: 'a', needs: ['project:acme'] }, { id: 'b', needs: ['project:acme', 'project:globex'] },
+      { id: 'c', needs: [] }, { id: 's', screen: true, needs: ['project:home'] }];
+
+    it('stops at an absent marker with the one machine line', () => {
+      expect(preflight(few, { markerFile: path.join(dir, 'none') })).toEqual({ lines: [['machine', 'FAIL', ABSENT]], world: null });
+    });
+
+    it.each([[false, '2 fixtures for 3 journeys'], [true, '3 fixtures for 4 journeys']])(
+      'runs machine, pin, fixtures in order, counting screen journeys only when screen is %s', (screen, detail) => {
+        writeMarker();
+        writeWorld();
+        const { lines, world: w } = preflight(few, { screen });
+        expect(lines).toEqual([['machine', 'OK', 'vm; world v1'], ['pin', 'OK', 'v1'], ['fixtures', 'OK', detail]]);
+        expect(w.checkout).toBe(dir);
+      });
+
+    it('fails pin for a v2 marker and stops there', () => {
+      writeMarker(markerDoc({ world_version: 2 }));
+      writeWorld();
+      expect(preflight(few)).toEqual({ lines: [['machine', 'OK', 'vm; world v2'],
+        ['pin', 'FAIL', 'BLOCKED fixture: this machine\'s world is v2; eve needs v1']], world: null });
+    });
+
+    it.each([
+      ['a catalogue without project:globex, naming the journeys that need it',
+        () => writeWorld(worldDoc({ fixtures: CATALOGUE.filter(id => id !== 'project:globex') })),
+        'BLOCKED fixture: world-projects-listed needs project:globex; terminal-on-request needs project:globex'],
+      ['a world it cannot read', () => {}, 'BLOCKED fixture: world data is not readable'],
+    ])('fails fixtures for %s', (_label, setup, detail) => {
+      writeMarker();
+      setup();
+      const { lines, world: w } = preflight(journeys);
+      expect(lines.map(l => l[0])).toEqual(['machine', 'pin', 'fixtures']);
+      expect(lines[2]).toEqual(['fixtures', 'FAIL', detail]);
+      expect(w).toBeNull();
+    });
+  });
+
+  it('main.js without a marker prints one machine FAIL line, exits 2 and takes no lock', () => {
+    const lock = path.join(dir, 'lock');
+    const out = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'devboxverify', 'main.js')], {
+      encoding: 'utf8',
+      timeout: 60000,
+      // RELAY_BIN: a build that wrongly gets past preflight stops at the service check, not at the real relay.
+      env: { ...process.env, DEVBOXWORLD_MARKER: path.join(dir, 'none'), EVE_BROWSER_LOCK: lock, RELAY_BIN: path.join(dir, 'no-relay') },
+    });
+    expect({ status: out.status, stdout: out.stdout }).toEqual({ status: 2, stdout: `PREFLIGHT\tmachine\tFAIL\t${ABSENT}\n` });
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it.each([
+    ['PASS for a declared lookup', env => env.world.projects.acme.name, 'PASS', 'Acme Corp'],
+    ['BLOCKED for an undeclared project', env => env.world.projects.globex, 'BLOCKED', 'undeclared fixture project:globex'],
+    ['BLOCKED for an undeclared file', env => env.world.file('acme', 'todo.txt'), 'BLOCKED', 'undeclared fixture file:acme/todo.txt'],
+    ['BLOCKED for an undeclared env.projects key', env => env.projects.globex, 'BLOCKED', 'undeclared fixture project:globex'],
+    ['FAIL for any other error', () => { throw new Error('boom'); }, 'FAIL', 'boom'],
+  ])('runJourney records %s', async (_label, lookup, state, detail) => {
+    const j = { id: 'x', timeoutMs: 5000, areas: ['verify'], fixture: true, needs: ['project:acme'],
+      run: async env => ({ state: 'PASS', detail: lookup(env) }) };
+    const r = await runJourney(j, {}, {}, { timeoutMs: 5000, projects: null, world: loaded, pending: [], screen: null, log: () => {} });
+    expect(r).toEqual({ id: 'x', state, detail });
   });
 });

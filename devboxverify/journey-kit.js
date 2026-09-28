@@ -77,14 +77,16 @@ async function worldIds(env, projects, kind) {
   return snap[kind].filter((i) => i.world).map((i) => i.id);
 }
 
-const acmeIds = (env, kind) => worldIds(env, [env.projects.acme], kind);
-const allWorldIds = (env, kind) => worldIds(env, [env.projects.acme, env.projects.globex, env.projects.home], kind);
+const acmeIds = (env, kind) => worldIds(env, [env.world.projects.acme], kind);
+// Deliberate: an explicit list, never the view's own keys, so a missing
+// declaration blocks the journey instead of quietly narrowing the check.
+const allWorldIds = (env, kind) => worldIds(env, ['acme', 'globex', 'home'].map((k) => env.world.projects[k]), kind);
 
 const addedIds = (before, after) => after.filter((id) => !before.includes(id));
 
 async function openLauncher(page, env) {
   env.step('open the session launcher');
-  await page.getByTestId(`sidebar-new-session-${env.projects.acme.id}`).click({ timeout: 10000 });
+  await page.getByTestId(`sidebar-new-session-${env.world.projects.acme.id}`).click({ timeout: 10000 });
   const dialog = page.getByTestId('dialog-shell-launcher-dialog');
   await need('the launcher did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
   return dialog;
@@ -128,6 +130,7 @@ function replyAfter(messages, marker) {
 // Opens a "World probe" terminal in Acme Corp from the launcher. Null when
 // Acme Corp offers no such card; throws when the card opens no terminal.
 async function openWorldProbe(page, env) {
+  const acme = env.world.projects.acme;
   const before = await acmeIds(env, 'terminals');
   const dialog = await openLauncher(page, env);
   env.step('look for the World probe card');
@@ -142,7 +145,7 @@ async function openWorldProbe(page, env) {
     const added = addedIds(before, await acmeIds(env, 'terminals'));
     return added.length ? added : null;
   }, { timeoutMs: 20000, intervalMs: 1000 });
-  if (!mine) throw new Error('no Acme Corp terminal within 20s of World probe');
+  if (!mine) throw new Error(`no ${acme.name} terminal within 20s of World probe`);
   const pane = page.locator('#terminal');
   await need('no terminal pane shown', expect(pane).toBeVisible({ timeout: 15000 }));
 

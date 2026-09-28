@@ -6,7 +6,7 @@ journey. No mocks. It runs on the devbox, never in CI. Design and contract:
 [../docs/design-devboxverify.md](../docs/design-devboxverify.md).
 
 ```bash
-node devboxverify/main.js [--checkout DIR] [--world DIR] [--url URL] [--service ID] [--post PR] [--screen]
+node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen]
 npm run -s verify:devbox -- [flags]
 ```
 
@@ -15,7 +15,6 @@ Keep `-s` on the npm form. npm's banner would break the stdout grammar.
 | Flag | Default |
 |---|---|
 | `--checkout` | the git toplevel holding `devboxverify/` |
-| `--world` | `<tool checkout>/../devboxWorld` |
 | `--url` | `http://localhost:3100`; must be `http:`, `localhost` or `127.0.0.1`, with a port |
 | `--service` | `eve-verify` |
 | `--post` | none; a PR number |
@@ -26,7 +25,10 @@ used for `relay service list`, `relay service restart --id eve-verify` and
 `relay audit`), `EVE_VERIFY_MODEL` (default `Chat`; the first model whose
 value equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
 `~/.local/share/devboxverify/bin/devboxpresence`; only `--screen` uses it,
-for relay's presence helper).
+for relay's presence helper), `DEVBOXWORLD_MARKER` (default
+`~/.config/devboxWorld/machine.json`; the machine marker, see below).
+There is no `--world` flag, and the tool never reads, sets or clears
+`DEVBOXWORLD_ROOT`; the world scripts inherit the environment unchanged.
 The tool never builds eve, registers a service or edits settings. Its only
 writes are the owner reset below and the `verify-<nonce>-*` folders journeys
 make in Acme Corp and remove. It never targets the live eve on :3000, and
@@ -45,13 +47,16 @@ PREFLIGHT <check> OK|FAIL <detail>
 WORLD pass=<n> fail=<n>
 RESET OK|FAIL
 JOURNEY <id> PASS|FAIL|BLOCKED|NOTRUN <detail>
+TIMING journey <id> <ms>
+TIMING run <ms>
 SUMMARY pass=<n> fail=<n> blocked=<n> notrun=<n>
 POSTED success|failure|error <comment URL>
 ```
 
-Preflight runs in order and stops at the first FAIL: `lock`, `head`, `tree`,
-`service`, `eve`, `live`, `pr` (only with `--post`), `browser`, `audio`,
-`bootstrap`, `world`, `owner`. Then the run signs in and carries on:
+Preflight runs in order and stops at the first FAIL: `machine`, `pin`,
+`fixtures`, `lock`, `head`, `tree`, `service`, `eve`, `live`, `pr` (only with
+`--post`), `browser`, `audio`, `bootstrap`, `world`, `owner`. Then the run
+signs in and carries on:
 
 1. The fixture journeys `passkey-first-enrol` and `passkey-sign-in` run the
    real passkey ceremonies with a virtual authenticator.
@@ -65,15 +70,59 @@ If either fixture journey is not PASS, every later journey is
 `BLOCKED no signed-in owner`, `api` and `RESET` never run, and the summary
 still prints.
 
+A `TIMING journey` line follows every `JOURNEY` line, one for one: whole
+milliseconds, truncated, from just before the journey starts until its
+result, cleanups and leak check included. A record made without running the
+journey (`no signed-in owner`, a NOTRUN skip) has `0`. `TIMING run` comes
+right before `SUMMARY`, only when `SUMMARY` prints, and counts from the start
+of the run, preflight included. With `--post` the comment gets the same
+figure as a `Run time` row, in seconds.
+
+### The machine, the pin and the fixtures
+
+The world comes only from devboxWorld's machine marker, which `bootstrap.sh`
+writes on a VM. It names the world checkout, the world root and the world's
+major version; devboxWorld's `docs/WORLD.md` is the spec. The first three
+checks run before the lock and before any script or network call, so a
+machine that is not a bootstrapped VM is never touched:
+
+- `machine` reads the marker and checks the machine is a VM (live, with no
+  override). FAIL: `not a test machine: …`. OK: `vm; world v<N>`.
+- `pin` compares the marker's `world_version` with this tool's
+  `WORLD_VERSION` (`devboxverify/world.js`). FAIL: `BLOCKED fixture: this
+  machine's world is v<M>; eve needs v<N>`. OK: `v<N>`.
+- `fixtures` loads `<world checkout>/data/world.json` and checks that every
+  fixture the journeys of this run declare is in its catalogue. FAIL:
+  `BLOCKED fixture: <reason>` for bad world data, or `BLOCKED fixture:
+  <journey> needs <id>[, <id>…][; <journey> needs …]`. OK:
+  `<n> fixtures for <m> journeys`.
+
+Every journey declares its fixtures in `needs` (`project:<key>`,
+`file:<key>/<rel>`), and sees only those through `env.world`: `projects.<key>`
+and `file(key, rel)`. Names and folders come from the world, never from a
+literal. Looking up anything undeclared reports the journey
+`BLOCKED undeclared fixture <id>`.
+
+What each BLOCKED prefix blames:
+
+- `BLOCKED fixture:` the test data. The world on this machine is the wrong
+  version, its data is malformed, or a fixture a journey needs isn't
+  published.
+- `BLOCKED environment:` the world scripts. `bootstrap.sh --check` or
+  `verify.sh` (run from the marker's world checkout) is not green; run
+  `bootstrap.sh`, or `reset.sh`, and look at their stderr.
+
+A journey FAIL after a green preflight is a product bug.
+
 `eve FAIL` also covers eve-verify's sign-in setup: its service row needs an
 absolute `--data <dir>`, and `GET /api/auth/status` must not say
 `trusted: true` (`loopback is trusted; register eve-verify with
 EVE_DISABLE_SUBNET_BYPASS=1`).
 
-`owner` resets eve-verify to a box with no owner, so the run can enrol its
-own: it deletes exactly `auth.json` and `sessions.json` in the pinned `--data`
-dir (eve's documented break-glass), runs `relay service restart --id
-eve-verify`, waits up to 30 s for the new process, and needs the status
+`owner` runs last, so a broken world never resets the owner. It resets
+eve-verify to a box with no owner, so the run can enrol its own: it deletes
+exactly `auth.json` and `sessions.json` in the pinned `--data` dir (eve's
+documented break-glass), runs `relay service restart --id eve-verify`, waits up to 30 s for the new process, and needs the status
 `enrolled: false` with no `trusted`. It refuses any dir that is not a
 normalised absolute path or is the live eve's own `data` dir.
 
@@ -221,10 +270,11 @@ chat straight away.
 3. From that worktree, run
    `node devboxverify/main.js --checkout <PR worktree> --post <N>`, adding
    `--screen` when you hold a SCREEN grant.
-4. Preflight refuses unless the PR head is HEAD, the tree is clean, and
-   `eve-verify` runs from that worktree and started after its newest tracked
-   file changed. Then `bootstrap.sh --check` must pass and `verify.sh` must be
-   green. Only then does `reset.sh` run.
+4. Preflight refuses unless the machine marker is valid, the world version
+   matches and every declared fixture is published; then unless the PR head
+   is HEAD, the tree is clean, and `eve-verify` runs from that worktree and
+   started after its newest tracked file changed. Then `bootstrap.sh --check`
+   must pass and `verify.sh` must be green. Only then does `reset.sh` run.
 5. `--post` comments the results on the PR, then sets the `devbox/verify`
    status on the head commit, linking the comment.
 6. Re-register `eve-verify` back to the nightly worktree and restart it.
@@ -274,35 +324,8 @@ relay's api journeys (`--phase api`, record `relay`), eve with `--screen`
   changed. It then runs `relay service restart --id eve-verify` and waits up
   to 60 s for port 3100 before verifying.
 
-### Install
-
-Run this from a shell whose `PATH` has `node`, `go` and `git`.
-
-    mkdir -p ~/.local/share/devboxverify ~/Library/Logs/devboxverify
-    cp devboxverify/nightly.js ~/.local/share/devboxverify/
-    sed -e "s|@NODE@|$(command -v node)|" \
-        -e "s|@HOME@|$HOME|g" \
-        -e "s|@PATH@|$PATH|" \
-        -e "s|@RELAY_CHECKOUT@|<relay checkout>|" \
-        -e "s|@EVE_CHECKOUT@|<nightly eve worktree>|" \
-        devboxverify/nightly.plist.template \
-        > ~/Library/LaunchAgents/local.devboxverify.nightly.plist
-    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.devboxverify.nightly.plist
-    launchctl kickstart gui/$(id -u)/local.devboxverify.nightly   # first run, now
-
-Set `EVE_VERIFY_MODEL` in the plist's `EnvironmentVariables` if the verify
-model is not `Chat`. Set `RELAY_BIN` there if relay is not at
-`/Applications/Relay.app/Contents/MacOS/relay`.
-
-**The installed copy is what runs.** launchd runs
-`~/.local/share/devboxverify/nightly.js`, not the repo file. After changing
-`devboxverify/nightly.js`, copy it there again. After changing the template,
-regenerate the plist, then `bootout` and `bootstrap` again.
-
-### Uninstall
-
-    launchctl bootout gui/$(id -u)/local.devboxverify.nightly
-    rm ~/Library/LaunchAgents/local.devboxverify.nightly.plist
+The nightly runner, its launchd job and how to install them live in
+devboxWorld: see its `docs/vm-stack.md`.
 
 ### Where to look
 
@@ -316,7 +339,8 @@ All of these are in `~/Library/Logs/devboxverify/`:
   (UTC timestamp).
 - `runs/<YYYY-MM-DD>-<record>.txt`: that night's full output, every command with
   its exit status, stdout and stderr.
-- `launchd.log`: the job's own output. Look here if nightly.js itself crashed.
+- `launchd.log`: the job's own output. Look here if the nightly runner itself
+  crashed.
 
 ### Reading a night
 

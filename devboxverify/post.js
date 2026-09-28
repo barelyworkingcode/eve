@@ -22,7 +22,7 @@ function statusState(results) {
   return 'success';
 }
 
-function renderComment({ commit, toolCommit, worldSummary, home, results }) {
+function renderComment({ commit, toolCommit, runMs, worldSummary, home, results }) {
   const lines = [
     `### devbox/verify: ${statusState(results)}`,
     '',
@@ -31,6 +31,7 @@ function renderComment({ commit, toolCommit, worldSummary, home, results }) {
     `| Eve commit | \`${commit}\` |`,
     `| World verify | ${worldSummary} |`,
     `| Tool commit | \`${toolCommit}\` |`,
+    `| Run time | ${Math.round(runMs / 1000)} s |`,
     '',
     '| Journey | Result | Detail |',
     '|---|---|---|',
