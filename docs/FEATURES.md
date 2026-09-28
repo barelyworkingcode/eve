@@ -8,7 +8,7 @@ Derived from the code (`routes/`, `ws/`, `public/`, `slash-command-handler.js`,
 `mcp/`) and `docs/`. "Journey" means what a journey in
 `devboxverify/journeys.js` or `devboxverify/journeys-auth.js` actually
 asserts, not what its name suggests.
-Per-journey locators and traps live in [README.md](README.md#feature-map).
+Per-journey locators and traps live in [devboxverify/README.md](../devboxverify/README.md#feature-map).
 
 **Owner gate** marks a step that needs the owner's credential or presence:
 a passkey ceremony, a presence-gated relay action, a tool-permission answer.

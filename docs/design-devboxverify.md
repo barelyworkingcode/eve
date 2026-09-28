@@ -516,7 +516,7 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   proof that journeys ran. Anything else non-zero is BLOCKED.
 - **A10 · Journey table.** A journey is
   `{ id, timeoutMs, areas, fixture?, screen?, knownBug?, run(env) }`.
-  `areas` names the `devboxverify/FEATURES.md` areas it exercises. Journeys
+  `areas` names the `docs/FEATURES.md` areas it exercises. Journeys
   1–9 live in `journeys.js`, the passkey journeys in `journeys-auth.js`,
   exported by name and placed one by one in `journeys.js`'s table; both
   require with no side effects. Shared

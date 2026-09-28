@@ -6,6 +6,10 @@ Vanilla JS, **no bundler, no build step, no modules**: `public/index.html` loads
 
 **See also**: [docs/learned.md](docs/learned.md) (pitfalls/patterns) · [docs/api.md](docs/api.md) (HTTP/WS protocol) · [docs/authentication.md](docs/authentication.md) (security model).
 
+Conventions the global rules name: the **feature map** is
+[`docs/FEATURES.md`](docs/FEATURES.md), and the **verify harness** is
+`devboxverify`. A PR that adds or changes a feature updates the feature map.
+
 ## Security (eve-specific rules)
 
 - **Never read `Host` or `X-Forwarded-For` for authorization.** Both are attacker-controllable off-loopback. The only safe network-layer identity is `req.socket.remoteAddress`. See [docs/security-review-auth-transport.md](docs/security-review-auth-transport.md).
@@ -110,7 +114,7 @@ Rules that make an otherwise-correct patch wrong here.
 - **Script order in `index.html` is load-bearing** (globals, not modules). If you delete a `<script>` tag, make sure nothing later still references its class.
 - **Never weaken or skip a test to go green.** If a test covers code you removed, say so and tighten it rather than deleting the assertion.
 - **Don't reformat or restyle code you aren't otherwise changing.**
-- **Keep the feature map current.** A change a user would notice in a file matched by an area's `code` globs in `devboxverify/FEATURES.md` updates that map (feature row, journey, Areas block) in the same PR. Reviewers check it.
+- **Keep the feature map current.** A change a user would notice in a file matched by an area's `code` globs in `docs/FEATURES.md` updates that map (feature row, journey, Areas block) in the same PR. Reviewers check it.
 - **CRLF files.** `package-lock.json` and five source files are committed with CRLF: `public/tab-manager.js`, `public/file-editor.js`, `public/sidebar-renderer.js`, `routes/index.js`, `ws-handler.js`. `npm install` rewrites the lockfile as LF, and a tool that rewrites a whole file (rather than patching in place) silently converts it to LF. Either one turns a small change into a whole-file diff. Check with `grep -c $'\r' <file>`, and restore with `perl -pi -e 's/\r?\n/\r\n/' <file>`.
 
 ## Gotchas

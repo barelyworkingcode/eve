@@ -398,7 +398,7 @@ function areaJourneys(markdown) {
 
 describe('devboxverify journey table', () => {
   const { journeys } = require('../../devboxverify/journeys');
-  const areas = areaJourneys(fs.readFileSync(path.join(__dirname, '..', '..', 'devboxverify', 'FEATURES.md'), 'utf8'));
+  const areas = areaJourneys(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'FEATURES.md'), 'utf8'));
   const contractIds = [
     'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
     'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'passkey-first-enrol',
