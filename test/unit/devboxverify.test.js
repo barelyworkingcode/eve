@@ -815,6 +815,7 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     ['BLOCKED for an undeclared project', env => env.world.projects.globex, 'BLOCKED', 'undeclared fixture project:globex'],
     ['BLOCKED for an undeclared file', env => env.world.file('acme', 'todo.txt'), 'BLOCKED', 'undeclared fixture file:acme/todo.txt'],
     ['BLOCKED for an undeclared env.projects key', env => env.projects.globex, 'BLOCKED', 'undeclared fixture project:globex'],
+    ['PASS listing only declared env.projects keys', env => Object.keys(env.projects).join(','), 'PASS', 'acme'],
     ['FAIL for any other error', () => { throw new Error('boom'); }, 'FAIL', 'boom'],
   ])('runJourney records %s', async (_label, lookup, state, detail) => {
     const j = { id: 'x', timeoutMs: 5000, areas: ['verify'], fixture: true, needs: ['project:acme'],

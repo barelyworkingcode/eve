@@ -215,7 +215,7 @@ function worldPreflight({ markerFile, isVM, journeys, screen }) {
 // an undeclared key throws as the view does.
 function journeyWorld(world, needs) {
   const view = scoped(world, needs || []);
-  const projects = new Proxy({}, {
+  const projects = new Proxy(view.projects, {
     get(_, key) {
       if (typeof key === 'symbol') return undefined;
       const p = view.projects[key];
