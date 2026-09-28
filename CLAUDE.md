@@ -6,6 +6,10 @@ Vanilla JS, **no bundler, no build step, no modules**: `public/index.html` loads
 
 **See also**: [docs/learned.md](docs/learned.md) (pitfalls/patterns) · [docs/api.md](docs/api.md) (HTTP/WS protocol) · [docs/authentication.md](docs/authentication.md) (security model).
 
+Conventions the global rules name: the **feature map** is
+[`docs/FEATURES.md`](docs/FEATURES.md), and the **verify harness** is
+`devboxverify`. A PR that adds or changes a feature updates the feature map.
+
 ## Security (eve-specific rules)
 
 - **Never read `Host` or `X-Forwarded-For` for authorization.** Both are attacker-controllable off-loopback. The only safe network-layer identity is `req.socket.remoteAddress`. See [docs/security-review-auth-transport.md](docs/security-review-auth-transport.md).
