@@ -92,4 +92,11 @@ test.describe('G10 ⌘K ranking and task runs', () => {
     await expect(page.getByTestId('palette-item').filter({ hasText: 'Quarterly planning' })).toHaveCount(1);
     await expect(page.getByTestId('palette-item').filter({ hasText: 'Nightly run' })).toHaveCount(0);
   });
+
+  test('typing the run\'s name does not offer it as a session either', async ({ page }) => {
+    await page.waitForFunction(() => window.client.state.sessions.size > 0 && window.client.state.tasks.size > 0);
+    await page.keyboard.press('ControlOrMeta+k');
+    await page.getByTestId('palette-input').fill('nightly run');
+    await expect(page.getByTestId('palette-item').filter({ hasText: 'Nightly run' })).toHaveCount(0);
+  });
 });
