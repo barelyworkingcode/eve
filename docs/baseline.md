@@ -66,7 +66,77 @@ failure (`test.fail`) that goes red the moment it is fixed.
 - **Deleting a project asks twice**: a native `confirm()`, then the modal that
   says what is lost (`goals/g12-projects`).
 
+## Detection check
+
+Before the refactor relies on the goal specs, each of the breakages below was
+applied on its own to eve's product code, the unit suite and `test/e2e/goals`
+were run, and the file was restored. A breakage nothing caught was a gap: a
+spec was added or tightened, and the breakage re-run until red. No existing
+assertion was loosened.
+
+38 breakages across Home, palette, sessions, tasks, files, permissions,
+projects and the terminal, plus two re-aimed re-runs (B19b, B20c). First pass: 26
+caught by a goal spec, 4 by the unit suite only (B16, B32, B33, B38) and 8 by
+nothing. Of those 8, five were real gaps (B08, B09, B15, B30, B34), one more
+surfaced on re-run (B11b), and B11, B19 and B20 were mis-aimed or equivalent
+(below). Every real gap is now caught.
+
+| # | Breakage | File | Caught by (first pass) | Gap closed by |
+|---|---|---|---|---|
+| B01 | Morning ends at 09:00 instead of 12:00 | `public/home-screen.js` | `home-screen` (1 red) |  |
+| B02 | Continue list shows 5 rows, not 6 | `public/home-screen.js` | `home-screen` (1 red) |  |
+| B03 | Continue list orders oldest server activity first | `public/home-screen.js` | `g3-reopen-thread`, `home-screen` (2 red) |  |
+| B04 | Home lists task-run sessions as threads | `public/home-screen.js` | `g5-tasks`, `home-screen` (2 red) |  |
+| B05 | Running count counts dormant sessions | `public/home-screen.js` | `g3-reopen-thread` (2 red) |  |
+| B06 | Project chip never shows the running dot | `public/home-screen.js` | `g3-reopen-thread` (1 red) |  |
+| B07 | Session row never shows the running dot | `public/home-screen.js` | `g3-reopen-thread` (1 red) |  |
+| B08 | Home summary always pluralises "projects" | `public/home-screen.js` | **none** | `g12-projects` Delete Project: summary matches `/\b1 project · /` (a substring "1 project" also matched "1 projects") |
+| B09 | Palette ranks the worst match first | `public/dialogs/command-palette.js` | **none** | `g10-find` "typing ranks the best match first" (new) |
+| B10 | Palette has no Sessions group when typing | `public/dialogs/command-palette.js` | `g3-reopen-thread` (1 red) |  |
+| B11 | Palette lists task-run sessions with an empty query | `public/dialogs/command-palette.js` | **none** | equivalent: `_collectSessions` and the empty-query list both drop runs, so one filter alone changes nothing. B11b (the typed-query path) is caught by `g10-find` "typing the run's name…" (new) |
+| B12 | Reopening a thread sends no join_session | `public/app.js` | `g3-reopen-thread`, `g5-tasks` (4 red) |  |
+| B13 | session_joined history is discarded | `public/message-dispatcher.js` | `g12-projects`, `g3-reopen-thread`, `g5-tasks` (5 red) |  |
+| B14 | A project's Sessions list shows only live threads | `public/core/state-store.js` | `g3-reopen-thread` (1 red) |  |
+| B15 | Sidebar Sessions list includes task runs | `public/sidebar/project-panel.js` | **none** | `g5-tasks` "the project's Sessions list does not include the run behind a task" (new) |
+| B16 | GET /api/sessions stops hiding __search: sessions | `routes/index.js` | unit: `routes-index.test.js` |  |
+| B17 | Task create payload drops projectId | `public/dialogs/task-dialog.js` | `g5-tasks` (2 red) |  |
+| B18 | Task create payload drops the prompt | `public/dialogs/task-dialog.js` | `g5-tasks` (2 red) |  |
+| B19 | Task Run Now does not call the API | `public/task-manager.js` | **none** | wrong target: the sidebar calls the API in `project-panel.js`, not `task-manager.js`. Re-run as B19b: caught by `g5-tasks` |
+| B20 | task_completed does not update lastStatus | `public/message-dispatcher.js` | **none** | equivalent: `task_completed` reloads the task list, which overwrites `lastStatus`. Ignoring the whole event (B20c) is caught by `g5-tasks` |
+| B21 | Task delete skips the confirmation | `public/dialogs/task-dialog.js` | `g5-tasks` (1 red) |  |
+| B22 | Task created disabled regardless of the checkbox | `public/dialogs/task-dialog.js` | `g5-tasks` (1 red) |  |
+| B24 | Watcher drops every file-system event | `file-watcher.js` | `g7-files` (3 red) |  |
+| B25 | node_modules no longer ignored by the watcher | `file-watcher.js` | `g7-files` (1 red) |  |
+| B28 | Allow sends approved:false | `public/modal-manager.js` | `g2-g8-chat` (1 red) |  |
+| B29 | Allow All is not remembered for the session | `public/modal-manager.js` | `g2-g8-chat` (1 red) |  |
+| B30 | Queued permission requests are served newest first | `public/modal-manager.js` | **none** | `g2-g8-chat` "several waiting requests are asked in the order they arrived" (new) |
+| B31 | A queued permission is never shown after the first is answered | `public/modal-manager.js` | `g2-g8-chat` (1 red) |  |
+| B32 | project-normalize drops permissionPolicy | `project-normalize.js` | unit: `project-normalize.test.js` |  |
+| B33 | project-normalize drops chatTemplates | `project-normalize.js` | unit: `project-normalize.test.js` |  |
+| B34 | Project dialog omits allowed_models from the save | `public/dialogs/project-dialog.js` | **none** | `g12-projects` "saving an edit sends the project's allowed models back, unchanged" (new) |
+| B35 | Project dialog sends an empty path | `public/dialogs/project-dialog.js` | `g12-projects` (2 red) |  |
+| B36 | Deleting a project leaves its tasks | `public/app.js` | `g12-projects` (1 red) |  |
+| B37 | Terminal input not base64-encoded | `public/terminal-manager.js` | `g4-terminal` (2 red) |  |
+| B38 | Reconnect never marks terminals for re-join | `public/terminal-manager.js` | unit: `terminal-rejoin.test.js` |  |
+| B23 | Editor save sends the wrong message type | `public/file-editor.js` | `g7-files` (1 red) |  |
+| B26 | Dirty editor never shows the external-change banner | `public/file-editor.js` | `g7-files` (1 red) |  |
+| B27 | Clean editor ignores an outside change | `public/file-editor.js` | `g7-files` (1 red) |  |
+| B19b | Sidebar Run Now does not call the API | `public/sidebar/project-panel.js` | `g5-tasks` (2 red) |  |
+| B20c | task_completed events are ignored | `public/message-dispatcher.js` | `g5-tasks` (1 red) |  |
+| B11b | Palette lists task-run sessions when typing | `public/dialogs/command-palette.js` | **none** (found on re-run of B11) | `g10-find` "typing the run's name does not offer it as a session either" (new) |
+
+Notes:
+
+- "Unit" rows (B16, B32, B33, B38) are caught by the unit tier, not by a browser
+  spec; the browser specs do not reach a hidden `__search:` session, relay's
+  dropped project fields, or the terminal re-join path on a relay reconnect.
+  They stay covered by the unit tier.
+- Two breakages were equivalent mutants, not gaps: B11 (a redundant second filter)
+  and B20 (the task list reload after `task_completed` overwrites `lastStatus`).
+- Reproduce: apply one edit, `npx playwright test test/e2e/goals --retries=0`,
+  `npm test`, then `git checkout -- <file>`.
+
 ## Stability
 
-The suite is run ten times in a row on Linux with `--retries=0`; the result is
+The suite is run five times in a row on Linux with `--retries=0` after the detection check; the result is
 recorded in the PR. A spec that needs a retry is fixed, not retried.
