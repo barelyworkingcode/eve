@@ -111,6 +111,8 @@ When using `jest.useFakeTimers()`, you don't need to restore manually — `test/
 
 Rules that make an otherwise-correct patch wrong here.
 
+- **A new call to relay or relayScheduler needs a fake route and a pin in the same PR.** Add the route to `test/integration/fake-relay.js` with relay's real status and body, add its source text to `test/integration/relay-source-pins.test.js`, and cover it in `relay-fidelity.test.js`. The fake is the only relay a cloud session has; a call it does not know answers 404 and a spec that passes against it proves nothing. See [docs/test.md](docs/test.md) and [docs/baseline.md](docs/baseline.md).
+
 - **Script order in `index.html` is load-bearing** (globals, not modules). If you delete a `<script>` tag, make sure nothing later still references its class.
 - **Never weaken or skip a test to go green.** If a test covers code you removed, say so and tighten it rather than deleting the assertion.
 - **Don't reformat or restyle code you aren't otherwise changing.**

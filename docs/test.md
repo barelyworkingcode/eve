@@ -47,6 +47,8 @@ Ubuntu. Differences to know:
   (`startEve({ relayToken })`), `allowed_models` / remote-project refusal, 502/503 on create, a
   `1011 "upstream unreachable"` close, join-gated `permission_response` and `emitToSession`.
 
+**Goals to specs:** [baseline.md](baseline.md) maps each goal in `docs/FEATURES.md` to the specs that prove it in the cloud, what they cannot prove, and the behaviours recorded but not fixed.
+
 ## Layout
 
 ```

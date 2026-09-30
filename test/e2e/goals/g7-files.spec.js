@@ -22,7 +22,7 @@ async function endOfFile(page, text) {
 }
 
 test.describe('G7 files', () => {
-  test('the tree lists the project's files and folders, and a folder expands', async ({ page }) => {
+  test('the tree lists the files and folders of the project, and a folder expands', async ({ page }) => {
     await openAlphaFiles(page);
     for (const entry of ['README.md', 'notes.txt', 'src']) {
       await expect(page.getByTestId(`file-tree-item-/${entry}`)).toContainText(entry);
