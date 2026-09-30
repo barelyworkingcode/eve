@@ -56,7 +56,7 @@ const PINS = [
   ['join of an unknown session', 'internal/sessions/api/ws_session.go', 'sendWSError(c, "session not found: "+req.SessionID)', 'session not found: ${msg.sessionId}'],
   ['session_joined has live', 'internal/sessions/api/ws_session.go', '"live": p != nil && p.Alive(),', 'live: session.live !== false'],
   ['session_joined has protocolVersion', 'internal/sessions/api/ws_session.go', '"protocolVersion": events.ProtocolVersion,', 'protocolVersion: EVENT_PROTOCOL_VERSION'],
-  ['session_joined has history', 'internal/sessions/api/ws_session.go', '"history":         history,', 'history: []'],
+  ['session_joined has history', 'internal/sessions/api/ws_session.go', '"history":         history,', 'history: session.history || []'],
   ['permission response needs a joined connection', 'internal/sessions/api/ws_session.go', 'permission response refused: this connection has not joined session ', 'permission response refused: this connection has not joined session ${sessionId}'],
   ['resume_required carries message', 'internal/sessions/api/ws_session.go', '"message":   err.Error(),', "code: 'resume_required', sessionId, message"],
   ['project view has the effective mode', 'cmd/relay/project_dto.go', 'Mode             config.ProjectMode         `json:"mode"`', 'mode: effectiveMode(proj)'],
