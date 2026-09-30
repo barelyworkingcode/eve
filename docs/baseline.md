@@ -44,6 +44,8 @@ the goal-level set, the rest predate it.
 - `test/e2e/goals/fixture.js` gives a spec two projects with files and lets it
   seed sessions, tasks, terminals and templates on the fake before the page opens.
 
+Screenshots of the states these specs drive are in [baseline/](baseline/) (desktop, Chromium, the fake relay).
+
 ## Known behaviour recorded, not fixed
 
 Found while writing the specs. Each is pinned as it stands, or as an expected
