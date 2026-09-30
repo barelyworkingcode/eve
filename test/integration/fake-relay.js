@@ -788,6 +788,7 @@ function createFakeRelay({ token = null } = {}) {
     // An id a strictJoin() test may join although no POST created it.
     allowJoin: (sessionId) => { seededJoinable.add(sessionId); },
     getProject: (id) => projects.get(id),
+    listProjects: () => Object.fromEntries(projects),
     listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
     scriptClearSession: (sessionId, frames) => { clearSessionScripts.set(sessionId, frames); },
