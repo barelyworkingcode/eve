@@ -44,6 +44,9 @@ describe('voice ws arms (deterministic failure paths, daemons unreachable)', () 
   });
 
   it('tts_speak_cancel replies with nothing at all', async () => {
+    // relayScheduler sends task_status the moment eve's /ws/tasks opens and eve
+    // forwards it; let that settle so only a reply to the cancel could arrive.
+    await ws.waitFor((f) => f.type === 'task_status');
     const from = ws.mark();
     ws.send({ type: 'tts_speak_cancel' });
     // A synchronous counter bump with no reply frame — give it a beat to

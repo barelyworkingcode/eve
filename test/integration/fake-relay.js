@@ -128,6 +128,104 @@ function createFakeRelay({ token = null } = {}) {
   // null => POST /api/tasks falls through to the unhandled-route 404 below.
   let taskCreateFailure = null; // { status, body }
 
+  // Go's time.RFC3339 in UTC: whole seconds, `Z`.
+  const ts = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  // relayScheduler state. taskId -> Task (task.go); taskId -> [Execution], newest first.
+  const tasks = new Map();
+  const histories = new Map();
+  // 'auto': a run completes on its own (success, response 'done'); 'hold': it stays
+  // running until finishTask(). Either way the lifecycle frames are the scheduler's.
+  let taskRunMode = 'auto';
+  const SCHEDULE_TYPES = new Set(['daily', 'hourly', 'interval', 'weekly', 'cron', 'once', 'on_demand']);
+
+  // api.go validateTask / schedule.go ValidateSchedule, messages verbatim.
+  const validateTask = (t) => {
+    if (!t || typeof t !== 'object') return 'invalid JSON: unexpected input';
+    if (!t.name) return 'name is required';
+    if (!t.projectId) return 'projectId is required';
+    if (!t.schedule || typeof t.schedule !== 'object') return 'schedule is required';
+    if (!SCHEDULE_TYPES.has(t.schedule.type)) return `invalid schedule: unknown schedule type ${JSON.stringify(t.schedule.type)}`;
+    if (t.schedule.type === 'once' && !(Date.parse(t.schedule.at) > Date.now())) {
+      return `invalid schedule: once schedule 'at' is in the past: ${t.schedule.at}`;
+    }
+    if (t.sessionType === 'pty') {
+      if (!t.templateId) return 'templateId is required for PTY tasks';
+    } else if (!t.sessionType || t.sessionType === 'headless') {
+      if (!t.prompt) return 'prompt is required for chat tasks';
+      if (!String(t.model || '').trim()) return `task ${JSON.stringify(t.name)}: model is required for chat tasks`;
+    } else {
+      return `invalid sessionType ${JSON.stringify(t.sessionType)} (expected "headless" or "pty")`;
+    }
+    return null;
+  };
+
+  // task.go taskView + MarshalJSON: the derived `view` on every stored task.
+  const viewOf = (t, runId) => {
+    const kind = t.sessionType === 'pty' ? 'readonly' : 'interactive';
+    if (runId) return { kind, runId };
+    const stored = t.sessionType === 'pty' ? t.lastTerminalId : t.lastSessionId;
+    return stored ? { kind, runId: stored, hasLastRun: true } : { kind };
+  };
+  const taskWire = (t) => ({ ...t, view: viewOf(t) });
+
+  const broadcastTask = (type, task, runId, extra = {}) => {
+    const msg = { type, taskId: task.id, projectId: task.projectId, taskName: task.name, view: viewOf(task, runId), ...extra };
+    for (const ws of schedulerWs) ws.send(JSON.stringify(msg));
+  };
+
+  const startTaskRun = (task) => {
+    const runId = task.sessionType === 'pty' ? `term-${++seq}` : `sess-${++seq}`;
+    const startedAt = ts();
+    task.lastStatus = 'running';
+    task.lastRun = startedAt;
+    const exec = { taskId: task.id, taskName: task.name, projectId: task.projectId, startedAt, status: 'running' };
+    if (task.sessionType === 'pty') exec.terminalId = runId; else exec.sessionId = runId;
+    histories.set(task.id, [exec, ...(histories.get(task.id) || [])]);
+    broadcastTask('task_started', task, runId);
+    if (taskRunMode === 'auto') setTimeout(() => finishTask(task.id, { status: 'success', response: 'done' }), 0);
+    return exec;
+  };
+
+  // A run ends: the record, the task's run state and the lifecycle frame
+  // (scheduler.go broadcastTaskEvent: completed carries status; error carries error + status).
+  const finishTask = (id, { status = 'success', response = '', error = '', exitCode } = {}) => {
+    const task = tasks.get(id);
+    const exec = (histories.get(id) || []).find((e) => e.status === 'running');
+    if (!task || !exec) return false;
+    exec.status = status;
+    exec.completedAt = ts();
+    if (response) exec.response = response;
+    if (error) exec.error = error;
+    if (task.sessionType === 'pty' && exitCode !== undefined) exec.exitCode = exitCode;
+    task.lastStatus = status;
+    const runId = exec.terminalId || exec.sessionId;
+    if (exec.sessionId) task.lastSessionId = exec.sessionId;
+    if (exec.terminalId) task.lastTerminalId = exec.terminalId;
+    if (status === 'success') broadcastTask('task_completed', task, runId, { status });
+    else broadcastTask('task_error', task, runId, { error, status });
+    return true;
+  };
+
+  // project_dto.go projectToView: the list/get/create/update body. Mode is the
+  // EFFECTIVE mode ("both" when unset); default_for lists the modes this project
+  // is the valid default of (project_mode.go DefaultProjectFor); the allow-lists
+  // and created_at are always present.
+  const defaultProjects = { home: '', work: '' };
+  const effectiveMode = (proj) => (proj.mode === 'home' || proj.mode === 'work' ? proj.mode : 'both');
+  const validDefault = (mode) => {
+    const proj = projects.get(defaultProjects[mode]);
+    return proj && !proj.host_id && [mode, 'both'].includes(effectiveMode(proj)) ? proj.id : '';
+  };
+  const projectView = (proj) => {
+    const out = {
+      allowed_mcp_ids: [], allowed_models: [], allowed_templates: [], created_at: new Date(0).toISOString(),
+      ...proj, mode: effectiveMode(proj),
+    };
+    const defaultFor = ['home', 'work'].filter((m) => validDefault(m) === proj.id);
+    if (defaultFor.length) out.default_for = defaultFor; else delete out.default_for;
+    return out;
+  };
+
   const toSummary = (sess) => {
     const out = {
       id: sess.sessionId,
@@ -188,27 +286,45 @@ function createFakeRelay({ token = null } = {}) {
       // so relative paths get a 400, not a 201.
       const isAbsPath = (pth) => typeof pth === 'string' && pth.startsWith('/');
       const absPathError = (pth) => send(400, { error: `project path must be an absolute path: ${JSON.stringify(pth ?? '')}` });
-      if (p === '/api/projects' && req.method === 'GET') return send(200, [...projects.values()]);
+      if (p === '/api/projects' && req.method === 'GET') return send(200, [...projects.values()].map(projectView));
       if (p === '/api/projects' && req.method === 'POST') {
         if (!isAbsPath(parsed.path)) return absPathError(parsed.path);
         const id = parsed.id || `proj-${++seq}`;
         const proj = { ...parsed, id };
         projects.set(id, proj);
-        return send(201, proj);
+        return send(201, projectView(proj));
       }
       const pm = p.match(/^\/api\/projects\/([^/]+)$/);
       if (pm) {
         const id = pm[1];
         // project_routes.go: lowercase "project not found" for GET, PUT and DELETE.
         if (!projects.has(id) && ['GET', 'PUT', 'DELETE'].includes(req.method)) return send(404, { error: 'project not found' });
-        if (req.method === 'GET') return send(200, projects.get(id));
+        if (req.method === 'GET') return send(200, projectView(projects.get(id)));
         if (req.method === 'PUT') {
           if (parsed.path !== undefined && !isAbsPath(parsed.path)) return absPathError(parsed.path);
           const proj = { ...(projects.get(id) || {}), ...parsed, id };
           projects.set(id, proj);
-          return send(200, proj);
+          return send(200, projectView(proj));
         }
         if (req.method === 'DELETE') { projects.delete(id); return send(204); }
+      }
+
+      // PUT /api/default_project/{mode} (project_routes.go): "" clears; a refusal is 400
+      // with config.SetDefaultProject's message.
+      const dm = p.match(/^\/api\/default_project\/([^/]+)$/);
+      if (dm && req.method === 'PUT') {
+        const mode = decodeURIComponent(dm[1]);
+        if (!parsed || typeof parsed.project_id !== 'string') return send(400, { error: 'project_id is required; send "" to clear the default' });
+        const refuse = (msg) => send(400, { error: `invalid default project: ${msg}` });
+        if (mode !== 'home' && mode !== 'work') return refuse(`mode "${mode}" has no default project; want home or work`);
+        if (parsed.project_id !== '') {
+          const proj = projects.get(parsed.project_id);
+          if (!proj) return refuse(`no project with id "${parsed.project_id}"`);
+          if (proj.host_id) return refuse(`project "${proj.id}" is an access profile and cannot be a default project`);
+          if (![mode, 'both'].includes(effectiveMode(proj))) return refuse(`project "${proj.id}" is ${effectiveMode(proj)}-only and cannot be the default for ${mode}`);
+        }
+        defaultProjects[mode] = parsed.project_id;
+        return send(200, { home: validDefault('home'), work: validDefault('work') });
       }
 
       // SSH hosts (../relay/docs/ssh-hosts.md). ssh_argv here is whatever the
@@ -361,13 +477,60 @@ function createFakeRelay({ token = null } = {}) {
       // "no templates available"/pty-card-absent branches are what a test
       // sees unless it seeds otherwise.
       if (p === '/api/terminal/templates' && req.method === 'GET') return send(200, []);
-      if (p === '/api/tasks' && req.method === 'GET') return send(200, []);
+      // relayScheduler (../relayScheduler api.go), reached through relay's
+      // reverse proxy, which adds nothing. Shapes: task.go (Task, Execution, TaskView).
       if (p === '/api/tasks' && req.method === 'POST' && taskCreateFailure) {
         return send(taskCreateFailure.status, taskCreateFailure.body);
       }
-      // GET /api/tasks/:id is deliberately left unimplemented (falls through
-      // to the 404 below): it must 404, not return [] — a wrong shape, since
-      // the real endpoint returns one object.
+      if (p === '/api/tasks' && req.method === 'GET') {
+        const pid = url.searchParams.get('projectId');
+        return send(200, [...tasks.values()].filter((t) => !pid || t.projectId === pid).map(taskWire));
+      }
+      if (p === '/api/tasks' && req.method === 'POST') {
+        const err = validateTask(parsed);
+        if (err) return send(400, { error: err });
+        const now = ts();
+        const task = { enabled: false, catchUp: false, ...parsed, id: `task-${++seq}`, createdAt: now, updatedAt: now };
+        tasks.set(task.id, task);
+        return send(201, taskWire(task));
+      }
+      const byProject = p.match(/^\/api\/tasks\/by-project\/([^/]+)$/);
+      if (byProject && req.method === 'DELETE') {
+        let count = 0;
+        for (const [id, t] of [...tasks]) if (t.projectId === decodeURIComponent(byProject[1])) { tasks.delete(id); histories.delete(id); count++; }
+        return send(200, { deleted: count });
+      }
+      const tm = p.match(/^\/api\/tasks\/([^/]+)(\/history|\/run)?$/);
+      if (tm) {
+        const id = tm[1];
+        const task = tasks.get(id);
+        if (!tm[2] && req.method === 'GET') return task ? send(200, taskWire(task)) : send(404, { error: 'task not found' });
+        if (!tm[2] && req.method === 'PUT') {
+          const err = validateTask(parsed);
+          if (err) return send(400, { error: err });
+          if (!task) return send(404, { error: 'task not found' });
+          // Clients send definitions, not run state: the stored run state survives.
+          const keep = {};
+          for (const k of ['lastRun', 'lastStatus', 'lastSessionId', 'lastTerminalId']) if (!parsed[k]) keep[k] = task[k];
+          const updated = { ...parsed, ...keep, id, createdAt: task.createdAt, updatedAt: ts() };
+          tasks.set(id, updated);
+          return send(200, taskWire(updated));
+        }
+        if (!tm[2] && req.method === 'DELETE') {
+          if (!task) return send(404, { error: 'task not found' });
+          tasks.delete(id); histories.delete(id);
+          return send(200, { deleted: true });
+        }
+        if (tm[2] === '/history' && req.method === 'GET') {
+          return task ? send(200, histories.get(id) || []) : send(404, { error: 'task not found' });
+        }
+        if (tm[2] === '/run' && req.method === 'POST') {
+          if (!task) return send(404, { error: 'task not found' });
+          if (task.lastStatus === 'running') return send(409, { error: 'task is already running' });
+          startTaskRun(task);
+          return send(200, { success: true, message: 'Task execution started' });
+        }
+      }
 
       if (p === '/api/eve/passkey-enrolment' && req.method === 'GET') {
         const open = !!eveEnrolment && Date.parse(eveEnrolment.expires) > Date.now();
@@ -457,6 +620,13 @@ function createFakeRelay({ token = null } = {}) {
     const isScheduler = (req.url || '').startsWith('/ws/tasks');
     (isScheduler ? schedulerWs : relayWs).add(ws);
     if (!isScheduler) relaySocketIds.set(ws, ++relaySocketSeq);
+    // wshandler.go: a scheduler client is sent task_status at once. `running`
+    // is JSON null (a nil Go slice) when nothing runs.
+    if (isScheduler) {
+      const running = [...tasks.values()].filter((t) => t.lastStatus === 'running')
+        .map((t) => ({ taskId: t.id, projectId: t.projectId, taskName: t.name, view: viewOf(t) }));
+      ws.send(JSON.stringify({ type: 'task_status', running: running.length ? running : null }));
+    }
     (isScheduler ? schedulerResolvers : relayResolvers).splice(0).forEach((r) => r());
 
     ws.on('message', (data) => {
@@ -538,6 +708,15 @@ function createFakeRelay({ token = null } = {}) {
     clearTerminalCreateFail: () => { terminalCreateFailStatus = null; },
     failResumeWith: (status) => { resumeFailStatus = status; },
     clearResumeFail: () => { resumeFailStatus = null; },
+    // Tasks as relayScheduler holds them. seedTask stores a definition as given
+    // (id required); holdTaskRuns() keeps runs `running` until finishTask().
+    // Test-side PUT /api/default_project/{mode}, without the validation.
+    setDefaultProject: (mode, projectId) => { defaultProjects[mode] = projectId; },
+    seedTask: (task) => { tasks.set(task.id, { enabled: false, catchUp: false, createdAt: ts(), ...task }); },
+    listTasks: () => [...tasks.values()].map(taskWire),
+    taskHistory: (id) => histories.get(id) || [],
+    holdTaskRuns: (on = true) => { taskRunMode = on ? 'hold' : 'auto'; },
+    finishTask,
     failTaskCreateWith: (status, body) => { taskCreateFailure = { status, body }; },
     // Test-side equivalent of the tray's "Allow Eve Passkey Enrolment…" / `relay eve enrol`.
     openEveEnrolment: (ttlMs = 5 * 60 * 1000) => { eveEnrolment = { expires: new Date(Date.now() + ttlMs).toISOString() }; },

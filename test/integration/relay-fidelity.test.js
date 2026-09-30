@@ -159,6 +159,174 @@ describe('fake relay answers as relay does (direct)', () => {
   });
 });
 
+describe('projects as relay serves them (project_dto.go, project_routes.go)', () => {
+  let relay;
+  let base;
+  beforeAll(async () => {
+    relay = createFakeRelay();
+    base = `http://127.0.0.1:${await relay.listen()}`;
+    relay.addProject({ id: 'a', name: 'Alpha', path: '/tmp/a' });
+    relay.addProject({ id: 'w', name: 'Work only', path: '/tmp/w', mode: 'work' });
+    relay.addHost({ id: 'h', name: 'box' });
+    relay.addProject({ id: 'r', name: 'Remote', path: '/srv/r', host_id: 'h' });
+  });
+  afterAll(async () => { await relay.close(); });
+  const put = (mode, body) => fetch(`${base}/api/default_project/${mode}`, { method: 'PUT', ...json(body) });
+
+  it('every project carries the effective mode ("both" when unset) and the always-present lists', async () => {
+    const list = await (await fetch(`${base}/api/projects`)).json();
+    const alpha = list.find((x) => x.id === 'a');
+    expect(alpha).toMatchObject({ mode: 'both', allowed_mcp_ids: [], allowed_models: [], allowed_templates: [] });
+    expect(alpha).toHaveProperty('created_at');
+    expect(alpha).not.toHaveProperty('default_for');
+    expect(list.find((x) => x.id === 'w').mode).toBe('work');
+    expect(await (await fetch(`${base}/api/projects/a`)).json()).toEqual(alpha);
+  });
+
+  it('PUT /api/default_project/{mode} sets, reports and clears a default, and default_for follows', async () => {
+    expect(await (await put('work', { project_id: 'w' })).json()).toEqual({ home: '', work: 'w' });
+    expect(await (await put('home', { project_id: 'a' })).json()).toEqual({ home: 'a', work: 'w' });
+    const list = await (await fetch(`${base}/api/projects`)).json();
+    expect(list.find((x) => x.id === 'w').default_for).toEqual(['work']);
+    expect(list.find((x) => x.id === 'a').default_for).toEqual(['home']);
+    expect(await (await put('work', { project_id: '' })).json()).toEqual({ home: 'a', work: '' });
+    expect((await (await fetch(`${base}/api/projects/w`)).json())).not.toHaveProperty('default_for');
+  });
+
+  it('refuses what config.SetDefaultProject refuses, with 400 and its message', async () => {
+    const cases = [
+      [put('both', { project_id: 'a' }), 'invalid default project: mode "both" has no default project; want home or work'],
+      [put('work', { project_id: 'nope' }), 'invalid default project: no project with id "nope"'],
+      [put('work', { project_id: 'r' }), 'invalid default project: project "r" is an access profile and cannot be a default project'],
+      [put('home', { project_id: 'w' }), 'invalid default project: project "w" is work-only and cannot be the default for home'],
+      [put('home', {}), 'project_id is required; send "" to clear the default'],
+    ];
+    for (const [pending, message] of cases) {
+      const res = await pending;
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: message });
+    }
+  });
+});
+
+describe('tasks as relayScheduler serves them (api.go, task.go, scheduler.go)', () => {
+  let relay;
+  let base;
+  beforeAll(async () => {
+    relay = createFakeRelay();
+    base = `http://127.0.0.1:${await relay.listen()}`;
+  });
+  afterAll(async () => { await relay.close(); });
+  const chat = (over = {}) => ({ name: 'Nightly', projectId: 'p1', prompt: 'Say hello.', model: 'm', schedule: { type: 'on_demand' }, enabled: true, ...over });
+  const post = (body) => fetch(`${base}/api/tasks`, { method: 'POST', ...json(body) });
+  const until = async (pred) => { for (let i = 0; i < 100 && !pred(); i++) await new Promise((r) => setTimeout(r, 10)); };
+
+  it.each([
+    [{ name: '' }, 'name is required'],
+    [{ projectId: '' }, 'projectId is required'],
+    [{ schedule: undefined }, 'schedule is required'],
+    [{ schedule: { type: 'once', at: '2001-01-01T00:00:00Z' } }, "invalid schedule: once schedule 'at' is in the past: 2001-01-01T00:00:00Z"],
+    [{ prompt: '' }, 'prompt is required for chat tasks'],
+    [{ model: '  ' }, 'task "Nightly": model is required for chat tasks'],
+    [{ sessionType: 'pty' }, 'templateId is required for PTY tasks'],
+    [{ sessionType: 'other' }, 'invalid sessionType "other" (expected "headless" or "pty")'],
+  ])('create refuses %j with 400 "%s"', async (over, message) => {
+    const res = await post(chat(over));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: message });
+  });
+
+  it('create is 201 with id, RFC 3339 times and a derived view; list filters by projectId', async () => {
+    const res = await post(chat());
+    expect(res.status).toBe(201);
+    const task = await res.json();
+    expect(task).toMatchObject({ name: 'Nightly', projectId: 'p1', enabled: true, catchUp: false, view: { kind: 'interactive' } });
+    expect(task.id).toEqual(expect.any(String));
+    expect(task.createdAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    expect(task.view).not.toHaveProperty('hasLastRun');
+    await post(chat({ projectId: 'p2', name: 'Other' }));
+    expect((await (await fetch(`${base}/api/tasks?projectId=p1`)).json()).map((t) => t.name)).toEqual(['Nightly']);
+    expect((await (await fetch(`${base}/api/tasks`)).json()).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('get / put / delete answer 404 {"error":"task not found"} for an unknown id', async () => {
+    for (const [method, suffix, body] of [['GET', '', null], ['PUT', '', chat()], ['DELETE', '', null], ['GET', '/history', null], ['POST', '/run', null]]) {
+      const res = await fetch(`${base}/api/tasks/ghost${suffix}`, { method, ...(body ? json(body) : {}) });
+      expect(res.status).toBe(404);
+      expect((await res.json()).error).toMatch(/task not found/);
+    }
+  });
+
+  it('a pty task reports a readonly view', async () => {
+    const task = await (await post(chat({ sessionType: 'pty', templateId: 'shell', prompt: '', model: '' }))).json();
+    expect(task.view).toEqual({ kind: 'readonly' });
+  });
+
+  it('run: 200 started, then task_started and task_completed on /ws/tasks, history newest first, run state survives a PUT', async () => {
+    const task = await (await post(chat({ name: 'Runner' }))).json();
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws/tasks`);
+    const frames = [];
+    ws.on('message', (d) => frames.push(JSON.parse(d.toString())));
+    await new Promise((r) => ws.once('open', r));
+    await until(() => frames.length > 0);
+    expect(frames[0]).toEqual({ type: 'task_status', running: null });
+
+    const run = await fetch(`${base}/api/tasks/${task.id}/run`, { method: 'POST' });
+    expect(run.status).toBe(200);
+    expect(await run.json()).toEqual({ success: true, message: 'Task execution started' });
+    await until(() => frames.some((f) => f.type === 'task_completed'));
+    const started = frames.find((f) => f.type === 'task_started');
+    const done = frames.find((f) => f.type === 'task_completed');
+    expect(started).toMatchObject({ taskId: task.id, projectId: 'p1', taskName: 'Runner', view: { kind: 'interactive', runId: expect.any(String) } });
+    expect(done).toMatchObject({ taskId: task.id, status: 'success', view: { runId: started.view.runId } });
+
+    const history = await (await fetch(`${base}/api/tasks/${task.id}/history`)).json();
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ taskId: task.id, taskName: 'Runner', projectId: 'p1', status: 'success', sessionId: started.view.runId });
+    expect(history[0].completedAt).toBeDefined();
+
+    const stored = await (await fetch(`${base}/api/tasks/${task.id}`)).json();
+    expect(stored).toMatchObject({ lastStatus: 'success', lastSessionId: started.view.runId, view: { hasLastRun: true, runId: started.view.runId } });
+    const updated = await (await fetch(`${base}/api/tasks/${task.id}`, { method: 'PUT', ...json(chat({ name: 'Renamed' })) })).json();
+    expect(updated).toMatchObject({ name: 'Renamed', lastStatus: 'success', lastSessionId: started.view.runId });
+    ws.close();
+  });
+
+  it('a held run is running (409 on a second run, listed in task_status) until it fails with task_error', async () => {
+    relay.holdTaskRuns();
+    try {
+      const task = await (await post(chat({ name: 'Slow' }))).json();
+      expect((await fetch(`${base}/api/tasks/${task.id}/run`, { method: 'POST' })).status).toBe(200);
+      const again = await fetch(`${base}/api/tasks/${task.id}/run`, { method: 'POST' });
+      expect(again.status).toBe(409);
+      expect(await again.json()).toEqual({ error: 'task is already running' });
+
+      const ws = new WebSocket(`${base.replace('http', 'ws')}/ws/tasks`);
+      const frames = [];
+      ws.on('message', (d) => frames.push(JSON.parse(d.toString())));
+      await new Promise((r) => ws.once('open', r));
+      await until(() => frames.length > 0);
+      expect(frames[0].running).toEqual([expect.objectContaining({ taskId: task.id, taskName: 'Slow', projectId: 'p1' })]);
+
+      relay.finishTask(task.id, { status: 'error', error: 'boom' });
+      await until(() => frames.some((f) => f.type === 'task_error'));
+      expect(frames.find((f) => f.type === 'task_error')).toMatchObject({ taskId: task.id, status: 'error', error: 'boom' });
+      expect(relay.taskHistory(task.id)[0]).toMatchObject({ status: 'error', error: 'boom' });
+      ws.close();
+    } finally { relay.holdTaskRuns(false); }
+  });
+
+  it('delete is 200 {"deleted":true}; by-project reports the count', async () => {
+    const a = await (await post(chat({ projectId: 'gone', name: 'A' }))).json();
+    await post(chat({ projectId: 'gone', name: 'B' }));
+    const del = await fetch(`${base}/api/tasks/${a.id}`, { method: 'DELETE' });
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ deleted: true });
+    const bulk = await fetch(`${base}/api/tasks/by-project/gone`, { method: 'DELETE' });
+    expect(await bulk.json()).toEqual({ deleted: 1 });
+  });
+});
+
 describe('frame shapes (ws_session.go)', () => {
   let relay;
   let ws;
