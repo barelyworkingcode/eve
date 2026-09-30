@@ -35,7 +35,23 @@ const EVE_TO_RELAY_TYPES = new Set([
 const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error', 'process_exited']);
 
 const relayFrames = {
-  sessionJoined: ({ sessionId, directory = '/fake' }) => ({ type: 'session_joined', sessionId, directory }),
+  // ws_session.go handleJoinSession: the full frame. Defaults describe a live,
+  // empty, console session; `session` (the fake's record) fills what it knows.
+  sessionJoined: ({ sessionId, directory = '/fake', session = {} }) => ({
+    type: 'session_joined',
+    sessionId,
+    projectId: session.projectId || '',
+    directory,
+    model: session.model || 'fake-model',
+    name: session.name || '',
+    folder: session.folder || '',
+    history: [],
+    stats: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+    headless: false,
+    protocolVersion: EVENT_PROTOCOL_VERSION,
+    host: session.host || null,
+    live: session.live !== false,
+  }),
 
   // Assistant text arrives as deltas, full message blocks, or content_blocks
   // (provider-dependent); every event also carries `v`. Confirmed against the
@@ -70,9 +86,9 @@ const relayFrames = {
   processExited: ({ sessionId } = {}) => ({ type: 'process_exited', sessionId }),
   // SH-6 / C11's distinct, typed refusal for a send_message against a
   // dormant session (relay internal/sessions/api/ws_session.go
-  // sendResumeRequired) — deliberately no `message` field, unlike a normal
-  // error frame.
-  resumeRequired: ({ sessionId }) => ({ type: 'error', code: 'resume_required', sessionId }),
+  // sendResumeRequired). Always carries `message` (the error text, for the
+  // user to read, never for the client to branch on) alongside `code`.
+  resumeRequired: ({ sessionId, message = 'session is dormant; resume it first' }) => ({ type: 'error', code: 'resume_required', sessionId, message }),
 
   // Control frames eve forwards verbatim. Field names verified against the
   // real relayLLM source, not guessed — earlier guesses (`tool`/`input`, raw
@@ -120,10 +136,11 @@ function validateRelayFrame(frame) {
   } else if (frame.type === 'process_exited') {
     if (!('sessionId' in frame)) errors.push('process_exited: missing sessionId');
   } else if (frame.type === 'error') {
-    // resume_required is a distinct, typed refusal with no `message` field
-    // (relay ws_session.go sendResumeRequired) — every other error carries one.
+    // resume_required is a distinct, typed refusal (relay ws_session.go
+    // sendResumeRequired) that carries both a sessionId and a message.
     if (frame.code === 'resume_required') {
       if (typeof frame.sessionId !== 'string') errors.push('error(resume_required): missing sessionId');
+      if (typeof frame.message !== 'string') errors.push('error(resume_required): missing/invalid message');
     } else if (typeof frame.message !== 'string') {
       errors.push('error: missing/invalid message');
     }

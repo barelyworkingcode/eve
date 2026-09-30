@@ -13,6 +13,7 @@ describe('relay protocol contract', () => {
       ['message_complete', relayFrames.messageComplete({ sessionId: 's1' })],
       ['error', relayFrames.error({ message: 'x' })],
       ['resume_required', relayFrames.resumeRequired({ sessionId: 's1' })],
+      ['session_joined (full frame)', relayFrames.sessionJoined({ sessionId: 's1' })],
       ['process_exited', relayFrames.processExited({ sessionId: 's1' })],
     ];
     it.each(cases)('%s passes validateRelayFrame', (_label, frame) => {
@@ -46,9 +47,10 @@ describe('relay protocol contract', () => {
       expect(validateRelayFrame({ type: 'process_exited' }).ok).toBe(false);
       expect(validateRelayFrame({ type: 'process_exited', sessionId: 's1' }).ok).toBe(true);
     });
-    it('rejects resume_required missing sessionId, and does not require a message field', () => {
-      expect(validateRelayFrame({ type: 'error', code: 'resume_required' }).ok).toBe(false);
-      expect(validateRelayFrame({ type: 'error', code: 'resume_required', sessionId: 's1' }).ok).toBe(true);
+    it('rejects resume_required missing sessionId or message (relay always sends both)', () => {
+      expect(validateRelayFrame({ type: 'error', code: 'resume_required', message: 'm' }).ok).toBe(false);
+      expect(validateRelayFrame({ type: 'error', code: 'resume_required', sessionId: 's1' }).ok).toBe(false);
+      expect(validateRelayFrame({ type: 'error', code: 'resume_required', sessionId: 's1', message: 'm' }).ok).toBe(true);
     });
   });
 

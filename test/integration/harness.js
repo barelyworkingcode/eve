@@ -86,8 +86,11 @@ function makeWsClient(wsUrl) {
   };
 }
 
-async function startEve({ projects = [], hosts = [], models, env: envOverride = {}, seedDataDir } = {}) {
-  const relay = createFakeRelay();
+// relayToken: the bearer the fake demands (null = no auth). The harness hands
+// eve RELAY_FRONTEND_TOKEN=test-token, so 'test-token' is the matching value and
+// anything else (or an env override) makes eve's calls 401, as at a real relay.
+async function startEve({ projects = [], hosts = [], models, env: envOverride = {}, seedDataDir, relayToken = null } = {}) {
+  const relay = createFakeRelay({ token: relayToken });
   const relayPort = await relay.listen();
   if (models !== undefined) relay.setModels(models);
   for (const h of hosts) relay.addHost(h);

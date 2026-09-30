@@ -1,6 +1,22 @@
 /**
  * Fake relay — an in-process contract double for relay's frontend, used by
  * the integration harness. No real relay / relayLLM / LLM involved.
+ *
+ * Pinned to relay's source (../relay, macOS-only so it cannot run where this
+ * suite runs in the cloud), not to a running relay. Each shape below carries
+ * the relay file it was read from; relay-source-pins.test.js re-reads those
+ * files when the checkout is present and fails when relay has moved. The
+ * files, all under ../relay:
+ *   cmd/relay/frontend_server.go          auth (401), route layout
+ *   cmd/relay/frontend_dispatcher.go      unmatched paths, upstream WS close 1011
+ *   cmd/relay/frontend_model_guard.go     POST /api/sessions refusals
+ *   cmd/relay/project_routes.go           projects: 204 / 404 bodies
+ *   cmd/relay/host_routes.go              hosts: 404 / 409 bodies
+ *   cmd/relay/persistent_session_routes.go
+ *   internal/sessions/api/http_session.go  session delete (204), list
+ *   internal/sessions/api/http_terminal.go terminal log
+ *   internal/sessions/api/ws_session.go    join / permission / resume frames
+ *   internal/sessions/session/manager.go   session.Summary (GET /api/sessions)
  */
 const http = require('http');
 const { WebSocketServer } = require('ws');
@@ -36,12 +52,18 @@ function stampFrame(f, sessionId) {
   return out;
 }
 
-function createFakeRelay() {
+function createFakeRelay({ token = null } = {}) {
+  // null => no auth, as before. A string => every HTTP request and WS upgrade
+  // must carry `Authorization: Bearer <token>`; anything else is relay's
+  // frontendCredentialAuth answer (frontend_server.go): a text/plain 401
+  // "unauthorized", identical for an absent, malformed and wrong token.
+  let requiredToken = token;
   const projects = new Map();
   const hosts = new Map();
   const sessions = new Map();
   const sessionScripts = new Map();
   const requests = [];
+  const rejectedRequests = [];
   const inbound = [];
   const inboundWaiters = [];
   const relayWs = new Set();
@@ -75,6 +97,25 @@ function createFakeRelay() {
   // Session ids whose join_session gets relay's "not found" reply (failJoinWith()).
   const failedJoins = new Set();
   const sessionCreates = [];
+  // join_session for an id relay does not hold is an error frame. Off by default
+  // so callers that join an id they never created keep working; strictJoin() turns it on.
+  let strictJoin = false;
+  const seededJoinable = new Set();
+  // null => normal create. A test forces relay's non-2xx create answers: the
+  // model guard's 403/400/413, or a launch failure's 502/503
+  // (frontend_model_guard.go; session_routes.go). { status, body }.
+  let sessionCreateFailure = null;
+  // projectId -> [{ name, template_id, n, created, attached, attached_here }]
+  // and projectId -> { status, error }: relay's PersistentSessionOps, whose
+  // backing store is the host's own `tmux ls`.
+  const persistentSessions = new Map();
+  const persistentFailures = new Map();
+  // sessionId -> Set of relay socket ids that joined it (relay's sh.viewers /
+  // sh.bound). Delivery and permission_response scoping read this.
+  const joined = new Map();
+  // permissionId -> sessionId for permission_request frames relay sent and
+  // nobody has answered yet (relay's perms.PendingSessionID).
+  const pendingPermissions = new Map();
   const terminals = new Map();
   // Mirrors relay's own handleClearSession (ws_session.go), which — like
   // handleSendMessage — can answer a dormant session with resume_required
@@ -87,6 +128,28 @@ function createFakeRelay() {
   // null => POST /api/tasks falls through to the unhandled-route 404 below.
   let taskCreateFailure = null; // { status, body }
 
+  const toSummary = (sess) => {
+    const out = {
+      id: sess.sessionId,
+      projectId: sess.projectId || '',
+      name: sess.name || '',
+      directory: sess.directory,
+      model: sess.model,
+      live: sess.live !== false,
+      createdAt: sess.createdAt || new Date(0).toISOString(),
+      messageCount: sess.messageCount || 0,
+    };
+    if (sess.folder) out.folder = sess.folder;
+    if (sess.host) out.host = sess.host;
+    return out;
+  };
+
+  const notePending = (f) => {
+    if (f && f.type === 'permission_request' && f.permissionId && f.sessionId) {
+      pendingPermissions.set(f.permissionId, f.sessionId);
+    }
+  };
+
   const recordInbound = (msg) => {
     inbound.push(msg);
     for (let i = inboundWaiters.length - 1; i >= 0; i--) {
@@ -98,14 +161,25 @@ function createFakeRelay() {
     const url = new URL(req.url, 'http://relay.local');
     const p = url.pathname;
     const send = (status, obj) => {
+      // 204 has no body (net/http's WriteHeader(StatusNoContent)).
+      if (status === 204) { res.writeHead(204); return res.end(); }
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(obj));
+    };
+    // Go's http.Error: text/plain, body + newline.
+    const sendText = (status, text) => {
+      res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+      res.end(`${text}\n`);
     };
 
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       requests.push({ method: req.method, path: p });
+      if (requiredToken !== null && req.headers.authorization !== `Bearer ${requiredToken}`) {
+        rejectedRequests.push({ method: req.method, path: p });
+        return sendText(401, 'unauthorized');
+      }
       let parsed = {};
       try { parsed = body ? JSON.parse(body) : {}; } catch {}
 
@@ -125,14 +199,16 @@ function createFakeRelay() {
       const pm = p.match(/^\/api\/projects\/([^/]+)$/);
       if (pm) {
         const id = pm[1];
-        if (req.method === 'GET') return projects.has(id) ? send(200, projects.get(id)) : send(404, { error: 'Project not found' });
+        // project_routes.go: lowercase "project not found" for GET, PUT and DELETE.
+        if (!projects.has(id) && ['GET', 'PUT', 'DELETE'].includes(req.method)) return send(404, { error: 'project not found' });
+        if (req.method === 'GET') return send(200, projects.get(id));
         if (req.method === 'PUT') {
           if (parsed.path !== undefined && !isAbsPath(parsed.path)) return absPathError(parsed.path);
           const proj = { ...(projects.get(id) || {}), ...parsed, id };
           projects.set(id, proj);
           return send(200, proj);
         }
-        if (req.method === 'DELETE') { projects.delete(id); return send(200, {}); }
+        if (req.method === 'DELETE') { projects.delete(id); return send(204); }
       }
 
       // SSH hosts (../relay/docs/ssh-hosts.md). ssh_argv here is whatever the
@@ -148,7 +224,9 @@ function createFakeRelay() {
       const hm = p.match(/^\/api\/hosts\/([^/]+)$/);
       if (hm) {
         const id = hm[1];
-        if (req.method === 'GET') return hosts.has(id) ? send(200, hosts.get(id)) : send(404, { error: 'Host not found' });
+        // host_routes.go: lowercase "host not found" for GET, PUT and DELETE.
+        if (!hosts.has(id) && ['GET', 'PUT', 'DELETE'].includes(req.method)) return send(404, { error: 'host not found' });
+        if (req.method === 'GET') return send(200, hosts.get(id));
         if (req.method === 'PUT') {
           const host = { ...(hosts.get(id) || {}), ...parsed, id };
           hosts.set(id, host);
@@ -156,16 +234,16 @@ function createFakeRelay() {
         }
         if (req.method === 'DELETE') {
           const referencing = [...projects.values()].filter((pr) => pr.host_id === id).map((pr) => pr.name);
-          if (referencing.length > 0) return send(409, { error: 'host is referenced by projects', projects: referencing });
+          if (referencing.length > 0) return send(409, { error: 'host is used by one or more projects', projects: referencing });
           hosts.delete(id);
-          return send(204, null);
+          return send(204);
         }
       }
       const probeMatch = p.match(/^\/api\/hosts\/([^/]+)\/probe$/);
       if (probeMatch && req.method === 'POST') {
         const id = probeMatch[1];
         const host = hosts.get(id);
-        if (!host) return send(404, { error: 'Host not found' });
+        if (!host) return send(404, { error: 'host not found' });
         host.probe = { at: new Date().toISOString(), ok: true, os: 'Darwin', arch: 'arm64', home: '/tmp', shell: '/bin/zsh', node_path: process.execPath, node_version: process.version, claude_path: '/usr/local/bin/claude', claude_version: '0.0.0', error: '' };
         host.status = 'connected';
         return send(200, host);
@@ -174,7 +252,7 @@ function createFakeRelay() {
       if (disconnectMatch && req.method === 'POST') {
         const id = disconnectMatch[1];
         const host = hosts.get(id);
-        if (!host) return send(404, { error: 'Host not found' });
+        if (!host) return send(404, { error: 'host not found' });
         host.status = 'idle';
         return send(200, host);
       }
@@ -186,14 +264,33 @@ function createFakeRelay() {
       // distinction after a reload is `eve-session-meta`'s job alone.
       if (p === '/api/sessions' && req.method === 'POST') {
         sessionCreates.push(parsed);
+        // frontend_model_guard.go, in its order: a forced failure stands in
+        // for the launch path behind it; the remote-project refusal (400)
+        // precedes the allowed_models check (403); an unknown project, an
+        // empty or wildcard allowlist, or no model all pass.
+        const guardProject = projects.get(parsed.projectId);
+        if (parsed.projectId && guardProject && guardProject.host_id) {
+          return send(400, { error: `project ${parsed.projectId} is a remote project and cannot host a session` });
+        }
+        const allowed = guardProject && Array.isArray(guardProject.allowed_models) ? guardProject.allowed_models : [];
+        if (parsed.projectId && parsed.model && guardProject && allowed.length > 0
+          && !allowed.includes('*') && !allowed.includes(parsed.model)) {
+          return send(403, { error: 'model not allowed for this project' });
+        }
+        if (sessionCreateFailure) return send(sessionCreateFailure.status, sessionCreateFailure.body);
         const respond = () => {
           const sessionId = parsed.sessionId || `sess-${++seq}`;
+          // types.Session JSON (internal/sessions/types/session.go).
           const session = {
             sessionId,
-            directory: parsed.directory || '/fake',
-            projectId: parsed.projectId || null,
-            model: parsed.model || 'fake-model',
+            projectId: parsed.projectId || '',
             name: parsed.name || '',
+            directory: parsed.directory || '/fake',
+            model: parsed.model || 'fake-model',
+            providerType: 'claude',
+            createdAt: new Date().toISOString(),
+            messages: [],
+            stats: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
           };
           // Mirrors relayLLM resolving the project's host_id through
           // ResolvePtyEnv (../relay/docs/ssh-hosts.md "Session and terminal
@@ -211,12 +308,16 @@ function createFakeRelay() {
         return respond();
       }
       const sm = p.match(/^\/api\/sessions\/([^/]+)$/);
-      if (sm && req.method === 'DELETE') { sessions.delete(sm[1]); return send(200, {}); }
+      // HandleDeleteSession (http_session.go): 204, no body.
+      if (sm && req.method === 'DELETE') { sessions.delete(sm[1]); return send(204); }
       // Object-wrapped, matching relay's real session-host handler
       // (internal/sessions/api.HandleListSessions) — eve's own route
       // (routes/index.js) unwraps this before it ever reaches a test's
       // assertions, so this is what actually exercises that unwrap.
-      if (p === '/api/sessions' && req.method === 'GET') return send(200, { sessions: [...sessions.values()] });
+      // Items are session.Summary (manager.go): `id`, not `sessionId`.
+      if (p === '/api/sessions' && req.method === 'GET') {
+        return send(200, { sessions: [...sessions.values()].map(toSummary) });
+      }
 
       // C11 SH-6 resume: eve calls this exactly once per resume_required it
       // decides to act on. Status is whatever the test last set via
@@ -240,6 +341,7 @@ function createFakeRelay() {
           templateId: parsed.templateId || '',
           name: parsed.name || '',
           directory: parsed.directory || '',
+          host: null, // CreatedBody.Host (terminal/types.go): null on the console
         };
         terminals.set(terminalId, terminal);
         return send(201, terminal);
@@ -299,12 +401,35 @@ function createFakeRelay() {
         res.writeHead(200, { 'Content-Type': 'image/png' });
         return res.end(Buffer.from('FAKE-PNG-BYTES'));
       }
-      if (/^\/api\/terminals\/.+\/log$/.test(p) && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      // HandleTerminalLog (http_terminal.go): text/plain, and a bare 404 for a
+      // terminal relay has no log for.
+      const logMatch = p.match(/^\/api\/terminals\/(.+)\/log$/);
+      if (logMatch && req.method === 'GET') {
+        if (!terminals.has(logMatch[1])) { res.writeHead(404); return res.end(); }
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
         return res.end(Buffer.from('TERMINAL-LOG-BYTES'));
       }
 
-      return send(404, { error: `fake-relay: unhandled ${req.method} ${p}` });
+      // persistent_session_routes.go. Errors carry the ops' own reason text.
+      const psMatch = p.match(/^\/api\/projects\/([^/]+)\/persistent-sessions(?:\/([^/]+))?$/);
+      if (psMatch && ((req.method === 'GET' && !psMatch[2]) || (req.method === 'DELETE' && psMatch[2]))) {
+        const projectId = decodeURIComponent(psMatch[1]);
+        const proj = projects.get(projectId);
+        if (!proj || !proj.host_id) return send(404, { error: `hosted project "${projectId}" not found` });
+        const failure = persistentFailures.get(projectId);
+        if (failure) return send(failure.status, { error: failure.error });
+        const list = persistentSessions.get(projectId) || [];
+        if (req.method === 'GET') return send(200, list);
+        const name = decodeURIComponent(psMatch[2]);
+        if (!/^relay-/.test(name)) return send(400, { error: `${JSON.stringify(name)} is not a relay persistent session name` });
+        const idx = list.findIndex((x) => x.name === name);
+        if (idx === -1) return send(404, { error: `session ${JSON.stringify(name)} does not belong to project ${JSON.stringify(projectId)}` });
+        list.splice(idx, 1);
+        return send(204);
+      }
+
+      // frontend_dispatcher.go: a path no service claims.
+      return sendText(404, 'no service registered for this path');
     });
   });
 
@@ -318,7 +443,16 @@ function createFakeRelay() {
     socket.cork();
     setTimeout(() => socket.uncork(), ms);
   });
-  const wss = new WebSocketServer({ server });
+  // A refused upgrade is an HTTP 401 before any WebSocket exists, exactly like
+  // the HTTP routes (frontendCredentialAuth wraps the whole frontend mux).
+  const wss = new WebSocketServer({
+    server,
+    verifyClient: (info, cb) => {
+      if (requiredToken === null || info.req.headers.authorization === `Bearer ${requiredToken}`) return cb(true);
+      rejectedRequests.push({ method: 'GET', path: info.req.url, upgrade: true });
+      return cb(false, 401, 'unauthorized');
+    },
+  });
   wss.on('connection', (ws, req) => {
     const isScheduler = (req.url || '').startsWith('/ws/tasks');
     (isScheduler ? schedulerWs : relayWs).add(ws);
@@ -332,13 +466,25 @@ function createFakeRelay() {
       recordInbound(msg);
       if (isScheduler) return;
       if (msg.type === 'join_session') {
-        // Relay's handleJoinSession (ws_session.go) names the id only in the
-        // message; the frame itself carries no sessionId.
-        if (failedJoins.has(msg.sessionId)) {
+        // ws_session.go handleJoinSession: an empty id is ignored without a
+        // reply, an id relay does not hold gets an error frame with no
+        // sessionId, and anything else is bound to this connection.
+        if (!msg.sessionId) return;
+        const known = sessions.has(msg.sessionId) || seededJoinable.has(msg.sessionId);
+        if (failedJoins.has(msg.sessionId) || (strictJoin && !known)) {
           ws.send(JSON.stringify(relayFrames.error({ message: `session not found: ${msg.sessionId}` })));
           return;
         }
-        const reply = () => ws.send(JSON.stringify(relayFrames.sessionJoined({ sessionId: msg.sessionId })));
+        const reply = () => {
+          if (!joined.has(msg.sessionId)) joined.set(msg.sessionId, new Set());
+          joined.get(msg.sessionId).add(relaySocketIds.get(ws));
+          const sess = sessions.get(msg.sessionId);
+          ws.send(JSON.stringify(relayFrames.sessionJoined({
+            sessionId: msg.sessionId,
+            directory: sess ? sess.directory : '/fake',
+            session: sess,
+          })));
+        };
         const gate = joinGates.get(msg.sessionId);
         if (gate) gate.then(reply); else reply();
       } else if (msg.type === 'send_message') {
@@ -346,7 +492,20 @@ function createFakeRelay() {
         const frames = script
           ? script.map((f) => stampFrame(f, msg.sessionId))
           : defaultStream(msg.sessionId);
-        for (const f of frames) ws.send(JSON.stringify(f));
+        for (const f of frames) { notePending(f); ws.send(JSON.stringify(f)); }
+      } else if (msg.type === 'permission_response') {
+        // ws_session.go handlePermissionResponse: unknown permission id is a
+        // silent no-op; a connection that never joined the request's session
+        // is refused; otherwise the request is resolved.
+        const sessionId = pendingPermissions.get(msg.permissionId);
+        if (sessionId === undefined) return;
+        if (!(joined.get(sessionId) || new Set()).has(relaySocketIds.get(ws))) {
+          ws.send(JSON.stringify(relayFrames.error({
+            message: `permission response refused: this connection has not joined session ${sessionId}`,
+          })));
+          return;
+        }
+        pendingPermissions.delete(msg.permissionId);
       } else if (msg.type === 'clear_session') {
         const script = clearSessionScripts.get(msg.sessionId);
         if (script) {
@@ -354,7 +513,10 @@ function createFakeRelay() {
         }
       }
     });
-    ws.on('close', () => { relayWs.delete(ws); schedulerWs.delete(ws); });
+    ws.on('close', () => {
+      relayWs.delete(ws); schedulerWs.delete(ws);
+      for (const set of joined.values()) set.delete(relaySocketIds.get(ws));
+    });
     ws.on('error', () => {});
   });
 
@@ -364,11 +526,14 @@ function createFakeRelay() {
     // For reload/restore tests that need GET /api/sessions to already know
     // about an id a localStorage fixture references, without a real POST.
     seedSession: (session) => { sessions.set(session.sessionId, session); },
+    // An id a strictJoin() test may join although no POST created it.
+    allowJoin: (sessionId) => { seededJoinable.add(sessionId); },
     getProject: (id) => projects.get(id),
     listSessions: () => [...sessions.values()],
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
     scriptClearSession: (sessionId, frames) => { clearSessionScripts.set(sessionId, frames); },
     listTerminals: () => [...terminals.values()],
+    seedTerminal: (terminal) => { terminals.set(terminal.terminalId, terminal); },
     failTerminalCreateWith: (status) => { terminalCreateFailStatus = status; },
     clearTerminalCreateFail: () => { terminalCreateFailStatus = null; },
     failResumeWith: (status) => { resumeFailStatus = status; },
@@ -381,7 +546,33 @@ function createFakeRelay() {
     seedPasskeyRevocation: (id) => { pendingRevocations.add(id); },
     listReportedPasskeys: () => [...reportedPasskeys],
     listPendingRevocations: () => [...pendingRevocations],
-    emitToRelay: (frame) => { for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
+    // Every relay socket, joined or not. Prefer emitToSession for anything relay
+    // sends per session: relay delivers only to joined viewers (SendToSession).
+    emitToRelay: (frame) => { notePending(frame); for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
+    emitToSession: (sessionId, frame) => {
+      notePending(frame);
+      const ids = joined.get(sessionId) || new Set();
+      let delivered = 0;
+      for (const ws of relayWs) {
+        if (ids.has(relaySocketIds.get(ws))) { ws.send(JSON.stringify(frame)); delivered++; }
+      }
+      return delivered;
+    },
+    // Relay closes the client socket when its upstream dial fails:
+    // 1011 "upstream unreachable" (frontend_dispatcher.go proxyWS).
+    closeRelaySockets: (code = 1011, reason = 'upstream unreachable') => {
+      for (const ws of [...relayWs]) { try { ws.close(code, reason); } catch {} }
+    },
+    strictJoin: (on = true) => { strictJoin = on; },
+    joinedSessions: () => Object.fromEntries([...joined].map(([id, set]) => [id, [...set]])),
+    // Bearer enforcement on HTTP and upgrade; null turns it off.
+    requireToken: (t) => { requiredToken = t; },
+    rejectedRequests,
+    failSessionCreateWith: (status, body) => { sessionCreateFailure = { status, body }; },
+    clearSessionCreateFail: () => { sessionCreateFailure = null; },
+    seedPersistentSessions: (projectId, list) => { persistentSessions.set(projectId, list.map((x) => ({ attached: 0, attached_here: false, created: 0, ...x }))); },
+    failPersistentSessionsWith: (projectId, status, error) => { persistentFailures.set(projectId, { status, error }); },
+    clearPersistentFailure: (projectId) => { persistentFailures.delete(projectId); },
     emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
     waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
     relayConnectionCount: () => relayWs.size,

@@ -37,8 +37,15 @@ Ubuntu. Differences to know:
   (`EVE_WATCH_BACKEND=native|pruned`).
 - **Root.** Sessions run as root, which ignores file modes. A test that needs an unreadable file
   must fail the open itself (see the `readMarker` unreadable-file row) rather than `chmod 000`.
-- **The relay is a fake.** The real relay is macOS-only; `test/integration/fake-relay.js` stands in
-  and is pinned to relay's source, not to a running relay (see the fake-relay header).
+- **The relay is a fake, pinned to relay's source.** The real relay is macOS-only;
+  `test/integration/fake-relay.js` stands in. Every status, body and frame shape it copies names the
+  relay file it was read from (header of `fake-relay.js`), and `relay-source-pins.test.js` re-reads
+  those files when `../relay` (or `EVE_RELAY_SOURCE`) is checked out, failing if relay moved. Without
+  a checkout that half reports a todo. When you change the fake, change its pin; when relay changes
+  a pinned text, update the fake, the pin and whichever eve test asserted the old behaviour.
+  `relay-fidelity.test.js` holds the fake to those shapes and eve to relay's refusals: bearer 401
+  (`startEve({ relayToken })`), `allowed_models` / remote-project refusal, 502/503 on create, a
+  `1011 "upstream unreachable"` close, join-gated `permission_response` and `emitToSession`.
 
 ## Layout
 

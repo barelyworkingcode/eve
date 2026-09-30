@@ -63,7 +63,7 @@ describe('project CRUD (eve <-> fake relay)', () => {
     const created = await (await eve.get('/api/projects', { method: 'POST', ...json({ name: 'Doomed', path: projDir }) })).json();
 
     const res = await eve.get(`/api/projects/${created.id}`, { method: 'DELETE' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(204); // relay's DELETE /api/projects/{id} (project_routes.go)
     expect(eve.relay.getProject(created.id)).toBeUndefined();
 
     const list = await (await eve.get('/api/projects')).json();
