@@ -59,3 +59,37 @@ test.describe('G10 find', () => {
     await expect(page.getByTestId('dialog-search-dialog').getByText('No matches.')).toBeVisible({ timeout: 15000 });
   });
 });
+
+test.describe('G10 ⌘K ranking and task runs', () => {
+  test.use({
+    world: {
+      seed: ({ relay, folders }) => {
+        const at = (h) => new Date(Date.now() - h * 3600000).toISOString();
+        // "plan" is a prefix of one name and only inside the other; the prefix match ranks first.
+        relay.seedSession({ sessionId: 's-inner', projectId: 'alpha', directory: folders.alpha, model: 'm', name: 'Quarterly planning', live: false, createdAt: at(3), lastMessageAt: at(2) });
+        relay.seedSession({ sessionId: 's-prefix', projectId: 'alpha', directory: folders.alpha, model: 'm', name: 'Plan the launch', live: false, createdAt: at(30), lastMessageAt: at(29) });
+        // A task run is a headless session, never a thread.
+        relay.seedSession({ sessionId: 'run1', projectId: 'alpha', directory: folders.alpha, model: 'm', name: 'Nightly run', live: false, createdAt: at(1), lastMessageAt: at(0.5), headless: true });
+        relay.seedTask({ id: 'tn', name: 'Nightly', projectId: 'alpha', prompt: 'p', model: 'm', schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless', lastSessionId: 'run1', lastStatus: 'success' });
+      },
+    },
+  });
+
+  test('typing ranks the best match first', async ({ page }) => {
+    await page.waitForFunction(() => window.client.state.sessions.size > 0 && window.client.state.tasks.size > 0);
+    await page.keyboard.press('ControlOrMeta+k');
+    await page.getByTestId('palette-input').fill('plan');
+    const texts = await page.getByTestId('palette-item').allInnerTexts();
+    const at = (name) => texts.findIndex((t) => t.includes(name));
+    expect(at('Plan the launch')).toBeGreaterThanOrEqual(0);
+    expect(at('Quarterly planning')).toBeGreaterThanOrEqual(0);
+    expect(at('Plan the launch')).toBeLessThan(at('Quarterly planning'));
+  });
+
+  test('with nothing typed, the run behind a task is not offered as a session', async ({ page }) => {
+    await page.waitForFunction(() => window.client.state.sessions.size > 0 && window.client.state.tasks.size > 0);
+    await page.keyboard.press('ControlOrMeta+k');
+    await expect(page.getByTestId('palette-item').filter({ hasText: 'Quarterly planning' })).toHaveCount(1);
+    await expect(page.getByTestId('palette-item').filter({ hasText: 'Nightly run' })).toHaveCount(0);
+  });
+});

@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { test, expect } = require('./fixture');
+const { test, expect, MODELS } = require('./fixture');
 
 const isPost = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/projects';
 
@@ -70,6 +70,32 @@ test.describe('G12 projects', () => {
     expect(eve.relay.listTasks()).toHaveLength(0); // its tasks go with it (DELETE /api/tasks/by-project)
     await expect(page.getByTestId('home-project-beta')).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: 'Projects' }).getByTitle('Beta Project', { exact: true })).toHaveCount(0);
-    await expect(page.locator('.home__subtitle')).toContainText('1 project');
+    // Singular: "1 project", not "1 projects" (which a substring match would accept).
+    await expect(page.locator('.home__subtitle')).toContainText(/\b1 project · /);
+  });
+});
+
+test.describe('G12 a project with an allow-list of models', () => {
+  test.use({
+    world: {
+      seed: ({ relay }) => {
+        relay.setModels(MODELS);
+        relay.getProject('beta').allowed_models = ['fake-model'];
+      },
+    },
+  });
+
+  test('saving an edit sends the project\'s allowed models back, unchanged', async ({ page, eve }) => {
+    await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Beta Project', { exact: true }).click();
+    await page.getByTestId('sidebar-project-more-beta').click();
+    await page.getByText('Edit Project', { exact: true }).click();
+    await expect(page.getByTestId('project-name')).toHaveValue('Beta Project');
+    await expect(page.getByRole('checkbox', { name: 'Fake Model' })).toBeChecked();
+    const [request] = await Promise.all([
+      page.waitForRequest((r) => r.method() === 'PUT' && new URL(r.url()).pathname === '/api/projects/beta'),
+      page.getByTestId('project-save').click(),
+    ]);
+    expect(request.postDataJSON()).toMatchObject({ name: 'Beta Project', path: eve.folders.beta, allowed_models: ['fake-model'] });
+    await expect.poll(() => eve.relay.getProject('beta').allowed_models).toEqual(['fake-model']);
   });
 });

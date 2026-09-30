@@ -118,3 +118,19 @@ test.describe('G5/G6 tasks', () => {
     await expect(page.getByTestId('sidebar-task-t4')).toHaveCount(0);
   });
 });
+
+test.describe('G6 a task\'s run is not a thread', () => {
+  test('the project\'s Sessions list does not include the run behind a task', async ({ page, eve }) => {
+    eve.relay.seedSession({ sessionId: 'run9', projectId: 'alpha', directory: eve.folders.alpha, model: 'fake-model', name: 'Nightly run', live: false, headless: true });
+    eve.relay.seedTask({
+      id: 't9', name: 'Nightly', projectId: 'alpha', prompt: 'p', model: 'fake-model',
+      schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless', lastSessionId: 'run9', lastStatus: 'success',
+    });
+    await page.reload();
+    await page.waitForFunction(() => window.client.state.sessions.size > 0 && window.client.state.tasks.size > 0);
+    await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha Project', { exact: true }).click();
+    await page.getByTestId('panel-tab-sessions').click();
+    await expect(page.getByTestId('sidebar-session-run9')).toHaveCount(0);
+    await expect(page.getByTestId('panel-tab-sessions')).not.toContainText(/\d/);
+  });
+});

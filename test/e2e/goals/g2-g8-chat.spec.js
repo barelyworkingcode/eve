@@ -113,4 +113,19 @@ test.describe('G8 permission prompt', () => {
     await page.getByTestId('modal-permission-allow').click();
     await expect(page.locator('#permissionToolName')).toHaveText('Edit');
   });
+
+  test('several waiting requests are asked in the order they arrived', async ({ page, eve }) => {
+    const sessionId = await startChat(page);
+    await prompt(page, eve, sessionId, 'perm-1');
+    for (const [id, tool] of [['perm-2', 'Edit'], ['perm-3', 'Write']]) {
+      eve.relay.emitToSession(sessionId, relayFrames.permissionRequest({
+        sessionId, permissionId: id, toolName: tool, toolInput: '{}', toolUseId: `tu-${id}`,
+      }));
+    }
+    await expect(page.locator('#permissionToolName')).toHaveText('Bash');
+    await page.getByTestId('modal-permission-allow').click();
+    await expect(page.locator('#permissionToolName')).toHaveText('Edit');
+    await page.getByTestId('modal-permission-allow').click();
+    await expect(page.locator('#permissionToolName')).toHaveText('Write');
+  });
 });
