@@ -117,6 +117,10 @@ function createFakeRelay({ token = null } = {}) {
   // nobody has answered yet (relay's perms.PendingSessionID).
   const pendingPermissions = new Map();
   const terminals = new Map();
+  // Templates as relay's GET /api/terminal/templates lists them (a bare array).
+  let terminalTemplates = [];
+  // terminalId -> Set of relay socket ids viewing it (ws_terminal.go th.viewers).
+  const terminalViewers = new Map();
   // Mirrors relay's own handleClearSession (ws_session.go), which — like
   // handleSendMessage — can answer a dormant session with resume_required
   // instead of clearing it (SH-6/C11's B1 regression coverage).
@@ -180,6 +184,16 @@ function createFakeRelay({ token = null } = {}) {
     task.lastRun = startedAt;
     const exec = { taskId: task.id, taskName: task.name, projectId: task.projectId, startedAt, status: 'running' };
     if (task.sessionType === 'pty') exec.terminalId = runId; else exec.sessionId = runId;
+    // A chat run is a headless session relayLLM keeps: joinable afterwards, and
+    // listed by GET /api/sessions like any other (eve hides it via the task view).
+    if (task.sessionType !== 'pty') {
+      const project = projects.get(task.projectId);
+      sessions.set(runId, {
+        sessionId: runId, projectId: task.projectId, name: task.name, directory: (project && project.path) || '/fake',
+        model: task.model || 'fake-model', headless: true, live: true, createdAt: startedAt,
+        history: [{ timestamp: startedAt, role: 'user', content: task.prompt }],
+      });
+    }
     histories.set(task.id, [exec, ...(histories.get(task.id) || [])]);
     broadcastTask('task_started', task, runId);
     if (taskRunMode === 'auto') setTimeout(() => finishTask(task.id, { status: 'success', response: 'done' }), 0);
@@ -199,7 +213,16 @@ function createFakeRelay({ token = null } = {}) {
     if (task.sessionType === 'pty' && exitCode !== undefined) exec.exitCode = exitCode;
     task.lastStatus = status;
     const runId = exec.terminalId || exec.sessionId;
-    if (exec.sessionId) task.lastSessionId = exec.sessionId;
+    if (exec.sessionId) {
+      task.lastSessionId = exec.sessionId;
+      const run = sessions.get(exec.sessionId);
+      if (run) {
+        run.live = false;
+        if (response) run.history.push({ timestamp: exec.completedAt, role: 'assistant', content: [{ type: 'text', text: response }] });
+        run.messageCount = run.history.length;
+        run.lastMessageAt = exec.completedAt;
+      }
+    }
     if (exec.terminalId) task.lastTerminalId = exec.terminalId;
     if (status === 'success') broadcastTask('task_completed', task, runId, { status });
     else broadcastTask('task_error', task, runId, { error, status });
@@ -226,6 +249,37 @@ function createFakeRelay({ token = null } = {}) {
     return out;
   };
 
+  // A terminal is a tiny scripted shell, enough for "runs my command": it echoes
+  // what is typed, answers `echo ...` with the text and anything else with
+  // "sh: <cmd>: command not found", then prompts again. Output goes to viewers.
+  const SHELL_PROMPT = '$ ';
+  const termOut = (term, text) => {
+    term.scrollback += text;
+    const frame = JSON.stringify({ type: 'terminal_output', terminalId: term.terminalId, data: Buffer.from(text).toString('base64') });
+    const ids = terminalViewers.get(term.terminalId) || new Set();
+    for (const sock of relayWs) if (ids.has(relaySocketIds.get(sock))) sock.send(frame);
+  };
+  const termInput = (term, data) => {
+    for (const ch of String(data)) {
+      if (ch === '\r' || ch === '\n') {
+        const line = term.line.trim();
+        term.line = '';
+        const out = line === '' ? '' : (line.startsWith('echo ') ? `${line.slice(5)}\r\n` : `sh: ${line.split(/\s+/)[0]}: command not found\r\n`);
+        termOut(term, `\r\n${out}${SHELL_PROMPT}`);
+      } else if (ch === '\x7f') {
+        if (term.line) { term.line = term.line.slice(0, -1); termOut(term, '\b \b'); }
+      } else {
+        term.line += ch;
+        termOut(term, ch);
+      }
+    }
+  };
+  const termJoined = (term) => ({
+    type: 'terminal_joined', terminalId: term.terminalId, templateId: term.templateId, name: term.name,
+    directory: term.directory, state: term.state, cols: term.cols, rows: term.rows,
+    scrollback: Buffer.from(term.scrollback).toString('base64'), host: null,
+  });
+
   const toSummary = (sess) => {
     const out = {
       id: sess.sessionId,
@@ -238,6 +292,7 @@ function createFakeRelay({ token = null } = {}) {
       messageCount: sess.messageCount || 0,
     };
     if (sess.folder) out.folder = sess.folder;
+    if (sess.lastMessageAt) out.lastMessageAt = sess.lastMessageAt;
     if (sess.host) out.host = sess.host;
     return out;
   };
@@ -459,7 +514,7 @@ function createFakeRelay({ token = null } = {}) {
           directory: parsed.directory || '',
           host: null, // CreatedBody.Host (terminal/types.go): null on the console
         };
-        terminals.set(terminalId, terminal);
+        terminals.set(terminalId, { ...terminal, state: 'running', cols: parsed.cols || 80, rows: parsed.rows || 24, scrollback: SHELL_PROMPT, line: '' });
         return send(201, terminal);
       }
 
@@ -476,7 +531,7 @@ function createFakeRelay({ token = null } = {}) {
       // /api/sessions and /api/terminals. Empty by default so the picker's
       // "no templates available"/pty-card-absent branches are what a test
       // sees unless it seeds otherwise.
-      if (p === '/api/terminal/templates' && req.method === 'GET') return send(200, []);
+      if (p === '/api/terminal/templates' && req.method === 'GET') return send(200, terminalTemplates);
       // relayScheduler (../relayScheduler api.go), reached through relay's
       // reverse proxy, which adds nothing. Shapes: task.go (Task, Execution, TaskView).
       if (p === '/api/tasks' && req.method === 'POST' && taskCreateFailure) {
@@ -663,6 +718,40 @@ function createFakeRelay({ token = null } = {}) {
           ? script.map((f) => stampFrame(f, msg.sessionId))
           : defaultStream(msg.sessionId);
         for (const f of frames) { notePending(f); ws.send(JSON.stringify(f)); }
+      } else if (msg.type === 'join_terminal' || msg.type === 'terminal_reconnect') {
+        // ws_terminal.go: an unknown id is ignored; a known one is bound to this
+        // connection and answered with terminal_joined (scrollback included).
+        const term = terminals.get(msg.terminalId);
+        if (!term) return;
+        if (!terminalViewers.has(term.terminalId)) terminalViewers.set(term.terminalId, new Set());
+        terminalViewers.get(term.terminalId).add(relaySocketIds.get(ws));
+        if (msg.cols) term.cols = msg.cols;
+        if (msg.rows) term.rows = msg.rows;
+        ws.send(JSON.stringify(termJoined(term)));
+      } else if (msg.type === 'terminal_input') {
+        // ws_terminal.go handleTerminalInput: `data` is base64; bad base64 and an
+        // unknown terminal are error frames.
+        if (!msg.terminalId) return;
+        const raw = String(msg.data || '');
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(raw) || raw.length % 4 !== 0) {
+          ws.send(JSON.stringify(relayFrames.error({ message: 'invalid base64 data' })));
+          return;
+        }
+        const term = terminals.get(msg.terminalId);
+        if (!term) { ws.send(JSON.stringify(relayFrames.error({ message: `terminal not found: ${msg.terminalId}` }))); return; }
+        termInput(term, Buffer.from(raw, 'base64').toString('utf8'));
+      } else if (msg.type === 'terminal_list') {
+        ws.send(JSON.stringify({
+          type: 'terminal_list',
+          terminals: [...terminals.values()].sort((a, b) => (a.terminalId < b.terminalId ? -1 : 1)).map((t) => ({
+            id: t.terminalId, templateId: t.templateId, name: t.name, directory: t.directory, state: t.state, host: null,
+          })),
+        }));
+      } else if (msg.type === 'terminal_close') {
+        if (!msg.terminalId) return;
+        terminals.delete(msg.terminalId);
+        terminalViewers.delete(msg.terminalId);
+        for (const sock of relayWs) sock.send(JSON.stringify({ type: 'terminal_closed', terminalId: msg.terminalId }));
       } else if (msg.type === 'permission_response') {
         // ws_session.go handlePermissionResponse: unknown permission id is a
         // silent no-op; a connection that never joined the request's session
@@ -703,7 +792,9 @@ function createFakeRelay({ token = null } = {}) {
     scriptSession: (sessionId, frames) => { sessionScripts.set(sessionId, frames); },
     scriptClearSession: (sessionId, frames) => { clearSessionScripts.set(sessionId, frames); },
     listTerminals: () => [...terminals.values()],
-    seedTerminal: (terminal) => { terminals.set(terminal.terminalId, terminal); },
+    seedTerminal: (terminal) => { terminals.set(terminal.terminalId, { templateId: '', name: '', directory: '', state: 'running', cols: 80, rows: 24, scrollback: SHELL_PROMPT, line: '', ...terminal }); },
+    setTerminalTemplates: (list) => { terminalTemplates = list; },
+    terminalScrollback: (id) => (terminals.get(id) || {}).scrollback,
     failTerminalCreateWith: (status) => { terminalCreateFailStatus = status; },
     clearTerminalCreateFail: () => { terminalCreateFailStatus = null; },
     failResumeWith: (status) => { resumeFailStatus = status; },
