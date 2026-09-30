@@ -58,6 +58,8 @@ test.describe('G3 reopen a thread', () => {
   });
 
   test('from ⌘K by typing part of its name', async ({ page, eve }) => {
+    // The palette lists what is loaded when it opens.
+    await page.waitForFunction(() => window.client.state.sessions.size > 0);
     await page.keyboard.press('ControlOrMeta+k');
     await page.getByTestId('palette-input').fill('launch');
     const item = page.getByTestId('palette-item').filter({ hasText: 'Plan the launch' });

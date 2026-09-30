@@ -27,6 +27,7 @@ test.describe('G10 find', () => {
   });
 
   test('⌘K narrows as you type, Enter opens the match, Escape closes', async ({ page }) => {
+    await page.waitForFunction(() => window.client.state.sessions.size > 0 && window.client.projects.size > 1);
     await page.keyboard.press('ControlOrMeta+k');
     await page.getByTestId('palette-input').fill('beta');
     await expect(page.getByTestId('palette-item').filter({ hasText: 'Quarterly planning' })).toHaveCount(0);
