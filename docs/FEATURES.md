@@ -146,7 +146,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Changes tab (repos, worktrees, counts) | UI: `public/sidebar/changes-panel.js`; WS `git_changes` | Project panel → Changes | changes-diff | git |
 | Uncommitted / vs base scope | UI: changes-panel scope toggle | Changes tab | none yet — not written | git |
 | Diff pane (side-by-side / inline) | UI: `public/diff-viewer.js`, `panes/diff-pane.js`; WS `git_file_versions` | Click a changed file | changes-diff | git |
-| Live `git_changed` refresh | `file-watcher.js` | Edit a file while Changes is open | none yet — not written | git, files |
+| Live `git_changed` refresh | `file-watcher.js`, `dir-watcher.js` | Edit a file while Changes is open | none yet — not written | git, files |
 | Remote sessions: view / reattach / kill | UI: `public/remote-sessions.js`; API: `/api/projects/:id/persistent-sessions` | Host project | none yet — G13 | hosts, terminal |
 
 ### G7 · Read and edit project files
@@ -156,6 +156,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | File tree browse | UI: `public/file-browser.js`, `sidebar/project-tree.js`; WS `list_directory` | Project panel → Files | file-edit-save | files |
 | Open a file in the editor | UI: `public/file-editor.js` (Monaco); WS `read_file` | Click a file | file-edit-save | files |
 | Save (⌘S / Save) | WS `write_file` | Edit, ⌘S | file-edit-save | files |
+| Live file watching (tree refresh, `watch_error` toast when the watcher cannot start) | `file-watcher.js`, `dir-watcher.js`; WS `dir_changed`, `watch_error` | Change a file on disk | none yet — not written | files |
 | External change banner (Reload / Keep) | UI: `file-editor.js`; WS `watch_file` | File changes on disk while open | file-edit-save (clean editor updates; dirty editor shows the banner, Reload) | files |
 | Markdown / HTML preview, Edit/Split/Preview | UI: `file-editor.js`, `html-preview-pane.js` (sandboxed iframe) | Open `.md`/`.html` | none yet — not written | files |
 | Image / PDF / video / audio viewers | UI: `public/viewers/*`; API: `GET /api/files/:projectId/*` | Click such a file | none yet — not written | files |
@@ -315,7 +316,7 @@ areas:
             test/e2e/schedules-and-connection.spec.js]
     journeys: [task-created-listed]
   files:
-    code: [ws/file-messages.js, file-handlers.js, file-service.js, file-watcher.js, public/file-browser.js,
+    code: [ws/file-messages.js, file-handlers.js, file-service.js, file-watcher.js, dir-watcher.js, public/file-browser.js,
            public/file-editor.js, public/html-preview-pane.js, public/viewers/**, public/sidebar/file-tree-node.js,
            public/sidebar/file-icons.js, public/sidebar/project-tree.js, public/apple/editor.css,
            public/apple/viewers.css]

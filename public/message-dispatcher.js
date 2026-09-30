@@ -107,6 +107,10 @@ class MessageDispatcher {
       file_uploaded:        (d) => this._handleFileEvent(d, 'handleFileUploaded', [d.projectId, d.destDirectory, d.fileName], EVT.FILE_UPLOADED),
       file_changed:         (d) => this.app.handleFileChanged(d.projectId, d.path, d.content),
       dir_changed:          (d) => { if (this.bus) this.bus.emit(EVT.DIR_CHANGED, d); },
+      watch_error:          (d) => this.bus.emit(EVT.TOAST_SHOW, {
+        id: `watch-error-${d.projectId}`, type: 'warning', duration: 8000,
+        message: `Live file updates are off for this project (${d.reason}). Refresh the tree to see changes.`,
+      }),
       terminal_request:     (d) => this.terminal.createTerminal(d.command, d.directory, d.projectId || ''),
       terminal_created:     (d) => this.terminal.onTerminalCreated(d.terminalId, d.templateId, d.name, d.directory, d.host),
       terminal_joined:      (d) => this.terminal.onTerminalJoined(d),

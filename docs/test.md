@@ -20,6 +20,26 @@ Run `npm test` before committing. The pre-push hook (below) additionally runs
 integration, e2e and visual — `test:voice` is excluded there since it fails
 whenever the daemons happen to be down.
 
+## Running on Linux (Claude cloud, CI)
+
+`npm test`, `npm run test:integration` and `npm run test:e2e` are green on Linux; CI runs them on
+Ubuntu. Differences to know:
+
+- **Chromium.** Playwright pins a browser revision per `@playwright/test` version. A host that ships
+  its own Chromium sets `EVE_CHROMIUM_PATH=/path/to/chrome`, or exposes an unversioned `chromium`
+  file under `PLAYWRIGHT_BROWSERS_PATH` (the Claude cloud image does), and all three Playwright
+  configs use it (`test/helpers/chromium-path.js`). Nothing to set where `npx playwright install`
+  works. Do not run `playwright install` in the cloud image.
+- **`test:visual` is macOS-only.** The baselines are rendered on macOS; on Linux every screenshot
+  differs by font rasterisation (0.3–8 %). Do not re-baseline from Linux.
+- **File watching.** Linux uses the pruned `dir-watcher.js` backend, macOS the native recursive
+  watch. The watcher tests run both backends on whatever platform runs them
+  (`EVE_WATCH_BACKEND=native|pruned`).
+- **Root.** Sessions run as root, which ignores file modes. A test that needs an unreadable file
+  must fail the open itself (see the `readMarker` unreadable-file row) rather than `chmod 000`.
+- **The relay is a fake.** The real relay is macOS-only; `test/integration/fake-relay.js` stands in
+  and is pinned to relay's source, not to a running relay (see the fake-relay header).
+
 ## Layout
 
 ```

@@ -138,7 +138,7 @@ Sessions: `session_created`, `session_joined`, `session_renamed`, `session_folde
 
 `error` from relay can carry `code:'resume_required'` (`{type:'error', code:'resume_required', sessionId}`, no `message`) when a `send_message` targets a dormant session. eve never forwards this frame as-is: it calls `POST /api/sessions/:id/resume` and, on success, re-sends the driving user turn's `send_message` exactly once; the browser only ever sees the eventual outcome — a normal reply, or a plain `error` if the resume call itself fails or nothing was actually pending. Never host-driven (SH-6) — a `resume_required` with no matching pending user turn is reported as an error too, not retried.
 
-Files: `directory_listing`, `file_content`, `file_saved`, `file_renamed`, `file_moved`, `file_deleted`, `file_uploaded`, `directory_created`, `file_error`, `file_changed`, `dir_changed`.
+Files: `directory_listing`, `file_content`, `file_saved`, `file_renamed`, `file_moved`, `file_deleted`, `file_uploaded`, `directory_created`, `file_error`, `file_changed`, `dir_changed`, `watch_error` (`{projectId, reason}` — the project's file watcher could not start or died, `reason` is the errno code such as `ENOSPC`; sent once per project until a later start succeeds, after which the tree and open files no longer update on their own).
 
 Search: `search_results`, `search_error`, `search_ai_started`, `search_ai_event`, `search_ai_completed`, `search_ai_failed`.
 
