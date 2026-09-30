@@ -2,6 +2,7 @@
 // transcription, so they get their own config, kept out of the fast e2e
 // suite (see testIgnore in ../../playwright.config.js).
 const { defineConfig, devices } = require('@playwright/test');
+const { chromiumLaunchOptions } = require('../helpers/chromium-path');
 
 module.exports = defineConfig({
   testDir: '.',
@@ -11,6 +12,6 @@ module.exports = defineConfig({
   timeout: 120000,
   expect: { timeout: 45000 },
   reporter: [['list']],
-  use: { headless: true, trace: 'on-first-retry', screenshot: 'only-on-failure' },
+  use: { headless: true, launchOptions: chromiumLaunchOptions(), trace: 'on-first-retry', screenshot: 'only-on-failure' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });
