@@ -184,8 +184,9 @@ Start tiles "Chat" and "Voice", no passkey screen.
   and still checks the passkey screen is gone. The greeting depends on the
   hour.
 
-**world-projects-listed.** Home shows a chip for Acme Corp, Globex and Home,
-and the rail has an entry for each.
+**world-projects-listed.** In Work, Home and the rail show Acme Corp and
+Globex and not Home; switching to Home shows Home and not Acme Corp or
+Globex. The journey switches back to Work (persisted in `eve-mode`).
 - Lives in: `public/sidebar/activity-rail.js`,
   `public/home-screen.js` (`_renderProjects`); data from `GET /api/projects`.
 - Traps: rail names live in tooltips. A chip's accessible name includes its
