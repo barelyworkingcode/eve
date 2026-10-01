@@ -209,10 +209,12 @@ opens from the Sessions tab with its question and reply.
   chat-reply left no thread.
 
 **terminal-on-request.** No terminal opens until asked; "World probe" then
-opens one that runs a command.
+opens one that runs a command. After a reload no terminal opens by itself
+(checked over a settle period); the live terminal is listed in the Sessions
+panel and opens on click, with its output and a second command answering.
 - Lives in: `GET /api/terminal/templates?project=` → WS `terminal_create` →
   `public/terminal-manager.js`.
-- Traps: templates are per project. Terminal tabs restore.
+- Traps: templates are per project. The reloaded page lists the terminal in the Sessions panel (`sidebar-terminal-<id>`); it is never reopened for you.
 
 **task-created-listed.** An on-demand chat task is created and still listed
 after a reload.

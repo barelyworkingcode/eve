@@ -117,7 +117,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | Terminal templates per project | API: `GET /api/terminal/templates?project=` | Launcher cards | terminal-on-request | terminal |
-| Open a terminal and run a command; a terminal relay already holds is listed in the Sessions panel and opens on click, never by itself | UI: `public/terminal-manager.js`, `project-panel.js`; WS `terminal_create`, `terminal_input`, `terminal_list` | Launcher card, Home tile, rail New Terminal, Sessions panel | terminal-on-request (its after-reload step expects the old auto-open; flips with S1, owner to update) | terminal |
+| Open a terminal and run a command; a terminal relay already holds is listed in the Sessions panel and opens on click, never by itself | UI: `public/terminal-manager.js`, `project-panel.js`; WS `terminal_create`, `terminal_input`, `terminal_list` | Launcher card, Home tile, rail New Terminal, Sessions panel | terminal-on-request (after a reload: nothing opens by itself, Sessions lists it, a click opens it) | terminal |
 | No terminal until asked | — | Open a project | terminal-on-request | terminal |
 | Slash `/zsh`, `/bash`, `/claude`, `/rh` | Server: `slash-command-handler.js` | Type in composer | none yet — not written | terminal, chat |
 | Terminal survives reload / reconnect | WS `terminal_reconnect`, `join_terminal` | Reload with a terminal open | terminal-on-request (reload) | terminal |
