@@ -534,3 +534,47 @@ describe('eve against a relay that refuses, drops or rejects', () => {
     } finally { await eve.stop(); }
   });
 });
+
+// Test-side faults and the revived relay (S1 specs). These are not relay routes:
+// they make a route the fake already serves answer an error or answer late, and
+// bring a closed relay back on the port eve was spawned against. What the browser
+// then sees is eve's own answer for a failed hop, which is what is asserted.
+describe('route faults and a revived relay (S1)', () => {
+  it('failRoute makes GET /api/tasks fail through eve, and clearing it restores the answer', async () => {
+    const eve = await startEve({ projects: [] });
+    try {
+      eve.relay.failRoute('GET', '/api/tasks', 503, { error: 'session host unavailable' });
+      const down = await eve.get('/api/tasks');
+      expect(down.ok).toBe(false);
+      eve.relay.clearRouteFaults();
+      const up = await eve.get('/api/tasks');
+      expect(up.status).toBe(200);
+      expect(await up.json()).toEqual([]);
+    } finally { await eve.stop(); }
+  });
+
+  it('delayRoute holds GET /api/tasks without affecting GET /api/projects', async () => {
+    const eve = await startEve({ projects: [] });
+    try {
+      eve.relay.delayRoute('GET', '/api/tasks', 600);
+      const started = Date.now();
+      const slow = eve.get('/api/tasks');
+      const fast = await eve.get('/api/projects');
+      expect(fast.status).toBe(200);
+      expect(Date.now() - started).toBeLessThan(500);
+      expect((await slow).status).toBe(200);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(550);
+    } finally { await eve.stop(); }
+  });
+
+  it('reviveRelay brings projects back after relay.close()', async () => {
+    const eve = await startEve({ projects: [{ id: 'p1', name: 'One', path: os.tmpdir() }] });
+    try {
+      await eve.relay.close();
+      const revived = await eve.reviveRelay({ projects: [{ id: 'p2', name: 'Two', path: os.tmpdir() }] });
+      expect(revived).not.toBe(eve.relay);
+      const res = await eve.get('/api/projects');
+      expect((await res.json()).map((p) => p.id)).toEqual(['p2']);
+    } finally { await eve.stop(); }
+  });
+});
