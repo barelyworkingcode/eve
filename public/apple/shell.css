@@ -233,7 +233,18 @@
    The desktop .sidebar-rail rule above (width:var(--rail-width)) would clobber
    styles.css's mobile rail rules by source order, squeezing the rail to 60px
    and collapsing the project avatars. Re-assert the top-strip here. */
-@media (max-width: 768px) {
+/* Regular and compact: the sidebar is a slide-over (compact: full-screen sheet)
+   so its controls get real touch sizes. */
+@media (max-width: 1023.98px) {
+  .menu-toggle { width: 44px; height: 44px; }
+  .panel-tab { min-height: 46px; }
+  .panel-action-btn { min-height: 48px; }
+  .tab-close { width: 24px; height: 24px; }
+  .sidebar.open { box-shadow: 0 0 40px rgba(0, 0, 0, 0.35); }
+}
+
+/* Compact: the rail becomes a top strip. */
+@media (max-width: 599.98px) {
   .sidebar-rail {
     width: 100%;
     height: 58px;
@@ -263,13 +274,87 @@
     height: 3px;
     border-radius: 3px 3px 0 0;
   }
+}
 
-  /* Restore 44px+ touch targets that the desktop rules above shrank
-     (audit: these are clobbered by source order at mobile width). */
-  .menu-toggle { width: 44px; height: 44px; }
-  .panel-tab { min-height: 46px; }
-  .panel-action-btn { min-height: 48px; }
-  .tab-close { width: 24px; height: 24px; }
+/* — Slide-over scrim (regular) --------------------------------------------- */
+#sidebarScrim { display: none; }
+@media (max-width: 1023.98px) {
+  html:has(#sidebar.open) #sidebarScrim:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
+@media (max-width: 599.98px) {
+  html:has(#sidebar.open) #sidebarScrim { display: none; }   /* the sheet is full-screen */
+}
+
+/* — Compact navigation: bottom bar at depth 0, Back + title at depth 1 ----- */
+.bottom-bar { display: none; }
+.nav-back, .nav-title { display: none; }
+@media (max-width: 599.98px) {
+  .bottom-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--material-bar);
+    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur);
+    border-top: 0.5px solid var(--separator);
+  }
+  .bottom-bar button {
+    flex: 1;
+    min-height: var(--bottom-bar-h);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--text-caption, 11px);
+    cursor: pointer;
+  }
+  .bottom-bar button[aria-current],
+  .bottom-bar button.active { color: var(--accent); }
+  html[data-nav="root"] .main,
+  html:not([data-nav]) .main { padding-bottom: calc(var(--bottom-bar-h) + env(safe-area-inset-bottom, 0px)); }
+  html[data-nav="pushed"] .bottom-bar { display: none; }
+
+  .tab-bar { display: none; }
+  html[data-nav="pushed"] .nav-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    margin-left: -8px;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-size: 22px;
+    cursor: pointer;
+  }
+  html[data-nav="pushed"] .nav-title {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-headline, 17px);
+    font-weight: var(--weight-semibold);
+  }
+  html[data-nav="pushed"] .chat-header .menu-toggle { display: none; }
 }
 
 /* — Rail: live-session dot (a provider is alive in that project) ----------- */

@@ -350,8 +350,32 @@
 .home__primary-btn:active { transform: scale(0.97); }
 
 /* — Responsive -------------------------------------------------------------- */
-@media (max-width: 768px) {
-  .home { padding: calc(64px + env(safe-area-inset-top, 0px)) 20px 40px; }
+/* Regular and compact: Today is one centred column under the wordmark slot,
+   which sits beside the hamburger. */
+@media (max-width: 1023.98px) {
+  .welcome-screen {
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  [data-wordmark-slot="today"] {
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 720px;
+    min-height: 44px;
+    margin-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding: 0 20px 0 max(24px, calc(64px - max(0px, (100% - 720px) / 2)));
+    display: flex;
+    align-items: center;
+  }
+  .home {
+    flex-shrink: 0;
+    max-width: 720px;
+    padding: 16px 24px 48px;
+  }
+}
+@media (max-width: 599.98px) {
+  .home { padding: 12px 20px 40px; }
   .home__greeting { font-size: 28px; }
   .home__tiles { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .home__tile { min-height: 104px; padding: 14px; }
@@ -424,21 +448,28 @@
 }
 .today-ask__send:disabled { opacity: 0.4; cursor: default; }
 
-.mode-switch {
-  display: flex;
-  margin: 10px 12px 0;
-  padding: 2px;
-  background: var(--bg-elevated);
-  border-radius: var(--radius-md);
+/* Wordmark: the Home | Work control. One element, moved between the sidebar
+   slot (wide) and Today's slot (regular, compact). */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-headline, 17px);
+  letter-spacing: -0.01em;
 }
-.mode-switch__btn {
-  flex: 1;
-  padding: 5px 0;
+.wordmark__word {
   background: none;
   border: none;
-  border-radius: calc(var(--radius-md) - 2px);
+  padding: 4px 2px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   font: inherit;
+  font-weight: 600;
   cursor: pointer;
 }
-.mode-switch__btn--active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.wordmark__word:hover { color: var(--text-primary); }
+.wordmark__word:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wordmark__word--active { color: var(--text-primary); }
+.wordmark__bar { color: var(--border-strong); font-weight: 300; user-select: none; }
+[data-wordmark-slot="sidebar"] { padding: 10px 14px 2px; }
+[data-wordmark-slot="today"] .wordmark { font-size: 22px; }
