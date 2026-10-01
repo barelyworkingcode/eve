@@ -186,6 +186,16 @@ Plain classes on `window`, registered through the DI container
   build it with a mocked container. `StateStore.addSession` keeps `active`
   meaning "provider alive"; nothing reads it as "running".
 
+`summary` counts running threads only (sessions and projects, not tasks), so a
+tasks outage leaves it ready; the Running part lists executing task runs too.
+
+Test ids the specs are written against: `today-part-<id>` (with `data-state`
+`loading|ready|error`), `today-error-<id>`, `today-retry-<id>`,
+`today-ask-input`, `today-ask-status`, `today-ask-project`,
+`today-needs-row-<id>` (`data-kind` `waiting|failed`), `today-running-row-<id>`,
+`today-empty-mode`, `mode-switch` (`role="radiogroup"`) with `mode-home` and
+`mode-work` (`aria-checked`).
+
 Parts shipped in S1 (all `modes: ['home','work']`; `order` gaps leave room):
 
 | id | order | shows | source |

@@ -86,14 +86,9 @@ test.describe('Home continue list', () => {
     await expect(page.getByTestId('home-session-run1')).toHaveCount(0);
   });
 
-  // KNOWN BUG, recorded not fixed (#121): a chip for a project other than the
-  // active one does nothing visible. It emits PROJECT_ACTIVATED, which only
-  // TabManager handles; the rail, the panel and the chip highlight follow
-  // ProjectTree.setActive, which the chip never calls. test.fail() keeps this
-  // green while the bug stands and turns red the moment it is fixed, so the
-  // fixing change deletes the marker.
+  // CHANGED by S1-A8 (docs/design-today-s1.md): the known-bug marker (test.fail) is
+  // gone; the chip now activates its project and the assertions below hold.
   test('the project chip activates the project; the active one is marked', async ({ page }) => {
-    test.fail(true, 'Home project chip is inert for a non-active project');
     await page.getByTestId('home-project-beta').click();
     await expect(page.locator('#panelTitle')).toHaveText('Beta Project', { timeout: 3000 });
     await expect(page.getByTestId('home-project-beta')).toHaveClass(/home__chip--active/);
@@ -109,18 +104,20 @@ test.describe('Home continue list', () => {
 });
 
 test.describe('Home when relay is unreachable at load', () => {
-  // Projects come from relay, so with relay down Home has none to show. What it
-  // shows instead is pinned as it stands: the connection is reported, and the
-  // first-run card is offered although the user has projects (S1's "truthful
-  // states" is expected to change the second).
-  test('reports the lost connection, and offers first-run because no project could be loaded', async ({ page, eve }) => {
+  // CHANGED by S1-A3c (docs/design-today-s1.md): this used to pin that Home offers
+  // "Start with a project" because no project could be loaded. With relay down the
+  // projects are unknown, not absent: the connection is reported, each part that
+  // needs relay says so with a Retry, and first-run is not offered.
+  test('reports the lost connection and says what could not load; it does not offer first-run', async ({ page, eve }) => {
     await eve.relay.close();
     await page.reload();
     await page.waitForFunction(() => !!window.client?.state);
     await expect(page.locator('.home__greeting')).toBeVisible();
     await expect(page.locator('#connectionBanner, .connection-banner').first()).toContainText('Reconnecting…');
     await expect(page.locator('.toast')).toContainText('Lost connection to relay');
-    await expect(page.getByRole('heading', { name: 'Start with a project' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Start with a project' })).toHaveCount(0);
+    await expect(page.getByTestId('today-error-projects')).toContainText("Can't reach relay");
+    await expect(page.getByTestId('today-retry-projects')).toBeVisible();
     await expect(page.locator('[data-testid^="home-project-"]')).toHaveCount(0);
   });
 });
