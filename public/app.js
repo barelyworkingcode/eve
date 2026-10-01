@@ -180,6 +180,8 @@ class EveWorkspaceClient {
     const tabs = this.tabManager;
     if (!tabs) return;
     tabs.showToday();
+    // The hidden chat input still holds focus; AskPart only takes focus from body.
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     this.homeScreen?.show();
   }
 

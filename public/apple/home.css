@@ -434,9 +434,10 @@
 }
 .today-ask__input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .today-ask__row { display: flex; align-items: center; gap: 12px; margin-top: 8px; min-height: 32px; }
-.today-ask__status { flex: 1; color: var(--text-muted); font-size: var(--text-callout); }
-.today-ask__project { max-width: 220px; }
+.today-ask__status { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text-muted); font-size: var(--text-callout); }
+.today-ask__project { max-width: 220px; min-width: 0; flex: 0 1 auto; }
 .today-ask__send {
+  flex: none;
   height: 32px;
   padding: 0 16px;
   background: var(--accent);
