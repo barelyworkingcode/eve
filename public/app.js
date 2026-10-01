@@ -62,6 +62,18 @@ class EveWorkspaceClient {
     this.container.register('sidebarRenderer', this.sidebarRenderer);
     this.tabManager = new TabManager(this.container);
     this.container.register('tabManager', this.tabManager);
+    this.sessionActivity = new SessionActivity(this.bus);
+    this.container.register('sessionActivity', this.sessionActivity);
+    this.todaySources = new TodaySources({
+      bus: this.bus,
+      state: this.state,
+      loaders: {
+        projects: () => this.loadProjects(),
+        sessions: () => this.loadSessions(),
+        tasks: () => this.taskManager.loadTasks(),
+      },
+    });
+    this.container.register('todaySources', this.todaySources);
     this.homeScreen = new HomeScreen(this.container);
     this.container.register('homeScreen', this.homeScreen);
     this.homeScreen.init();
@@ -79,6 +91,8 @@ class EveWorkspaceClient {
     this.viewerRegistry.register(new AudioViewer());
     this.container.register('viewerRegistry', this.viewerRegistry);
 
+    this.modeSwitch = new ModeSwitch(this.container);
+    this.modeSwitch.init();
     this.projectTree = new ProjectTree(this.container);
     this.projectTree.init();
 
@@ -251,7 +265,11 @@ class EveWorkspaceClient {
       this.updateProjectSelect();
     });
 
-    this.bus.on(EVT.CONNECTION_CHANGED, ({ online }) => this._applyConnectionState(online));
+    this.bus.on(EVT.CONNECTION_CHANGED, ({ online }) => {
+      // A turn that finishes while offline never delivers its message_complete.
+      if (!online) this.sessionActivity?.reset();
+      this._applyConnectionState(online);
+    });
     // A socket that drops before its first auth leaves the state at its
     // initial offline value, so CONNECTION_CHANGED never fires for it.
     this.bus.on(EVT.WS_DISCONNECTED, () => this._applyConnectionState(this.state.isOnline()));
@@ -403,6 +421,7 @@ class EveWorkspaceClient {
   }
 
   onWebSocketReady() {
+    this.sessionActivity?.reset();
     this.messageRenderer.hideThinkingIndicator();
 
     if (this.ttsManager.enabled) this.ttsManager.syncVoiceMode(this.wsClient);
@@ -652,7 +671,9 @@ class EveWorkspaceClient {
         this.tabManager.switchToTab(terminalId);
       } else {
         const termMgr = this.terminalManager;
-        if (termMgr?.terminals.has(terminalId)) {
+        if (termMgr?.allTerminals?.has(terminalId) && !termMgr.terminals.has(terminalId)) {
+          termMgr.openTaskTerminal(terminalId);
+        } else if (termMgr?.terminals.has(terminalId)) {
           termMgr.showTerminal(terminalId);
           const t = termMgr.terminals.get(terminalId);
           this.tabManager.openTerminal(terminalId, t.name || 'Terminal', t.directory || '');
@@ -728,7 +749,7 @@ class EveWorkspaceClient {
         type: 'warning',
         duration: 5000,
       });
-      const firstProject = this.state.getVisibleProjects()[0];
+      const firstProject = this.state.getModeProjects()[0];
       if (firstProject) {
         this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: firstProject.id });
       }
@@ -850,13 +871,17 @@ class EveWorkspaceClient {
   async loadProjects() {
     try {
       const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      if (!response.ok) throw Object.assign(new Error(`Server error: ${response.status}`), { status: response.status });
       const projects = await response.json();
       this._resolveUrlScope(projects);
       this.state.setProjects(projects); // emits PROJECTS_LOADED → renders sidebar + updates select
-      await this.loadAllTasks();
+      this.todaySources?.projects.succeed();
+      // Tasks load alongside, not before, sessions: a slow scheduler must not hold
+      // back threads or tab restore. Task runs are recognised once they arrive.
+      this.loadAllTasks();
     } catch (err) {
       this.log.error('Failed to load projects:', err);
+      this.todaySources?.projects.fail(Object.assign(err, { network: err instanceof TypeError }));
     }
   }
 
@@ -867,12 +892,14 @@ class EveWorkspaceClient {
   async loadSessions() {
     try {
       const response = await fetch('/api/sessions', { headers: this.getAuthHeaders() });
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      if (!response.ok) throw Object.assign(new Error(`Server error: ${response.status}`), { status: response.status });
       const sessions = await response.json();
       sessions.forEach(session => this.state.addSession(session));
       this.sidebarRenderer.renderProjectList();
+      this.todaySources?.sessions.succeed();
     } catch (err) {
       this.log.error('Failed to load sessions:', err);
+      this.todaySources?.sessions.fail(Object.assign(err, { network: err instanceof TypeError }));
     }
   }
 
@@ -1091,6 +1118,19 @@ class EveWorkspaceClient {
     this.showStopButton();
   }
 
+  // Sends `text` as the next turn of a thread that was just created (Today's Ask).
+  // Mirrors handleSubmit without the chat input: the text came from Ask.
+  sendUserText(sessionId, text) {
+    this.inputHistory.push(text);
+    if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
+    this.messageRenderer.appendUserMessage(text, []);
+    this.messageDispatcher.markLocalSubmit(sessionId);
+    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files: [], sessionId });
+    this.messageRenderer.finishAssistantMessage();
+    this.messageRenderer.showThinkingIndicator();
+    this.showStopButton();
+  }
+
   _buildSendText(rawText, isDictated) {
     if (rawText.startsWith('/')) return rawText;
     const sttTag = this.settings.get('sttPromptTag');
@@ -1274,7 +1314,7 @@ class EveWorkspaceClient {
   showWelcomeScreen() {
     this.elements.welcomeScreen.classList.remove('hidden');
     this.elements.chatScreen.classList.add('hidden');
-    this.homeScreen?.render();
+    this.homeScreen?.show();
   }
 
   showChatScreen() {

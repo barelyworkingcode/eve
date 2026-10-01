@@ -1,5 +1,6 @@
 class TaskManager {
   constructor(container) {
+    this.container = container;
     this.api = container.get('api');
     this.state = container.get('state');
     this.bus = container.get('bus');
@@ -8,9 +9,14 @@ class TaskManager {
   }
 
   async loadTasks(projectId) {
+    // Only the unscoped list answers Today's tasks source.
+    const source = projectId || !this.container.has('todaySources') ? null : this.container.get('todaySources').tasks;
     try {
       const tasks = await this.api.getTasks(projectId);
-      if (!Array.isArray(tasks)) return;
+      if (!Array.isArray(tasks)) {
+        source?.fail(new Error('Unexpected tasks answer'));
+        return;
+      }
       if (projectId) {
         for (const [id, t] of this.state.tasks) {
           if (t.projectId === projectId) this.state.removeTask(id);
@@ -19,8 +25,10 @@ class TaskManager {
       } else {
         this.state.setTasks(tasks);
       }
+      source?.succeed();
     } catch (err) {
       this.log.error('Failed to load tasks:', err);
+      source?.fail(Object.assign(err, { network: err instanceof TypeError }));
     }
   }
 

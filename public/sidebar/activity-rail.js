@@ -21,7 +21,7 @@ class ActivityRail {
     this.el.innerHTML = '';
     this._colorCache.clear();
 
-    const projects = this.state.getVisibleProjects()
+    const projects = this.state.getModeProjects()
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
     for (const project of projects) {
@@ -52,9 +52,13 @@ class ActivityRail {
     }
   }
 
+  _activity() {
+    return this.container.has('sessionActivity') ? this.container.get('sessionActivity') : null;
+  }
+
   _hasRunningSession(projectId) {
     return this.state.getSessionsForProject(projectId)
-      .some(s => s.active && !this.state.isTaskRun(s.id));
+      .some(s => !this.state.isTaskRun(s.id) && this._activity()?.statusOf(s.id) === 'running');
   }
 
   _avatarColor(seed) {

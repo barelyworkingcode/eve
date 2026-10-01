@@ -136,7 +136,8 @@ class ModalManager {
 
   _sendPermissionResponse(permissionId, approved) {
     if (!permissionId) return;
-    this.app.wsClient.send({ type: 'permission_response', permissionId, approved });
+    const sent = this.app.wsClient.send({ type: 'permission_response', permissionId, approved });
+    if (sent) this.app.container?.has('sessionActivity') && this.app.container.get('sessionActivity').permissionAnswered(permissionId);
   }
 
   clearSessionBypass(sessionId) {
@@ -166,11 +167,7 @@ class ModalManager {
 
   respondToPermission(approved) {
     if (!this.pendingPermissionId) return;
-    this.app.wsClient.send({
-      type: 'permission_response',
-      permissionId: this.pendingPermissionId,
-      approved
-    });
+    this._sendPermissionResponse(this.pendingPermissionId, approved);
     this.hidePermissionModal();
 
     while (this.permissionQueue.length > 0) {

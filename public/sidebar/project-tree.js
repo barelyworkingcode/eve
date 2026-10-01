@@ -31,6 +31,9 @@ class ProjectTree {
     // idempotent, which also makes it safe against the "please delete" emit
     // that precedes the actual removal.
     this.bus.on(EVT.PROJECT_DELETED, () => this.render());
+    // A mode change can take the active project out of view; render() then
+    // activates the first project in the new mode (or none).
+    this.bus.on(EVT.MODE_CHANGED, () => this.render());
 
     // The rail shows a live dot per project; liveness changes arrive as a
     // burst of per-session events on load, so coalesce to one repaint.
@@ -41,13 +44,13 @@ class ProjectTree {
         this.rail.render();
       });
     };
-    for (const evt of [EVT.SESSION_UPDATED, EVT.SESSION_REMOVED, EVT.SESSION_ENDED, EVT.SESSION_CREATED]) {
+    for (const evt of [EVT.SESSION_UPDATED, EVT.SESSION_REMOVED, EVT.SESSION_ENDED, EVT.SESSION_CREATED, EVT.SESSION_ACTIVITY]) {
       this.bus.on(evt, repaintRail);
     }
   }
 
   render() {
-    const projects = this.state.getVisibleProjects();
+    const projects = this.state.getModeProjects();
 
     const sorted = [...projects].sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
