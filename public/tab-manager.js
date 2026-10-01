@@ -229,7 +229,7 @@ class TabManager {
     if (label) label.textContent = tab ? (tab.label || '') : '';
     // Layout owns tab history (push on compact, replace elsewhere).
     if (this.container?.has?.('layout')) {
-      this.container.get('layout').navigate(hash || null, tab ? tab.id : null);
+      this.container.get('layout').navigate(tab ? (hash || window.location.pathname + window.location.search) : null, tab ? tab.id : null);
       return;
     }
     const target = hash || (window.location.pathname + window.location.search);

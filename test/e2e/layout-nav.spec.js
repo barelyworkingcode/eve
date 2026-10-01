@@ -47,6 +47,42 @@ for (const width of [390, 320]) {
       await expectToday(page);
       expect(await tabCount(page)).toBe(1);
     });
+
+    // An image tab (an agent's generated image) has no hash; it is still a
+    // pushed view, so Back must exist and lead to Today. The file tree's
+    // photo.png opens a file tab with a hash and does not exercise this.
+    // A repeat open of the same ref only refreshes it, so each call uses a new ref.
+    let n = 0;
+    const openImage = (page) => page.evaluate((ref) => {
+      window.client.tabManager.openImageTab(ref, '/api/generated/x.png', 'Generated', { actor: 'llm', projectId: 'alpha' });
+    }, `eve-llm-${++n}`);
+
+    test('A3 image tab from Today is a pushed view: Back and browser Back return to Today', async ({ page }) => {
+      const origin = new URL(page.url()).origin;
+      await openImage(page);
+      await expect(page.locator('#fileViewerPath')).toBeVisible();
+      await expect(page.getByTestId('nav-back')).toBeVisible();
+      await expect(page.getByTestId('bottom-bar')).toBeHidden();
+
+      await page.getByTestId('nav-back').click();
+      await expectToday(page);
+      await expect(page.getByTestId('bottom-bar')).toBeVisible();
+
+      await openImage(page);
+      await expect(page.getByTestId('nav-back')).toBeVisible();
+      await page.goBack();
+      await expectToday(page);
+      expect(new URL(page.url()).origin).toBe(origin);
+    });
+
+    test('A3 image tab opened from a thread keeps Back and shows the image', async ({ page }) => {
+      await openThreadFromToday(page);
+      await openImage(page);
+      await expect(page.locator('#fileViewerPath')).toBeVisible();
+      await expect(page.getByTestId('nav-back')).toBeVisible();
+      await page.getByTestId('nav-back').click();
+      await expectToday(page);
+    });
   });
 }
 
