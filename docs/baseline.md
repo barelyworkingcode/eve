@@ -138,5 +138,15 @@ Notes:
 
 ## Stability
 
-The suite is run five times in a row on Linux with `--retries=0` after the detection check; the result is
-recorded in the PR. A spec that needs a retry is fixed, not retried.
+The full e2e suite (127 tests, about 4.5 minutes) was run ten times in a row on Linux
+with `--retries=0` before the detection check, and five more times after it
+added specs. All fifteen runs were green. Three flakes were found along the way,
+all in tests and all fixed rather than retried: the palette opened before sessions
+had loaded (two specs), and an older terminal spec that did not unwrap eve's
+`__batch` frames. Unit and integration tiers were green on the same head.
+
+The detection check was repeated independently with fourteen fresh breakages
+(greeting bands, Continue length, running count, `live` flag, Allow answering
+deny, Run Now, tree refresh, terminal join, session list, palette projects,
+external-change bar, project path, create-session error text, project count);
+every one turned a spec red.
