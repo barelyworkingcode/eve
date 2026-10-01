@@ -51,17 +51,16 @@ Screenshots of the states these specs drive are in [baseline/](baseline/) (deskt
 Found while writing the specs. Each is pinned as it stands, or as an expected
 failure (`test.fail`) that goes red the moment it is fixed.
 
-- **Home project chips are inert** for any project but the active one: the chip
-  emits `PROJECT_ACTIVATED`, which only TabManager handles, so the panel, rail and
-  highlight do not move (`goals/home-screen`, `test.fail`).
-- **Relay down at load looks like a new install**: Home offers "Start with a
-  project" because projects come from relay and none loaded, beside a
-  "Reconnecting…" banner (`goals/home-screen`).
-- **"Running" means the provider process is alive** (`live` in relay's session
-  summary), not that a turn is in progress (`goals/g3-reopen-thread`).
-- **eve drops `mode` and `default_for`** from relay's project view
-  (`project-normalize.js` allow-list); the Home|Work slices add them
-  (`test/unit/project-normalize.test.js`).
+- ~~**Home project chips are inert**~~ fixed by S1 (A8): the chip calls
+  `ProjectTree.setActive`; the `test.fail` marker is gone.
+- ~~**Relay down at load looks like a new install**~~ fixed by S1 (A3c): each
+  part that needs relay says so with a Retry; first-run is offered only when
+  projects loaded and there are none.
+- ~~**"Running" means the provider process is alive**~~ fixed by S1 (A3):
+  running is a turn in progress or an executing task run, derived from frames
+  (`core/session-activity.js`); `live` shows nothing.
+- ~~**eve drops `mode` and `default_for`**~~ fixed by S1 (A7): carried as `mode`
+  and `defaultFor`.
 - **The ⌘K palette is a snapshot** of what is loaded when it opens.
 - **Deleting a project asks twice**: a native `confirm()`, then the modal that
   says what is lost (`goals/g12-projects`).

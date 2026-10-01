@@ -94,7 +94,8 @@
   line-height: 1.4;
 }
 
-.home__empty {
+.home__empty,
+.today__empty {
   margin: 0;
   padding: 18px 16px;
   border: 1px dashed var(--border-color);

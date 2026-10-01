@@ -1123,6 +1123,10 @@ class EveWorkspaceClient {
   sendUserText(sessionId, text) {
     this.inputHistory.push(text);
     if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
+    // Also in the thread's history: the tab's pane repaints from it, and the
+    // project switch that follows a new thread can repaint after this send.
+    const history = this.sessionHistories.get(sessionId);
+    if (history) history.push({ timestamp: new Date().toISOString(), role: 'user', content: text });
     this.messageRenderer.appendUserMessage(text, []);
     this.messageDispatcher.markLocalSubmit(sessionId);
     this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files: [], sessionId });

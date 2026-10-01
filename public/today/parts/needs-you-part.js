@@ -48,7 +48,7 @@ class NeedsYouPart extends TodayPart {
     root.appendChild(todayEyebrow('Needs you'));
     if (rows.length === 0) {
       const empty = document.createElement('p');
-      empty.className = 'home__empty';
+      empty.className = 'today__empty';
       empty.textContent = 'Nothing needs you.';
       root.appendChild(empty);
       return;
