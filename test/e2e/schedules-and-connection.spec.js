@@ -63,7 +63,10 @@ test.describe('cold-load deep link', () => {
       if (withOther) {
         seed(OTHER, 'Other Session');
         await page.addInitScript((id) => {
-          try { localStorage.setItem('eve-open-sessions', JSON.stringify({ [id]: Date.now() })); } catch {}
+          try {
+            localStorage.setItem('eve-open-sessions', JSON.stringify({ [id]: Date.now() }));
+            localStorage.setItem('eve-last-active', String(Date.now()));
+          } catch {}
         }, OTHER);
       }
 

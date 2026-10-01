@@ -382,6 +382,7 @@ test(
     const storage = buildLegacyStorage({ sessionId, projectId: 'p1', ts: Date.now() });
     await page.addInitScript((data) => {
       for (const [key, value] of Object.entries(data)) localStorage.setItem(key, JSON.stringify(value));
+      localStorage.setItem('eve-last-active', String(Date.now()));
     }, storage);
 
     await page.goto(eve.baseUrl);
