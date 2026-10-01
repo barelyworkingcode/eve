@@ -47,7 +47,7 @@ class RunningPart extends TodayPart {
     root.appendChild(todayEyebrow('Running'));
     if (rows.length === 0) {
       const empty = document.createElement('p');
-      empty.className = 'home__empty';
+      empty.className = 'today__empty';
       empty.textContent = 'Nothing running.';
       root.appendChild(empty);
       return;

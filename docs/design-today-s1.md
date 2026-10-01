@@ -363,6 +363,24 @@ brief (S3). Research (S4). Workbench, Routines, Threads and Projects spaces
 "Today after 60 minutes away" front-door rule: S1 keeps today's restore of
 open chat and file tabs and shows Today when none is active. Custom parts (#117).
 
+## As built
+
+Where the build differs from, or settles, the text above:
+
+- **Models.** The model list already retries itself (`app.js#_scheduleModelsRetry`),
+  so Ask shows "Waiting for models…" and sends when the list arrives; it has no
+  separate Retry for models.
+- **First message.** relay auto-joins the creator, so the browser never gets a
+  `session_joined` for a new thread. Ask sends on `session_created`, and also
+  records the text in the thread's history so a repaint from that history keeps it.
+- **resume_required** is handled inside eve before the browser sees it, so
+  `session-activity` ignores it defensively and the specs exercise only the
+  session-less error.
+- **Empty lines.** Needs you and Running use `.today__empty`, not `.home__empty`,
+  so the existing Continue empty-state assertion still matches one element.
+- **Reattach.** Persistent-session reattach on host projects never takes focus
+  (`terminal-manager.js`); its background tabs are unchanged.
+
 ## Decisions taken after review
 
 1. Reattach on SSH host projects keeps adding background tabs, never takes

@@ -67,9 +67,12 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 |---|---|---|---|---|
 | Trusted-network bypass of the passkey screen | API: `trusted-network.js`, `GET /api/auth/status` | Open eve from loopback or a trusted subnet | none — unit and integration tests only; journeys run signed in | auth |
 | Passkey sign-in | UI: `#authScreen`, `public/auth.js`; API: `/api/auth/login/*` | Open eve off the trusted network, Sign In | **owner gate**: passkey-sign-in (+), agent-sign-in-refused (−) | auth |
-| Home greeting and Start tiles | UI: `public/home-screen.js` | Open eve with no tab open | landing-view | home |
-| First-run "Create a project" | UI: `home-screen.js` (`.home__first-run`) | Open eve with zero projects | none yet — world always has projects | home, projects |
-| Project chips on Home | UI: `home-screen.js` (`_renderProjects`); API: `GET /api/projects` | Home | world-projects-listed | home, projects |
+| Today: a host that lays out independent parts (summary, Ask, Needs you, Start, Continue, Running, Projects) for the current mode; a failing part shows one line with Retry, a slow one a skeleton | UI: `public/home-screen.js`, `public/today/**` (design: `docs/design-today-s1.md`) | Open eve with no tab open | landing-view (greeting, tiles); none yet for part failure/slowness — cloud specs `goals/today-parts` | home |
+| Ask box: Return starts a thread in the mode's default project, no dialog | UI: `public/today/parts/ask-part.js`; WS `create_session`, `user_input` | Today, focused on open | none yet — cloud specs `goals/today-ask` | home, chat |
+| Needs you / Running: waiting, failed and running threads and task runs, from frames eve receives | UI: `public/today/parts/needs-you-part.js`, `running-part.js`; `public/core/session-activity.js` | Today | none yet — cloud specs `goals/today-truth` | home |
+| Home | Work switch; lists show only projects whose mode includes it | UI: `public/sidebar/mode-switch.js`, `core/mode.js`, `StateStore.getModeProjects`; API: `mode`, `default_for` on `GET /api/projects` | Sidebar panel header | none yet — cloud specs `goals/today-mode`; real enforcement is relay's | home, projects |
+| First-run "Create a project" | UI: `public/today/parts/projects-part.js` (`.home__first-run`) | Open eve with zero projects | none yet — world always has projects | home, projects |
+| Project chips on Home | UI: `public/today/parts/projects-part.js`; API: `GET /api/projects` | Home | world-projects-listed | home, projects |
 | Project rail | UI: `public/sidebar/activity-rail.js` | Left rail | world-projects-listed | projects |
 | Project panel (Files / Sessions / Tasks / Changes) | UI: `public/sidebar/project-panel.js` | Click a project in the rail | chat-reply etc. (as setup, not a verdict) | projects |
 | `/<project-slug>/` URL scoping | API: `server.js` SPA route | Open `/<slug>/` | none yet — not written | home |
@@ -103,7 +106,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | Sessions tab → open thread with history | UI: project-panel Sessions; `app.joinSession`; `message-dispatcher.js` | Sessions tab, click a thread | open-existing-thread | chat |
-| Home "Continue" list | UI: `home-screen.js`; `core/session-recents.js` | Home | open-existing-thread (Continue row) | home, chat |
+| Home "Continue" list | UI: `public/today/parts/continue-part.js`; `core/session-recents.js` | Home | open-existing-thread (Continue row) | home, chat |
 | ⌘K jump to session / project / tab / recent file | UI: `public/dialogs/command-palette.js` | ⌘K | open-existing-thread (session by title) | home |
 | Launcher Resume tab (running chats and terminals) | UI: `shell-launcher-dialog.js` | Launcher → Resume | none yet — not written | chat, terminal |
 | Reopen tabs after reload (`eve-open-sessions`, `eve-open-files`) | UI: `tab-manager.js`, localStorage | Reload eve | none yet — README notes it as a trap | shell |
@@ -114,7 +117,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | Terminal templates per project | API: `GET /api/terminal/templates?project=` | Launcher cards | terminal-on-request | terminal |
-| Open a terminal and run a command | UI: `public/terminal-manager.js`; WS `terminal_create`, `terminal_input` | Launcher card, Home tile, rail New Terminal | terminal-on-request | terminal |
+| Open a terminal and run a command; a terminal relay already holds is listed in the Sessions panel and opens on click, never by itself | UI: `public/terminal-manager.js`, `project-panel.js`; WS `terminal_create`, `terminal_input`, `terminal_list` | Launcher card, Home tile, rail New Terminal, Sessions panel | terminal-on-request (its after-reload step expects the old auto-open; flips with S1, owner to update) | terminal |
 | No terminal until asked | — | Open a project | terminal-on-request | terminal |
 | Slash `/zsh`, `/bash`, `/claude`, `/rh` | Server: `slash-command-handler.js` | Type in composer | none yet — not written | terminal, chat |
 | Terminal survives reload / reconnect | WS `terminal_reconnect`, `join_terminal` | Reload with a terminal open | terminal-on-request (reload) | terminal |
@@ -142,7 +145,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | View a task's last or live run | UI: `public/task-viewer.js`; API: `GET /api/tasks/:taskId/history` | Tasks tab → a task | task-created-listed (last run after reload) | tasks |
-| Running indicators (Home dot, panel counts) | UI: `home-screen.js`, `project-panel.js` | Home, rail | none yet — not written | home |
+| Running indicators (Today dot and count, rail and panel dots): a turn in progress in a joined thread or an executing task run; a live idle process shows none | UI: `public/today/**`, `project-panel.js`, `activity-rail.js`; `core/session-activity.js` | Home, rail | none yet — cloud specs `goals/today-truth` | home |
 | Changes tab (repos, worktrees, counts) | UI: `public/sidebar/changes-panel.js`; WS `git_changes` | Project panel → Changes | changes-diff | git |
 | Uncommitted / vs base scope | UI: changes-panel scope toggle | Changes tab | none yet — not written | git |
 | Diff pane (side-by-side / inline) | UI: `public/diff-viewer.js`, `panes/diff-pane.js`; WS `git_file_versions` | Click a changed file | changes-diff | git |
@@ -278,8 +281,11 @@ areas:
             test/integration/launch-identity.test.js, test/e2e/passkey-enrolment.spec.js]
     journeys: [landing-view, passkey-first-enrol, passkey-sign-in, agent-sign-in-refused, agent-enrol-refused, add-browser-in-window]
   home:
-    code: [public/home-screen.js, public/dialogs/command-palette.js, public/apple/home.css, public/apple/palette.css]
-    tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/e2e/app.spec.js]
+    code: [public/home-screen.js, public/today/**, public/core/session-activity.js, public/core/mode.js,
+           public/sidebar/mode-switch.js, public/dialogs/command-palette.js, public/apple/home.css, public/apple/palette.css]
+    tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/unit/session-activity.test.js,
+            test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
+            test/e2e/goals/home-screen.spec.js]
     journeys: [landing-view, world-projects-listed, open-existing-thread]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
