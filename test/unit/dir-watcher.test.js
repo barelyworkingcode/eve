@@ -6,6 +6,10 @@ const FileWatcher = require('../../file-watcher');
 
 const { shouldWatchDir, watchBackend } = FileWatcher;
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+// These two cases pin Linux (inotify) event semantics. The pruned backend is
+// only selected on Linux (watchBackend), and macOS fs.watch reports an append
+// as 'rename' and replays pre-start events, so they cannot hold there.
+const itLinux = process.platform === 'linux' ? it : it.skip;
 
 describe('dir-watcher (pruned inotify-style backend)', () => {
   let root;
@@ -49,7 +53,7 @@ describe('dir-watcher (pruned inotify-style backend)', () => {
     expect(watcher.watchedDirectories).toBe(3);
   });
 
-  it('reports a create, an in-place write and a delete in a watched directory', async () => {
+  itLinux('reports a create, an in-place write and a delete in a watched directory', async () => {
     write('src/a.js');
     await start();
     write('src/b.js');
@@ -119,7 +123,7 @@ describe('dir-watcher (pruned inotify-style backend)', () => {
     expect(() => createDirWatcher(path.join(root, 'missing'), { onEvent: () => {} })).toThrow(/ENOENT/);
   });
 
-  it('close() stops all events and releases every handle', async () => {
+  itLinux('close() stops all events and releases every handle', async () => {
     write('a/b.txt');
     await start();
     watcher.close();
