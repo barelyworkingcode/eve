@@ -310,7 +310,7 @@ function createFakeRelay({ token = null } = {}) {
     }
   };
 
-  const server = http.createServer((req, res) => {
+  const routeHandler = (req, res) => {
     const url = new URL(req.url, 'http://relay.local');
     const p = url.pathname;
     const send = (status, obj) => {
@@ -649,6 +649,24 @@ function createFakeRelay({ token = null } = {}) {
       // frontend_dispatcher.go: a path no service claims.
       return sendText(404, 'no service registered for this path');
     });
+  };
+
+  // Test-side faults on a route the fake already serves: one hook ahead of the
+  // route table, keyed on method and exact path. A fault adds no behaviour a
+  // real relay lacks (a hop that answers an error, or answers late).
+  const routeFaults = [];
+  const server = http.createServer((req, res) => {
+    const faultPath = new URL(req.url, 'http://relay.local').pathname;
+    const fault = routeFaults.find((f) => f.method === req.method && f.path === faultPath);
+    if (!fault) return routeHandler(req, res);
+    const go = () => {
+      if (fault.status === undefined) return routeHandler(req, res);
+      requests.push({ method: req.method, path: faultPath });
+      req.resume();
+      res.writeHead(fault.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(fault.body));
+    };
+    if (fault.delayMs) { const t = setTimeout(go, fault.delayMs); t.unref?.(); } else go();
   });
 
   // Registered before the WebSocketServer's own upgrade listener, so the
@@ -780,6 +798,9 @@ function createFakeRelay({ token = null } = {}) {
   });
 
   return {
+    failRoute: (method, path, status, body = { error: 'unavailable' }) => { routeFaults.push({ method, path, status, body }); },
+    delayRoute: (method, path, delayMs) => { routeFaults.push({ method, path, delayMs }); },
+    clearRouteFaults: () => { routeFaults.length = 0; },
     addProject: (proj) => { projects.set(proj.id, proj); },
     addHost: (host) => { hosts.set(host.id, { status: 'unknown', ssh_argv: [], ...host }); },
     // For reload/restore tests that need GET /api/sessions to already know
