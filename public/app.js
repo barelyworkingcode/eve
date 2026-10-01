@@ -10,6 +10,9 @@ class EveWorkspaceClient {
     this.bus = new EventBus();
     this.container = new Container();
     this.container.register('bus', this.bus);
+    this.layout = new Layout({ bus: this.bus });
+    this.container.register('layout', this.layout);
+    this.layout.init();
     const logger = new Logger('debug');
     this.container.register('logger', logger);
     this.api = new ApiClient();

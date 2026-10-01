@@ -1,0 +1,11 @@
+/* ============================================================================
+   Touch targets (S2-A2). The one place that makes controls thumb-sized: under
+   a coarse pointer every visible interactive control's border box is at least
+   44x44 at every width. Size the real box, no pseudo-element hit slop.
+   `min-height` beats a fixed `height`, so no !important. Loaded after the
+   other apple sheets. Pointer is read through the media query only, never
+   through scripts. Design: docs/design-today-s2.md.
+   ========================================================================== */
+
+@media (pointer: coarse) {
+}
