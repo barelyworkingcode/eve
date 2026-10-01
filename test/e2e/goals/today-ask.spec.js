@@ -122,6 +122,7 @@ test.describe('S1-A5 Ask with relay down', () => {
     await page.reload();
     await page.waitForFunction(() => !!window.client?.state);
     await expect(page.getByTestId('today-ask-status')).toContainText("Can't reach relay");
+    await expect(page.getByTestId('today-ask-send')).toBeDisabled();
     await ask(page).fill('typed while down');
     await ask(page).press('Enter');
     await expect(ask(page)).toHaveValue('typed while down');
