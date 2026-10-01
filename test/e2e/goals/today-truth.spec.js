@@ -60,8 +60,12 @@ test.describe('S1-A3 a turn in progress', () => {
     await backToToday(page);
     await expect(page.getByTestId(`today-running-row-${sessionId}`)).toBeVisible();
 
+    // Hold the re-join reply: with it held, only going offline can clear the
+    // state (a join also clears it, which would hide a missing offline reset).
+    const held = eve.relay.holdJoin(sessionId);
     eve.relay.closeRelaySockets();
     await expect(page.getByTestId(`today-running-row-${sessionId}`)).toHaveCount(0, { timeout: 15000 });
+    held.release();
     eve.relay.scriptSession(sessionId, undefined);
   });
 });
