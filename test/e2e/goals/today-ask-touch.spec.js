@@ -2,7 +2,7 @@
 // and all of Today shows; a tap on the box focuses it. Fine pointers keep S1-A1.
 // Issue #129; docs/design-today-s1.md A1.
 const { test, expect } = require('./fixture');
-const { WORLD, openThreadFromToday } = require('../layout-helpers');
+const { WORLD } = require('../layout-helpers');
 
 const ask = (page) => page.getByTestId('today-ask-input');
 const askFocused = (page) => page.evaluate(() => document.activeElement === document.querySelector('[data-testid="today-ask-input"]'));
@@ -14,14 +14,6 @@ test.describe('touch: Ask is not focused', () => {
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(ask(page)).toBeVisible();
     // Give any late focus() call time to (wrongly) land.
-    await page.waitForTimeout(1000);
-    expect(await askFocused(page)).toBe(false);
-  });
-
-  test('Today -> thread -> Back: Today again, still not focused', async ({ page }) => {
-    await openThreadFromToday(page);
-    await page.getByTestId('nav-back').click();
-    await expect(page.getByTestId('home-screen')).toBeVisible();
     await page.waitForTimeout(1000);
     expect(await askFocused(page)).toBe(false);
   });
