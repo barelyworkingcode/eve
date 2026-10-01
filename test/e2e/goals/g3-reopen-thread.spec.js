@@ -74,7 +74,11 @@ test.describe('G3 reopen a thread', () => {
   });
 });
 
-test.describe('G3 a live session is shown as running', () => {
+// CHANGED by S1-A3 (docs/design-today-s1.md): this block used to assert that a
+// live provider process is "running" (a dot, a count, a lit project chip). Live
+// means the process is alive, not that a turn is in progress. A running turn is
+// asserted in goals/today-truth.
+test.describe('G3 a live session that is idle is not shown as running', () => {
   test.use({
     world: {
       seed: ({ relay, folders }) => {
@@ -86,10 +90,10 @@ test.describe('G3 a live session is shown as running', () => {
     },
   });
 
-  test('Home counts it, marks its row and its project chip', async ({ page }) => {
-    await expect(page.locator('.home__subtitle')).toContainText('1 session running');
-    await expect(page.getByTestId('home-session-s-live').locator('.home__live')).toHaveCount(1);
-    await expect(page.getByTestId('home-project-alpha').locator('.home__live')).toHaveCount(1);
-    await expect(page.getByTestId('home-project-beta').locator('.home__live')).toHaveCount(0);
+  test('Home keeps its row but counts nothing and marks neither the row nor the project chip', async ({ page }) => {
+    await expect(page.getByTestId('home-session-s-live')).toBeVisible();
+    await expect(page.locator('.home__subtitle')).toContainText('Nothing running');
+    await expect(page.getByTestId('home-session-s-live').locator('.home__live')).toHaveCount(0);
+    await expect(page.getByTestId('home-project-alpha').locator('.home__live')).toHaveCount(0);
   });
 });
