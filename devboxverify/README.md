@@ -245,7 +245,7 @@ no horizontal overflow, and every visible control at least 44×44.
 **today-phone.** At 390×844 with touch: a bottom bar (Today, Threads,
 Projects) and no tab bar; Projects → Acme Corp → Start Chat (no message is
 sent) opens the thread with Back and `#session/<id>`; Back and browser Back
-both return to Today with no hash. Overflow and the 44px sweep on Today and the
+both return to Today (the hash is checked after in-app Back). Overflow and the 44px sweep on Today and the
 thread.
 - Lives in: `public/core/layout.js` (navigation stack), `public/app.js`
   (bottom bar, Back), `public/tab-manager.js` (`_updateHash`, `showToday`).
