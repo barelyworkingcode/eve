@@ -264,7 +264,8 @@ The Today host keeps `data-testid="home-screen"` on `#homeContent`.
 Not touched: the five CRLF files (`public/tab-manager.js`, `public/file-editor.js`,
 `public/sidebar-renderer.js`, `routes/index.js`, `ws-handler.js`) unless a task
 forces it, and then patched in place; `devboxverify/` (cross-repo contract,
-owner-owned); `test/visual/__baseline__` (macOS only); relay and relayScheduler
+owner-owned) and `test/visual/__baseline__` (macOS only), both later amended (see
+Amendments); relay and relayScheduler
 (read references).
 
 ## Relay and the fake
@@ -337,7 +338,7 @@ states it. None is weakened: where an assertion goes, a stricter one replaces it
 | `goals/home-screen`: chip `test.fail` | expected failure for the inert chip | marker deleted; the test passes | A8 |
 | `goals/g4-terminal`: after reload | clicks the sidebar terminal; passes only because the list auto-opened it | asserts first that no `#terminal` is open and Today is visible, then the click opens it | A2 |
 | `test/unit/terminal-rejoin.test.js`: "still sets up terminals it does not hold locally" | asserts `reconnectTerminal` is called from the list | asserts the list registers the terminal and creates no tab | A2 |
-| `devboxverify/journeys.js` `terminal-on-request` | expects the terminal pane to reappear within 15s of a reload | flips by design: after a reload the terminal is in the Sessions panel and opens on click. The journey is owner-owned and cross-repo; this PR does not edit it and states that it will fail until the owner updates it | A2 |
+| `devboxverify/journeys.js` `terminal-on-request` | expects the terminal pane to reappear within 15s of a reload | flips by design: after a reload the terminal is in the Sessions panel and opens on click. Initially left to the owner; rewritten later (see Amendments) | A2 |
 | any other assertion that pins `active` as "running" or the terminal badge text "running" | found by grep during the build | listed in the PR with its criterion | A3 |
 | `goals/home-screen`: relay unreachable at load | asserts "Start with a project" | asserts the can't-reach line and Retry, and that first-run is not offered | A3c |
 | `goals/g3-reopen-thread`: running marks (the live-session test; the "Nothing running" dormant test still holds) | a live thread shows the running dot and counts | a live idle thread shows neither; a running turn does | A3 |
@@ -406,3 +407,21 @@ Cloud: `npm test`, `npm run test:integration`, five consecutive full
 breakage at a time, each confirmed red). Owner, on the devbox: `devbox/verify`,
 the journeys in `devboxverify/` (unedited here), `npm run test:visual` on macOS
 and the re-baseline, and relay's real mode enforcement.
+
+## Amendments
+
+After the first devbox verify run on macOS, these files outside the original
+ownership were changed:
+
+- `devboxverify/journeys.js`: the journeys `terminal-on-request` (A2) and
+  `world-projects-listed` (A4) were rewritten to the new criteria. They are
+  stronger: negative assertions were added, and nothing was removed that the
+  criterion did not change.
+- `test/visual/__baseline__`: re-baselined on macOS.
+- `test/unit/dir-watcher.test.js`: corrected for macOS (#124). An in-place write
+  is reported as `rename` there, and events from before the start are cleared
+  before the close check. Linux expectations are unchanged.
+- Ask while eve's own socket is down: `ask-part.js` now blocks with a plain-words
+  line when the browser socket is down, and drops a pending Ask (and the text
+  queued for the next new session) when the send is lost or the connection goes
+  offline. The typed text is kept. Covered by `goals/today-ask`.
