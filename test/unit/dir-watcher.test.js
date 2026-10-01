@@ -7,7 +7,10 @@ const FileWatcher = require('../../file-watcher');
 const { shouldWatchDir, watchBackend } = FileWatcher;
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
-describe('dir-watcher (pruned inotify-style backend)', () => {
+// The pruned backend is only selected on Linux; macOS runs the native backend, covered by file-watcher.test.js.
+const suite = process.platform === 'linux' ? describe : describe.skip;
+
+suite('dir-watcher (pruned inotify-style backend)', () => {
   let root;
   let watcher;
   let events;
