@@ -64,7 +64,7 @@ test.describe('S1-A4 Home | Work', () => {
     await page.waitForFunction(() => window.client.state.sessions.size > 0);
     await page.keyboard.press('ControlOrMeta+k');
     await page.getByTestId('palette-input').fill('Only');
-    await expect(page.getByTestId('palette-item').filter({ hasText: 'Work Only' })).toBeVisible();
+    await expect(page.getByTestId('palette-item').filter({ hasText: 'Work Only' }).first()).toBeVisible();
     await expect(page.getByTestId('palette-item').filter({ hasText: 'Home Only' })).toHaveCount(0);
     await page.getByTestId('palette-input').fill('Garden');
     await expect(page.getByTestId('palette-item').filter({ hasText: 'Garden plans' })).toHaveCount(0);

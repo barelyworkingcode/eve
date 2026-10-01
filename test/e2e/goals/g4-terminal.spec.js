@@ -62,6 +62,9 @@ test.describe('G4 terminal', () => {
     // CHANGED by S1-A2 (docs/design-today-s1.md): the terminal used to reopen by
     // itself on reload and this click only focused it. Now it stays closed until
     // asked, so assert that first, then that the click opens it.
+    // Wait until the page has been told about the terminal, or "hidden" is checked
+    // before a terminal_list could have opened it.
+    await page.waitForFunction((id) => window.client.terminalManager?.allTerminals?.has(id), terminalId);
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(page.locator('#terminal')).toBeHidden();
     await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha Project', { exact: true }).click();
