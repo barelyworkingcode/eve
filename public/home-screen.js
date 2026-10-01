@@ -44,7 +44,7 @@ class HomeScreen {
     this.bus.on(EVT.MODE_CHANGED, ({ mode }) => this.host.setMode(mode));
   }
 
-  /** Today came back on screen (no tab is active). The Ask box takes focus unless the user is mid-something else. */
+  /** Today came back on screen (no tab is active). The Ask box takes focus on fine pointers unless the user is mid-something else (#129). */
   show() {
     this.registry.partsFor(this.state.mode).find(p => p.id === 'ask')?.focus?.();
   }

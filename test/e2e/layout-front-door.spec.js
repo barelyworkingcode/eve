@@ -71,7 +71,7 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 390, height: 844, hasTo
   test.describe(`resume at ${vp.width}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height }, hasTouch: !!vp.hasTouch });
 
-    test('A5 a page resumed after 61 minutes shows Today with Ask focused and keeps the tab', async ({ context, eve }) => {
+    test('A5 a page resumed after 61 minutes shows Today (Ask focused on a fine pointer only) and keeps the tab', async ({ context, eve }) => {
       const page = await context.newPage();
       await page.clock.install();
       await gotoEve(page, eve.baseUrl);
@@ -92,7 +92,9 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 390, height: 844, hasTo
       expect(await tabCount(page)).toBe(1);
       const s = await stored(page);
       expect(s.now - s.stamp).toBeLessThan(MIN);
-      await expect(page.getByTestId('today-ask-input')).toBeFocused();
+      // Fine pointers focus Ask; a coarse pointer must not raise the keyboard (#129).
+      if (vp.hasTouch) expect(await page.evaluate(() => document.activeElement?.dataset?.testid)).not.toBe('today-ask-input');
+      else await expect(page.getByTestId('today-ask-input')).toBeFocused();
     });
   });
 }

@@ -22,6 +22,11 @@ Numbered so a spec, a flipped assertion and the PR can cite them.
 **S1-A1 · Opens to Today, Ask focused.** With no restored tab, eve shows Today
 and the Ask box has focus, so typing needs no click. Opening Today makes no LLM
 call and creates no session.
+*Amended (#129):* focus is for fine pointers only. On a coarse pointer
+(`(pointer: coarse)`: phone, iPad) Ask is not focused on open, on returning to
+Today, or on resume, so the soft keyboard stays down and all of Today shows; a
+tap on the box focuses it. The check lives in `AskPart.focus()`, the one place
+every caller goes through.
 
 **S1-A2 · Nothing opens by itself.** A terminal that relay lists (`terminal_list`,
 at page load or after a reconnect) creates no tab and no xterm, and does not take
