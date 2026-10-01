@@ -183,7 +183,7 @@
 }
 
 /* Mobile: 44px touch target. */
-@media (max-width: 768px) {
+@media (max-width: 1023.98px) {
   .btn-icon {
     width: 44px;
     height: 44px;
@@ -313,7 +313,7 @@
 }
 
 /* Mobile: iOS native toggle dimensions (34×20). */
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .provider-setting-checkbox input[type="checkbox"],
   .project-dialog__checkbox-row input[type="checkbox"],
   .dialog__setting-row--checkbox input[type="checkbox"],
@@ -418,7 +418,7 @@
 }
 
 /* Mobile: prevent iOS input zoom. */
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .task-prompt-textarea,
   #taskScheduleConfig input {
     font-size: 16px;

@@ -29,7 +29,7 @@
 }
 
 /* Mobile adjustments */
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .auth-card {
     margin: 16px;
   }

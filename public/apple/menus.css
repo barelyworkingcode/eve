@@ -209,7 +209,7 @@ select:disabled,
 }
 
 /* Mobile: touch-friendly select sizing. */
-@media (max-width: 768px) {
+@media (max-width: 1023.98px) {
   .file-tree__context-item {
     min-height: var(--hit);
     padding: 12px;

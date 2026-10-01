@@ -220,7 +220,7 @@
 .palette__footer .palette__kbd { margin-left: 8px; }
 .palette__footer .palette__kbd:first-child { margin-left: 0; }
 
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   #command-palette.dialog { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
   #command-palette .dialog__panel.palette { max-height: calc(100vh - 24px); }
   .palette__input { font-size: 16px; }

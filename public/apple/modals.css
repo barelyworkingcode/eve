@@ -529,7 +529,7 @@ html[data-theme="light"] .modal-content select {
 }
 
 /* — Mobile: bottom sheet --------------------------------------------------- */
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .modal {
     align-items: flex-end;
     padding: 0;

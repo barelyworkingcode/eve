@@ -65,6 +65,7 @@
   --hit: 44px;          /* iOS minimum touch target (used at mobile bp) */
   --rail-width: 60px;
   --sidebar-width: 280px;
+  --bottom-bar-h: 56px;   /* compact bottom bar, safe-area excluded */
 
   /* — Motion ---------------------------------------------------------------- */
   --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);   /* Apple sheet/scroll feel */
@@ -231,7 +232,7 @@ html[data-theme="light"] { color-scheme: light; }
 /* ==========================================================================
    ADAPTIVE DENSITY — iOS-comfortable spacing/typography on narrow screens.
    ========================================================================== */
-@media (max-width: 768px) {
+@media (max-width: 1023.98px) {
   :root {
     --root-font-size: 16px;     /* iOS body; also prevents input zoom */
     --text-body: 16px;
@@ -239,6 +240,10 @@ html[data-theme="light"] { color-scheme: light; }
     --text-headline: 17px;
     --ctl-h: 36px;
     --ctl-h-lg: 44px;
-    --sidebar-width: 100%;
+    --sidebar-width: min(380px, 85vw);   /* regular: slide-over */
   }
+}
+
+@media (max-width: 599.98px) {
+  :root { --sidebar-width: 100%; }       /* compact: full-screen sheet */
 }

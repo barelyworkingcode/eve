@@ -1221,7 +1221,7 @@
    At ≤ 768 px the panel slides up from the bottom edge (iOS sheet pattern).
    ========================================================================== */
 
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   /* Adjust overlay centering → bottom-anchored. */
   .dialog {
     align-items: flex-end;
