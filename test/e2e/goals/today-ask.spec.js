@@ -155,7 +155,7 @@ test.describe('S1-A5 Ask while eve\'s own socket is down', () => {
     await ask(page).fill('typed while offline');
     await ask(page).press('Enter');
     const status = page.getByTestId('today-ask-status');
-    await expect(status).not.toHaveText('');
+    await expect(status).toContainText('Not connected to eve');
     await expect(status).not.toContainText('Starting');
     await expect(ask(page)).toHaveValue('typed while offline');
     expect(eve.relay.sessionCreates).toHaveLength(0);

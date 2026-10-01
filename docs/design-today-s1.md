@@ -424,4 +424,4 @@ ownership were changed:
 - Ask while eve's own socket is down: `ask-part.js` now blocks with a plain-words
   line when the browser socket is down, and drops a pending Ask (and the text
   queued for the next new session) when the send is lost or the connection goes
-  offline. The typed text is kept. Covered by `goals/today-ask`.
+  offline. The typed text is kept. `goals/today-ask` covers the blocked submit; dropping the socket after Return and a lost send share the same `_abandon` path and are not separately tested.
