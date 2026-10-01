@@ -2,6 +2,7 @@
 // dialog first. docs/design-today-s1.md
 const { test, expect } = require('./fixture');
 const { MODELS } = require('./fixture');
+const { startChatInAlpha } = require('./today-helpers');
 
 const ask = (page) => page.getByTestId('today-ask-input');
 const sentTexts = (eve) => eve.relay.inbound.filter((m) => m.type === 'send_message').map((m) => m.text);
@@ -136,5 +137,39 @@ test.describe('S1-A5 a refusal is attributed to Ask only for a pending Ask', () 
     await eve.relay.emitToRelay({ type: 'error', message: 'model not allowed for this project' });
     await page.waitForTimeout(300);
     await expect(page.getByTestId('today-ask-status')).not.toContainText("isn't allowed");
+  });
+});
+
+test.describe('S1-A5 Ask while eve\'s own socket is down', () => {
+  test.use({ world: { seed: ({ relay }) => { relay.setModels(MODELS); relay.setDefaultProject('work', 'beta'); } } });
+
+  test('Return says so in plain words, keeps the text, recovers on reconnect, and never leaks into a later thread', async ({ page, eve }) => {
+    // Hold the reconnect off so the socket stays down until the test says so.
+    await page.evaluate(() => {
+      const ws = window.client.wsClient;
+      ws.reconnectDelay = 600000;
+      ws.ws.close();
+    });
+    await page.waitForFunction(() => window.client.state.connection.browser === false);
+
+    await ask(page).fill('typed while offline');
+    await ask(page).press('Enter');
+    const status = page.getByTestId('today-ask-status');
+    await expect(status).not.toHaveText('');
+    await expect(status).not.toContainText('Starting');
+    await expect(ask(page)).toHaveValue('typed while offline');
+    expect(eve.relay.sessionCreates).toHaveLength(0);
+
+    // Back online: Send works again, nothing is stuck on Starting.
+    await page.evaluate(() => window.client.wsClient.forceReconnect());
+    await page.waitForFunction(() => window.client.state.connection.browser === true);
+    await expect(page.getByTestId('today-ask-send')).toBeEnabled();
+    await expect(status).not.toContainText('Starting');
+    await expect(ask(page)).toHaveValue('typed while offline');
+
+    // A thread started from the launcher must not receive the old Ask text.
+    await startChatInAlpha(page);
+    await page.waitForTimeout(500);
+    expect(sentTexts(eve)).not.toContain('typed while offline');
   });
 });

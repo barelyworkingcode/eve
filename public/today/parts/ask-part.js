@@ -67,6 +67,7 @@ class AskPart {
 
     for (const evt of [EVT.PROJECTS_LOADED, EVT.PROJECT_DELETED, EVT.MODE_CHANGED, EVT.CONNECTION_CHANGED,
       'today:source:projects']) ctx.on(evt, () => this.update());
+    ctx.on(EVT.CONNECTION_CHANGED, () => { if (!ctx.state.isOnline()) this._abandon(); });
     ctx.on(EVT.MODELS_LOADED, () => { this.update(); if (this._queued) this.submit(); });
     ctx.on(EVT.ASK_FAILED, ({ message }) => this._onFailed(message));
     ctx.on(EVT.ASK_SENT, () => { this._pending = false; this.input.value = ''; this._failure = ''; this.update(); });
@@ -90,6 +91,7 @@ class AskPart {
   plan() {
     const { state, sources } = this.ctx;
     if (sources.projects.status === 'error') return { blocked: sources.projects.describe() };
+    if (!state.connection.browser) return { blocked: 'Not connected to eve. Your text is kept; try again once it reconnects.' };
     if (state.connection.relay === false) return { blocked: "Can't reach relay." };
     if (sources.projects.status !== 'ready') return { blocked: 'Loading projects…' };
     if (state.projects.size === 0) return { blocked: 'Create a project to start asking.' };
@@ -181,7 +183,18 @@ class AskPart {
     state.pendingAsk = { text, projectId: plan.project.id };
     this._pending = true;
     this.update();
-    app.wsClient.send(msg);
+    // The socket can drop between plan() and here; a lost send must not leave
+    // the box on "Starting…" or the text queued for the next session.
+    if (!app.wsClient.send(msg)) this._abandon();
+  }
+
+  // Forget an in-flight Ask that can no longer be answered. The typed text stays.
+  _abandon() {
+    const was = this._pending || this._queued;
+    this._pending = false;
+    this._queued = false;
+    this.ctx.state.pendingAsk = null;
+    if (was) this.update();
   }
 
   _onFailed(message) {
