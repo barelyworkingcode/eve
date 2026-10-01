@@ -227,7 +227,7 @@ Capture, the Threads space, a read-only compact editor, the diff-mode default (7
 - `nav-threads` opens the sessions tab through `ProjectPanel.openTab`.
 - `navigate(url)` takes the hash string or a path; `null` means Today.
 - `NAV_CHANGED` `source` is `'history'` for popstate-driven changes and `'app'` for everything else.
-- `touch.css` repeats the sidebar 44px rules at wide, because the sidebar rules it overrides are scoped to narrow widths.
+- `touch.css` repeats the sidebar 44px rules at wide, because a touch device can be wide (iPad landscape) while the 44px rules for the sidebar rows and panel controls sit in the narrow-width blocks; it beats those single-class `min-height` rules with `:root` plus an element list, no `!important`.
 - The scrim shows through `html:has(#sidebar.open)`, so no JS toggles it.
 - Bottom bar labels are text only.
 - The 29th `768px` block, in `auth.css`, was re-keyed too.
