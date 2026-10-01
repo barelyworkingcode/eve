@@ -1,4 +1,5 @@
 const DEEP_LINK_PIN_MS = 10000;
+const FRONT_DOOR_STAMP_MS = 60000;
 
 class EveWorkspaceClient {
   constructor() {
@@ -6,6 +7,8 @@ class EveWorkspaceClient {
     // routed once sessions have loaded (onWebSocketReady).
     this._initialHash = window.location.hash;
     this._deepLinkPin = null;
+    // Decided once, before anything stamps or reads stored tabs.
+    this._initFrontDoor();
 
     this.bus = new EventBus();
     this.container = new Container();
@@ -139,6 +142,46 @@ class EveWorkspaceClient {
     this._modelsReady = this.loadModels();
     Promise.all([this._modelsReady, this.loadMcps()]);
     this.wsClient.connect();
+  }
+
+  // Away for an hour or more (or never stamped): forget the stored tabs so the
+  // restore in onWebSocketReady finds nothing and Today shows. A deep link is
+  // routed from _initialHash and still wins. Reconnects never come back here.
+  _initFrontDoor() {
+    const now = Date.now();
+    if (FrontDoor.isAway(FrontDoor.read(localStorage), now)) {
+      try {
+        localStorage.removeItem(TabManager.SESSION_STORAGE_KEY);
+        localStorage.removeItem(TabManager.FILE_STORAGE_KEY);
+      } catch { /* storage blocked: tabs restore as before */ }
+    }
+    FrontDoor.stamp(localStorage, now);
+    this._lastStamp = now;
+
+    const stampIfDue = () => {
+      const t = Date.now();
+      if (t - this._lastStamp >= FRONT_DOOR_STAMP_MS) { FrontDoor.stamp(localStorage, t); this._lastStamp = t; }
+    };
+    const opts = { capture: true, passive: true };
+    document.addEventListener('pointerdown', stampIfDue, opts);
+    document.addEventListener('keydown', stampIfDue, opts);
+    const stampNow = () => { this._lastStamp = Date.now(); FrontDoor.stamp(localStorage, this._lastStamp); };
+    window.addEventListener('pagehide', stampNow);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') { stampNow(); return; }
+      if (document.visibilityState !== 'visible') return;
+      // Resuming a page that stayed open counts as opening eve; tabs are kept.
+      if (FrontDoor.isAway(FrontDoor.read(localStorage), Date.now())) this._showTodayAfterAway();
+      stampNow();
+    });
+  }
+
+  _showTodayAfterAway() {
+    const tabs = this.tabManager;
+    if (!tabs) return;
+    if (typeof tabs.showToday === 'function') tabs.showToday();
+    else tabs._showEmptyState();
+    this.homeScreen?.show();
   }
 
   get ws() {
