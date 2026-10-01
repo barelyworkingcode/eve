@@ -485,14 +485,14 @@ describe('devboxverify journey table', () => {
     }
   });
 
-  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, the S2 device journeys, agent-sign-in-refused, add-browser-in-window', () => {
+  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, agent-sign-in-refused, the S2 device journeys, add-browser-in-window', () => {
     const { orderJourneys } = require('../../devboxverify/main');
     expect(orderJourneys(journeys, { screen: true }).run.map(j => j.id)).toEqual([
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
       'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save',
-      'today-ipad-portrait', 'today-phone',
-      'agent-sign-in-refused', 'add-browser-in-window',
+      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone',
+      'add-browser-in-window',
     ]);
   });
 

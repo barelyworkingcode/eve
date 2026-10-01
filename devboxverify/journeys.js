@@ -776,7 +776,7 @@ const auth = require('./journeys-auth').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
 // that could open relay's one enrolment window; add-browser-in-window runs
-// last and consumes the window it opens.
+// last (a screen journey) and consumes the window it opens.
 const journeys = [
   auth.passkeyFirstEnrol,
   auth.passkeySignIn,
@@ -799,9 +799,12 @@ const journeys = [
     id: 'file-edit-save', timeoutMs: 75000, areas: ['files'],
     needs: ['project:acme', ...FILE_EDIT_SHOWN.map((rel) => `file:acme/${rel}`)], run: fileEditSave,
   },
+  auth.agentSignInRefused,
+  // After agent-sign-in-refused so a slow night spends its budget on these,
+  // not on it. add-browser-in-window is a screen journey, so orderJourneys
+  // runs it after them whatever the table order.
   { id: 'today-ipad-portrait', timeoutMs: 45000, areas: ['home', 'shell'], needs: ['project:acme'], run: todayIpadPortrait },
   { id: 'today-phone', timeoutMs: 75000, areas: ['home', 'shell', 'chat'], needs: ['project:acme'], run: todayPhone },
-  auth.agentSignInRefused,
   auth.addBrowserInWindow,
 ];
 
