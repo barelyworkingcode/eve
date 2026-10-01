@@ -1,4 +1,5 @@
 const DEEP_LINK_PIN_MS = 10000;
+const FRONT_DOOR_STAMP_MS = 60000;
 
 class EveWorkspaceClient {
   constructor() {
@@ -6,10 +7,15 @@ class EveWorkspaceClient {
     // routed once sessions have loaded (onWebSocketReady).
     this._initialHash = window.location.hash;
     this._deepLinkPin = null;
+    // Decided once, before anything stamps or reads stored tabs.
+    this._initFrontDoor();
 
     this.bus = new EventBus();
     this.container = new Container();
     this.container.register('bus', this.bus);
+    this.layout = new Layout({ bus: this.bus });
+    this.container.register('layout', this.layout);
+    this.layout.init();
     const logger = new Logger('debug');
     this.container.register('logger', logger);
     this.api = new ApiClient();
@@ -136,6 +142,68 @@ class EveWorkspaceClient {
     this._modelsReady = this.loadModels();
     Promise.all([this._modelsReady, this.loadMcps()]);
     this.wsClient.connect();
+  }
+
+  // Away for an hour or more (or never stamped): forget the stored tabs so the
+  // restore in onWebSocketReady finds nothing and Today shows. A deep link is
+  // routed from _initialHash and still wins. Reconnects never come back here.
+  _initFrontDoor() {
+    const now = Date.now();
+    if (FrontDoor.isAway(FrontDoor.read(localStorage), now)) {
+      try {
+        localStorage.removeItem(TabManager.SESSION_STORAGE_KEY);
+        localStorage.removeItem(TabManager.FILE_STORAGE_KEY);
+      } catch { /* storage blocked: tabs restore as before */ }
+    }
+    FrontDoor.stamp(localStorage, now);
+    this._lastStamp = now;
+
+    const stampIfDue = () => {
+      const t = Date.now();
+      if (t - this._lastStamp >= FRONT_DOOR_STAMP_MS) { FrontDoor.stamp(localStorage, t); this._lastStamp = t; }
+    };
+    const opts = { capture: true, passive: true };
+    document.addEventListener('pointerdown', stampIfDue, opts);
+    document.addEventListener('keydown', stampIfDue, opts);
+    const stampNow = () => { this._lastStamp = Date.now(); FrontDoor.stamp(localStorage, this._lastStamp); };
+    window.addEventListener('pagehide', stampNow);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') { stampNow(); return; }
+      if (document.visibilityState !== 'visible') return;
+      // Resuming a page that stayed open counts as opening eve; tabs are kept.
+      if (FrontDoor.isAway(FrontDoor.read(localStorage), Date.now())) this._showTodayAfterAway();
+      stampNow();
+    });
+  }
+
+  _showTodayAfterAway() {
+    const tabs = this.tabManager;
+    if (!tabs) return;
+    tabs.showToday();
+    // The hidden chat input still holds focus; AskPart only takes focus from body.
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    this.homeScreen?.show();
+  }
+
+  // Bottom bar, Back, scrim, and the view that follows a history move.
+  _initNavChrome() {
+    const on = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+    on('sidebarScrim', () => this.toggleSidebar(false));
+    on('navBack', () => this.layout.back());
+    on('navToday', () => this.tabManager.showToday());
+    on('navProjects', () => this.toggleSidebar(true));
+    on('navThreads', () => {
+      this.projectTree.panel.openTab('sessions');
+      this.toggleSidebar(true);
+    });
+    this.bus.on(EVT.NAV_CHANGED, ({ depth, tabId, source }) => {
+      this.closeSidebarOnMobile();
+      if (source !== 'history') return;
+      const tabs = this.tabManager;
+      if (depth === 0) tabs.showToday({ fromHistory: true });
+      else if (tabId && tabs.tabs.some(t => t.id === tabId)) tabs.switchToTab(tabId);
+      else tabs.showToday();
+    });
   }
 
   get ws() {
@@ -390,6 +458,7 @@ class EveWorkspaceClient {
     this.elements.openSidebar.addEventListener('click', () => this.toggleSidebar(true));
     this.elements.welcomeOpenSidebar.addEventListener('click', () => this.toggleSidebar(true));
     this.elements.closeSidebar.addEventListener('click', () => this.toggleSidebar(false));
+    this._initNavChrome();
 
     this.elements.projectSelect.addEventListener('change', () => {
       this.updateDirectoryInputRequirement();
@@ -511,7 +580,7 @@ class EveWorkspaceClient {
     if (!slug) { this.state.scopedProjectId = null; return; }
     const match = projects.find(p => slugifyProjectName(p.name) === slug);
     if (!match) {
-      history.replaceState(null, '', '/' + this._urlSuffix());
+      history.replaceState(history.state, '', '/' + this._urlSuffix());
       this.bus.emit(EVT.TOAST_SHOW, {
         id: 'scope-no-match',
         message: `No project matches "/${slug}/" — showing all projects.`,
@@ -527,14 +596,14 @@ class EveWorkspaceClient {
     const id = this.state.scopedProjectId;
     const suffix = this._urlSuffix();
     if (!id) {
-      if (window.location.pathname !== '/') history.replaceState(null, '', '/' + suffix);
+      if (window.location.pathname !== '/') history.replaceState(history.state, '', '/' + suffix);
       return;
     }
     const project = this.state.getProject(id);
     if (!project) return;
     const desired = '/' + slugifyProjectName(project.name) + '/' + suffix;
     if (window.location.pathname + suffix !== desired) {
-      history.replaceState(null, '', desired);
+      history.replaceState(history.state, '', desired);
     }
   }
 
@@ -543,7 +612,7 @@ class EveWorkspaceClient {
   }
 
   _clearHash() {
-    history.replaceState(null, '', window.location.pathname + window.location.search);
+    history.replaceState(history.state, '', window.location.pathname + window.location.search);
   }
 
   _hashRouteError(message) {
@@ -556,7 +625,7 @@ class EveWorkspaceClient {
     this._initialHash = null;
     if (!hash) return;
     if (window.location.hash !== hash) {
-      history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+      history.replaceState(history.state, '', window.location.pathname + window.location.search + hash);
     }
     const match = hash.match(/^#session\/(.+)$/);
     if (!match) return;
@@ -1378,9 +1447,10 @@ class EveWorkspaceClient {
   }
 
   closeSidebarOnMobile() {
-    if (window.innerWidth <= 768) {
-      this.toggleSidebar(false);
-    }
+    const narrow = this.container.has('layout')
+      ? this.layout.name !== 'wide'
+      : window.innerWidth <= 768;
+    if (narrow) this.toggleSidebar(false);
   }
 
   renderMessages() {

@@ -147,7 +147,7 @@
 }
 
 /* — Mobile: full width, safe area insets. ---------------------------------- */
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .toast-container {
     left: 8px;
     right: 8px;

@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   VIEWPORTS, THEMES, BASELINE_DIR, CURRENT_DIR, FREEZE_CSS,
-  seedTheme, stubVoiceDaemons, openSidebarIfMobile, blurActiveElement,
+  seedTheme, stubVoiceDaemons, openSidebarIfNarrow, blurActiveElement,
 } = require('./support');
 
 const OUT_DIR = process.env.VISUAL_MODE === 'current' ? CURRENT_DIR : BASELINE_DIR;
@@ -37,6 +37,7 @@ for (const viewport of VIEWPORTS) {
       const suffix = `${viewport.name}-${theme}`;
       const context = await browser.newContext({
         viewport: { width: viewport.width, height: viewport.height },
+        hasTouch: !!viewport.hasTouch,
         colorScheme: theme,
       });
       await seedTheme(context, theme);
@@ -56,19 +57,19 @@ for (const viewport of VIEWPORTS) {
         // its vertical scrollbar on or off between otherwise-identical runs.
         await page.evaluate(() => document.fonts.ready);
 
-        // Before touching the sidebar, so mobile renders its true default
-        // (drawer closed, just the hamburger).
+        // Before touching the sidebar, so mobile and ipad render their true
+        // default (sheet or slide-over closed).
         await expect(page.locator('#welcomeScreen')).not.toHaveClass(/hidden/);
         await shoot(page, `welcome-${suffix}`);
 
-        await openSidebarIfMobile(page, viewport);
+        await openSidebarIfNarrow(page, viewport);
         await page.getByTestId('sidebar-project-p1').click();
         await expect(page.getByTestId('file-tree-item-/README.md')).toBeVisible({ timeout: 15000 });
         await page.getByTestId('file-tree-item-/src').click();
         await expect(page.getByTestId('file-tree-item-/src/index.js')).toBeVisible({ timeout: 15000 });
         await shoot(page, `sidebar-explorer-${suffix}`);
 
-        await openSidebarIfMobile(page, viewport);
+        await openSidebarIfNarrow(page, viewport);
         await page.getByTestId('sidebar-new-session-p1').click();
         const shellDialog = page.getByTestId('dialog-shell-launcher-dialog');
         await expect(shellDialog).toBeVisible({ timeout: 10000 });
@@ -87,7 +88,7 @@ for (const viewport of VIEWPORTS) {
         await blurActiveElement(page);
         await shoot(page, `chat-${suffix}`);
 
-        await openSidebarIfMobile(page, viewport);
+        await openSidebarIfNarrow(page, viewport);
         await page.getByTestId('sidebar-project-p1').click();
         await expect(page.getByTestId('file-tree-item-/README.md')).toBeVisible({ timeout: 15000 });
         await page.getByTestId('file-tree-item-/README.md').click();
@@ -104,7 +105,7 @@ for (const viewport of VIEWPORTS) {
         await blurActiveElement(page);
         await shoot(page, `file-editor-${suffix}`);
 
-        await openSidebarIfMobile(page, viewport);
+        await openSidebarIfNarrow(page, viewport);
         await page.getByTestId('sidebar-settings').click();
         const settingsDialog = page.getByTestId('dialog-settings-dialog');
         await expect(settingsDialog).toBeVisible({ timeout: 10000 });

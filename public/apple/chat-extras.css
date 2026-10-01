@@ -720,7 +720,7 @@
    MOBILE RESPONSIVE
    ========================================================================== */
 
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .tool-block {
     font-size: var(--text-caption);
     border-radius: var(--radius-sm);

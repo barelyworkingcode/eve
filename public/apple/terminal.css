@@ -162,7 +162,7 @@
 
 /* — Mobile density --------------------------------------------------------- */
 /* On narrow screens (iOS), increase touch targets to 44px (Apple HIG minimum). */
-@media (max-width: 768px) {
+@media (max-width: 1023.98px) {
   .terminal-keybar__key {
     height: 44px;
     min-width: 44px;

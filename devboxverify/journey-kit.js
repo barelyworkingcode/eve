@@ -173,8 +173,86 @@ function parseAgentAttempt(text, gate) {
   return found;
 }
 
+// Per-journey devices for env.newPage({ device }). Deliberate: hasTouch only,
+// never isMobile, which moves the layout viewport to 980px. hasTouch alone
+// makes Chromium match (pointer: coarse). See docs/design-today-s2.md.
+const DEVICES = {
+  ipadPortrait: { viewport: { width: 834, height: 1194 }, hasTouch: true },
+  phone: { viewport: { width: 390, height: 844 }, hasTouch: true },
+};
+
+const MIN_TARGET = 43.99;
+const OVERFLOW_OK_INSIDE = 'pre, .monaco-editor, .xterm, .terminal-keybar__keys, .tab-bar, .sidebar-rail__projects';
+
+// In-page collectors: facts only, judged below. Each runs inside the page,
+// so it may use nothing from this file.
+function collectTargets() {
+  const sel = 'button, a[href], input:not([type=hidden]), select, textarea, summary, [tabindex]:not([tabindex="-1"]), '
+    + ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option',
+      'slider', 'spinbutton', 'textbox', 'searchbox', 'combobox', 'treeitem'].map((r) => `[role="${r}"]`).join(', ');
+  const found = new Set(document.querySelectorAll(sel));
+  for (const el of document.querySelectorAll('body *')) {
+    const parent = el.parentElement;
+    if (getComputedStyle(el).cursor === 'pointer' && (!parent || getComputedStyle(parent).cursor !== 'pointer')) found.add(el);
+  }
+  const name = (el) => `${el.tagName.toLowerCase()}${el.dataset.testid ? `[${el.dataset.testid}]` : el.id ? `#${el.id}` : ''}`
+    + ` "${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 24)}"`;
+  return [...found].map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      label: name(el), width: r.width, height: r.height,
+      visible: el.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
+      inViewport: r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight,
+      hidden: !!el.closest('[inert], [aria-hidden="true"]'),
+      prose: el.matches('.message-content a'),
+    };
+  });
+}
+
+function collectOverflow(okInside) {
+  const elements = [];
+  for (const el of document.querySelectorAll('body *')) {
+    const r = el.getBoundingClientRect();
+    if (r.right <= innerWidth) continue;
+    elements.push({
+      label: `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${el.className && typeof el.className === 'string' ? `.${el.className.trim().split(/\s+/)[0]}` : ''}`,
+      right: r.right,
+      visible: r.width > 0 && r.height > 0 && el.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
+      exempt: !!el.parentElement?.closest(okInside),
+    });
+  }
+  return { scrollWidth: document.documentElement.scrollWidth, innerWidth, elements };
+}
+
+// Every visible control a finger can reach that is under 44x44; links in
+// message prose are exempt (WCAG 2.5.8 inline).
+function smallTargets(targets) {
+  return targets.filter((t) => t.visible && t.inViewport && !t.hidden && !t.prose
+    && (t.width < MIN_TARGET || t.height < MIN_TARGET));
+}
+
+// The page scrolls sideways, or a visible element ends past the right edge
+// (body is overflow: hidden on narrow screens, so scrollWidth alone misses it).
+function overflowProblems({ scrollWidth, innerWidth, elements }) {
+  const problems = scrollWidth > innerWidth ? [`the page is ${scrollWidth}px wide in a ${innerWidth}px window`] : [];
+  for (const e of elements) {
+    if (e.visible && !e.exempt && e.right > innerWidth + 1) problems.push(`${e.label} ends at ${Math.round(e.right)}px`);
+  }
+  return problems;
+}
+
+async function sweep(page) {
+  return smallTargets(await page.evaluate(collectTargets))
+    .map((t) => `${t.label} ${Math.round(t.width)}x${Math.round(t.height)}`);
+}
+
+async function overflow(page) {
+  return overflowProblems(await page.evaluate(collectOverflow, OVERFLOW_OK_INSIDE));
+}
+
 module.exports = {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt,
+  DEVICES, smallTargets, overflowProblems, sweep, overflow,
 };

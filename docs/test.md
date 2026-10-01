@@ -84,6 +84,7 @@ tab/pane behavior. `voice.spec.js` is excluded here (see `test:voice` above). Se
 `test/visual/__current__` and diffs against `test/visual/__baseline__`; any
 non-zero diff fails. Re-baseline only after a deliberate UI change, and check the
 diff images in `test/visual/__diff__` first.
+Viewports: `desktop` 1280×800, `mobile` 390×844 and `ipad` 834×1194; the last two set `hasTouch` (never `isMobile`), and `mobile` opens the sheet from the bottom bar's Projects.
 
 Integration, e2e and visual run on loopback, which is a trusted subnet — no
 passkey/auth to set up. No relay orchestrator, relayLLM, or real LLM is involved.

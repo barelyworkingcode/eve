@@ -123,6 +123,7 @@ test.describe('chat defaults', () => {
           palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
         }));
         localStorage.setItem('eve-open-sessions', JSON.stringify(open));
+        localStorage.setItem('eve-last-active', String(Date.now()));
         localStorage.setItem('eve-session-meta', JSON.stringify({ [voice]: { sessionType: 'voice' } }));
       }, { voice: VOICE, other: OTHER });
       // The other tab's join lands last, the order that would steal focus.
@@ -177,6 +178,7 @@ test.describe('chat defaults', () => {
         palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
       }));
       localStorage.setItem('eve-open-sessions', JSON.stringify({ [voice]: Date.now() }));
+      localStorage.setItem('eve-last-active', String(Date.now()));
       localStorage.setItem('eve-session-meta', JSON.stringify({ [voice]: { sessionType: 'voice' } }));
     }, VOICE);
 

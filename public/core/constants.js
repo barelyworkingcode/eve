@@ -91,6 +91,12 @@ const EVT = {
   UI_SHOW_WELCOME: 'ui:showWelcome',
   UI_TOGGLE_SIDEBAR: 'ui:toggleSidebar',
 
+  // Layout (core/layout.js). LAYOUT_CHANGED { name, previous, coarse }.
+  // NAV_CHANGED { depth, tabId, source }: 'app' = the view already changed,
+  // 'history' = the URL moved and the view must follow.
+  LAYOUT_CHANGED: 'layout:changed',
+  NAV_CHANGED: 'nav:changed',
+
   DIALOG_SHELL_LAUNCHER: 'dialog:shellLauncher',
   DIALOG_TASK: 'dialog:task',
   DIALOG_PROJECT: 'dialog:project',

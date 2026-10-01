@@ -1,0 +1,60 @@
+/* ============================================================================
+   Touch targets (S2-A2). The one place that makes controls thumb-sized: under
+   a coarse pointer every visible interactive control's border box is at least
+   44x44 at every width. Size the real box, no pseudo-element hit slop.
+   `min-height` beats a fixed `height`, so no !important. Loaded after the
+   other apple sheets. Pointer is read through the media query only, never
+   through scripts. Design: docs/design-today-s2.md.
+   ========================================================================== */
+
+@media (pointer: coarse) {
+  /* Generic: every control is at least 44x44. `:root` lifts these above the
+     single-class rules (a smaller min-height set per component) without !important. */
+  :root :is(button, a[href], select, summary, textarea, [role="button"], [role="tab"],
+      [role="radio"], [role="menuitem"], [role="option"]),
+  [tabindex]:not([tabindex="-1"]),
+  :root input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Links inside message prose are exempt (WCAG 2.5.8 inline). */
+  :root .message-content a {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  /* Rows that are click-bound divs, not buttons: size the row itself. */
+  .file-tree__item,
+  .file-tree-item,
+  .project-tree__session-item,
+  .project-tree__task-item,
+  .project-tree__folder-header,
+  .changes-panel__segment,
+  .changes-panel__repo,
+  .changes-panel__file {
+    min-height: 44px;
+  }
+
+  /* Monaco's hidden keyboard sink is a real focusable textarea. */
+  .monaco-editor textarea.inputarea {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* 44px controls need room: a wide sidebar is at least 320 (regular and compact
+     keep their own width, which is already larger). */
+  .sidebar { width: max(var(--sidebar-width), 320px); }
+
+  /* Panel header: the title keeps a minimum and the actions wrap below it. */
+  .panel-header { flex-wrap: wrap; }
+  .panel-header__title { min-width: 72px; }
+  .panel-header__close { margin-left: auto; }
+
+  /* Panel tabs: the active tab takes what is left and clips its label. */
+  .panel-tab--active {
+    flex: 1 1 0;
+    min-width: 44px;
+    overflow: hidden;
+  }
+}

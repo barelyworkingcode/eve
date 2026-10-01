@@ -1089,12 +1089,9 @@ html, body {
 /* Question options (AskUserQuestion tool) */
 
 /* Mobile Responsive */
-@media (max-width: 768px) {
-
-  .toast-container {
-    bottom: 12px;
-  }
-
+/* Regular and compact (< 1024): the sidebar is a slide-over, the app is one
+   full-width column. Widths come from --sidebar-width (apple/tokens.css). */
+@media (max-width: 1023.98px) {
   .tab-bar {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -1113,21 +1110,6 @@ html, body {
     max-width: 100px;
   }
 
-  .editor-panes {
-    flex-direction: column;
-  }
-
-  .editor-split-divider {
-    width: 100%;
-    height: 4px;
-    cursor: row-resize;
-  }
-
-  .editor-status {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
   body {
     overflow: hidden;
     overscroll-behavior: none;
@@ -1143,10 +1125,7 @@ html, body {
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
     bottom: 0;
-    width: 100%;
-    flex-direction: column;       /* rail becomes a top strip */
     transform: translateX(-100%);
     transition: transform 0.3s ease;
     padding-top: env(safe-area-inset-top, 0px);
@@ -1183,50 +1162,6 @@ html, body {
 
   .chat-header {
     padding: calc(12px + env(safe-area-inset-top, 0px)) 12px 12px 12px;
-  }
-
-  .session-directory {
-    font-size: 11px;
-  }
-
-  .session-stats {
-    gap: 8px;
-  }
-
-  .stat-item {
-    font-size: 10px;
-    padding: 3px 6px;
-  }
-
-  .btn-danger {
-    padding: 10px 16px;
-  }
-
-  .messages {
-    padding: 12px;
-    gap: 10px;
-  }
-
-  .message-content {
-    padding: 8px 12px;
-    font-size: 13px;
-  }
-
-  .input-area {
-    padding: 10px 12px;
-  }
-
-  .input-form textarea {
-    padding: 9px 10px;
-    font-size: 16px; /* Prevents zoom on iOS */
-  }
-
-  .input-form {
-    gap: 6px;
-  }
-
-  .welcome-content h2 {
-    font-size: 18px;
   }
 
   /* Touch-accessible: always show action buttons on mobile with 44px targets */
@@ -1279,7 +1214,77 @@ html, body {
   .tab-close {
     padding: 4px;
   }
+}
 
+/* Compact (< 600): the sidebar is a full-screen sheet with the rail as a top strip;
+   phone-sized chat, editor and spacing. */
+@media (max-width: 599.98px) {
+  .sidebar {
+    flex-direction: column;       /* rail becomes a top strip */
+  }
+
+  .toast-container {
+    bottom: 12px;
+  }
+
+  .editor-panes {
+    flex-direction: column;
+  }
+
+  .editor-split-divider {
+    width: 100%;
+    height: 4px;
+    cursor: row-resize;
+  }
+
+  .editor-status {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .session-directory {
+    font-size: 11px;
+  }
+
+  .session-stats {
+    gap: 8px;
+  }
+
+  .stat-item {
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+
+  .btn-danger {
+    padding: 10px 16px;
+  }
+
+  .messages {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .message-content {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .input-area {
+    padding: 10px 12px;
+  }
+
+  .input-form textarea {
+    padding: 9px 10px;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  .input-form {
+    gap: 6px;
+  }
+
+  .welcome-content h2 {
+    font-size: 18px;
+  }
 }
 
 /* Scheduled Tasks */
@@ -2100,7 +2105,7 @@ html, body {
 
 /* Activity rail + panel — mobile. Placed after the base rules above so these
    win on source order (a media query adds no specificity over a plain rule). */
-@media (max-width: 768px) {
+@media (max-width: 1023.98px) {
   .panel-header__close { display: flex; }
   .panel-header { min-height: 50px; }
 }
@@ -2207,7 +2212,7 @@ html, body {
 
 /* The "Ungrouped" pseudo-folder gets no menu button; touch devices always show
    the menu affordance since there's no hover. */
-@media (max-width: 768px) {
+@media (max-width: 1023.98px) {
   .project-tree__folder-header { min-height: 40px; }
   .project-tree__folder-menu-btn { opacity: 0.6; }
 }

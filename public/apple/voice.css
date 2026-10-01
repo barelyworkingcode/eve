@@ -334,7 +334,7 @@
 }
 
 /* — Responsive: narrower gap + tighter padding on mobile -------------------- */
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .voice-chat__controls {
     gap: var(--sp-4);
     padding: var(--sp-5) var(--sp-6);

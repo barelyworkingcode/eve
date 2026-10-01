@@ -140,7 +140,7 @@
 }
 
 /* Mobile: adjust padding and sizing for smaller screens ---------------------- */
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .file-viewer__path {
     font-size: var(--text-subhead);
   }

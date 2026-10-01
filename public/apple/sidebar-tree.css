@@ -537,7 +537,7 @@
 
 /* ── Mobile: iOS touch targets (44pt minimum) ──────────────────────── */
 
-@media (max-width: 768px) {
+@media (max-width: 1023.98px) {
   .project-tree__task-item,
   .project-tree__session-item {
     min-height: 44px;
@@ -835,7 +835,7 @@
   font-size: var(--text-caption);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023.98px) {
   .changes-panel__segment { min-height: 36px; }
   .changes-panel__repo,
   .changes-panel__file {

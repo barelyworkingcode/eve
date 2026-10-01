@@ -124,7 +124,7 @@
 }
 
 /* — Mobile: touch-friendly sizing and spacing (44px minimum targets) --- */
-@media (max-width: 768px) {
+@media (max-width: 599.98px) {
   .auth-card {
     width: calc(100% - 2 * var(--sp-6));
     padding: var(--sp-8) var(--sp-6);
