@@ -8,9 +8,13 @@
  */
 const path = require('path');
 
+// `layout` is the S2 layout the width falls in (docs/design-today-s2.md).
+// Touch viewports set hasTouch only, never isMobile (it moves the layout
+// viewport to 980px).
 const VIEWPORTS = [
-  { name: 'desktop', width: 1280, height: 800 },
-  { name: 'mobile', width: 390, height: 844 },
+  { name: 'desktop', width: 1280, height: 800, layout: 'wide' },
+  { name: 'mobile', width: 390, height: 844, hasTouch: true, layout: 'compact' },
+  { name: 'ipad', width: 834, height: 1194, hasTouch: true, layout: 'regular' },
 ];
 
 const THEMES = ['dark', 'light'];
@@ -110,20 +114,21 @@ async function seedTheme(context, theme) {
 }
 
 /**
- * The whole `.sidebar` (project rail + explorer panel) goes off-canvas under
- * 768px width (styles.css `.sidebar { transform: translateX(-100%) }`) as a
- * fixed, full-screen overlay when open. Both hamburgers always open (never
- * toggle), but #welcomeOpenSidebar lives *under* that overlay once it's open
- * and no tab has been opened yet (welcomeScreen is still the active screen) —
- * clicking it then hits the sidebar's own content instead (Playwright reports
- * "isVisible" true for an occluded-but-undisplayed element, so that check
- * alone isn't enough). Check the sidebar's own open state first, and only
- * pick a hamburger — by which screen is actually active — if it's closed.
+ * Opens the sidebar when it is not pinned. Regular (ipad) has a slide-over
+ * opened by either hamburger, picked by which screen is active; it sits over
+ * #welcomeOpenSidebar once open, so its own open state is checked first.
+ * Compact (mobile) opens the sheet from the bottom bar's Projects, which shows
+ * only on Today, so a pushed view goes Back first.
  */
-async function openSidebarIfMobile(page, viewport) {
-  if (viewport.name !== 'mobile') return;
+async function openSidebarIfNarrow(page, viewport) {
+  if (viewport.layout === 'wide') return;
   const isOpen = await page.locator('#sidebar').evaluate((el) => el.classList.contains('open'));
   if (isOpen) return;
+  if (viewport.layout === 'compact') {
+    if (await page.getByTestId('nav-back').isVisible()) await page.getByTestId('nav-back').click();
+    await page.getByTestId('nav-projects').click();
+    return;
+  }
   const welcomeHidden = await page.locator('#welcomeScreen').evaluate((el) => el.classList.contains('hidden'));
   const btn = welcomeHidden ? page.getByTestId('sidebar-open') : page.getByTestId('welcome-sidebar-open');
   await btn.click();
@@ -144,6 +149,6 @@ module.exports = {
   FREEZE_CSS,
   seedTheme,
   stubVoiceDaemons,
-  openSidebarIfMobile,
+  openSidebarIfNarrow,
   blurActiveElement,
 };

@@ -246,7 +246,7 @@ close the journey's contexts, snapshot `after`. If
  *  url, nonce /* 8 hex per run */, model /* EVE_VERIFY_MODEL */,
  *  world: {projects: {[key]: WorldProject}, file(key, rel) -> string, relayMcp},  // only what `needs` declares
  *  api: EveApi,
- *  newPage: () => Promise<Page>,    // fresh context: empty localStorage, 1280x800
+ *  newPage: ({signedIn?, device?}) => Promise<Page>,  // fresh context: empty localStorage, 1280x800; `device` (journey-kit DEVICES) spreads over it
  *  step: (label) => void,           // stderr; the last label names a timeout
  *  shared: {thread?: {sessionId, question}},
  * }} JourneyEnv */

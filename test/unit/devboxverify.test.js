@@ -431,6 +431,7 @@ describe('devboxverify journey table', () => {
     'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
     'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'passkey-first-enrol',
     'passkey-sign-in', 'agent-sign-in-refused', 'agent-enrol-refused', 'add-browser-in-window',
+    'today-ipad-portrait', 'today-phone',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -468,7 +469,8 @@ describe('devboxverify journey table', () => {
       'world-projects-listed': all, 'terminal-on-request': all,
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
-        'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff'].map(id => [id, acme])),
+        'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
+        'today-ipad-portrait', 'today-phone'].map(id => [id, acme])),
     });
   });
 
@@ -483,14 +485,59 @@ describe('devboxverify journey table', () => {
     }
   });
 
-  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, agent-sign-in-refused, add-browser-in-window', () => {
+  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, the S2 device journeys, agent-sign-in-refused, add-browser-in-window', () => {
     const { orderJourneys } = require('../../devboxverify/main');
     expect(orderJourneys(journeys, { screen: true }).run.map(j => j.id)).toEqual([
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
       'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save',
+      'today-ipad-portrait', 'today-phone',
       'agent-sign-in-refused', 'add-browser-in-window',
     ]);
+  });
+
+  it('gives the S2 device journeys the areas and timeouts docs/design-today-s2.md pins', () => {
+    const pick = id => (({ areas, timeoutMs }) => ({ areas: [...areas].sort(), timeoutMs }))(journeys.find(j => j.id === id));
+    expect(pick('today-ipad-portrait')).toEqual({ areas: ['home', 'shell'], timeoutMs: 45000 });
+    expect(pick('today-phone')).toEqual({ areas: ['chat', 'home', 'shell'], timeoutMs: 75000 });
+  });
+});
+
+describe('devboxverify/journey-kit.js devices and probes', () => {
+  const { DEVICES, smallTargets, overflowProblems } = require('../../devboxverify/journey-kit');
+
+  it.each([
+    ['ipadPortrait', 834, 1194],
+    ['phone', 390, 844],
+  ])('DEVICES.%s is %ix%i with touch and never isMobile', (name, width, height) => {
+    expect(DEVICES[name]).toEqual({ viewport: { width, height }, hasTouch: true });
+  });
+
+  const target = over => ({ label: 'button', width: 44, height: 44, visible: true, inViewport: true, hidden: false, prose: false, ...over });
+
+  it.each([
+    ['43.98 wide', { width: 43.98 }, true],
+    ['43.98 high', { height: 43.98 }, true],
+    ['43.99 square', { width: 43.99, height: 43.99 }, false],
+    ['44 square', {}, false],
+    ['small but not visible', { width: 20, visible: false }, false],
+    ['small but out of the viewport', { width: 20, inViewport: false }, false],
+    ['small inside inert or aria-hidden', { width: 20, hidden: true }, false],
+    ['a small link in message prose', { width: 20, prose: true }, false],
+  ])('smallTargets: a control %s is reported: %s', (_label, over, reported) => {
+    expect(smallTargets([target(over)])).toHaveLength(reported ? 1 : 0);
+  });
+
+  it.each([
+    ['nothing for a page that fits', 390, [], 0],
+    ['a page wider than the window', 391, [], 1],
+    ['an element ending 1px past the edge', 390, [{ right: 391 }], 0],
+    ['an element ending 1.5px past the edge', 390, [{ right: 391.5 }], 1],
+    ['an exempt element far past the edge', 390, [{ right: 900, exempt: true }], 0],
+    ['an invisible element far past the edge', 390, [{ right: 900, visible: false }], 0],
+  ])('overflowProblems reports %s', (_label, scrollWidth, elements, count) => {
+    const facts = { scrollWidth, innerWidth: 390, elements: elements.map(e => ({ label: 'div', visible: true, exempt: false, ...e })) };
+    expect(overflowProblems(facts)).toHaveLength(count);
   });
 });
 
@@ -910,6 +957,16 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     });
     expect({ status: out.status, stdout: out.stdout }).toEqual({ status: 2, stdout: `PREFLIGHT\tmachine\tFAIL\t${ABSENT}\n` });
     expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it('newPage spreads a device over the 1280x800 default and leaves the default alone without one', async () => {
+    const { DEVICES } = require('../../devboxverify/journey-kit');
+    const opened = [];
+    const browser = { newContext: async (opts) => { opened.push(opts); return { newPage: async () => ({}), close: async () => {} }; } };
+    const j = { id: 'x', timeoutMs: 5000, areas: ['verify'], fixture: true, needs: [],
+      run: async (env) => { await env.newPage({ device: DEVICES.phone }); await env.newPage(); return { state: 'PASS' }; } };
+    await runJourney(j, {}, browser, { timeoutMs: 5000, projects: null, world: loaded, pending: [], screen: null, log: () => {} });
+    expect(opened).toEqual([{ viewport: { width: 390, height: 844 }, hasTouch: true }, { viewport: { width: 1280, height: 800 } }]);
   });
 
   it.each([

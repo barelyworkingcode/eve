@@ -232,6 +232,26 @@ chat straight away.
 - Traps: no favourite gives a toast and the launcher. The star only shows on
   chat templates. An existing voice session is re-joined, not created.
 
+**today-ipad-portrait.** At 834×1194 with touch: Today in a centred column of
+at most 720px across the full-width main area, the sidebar off screen until
+the menu opens it and the scrim closes it, the wordmark `Home|Work` in Today,
+no horizontal overflow, and every visible control at least 44×44.
+- Lives in: `public/core/layout.js`, `public/apple/touch.css`, the
+  `max-width: 1023.98px` blocks, `public/sidebar/mode-switch.js`.
+- Traps: the device is `env.newPage({ device: DEVICES.ipadPortrait })`, with
+  `hasTouch` and never `isMobile`. The sweep and overflow probes live in
+  `journey-kit.js`, apart from the e2e helpers.
+
+**today-phone.** At 390×844 with touch: a bottom bar (Today, Threads,
+Projects) and no tab bar; Projects → Acme Corp → Start Chat (no message is
+sent) opens the thread with Back and `#session/<id>`; Back and browser Back
+both return to Today with no hash. Overflow and the 44px sweep on Today and the
+thread.
+- Lives in: `public/core/layout.js` (navigation stack), `public/app.js`
+  (bottom bar, Back), `public/tab-manager.js` (`_updateHash`, `showToday`).
+- Traps: creates one Acme session. BLOCKED when the model is not offered or
+  the launch is refused.
+
 ## One-time setup
 
 - **S1 · Register `eve-verify`.** Presence-gated, so run it in a desktop

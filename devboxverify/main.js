@@ -416,9 +416,9 @@ async function runJourney(j, env, browser, { timeoutMs, projects, world, pending
     ...(world ? journeyWorld(world, j.needs) : {}),
     browser,
     screen: j.screen ? screen : null,
-    newPage: async ({ signedIn = true } = {}) => {
+    newPage: async ({ signedIn = true, device = {} } = {}) => {
       const state = signedIn && env.session ? { storageState: env.session.storageState } : {};
-      const c = await browser.newContext({ viewport: VIEWPORT, ...state });
+      const c = await browser.newContext({ viewport: VIEWPORT, ...device, ...state });
       contexts.push(c);
       return c.newPage();
     },

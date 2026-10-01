@@ -10,7 +10,7 @@ const { expect } = require('@playwright/test');
 const {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
-  thread, threadError, replyAfter, openWorldProbe,
+  thread, threadError, replyAfter, openWorldProbe, DEVICES, sweep, overflow,
 } = require('./journey-kit');
 
 const exec = promisify(execFile);
@@ -645,6 +645,133 @@ async function fileEditSave(env) {
   return result(id, PASS, 'saved to disk; a clean editor took an outside change; a dirty one asked and reloaded');
 }
 
+// A sweep or overflow finding as a FAIL detail: where, and the first three.
+const offenders = (what, where, list) => `${what} on ${where}: ${list.slice(0, 3).join('; ')}${list.length > 3 ? ` (+${list.length - 3})` : ''}`;
+
+async function fitsAndThumbs(page, where) {
+  const wide = await overflow(page);
+  if (wide.length) return offenders('horizontal overflow', where, wide);
+  const small = await sweep(page);
+  return small.length ? offenders('targets under 44x44', where, small) : null;
+}
+
+async function todayIpadPortrait(env) {
+  const id = 'today-ipad-portrait';
+  const acme = env.world.projects.acme;
+  const page = await env.newPage({ device: DEVICES.ipadPortrait });
+  await openEve(page, env);
+  env.step('wait for the greeting');
+  const home = page.getByTestId('home-screen');
+  await need('no greeting within 20s', expect(home.getByText(GREETING)).toBeVisible({ timeout: 20000 }));
+
+  env.step(`check ${acme.name} is off screen`);
+  const railItem = page.getByRole('navigation', { name: 'Projects' }).getByTitle(acme.name, { exact: true });
+  await need(`${acme.name} is not in the rail`, expect(railItem).toHaveCount(1, { timeout: 15000 }));
+  await need(`${acme.name}'s rail item is on screen at load`, expect(railItem).not.toBeInViewport({ timeout: 5000 }));
+
+  env.step('measure the column');
+  const main = await page.locator('main.main').boundingBox();
+  const column = await home.boundingBox();
+  if (!main || main.width < 833) return result(id, FAIL, `the main area is ${main ? Math.round(main.width) : 0}px wide, not the full 834px`);
+  if (!column || column.width > 720) return result(id, FAIL, `Today is ${column ? Math.round(column.width) : 0}px wide, over 720px`);
+  const offCentre = Math.abs((column.x + column.width / 2) - (main.x + main.width / 2));
+  if (offCentre > 2) return result(id, FAIL, `Today sits ${Math.round(offCentre)}px off centre`);
+
+  env.step('read the wordmark');
+  const wordmark = page.locator('[data-wordmark-slot="today"]').getByTestId('mode-switch');
+  await need('no wordmark at the top of Today', expect(wordmark).toBeVisible({ timeout: 5000 }));
+  const word = (await wordmark.innerText({ timeout: 5000 })).replace(/\s+/g, '');
+  if (word !== 'Home|Work') return result(id, FAIL, `the wordmark reads "${word}", not "Home|Work"`);
+
+  env.step('sweep Today');
+  const onToday = await fitsAndThumbs(page, 'Today');
+  if (onToday) return result(id, FAIL, onToday);
+
+  env.step('open the menu');
+  await page.getByTestId('welcome-sidebar-open').click({ timeout: 5000 });
+  await need(`the menu did not bring ${acme.name} on screen`, expect(railItem).toBeInViewport({ timeout: 5000 }));
+  env.step('sweep the slide-over');
+  const small = await sweep(page);
+  if (small.length) return result(id, FAIL, offenders('targets under 44x44', 'the slide-over', small));
+
+  env.step('tap the scrim');
+  await page.getByTestId('sidebar-scrim').click({ timeout: 5000 });
+  await need('the scrim did not close the slide-over', expect(railItem).not.toBeInViewport({ timeout: 5000 }));
+  return result(id, PASS, `full-width main, ${Math.round(column.width)}px centred Today, wordmark in Today, no overflow or small targets; the menu and scrim open and close the slide-over`);
+}
+
+async function todayPhone(env) {
+  const id = 'today-phone';
+  const acme = env.world.projects.acme;
+  const page = await env.newPage({ device: DEVICES.phone });
+  const errors = captureErrors(page);
+  await openEve(page, env);
+  await waitForModels(page, env);
+  env.step('wait for the greeting');
+  const greeting = page.getByTestId('home-screen').getByText(GREETING);
+  await need('no greeting within 20s', expect(greeting).toBeVisible({ timeout: 20000 }));
+  const bar = page.getByRole('navigation', { name: 'Navigation' });
+  for (const name of ['Today', 'Threads', 'Projects']) {
+    await need(`no ${name} in the bottom bar`, expect(bar.getByRole('button', { name, exact: true })).toBeVisible({ timeout: 5000 }));
+  }
+  await need('the tab bar is showing on the phone', expect(page.getByTestId('tab-bar')).toBeHidden({ timeout: 5000 }));
+  env.step('sweep Today');
+  const onToday = await fitsAndThumbs(page, 'Today');
+  if (onToday) return result(id, FAIL, onToday);
+
+  const before = await acmeIds(env, 'sessions');
+  env.step('open Projects');
+  await page.getByTestId('nav-projects').click({ timeout: 5000 });
+  await openProject(page, env, acme);
+  const dialog = await openLauncher(page, env);
+  env.step('open the Web Chat form');
+  await dialog.getByTestId('shell-card-web-chat').click({ timeout: 10000 });
+  const select = dialog.getByTestId('launcher-model-select');
+  const model = pickModel(await optionValues(select), env.model);
+  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for ${acme.name}`);
+  await select.selectOption(model, { timeout: 5000 });
+  env.step('start the chat');
+  await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
+  const created = await poll(async () => {
+    const added = addedIds(before, await acmeIds(env, 'sessions'));
+    return added.length ? added : null;
+  }, { timeoutMs: 30000, intervalMs: 1000 });
+  if (!created) {
+    const refusal = errors.find((e) => /template "chat"/.test(e));
+    return refusal ? result(id, BLOCKED, `launch refused: ${refusal}`) : result(id, FAIL, `no ${acme.name} session within 30s of Start Chat`);
+  }
+  if (created.length !== 1) return result(id, FAIL, `${created.length} new ${acme.name} sessions, expected 1`);
+  const hash = `#session/${created[0]}`;
+
+  const inThread = async (how) => {
+    env.step(`check the thread (${how})`);
+    await need(`no thread shown after ${how}`, expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15000 }));
+    await need(`the address is not ${hash} after ${how}`, expect.poll(() => new URL(page.url()).hash, { timeout: 5000 }).toBe(hash));
+  };
+  await inThread('Start Chat');
+  await need('the bottom bar still shows in the thread', expect(bar).toBeHidden({ timeout: 5000 }));
+  await need('the tab bar is showing in the thread', expect(page.getByTestId('tab-bar')).toBeHidden({ timeout: 5000 }));
+  const back = page.getByRole('button', { name: 'Back', exact: true });
+  await need('no Back in the thread', expect(back).toBeVisible({ timeout: 5000 }));
+  env.step('sweep the thread');
+  const onThread = await fitsAndThumbs(page, 'the thread');
+  if (onThread) return result(id, FAIL, onThread);
+
+  env.step('Back');
+  await back.click({ timeout: 5000 });
+  await need('Back did not show Today', expect(greeting).toBeVisible({ timeout: 10000 }));
+  await need('the address keeps a hash after Back', expect.poll(() => new URL(page.url()).hash, { timeout: 5000 }).toBe(''));
+
+  env.step('open the thread from Continue');
+  await need('the thread is not in Continue on Today',
+    page.getByTestId('home-screen').getByTestId(`home-session-${created[0]}`).click({ timeout: 15000 }));
+  await inThread('Continue');
+  env.step('browser Back');
+  await page.goBack({ timeout: 10000 });
+  await need('browser Back did not show Today', expect(greeting).toBeVisible({ timeout: 10000 }));
+  return result(id, PASS, 'bottom bar on Today, no tab bar; no overflow or small targets on Today or the thread; Back and browser Back return to Today');
+}
+
 const auth = require('./journeys-auth').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
@@ -672,6 +799,8 @@ const journeys = [
     id: 'file-edit-save', timeoutMs: 75000, areas: ['files'],
     needs: ['project:acme', ...FILE_EDIT_SHOWN.map((rel) => `file:acme/${rel}`)], run: fileEditSave,
   },
+  { id: 'today-ipad-portrait', timeoutMs: 45000, areas: ['home', 'shell'], needs: ['project:acme'], run: todayIpadPortrait },
+  { id: 'today-phone', timeoutMs: 75000, areas: ['home', 'shell', 'chat'], needs: ['project:acme'], run: todayPhone },
   auth.agentSignInRefused,
   auth.addBrowserInWindow,
 ];
