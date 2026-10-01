@@ -39,6 +39,14 @@ class ProjectPanel {
     this.render();
   }
 
+  // Show `key` as the panel's tab (the bottom bar's Threads opens Sessions).
+  openTab(key) {
+    if (!['files', 'sessions', 'tasks', 'changes'].includes(key)) return;
+    this.activeTab = key;
+    this._saveTab();
+    this.render();
+  }
+
   render() {
     if (!this.contentEl) return;
 

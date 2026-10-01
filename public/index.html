@@ -174,9 +174,12 @@
 
       <!-- Explorer panel: active project's files/sessions/tasks/changes -->
       <section class="sidebar-panel" id="sidebarPanel">
-        <div class="mode-switch" id="modeSwitch" data-testid="mode-switch" role="radiogroup" aria-label="Mode">
-          <button type="button" class="mode-switch__btn" role="radio" data-mode="home" data-testid="mode-home" aria-checked="false">Home</button>
-          <button type="button" class="mode-switch__btn" role="radio" data-mode="work" data-testid="mode-work" aria-checked="true">Work</button>
+        <div data-wordmark-slot="sidebar">
+          <div class="wordmark" id="modeSwitch" data-testid="mode-switch" role="radiogroup" aria-label="Mode">
+            <button type="button" class="wordmark__word" role="radio" data-mode="home" data-testid="mode-home" aria-checked="false">Home</button>
+            <span class="wordmark__bar" aria-hidden="true">|</span>
+            <button type="button" class="wordmark__word wordmark__word--active" role="radio" data-mode="work" data-testid="mode-work" aria-checked="true">Work</button>
+          </div>
         </div>
         <header class="panel-header">
           <span class="panel-header__title" id="panelTitle"></span>
@@ -189,16 +192,20 @@
         <div class="panel-actions" id="panelActions"></div>
       </section>
     </aside>
+    <div class="sidebar-scrim" id="sidebarScrim" data-testid="sidebar-scrim"></div>
     <div class="sidebar-resizer" id="sidebarResizer"></div>
 
     <main class="main">
       <div id="welcomeScreen" class="welcome-screen">
+        <div data-wordmark-slot="today"></div>
         <button id="welcomeOpenSidebar" class="menu-toggle welcome-menu-toggle" title="Open menu" data-testid="welcome-sidebar-open">&#9776;</button>
         <div class="welcome-content home" id="homeContent" data-testid="home-screen"></div>
       </div>
 
       <div id="chatScreen" class="chat-screen hidden">
         <header class="chat-header">
+          <button id="navBack" class="nav-back" data-testid="nav-back" aria-label="Back" type="button">&#x2039;</button>
+          <span id="navTitle" class="nav-title" data-testid="nav-title"></span>
           <button id="openSidebar" class="menu-toggle" title="Open menu" data-testid="sidebar-open">&#9776;</button>
           <div id="tabBar" class="tab-bar" data-testid="tab-bar"></div>
           <div class="session-stats" id="sessionStats">
@@ -384,6 +391,11 @@
 
       </div>
     </main>
+    <nav id="bottomBar" class="bottom-bar" data-testid="bottom-bar" aria-label="Navigation">
+      <button type="button" class="bottom-bar__btn" id="navToday" data-testid="nav-today" aria-label="Today">Today</button>
+      <button type="button" class="bottom-bar__btn" id="navThreads" data-testid="nav-threads" aria-label="Threads">Threads</button>
+      <button type="button" class="bottom-bar__btn" id="navProjects" data-testid="nav-projects" aria-label="Projects">Projects</button>
+    </nav>
   </div>
 
   <!-- New Session Modal -->
