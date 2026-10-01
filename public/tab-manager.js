@@ -225,10 +225,29 @@ class TabManager {
       const d = panes.type(tab.type);
       if (d) hash = d.hash ? d.hash(tab) : '';
     }
+    const label = document.getElementById?.('navTitle');
+    if (label) label.textContent = tab ? (tab.label || '') : '';
+    // Layout owns tab history (push on compact, replace elsewhere).
+    if (this.container?.has?.('layout')) {
+      this.container.get('layout').navigate(hash || null, tab ? tab.id : null);
+      return;
+    }
     const target = hash || (window.location.pathname + window.location.search);
     if (window.location.hash !== hash) {
-      history.replaceState(null, '', target);
+      history.replaceState(history.state ?? null, '', target);
     }
+  }
+
+  // Today with every tab kept. fromHistory: the URL already moved (Back,
+  // popstate), so leave history alone.
+  showToday({ fromHistory = false } = {}) {
+    this.activeTabId = null;
+    this._hideAllContent();
+    this.app.voiceChatManager?.deactivate();
+    this._destroyActiveViewer();
+    this.app.showWelcomeScreen();
+    this.render();
+    if (!fromHistory) this._updateHash(null);
   }
 
   closeTab(tabId) {
