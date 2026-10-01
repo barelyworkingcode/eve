@@ -1,0 +1,105 @@
+/**
+ * Drift guard for the fake relay. Every behaviour fake-relay.js / protocol.js
+ * copies from relay is listed here with the relay file and the exact text it
+ * was read from. When a relay checkout is present (../relay, or
+ * EVE_RELAY_SOURCE) each needle must still be in its file, so a relay change
+ * that moves a status, a message or a JSON key fails here instead of leaving
+ * the fake quietly wrong. The fake side runs everywhere: each pin also names
+ * the text the fake must carry, so the two cannot be edited apart.
+ *
+ * Without a relay checkout (CI, other machines) the relay half is reported as
+ * a todo, not a pass.
+ */
+const fs = require('fs');
+const path = require('path');
+
+const FAKE = fs.readFileSync(path.join(__dirname, 'fake-relay.js'), 'utf8')
+  + fs.readFileSync(path.join(__dirname, 'protocol.js'), 'utf8');
+
+function firstExisting(candidates, marker) {
+  return candidates.filter(Boolean).find((dir) => fs.existsSync(path.join(dir, marker)));
+}
+const relayRoot = () => firstExisting([process.env.EVE_RELAY_SOURCE, path.resolve(__dirname, '..', '..', '..', 'relay')],
+  path.join('cmd', 'relay', 'frontend_server.go'));
+// relayScheduler sits beside eve, or at the cloud clone path; EVE_SCHEDULER_SOURCE overrides.
+const schedulerRoot = () => firstExisting([
+  process.env.EVE_SCHEDULER_SOURCE,
+  path.resolve(__dirname, '..', '..', '..', 'relayScheduler'),
+  path.resolve(__dirname, '..', '..', '..', 'relayscheduler'),
+  path.resolve(__dirname, '..', '..', '..', 'barelyworkingcode', 'relayscheduler'),
+], 'scheduler.go');
+
+// [what, file, needle in that file, needle the fake must carry, source: 'relay' (default) | 'scheduler']
+const PINS = [
+  ['401 is text/plain "unauthorized"', 'cmd/relay/frontend_server.go', 'http.Error(w, "unauthorized", http.StatusUnauthorized)', "sendText(401, 'unauthorized')"],
+  ['unmatched path is a text/plain 404', 'cmd/relay/frontend_dispatcher.go', 'http.Error(w, "no service registered for this path", http.StatusNotFound)', "sendText(404, 'no service registered for this path')"],
+  ['upstream dial failure closes 1011', 'cmd/relay/frontend_dispatcher.go', 'websocket.CloseInternalServerErr, "upstream unreachable"', "code = 1011, reason = 'upstream unreachable'"],
+  ['model allowlist refusal', 'cmd/relay/frontend_model_guard.go', '"error": "model not allowed for this project"', "error: 'model not allowed for this project'"],
+  ['remote project refusal', 'cmd/relay/frontend_model_guard.go', 'is a remote project and cannot host a session', 'is a remote project and cannot host a session'],
+  ['project 404 body', 'cmd/relay/project_routes.go', '"error": "project not found"', "error: 'project not found'"],
+  ['project delete is 204', 'cmd/relay/project_routes.go', 'w.WriteHeader(http.StatusNoContent)', "projects.delete(id); return send(204)"],
+  ['host 404 body', 'cmd/relay/host_routes.go', '"error": "host not found"', "error: 'host not found'"],
+  ['host in use 409', 'cmd/relay/host_routes.go', '"host is used by one or more projects"', "error: 'host is used by one or more projects'"],
+  ['persistent sessions list route', 'cmd/relay/persistent_session_routes.go', '"GET /api/projects/{id}/persistent-sessions"', 'persistent-sessions'],
+  ['persistent sessions kill route', 'cmd/relay/persistent_session_routes.go', '"DELETE /api/projects/{id}/persistent-sessions/{name}"', 'persistent-sessions'],
+  ['persistent sessions unhosted project text', 'cmd/relay/persistent_session_ops.go', 'hosted project %q not found', 'hosted project "${projectId}" not found'],
+  ['persistent sessions no-tmux kind', 'cmd/relay/persistent_session_ops.go', 'errors.New("host has no tmux")', 'persistentFailures'],
+  ['persistent session row keys', 'cmd/relay/persistent_session_ops.go', 'json:"attached_here"', 'attached_here'],
+  ['session delete is 204', 'internal/sessions/api/http_session.go', 'w.WriteHeader(http.StatusNoContent)', "sessions.delete(sm[1]); return send(204)"],
+  ['session list row uses id', 'internal/sessions/session/manager.go', 'ID            string            `json:"id"`', 'id: sess.sessionId'],
+  ['session list row has live', 'internal/sessions/session/manager.go', '`json:"live"`', 'live: sess.live !== false'],
+  ['session list row has messageCount', 'internal/sessions/session/manager.go', '`json:"messageCount"`', 'messageCount'],
+  ['session create body key', 'internal/sessions/types/session.go', '`json:"sessionId"`', 'sessionId,'],
+  ['session create body providerType', 'internal/sessions/types/session.go', '`json:"providerType"`', "providerType: 'claude'"],
+  ['terminal created body has host', 'internal/sessions/terminal/types.go', 'Host       map[string]string `json:"host"`', 'host: null'],
+  ['terminal log is text/plain', 'internal/sessions/api/http_terminal.go', 'w.Header().Set("Content-Type", "text/plain; charset=utf-8")', "'text/plain; charset=utf-8' });\n        return res.end(Buffer.from('TERMINAL-LOG-BYTES'))"],
+  ['join of an unknown session', 'internal/sessions/api/ws_session.go', 'sendWSError(c, "session not found: "+req.SessionID)', 'session not found: ${msg.sessionId}'],
+  ['session_joined has live', 'internal/sessions/api/ws_session.go', '"live": p != nil && p.Alive(),', 'live: session.live !== false'],
+  ['session_joined has protocolVersion', 'internal/sessions/api/ws_session.go', '"protocolVersion": events.ProtocolVersion,', 'protocolVersion: EVENT_PROTOCOL_VERSION'],
+  ['session_joined has history', 'internal/sessions/api/ws_session.go', '"history":         history,', 'history: session.history || []'],
+  ['permission response needs a joined connection', 'internal/sessions/api/ws_session.go', 'permission response refused: this connection has not joined session ', 'permission response refused: this connection has not joined session ${sessionId}'],
+  ['resume_required carries message', 'internal/sessions/api/ws_session.go', '"message":   err.Error(),', "code: 'resume_required', sessionId, message"],
+  ['project view has the effective mode', 'cmd/relay/project_dto.go', 'Mode             config.ProjectMode         `json:"mode"`', 'mode: effectiveMode(proj)'],
+  ['project view has default_for', 'cmd/relay/project_dto.go', '`json:"default_for,omitempty"`', 'out.default_for = defaultFor'],
+  ['project view has created_at', 'cmd/relay/project_dto.go', '`json:"created_at"`', 'created_at:'],
+  ['default project route', 'cmd/relay/project_routes.go', '"PUT /api/default_project/{mode}"', '/api/default_project/'],
+  ['default project id required', 'cmd/relay/project_routes.go', 'project_id is required; send \"\" to clear the default', 'project_id is required; send "" to clear the default'],
+  ['default project mode refusal', 'internal/config/project_mode.go', 'mode %q has no default project; want home or work', 'has no default project; want home or work'],
+  ['default project access-profile refusal', 'internal/config/project_mode.go', 'is an access profile and cannot be a default project', 'is an access profile and cannot be a default project'],
+  ['default project mode mismatch', 'internal/config/project_mode.go', 'is %s-only and cannot be the default for %s', '-only and cannot be the default for'],
+  ['task not found', 'api.go', 'writeError(w, http.StatusNotFound, "task not found")', "error: 'task not found'", 'scheduler'],
+  ['run started body', 'api.go', '"message": "Task execution started",', "message: 'Task execution started'", 'scheduler'],
+  ['delete body', 'api.go', 'map[string]bool{"deleted": true}', "{ deleted: true }", 'scheduler'],
+  ['by-project body', 'api.go', 'map[string]int{"deleted": count}', "{ deleted: count }", 'scheduler'],
+  ['task name required', 'api.go', 'errors.New("name is required")', "'name is required'", 'scheduler'],
+  ['chat prompt required', 'api.go', 'errors.New("prompt is required for chat tasks")', "'prompt is required for chat tasks'", 'scheduler'],
+  ['pty template required', 'api.go', 'errors.New("templateId is required for PTY tasks")', "'templateId is required for PTY tasks'", 'scheduler'],
+  ['schedule refusal prefix', 'api.go', 'fmt.Errorf("invalid schedule: %w", err)', 'invalid schedule:', 'scheduler'],
+  ['once in the past', 'schedule.go', "once schedule 'at' is in the past", "once schedule 'at' is in the past", 'scheduler'],
+  ['task view on the wire', 'task.go', 'View TaskView `json:"view"`', 'view: viewOf(t)', 'scheduler'],
+  ['lifecycle envelope', 'scheduler.go', '"taskName":  task.Name,', 'taskName: task.name', 'scheduler'],
+  ['task_started event', 'scheduler.go', '"task_started"', "'task_started'", 'scheduler'],
+  ['task_completed event', 'scheduler.go', '"task_completed"', "'task_completed'", 'scheduler'],
+  ['task_error event', 'scheduler.go', '"task_error"', "'task_error'", 'scheduler'],
+  ['task_status on connect', 'hub.go', '"type":    "task_status",', "type: 'task_status'", 'scheduler'],
+];
+
+describe('fake relay carries what the pins say (no relay checkout needed)', () => {
+  it.each(PINS.map((p) => [p[0], p[3]]))('%s', (_what, fakeNeedle) => {
+    expect(FAKE).toContain(fakeNeedle);
+  });
+});
+
+const ROOTS = { relay: [relayRoot(), 'relay', '../relay', 'EVE_RELAY_SOURCE'], scheduler: [schedulerRoot(), 'relayScheduler', '../relayScheduler', 'EVE_SCHEDULER_SOURCE'] };
+for (const [source, [root, label, where, env]] of Object.entries(ROOTS)) {
+  const pins = PINS.filter((p) => (p[4] || 'relay') === source);
+  if (!root) {
+    test.todo(`${label} checkout not found at ${where} (set ${env}): ${label}-side pins not verified`);
+    continue;
+  }
+  describe(`${label} source still says what the fake copies (${root})`, () => {
+    it.each(pins.map((p) => [p[0], p[1], p[2]]))('%s', (_what, file, needle) => {
+      expect(fs.readFileSync(path.join(root, file), 'utf8')).toContain(needle);
+    });
+  });
+}

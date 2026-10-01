@@ -84,4 +84,14 @@ describe('normalizeProject', () => {
     expect(out).not.toHaveProperty('ssh_argv');
     expect(JSON.stringify(out)).not.toContain('BatchMode');
   });
+
+  // Relay's project view carries `mode` and `default_for` (project_dto.go) and
+  // the Home|Work work (#38) needs both on the client. The allow-list drops
+  // them today; the slice that adds them flips this test on purpose.
+  it('does not yet carry relay\'s mode or default_for to the client', () => {
+    const out = normalizeProject({ id: 'p8', name: 'Modal', path: '/x', mode: 'work', default_for: ['work'] });
+    expect(out).not.toHaveProperty('mode');
+    expect(out).not.toHaveProperty('default_for');
+    expect(out).not.toHaveProperty('defaultFor');
+  });
 });

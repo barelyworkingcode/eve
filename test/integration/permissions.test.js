@@ -27,8 +27,13 @@ describe('permission request/response forwarding', () => {
   });
 
   it('forwards a relay permission_request to the browser and the response back to relay', async () => {
+    // Relay resolves a permission only for a connection that joined the
+    // request's session (ws_session.go handlePermissionResponse), so join first.
+    ws.send({ type: 'join_session', sessionId: 's1' });
+    await ws.waitFor((f) => f.type === 'session_joined' && f.sessionId === 's1');
+
     // Real relayLLM field names — see protocol.js.
-    eve.relay.emitToRelay(relayFrames.permissionRequest({
+    eve.relay.emitToSession('s1', relayFrames.permissionRequest({
       sessionId: 's1', permissionId: 'perm-1', toolName: 'Bash', toolInput: '{"command":"ls"}', toolUseId: 'tu-1',
     }));
 

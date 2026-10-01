@@ -26,10 +26,11 @@ describe('binary proxies (fetchRaw)', () => {
     expect(Buffer.from(await res.arrayBuffer()).toString()).toBe('FAKE-PNG-BYTES');
   });
 
-  it('proxies a terminal log as octet-stream, no-store', async () => {
+  it('proxies a terminal log with relay\'s own content type (text/plain), no-store', async () => {
+    eve.relay.seedTerminal({ terminalId: 'term-1', templateId: '', name: '', directory: '' });
     const res = await eve.get('/api/terminals/term-1/log');
     expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toMatch(/octet-stream/);
+    expect(res.headers.get('content-type')).toMatch(/text\/plain/);
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(Buffer.from(await res.arrayBuffer()).toString()).toBe('TERMINAL-LOG-BYTES');
   });

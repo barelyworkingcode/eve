@@ -25,6 +25,7 @@
 const fs = require('fs');
 const fsp = require('fs').promises;
 const path = require('path');
+const { createDirWatcher } = require('./dir-watcher');
 
 // Still received from the kernel; dropped here so installs / git ops don't
 // spam tree refreshes.
@@ -38,6 +39,28 @@ const FILE_DEBOUNCE_MS = 100; // coalesce rapid writes before reading content
 const DIR_DEBOUNCE_MS = 200;  // coalesce rapid structural churn before refresh
 const GIT_DEBOUNCE_MS = 500;  // coalesce a checkout/commit burst into one git status
 const SELF_WRITE_TTL_MS = 1000;
+
+// Linux recursive `fs.watch` is an inotify emulation that cannot skip
+// directories; see dir-watcher.js. Elsewhere it is FSEvents and costs nothing
+// per directory. EVE_WATCH_BACKEND=native|pruned is for tests.
+function watchBackend(env = process.env, platform = process.platform) {
+  if (env.EVE_WATCH_BACKEND === 'native' || env.EVE_WATCH_BACKEND === 'pruned') return env.EVE_WATCH_BACKEND;
+  return platform === 'linux' ? 'pruned' : 'native';
+}
+
+// Directories the pruned backend may enter. `.git` is watched shallowly
+// (index, HEAD and friends are its direct children) plus `.git/worktrees/<n>`
+// for a linked worktree's own index/HEAD; its objects and refs are not.
+function shouldWatchDir(rel) {
+  const segs = rel.split('/');
+  const gitIdx = segs.indexOf('.git');
+  if (gitIdx !== -1) {
+    const inside = segs.slice(gitIdx + 1);
+    if (segs.slice(0, gitIdx).some((seg) => IGNORED_SEGMENTS.has(seg) && seg !== '.git')) return false;
+    return inside.length === 0 || (inside[0] === 'worktrees' && inside.length <= 2);
+  }
+  return !segs.some((seg) => IGNORED_SEGMENTS.has(seg));
+}
 
 class FileWatcher {
   // fileServiceFor: (project) => FileService|RemoteFileService, mirroring
@@ -55,6 +78,7 @@ class FileWatcher {
     this.dirTimers = new Map();
     this.gitTimers = new Map();
     this.selfWrites = new Set();
+    this.reportedFailures = new Set(); // projectIds already told; cleared on a successful start
   }
 
   // relativePath is echoed back verbatim (not canonicalized) so the client
@@ -126,25 +150,39 @@ class FileWatcher {
       return false;
     }
 
+    const onEvent = (eventType, filename) => {
+      if (!filename) return; // some platforms omit the name on overflow
+      // Before the ignore check: a `.git/index` / `.git/HEAD` write is
+      // dropped for the tree but still means git status changed.
+      this._maybeScheduleGitChange(projectId, filename);
+      // Checked before canonicalizing: node_modules/.git churn is the
+      // highest-volume event source, so this keeps the hot path cheap.
+      if (this._isIgnored(filename)) return;
+      const canon = this._canonRel(filename);
+      if (!canon) return;
+      this._onFsEvent(projectId, root, eventType, canon);
+    };
+
     let watcher;
     try {
-      watcher = fs.watch(root, { recursive: true }, (eventType, filename) => {
-        if (!filename) return; // some platforms omit the name on overflow
-        // Before the ignore check: a `.git/index` / `.git/HEAD` write is
-        // dropped for the tree but still means git status changed.
-        this._maybeScheduleGitChange(projectId, filename);
-        // Checked before canonicalizing: node_modules/.git churn is the
-        // highest-volume event source, so this keeps the hot path cheap.
-        if (this._isIgnored(filename)) return;
-        const canon = this._canonRel(filename);
-        if (!canon) return;
-        this._onFsEvent(projectId, root, eventType, canon);
-      });
-    } catch {
-      return false; // root missing/inaccessible, or recursive unsupported
+      if (watchBackend() === 'pruned') {
+        watcher = createDirWatcher(root, {
+          shouldWatch: shouldWatchDir,
+          onEvent,
+          onError: (err) => { this._stopProjectWatcher(projectId); this._reportFailure(projectId, err); },
+        });
+      } else {
+        watcher = fs.watch(root, { recursive: true }, onEvent);
+        watcher.on('error', (err) => { this._stopProjectWatcher(projectId); this._reportFailure(projectId, err); });
+      }
+    } catch (err) {
+      // Root missing/inaccessible, inotify budget spent, or recursive watch
+      // unsupported: the tree and open files go stale, so say so.
+      this._reportFailure(projectId, err);
+      return false;
     }
+    this.reportedFailures.delete(projectId);
 
-    watcher.on('error', () => this._stopProjectWatcher(projectId));
     this.projectWatchers.set(projectId, { remote: false, watcher, root });
     return true;
   }
@@ -179,6 +217,15 @@ class FileWatcher {
   _hostAgentFor(project) {
     const fs = this.fileServiceFor(project);
     return fs && fs.hostAgent ? fs.hostAgent : null;
+  }
+
+  // Once per project until a later start succeeds: list_directory retries
+  // the start on every call and would otherwise repeat the frame.
+  _reportFailure(projectId, err) {
+    if (this.reportedFailures.has(projectId)) return;
+    this.reportedFailures.add(projectId);
+    const reason = (err && err.code) || (err && err.name) || 'UNKNOWN';
+    this._send({ type: 'watch_error', projectId, reason });
   }
 
   _stopProjectWatcher(projectId) {
@@ -340,3 +387,5 @@ class FileWatcher {
 }
 
 module.exports = FileWatcher;
+module.exports.watchBackend = watchBackend;
+module.exports.shouldWatchDir = shouldWatchDir;

@@ -96,7 +96,10 @@ const heldXtermTest = test.extend({
       if (typeof payload !== 'string') return;
       let frame;
       try { frame = JSON.parse(payload); } catch { return; }
-      if (frame.type === 'terminal_created' && frame.terminalId === EARLY) xtermGate.markFrameSeen();
+      // eve coalesces browser-bound frames into a __batch on a short timer, so the
+      // frame can arrive wrapped with whatever else was pending (task_status, ...).
+      const frames = frame.type === '__batch' && Array.isArray(frame.msgs) ? frame.msgs : [frame];
+      if (frames.some((f) => f.type === 'terminal_created' && f.terminalId === EARLY)) xtermGate.markFrameSeen();
     })));
     await use(context);
   },

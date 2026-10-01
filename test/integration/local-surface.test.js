@@ -88,5 +88,24 @@ describe('eve local surface (spawned server, fake relay)', () => {
         await ws.close();
       }
     });
+
+    it('does not report churn inside node_modules, but still reports the real change beside it', async () => {
+      fs.mkdirSync(path.join(projectDir, 'node_modules', 'pkg'), { recursive: true });
+      const ws = await eve.connectWs();
+      try {
+        ws.send({ type: 'list_directory', projectId: 'p1', path: '/' });
+        await ws.waitFor((f) => f.type === 'directory_listing');
+        await new Promise((r) => setTimeout(r, 300));
+        const from = ws.mark();
+
+        fs.writeFileSync(path.join(projectDir, 'node_modules', 'pkg', 'index.js'), 'x', 'utf8');
+        fs.writeFileSync(path.join(projectDir, 'visible.md'), 'y', 'utf8');
+
+        await ws.waitFor((f) => f.type === 'dir_changed' && f.path === '/', 8000, from);
+        expect(ws.frames.slice(from).some((f) => JSON.stringify(f).includes('node_modules'))).toBe(false);
+      } finally {
+        await ws.close();
+      }
+    });
   });
 });

@@ -787,12 +787,26 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     ...['0644', '0640', '0604'].map(m => [`mode ${m}`, () => writeMarker(markerDoc(), parseInt(m, 8)), vm,
       refused(`marker is open to group or others (mode ${m})`)]),
     ['mode 0644 and bad JSON', () => writeMarker('{', 0o644), vm, refused('marker is open to group or others (mode 0644)')],
-    ['a file it cannot read', () => writeMarker(markerDoc(), 0o000), vm, refused('marker is not readable')],
+    // chmod 000 is no barrier to root (Claude cloud sessions run as root), so the
+    // open itself is made to fail with the EACCES a non-root user would get.
+    ['a file it cannot read', () => {
+      const file = writeMarker();
+      const realOpen = fs.openSync;
+      jest.spyOn(fs, 'openSync').mockImplementation((p, ...rest) => {
+        if (p === file) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        return realOpen(p, ...rest);
+      });
+      return file;
+    }, vm, refused('marker is not readable')],
     ['an lstat error other than ENOENT', () => path.join(writeMarker(), 'x'), vm, refused('marker is not readable')],
     ['an lstat error other than ENOENT on a non-VM', () => path.join(writeMarker(), 'x'), () => false, NOT_VM],
   ])('readMarker reports %s', (_label, setup, isVM, message) => {
     const file = setup();
-    expect(() => world.readMarker(file, { isVM })).toThrow(new Error(message));
+    try {
+      expect(() => world.readMarker(file, { isVM })).toThrow(new Error(message));
+    } finally {
+      jest.restoreAllMocks();
+    }
   });
 
   it('loadWorld returns every data project with its folder, the catalogue as a Set and relay_mcp', () => {

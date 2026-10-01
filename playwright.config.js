@@ -2,6 +2,7 @@
 // loopback (trusted -> no passkey). Each test gets its own eve via the `eve`
 // fixture, so keep it serial.
 const { defineConfig, devices } = require('@playwright/test');
+const { chromiumLaunchOptions } = require('./test/helpers/chromium-path');
 
 module.exports = defineConfig({
   testDir: './test/e2e',
@@ -14,6 +15,7 @@ module.exports = defineConfig({
   reporter: [['list']],
   use: {
     headless: true,
+    launchOptions: chromiumLaunchOptions(),
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
