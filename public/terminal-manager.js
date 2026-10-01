@@ -629,8 +629,8 @@ class TerminalManager {
   // terminal_list comes back empty while the persistent (tmux) sessions still
   // run on the host (attached_here false). Reattach each one no open eve
   // terminal already holds (a persist terminal's name is its tmux session
-  // name), in the background — unless no terminal is active, in which case the
-  // first one takes focus. One run per project at a time; a session stays
+  // name), in the background: a reattached session never takes focus. One run
+  // per project at a time; a session stays
   // pending until its terminal_created lands so a second run can't double it;
   // that landing also refreshes any open Remote sessions list.
   async autoReattachPersistentSessions(projectId) {
@@ -656,7 +656,6 @@ class TerminalManager {
         if (!t.exited && this.allTerminals.has(id)) open.add(t.name);
       }
       // Reattached tmux sessions open in the background and never take focus.
-      let focus = false;
       let started = 0;
       for (const s of Array.isArray(sessions) ? sessions : []) {
         if (s.attached_here !== false || !s.name) continue;
@@ -664,8 +663,7 @@ class TerminalManager {
         // A create relay refuses never yields terminal_created; let it retry later.
         const timer = setTimeout(() => this._autoReattachPending.delete(s.name), 30000);
         timer?.unref?.();
-        this._autoReattachPending.set(s.name, { focus, timer, projectId });
-        focus = false;
+        this._autoReattachPending.set(s.name, { focus: false, timer, projectId });
         this.createTerminal(s.template_id, project.path, projectId, s.name);
         started++;
       }
