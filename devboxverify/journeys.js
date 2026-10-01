@@ -710,6 +710,7 @@ async function todayPhone(env) {
   env.step('wait for the greeting');
   const greeting = page.getByTestId('home-screen').getByText(GREETING);
   await need('no greeting within 20s', expect(greeting).toBeVisible({ timeout: 20000 }));
+  await need('the Ask box has focus on the phone, which raises the keyboard over Today', expect(page.getByTestId('today-ask-input')).not.toBeFocused({ timeout: 2000 }));
   const bar = page.getByRole('navigation', { name: 'Navigation' });
   for (const name of ['Today', 'Threads', 'Projects']) {
     await need(`no ${name} in the bottom bar`, expect(bar.getByRole('button', { name, exact: true })).toBeVisible({ timeout: 5000 }));

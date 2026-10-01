@@ -19,7 +19,7 @@ As the owner, I would like eve to fit the iPad or phone I am holding, so I can u
 
 **S2-A4 · Wordmark.** The Home | Work control is the wordmark at every size. On wide it sits at the top of the sidebar panel (S1's slot); on regular and compact, at the top of Today. It is one element moved between two slots. Test ids `mode-switch`, `mode-home` and `mode-work` are kept.
 
-**S2-A5 · Front door.** Opening eve after this device has been away 60 minutes or more shows Today with Ask focused and restores no tabs. Otherwise tabs restore as in S1. A deep link still wins.
+**S2-A5 · Front door.** Opening eve after this device has been away 60 minutes or more shows Today with Ask focused (fine pointers only, #129) and restores no tabs. Otherwise tabs restore as in S1. A deep link still wins.
 
 **S2-A6 · No horizontal scroll** at 320–1366 on Today, chat and the file viewer (image viewer, text file in the editor), with a fine or coarse pointer.
 
@@ -114,7 +114,7 @@ FrontDoor.read(storage); FrontDoor.stamp(storage, now)
   - on `pointerdown`/`keydown` (capture, passive), at most once per 60 s;
   - always on `visibilitychange` to hidden and on `pagehide`.
 - **Away** means no stamp for 60 minutes from any eve page on this device (localStorage is shared). Exactly 60:00 counts as away; a missing key counts as away.
-- **Resume:** on `visibilitychange` to visible, if away, show Today (on compact, back to the root), focus Ask and keep the tabs. Then stamp.
+- **Resume:** on `visibilitychange` to visible, if away, show Today (on compact, back to the root), focus Ask on fine pointers only (#129; a coarse pointer leaves the keyboard down) and keep the tabs. Then stamp.
 
 ## Tasks and ownership
 

@@ -92,7 +92,9 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 390, height: 844, hasTo
       expect(await tabCount(page)).toBe(1);
       const s = await stored(page);
       expect(s.now - s.stamp).toBeLessThan(MIN);
-      await expect(page.getByTestId('today-ask-input')).toBeFocused();
+      // Fine pointers focus Ask; a coarse pointer must not raise the keyboard (#129).
+      if (vp.hasTouch) expect(await page.evaluate(() => document.activeElement?.dataset?.testid)).not.toBe('today-ask-input');
+      else await expect(page.getByTestId('today-ask-input')).toBeFocused();
     });
   });
 }
