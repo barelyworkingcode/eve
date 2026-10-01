@@ -23,25 +23,39 @@ Numbered so a spec, a flipped assertion and the PR can cite them.
 and the Ask box has focus, so typing needs no click. Opening Today makes no LLM
 call and creates no session.
 
-**S1-A2 · Nothing opens by itself.** A terminal that already exists on relay
-(at page load, or after a reconnect) creates no tab and no xterm, and does not
-take focus. It is listed in the project's Sessions panel and opens on click.
-Today stays visible.
+**S1-A2 · Nothing opens by itself.** A terminal that relay lists (`terminal_list`,
+at page load or after a reconnect) creates no tab and no xterm, and does not take
+focus. It is listed in the project's Sessions panel (and counted there) and opens
+on click, through `terminalManager.openTaskTerminal`, which already builds the
+xterm from `allTerminals`. Today stays visible. A `#terminal/<id>` link to a
+listed but unopened terminal opens it the same way. A late `terminal_joined`
+for an unopened terminal does not activate it. Carve-out: persistent-session
+reattach on SSH host projects (tmux sessions the user explicitly persisted) still
+adds background tabs, but never takes focus.
 
 **S1-A3 · Truthful states.** One word, one meaning, in Today, the sidebar and
 the summary line:
 
 | State | Means | Shown as |
 |---|---|---|
-| running | a turn is in progress in a thread this browser has open, or a scheduled task run is executing | pulsing dot, in Running, counted in the summary |
-| waiting | a permission request or question is open for a thread this browser has open | amber dot, in Needs you: "waiting for you" |
-| failed | the last turn of an open thread ended in an error, or a task's last run failed; cleared by the next turn or run | red dot, in Needs you, with the reason in plain words |
+| running | a turn is in progress in a thread this browser has joined, or a scheduled task run is executing (`lastStatus` `running`) | pulsing dot, in Running, counted in the summary |
+| waiting | a permission request is open for a thread this browser has joined | amber dot, in Needs you: "waiting for you" |
+| failed | the last turn of a joined thread ended in an `error` frame that names its session, or a task's `lastStatus` is `error` or `timeout`; cleared when the next turn starts or the task's `lastStatus` becomes `running` | red dot, in Needs you, with the reason in plain words |
 | open | the provider process is alive (`live`) and nothing else is known | no dot, no count |
 
-a. A live but idle thread is not running. It has no dot and is not counted.
+a. A live but idle thread is not running. It has no dot and is not counted. The
+   same holds everywhere `active` was read as "running": the rail dot, the
+   project panel's session dot, the palette's live mark, and the terminal badge
+   (which says "open" or "stopped", not "running").
 b. A thread this browser has not joined has no turn state, because relay only
    delivers a thread's frames to its joined viewers. eve shows nothing rather
-   than guess.
+   than guess. State is in memory: a reload forgets it until frames arrive. It is
+   also cleared on going offline, on a browser reconnect, and on `session_joined`
+   and `session_ended`, so a turn that finished during a disconnect never stays
+   "running". An `error` frame without a `sessionId`, and `resume_required`
+   (eve resumes it itself), never mark a thread failed. A question
+   (`AskUserQuestion`, `ExitPlanMode`) is a block inside `llm_event` handled only
+   for the current thread, so S1 does not claim "waiting" for it.
 c. With relay unreachable at load, eve does not say "Start with a project" or
    "Nothing yet". Each part that needs relay shows its own "Can't reach relay"
    line with Retry, beside the connection banner. First-run is offered only when
@@ -52,9 +66,13 @@ d. An empty Needs you says "Nothing needs you" only when its sources loaded.
 default Work, persisted in `eve-mode`. A project is visible in mode *m* when its
 `mode` is *m* or `both` (missing means `both`). Switching filters the rail,
 Today's parts, the project panel's lists and ⌘K (projects and their sessions).
-It never closes an open tab. Zero in-mode projects (with some loaded) says so
-and offers the other mode; it is not first-run. relay enforces access; this is
-presentation only.
+It never closes an open tab. It can move the view: when the active project is out
+of the new mode, `ProjectTree` activates the first in-mode project and the tab
+bar follows that project (its last tab, or Today if it has none); with no in-mode
+project the view is Today. Sessions without a project show in both modes. A URL
+scope (`scopedProjectId`) wins over mode. Zero in-mode projects (with some
+loaded) says so and offers the other mode; it is not first-run. relay enforces
+access; this is presentation only.
 
 **S1-A5 · Ask with typing and Return.** Return in the Ask box creates one thread
 in the current mode's default project (`default_for` includes the mode) and
@@ -64,15 +82,35 @@ adds a line; empty text does nothing.
   one; otherwise an inline project pick in the Ask box (no dialog), remembered.
 - Model: the model last used by Ask (`eve-ask-model`), else the first model the
   chosen project allows. Provider defaults apply as for every chat launch
-  (`applyChatDefaults`).
-- Failure keeps the typed text and says what happened in plain words
-  ("That model isn't allowed in this project"), never `HTTP 400: {...}`.
-- Relay down: the box stays, Send is disabled, and the line says why.
+  (`applyChatDefaults`). Return waits for the model list; if it failed to load,
+  or no model is allowed, Send is disabled with a line and Retry.
+- First message: Ask records a pending request; `handleSessionCreated` (which
+  opens the thread) then sends the text through a `sendUserText(sessionId, text)`
+  extracted from `app.js#handleSubmit`, with the optimistic render and
+  `markLocalSubmit`.
+- Failure: relay's refusals reach the browser as a session-less `error` frame
+  (`{type:'error', message}`). The pending-request marker lets the dispatcher
+  attribute it to Ask; a table maps the pinned messages ("model not allowed for
+  this project", "is a remote project and cannot host a session", launch and
+  host-unavailable) to plain words and any other gets a generic line. The typed
+  text is kept. The refusal also lands in the chat pane as today; the Today line
+  is the user-facing one.
+- Relay down, or zero in-mode projects: the box stays, Send is disabled, and the
+  line says why ("Can't reach relay", "No projects in Work yet").
 
 **S1-A6 · Parts are independent.**
 - Each part loads independently. A part whose source fails shows its own one-line
   error with Retry while the others render normally; a slow part shows a skeleton
   while the others are usable (typing in Ask works while another part loads).
+  Parts that share a source fail together; that is accepted and is not
+  cross-part coupling.
+- A slow or failed tasks call never delays projects, sessions, tab restore or
+  Ask. Today, `loadProjects` awaits `loadAllTasks` and `onWebSocketReady` chains
+  sessions, tab restore and the hash route behind it; S1 starts tasks without
+  that await. Task runs are headless sessions identified by task data, so
+  Continue (and the palette and sidebar, on `TASKS_LOADED`) never list a run as
+  a thread: Continue stays `loading` until the tasks source answers, and shows
+  its own error and Retry if tasks fail, rather than listing runs.
 - A bus event updates only the parts that subscribe to it; nothing re-renders
   Today as a whole. Ask's DOM node and typed text survive any session or
   project event.
@@ -82,8 +120,9 @@ adds a line; empty text does nothing.
   line; no other part is affected.
 
 **S1-A7 · mode and default_for reach the client.** `normalizeProject` carries
-`mode` (`home`|`work`|`both`, default `both`) and `default_for` (default `[]`).
-The project token still never crosses.
+`mode` (`home`|`work`|`both`, default `both`) and `defaultFor` (relay's
+`default_for`, default `[]`; camelCase like every other field). The project
+token still never crosses.
 
 **S1-A8 · Project chips work.** Clicking a project chip on Today activates that
 project (panel, rail highlight and chip highlight follow).
@@ -110,7 +149,9 @@ Plain classes on `window`, registered through the DI container
 { id, modes, order, mount(el, ctx), refresh(), destroy() }
 ```
 
-- `ctx`: `{ bus, state, container, mode(), sources, activity }`.
+- `ctx`: `{ bus, state, container, mode(), sources, activity }`. This and
+  `TodayPart` below are scaffolding on top of the epic's contract, which names
+  only the six members.
 - A part owns its DOM subtree, its data fetch and its error state. It subscribes
   to the bus events it needs through `ctx.on(evt, fn)`, which `destroy()` undoes.
 - `TodayPart` (base class) supplies the lifecycle for parts with data: `load()`
@@ -126,14 +167,24 @@ Plain classes on `window`, registered through the DI container
   projects, sessions and tasks. The loaders today log and swallow their errors
   (`app.js#loadProjects`, `#loadSessions`, `task-manager.js#loadTasks`); they
   keep their current behaviour for the sidebar and additionally report to the
-  source. Two parts on one source fail together; that is accepted and is not
-  cross-part coupling.
+  source (a non-array tasks answer counts as an error). A source that has not
+  started is `loading`, with a timeout line if the socket never opens. A projects
+  Retry re-runs `setProjects`, which re-renders the sidebar; accepted.
 - **Activity** (`public/core/session-activity.js`, pure, unit-testable) derives
-  running/waiting/failed per thread from the frames the dispatcher already
-  receives (`dispatch(data)` is the one inbound seam) and from eve's own outbound
-  `user_input` and `permission_response`. It exposes `statusOf(sessionId)` and
-  emits `SESSION_ACTIVITY`. `StateStore.addSession` keeps `active` meaning
-  "provider alive" and Today stops reading it as "running".
+  running/waiting/failed per thread from inbound frames only. `dispatch(data)`
+  is the one inbound seam; `observe(data)` runs after the stopped-turn guard and
+  before the background-session diversion, so late chunks after Stop do not
+  re-mark running and background threads are seen. Running starts on
+  `user_message` or `llm_event` and ends on `message_complete`; `process_exited`
+  ends it, as failed only mid-turn. Waiting starts on `permission_request` and
+  keeps a `permissionId` to `sessionId` map, because `permission_response`
+  carries no session; it ends when `modal-manager` answers (the one outbound
+  hook, after the socket-open check) or the session ends. Nothing is derived
+  from outbound `user_input` (slash commands never start a turn). It exposes
+  `statusOf(sessionId)` and emits `SESSION_ACTIVITY`. The dispatcher reaches it
+  through `container.has('sessionActivity')`, null-safe, because its unit tests
+  build it with a mocked container. `StateStore.addSession` keeps `active`
+  meaning "provider alive"; nothing reads it as "running".
 
 Parts shipped in S1 (all `modes: ['home','work']`; `order` gaps leave room):
 
@@ -157,13 +208,18 @@ addition, not an edit.
 - [ ] **T1 · Contract and red-first specs**: this document, reviewed; the specs
       below written and failing for the right reason before any code.
 - [ ] **T2 · Truth**: `session-activity.js` and its wiring; terminals no longer
-      open from a listing; sources report errors; the summary and dots read
+      open from a listing and the sidebar click opens them; tasks decoupled from
+      the sessions chain; sources report errors; the summary and every dot read
       activity, not `live`.
 - [ ] **T3 · Parts**: `public/today/` registry, `TodayPart`, host, the seven
       parts; `home-screen.js` becomes the host; Ask focus.
-- [ ] **T4 · Mode**: `normalizeProject` fields; `StateStore` mode and the one
-      filtering choke point (`getVisibleProjects` plus a session counterpart);
-      the switch; persistence.
+- [ ] **T4 · Mode**: `normalizeProject` fields; `StateStore` mode and two
+      accessors: `getVisibleProjects` (URL scope only, unchanged, for session
+      creation, directory lookup and the legacy select: `app.js`
+      `getCurrentProjectDirectory`, `getProjectIdForDirectory`, `_resolveActiveProjectId`,
+      the legacy select) and `getModeProjects` (scope plus mode, for the rail,
+      `ProjectTree`, the palette's projects and sessions, Today, the favourite
+      fallback); a session counterpart; the switch; persistence.
 - [ ] **T5 · Ask**: the Ask part, project and model rules, the failure and
       relay-down states.
 - [ ] **T6 · Docs and verification**: feature map rows, `docs/baseline.md`,
@@ -180,11 +236,20 @@ predicate), `docs/design-today-s1.md`, specs under `test/e2e/goals/today-*.spec.
 Changed: `public/home-screen.js` (becomes the host), `public/index.html` (script
 tags in dependency order, rail switch; restart eve to pick it up),
 `public/core/state-store.js`, `public/core/constants.js`, `project-normalize.js`,
-`public/message-dispatcher.js` (observe call), `public/terminal-manager.js`
-(`onTerminalList`), `public/app.js` (loaders report to sources, focus),
-`public/sidebar/activity-rail.js`, `public/sidebar/project-tree.js`,
-`public/dialogs/command-palette.js`, the Home CSS, `docs/FEATURES.md`,
-`docs/baseline.md`, `CLAUDE.md` (localStorage keys).
+`public/message-dispatcher.js` (observe call, pending-Ask marker),
+`public/modal-manager.js` (answer hook), `public/terminal-manager.js`
+(`onTerminalList`, the `onTerminalJoined` fallback, reattach focus),
+`public/app.js` (loaders report to sources, tasks decoupled, `sendUserText`,
+hash route falls back to `allTerminals`, focus), `public/sidebar/activity-rail.js`,
+`public/sidebar/project-tree.js`, `public/sidebar/project-panel.js` (terminal
+click, dots, badge), `public/dialogs/command-palette.js`, the Home CSS,
+`test/integration/fake-relay.js` and `harness.js`, `docs/FEATURES.md`,
+`docs/baseline.md`, `CLAUDE.md` (localStorage keys `eve-mode`, `eve-ask-model`,
+`eve-ask-project`). `public/sidebar-renderer.js` (CRLF) is touched only if its
+"Active" label is still reachable, and then patched in place.
+Script order in `index.html`: `core/session-activity.js` and `core/mode.js` after
+`core/constants.js`; `today/*` after `sidebar/*` and before `home-screen.js`.
+The Today host keeps `data-testid="home-screen"` on `#homeContent`.
 
 Not touched: the five CRLF files (`public/tab-manager.js`, `public/file-editor.js`,
 `public/sidebar-renderer.js`, `routes/index.js`, `ws-handler.js`) unless a task
@@ -200,10 +265,13 @@ the existing `create_session` path; mode and `default_for` come from the
 route and no new pin.
 
 The specs need faults and delays on routes the fake already serves. The fake
-gains test-side `failRoute` and `delayRoute` for `GET /api/tasks` (and the
-others it serves). The injected failure answers with a body relay or
-relayScheduler really sends, with that text added to `relay-source-pins.test.js`
-and a case in `relay-fidelity.test.js`. These helpers add no behaviour a real
+gains test-side `failRoute(method, path, status, body)` and `delayRoute(method,
+path, ms)`, one generic hook ahead of the route table, no per-route branches.
+What the browser sees on a failed hop is eve's own answer (its proxy returns 502
+`{error:'Service unavailable'}`), so the fidelity case asserts what each hop
+really emits, with any relay text pinned in `relay-source-pins.test.js`. The
+harness gains `eve.reviveRelay(...)` (a fresh fake on `relayPort`, registered so
+`stop()` closes it) for "relay down, then Retry". These add no behaviour a real
 relay lacks.
 
 ## Red-first specs
@@ -231,6 +299,14 @@ its criterion.
 | Shift+Return newline; empty Return does nothing | A5 |
 | allowed-models refusal: text kept, plain-words line | A5 |
 | relay down: Send disabled, line says why, text kept | A5 |
+| a listed terminal: its row and the Sessions count are in the panel; clicking opens it; `#terminal/<id>` opens it | A2 |
+| a listed-then-joined terminal never activates; host-project reattach adds a background tab, no focus | A2 |
+| mode switch while a Work file tab is active: the view lands on the first in-mode project or Today, no tab is closed | A4 |
+| tasks delayed: Continue is `loading` and never lists a task run as a thread; sessions, tab restore and Ask are unaffected | A6 |
+| models held: Return waits, then sends; models failed: Send disabled with Retry | A5 |
+| a session-less `error` frame is shown on Ask only for a pending Ask; `resume_required` and unattributed errors never mark a thread failed | A3, A5 |
+| a turn left running across a disconnect is not "running" after reconnect | A3b |
+| a task with `lastStatus` `timeout` is in Needs you | A3 |
 | **one part failing**: `GET /api/tasks` answers an error: `needs-you` is `data-state="error"` with Retry; `ask`, `continue`, `projects` are `ready`; fix the route, Retry, it is `ready` | A6 |
 | **one part slow**: `GET /api/tasks` delayed: `needs-you` is `loading` (skeleton) while Ask takes typing and Return and starts a thread; then it becomes `ready` | A6 |
 | a session update leaves Ask's node (marked with an expando) and its typed text untouched | A6 |
@@ -249,10 +325,24 @@ states it. None is weakened: where an assertion goes, a stricter one replaces it
 |---|---|---|---|
 | `test/unit/project-normalize.test.js` | pins that `mode` and `default_for` are dropped | pins that they are carried | A7 |
 | `goals/home-screen`: chip `test.fail` | expected failure for the inert chip | marker deleted; the test passes | A8 |
+| `goals/g4-terminal`: after reload | clicks the sidebar terminal; passes only because the list auto-opened it | asserts first that no `#terminal` is open and Today is visible, then the click opens it | A2 |
+| `test/unit/terminal-rejoin.test.js`: "still sets up terminals it does not hold locally" | asserts `reconnectTerminal` is called from the list | asserts the list registers the terminal and creates no tab | A2 |
+| `devboxverify/journeys.js` `terminal-on-request` | expects the terminal pane to reappear within 15s of a reload | flips by design: after a reload the terminal is in the Sessions panel and opens on click. The journey is owner-owned and cross-repo; this PR does not edit it and states that it will fail until the owner updates it | A2 |
+| any other assertion that pins `active` as "running" or the terminal badge text "running" | found by grep during the build | listed in the PR with its criterion | A3 |
 | `goals/home-screen`: relay unreachable at load | asserts "Start with a project" | asserts the can't-reach line and Retry, and that first-run is not offered | A3c |
-| `goals/g3-reopen-thread`: running marks | a live thread shows the running dot and counts | a live idle thread shows neither; a running turn does | A3 |
+| `goals/g3-reopen-thread`: running marks (the live-session test; the "Nothing running" dormant test still holds) | a live thread shows the running dot and counts | a live idle thread shows neither; a running turn does | A3 |
 | `goals/g1-landing`: summary and focus | subtitle from `active` | subtitle from activity; Ask is focused | A1, A3 |
 | `test/visual` Home baselines | pixel baselines of the old Home | owner re-baselines on macOS | A1 |
+
+Kept literal so existing specs stay green: `.home__subtitle` and its "N
+projects · date" form, the Continue empty text, the Start tiles and
+`.home__eyebrow-detail`, and every `home-*` test id. `start` follows the active
+project, not the mode. The owner's devbox world must have its projects in
+`work` or `both` mode for `world-projects-listed` to hold under the default
+Work; the owner checks `world.json`.
+
+A8 is in the brief (step 4 of the hand-off): the `test.fail` marker is deleted
+in the same commit as the fix.
 
 ## Out of scope
 
@@ -263,18 +353,15 @@ brief (S3). Research (S4). Workbench, Routines, Threads and Projects spaces
 "Today after 60 minutes away" front-door rule: S1 keeps today's restore of
 open chat and file tabs and shows Today when none is active. Custom parts (#117).
 
-## Open questions for the reviewer
+## Decisions taken after review
 
-1. Persistent-session reattach on SSH host projects
-   (`terminal-manager.js#autoReattachPersistentSessions`) opens tmux sessions
-   the user explicitly persisted. Default here: it keeps adding background tabs
-   but never takes focus. Alternative: it too opens nothing. A2 is written for
-   terminals relay lists; this is the edge.
-2. Where the switch lives. Default: the rail header. The epic says "the
-   wordmark is the switch"; the wordmark arrives with the S2 layouts.
-3. Terminals do not appear in Today in S1. They stay in the sidebar. Is that
-   enough discoverability for "terminals stay first-class" until S5's agent
-   board?
+1. Reattach on SSH host projects keeps adding background tabs, never takes
+   focus; A2 is scoped to relay-listed terminals and states the carve-out.
+2. The switch is a segmented control (`data-testid="mode-switch"`,
+   `role="radiogroup"`) in the sidebar panel header, because the rail has no
+   header and is avatar-wide. It moves to the wordmark with the S2 layouts.
+3. Terminals do not appear in Today in S1; they stay in the Sessions panel,
+   counted. Revisit with S5's agent board.
 
 ## Size
 
