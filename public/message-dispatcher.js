@@ -155,6 +155,10 @@ class MessageDispatcher {
       if (this._localSubmitSession === data.sessionId) this._localSubmitSession = null;
     }
     if (data.type === 'llm_event' && this._stoppedTurns.has(data.sessionId)) return;
+    // After the stop guard (a stopped turn's late chunks must not re-mark the
+    // thread running) and before the background diversion (a joined thread that
+    // is not on screen still has a state).
+    if (this.container.has?.('sessionActivity')) this.container.get('sessionActivity').observe(data);
     if (data.sessionId && data.sessionId !== this.state.currentSessionId && this._sessionScopedTypes.has(data.type)) {
       this._handleBackgroundEvent(data);
       return;
@@ -317,6 +321,11 @@ class MessageDispatcher {
   }
 
   _handleError(data) {
+    // A refusal with no session, while Today's Ask has a create in flight, is Ask's.
+    if (!data.sessionId && this.state.pendingAsk) {
+      this.state.pendingAsk = null;
+      this.bus.emit(EVT.ASK_FAILED, { message: data.message });
+    }
     this._untrackStreaming(data.sessionId);
     this.renderer.hideThinkingIndicator();
     this.renderer.appendSystemMessage(data.message, 'error');
@@ -642,6 +651,13 @@ class MessageDispatcher {
     this.app.showChatScreen();
     this.tabManager.openSession(data.sessionId);
     this.app.clearSessionStarting();
+    // A thread started from Today's Ask: its first message is the typed text.
+    const ask = this.state.pendingAsk;
+    if (ask) {
+      this.state.pendingAsk = null;
+      this.app.sendUserText(data.sessionId, ask.text);
+      this.bus.emit(EVT.ASK_SENT, { sessionId: data.sessionId });
+    }
     this.sidebar.renderProjectList();
     this.modalManager.hideSessionModal();
     this.modalManager.hidePlanApproval();

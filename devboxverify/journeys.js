@@ -91,26 +91,59 @@ async function landingView(env) {
 
 async function worldProjectsListed(env) {
   const id = 'world-projects-listed';
-  const listed = ['acme', 'globex', 'home'].map((k) => env.world.projects[k]);
+  const { acme, globex, home: homeProject } = env.world.projects;
   const page = await env.newPage();
   await openEve(page, env);
   env.step('wait for the home screen');
   const home = page.getByTestId('home-screen');
   await need('no greeting within 20s', expect(home.getByText(GREETING)).toBeVisible({ timeout: 20000 }));
   const rail = page.getByRole('navigation', { name: 'Projects' });
-  const missing = [];
-  for (const project of listed) {
-    env.step(`look for ${project.name}`);
-    const chip = home.getByTestId(`home-project-${project.id}`);
-    const chipShown = await expect(chip).toContainText(project.name, { timeout: 5000 }).then(() => true, () => false);
-    const railShown = await expect(rail.getByTitle(project.name, { exact: true })).toBeVisible({ timeout: 5000 })
-      .then(() => true, () => false);
-    if (!chipShown) missing.push(`home chip "${project.name}"`);
-    if (!railShown) missing.push(`rail entry "${project.name}"`);
+  const found = (check) => check.then(() => true, () => false);
+
+  // Shown projects first (they also prove the view has settled), then each
+  // hidden one must stay absent for a settle period, not just one instant.
+  const check = async (mode, shown, hidden) => {
+    const problems = [];
+    for (const project of shown) {
+      env.step(`look for ${project.name} in ${mode}`);
+      const chip = home.getByTestId(`home-project-${project.id}`);
+      if (!await found(expect(chip).toContainText(project.name, { timeout: 5000 }))) problems.push(`${mode}: home chip "${project.name}" missing`);
+      if (!await found(expect(rail.getByTitle(project.name, { exact: true })).toBeVisible({ timeout: 5000 }))) {
+        problems.push(`${mode}: rail entry "${project.name}" missing`);
+      }
+    }
+    for (const project of hidden) {
+      env.step(`confirm ${project.name} is absent in ${mode}`);
+      if (!await found(expect(home.getByTestId(`home-project-${project.id}`)).toHaveCount(0, { timeout: 3000 }))) {
+        problems.push(`${mode}: home chip "${project.name}" is shown`);
+      }
+      if (!await found(expect(rail.getByTitle(project.name, { exact: true })).toHaveCount(0, { timeout: 3000 }))) {
+        problems.push(`${mode}: rail entry "${project.name}" is shown`);
+      }
+    }
+    return problems;
+  };
+  const switchTo = async (mode) => {
+    env.step(`switch to ${mode}`);
+    await page.getByTestId(`mode-${mode}`).click({ timeout: 10000 });
+    await need(`the ${mode} switch did not take`,
+      expect(page.getByTestId(`mode-${mode}`)).toHaveAttribute('aria-checked', 'true', { timeout: 5000 }));
+  };
+
+  let problems;
+  try {
+    await need('eve did not open in Work',
+      expect(page.getByTestId('mode-work')).toHaveAttribute('aria-checked', 'true', { timeout: 5000 }));
+    problems = await check('Work', [acme, globex], [homeProject]);
+    await switchTo('home');
+    problems.push(...await check('Home', [homeProject], [acme, globex]));
+  } finally {
+    // The mode persists in localStorage (eve-mode); later journeys start in Work.
+    await switchTo('work').catch(() => {});
   }
-  if (missing.length) return result(id, FAIL, `missing ${missing.join(', ')}`);
-  const names = `${listed.slice(0, -1).map((p) => p.name).join(', ')} and ${listed[listed.length - 1].name}`;
-  return result(id, PASS, `${names} on Home and in the rail`);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `Work: ${acme.name} and ${globex.name} on Home and in the rail, ${homeProject.name} in neither; `
+    + `Home: ${homeProject.name} on Home and in the rail, ${acme.name} and ${globex.name} in neither; back in Work`);
 }
 
 async function chatReply(env) {
@@ -342,16 +375,30 @@ async function terminalOnRequest(env) {
   const tookOk = seconds(typedAt);
 
   await reloadEve(page, env);
-  env.step('wait for the terminal to come back');
-  await need('the terminal pane did not come back within 15s of a reload', expect(pane).toBeVisible({ timeout: 15000 }));
-  await need('EVE_OK is not in the terminal 15s after a reload', expect(pane).toContainText('EVE_OK', { timeout: 15000 }));
+  // Nothing may reopen by itself: poll for a settle period, not one instant.
+  env.step('settle after the reload');
+  const reopened = await poll(async () => (await pane.isVisible() ? { shown: true } : null), { timeoutMs: 5000, intervalMs: 500 });
+  if (reopened) return result(id, FAIL, 'a terminal opened by itself after a reload');
+  await need('Home is not showing after a reload', expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 10000 }));
+
+  await openProject(page, env, acme);
+  env.step('open the Sessions tab');
+  await page.getByTestId('panel-tab-sessions').click({ timeout: 10000 });
+  const row = page.getByTestId(`sidebar-terminal-${probe.terminalId}`);
+  await need('the live terminal is not listed in the Sessions panel within 15s of a reload',
+    expect(row).toBeVisible({ timeout: 15000 }));
+  env.step('open the listed terminal');
+  await row.click({ timeout: 5000 });
+  await need('the terminal pane did not open on click within 15s', expect(pane).toBeVisible({ timeout: 15000 }));
+  await need('EVE_OK is not in the terminal 15s after opening it from the Sessions panel',
+    expect(pane).toContainText('EVE_OK', { timeout: 15000 }));
   await probe.typeLine("printf '%s_%s\\n' EVE AGAIN");
   await need('EVE_AGAIN did not show within 10s of typing after a reload',
     expect(pane).toContainText('EVE_AGAIN', { timeout: 10000 }));
 
   const added = addedIds(before, await acmeIds(env, 'terminals'));
   if (added.length !== 1) return result(id, FAIL, `${added.length} new ${acme.name} terminals, expected 1`);
-  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload the same terminal answered EVE_AGAIN`);
+  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload no terminal opened by itself, the Sessions panel listed it, and opening it answered EVE_AGAIN`);
 }
 
 async function taskCreatedListed(env) {

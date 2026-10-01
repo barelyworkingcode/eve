@@ -184,8 +184,9 @@ Start tiles "Chat" and "Voice", no passkey screen.
   and still checks the passkey screen is gone. The greeting depends on the
   hour.
 
-**world-projects-listed.** Home shows a chip for Acme Corp, Globex and Home,
-and the rail has an entry for each.
+**world-projects-listed.** In Work, Home and the rail show Acme Corp and
+Globex and not Home; switching to Home shows Home and not Acme Corp or
+Globex. The journey switches back to Work (persisted in `eve-mode`).
 - Lives in: `public/sidebar/activity-rail.js`,
   `public/home-screen.js` (`_renderProjects`); data from `GET /api/projects`.
 - Traps: rail names live in tooltips. A chip's accessible name includes its
@@ -209,10 +210,12 @@ opens from the Sessions tab with its question and reply.
   chat-reply left no thread.
 
 **terminal-on-request.** No terminal opens until asked; "World probe" then
-opens one that runs a command.
+opens one that runs a command. After a reload no terminal opens by itself
+(checked over a settle period); the live terminal is listed in the Sessions
+panel and opens on click, with its output and a second command answering.
 - Lives in: `GET /api/terminal/templates?project=` → WS `terminal_create` →
   `public/terminal-manager.js`.
-- Traps: templates are per project. Terminal tabs restore.
+- Traps: templates are per project. The reloaded page lists the terminal in the Sessions panel (`sidebar-terminal-<id>`); it is never reopened for you.
 
 **task-created-listed.** An on-demand chat task is created and still listed
 after a reload.

@@ -37,6 +37,9 @@ describe('normalizeProject', () => {
       permissionPolicy: { defaultMode: 'plan', allowedTools: ['Read'], deniedTools: ['Bash'] },
       sessionFolders: ['Bugs', 'Experiments'],
       createdAt: '2026-06-13T00:00:00Z',
+      // S1-A7: added with mode and default_for.
+      mode: 'both',
+      defaultFor: [],
     });
     const out = normalizeProject(fullRelayProject);
     expect(out).not.toHaveProperty('token');
@@ -85,13 +88,23 @@ describe('normalizeProject', () => {
     expect(JSON.stringify(out)).not.toContain('BatchMode');
   });
 
-  // Relay's project view carries `mode` and `default_for` (project_dto.go) and
-  // the Home|Work work (#38) needs both on the client. The allow-list drops
-  // them today; the slice that adds them flips this test on purpose.
-  it('does not yet carry relay\'s mode or default_for to the client', () => {
+  // CHANGED by S1-A7 (docs/design-today-s1.md): this used to pin that `mode` and
+  // `default_for` are dropped. The Home|Work work (#38) needs both on the client.
+  it('carries relay\'s mode, and default_for as defaultFor', () => {
     const out = normalizeProject({ id: 'p8', name: 'Modal', path: '/x', mode: 'work', default_for: ['work'] });
-    expect(out).not.toHaveProperty('mode');
+    expect(out.mode).toBe('work');
+    expect(out.defaultFor).toEqual(['work']);
     expect(out).not.toHaveProperty('default_for');
-    expect(out).not.toHaveProperty('defaultFor');
+  });
+
+  it('defaults a missing mode to both and a missing default_for to none', () => {
+    const out = normalizeProject({ id: 'p9', name: 'Bare', path: '/x' });
+    expect(out.mode).toBe('both');
+    expect(out.defaultFor).toEqual([]);
+  });
+
+  it('still never projects the token alongside mode', () => {
+    const out = normalizeProject({ id: 'p10', name: 'T', path: '/x', mode: 'home', token: 'SECRET' });
+    expect(JSON.stringify(out)).not.toContain('SECRET');
   });
 });

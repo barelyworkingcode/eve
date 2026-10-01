@@ -180,6 +180,8 @@ class WsClient {
         this.log.debug(`→ LLM${flags ? ` (${flags})` : ''}:`, data.text);
       }
       this.ws.send(typeof data === 'string' ? data : JSON.stringify(data));
+      return true;
     }
+    return false;
   }
 }

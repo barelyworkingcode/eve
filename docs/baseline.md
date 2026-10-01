@@ -51,17 +51,16 @@ Screenshots of the states these specs drive are in [baseline/](baseline/) (deskt
 Found while writing the specs. Each is pinned as it stands, or as an expected
 failure (`test.fail`) that goes red the moment it is fixed.
 
-- **Home project chips are inert** for any project but the active one: the chip
-  emits `PROJECT_ACTIVATED`, which only TabManager handles, so the panel, rail and
-  highlight do not move (`goals/home-screen`, `test.fail`).
-- **Relay down at load looks like a new install**: Home offers "Start with a
-  project" because projects come from relay and none loaded, beside a
-  "Reconnecting…" banner (`goals/home-screen`).
-- **"Running" means the provider process is alive** (`live` in relay's session
-  summary), not that a turn is in progress (`goals/g3-reopen-thread`).
-- **eve drops `mode` and `default_for`** from relay's project view
-  (`project-normalize.js` allow-list); the Home|Work slices add them
-  (`test/unit/project-normalize.test.js`).
+- ~~**Home project chips are inert**~~ fixed by S1 (A8): the chip calls
+  `ProjectTree.setActive`; the `test.fail` marker is gone.
+- ~~**Relay down at load looks like a new install**~~ fixed by S1 (A3c): each
+  part that needs relay says so with a Retry; first-run is offered only when
+  projects loaded and there are none.
+- ~~**"Running" means the provider process is alive**~~ fixed by S1 (A3):
+  running is a turn in progress or an executing task run, derived from frames
+  (`core/session-activity.js`); `live` shows nothing.
+- ~~**eve drops `mode` and `default_for`**~~ fixed by S1 (A7): carried as `mode`
+  and `defaultFor`.
 - **The ⌘K palette is a snapshot** of what is loaded when it opens.
 - **Deleting a project asks twice**: a native `confirm()`, then the modal that
   says what is lost (`goals/g12-projects`).
@@ -150,3 +149,38 @@ The detection check was repeated independently with fourteen fresh breakages
 deny, Run Now, tree refresh, terminal join, session list, palette projects,
 external-change bar, project path, create-session error text, project count);
 every one turned a spec red.
+
+## S1 detection check (Today, Work mode, #122)
+
+Same method as above, applied to the S1 code: each breakage on its own, then
+`npm test` and the Today, Home, reopen-thread and terminal goal specs
+(`today-*`, `home-screen`, `g3-reopen-thread`, `g4-terminal`), then the file
+restored. The full e2e suite was green five runs in a row (172 tests, about 7
+minutes each, `--retries=0`) before the check.
+
+| # | Breakage | Caught by |
+|---|---|---|
+| D01 | Ask never takes focus | `today-front-door` |
+| D02 | `terminal_list` opens terminals again | `terminal-rejoin` (unit), `today-front-door`, `g4-terminal` |
+| D03 | `llm_event` does not start a turn | `session-activity` (unit), `today-truth` |
+| D04 | A permission answer never clears waiting | `today-truth` |
+| D05 | A live process counted as running | `today-truth`, `g3-reopen-thread` |
+| D06 | Mode filter shows every project | `mode` (unit), `today-mode` |
+| D07 | Palette ignores mode for projects | `today-mode` |
+| D08 | Mode not persisted | `mode` (unit), `today-mode` |
+| D09 | Ask ignores the default project | `today-ask` |
+| D10 | Shift+Return submits | `today-ask` |
+| D11 | Ask drops the text on failure | `today-ask` |
+| D12 | The host lets a part's throw escape | `today-parts` (unit) only; no e2e path makes a real part throw |
+| D13 | A failed source still reads as ready | `today-parts`, `today-truth`, `home-screen` |
+| D14 | Projects load awaits tasks again | `today-parts` ("slow tasks do not delay projects or sessions") |
+| D15 | A `timeout` run is not failed | `today-truth` |
+| D16 | `defaultFor` dropped by normalize | `project-normalize` (unit), `today-ask` |
+| D17 | Continue does not wait for tasks | `today-parts` |
+| D18 | The chip only emits, does not activate | `home-screen` |
+| D19 | The sidebar terminal click only switches tabs | `today-front-door`, `g4-terminal` |
+| D20 | Source errors never say "Can't reach relay" | `today-truth`, `home-screen` |
+| D21 | Mode change does not re-render the tree | `today-mode` |
+| D22 | The Ask text never reaches the thread | `today-ask` |
+| D23 | `session_joined` does not clear stale activity | `session-activity` (unit) only |
+| D24 | Going offline does not reset activity | first pass: **none** (the automatic re-join cleared the state first); closed by holding the re-join in the `today-truth` disconnect spec, now caught |

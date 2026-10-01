@@ -101,11 +101,15 @@ describe('TerminalManager.onTerminalList after a reconnect', () => {
     expect(t2.needsReconnect).toBe(true);
   });
 
-  it('still sets up terminals it does not hold locally', () => {
+  // CHANGED by S1-A2 (docs/design-today-s1.md): the list used to set up (and so
+  // open a tab for) every terminal it named that this page did not hold. It now
+  // only registers them; the sidebar opens one on click.
+  it('registers terminals it does not hold locally without setting them up or opening a tab', () => {
     const self = ctx();
     list.call(self, [{ id: 'new', templateId: 'zsh', name: 'sh', directory: '/p', state: 'running' }]);
 
-    expect(self.reconnectTerminal).toHaveBeenCalledWith('new', 'zsh', 'sh', '/p', false, undefined);
+    expect(self.reconnectTerminal).not.toHaveBeenCalled();
+    expect(self.allTerminals.get('new')).toMatchObject({ id: 'new', templateId: 'zsh' });
     expect(self._sent).toEqual([]);
   });
 

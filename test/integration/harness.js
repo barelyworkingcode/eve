@@ -137,6 +137,7 @@ async function startEve({ projects = [], hosts = [], models, env: envOverride = 
   });
 
   let stopping = false;
+  const revived_ = [];
   try {
     await waitForHttp(`${baseUrl}/api/auth/status`);
   } catch (err) {
@@ -168,8 +169,19 @@ async function startEve({ projects = [], hosts = [], models, env: envOverride = 
       relay.emitToRelay({ type: '__relay_probe' });
       await ws.waitFor((f) => f.type === '__relay_probe', 5000, from);
     },
+    // A fresh fake on the port eve was spawned against, after relay.close(): the
+    // way a spec brings relay back for a Retry. It has none of the old state, so
+    // the caller re-seeds. stop() closes it too.
+    reviveRelay: async ({ projects: revivedProjects = [] } = {}) => {
+      const revived = createFakeRelay({ token: relayToken });
+      for (const p of revivedProjects) revived.addProject(p);
+      await revived.listen(relayPort);
+      revived_.push(revived);
+      return revived;
+    },
     stop: async () => {
       stopping = true;
+      for (const r of revived_) await r.close();
       child.kill('SIGTERM');
       await new Promise((r) => {
         const t = setTimeout(() => { child.kill('SIGKILL'); r(); }, 3000);

@@ -464,7 +464,7 @@ class TerminalManager {
 
     // Fallback for terminal_joined arriving without prior setup.
     if (!terminal) {
-      this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped', false, data.host);
+      this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped', false, data.host, /* activate */ false);
       this.app.bus.emit(EVT.TERMINAL_LIST);
       terminal = this.terminals.get(terminalId);
       if (terminal && Number.isInteger(data.cols) && data.cols > 0 &&
@@ -610,9 +610,10 @@ class TerminalManager {
     if (terminalList && terminalList.length > 0) {
       for (const t of terminalList) {
         this.allTerminals.set(t.id, t);
-        if (!this.terminals.has(t.id)) {
-          this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped', t.host);
-        } else if (t.id === this.activeTerminalId) {
+        // A terminal relay lists but this page does not hold is only registered:
+        // no xterm, no tab, no focus. The sidebar (or a #terminal link) opens it
+        // through openTaskTerminal when asked.
+        if (this.terminals.has(t.id) && t.id === this.activeTerminalId) {
           // Being in the list proves it's still resident upstream, so this
           // can't draw a "terminal not found" error. Hidden panes wait for
           // showTerminal, which fits them against a real viewport first.
@@ -628,8 +629,8 @@ class TerminalManager {
   // terminal_list comes back empty while the persistent (tmux) sessions still
   // run on the host (attached_here false). Reattach each one no open eve
   // terminal already holds (a persist terminal's name is its tmux session
-  // name), in the background — unless no terminal is active, in which case the
-  // first one takes focus. One run per project at a time; a session stays
+  // name), in the background: a reattached session never takes focus. One run
+  // per project at a time; a session stays
   // pending until its terminal_created lands so a second run can't double it;
   // that landing also refreshes any open Remote sessions list.
   async autoReattachPersistentSessions(projectId) {
@@ -654,7 +655,7 @@ class TerminalManager {
       for (const [id, t] of this.terminals) {
         if (!t.exited && this.allTerminals.has(id)) open.add(t.name);
       }
-      let focus = !this.activeTerminalId;
+      // Reattached tmux sessions open in the background and never take focus.
       let started = 0;
       for (const s of Array.isArray(sessions) ? sessions : []) {
         if (s.attached_here !== false || !s.name) continue;
@@ -662,8 +663,7 @@ class TerminalManager {
         // A create relay refuses never yields terminal_created; let it retry later.
         const timer = setTimeout(() => this._autoReattachPending.delete(s.name), 30000);
         timer?.unref?.();
-        this._autoReattachPending.set(s.name, { focus, timer, projectId });
-        focus = false;
+        this._autoReattachPending.set(s.name, { focus: false, timer, projectId });
         this.createTerminal(s.template_id, project.path, projectId, s.name);
         started++;
       }

@@ -56,7 +56,10 @@ describe('dir-watcher (pruned inotify-style backend)', () => {
     await until(() => saw('src/b.js'));
     events.length = 0;
     fs.appendFileSync(path.join(root, 'src/a.js'), 'more');
-    await until(() => events.includes('change:src/a.js'));
+    // macOS fs.watch reports an in-place write as 'rename'; the pruned backend
+    // is only selected on Linux, where it is 'change'.
+    const inPlace = process.platform === 'linux' ? 'change' : 'rename';
+    await until(() => events.includes(`${inPlace}:src/a.js`));
     fs.rmSync(path.join(root, 'src/b.js'));
     await until(() => events.includes('rename:src/b.js'));
   });
@@ -122,6 +125,7 @@ describe('dir-watcher (pruned inotify-style backend)', () => {
   it('close() stops all events and releases every handle', async () => {
     write('a/b.txt');
     await start();
+    events.length = 0; // pre-start events may replay inside start(); only post-close matters
     watcher.close();
     expect(watcher.watchedDirectories).toBe(0);
     write('a/c.txt');

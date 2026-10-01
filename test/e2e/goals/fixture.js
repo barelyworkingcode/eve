@@ -34,7 +34,9 @@ const test = hermeticTest.extend({
   eve: async ({ world, eveEnv }, use) => {
     const alpha = makeFolder(FILES);
     const beta = makeFolder({ 'BETA.md': '# Beta\n' });
-    const defs = world.projects || [
+    // `world.projects` may be a function of the fixture folders, for specs whose
+    // projects need real files (e.g. a project with a mode and a README).
+    const defs = (typeof world.projects === 'function' ? world.projects({ alpha, beta }) : world.projects) || [
       { id: 'alpha', name: 'Alpha Project', path: alpha },
       { id: 'beta', name: 'Beta Project', path: beta },
     ];
