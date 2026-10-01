@@ -81,7 +81,16 @@ class AskPart {
 
   destroy() { this.el = null; }
 
+  // A coarse pointer means a soft keyboard: focusing would raise it over Today.
+  // The one place that decides; every caller (open, show, resume) goes through focus().
+  isCoarse() {
+    const c = this.ctx.container;
+    if (c?.has?.('layout')) return !!c.get('layout').coarse;
+    return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  }
+
   focus() {
+    if (this.isCoarse()) return;
     // Never take focus from something the user is already using.
     const a = document.activeElement;
     if (!a || a === document.body) this.input.focus();
