@@ -342,16 +342,30 @@ async function terminalOnRequest(env) {
   const tookOk = seconds(typedAt);
 
   await reloadEve(page, env);
-  env.step('wait for the terminal to come back');
-  await need('the terminal pane did not come back within 15s of a reload', expect(pane).toBeVisible({ timeout: 15000 }));
-  await need('EVE_OK is not in the terminal 15s after a reload', expect(pane).toContainText('EVE_OK', { timeout: 15000 }));
+  // Nothing may reopen by itself: poll for a settle period, not one instant.
+  env.step('settle after the reload');
+  const reopened = await poll(async () => (await pane.isVisible() ? { shown: true } : null), { timeoutMs: 5000, intervalMs: 500 });
+  if (reopened) return result(id, FAIL, 'a terminal opened by itself after a reload');
+  await need('Home is not showing after a reload', expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 10000 }));
+
+  await openProject(page, env, acme);
+  env.step('open the Sessions tab');
+  await page.getByTestId('panel-tab-sessions').click({ timeout: 10000 });
+  const row = page.getByTestId(`sidebar-terminal-${probe.terminalId}`);
+  await need('the live terminal is not listed in the Sessions panel within 15s of a reload',
+    expect(row).toBeVisible({ timeout: 15000 }));
+  env.step('open the listed terminal');
+  await row.click({ timeout: 5000 });
+  await need('the terminal pane did not open on click within 15s', expect(pane).toBeVisible({ timeout: 15000 }));
+  await need('EVE_OK is not in the terminal 15s after opening it from the Sessions panel',
+    expect(pane).toContainText('EVE_OK', { timeout: 15000 }));
   await probe.typeLine("printf '%s_%s\\n' EVE AGAIN");
   await need('EVE_AGAIN did not show within 10s of typing after a reload',
     expect(pane).toContainText('EVE_AGAIN', { timeout: 10000 }));
 
   const added = addedIds(before, await acmeIds(env, 'terminals'));
   if (added.length !== 1) return result(id, FAIL, `${added.length} new ${acme.name} terminals, expected 1`);
-  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload the same terminal answered EVE_AGAIN`);
+  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload no terminal opened by itself, the Sessions panel listed it, and opening it answered EVE_AGAIN`);
 }
 
 async function taskCreatedListed(env) {
