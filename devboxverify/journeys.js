@@ -91,26 +91,59 @@ async function landingView(env) {
 
 async function worldProjectsListed(env) {
   const id = 'world-projects-listed';
-  const listed = ['acme', 'globex', 'home'].map((k) => env.world.projects[k]);
+  const { acme, globex, home: homeProject } = env.world.projects;
   const page = await env.newPage();
   await openEve(page, env);
   env.step('wait for the home screen');
   const home = page.getByTestId('home-screen');
   await need('no greeting within 20s', expect(home.getByText(GREETING)).toBeVisible({ timeout: 20000 }));
   const rail = page.getByRole('navigation', { name: 'Projects' });
-  const missing = [];
-  for (const project of listed) {
-    env.step(`look for ${project.name}`);
-    const chip = home.getByTestId(`home-project-${project.id}`);
-    const chipShown = await expect(chip).toContainText(project.name, { timeout: 5000 }).then(() => true, () => false);
-    const railShown = await expect(rail.getByTitle(project.name, { exact: true })).toBeVisible({ timeout: 5000 })
-      .then(() => true, () => false);
-    if (!chipShown) missing.push(`home chip "${project.name}"`);
-    if (!railShown) missing.push(`rail entry "${project.name}"`);
+  const found = (check) => check.then(() => true, () => false);
+
+  // Shown projects first (they also prove the view has settled), then each
+  // hidden one must stay absent for a settle period, not just one instant.
+  const check = async (mode, shown, hidden) => {
+    const problems = [];
+    for (const project of shown) {
+      env.step(`look for ${project.name} in ${mode}`);
+      const chip = home.getByTestId(`home-project-${project.id}`);
+      if (!await found(expect(chip).toContainText(project.name, { timeout: 5000 }))) problems.push(`${mode}: home chip "${project.name}" missing`);
+      if (!await found(expect(rail.getByTitle(project.name, { exact: true })).toBeVisible({ timeout: 5000 }))) {
+        problems.push(`${mode}: rail entry "${project.name}" missing`);
+      }
+    }
+    for (const project of hidden) {
+      env.step(`confirm ${project.name} is absent in ${mode}`);
+      if (!await found(expect(home.getByTestId(`home-project-${project.id}`)).toHaveCount(0, { timeout: 3000 }))) {
+        problems.push(`${mode}: home chip "${project.name}" is shown`);
+      }
+      if (!await found(expect(rail.getByTitle(project.name, { exact: true })).toHaveCount(0, { timeout: 3000 }))) {
+        problems.push(`${mode}: rail entry "${project.name}" is shown`);
+      }
+    }
+    return problems;
+  };
+  const switchTo = async (mode) => {
+    env.step(`switch to ${mode}`);
+    await page.getByTestId(`mode-${mode}`).click({ timeout: 10000 });
+    await need(`the ${mode} switch did not take`,
+      expect(page.getByTestId(`mode-${mode}`)).toHaveAttribute('aria-checked', 'true', { timeout: 5000 }));
+  };
+
+  let problems;
+  try {
+    await need('eve did not open in Work',
+      expect(page.getByTestId('mode-work')).toHaveAttribute('aria-checked', 'true', { timeout: 5000 }));
+    problems = await check('Work', [acme, globex], [homeProject]);
+    await switchTo('home');
+    problems.push(...await check('Home', [homeProject], [acme, globex]));
+  } finally {
+    // The mode persists in localStorage (eve-mode); later journeys start in Work.
+    await switchTo('work').catch(() => {});
   }
-  if (missing.length) return result(id, FAIL, `missing ${missing.join(', ')}`);
-  const names = `${listed.slice(0, -1).map((p) => p.name).join(', ')} and ${listed[listed.length - 1].name}`;
-  return result(id, PASS, `${names} on Home and in the rail`);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `Work: ${acme.name} and ${globex.name} on Home and in the rail, ${homeProject.name} in neither; `
+    + `Home: ${homeProject.name} on Home and in the rail, ${acme.name} and ${globex.name} in neither; back in Work`);
 }
 
 async function chatReply(env) {
