@@ -61,6 +61,15 @@ failure (`test.fail`) that goes red the moment it is fixed.
   (`core/session-activity.js`); `live` shows nothing.
 - ~~**eve drops `mode` and `default_for`**~~ fixed by S1 (A7): carried as `mode`
   and `defaultFor`.
+- **S2 (#127) flips on purpose.** A device with no `eve-last-active` stamp
+  counts as away and opens Today with no tabs, so the specs that restore tabs
+  from storage (`schedules-and-connection`, two in `chat-defaults`, the legacy
+  restore in `tab-panes`) now seed `eve-last-active` = now; their stored tab
+  JSON is unchanged. The visual baselines gain an `ipad` viewport (834×1194,
+  touch) and a touch phone, and compact opens the sheet through `nav-projects`.
+  Behaviours pinned as they stand: on compact, Today → thread → Back shows
+  Today with no hash and keeps the tab open; the slide-over closes on any
+  navigation; resuming a page after 60 minutes returns to Today.
 - **The ⌘K palette is a snapshot** of what is loaded when it opens.
 - **Deleting a project asks twice**: a native `confirm()`, then the modal that
   says what is lost (`goals/g12-projects`).

@@ -221,3 +221,19 @@ Capture, the Threads space, a read-only compact editor, the diff-mode default (7
 ## Size
 
 **L.** About 30 files, ~950 product lines, ~1,000 spec and harness lines. Cut line: A1, A2 and A6 first; then A3, A4 and A5.
+
+## As built
+
+- `nav-threads` opens the sessions tab through `ProjectPanel.openTab`.
+- `navigate(url)` takes the hash string or a path; `null` means Today.
+- `NAV_CHANGED` `source` is `'history'` for popstate-driven changes and `'app'` for everything else.
+- `touch.css` repeats the sidebar 44px rules at wide, because the sidebar rules it overrides are scoped to narrow widths.
+- The scrim shows through `html:has(#sidebar.open)`, so no JS toggles it.
+- Bottom bar labels are text only.
+- The 29th `768px` block, in `auth.css`, was re-keyed too.
+
+## Amendments
+
+Beyond the issue's file list, logged here:
+- `docs/test.md` (one line: the new visual viewport)
+- `public/auth.css` (its `768px` block)

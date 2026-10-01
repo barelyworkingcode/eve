@@ -233,6 +233,13 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Tab bar, close tab ⌘W | UI: `public/tab-manager.js` | Tabs | none yet — e2e `tab-panes.spec.js` | shell |
 | Split pane dock / undock / resize | UI: `core/pane-dnd.js`, `core/split-resize.js`, `panes/*` | Drag a tab onto another | none yet — e2e | shell |
 | Sidebar toggle, resize, swipe | UI: `app.js` | Hamburger, drag, swipe | none yet — later | shell |
+| Layouts by width: wide (≥ 1024) as before; regular (600–1023) with the sidebar as a slide-over and Today and chat at most 720px, centred; compact (< 600) with no tab bar | UI: `public/core/layout.js` (`data-layout`), `public/apple/*.css` media queries (design: `docs/design-today-s2.md`) | Open eve at that width, or resize | today-ipad-portrait (regular: rail out of view, `.main` full width, `#homeContent` ≤ 720 and centred, no overflow); today-phone (compact); cloud specs `layout-breakpoints`, `layout-overflow` | shell, home |
+| Slide-over sidebar on regular, over a scrim; the scrim or any navigation closes it | UI: `#sidebarScrim`, `app.js` `closeSidebarOnMobile`, `core/layout.js` | Menu button on Today or in a chat | today-ipad-portrait (menu opens it, scrim closes it) | shell |
+| Bottom bar (Today, Threads, Projects) on compact Today; Threads opens the sheet on Sessions | UI: `nav#bottomBar`, `app.js`, `ProjectPanel.openTab` | Open eve on a phone | today-phone (bar on Today, hidden in a thread) | shell, home |
+| Push navigation on compact: Today → thread → Back (in-app `nav-back` or browser Back) shows Today with no hash; the thread's tab stays open | UI: `#navBack`, `#navTitle`, `core/layout.js` `navigate`/`back`, `tab-manager.js` `_updateHash` | Open a thread from Today on a phone | today-phone (Back, `goBack()`, no hash, no leftover overflow) | shell, chat |
+| Home \| Work wordmark: one control moved between slots, in the sidebar panel on wide and at the top of Today on regular and compact | UI: `public/sidebar/mode-switch.js`, `[data-wordmark-slot]`, `#modeSwitch` | Any width | today-ipad-portrait (reads `Home\|Work` in Today); cloud specs `layout-breakpoints` | home, shell |
+| Thumb-sized targets: under a coarse pointer every visible control is at least 44×44 at every width (links in message prose excepted) | UI: `public/apple/touch.css` | Any touch device | today-ipad-portrait, today-phone (sweep of visible controls); cloud spec `layout-touch` | shell |
+| Front door: opening eve after 60 minutes or more away shows Today with Ask focused and restores no tabs; a deep link still wins; resuming a page after that gap returns to Today and keeps tabs | UI: `public/core/front-door.js`, `app.js`; localStorage `eve-last-active` | Open or resume eve after a break | none yet — a journey would need to age the stamp; cloud spec `layout-front-door`, unit `front-door` | home, shell |
 | Theme, presets, colours, typography, reset | UI: `public/dialogs/settings-dialog.js` | Settings, ⌘K Appearance | none yet — visual baselines | settings |
 
 ### G15 · Use eve from my phone
@@ -282,18 +289,20 @@ areas:
     journeys: [landing-view, passkey-first-enrol, passkey-sign-in, agent-sign-in-refused, agent-enrol-refused, add-browser-in-window]
   home:
     code: [public/home-screen.js, public/today/**, public/core/session-activity.js, public/core/mode.js,
-           public/sidebar/mode-switch.js, public/dialogs/command-palette.js, public/apple/home.css, public/apple/palette.css]
+           public/sidebar/mode-switch.js, public/core/front-door.js, public/dialogs/command-palette.js,
+           public/apple/home.css, public/apple/palette.css]
     tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/unit/session-activity.test.js,
             test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
             test/e2e/goals/home-screen.spec.js]
-    journeys: [landing-view, world-projects-listed, open-existing-thread]
+    journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
-           public/apple/modals.css, public/apple/menus.css, public/apple/toast.css]
+           public/apple/modals.css, public/apple/menus.css, public/apple/toast.css, public/apple/touch.css,
+           public/core/layout.js]
     tests: [test/unit/tab-manager-logic.test.js, test/unit/pane-registry.test.js, test/e2e/tab-panes.spec.js,
             "test/visual/**"]
-    journeys: []
+    journeys: [today-ipad-portrait, today-phone]
   projects:
     code: [public/dialogs/project-dialog.js, public/sidebar/activity-rail.js, public/sidebar/project-panel.js,
            public/apple/sidebar-tree.css]
@@ -309,7 +318,7 @@ areas:
             test/unit/file-attachment-manager-init.test.js, test/integration/sessions.test.js,
             test/integration/session-*.test.js, test/integration/permissions.test.js, test/e2e/chat*.spec.js,
             test/e2e/template-blank-model.spec.js]
-    journeys: [chat-reply, open-existing-thread]
+    journeys: [chat-reply, open-existing-thread, today-phone]
   terminal:
     code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,
            public/apple/terminal.css]
