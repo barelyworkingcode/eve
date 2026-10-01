@@ -90,11 +90,12 @@ test.describe('S1-A3 waiting and failed', () => {
     await expect(row).toHaveCount(0);
   });
 
-  test('an error with no session, and resume_required, never mark a thread failed', async ({ page, eve }) => {
+  // resume_required never reaches the browser as itself: eve resumes and re-sends
+  // (relay-client.js, C11), so only the session-less error is exercised here.
+  test('an error with no session never marks a thread failed', async ({ page, eve }) => {
     const sessionId = await startChatInAlpha(page);
     await backToToday(page);
     eve.relay.emitToRelay({ type: 'error', message: 'something unrelated' });
-    eve.relay.emitToSession(sessionId, relayFrames.resumeRequired({ sessionId }));
     await page.waitForTimeout(500);
     await expect(page.getByTestId(`today-needs-row-${sessionId}`)).toHaveCount(0);
   });

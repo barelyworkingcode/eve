@@ -435,7 +435,9 @@ class ProjectPanel {
     nameEl.title = displayName;
     item.appendChild(nameEl);
 
-    if (session.active) {
+    // A dot means a turn is in progress, not that the provider process is alive.
+    const activity = this.container.has('sessionActivity') ? this.container.get('sessionActivity').statusOf(session.id) : 'idle';
+    if (activity === 'running') {
       const live = document.createElement('span');
       live.className = 'project-tree__live';
       live.title = 'Running';
@@ -602,13 +604,16 @@ class ProjectPanel {
     const isRunning = terminal.state !== 'stopped';
     const badge = document.createElement('span');
     badge.className = `project-tree__session-badge${isRunning ? ' project-tree__session-badge--running' : ''}`;
-    badge.textContent = isRunning ? 'running' : 'stopped';
+    badge.textContent = isRunning ? 'open' : 'stopped';
     item.appendChild(badge);
 
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       const tabMgr = this.container.has('tabManager') ? this.container.get('tabManager') : null;
-      if (tabMgr) tabMgr.switchToTab(terminal.id);
+      const termMgr = this.container.has('terminalManager') ? this.container.get('terminalManager') : null;
+      // A terminal relay lists has no tab until it is asked for.
+      if (tabMgr?.tabs.some(t => t.id === terminal.id)) tabMgr.switchToTab(terminal.id);
+      else if (termMgr) termMgr.openTaskTerminal(terminal.id);
       this._closeSidebarOnMobile();
     });
 

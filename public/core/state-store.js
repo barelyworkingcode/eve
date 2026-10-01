@@ -28,6 +28,25 @@ class StateStore {
     this.scopedProjectId = null;
     // browser: eve's own WebSocket; relay: eve's upstream leg (relay_status).
     this.connection = { browser: false, relay: true };
+    // 'home' | 'work'. Persisted in eve-mode; see core/mode.js.
+    this.mode = typeof Mode !== 'undefined' ? Mode.load() : 'work';
+  }
+
+  setMode(mode) {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    if (typeof Mode !== 'undefined') Mode.save(mode);
+    this.bus.emit(EVT.MODE_CHANGED, { mode });
+  }
+
+  isProjectInMode(project) {
+    return typeof Mode === 'undefined' || Mode.visible(project, this.mode);
+  }
+
+  // A thread with no project shows in both modes; one whose project is gone too.
+  isSessionInMode(session) {
+    const project = session && session.projectId ? this.projects.get(session.projectId) : null;
+    return !project || this.isProjectInMode(project);
   }
 
   setConnection(partial) {
@@ -131,6 +150,14 @@ class StateStore {
       return [this.projects.get(this.scopedProjectId)];
     }
     return Array.from(this.projects.values());
+  }
+
+  // Scope plus mode: for the rail, the palette, Today. getVisibleProjects stays
+  // scope-only for session creation and directory lookup, which must not drop an
+  // out-of-mode project. A URL scope names one project and wins over mode.
+  getModeProjects() {
+    if (this.scopedProjectId && this.projects.has(this.scopedProjectId)) return this.getVisibleProjects();
+    return this.getVisibleProjects().filter(p => this.isProjectInMode(p));
   }
 
   isProjectVisible(id) {

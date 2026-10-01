@@ -29,6 +29,10 @@ function normalizeProject(p) {
       deniedTools: p.permission_policy.denied_tools || [],
     } : null,
     sessionFolders: p.session_folders || [],
+    // 'home' | 'work' | 'both'; relay treats a missing mode as both. defaultFor
+    // lists the modes this project is the default project of.
+    mode: p.mode === 'home' || p.mode === 'work' ? p.mode : 'both',
+    defaultFor: Array.isArray(p.default_for) ? p.default_for : [],
     // No `token`: relay is the sole project-token authority. Never cache or
     // forward the secret here.
     createdAt: p.created_at || '',

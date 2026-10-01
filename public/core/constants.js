@@ -10,6 +10,10 @@ const EVT = {
   SESSION_REMOVED: 'session:removed',
   SESSION_RENAMED: 'session:renamed',
   SESSION_UPDATED: 'session:updated',
+  SESSION_ACTIVITY: 'session:activity',
+  MODE_CHANGED: 'mode:changed',
+  ASK_FAILED: 'ask:failed',
+  ASK_SENT: 'ask:sent',
   SESSION_SWITCH: 'session:switch',
 
   PROJECTS_LOADED: 'projects:loaded',

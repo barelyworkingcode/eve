@@ -464,7 +464,7 @@ class TerminalManager {
 
     // Fallback for terminal_joined arriving without prior setup.
     if (!terminal) {
-      this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped', false, data.host);
+      this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped', false, data.host, /* activate */ false);
       this.app.bus.emit(EVT.TERMINAL_LIST);
       terminal = this.terminals.get(terminalId);
       if (terminal && Number.isInteger(data.cols) && data.cols > 0 &&
@@ -610,9 +610,10 @@ class TerminalManager {
     if (terminalList && terminalList.length > 0) {
       for (const t of terminalList) {
         this.allTerminals.set(t.id, t);
-        if (!this.terminals.has(t.id)) {
-          this.reconnectTerminal(t.id, t.templateId, t.name, t.directory, t.state === 'stopped', t.host);
-        } else if (t.id === this.activeTerminalId) {
+        // A terminal relay lists but this page does not hold is only registered:
+        // no xterm, no tab, no focus. The sidebar (or a #terminal link) opens it
+        // through openTaskTerminal when asked.
+        if (this.terminals.has(t.id) && t.id === this.activeTerminalId) {
           // Being in the list proves it's still resident upstream, so this
           // can't draw a "terminal not found" error. Hidden panes wait for
           // showTerminal, which fits them against a real viewport first.
@@ -654,7 +655,8 @@ class TerminalManager {
       for (const [id, t] of this.terminals) {
         if (!t.exited && this.allTerminals.has(id)) open.add(t.name);
       }
-      let focus = !this.activeTerminalId;
+      // Reattached tmux sessions open in the background and never take focus.
+      let focus = false;
       let started = 0;
       for (const s of Array.isArray(sessions) ? sessions : []) {
         if (s.attached_here !== false || !s.name) continue;

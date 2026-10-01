@@ -173,6 +173,10 @@
 
       <!-- Explorer panel: active project's files/sessions/tasks/changes -->
       <section class="sidebar-panel" id="sidebarPanel">
+        <div class="mode-switch" id="modeSwitch" data-testid="mode-switch" role="radiogroup" aria-label="Mode">
+          <button type="button" class="mode-switch__btn" role="radio" data-mode="home" data-testid="mode-home" aria-checked="false">Home</button>
+          <button type="button" class="mode-switch__btn" role="radio" data-mode="work" data-testid="mode-work" aria-checked="true">Work</button>
+        </div>
         <header class="panel-header">
           <span class="panel-header__title" id="panelTitle"></span>
           <div class="panel-header__actions" id="panelHeaderActions"></div>
@@ -494,6 +498,8 @@
   <script src="core/container.js"></script>
   <script src="core/logger.js"></script>
   <script src="core/constants.js"></script>
+  <script src="core/mode.js"></script>
+  <script src="core/session-activity.js"></script>
   <script src="core/state-store.js"></script>
   <script src="core/api-client.js"></script>
   <script src="core/ui-utils.js"></script>
@@ -568,6 +574,17 @@
   <script src="sidebar/changes-panel.js"></script>
   <script src="sidebar/project-panel.js"></script>
   <script src="sidebar/project-tree.js"></script>
+  <script src="sidebar/mode-switch.js"></script>
+  <script src="today/today-parts.js"></script>
+  <script src="today/sources.js"></script>
+  <script src="today/today-ui.js"></script>
+  <script src="today/parts/summary-part.js"></script>
+  <script src="today/parts/ask-part.js"></script>
+  <script src="today/parts/needs-you-part.js"></script>
+  <script src="today/parts/start-part.js"></script>
+  <script src="today/parts/continue-part.js"></script>
+  <script src="today/parts/running-part.js"></script>
+  <script src="today/parts/projects-part.js"></script>
   <script src="home-screen.js"></script>
 
   <!-- Feature modules -->

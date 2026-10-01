@@ -115,10 +115,14 @@ class CommandPalette extends DialogBase {
     return actions;
   }
 
+  _isRunning(sessionId) {
+    return this.container.has('sessionActivity') && this.container.get('sessionActivity').statusOf(sessionId) === 'running';
+  }
+
   _collectSessions() {
     const out = [];
     for (const session of this.state.sessions.values()) {
-      if (this.state.isTaskRun(session.id)) continue;
+      if (this.state.isTaskRun(session.id) || !this.state.isSessionInMode(session)) continue;
       const project = session.projectId ? this.state.getProject(session.projectId) : null;
       const modelParts = (session.model || '').split('/');
       const chip = modelParts[modelParts.length - 1] || '';
@@ -132,7 +136,7 @@ class CommandPalette extends DialogBase {
         host: project?.host || null,
         session,
         iconMonogram: project ? { text: projectMonogram(project.name), color: this.state.projectColor(project.id) } : null,
-        meta: { live: !!session.active, chip: chip || null },
+        meta: { live: this._isRunning(session.id), chip: chip || null },
         run: () => this.container.get('app').joinSession(session.id),
       });
     }
@@ -142,7 +146,7 @@ class CommandPalette extends DialogBase {
   _collectProjects() {
     const out = [];
     const app = this.container.get('app');
-    for (const project of this.state.getVisibleProjects()) {
+    for (const project of this.state.getModeProjects()) {
       const sessionCount = Array.from(this.state.sessions.values())
         .filter(s => s.projectId === project.id && !this.state.isTaskRun(s.id)).length;
       out.push({
@@ -338,7 +342,7 @@ class CommandPalette extends DialogBase {
       const recentIds = (typeof SessionRecents !== 'undefined')
         ? SessionRecents.list().map(r => r.id)
         : (tabManager?.getRecentSessionIds?.() || []);
-      const rawSessions = Array.from(this.state.sessions.values()).filter(s => !this.state.isTaskRun(s.id));
+      const rawSessions = Array.from(this.state.sessions.values()).filter(s => !this.state.isTaskRun(s.id) && this.state.isSessionInMode(s));
       const orderedSessions = CommandPalette.orderSessionsForEmptyQuery(rawSessions, recentIds);
       const orderedIds = new Set(orderedSessions.map(s => s.id));
       groups.set('Sessions', sessionEntries
