@@ -1583,6 +1583,119 @@ async function briefInjectionRefused(env) {
   }
 }
 
+const REFUSAL_WAIT_MS = 120000;
+const RERUN_MS = 30000;
+// A refusal as relay recorded it: macMCP's scope check, or relay's own gate.
+const refusedRow = (r) => r.scopeViolation === true || DENIED_OUTCOMES.includes(r.outcome);
+const rowsSaid = (rows) => [...new Set(rows.map((r) => `${r.tool} ${r.scopeViolation ? 'scope_violation' : r.outcome}`))].join(', ');
+const sessionRow = async (env, sessionId) => (await eveJson(env, 'GET', '/api/sessions')).find((s) => s.id === sessionId);
+
+// S3b-A11..A13 end to end: a Home thread asks for Work's mailbox, relay's audit
+// shows the refusal, and "Ask in Work" reruns the question in Work's project.
+async function askInOtherMode(env) {
+  const id = 'ask-in-other-mode';
+  const { acme, home } = env.world.projects;
+  // Setup V2 missing is a FAIL, as in mode-presets and voice-deep-link.
+  const stored = await eveJson(env, 'GET', '/api/projects');
+  const unset = [['Work', 'work', acme], ['Home', 'home', home]]
+    .filter(([, mode, p]) => !(stored.find((s) => s.id === p.id)?.defaultFor || []).includes(mode))
+    .map(([label, , p]) => `${label} = ${p.name}`);
+  if (unset.length) return result(id, FAIL, `not set in Relay → Projects → Default projects: ${unset.join(', ')} (setup V2)`);
+
+  const page = await env.newPage();
+  try {
+    await openEve(page, env);
+    await waitForModels(page, env);
+    const models = await page.evaluate((pid) => window.client.state.modelsForProject(pid)
+      .map((m) => ({ value: m.value, provider: m.provider })), home.id);
+    const model = pickModel(models.map((m) => m.value), env.model);
+    if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered in ${home.name}`);
+    const provider = models.find((m) => m.value === model).provider;
+    if (provider !== 'chat') return result(id, BLOCKED, `model ${model} is provider ${provider || 'none'}, not chat`);
+    await page.evaluate((m) => localStorage.setItem('eve-ask-model', m), model);
+    await switchMode(page, env, 'home');
+
+    const homeIds = () => worldIds(env, [home], 'sessions');
+    const homeBefore = await homeIds();
+    const text = `verify-${env.nonce}: call mail_get_emails with account "${acme.name}", mailbox "INBOX" and limit 1, then tell me the subject.`;
+    env.step('ask in Home');
+    const input = page.getByTestId('today-ask-input');
+    await need('Ask is not on Today', expect(input).toBeVisible({ timeout: 10000 }));
+    const askedAt = Date.now() - 1000;
+    await input.fill(text, { timeout: 5000 });
+    await input.press('Enter', { timeout: 5000 });
+    const made = await poll(async () => {
+      const added = addedIds(homeBefore, await homeIds());
+      return added.length ? added : null;
+    }, { timeoutMs: 30000, intervalMs: 1000 });
+    if (!made) return result(id, FAIL, `no ${home.name} session within 30s of Return`);
+    if (made.length !== 1) return result(id, FAIL, `${made.length} new ${home.name} sessions, expected 1`);
+    const homeSession = made[0];
+
+    env.step('wait for a refused call in relay audit');
+    let rows = [];
+    const refusal = await poll(async () => {
+      rows = await relayCallRows(env, home, askedAt).catch(() => rows);
+      return rows.find(refusedRow) || null;
+    }, { timeoutMs: REFUSAL_WAIT_MS, intervalMs: 2000 });
+    if (!refusal) {
+      return result(id, BLOCKED, `the model made no out-of-scope call within ${REFUSAL_WAIT_MS / 1000}s; `
+        + `${home.name} tools called: ${rowsSaid(rows) || 'none'}`);
+    }
+    const refused = `relay refused ${rowsSaid([refusal])} in ${home.name}`;
+
+    env.step('look for Ask in Work');
+    const button = page.getByTestId('thread-ask-elsewhere');
+    const offered = await expect(button).toBeVisible({ timeout: 10000 })
+      .then(() => expect(button).toHaveText('Ask in Work', { timeout: 1000 })).then(() => true, () => false);
+    if (!offered) return result(id, FAIL, `${refused}, but the thread shows no "Ask in Work" within 10s`);
+
+    // The Home turn must be over, or its own reply would move messageCount.
+    await need('the Home thread was still running after 30s',
+      expect(page.getByTestId('chat-stop')).toBeHidden({ timeout: 30000 }));
+    await sleep(1000);
+    const homeRow = await sessionRow(env, homeSession);
+    const acmeBefore = await acmeIds(env, 'sessions');
+    env.step('Ask in Work');
+    const clickedAt = Date.now() - 1000;
+    const deadline = Date.now() + RERUN_MS;
+    await button.click({ timeout: 5000 });
+    const created = await poll(async () => {
+      const added = addedIds(acmeBefore, await acmeIds(env, 'sessions'));
+      return added.length ? added : null;
+    }, { timeoutMs: RERUN_MS, intervalMs: 1000 });
+    if (!created) return result(id, FAIL, `${refused}; no ${acme.name} session within ${RERUN_MS / 1000}s of the click`);
+    await sleep(1000);
+    const rerun = addedIds(acmeBefore, await acmeIds(env, 'sessions'));
+    if (rerun.length !== 1) return result(id, FAIL, `${refused}; ${rerun.length} new ${acme.name} sessions after the click, expected 1`);
+    const isWork = await expect(page.getByTestId('mode-work')).toHaveAttribute('aria-checked', 'true', { timeout: left(deadline) })
+      .then(() => true, () => false);
+    if (!isWork) return result(id, FAIL, `${refused}; the mode is not Work after the click`);
+    const hash = `#session/${rerun[0]}`;
+    const opened = await expect.poll(() => new URL(page.url()).hash, { timeout: left(deadline) }).toBe(hash).then(() => true, () => false);
+    if (!opened) return result(id, FAIL, `${refused}; the ${acme.name} thread did not open (${hash})`);
+    let first = '';
+    const same = await poll(async () => {
+      first = (await thread(page).catch(() => [])).find((m) => m.who === 'message-user')?.text || '';
+      return first === text;
+    }, { timeoutMs: left(deadline), intervalMs: 500 });
+    if (!same) return result(id, FAIL, `${refused}; the ${acme.name} thread's first user message is "${first.slice(0, 60)}", not the question`);
+
+    env.step('read the Home thread back');
+    const homeAfter = await sessionRow(env, homeSession);
+    if (!homeAfter || homeAfter.projectId !== home.id || homeAfter.messageCount !== homeRow?.messageCount) {
+      return result(id, FAIL, `${refused}; the ${home.name} thread changed after the click: `
+        + `project ${homeAfter?.projectId || 'gone'}, messageCount ${homeRow?.messageCount} → ${homeAfter?.messageCount}`);
+    }
+    const acmeRows = await relayCallRows(env, acme, clickedAt).catch(() => []);
+    return result(id, PASS, `${refused}; "Ask in Work" made one ${acme.name} thread in Work starting with the question; `
+      + `the ${home.name} thread kept its project and ${homeAfter.messageCount} messages; `
+      + `${acme.name} thread tools: ${rowsSaid(acmeRows) || 'none yet'}`);
+  } finally {
+    await switchMode(page, env, 'work').catch(() => {});
+  }
+}
+
 const auth = require('./journeys-auth').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
@@ -1623,6 +1736,7 @@ const journeys = [
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },
   { id: 'brief-injection-refused', timeoutMs: 360000, areas: ['home', 'tasks'], needs: ['project:home'], run: briefInjectionRefused },
+  { id: 'ask-in-other-mode', timeoutMs: 180000, areas: ['home', 'chat'], needs: ['project:home', 'project:acme'], run: askInOtherMode },
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
 ];

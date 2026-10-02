@@ -408,6 +408,29 @@ subject is under Needs a reply (information only).
   the run's final sweep. The run may mark the injection mail read; the next
   `repair.sh` resets it. Both modes are left in Work.
 
+**ask-in-other-mode.** "Ask in the other mode" end to end (S3b-A11..A13).
+In Home, Today's Ask (with `EVE_VERIFY_MODEL` as `eve-ask-model`) sends
+`verify-<nonce>: call mail_get_emails with account "<Acme Corp's name>",
+mailbox "INBOX" and limit 1, then tell me the subject.` and makes one Home
+session. Within 120 s `relay audit --event call_tool --project <home id>
+--json` must hold a row since the Ask with `scope_violation` or a denied
+outcome. Then `thread-ask-elsewhere` reads "Ask in Work" within 10 s. Once
+the Home turn is over, a click must, within 30 s, make exactly one new Acme
+Corp session, switch the mode to Work, open `#session/<id>` whose first user
+message is the question exactly, and leave the Home session (eve's
+`GET /api/sessions`) with Home's project and the `messageCount` it had
+before the click. The detail names the refusal row and the Acme Corp
+thread's own tool rows (information only).
+- Lives in: `public/core/refusal.js` (`detect`) ← `public/message-dispatcher.js`
+  (`TOOL_REFUSED`) → `public/ask-elsewhere.js` → `public/core/mode-presets.js`
+  (`forMode`, `askFrame`); relay's chat `tool_result` (`is_error`,
+  `scope_violation`, relay#183).
+- Traps: FAIL without setup V2 (both defaults), naming it. BLOCKED when the
+  model is not offered in Home or its provider is not `chat`, and when relay's
+  audit shows no refused call: the model's reply is never the evidence. Relay
+  without relay#183 never marks the thread, so the button never shows (FAIL).
+  Both sessions go in the run's final sweep; the page is left in Work.
+
 ## One-time setup
 
 - **S1 · Register `eve-verify`.** Presence-gated, so run it in a desktop
@@ -445,7 +468,7 @@ subject is under Needs a reply (information only).
   `EVE_VERIFY_MODEL`, added from eve's Edit Project → Chat Templates.
 - **S3 · V2.** In Relay → Projects → Default projects: Work = Acme Corp,
   Home = Home. Test-world config, not owner config; no grant changes.
-  mode-presets and voice-deep-link FAIL without it.
+  mode-presets, voice-deep-link and ask-in-other-mode FAIL without it.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at

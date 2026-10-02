@@ -232,7 +232,8 @@ function callToolRows(jsonl, { projectId, sinceMs }) {
     try { o = JSON.parse(line); } catch { continue; }
     const ts = Date.parse(o && o.ts);
     if (!o || o.event !== 'call_tool' || (o.actor && o.actor.project_id) !== projectId || !(ts >= sinceMs)) continue;
-    rows.push({ ts, tool: o.tool || '', outcome: o.outcome || '' });
+    // scopeViolation only when relay marked the row: macMCP's own scope refusal.
+    rows.push({ ts, tool: o.tool || '', outcome: o.outcome || '', ...(o.scope_violation === true ? { scopeViolation: true } : {}) });
   }
   return rows.sort((a, b) => a.ts - b.ts);
 }
