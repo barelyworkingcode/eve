@@ -31,6 +31,7 @@ class RoutinesPart extends TodayPart {
     for (const t of this.ctx.state.tasks.values()) {
       if (t.lastStatus !== 'success' && t.lastStatus !== 'error' && t.lastStatus !== 'timeout') continue;
       if (!this.ctx.state.isSessionInMode({ projectId: t.projectId })) continue;
+      if (typeof Brief !== 'undefined' && Brief.isBrief(t)) continue; // the brief has its own card
       const at = Date.parse(t.lastRun);
       if (!Number.isFinite(at) || now - at > RoutinesPart.WINDOW_MS || at > now + 60000) continue;
       out.push({ task: t, at });
