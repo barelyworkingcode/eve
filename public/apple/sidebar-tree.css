@@ -275,6 +275,18 @@
   letter-spacing: 0;
 }
 
+/* Last result — muted, gives way before the name does */
+.project-tree__task-result {
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 45%;
+}
+.project-tree__task-result[data-kind="failed"] { color: var(--danger, var(--text-muted)); }
+
 /* Action buttons — revealed on hover */
 .project-tree__task-actions {
   display: flex;

@@ -65,7 +65,7 @@ class ProjectsPart extends TodayPart {
     card.innerHTML = `
       <div class="home__first-run-art" aria-hidden="true">${TODAY_ICONS.spark}</div>
       <h2>Start with a project</h2>
-      <p>A project is a folder Eve can see. Sessions, files, terminals and tasks all live inside one.</p>
+      <p>A project is a folder Eve can see. Sessions, files, terminals and routines all live inside one.</p>
     `;
     const btn = document.createElement('button');
     btn.type = 'button';

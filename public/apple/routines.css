@@ -1,0 +1,39 @@
+/* ============================================================================
+   Routines (S5b). This file owns .routine-audit*; the 44px touch rules for the
+   routine page, sheet and panel live in touch.css.
+   ============================================================================ */
+.routine-audit__caption,
+.routine-audit__note {
+  margin: 0 0 var(--sp-4);
+  color: var(--text-secondary);
+  font-size: var(--text-subhead);
+}
+.routine-audit__note--error { color: var(--danger); }
+.routine-audit__retry {
+  margin-left: var(--sp-3);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.routine-audit__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.routine-audit__row {
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--separator);
+  font-size: var(--text-callout);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.routine-audit__tool {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+.routine-audit__verdict--denied { color: var(--danger); font-weight: var(--weight-semibold); }

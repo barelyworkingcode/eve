@@ -38,7 +38,7 @@ class RunningPart extends TodayPart {
         testid: `today-running-row-${t.id}`,
         project, projectId: t.projectId,
         title: t.name || t.id,
-        sub: [project?.name, 'task'].filter(Boolean).join(' · '),
+        sub: [project?.name, 'routine'].filter(Boolean).join(' · '),
         status: 'running',
         onClick: () => { if (t.lastSessionId) app()?.joinSession?.(t.lastSessionId); },
       }));

@@ -39,7 +39,7 @@ class TaskManager {
       return task;
     } catch (err) {
       this.log.error('Failed to create task:', err);
-      this.bus.emit(EVT.TOAST_SHOW, { id: 'task-save-error', message: `Couldn't save the task: ${err.message}`, type: 'error', duration: 8000 });
+      this.bus.emit(EVT.TOAST_SHOW, { id: 'task-save-error', message: `Couldn't save the routine: ${err.message}`, type: 'error', duration: 8000 });
       return null;
     }
   }
@@ -51,7 +51,7 @@ class TaskManager {
       return task;
     } catch (err) {
       this.log.error('Failed to update task:', err);
-      this.bus.emit(EVT.TOAST_SHOW, { id: 'task-save-error', message: `Couldn't save the task: ${err.message}`, type: 'error', duration: 8000 });
+      this.bus.emit(EVT.TOAST_SHOW, { id: 'task-save-error', message: `Couldn't save the routine: ${err.message}`, type: 'error', duration: 8000 });
       return null;
     }
   }

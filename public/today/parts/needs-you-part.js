@@ -39,7 +39,7 @@ class NeedsYouPart extends TodayPart {
         testid: `today-needs-row-${t.id}`, kind: 'failed',
         project, projectId: t.projectId,
         title: t.name || t.id,
-        sub: t.lastStatus === 'timeout' ? 'task timed out' : 'task failed',
+        sub: t.lastStatus === 'timeout' ? 'routine timed out' : 'routine failed',
         status: 'failed',
         onClick: () => { if (t.lastSessionId) app()?.joinSession?.(t.lastSessionId); },
       }));
