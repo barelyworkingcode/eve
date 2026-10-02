@@ -60,4 +60,10 @@
     min-width: 44px;
     overflow: hidden;
   }
+
+  /* Settings sheet: the checkbox is a control too, so size its real box. */
+  .settings-sheet input[type="checkbox"] {
+    width: 44px;
+    height: 44px;
+  }
 }

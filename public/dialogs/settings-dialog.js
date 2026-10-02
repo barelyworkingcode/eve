@@ -1,8 +1,12 @@
+// One short sheet: Display, Voice, Modes, Files, then a pointer to Relay.
+// SettingsManager is untouched, so stored values for controls this sheet no
+// longer offers (palettes, fonts, prompt tags) keep applying.
+const SETTINGS_SPEEDS = ['0.75', '0.9', '1', '1.1', '1.25', '1.5'];
+
 class SettingsDialog extends DialogBase {
   constructor(container) {
     super(container, 'settings-dialog');
     this.settings = container.get('settings');
-    this._editMode = 'dark';
   }
 
   init() {
@@ -21,522 +25,194 @@ class SettingsDialog extends DialogBase {
 
   render() {
     this._panel.innerHTML = '';
-    this._panel.style.maxWidth = '440px';
+    this._panel.classList.add('settings-sheet');
 
     const titleBar = document.createElement('div');
     titleBar.className = 'dialog__title-bar';
-
     const title = document.createElement('h3');
     title.className = 'dialog__title';
     title.textContent = 'Settings';
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'dialog__close';
-    closeBtn.innerHTML = '&times;';
-    closeBtn.addEventListener('click', () => this.hide());
-
+    const done = document.createElement('button');
+    done.className = 'dialog__btn dialog__btn--primary';
+    done.dataset.testid = 'settings-done';
+    done.textContent = 'Done';
+    done.addEventListener('click', () => this.hide());
     titleBar.appendChild(title);
-    titleBar.appendChild(closeBtn);
+    titleBar.appendChild(done);
     this._panel.appendChild(titleBar);
 
-    this._editMode = this.settings.getActiveMode();
-
-    const themeContent = document.createElement('div');
-    themeContent.className = 'dialog__tab-content';
-    const colorsContent = document.createElement('div');
-    colorsContent.className = 'dialog__tab-content hidden';
-    const typographyContent = document.createElement('div');
-    typographyContent.className = 'dialog__tab-content hidden';
-    const voiceContent = document.createElement('div');
-    voiceContent.className = 'dialog__tab-content hidden';
-    const filesContent = document.createElement('div');
-    filesContent.className = 'dialog__tab-content hidden';
-
-    const tabs = [themeContent, colorsContent, typographyContent, voiceContent, filesContent];
-    const { header } = this._createTabs(
-      [
-        { name: 'theme', label: 'Theme' },
-        { name: 'colors', label: 'Colors' },
-        { name: 'typography', label: 'Typography' },
-        { name: 'voice', label: 'Voice' },
-        { name: 'files', label: 'Files' },
-      ],
-      (tab) => {
-        const map = { theme: 0, colors: 1, typography: 2, voice: 3, files: 4 };
-        tabs.forEach((t, i) => t.classList.toggle('hidden', i !== map[tab]));
-      }
-    );
-    this._panel.appendChild(header);
-
-    this._buildThemeTab(themeContent);
-    this._buildColorsTab(colorsContent);
-    this._buildTypographyTab(typographyContent);
-    this._buildVoiceTab(voiceContent);
-    this._buildFilesTab(filesContent);
-
-    this._panel.appendChild(themeContent);
-    this._panel.appendChild(colorsContent);
-    this._panel.appendChild(typographyContent);
-    this._panel.appendChild(voiceContent);
-    this._panel.appendChild(filesContent);
-
-    const footer = document.createElement('div');
-    footer.className = 'settings-dialog__footer';
-    const resetBtn = document.createElement('button');
-    resetBtn.className = 'dialog__btn dialog__btn--secondary';
-    resetBtn.textContent = 'Reset to Defaults';
-    resetBtn.addEventListener('click', () => {
-      this.settings.reset();
-      this.render();
-    });
-    footer.appendChild(resetBtn);
-    this._panel.appendChild(footer);
+    const body = document.createElement('div');
+    body.className = 'settings-sheet__body';
+    body.appendChild(this._buildDisplay());
+    const voice = this._buildVoice();
+    if (voice) body.appendChild(voice);
+    body.appendChild(this._buildModes());
+    body.appendChild(this._buildFiles());
+    body.appendChild(this._buildRelayRow());
+    this._panel.appendChild(body);
   }
 
-  _buildThemeTab(container) {
-    const modeLabel = document.createElement('label');
-    modeLabel.className = 'dialog__label';
-    modeLabel.textContent = 'Appearance';
-    container.appendChild(modeLabel);
-
-    container.appendChild(this._buildSegmented(
-      [
-        { value: 'auto', label: 'Auto' },
-        { value: 'light', label: 'Light' },
-        { value: 'dark', label: 'Dark' },
-      ],
-      this.settings.getThemeMode(),
-      (val) => {
-        this.settings.setThemeMode(val);
-        this._editMode = this.settings.getActiveMode();
-        this.render();
-      }
-    ));
-
-    const hint = document.createElement('span');
-    hint.className = 'field-hint';
-    hint.textContent = this._appearanceHint();
-    container.appendChild(hint);
-
-    const groups = this.settings.getPresetGroups();
-    for (const [groupKey, label] of [['dark', 'Dark themes'], ['light', 'Light themes']]) {
-      const groupLabel = document.createElement('div');
-      groupLabel.className = 'settings-dialog__preset-group-label';
-      groupLabel.textContent = label;
-      container.appendChild(groupLabel);
-
-      const grid = document.createElement('div');
-      grid.className = 'settings-dialog__preset-grid';
-      const activeName = this.settings.matchPresetName(this.settings.getPalette(groupKey));
-
-      for (const { name, colors } of groups[groupKey]) {
-        const card = this._buildPresetCard(name, colors);
-        if (name === activeName) card.classList.add('settings-dialog__preset-card--active');
-        card.addEventListener('click', () => this._applyPreset(groupKey, colors));
-        grid.appendChild(card);
-      }
-      container.appendChild(grid);
-    }
+  _group(name, label) {
+    const group = document.createElement('section');
+    group.className = 'settings-sheet__group';
+    group.dataset.testid = `settings-group-${name}`;
+    const h = document.createElement('h4');
+    h.className = 'settings-sheet__heading';
+    h.textContent = label;
+    group.appendChild(h);
+    return group;
   }
 
-  _appearanceHint() {
-    const mode = this.settings.getThemeMode();
-    if (mode === 'auto') {
-      const active = this.settings.getActiveMode() === 'light' ? 'Light' : 'Dark';
-      return `Follows your system appearance — currently ${active}.`;
-    }
-    return mode === 'light' ? 'Always uses the light theme.' : 'Always uses the dark theme.';
-  }
-
-  _applyPreset(groupKey, colors) {
-    this.settings.setPalette(groupKey, colors);
-    const mode = this.settings.getThemeMode();
-    if (mode === 'auto') {
-      if (groupKey !== this.settings.getActiveMode()) {
-        this.bus.emit(EVT.TOAST_SHOW, {
-          id: 'theme-staged',
-          type: 'info',
-          message: `Saved as your ${groupKey} theme — shows when your system uses ${groupKey} mode.`,
-        });
-      }
-    } else if (mode !== groupKey) {
-      this.settings.setThemeMode(groupKey);
-    }
-    this._editMode = this.settings.getActiveMode();
-    this.render();
-  }
-
-  _buildPresetCard(name, colors) {
-    const card = document.createElement('button');
-    card.className = 'settings-dialog__preset-card';
-
-    const swatches = document.createElement('div');
-    swatches.className = 'settings-dialog__preset-swatches';
-    for (const c of [colors.bgPrimary, colors.bgSecondary, colors.accentColor, colors.textPrimary]) {
-      const dot = document.createElement('span');
-      dot.className = 'settings-dialog__preset-dot';
-      dot.style.background = c;
-      swatches.appendChild(dot);
-    }
-
+  _row(labelText, control) {
+    const row = document.createElement('div');
+    row.className = 'settings-sheet__row';
     const label = document.createElement('span');
-    label.className = 'settings-dialog__preset-name';
-    label.textContent = name;
-
-    card.appendChild(swatches);
-    card.appendChild(label);
-    return card;
+    label.className = 'settings-sheet__label';
+    label.textContent = labelText;
+    row.appendChild(label);
+    row.appendChild(control);
+    return row;
   }
 
-  _buildSegmented(options, current, onSelect) {
+  _buildDisplay() {
+    const group = this._group('display', 'Display');
+
+    const options = [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']];
+    const current = this.settings.getThemeMode();
     const wrap = document.createElement('div');
     wrap.className = 'settings-dialog__segmented';
     const buttons = [];
-    for (const opt of options) {
+    for (const [value, label] of options) {
       const btn = document.createElement('button');
       btn.className = 'settings-dialog__seg-btn';
-      btn.textContent = opt.label;
-      if (opt.value === current) btn.classList.add('settings-dialog__seg-btn--active');
+      btn.dataset.testid = `settings-appearance-${value}`;
+      btn.textContent = label;
+      const sync = (on) => {
+        btn.classList.toggle('settings-dialog__seg-btn--active', on);
+        btn.setAttribute('aria-pressed', String(on));
+      };
+      sync(value === current);
       btn.addEventListener('click', () => {
-        for (const b of buttons) b.classList.remove('settings-dialog__seg-btn--active');
-        btn.classList.add('settings-dialog__seg-btn--active');
-        onSelect(opt.value);
+        this.settings.setThemeMode(value);
+        buttons.forEach(([v, b, s]) => s(v === value));
       });
-      buttons.push(btn);
+      buttons.push([value, btn, sync]);
       wrap.appendChild(btn);
     }
-    return wrap;
-  }
+    group.appendChild(this._row('Appearance', wrap));
 
-  _buildColorsTab(container) {
-    const mode = this.settings.getThemeMode();
-    if (mode !== 'auto') this._editMode = this.settings.getActiveMode();
-
-    const hint = document.createElement('span');
-    hint.className = 'field-hint';
-
-    if (mode === 'auto') {
-      const head = document.createElement('div');
-      head.className = 'settings-dialog__colors-head';
-      const headLabel = document.createElement('span');
-      headLabel.className = 'settings-dialog__colors-head-label';
-      headLabel.textContent = 'Editing';
-      head.appendChild(headLabel);
-      head.appendChild(this._buildSegmented(
-        [
-          { value: 'dark', label: 'Dark palette' },
-          { value: 'light', label: 'Light palette' },
-        ],
-        this._editMode,
-        (val) => {
-          this._editMode = val;
-          this._renderColorRows(rows);
-          hint.textContent = this._colorsHint();
-        }
-      ));
-      container.appendChild(head);
-    }
-
-    container.appendChild(hint);
-
-    const rows = document.createElement('div');
-    container.appendChild(rows);
-
-    this._renderColorRows(rows);
-    hint.textContent = this._colorsHint();
-  }
-
-  _colorsHint() {
-    const mode = this.settings.getThemeMode();
-    if (mode !== 'auto') return `Editing the ${this._editMode} theme palette.`;
-    const active = this.settings.getActiveMode();
-    return this._editMode === active
-      ? `Editing the ${this._editMode} palette (currently visible).`
-      : `Editing the ${this._editMode} palette — visible when your system uses ${this._editMode} mode.`;
-  }
-
-  _renderColorRows(container) {
-    container.innerHTML = '';
-    const palette = this.settings.getPalette(this._editMode);
-    const colors = [
-      { key: 'accentColor', label: 'Accent' },
-      { key: 'bgPrimary', label: 'Background' },
-      { key: 'bgSecondary', label: 'Surface' },
-      { key: 'textPrimary', label: 'Text' },
-      { key: 'textSecondary', label: 'Text Secondary' },
-      { key: 'borderColor', label: 'Borders' },
-      { key: 'dangerColor', label: 'Danger' },
-      { key: 'successColor', label: 'Success' },
-      { key: 'messageUserBg', label: 'User Message' },
-    ];
-
-    for (const { key, label } of colors) {
-      const row = document.createElement('div');
-      row.className = 'settings-dialog__color-row';
-
-      const lbl = document.createElement('span');
-      lbl.className = 'settings-dialog__color-label';
-      lbl.textContent = label;
-
-      const hexSpan = document.createElement('span');
-      hexSpan.className = 'settings-dialog__color-hex';
-      hexSpan.textContent = palette[key];
-
-      const input = document.createElement('input');
-      input.type = 'color';
-      input.className = 'settings-dialog__color-input';
-      input.value = palette[key];
-      input.addEventListener('input', () => {
-        hexSpan.textContent = input.value;
-        this.settings.setColor(this._editMode, key, input.value);
-      });
-
-      row.appendChild(lbl);
-      row.appendChild(hexSpan);
-      row.appendChild(input);
-      container.appendChild(row);
-    }
-  }
-
-  _buildTypographyTab(container) {
-    const famLabel = document.createElement('label');
-    famLabel.className = 'dialog__label';
-    famLabel.textContent = 'UI Font';
-    container.appendChild(famLabel);
-
-    const famSelect = document.createElement('select');
-    famSelect.className = 'dialog__select';
-    for (const [groupName, keys] of Object.entries(FONT_GROUPS)) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = groupName;
-      for (const key of keys) {
-        const opt = document.createElement('option');
-        opt.value = key;
-        opt.textContent = FONT_PRESET_LABELS[key];
-        if (key === this.settings.get('fontFamily')) opt.selected = true;
-        optgroup.appendChild(opt);
-      }
-      famSelect.appendChild(optgroup);
-    }
-    famSelect.addEventListener('change', () => {
-      this.settings.set('fontFamily', famSelect.value);
+    const size = document.createElement('input');
+    size.type = 'range';
+    size.className = 'settings-sheet__range';
+    size.dataset.testid = 'settings-text-size';
+    size.min = '10';
+    size.max = '20';
+    size.step = '1';
+    size.value = String(this.settings.get('fontSize'));
+    const readout = document.createElement('span');
+    readout.className = 'settings-sheet__value';
+    readout.textContent = size.value;
+    size.addEventListener('input', () => {
+      readout.textContent = size.value;
+      this.settings.set('fontSize', parseInt(size.value, 10));
     });
-    container.appendChild(famSelect);
-
-    const famHint = document.createElement('span');
-    famHint.className = 'field-hint';
-    famHint.textContent = 'Used for the interface, menus, and chat text.';
-    container.appendChild(famHint);
-
-    const sizeLabel = document.createElement('label');
-    sizeLabel.className = 'dialog__label';
-    sizeLabel.textContent = 'Font Size';
-    container.appendChild(sizeLabel);
-
-    const sizeInput = document.createElement('input');
-    sizeInput.type = 'number';
-    sizeInput.className = 'dialog__input';
-    sizeInput.min = '10';
-    sizeInput.max = '20';
-    sizeInput.step = '1';
-    sizeInput.value = this.settings.get('fontSize');
-    sizeInput.addEventListener('change', () => {
-      const val = Math.max(10, Math.min(20, parseInt(sizeInput.value, 10) || 13));
-      sizeInput.value = val;
-      this.settings.set('fontSize', val);
-    });
-    container.appendChild(sizeInput);
-
-    const termLabel = document.createElement('label');
-    termLabel.className = 'dialog__label';
-    termLabel.textContent = 'Code & Terminal Font';
-    container.appendChild(termLabel);
-
-    const termSelect = document.createElement('select');
-    termSelect.className = 'dialog__select';
-    for (const key of FONT_GROUPS['Monospace']) {
-      const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = FONT_PRESET_LABELS[key];
-      if (key === this.settings.get('terminalFontFamily')) opt.selected = true;
-      termSelect.appendChild(opt);
-    }
-    termSelect.addEventListener('change', () => {
-      this.settings.set('terminalFontFamily', termSelect.value);
-    });
-    container.appendChild(termSelect);
-
-    const termHint = document.createElement('span');
-    termHint.className = 'field-hint';
-    termHint.textContent = 'Used by the terminal, code editor, and code blocks. Monospace only.';
-    container.appendChild(termHint);
+    const sizeWrap = document.createElement('div');
+    sizeWrap.className = 'settings-sheet__inline';
+    sizeWrap.appendChild(size);
+    sizeWrap.appendChild(readout);
+    group.appendChild(this._row('Text size', sizeWrap));
+    return group;
   }
 
-  _buildVoiceTab(container) {
+  _buildVoice() {
     const tts = this.container.has('ttsManager') ? this.container.get('ttsManager') : null;
-    if (!tts) return;
+    if (!tts) return null;
+    const group = this._group('voice', 'Voice');
 
-    const backendLabel = document.createElement('label');
-    backendLabel.className = 'dialog__label';
-    backendLabel.textContent = 'TTS Backend';
-    container.appendChild(backendLabel);
+    const voice = this._createVoiceSelect();
+    voice.dataset.testid = 'settings-voice';
+    voice.addEventListener('change', () => tts.setVoice(voice.value));
+    group.appendChild(this._row('Voice', voice));
+
+    const speed = document.createElement('select');
+    speed.className = 'dialog__select';
+    speed.dataset.testid = 'settings-voice-speed';
+    for (const s of SETTINGS_SPEEDS) {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = `${s}×`;
+      speed.appendChild(opt);
+    }
+    speed.value = String(tts.speed);
+    speed.addEventListener('change', () => tts.setSpeed(speed.value));
+    group.appendChild(this._row('Speed', speed));
 
     if (tts.isNativeApp) {
-      const backendSelect = document.createElement('select');
-      backendSelect.className = 'dialog__select';
-      const ttsOptions = [['native', 'Native (on-device)'], ['server', 'Server (Qwen3-TTS daemon)']];
-      for (const [value, label] of ttsOptions) {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = label;
-        if (value === tts.backend) opt.selected = true;
-        backendSelect.appendChild(opt);
+      group.appendChild(this._row('Speech engine', this._engineSelect('settings-tts-engine', tts)));
+      const stt = this.container.has('sttManager') ? this.container.get('sttManager') : null;
+      if (stt && stt.isNativeApp) {
+        group.appendChild(this._row('Dictation engine', this._engineSelect('settings-stt-engine', stt)));
       }
-      backendSelect.addEventListener('change', () => {
-        tts.setBackend(backendSelect.value);
-        ttsStatusEl.textContent = this._getTtsStatus(tts);
-      });
-      container.appendChild(backendSelect);
-    } else {
-      const backendLine = document.createElement('div');
-      backendLine.className = 'dialog__value';
-      backendLine.textContent = 'Server (Qwen3-TTS daemon)';
-      container.appendChild(backendLine);
     }
-
-    const hint = document.createElement('span');
-    hint.className = 'field-hint';
-    hint.textContent = tts.isNativeApp
-      ? 'Native uses Kokoro TTS via the iOS Neural Engine.'
-      : 'Speech is synthesized by the local relayTTS daemon (Qwen3-TTS).';
-    container.appendChild(hint);
-
-    const ttsStatusEl = document.createElement('div');
-    ttsStatusEl.className = 'field-hint';
-    ttsStatusEl.style.marginTop = '12px';
-    ttsStatusEl.textContent = this._getTtsStatus(tts);
-    container.appendChild(ttsStatusEl);
-
-    const ttsTagLabel = document.createElement('label');
-    ttsTagLabel.className = 'dialog__label';
-    ttsTagLabel.style.marginTop = '16px';
-    ttsTagLabel.textContent = 'TTS Prompt Tag';
-    container.appendChild(ttsTagLabel);
-
-    const ttsTagInput = document.createElement('input');
-    ttsTagInput.type = 'text';
-    ttsTagInput.className = 'dialog__input';
-    ttsTagInput.value = this.settings.get('ttsPromptTag') ?? '';
-    ttsTagInput.placeholder = '[SPEAK RESPONSE]';
-    ttsTagInput.addEventListener('input', () => {
-      this.settings.set('ttsPromptTag', ttsTagInput.value);
-    });
-    container.appendChild(ttsTagInput);
-
-    const ttsTagHint = document.createElement('span');
-    ttsTagHint.className = 'field-hint';
-    ttsTagHint.textContent = 'Appended to every message when TTS is active. Clear to disable.';
-    container.appendChild(ttsTagHint);
-
-    const stt = this.container.has('sttManager') ? this.container.get('sttManager') : null;
-    if (!stt) return;
-
-    const sttLabel = document.createElement('label');
-    sttLabel.className = 'dialog__label';
-    sttLabel.style.marginTop = '20px';
-    sttLabel.textContent = 'STT Backend';
-    container.appendChild(sttLabel);
-
-    if (stt.isNativeApp) {
-      const sttSelect = document.createElement('select');
-      sttSelect.className = 'dialog__select';
-      const sttOptions = [['native', 'Native (on-device)'], ['server', 'Server (Qwen3-ASR daemon)']];
-      for (const [value, label] of sttOptions) {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = label;
-        if (value === stt.backend) opt.selected = true;
-        sttSelect.appendChild(opt);
-      }
-      sttSelect.addEventListener('change', () => {
-        stt.setBackend(sttSelect.value);
-        sttStatusEl.textContent = this._getSttStatus(stt);
-      });
-      container.appendChild(sttSelect);
-    } else {
-      const sttBackendLine = document.createElement('div');
-      sttBackendLine.className = 'dialog__value';
-      sttBackendLine.textContent = 'Server (Qwen3-ASR daemon)';
-      container.appendChild(sttBackendLine);
-    }
-
-    const sttHint = document.createElement('span');
-    sttHint.className = 'field-hint';
-    sttHint.textContent = stt.isNativeApp
-      ? 'Native uses WhisperKit STT via the iOS Neural Engine.'
-      : 'Speech is transcribed by the local relaySTT daemon (Qwen3-ASR).';
-    container.appendChild(sttHint);
-
-    const sttStatusEl = document.createElement('div');
-    sttStatusEl.className = 'field-hint';
-    sttStatusEl.style.marginTop = '12px';
-    sttStatusEl.textContent = this._getSttStatus(stt);
-    container.appendChild(sttStatusEl);
-
-    const sttTagLabel = document.createElement('label');
-    sttTagLabel.className = 'dialog__label';
-    sttTagLabel.style.marginTop = '16px';
-    sttTagLabel.textContent = 'STT Prompt Tag';
-    container.appendChild(sttTagLabel);
-
-    const sttTagInput = document.createElement('input');
-    sttTagInput.type = 'text';
-    sttTagInput.className = 'dialog__input';
-    sttTagInput.value = this.settings.get('sttPromptTag') ?? '';
-    sttTagInput.placeholder = '[VOICE DICTATION]';
-    sttTagInput.addEventListener('input', () => {
-      this.settings.set('sttPromptTag', sttTagInput.value);
-    });
-    container.appendChild(sttTagInput);
-
-    const sttTagHint = document.createElement('span');
-    sttTagHint.className = 'field-hint';
-    sttTagHint.textContent = 'Prepended to every voice-dictated message. Clear to disable.';
-    container.appendChild(sttTagHint);
+    return group;
   }
 
-  _buildFilesTab(container) {
+  _engineSelect(testid, manager) {
+    const select = document.createElement('select');
+    select.className = 'dialog__select';
+    select.dataset.testid = testid;
+    for (const [value, label] of [['native', 'On this device'], ['server', 'Server']]) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      if (value === manager.backend) opt.selected = true;
+      select.appendChild(opt);
+    }
+    select.addEventListener('change', () => manager.setBackend(select.value));
+    return select;
+  }
+
+  _buildModes() {
+    const group = this._group('modes', 'Modes');
+    const state = this.container.has('state') ? this.container.get('state') : null;
+    const projects = state ? Array.from(state.projects.values()) : [];
+    for (const [mode, label] of [['home', 'Home'], ['work', 'Work']]) {
+      const p = projects.find(x => (x.defaultFor || []).includes(mode));
+      const row = document.createElement('div');
+      row.className = 'settings-sheet__text';
+      row.dataset.testid = `settings-default-${mode}`;
+      row.textContent = p ? `${label} starts in ${p.name}` : 'No default. Ask lets you pick.';
+      group.appendChild(row);
+    }
+    return group;
+  }
+
+  _buildFiles() {
+    const group = this._group('files', 'Files');
     const row = document.createElement('label');
     row.className = 'dialog__checkbox-row';
-
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.checked = this.settings.get('showHiddenFiles');
+    checkbox.dataset.testid = 'settings-hidden-files';
+    checkbox.checked = !!this.settings.get('showHiddenFiles');
     checkbox.addEventListener('change', () => {
       this.settings.set('showHiddenFiles', checkbox.checked);
     });
-
     const label = document.createElement('span');
     label.textContent = 'Show hidden files (dotfiles)';
-
     row.appendChild(checkbox);
     row.appendChild(label);
-    container.appendChild(row);
-
-    const hint = document.createElement('span');
-    hint.className = 'field-hint';
-    hint.textContent = 'When on, entries beginning with "." (e.g. .claude/, .gitignore, .env) appear in the sidebar file tree, styled italic and dimmer.';
-    container.appendChild(hint);
+    group.appendChild(row);
+    return group;
   }
 
-  _getTtsStatus(tts) {
-    if (tts.backend === 'native') return 'Using native Kokoro TTS via iOS Neural Engine.';
-    return 'Using the server-side relayTTS daemon (Qwen3-TTS).';
+  _buildRelayRow() {
+    const group = this._group('relay', 'Relay');
+    const text = document.createElement('p');
+    text.className = 'settings-sheet__text';
+    text.dataset.testid = 'settings-relay';
+    text.textContent = 'Models, tools, hosts and permissions live in Relay on your Mac.';
+    group.appendChild(text);
+    return group;
   }
-
-  _getSttStatus(stt) {
-    if (stt.backend === 'native') return 'Using native WhisperKit STT via iOS Neural Engine.';
-    return 'Using the server-side relaySTT daemon (Qwen3-ASR).';
-  }
-
 }
