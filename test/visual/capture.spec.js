@@ -109,14 +109,11 @@ for (const viewport of VIEWPORTS) {
         await page.getByTestId('sidebar-settings').click();
         const settingsDialog = page.getByTestId('dialog-settings-dialog');
         await expect(settingsDialog).toBeVisible({ timeout: 10000 });
-        await settingsDialog.locator('[data-tab="voice"]').click();
-        const voiceTab = settingsDialog.locator('.dialog__tab-content:not(.hidden)');
-        await expect(voiceTab.getByText('TTS Backend')).toBeVisible();
-        // This tab reads TTSManager once at render() with no live re-render,
-        // so it would freeze on whatever transient state a daemon race left
-        // behind — stubVoiceDaemons() above ensures no such race starts.
-        await voiceTab.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-        await shoot(page, `settings-voice-${suffix}`);
+        // SX-A1: Settings is one sheet with no tabs, so the whole sheet is shot.
+        // Its Voice group reads TTSManager once at render(); stubVoiceDaemons()
+        // above keeps a daemon race from changing what it shows.
+        await expect(settingsDialog.getByTestId('settings-relay')).toBeVisible();
+        await shoot(page, `settings-sheet-${suffix}`);
       } finally {
         await context.close();
       }

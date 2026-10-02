@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { test, expect, MODELS } = require('./fixture');
 
+const ADMIN_KEYS = ['allowed_models', 'allowed_mcp_ids', 'permission_policy'];
 const isPost = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/projects';
 
 test.describe('G12 projects', () => {
@@ -14,11 +15,14 @@ test.describe('G12 projects', () => {
       await page.getByTestId('home-new-project').click();
       await page.getByTestId('project-name').fill('Gamma Project');
       await page.getByTestId('project-path').fill(dir);
+      // SX-A12: a new project starts at Both and create always sends mode; SX-A10: no admin keys.
+      await expect(page.getByTestId('project-mode-both')).toHaveAttribute('aria-pressed', 'true');
       const [request] = await Promise.all([
         page.waitForRequest(isPost),
         page.getByTestId('project-save').click(),
       ]);
-      expect(request.postDataJSON()).toMatchObject({ name: 'Gamma Project', path: dir });
+      expect(request.postDataJSON()).toMatchObject({ name: 'Gamma Project', path: dir, mode: 'both' });
+      for (const key of ADMIN_KEYS) expect(request.postDataJSON()).not.toHaveProperty(key);
       await expect(page.getByRole('navigation', { name: 'Projects' }).getByTitle('Gamma Project', { exact: true })).toBeVisible();
       await expect(page.getByTestId(/home-project-/).filter({ hasText: 'Gamma Project' })).toBeVisible();
       await expect(page.locator('.home__subtitle')).toContainText('3 projects');
@@ -75,27 +79,96 @@ test.describe('G12 projects', () => {
   });
 });
 
+const isPut = (id) => (r) => r.method() === 'PUT' && new URL(r.url()).pathname === `/api/projects/${id}`;
+const railItem = (page, name) => page.getByRole('navigation', { name: 'Projects' }).getByTitle(name, { exact: true });
+
+async function editProject(page, name, id) {
+  await railItem(page, name).click();
+  await page.getByTestId(`sidebar-project-more-${id}`).click();
+  await page.getByText('Edit Project', { exact: true }).click();
+  await expect(page.getByTestId('project-name')).toHaveValue(name);
+}
+
+// SX-A9..A11, A13, A14: models, MCPs, policy and hosts are Relay's; the dialog shows models read-only.
+const POLICY = { default: 'ask' };
 test.describe('G12 a project with an allow-list of models', () => {
   test.use({
     world: {
+      hosts: [{ id: 'h1', name: 'Acme box' }],
       seed: ({ relay }) => {
-        relay.setModels(MODELS);
-        relay.getProject('beta').allowed_models = ['fake-model'];
+        relay.setModels({ ...MODELS, models: [...MODELS.models, { value: 'acme-model', label: 'Acme Model', provider: 'claude' }] });
+        Object.assign(relay.getProject('beta'), { allowed_models: ['fake-model', 'retired-model'], allowed_mcp_ids: ['acme-mcp'], permission_policy: POLICY });
+        relay.getProject('alpha').allowed_models = ['*'];
       },
     },
   });
 
-  test('saving an edit sends the project\'s allowed models back, unchanged', async ({ page, eve }) => {
-    await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Beta Project', { exact: true }).click();
+  // Flipped by SX-A9/A10: was an editable "Fake Model" checkbox and a PUT that echoed allowed_models.
+  test('Edit Project lists allowed models read-only, and a save sends no admin keys and no unchanged mode', async ({ page, eve }) => {
+    await editProject(page, 'Beta Project', 'beta');
+    await expect(page.getByTestId('project-allowed-models')).toHaveText('Fake Model, retired-model');
+    await expect(page.getByTestId('project-relay-pointer')).toHaveText('Set in Relay Settings on your Mac.');
+    await expect(page.getByTestId('dialog-project-dialog').getByRole('checkbox')).toHaveCount(0);
+    const [request] = await Promise.all([page.waitForRequest(isPut('beta')), page.getByTestId('project-save').click()]);
+    expect(request.postDataJSON()).toMatchObject({ name: 'Beta Project', path: eve.folders.beta });
+    for (const key of [...ADMIN_KEYS, 'mode']) expect(request.postDataJSON()).not.toHaveProperty(key);
+    await expect(page.getByTestId('project-save')).toBeHidden();
+    const beta = eve.relay.getProject('beta');
+    expect([beta.allowed_models, beta.allowed_mcp_ids, beta.permission_policy]).toEqual([['fake-model', 'retired-model'], ['acme-mcp'], POLICY]);
+  });
+
+  test('a wildcard allow-list reads All models', async ({ page }) => {
+    await editProject(page, 'Alpha Project', 'alpha');
+    await expect(page.getByTestId('project-allowed-models')).toHaveText('All models');
+  });
+
+  test('the menu has no Regenerate Skills; the dialog is General | Templates with no host admin', async ({ page }) => {
+    await railItem(page, 'Beta Project').click();
     await page.getByTestId('sidebar-project-more-beta').click();
+    await expect(page.getByText('Edit Project', { exact: true })).toBeVisible();
+    await expect(page.getByText('Regenerate Skills')).toHaveCount(0);
     await page.getByText('Edit Project', { exact: true }).click();
-    await expect(page.getByTestId('project-name')).toHaveValue('Beta Project');
-    await expect(page.getByRole('checkbox', { name: 'Fake Model' })).toBeChecked();
-    const [request] = await Promise.all([
-      page.waitForRequest((r) => r.method() === 'PUT' && new URL(r.url()).pathname === '/api/projects/beta'),
-      page.getByTestId('project-save').click(),
-    ]);
-    expect(request.postDataJSON()).toMatchObject({ name: 'Beta Project', path: eve.folders.beta, allowed_models: ['fake-model'] });
-    await expect.poll(() => eve.relay.getProject('beta').allowed_models).toEqual(['fake-model']);
+    const dialog = page.getByTestId('dialog-project-dialog');
+    expect(await dialog.locator('.dialog__tab').allTextContents()).toEqual(['General', 'Templates']);
+    await expect(dialog.getByTestId('project-where-local')).toBeVisible();
+    await dialog.getByTestId('project-where-host-h1').click();
+    await expect(dialog.getByTestId('project-where-add-host')).toHaveCount(0);
+    await expect(dialog.getByRole('checkbox')).toHaveCount(0);
+    await expect(dialog.getByText(/Host…|Allowed MCPs|Probe again|Remove host|hasn’t been checked/)).toHaveCount(0);
+  });
+
+  test('the launcher offers only the project\'s allowed models', async ({ page }) => {
+    await expect.poll(() => page.evaluate(() => window.client.state.models.length)).toBe(2);
+    await railItem(page, 'Beta Project').click();
+    await page.getByTestId('sidebar-new-session-beta').click();
+    await page.getByTestId('shell-card-web-chat').click();
+    const values = await page.getByTestId('launcher-model-select').locator('option').evaluateAll((os) => os.map((o) => o.value));
+    expect(values).toContain('fake-model');
+    expect(values).not.toContain('acme-model');
+  });
+});
+
+// SX-A12: the dialog's Home | Work | Both control.
+test.describe('G12 a Work project', () => {
+  test.use({
+    world: {
+      projects: ({ alpha, beta }) => [
+        { id: 'alpha', name: 'Alpha Project', path: alpha },
+        { id: 'beta', name: 'Beta Project', path: beta, mode: 'work' },
+      ],
+    },
+  });
+
+  test('moving it to Home sends only that mode; it leaves Work and shows in Home with no reload', async ({ page, eve }) => {
+    await editProject(page, 'Beta Project', 'beta');
+    await expect(page.getByTestId('project-mode-work')).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('project-mode-home').click();
+    const [request] = await Promise.all([page.waitForRequest(isPut('beta')), page.getByTestId('project-save').click()]);
+    expect(request.postDataJSON().mode).toBe('home');
+    await expect.poll(() => eve.relay.getProject('beta').mode).toBe('home');
+    await expect(railItem(page, 'Beta Project')).toHaveCount(0);
+    await page.getByTestId('mode-home').click();
+    await expect(railItem(page, 'Beta Project')).toBeVisible();
+    await expect(page.getByTestId('home-project-beta')).toBeVisible();
   });
 });

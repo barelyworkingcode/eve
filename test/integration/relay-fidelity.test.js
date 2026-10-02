@@ -244,6 +244,16 @@ describe('projects as relay serves them (project_dto.go, project_routes.go)', ()
       expect(await res.json()).toEqual({ error: message });
     }
   });
+
+  it('PUT /api/projects/{id} is a patch (apply.go UpdateFields): mode changes, "both" reads back, absent allow-lists are kept', async () => {
+    relay.addProject({ id: 'm', name: 'Patch', path: '/tmp/m', allowed_models: ['acme-model'], allowed_mcp_ids: ['acme-mcp'], permission_policy: { default: 'ask' } });
+    const update = async (body) => (await fetch(`${base}/api/projects/m`, { method: 'PUT', ...json(body) })).json();
+    expect((await update({ mode: 'home' })).mode).toBe('home');
+    expect((await (await fetch(`${base}/api/projects/m`)).json()).mode).toBe('home');
+    expect(await update({ name: 'Patched', path: '/tmp/m', mode: 'both' })).toMatchObject({
+      name: 'Patched', mode: 'both', allowed_models: ['acme-model'], allowed_mcp_ids: ['acme-mcp'], permission_policy: { default: 'ask' },
+    });
+  });
 });
 
 describe('tasks as relayScheduler serves them (api.go, task.go, scheduler.go)', () => {
