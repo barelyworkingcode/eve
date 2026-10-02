@@ -71,3 +71,114 @@ panes.registerView({ view: 'project', elementId: 'projectPane', splittable: fals
 // app.sendUserText(sessionId, text, files = [])      // state.pendingAsk gains `files`
 // api.getFileText(projectId, path)                    // existing eve route GET /api/files/:projectId/*
 // terminalManager.lastLineOf(id) → string | null      // xterm buffer, open terminals only
+```
+
+Test ids:
+- page: `project-page-<id>` (`data-state`), `project-new-thread-<id>`;
+- page sections: `project-threads-count`, `project-thread-<sessionId>`, `project-folder-<id>-<name>`, `project-agent-<terminalId>`, `project-task-<taskId>`, `project-task-new-<id>`, `project-files-<id>`, `project-changes-<id>`;
+- panel and Today: `panel-project-page`, `today-part-agents`, `today-agent-<terminalId>` (`.agent-row__last` holds the last line);
+- Ask about this: `today-ask-attachment`, `today-ask-attachment-remove`, `diff-ask`, `search-dialog-ask`.
+
+The `sidebar-session-*`, `sidebar-terminal-*` and `sidebar-task-*` ids are retired with the rows they named.
+
+## Tasks and ownership
+
+Order: T1 → T2 → (T3 ∥ T4) → T5 → T6.
+
+| Task | Files | Budget |
+|---|---|---|
+| T1 Contract, red specs (test writer) | this doc; `test/e2e/goals/workbench-{page,agents,ask-about}.spec.js`, `test/unit/{terminal-text,unified-diff,ask-about}.test.js`; the flips below | ~800 |
+| T2 Page | new `project-page.js`, `panes/project-pane.js`, `apple/project-page.css`; `sidebar/project-panel.js` (thread and task code moves out), `index.html` (owner: `#projectPane`, tags), `app.js` (owner: register, `#project/` route, nav-threads), `apple/touch.css` (owner) | 7 files, ~650 (~350 moved) |
+| T3 Board | new `agent-board.js`, `core/terminal-text.js`, `today/parts/agents-part.js`, `apple/agents.css`. Allowed edits: `home-screen.js` (1 line), `project-page.js` (Agents mount, ≤15), `terminal-manager.js` (`lastLineOf`, ≤15), `index.html` and `touch.css` (its tags and selectors only) | ~330 |
+| T4 Ask about | new `today/ask-about.js`, `core/unified-diff.js`; `today/parts/ask-part.js`, `core/constants.js`, `core/api-client.js`, `sidebar/file-tree-node.js`, `diff-viewer.js`, `dialogs/search-dialog.js`, `apple/home.css`. Allowed edits: `message-dispatcher.js` (≤5), `app.js` `sendUserText` (≤6), `index.html` and `touch.css` (its tags and selectors only) | 12 files, ~380 |
+| T5 Journeys (test writer) | `devboxverify/{journeys,journey-kit}.js`, `devboxverify/README.md`, `test/unit/devboxverify.test.js`, `test/visual/__baseline__` (devbox) | ~200 + images |
+| T6 Docs | `docs/FEATURES.md` (G3, G4, G5, G6, G10 rows; the `projects`, `terminal` and `home` code globs), `docs/baseline.md`, As built | ~80 |
+
+Budget zero:
+- the five CRLF files, `public/tab-manager.js` included: `openPane` is generic, so the page needs no edit there;
+- `ws/`, `routes/`, relay and relayScheduler.
+
+Going past a budget is a stop-and-ask.
+
+## Relay and the fake
+
+No new relay call. The last line uses `GET /api/terminals/:id/log`, which is already faked (`TERMINAL-LOG-BYTES`, 404 for an unknown id) and pinned. Files come from eve's own `/api/files`.
+
+## Red-first specs
+
+| Spec | Criterion |
+|---|---|
+| The panel shows Files and Changes only; a stored `sessions` tab opens Files; `panel-project-page` opens `#project/alpha`; opening it twice gives one tab; `#project/nope` says "Project not found." | A1, A2 |
+| Page Threads lists alpha's threads only, with the count and no task run; a click opens the thread with no `create_session`; folder menu and delete work | A2 |
+| Page Tasks: create, list, reload, Run Now, Edit, open last run (g5 behaviours on the new door) | A2 |
+| Fake `terminal_list` with two terminals in alpha, one in beta and one in an out-of-mode project: Today lists the three in-mode ones, the page lists alpha's; no tab and no `#terminal` at any point; a tap attaches; listed then joined never activates | A3 |
+| Last line shows `TERMINAL-LOG-BYTES`; a log 404 shows none; a stopped terminal says "exited 1"; relay down says "Can't reach relay" | A3 |
+| File "Ask about this": Today, Ask focused, chip with the path; Return sends one `create_session` in the file's project, and `user_input.files[0]` has the content; removing the chip restores the default project; no menu item on a host project; a >256 KB file gives the line and no chip | A4 |
+| `diff-ask`: the attachment holds `--- a/`, `+++ b/` and an `@@` hunk | A4 |
+| `search-dialog-ask`: the dialog closes; the chip reads "N results for …"; the content lines are `path:line: text` | A4 |
+| 390 wide: `nav-threads` pushes the active project's page | A5 |
+| Unit `lastLine`: CSI, OSC, `\r` overwrite, box-drawing-only lines, a zsh prompt, truncation | A3 |
+| Unit `UnifiedDiff.format`: add, delete, change, a hunk at the start of the file, an empty original | A4 |
+
+### Specs that change on purpose
+
+None is weakened: only the door changes, and the assertions move with it.
+
+| Spec | Change | Criterion |
+|---|---|---|
+| `app.spec` :19; `unit/changes-panel` :793 | the panel's tab list becomes Files and Changes | A2 |
+| `g3-reopen-thread` 42–46, `g2-g8-chat` 41, `today-truth` 28, `layout-touch` 22–26, `layout-overflow` 31, `layout-nav` 96 | Sessions tab → `panel-project-page` → `project-thread-*`; the count is read from `project-threads-count` | A2 |
+| `g5-tasks` (all) | Tasks tab → page Tasks, `project-task-*` | A2 |
+| `g4-terminal` 71, `today-front-door` 40–44 | the Sessions panel row → the `today-agent-*` row (and the page row); "no tab before the click" stays | A3 |
+| `layout-nav` 41 | `nav-threads` → the project page | A5 |
+| visual baselines | the panel tabs change; the owner re-baselines on macOS | A2 |
+
+## devboxverify
+
+Journeys that flip, each stated in the PR:
+- `open-existing-thread`: the door "Sessions tab" becomes "Project page". The other two doors and the no-new-session check are unchanged.
+- `terminal-on-request`: after a reload, Today's agent board lists the probe with a non-empty last line and no pane. The page's Agents section lists it too. A tap on the Today row opens it, then EVE_OK and EVE_AGAIN as now.
+- `task-created-listed`: Tasks tab → page Tasks; `#panelContent` → `project-page-<id>`.
+
+New, `ask-about-file` (areas home, chat, files; needs project:acme; 90 s):
+1. Write a scratch file with a nonce code word.
+2. Tree context menu → Ask about this.
+3. Today is shown, Ask is focused, and the chip names the file.
+4. Ask for the code word and press Return.
+5. Verdict: exactly one new Acme session, the user bubble lists the attachment, and the reply is non-empty. Whether the reply contains the nonce is reported, not judged, like chat-reply's "said 4".
+
+The nightly gains about 60 s.
+
+## Risks
+
+- Logs can be about 1 MB per terminal. The cap of 20 rows and 15 s bounds this; a relay `tail` parameter would be a relay issue.
+- The last line of a TUI (Claude Code) may be status-bar noise. Box-drawing-only lines are skipped. Readability needs a devbox look.
+- Monaco `getLineChanges()` is null until the diff is computed. `diff-ask` stays disabled until `onDidUpdateDiff`.
+- Moving about 350 lines out of `project-panel.js`: a move, not a rewrite.
+- Script order: `core/terminal-text.js` and `core/unified-diff.js` load after `core/constants.js`; `agent-board.js` and `project-page.js` after `sidebar/*`; `today/ask-about.js` and `agents-part.js` with the other `today/*` scripts. Restart eve after the `index.html` edit.
+
+## Decisions
+
+1. The rail click is unchanged and the page opens from the panel button. Making the rail open the page would also flip `today-phone`, the `openProject` and `openLauncher` journey helpers, and S1-A8.
+2. Tasks stay "Tasks" until S5b.
+3. The board shows in both modes, filtered by mode as S1-A4 requires.
+4. Search's AI summary stays.
+5. Compact: Today → page → thread → Back lands on Today (S2's stack is at most one deep).
+
+## Open questions
+
+1. Under the merge rule "`main`'s harness against the head", three journeys go red by design. As in S1, the PR rewrites them and the evidence line names each flip. Whether merge-check accepts that is a gate question (What needs me 2).
+2. One-tap starts (Claude Code, pi, Shell) and approvals inside agent rows (mockup 09) are not in this scope: a later slice, or never?
+3. Merging the search AI summary into "Ask about these results" (the design's table) needs owner intent.
+
+## Not verifiable unattended
+
+The look of the last line on real TUIs, and a real iPad or iPhone.
+
+## Out of scope
+
+Routines (S5b), Threads as a space, ⌘N, Ask about a selection, the commit flow.
+
+## Size
+
+**L.** About 20 files, ~1,350 product lines (~350 of them moved), ~1,000 spec and journey lines. Cut line: A1 and A2 first, then A3, then A4 and A5.
