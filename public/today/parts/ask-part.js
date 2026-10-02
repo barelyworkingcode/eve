@@ -83,7 +83,7 @@ class AskPart {
     el.append(this.input, row);
 
     for (const evt of [EVT.PROJECTS_LOADED, EVT.PROJECT_DELETED, EVT.MODE_CHANGED, EVT.CONNECTION_CHANGED,
-      'today:source:projects']) ctx.on(evt, () => this.update());
+      'today:source:projects', 'today:source:sessions']) ctx.on(evt, () => this.update());
     // Before the first connect an offline socket is just boot, so a queued Ask waits.
     ctx.on(EVT.CONNECTION_CHANGED, () => { if (this._everConnected && !ctx.state.isOnline()) this._abandon(); });
     for (const evt of [EVT.CONNECTION_CHANGED, EVT.MODE_CHANGED, EVT.PROJECTS_LOADED, 'today:source:projects',
@@ -128,9 +128,10 @@ class AskPart {
       return { blocked: 'Not connected to eve. Your text is kept; try again once it reconnects.', transient: !this._everConnected };
     }
     if (state.connection.relay === false) return { blocked: "Can't reach relay." };
-    // A queued Ask also waits for the startup chain's thread load: it restores tabs
-    // right after, and a thread started in between would lose its messages.
-    if (this._queued && sources.projects.status === 'ready' && sources.sessions.status === 'loading') {
+    // Ask also waits for the startup chain's thread load: it re-joins open tabs
+    // right after (app.js onWebSocketReady), and that join's reply repaints a thread
+    // started in between from older history, wiping its messages.
+    if (sources.projects.status === 'ready' && sources.sessions.status === 'loading') {
       return { blocked: 'Loading projects…', transient: true };
     }
     if (sources.projects.status !== 'ready') return { blocked: 'Loading projects…', transient: !this._projectsEverReady || this._queued };
