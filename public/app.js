@@ -495,6 +495,8 @@ class EveWorkspaceClient {
   }
 
   onWebSocketReady() {
+    const isReconnect = this._wsReadyOnce === true;
+    this._wsReadyOnce = true;
     this.sessionActivity?.reset();
     this.messageRenderer.hideThinkingIndicator();
 
@@ -508,7 +510,7 @@ class EveWorkspaceClient {
     // so task sessions are filtered from the sidebar.
     this.loadProjects().then(() => this.loadSessions()).then(() => {
       const restoredSessionIds = this.tabManager.getRecentSessionIds().filter(id => this.sessions.has(id));
-      this.resubscribeAfterReconnect({ terminalIds: terminalsBeforeLoad });
+      this.resubscribeAfterReconnect({ silent: isReconnect, terminalIds: terminalsBeforeLoad });
 
       const recentFiles = this.tabManager.getRecentFiles();
       for (const file of recentFiles) {
@@ -543,13 +545,13 @@ class EveWorkspaceClient {
   // is reloaded by onWebSocketReady itself and does not belong here — an
   // upstream-only drop never touches it.
   //
-  // `silent` is true only for the relay_status trigger: the browser socket
-  // never dropped there, so the user may be looking at (and typing into) a
-  // tab that isn't whichever session's join reply happens to land last —
-  // unlike a browser reconnect or a fresh page load, where there's either no
-  // existing view to protect yet, or the disconnect itself already unsettled
-  // the page. Silent joins are marked via markResubscribeJoin so
-  // handleSessionJoined refreshes state without switching the visible tab.
+  // `silent` is true for every trigger except the first ready of a page load:
+  // a browser reconnect and a relay_status resubscribe both rejoin without
+  // switching screens, tabs or focus, because the user may be on Today or
+  // typing into a tab that isn't whichever join reply lands last. The first
+  // ready has no view to protect and restores the tabs with plain joins.
+  // Silent joins are marked via markResubscribeJoin so handleSessionJoined
+  // refreshes state and repaints the tab on screen, nothing more.
   resubscribeAfterReconnect({ silent = false, terminalIds = null } = {}) {
     const recentIds = this.tabManager.getRecentSessionIds();
     for (const sessionId of recentIds) {
@@ -1467,7 +1469,7 @@ class EveWorkspaceClient {
     if (narrow) this.toggleSidebar(false);
   }
 
-  renderMessages() {
+  renderMessages({ focus = true } = {}) {
     this.messageRenderer.clearMessages();
 
     const history = this.sessionHistories.get(this.currentSessionId);
@@ -1475,7 +1477,7 @@ class EveWorkspaceClient {
       this.messageRenderer.renderHistory(history);
     }
 
-    this.elements.userInput.focus();
+    if (focus) this.elements.userInput.focus();
   }
 
   updateDirectoryInputRequirement() {
