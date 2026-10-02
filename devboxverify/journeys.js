@@ -5,8 +5,9 @@
 const { execFile } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { promisify } = require('util');
+const { promisify, isDeepStrictEqual } = require('util');
 const { expect } = require('@playwright/test');
 const {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
@@ -1062,6 +1063,207 @@ async function todayPhone(env) {
   return result(id, PASS, 'bottom bar on Today, no tab bar; no overflow or small targets on Today or the thread; Back and browser Back return to Today');
 }
 
+// — Settings and the project dialog (SX) ---------------------------------------
+
+const RELAY_ROW = 'Models, tools, hosts and permissions live in Relay on your Mac.';
+const SHEET_GROUPS = ['Display', 'Voice', 'Modes', 'Files'];
+// relay's three admin fields: their wire keys, and eve's GET names for them.
+const ADMIN_KEYS = ['allowed_models', 'allowed_mcp_ids', 'permission_policy'];
+const ADMIN_FIELDS = ['allowedModels', 'allowedMcpIds', 'permissionPolicy'];
+
+async function switchMode(page, env, mode) {
+  env.step(`switch to ${mode}`);
+  await page.getByTestId(`mode-${mode}`).click({ timeout: 10000 });
+  await need(`the ${mode} switch did not take`,
+    expect(page.getByTestId(`mode-${mode}`)).toHaveAttribute('aria-checked', 'true', { timeout: 5000 }));
+}
+
+async function openSettings(page, env) {
+  env.step('open Settings');
+  await page.getByTestId('sidebar-settings').click({ timeout: 10000 });
+  const sheet = page.getByTestId('dialog-settings-dialog');
+  await need('Settings did not open', expect(sheet).toBeVisible({ timeout: 10000 }));
+  return sheet;
+}
+
+// Edit Project from the open project's panel menu; returns the dialog.
+async function openEditProject(page, env, project) {
+  env.step(`edit ${project.name}`);
+  await page.getByTestId(`sidebar-project-more-${project.id}`).click({ timeout: 10000 });
+  await page.locator('.file-tree__context-menu').getByRole('button', { name: 'Edit Project', exact: true }).click({ timeout: 5000 });
+  const dialog = page.getByTestId('dialog-project-dialog');
+  await need('Edit Project did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
+  return dialog;
+}
+
+const projectWrite = (method, pathname) => (res) =>
+  res.request().method() === method && new URL(res.url()).pathname === pathname;
+
+async function settingsSheet(env) {
+  const id = 'settings-sheet';
+  const projects = await eveJson(env, 'GET', '/api/projects');
+  const workDefault = projects.find((p) => (p.defaultFor || []).includes('work'));
+  const workRow = workDefault ? `Work starts in ${workDefault.name}` : 'No default. Ask lets you pick.';
+  const page = await env.newPage();
+  // A dark system, so Auto reads dark and Light is a visible change.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await openEve(page, env);
+  let sheet = await openSettings(page, env);
+
+  env.step('read the sheet');
+  await need('the sheet is not titled "Settings"',
+    expect(sheet.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 5000 }));
+  const tabs = await sheet.locator('.dialog__tab').count();
+  if (tabs) return result(id, FAIL, `Settings has ${tabs} tabs`);
+  const groups = (await sheet.getByRole('heading').allInnerTexts()).map((t) => t.trim()).filter((t) => SHEET_GROUPS.includes(t));
+  if (groups.join() !== SHEET_GROUPS.join()) return result(id, FAIL, `groups read ${groups.join(', ') || 'none'}, not ${SHEET_GROUPS.join(', ')}`);
+  const relay = sheet.getByTestId('settings-relay');
+  await need('the Relay row is missing or reads otherwise', expect(relay).toHaveText(RELAY_ROW, { timeout: 5000 }));
+  if (await relay.getByRole('button').count()) return result(id, FAIL, 'the Relay row has a button');
+  const filesY = (await sheet.getByRole('heading', { name: 'Files', exact: true }).boundingBox())?.y ?? Infinity;
+  const relayY = (await relay.boundingBox())?.y ?? -Infinity;
+  if (relayY <= filesY) return result(id, FAIL, 'the Relay row is not after Files');
+
+  const pressed = async (mode) => (await sheet.getByTestId(`settings-appearance-${mode}`).getAttribute('aria-pressed', { timeout: 5000 })) === 'true';
+  const prior = (await Promise.all(['auto', 'light', 'dark'].map(async (m) => (await pressed(m) ? m : null)))).find(Boolean);
+  if (!prior) return result(id, FAIL, 'no Appearance button is pressed');
+  try {
+    env.step('set Light');
+    await sheet.getByTestId('settings-appearance-light').click({ timeout: 5000 });
+    await need('Light did not take', expect(page.locator('html')).toHaveAttribute('data-theme', 'light', { timeout: 5000 }));
+    await reloadEve(page, env);
+    await need('Light did not survive a reload', expect(page.locator('html')).toHaveAttribute('data-theme', 'light', { timeout: 5000 }));
+    sheet = await openSettings(page, env);
+    await need('Light is not pressed after a reload',
+      expect(sheet.getByTestId('settings-appearance-light')).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 }));
+  } finally {
+    env.step(`restore ${prior}`);
+    await sheet.getByTestId(`settings-appearance-${prior}`).click({ timeout: 5000 }).catch(() => {});
+  }
+
+  env.step('read the Work row');
+  await need(`the Work row does not read "${workRow}"`,
+    expect(sheet.getByTestId('settings-default-work')).toHaveText(workRow, { timeout: 5000 }));
+  env.step('Done');
+  await sheet.getByTestId('settings-done').click({ timeout: 5000 });
+  await need('Done did not close the sheet', expect(sheet).toBeHidden({ timeout: 5000 }));
+  return result(id, PASS, `one sheet, no tabs: ${SHEET_GROUPS.join(', ')}, then the Relay line; Light survived a reload; "${workRow}"; Done closed it`);
+}
+
+async function projectAdminInRelay(env) {
+  const id = 'project-admin-in-relay';
+  const acme = env.world.projects.acme;
+  const before = await eveJson(env, 'GET', `/api/projects/${acme.id}`);
+  const page = await env.newPage();
+  await openEve(page, env);
+  await waitForModels(page, env);
+  await openProject(page, env, acme);
+  const dialog = await openEditProject(page, env, acme);
+
+  env.step('read the General tab');
+  const labels = await page.evaluate(() => window.client.state.models.map((m) => [m.value, m.label]));
+  const allowed = before.allowedModels || [];
+  const shown = !allowed.length || allowed.includes('*') ? 'All models'
+    : allowed.map((v) => labels.find(([value]) => value === v)?.[1] || v).join(', ');
+  await need(`the allowed models do not read "${shown}"`,
+    expect(dialog.getByTestId('project-allowed-models')).toHaveText(shown, { timeout: 5000 }));
+  await need('no pointer to Relay under the models',
+    expect(dialog.getByTestId('project-relay-pointer')).toHaveText('Set in Relay Settings on your Mac.', { timeout: 5000 }));
+  const problems = [];
+  if (await dialog.locator('input[type=checkbox]').count()) problems.push('General has a checkbox');
+  if (await dialog.locator('.dialog__tab', { hasText: 'Permissions' }).count()) problems.push('a Permissions tab');
+  if (await dialog.getByTestId('project-where-add-host').count()) problems.push('a Host… button');
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+
+  env.step('Save');
+  const saved = page.waitForResponse(projectWrite('PUT', `/api/projects/${acme.id}`), { timeout: 15000 });
+  await dialog.getByTestId('project-save').click({ timeout: 5000 });
+  const res = await need('Save sent no PUT', saved);
+  if (!res.ok()) return result(id, FAIL, `Save answered ${res.status()}`);
+  const sent = ADMIN_KEYS.filter((k) => k in (res.request().postDataJSON() || {}));
+  await need('Edit Project did not close after Save', expect(dialog).toBeHidden({ timeout: 10000 }));
+  if (sent.length) return result(id, FAIL, `Save sent ${sent.join(', ')}`);
+
+  const after = await eveJson(env, 'GET', `/api/projects/${acme.id}`);
+  const changed = ADMIN_FIELDS.filter((f) => !isDeepStrictEqual(after[f], before[f]));
+  if (changed.length) return result(id, FAIL, `relay's ${changed.join(', ')} changed on Save`);
+  return result(id, PASS, `models read "${shown}", read-only, with the Relay pointer; no checkbox, Permissions tab or Host…; `
+    + `Save sent none of ${ADMIN_KEYS.join(', ')} and relay kept all three`);
+}
+
+async function projectModeNew(env) {
+  const id = 'project-mode-new';
+  const name = `verify-${env.nonce}`;
+  const root = await fs.promises.realpath(os.tmpdir());
+  const prefix = `verify-${env.nonce}-mode-`;
+  const dir = await fs.promises.mkdtemp(path.join(root, prefix));
+  // Idempotent, so the cleanup below finds nothing once the journey removed it.
+  const removeProject = async () => {
+    for (const p of (await eveJson(env, 'GET', '/api/projects')).filter((x) => x.name === name)) {
+      await eveJson(env, 'DELETE', `/api/projects/${encodeURIComponent(p.id)}`);
+    }
+    if ((await eveJson(env, 'GET', '/api/projects')).some((x) => x.name === name)) throw new Error('still listed after DELETE');
+  };
+  // Runs after a timeout too, then removes the folder the project points at.
+  env.cleanup('delete the verify project', removeProject);
+  env.cleanup('remove mode folder', async () => {
+    if (path.dirname(dir) !== root || !path.basename(dir).startsWith(prefix)) throw new Error('refusing to remove a folder outside the temp dir');
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+
+  const page = await env.newPage();
+  await openEve(page, env);
+  const rail = page.getByRole('navigation', { name: 'Projects' });
+  const chip = rail.getByTitle(name, { exact: true });
+  let outcome;
+  try {
+    await need('eve did not open in Work',
+      expect(page.getByTestId('mode-work')).toHaveAttribute('aria-checked', 'true', { timeout: 5000 }));
+    env.step('New Project');
+    await page.getByTestId('sidebar-new-project').click({ timeout: 10000 });
+    let dialog = page.getByTestId('dialog-project-dialog');
+    await need('New Project did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
+    await dialog.getByTestId('project-name').fill(name, { timeout: 5000 });
+    await dialog.getByTestId('project-path').fill(dir, { timeout: 5000 });
+    await need('New Project has no Home mode', dialog.getByTestId('project-mode-home').click({ timeout: 5000 }));
+    const created = page.waitForResponse(projectWrite('POST', '/api/projects'), { timeout: 15000 });
+    await dialog.getByTestId('project-save').click({ timeout: 5000 });
+    const res = await need('Create sent no POST', created);
+    if (!res.ok()) throw new Error(`Create answered ${res.status()}`);
+    const project = { id: (await res.json()).id, name };
+    await need('New Project did not close', expect(dialog).toBeHidden({ timeout: 10000 }));
+    const stored = await eveJson(env, 'GET', `/api/projects/${encodeURIComponent(project.id)}`);
+    if (stored.mode !== 'home') throw new Error(`relay reports mode ${stored.mode}, not home`);
+
+    await switchMode(page, env, 'home');
+    await need(`${name} is not in the Home rail`, expect(chip).toBeVisible({ timeout: 10000 }));
+    await switchMode(page, env, 'work');
+    env.step(`confirm ${name} is absent in Work`);
+    await sleep(1500);
+    if (await chip.count()) throw new Error(`${name} is in the Work rail`);
+
+    await switchMode(page, env, 'home');
+    await openProject(page, env, project);
+    dialog = await openEditProject(page, env, project);
+    await need('Edit Project does not start at Home',
+      expect(dialog.getByTestId('project-mode-home')).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 }));
+    await dialog.getByTestId('project-mode-both').click({ timeout: 5000 });
+    const updated = page.waitForResponse(projectWrite('PUT', `/api/projects/${project.id}`), { timeout: 15000 });
+    await dialog.getByTestId('project-save').click({ timeout: 5000 });
+    const put = await need('Save sent no PUT', updated);
+    if (!put.ok()) throw new Error(`Save answered ${put.status()}`);
+    await need('Edit Project did not close', expect(dialog).toBeHidden({ timeout: 10000 }));
+    await switchMode(page, env, 'work');
+    await need(`${name} is not in the Work rail after Both, with no reload`, expect(chip).toBeVisible({ timeout: 10000 }));
+    outcome = result(id, PASS, `created in Home (relay: home), absent in Work, shown in Home; Both shows it in Work with no reload`);
+  } catch (err) {
+    outcome = result(id, FAIL, firstLine(err));
+  }
+  const leftover = await removeProject().then(() => '', (err) => `; left project ${name} behind (${firstLine(err)})`);
+  await switchMode(page, env, 'work').catch(() => {});
+  return leftover ? result(id, FAIL, outcome.detail + leftover) : outcome;
+}
+
 const auth = require('./journeys-auth').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
@@ -1098,6 +1300,9 @@ const journeys = [
   { id: 'today-ipad-portrait', timeoutMs: 45000, areas: ['home', 'shell'], needs: ['project:acme'], run: todayIpadPortrait },
   { id: 'today-phone', timeoutMs: 75000, areas: ['home', 'shell', 'chat'], needs: ['project:acme'], run: todayPhone },
   { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
+  { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
+  { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
+  { id: 'project-mode-new', timeoutMs: 60000, areas: ['projects', 'home'], needs: [], run: projectModeNew },
   auth.addBrowserInWindow,
 ];
 

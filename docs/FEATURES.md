@@ -33,7 +33,7 @@ audited). Never an API or flag that skips it. See [Owner gates](#owner-gates).
 | G9 | Talk hands-free | Start a voice chat and converse | The voice view opens (incl. the `#/voice-chat` deep link), speech is transcribed, replies are spoken | voice | should | voice-deep-link (view opens, one session; no audio) |
 | G10 | Find something in my project | Locate text or a thing I did before | Search returns matches and opens them; ⌘K finds sessions, projects, files | search, home | should | none yet — not written |
 | G11 | Share files and images with the model | Give the model a file, see images it makes | Attached/pasted/dropped files reach the turn; images render and open fullscreen | chat, files | should | none yet — not written |
-| G12 | Set up and tune a project | Create a project and set its templates, models and policy | A new project appears in the rail; template and policy edits take effect on the next launch | projects | should | none yet — devbox world is fixed by setup; mutating it needs its own reset |
+| G12 | Set up and tune a project | Create a project and set its templates, models and policy | A new project appears in the rail; template and policy edits take effect on the next launch | projects | should | project-mode-new (a `verify-<nonce>` project it creates and deletes), project-admin-in-relay |
 | G13 | Work on a project on another machine | Use an SSH-host project like a local one | Host shows connected; files, terminals and Changes work against the host | hosts, files, terminal, git | should | none yet — needs an SSH host in the devbox world |
 | G14 | Arrange my workspace | Tabs, splits, sidebar, theme and fonts the way I like | Tabs switch and close, a split docks and undocks, settings persist | shell, settings | later | none yet — pixel baselines and e2e cover layout |
 | G15 | Use eve from my phone | The iOS app and mobile Safari | Sign-in via Safari fallback, keybar, swipe, Action Button deep link | auth, voice, terminal | later | none yet — native app needs a devbox pass, not Playwright |
@@ -85,7 +85,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | Session launcher, Web Chat form | UI: `public/dialogs/shell-launcher-dialog.js` | Project panel New Session, Home Chat tile, ⌘K New session | chat-reply | chat |
-| Model picker (filtered by `allowed_models`) | UI: launcher `launcher-model-select`; API: `GET /api/models` | Launcher Web Chat form | chat-reply (picks one) | chat, projects |
+| Model picker (filtered by `allowed_models`, which are set in Relay) | UI: launcher `launcher-model-select`; API: `GET /api/models` | Launcher Web Chat form | chat-reply (picks one); cloud spec `goals/g12-projects` (only allowed models) | chat, projects |
 | Chat templates in the launcher | UI: launcher cards; project Templates tab | Launcher | none yet — World voice card used only by voice-deep-link | chat, projects |
 | Per-provider chat defaults | UI: `ShellLauncherDialog#_launchSession` `applyChatDefaults` | Any web/voice launch | none yet — e2e `chat-defaults.spec.js` only | chat |
 | Send a message (Enter / Shift+Enter) | UI: `public/features/chat-form.js`; WS `user_input` | Composer | chat-reply | chat |
@@ -173,7 +173,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Image / PDF / video / audio viewers | UI: `public/viewers/*`; API: `GET /api/files/:projectId/*` | Click such a file | none yet — not written | files |
 | Rename / move / delete / new folder | WS `rename_file`, `move_file`, `delete_file`, `create_directory` | Tree context menu, drag | none yet — not written | files |
 | Upload by dropping on the tree | WS `upload_file` | Drag files onto the tree | none yet — not written | files |
-| Show hidden files | UI: Settings → Files | Settings | none yet — later | files, settings |
+| Show hidden files | UI: Settings sheet → Files (`settings-hidden-files`) | Settings | none yet — cloud spec `goals/settings-sheet` | files, settings |
 | Plan file viewer | WS `read_plan_file` | Plan-mode plan link | none yet — not written | files, chat |
 
 ### G8 · Let an agent act, under my control
@@ -183,7 +183,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Permission prompt (Allow / Deny / Allow All) | UI: `#permissionModal`, `modal-manager.js`; WS `permission_response` | Agent calls a gated tool | **owner gate** (answer): relay's; prompt appearing: none yet | chat |
 | Plan approval bar (Approve / Revise) | UI: `#planApprovalBar` | Plan mode proposes a plan | none yet — not a gate: Approve sends a user turn | chat |
 | Permission mode banner and control | UI: `message-renderer.js`; WS `set_permission_mode` | Chat header | none yet — not written | chat |
-| Project permission policy | UI: project dialog Permissions tab | Edit Project | none yet — G12 | projects |
+| Project permission policy | relay Settings on the Mac; eve's project dialog has no Permissions tab and never sends `permission_policy` | Relay | project-admin-in-relay (no tab; Save keeps relay's policy) | projects |
 | Agent-opened image tabs (`eve-control` MCP) | `mcp/main.js`, `ui-command-bus.js`, `POST /internal/ui-command` | Agent calls `eve_open_tab` | none yet — model-dependent | ui-control |
 
 ### G9 · Talk hands-free
@@ -196,7 +196,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Spoken replies, per-message play | UI: `tts-manager.js`, `.tts-play-btn`; WS `tts_speak`; `tts-service.js` | Reply in voice mode, play button | none yet — needs the live TTS daemon | voice |
 | Voice drawer (voice, speed) | UI: `#voiceDrawerPanel`; API: `GET /api/tts/voices` | Composer voice drawer | none yet — e2e covers the drawer | voice |
 | Convert voice → text chat, End session | UI: `#voiceChatConvert`, `#voiceChatClose` | Voice view buttons | voice-deep-link (End visible only) | voice |
-| Orb settings, Voice settings tab, crash guard | UI: `voice-orb-settings.js`, settings Voice tab, `voice-crash-guard.js` | Voice view, Settings | none yet — later | voice, settings |
+| Orb settings, crash guard | UI: `voice-orb-settings.js`, `voice-crash-guard.js` | Voice view | none yet — later | voice |
 
 ### G10 · Find something in my project
 
@@ -219,18 +219,19 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
-| Create / edit / delete project | UI: `public/dialogs/project-dialog.js`; API: `/api/projects` | Rail +, ⌘K New project, panel menu | none yet — world is fixed | projects |
+| Create / edit / delete project (name, Where among existing hosts, path) | UI: `public/dialogs/project-dialog.js`; API: `/api/projects` | Rail +, ⌘K New project, panel menu | project-mode-new (create, edit; deletes through the API) | projects |
+| Project mode Home \| Work \| Both (`project-mode`): a new project starts at Both; create always sends `mode`, an edit only when it changed; the rail, Today and ⌘K re-filter with no reload | UI: project dialog General; API: `POST /api/projects`, `PUT /api/projects/:id` (`mode`) | New Project, Edit Project | project-mode-new; cloud spec `goals/g12-projects` | projects, home |
 | Chat templates tab | UI: project dialog Templates | Edit Project | none yet — world setup S3 is manual | projects, chat |
 | Terminal templates | API: `/api/terminal/templates` | Edit Project / tray | none yet — world setup | projects, terminal |
-| MCP picker, model picker | UI: project dialog General; API: `GET /api/mcps`, `GET /api/models` | Edit Project | none yet — not written | projects |
-| Regenerate Skills | UI: project-panel context menu | Right-click project | none yet — later | projects |
+| Allowed models, read-only (`project-allowed-models`: "All models" or the labels), with "Set in Relay Settings on your Mac." (`project-relay-pointer`); models and MCPs are set in Relay, and Save never sends `allowed_models` or `allowed_mcp_ids` | UI: project dialog General | Edit Project | project-admin-in-relay; cloud spec `goals/g12-projects` | projects |
+| Regenerate Skills | relay (no longer in eve's project menu) | Relay | none — relay-owned | — |
 | Per-tool MCP scoping, token rotation | relay tray Projects tab | Relay tray | none — relay-owned | — |
 
 ### G13 · Work on a project on another machine
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
-| Add / probe / remove SSH host | UI: project dialog host form; API: `/api/hosts`, `/api/hosts/:id/probe` | Edit Project → Where → Host… | none yet — no host in the world | hosts |
+| Add / probe / remove SSH host | relay; eve's Where only picks an existing host (`project-where-host-<id>`) | Relay | none — relay-owned; project-admin-in-relay checks there is no Host… | — |
 | Host status (connecting / connected / unreachable) | WS `host_status`; `ssh-host-pool.js` | Rail, panel | none yet | hosts |
 | Files, search, Changes on the host | `remote-file-service.js`, `remote-fs-agent.js` | Host project Files / Changes | none yet | hosts, files, git |
 | Host terminals and persistent (tmux) sessions | API: `/api/projects/:id/persistent-sessions` | Host project launcher | none yet | hosts, terminal |
@@ -249,7 +250,8 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Home \| Work wordmark: one control moved between slots, in the sidebar panel on wide and at the top of Today on regular and compact | UI: `public/sidebar/mode-switch.js`, `[data-wordmark-slot]`, `#modeSwitch` | Any width | today-ipad-portrait (reads `Home\|Work` in Today); cloud specs `layout-breakpoints` | home, shell |
 | Thumb-sized targets: under a coarse pointer every visible control is at least 44×44 at every width (links in message prose excepted) | UI: `public/apple/touch.css` | Any touch device | today-ipad-portrait, today-phone (sweep of visible controls); cloud spec `layout-touch` | shell |
 | Front door: opening eve after 60 minutes or more away shows Today with Ask focused (fine pointers only, #129) and restores no tabs; a deep link still wins; resuming a page after that gap returns to Today and keeps tabs | UI: `public/core/front-door.js`, `app.js`; localStorage `eve-last-active` | Open or resume eve after a break | none yet — a journey would need to age the stamp; cloud spec `layout-front-door`, unit `front-door` | home, shell |
-| Theme, presets, colours, typography, reset | UI: `public/dialogs/settings-dialog.js` | Settings, ⌘K Appearance | none yet — visual baselines | settings |
+| Appearance Auto / Light / Dark and Text size (no theme presets, colours, fonts or reset; stored values keep applying) | UI: Settings sheet → Display (`settings-appearance-*`, `settings-text-size`) | Settings, ⌘K Appearance | settings-sheet (Light survives a reload); cloud spec `goals/settings-sheet` | settings |
+| Settings sheet: one scrolling sheet, no tabs: Display, Voice (voice and speed, shared with the composer drawer; engine pickers in the native app only), Modes (each mode's default project, read-only), Files, then "Models, tools, hosts and permissions live in Relay on your Mac."; Done or Escape closes it | UI: `public/dialogs/settings-dialog.js`, `tts-manager.js` (`setVoice`, `setSpeed`) | Rail Settings, ⌘K Settings | settings-sheet; cloud spec `goals/settings-sheet` | settings, voice |
 
 ### G15 · Use eve from my phone
 
@@ -303,7 +305,8 @@ areas:
     tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/unit/session-activity.test.js,
             test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
             test/e2e/goals/home-screen.spec.js]
-    journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file, routine-from-thread]
+    journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file, routine-from-thread,
+               project-mode-new]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
@@ -316,8 +319,8 @@ areas:
     code: [public/dialogs/project-dialog.js, public/sidebar/activity-rail.js, public/sidebar/project-panel.js,
            public/project-page.js, public/panes/project-pane.js, public/apple/project-page.css,
            public/apple/sidebar-tree.css]
-    tests: [test/unit/project-normalize.test.js, test/integration/projects.test.js]
-    journeys: [world-projects-listed]
+    tests: [test/unit/project-normalize.test.js, test/integration/projects.test.js, test/e2e/goals/g12-projects.spec.js]
+    journeys: [world-projects-listed, project-admin-in-relay, project-mode-new]
   chat:
     code: [ws/session-messages.js, slash-command-handler.js, public/dialogs/shell-launcher-dialog.js,
            public/features/chat-form.js, public/features/permissions.js, public/features/file-attachments.js,
@@ -377,8 +380,8 @@ areas:
     journeys: []
   settings:
     code: [public/dialogs/settings-dialog.js, public/apple/dialogs.css, public/apple/controls.css]
-    tests: ["test/visual/**"]
-    journeys: []
+    tests: ["test/visual/**", test/e2e/goals/settings-sheet.spec.js]
+    journeys: [settings-sheet]
   ui-control:
     code: [mcp/**, ui-command-bus.js]
     tests: [test/unit/ui-command-bus.test.js, test/integration/ui-command.test.js]

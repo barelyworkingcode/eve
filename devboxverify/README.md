@@ -33,8 +33,10 @@ A stray `DEVBOXWORLD_ROOT` fails `bootstrap` with `BLOCKED environment:
 bootstrap incomplete; repair.sh exited 2 without a result; run bootstrap.sh`,
 and the reason is on stderr.
 The tool never builds eve, registers a service or edits settings. Its only
-writes are the owner reset below and the `verify-<nonce>-*` folders journeys
-make in Acme Corp and remove. It never targets the live eve on :3000, and
+writes are the owner reset below, the `verify-<nonce>-*` folders journeys
+make in Acme Corp or the temp dir and remove, project-admin-in-relay's Save
+of Acme Corp as it stands, and project-mode-new's `verify-<nonce>` project,
+which it deletes. It never targets the live eve on :3000, and
 preflight refuses it. It does share one thing with the live eve: relay has
 a single eve enrolment window. An add-browser-in-window run that fails
 between opening the window and consuming it leaves it open for up to
@@ -309,6 +311,45 @@ in the detail, not the verdict.
   `eve-ask-model`, as a returning user's last model, and is BLOCKED when Acme
   Corp does not allow it. The file lives in a `verify-<nonce>-ask-*` folder.
 
+**settings-sheet.** Settings opens one sheet titled "Settings" with no
+tabs; its groups read Display, Voice, Modes, Files, and the Relay line
+("Models, tools, hosts and permissions live in Relay on your Mac.", no
+button) comes after Files. Light survives a reload (`html[data-theme]` and
+the pressed button); the prior Appearance is restored. The Work row matches
+the project whose `defaultFor` holds `work` in eve's `GET /api/projects`, or
+reads "No default. Ask lets you pick." Done closes the sheet.
+- Lives in: `sidebar-settings` → `public/dialogs/settings-dialog.js`
+  (`settings-appearance-*`, `settings-default-work`, `settings-relay`,
+  `settings-done`); `public/core/settings-manager.js`.
+- Traps: the page emulates a dark system, so Auto reads dark and Light is a
+  change. Appearance lives in the browser's localStorage, so nothing in the
+  world changes.
+
+**project-admin-in-relay.** Acme Corp's Edit Project shows its allowed
+models as read-only text ("All models", or the labels joined by ", ") with
+"Set in Relay Settings on your Mac." under it, and no checkbox, Permissions
+tab or Host… button. Save sends a PUT with none of `allowed_models`,
+`allowed_mcp_ids` or `permission_policy`, and eve's `GET /api/projects/:id`
+reads relay's three values unchanged.
+- Lives in: `sidebar-project-more-<id>` → Edit Project →
+  `public/dialogs/project-dialog.js` (`project-allowed-models`,
+  `project-relay-pointer`, `project-save`) → `PUT /api/projects/:id`.
+- Traps: labels come from the page's model list; an unknown id shows raw.
+  Save writes Acme Corp's name, path and host as they are.
+
+**project-mode-new.** New Project creates `verify-<nonce>`, in a
+`verify-<nonce>-mode-*` folder in the temp dir, with Home; relay reports
+`mode: home`. It is in the Home rail and not in the Work rail (checked after
+a settle period). Edit Project starts at Home; Both shows it in the Work
+rail with no reload. The journey then deletes it through eve's API and
+switches back to Work.
+- Lives in: `sidebar-new-project` → `public/dialogs/project-dialog.js`
+  (`project-mode-home|work|both`) → `POST`/`PUT /api/projects`;
+  `public/sidebar/activity-rail.js`.
+- Traps: it creates a real relay project. A delete that fails turns the
+  result FAIL and names the project in the detail; a cleanup tries again
+  after a timeout, then removes the folder.
+
 ## One-time setup
 
 - **S1 · Register `eve-verify`.** Presence-gated, so run it in a desktop
@@ -388,9 +429,11 @@ in the detail, not the verdict.
   with `--service eve --url http://localhost:3000` and it fails `live`
   instead. An `eve-verify` sharing the live eve's process or checkout also
   fails `live`.
-- Journeys create things only in Acme Corp. A journey that leaves anything
-  outside the world projects is FAIL, and the item stays for a human to
-  remove.
+- Journeys create things only in Acme Corp, except project-mode-new's own
+  project. A journey that leaves anything outside the world projects is
+  FAIL, and the item stays for a human to remove. A leftover
+  `verify-<nonce>` project does not break world-projects-listed, which
+  checks named projects only.
 - A journey's `cleanup(label, fn)` runs after its browser contexts close,
   whatever the verdict, with 10 s each. A cleanup that throws turns PASS into
   FAIL. One registered after its journey timed out runs at the end of the run.
