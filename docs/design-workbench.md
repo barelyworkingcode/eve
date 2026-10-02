@@ -182,3 +182,20 @@ Routines (S5b), Threads as a space, ⌘N, Ask about a selection, the commit flow
 ## Size
 
 **L.** About 20 files, ~1,350 product lines (~350 of them moved), ~1,000 spec and journey lines. Cut line: A1 and A2 first, then A3, then A4 and A5.
+
+## As built
+
+- `api.getFileText(projectId, path, maxBytes)` rejects before reading the body when `Content-Length` exceeds `maxBytes`, so an oversize file is never downloaded.
+- A binary file gets the line "That isn't a text file." and no chip.
+- `UnifiedDiff.format` drops the trailing empty line Monaco reports at the end of a model.
+- The board's exit code comes from `terminal_exit` and is kept. A terminal already stopped when first listed shows "exited" with no code.
+- Beyond 20 rows the board shows "+N more"; only the first 20 fetch a last line.
+- The page's Changes count shows only when the panel's active project is the page's.
+- Rows added to the test ids: `project-new-folder-<id>` and `project-tasks-count`.
+- `project-panel.js` lost about 535 lines, moved to `project-page.js`.
+
+## Amendments
+
+- `docs/design-workbench.md` was completed after the first commit truncated it at its first code fence.
+- `test/unit/diff-viewer.test.js`: the fake Monaco gained `getLineChanges` and `onDidUpdateDiff` (for `diff-ask`). No assertion changed.
+- `test/unit/changes-panel.test.js`: the tab list flipped to Files and Changes, as listed under "Specs that change on purpose".
