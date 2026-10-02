@@ -22,6 +22,7 @@ class BriefPart extends TodayPart {
     this._pick = '';
     this._shown = new Map(); // task id -> { when, brief } of the last readable run
     this._speaking = false;
+    this._refreshed = new Set(); // task ids whose stored prompt was already refreshed this page load
   }
 
   onMount() {
@@ -57,6 +58,23 @@ class BriefPart extends TodayPart {
       if (!best || String(t.createdAt || '') >= String(best.createdAt || '')) best = t;
     }
     return best;
+  }
+
+  // A brief keeps the prompt it was created with; bring an older one up to date, once per task, silently.
+  // The scheduler's PUT replaces the whole task, so send the definition the task dialog would on an edit.
+  _refreshPrompt(task) {
+    const { container, state } = this.ctx;
+    if (task.prompt === Brief.prompt() || this._refreshed.has(task.id) || !container.has('api')) return;
+    this._refreshed.add(task.id);
+    const body = {
+      name: task.name, projectId: task.projectId, schedule: task.schedule, enabled: task.enabled,
+      sessionType: task.sessionType, prompt: Brief.prompt(), model: task.model,
+    };
+    if (task.useRelayTools) body.useRelayTools = true;
+    if (task.catchUp) body.catchUp = true;
+    container.get('api').updateTask(task.id, body)
+      .then(updated => { if (updated?.id) state.addTask(updated); })
+      .catch(err => console.error('[Today] brief prompt refresh failed:', err));
   }
 
   _setupProject() {
@@ -105,6 +123,7 @@ class BriefPart extends TodayPart {
     root.appendChild(todayEyebrow('Morning brief'));
     const task = this._task();
     if (!task) return this._renderSetup(root);
+    this._refreshPrompt(task);
 
     const wrap = document.createElement('div');
     wrap.className = 'today-brief';
