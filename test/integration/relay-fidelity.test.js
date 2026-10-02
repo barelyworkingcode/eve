@@ -141,6 +141,9 @@ describe('fake relay answers as relay does (direct)', () => {
     expect((await post({ projectId: 'locked', model: 'ok-model', directory: '/tmp' })).status).toBe(201);
     // An SSH-hosted project (host_id, not kind remote) launches.
     expect((await post({ projectId: 'hosted', model: 'ok-model', directory: '/srv/h' })).status).toBe(201);
+    const piHosted = await post({ projectId: 'hosted', model: 'pi/x', directory: '/srv/h' });
+    expect(piHosted.status).toBe(403);
+    expect(await piHosted.json()).toEqual({ error: 'provider "pi" is not available on a host project' });
     expect((await post({ projectId: 'locked', directory: '/tmp' })).status).toBe(201); // server-default model
     expect((await post({ projectId: 'open', model: 'anything', directory: '/tmp' })).status).toBe(201);
   });
