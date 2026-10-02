@@ -1,6 +1,8 @@
 // S3a Morning brief on Today (issue #143, A2-A10). Times are read in UTC so
 // "Brief · HH:MM" is the run record's own time.
+const fs = require('fs');
 const os = require('os');
+const nodePath = require('path');
 const { test, expect } = require('./fixture');
 const { part } = require('./today-helpers');
 const Brief = require('../../../public/today/brief');
@@ -497,3 +499,83 @@ for (const [state, world, shown] of [
     });
   });
 }
+
+// #160: an existing brief keeps the prompt it was created with, so painting
+// it must refresh a stale prompt, once, and leave a current one alone.
+// The prompt eve wrote before #160, byte for byte, taken from main's brief.js.
+const MAIN_PROMPT = fs.readFileSync(nodePath.join(__dirname, '../../helpers/brief-prompt-main-160.txt'), 'utf8');
+const isTaskUpdate = (r) => r.method() === 'PUT' && /^\/api\/tasks\/[^/]+$/.test(path(r));
+const storedPrompt = (eve, id) => eve.relay.listTasks().find((t) => t.id === id).prompt;
+const seedBrief = (extra) => ({
+  seed: ({ relay }) => {
+    relay.setModels(models(LOCAL_A));
+    relay.seedTask(briefTask('b1', 'alpha', extra));
+  },
+});
+
+test.describe('#160 a brief task with an older prompt', () => {
+  const OLD = MAIN_PROMPT;
+  test.use({ world: seedBrief({ prompt: OLD }) });
+
+  test('is updated once to Brief.prompt() when Today paints', async ({ page, eve }) => {
+    const updates = track(page, isTaskUpdate);
+    await page.reload();
+    await expect(brief(page)).toContainText('No brief yet.');
+    await expect.poll(() => storedPrompt(eve, 'b1')).toBe(Brief.prompt());
+    // Repaints (mode switch and back) must not send it again.
+    await page.getByTestId('mode-home').click();
+    await page.getByTestId('mode-work').click();
+    await expect(brief(page)).toContainText('No brief yet.');
+    expect(updates.map((r) => [r.method(), path(r)])).toEqual([['PUT', '/api/tasks/b1']]);
+    // relay's PUT replaces the whole definition: everything but the prompt is the seeded task's.
+    const { prompt, ...rest } = updates[0].postDataJSON();
+    expect(prompt).toBe(Brief.prompt());
+    const { prompt: _old, ...seeded } = briefTask('b1', 'alpha', { prompt: OLD });
+    expect(rest).toMatchObject(Object.fromEntries(
+      ['name', 'projectId', 'schedule', 'model', 'enabled', 'sessionType', 'catchUp', 'useRelayTools'].map((k) => [k, seeded[k]]),
+    ));
+  });
+});
+
+test.describe('#160 a brief task with the current prompt', () => {
+  test.use({ world: seedBrief({}) });
+
+  test('is not updated when Today paints', async ({ page }) => {
+    const updates = track(page, isTaskUpdate);
+    await page.reload();
+    await expect(brief(page)).toContainText('No brief yet.');
+    expect(updates).toHaveLength(0);
+  });
+});
+
+test.describe('#160 a refresh that relay refuses', () => {
+  test.use({ world: seedBrief({ prompt: MAIN_PROMPT }) });
+
+  test('is sent once per page load across repaints and shows no toast', async ({ page }) => {
+    await page.route((url) => /^\/api\/tasks\/[^/]+$/.test(url.pathname), (route) => (
+      route.request().method() === 'PUT'
+        ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom' }) })
+        : route.fallback()
+    ));
+    const updates = track(page, isTaskUpdate);
+    await page.reload();
+    await expect(brief(page)).toContainText('No brief yet.');
+    await expect.poll(() => updates.length).toBe(1);
+    await page.getByTestId('mode-home').click();
+    await page.getByTestId('mode-work').click();
+    await expect(brief(page)).toContainText('No brief yet.');
+    await expect.poll(() => updates.length).toBe(1);
+    await expect(page.locator('.toast')).toHaveCount(0);
+  });
+});
+
+test.describe('#160 a brief whose prompt the user edited', () => {
+  test.use({ world: seedBrief({ prompt: `${MAIN_PROMPT}\nAlso tell me about the school run.` }) });
+
+  test('is not updated when Today paints', async ({ page }) => {
+    const updates = track(page, isTaskUpdate);
+    await page.reload();
+    await expect(brief(page)).toContainText('No brief yet.');
+    expect(updates).toHaveLength(0);
+  });
+});

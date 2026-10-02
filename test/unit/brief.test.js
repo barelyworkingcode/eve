@@ -1,5 +1,7 @@
 // Written from issue #143 (S3a): A2 body, A3 local models, A5 classifier, and
 // the prompt contract, schema v1 and parse rules under "Interfaces".
+const fs = require('fs');
+const path = require('path');
 const Brief = require('../../public/today/brief');
 
 const fence = (obj) => `\`\`\`json\n${JSON.stringify(obj)}\n\`\`\``;
@@ -113,6 +115,31 @@ describe('Brief.prompt', () => {
     ['one fence, nothing after', /exactly one fenced json block[\s\S]*nothing after it/i],
   ])('says: %s', (_rule, re) => {
     expect(prompt).toMatch(re);
+  });
+});
+
+describe('Brief.prompt: how to name a mailbox', () => {
+  const prompt = Brief.prompt();
+
+  it('says mail_get_emails takes account and the bare mailbox as separate arguments', () => {
+    expect(prompt).toMatch(/mail_get_emails[\s\S]*"account"\s*:\s*"<account>"\s*,\s*"mailbox"\s*:\s*"INBOX"/);
+    expect(prompt).toMatch(/separate/i);
+  });
+
+  it('says a refused mailbox is retried once that way', () => {
+    expect(prompt).toMatch(/refused[\s\S]*(retry|try again)[\s\S]*once|once[\s\S]*(retry|try again)[\s\S]*refused|(retry|try again)[\s\S]*refused[\s\S]*once/i);
+  });
+
+  it('never shows an account/mailbox path as a mailbox value', () => {
+    // "mailbox": "<account>/INBOX" or "mailbox":"Home/INBOX" would teach the wrong shape.
+    expect(prompt).not.toMatch(/"mailbox"\s*:\s*"[^"]*\/[^"]*"/);
+  });
+});
+
+describe('Brief.PREVIOUS_PROMPTS', () => {
+  it('includes the prompt eve wrote before #160, so existing briefs are refreshed', () => {
+    const mainPrompt = fs.readFileSync(path.join(__dirname, '../helpers/brief-prompt-main-160.txt'), 'utf8');
+    expect(Brief.PREVIOUS_PROMPTS).toContain(mainPrompt);
   });
 });
 
