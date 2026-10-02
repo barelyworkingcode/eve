@@ -899,6 +899,7 @@ function createFakeRelay({ token = null } = {}) {
     listPendingRevocations: () => [...pendingRevocations],
     // Every relay socket, joined or not. Prefer emitToSession for anything relay
     // sends per session: relay delivers only to joined viewers (SendToSession).
+    // A chat tool_result's is_error and scope_violation (relay events.go) are sent as given through it.
     emitToRelay: (frame) => { notePending(frame); for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
     emitToSession: (sessionId, frame) => {
       notePending(frame);
