@@ -106,11 +106,16 @@ const PINS = [
   ['a chat tool_result carries scope_violation', 'internal/sessions/events/events.go', 'json:"scope_violation,omitempty"', 'is_error and scope_violation (relay events.go)'],
   ['a chat tool_result takes is_error from the MCP result', 'internal/sessions/provider/chat_base.go', 'isError := toolErr != nil || callRes.IsError', 'is_error and scope_violation (relay events.go)'],
   ['a chat session reads settings.useRelayTools', 'internal/sessions/provider/settings.go', 'Key:     "useRelayTools",', 'useRelayTools: true }'],
+  // S4-A1: the search-result shapes test/unit/sources.test.js builds (6th field: the file carrying the copy).
+  ['an MCP result joins its text blocks with no separator', 'internal/sessions/mcp/mcp.go', 'sb.WriteString(v.Text)', "brave(R1) + brave(R2)", 'relay', 'unit/sources.test.js'],
+  ['a chat tool result is cut at 8,192 bytes', 'internal/sessions/provider/chat_base.go', 'const maxToolResultLen = 8192', 'const MAX = 8192;', 'relay', 'unit/sources.test.js'],
+  ['the cut ends with the truncation marker', 'internal/sessions/provider/chat_base.go', 'toolResult[:maxToolResultLen] + "\\n...(truncated)"', ".subarray(0, MAX).toString() + '\\n...(truncated)'", 'relay', 'unit/sources.test.js'],
 ];
+const carrier = (p) => (p[5] ? fs.readFileSync(path.join(__dirname, '..', p[5]), 'utf8') : FAKE);
 
 describe('fake relay carries what the pins say (no relay checkout needed)', () => {
-  it.each(PINS.map((p) => [p[0], p[3]]))('%s', (_what, fakeNeedle) => {
-    expect(FAKE).toContain(fakeNeedle);
+  it.each(PINS.map((p) => [p[0], p[3], carrier(p)]))('%s', (_what, fakeNeedle, text) => {
+    expect(text).toContain(fakeNeedle);
   });
 });
 
