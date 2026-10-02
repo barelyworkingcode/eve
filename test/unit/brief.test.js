@@ -1,5 +1,7 @@
 // Written from issue #143 (S3a): A2 body, A3 local models, A5 classifier, and
 // the prompt contract, schema v1 and parse rules under "Interfaces".
+const fs = require('fs');
+const path = require('path');
 const Brief = require('../../public/today/brief');
 
 const fence = (obj) => `\`\`\`json\n${JSON.stringify(obj)}\n\`\`\``;
@@ -131,6 +133,13 @@ describe('Brief.prompt: how to name a mailbox', () => {
   it('never shows an account/mailbox path as a mailbox value', () => {
     // "mailbox": "<account>/INBOX" or "mailbox":"Home/INBOX" would teach the wrong shape.
     expect(prompt).not.toMatch(/"mailbox"\s*:\s*"[^"]*\/[^"]*"/);
+  });
+});
+
+describe('Brief.PREVIOUS_PROMPTS', () => {
+  it('includes the prompt eve wrote before #160, so existing briefs are refreshed', () => {
+    const mainPrompt = fs.readFileSync(path.join(__dirname, '../helpers/brief-prompt-main-160.txt'), 'utf8');
+    expect(Brief.PREVIOUS_PROMPTS).toContain(mainPrompt);
   });
 });
 
