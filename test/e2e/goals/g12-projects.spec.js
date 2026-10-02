@@ -82,6 +82,18 @@ test.describe('G12 projects', () => {
 const isPut = (id) => (r) => r.method() === 'PUT' && new URL(r.url()).pathname === `/api/projects/${id}`;
 const railItem = (page, name) => page.getByRole('navigation', { name: 'Projects' }).getByTitle(name, { exact: true });
 
+// ⌘K's project row for a name: 1 when the palette lists it, else 0.
+async function paletteProjectCount(page, name) {
+  await page.keyboard.press('ControlOrMeta+k');
+  await expect(page.getByTestId('palette-input')).toBeFocused();
+  const items = page.getByTestId('palette-item');
+  await expect(items.filter({ hasText: 'New project' })).toHaveCount(1);
+  const count = await items.filter({ hasText: name }).filter({ hasText: /\d+ sessions?/ }).count();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('palette-input')).toBeHidden();
+  return count;
+}
+
 async function editProject(page, name, id) {
   await railItem(page, name).click();
   await page.getByTestId(`sidebar-project-more-${id}`).click();
@@ -167,8 +179,11 @@ test.describe('G12 a Work project', () => {
     expect(request.postDataJSON().mode).toBe('home');
     await expect.poll(() => eve.relay.getProject('beta').mode).toBe('home');
     await expect(railItem(page, 'Beta Project')).toHaveCount(0);
+    expect(await paletteProjectCount(page, 'Alpha Project')).toBe(1);
+    expect(await paletteProjectCount(page, 'Beta Project')).toBe(0);
     await page.getByTestId('mode-home').click();
     await expect(railItem(page, 'Beta Project')).toBeVisible();
     await expect(page.getByTestId('home-project-beta')).toBeVisible();
+    expect(await paletteProjectCount(page, 'Beta Project')).toBe(1);
   });
 });

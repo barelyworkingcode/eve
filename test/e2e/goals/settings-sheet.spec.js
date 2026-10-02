@@ -155,11 +155,16 @@ test.describe('settings sheet on a touch iPad', () => {
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
     await openSidebar(page);
     const sheet = await openSheet(page);
-    const small = await sheet.evaluate((root) => [...root.querySelectorAll('button, a[href], input:not([type=hidden]), select, textarea, summary, [role=button], [role=switch]')]
+    // Measure the sheet at rest: while it slides in, nothing is visible yet.
+    await sheet.evaluate((root) => Promise.all(root.getAnimations({ subtree: true }).map((a) => a.finished)));
+    // A checkbox's touch target is its whole label row (decision 10).
+    const sizes = await sheet.evaluate((root) => [...root.querySelectorAll('button, a[href], input:not([type=hidden]), select, textarea, summary, [role=button], [role=switch]')]
       .filter((el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
-      .map((el) => [el.dataset.testid || (el.textContent || '').trim().slice(0, 20), el.getBoundingClientRect()])
-      .filter(([, r]) => r.width < 43.99 || r.height < 43.99)
-      .map(([id, r]) => `${id} ${r.width.toFixed(1)}x${r.height.toFixed(1)}`));
-    expect(small).toEqual([]);
+      .map((el) => {
+        const r = (el.closest('.dialog__checkbox-row') || el).getBoundingClientRect();
+        return { id: el.dataset.testid || (el.textContent || '').trim().slice(0, 20), w: r.width, h: r.height };
+      }));
+    expect(sizes.map((s) => s.id)).toEqual(expect.arrayContaining(['settings-done', 'settings-appearance-auto', 'settings-text-size', 'settings-voice', 'settings-hidden-files']));
+    expect(sizes.filter((s) => s.w < 43.99 || s.h < 43.99).map((s) => `${s.id} ${s.w.toFixed(1)}x${s.h.toFixed(1)}`)).toEqual([]);
   });
 });
