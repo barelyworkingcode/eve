@@ -144,16 +144,12 @@ test.describe('Send follows the connection state', () => {
   }
 });
 
-test('settings voice tab names the Qwen3 server daemons', async ({ page }) => {
+// Flipped by SX-A3/A7: the Voice tab's Qwen3 backend lines are gone; in a browser the
+// sheet's Voice group is the picker and speed, with no engine or daemon text.
+test('settings Voice group in a browser is the voice and speed pickers, with no engine text', async ({ page }) => {
   await page.evaluate(() => window.client.bus.emit('dialog:settings'));
   const dialog = page.getByTestId('dialog-settings-dialog');
-  await dialog.locator('.dialog__tab[data-tab="voice"]').click();
-  for (const text of [
-    'Server (Qwen3-TTS daemon)',
-    'Speech is synthesized by the local relayTTS daemon (Qwen3-TTS).',
-    'Server (Qwen3-ASR daemon)',
-    'Speech is transcribed by the local relaySTT daemon (Qwen3-ASR).',
-  ]) {
-    await expect(dialog.getByText(text, { exact: true })).toBeVisible();
-  }
+  await expect(dialog.getByTestId('settings-voice')).toBeVisible();
+  await expect(dialog.getByTestId('settings-voice-speed')).toBeVisible();
+  await expect(dialog.getByText(/Qwen3|Kokoro|Whisper/)).toHaveCount(0);
 });

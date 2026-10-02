@@ -34,7 +34,7 @@ Per-project policy relayLLM can't see is enforced at relay: `allowed_models` is 
 
 Eve is a relay proxy — it delegates all LLM concerns to relayLLM via HTTP/WS proxying and handles local concerns directly.
 
-**Project management is dual-surface.** Eve's `project-dialog.js` and the relay tray's native Projects tab both call the same `Settings.*Project*` mutators in relay, and an edit from either propagates live (relay fans out `onProjectsChanged`). Eve's dialog owns chat templates and permission policy; the relay tray owns per-tool MCP scoping, token rotation, and Skill regen.
+**Project management is dual-surface.** Eve's `project-dialog.js` and the relay tray's native Projects tab both call the same `Settings.*Project*` mutators in relay, and an edit from either propagates live (relay fans out `onProjectsChanged`). Eve's dialog owns chat templates and project mode; Relay owns models, MCPs (per-tool scoping included), permission policy, hosts, token rotation and Skill regen.
 
 ### Communication flow
 

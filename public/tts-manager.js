@@ -138,6 +138,7 @@ class TTSManager {
   setVoice(voiceId) {
     this.voice = voiceId;
     localStorage.setItem('eve-voice-preset', voiceId);
+    this._syncSelects(['voiceSelect'], voiceId);
     if (this.enabled) this.log.info(`Voice changed → ${voiceId}`);
   }
 
@@ -145,7 +146,17 @@ class TTSManager {
     const s = Math.min(2.0, Math.max(0.5, parseFloat(speed) || 1.0));
     this.speed = s;
     localStorage.setItem('eve-voice-speed', String(s));
+    this._syncSelects(['voiceSpeedSelect', 'voiceChatSpeedSelect'], String(s));
     this.log.info(`Playback speed → ${s}×`);
+  }
+
+  // Keep the composer's selects in step when a change comes from elsewhere
+  // (the settings sheet). Setting .value fires no change event.
+  _syncSelects(ids, value) {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el) el.value = value;
+    }
   }
 
   setBackend(name) {

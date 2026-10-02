@@ -60,4 +60,8 @@
     min-width: 44px;
     overflow: hidden;
   }
+
+  /* Settings sheet: the switch keeps its drawn size; the 44pt target is the
+     whole label row. */
+  .settings-sheet .dialog__checkbox-row { min-height: 44px; }
 }

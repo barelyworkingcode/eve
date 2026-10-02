@@ -633,12 +633,6 @@
   cursor: pointer;
 }
 
-/* Textarea in project dialog. */
-.project-dialog__textarea {
-  resize: vertical;
-  min-height: 64px;
-}
-
 /* Checkbox rows (permissions, options). */
 .project-dialog__checkbox-row {
   display: flex;
@@ -1019,127 +1013,53 @@
 }
 
 /* ==========================================================================
-   SETTINGS DIALOG (theme, colors, typography, voice, files)
+   SETTINGS SHEET (display, voice, modes, files, relay pointer)
    ========================================================================== */
 
-/* Color palette editor rows. */
-.settings-dialog__color-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  padding: var(--sp-3) 0;
-}
+.settings-sheet { max-width: 440px; }
 
-.settings-dialog__color-row + .settings-dialog__color-row {
-  border-top: 0.5px solid var(--separator);
-}
+.settings-sheet .dialog__title-bar { align-items: center; }
 
-.settings-dialog__color-label {
-  flex: 1;
-  font-size: var(--text-body);
-  color: var(--text-primary);
-}
-
-.settings-dialog__color-hex {
-  font-size: var(--text-callout);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  min-width: 62px;
-  text-align: right;
-}
-
-/* Color swatch input: tight circle. */
-.settings-dialog__color-input {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 2px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: none;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: border-color var(--dur-1);
-}
-
-.settings-dialog__color-input:hover { border-color: var(--accent); }
-
-.settings-dialog__color-input::-webkit-color-swatch-wrapper { padding: 2px; }
-.settings-dialog__color-input::-webkit-color-swatch {
-  border: none;
-  border-radius: var(--radius-xs);
-}
-
-/* Footer (Reset button). */
-.settings-dialog__footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--sp-5) var(--sp-6);
-  border-top: 0.5px solid var(--separator);
-  flex-shrink: 0;
-}
-
-/* Theme preset gallery. */
-.settings-dialog__preset-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--sp-4);
-}
-
-.settings-dialog__preset-group-label {
-  font-size: var(--text-footnote);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  margin: var(--sp-6) 0 var(--sp-4);
-}
-
-.settings-dialog__preset-card {
-  position: relative;
+.settings-sheet__body {
+  overflow-y: auto;
+  padding: 0 var(--sp-6) var(--sp-6);
   display: flex;
   flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.settings-sheet__heading {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-sheet__row {
+  display: flex;
   align-items: center;
-  gap: var(--sp-4);
-  padding: var(--sp-5);
-  background: var(--bg-tertiary);
-  border: 0.5px solid var(--separator);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding: var(--sp-2) 0;
+}
+
+.settings-sheet__row .dialog__select { width: auto; max-width: 60%; }
+
+.settings-sheet__label {
+  font-size: var(--text-callout);
   color: var(--text-primary);
-  transition: border-color var(--dur-1), background var(--dur-1);
+  flex-shrink: 0;
 }
 
-.settings-dialog__preset-card:hover {
-  border-color: var(--accent);
-  background: var(--bg-hover);
-}
+.settings-sheet__inline { display: flex; align-items: center; gap: var(--sp-4); }
+.settings-sheet__value { min-width: 2ch; text-align: right; color: var(--text-secondary); }
 
-.settings-dialog__preset-card--active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-
-.settings-dialog__preset-card--active::after {
-  content: '✓';
-  position: absolute;
-  top: var(--sp-3);
-  right: var(--sp-4);
-  font-size: var(--text-footnote);
-  font-weight: var(--weight-bold);
-  color: var(--accent);
-}
-
-.settings-dialog__preset-swatches { display: flex; gap: var(--sp-2); }
-
-.settings-dialog__preset-dot {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 0.5px solid rgba(255, 255, 255, 0.1);
-}
-
-.settings-dialog__preset-name {
-  font-size: var(--text-footnote);
+.settings-sheet__text {
+  margin: 0;
+  padding: var(--sp-2) 0;
+  font-size: var(--text-callout);
   color: var(--text-secondary);
 }
 
@@ -1177,23 +1097,6 @@
   font-weight: var(--weight-semibold);
   box-shadow: var(--shadow-1);
 }
-
-/* Colors tab: edit-palette header (segmented + label). */
-.settings-dialog__colors-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  margin-bottom: var(--sp-5);
-}
-
-.settings-dialog__colors-head-label {
-  font-size: var(--text-callout);
-  color: var(--text-secondary);
-  flex-shrink: 0;
-  font-weight: var(--weight-medium);
-}
-
-.settings-dialog__colors-head .settings-dialog__segmented { flex: 1; }
 
 /* ==========================================================================
    ANIMATIONS

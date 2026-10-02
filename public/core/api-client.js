@@ -29,7 +29,6 @@ class ApiClient {
   createProject(data) { return this._request('POST', '/api/projects', data); }
   updateProject(id, data) { return this._request('PUT', `/api/projects/${id}`, data); }
   deleteProject(id) { return this._request('DELETE', `/api/projects/${id}`); }
-  regenerateSkills(id) { return this._request('POST', `/api/projects/${id}/regen_skill`); }
 
   getSessions() { return this._request('GET', '/api/sessions'); }
 
@@ -39,10 +38,7 @@ class ApiClient {
 
   // SSH hosts (../relay/docs/ssh-hosts.md).
   getHosts() { return this._request('GET', '/api/hosts'); }
-  createHost(data) { return this._request('POST', '/api/hosts', data); }
   updateHost(id, data) { return this._request('PUT', `/api/hosts/${id}`, data); }
-  deleteHost(id) { return this._request('DELETE', `/api/hosts/${id}`); }
-  probeHost(id) { return this._request('POST', `/api/hosts/${id}/probe`); }
   disconnectHost(id) { return this._request('POST', `/api/hosts/${id}/disconnect`); }
 
   getTasks(projectId) {
