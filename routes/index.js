@@ -3,6 +3,7 @@ const { HIDDEN_SEARCH_PREFIX } = require('../search-summarizer');
 const path = require('path');
 const express = require('express');
 const { saveTerminalPaste, MAX_PASTE_BYTES } = require('../terminal-paste');
+const { projectAudit } = require('../project-audit');
 
 function isHiddenSession(name) {
   return (name || '').startsWith(HIDDEN_SEARCH_PREFIX);
@@ -265,6 +266,11 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
 
   app.delete('/api/terminal/templates/:id', requireAuth, (req, res) => {
     proxy(req, res, 'DELETE', `/api/terminal/templates/${req.params.id}`);
+  });
+
+  app.get('/api/projects/:id/audit', requireAuth, async (req, res) => {
+    const { status, body } = await projectAudit(relayTransport, req.params.id, resolveProject);
+    res.status(status).json(body);
   });
 
   // Persistent (tmux) sessions on a host project's remote host. relay owns
