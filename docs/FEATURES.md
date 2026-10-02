@@ -93,6 +93,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Streaming reply, Markdown, code, Mermaid | UI: `public/message-renderer.js` | Any reply | chat-reply (non-empty reply only) | chat |
 | Stop generation | UI: `chat-stop`; WS `stop_generation` | Stop button while replying | chat-reply (clicks Stop mid-reply) | chat |
 | Same chat open in two browsers | UI: `message-dispatcher.js` (`user_message` from another viewer) | Open one thread in a second browser, send from either | none yet — needs two browser contexts and a turn long enough to Send into; unit `message-dispatcher-stale-submit.test.js` only | chat |
+| Research sources: a row of source cards above an answer that used `brave_web_search`; matching links become numbered chips; a chip or card opens title, excerpt and Open source (design: `docs/design-research.md`) | UI: `public/core/sources.js`, `public/citations.js`, hooked from `message-renderer.js` | Any reply whose turn searched the web | research-citations (needs the `Research` test project, setup R1); cloud spec `goals/research-citations` | chat |
 | Thinking, tool-use and agent blocks | UI: `message-renderer.js` | Replies that use tools or think | none yet — model-dependent | chat |
 | Interactive question options | UI: `message-renderer.js` | Model offers choices | none yet — model-dependent | chat |
 | Errors shown in the thread | UI: `message-system.error` | A refused or failed turn | chat-reply (classifies FAIL/BLOCKED) | chat |
@@ -336,7 +337,7 @@ areas:
             test/unit/file-attachment-manager-init.test.js, test/integration/sessions.test.js,
             test/integration/session-*.test.js, test/integration/permissions.test.js, test/e2e/chat*.spec.js,
             test/e2e/template-blank-model.spec.js, test/e2e/goals/ask-elsewhere.spec.js]
-    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode]
+    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode, research-citations]
   terminal:
     code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,
            public/agent-board.js, public/core/terminal-text.js, public/apple/terminal.css, public/apple/agents.css]
