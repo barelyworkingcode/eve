@@ -14,6 +14,7 @@ class AskPart {
     this._pending = false;      // a create_session is in flight
     this._queued = false;       // Return was pressed before eve was ready (first start) or the model list arrived
     this._everConnected = false; // eve has authenticated at least once in this page load
+    this._projectsEverReady = false; // projects have loaded at least once in this page load
     this._failure = '';         // plain-words line from the last refusal
   }
 
@@ -85,7 +86,8 @@ class AskPart {
       'today:source:projects']) ctx.on(evt, () => this.update());
     // Before the first connect an offline socket is just boot, so a queued Ask waits.
     ctx.on(EVT.CONNECTION_CHANGED, () => { if (this._everConnected && !ctx.state.isOnline()) this._abandon(); });
-    for (const evt of [EVT.CONNECTION_CHANGED, EVT.PROJECTS_LOADED, 'today:source:projects', EVT.MODELS_LOADED]) {
+    for (const evt of [EVT.CONNECTION_CHANGED, EVT.MODE_CHANGED, EVT.PROJECTS_LOADED, 'today:source:projects',
+      'today:source:sessions', EVT.MODELS_LOADED]) {
       ctx.on(evt, () => this._retryQueued());
     }
     ctx.on(EVT.ASK_FAILED, ({ message }) => this._onFailed(message));
@@ -126,7 +128,12 @@ class AskPart {
       return { blocked: 'Not connected to eve. Your text is kept; try again once it reconnects.', transient: !this._everConnected };
     }
     if (state.connection.relay === false) return { blocked: "Can't reach relay." };
-    if (sources.projects.status !== 'ready') return { blocked: 'Loading projects…', transient: !this._everConnected || this._queued };
+    // A queued Ask also waits for the startup chain's thread load: it restores tabs
+    // right after, and a thread started in between would lose its messages.
+    if (this._queued && sources.projects.status === 'ready' && sources.sessions.status === 'loading') {
+      return { blocked: 'Loading projects…', transient: true };
+    }
+    if (sources.projects.status !== 'ready') return { blocked: 'Loading projects…', transient: !this._projectsEverReady || this._queued };
     if (state.projects.size === 0) return { blocked: 'Create a project to start asking.' };
 
     const candidates = state.getModeProjects().filter(p => !p.hostId && !p.host);
@@ -167,6 +174,7 @@ class AskPart {
     if (!this.el) return;
     const { state } = this.ctx;
     if (state.connection.browser) this._everConnected = true;
+    if (this.ctx.sources.projects.status === 'ready') this._projectsEverReady = true;
     // An item whose project was deleted can no longer be asked about.
     if (state.askAbout?.attachment && this.ctx.sources.projects.status === 'ready'
       && !state.projects.has(state.askAbout.projectId)) state.askAbout = null;
