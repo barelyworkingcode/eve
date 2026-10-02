@@ -159,6 +159,43 @@ describe('fake relay answers as relay does (direct)', () => {
   });
 });
 
+describe('attached files reach the provider as images (openai.go)', () => {
+  let relay;
+  let ws;
+  const frames = [];
+  beforeAll(async () => {
+    relay = createFakeRelay();
+    const port = await relay.listen();
+    ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    ws.on('message', (d) => frames.push(JSON.parse(d.toString())));
+    await new Promise((r) => ws.once('open', r));
+  });
+  afterAll(async () => { ws.close(); await relay.close(); });
+  const sendWith = async (sessionId, files) => {
+    frames.length = 0;
+    ws.send(JSON.stringify({ type: 'send_message', text: 'q', files, sessionId }));
+    await new Promise((r) => setTimeout(r, 150));
+    return frames.slice();
+  };
+
+  it('a text file is refused the way the model server refuses a non-image data URI', async () => {
+    const got = await sendWith('s-text', [{ name: 'a.txt', mimeType: 'text/plain', data: 'hello' }]);
+    expect(got).toEqual([{ type: 'error', message: 'chat: HTTP 400: image_url must use a base64 image data URI.', sessionId: 's-text' }]);
+  });
+
+  it('an image (explicit, defaulted or data: URI) goes through', async () => {
+    for (const f of [
+      { name: 'a.png', mimeType: 'image/jpeg', data: 'AAAA' },
+      { name: 'b', mimeType: '', data: 'AAAA' },
+      { name: 'c', mimeType: 'text/plain', data: 'data:image/png;base64,AAAA' },
+    ]) {
+      const got = await sendWith('s-img', [f]);
+      expect(got.some((x) => x.type === 'error')).toBe(false);
+      expect(got.some((x) => x.type === 'message_complete')).toBe(true);
+    }
+  });
+});
+
 describe('projects as relay serves them (project_dto.go, project_routes.go)', () => {
   let relay;
   let base;

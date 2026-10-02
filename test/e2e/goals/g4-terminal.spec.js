@@ -67,9 +67,14 @@ test.describe('G4 terminal', () => {
     await page.waitForFunction((id) => window.client.terminalManager?.allTerminals?.has(id), terminalId);
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(page.locator('#terminal')).toBeHidden();
+    // CHANGED by S5a-A3 (docs/design-workbench.md): the terminal used to be listed
+    // in the panel's Sessions tab. Now Today's agent board and the project page's
+    // Agents section list it; nothing opens until the page row is clicked.
+    await expect(page.getByTestId(`today-agent-${terminalId}`)).toBeVisible();
     await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha Project', { exact: true }).click();
-    await page.getByTestId('panel-tab-sessions').click();
-    await page.getByTestId(`sidebar-terminal-${terminalId}`).click();
+    await page.getByTestId('panel-project-page').click();
+    await expect(page.locator('#terminal')).toBeHidden();
+    await page.getByTestId(`project-agent-${terminalId}`).click();
     await expect(page.locator('#terminal')).toBeVisible();
     await expect.poll(() => screenText(page)).toMatch(/^survives-reload$/m);
     expect(eve.relay.listTerminals()).toHaveLength(1); // the same terminal, not a new one

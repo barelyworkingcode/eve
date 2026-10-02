@@ -37,15 +37,15 @@ for (const width of [390, 320]) {
       await expect(page.getByTestId('home-screen')).toBeHidden();
     });
 
-    test('A3 Threads -> sheet -> row -> Back', async ({ page }) => {
+    test('A3 Threads -> project page -> row -> Back', async ({ page }) => {
       await page.getByTestId('nav-threads').click();
-      await page.getByTestId('sidebar-session-s-reply').click();
+      await page.getByTestId('project-thread-s-reply').click();
       await expect(page.getByTestId('messages-container')).toContainText(REPLY);
       await expect(page.getByTestId('nav-back')).toBeVisible();
 
       await page.getByTestId('nav-back').click();
       await expectToday(page);
-      expect(await tabCount(page)).toBe(1);
+      expect(await tabCount(page)).toBe(2); // the project page and the thread stay open
     });
 
     // An image tab (an agent's generated image) has no hash; it is still a
@@ -93,8 +93,8 @@ test.describe('wide at 1366', () => {
     const length = () => page.evaluate(() => history.length);
     const before = await length();
     await openThreadFromToday(page);
-    await page.getByTestId('panel-tab-sessions').click();
-    await page.getByTestId('sidebar-session-s-two').click();
+    await page.getByTestId('panel-project-page').click();
+    await page.getByTestId('project-thread-s-two').click();
     await expect.poll(() => hash(page)).toBe('#session/s-two');
     await page.getByTestId('tab-s-reply').click();
     await expect.poll(() => hash(page)).toBe('#session/s-reply');

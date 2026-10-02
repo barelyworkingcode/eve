@@ -14,6 +14,7 @@ const EVT = {
   MODE_CHANGED: 'mode:changed',
   ASK_FAILED: 'ask:failed',
   ASK_SENT: 'ask:sent',
+  ASK_ABOUT: 'ask:about',
   SESSION_SWITCH: 'session:switch',
 
   PROJECTS_LOADED: 'projects:loaded',

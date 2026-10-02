@@ -404,16 +404,27 @@ class MessageRenderer {
     messageEl.className = 'message user';
     messageEl.dataset.testid = 'message-user';
 
-    const displayText = text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '').replace(/^\[DICTATED\][^\n]*\n\n/, '');
+    // A replayed message carries the inlined text of its attachments; show a chip
+    // per file instead (the live send passes `files`, with the text separate).
+    const inlined = AttachedFiles.parse(text);
+    const shownFiles = files.length > 0 ? files : inlined.files;
+    const displayText = inlined.text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '').replace(/^\[DICTATED\][^\n]*\n\n/, '');
 
-    let filesHtml = '';
-    if (files.length > 0) {
-      filesHtml = `<div class="message-files">${files.map(f =>
-        `<span class="message-file">${this.escapeHtml(f.name)}</span>`
-      ).join('')}</div>`;
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    if (shownFiles.length > 0) {
+      const filesEl = document.createElement('div');
+      filesEl.className = 'message-files';
+      for (const f of shownFiles) {
+        const chip = document.createElement('span');
+        chip.className = 'message-file';
+        chip.textContent = f.name;
+        filesEl.appendChild(chip);
+      }
+      content.appendChild(filesEl);
     }
-
-    messageEl.innerHTML = `<div class="message-content">${filesHtml}${this.escapeHtml(displayText)}</div>`;
+    content.appendChild(document.createTextNode(displayText));
+    messageEl.appendChild(content);
     this.messagesEl.appendChild(messageEl);
     this.scrollToBottom(true);
 

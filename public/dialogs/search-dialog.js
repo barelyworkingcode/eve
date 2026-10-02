@@ -184,6 +184,16 @@ class SearchDialog extends DialogBase {
     this._statusEl.className = 'search-dialog__status';
     body.appendChild(this._statusEl);
 
+    // "Ask about this": the matches shown, as path:line: text, go to Today's Ask (S5a-A4).
+    this._askBtn = document.createElement('button');
+    this._askBtn.type = 'button';
+    this._askBtn.className = 'search-dialog__ask';
+    this._askBtn.dataset.testid = 'search-dialog-ask';
+    this._askBtn.textContent = 'Ask about this';
+    this._askBtn.hidden = true;
+    this._askBtn.addEventListener('click', () => this._askAboutMatches());
+    body.appendChild(this._askBtn);
+
     this._aiSummaryEl = document.createElement('div');
     this._aiSummaryEl.className = 'search-dialog__ai-summary';
     this._aiSummaryEl.dataset.testid = 'search-dialog-ai-summary';
@@ -300,7 +310,17 @@ class SearchDialog extends DialogBase {
     this._renderLoading();
   }
 
+  _askAboutMatches() {
+    const shown = this._matches.slice(0, 200);
+    if (!shown.length) return;
+    const content = shown.map(m => `${m.file}:${m.lineNumber}: ${(m.lineText || '').replace(/[\r\n]+/g, ' ')}`).join('\n');
+    const projectId = this.projectId;
+    this.hide();
+    AskAbout.start(this.container, { projectId, attachment: { kind: 'search', name: 'search-results.txt', label: `${shown.length} result${shown.length === 1 ? '' : 's'} for ${this._lastQuery || this._queryInput.value}`, content } });
+  }
+
   _renderLoading() {
+    this._askBtn.hidden = true;
     this._statusEl.textContent = 'Searching…';
     this._resultsEl.innerHTML = '';
     this._resultRows = [];
@@ -308,6 +328,7 @@ class SearchDialog extends DialogBase {
   }
 
   _renderEmpty(message) {
+    this._askBtn.hidden = true;
     this._statusEl.textContent = '';
     this._resultsEl.innerHTML = '';
     const empty = document.createElement('div');
@@ -319,6 +340,7 @@ class SearchDialog extends DialogBase {
   }
 
   _renderError(message) {
+    this._askBtn.hidden = true;
     this._statusEl.textContent = '';
     this._resultsEl.innerHTML = '';
     const err = document.createElement('div');
@@ -333,6 +355,9 @@ class SearchDialog extends DialogBase {
     this._resultsEl.innerHTML = '';
     this._resultRows = [];
     this._selectedIndex = -1;
+
+    const project = this.state.getProject(this.projectId);
+    this._askBtn.hidden = this._matches.length === 0 || !!(project?.host || project?.hostId);
 
     if (this._matches.length === 0) {
       this._statusEl.textContent = 'No matches.';

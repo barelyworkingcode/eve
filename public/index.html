@@ -138,6 +138,8 @@
   <link rel="stylesheet" href="apple/home.css">
   <link rel="stylesheet" href="apple/palette.css">
   <link rel="stylesheet" href="apple/hosts.css">
+  <link rel="stylesheet" href="apple/project-page.css">
+  <link rel="stylesheet" href="apple/agents.css">
   <link rel="stylesheet" href="apple/auth.css">
   <link rel="stylesheet" href="apple/touch.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
@@ -387,6 +389,9 @@
 
         <!-- Git diff content area (diff tabs; built by diff-viewer.js) -->
         <div id="diffPane" class="diff-pane hidden" data-testid="diff-pane"></div>
+
+        <!-- Project page (project tabs; built by project-page.js) -->
+        <div id="projectPane" class="project-pane hidden" data-testid="project-pane"></div>
         </div><!-- /#contentArea -->
 
       </div>
@@ -520,6 +525,9 @@
   <script src="core/ui-utils.js"></script>
   <script src="core/task-schedule.js"></script>
   <script src="core/session-recents.js"></script>
+  <script src="core/terminal-text.js"></script>
+  <script src="core/unified-diff.js"></script>
+  <script src="core/attached-files.js"></script>
   <script src="core/settings-manager.js"></script>
   <script src="core/feature-registry.js"></script>
 
@@ -538,12 +546,15 @@
   <script src="panes/file-pane.js"></script>
   <script src="panes/session-pane.js"></script>
   <script src="panes/diff-pane.js"></script>
+  <script src="panes/project-pane.js"></script>
   <script src="tab-manager.js"></script>
   <script src="file-browser.js"></script>
   <script src="core/language-detect.js"></script>
   <script src="file-editor.js"></script>
   <script src="html-preview-pane.js"></script>
   <script src="diff-viewer.js"></script>
+  <script src="agent-board.js"></script>
+  <script src="project-page.js"></script>
   <script src="terminal-keybar.js"></script>
   <script src="remote-sessions.js"></script>
   <script src="terminal-manager.js"></script>
@@ -594,11 +605,13 @@
   <script src="today/sources.js"></script>
   <script src="today/today-ui.js"></script>
   <script src="today/parts/summary-part.js"></script>
+  <script src="today/ask-about.js"></script>
   <script src="today/parts/ask-part.js"></script>
   <script src="today/parts/needs-you-part.js"></script>
   <script src="today/parts/start-part.js"></script>
   <script src="today/parts/continue-part.js"></script>
   <script src="today/parts/running-part.js"></script>
+  <script src="today/parts/agents-part.js"></script>
   <script src="today/parts/projects-part.js"></script>
   <script src="home-screen.js"></script>
 

@@ -72,6 +72,17 @@ async function openProject(page, env, project) {
     expect(page.locator('#panelTitle')).toHaveText(project.name, { timeout: 10000 }));
 }
 
+// The project's page from the panel's Project page button; returns the page.
+async function openProjectPage(page, env, project) {
+  await openProject(page, env, project);
+  env.step(`open ${project.name}'s project page`);
+  await page.getByTestId('panel-project-page').click({ timeout: 10000 });
+  const projectPage = page.getByTestId(`project-page-${project.id}`);
+  await need(`${project.name}'s project page did not open`,
+    expect(projectPage.getByRole('heading', { name: 'Threads' })).toBeVisible({ timeout: 10000 }));
+  return projectPage;
+}
+
 async function worldIds(env, projects, kind) {
   const snap = await env.api.snapshot(projects);
   return snap[kind].filter((i) => i.world).map((i) => i.id);
@@ -252,7 +263,7 @@ async function overflow(page) {
 
 module.exports = {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
-  openEve, waitForModels, openProject, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
+  openEve, waitForModels, openProject, openProjectPage, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt,
   DEVICES, smallTargets, overflowProblems, sweep, overflow,
 };

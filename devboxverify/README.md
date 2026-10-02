@@ -201,9 +201,11 @@ Whether it answered correctly goes in the detail, not the verdict.
   Allowed templates gate the session kind. The "Chat" card
   (`shell-card-chat`) is a terminal template, not web chat.
 
-**open-existing-thread.** In a fresh browser, the thread from chat-reply
-opens from the Sessions tab with its question and reply.
-- Lives in: Sessions tab → `app.joinSession` →
+**open-existing-thread.** In a fresh browser each time, the thread from
+chat-reply opens from the project page's Threads, from Continue on Home and
+from ⌘K, with its question and reply, and no door creates a session.
+- Lives in: `panel-project-page` → `public/project-page.js`
+  (`project-thread-<id>`) → `app.joinSession` →
   `public/message-dispatcher.js` (`handleSessionJoined`).
 - Traps: thread labels come from recents or relay's preview.
   `eve-open-sessions` reopens threads in a reused profile. BLOCKED when
@@ -211,16 +213,22 @@ opens from the Sessions tab with its question and reply.
 
 **terminal-on-request.** No terminal opens until asked; "World probe" then
 opens one that runs a command. After a reload no terminal opens by itself
-(checked over a settle period); the live terminal is listed in the Sessions
-panel and opens on click, with its output and a second command answering.
+(checked over a settle period). Today's agent board lists the live terminal
+with a non-empty last line and opens no pane; the project page's Agents
+lists it too (in a second browser). A tap on the Today row opens it, with its
+output and a second command answering. Exactly one new Acme Corp terminal.
 - Lives in: `GET /api/terminal/templates?project=` → WS `terminal_create` →
-  `public/terminal-manager.js`.
-- Traps: templates are per project. The reloaded page lists the terminal in the Sessions panel (`sidebar-terminal-<id>`); it is never reopened for you.
+  `public/terminal-manager.js`; `public/agent-board.js` (`today-agent-<id>`,
+  `project-agent-<id>`), last line from `GET /api/terminals/:id/log`.
+- Traps: templates are per project. The reloaded page only lists the
+  terminal; it is never reopened for you. The detail quotes the last line.
 
-**task-created-listed.** An on-demand chat task is created and still listed
-after a reload.
-- Lives in: Tasks tab → `public/dialogs/task-dialog.js` →
-  `POST /api/tasks` → `public/task-manager.js`.
+**task-created-listed.** An on-demand chat task is created from the project
+page's Tasks, is the one new Acme Corp task, and is still listed there after a
+reload; Run Now replies and its last run shows the reply in a fresh browser.
+- Lives in: `project-task-new-<id>` → `public/dialogs/task-dialog.js` →
+  `POST /api/tasks` → `public/project-page.js` (`project-task-<taskId>`),
+  `public/task-manager.js`.
 - Traps: "On demand" never fires. Delete uses a native `confirm()`. Models
   are filtered by `allowed_models`.
 
@@ -251,6 +259,19 @@ thread.
   (bottom bar, Back), `public/tab-manager.js` (`_updateHash`, `showToday`).
 - Traps: creates one Acme session. BLOCKED when the model is not offered or
   the launch is refused.
+
+**ask-about-file.** A scratch file holding a random code word, open in the
+editor, goes through the tree's context menu → Ask about this: Today shows,
+the Ask chip names the file and Ask has focus. Asking for the code word and
+pressing Return makes exactly one new Acme Corp thread whose question lists
+the file, and the reply is non-empty. Whether the reply names the code word is
+in the detail, not the verdict.
+- Lives in: `public/sidebar/file-tree-node.js` → `public/today/ask-about.js`
+  → `public/today/parts/ask-part.js` (`today-ask-attachment`) →
+  `app.sendUserText` (`user_input.files`).
+- Traps: Ask has no model menu; the journey puts `EVE_VERIFY_MODEL` in
+  `eve-ask-model`, as a returning user's last model, and is BLOCKED when Acme
+  Corp does not allow it. The file lives in a `verify-<nonce>-ask-*` folder.
 
 ## One-time setup
 

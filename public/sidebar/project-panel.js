@@ -1,6 +1,6 @@
 class ProjectPanel {
   static TAB_STORAGE_KEY = 'eve-active-tab';
-  static FOLDERS_COLLAPSED_KEY = 'eve-session-folders-collapsed';
+  static TABS = ['files', 'changes'];
 
   constructor(container, fileTreeNode) {
     this.container = container;
@@ -39,9 +39,9 @@ class ProjectPanel {
     this.render();
   }
 
-  // Show `key` as the panel's tab (the bottom bar's Threads opens Sessions).
+  // Show `key` as the panel's tab.
   openTab(key) {
-    if (!['files', 'sessions', 'tasks', 'changes'].includes(key)) return;
+    if (!ProjectPanel.TABS.includes(key)) return;
     this.activeTab = key;
     this._saveTab();
     this.render();
@@ -73,18 +73,9 @@ class ProjectPanel {
     this._renderActionBar();
   }
 
-  _refresh() {
-    if (!this.projectId || !this.state.getProject(this.projectId)) return;
-    this._renderHeaderActions();
-    this._renderTabs();
-    this._renderContent();
-  }
-
   _tabs() {
     return [
       { key: 'files', label: 'Files', icon: PANEL_ICONS.files, count: null },
-      { key: 'sessions', label: 'Sessions', icon: PANEL_ICONS.sessions, count: this._sectionCount('sessions') },
-      { key: 'tasks', label: 'Tasks', icon: PANEL_ICONS.tasks, count: this._sectionCount('tasks') },
       { key: 'changes', label: 'Changes', icon: PANEL_ICONS.changes, count: this.changesPanel.count() },
     ];
   }
@@ -130,22 +121,6 @@ class ProjectPanel {
     }
   }
 
-  _sectionCount(key) {
-    if (key === 'tasks') {
-      return this.state.getTasksForProject(this.projectId).length;
-    }
-    if (key === 'sessions') {
-      const sessionCount = this.state.getSessionsForProject(this.projectId)
-        .filter(s => !this.state.isTaskRun(s.id)).length;
-      const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
-      const project = this.state.getProject(this.projectId);
-      const terminalCount = (termMgr?.getTerminalsForPath(project?.path, project?.hostId || '') || [])
-        .filter(t => !this.state.isTaskRun(t.id)).length;
-      return sessionCount + terminalCount;
-    }
-    return null;
-  }
-
   _renderHeaderActions() {
     this.headerActionsEl.innerHTML = '';
     if (this.activeTab === 'files') {
@@ -154,15 +129,15 @@ class ProjectPanel {
       this.headerActionsEl.appendChild(this._iconBtn('Refresh', UI_ICONS.refresh(16),
         () => this.fileTreeNode.refreshRoot(this.projectId)));
     }
-    if (this.activeTab === 'sessions') {
-      this.headerActionsEl.appendChild(this._iconBtn('New Folder', UI_ICONS.newFolder(16),
-        () => this.container.get('app').createSessionFolder(this.projectId),
-        `sidebar-new-session-folder-${this.projectId}`));
-    }
     if (this.activeTab === 'changes') {
       this.headerActionsEl.appendChild(this._iconBtn('Refresh', UI_ICONS.refresh(16),
         () => this.changesPanel.refresh(), 'changes-refresh'));
     }
+    this.headerActionsEl.appendChild(this._iconBtn('Project page', PANEL_ICONS.page,
+      () => {
+        this.container.get('projectPage').open(this.projectId);
+        this._closeSidebarOnMobile();
+      }, 'panel-project-page'));
     this.headerActionsEl.appendChild(this._iconBtn('Search', UI_ICONS.search(16),
       () => this.bus.emit(EVT.DIALOG_SEARCH, { projectId: this.projectId }),
       `sidebar-project-search-${this.projectId}`));
@@ -187,8 +162,6 @@ class ProjectPanel {
   _renderContent() {
     this.contentEl.innerHTML = '';
     switch (this.activeTab) {
-      case 'sessions': return this._renderSessionsContent(this.contentEl);
-      case 'tasks': return this._renderTasksContent(this.contentEl);
       case 'changes': return this.changesPanel.render(this.contentEl);
       case 'files':
       default: return this._renderFilesContent(this.contentEl);
@@ -200,6 +173,7 @@ class ProjectPanel {
   _onChangesUpdate({ focusTestId } = {}) {
     if (!this.projectId || !this.state.getProject(this.projectId)) return;
     this._renderTabs();
+    if (this.container.has('projectPage')) this.container.get('projectPage').refreshChanges();
     if (this.activeTab !== 'changes') return;
     const scrollTop = this.contentEl.scrollTop;
     const active = document.activeElement;
@@ -220,419 +194,6 @@ class ProjectPanel {
     treeContainer.dataset.projectId = this.projectId;
     this.fileTreeNode.renderTree(this.projectId, treeContainer);
     container.appendChild(treeContainer);
-  }
-
-  _renderTasksContent(container) {
-    const tasks = this.state.getTasksForProject(this.projectId);
-    const taskViewer = this.container.get('taskViewer');
-
-    for (const task of tasks) {
-      const hasLastRun = taskViewer.hasLastRun(task);
-
-      const item = document.createElement('div');
-      item.className = 'project-tree__task-item';
-      item.dataset.testid = `sidebar-task-${task.id}`;
-      if (hasLastRun) item.style.cursor = 'pointer';
-
-      const nameEl = document.createElement('span');
-      nameEl.className = 'project-tree__task-name';
-      nameEl.textContent = task.name;
-      item.appendChild(nameEl);
-
-      const schedEl = document.createElement('span');
-      schedEl.className = 'project-tree__task-schedule';
-      schedEl.textContent = this._formatSchedule(task.schedule);
-      item.appendChild(schedEl);
-
-      const actions = document.createElement('span');
-      actions.className = 'project-tree__task-actions';
-
-      const runBtn = document.createElement('button');
-      runBtn.className = 'project-tree__task-btn';
-      runBtn.title = 'Run Now';
-      runBtn.innerHTML = UI_ICONS.shell(12);
-      runBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._runTask(task);
-        this._closeSidebarOnMobile();
-      });
-      actions.appendChild(runBtn);
-
-      const editBtn = document.createElement('button');
-      editBtn.className = 'project-tree__task-btn';
-      editBtn.title = 'Edit';
-      editBtn.innerHTML = UI_ICONS.more(12);
-      editBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId, editTaskId: task.id });
-      });
-      actions.appendChild(editBtn);
-
-      item.addEventListener('click', () => {
-        if (!hasLastRun) return;
-        taskViewer.openLastRun(task);
-        this._closeSidebarOnMobile();
-      });
-
-      item.appendChild(actions);
-      container.appendChild(item);
-    }
-
-    const newItem = document.createElement('div');
-    newItem.className = 'project-tree__task-item project-tree__task-item--new';
-    newItem.dataset.testid = `sidebar-task-new-${this.projectId}`;
-    const label = document.createElement('span');
-    label.className = 'project-tree__task-name';
-    label.textContent = '+ New Task';
-    newItem.appendChild(label);
-    newItem.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.bus.emit(EVT.DIALOG_TASK, { projectId: this.projectId });
-      this._closeSidebarOnMobile();
-    });
-    container.appendChild(newItem);
-  }
-
-  async _runTask(task) {
-    try {
-      const taskManager = this.container.has('taskManager') ? this.container.get('taskManager') : null;
-      if (taskManager) taskManager.userTriggeredRuns.add(task.id);
-      await this.container.get('api').runTask(task.id);
-    } catch (err) {
-      this.log.error('Failed to run task:', err);
-    }
-  }
-
-  _formatSchedule(schedule) {
-    if (!schedule) return '';
-    switch (schedule.type) {
-      case 'daily': return `Daily ${schedule.time || '09:00'}`;
-      case 'hourly': return `Hourly :${schedule.minute || '00'}`;
-      case 'weekly': return `${TaskSchedule.shortDay(schedule.day || 'monday')} ${schedule.time || '09:00'}`;
-      case 'cron': return schedule.expression || 'cron';
-      case 'interval': return `Every ${schedule.minutes || 60}m`;
-      case 'once': return 'Once';
-      case 'on_demand': return 'On demand';
-      default: return schedule.type || '';
-    }
-  }
-
-  _renderSessionsContent(container) {
-    const project = this.state.getProject(this.projectId);
-    const sessions = this.state.getSessionsForProject(this.projectId)
-      .filter(s => !this.state.isTaskRun(s.id));
-    const termMgr = this.container?.has('terminalManager') ? this.container.get('terminalManager') : null;
-    const terminals = (termMgr?.getTerminalsForPath(project?.path, project?.hostId || '') || [])
-      .filter(t => !this.state.isTaskRun(t.id));
-
-    if (sessions.length === 0 && terminals.length === 0) {
-      this._renderEmpty(container, 'No sessions yet. Start one below.');
-      return;
-    }
-
-    for (const terminal of terminals) {
-      this._renderTerminalItem(container, terminal);
-    }
-
-    // Union, not just declared folders: a half-applied folder rename can't
-    // hide a session, and a pre-folders session (folder "") always lands in
-    // Ungrouped.
-    const declared = project?.sessionFolders || [];
-    const folderNames = [...declared];
-    for (const s of sessions) {
-      const f = (s.folder || '').trim();
-      if (f && !folderNames.includes(f)) folderNames.push(f);
-    }
-
-    const byFolder = new Map();
-    const ungrouped = [];
-    for (const s of sessions) {
-      const f = (s.folder || '').trim();
-      if (f && folderNames.includes(f)) {
-        if (!byFolder.has(f)) byFolder.set(f, []);
-        byFolder.get(f).push(s);
-      } else {
-        ungrouped.push(s);
-      }
-    }
-
-    // No folders anywhere → flat list, matching the pre-folders UI so
-    // existing projects render unchanged.
-    if (folderNames.length === 0) {
-      for (const s of ungrouped) this._renderSessionRow(container, s, project);
-      return;
-    }
-
-    for (const name of folderNames) {
-      this._renderFolderGroup(container, project, name, byFolder.get(name) || []);
-    }
-    if (ungrouped.length > 0) {
-      this._renderFolderGroup(container, project, '', ungrouped);
-    }
-  }
-
-  _renderFolderGroup(container, project, name, sessions) {
-    const isUngrouped = name === '';
-    const collapseKey = `${this.projectId}/${name}`;
-    const collapsed = this._collapsedFolders().has(collapseKey);
-
-    const header = document.createElement('div');
-    header.className = `project-tree__folder-header${collapsed ? ' project-tree__folder-header--collapsed' : ''}`;
-    header.dataset.testid = `sidebar-folder-${this.projectId}-${isUngrouped ? '__ungrouped__' : name}`;
-
-    const caret = document.createElement('span');
-    caret.className = 'project-tree__folder-caret';
-    caret.innerHTML = UI_ICONS.caret(12);
-    header.appendChild(caret);
-
-    const nameEl = document.createElement('span');
-    nameEl.className = 'project-tree__folder-name';
-    nameEl.textContent = isUngrouped ? 'Ungrouped' : name;
-    header.appendChild(nameEl);
-
-    const count = document.createElement('span');
-    count.className = 'project-tree__folder-count';
-    count.textContent = String(sessions.length);
-    header.appendChild(count);
-
-    if (!isUngrouped) {
-      const menuBtn = document.createElement('button');
-      menuBtn.type = 'button';
-      menuBtn.className = 'project-tree__folder-menu-btn';
-      menuBtn.title = 'Folder actions';
-      menuBtn.innerHTML = UI_ICONS.more(14);
-      menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._showFolderMenu(e.clientX, e.clientY, name);
-      });
-      header.appendChild(menuBtn);
-      header.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        this._showFolderMenu(e.clientX, e.clientY, name);
-      });
-    }
-
-    header.addEventListener('click', () => this._toggleFolderCollapsed(collapseKey));
-    container.appendChild(header);
-
-    if (collapsed) return;
-    for (const s of sessions) this._renderSessionRow(container, s, project);
-  }
-
-  _renderSessionRow(container, session, project) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'project-tree__session-swipe';
-
-    const deleteAction = document.createElement('div');
-    deleteAction.className = 'project-tree__session-delete';
-    deleteAction.textContent = 'Delete';
-    deleteAction.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.container.get('app').deleteSession(session.id);
-    });
-
-    const item = document.createElement('div');
-    const isActive = session.id === this.state.currentSessionId;
-    item.className = `project-tree__session-item${isActive ? ' project-tree__session-item--active' : ''}`;
-    item.dataset.testid = `sidebar-session-${session.id}`;
-
-    const nameEl = document.createElement('span');
-    nameEl.className = 'project-tree__session-name';
-    const displayName = sessionDisplayName(session, project) || session.id;
-    nameEl.textContent = displayName;
-    nameEl.title = displayName;
-    item.appendChild(nameEl);
-
-    // A dot means a turn is in progress, not that the provider process is alive.
-    const activity = this.container.has('sessionActivity') ? this.container.get('sessionActivity').statusOf(session.id) : 'idle';
-    if (activity === 'running') {
-      const live = document.createElement('span');
-      live.className = 'project-tree__live';
-      live.title = 'Running';
-      item.appendChild(live);
-    }
-
-    const openedAt = this._sessionOpenedAt(session);
-    if (openedAt) {
-      const time = document.createElement('span');
-      time.className = 'project-tree__session-time';
-      time.textContent = relativeTime(openedAt);
-      time.title = new Date(openedAt).toLocaleString();
-      item.appendChild(time);
-    }
-
-    if (session.model) {
-      const badge = document.createElement('span');
-      badge.className = 'project-tree__session-badge';
-      const modelParts = session.model.split('/');
-      badge.textContent = modelParts[modelParts.length - 1];
-      item.appendChild(badge);
-    }
-
-    const swipeState = { swiped: false, menuOpened: false };
-
-    item.addEventListener('click', (e) => {
-      // Also keeps a long-press's synthesized click from reaching the
-      // just-opened context menu's outside-click closer.
-      e.stopPropagation();
-      if (swipeState.swiped || swipeState.menuOpened ||
-          wrapper.classList.contains('project-tree__session-swipe--open')) return;
-      this.container.get('app').joinSession(session.id);
-      this._closeSidebarOnMobile();
-    });
-
-    item.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      this._showSessionMenu(e.clientX, e.clientY, session);
-    });
-
-    this._attachSwipe(wrapper, item, swipeState);
-    this._attachLongPress(item, swipeState, (x, y) => this._showSessionMenu(x, y, session));
-
-    wrapper.appendChild(deleteAction);
-    wrapper.appendChild(item);
-    container.appendChild(wrapper);
-  }
-
-  // Local "last opened" wins (it's what you did); otherwise the server's
-  // last-message / created time, when the list carries them.
-  _sessionOpenedAt(session) {
-    const local = (typeof SessionRecents !== 'undefined') ? SessionRecents.get(session.id)?.lastOpenedAt : null;
-    if (local) return local;
-    const server = Date.parse(session.lastMessageAt || session.createdAt || '');
-    return Number.isNaN(server) ? null : server;
-  }
-
-  _showSessionMenu(x, y, session) {
-    const app = this.container.get('app');
-    showContextMenu(x, y, [
-      { label: 'Rename', action: () => app.renameSession(session.id) },
-      { label: 'Move to folder…', action: () => this._showMoveToFolderMenu(x, y, session) },
-      { separator: true },
-      { label: 'Delete', danger: true, action: () => app.deleteSession(session.id) },
-    ]);
-  }
-
-  _showMoveToFolderMenu(x, y, session) {
-    const app = this.container.get('app');
-    const current = session.folder || '';
-    const folders = app._projectFolders(this.projectId);
-    const items = [
-      { label: `${current === '' ? '✓ ' : ''}Ungrouped`, action: () => app.setSessionFolder(session.id, '') },
-    ];
-    for (const f of folders) {
-      items.push({ label: `${current === f ? '✓ ' : ''}${f}`, action: () => app.setSessionFolder(session.id, f) });
-    }
-    items.push({ separator: true });
-    items.push({ label: 'New folder…', action: () => app.moveSessionToNewFolder(session.id) });
-    showContextMenu(x, y, items);
-  }
-
-  _showFolderMenu(x, y, name) {
-    const app = this.container.get('app');
-    showContextMenu(x, y, [
-      { label: 'Rename Folder', action: () => app.renameSessionFolder(this.projectId, name) },
-      { label: 'Delete Folder', danger: true, action: () => app.deleteSessionFolder(this.projectId, name) },
-    ]);
-  }
-
-  _collapsedFolders() {
-    try {
-      const raw = localStorage.getItem(ProjectPanel.FOLDERS_COLLAPSED_KEY);
-      return new Set(raw ? JSON.parse(raw) : []);
-    } catch (_) {
-      return new Set();
-    }
-  }
-
-  _toggleFolderCollapsed(key) {
-    const set = this._collapsedFolders();
-    if (set.has(key)) set.delete(key); else set.add(key);
-    try {
-      localStorage.setItem(ProjectPanel.FOLDERS_COLLAPSED_KEY, JSON.stringify([...set]));
-    } catch (_) { /* storage full / disabled — collapse just won't persist */ }
-    this._renderContent();
-  }
-
-  _attachLongPress(item, swipeState, openMenu) {
-    const DURATION = 500;
-    let timer = null;
-    let startX = 0;
-    let startY = 0;
-    const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
-
-    item.addEventListener('touchstart', (e) => {
-      const t = e.touches[0];
-      startX = t.clientX;
-      startY = t.clientY;
-      swipeState.menuOpened = false;
-      clear();
-      timer = setTimeout(() => {
-        timer = null;
-        swipeState.menuOpened = true;
-        openMenu(startX, startY);
-      }, DURATION);
-    }, { passive: true });
-
-    item.addEventListener('touchmove', (e) => {
-      const t = e.touches[0];
-      if (Math.abs(t.clientX - startX) > 10 || Math.abs(t.clientY - startY) > 10) clear();
-    }, { passive: true });
-
-    item.addEventListener('touchend', clear, { passive: true });
-    item.addEventListener('touchcancel', clear, { passive: true });
-  }
-
-  _renderTerminalItem(container, terminal) {
-    const item = document.createElement('div');
-    item.className = 'project-tree__session-item';
-    item.dataset.testid = `sidebar-terminal-${terminal.id}`;
-
-    const iconEl = document.createElement('span');
-    iconEl.className = 'project-tree__terminal-icon';
-    iconEl.innerHTML = UI_ICONS.shell(12);
-    item.appendChild(iconEl);
-
-    const nameEl = document.createElement('span');
-    nameEl.className = 'project-tree__session-name';
-    const project = this.state.getProject(this.projectId);
-    let displayName = terminal.name || terminal.templateId || 'Terminal';
-    if (project && displayName.startsWith(project.name + ' - ')) {
-      displayName = displayName.slice(project.name.length + 3);
-    }
-    // A persistent host terminal is named after its tmux session; show the
-    // same "<Template> #n" label its tab does, with the session name on hover.
-    const friendly = typeof persistSessionLabel === "function"
-      ? persistSessionLabel(displayName, this.state.terminalTemplates || [])
-      : displayName;
-    if (friendly !== displayName) nameEl.title = displayName;
-    nameEl.textContent = friendly;
-    item.appendChild(nameEl);
-
-    const isRunning = terminal.state !== 'stopped';
-    const badge = document.createElement('span');
-    badge.className = `project-tree__session-badge${isRunning ? ' project-tree__session-badge--running' : ''}`;
-    badge.textContent = isRunning ? 'open' : 'stopped';
-    item.appendChild(badge);
-
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const tabMgr = this.container.has('tabManager') ? this.container.get('tabManager') : null;
-      const termMgr = this.container.has('terminalManager') ? this.container.get('terminalManager') : null;
-      // A terminal relay lists has no tab until it is asked for.
-      if (tabMgr?.tabs.some(t => t.id === terminal.id)) tabMgr.switchToTab(terminal.id);
-      else if (termMgr) termMgr.openTaskTerminal(terminal.id);
-      this._closeSidebarOnMobile();
-    });
-
-    container.appendChild(item);
-  }
-
-  _renderEmpty(container, message) {
-    const el = document.createElement('div');
-    el.className = 'project-tree__section-empty';
-    el.textContent = message;
-    container.appendChild(el);
   }
 
   _iconBtn(title, iconHtml, onClick, testid) {
@@ -683,84 +244,10 @@ class ProjectPanel {
     if (app?.closeSidebarOnMobile) app.closeSidebarOnMobile();
   }
 
-  _attachSwipe(wrapper, item, swipeState) {
-    const DELETE_WIDTH = 64;
-    const THRESHOLD = 20;
-    let startX = 0;
-    let startY = 0;
-    let currentX = 0;
-    let swiping = false;
-    let locked = false;
-
-    item.addEventListener('touchstart', (e) => {
-      const touch = e.touches[0];
-      startX = touch.clientX;
-      startY = touch.clientY;
-      currentX = 0;
-      swiping = false;
-      locked = false;
-      swipeState.swiped = false;
-      item.style.transition = 'none';
-    }, { passive: true });
-
-    item.addEventListener('touchmove', (e) => {
-      const touch = e.touches[0];
-      const dx = touch.clientX - startX;
-      const dy = touch.clientY - startY;
-
-      if (!locked && (Math.abs(dx) > THRESHOLD || Math.abs(dy) > THRESHOLD)) {
-        if (Math.abs(dy) > Math.abs(dx)) {
-          swiping = false;
-          return;
-        }
-        locked = true;
-        swiping = true;
-        window._sidebarSwipeLocked = true;
-      }
-
-      if (!swiping) return;
-      e.preventDefault();
-
-      currentX = Math.max(-DELETE_WIDTH * 1.2, Math.min(0, dx));
-      item.style.transform = `translateX(${currentX}px)`;
-    }, { passive: false });
-
-    item.addEventListener('touchend', () => {
-      if (!swiping) {
-        window._sidebarSwipeLocked = false;
-        return;
-      }
-      swipeState.swiped = true;
-      item.style.transition = 'transform 0.2s ease';
-      if (currentX < -DELETE_WIDTH / 2) {
-        item.style.transform = `translateX(${-DELETE_WIDTH}px)`;
-        wrapper.classList.add('project-tree__session-swipe--open');
-      } else {
-        item.style.transform = '';
-        wrapper.classList.remove('project-tree__session-swipe--open');
-      }
-      setTimeout(() => { window._sidebarSwipeLocked = false; }, 300);
-    }, { passive: true });
-
-    item.addEventListener('touchstart', () => {
-      const parent = wrapper.parentElement;
-      if (!parent) return;
-      for (const el of parent.querySelectorAll('.project-tree__session-swipe--open')) {
-        if (el !== wrapper) {
-          el.classList.remove('project-tree__session-swipe--open');
-          const inner = el.querySelector('.project-tree__session-item');
-          if (inner) {
-            inner.style.transition = 'transform 0.2s ease';
-            inner.style.transform = '';
-          }
-        }
-      }
-    }, { passive: true });
-  }
-
   _restoreTab() {
     const t = localStorage.getItem(ProjectPanel.TAB_STORAGE_KEY);
-    return ['files', 'sessions', 'tasks', 'changes'].includes(t) ? t : 'files';
+    // A stored sessions or tasks tab (removed in S5a) opens Files.
+    return ProjectPanel.TABS.includes(t) ? t : 'files';
   }
 
   _saveTab() {
@@ -771,12 +258,6 @@ class ProjectPanel {
     if (this._subscribed) return;
     this._subscribed = true;
 
-    const refresh = () => this._refresh();
-    this.bus.on(EVT.TASKS_LOADED, refresh);
-    this.bus.on(EVT.TASK_UPDATED, refresh);
-    this.bus.on(EVT.SESSION_UPDATED, refresh);
-    this.bus.on(EVT.SESSION_REMOVED, refresh);
-    this.bus.on(EVT.TERMINAL_LIST, refresh);
     if (EVT.HOST_STATUS) {
       this.bus.on(EVT.HOST_STATUS, ({ hostId }) => {
         const project = this.state.getProject(this.projectId);
@@ -826,8 +307,7 @@ class ProjectPanel {
 
 const PANEL_ICONS = {
   files: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9 1.5H4.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5z"/><path d="M9 1.5V5h3.5"/></svg>',
-  sessions: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5h12v7H9l-3 2.5V11.5H2z"/></svg>',
-  tasks: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg>',
+  page: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5"/><path d="M5 5.5h6M5 8h6M5 10.5h3.5"/></svg>',
   changes: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="4.5" r="1.5"/><path d="M5 5v6"/><path d="M11 6c0 3-6 2.5-6 5"/></svg>',
   branchSmall: '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="4.5" r="1.5"/><path d="M5 5v6"/><path d="M11 6c0 3-6 2.5-6 5"/></svg>',
   plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',

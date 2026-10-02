@@ -70,6 +70,25 @@ failure (`test.fail`) that goes red the moment it is fixed.
   Behaviours pinned as they stand: on compact, Today → thread → Back shows
   Today with no hash and keeps the tab open; the slide-over closes on any
   navigation; resuming a page after 60 minutes returns to Today.
+- **S5a (#131) flips on purpose.** The panel's tabs are Files and Changes, so
+  the specs that read the Sessions or Tasks tab now go through
+  `panel-project-page` and the page's `project-thread-*`, `project-task-*` and
+  `project-threads-count` (`g3-reopen-thread`, `g5-tasks`, `g2-g8-chat`,
+  `today-truth`, `layout-touch`, `layout-overflow`, `layout-nav`, `app`;
+  `unit/changes-panel`'s tab list). `nav-threads` on compact opens the project
+  page; Today -> page -> thread -> Back still lands on Today. The terminal specs
+  (`g4-terminal`, `today-front-door`) reach a held terminal through the
+  `today-agent-*` row; "no tab before the click" is unchanged. New:
+  `goals/workbench-page`, `workbench-agents`, `workbench-ask-about`; unit
+  `terminal-text`, `unified-diff`, `ask-about`. The `sidebar-session-*`,
+  `sidebar-terminal-*` and `sidebar-task-*` ids are retired. Journeys that flip:
+  `open-existing-thread` (door becomes Project page), `terminal-on-request`
+  (the board lists the probe), `task-created-listed` (page Tasks); `ask-about-file`
+  is new. Visual baselines for the panel tabs are re-taken by the owner on macOS.
+  Behaviours pinned as they stand: the page's Changes count shows only while the
+  panel's active project is the page's; the board shows "+N more" beyond 20 rows
+  and fetches a last line only for the first 20; a terminal already stopped when
+  listed says "exited" with no code.
 - **The ⌘K palette is a snapshot** of what is loaded when it opens.
 - **Deleting a project asks twice**: a native `confirm()`, then the modal that
   says what is lost (`goals/g12-projects`).

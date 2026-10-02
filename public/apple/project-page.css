@@ -1,0 +1,134 @@
+/* ============================================================================
+   Project page (#projectPane, built by project-page.js; S5a-A1). Thread and
+   task rows reuse the .project-tree__* row styles from sidebar-tree.css.
+   ============================================================================ */
+.project-pane {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg-primary);
+}
+.project-pane.hidden { display: none; }
+
+.project-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+}
+.project-page__empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-subhead);
+}
+
+.project-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 16px;
+}
+.project-page__name {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--text-title, 1.4rem);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+.project-page__where {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+.project-page__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.project-page__btn {
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-subhead);
+  cursor: pointer;
+}
+.project-page__btn:hover { background: var(--bg-hover); }
+.project-page__btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.project-page__btn--primary:hover { background: var(--accent); filter: brightness(1.08); }
+
+.project-page__rows {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.project-page__row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-subhead);
+  cursor: pointer;
+}
+.project-page__row:hover { background: var(--bg-hover); }
+
+.project-page__section { margin-bottom: 20px; }
+.project-page__section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.project-page__section-title {
+  margin: 0;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.project-page__section-head .project-page__btn { margin-left: auto; }
+.project-page__count {
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.project-page__count:empty { display: none; }
+
+.project-page__list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+.project-page__agents:empty { display: none; }
+
+/* No hover on touch: the task actions stay reachable. */
+.project-page .project-tree__task-actions { opacity: 1; }
+.project-page .project-tree__section-empty { padding-left: 12px; }
+.project-page__local { flex-shrink: 0; white-space: nowrap; }

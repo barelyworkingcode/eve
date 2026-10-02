@@ -1,7 +1,7 @@
 // S2-A6 no horizontal scroll from 320 to 1366, fine or coarse pointer, on
 // Today, a chat, README.md in the editor and an image in the viewer.
 const { test, expect } = require('./goals/fixture');
-const { VIEWPORTS, vpName, viewport, WORLD, REPLY, openPanel, overflow } = require('./layout-helpers');
+const { VIEWPORTS, vpName, viewport, WORLD, REPLY, openPanel, openProjectPage, overflow } = require('./layout-helpers');
 
 test.use({ world: WORLD });
 
@@ -27,8 +27,8 @@ for (const vp of VIEWPORTS) {
         await expect(page.locator('#fileViewerPath')).toHaveText('/photo.png');
         found.image = await overflow(page);
 
-        await openPanel(page, 'sessions');
-        await page.getByTestId('sidebar-session-s-reply').click();
+        await openProjectPage(page);
+        await page.getByTestId('project-thread-s-reply').click();
         await expect(page.getByTestId('messages-container')).toContainText(REPLY);
         found.chat = await overflow(page);
 

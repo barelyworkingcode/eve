@@ -35,13 +35,17 @@ test.describe('S1-A2 a terminal relay already holds does not open itself', () =>
     expect(await page.evaluate(() => window.client.terminalManager.terminals.size)).toBe(0);
   });
 
-  test('it is listed and counted in the project\'s Sessions panel, and a click opens it', async ({ page }) => {
+  // CHANGED by S5a-A3 (docs/design-workbench.md): the Sessions panel row became
+  // the agent board's rows, on Today and on the project page.
+  test('it is listed on Today and listed and counted on the project page, and a click opens it', async ({ page }) => {
     await nav(page).getByTitle('Alpha Project', { exact: true }).click();
-    await page.getByTestId('panel-tab-sessions').click();
-    await expect(page.getByTestId('panel-tab-sessions')).toContainText('1');
-    await expect(page.getByTestId('sidebar-terminal-t-old')).toBeVisible();
+    await page.getByTestId('panel-project-page').click();
+    await expect(page.getByTestId('project-agents-count')).toHaveText('1');
+    await expect(page.getByTestId('project-agent-t-old')).toBeVisible();
+    await nav(page).getByTitle('Beta Project', { exact: true }).click();
+    await expect(page.getByTestId('today-agent-t-old')).toBeVisible();
     await expect(page.locator('#terminal')).toBeHidden();
-    await page.getByTestId('sidebar-terminal-t-old').click();
+    await page.getByTestId('today-agent-t-old').click();
     await expect(page.locator('#terminal')).toBeVisible();
   });
 

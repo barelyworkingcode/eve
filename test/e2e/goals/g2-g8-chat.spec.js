@@ -38,8 +38,8 @@ test.describe('G2 chat', () => {
     await page.getByTestId('chat-input').fill('first question');
     await page.getByTestId('chat-submit').click();
     await expect(thread(page)).toContainText('Hello from fake relay', { timeout: 15000 });
-    await page.getByTestId('panel-tab-sessions').click();
-    await expect(page.getByTestId(`sidebar-session-${sessionId}`)).toBeVisible();
+    await page.getByTestId('panel-project-page').click();
+    await expect(page.getByTestId(`project-thread-${sessionId}`)).toBeVisible();
     await expect(page.getByTestId(`tab-${sessionId}`)).toBeVisible();
     expect(eve.relay.listSessions().map((s) => s.sessionId)).toContain(sessionId);
   });

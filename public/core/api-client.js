@@ -85,6 +85,21 @@ class ApiClient {
     return data;
   }
 
+  // A project file's text (existing route GET /api/files/:projectId/*). Rejects with
+  // err.tooLarge past maxBytes and err.binary for a file with NUL bytes, so "Ask about
+  // this" never attaches either.
+  async getFileText(projectId, path, maxBytes = Infinity) {
+    const rel = String(path).replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+    const response = await fetch(`/api/files/${encodeURIComponent(projectId)}/${rel}`, { headers: this._headers(false) });
+    if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status });
+    const length = Number(response.headers.get('Content-Length'));
+    if (length > maxBytes) throw Object.assign(new Error('too large'), { tooLarge: true });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > maxBytes) throw Object.assign(new Error('too large'), { tooLarge: true });
+    if (bytes.subarray(0, 8192).includes(0)) throw Object.assign(new Error('binary'), { binary: true });
+    return new TextDecoder().decode(bytes);
+  }
+
   // Payload is raw PTY bytes (ANSI escapes, possibly invalid UTF-8), not JSON.
   async getTerminalLog(terminalId) {
     const response = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/log`, {

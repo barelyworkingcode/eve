@@ -1,4 +1,5 @@
 const SlashCommandHandler = require('../slash-command-handler');
+const AttachedFiles = require('../public/core/attached-files');
 const { EMOTION, DELIVERY } = require('../tts-director');
 
 // Stateless — takes ws/relayClient as call-time arguments on every
@@ -109,9 +110,10 @@ function handleUserInput(ctx) {
     return;
   }
 
-  const files = (message.files || []).map(parseFileAttachment);
+  const attachments = message.files || [];
+  const files = attachments.filter(isImageAttachment).map(parseFileAttachment);
 
-  let finalText = message.text;
+  let finalText = (message.text ?? '') + attachments.filter((f) => !isImageAttachment(f)).map(inlineTextAttachment).join('');
 
   if (message.dictated) {
     finalText = DICTATION_NOTICE + finalText;
@@ -128,6 +130,19 @@ function handleUserInput(ctx) {
   // those are expected to die rather than resume on a host restart (R7).
   relayClient.pendingUserMessage = { sessionId: message.sessionId, text: finalText, files };
   relayClient.sendMessage(finalText, files, message.sessionId);
+}
+
+// Relay turns every file in `files` into an image_url part (openai.go) and the
+// model server refuses a non-image one, so only images may travel as files.
+// Text attachments are inlined into the message text instead.
+function isImageAttachment(f) {
+  return f.type === 'image';
+}
+
+// The block format lives in public/core/attached-files.js, shared with the
+// browser, which strips it again when a thread is replayed.
+function inlineTextAttachment(f) {
+  return AttachedFiles.format(f.name, f.content);
 }
 
 function parseFileAttachment(f) {

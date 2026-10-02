@@ -1,5 +1,6 @@
 class FileTreeNode {
   constructor(container) {
+    this.container = container;
     this.bus = container.get('bus');
     this.ws = container.get('ws');
     this.log = container.get('logger').child('FileTree');
@@ -349,6 +350,11 @@ class FileTreeNode {
       { label: 'Rename', action: () => this._startRename(projectId, path) },
       { label: 'Delete', action: () => this._confirmDelete(projectId, path) },
     ];
+
+    const project = this.state.getProject(projectId);
+    if (!isDir && !project?.host && !project?.hostId) {
+      items.unshift({ label: 'Ask about this', action: () => AskAbout.startFile(this.container, projectId, path) });
+    }
 
     if (isDir) {
       items.unshift(

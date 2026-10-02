@@ -24,7 +24,7 @@ audited). Never an API or flag that skips it. See [Owner gates](#owner-gates).
 |---|---|---|---|---|---|---|
 | G1 | Get in and see my work | Open eve and land where my projects are | Home greets me, my projects are in the rail and on Home, no passkey prompt on a trusted network; off it, my passkey signs me in and an agent can't get in | auth, home, projects | **must-have** | landing-view, world-projects-listed, passkey-sign-in, agent-sign-in-refused |
 | G2 | Ask about my project and get an answer | Start a chat in a project and get a reply | My question shows, a reply streams in and settles, Stop works, errors show in the thread | chat | **must-have** | chat-reply (with Stop) |
-| G3 | Pick up where I left off | Reopen a thread from yesterday or another device | The thread opens from Home, Sessions or ⌘K with its history, and no new session is made | chat, home | **must-have** | open-existing-thread (Sessions, Home Continue, ⌘K) |
+| G3 | Pick up where I left off | Reopen a thread from yesterday or another device | The thread opens from Home, Project page or ⌘K with its history, and no new session is made | chat, home | **must-have** | open-existing-thread (Project page, Home Continue, ⌘K) |
 | G4 | Work in a shell on my project | Open a terminal in the project and run things | A terminal opens only when asked, runs my command, and is still there after a reload | terminal | **must-have** | terminal-on-request (with reload) |
 | G5 | Hand a task off and come back later | Give an agent a job, on demand or on a schedule | The task is saved, runs when told, and its last run is readable afterwards | tasks | **must-have** | task-created-listed (with Run Now and history) |
 | G6 | Check what my agents did | Come back and see what ran and what changed | A task's run is readable afterwards; the Changes tab lists edited files and the diff opens | tasks, git | **must-have** | task-created-listed (run and history), changes-diff |
@@ -74,7 +74,8 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | First-run "Create a project" | UI: `public/today/parts/projects-part.js` (`.home__first-run`) | Open eve with zero projects | none yet — world always has projects | home, projects |
 | Project chips on Home | UI: `public/today/parts/projects-part.js`; API: `GET /api/projects` | Home | world-projects-listed | home, projects |
 | Project rail | UI: `public/sidebar/activity-rail.js` | Left rail | world-projects-listed | projects |
-| Project panel (Files / Sessions / Tasks / Changes) | UI: `public/sidebar/project-panel.js` | Click a project in the rail | chat-reply etc. (as setup, not a verdict) | projects |
+| Project panel (Files / Changes; a stored `sessions` or `tasks` tab opens Files) and its Project page button | UI: `public/sidebar/project-panel.js` | Click a project in the rail | chat-reply etc. (as setup, not a verdict); cloud spec `goals/workbench-page` | projects |
+| Project page: one main-area tab per project (`#project/<id>`, not persisted) with the header (name, where it lives, path), New thread (`project-new-thread-<id>`), Agents, Threads and Tasks sections with counts, and Files and Changes rows that open the panel on that tab; an unknown id says "Project not found." | UI: `public/project-page.js`, `panes/project-pane.js`, `apple/project-page.css`; `app.js` `#project/` route | Panel header button `panel-project-page`, the deep link, compact bottom bar Threads | open-existing-thread, task-created-listed (their door); cloud spec `goals/workbench-page` | projects, home |
 | `/<project-slug>/` URL scoping | API: `server.js` SPA route | Open `/<slug>/` | none yet — not written | home |
 | Connection banner and reconnect | UI: `#connectionBanner`; `relay-client.js` upstream self-heal | Relay drops and returns | none yet — needs a controlled relay drop | shell, core |
 | Bad-network reload banner | UI: inline in `public/index.html` | A script fails to load | none yet — later | shell |
@@ -98,14 +99,14 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Provider slash commands (`/model`, `/compact`, …) | Forwarded to relayLLM | Type in composer | none yet — not written | chat |
 | Input history ↑/↓ | UI: `public/input-history.js` | Arrow keys in composer | none yet — later | chat |
 | Cost stat | UI: `#costStat` | Chat header | none yet — later | chat |
-| Rename / move to folder / delete a session | UI: project-panel context menu; WS `rename_session`, `set_session_folder`, `delete_session` | Right-click a session | none yet — not written | chat |
+| Rename / move to folder / delete a thread (the page's Threads section) | UI: `public/project-page.js` context menu; WS `rename_session`, `set_session_folder`, `delete_session` | Right-click a thread on the project page | none yet — cloud spec `goals/workbench-page` | chat, projects |
 | End session | WS `end_session` | Session menu / voice End | voice-deep-link (button visible only) | chat |
 
 ### G3 · Pick up where I left off
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
-| Sessions tab → open thread with history | UI: project-panel Sessions; `app.joinSession`; `message-dispatcher.js` | Sessions tab, click a thread | open-existing-thread | chat |
+| Project page → Threads → open thread with history (the Sessions tab is retired) | UI: `public/project-page.js`; `app.joinSession`; `message-dispatcher.js` | Panel Project page button, click a thread; on compact, bottom bar Threads | open-existing-thread (Project page door) | chat, projects |
 | Home "Continue" list | UI: `public/today/parts/continue-part.js`; `core/session-recents.js` | Home | open-existing-thread (Continue row) | home, chat |
 | ⌘K jump to session / project / tab / recent file | UI: `public/dialogs/command-palette.js` | ⌘K | open-existing-thread (session by title) | home |
 | Launcher Resume tab (running chats and terminals) | UI: `shell-launcher-dialog.js` | Launcher → Resume | none yet — not written | chat, terminal |
@@ -117,7 +118,8 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | Terminal templates per project | API: `GET /api/terminal/templates?project=` | Launcher cards | terminal-on-request | terminal |
-| Open a terminal and run a command; a terminal relay already holds is listed in the Sessions panel and opens on click, never by itself | UI: `public/terminal-manager.js`, `project-panel.js`; WS `terminal_create`, `terminal_input`, `terminal_list` | Launcher card, Home tile, rail New Terminal, Sessions panel | terminal-on-request (after a reload: nothing opens by itself, Sessions lists it, a click opens it) | terminal |
+| Open a terminal and run a command; a terminal relay already holds is listed on the agent board and opens on a tap, never by itself | UI: `public/terminal-manager.js`, `agent-board.js`; WS `terminal_create`, `terminal_input`, `terminal_list` | Launcher card, Home tile, rail New Terminal, agent board row (`today-agent-<terminalId>`, `project-agent-<terminalId>`) | terminal-on-request (after a reload: nothing opens by itself, the board lists it, a tap opens it) | terminal, home |
+| Agent board: every live terminal with project (Today only), template, state ("open" or "exited <code>") and last line (the last non-empty, non-box-drawing line, at most 120 characters; xterm buffer, else the tail of the terminal log, at most one fetch per terminal per 15 s, 20 rows then "+N more"); "Can't reach relay", "No agents running"; task-run terminals excluded | UI: `public/agent-board.js`, `today/parts/agents-part.js`, `core/terminal-text.js`; `terminal-manager.js` `lastLineOf`; API: `GET /api/terminals/:id/log` | Home (Today part `agents`, both modes), project page Agents section | terminal-on-request (board lists the probe with a last line); cloud spec `goals/workbench-agents` | terminal, home, projects |
 | No terminal until asked | — | Open a project | terminal-on-request | terminal |
 | Slash `/zsh`, `/bash`, `/claude`, `/rh` | Server: `slash-command-handler.js` | Type in composer | none yet — not written | terminal, chat |
 | Terminal survives reload / reconnect | WS `terminal_reconnect`, `join_terminal` | Reload with a terminal open | terminal-on-request (reload) | terminal |
@@ -132,8 +134,8 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
-| Create a task (name, type, prompt, model) | UI: `public/dialogs/task-dialog.js`; API: `POST /api/tasks` | Tasks tab → New | task-created-listed | tasks |
-| Task listed, persists across reload | UI: `public/task-manager.js`; API: `GET /api/tasks` | Tasks tab | task-created-listed | tasks |
+| Create a task (name, type, prompt, model) | UI: `public/dialogs/task-dialog.js`; API: `POST /api/tasks` | Project page → Tasks → New (`project-task-new-<id>`) | task-created-listed (page Tasks door) | tasks, projects |
+| Task listed (`project-task-<taskId>`, count `project-tasks-count`), persists across reload | UI: `public/project-page.js`, `task-manager.js`; API: `GET /api/tasks` | Project page → Tasks | task-created-listed | tasks, projects |
 | Schedule types (daily, hourly, interval, weekly, cron, once, on demand) | UI: task dialog; `core/task-schedule.js` | Task dialog Schedule | none yet — journey uses On demand only | tasks |
 | Enabled / Catch up missed runs | UI: task dialog | Task dialog | none yet — not written | tasks |
 | Run a task now | API: `POST /api/tasks/:taskId/run` | Task list action | task-created-listed (Run Now) | tasks |
@@ -144,11 +146,12 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
-| View a task's last or live run | UI: `public/task-viewer.js`; API: `GET /api/tasks/:taskId/history` | Tasks tab → a task | task-created-listed (last run after reload) | tasks |
-| Running indicators (Today dot and count, rail and panel dots): a turn in progress in a joined thread or an executing task run; a live idle process shows none | UI: `public/today/**`, `project-panel.js`, `activity-rail.js`; `core/session-activity.js` | Home, rail | none yet — cloud specs `goals/today-truth` | home |
+| View a task's last or live run | UI: `public/task-viewer.js`; API: `GET /api/tasks/:taskId/history` | Project page → Tasks → a task | task-created-listed (last run after reload) | tasks |
+| Running indicators (Today dot and count, rail and panel dots): a turn in progress in a joined thread or an executing task run; a live idle process shows none | UI: `public/today/**`, `project-panel.js`, `project-page.js`, `activity-rail.js`; `core/session-activity.js` | Home, rail, project page | none yet — cloud specs `goals/today-truth` | home |
 | Changes tab (repos, worktrees, counts) | UI: `public/sidebar/changes-panel.js`; WS `git_changes` | Project panel → Changes | changes-diff | git |
 | Uncommitted / vs base scope | UI: changes-panel scope toggle | Changes tab | none yet — not written | git |
 | Diff pane (side-by-side / inline) | UI: `public/diff-viewer.js`, `panes/diff-pane.js`; WS `git_file_versions` | Click a changed file | changes-diff | git |
+| Ask about this on a diff: the toolbar button `diff-ask` attaches a unified diff of that file in the pane's scope (3 lines of context; not for binary or too-large diffs, not for host projects); enabled once Monaco has computed the diff | UI: `public/diff-viewer.js`, `today/ask-about.js`, `core/unified-diff.js` | Diff pane toolbar | none yet — cloud spec `goals/workbench-ask-about`; journey `ask-about-file` covers the file door only | git, home |
 | Live `git_changed` refresh | `file-watcher.js`, `dir-watcher.js` | Edit a file while Changes is open | none yet — not written | git, files |
 | Remote sessions: view / reattach / kill | UI: `public/remote-sessions.js`; API: `/api/projects/:id/persistent-sessions` | Host project | none yet — G13 | hosts, terminal |
 
@@ -158,6 +161,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 |---|---|---|---|---|
 | File tree browse | UI: `public/file-browser.js`, `sidebar/project-tree.js`; WS `list_directory` | Project panel → Files | file-edit-save | files |
 | Open a file in the editor | UI: `public/file-editor.js` (Monaco); WS `read_file` | Click a file | file-edit-save | files |
+| Ask about this on a file: the tree context menu item (files only, not folders, not host projects) opens Today with Ask focused and a removable chip (`today-ask-attachment`); Return starts one thread in the file's project with the file text attached; over 256 KB gives "That's too large to attach (over 256 KB)."; a binary file says "That isn't a text file." | UI: `public/sidebar/file-tree-node.js`, `today/ask-about.js`, `today/parts/ask-part.js`; `app.sendUserText`; API: `api.getFileText` (`GET /api/files/:projectId/*`) | Tree context menu → Ask about this | ask-about-file; cloud spec `goals/workbench-ask-about` | files, home, chat |
 | Save (⌘S / Save) | WS `write_file` | Edit, ⌘S | file-edit-save | files |
 | Live file watching (tree refresh, `watch_error` toast when the watcher cannot start) | `file-watcher.js`, `dir-watcher.js`; WS `dir_changed`, `watch_error` | Change a file on disk | none yet — not written | files |
 | External change banner (Reload / Keep) | UI: `file-editor.js`; WS `watch_file` | File changes on disk while open | file-edit-save (clean editor updates; dirty editor shows the banner, Reload) | files |
@@ -195,6 +199,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | Search in files (glob, regex, whole word) | UI: `public/dialogs/search-dialog.js`; WS `search_project`; `search-service.js` | ⌘⇧F, ⌘K Search | none yet — not written | search |
+| Ask about this on search results: `search-dialog-ask` closes the dialog and attaches the shown matches (at most 200) as `path:line: text` lines; chip reads "N results for …" | UI: `public/dialogs/search-dialog.js`, `today/ask-about.js` | Search dialog | none yet — cloud spec `goals/workbench-ask-about` | search, home |
 | AI summary of results | WS `search_ai_summarize`; `search-summarizer.js` (hidden `__search:` session) | Search dialog checkbox | none yet — model-dependent | search, chat |
 | Command palette actions | UI: `command-palette.js` | ⌘K | none yet — not written | home |
 
@@ -288,13 +293,13 @@ areas:
             test/integration/launch-identity.test.js, test/e2e/passkey-enrolment.spec.js]
     journeys: [landing-view, passkey-first-enrol, passkey-sign-in, agent-sign-in-refused, agent-enrol-refused, add-browser-in-window]
   home:
-    code: [public/home-screen.js, public/today/**, public/core/session-activity.js, public/core/mode.js,
+    code: [public/home-screen.js, public/today/**, public/agent-board.js, public/core/session-activity.js, public/core/mode.js,
            public/sidebar/mode-switch.js, public/core/front-door.js, public/dialogs/command-palette.js,
            public/apple/home.css, public/apple/palette.css]
     tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/unit/session-activity.test.js,
             test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
             test/e2e/goals/home-screen.spec.js]
-    journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone]
+    journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
@@ -305,6 +310,7 @@ areas:
     journeys: [today-ipad-portrait, today-phone]
   projects:
     code: [public/dialogs/project-dialog.js, public/sidebar/activity-rail.js, public/sidebar/project-panel.js,
+           public/project-page.js, public/panes/project-pane.js, public/apple/project-page.css,
            public/apple/sidebar-tree.css]
     tests: [test/unit/project-normalize.test.js, test/integration/projects.test.js]
     journeys: [world-projects-listed]
@@ -318,10 +324,10 @@ areas:
             test/unit/file-attachment-manager-init.test.js, test/integration/sessions.test.js,
             test/integration/session-*.test.js, test/integration/permissions.test.js, test/e2e/chat*.spec.js,
             test/e2e/template-blank-model.spec.js]
-    journeys: [chat-reply, open-existing-thread, today-phone]
+    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file]
   terminal:
     code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,
-           public/apple/terminal.css]
+           public/agent-board.js, public/core/terminal-text.js, public/apple/terminal.css, public/apple/agents.css]
     tests: [test/unit/terminal-*.test.js, test/unit/message-dispatcher-terminal-request.test.js,
             test/integration/terminals.test.js, test/e2e/terminal-reconnect.spec.js]
     journeys: [terminal-on-request, agent-sign-in-refused, agent-enrol-refused]
@@ -338,15 +344,16 @@ areas:
     tests: [test/unit/file-*.test.js, test/unit/files-route.test.js, test/unit/iframe-sandbox-guard.test.js,
             test/unit/language-detect.test.js, test/unit/static-exposure.test.js, test/integration/file-ops.test.js,
             test/integration/static-mounts.test.js, test/integration/binary-proxy.test.js]
-    journeys: [file-edit-save]
+    journeys: [file-edit-save, ask-about-file]
   git:
     code: [ws/git-messages.js, git-service.js, public/sidebar/changes-panel.js, public/diff-viewer.js,
-           public/panes/diff-pane.js]
+           public/panes/diff-pane.js, public/core/unified-diff.js]
     tests: [test/unit/*git*.test.js, test/unit/changes-panel.test.js, test/unit/diff-viewer.test.js,
             test/integration/git-changes.test.js, test/e2e/changes-panel.spec.js]
     journeys: [changes-diff]
   search:
-    code: [ws/search-messages.js, search-service.js, search-summarizer.js, public/dialogs/search-dialog.js]
+    code: [ws/search-messages.js, search-service.js, search-summarizer.js, public/dialogs/search-dialog.js,
+           public/today/ask-about.js]
     tests: [test/unit/search-*.test.js, test/integration/search*.test.js]
     journeys: []
   voice:
@@ -409,3 +416,7 @@ areas:
 - **Upkeep.** A change a user would notice in a file matched by an area's
   `code` globs updates this map (feature row, journey, Areas block) in the
   same PR.
+- **Retired ids (S5a).** The `sidebar-session-*`, `sidebar-terminal-*` and
+  `sidebar-task-*` test ids went with the panel rows they named; the page uses
+  `project-thread-*`, `project-task-*` and `project-agent-*`, the board on
+  Today `today-agent-*`. Design: [design-workbench.md](design-workbench.md).

@@ -1,0 +1,76 @@
+/* Agent board (S5a-A3): Today's Agents part and the project page's Agents section. */
+.agent-board__list {
+  display: flex;
+  flex-direction: column;
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.agent-board__note { margin: 0; padding: 10px 2px; }
+.agent-board__note:empty { min-height: 44px; }
+
+.agent-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 14px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-bottom: 0.5px solid var(--separator);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: background var(--dur-1);
+}
+.agent-row:last-child { border-bottom: none; }
+.agent-row:hover { background: var(--bg-hover); }
+.agent-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+
+.agent-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.agent-row__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.agent-row__dot--open { background: var(--success); }
+.agent-row__title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-row__project {
+  min-width: 0;
+  font-size: var(--text-subhead);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-row__state {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--text-footnote);
+  color: var(--text-muted);
+}
+.agent-row__last {
+  padding-left: 16px;
+  font-family: var(--font-mono);
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

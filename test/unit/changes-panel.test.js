@@ -785,14 +785,23 @@ function setupProjectPanel({ storage = {}, project = { id: 'p1', name: 'P1', pat
 }
 
 describe('ProjectPanel Changes tab', () => {
-  it('renders a fourth "Changes" tab with the panel-tab-changes testid', () => {
+  it('renders a second "Changes" tab with the panel-tab-changes testid', () => {
     const { pp } = setupProjectPanel();
     pp._renderTabs();
     const tabs = document.getElementById('panelTabs').children;
     expect(tabs.map((t) => t.dataset.testid)).toEqual([
-      'panel-tab-files', 'panel-tab-sessions', 'panel-tab-tasks', 'panel-tab-changes',
+      'panel-tab-files', 'panel-tab-changes',
     ]);
-    expect(tabs[3].querySelector('.panel-tab__label').textContent).toBe('Changes');
+    expect(tabs[1].querySelector('.panel-tab__label').textContent).toBe('Changes');
+  });
+
+  it.each(['sessions', 'tasks'])('a stored "%s" tab, no longer a panel tab, opens on Files', (stored) => {
+    const { pp } = setupProjectPanel({ storage: { 'eve-active-tab': stored } });
+    pp._renderTabs();
+    const active = document.getElementById('panelTabs').children
+      .filter((t) => t.classList.contains('panel-tab--active'))
+      .map((t) => t.dataset.testid);
+    expect(active).toEqual(['panel-tab-files']);
   });
 
   it('badges the tab with the total changed-file count once data arrives', () => {

@@ -61,6 +61,21 @@ class AskPart {
     this.send.textContent = 'Ask';
     this.send.addEventListener('click', () => this.submit());
 
+    // "Ask about this" attachment (today/ask-about.js); shown while state.askAbout holds one.
+    this.chip = document.createElement('div');
+    this.chip.className = 'ask-chip';
+    this.chip.dataset.testid = 'today-ask-attachment';
+    this.chipLabel = document.createElement('span');
+    this.chipLabel.className = 'ask-chip__label';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'ask-chip__remove';
+    remove.dataset.testid = 'today-ask-attachment-remove';
+    remove.setAttribute('aria-label', 'Remove attachment');
+    remove.textContent = '×';
+    remove.addEventListener('click', () => { ctx.state.askAbout = null; this._failure = ''; this.update(); this.focus(true); });
+    this.chip.append(this.chipLabel, remove);
+
     this.row = row;
     row.append(this.status, this.send);
     el.append(this.input, row);
@@ -70,7 +85,8 @@ class AskPart {
     ctx.on(EVT.CONNECTION_CHANGED, () => { if (!ctx.state.isOnline()) this._abandon(); });
     ctx.on(EVT.MODELS_LOADED, () => { this.update(); if (this._queued) this.submit(); });
     ctx.on(EVT.ASK_FAILED, ({ message }) => this._onFailed(message));
-    ctx.on(EVT.ASK_SENT, () => { this._pending = false; this.input.value = ''; this._failure = ''; this.update(); });
+    ctx.on(EVT.ASK_SENT, () => { this._pending = false; this.input.value = ''; this._failure = ''; ctx.state.askAbout = null; this.update(); });
+    ctx.on(EVT.ASK_ABOUT, () => { this._failure = ctx.state.askAbout?.note || ''; this.update(); this.focus(true); });
 
     ctx.sources.projects.ensure();
     this.update();
@@ -89,11 +105,12 @@ class AskPart {
     return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   }
 
-  focus() {
+  // `force`: the user just asked about something, so Ask takes focus from the control they used.
+  focus(force = false) {
     if (this.isCoarse()) return;
     // Never take focus from something the user is already using.
     const a = document.activeElement;
-    if (!a || a === document.body) this.input.focus();
+    if (force || !a || a === document.body) this.input.focus();
   }
 
   // What Ask would do right now. `blocked` is the plain-words reason it cannot.
@@ -106,10 +123,13 @@ class AskPart {
     if (state.projects.size === 0) return { blocked: 'Create a project to start asking.' };
 
     const candidates = state.getModeProjects().filter(p => !p.hostId && !p.host);
-    if (candidates.length === 0) {
+    // For this ask only, an attached item's project beats the mode default and the pick.
+    const about = state.askAbout?.attachment ? state.projects.get(state.askAbout.projectId) : null;
+    const target = about && !about.hostId && !about.host ? about : null;
+    if (!target && candidates.length === 0) {
       return { blocked: `No projects in ${state.mode[0].toUpperCase()}${state.mode.slice(1)} yet.` };
     }
-    let project = candidates.find(p => (p.defaultFor || []).includes(state.mode));
+    let project = target || candidates.find(p => (p.defaultFor || []).includes(state.mode));
     let needsPick = false;
     if (!project && candidates.length === 1) project = candidates[0];
     if (!project) {
@@ -138,6 +158,18 @@ class AskPart {
 
   update() {
     if (!this.el) return;
+    const { state } = this.ctx;
+    // An item whose project was deleted can no longer be asked about.
+    if (state.askAbout?.attachment && this.ctx.sources.projects.status === 'ready'
+      && !state.projects.has(state.askAbout.projectId)) state.askAbout = null;
+    const attachment = state.askAbout?.attachment;
+    if (attachment) {
+      this.chipLabel.textContent = attachment.label;
+      this.chip.title = attachment.name;
+      if (!this.chip.isConnected) this.el.insertBefore(this.chip, this.row);
+    } else {
+      this.chip.remove();
+    }
     const plan = this.plan();
     // The inline pick exists only when there is a real choice to make.
     if (!plan.pick) this.select.remove();
@@ -163,6 +195,7 @@ class AskPart {
       if (this._pending) line = 'Starting…';
       else if (this._queued || plan.waitingForModels) line = 'Waiting for models…';
       else if (plan.blocked) line = plan.blocked;
+      else if (plan.project && this.ctx.state.askAbout?.attachment) line = `Asking in ${plan.project.name}`;
     }
     this.status.textContent = line;
     this.send.disabled = !!plan.blocked || this._pending;
@@ -189,7 +222,9 @@ class AskPart {
       name: `${plan.project.name} - ${title}`,
     };
     msg = applyChatDefaults(msg, state.models);
-    state.pendingAsk = { text, projectId: plan.project.id };
+    const item = state.askAbout?.attachment;
+    const files = item ? [{ name: item.name, content: item.content, type: 'text', mediaType: 'text/plain' }] : [];
+    state.pendingAsk = { text, projectId: plan.project.id, files };
     this._pending = true;
     this.update();
     // The socket can drop between plan() and here; a lost send must not leave

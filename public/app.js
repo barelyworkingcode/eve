@@ -192,9 +192,14 @@ class EveWorkspaceClient {
     on('navBack', () => this.layout.back());
     on('navToday', () => this.tabManager.showToday());
     on('navProjects', () => this.toggleSidebar(true));
+    // S5a-A5: the active project's page, else the first in-mode project's;
+    // with no project in this mode, the sheet.
     on('navThreads', () => {
-      this.projectTree.panel.openTab('sessions');
-      this.toggleSidebar(true);
+      const projects = this.state.getModeProjects();
+      const activeId = this.projectTree.activeProjectId;
+      const target = projects.find(p => p.id === activeId) || projects[0];
+      if (target) this.container.get('projectPage').open(target.id);
+      else this.toggleSidebar(true);
     });
     this.bus.on(EVT.NAV_CHANGED, ({ depth, tabId, source }) => {
       this.closeSidebarOnMobile();
@@ -698,7 +703,7 @@ class EveWorkspaceClient {
       return;
     }
 
-    const match = hash.match(/^#(session|file|terminal)\/(.+)$/);
+    const match = hash.match(/^#(session|file|terminal|project)\/(.+)$/);
     if (!match) return;
 
     const [, routeType, routeData] = match;
@@ -715,6 +720,10 @@ class EveWorkspaceClient {
       } else {
         this._hashRouteError('Session not found.');
       }
+    } else if (routeType === 'project') {
+      const projectId = decodeURIComponent(routeData);
+      if (this.projects.has(projectId)) this.container.get('projectPage').open(projectId);
+      else this._hashRouteError('Project not found.');
     } else if (routeType === 'file') {
       const slashIdx = routeData.indexOf('/');
       if (slashIdx === -1) return;
@@ -1189,16 +1198,16 @@ class EveWorkspaceClient {
 
   // Sends `text` as the next turn of a thread that was just created (Today's Ask).
   // Mirrors handleSubmit without the chat input: the text came from Ask.
-  sendUserText(sessionId, text) {
+  sendUserText(sessionId, text, files = []) {
     this.inputHistory.push(text);
     if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
     // Also in the thread's history: the tab's pane repaints from it, and the
     // project switch that follows a new thread can repaint after this send.
     const history = this.sessionHistories.get(sessionId);
-    if (history) history.push({ timestamp: new Date().toISOString(), role: 'user', content: text });
-    this.messageRenderer.appendUserMessage(text, []);
+    if (history) history.push({ timestamp: new Date().toISOString(), role: 'user', content: text, files });
+    this.messageRenderer.appendUserMessage(text, files);
     this.messageDispatcher.markLocalSubmit(sessionId);
-    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files: [], sessionId });
+    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, sessionId });
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
     this.showStopButton();
