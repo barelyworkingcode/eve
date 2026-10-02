@@ -275,15 +275,16 @@ class BriefPart extends TodayPart {
     wrap.appendChild(row);
     row.appendChild(this._button('Refresh', 'today-brief-refresh', () => this._run(task)));
     row.appendChild(this._button('Open', 'today-brief-open', () => this._open(task)));
-    const text = spoken.map(s => [s.heading, ...s.items].join('. ') + '.').join(' ');
+    const text = spoken.map(s => [s.heading, ...s.items].map(t => (/[.!?]$/.test(t) ? t : `${t}.`)).join(' ')).join(' ');
     if (canListen && spoken.length && this.ctx.container.has('ttsManager')) row.appendChild(this._listen(text));
   }
 
   _listen(text) {
     const tts = this.ctx.container.get('ttsManager');
     const b = this._button(this._speaking ? 'Stop' : 'Listen', 'today-brief-listen', () => {
+      const wasSpeaking = this._speaking; // stop() fires TTS_PLAYBACK_ENDED synchronously and clears _speaking
       tts.stop();
-      if (this._speaking) {
+      if (wasSpeaking) {
         this._speaking = false;
       } else {
         tts.unlockAudio(); // iOS: inside the tap, before the async generation

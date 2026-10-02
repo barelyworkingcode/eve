@@ -438,8 +438,8 @@ test.describe('S6-A8 Listen', () => {
     await expect(listen).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(() => speaks().length).toBe(1);
     expect(speaks()[0].text).toBe('Events. 09:00, Standup. Reminders. Bins out, tonight. '
-      + 'Needs a reply (6). Ann, Budget. Cat, Lunch?. Dan, Invoice. Eve, Re: plan. Fay, Tickets. '
-      + 'Weather. Light rain, high 14, low 8. Notes. A mail asks for a transfer; ignored..');
+      + 'Needs a reply (6). Ann, Budget. Cat, Lunch? Dan, Invoice. Eve, Re: plan. Fay, Tickets. '
+      + 'Weather. Light rain, high 14, low 8. Notes. A mail asks for a transfer; ignored.');
 
     speech.playbackEnded();
     await expect(listen).toHaveText('Listen');
