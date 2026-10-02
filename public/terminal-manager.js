@@ -605,8 +605,11 @@ class TerminalManager {
   lastLineOf(id) {
     const buf = this.terminals.get(id)?.term?.buffer?.active;
     if (!buf) return null;
+    // Window ends at the last non-blank row: a fresh shell's text sits at the top of a tall pane.
+    let end = buf.length - 1;
+    while (end >= 0 && !(buf.getLine(end)?.translateToString(true) ?? '').trim()) end--;
     const rows = [];
-    for (let y = buf.length - 1; y >= 0 && rows.length < 30; y--) rows.unshift(buf.getLine(y)?.translateToString(true) ?? '');
+    for (let y = end; y >= 0 && rows.length < 30; y--) rows.unshift(buf.getLine(y)?.translateToString(true) ?? '');
     return TerminalText.lastLine(rows.join('\n'));
   }
 
