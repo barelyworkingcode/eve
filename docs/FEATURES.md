@@ -192,7 +192,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
-| `#/voice-chat` deep link with a favourite template | UI: `app.js` `_handleHashRoute`, launcher star | Open `#/voice-chat` | voice-deep-link | voice |
+| `#/voice-chat` deep link: resumes the voice thread on screen, or one in this mode younger than 30 minutes, else launches the mode's voice preset; with no preset it toasts and opens the launcher's Voice Chat form ([design-mode-presets.md](design-mode-presets.md)) | UI: `app.js` `_handleHashRoute`, `_launchModeVoice`; `core/mode-presets.js` | Open `#/voice-chat` | voice-deep-link; mode-presets; cloud spec `goals/mode-presets` | voice, projects |
 | Voice chat from launcher / Home Voice tile | UI: `public/voice-chat-manager.js` | Voice tile, launcher Voice card | none yet — deep link only | voice |
 | Speech to text (push-to-talk, hands-free, Space) | UI: `stt-manager.js`, `vad-manager.js`; WS `transcribe_audio`; `stt-service.js` | Hold mic / Space | none yet — needs the live STT daemon | voice |
 | Spoken replies, per-message play | UI: `tts-manager.js`, `.tts-play-btn`; WS `tts_speak`; `tts-service.js` | Reply in voice mode, play button | none yet — needs the live TTS daemon | voice |
@@ -223,6 +223,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 |---|---|---|---|---|
 | Create / edit / delete project (name, Where among existing hosts, path) | UI: `public/dialogs/project-dialog.js`; API: `/api/projects` | Rail +, ⌘K New project, panel menu | project-mode-new (create, edit; deletes through the API) | projects |
 | Project mode Home \| Work \| Both (`project-mode`): a new project starts at Both; create always sends `mode`, an edit only when it changed; the rail, Today and ⌘K re-filter with no reload | UI: project dialog General; API: `POST /api/projects`, `PUT /api/projects/:id` (`mode`) | New Project, Edit Project | project-mode-new; cloud spec `goals/g12-projects` | projects, home |
+| Mark a template as a mode's Ask or voice preset (`project-template-preset-home`, `project-template-preset-work`; one Ask and one voice preset per mode; badges in the list) | UI: project dialog Templates; API: `preset_for` on `chat_templates` | Edit Project → Templates | mode-presets; cloud spec `goals/mode-presets` | projects, chat |
 | Chat templates tab | UI: project dialog Templates | Edit Project | none yet — world setup S3 is manual | projects, chat |
 | Terminal templates | API: `/api/terminal/templates` | Edit Project / tray | none yet — world setup | projects, terminal |
 | Allowed models, read-only (`project-allowed-models`: "All models" or the labels), with "Set in Relay Settings on your Mac." (`project-relay-pointer`); models and MCPs are set in Relay, and Save never sends `allowed_models` or `allowed_mcp_ids` | UI: project dialog General | Edit Project | project-admin-in-relay; cloud spec `goals/g12-projects` | projects |
@@ -253,14 +254,14 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Thumb-sized targets: under a coarse pointer every visible control is at least 44×44 at every width (links in message prose excepted) | UI: `public/apple/touch.css` | Any touch device | today-ipad-portrait, today-phone (sweep of visible controls); cloud spec `layout-touch` | shell |
 | Front door: opening eve after 60 minutes or more away shows Today with Ask focused (fine pointers only, #129) and restores no tabs; a deep link still wins; resuming a page after that gap returns to Today and keeps tabs | UI: `public/core/front-door.js`, `app.js`; localStorage `eve-last-active` | Open or resume eve after a break | none yet — a journey would need to age the stamp; cloud spec `layout-front-door`, unit `front-door` | home, shell |
 | Appearance Auto / Light / Dark and Text size (no theme presets, colours, fonts or reset; stored values keep applying) | UI: Settings sheet → Display (`settings-appearance-*`, `settings-text-size`) | Settings, ⌘K Appearance | settings-sheet (Light survives a reload); cloud spec `goals/settings-sheet` | settings |
-| Settings sheet: one scrolling sheet, no tabs: Display, Voice (voice and speed, shared with the composer drawer; engine pickers in the native app only), Modes (each mode's default project, read-only), Files, then "Models, tools, hosts and permissions live in Relay on your Mac."; Done or Escape closes it | UI: `public/dialogs/settings-dialog.js`, `tts-manager.js` (`setVoice`, `setSpeed`) | Rail Settings, ⌘K Settings | settings-sheet; cloud spec `goals/settings-sheet` | settings, voice |
+| Settings sheet: one scrolling sheet, no tabs: Display, Voice (voice and speed, shared with the composer drawer; engine pickers in the native app only), Modes (each mode's default project and, under it, its Ask and voice presets, read-only), Files, then "Models, tools, hosts and permissions live in Relay on your Mac."; Done or Escape closes it | UI: `public/dialogs/settings-dialog.js`, `tts-manager.js` (`setVoice`, `setSpeed`) | Rail Settings, ⌘K Settings | settings-sheet; mode-presets; cloud specs `goals/settings-sheet`, `goals/mode-presets` | settings, voice |
 
 ### G15 · Use eve from my phone
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | Safari passkey fallback | API: `GET /api/auth/safari-login`; iOS `ASWebAuthenticationSession` | iOS app sign-in | **owner gate** (passkey sign-in); none yet — native app needs a devbox pass | auth |
-| Action Button → `#/voice-chat` | iOS app + hash route | Action Button | voice-deep-link (the route, from a desktop browser) | voice |
+| Action Button → `#/voice-chat`, opening the current mode's voice preset (there is no per-device favourite) | iOS app + hash route | Action Button | voice-deep-link (the route, from a desktop browser) | voice |
 | Native voice backends, haptics | UI: `native-audio-bridge.js`, `*-native-backend.js` | iOS app | none yet — devbox pass, not Playwright | voice |
 | Mobile keybar, touch scrollback, soft-keyboard resize | UI: `terminal-keybar.js`, `terminal-manager.js` | Terminal on a phone | none yet — later | terminal |
 
@@ -306,9 +307,9 @@ areas:
            public/apple/home.css, public/apple/palette.css]
     tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/unit/session-activity.test.js,
             test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
-            test/e2e/goals/home-screen.spec.js]
+            test/e2e/goals/home-screen.spec.js, test/e2e/goals/mode-presets.spec.js]
     journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file, routine-from-thread,
-               project-mode-new, brief-injection-refused]
+               project-mode-new, brief-injection-refused, mode-presets]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
@@ -321,8 +322,9 @@ areas:
     code: [public/dialogs/project-dialog.js, public/sidebar/activity-rail.js, public/sidebar/project-panel.js,
            public/project-page.js, public/panes/project-pane.js, public/apple/project-page.css,
            public/apple/sidebar-tree.css]
-    tests: [test/unit/project-normalize.test.js, test/integration/projects.test.js, test/e2e/goals/g12-projects.spec.js]
-    journeys: [world-projects-listed, project-admin-in-relay, project-mode-new]
+    tests: [test/unit/project-normalize.test.js, test/integration/projects.test.js, test/e2e/goals/g12-projects.spec.js,
+            test/e2e/goals/mode-presets.spec.js]
+    journeys: [world-projects-listed, project-admin-in-relay, project-mode-new, mode-presets, voice-deep-link]
   chat:
     code: [ws/session-messages.js, slash-command-handler.js, public/dialogs/shell-launcher-dialog.js,
            public/features/chat-form.js, public/features/permissions.js, public/features/file-attachments.js,
@@ -371,7 +373,7 @@ areas:
     code: [ws/voice-messages.js, tts-service.js, tts-director.js, tts-chunker.js, stt-service.js,
            public/voice-*.js, public/tts-*.js, public/stt-*.js, public/vad-manager.js,
            public/native-audio-bridge.js, public/features/tts.js, public/features/stt.js, public/apple/voice.css]
-    tests: [test/unit/tts-*.test.js, test/integration/voice-ws.test.js, test/e2e/voice*.spec.js]
+    tests: [test/unit/tts-*.test.js, test/integration/voice-ws.test.js, test/e2e/voice*.spec.js, test/e2e/goals/mode-presets.spec.js]
     journeys: [voice-deep-link]
   hosts:
     code: [ssh-command.js, ssh-host-pool.js, remote-file-service.js, remote-fs-agent.js, public/remote-sessions.js,
@@ -382,8 +384,8 @@ areas:
     journeys: []
   settings:
     code: [public/dialogs/settings-dialog.js, public/apple/dialogs.css, public/apple/controls.css]
-    tests: ["test/visual/**", test/e2e/goals/settings-sheet.spec.js]
-    journeys: [settings-sheet]
+    tests: ["test/visual/**", test/e2e/goals/settings-sheet.spec.js, test/e2e/goals/mode-presets.spec.js]
+    journeys: [settings-sheet, mode-presets]
   ui-control:
     code: [mcp/**, ui-command-bus.js]
     tests: [test/unit/ui-command-bus.test.js, test/integration/ui-command.test.js]

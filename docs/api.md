@@ -54,6 +54,8 @@ Projects are returned camelCase-normalized and cached for file-handler path reso
 | GET | `/api/projects/:id/audit` | The project's Relay tool calls (`call_tool` events, newest 50, from relay's audit). Body `{ recording, records }`; `recording` is false when relay's audit is off. Each record has only `ts`, `tool`, `outcome`, `allowed` (`denied`, `unauthorized` and `throttled` read as not allowed). 404 for an unknown project, 502 when relay is unreachable. |
 | GET | `/api/mcps` | List MCPs (populates the project dialog's allowed-MCPs picker). |
 
+Chat templates ride inside `chat_templates` on `POST` and `PUT`: `{ id, name, model, mode, voice, system_prompt[, preset_for] }`. `preset_for` lists `home` or `work`, the modes the template is the preset for: a `voice` template is that mode's voice preset, any other its Ask preset. It is a label, never a grant. Eve sends it only when non-empty and reads it back as `presetFor`; relay answers 400 `{ "error" }` for a second Ask or voice preset in one mode. A `PUT` without `chat_templates` leaves it as stored. See [design-mode-presets.md](design-mode-presets.md).
+
 ### SSH hosts (relay-served; see [ssh-hosts.md](../../relay/docs/ssh-hosts.md))
 
 A project either lives on the console (as today) or on one SSH host (`project.hostId`, `project.host: {id, name, status} | null`). `ssh_argv` — the ready-to-exec ssh prefix relay derives — is never sent to the browser; every response below has it stripped even though relay's own `hostView` carries it.
