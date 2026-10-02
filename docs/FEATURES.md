@@ -192,7 +192,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
-| `#/voice-chat` deep link: resumes the voice thread on screen, or one in this mode younger than 30 minutes, else launches the mode's voice preset; with no preset it toasts and opens the launcher's Voice Chat form ([design-mode-presets.md](design-mode-presets.md)) | UI: `app.js` `_handleHashRoute`, `_launchModeVoice`; `core/mode-presets.js` | Open `#/voice-chat` | voice-deep-link; mode-presets; cloud spec `goals/mode-presets` | voice, projects |
+| `#/voice-chat` deep link: resumes the voice thread on screen, or one in this mode younger than 30 minutes, else launches the mode's voice preset; with no preset it toasts and opens the launcher's Voice Chat form ([design-mode-presets.md](design-mode-presets.md)) | UI: `app.js` `_handleHashRoute`, `_launchModeVoice`; `core/mode-presets.js` | Open `#/voice-chat` | voice-deep-link; cloud spec `goals/mode-presets` | voice, projects |
 | Voice chat from launcher / Home Voice tile | UI: `public/voice-chat-manager.js` | Voice tile, launcher Voice card | none yet — deep link only | voice |
 | Speech to text (push-to-talk, hands-free, Space) | UI: `stt-manager.js`, `vad-manager.js`; WS `transcribe_audio`; `stt-service.js` | Hold mic / Space | none yet — needs the live STT daemon | voice |
 | Spoken replies, per-message play | UI: `tts-manager.js`, `.tts-play-btn`; WS `tts_speak`; `tts-service.js` | Reply in voice mode, play button | none yet — needs the live TTS daemon | voice |

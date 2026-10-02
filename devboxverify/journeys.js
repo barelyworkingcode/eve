@@ -740,8 +740,14 @@ async function voiceSetupMissing(env, project) {
   if (!(stored?.chatTemplates || []).some((t) => t.name === 'World voice' && t.mode === 'voice')) {
     missing.push(`no "World voice" voice template in ${project.name} (setup V1)`);
   }
-  if (!(stored?.defaultFor || []).includes('work')) missing.push(`${project.name} is not Work's default project (setup V2)`);
   return missing.join('; ');
+}
+
+// Setup V2 missing is a FAIL, never BLOCKED: a not-run path here would be a gate change.
+async function workDefaultMissing(env, project) {
+  const stored = (await eveJson(env, 'GET', '/api/projects')).find((p) => p.id === project.id);
+  return (stored?.defaultFor || []).includes('work') ? ''
+    : `${project.name} is not Work's default project; set it in Relay → Projects → Default projects: Work = ${project.name} (setup V2)`;
 }
 
 async function voiceDeepLink(env) {
@@ -749,6 +755,8 @@ async function voiceDeepLink(env) {
   const acme = env.world.projects.acme;
   const missing = await voiceSetupMissing(env, acme);
   if (missing) return result(id, BLOCKED, missing);
+  const noDefault = await workDefaultMissing(env, acme);
+  if (noDefault) return result(id, FAIL, noDefault);
 
   const first = await env.newPage();
   await openEve(first, env);
@@ -1271,20 +1279,31 @@ async function modePresets(env) {
   const acme = env.world.projects.acme;
   const name = `verify-${env.nonce} ask`;
   const prompt = `verify-${env.nonce}`;
-  const stored = (await eveJson(env, 'GET', '/api/projects')).find((p) => p.id === acme.id);
-  if (!(stored?.defaultFor || []).includes('work')) return result(id, BLOCKED, `${acme.name} is not Work's default project (setup V2)`);
+  const noDefault = await workDefaultMissing(env, acme);
+  if (noDefault) return result(id, FAIL, noDefault);
+
+  // Pressing Work Ask clears it from any other Acme template (withPreset), so note
+  // the holder now and give it back in cleanup.
+  const before0 = await eveJson(env, 'GET', `/api/projects/${acme.id}`);
+  const priorId = before0.chatTemplates.find((t) => t.mode !== 'voice' && (t.presetFor || []).includes('work'))?.id;
 
   // Timeouts close the page first, so this one goes through eve's API, as the dialog's PUT would.
-  env.cleanup('remove the verify Ask template', async () => {
+  env.cleanup('remove the verify Ask template and restore Work Ask', async () => {
     const project = await eveJson(env, 'GET', `/api/projects/${acme.id}`);
     const keep = project.chatTemplates.filter((t) => t.name !== name);
-    if (keep.length === project.chatTemplates.length) return;
+    const restore = priorId && keep.some((t) => t.id === priorId
+      && !project.chatTemplates.some((o) => o.id !== priorId && o.mode !== 'voice' && (o.presetFor || []).includes('work'))
+      && !(t.presetFor || []).includes('work'));
+    if (keep.length === project.chatTemplates.length && !restore) return;
     await eveJson(env, 'PUT', `/api/projects/${acme.id}`, {
       name: project.name, path: project.path, host_id: project.hostId || '',
-      chat_templates: keep.map((t) => ({
-        id: t.id, name: t.name, model: t.model, mode: t.mode, voice: t.voice, system_prompt: t.systemPrompt,
-        ...(t.presetFor && t.presetFor.length ? { preset_for: t.presetFor } : {}),
-      })),
+      chat_templates: keep.map((t) => {
+        const modes = t.id === priorId && restore ? [...new Set([...(t.presetFor || []), 'work'])] : t.presetFor;
+        return {
+          id: t.id, name: t.name, model: t.model, mode: t.mode, voice: t.voice, system_prompt: t.systemPrompt,
+          ...(modes && modes.length ? { preset_for: modes } : {}),
+        };
+      }),
     });
   });
 

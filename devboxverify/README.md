@@ -37,7 +37,7 @@ writes are the owner reset below, the `verify-<nonce>-*` folders journeys
 make in Acme Corp or the temp dir and remove, project-admin-in-relay's Save
 of Acme Corp as it stands, project-mode-new's `verify-<nonce>` project,
 which it deletes, mode-presets' `verify-<nonce> ask` template in Acme Corp,
-which it removes, and voice-deep-link's mark on `World voice` as Work's voice
+which it removes (and it gives Work's Ask preset back to the template that held it, if any), and voice-deep-link's mark on `World voice` as Work's voice
 preset, which stays. It never targets the live eve on :3000, and
 preflight refuses it. It does share one thing with the live eve: relay has
 a single eve enrolment window. An add-browser-in-window run that fails
@@ -284,7 +284,7 @@ again within 30 s on that session (`#session/<id>`), with no new session.
   (`forMode`, `resumable`) → `shellLauncher.launchTemplate` →
   `public/voice-chat-manager.js`; the preset row in
   `public/dialogs/project-dialog.js`.
-- Traps: BLOCKED without setup V1 or V2, naming which. The voice preset is
+- Traps: BLOCKED without setup V1; FAIL without setup V2, naming it. The voice preset is
   the journey's one lasting write. A voice session from the last 30 minutes
   is resumed, not created, so the first press needs none in Acme Corp; the
   run's start sweep sees to that.
@@ -362,7 +362,7 @@ through Edit Project and Save; still listed is FAIL, naming it.
   (`presetFor`); `public/dialogs/settings-dialog.js` (`_buildModes`);
   `public/today/parts/ask-part.js` → `public/core/mode-presets.js`
   (`forMode`, `askFrame`).
-- Traps: BLOCKED without setup V2 or when Acme Corp does not allow the model.
+- Traps: FAIL without setup V2; BLOCKED when Acme Corp does not allow the model.
   Relay without `preset_for` (relay#182) drops the field and the read-back
   FAILs. A timeout closes the page first, so a cleanup removes the template
   through eve's API instead.
@@ -445,7 +445,7 @@ subject is under Needs a reply (information only).
   `EVE_VERIFY_MODEL`, added from eve's Edit Project → Chat Templates.
 - **S3 · V2.** In Relay → Projects → Default projects: Work = Acme Corp,
   Home = Home. Test-world config, not owner config; no grant changes.
-  mode-presets and voice-deep-link are BLOCKED without it.
+  mode-presets and voice-deep-link FAIL without it.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at
