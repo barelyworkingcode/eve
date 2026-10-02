@@ -250,3 +250,14 @@ Every weekday, several days and monthly (relayScheduler `days`); "Can reach" in 
 
 ## Size
 L. About 22 files, ~1,600 product lines and ~1,200 spec and journey lines. Cut line: A5 and A1 first, then A2, then A3, then A4.
+
+## As built
+
+- **Shared history helper.** `public/routine-history.js` (`RoutineHistory`: `newest(task)`, `lastExec(task)`) holds the one fetch per (task, lastRun). The project page, the Routines page and the Today part use it. It never polls and caps the number of tasks it loads (20; the Today part uses 10).
+- **Sentence.** `core/routine-sentence.js` is pure. The dialog, the project page, the page, the sheet and the Today part all call it.
+- **Routines page.** An unpersisted `#routines` tab (`panes/routines-pane.js`). It is reached from ⌘K, the project page's All routines link and the deep link. It is not on the rail or the bottom bar.
+- **Sheet breakpoint.** The sheet goes to a bottom sheet at `max-width: 599.98px`. `css-breakpoints.test.js` rejects `600px`.
+- **Header button.** `thread-make-routine` sits in `.chat-header` and starts hidden. `RoutinePanel.syncButton()` shows it only when the active tab is a chat thread with a project, a first prompt, and not a voice thread or a routine run. It hides again when the active tab changes, and it closes an open panel whose thread is no longer the active one.
+- **Today part.** `today/parts/routines-part.js` shows routines that finished in the last 24 h (at most 10), hidden when there are none. Unseen means not in `eve-routines-seen` on this device. A failed routine also stays in Needs you.
+- **Scheduler down.** `today/sources.js` `describe()` gives the tasks source its own down text, "Can't reach the scheduler.", for a timeout, a network error or a 404, 502, 503 or 504. If relay itself is down it still says "Can't reach relay.".
+- **Audit.** `GET /api/projects/:id/audit` (`project-audit.js`) probes `GET /api/audit/log`, then reads `GET /api/audit` with `event=call_tool`, `limit=50` and `deep=true`. Only `ts`, `tool`, `outcome` and `allowed` leave eve. An unknown project is 404. The sheet's caption says built-in tools are not audited.

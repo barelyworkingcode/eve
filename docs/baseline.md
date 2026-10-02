@@ -21,7 +21,7 @@ the goal-level set, the rest predate it.
 | G2 Ask and get an answer | `goals/g2-g8-chat` (reply, list, error row, resume), `chat`, `chat-input-row`, `chat-form-and-permissions` (Stop, send gating) | model quality, real streaming |
 | G3 Pick up where I left off | `goals/g3-reopen-thread` (Sessions list, Continue, ⌘K, running marks), `schedules-and-connection` (deep link) | history from a real transcript |
 | G4 Shell on my project | `goals/g4-terminal` (only when asked, runs a command, survives reload), `terminal-reconnect`, `goals/home-screen` (template tiles) | a real PTY, sandboxing |
-| G5 Hand off a task | `goals/g5-tasks` (create, run, fail, edit, delete), `task-dialog-models`, `schedules-and-connection` (wire shapes) | real scheduling, relayScheduler behaviour beyond its pinned API |
+| G5 Hand off a task | `goals/g5-tasks` (create, run, fail, edit, delete), `goals/routines-page`, `goals/routines-make`, `goals/routines-today`, `goals/routines-audit` (the audit route is served by the fake from relay's pinned shape), `task-dialog-models`, `schedules-and-connection` (wire shapes) | real scheduling, relayScheduler behaviour beyond its pinned API |
 | G6 Check what agents did | `goals/g5-tasks` (last run opens as its thread), `changes-panel` (Changes, diff) | a real agent's edits |
 | G7 Read and edit files | `goals/g7-files` (tree, open, save, outside change, Reload, node_modules quiet), `tab-panes` | |
 | G8 Agents under my control | `goals/g2-g8-chat` (prompt, Allow, Deny, Allow All, queue), `chat-form-and-permissions` (plan mode) | relay's owner gate |

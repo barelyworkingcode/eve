@@ -431,7 +431,7 @@ describe('devboxverify journey table', () => {
     'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
     'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'passkey-first-enrol',
     'passkey-sign-in', 'agent-sign-in-refused', 'agent-enrol-refused', 'add-browser-in-window',
-    'today-ipad-portrait', 'today-phone', 'ask-about-file',
+    'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -470,7 +470,7 @@ describe('devboxverify journey table', () => {
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
-        'today-ipad-portrait', 'today-phone', 'ask-about-file'].map(id => [id, acme])),
+        'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched'].map(id => [id, acme])),
     });
   });
 
@@ -485,12 +485,12 @@ describe('devboxverify journey table', () => {
     }
   });
 
-  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, agent-sign-in-refused, the S2 device journeys, ask-about-file, add-browser-in-window', () => {
+  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9 with the routine journeys after task-created-listed, agent-sign-in-refused, the S2 device journeys, ask-about-file, add-browser-in-window', () => {
     const { orderJourneys } = require('../../devboxverify/main');
     expect(orderJourneys(journeys, { screen: true }).run.map(j => j.id)).toEqual([
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
-      'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save',
+      'task-created-listed', 'routine-from-thread', 'routine-touched', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file',
       'add-browser-in-window',
     ]);
@@ -500,6 +500,8 @@ describe('devboxverify journey table', () => {
     ['today-ipad-portrait', 'docs/design-today-s2.md', ['home', 'shell'], 45000],
     ['today-phone', 'docs/design-today-s2.md', ['chat', 'home', 'shell'], 75000],
     ['ask-about-file', 'docs/design-workbench.md', ['chat', 'files', 'home'], 90000],
+    ['routine-from-thread', 'docs/design-routines.md', ['chat', 'home', 'tasks'], 120000],
+    ['routine-touched', 'docs/design-routines.md', ['tasks', 'terminal'], 90000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -668,6 +670,29 @@ describe('devboxverify/main.js run plan and owner reset', () => {
     } finally {
       removeScratch(dir);
     }
+  });
+});
+
+describe('devboxverify/journey-kit.js callToolRows', () => {
+  const { callToolRows } = require('../../devboxverify/journey-kit');
+  const since = Date.parse('2026-10-01T03:30:00Z');
+  const line = (o) => JSON.stringify({ event: 'call_tool', outcome: 'ok', actor: { kind: 'project_session', project_id: 'p1' }, ...o });
+
+  it('keeps only call_tool rows of the project since the mark, oldest first, and skips unreadable lines', () => {
+    const jsonl = [
+      line({ ts: '2026-10-01T03:30:02.000000001Z', tool: 'contacts_list', outcome: 'denied' }),
+      line({ ts: '2026-10-01T03:30:01Z', tool: 'mail_list_accounts' }),
+      line({ ts: '2026-10-01T03:29:59Z', tool: 'stale_before_mark' }),
+      line({ ts: '2026-10-01T03:30:03Z', tool: 'other_project', actor: { project_id: 'p2' } }),
+      line({ ts: '2026-10-01T03:30:04Z', tool: 'not_a_call', event: 'list_tools' }),
+      line({ ts: '2026-10-01T03:30:05Z', tool: 'no_actor', actor: undefined }),
+      'not json',
+      '',
+    ].join('\n');
+    expect(callToolRows(jsonl, { projectId: 'p1', sinceMs: since })).toEqual([
+      { ts: since + 1000, tool: 'mail_list_accounts', outcome: 'ok' },
+      { ts: since + 2000, tool: 'contacts_list', outcome: 'denied' },
+    ]);
   });
 });
 

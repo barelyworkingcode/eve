@@ -11,7 +11,7 @@ const { expect } = require('@playwright/test');
 const {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
-  thread, threadError, replyAfter, openWorldProbe, DEVICES, sweep, overflow,
+  thread, threadError, replyAfter, openWorldProbe, eveJson, callToolRows, DEVICES, sweep, overflow,
 } = require('./journey-kit');
 
 const exec = promisify(execFile);
@@ -430,6 +430,7 @@ async function taskCreatedListed(env) {
 
   env.step('fill the task form');
   await dialog.locator('[name="taskName"]').fill(name, { timeout: 5000 });
+  await dialog.getByTestId('task-dialog-advanced').locator('summary').click({ timeout: 5000 });
   await dialog.locator('[name="taskType"]').selectOption({ label: 'Chat (LLM)' }, { timeout: 5000 });
   await dialog.locator('[name="taskPrompt"]').fill(TASK_PROMPT, { timeout: 5000 });
   const select = dialog.locator('[name="taskModel"]');
@@ -443,15 +444,23 @@ async function taskCreatedListed(env) {
   await dialog.locator('[name="scheduleType"]').selectOption({ label: 'On demand' }, { timeout: 5000 });
 
   env.step('create the task');
-  await dialog.getByRole('button', { name: 'Create Task' }).click({ timeout: 5000 });
+  await dialog.getByRole('button', { name: 'Create routine' }).click({ timeout: 5000 });
   const listed = projectPage.getByText(name, { exact: true });
   const shown = await expect(listed).toBeVisible({ timeout: 15000 }).then(() => true, () => false);
   if (!shown) {
     const toasts = await page.locator('.toast__message').allInnerTexts();
-    return result(id, FAIL, toasts.length ? `not listed; toast: ${toasts.join(' / ')}` : 'not listed after Create Task');
+    return result(id, FAIL, toasts.length ? `not listed; toast: ${toasts.join(' / ')}` : 'not listed after Create routine');
   }
   const created = addedIds(before, await acmeIds(env, 'tasks'));
   if (created.length !== 1) return result(id, FAIL, `${created.length} new ${acme.name} tasks, expected 1`);
+
+  const routines = await env.newPage();
+  await openEve(routines, env, '#routines');
+  env.step('find it on #routines');
+  const routineRow = routines.getByTestId(`routine-${created[0]}`);
+  await need(`${name} is not listed on #routines`, expect(routineRow).toContainText(name, { timeout: 15000 }));
+  await need(`${name} does not read "When I ask" on #routines`,
+    expect(routineRow.locator('.routine-row__sentence')).toHaveText('When I ask', { timeout: 5000 }));
 
   const openTasks = async (on) => {
     const onPage = await openProjectPage(on, env, acme);
@@ -492,7 +501,7 @@ async function taskCreatedListed(env) {
     return r.reply.replace(/\s+/g, ' ').includes(opening) ? r : null;
   }, { timeoutMs: 15000, intervalMs: 1000 });
   if (!reread) return result(id, FAIL, 'the last run does not show the run\'s reply in a new page');
-  return result(id, PASS, `${name} listed after a reload; Run Now replied and its last run shows the reply`);
+  return result(id, PASS, `${name} listed after a reload and on #routines as "When I ask"; Run Now replied and its last run shows the reply`);
 }
 
 // The thread without its folded thinking. A thinking model's reply opens with
@@ -515,6 +524,203 @@ function runReply(messages) {
   if (r.asked) return r;
   const reply = messages.filter((m) => m.who === 'message-assistant' && m.text).map((m) => m.text).join('\n').trim();
   return { asked: false, reply, error: threadError(messages) };
+}
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const capitalised = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+const hhmm = (ms) => [new Date(ms).getHours(), new Date(ms).getMinutes()].map((n) => String(n).padStart(2, '0')).join(':');
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Whatever the verdict, every task made in Acme Corp since `before` is
+// deleted, so a scheduled routine never fires on the devbox.
+function removeNewTasks(env, before) {
+  env.cleanup('delete the routine', async () => {
+    for (const taskId of addedIds(before, await acmeIds(env, 'tasks'))) {
+      await eveJson(env, 'DELETE', `/api/tasks/${encodeURIComponent(taskId)}`);
+    }
+  });
+}
+
+async function routineFromThread(env) {
+  const id = 'routine-from-thread';
+  const acme = env.world.projects.acme;
+  const page = await env.newPage();
+  const errors = captureErrors(page);
+  await openEve(page, env);
+  await waitForModels(page, env);
+  await openProject(page, env, acme);
+  const sessionsBefore = await acmeIds(env, 'sessions');
+  const tasksBefore = await acmeIds(env, 'tasks');
+  removeNewTasks(env, tasksBefore);
+
+  const dialog = await openLauncher(page, env);
+  env.step('open the Web Chat form');
+  await dialog.getByTestId('shell-card-web-chat').click({ timeout: 10000 });
+  const select = dialog.getByTestId('launcher-model-select');
+  const model = pickModel(await optionValues(select), env.model);
+  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for ${acme.name}`);
+  await select.selectOption(model, { timeout: 5000 });
+  env.step('start the chat');
+  await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
+  const started = await poll(async () => addedIds(sessionsBefore, await acmeIds(env, 'sessions')).length > 0,
+    { timeoutMs: 30000, intervalMs: 1000 });
+  if (!started) {
+    const refusal = errors.find((e) => /template "chat"/.test(e));
+    return refusal ? result(id, BLOCKED, `launch refused: ${refusal}`) : result(id, FAIL, `no ${acme.name} session within 30s of Start Chat`);
+  }
+
+  const prompt = `Reply with the word ready. (verify ${env.nonce} routine)`;
+  const input = page.getByTestId('chat-input');
+  await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
+  await input.fill(prompt, { timeout: 5000 });
+  env.step('send the prompt');
+  await page.getByTestId('chat-submit').click({ timeout: 5000 });
+  env.step('wait for the reply');
+  const stop = page.getByTestId('chat-stop');
+  const settled = await poll(async () => {
+    const r = replyAfter(await answers(page), env.nonce);
+    return r.error || (r.reply && !(await stop.isVisible())) ? r : null;
+  }, { timeoutMs: 60000, intervalMs: 1000 });
+  if (!settled) return result(id, FAIL, 'no finished assistant reply within 60s');
+  if (settled.error) return result(id, FAIL, `error in the thread: ${settled.error}`);
+
+  env.step('Make this a routine');
+  await page.getByTestId('thread-make-routine').click({ timeout: 10000 });
+  const panel = page.getByTestId('routine-panel');
+  await need('Make this a routine opened no panel', expect(panel).toBeVisible({ timeout: 10000 }));
+  // Tomorrow, so the routine can't come due while the journey runs.
+  const day = WEEKDAYS[new Date(Date.now() + 86400000).getDay()];
+  const sentence = `Every ${capitalised(day)} at 08:00`;
+  env.step(`choose ${sentence}`);
+  await panel.getByTestId('routine-panel-when-weekly').click({ timeout: 5000 });
+  await panel.getByTestId('routine-panel-day').selectOption({ label: capitalised(day) }, { timeout: 5000 });
+  await panel.getByTestId('routine-panel-time').fill('08:00', { timeout: 5000 });
+  const label = (await panel.getByTestId('routine-panel-model').evaluate((s) => s.selectedOptions[0]?.textContent || '')).trim();
+  const readback = `${sentence}, in ${acme.name}, using ${label}.`;
+  await need(`the read-back is not "${readback}"`, expect(panel.getByTestId('routine-panel-sentence')).toHaveText(readback, { timeout: 5000 }));
+
+  env.step('Create routine');
+  await panel.getByTestId('routine-panel-create').click({ timeout: 5000 });
+  const made = await poll(async () => addedIds(tasksBefore, await acmeIds(env, 'tasks')).length > 0, { timeoutMs: 15000, intervalMs: 1000 });
+  if (!made) {
+    const toasts = await page.locator('.toast__message').allInnerTexts();
+    return result(id, FAIL, `no new ${acme.name} routine within 15s of Create routine${toasts.length ? `; toast: ${toasts.join(' / ')}` : ''}`);
+  }
+  await need('the panel is still open after Create routine', expect(panel).toBeHidden({ timeout: 10000 }));
+  // A settle period, so a second create or a run started by the create shows.
+  await sleep(3000);
+  const added = addedIds(tasksBefore, await acmeIds(env, 'tasks'));
+  if (added.length !== 1) return result(id, FAIL, `${added.length} new ${acme.name} routines, expected 1`);
+  const own = await eveJson(env, 'GET', `/api/tasks?projectId=${encodeURIComponent(acme.id)}`);
+  const task = (own || []).find((t) => t.id === added[0]);
+  if (!task) return result(id, FAIL, `the new routine is not among ${acme.name}'s at the scheduler`);
+  const s = task.schedule || {};
+  const problems = [];
+  if (s.type !== 'weekly' || s.day !== day || s.time !== '08:00') problems.push(`schedule ${JSON.stringify(task.schedule)}, want weekly ${day} 08:00`);
+  if (task.prompt !== prompt) problems.push(`prompt "${String(task.prompt).slice(0, 60)}", want the thread's first message`);
+  if (task.model !== model) problems.push(`model ${task.model}, want the thread's ${model}`);
+  if (task.enabled !== true) problems.push('not enabled');
+  if (task.lastRun || task.lastStatus) problems.push(`a run started (${task.lastStatus || task.lastRun})`);
+  const sessions = addedIds(sessionsBefore, await acmeIds(env, 'sessions'));
+  if (sessions.length !== 1) problems.push(`${sessions.length} new ${acme.name} sessions, expected the thread's alone`);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+
+  const later = await env.newPage();
+  await openEve(later, env, '#routines');
+  env.step('find the routine on #routines');
+  const row = later.getByTestId(`routine-${task.id}`);
+  await need('the routine is not listed on #routines', expect(row).toBeVisible({ timeout: 15000 }));
+  await need(`the #routines row does not read "${sentence}" like the read-back`,
+    expect(row.locator('.routine-row__sentence')).toHaveText(sentence, { timeout: 5000 }));
+  await need('the #routines row does not read "never ran"', expect(row.locator('.routine-row__result')).toHaveText('never ran', { timeout: 5000 }));
+  return result(id, PASS, `read-back "${readback}"; one weekly ${day} 08:00 ${acme.name} routine with the thread's prompt and model; `
+    + '#routines reads the same sentence and "never ran"');
+}
+
+// relay's deterministic pair, as its tool-call-audited journey uses them.
+const ALLOWED_TOOL = 'mail_list_accounts';
+const DENIED_TOOL = 'contacts_list';
+const DENIED_OUTCOMES = ['denied', 'unauthorized', 'throttled'];
+const AUDIT_FIELDS = ['ts', 'tool', 'outcome', 'allowed'];
+
+async function routineTouched(env) {
+  const id = 'routine-touched';
+  const acme = env.world.projects.acme;
+  const startedAt = Date.now();
+  const page = await env.newPage();
+  await openEve(page, env);
+  await waitForModels(page, env);
+  await openProject(page, env, acme);
+  const probe = await openWorldProbe(page, env);
+  if (!probe) return result(id, BLOCKED, `no "World probe" card for ${acme.name}`);
+  env.cleanup('close the World probe terminal', () => env.api.closeTerminal(probe.terminalId));
+  const bin = `'${env.relayBin.replace(/'/g, "'\\''")}'`;
+  await probe.typeLine([ALLOWED_TOOL, DENIED_TOOL].map((tool) => `${bin} mcp call --tool ${tool} --args '{}'`).join('; '));
+
+  env.step('read relay audit');
+  const relayRows = async () => {
+    const args = ['audit', '--event', 'call_tool', '--project', acme.id, '--json', '--tail', '20'];
+    const { stdout } = await exec(env.relayBin, args, { timeout: 10000 });
+    return callToolRows(stdout, { projectId: acme.id, sinceMs: startedAt });
+  };
+  const audited = await poll(async () => {
+    const rows = await relayRows().catch(() => []);
+    const one = (tool) => rows.filter((r) => r.tool === tool);
+    const [ok, no] = [one(ALLOWED_TOOL), one(DENIED_TOOL)];
+    return ok.length === 1 && ok[0].outcome === 'ok' && no.length === 1 && DENIED_OUTCOMES.includes(no[0].outcome) ? rows : null;
+  }, { timeoutMs: 15000, intervalMs: 1000 });
+  if (!audited) return result(id, BLOCKED, `relay audit shows no ${ALLOWED_TOOL} ok / ${DENIED_TOOL} denied pair from ${acme.name}`);
+  // Deliberate: a live terminal comes back as the active tab in a new page.
+  await env.api.closeTerminal(probe.terminalId);
+
+  const values = await page.evaluate((pid) => window.client.state.modelsForProject(pid).map((m) => m.value), acme.id);
+  const model = pickModel(values, env.model);
+  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for ${acme.name}`);
+  const tasksBefore = await acmeIds(env, 'tasks');
+  removeNewTasks(env, tasksBefore);
+  env.step('create an on-demand routine');
+  await eveJson(env, 'POST', '/api/tasks', {
+    name: `verify-${env.nonce}-touched`, projectId: acme.id, prompt: TASK_PROMPT, model,
+    schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless', catchUp: false,
+  });
+  const made = addedIds(tasksBefore, await acmeIds(env, 'tasks'));
+  if (made.length !== 1) return result(id, BLOCKED, `${made.length} new ${acme.name} routines after POST /api/tasks, expected 1`);
+
+  env.step('read eve\'s audit route');
+  const body = await eveJson(env, 'GET', `/api/projects/${encodeURIComponent(acme.id)}/audit`);
+  if (!body || body.recording !== true || !Array.isArray(body.records)) {
+    return result(id, FAIL, `eve's audit route answered ${JSON.stringify(body).slice(0, 80)}`);
+  }
+  const extra = [...new Set(body.records.flatMap((r) => Object.keys(r).filter((k) => !AUDIT_FIELDS.includes(k))))];
+  if (extra.length) return result(id, FAIL, `eve's audit route sends ${extra.join(', ')} to the browser`);
+
+  const sheetPage = await env.newPage();
+  await openEve(sheetPage, env, '#routines');
+  env.step('open the routine sheet');
+  await need('the routine is not listed on #routines', sheetPage.getByTestId(`routine-${made[0]}`).click({ timeout: 15000 }));
+  const sheet = sheetPage.getByTestId(`routine-sheet-${made[0]}`);
+  await need('the routine sheet did not open', expect(sheet).toBeVisible({ timeout: 10000 }));
+  const audit = sheet.getByTestId('routine-sheet-audit');
+  // relay's rows, newest first, as the sheet lists them. A run that crosses
+  // midnight reads the time as "yesterday HH:MM".
+  const want = [...audited].reverse().map((r) => new RegExp(`^(?:yesterday )?${hhmm(r.ts)} · ${escapeRe(r.tool)} · `
+    + `${DENIED_OUTCOMES.includes(r.outcome) ? 'denied' : 'allowed'}$`));
+  env.step('wait for the tool calls');
+  const shown = await poll(async () => {
+    const texts = (await audit.getByTestId('routine-audit-row').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+    return texts.length >= want.length ? texts : null;
+  }, { timeoutMs: 10000, intervalMs: 500 });
+  if (!shown) {
+    const said = (await audit.innerText({ timeout: 2000 }).catch(() => '')).replace(/\s+/g, ' ').trim();
+    return result(id, FAIL, `the sheet listed fewer than ${want.length} tool calls within 10s${said ? `; it says "${said.slice(0, 80)}"` : ''}`);
+  }
+  const top = shown.slice(0, want.length);
+  if (!want.every((re, i) => re.test(top[i]))) {
+    return result(id, FAIL, `the sheet's newest rows read "${top.join(' / ')}"; relay audit has `
+      + `${[...audited].reverse().map((r) => `${hhmm(r.ts)} ${r.tool} ${r.outcome}`).join(' / ')}`);
+  }
+  return result(id, PASS, `relay audit: ${ALLOWED_TOOL} ok, ${DENIED_TOOL} denied; the sheet lists them newest first as `
+    + `"${top.join(' / ')}"; eve's route sends only ${AUDIT_FIELDS.join(', ')}`);
 }
 
 async function voiceDeepLink(env) {
@@ -877,6 +1083,8 @@ const journeys = [
     needs: ['project:acme', 'project:globex', 'project:home'], run: terminalOnRequest,
   },
   { id: 'task-created-listed', timeoutMs: 120000, areas: ['tasks'], needs: ['project:acme'], run: taskCreatedListed },
+  { id: 'routine-from-thread', timeoutMs: 120000, areas: ['tasks', 'chat', 'home'], needs: ['project:acme'], run: routineFromThread },
+  { id: 'routine-touched', timeoutMs: 90000, areas: ['tasks', 'terminal'], needs: ['project:acme'], run: routineTouched },
   { id: 'voice-deep-link', timeoutMs: 60000, areas: ['voice'], needs: ['project:acme'], run: voiceDeepLink },
   { id: 'changes-diff', timeoutMs: 60000, areas: ['git'], needs: ['project:acme'], run: changesDiff },
   {

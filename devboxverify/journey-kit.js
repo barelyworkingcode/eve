@@ -170,6 +170,33 @@ async function openWorldProbe(page, env) {
   return { terminalId: mine[0], pane, typeLine };
 }
 
+// eve's own HTTP API with the run's owner token: setup, cleanup and wire
+// checks only. Verdicts on what a person sees stay in the page.
+async function eveJson(env, method, path, body) {
+  const headers = { 'X-Session-Token': env.session.token };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const res = await fetch(env.url.replace(/\/+$/, '') + path, {
+    method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${method} ${path} answered ${res.status}`);
+  return text ? JSON.parse(text) : null;
+}
+
+// `relay audit --event call_tool --json` lines for one project since a mark,
+// oldest first: relay's own record of what the project's tools did.
+function callToolRows(jsonl, { projectId, sinceMs }) {
+  const rows = [];
+  for (const line of String(jsonl).split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    const ts = Date.parse(o && o.ts);
+    if (!o || o.event !== 'call_tool' || (o.actor && o.actor.project_id) !== projectId || !(ts >= sinceMs)) continue;
+    rows.push({ ts, tool: o.tool || '', outcome: o.outcome || '' });
+  }
+  return rows.sort((a, b) => a.ts - b.ts);
+}
+
 // The last `EVE_NEG <gate> <ddd>... <rest>` line. The typed command line
 // cannot match: it builds the marker with printf, so its echo never holds
 // "EVE_NEG" itself.
@@ -264,6 +291,6 @@ async function overflow(page) {
 module.exports = {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, openProjectPage, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
-  thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt,
+  thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt, eveJson, callToolRows,
   DEVICES, smallTargets, overflowProblems, sweep, overflow,
 };

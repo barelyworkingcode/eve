@@ -26,8 +26,8 @@ audited). Never an API or flag that skips it. See [Owner gates](#owner-gates).
 | G2 | Ask about my project and get an answer | Start a chat in a project and get a reply | My question shows, a reply streams in and settles, Stop works, errors show in the thread | chat | **must-have** | chat-reply (with Stop) |
 | G3 | Pick up where I left off | Reopen a thread from yesterday or another device | The thread opens from Home, Project page or ⌘K with its history, and no new session is made | chat, home | **must-have** | open-existing-thread (Project page, Home Continue, ⌘K) |
 | G4 | Work in a shell on my project | Open a terminal in the project and run things | A terminal opens only when asked, runs my command, and is still there after a reload | terminal | **must-have** | terminal-on-request (with reload) |
-| G5 | Hand a task off and come back later | Give an agent a job, on demand or on a schedule | The task is saved, runs when told, and its last run is readable afterwards | tasks | **must-have** | task-created-listed (with Run Now and history) |
-| G6 | Check what my agents did | Come back and see what ran and what changed | A task's run is readable afterwards; the Changes tab lists edited files and the diff opens | tasks, git | **must-have** | task-created-listed (run and history), changes-diff |
+| G5 | Hand a task off and come back later | Give an agent a job, on demand or on a schedule | The task is saved, runs when told, and its last run is readable afterwards | tasks | **must-have** | task-created-listed (with Run Now and history), routine-from-thread |
+| G6 | Check what my agents did | Come back and see what ran and what changed | A task's run is readable afterwards; the Changes tab lists edited files and the diff opens | tasks, git | **must-have** | task-created-listed (run and history), routine-touched, changes-diff |
 | G7 | Read and edit project files | Browse, open, change and save a file | The tree lists the project, a file opens in the editor, Save persists it, an outside edit is flagged | files | **must-have** | file-edit-save |
 | G8 | Let an agent act, under my control | Agents use tools only as the project's policy and my answers allow | Mode banner is right; a tool call in a gated mode raises the prompt; plan mode waits for Approve | chat, projects | should | none yet — answering the prompt is relay's owner gate; the prompt appearing is journey-checkable |
 | G9 | Talk hands-free | Start a voice chat and converse | The voice view opens (incl. the `#/voice-chat` deep link), speech is transcribed, replies are spoken | voice | should | voice-deep-link (view opens, one session; no audio) |
@@ -67,15 +67,15 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 |---|---|---|---|---|
 | Trusted-network bypass of the passkey screen | API: `trusted-network.js`, `GET /api/auth/status` | Open eve from loopback or a trusted subnet | none — unit and integration tests only; journeys run signed in | auth |
 | Passkey sign-in | UI: `#authScreen`, `public/auth.js`; API: `/api/auth/login/*` | Open eve off the trusted network, Sign In | **owner gate**: passkey-sign-in (+), agent-sign-in-refused (−) | auth |
-| Today: a host that lays out independent parts (summary, Ask, Needs you, Start, Continue, Running, Projects) for the current mode; a failing part shows one line with Retry, a slow one a skeleton | UI: `public/home-screen.js`, `public/today/**` (design: `docs/design-today-s1.md`) | Open eve with no tab open | landing-view (greeting, tiles); none yet for part failure/slowness — cloud specs `goals/today-parts` | home |
+| Today: a host that lays out independent parts (summary, Ask, Needs you, Start, Continue, Running, Routines, Projects) for the current mode; a failing part shows one line with Retry, a slow one a skeleton | UI: `public/home-screen.js`, `public/today/**` (design: `docs/design-today-s1.md`) | Open eve with no tab open | landing-view (greeting, tiles); none yet for part failure/slowness — cloud specs `goals/today-parts` | home |
 | Ask box: Return starts a thread in the mode's default project, no dialog | UI: `public/today/parts/ask-part.js`; WS `create_session`, `user_input` | Today, focused on open on fine pointers; never focused on touch, a tap focuses it (#129) | none yet — cloud specs `goals/today-ask` | home, chat |
-| Needs you / Running: waiting, failed and running threads and task runs, from frames eve receives | UI: `public/today/parts/needs-you-part.js`, `running-part.js`; `public/core/session-activity.js` | Today | none yet — cloud specs `goals/today-truth` | home |
+| Needs you / Running: waiting, failed and running threads and routine runs, from frames eve receives; a failed routine shows its reason, and "Can't reach the scheduler." when relayScheduler is down | UI: `public/today/parts/needs-you-part.js`, `running-part.js`; `public/core/session-activity.js` | Today | none yet — cloud specs `goals/today-truth` | home |
 | Home \| Work switch; lists show only projects whose mode includes it | UI: `public/sidebar/mode-switch.js`, `core/mode.js`, `StateStore.getModeProjects`; API: `mode`, `default_for` on `GET /api/projects` | Sidebar panel header | world-projects-listed (checks each mode shows only its projects); cloud specs `goals/today-mode`; real enforcement is relay's | home, projects |
 | First-run "Create a project" | UI: `public/today/parts/projects-part.js` (`.home__first-run`) | Open eve with zero projects | none yet — world always has projects | home, projects |
 | Project chips on Home | UI: `public/today/parts/projects-part.js`; API: `GET /api/projects` | Home | world-projects-listed | home, projects |
 | Project rail | UI: `public/sidebar/activity-rail.js` | Left rail | world-projects-listed | projects |
 | Project panel (Files / Changes; a stored `sessions` or `tasks` tab opens Files) and its Project page button | UI: `public/sidebar/project-panel.js` | Click a project in the rail | chat-reply etc. (as setup, not a verdict); cloud spec `goals/workbench-page` | projects |
-| Project page: one main-area tab per project (`#project/<id>`, not persisted) with the header (name, where it lives, path), New thread (`project-new-thread-<id>`), Agents, Threads and Tasks sections with counts, and Files and Changes rows that open the panel on that tab; an unknown id says "Project not found." | UI: `public/project-page.js`, `panes/project-pane.js`, `apple/project-page.css`; `app.js` `#project/` route | Panel header button `panel-project-page`, the deep link, compact bottom bar Threads | open-existing-thread, task-created-listed (their door); cloud spec `goals/workbench-page` | projects, home |
+| Project page: one main-area tab per project (`#project/<id>`, not persisted) with the header (name, where it lives, path), New thread (`project-new-thread-<id>`), Agents, Threads and Routines sections with counts (each routine reads as a sentence with its last result; an All routines link opens `#routines`), and Files and Changes rows that open the panel on that tab; an unknown id says "Project not found." | UI: `public/project-page.js`, `panes/project-pane.js`, `routine-history.js`, `core/routine-sentence.js`, `apple/project-page.css`; `app.js` `#project/` route | Panel header button `panel-project-page`, the deep link, compact bottom bar Threads | open-existing-thread, task-created-listed (their door); cloud spec `goals/workbench-page` | projects, home |
 | `/<project-slug>/` URL scoping | API: `server.js` SPA route | Open `/<slug>/` | none yet — not written | home |
 | Connection banner and reconnect | UI: `#connectionBanner`; `relay-client.js` upstream self-heal | Relay drops and returns | none yet — needs a controlled relay drop | shell, core |
 | Bad-network reload banner | UI: inline in `public/index.html` | A script fails to load | none yet — later | shell |
@@ -134,11 +134,13 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
-| Create a task (name, type, prompt, model) | UI: `public/dialogs/task-dialog.js`; API: `POST /api/tasks` | Project page → Tasks → New (`project-task-new-<id>`) | task-created-listed (page Tasks door) | tasks, projects |
-| Task listed (`project-task-<taskId>`, count `project-tasks-count`), persists across reload | UI: `public/project-page.js`, `task-manager.js`; API: `GET /api/tasks` | Project page → Tasks | task-created-listed | tasks, projects |
+| Create a routine (name, prompt, model, when; Type is behind Advanced) | UI: `public/dialogs/task-dialog.js`; API: `POST /api/tasks` | Project page → Routines → New (`project-task-new-<id>`) | task-created-listed (page Tasks door) | tasks, projects |
+| Routine listed (`project-task-<taskId>`, count `project-tasks-count`) as a sentence (`core/routine-sentence.js`), persists across reload | UI: `public/project-page.js`, `task-manager.js`; API: `GET /api/tasks` | Project page → Routines | task-created-listed | tasks, projects |
 | Schedule types (daily, hourly, interval, weekly, cron, once, on demand) | UI: task dialog; `core/task-schedule.js` | Task dialog Schedule | none yet — journey uses On demand only | tasks |
 | Enabled / Catch up missed runs | UI: task dialog | Task dialog | none yet — not written | tasks |
 | Run a task now | API: `POST /api/tasks/:taskId/run` | Task list action | task-created-listed (Run Now) | tasks |
+| Routines page: every routine across projects, one `#routines` tab (not persisted, not on the rail), a row opens a sheet with the sentence, last result and Relay tool calls | UI: `public/routines-page.js`, `panes/routines-pane.js`, `routine-audit.js`, `routine-history.js`; `app.js` `#routines` route | ⌘K, project page All routines link, the deep link | task-created-listed (the new routine is listed with "When I ask"); cloud specs `goals/routines-page` | tasks, projects |
+| Make this a routine: the chat header button `thread-make-routine` (shown only on a thread with a first prompt, hidden on voice threads and routine runs) opens a panel pre-filled from the thread | UI: `public/routine-panel.js`; API: `POST /api/tasks` | Chat header | routine-from-thread; cloud specs `goals/routines-make` | tasks, chat, home |
 | Edit / delete a task | UI: task dialog; API: `PUT`/`DELETE /api/tasks/:taskId` | Task list | none yet — delete uses native `confirm()` | tasks |
 | Task events live (`/ws/tasks`) | `relay-client.js#_connectScheduler` | Tasks tab while a run happens | none yet — not written | tasks, core |
 
@@ -147,6 +149,8 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | View a task's last or live run | UI: `public/task-viewer.js`; API: `GET /api/tasks/:taskId/history` | Project page → Tasks → a task | task-created-listed (last run after reload) | tasks |
+| Today Routines part: routines that finished in the last 24 h, newest first, unseen ones marked (seen is per device, `eve-routines-seen`); hidden when none | UI: `public/today/parts/routines-part.js`, `routine-history.js` | Today | cloud specs `goals/routines-today` | home, tasks |
+| What a routine's project called through Relay (sheet section; `call_tool` rows, allowed or denied; Claude Code's built-in tools never appear) | UI: `public/routine-audit.js`, `project-audit.js`; API: `GET /api/projects/:id/audit` | Routine sheet | routine-touched; cloud spec `goals/routines-audit` | tasks, terminal |
 | Running indicators (Today dot and count, rail and panel dots): a turn in progress in a joined thread or an executing task run; a live idle process shows none | UI: `public/today/**`, `project-panel.js`, `project-page.js`, `activity-rail.js`; `core/session-activity.js` | Home, rail, project page | none yet — cloud specs `goals/today-truth` | home |
 | Changes tab (repos, worktrees, counts) | UI: `public/sidebar/changes-panel.js`; WS `git_changes` | Project panel → Changes | changes-diff | git |
 | Uncommitted / vs base scope | UI: changes-panel scope toggle | Changes tab | none yet — not written | git |
@@ -299,7 +303,7 @@ areas:
     tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/unit/session-activity.test.js,
             test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
             test/e2e/goals/home-screen.spec.js]
-    journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file]
+    journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file, routine-from-thread]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
@@ -324,18 +328,20 @@ areas:
             test/unit/file-attachment-manager-init.test.js, test/integration/sessions.test.js,
             test/integration/session-*.test.js, test/integration/permissions.test.js, test/e2e/chat*.spec.js,
             test/e2e/template-blank-model.spec.js]
-    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file]
+    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread]
   terminal:
     code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,
            public/agent-board.js, public/core/terminal-text.js, public/apple/terminal.css, public/apple/agents.css]
     tests: [test/unit/terminal-*.test.js, test/unit/message-dispatcher-terminal-request.test.js,
             test/integration/terminals.test.js, test/e2e/terminal-reconnect.spec.js]
-    journeys: [terminal-on-request, agent-sign-in-refused, agent-enrol-refused]
+    journeys: [terminal-on-request, agent-sign-in-refused, agent-enrol-refused, routine-touched]
   tasks:
-    code: [public/dialogs/task-dialog.js, public/task-manager.js, public/task-viewer.js]
+    code: [public/dialogs/task-dialog.js, public/task-manager.js, public/task-viewer.js, public/routines-page.js,
+           public/panes/routines-pane.js, public/routine-panel.js, public/routine-history.js, public/routine-audit.js,
+           project-audit.js, public/core/routine-sentence.js, public/today/parts/routines-part.js]
     tests: [test/unit/task-*.test.js, test/integration/tasks.test.js, test/e2e/task-dialog-models.spec.js,
             test/e2e/schedules-and-connection.spec.js]
-    journeys: [task-created-listed]
+    journeys: [task-created-listed, routine-from-thread, routine-touched]
   files:
     code: [ws/file-messages.js, file-handlers.js, file-service.js, file-watcher.js, dir-watcher.js, public/file-browser.js,
            public/file-editor.js, public/html-preview-pane.js, public/viewers/**, public/sidebar/file-tree-node.js,

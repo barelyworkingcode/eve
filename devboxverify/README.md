@@ -223,14 +223,50 @@ output and a second command answering. Exactly one new Acme Corp terminal.
 - Traps: templates are per project. The reloaded page only lists the
   terminal; it is never reopened for you. The detail quotes the last line.
 
-**task-created-listed.** An on-demand chat task is created from the project
-page's Tasks, is the one new Acme Corp task, and is still listed there after a
-reload; Run Now replies and its last run shows the reply in a fresh browser.
-- Lives in: `project-task-new-<id>` → `public/dialogs/task-dialog.js` →
-  `POST /api/tasks` → `public/project-page.js` (`project-task-<taskId>`),
-  `public/task-manager.js`.
-- Traps: "On demand" never fires. Delete uses a native `confirm()`. Models
-  are filtered by `allowed_models`.
+**task-created-listed.** An on-demand chat routine is created from the
+project page's Routines (Create routine, with the Type select behind
+Advanced), is the one new Acme Corp task, is listed on `#routines` reading
+"When I ask", and is still listed on the project page after a reload; Run Now
+replies and its last run shows the reply in a fresh browser.
+- Lives in: `project-task-new-<id>` → `public/dialogs/task-dialog.js`
+  (`task-dialog-advanced`) → `POST /api/tasks` → `public/project-page.js`
+  (`project-task-<taskId>`), `public/task-manager.js`,
+  `public/routines-page.js` (`routine-<taskId>`).
+- Traps: the id, area and form names stay from before the rename; only the
+  visible strings changed. "On demand" never fires. Delete uses a native
+  `confirm()`. Models are filtered by `allowed_models`.
+
+**routine-from-thread.** An Acme Corp web chat with a nonce prompt gets a
+reply; "Make this a routine" in its header opens the panel; Every
+<tomorrow's weekday> at 08:00 reads back "Every <Day> at 08:00, in Acme Corp,
+using <model label>." Create routine closes the panel and makes exactly one
+new Acme Corp routine at the scheduler: weekly, that day, `08:00`, the nonce
+prompt, the thread's model, enabled, no run and no session beyond the
+thread's. On `#routines` its row reads the same sentence and "never ran".
+- Lives in: `thread-make-routine` → `public/routine-panel.js`
+  (`routine-panel-*`) → `POST /api/tasks` → `public/routines-page.js`;
+  `public/core/routine-sentence.js`.
+- Traps: tomorrow's day, so it can't come due during the run. A cleanup
+  deletes every Acme Corp task made since the journey started, whatever the
+  verdict.
+
+**routine-touched.** A World probe terminal in Acme Corp runs relay's
+deterministic pair, `relay mcp call` for `mail_list_accounts` (allowed) and
+`contacts_list` (denied). Ground truth is `relay audit --event call_tool
+--project <id> --json`, never the agent's own account: without that ok/denied
+pair since the journey started, it is BLOCKED. An on-demand routine made
+through `POST /api/tasks` opens from `#routines`; within 10 s its sheet's
+audit section lists relay's rows newest first as `<HH:MM> · <tool> ·
+allowed|denied`. eve's `GET /api/projects/:id/audit` sends no record field
+beyond `ts`, `tool`, `outcome` and `allowed`.
+- Lives in: `routine-sheet-<taskId>` → `public/routine-audit.js`
+  (`routine-sheet-audit`, `routine-audit-row`) → `project-audit.js` → relay
+  `GET /api/audit/log` and `GET /api/audit`.
+- Traps: relay audits only calls through its tool router, so a model's
+  built-in tools never show. The terminal is closed before `#routines` opens,
+  since a live terminal comes back as the active tab. "Auditing off" can't be
+  reached on real relay (its remote listener needs auditing); the cloud spec
+  covers it against the fake.
 
 **voice-deep-link.** With "World voice" starred, `#/voice-chat` opens a voice
 chat straight away.
