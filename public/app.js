@@ -1198,16 +1198,16 @@ class EveWorkspaceClient {
 
   // Sends `text` as the next turn of a thread that was just created (Today's Ask).
   // Mirrors handleSubmit without the chat input: the text came from Ask.
-  sendUserText(sessionId, text) {
+  sendUserText(sessionId, text, files = []) {
     this.inputHistory.push(text);
     if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
     // Also in the thread's history: the tab's pane repaints from it, and the
     // project switch that follows a new thread can repaint after this send.
     const history = this.sessionHistories.get(sessionId);
-    if (history) history.push({ timestamp: new Date().toISOString(), role: 'user', content: text });
-    this.messageRenderer.appendUserMessage(text, []);
+    if (history) history.push({ timestamp: new Date().toISOString(), role: 'user', content: text, files });
+    this.messageRenderer.appendUserMessage(text, files);
     this.messageDispatcher.markLocalSubmit(sessionId);
-    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files: [], sessionId });
+    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, sessionId });
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
     this.showStopButton();

@@ -44,6 +44,9 @@ function fakeMonaco() {
         layout: jest.fn(),
         saveViewState: jest.fn(() => ({ scrollTop: 42 })),
         restoreViewState: jest.fn(),
+        // Monaco's diff computation: null until the first diff is computed.
+        getLineChanges: jest.fn(() => null),
+        onDidUpdateDiff: jest.fn(),
         dispose: jest.fn(),
       };
       editors.push(ed);

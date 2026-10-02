@@ -236,6 +236,31 @@ class DiffViewer {
     this.app.tabManager?.openFile(projectId, DiffViewer.projectPath(repo, path));
   }
 
+  // The editor's own line changes are null until its diff has been computed.
+  _lineChanges(st) {
+    const current = this.diffEditor?.getModel();
+    if (!st?.models || current?.modified !== st.models.modified) return null;
+    return this.diffEditor.getLineChanges();
+  }
+
+  // Not offered for a binary or too-large diff, nor for a host project (Ask cannot start there).
+  _syncAsk(st) {
+    const project = this.app.state?.getProject(st.spec.projectId);
+    this.askBtn.hidden = !!(project?.host || project?.hostId || st.data?.binary || st.data?.tooLarge);
+    this.askBtn.disabled = !st.data || !this._lineChanges(st);
+  }
+
+  askAboutDiff() {
+    const st = this.states.get(this.activeTabId);
+    const changes = st && this._lineChanges(st);
+    if (!changes) return;
+    const { projectId, repo, path } = st.spec;
+    const full = DiffViewer.projectPath(repo, path).replace(/^\/+/, '');
+    const content = UnifiedDiff.format(full, st.data.original == null ? null : st.models.original.getValue(),
+      st.data.modified == null ? null : st.models.modified.getValue(), changes);
+    AskAbout.start(this.container, { projectId, attachment: { kind: 'diff', name: `${full}.diff`, label: `Diff: ${full}`, content } });
+  }
+
   _fileDisabled(st) {
     if (st.spec.status === 'D') return true;
     const d = st.data;
@@ -273,7 +298,11 @@ class DiffViewer {
     sideBtn.addEventListener('click', () => this.setMode('side-by-side'));
     inlineBtn.addEventListener('click', () => this.setMode('inline'));
     this.fileBtn.addEventListener('click', () => this.openWorkingFile());
-    this.modeButtons.append(sideBtn, inlineBtn, this.fileBtn);
+    // "Ask about this": a unified diff of this file goes to Today's Ask (S5a-A4).
+    this.askBtn = modeBtn(null, 'Ask about this', 'diff-ask');
+    this.askBtn.disabled = true;
+    this.askBtn.addEventListener('click', () => this.askAboutDiff());
+    this.modeButtons.append(sideBtn, inlineBtn, this.fileBtn, this.askBtn);
     header.append(title, this.modeButtons);
 
     const body = el('div', 'diff-pane__body');
@@ -342,6 +371,7 @@ class DiffViewer {
 
   _renderBody(st) {
     this.fileBtn.disabled = this._fileDisabled(st);
+    this._syncAsk(st);
     if (st.error) {
       const retry = { label: 'Retry', testid: 'diff-retry', onClick: () => { st.error = null; this._fetch(st); this._renderBody(st); } };
       this._showMessage('diff-error', 'Could not load the diff', st.error.message, retry);
@@ -410,6 +440,7 @@ class DiffViewer {
     }
     if (st.viewState) this.diffEditor.restoreViewState(st.viewState);
     this.diffEditor.layout();
+    this._syncAsk(st);
   }
 
   _saveViewState() {
@@ -435,6 +466,10 @@ class DiffViewer {
       theme: settings?.isLight() ? 'vs' : 'vs-dark',
       fontSize: settings?.get('fontSize'),
       fontFamily: settings?.getTerminalFontStack(),
+    });
+    this.diffEditor.onDidUpdateDiff(() => {
+      const st = this.states.get(this.activeTabId);
+      if (st) this._syncAsk(st);
     });
   }
 

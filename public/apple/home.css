@@ -474,3 +474,53 @@
 .wordmark__bar { color: var(--border-strong); font-weight: 300; user-select: none; }
 [data-wordmark-slot="sidebar"] { padding: 10px 14px 2px; }
 [data-wordmark-slot="today"] .wordmark { font-size: 22px; }
+
+/* "Ask about this" (S5a-A4): the removable attachment under Ask, and the search dialog's button. */
+.ask-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 2px 4px 2px 12px;
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--text-callout);
+}
+.ask-chip__label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ask-chip__remove {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ask-chip__remove:hover { background: var(--bg-hover); }
+.ask-chip__remove:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.search-dialog__ask {
+  align-self: flex-start;
+  padding: 4px 12px;
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--text-callout);
+  cursor: pointer;
+}
+.search-dialog__ask:hover { background: var(--bg-hover); }
+.search-dialog__ask[hidden] { display: none; }
