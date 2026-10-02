@@ -466,18 +466,26 @@ function createFakeRelay({ token = null } = {}) {
       // distinction after a reload is `eve-session-meta`'s job alone.
       if (p === '/api/sessions' && req.method === 'POST') {
         sessionCreates.push(parsed);
-        // frontend_model_guard.go, in its order: a forced failure stands in
-        // for the launch path behind it; the remote-project refusal (400)
-        // precedes the allowed_models check (403); an unknown project, an
-        // empty or wildcard allowlist, or no model all pass.
+        // session_launch.go AuthorizeLaunch, in its order, for eve's body
+        // (kind from session_routes.go deriveSessionKind(model)): no project,
+        // then an unknown or remote (kind: 'remote') project (refused
+        // alike; an SSH-hosted project, host_id set, proceeds), then pi on a
+        // hosted project, then a model outside a non-empty, non-wildcard
+        // allowlist. A forced failure stands in for the launch
+        // path behind them. Every body is {error: message}.
+        const model = typeof parsed.model === 'string' ? parsed.model : '';
+        const kind = ['haiku', 'sonnet', 'opus'].includes(model) ? 'claude' : model.startsWith('pi/') ? 'pi' : 'chat';
+        if (!parsed.projectId) return send(403, { error: `${kind} sessions require a project` });
         const guardProject = projects.get(parsed.projectId);
-        if (parsed.projectId && guardProject && guardProject.host_id) {
-          return send(400, { error: `project ${parsed.projectId} is a remote project and cannot host a session` });
+        if (!guardProject || guardProject.kind === 'remote') {
+          return send(403, { error: 'project is not available for a session launch' });
         }
-        const allowed = guardProject && Array.isArray(guardProject.allowed_models) ? guardProject.allowed_models : [];
-        if (parsed.projectId && parsed.model && guardProject && allowed.length > 0
-          && !allowed.includes('*') && !allowed.includes(parsed.model)) {
-          return send(403, { error: 'model not allowed for this project' });
+        if (kind === 'pi' && guardProject.host_id) {
+          return send(403, { error: 'provider "pi" is not available on a host project' });
+        }
+        const allowed = Array.isArray(guardProject.allowed_models) ? guardProject.allowed_models : [];
+        if (model && allowed.length > 0 && !allowed.includes('*') && !allowed.includes(model)) {
+          return send(403, { error: 'model is not allowed for this project' });
         }
         if (sessionCreateFailure) return send(sessionCreateFailure.status, sessionCreateFailure.body);
         const respond = () => {

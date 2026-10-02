@@ -59,13 +59,14 @@ describe('fake relay answers as relay does (direct)', () => {
   });
 
   it('sessions: create body is types.Session; list items are session.Summary (`id`, `live`); delete is 204', async () => {
-    const created = await (await fetch(`${base}/api/sessions`, { method: 'POST', ...json({ directory: '/d', model: 'm', name: 'n' }) })).json();
+    relay.addProject({ id: 'ps', name: 'PS', path: '/d' }); // session_launch.go: every launch names a project
+    const created = await (await fetch(`${base}/api/sessions`, { method: 'POST', ...json({ projectId: 'ps', directory: '/d', model: 'm', name: 'n' }) })).json();
     expect(created).toMatchObject({ sessionId: expect.any(String), providerType: 'claude', messages: [], directory: '/d', model: 'm', name: 'n' });
     expect(created.stats).toMatchObject({ inputTokens: 0, costUsd: 0 });
 
     const { sessions } = await (await fetch(`${base}/api/sessions`)).json();
     const row = sessions.find((s) => s.id === created.sessionId);
-    expect(row).toMatchObject({ id: created.sessionId, live: true, messageCount: 0, directory: '/d', model: 'm', name: 'n', projectId: '' });
+    expect(row).toMatchObject({ id: created.sessionId, live: true, messageCount: 0, directory: '/d', model: 'm', name: 'n', projectId: 'ps' });
     expect(row).not.toHaveProperty('sessionId');
 
     const del = await fetch(`${base}/api/sessions/${created.sessionId}`, { method: 'DELETE' });
@@ -112,25 +113,39 @@ describe('fake relay answers as relay does (direct)', () => {
     expect(await noTmux.json()).toEqual({ error: 'host has no tmux' });
   });
 
-  it('POST /api/sessions: frontend_model_guard.go refusals', async () => {
+  it('POST /api/sessions: session_launch.go AuthorizeLaunch refusals, in its order', async () => {
     relay.addProject({ id: 'locked', name: 'Locked', path: '/tmp', allowed_models: ['ok-model'] });
     relay.addProject({ id: 'open', name: 'Open', path: '/tmp', allowed_models: ['*'] });
     relay.addHost({ id: 'h3', name: 'box3' });
-    relay.addProject({ id: 'remote', name: 'Remote', path: '/srv/z', host_id: 'h3' });
+    relay.addProject({ id: 'remote', name: 'Remote', path: '/srv/z', kind: 'remote', allowed_models: ['ok-model'] });
+    relay.addProject({ id: 'hosted', name: 'Hosted', path: '/srv/h', host_id: 'h3', allowed_models: ['ok-model'] });
     const post = (body) => fetch(`${base}/api/sessions`, { method: 'POST', ...json(body) });
+    const refused = async (body, error) => {
+      const res = await post(body);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error });
+    };
 
-    const denied = await post({ projectId: 'locked', model: 'other', directory: '/tmp' });
-    expect(denied.status).toBe(403);
-    expect(await denied.json()).toEqual({ error: 'model not allowed for this project' });
+    // No project: the kind in the text is session_routes.go deriveSessionKind(model).
+    await refused({ directory: '/tmp' }, 'chat sessions require a project');
+    await refused({ model: 'x', directory: '/tmp' }, 'chat sessions require a project');
+    await refused({ model: 'sonnet', directory: '/tmp' }, 'claude sessions require a project');
+    await refused({ model: 'pi/m', directory: '/tmp' }, 'pi sessions require a project');
+
+    // Unknown and remote refuse alike, and before the model check.
+    await refused({ projectId: 'unknown-project', model: 'x', directory: '/tmp' }, 'project is not available for a session launch');
+    await refused({ projectId: 'remote', model: 'other', directory: '/srv/z' }, 'project is not available for a session launch');
+
+    await refused({ projectId: 'locked', model: 'other', directory: '/tmp' }, 'model is not allowed for this project');
 
     expect((await post({ projectId: 'locked', model: 'ok-model', directory: '/tmp' })).status).toBe(201);
+    // An SSH-hosted project (host_id, not kind remote) launches.
+    expect((await post({ projectId: 'hosted', model: 'ok-model', directory: '/srv/h' })).status).toBe(201);
+    const piHosted = await post({ projectId: 'hosted', model: 'pi/x', directory: '/srv/h' });
+    expect(piHosted.status).toBe(403);
+    expect(await piHosted.json()).toEqual({ error: 'provider "pi" is not available on a host project' });
     expect((await post({ projectId: 'locked', directory: '/tmp' })).status).toBe(201); // server-default model
     expect((await post({ projectId: 'open', model: 'anything', directory: '/tmp' })).status).toBe(201);
-    expect((await post({ projectId: 'unknown-project', model: 'x', directory: '/tmp' })).status).toBe(201);
-
-    const remote = await post({ projectId: 'remote', model: 'x', directory: '/srv/z' });
-    expect(remote.status).toBe(400);
-    expect(await remote.json()).toEqual({ error: 'project remote is a remote project and cannot host a session' });
   });
 
   it('auth: with a token required, absent / malformed / wrong bearers all get the same text/plain 401 (frontend_server.go)', async () => {
@@ -491,7 +506,7 @@ describe('eve against a relay that refuses, drops or rejects', () => {
     try {
       ws.send({ type: 'create_session', projectId: 'p1', model: 'other-model' });
       const err = await ws.waitFor((f) => f.type === 'error');
-      expect(err.message).toBe('model not allowed for this project');
+      expect(err.message).toBe('model is not allowed for this project');
       expect(eve.relay.listSessions()).toHaveLength(0);
 
       const from = ws.mark();
@@ -500,16 +515,16 @@ describe('eve against a relay that refuses, drops or rejects', () => {
     } finally { await ws.close(); await eve.stop(); }
   });
 
-  it('a session on a remote (host) project is refused with relay\'s 400 text', async () => {
+  it('a session on a remote project is refused with relay\'s 403 text and no session', async () => {
     const eve = await startEve({
-      hosts: [{ id: 'h1', name: 'box' }],
-      projects: [project({ id: 'rp', path: '/srv/app', host_id: 'h1' })],
+      projects: [project({ id: 'rp', path: '/srv/app', kind: 'remote' })],
     });
     const ws = await eve.connectWs();
     try {
       ws.send({ type: 'create_session', projectId: 'rp', directory: '/srv/app', model: 'x' });
       const err = await ws.waitFor((f) => f.type === 'error');
-      expect(err.message).toBe('project rp is a remote project and cannot host a session');
+      expect(err.message).toBe('project is not available for a session launch');
+      expect(eve.relay.listSessions()).toHaveLength(0);
     } finally { await ws.close(); await eve.stop(); }
   });
 
