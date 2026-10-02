@@ -27,13 +27,23 @@ async function askAboutFile(page, file) {
   await page.locator('.file-tree__context-menu').getByRole('button', { name: 'Ask about this' }).click();
 }
 
-// The attachments the one send carried to relay, after Return. Eve forwards
-// user_input's { name, content, type, mediaType } as relay's { name, data, mimeType }.
+// The attachments the one send carried to relay, after Return. Relay treats
+// every file as an image, so eve inlines text files into the message text and
+// sends only images as files (#131).
 async function sendAndGetAttachment(page, eve, text) {
   await ask(page).fill(text);
   await ask(page).press('Enter');
   await expect.poll(() => sent(eve).length, { timeout: 15000 }).toBe(1);
   return sent(eve)[0].files;
+}
+
+// The inlined body of the one text attachment in the frame's text (#131).
+async function sendAndGetInlined(page, eve, text) {
+  const files = await sendAndGetAttachment(page, eve, text);
+  expect(files || []).toEqual([]);
+  const m = sent(eve)[0].text.match(/\n\nAttached file: [^\n]+\n(`{3,})\n([\s\S]*)\n\1$/);
+  expect(m).not.toBeNull();
+  return m[2];
 }
 
 async function searchAlpha(page, query) {
@@ -55,8 +65,10 @@ test.describe('S5a-A4 Ask about a file', () => {
     const files = await sendAndGetAttachment(page, eve, 'what is this?');
     expect(eve.relay.sessionCreates).toHaveLength(1);
     expect(eve.relay.sessionCreates[0]).toMatchObject({ projectId: 'alpha' });
-    expect(files).toEqual([expect.objectContaining({ data: 'first line\n', mimeType: 'text/plain' })]);
-    expect(sent(eve)[0].text).toContain('what is this?');
+    expect(files || []).toEqual([]);
+    const text = sent(eve)[0].text;
+    expect(text).toContain('what is this?');
+    expect(text).toContain('Attached file: notes.txt\n```\nfirst line\n\n```');
   });
 
   test('the chip survives a mode switch; removing it restores the mode default and attaches nothing', async ({ page, eve }) => {
@@ -130,12 +142,12 @@ test.describe('S5a-A4 Ask about a diff', () => {
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(chip(page)).toContainText('notes.txt');
 
-    const [file] = await sendAndGetAttachment(page, eve, 'review this');
+    const diff = await sendAndGetInlined(page, eve, 'review this');
     expect(eve.relay.sessionCreates[0]).toMatchObject({ projectId: 'alpha' });
-    expect(file.data).toMatch(/^--- a\/notes\.txt$/m);
-    expect(file.data).toMatch(/^\+\+\+ b\/notes\.txt$/m);
-    expect(file.data).toMatch(/^@@ -1(,\d+)? \+1(,\d+)? @@/m);
-    expect(file.data).toMatch(/^\+second line$/m);
+    expect(diff).toMatch(/^--- a\/notes\.txt$/m);
+    expect(diff).toMatch(/^\+\+\+ b\/notes\.txt$/m);
+    expect(diff).toMatch(/^@@ -1(,\d+)? \+1(,\d+)? @@/m);
+    expect(diff).toMatch(/^\+second line$/m);
   });
 });
 
@@ -149,9 +161,9 @@ test.describe('S5a-A4 Ask about search results', () => {
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(chip(page)).toContainText('2 results for needle');
 
-    const [file] = await sendAndGetAttachment(page, eve, 'where are they?');
+    const body = await sendAndGetInlined(page, eve, 'where are they?');
     expect(eve.relay.sessionCreates[0]).toMatchObject({ projectId: 'alpha' });
-    expect(file.data.trim().split('\n')).toEqual([
+    expect(body.trim().split('\n')).toEqual([
       expect.stringMatching(/^\/?needles\.txt:1: needle one$/),
       expect.stringMatching(/^\/?needles\.txt:3: needle two$/),
     ]);

@@ -23,6 +23,22 @@ const { WebSocketServer } = require('ws');
 const { relayFrames, EVENT_PROTOCOL_VERSION } = require('./protocol');
 
 // Built from the protocol contract so the fake can't silently diverge from it.
+// openai.go (message building): every attached file becomes an `image_url`
+// part. A bare payload gets a data: URI with the file's mime type, defaulting
+// to image/png; a payload already starting with `data:` is used as is. The
+// model server refuses a non-image data URI with the 400 below, which relay
+// surfaces as an error in the thread. Text files must therefore never reach
+// relay as `files`.
+const NON_IMAGE_FILE_ERROR = 'chat: HTTP 400: image_url must use a base64 image data URI.';
+function fileRefusal(files) {
+  for (const f of Array.isArray(files) ? files : []) {
+    const data = typeof f.data === 'string' ? f.data : '';
+    const mime = data.startsWith('data:') ? data.slice(5).split(/[;,]/)[0] : (f.mimeType || 'image/png');
+    if (!mime.startsWith('image/')) return NON_IMAGE_FILE_ERROR;
+  }
+  return null;
+}
+
 function defaultStream(sessionId) {
   return [
     relayFrames.assistantDelta({ sessionId, text: 'Hello ' }),
@@ -732,9 +748,12 @@ function createFakeRelay({ token = null } = {}) {
         if (gate) gate.then(reply); else reply();
       } else if (msg.type === 'send_message') {
         const script = sessionScripts.get(msg.sessionId);
-        const frames = script
-          ? script.map((f) => stampFrame(f, msg.sessionId))
-          : defaultStream(msg.sessionId);
+        const refusal = fileRefusal(msg.files);
+        const frames = refusal
+          ? [relayFrames.error({ message: refusal, sessionId: msg.sessionId })]
+          : script
+            ? script.map((f) => stampFrame(f, msg.sessionId))
+            : defaultStream(msg.sessionId);
         for (const f of frames) { notePending(f); ws.send(JSON.stringify(f)); }
       } else if (msg.type === 'join_terminal' || msg.type === 'terminal_reconnect') {
         // ws_terminal.go: an unknown id is ignored; a known one is bound to this

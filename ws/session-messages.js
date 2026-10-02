@@ -109,9 +109,10 @@ function handleUserInput(ctx) {
     return;
   }
 
-  const files = (message.files || []).map(parseFileAttachment);
+  const attachments = message.files || [];
+  const files = attachments.filter(isImageAttachment).map(parseFileAttachment);
 
-  let finalText = message.text;
+  let finalText = (message.text ?? '') + attachments.filter((f) => !isImageAttachment(f)).map(inlineTextAttachment).join('');
 
   if (message.dictated) {
     finalText = DICTATION_NOTICE + finalText;
@@ -128,6 +129,22 @@ function handleUserInput(ctx) {
   // those are expected to die rather than resume on a host restart (R7).
   relayClient.pendingUserMessage = { sessionId: message.sessionId, text: finalText, files };
   relayClient.sendMessage(finalText, files, message.sessionId);
+}
+
+// Relay turns every file in `files` into an image_url part (openai.go) and the
+// model server refuses a non-image one, so only images may travel as files.
+// Text attachments are inlined into the message text instead.
+function isImageAttachment(f) {
+  return f.type === 'image';
+}
+
+// The fence is longer than any backtick run in the content, so the content
+// can't close it early.
+function inlineTextAttachment(f) {
+  const content = f.content || '';
+  const longestRun = (content.match(/`+/g) || []).reduce((n, r) => Math.max(n, r.length), 0);
+  const fence = '`'.repeat(Math.max(3, longestRun + 1));
+  return `\n\nAttached file: ${f.name}\n${fence}\n${content}\n${fence}`;
 }
 
 function parseFileAttachment(f) {
