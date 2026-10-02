@@ -59,13 +59,14 @@ describe('fake relay answers as relay does (direct)', () => {
   });
 
   it('sessions: create body is types.Session; list items are session.Summary (`id`, `live`); delete is 204', async () => {
-    const created = await (await fetch(`${base}/api/sessions`, { method: 'POST', ...json({ directory: '/d', model: 'm', name: 'n' }) })).json();
+    relay.addProject({ id: 'ps', name: 'PS', path: '/d' }); // session_launch.go: every launch names a project
+    const created = await (await fetch(`${base}/api/sessions`, { method: 'POST', ...json({ projectId: 'ps', directory: '/d', model: 'm', name: 'n' }) })).json();
     expect(created).toMatchObject({ sessionId: expect.any(String), providerType: 'claude', messages: [], directory: '/d', model: 'm', name: 'n' });
     expect(created.stats).toMatchObject({ inputTokens: 0, costUsd: 0 });
 
     const { sessions } = await (await fetch(`${base}/api/sessions`)).json();
     const row = sessions.find((s) => s.id === created.sessionId);
-    expect(row).toMatchObject({ id: created.sessionId, live: true, messageCount: 0, directory: '/d', model: 'm', name: 'n', projectId: '' });
+    expect(row).toMatchObject({ id: created.sessionId, live: true, messageCount: 0, directory: '/d', model: 'm', name: 'n', projectId: 'ps' });
     expect(row).not.toHaveProperty('sessionId');
 
     const del = await fetch(`${base}/api/sessions/${created.sessionId}`, { method: 'DELETE' });
