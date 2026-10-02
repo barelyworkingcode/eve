@@ -433,6 +433,7 @@ describe('devboxverify journey table', () => {
     'passkey-sign-in', 'agent-sign-in-refused', 'agent-enrol-refused', 'add-browser-in-window',
     'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
     'settings-sheet', 'project-admin-in-relay', 'project-mode-new', 'brief-injection-refused',
+    'mode-presets',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -472,7 +473,8 @@ describe('devboxverify journey table', () => {
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
-        'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched'].map(id => [id, acme])),
+        'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
+        'mode-presets'].map(id => [id, acme])),
     });
   });
 
@@ -494,7 +496,7 @@ describe('devboxverify journey table', () => {
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file',
-      'settings-sheet', 'project-admin-in-relay', 'brief-injection-refused', 'project-mode-new',
+      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -506,6 +508,8 @@ describe('devboxverify journey table', () => {
     ['routine-from-thread', 'docs/design-routines.md', ['chat', 'home', 'tasks'], 120000],
     ['routine-touched', 'docs/design-routines.md', ['tasks', 'terminal'], 90000],
     ['brief-injection-refused', 'docs/design-brief.md', ['home', 'tasks'], 360000],
+    ['mode-presets', 'docs/design-mode-presets.md', ['home', 'projects', 'settings'], 90000],
+    ['voice-deep-link', 'docs/design-mode-presets.md', ['projects', 'voice'], 90000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });

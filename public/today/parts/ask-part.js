@@ -158,6 +158,16 @@ class AskPart {
     if (!project) return { pick, blocked: 'Choose a project.' };
 
     if (!state.models.length) return { project, pick, waitingForModels: true };
+    // The mode's Ask preset applies only in the mode's own project, not an attachment's project or a pick.
+    const mp = ModePresets.forMode(state.getVisibleProjects(), state.mode);
+    if (!target && mp.ask && mp.project.id === project.id) {
+      const allowed = state.modelsForProject(project.id);
+      if (!allowed.some(m => m.value === mp.ask.model)) {
+        const mode = ModePresets.label(state.mode);
+        return { project, pick, blocked: `The ${mode} Ask preset uses a model ${project.name} doesn't allow.` };
+      }
+      return { project, pick, model: mp.ask.model, preset: mp.ask };
+    }
     const model = this._model(project);
     if (!model) return { project, pick, blocked: 'No model is allowed in this project.' };
     return { project, pick, model };
@@ -229,16 +239,9 @@ class AskPart {
     this._failure = '';
 
     const { state, container } = this.ctx;
-    try { localStorage.setItem(AskPart.MODEL_KEY, plan.model); } catch {}
+    if (!plan.preset) { try { localStorage.setItem(AskPart.MODEL_KEY, plan.model); } catch {} }
     const app = container.get('app');
-    const title = text.split('\n')[0].slice(0, 48);
-    let msg = {
-      type: 'create_session',
-      projectId: plan.project.id,
-      model: plan.model,
-      settings: null,
-      name: `${plan.project.name} - ${title}`,
-    };
+    let msg = ModePresets.askFrame({ project: plan.project, template: plan.preset, model: plan.model, text });
     msg = applyChatDefaults(msg, state.models);
     const item = state.askAbout?.attachment;
     const files = item ? [{ name: item.name, content: item.content, type: 'text', mediaType: 'text/plain' }] : [];

@@ -102,13 +102,13 @@ test.describe('blank-model templates', () => {
     });
   }
 
-  test('a cold #/voice-chat load of a blank-model favourite shows "pick a model" and creates no session', async ({ page, eve }) => {
-    await page.addInitScript(() => localStorage.setItem('eve-settings', JSON.stringify({
-      palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-blank' },
-    })));
+  test('a cold #/voice-chat load of a blank-model voice preset shows "pick a model" and creates no session', async ({ page, eve }) => {
+    const preset = { id: 't-blank-voice', name: 'Blank Voice', model: '', mode: 'voice', voice: '', system_prompt: '', preset_for: ['work'] };
+    eve.relay.addProject({ ...eve.relay.getProject('p1'), chat_templates: [...TEMPLATES, preset] });
+    eve.relay.setDefaultProject('work', 'p1');
     await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
 
-    await expect(noModelToast(page, 'Blank')).toBeVisible({ timeout: 10000 });
+    await expect(noModelToast(page, 'Blank Voice')).toBeVisible({ timeout: 10000 });
     await expectNotStarting(page);
     await expectNoSessionCreated(eve);
   });

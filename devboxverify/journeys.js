@@ -13,7 +13,7 @@ const {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, eveJson, callToolRows, DEVICES, sweep, overflow,
-  worldIds, DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict,
+  worldIds, DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict, openEditProject, openTemplate, pressPreset,
 } = require('./journey-kit');
 
 const exec = promisify(execFile);
@@ -724,44 +724,89 @@ async function routineTouched(env) {
     + `"${top.join(' / ')}"; eve's route sends only ${AUDIT_FIELDS.join(', ')}`);
 }
 
+const VOICE_VIEW_MS = 30000;
+
+// The voice chat view, judged as a person sees it: "End session" and no text composer.
+async function voiceView(page) {
+  await need(`the voice chat view did not show within ${VOICE_VIEW_MS / 1000}s`, expect(
+    page.getByRole('button', { name: 'End session' })).toBeVisible({ timeout: VOICE_VIEW_MS }));
+  await need('the text composer is still showing', expect(page.getByTestId('chat-input')).toBeHidden({ timeout: 5000 }));
+}
+
+// Setup V1 and V2 as eve's API reads them: a BLOCKED detail, or ''.
+async function voiceSetupMissing(env, project) {
+  const stored = (await eveJson(env, 'GET', '/api/projects')).find((p) => p.id === project.id);
+  const missing = [];
+  if (!(stored?.chatTemplates || []).some((t) => t.name === 'World voice' && t.mode === 'voice')) {
+    missing.push(`no "World voice" voice template in ${project.name} (setup V1)`);
+  }
+  return missing.join('; ');
+}
+
+// Setup V2 missing is a FAIL, never BLOCKED: a not-run path here would be a gate change.
+async function workDefaultMissing(env, project) {
+  const stored = (await eveJson(env, 'GET', '/api/projects')).find((p) => p.id === project.id);
+  return (stored?.defaultFor || []).includes('work') ? ''
+    : `${project.name} is not Work's default project; set it in Relay → Projects → Default projects: Work = ${project.name} (setup V2)`;
+}
+
 async function voiceDeepLink(env) {
   const id = 'voice-deep-link';
   const acme = env.world.projects.acme;
+  const missing = await voiceSetupMissing(env, acme);
+  if (missing) return result(id, BLOCKED, missing);
+  const noDefault = await workDefaultMissing(env, acme);
+  if (noDefault) return result(id, FAIL, noDefault);
+
   const first = await env.newPage();
   await openEve(first, env);
   await waitForModels(first, env);
+  await switchMode(first, env, 'work');
   await openProject(first, env, acme);
   const dialog = await openLauncher(first, env);
-
-  env.step('find the World voice template');
-  const card = dialog.getByRole('button', { name: /World voice/ });
+  env.step('look for a star on World voice');
   await need('terminal templates never loaded',
     expect(dialog.getByText('Loading terminal templates…')).toHaveCount(0, { timeout: 15000 }));
-  if (await card.count() === 0) return result(id, BLOCKED, `no "World voice" chat template in ${acme.name} (setup V1)`);
+  await need('the launcher shows no World voice card',
+    expect(dialog.getByRole('button', { name: /World voice/ }).first()).toBeVisible({ timeout: 5000 }));
+  const stars = await dialog.getByTitle(/Action Button favorite/).count();
+  if (stars) return result(id, FAIL, `the launcher still offers ${stars} "Action Button favorite" star${stars > 1 ? 's' : ''}`);
 
-  env.step('star World voice');
-  await card.first().getByTitle('Set as Action Button favorite').click({ timeout: 5000 });
-  await need('the star did not take', expect(card.first().getByTitle('Remove as favorite')).toBeVisible({ timeout: 5000 }));
+  // The journey's one lasting write: World voice stays Work's voice preset.
+  await openEve(first, env);
+  const { dialog: edit, form, added } = await openTemplate(first, env, acme, 'World voice');
+  if (added) return result(id, FAIL, 'Edit Project does not list World voice');
+  const wasSet = await pressPreset(form, 'work');
+  await saveTemplates(first, env, edit, acme);
   const before = await acmeIds(env, 'sessions');
   const context = first.context();
   await first.close();
 
   env.step('open the voice deep link');
-  const page = await context.newPage();
+  let page = await context.newPage();
   const openedAt = Date.now();
   await openEve(page, env, '#/voice-chat');
-  await need('the voice chat view did not show within 30s', expect(
-    page.getByRole('button', { name: 'End session' })).toBeVisible({ timeout: 30000 }));
-  await need('the text composer is still showing', expect(page.getByTestId('chat-input')).toBeHidden({ timeout: 5000 }));
+  await voiceView(page);
   const took = seconds(openedAt);
-
   env.step('count the voice session');
-  await poll(async () => addedIds(before, await acmeIds(env, 'sessions')).length > 0,
-    { timeoutMs: 10000, intervalMs: 1000 });
+  await poll(async () => addedIds(before, await acmeIds(env, 'sessions')).length > 0, { timeoutMs: 10000, intervalMs: 1000 });
   await sleep(1000);
-  const final = addedIds(before, await acmeIds(env, 'sessions'));
-  if (final.length !== 1) return result(id, FAIL, `${final.length} new ${acme.name} sessions, expected 1`);
-  return result(id, PASS, `voice view in ${took}s, one session`);
+  const launched = addedIds(before, await acmeIds(env, 'sessions'));
+  if (launched.length !== 1) return result(id, FAIL, `${launched.length} new ${acme.name} sessions after the first press, expected 1`);
+  await page.close();
+
+  env.step('press again');
+  page = await context.newPage();
+  await openEve(page, env, '#/voice-chat');
+  await voiceView(page);
+  const hash = `#session/${launched[0]}`;
+  await need(`the second press did not show the first press's thread (${hash})`,
+    expect.poll(() => new URL(page.url()).hash, { timeout: 10000 }).toBe(hash));
+  await sleep(2000);
+  const after = addedIds(before, await acmeIds(env, 'sessions'));
+  if (after.length !== 1) return result(id, FAIL, `the second press within 30 minutes made ${after.length - 1} new ${acme.name} session(s)`);
+  return result(id, PASS, `no star; World voice ${wasSet ? 'was already' : 'is now'} Work's voice preset; `
+    + `voice view in ${took}s with one session; a second press resumed it`);
 }
 
 async function changesDiff(env) {
@@ -1086,18 +1131,20 @@ async function openSettings(page, env) {
   return sheet;
 }
 
-// Edit Project from the open project's panel menu; returns the dialog.
-async function openEditProject(page, env, project) {
-  env.step(`edit ${project.name}`);
-  await page.getByTestId(`sidebar-project-more-${project.id}`).click({ timeout: 10000 });
-  await page.locator('.file-tree__context-menu').getByRole('button', { name: 'Edit Project', exact: true }).click({ timeout: 5000 });
-  const dialog = page.getByTestId('dialog-project-dialog');
-  await need('Edit Project did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
-  return dialog;
-}
-
 const projectWrite = (method, pathname) => (res) =>
   res.request().method() === method && new URL(res.url()).pathname === pathname;
+
+// Save Template on the open form, then Save; throws unless relay took the PUT.
+async function saveTemplates(page, env, dialog, project) {
+  env.step('Save Template, then Save');
+  await dialog.getByRole('button', { name: 'Save Template', exact: true }).click({ timeout: 5000 });
+  const saved = page.waitForResponse(projectWrite('PUT', `/api/projects/${project.id}`), { timeout: 15000 });
+  saved.catch(() => {});
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 5000 });
+  const res = await need('Save sent no PUT', saved);
+  if (!res.ok()) throw new Error(`Save answered ${res.status()}`);
+  await need('Edit Project did not close after Save', expect(dialog).toBeHidden({ timeout: 10000 }));
+}
 
 async function settingsSheet(env) {
   const id = 'settings-sheet';
@@ -1190,6 +1237,147 @@ async function projectAdminInRelay(env) {
   if (changed.length) return result(id, FAIL, `relay's ${changed.join(', ')} changed on Save`);
   return result(id, PASS, `models read "${shown}", read-only, with the Relay pointer; no checkbox, Permissions tab or Host…; `
     + `Save sent none of ${ADMIN_KEYS.join(', ')} and relay kept all three`);
+}
+
+// — Mode presets (S3b-1) ------------------------------------------------------------
+
+const templatesNamed = async (env, project, name) =>
+  ((await eveJson(env, 'GET', `/api/projects/${project.id}`)).chatTemplates || []).filter((t) => t.name === name);
+
+// Every create_session frame the page sends, from before it opens eve.
+function createFrames(page) {
+  const frames = [];
+  page.on('websocket', (ws) => ws.on('framesent', ({ payload }) => {
+    if (typeof payload !== 'string') return;
+    try {
+      const frame = JSON.parse(payload);
+      if (frame && frame.type === 'create_session') frames.push(frame);
+    } catch { /* not JSON */ }
+  }));
+  return frames;
+}
+
+// Edit Project → Templates → Delete every row called `name`, then Save.
+async function deleteTemplates(page, env, project, name) {
+  await openEve(page, env);
+  await openProject(page, env, project);
+  const dialog = await openEditProject(page, env, project);
+  await dialog.locator('.dialog__tab[data-tab="templates"]').click({ timeout: 5000 });
+  await need('the Templates tab did not open',
+    expect(dialog.getByRole('button', { name: '+ Add Template' })).toBeVisible({ timeout: 5000 }));
+  env.step(`delete template ${name}`);
+  const rows = dialog.locator('.project-dialog__template-item').filter({ has: page.getByText(name, { exact: true }) });
+  while (await rows.count()) await rows.first().getByTitle('Delete').click({ timeout: 5000 });
+  const saved = page.waitForResponse(projectWrite('PUT', `/api/projects/${project.id}`), { timeout: 15000 });
+  saved.catch(() => {});
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 5000 });
+  await saved;
+}
+
+async function modePresets(env) {
+  const id = 'mode-presets';
+  const acme = env.world.projects.acme;
+  const name = `verify-${env.nonce} ask`;
+  const prompt = `verify-${env.nonce}`;
+  const noDefault = await workDefaultMissing(env, acme);
+  if (noDefault) return result(id, FAIL, noDefault);
+
+  // Pressing Work Ask clears it from any other Acme template (withPreset), so note
+  // the holder now and give it back in cleanup.
+  const before0 = await eveJson(env, 'GET', `/api/projects/${acme.id}`);
+  const priorId = before0.chatTemplates.find((t) => t.mode !== 'voice' && (t.presetFor || []).includes('work'))?.id;
+
+  // Timeouts close the page first, so this one goes through eve's API, as the dialog's PUT would.
+  env.cleanup('remove the verify Ask template and restore Work Ask', async () => {
+    const project = await eveJson(env, 'GET', `/api/projects/${acme.id}`);
+    const keep = project.chatTemplates.filter((t) => t.name !== name);
+    const restore = priorId && keep.some((t) => t.id === priorId
+      && !project.chatTemplates.some((o) => o.id !== priorId && o.mode !== 'voice' && (o.presetFor || []).includes('work'))
+      && !(t.presetFor || []).includes('work'));
+    if (keep.length === project.chatTemplates.length && !restore) return;
+    await eveJson(env, 'PUT', `/api/projects/${acme.id}`, {
+      name: project.name, path: project.path, host_id: project.hostId || '',
+      chat_templates: keep.map((t) => {
+        const modes = t.id === priorId && restore ? [...new Set([...(t.presetFor || []), 'work'])] : t.presetFor;
+        return {
+          id: t.id, name: t.name, model: t.model, mode: t.mode, voice: t.voice, system_prompt: t.systemPrompt,
+          ...(modes && modes.length ? { preset_for: modes } : {}),
+        };
+      }),
+    });
+  });
+
+  const page = await env.newPage();
+  const steps = async () => {
+    await openEve(page, env);
+    await waitForModels(page, env);
+    await switchMode(page, env, 'work');
+    const values = await page.evaluate((pid) => window.client.state.modelsForProject(pid).map((m) => m.value), acme.id);
+    const model = pickModel(values, env.model);
+    if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for ${acme.name}`);
+
+    const { dialog, form } = await openTemplate(page, env, acme, name);
+    env.step('fill the template');
+    await form.locator('select').first().selectOption(model, { timeout: 5000 });
+    await form.getByRole('radio', { name: 'Text', exact: true }).check({ timeout: 5000 });
+    await form.locator('textarea').first().fill(prompt, { timeout: 5000 });
+    await pressPreset(form, 'work');
+    await saveTemplates(page, env, dialog, acme);
+
+    env.step('read the template back');
+    const mine = await templatesNamed(env, acme, name);
+    if (mine.length !== 1) return result(id, FAIL, `eve lists ${mine.length} templates called "${name}"`);
+    if (!isDeepStrictEqual(mine[0].presetFor, ['work'])) {
+      return result(id, FAIL, `eve reads presetFor ${JSON.stringify(mine[0].presetFor)}, not ["work"]`);
+    }
+
+    const sheet = await openSettings(page, env);
+    env.step('read the Work presets row');
+    await need(`the Work presets row does not start "Ask: ${name}"`, expect(sheet.getByTestId('settings-presets-work'))
+      .toHaveText(new RegExp(`^Ask: ${escapeRe(name)} · Voice: `), { timeout: 10000 }));
+    await sheet.getByTestId('settings-done').click({ timeout: 5000 });
+
+    env.step('Ask on Today');
+    const ask = await page.context().newPage();
+    const frames = createFrames(ask);
+    await openEve(ask, env);
+    await waitForModels(ask, env);
+    const input = ask.getByTestId('today-ask-input');
+    await need('Ask is not on Today', expect(input).toBeVisible({ timeout: 10000 }));
+    const before = await acmeIds(env, 'sessions');
+    await input.fill(`verify-${env.nonce} hello`, { timeout: 5000 });
+    await input.press('Enter', { timeout: 5000 });
+    const created = await poll(async () => addedIds(before, await acmeIds(env, 'sessions')).length > 0,
+      { timeoutMs: 30000, intervalMs: 1000 });
+    if (!created) {
+      const said = (await ask.getByTestId('today-ask-status').innerText({ timeout: 2000 }).catch(() => '')).trim();
+      return result(id, FAIL, `no ${acme.name} session within 30s of Return${said ? `; Ask says "${said}"` : ''}`);
+    }
+    await sleep(1000);
+    const final = addedIds(before, await acmeIds(env, 'sessions'));
+    if (final.length !== 1) return result(id, FAIL, `${final.length} new ${acme.name} sessions, expected 1`);
+    if (frames.length !== 1) return result(id, FAIL, `Ask sent ${frames.length} create_session frames, expected 1`);
+    const { model: sentModel, systemPrompt } = frames[0];
+    if (sentModel !== model || systemPrompt !== prompt) {
+      return result(id, FAIL, `create_session carried model ${sentModel} and systemPrompt ${JSON.stringify(systemPrompt)}, `
+        + `not the preset's ${model} and "${prompt}"`);
+    }
+    return result(id, PASS, `marked Work's Ask preset in Edit Project; eve reads presetFor ["work"]; Settings names it; `
+      + `Ask made one ${acme.name} thread with its model and system prompt`);
+  };
+  const outcome = await steps().catch((err) => result(id, FAIL, firstLine(err)));
+
+  env.step('remove the template');
+  let left = await templatesNamed(env, acme, name);
+  if (left.length) {
+    await deleteTemplates(await page.context().newPage(), env, acme, name).catch(() => {});
+    left = await templatesNamed(env, acme, name);
+  }
+  if (left.length) {
+    const failed = outcome.state === FAIL ? `${outcome.detail}; ` : '';
+    return result(id, FAIL, `${failed}template "${name}" is still listed after Delete and Save`);
+  }
+  return outcome;
 }
 
 class BlockedError extends Error {}
@@ -1418,7 +1606,7 @@ const journeys = [
   { id: 'task-created-listed', timeoutMs: 120000, areas: ['tasks'], needs: ['project:acme'], run: taskCreatedListed },
   { id: 'routine-from-thread', timeoutMs: 120000, areas: ['tasks', 'chat', 'home'], needs: ['project:acme'], run: routineFromThread },
   { id: 'routine-touched', timeoutMs: 90000, areas: ['tasks', 'terminal'], needs: ['project:acme'], run: routineTouched },
-  { id: 'voice-deep-link', timeoutMs: 60000, areas: ['voice'], needs: ['project:acme'], run: voiceDeepLink },
+  { id: 'voice-deep-link', timeoutMs: 90000, areas: ['voice', 'projects'], needs: ['project:acme'], run: voiceDeepLink },
   { id: 'changes-diff', timeoutMs: 60000, areas: ['git'], needs: ['project:acme'], run: changesDiff },
   {
     id: 'file-edit-save', timeoutMs: 75000, areas: ['files'],
@@ -1433,6 +1621,7 @@ const journeys = [
   { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
+  { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },
   { id: 'brief-injection-refused', timeoutMs: 360000, areas: ['home', 'tasks'], needs: ['project:home'], run: briefInjectionRefused },
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,

@@ -22,6 +22,14 @@ const TEMPLATES = [
   { id: 't-claude', name: 'Claude Stale', model: 'sonnet', mode: 'text', voice: '', system_prompt: '', append_claude_md: true, use_relay_tools: true },
 ];
 
+// S3b-A6: the Action Button launches Work's voice preset, here on p1 as Work's default.
+const VOICE_PRESET = { id: 't-voice', name: 'Kitchen', model: 'chat-a', mode: 'voice', voice: 'af_bella', system_prompt: '', preset_for: ['work'] };
+function seedWorkVoicePreset(eve) {
+  eve.relay.addProject({ ...eve.relay.getProject('p1'), chat_templates: [...TEMPLATES, VOICE_PRESET] });
+  eve.relay.setDefaultProject('work', 'p1');
+}
+const createdType = (page, eve) => page.evaluate((sid) => window.client.sessions.get(sid)?.sessionType, eve.relay.listSessions()[0]?.sessionId);
+
 const test = hermeticTest.extend({
   eve: async ({}, use) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-defaults-'));
@@ -72,10 +80,8 @@ test.describe('chat defaults', () => {
     });
   }
 
-  test('the favourite launch waits for models, then sends both flags', async ({ page, eve }) => {
-    await page.addInitScript(() => localStorage.setItem('eve-settings', JSON.stringify({
-      palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
-    })));
+  test('the voice preset launch waits for models, then sends both flags', async ({ page, eve }) => {
+    seedWorkVoicePreset(eve);
     const hold = eve.relay.holdModels();
     await gotoEve(page, eve.baseUrl);
     // Fired as a hashchange so this covers the route's listener path; the
@@ -91,16 +97,15 @@ test.describe('chat defaults', () => {
     const body = await relayedCreate(eve);
     await page.waitForTimeout(500);
     expect(eve.relay.sessionCreates).toHaveLength(1);
-    expect(body.model).toBe('chat-a');
+    expect(body).toMatchObject({ model: 'chat-a', name: 'Acme - Kitchen' });
     expectFlags(body, true);
+    await expect.poll(() => createdType(page, eve)).toBe('voice');
   });
 
-  test('a cold #/voice-chat load launches the favourite once', async ({ page, eve }) => {
-    await page.addInitScript(() => localStorage.setItem('eve-settings', JSON.stringify({
-      palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
-    })));
+  test('a cold #/voice-chat load launches the Work voice preset once', async ({ page, eve }) => {
+    seedWorkVoicePreset(eve);
     await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
-    expect((await relayedCreate(eve)).model).toBe('chat-a');
+    expect(await relayedCreate(eve)).toMatchObject({ model: 'chat-a', name: 'Acme - Kitchen' });
     await page.waitForTimeout(500);
     expect(eve.relay.sessionCreates).toHaveLength(1);
     expect(await page.evaluate(() => window.location.hash)).not.toBe('#/voice-chat');
@@ -110,18 +115,16 @@ test.describe('chat defaults', () => {
     test(`a cold #/voice-chat load focuses a restored voice tab${withOther ? ' beside another restored tab' : ''}`, async ({ page, eve }) => {
       const VOICE = 'sess-voice-restored';
       const OTHER = withOther ? 'sess-plain-restored' : null;
+      seedWorkVoicePreset(eve);
       // Relay's session list carries no sessionType; only eve-session-meta knows.
       const seed = (sessionId, name) => eve.relay.seedSession({
-        sessionId, directory: eve.relay.getProject('p1').path, projectId: 'p1', model: 'chat-a', name,
+        sessionId, directory: eve.relay.getProject('p1').path, projectId: 'p1', model: 'chat-a', name, createdAt: new Date().toISOString(),
       });
       seed(VOICE, 'Voice Chat');
       if (OTHER) seed(OTHER, 'Plain Chat');
       await page.addInitScript(({ voice, other }) => {
         const open = { [voice]: Date.now() };
         if (other) open[other] = Date.now();
-        localStorage.setItem('eve-settings', JSON.stringify({
-          palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
-        }));
         localStorage.setItem('eve-open-sessions', JSON.stringify(open));
         localStorage.setItem('eve-last-active', String(Date.now()));
         localStorage.setItem('eve-session-meta', JSON.stringify({ [voice]: { sessionType: 'voice' } }));
@@ -167,16 +170,15 @@ test.describe('chat defaults', () => {
     expect(eve.relay.sessionCreates).toHaveLength(1);
   });
 
-  test('a cold #/voice-chat load launches the favourite when the restored voice session cannot be joined', async ({ page, eve }) => {
+  test('a cold #/voice-chat load launches the voice preset when the restored voice session cannot be joined', async ({ page, eve }) => {
     const VOICE = 'sess-voice-gone';
+    seedWorkVoicePreset(eve);
+    // Fresh, so it is a resume candidate and the join is attempted.
     eve.relay.seedSession({
-      sessionId: VOICE, directory: eve.relay.getProject('p1').path, projectId: 'p1', model: 'chat-a', name: 'Voice Chat',
+      sessionId: VOICE, directory: eve.relay.getProject('p1').path, projectId: 'p1', model: 'chat-a', name: 'Voice Chat', createdAt: new Date().toISOString(),
     });
     eve.relay.failJoinWith(VOICE);
     await page.addInitScript((voice) => {
-      localStorage.setItem('eve-settings', JSON.stringify({
-        palettes: {}, themeMode: 'dark', favoriteTemplate: { projectId: 'p1', templateId: 't-chat' },
-      }));
       localStorage.setItem('eve-open-sessions', JSON.stringify({ [voice]: Date.now() }));
       localStorage.setItem('eve-last-active', String(Date.now()));
       localStorage.setItem('eve-session-meta', JSON.stringify({ [voice]: { sessionType: 'voice' } }));
@@ -186,7 +188,7 @@ test.describe('chat defaults', () => {
     await eve.relay.waitForInbound((f) => f.type === 'join_session' && f.sessionId === VOICE, 15000);
     // Only relay's join error can trigger the fallback, and it answers at once.
     await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 5000 }).toBe(1);
-    expect(eve.relay.sessionCreates[0].model).toBe('chat-a');
+    expect(eve.relay.sessionCreates[0]).toMatchObject({ model: 'chat-a', name: 'Acme - Kitchen' });
     const created = eve.relay.listSessions().find((s) => s.sessionId !== VOICE).sessionId;
     await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(created);
     await page.waitForTimeout(1000);

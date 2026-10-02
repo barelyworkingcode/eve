@@ -83,6 +83,45 @@ async function openProjectPage(page, env, project) {
   return projectPage;
 }
 
+// Edit Project from the open project's panel menu; returns the dialog.
+async function openEditProject(page, env, project) {
+  env.step(`edit ${project.name}`);
+  await page.getByTestId(`sidebar-project-more-${project.id}`).click({ timeout: 10000 });
+  await page.locator('.file-tree__context-menu').getByRole('button', { name: 'Edit Project', exact: true }).click({ timeout: 5000 });
+  const dialog = page.getByTestId('dialog-project-dialog');
+  await need('Edit Project did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
+  return dialog;
+}
+
+// Edit Project → Templates → the template called `name`: its form when the
+// list has it, else a new one from "+ Add Template" with the name typed.
+async function openTemplate(page, env, project, name) {
+  await openProject(page, env, project);
+  const dialog = await openEditProject(page, env, project);
+  env.step('open Templates');
+  await dialog.locator('.dialog__tab[data-tab="templates"]').click({ timeout: 5000 });
+  const add = dialog.getByRole('button', { name: '+ Add Template' });
+  await need('the Templates tab did not open', expect(add).toBeVisible({ timeout: 5000 }));
+  const row = dialog.locator('.project-dialog__template-item').filter({ has: page.getByText(name, { exact: true }) });
+  const added = await row.count() === 0;
+  env.step(`${added ? 'add' : 'edit'} template ${name}`);
+  await (added ? add : row.first().getByTitle('Edit')).click({ timeout: 5000 });
+  const form = dialog.locator('.project-dialog__template-form');
+  await need('the template form did not open', expect(form).toBeVisible({ timeout: 5000 }));
+  if (added) await form.locator('input[type="text"]').first().fill(name, { timeout: 5000 });
+  return { dialog, form, added };
+}
+
+// Presses the form's preset button for `mode` unless it is pressed already;
+// true when it was. Throws when the form has no such button.
+async function pressPreset(form, mode) {
+  const btn = form.getByTestId(`project-template-preset-${mode}`);
+  const was = await need(`the template form has no ${mode} preset button`, btn.getAttribute('aria-pressed', { timeout: 5000 })) === 'true';
+  if (!was) await btn.click({ timeout: 5000 });
+  await need(`the ${mode} preset button is not pressed`, expect(btn).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 }));
+  return was;
+}
+
 async function worldIds(env, projects, kind) {
   const snap = await env.api.snapshot(projects);
   return snap[kind].filter((i) => i.world).map((i) => i.id);
@@ -330,7 +369,7 @@ async function overflow(page) {
 
 module.exports = {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
-  openEve, waitForModels, openProject, openProjectPage, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
+  openEve, waitForModels, openProject, openProjectPage, openEditProject, openTemplate, pressPreset, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt, eveJson, callToolRows,
   DENIED_OUTCOMES, MIN_TARGET, BRIEF_REFUSED, briefRunVerdict, probeVerdict, DEVICES, smallTargets, overflowProblems, sweep, overflow,
 };

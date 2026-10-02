@@ -32,7 +32,7 @@ describe('normalizeProject', () => {
       allowedModels: ['haiku'],
       chatTemplates: [{
         id: 't1', name: 'Quick', model: 'sonnet', mode: 'voice', voice: 'af_heart',
-        systemPrompt: 'be brief',
+        systemPrompt: 'be brief', presetFor: [],
       }],
       permissionPolicy: { defaultMode: 'plan', allowedTools: ['Read'], deniedTools: ['Bash'] },
       sessionFolders: ['Bugs', 'Experiments'],
@@ -72,6 +72,15 @@ describe('normalizeProject', () => {
     expect(out.chatTemplates[0]).not.toHaveProperty('appendClaudeMd');
     expect(out.chatTemplates[0]).not.toHaveProperty('useRelayTools');
     expect(out.permissionPolicy).toBeNull();
+  });
+
+  it('carries preset_for as presetFor: only home and work, once each', () => {
+    const out = normalizeProject({
+      id: 'p4', name: 'P', path: '/x',
+      chat_templates: [{ id: 'a', name: 'A', model: 'm', preset_for: ['home', 'both', 'home', 'work'] }],
+    });
+    expect(out.chatTemplates[0].presetFor).toEqual(['home', 'work']);
+    expect(out.chatTemplates[0]).not.toHaveProperty('preset_for');
   });
 
   it('maps host_id to hostId, defaulting to empty for a console project', () => {
