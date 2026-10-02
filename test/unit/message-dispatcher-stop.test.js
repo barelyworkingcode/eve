@@ -29,6 +29,8 @@ class HtmlElement extends FakeElement {
 function makeChat() {
   const doc = createDocument();
   doc.createElement = (tag) => new HtmlElement(tag, doc);
+  // A text node is an element that only carries text.
+  doc.createTextNode = (text) => { const n = new HtmlElement('#text', doc); n.textContent = text; return n; };
   const { MessageRenderer } = loadScript('message-renderer.js', ['MessageRenderer'], {
     document: doc,
     requestAnimationFrame: (cb) => setTimeout(cb, 0),
@@ -36,6 +38,7 @@ function makeChat() {
     sessionStorage: fakeLocalStorage(),
     UI_ICONS: { speaker: () => '' },
     EVT,
+    AttachedFiles: require('../../public/core/attached-files'),
   });
   const { EveWorkspaceClient } = loadScript('app.js', ['EveWorkspaceClient'], { window: {}, document: doc });
 

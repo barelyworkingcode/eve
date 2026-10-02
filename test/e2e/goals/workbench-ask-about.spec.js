@@ -71,6 +71,32 @@ test.describe('S5a-A4 Ask about a file', () => {
     expect(text).toContain('Attached file: notes.txt\n```\nfirst line\n\n```');
   });
 
+  // Reopening a thread replays the stored user message, which carries the inlined
+  // file text. The bubble shows a chip with the name, not the text (#131).
+  test('a reopened thread shows the file as a chip, not its text', async ({ page, eve }) => {
+    await askAboutFile(page, 'notes.txt');
+    await expect(chip(page)).toContainText('notes.txt');
+    await sendAndGetAttachment(page, eve, 'what is this?');
+    const stored = sent(eve)[0].text;
+    expect(stored).toContain('first line');
+    // The relay keeps the sent text as the thread's history.
+    eve.relay.seedSession({
+      sessionId: 's-asked', projectId: 'alpha', directory: eve.folders.alpha, model: 'fake-model', name: 'Asked',
+      history: [{ timestamp: new Date().toISOString(), role: 'user', content: stored }],
+      live: false, createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString(), messageCount: 1,
+    });
+    await page.reload();
+    await page.waitForFunction(() => !!window.client?.state);
+    await nav(page).getByTitle('Alpha Project', { exact: true }).click();
+    await page.getByTestId('panel-project-page').click();
+    await page.getByTestId('project-thread-s-asked').click();
+    const bubble = page.getByTestId('messages-container').getByTestId('message-user');
+    await expect(bubble).toContainText('what is this?');
+    await expect(bubble.locator('.message-file')).toHaveText(['notes.txt']);
+    await expect(bubble).not.toContainText('first line');
+    await expect(bubble).not.toContainText('Attached file:');
+  });
+
   test('the chip survives a mode switch; removing it restores the mode default and attaches nothing', async ({ page, eve }) => {
     await askAboutFile(page, 'notes.txt');
     await expect(chip(page)).toBeVisible();

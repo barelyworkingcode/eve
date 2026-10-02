@@ -1,4 +1,5 @@
 const SlashCommandHandler = require('../slash-command-handler');
+const AttachedFiles = require('../public/core/attached-files');
 const { EMOTION, DELIVERY } = require('../tts-director');
 
 // Stateless — takes ws/relayClient as call-time arguments on every
@@ -138,13 +139,10 @@ function isImageAttachment(f) {
   return f.type === 'image';
 }
 
-// The fence is longer than any backtick run in the content, so the content
-// can't close it early.
+// The block format lives in public/core/attached-files.js, shared with the
+// browser, which strips it again when a thread is replayed.
 function inlineTextAttachment(f) {
-  const content = f.content || '';
-  const longestRun = (content.match(/`+/g) || []).reduce((n, r) => Math.max(n, r.length), 0);
-  const fence = '`'.repeat(Math.max(3, longestRun + 1));
-  return `\n\nAttached file: ${f.name}\n${fence}\n${content}\n${fence}`;
+  return AttachedFiles.format(f.name, f.content);
 }
 
 function parseFileAttachment(f) {
