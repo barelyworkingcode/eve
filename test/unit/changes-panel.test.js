@@ -795,6 +795,15 @@ describe('ProjectPanel Changes tab', () => {
     expect(tabs[1].querySelector('.panel-tab__label').textContent).toBe('Changes');
   });
 
+  it.each(['sessions', 'tasks'])('a stored "%s" tab, no longer a panel tab, opens on Files', (stored) => {
+    const { pp } = setupProjectPanel({ storage: { 'eve-active-tab': stored } });
+    pp._renderTabs();
+    const active = document.getElementById('panelTabs').children
+      .filter((t) => t.classList.contains('panel-tab--active'))
+      .map((t) => t.dataset.testid);
+    expect(active).toEqual(['panel-tab-files']);
+  });
+
   it('badges the tab with the total changed-file count once data arrives', () => {
     const { pp, bus } = setupProjectPanel();
     pp.changesPanel.setProject('p1');
