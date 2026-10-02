@@ -509,6 +509,8 @@ thread must show the same row and chips.
   `readOnlyHint`, and the stub mirrors Brave's annotations (`openWorldHint`
   only). Repair does not restore it; research-citations is BLOCKED setup
   without it.
+  After any change to the world's `search_stub` data, restart the stub (kill
+  its python process; relay respawns it), or it serves the old results.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at

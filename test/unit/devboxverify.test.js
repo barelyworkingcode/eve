@@ -793,6 +793,30 @@ describe('devboxverify/journey-kit.js research sources (S4-A1, A2)', () => {
   });
 });
 
+describe('devboxverify/journey-kit.js firstDifference and isUnder', () => {
+  const { firstDifference, isUnder } = require('../../devboxverify/journey-kit');
+
+  it('names the first differing index with context from both strings', () => {
+    const a = `${'x'.repeat(100)}A${'y'.repeat(100)}`;
+    const b = `${'x'.repeat(100)}B${'y'.repeat(100)}`;
+    const got = firstDifference(a, b);
+    expect(got.startsWith('at 100: ')).toBe(true);
+    expect(got).toContain(`${'x'.repeat(40)}A${'y'.repeat(39)}`);
+    expect(got).toContain(`${'x'.repeat(40)}B${'y'.repeat(39)}`);
+  });
+
+  it('reports a pure prefix at the shorter length', () => {
+    expect(firstDifference('abc', 'abcd')).toBe('at 3: "abc" vs "abcd"');
+  });
+
+  it.each([
+    ['/w/Research', '/w', true], ['/w/a/b', '/w/', true], ['/w', '/w', false],
+    ['/w2/Research', '/w', false], ['/w/../x', '/w', false], ['', '/w', false], [undefined, '/w', false],
+  ])('isUnder(%s, %s) is %s', (p, dir, want) => {
+    expect(isUnder(p, dir)).toBe(want);
+  });
+});
+
 describe('devboxverify/journey-kit.js parseAgentAttempt', () => {
   const { parseAgentAttempt } = require('../../devboxverify/journey-kit');
   const echo = `$ a=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/api/sessions); printf '%s_%s signin %s\\n' EVE NEG "$a"`;

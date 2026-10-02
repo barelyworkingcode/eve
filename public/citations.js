@@ -69,7 +69,7 @@ class Citations {
       if (!s) continue;
       const text = a.textContent.trim();
       const dropText = !text || /^[\s\[\]\d]*$/.test(text) ||
-        text === a.getAttribute('href').trim() || Sources.normalizeUrl(text) === s.url;
+        text === a.getAttribute('href').trim() || Sources.normalizeUrl(text) === s.key;
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'cite-chip';
@@ -106,7 +106,15 @@ class Citations {
     document.addEventListener('pointerdown', (e) => {
       if (pop.hidden || pop.contains(e.target)) return;
       if (e.target.closest && e.target.closest('.cite-chip, .answer-source')) return;
-      Citations._close();
+      const anchor = Citations._anchor;
+      Citations._close(false);
+      // The press's own default action moves focus to the target after this
+      // handler (after pointerup on touch), so refocus once the click lands.
+      if (anchor && anchor.isConnected) {
+        const refocus = () => { clearTimeout(t); if (anchor.isConnected) anchor.focus(); };
+        const t = setTimeout(() => document.removeEventListener('click', refocus, true), 1000);
+        document.addEventListener('click', refocus, { capture: true, once: true });
+      }
     }, true);
     const reposition = () => { if (!pop.hidden) Citations._place(pop, Citations._anchor); };
     window.addEventListener('resize', reposition);
@@ -114,14 +122,14 @@ class Citations {
     return pop;
   }
 
-  static _close() {
+  static _close(restoreFocus = true) {
     const pop = Citations._pop;
     if (!pop || pop.hidden) return;
     const anchor = Citations._anchor;
     pop.hidden = true;
     pop.replaceChildren();
     Citations._anchor = null;
-    if (anchor && anchor.isConnected) anchor.focus();
+    if (restoreFocus && anchor && anchor.isConnected) anchor.focus();
   }
 
   _toggle(anchor, s) {

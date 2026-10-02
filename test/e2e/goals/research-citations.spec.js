@@ -13,7 +13,7 @@ const WIDGET_FACTS = 'Widget facts are many. '.repeat(40);
 const RESULTS = [
   { url: 'https://www.acme.example/launch', title: LONG_TITLE, description: 'Acme <strong>ships</strong> rockets &amp; &quot;widgets&quot;', extra_snippets: ['Launch is on &lt;Monday&gt;.'] },
   { url: 'javascript:alert(1)', title: 'Script', description: 'not a source' },
-  { url: 'https://widgets.example/w', title: IMG_TITLE, description: WIDGET_FACTS },
+  { url: 'https://widgets.example/w/', title: IMG_TITLE, description: WIDGET_FACTS },
   { url: 'https://gizmo.example/g', title: 'Gizmo', description: 'z'.repeat(9000) },
 ];
 const RESULT = `${Buffer.from(RESULTS.map((r) => JSON.stringify(r)).join('')).subarray(0, 8192).toString()}\n...(truncated)`;
@@ -145,6 +145,11 @@ test.describe('S4 research citations', () => {
     await expect(open).toHaveAttribute('href', 'https://www.acme.example/launch');
     await expect(open).toHaveAttribute('target', '_blank');
     await expect(open).toHaveAttribute('rel', 'noopener noreferrer');
+    await page.keyboard.press('Escape');
+    await answer(page).getByTestId('cite-chip-2').focus();
+    await page.keyboard.press('Enter');
+    // The result's own spelling, trailing "/" included, not the normalized key.
+    await expect(popover(page).getByTestId('cite-open')).toHaveAttribute('href', 'https://widgets.example/w/');
   });
 
   test('5 Esc, a tap outside and Close each close it; focus returns; one popover at a time', async ({ page }) => {
@@ -167,6 +172,7 @@ test.describe('S4 research citations', () => {
     await expect(popover(page).locator('.cite-host')).toHaveText('widgets.example');
     await page.getByTestId('message-user').click();
     await expect(popover(page)).toBeHidden();
+    await expect(chip2).toBeFocused(); // a tap outside returns focus too
 
     await chip1.focus();
     await page.keyboard.press('Space');

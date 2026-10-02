@@ -1,5 +1,6 @@
 // Shared helpers for the devbox journeys: waits, readiness gates, and the
 // small readers the verdicts rest on. See docs/design-devboxverify.md.
+const path = require('path');
 const { expect } = require('@playwright/test');
 
 const GREETING = /^(Good morning\.|Good afternoon\.|Good evening\.|Working late\.)$/;
@@ -313,6 +314,21 @@ function stubSources(stub, Sources) {
   return turn.list().map((s) => ({ n: s.n, host: s.host, title: s.title.slice(0, 160), excerpt: s.excerpt }));
 }
 
+// First differing character of two strings: "at 12: ...around got... vs ...around want...".
+function firstDifference(got, want, span = 40) {
+  let i = 0;
+  while (i < got.length && i < want.length && got[i] === want[i]) i++;
+  const around = (s) => JSON.stringify(s.slice(Math.max(0, i - span), i + span));
+  return `at ${i}: ${around(got)} vs ${around(want)}`;
+}
+
+// True when p is dir or inside it (both resolved).
+function isUnder(p, dir) {
+  if (typeof p !== 'string' || !p || typeof dir !== 'string' || !dir) return false;
+  const rel = path.relative(path.resolve(dir), path.resolve(p));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
 // The sources row as shown, [{ testid, text }] in page order, against the
 // expected sources: null when every card shows its host and number in order.
 function sourcesRowProblem(cards, expected) {
@@ -411,5 +427,5 @@ module.exports = {
   openEve, waitForModels, openProject, openProjectPage, openEditProject, openTemplate, pressPreset, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt, eveJson, callToolRows,
   DENIED_OUTCOMES, MIN_TARGET, BRIEF_REFUSED, briefRunVerdict, probeVerdict, DEVICES, smallTargets, overflowProblems, sweep, overflow,
-  relayJoin, stubSources, sourcesRowProblem,
+  relayJoin, stubSources, sourcesRowProblem, firstDifference, isUnder,
 };

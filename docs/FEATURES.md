@@ -330,13 +330,14 @@ areas:
   chat:
     code: [ws/session-messages.js, slash-command-handler.js, public/dialogs/shell-launcher-dialog.js,
            public/features/chat-form.js, public/features/permissions.js, public/features/file-attachments.js,
-           public/message-renderer.js, public/mermaid-loader.js, public/input-history.js,
+           public/message-renderer.js, public/citations.js, public/mermaid-loader.js, public/input-history.js,
            public/file-attachment-manager.js, public/apple/chat.css, public/apple/chat-extras.css]
     tests: [test/unit/chat-*.test.js, test/unit/slash-command-handler.test.js, test/unit/input-history.test.js,
             test/unit/permission-*.test.js, test/unit/persist-session-label.test.js,
             test/unit/file-attachment-manager-init.test.js, test/integration/sessions.test.js,
             test/integration/session-*.test.js, test/integration/permissions.test.js, test/e2e/chat*.spec.js,
-            test/e2e/template-blank-model.spec.js, test/e2e/goals/ask-elsewhere.spec.js]
+            test/e2e/template-blank-model.spec.js, test/e2e/goals/ask-elsewhere.spec.js,
+            test/unit/sources.test.js, test/e2e/goals/research-citations.spec.js]
     journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode, research-citations]
   terminal:
     code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,

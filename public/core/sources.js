@@ -60,7 +60,7 @@ const Sources = {
     return String(s)
       .replace(/<[^>]*>/g, '')
       .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-      .replace(/&#0?39;/g, "'").replace(/&amp;/g, '&')
+      .replace(/&#0?39;/g, "'").replace(/&apos;/g, "'").replace(/&#x27;/gi, "'").replace(/&amp;/g, '&')
       .trim();
   },
 
@@ -84,7 +84,9 @@ const Sources = {
     }
   },
 
-  // Unnumbered sources in result order (n is set by turn()).
+  // Unnumbered sources in result order (n is set by turn()). Source:
+  // {n, url, key, host, title, excerpt}. url is as the tool returned it (what
+  // Open source links to); key is normalizeUrl(url), for matching and dedupe.
   fromResult(name, content) {
     if (!Sources.isSearchTool(name)) return [];
     let candidates = [];
@@ -94,9 +96,9 @@ const Sources = {
     const found = [];
     for (const o of candidates) {
       if (typeof o.title !== 'string') continue;
-      const url = Sources.normalizeUrl(o.url);
-      if (!url) continue;
-      found.push({ url, host: new URL(url).hostname, title: o.title, excerpt: Sources._excerpt(o) });
+      const key = Sources.normalizeUrl(o.url);
+      if (!key) continue;
+      found.push({ url: o.url.trim(), key, host: new URL(key).hostname, title: o.title, excerpt: Sources._excerpt(o) });
     }
     return found.map((s, i) => Object.assign({ n: i + 1 }, s));
   },
@@ -104,20 +106,20 @@ const Sources = {
   // One user message to the next: sources numbered 1..N, first-seen, deduped.
   turn() {
     const list = [];
-    const byUrl = new Map();
+    const byKey = new Map();
     return {
       add(name, content) {
         for (const s of Sources.fromResult(name, content)) {
-          if (byUrl.has(s.url)) continue;
-          const src = { n: list.length + 1, url: s.url, host: s.host, title: s.title, excerpt: s.excerpt };
-          byUrl.set(s.url, src);
+          if (byKey.has(s.key)) continue;
+          const src = { n: list.length + 1, url: s.url, key: s.key, host: s.host, title: s.title, excerpt: s.excerpt };
+          byKey.set(s.key, src);
           list.push(src);
         }
       },
       list() { return list.slice(); },
       match(href) {
         const u = Sources.normalizeUrl(href);
-        return u && byUrl.has(u) ? byUrl.get(u).n : null;
+        return u && byKey.has(u) ? byKey.get(u).n : null;
       },
     };
   },

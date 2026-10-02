@@ -41,8 +41,8 @@ describe('Sources.fromResult content shapes', () => {
     ['a text-block array (Claude shape)', [{ type: 'text', text: brave(R1) }, { type: 'text', text: brave(R2) }]],
   ])('%s: one source per object, in result order', (_what, content) => {
     expect(Sources.fromResult('srv__brave_web_search', content)).toEqual([
-      { n: 1, url: R1.url, host: 'acme.example', title: R1.title, excerpt: R1.description },
-      { n: 2, url: R2.url, host: 'widgets.example', title: R2.title, excerpt: R2.description },
+      { n: 1, url: R1.url, key: R1.url, host: 'acme.example', title: R1.title, excerpt: R1.description },
+      { n: 2, url: R2.url, key: R2.url, host: 'widgets.example', title: R2.title, excerpt: R2.description },
     ]);
   });
 
@@ -104,7 +104,7 @@ describe('Sources excerpt', () => {
   });
 
   it.each([
-    ['&amp;', '&'], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&#39;', "'"],
+    ['&amp;', '&'], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&#39;', "'"], ['&apos;', "'"], ['&#x27;', "'"], ['&#X27;', "'"],
     ['&amp;lt;', '&lt;'],
   ])('decodes %s once', (entity, text) => {
     expect(excerptOf({ description: `a ${entity} b` })).toBe(`a ${text} b`);
@@ -140,6 +140,12 @@ describe('Sources.turn', () => {
     turn.add('srv__brave_web_search', brave(R2) + brave({ ...R1, title: 'Dup again' }));
     turn.add('web_fetch', brave({ url: 'https://other.example/x', title: 'Fetched' }));
     expect(turn.list().map((s) => [s.n, s.url, s.title])).toEqual([[1, R1.url, R1.title], [2, R2.url, R2.title]]);
+  });
+
+  it('keeps the URL as the tool returned it and dedupes on the normalized key', () => {
+    const turn = Sources.turn();
+    turn.add(SEARCH, brave({ url: 'https://Acme.example/launch/#top', title: 'A' }) + brave({ url: 'https://acme.example/launch', title: 'Dup' }));
+    expect(turn.list().map((s) => [s.url, s.key])).toEqual([['https://Acme.example/launch/#top', 'https://acme.example/launch']]);
   });
 
   it('match returns a source\'s number for any spelling of its URL, else null', () => {

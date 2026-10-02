@@ -14,7 +14,7 @@ const {
   openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, eveJson, callToolRows, DEVICES, sweep, overflow,
   worldIds, DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict, openEditProject, openTemplate, pressPreset,
-  stubSources, sourcesRowProblem,
+  stubSources, sourcesRowProblem, firstDifference, isUnder,
 } = require('./journey-kit');
 
 const exec = promisify(execFile);
@@ -1727,6 +1727,9 @@ async function researchCitations(env) {
   const listed = (await eveJson(env, 'GET', '/api/projects')).filter((p) => p.name === RESEARCH);
   if (listed.length !== 1) return result(id, BLOCKED, `setup R1: ${listed.length} projects named ${RESEARCH}, expected 1`);
   const research = { name: RESEARCH, id: listed[0].id, path: listed[0].path };
+  if (!isUnder(research.path, env.world.root)) {
+    return result(id, BLOCKED, `setup R1: ${RESEARCH}'s folder is not under the world root (${env.world.root}); this journey sends and sweeps sessions there`);
+  }
 
   const page = await env.newPage();
   const errors = captureErrors(page);
@@ -1820,7 +1823,7 @@ async function researchCitations(env) {
     const want = { host: s.host, n: String(n), title: s.title, excerpt: s.excerpt };
     const wrong = Object.keys(want).filter((k) => shown[k] !== want[k]);
     if (wrong.length) {
-      return result(id, FAIL, `chip ${n}'s popover: ${wrong.map((k) => `${k} "${shown[k].slice(0, 80)}", expected "${want[k].slice(0, 80)}"`).join('; ')}`);
+      return result(id, FAIL, `chip ${n}'s popover: ${wrong.map((k) => `${k} differs ${firstDifference(shown[k], want[k])}`).join('; ')}`);
     }
     await page.getByTestId('cite-close').click({ timeout: 5000 });
     await need(`chip ${n}'s popover did not close`, expect(pop).toBeHidden({ timeout: 5000 }));
