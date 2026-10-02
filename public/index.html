@@ -138,6 +138,7 @@
   <link rel="stylesheet" href="apple/home.css">
   <link rel="stylesheet" href="apple/palette.css">
   <link rel="stylesheet" href="apple/hosts.css">
+  <link rel="stylesheet" href="apple/project-page.css">
   <link rel="stylesheet" href="apple/auth.css">
   <link rel="stylesheet" href="apple/touch.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
@@ -387,6 +388,9 @@
 
         <!-- Git diff content area (diff tabs; built by diff-viewer.js) -->
         <div id="diffPane" class="diff-pane hidden" data-testid="diff-pane"></div>
+
+        <!-- Project page (project tabs; built by project-page.js) -->
+        <div id="projectPane" class="project-pane hidden" data-testid="project-pane"></div>
         </div><!-- /#contentArea -->
 
       </div>
@@ -538,12 +542,14 @@
   <script src="panes/file-pane.js"></script>
   <script src="panes/session-pane.js"></script>
   <script src="panes/diff-pane.js"></script>
+  <script src="panes/project-pane.js"></script>
   <script src="tab-manager.js"></script>
   <script src="file-browser.js"></script>
   <script src="core/language-detect.js"></script>
   <script src="file-editor.js"></script>
   <script src="html-preview-pane.js"></script>
   <script src="diff-viewer.js"></script>
+  <script src="project-page.js"></script>
   <script src="terminal-keybar.js"></script>
   <script src="remote-sessions.js"></script>
   <script src="terminal-manager.js"></script>
