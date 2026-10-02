@@ -432,6 +432,7 @@ describe('devboxverify journey table', () => {
     'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'passkey-first-enrol',
     'passkey-sign-in', 'agent-sign-in-refused', 'agent-enrol-refused', 'add-browser-in-window',
     'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
+    'settings-sheet', 'project-admin-in-relay', 'project-mode-new',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -466,6 +467,7 @@ describe('devboxverify journey table', () => {
     const all = ['project:acme', 'project:globex', 'project:home'];
     expect(Object.fromEntries(journeys.map(j => [j.id, [...j.needs].sort()]))).toEqual({
       'passkey-first-enrol': [], 'landing-view': [], 'add-browser-in-window': [],
+      'settings-sheet': [], 'project-mode-new': [], 'project-admin-in-relay': acme,
       'world-projects-listed': all, 'terminal-on-request': all,
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
@@ -492,6 +494,7 @@ describe('devboxverify journey table', () => {
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file',
+      'settings-sheet', 'project-admin-in-relay', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
