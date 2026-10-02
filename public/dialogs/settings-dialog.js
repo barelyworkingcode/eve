@@ -183,6 +183,15 @@ class SettingsDialog extends DialogBase {
       row.dataset.testid = `settings-default-${mode}`;
       row.textContent = p ? `${label} starts in ${p.name}` : `${label}: no default. Ask lets you pick.`;
       group.appendChild(row);
+      if (p) {
+        const mp = ModePresets.forMode(projects, mode);
+        const { ask, voice } = mp.project && mp.project.id === p.id ? mp : {};
+        const presets = document.createElement('div');
+        presets.className = 'settings-sheet__text';
+        presets.dataset.testid = `settings-presets-${mode}`;
+        presets.textContent = `Ask: ${ask ? ask.name : 'none'} · Voice: ${voice ? voice.name : 'none'}`;
+        group.appendChild(presets);
+      }
     }
     return group;
   }

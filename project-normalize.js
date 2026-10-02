@@ -1,5 +1,7 @@
 'use strict';
 
+const ModePresets = require('./public/core/mode-presets');
+
 // Deliberate ALLOW-LIST: only the fields listed here cross to the client. A
 // new relay field is silently dropped until added here; the project token
 // must never leak and is intentionally absent (see below).
@@ -22,6 +24,7 @@ function normalizeProject(p) {
       mode: t.mode || 'text',
       voice: t.voice || '',
       systemPrompt: t.system_prompt || '',
+      presetFor: ModePresets.normalize(t.preset_for),
     })),
     permissionPolicy: p.permission_policy ? {
       defaultMode: p.permission_policy.default_mode || 'default',
