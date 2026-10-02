@@ -1103,7 +1103,7 @@ async function settingsSheet(env) {
   const id = 'settings-sheet';
   const projects = await eveJson(env, 'GET', '/api/projects');
   const workDefault = projects.find((p) => (p.defaultFor || []).includes('work'));
-  const workRow = workDefault ? `Work starts in ${workDefault.name}` : 'No default. Ask lets you pick.';
+  const workRow = workDefault ? `Work starts in ${workDefault.name}` : 'Work: no default. Ask lets you pick.';
   const page = await env.newPage();
   // A dark system, so Auto reads dark and Light is a visible change.
   await page.emulateMedia({ colorScheme: 'dark' });

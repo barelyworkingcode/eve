@@ -103,7 +103,7 @@ test.describe('settings sheet', () => {
     test('Modes names the project each mode starts in, or says Ask lets you pick', async ({ page }) => {
       const sheet = await openSheet(page);
       await expect(sheet.getByTestId('settings-default-work')).toHaveText('Work starts in Beta Project');
-      await expect(sheet.getByTestId('settings-default-home')).toHaveText('No default. Ask lets you pick.');
+      await expect(sheet.getByTestId('settings-default-home')).toHaveText('Home: no default. Ask lets you pick.');
     });
   });
 

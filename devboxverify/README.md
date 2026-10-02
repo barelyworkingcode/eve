@@ -317,7 +317,7 @@ tabs; its groups read Display, Voice, Modes, Files, and the Relay line
 button) comes after Files. Light survives a reload (`html[data-theme]` and
 the pressed button); the prior Appearance is restored. The Work row matches
 the project whose `defaultFor` holds `work` in eve's `GET /api/projects`, or
-reads "No default. Ask lets you pick." Done closes the sheet.
+reads "Work: no default. Ask lets you pick." Done closes the sheet.
 - Lives in: `sidebar-settings` → `public/dialogs/settings-dialog.js`
   (`settings-appearance-*`, `settings-default-work`, `settings-relay`,
   `settings-done`); `public/core/settings-manager.js`.
