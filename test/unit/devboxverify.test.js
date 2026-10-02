@@ -431,7 +431,7 @@ describe('devboxverify journey table', () => {
     'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
     'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'passkey-first-enrol',
     'passkey-sign-in', 'agent-sign-in-refused', 'agent-enrol-refused', 'add-browser-in-window',
-    'today-ipad-portrait', 'today-phone',
+    'today-ipad-portrait', 'today-phone', 'ask-about-file',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -470,7 +470,7 @@ describe('devboxverify journey table', () => {
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
-        'today-ipad-portrait', 'today-phone'].map(id => [id, acme])),
+        'today-ipad-portrait', 'today-phone', 'ask-about-file'].map(id => [id, acme])),
     });
   });
 
@@ -485,21 +485,24 @@ describe('devboxverify journey table', () => {
     }
   });
 
-  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, agent-sign-in-refused, the S2 device journeys, add-browser-in-window', () => {
+  it('runs in the contract order: fixtures, agent-enrol-refused, 1-9, agent-sign-in-refused, the S2 device journeys, ask-about-file, add-browser-in-window', () => {
     const { orderJourneys } = require('../../devboxverify/main');
     expect(orderJourneys(journeys, { screen: true }).run.map(j => j.id)).toEqual([
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
       'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save',
-      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone',
+      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file',
       'add-browser-in-window',
     ]);
   });
 
-  it('gives the S2 device journeys the areas and timeouts docs/design-today-s2.md pins', () => {
-    const pick = id => (({ areas, timeoutMs }) => ({ areas: [...areas].sort(), timeoutMs }))(journeys.find(j => j.id === id));
-    expect(pick('today-ipad-portrait')).toEqual({ areas: ['home', 'shell'], timeoutMs: 45000 });
-    expect(pick('today-phone')).toEqual({ areas: ['chat', 'home', 'shell'], timeoutMs: 75000 });
+  it.each([
+    ['today-ipad-portrait', 'docs/design-today-s2.md', ['home', 'shell'], 45000],
+    ['today-phone', 'docs/design-today-s2.md', ['chat', 'home', 'shell'], 75000],
+    ['ask-about-file', 'docs/design-workbench.md', ['chat', 'files', 'home'], 90000],
+  ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
+    const j = journeys.find(x => x.id === id);
+    expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
   });
 });
 

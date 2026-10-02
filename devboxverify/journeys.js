@@ -3,13 +3,14 @@
 // verdicts rest on visible text or visibility. See docs/design-devboxverify.md.
 /** @typedef {{ id: string, timeoutMs: number, areas: string[], needs: string[], fixture?: true, screen?: true, knownBug?: string, run(env): Promise<object> }} Journey */
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const { expect } = require('@playwright/test');
 const {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
-  openEve, waitForModels, openProject, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
+  openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, DEVICES, sweep, overflow,
 } = require('./journey-kit');
 
@@ -264,13 +265,11 @@ async function openExistingThread(env) {
 
   // Each door gets a fresh context, so no door rides on another's open tab.
   const doors = [
-    ['Sessions tab', async (page) => {
-      await openProject(page, env, acme);
-      env.step('open the Sessions tab');
-      await page.getByTestId('panel-tab-sessions').click({ timeout: 10000 });
+    ['Project page', async (page) => {
+      const projectPage = await openProjectPage(page, env, acme);
       env.step('open the thread');
-      await need('the thread is not in the Sessions list',
-        page.getByTestId(`sidebar-session-${t.sessionId}`).click({ timeout: 15000 }));
+      await need('the thread is not in the project page\'s Threads',
+        projectPage.getByTestId(`project-thread-${t.sessionId}`).click({ timeout: 15000 }));
       return null;
     }],
     ['Home Continue row', async (page) => {
@@ -346,7 +345,7 @@ async function openExistingThread(env) {
     const added = addedIds(before, await acmeIds(env, 'sessions'));
     if (added.length) return result(id, FAIL, `${door}: opening the thread created ${added.length} session(s)`);
   }
-  return result(id, PASS, 'question and reply shown from the Sessions tab, Continue and ⌘K; no new session');
+  return result(id, PASS, 'question and reply shown from the Project page, Continue and ⌘K; no new session');
 }
 
 async function terminalOnRequest(env) {
@@ -381,16 +380,28 @@ async function terminalOnRequest(env) {
   if (reopened) return result(id, FAIL, 'a terminal opened by itself after a reload');
   await need('Home is not showing after a reload', expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 10000 }));
 
-  await openProject(page, env, acme);
-  env.step('open the Sessions tab');
-  await page.getByTestId('panel-tab-sessions').click({ timeout: 10000 });
-  const row = page.getByTestId(`sidebar-terminal-${probe.terminalId}`);
-  await need('the live terminal is not listed in the Sessions panel within 15s of a reload',
+  env.step('find the probe on Today\'s agent board');
+  const row = page.getByTestId('today-part-agents').getByTestId(`today-agent-${probe.terminalId}`);
+  await need('the live terminal is not on Today\'s agent board within 15s of a reload',
     expect(row).toBeVisible({ timeout: 15000 }));
-  env.step('open the listed terminal');
+  const lastLine = row.locator('.agent-row__last');
+  await need('the probe\'s row on Today shows no last line within 15s',
+    expect(lastLine).toHaveText(/\S/, { timeout: 15000 }));
+  const line = (await lastLine.innerText({ timeout: 5000 })).trim();
+  if (await pane.isVisible()) return result(id, FAIL, 'a terminal pane opened while the board only listed it');
+
+  // Deliberate: a fresh context, so the first stays on Today for the tap.
+  const other = await env.newPage();
+  await openEve(other, env);
+  const projectPage = await openProjectPage(other, env, acme);
+  env.step('find the probe in the project page\'s Agents');
+  await need('the live terminal is not in the project page\'s Agents within 15s',
+    expect(projectPage.getByTestId(`project-agent-${probe.terminalId}`)).toBeVisible({ timeout: 15000 }));
+
+  env.step('open the probe from Today');
   await row.click({ timeout: 5000 });
-  await need('the terminal pane did not open on click within 15s', expect(pane).toBeVisible({ timeout: 15000 }));
-  await need('EVE_OK is not in the terminal 15s after opening it from the Sessions panel',
+  await need('the terminal pane did not open on a tap within 15s', expect(pane).toBeVisible({ timeout: 15000 }));
+  await need('EVE_OK is not in the terminal 15s after opening it from Today',
     expect(pane).toContainText('EVE_OK', { timeout: 15000 }));
   await probe.typeLine("printf '%s_%s\\n' EVE AGAIN");
   await need('EVE_AGAIN did not show within 10s of typing after a reload',
@@ -398,20 +409,21 @@ async function terminalOnRequest(env) {
 
   const added = addedIds(before, await acmeIds(env, 'terminals'));
   if (added.length !== 1) return result(id, FAIL, `${added.length} new ${acme.name} terminals, expected 1`);
-  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload no terminal opened by itself, the Sessions panel listed it, and opening it answered EVE_AGAIN`);
+  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload no terminal opened by itself, Today's agent board `
+    + `listed it with the last line "${line.slice(0, 60)}" and no pane, the project page listed it, and a tap opened it and answered EVE_AGAIN`);
 }
 
 async function taskCreatedListed(env) {
   const id = 'task-created-listed';
   const acme = env.world.projects.acme;
   const name = `verify-${env.nonce}`;
+  const before = await acmeIds(env, 'tasks');
   const page = await env.newPage();
   await openEve(page, env);
-  await openProject(page, env, acme);
+  const projectPage = await openProjectPage(page, env, acme);
 
-  env.step('open the Tasks tab');
-  await page.getByTestId('panel-tab-tasks').click({ timeout: 10000 });
-  await page.getByTestId(`sidebar-task-new-${acme.id}`).click({ timeout: 10000 });
+  env.step('open New Task on the project page');
+  await projectPage.getByTestId(`project-task-new-${acme.id}`).click({ timeout: 10000 });
   const dialog = page.getByTestId('dialog-task-dialog');
   await need('the task dialog did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
   await dialog.getByRole('button', { name: 'New', exact: true }).click({ timeout: 5000 });
@@ -432,18 +444,18 @@ async function taskCreatedListed(env) {
 
   env.step('create the task');
   await dialog.getByRole('button', { name: 'Create Task' }).click({ timeout: 5000 });
-  const listed = page.locator('#panelContent').getByText(name, { exact: true });
+  const listed = projectPage.getByText(name, { exact: true });
   const shown = await expect(listed).toBeVisible({ timeout: 15000 }).then(() => true, () => false);
   if (!shown) {
     const toasts = await page.locator('.toast__message').allInnerTexts();
     return result(id, FAIL, toasts.length ? `not listed; toast: ${toasts.join(' / ')}` : 'not listed after Create Task');
   }
+  const created = addedIds(before, await acmeIds(env, 'tasks'));
+  if (created.length !== 1) return result(id, FAIL, `${created.length} new ${acme.name} tasks, expected 1`);
 
   const openTasks = async (on) => {
-    await openProject(on, env, acme);
-    await on.getByTestId('panel-tab-tasks').click({ timeout: 10000 });
-    const item = on.locator('#panelContent [data-testid^="sidebar-task-"]')
-      .filter({ hasText: name });
+    const onPage = await openProjectPage(on, env, acme);
+    const item = onPage.getByTestId(`project-task-${created[0]}`).filter({ hasText: name });
     await need(`${name} is gone after a reload`, expect(item).toBeVisible({ timeout: 15000 }));
     return item;
   };
@@ -645,6 +657,77 @@ async function fileEditSave(env) {
   return result(id, PASS, 'saved to disk; a clean editor took an outside change; a dirty one asked and reloaded');
 }
 
+async function askAboutFile(env) {
+  const id = 'ask-about-file';
+  const acme = env.world.projects.acme;
+  env.step('set up a file with a code word');
+  const dir = await scratchFolder(env, 'ask');
+  const folder = `/${path.basename(dir)}`;
+  const fileName = `${path.basename(dir)}/codeword.txt`;
+  const codeWord = `kumquat-${crypto.randomBytes(3).toString('hex')}`;
+  await fs.promises.writeFile(path.join(dir, 'codeword.txt'), `The code word is ${codeWord}.\n`);
+
+  const page = await env.newPage();
+  await openEve(page, env);
+  await waitForModels(page, env);
+  await openProject(page, env, acme);
+  // Deliberate: Ask has no model menu and takes the model last used there
+  // (eve-ask-model), so the run's model is put there as a returning user's is.
+  const values = await page.evaluate((pid) => window.client.state.modelsForProject(pid).map((m) => m.value), acme.id);
+  const model = pickModel(values, env.model);
+  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for ${acme.name}`);
+  await page.evaluate((m) => localStorage.setItem('eve-ask-model', m), model);
+
+  env.step('open the file');
+  await page.getByTestId('panel-tab-files').click({ timeout: 10000 });
+  await page.getByTestId(`file-tree-item-${folder}`).click({ timeout: 15000 });
+  const item = page.getByTestId(`file-tree-item-${folder}/codeword.txt`);
+  await item.click({ timeout: 10000 });
+  await need('the file did not open within 15s', expect(page.locator('#monacoEditor .view-lines')).toContainText(codeWord, { timeout: 15000 }));
+  const home = page.getByTestId('home-screen');
+  await need('Today is still showing with the file open', expect(home).toBeHidden({ timeout: 5000 }));
+
+  env.step('Ask about this');
+  await item.click({ button: 'right', timeout: 5000 });
+  await page.locator('.file-tree__context-menu').getByRole('button', { name: 'Ask about this', exact: true }).click({ timeout: 5000 });
+  await need('Ask about this did not show Today within 10s', expect(home).toBeVisible({ timeout: 10000 }));
+  await need('the Ask chip does not name the file', expect(page.getByTestId('today-ask-attachment')).toContainText(fileName, { timeout: 10000 }));
+  await need('Ask does not have focus', expect(page.getByTestId('today-ask-input')).toBeFocused({ timeout: 5000 }));
+
+  const before = await acmeIds(env, 'sessions');
+  const marker = `ask ${env.nonce}`;
+  env.step('ask for the code word');
+  await page.keyboard.type(`What is the code word in the attached file? Reply with the code word only. (${marker})`);
+  await page.keyboard.press('Enter');
+  const created = await poll(async () => {
+    const added = addedIds(before, await acmeIds(env, 'sessions'));
+    return added.length ? added : null;
+  }, { timeoutMs: 30000, intervalMs: 1000 });
+  if (!created) {
+    const said = (await page.getByTestId('today-ask-status').innerText({ timeout: 2000 }).catch(() => '')).trim();
+    return result(id, FAIL, `no ${acme.name} session within 30s of Return${said ? `; Ask says "${said}"` : ''}`);
+  }
+  const bubble = page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: marker });
+  await need('the question is not shown as the user message', expect(bubble).toBeVisible({ timeout: 15000 }));
+  await need('the user message does not list the attached file', expect(bubble).toContainText(fileName, { timeout: 5000 }));
+
+  env.step('wait for the reply');
+  const stop = page.getByTestId('chat-stop');
+  const settled = await poll(async () => {
+    const r = replyAfter(await answers(page), marker);
+    if (r.error) return r;
+    if (r.reply && !(await stop.isVisible())) return r;
+    return null;
+  }, { timeoutMs: 45000, intervalMs: 1000 });
+  if (!settled) return result(id, FAIL, 'no finished assistant reply within 45s');
+  if (settled.error) return result(id, FAIL, `error in the thread: ${settled.error}`);
+  const final = addedIds(before, await acmeIds(env, 'sessions'));
+  if (final.length !== 1) return result(id, FAIL, `${final.length} new ${acme.name} sessions, expected 1`);
+  const named = settled.reply.includes(codeWord);
+  return result(id, PASS, `Today with Ask focused and the file's chip; one ${acme.name} thread whose question lists the file; `
+    + `${named ? 'the reply named the code word' : `the reply did not name the code word: "${settled.reply.slice(0, 40)}"`}`);
+}
+
 // A sweep or overflow finding as a FAIL detail: where, and the first three.
 const offenders = (what, where, list) => `${what} on ${where}: ${list.slice(0, 3).join('; ')}${list.length > 3 ? ` (+${list.length - 3})` : ''}`;
 
@@ -806,6 +889,7 @@ const journeys = [
   // runs it after them whatever the table order.
   { id: 'today-ipad-portrait', timeoutMs: 45000, areas: ['home', 'shell'], needs: ['project:acme'], run: todayIpadPortrait },
   { id: 'today-phone', timeoutMs: 75000, areas: ['home', 'shell', 'chat'], needs: ['project:acme'], run: todayPhone },
+  { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
   auth.addBrowserInWindow,
 ];
 
