@@ -617,7 +617,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   const browser = await chromium.launch({ args: CHROMIUM_ARGS });
   const env = {
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
-    api, shared: {}, session: null, relayBin, service: opts.service,
+    api, shared: {}, session: null, relayBin, service: opts.service, dataDir,
     serviceLog: serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`)),
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
       await exec(relayBin, ['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
