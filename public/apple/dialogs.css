@@ -657,6 +657,25 @@
 
 .project-dialog__voice-wrapper { margin-bottom: var(--sp-2); }
 
+/* Preset row: one toggle button per mode the project includes. */
+.project-dialog__preset { margin-bottom: var(--sp-2); }
+.project-dialog__preset-row { display: flex; gap: var(--sp-2); }
+.project-dialog__preset-btn {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid transparent;
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.project-dialog__preset-btn--on,
+.project-dialog__preset-btn[aria-pressed="true"] {
+  color: var(--text-primary);
+  border-color: var(--accent, currentColor);
+  font-weight: var(--weight-medium);
+}
+
 /* Inline error banner. */
 .project-dialog__error {
   display: flex;

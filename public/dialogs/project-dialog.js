@@ -238,10 +238,34 @@ class ProjectDialog extends DialogBase {
       btn.dataset.testid = `project-mode-${value}`;
       btn.setAttribute('aria-pressed', String(this._mode === value));
       btn.textContent = text;
-      btn.addEventListener('click', () => { this._mode = value; this._renderGeneralTab(); });
+      btn.addEventListener('click', () => {
+        this._mode = value;
+        this._prunePresets();
+        this._renderGeneralTab();
+      });
       control.appendChild(btn);
     }
     parent.appendChild(control);
+  }
+
+  // Modes the dialog's current project mode includes.
+  _presetModes() {
+    return this._mode === 'home' || this._mode === 'work' ? [this._mode] : ModePresets.MODES.slice();
+  }
+
+  // Drop presets for a mode the project no longer includes. Marks templates
+  // dirty only when something was removed.
+  _prunePresets() {
+    const keep = this._presetModes();
+    let removed = false;
+    this._templates = this._templates.map(t => {
+      const has = ModePresets.normalize(t.presetFor);
+      const next = has.filter(m => keep.includes(m));
+      if (next.length === has.length) return t;
+      removed = true;
+      return { ...t, presetFor: next };
+    });
+    if (removed) this._templatesDirty = true;
   }
 
   async _saveProject(name, path) {
@@ -266,14 +290,19 @@ class ProjectDialog extends DialogBase {
       // since relay reads an absent key as no change.
       if (!this._projectId || this._mode !== this._initialMode) body.mode = this._mode;
       if (this._templatesDirty) {
-        body.chat_templates = this._templates.map(t => ({
-          id: t.id,
-          name: t.name,
-          model: t.model,
-          mode: t.mode || MODE_TEXT,
-          voice: t.voice || '',
-          system_prompt: t.systemPrompt || '',
-        }));
+        body.chat_templates = this._templates.map(t => {
+          const out = {
+            id: t.id,
+            name: t.name,
+            model: t.model,
+            mode: t.mode || MODE_TEXT,
+            voice: t.voice || '',
+            system_prompt: t.systemPrompt || '',
+          };
+          const presetFor = ModePresets.normalize(t.presetFor);
+          if (presetFor.length) out.preset_for = presetFor;
+          return out;
+        });
       }
       const project = this._projectId
         ? await this.api.updateProject(this._projectId, body)
@@ -395,6 +424,14 @@ class ProjectDialog extends DialogBase {
       badges.appendChild(voiceBadge);
     }
 
+    for (const m of ModePresets.normalize(tmpl.presetFor)) {
+      const presetBadge = document.createElement('span');
+      presetBadge.className = 'project-dialog__badge project-dialog__preset-badge';
+      presetBadge.dataset.testid = 'project-template-preset-badge';
+      presetBadge.textContent = `${ModePresets.label(m)} ${ModePresets.kind(tmpl) === 'voice' ? 'voice' : 'Ask'}`;
+      badges.appendChild(presetBadge);
+    }
+
     info.appendChild(name);
     info.appendChild(badges);
 
@@ -459,6 +496,44 @@ class ProjectDialog extends DialogBase {
     const voiceRadio = this._createRadio(modeRow, 'tmpl-mode', MODE_VOICE, 'Voice', tmpl.mode === MODE_VOICE);
     form.appendChild(modeRow);
 
+    // Preset row: buttons, not checkboxes (the chat-defaults guard counts checkboxes).
+    const presetModes = this._presetModes();
+    const pressed = new Set(ModePresets.normalize(tmpl.presetFor));
+    const presetWrapper = document.createElement('div');
+    presetWrapper.className = 'project-dialog__preset';
+    const presetLabel = document.createElement('label');
+    presetLabel.className = 'dialog__label';
+    presetWrapper.appendChild(presetLabel);
+    const presetRow = document.createElement('div');
+    presetRow.className = 'project-dialog__preset-row';
+    const presetBtns = {};
+    for (const m of presetModes) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'project-dialog__preset-btn';
+      btn.dataset.testid = `project-template-preset-${m}`;
+      btn.textContent = ModePresets.label(m);
+      const sync = () => {
+        btn.setAttribute('aria-pressed', String(pressed.has(m)));
+        btn.classList.toggle('project-dialog__preset-btn--on', pressed.has(m));
+      };
+      sync();
+      btn.addEventListener('click', () => {
+        if (pressed.has(m)) pressed.delete(m); else pressed.add(m);
+        sync();
+      });
+      presetRow.appendChild(btn);
+      presetBtns[m] = btn;
+    }
+    presetWrapper.appendChild(presetRow);
+    form.appendChild(presetWrapper);
+    const updatePresetLabel = () => {
+      presetLabel.textContent = voiceRadio.checked ? 'Voice preset in' : 'Ask preset in';
+    };
+    textRadio.addEventListener('change', updatePresetLabel);
+    voiceRadio.addEventListener('change', updatePresetLabel);
+    updatePresetLabel();
+
     const voiceWrapper = document.createElement('div');
     voiceWrapper.className = 'project-dialog__voice-wrapper';
     const voiceLabel = document.createElement('label');
@@ -515,14 +590,23 @@ class ProjectDialog extends DialogBase {
       }
 
       this._templatesDirty = true;
-      this._templates[idx] = {
+      // Modes the form does not show keep what the template had.
+      const hidden = ModePresets.normalize(tmpl.presetFor).filter(m => !presetModes.includes(m));
+      let next = [...this._templates];
+      next[idx] = {
         id: tmpl.id,
         name,
         model: modelSelect.value,
         mode: voiceRadio.checked ? MODE_VOICE : MODE_TEXT,
         voice: voiceRadio.checked ? voiceSelect.value : '',
         systemPrompt: promptArea.value.trim(),
+        presetFor: ModePresets.normalize([...hidden, ...presetModes.filter(m => pressed.has(m))]),
       };
+      // One preset of a kind per mode: a pressed mode clears from the others.
+      for (const m of presetModes) {
+        if (pressed.has(m)) next = ModePresets.withPreset(next, idx, m, true);
+      }
+      this._templates = next;
       this._editingTemplateIdx = -1;
       this._showTab('templates');
     });
