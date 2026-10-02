@@ -22,8 +22,10 @@ class RoutineHistory {
   newest(task) {
     const key = `${task.id}|${task.lastRun}`;
     if (this._cache.has(key)) return this._cache.get(key);
+    // Drop the task's older entries first: a newer run replaces its own slot,
+    // so a full cache still refreshes a task it already holds.
+    for (const k of [...this._cache.keys()]) if (k.startsWith(`${task.id}|`)) this._cache.delete(k);
     if (this._cache.size >= this._limit) return null;
-    for (const k of this._cache.keys()) if (k.startsWith(`${task.id}|`)) this._cache.delete(k);
     this._cache.set(key, null);
     Promise.resolve(this._load(task.id)).then((history) => {
       this._cache.set(key, Array.isArray(history) ? history[0] || null : null);

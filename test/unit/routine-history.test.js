@@ -46,4 +46,19 @@ describe('RoutineHistory', () => {
     expect(load).toHaveBeenCalledTimes(3);
     expect(h._cache.size).toBe(2);
   });
+
+  test('a newer run of a cached task still fetches when the cache is full', async () => {
+    const { h, load } = make(2);
+    h.newest({ id: 'a', lastStatus: 'success', lastRun: '1' });
+    h.newest({ id: 'b', lastStatus: 'success', lastRun: '1' });
+    await flush();
+    expect(h._cache.size).toBe(2);
+    h.newest({ id: 'a', lastStatus: 'success', lastRun: '2' });
+    expect(load).toHaveBeenCalledTimes(3);
+    await flush();
+    expect(h.newest({ id: 'a', lastStatus: 'success', lastRun: '2' })).toEqual({ id: 'a-newest' });
+    expect(h._cache.size).toBe(2);
+    expect(h.newest({ id: 'c', lastStatus: 'success', lastRun: '1' })).toBeNull();
+    expect(load).toHaveBeenCalledTimes(3);
+  });
 });
