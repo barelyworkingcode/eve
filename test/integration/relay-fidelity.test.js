@@ -117,7 +117,8 @@ describe('fake relay answers as relay does (direct)', () => {
     relay.addProject({ id: 'locked', name: 'Locked', path: '/tmp', allowed_models: ['ok-model'] });
     relay.addProject({ id: 'open', name: 'Open', path: '/tmp', allowed_models: ['*'] });
     relay.addHost({ id: 'h3', name: 'box3' });
-    relay.addProject({ id: 'remote', name: 'Remote', path: '/srv/z', host_id: 'h3', allowed_models: ['ok-model'] });
+    relay.addProject({ id: 'remote', name: 'Remote', path: '/srv/z', kind: 'remote', allowed_models: ['ok-model'] });
+    relay.addProject({ id: 'hosted', name: 'Hosted', path: '/srv/h', host_id: 'h3', allowed_models: ['ok-model'] });
     const post = (body) => fetch(`${base}/api/sessions`, { method: 'POST', ...json(body) });
     const refused = async (body, error) => {
       const res = await post(body);
@@ -138,6 +139,8 @@ describe('fake relay answers as relay does (direct)', () => {
     await refused({ projectId: 'locked', model: 'other', directory: '/tmp' }, 'model is not allowed for this project');
 
     expect((await post({ projectId: 'locked', model: 'ok-model', directory: '/tmp' })).status).toBe(201);
+    // An SSH-hosted project (host_id, not kind remote) launches.
+    expect((await post({ projectId: 'hosted', model: 'ok-model', directory: '/srv/h' })).status).toBe(201);
     expect((await post({ projectId: 'locked', directory: '/tmp' })).status).toBe(201); // server-default model
     expect((await post({ projectId: 'open', model: 'anything', directory: '/tmp' })).status).toBe(201);
   });
@@ -509,10 +512,9 @@ describe('eve against a relay that refuses, drops or rejects', () => {
     } finally { await ws.close(); await eve.stop(); }
   });
 
-  it('a session on a remote (host) project is refused with relay\'s 403 text and no session', async () => {
+  it('a session on a remote project is refused with relay\'s 403 text and no session', async () => {
     const eve = await startEve({
-      hosts: [{ id: 'h1', name: 'box' }],
-      projects: [project({ id: 'rp', path: '/srv/app', host_id: 'h1' })],
+      projects: [project({ id: 'rp', path: '/srv/app', kind: 'remote' })],
     });
     const ws = await eve.connectWs();
     try {

@@ -468,16 +468,20 @@ function createFakeRelay({ token = null } = {}) {
         sessionCreates.push(parsed);
         // session_launch.go AuthorizeLaunch, in its order, for eve's body
         // (kind from session_routes.go deriveSessionKind(model)): no project,
-        // then an unknown or remote project (refused alike), then a chat
-        // session without a model (400), then a model outside a non-empty,
-        // non-wildcard allowlist. A forced failure stands in for the launch
+        // then an unknown or remote (kind: 'remote') project (refused
+        // alike; an SSH-hosted project, host_id set, proceeds), then pi on a
+        // hosted project, then a model outside a non-empty, non-wildcard
+        // allowlist. A forced failure stands in for the launch
         // path behind them. Every body is {error: message}.
         const model = typeof parsed.model === 'string' ? parsed.model : '';
         const kind = ['haiku', 'sonnet', 'opus'].includes(model) ? 'claude' : model.startsWith('pi/') ? 'pi' : 'chat';
         if (!parsed.projectId) return send(403, { error: `${kind} sessions require a project` });
         const guardProject = projects.get(parsed.projectId);
-        if (!guardProject || guardProject.host_id) {
+        if (!guardProject || guardProject.kind === 'remote') {
           return send(403, { error: 'project is not available for a session launch' });
+        }
+        if (kind === 'pi' && guardProject.host_id) {
+          return send(403, { error: 'provider "pi" is not available on a host project' });
         }
         const allowed = Array.isArray(guardProject.allowed_models) ? guardProject.allowed_models : [];
         if (model && allowed.length > 0 && !allowed.includes('*') && !allowed.includes(model)) {
