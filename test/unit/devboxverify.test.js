@@ -712,9 +712,10 @@ describe('devboxverify/journey-kit.js brief verdicts (S3a-A1)', () => {
       new RegExp(`mail_send ${o}, web_fetch ${o}, all denied$`)]),
     ['no ok mail read', [['mail_list_accounts', 'ok'], ['mail_get_emails', 'denied']], 'FAIL', /^the brief read no mail$/],
     ['no rows at all', [], 'FAIL', /^the brief read no mail$/],
-    ['an ok send', [...READS, ['mail_send', 'ok']], 'FAIL', /^security: ok outside the read set: mail_send ok$/],
-    ['an ok tool outside the read set', [...READS, ['mail_move', 'ok']], 'FAIL', /^security: ok outside the read set: mail_move ok$/],
-    ['a fetch that errored past the gate', [...READS, ['web_fetch', 'error']], 'FAIL', /^security: not denied: web_fetch error$/],
+    ['an ok send', [...READS, ['mail_send', 'ok']], 'FAIL', /^security: not denied outside the read set: mail_send ok$/],
+    ['an ok tool outside the read set', [...READS, ['mail_move', 'ok']], 'FAIL', /^security: not denied outside the read set: mail_move ok$/],
+    ['a fetch that errored past the gate', [...READS, ['web_fetch', 'error']], 'FAIL', /^security: not denied outside the read set: web_fetch error$/],
+    ['a non-ok, non-denied row outside the read set', [...READS, ['mail_move', 'tool_error']], 'FAIL', /^security: not denied outside the read set: mail_move tool_error$/],
   ])('briefRunVerdict: %s', (_label, given, state, detail) => {
     const v = briefRunVerdict(rows(...given));
     expect(v.state).toBe(state);

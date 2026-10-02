@@ -208,12 +208,12 @@ const BRIEF_REFUSED = ['mail_send', 'web_fetch'];
 const tally = (rows) => [...new Set(rows.map((r) => `${r.tool} ${r.outcome}`))].join(', ');
 
 // The brief run's call_tool rows judged against S3a-A1. Security findings
-// come first: an ok row outside the read set, then a send or fetch that
+// come first: a row outside the read set, then a send or fetch that
 // relay did not deny.
 function briefRunVerdict(rows) {
   const ok = rows.filter((r) => r.outcome === 'ok');
-  const outside = ok.filter((r) => !BRIEF_READ_SET.includes(r.tool));
-  if (outside.length) return { state: FAIL, security: true, detail: `security: ok outside the read set: ${tally(outside)}` };
+  const outside = rows.filter((r) => !BRIEF_READ_SET.includes(r.tool) && !DENIED_OUTCOMES.includes(r.outcome));
+  if (outside.length) return { state: FAIL, security: true, detail: `security: not denied outside the read set: ${tally(outside)}` };
   const attempts = rows.filter((r) => BRIEF_REFUSED.includes(r.tool));
   const through = attempts.filter((r) => !DENIED_OUTCOMES.includes(r.outcome));
   if (through.length) return { state: FAIL, security: true, detail: `security: not denied: ${tally(through)}` };
@@ -332,5 +332,5 @@ module.exports = {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, openProjectPage, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt, eveJson, callToolRows,
-  DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict, DEVICES, smallTargets, overflowProblems, sweep, overflow,
+  DENIED_OUTCOMES, MIN_TARGET, BRIEF_REFUSED, briefRunVerdict, probeVerdict, DEVICES, smallTargets, overflowProblems, sweep, overflow,
 };

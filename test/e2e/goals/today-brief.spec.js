@@ -4,6 +4,7 @@ const os = require('os');
 const { test, expect } = require('./fixture');
 const { part } = require('./today-helpers');
 const Brief = require('../../../public/today/brief');
+const { MIN_TARGET } = require('../../../devboxverify/journey-kit');
 
 const LOCAL_A = { value: 'local-a', label: 'Local A', provider: 'chat' };
 const LOCAL_B = { value: 'local-b', label: 'Local B', provider: 'chat' };
@@ -239,6 +240,9 @@ test.describe('A4 Refresh', () => {
     await expect(page.getByTestId('today-brief-running')).toHaveText('Refreshing…');
     await expect(mailRows(page).first()).toHaveText('Ann · Budget');
     expect(runs).toHaveLength(1);
+    // The newest-run key is id|lastRun at whole-second precision: finish in a later second than the seeded run.
+    const seededAt = Date.parse(lastRun(eve, 'b1'));
+    await expect.poll(() => Date.now() >= seededAt + 1000).toBe(true);
     eve.relay.finishTask('b1', { status: 'success', response: fenced({ brief: 1, mail: [unread('Hal', 'New today')] }) });
     await expect(mailRows(page)).toHaveText(['Hal · New today']);
     await expect(page.getByTestId('today-brief-running')).toHaveCount(0);
@@ -318,7 +322,7 @@ test.describe('A7 no duplicates', () => {
 test.describe('A8 editing keeps tools', () => {
   test.use({ world: { seed: ({ relay }) => { relay.setModels(models(LOCAL_A)); relay.seedTask(briefTask('b1', 'alpha')); } } });
 
-  test('Save sends useRelayTools: true in the PUT body', async ({ page, eve }) => {
+  test('Save sends useRelayTools and catchUp in the PUT body', async ({ page, eve }) => {
     await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha Project', { exact: true }).click();
     await page.getByTestId('panel-project-page').click();
     await page.getByTestId('project-task-b1').getByTitle('Edit').click();
@@ -326,7 +330,7 @@ test.describe('A8 editing keeps tools', () => {
     await expect(dialog.locator('[name="taskModel"] option[value="local-a"]')).toHaveCount(1);
     const isPut = (r) => r.method() === 'PUT' && path(r) === '/api/tasks/b1';
     const [req] = await Promise.all([page.waitForRequest(isPut), dialog.getByRole('button', { name: /Save|Update/ }).click()]);
-    expect(req.postDataJSON().useRelayTools).toBe(true);
+    expect(req.postDataJSON()).toMatchObject({ useRelayTools: true, catchUp: true });
     await expect.poll(() => eve.relay.listTasks()[0].useRelayTools).toBe(true);
   });
 });
@@ -388,7 +392,7 @@ for (const [state, world, ready] of [['a brief', fullWorld(), 'today-brief-refre
           return { id: e.dataset.testid || e.textContent.trim(), w: r.width, h: r.height };
         }));
         expect(boxes.length).toBeGreaterThan(0);
-        expect(boxes.filter((b) => b.w < 44 || b.h < 44)).toEqual([]);
+        expect(boxes.filter((b) => b.w < MIN_TARGET || b.h < MIN_TARGET)).toEqual([]);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       });
     });
