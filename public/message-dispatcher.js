@@ -764,7 +764,7 @@ class MessageDispatcher {
       // Only the tab already on screen gets repainted, to pick up anything
       // that streamed during the outage — never a tab switch.
       if (data.sessionId === this.state.currentSessionId) {
-        this.app.renderMessages();
+        this.app.renderMessages({ focus: false });
       }
       return;
     }
