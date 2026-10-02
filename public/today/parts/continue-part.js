@@ -44,28 +44,29 @@ class ContinuePart extends TodayPart {
     root.appendChild(list);
   }
 
+  /** Newest first by the later of this browser's last open and the server's last message. */
   _recent() {
     const { state } = this.ctx;
     const recents = (typeof SessionRecents !== 'undefined') ? SessionRecents.list() : [];
-    const byId = new Map(todayThreads(state).map(s => [s.id, s]));
-    const ordered = [];
-    const seen = new Set();
-    const push = (s, ts) => {
-      if (!s || seen.has(s.id)) return;
-      seen.add(s.id);
-      ordered.push({ session: s, openedAt: ts || null });
-    };
-    const serverTime = (s) => {
+    const opened = new Map(recents.map(r => [r.id, Number(r.lastOpenedAt) || Date.parse(r.lastOpenedAt || '') || 0]));
+    // A thread started here lands in state before SessionRecents.touch stamps it and
+    // nothing repaints after the stamp. So a thread that first appears after this part
+    // has painted, with no time yet, counts as seen now. Threads already there at the
+    // first paint with no time stay out.
+    const firstPaint = !this._seen;
+    this._seen = this._seen || new Map();
+    const time = (s) => {
       const t = Date.parse(s.lastMessageAt || s.createdAt || '');
-      return Number.isNaN(t) ? 0 : t;
+      const known = Math.max(opened.get(s.id) || 0, Number.isNaN(t) ? 0 : t);
+      if (known > 0) return known;
+      if (!this._seen.has(s.id)) this._seen.set(s.id, firstPaint ? 0 : Date.now());
+      return this._seen.get(s.id);
     };
-    for (const r of recents) push(byId.get(r.id), r.lastOpenedAt);
-    for (const s of byId.values()) if (s.active) push(s, serverTime(s) || null);
-    // Sessions this browser never opened, newest server activity first.
-    const rest = [...byId.values()].filter(s => !seen.has(s.id) && serverTime(s) > 0)
-      .sort((a, b) => serverTime(b) - serverTime(a));
-    for (const s of rest) push(s, serverTime(s));
-    return ordered.slice(0, ContinuePart.MAX_RECENT);
+    return todayThreads(state)
+      .map(s => ({ session: s, openedAt: time(s) }))
+      .filter(r => r.openedAt > 0)
+      .sort((x, y) => y.openedAt - x.openedAt)
+      .slice(0, ContinuePart.MAX_RECENT);
   }
 }
 ContinuePart.MAX_RECENT = 6;
