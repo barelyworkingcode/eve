@@ -12,7 +12,8 @@ class AskPart {
     this.el = null;
     this.ctx = null;
     this._pending = false;      // a create_session is in flight
-    this._queued = false;       // Return was pressed before the model list arrived
+    this._queued = false;       // Return was pressed before eve was ready (first start) or the model list arrived
+    this._everConnected = false; // eve has authenticated at least once in this page load
     this._failure = '';         // plain-words line from the last refusal
   }
 
@@ -82,8 +83,11 @@ class AskPart {
 
     for (const evt of [EVT.PROJECTS_LOADED, EVT.PROJECT_DELETED, EVT.MODE_CHANGED, EVT.CONNECTION_CHANGED,
       'today:source:projects']) ctx.on(evt, () => this.update());
-    ctx.on(EVT.CONNECTION_CHANGED, () => { if (!ctx.state.isOnline()) this._abandon(); });
-    ctx.on(EVT.MODELS_LOADED, () => { this.update(); if (this._queued) this.submit(); });
+    // Before the first connect an offline socket is just boot, so a queued Ask waits.
+    ctx.on(EVT.CONNECTION_CHANGED, () => { if (this._everConnected && !ctx.state.isOnline()) this._abandon(); });
+    for (const evt of [EVT.CONNECTION_CHANGED, EVT.PROJECTS_LOADED, 'today:source:projects', EVT.MODELS_LOADED]) {
+      ctx.on(evt, () => this._retryQueued());
+    }
     ctx.on(EVT.ASK_FAILED, ({ message }) => this._onFailed(message));
     ctx.on(EVT.ASK_SENT, () => { this._pending = false; this.input.value = ''; this._failure = ''; ctx.state.askAbout = null; this.update(); });
     ctx.on(EVT.ASK_ABOUT, () => { this._failure = ctx.state.askAbout?.note || ''; this.update(); this.focus(true); });
@@ -117,9 +121,12 @@ class AskPart {
   plan() {
     const { state, sources } = this.ctx;
     if (sources.projects.status === 'error') return { blocked: sources.projects.describe() };
-    if (!state.connection.browser) return { blocked: 'Not connected to eve. Your text is kept; try again once it reconnects.' };
+    // `transient`: eve is still starting, so Ask waits for it instead of refusing.
+    if (!state.connection.browser) {
+      return { blocked: 'Not connected to eve. Your text is kept; try again once it reconnects.', transient: !this._everConnected };
+    }
     if (state.connection.relay === false) return { blocked: "Can't reach relay." };
-    if (sources.projects.status !== 'ready') return { blocked: 'Loading projects…' };
+    if (sources.projects.status !== 'ready') return { blocked: 'Loading projects…', transient: !this._everConnected || this._queued };
     if (state.projects.size === 0) return { blocked: 'Create a project to start asking.' };
 
     const candidates = state.getModeProjects().filter(p => !p.hostId && !p.host);
@@ -159,6 +166,7 @@ class AskPart {
   update() {
     if (!this.el) return;
     const { state } = this.ctx;
+    if (state.connection.browser) this._everConnected = true;
     // An item whose project was deleted can no longer be asked about.
     if (state.askAbout?.attachment && this.ctx.sources.projects.status === 'ready'
       && !state.projects.has(state.askAbout.projectId)) state.askAbout = null;
@@ -193,6 +201,7 @@ class AskPart {
     let line = this._failure;
     if (!line) {
       if (this._pending) line = 'Starting…';
+      else if (this._queued && plan.blocked) line = 'Sending when eve is ready…';
       else if (this._queued || plan.waitingForModels) line = 'Waiting for models…';
       else if (plan.blocked) line = plan.blocked;
       else if (plan.project && this.ctx.state.askAbout?.attachment) line = `Asking in ${plan.project.name}`;
@@ -205,7 +214,7 @@ class AskPart {
     const text = this.input.value.trim();
     if (!text || this._pending) return;
     const plan = this.plan();
-    if (plan.blocked) { this.update(); return; }
+    if (plan.blocked) { this._queued = !!plan.transient; this.update(); return; }
     if (plan.waitingForModels) { this._queued = true; this.update(); return; }
     this._queued = false;
     this._failure = '';
@@ -230,6 +239,14 @@ class AskPart {
     // The socket can drop between plan() and here; a lost send must not leave
     // the box on "Starting…" or the text queued for the next session.
     if (!app.wsClient.send(msg)) this._abandon();
+  }
+
+  // Try a queued Ask again. It sends, keeps waiting while eve starts, or is dropped
+  // by submit() when the plan blocks for a lasting reason (the text stays).
+  _retryQueued() {
+    if (!this._queued) return;
+    if (!this.input.value.trim()) { this._queued = false; this.update(); return; }
+    this.submit();
   }
 
   // Forget an in-flight Ask that can no longer be answered. The typed text stays.
