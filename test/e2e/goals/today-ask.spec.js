@@ -173,3 +173,88 @@ test.describe('S1-A5 Ask while eve\'s own socket is down', () => {
     expect(sentTexts(eve)).not.toContain('typed while offline');
   });
 });
+
+// Holds eve's socket at the point auth_success arrives: everything from it on is
+// kept from the page until release(). `held` resolves once auth_success is caught.
+async function holdAuth(page, baseUrl) {
+  const host = new URL(baseUrl).host;
+  const isAuthSuccess = (m) => {
+    try {
+      const d = JSON.parse(m);
+      return d.type === 'auth_success' || (d.type === '__batch' && d.msgs.some((x) => x.type === 'auth_success'));
+    } catch { return false; }
+  };
+  const kept = [];
+  let open = false;
+  let caught;
+  const held = new Promise((resolve) => { caught = resolve; });
+  await page.routeWebSocket((url) => url.host === host, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => server.send(m));
+    server.onMessage((m) => {
+      if (!open && (kept.length || isAuthSuccess(m))) { kept.push([ws, m]); caught(); return; }
+      ws.send(m);
+    });
+  });
+  await page.reload();
+  await page.waitForFunction(() => !!window.client?.state);
+  await held;
+  return { release: () => { open = true; for (const [ws, m] of kept.splice(0)) ws.send(m); } };
+}
+
+test.describe('S1-A5 Ask before eve is ready', () => {
+  test.use({ world: { seed: ({ relay }) => { relay.setModels(MODELS); relay.setDefaultProject('work', 'beta'); } } });
+
+  test('Return while starting queues the question and sends it once eve is ready, with no second Return', async ({ page, eve }) => {
+    const gate = await holdAuth(page, eve.baseUrl);
+    expect(await page.evaluate(() => window.client.state.connection.browser)).not.toBe(true);
+    await ask(page).fill('what is in the README?');
+    await ask(page).press('Enter');
+    await expect(page.getByTestId('today-ask-status')).toContainText('Sending when eve is ready…');
+    expect(eve.relay.sessionCreates).toHaveLength(0);
+
+    gate.release();
+    await expect(page.getByTestId('messages-container')).toContainText('what is in the README?', { timeout: 15000 });
+    await expect(page.getByTestId('messages-container')).toContainText('Hello from fake relay', { timeout: 15000 });
+    expect(eve.relay.sessionCreates).toHaveLength(1);
+    expect(sentTexts(eve)).toEqual([expect.stringContaining('what is in the README?')]);
+  });
+
+  test('editing the text while queued keeps the queue and sends the edited text, not the original', async ({ page, eve }) => {
+    const gate = await holdAuth(page, eve.baseUrl);
+    await ask(page).fill('first draft');
+    await ask(page).press('Enter');
+    await expect(page.getByTestId('today-ask-status')).toContainText('Sending when eve is ready…');
+    await ask(page).fill('second draft');
+    await expect(page.getByTestId('today-ask-status')).toContainText('Sending when eve is ready…');
+
+    gate.release();
+    await expect(page.getByTestId('messages-container')).toContainText('second draft', { timeout: 15000 });
+    expect(eve.relay.sessionCreates).toHaveLength(1);
+    expect(sentTexts(eve)).toEqual([expect.stringContaining('second draft')]);
+    expect(sentTexts(eve).join('\n')).not.toContain('first draft');
+  });
+});
+
+test.describe('S1-A5 Ask queued while starting, then blocked for good', () => {
+  test.use({
+    world: {
+      projects: ({ beta }) => [{ id: 'hm', name: 'Home Only', path: beta, mode: 'home' }],
+      seed: ({ relay }) => { relay.setModels(MODELS); },
+    },
+  });
+
+  test('no project in the mode: the queue is dropped, the reason shows, the text stays, nothing is sent', async ({ page, eve }) => {
+    const gate = await holdAuth(page, eve.baseUrl);
+    await ask(page).fill('early question');
+    await ask(page).press('Enter');
+    await expect(page.getByTestId('today-ask-status')).toContainText('Sending when eve is ready…');
+
+    gate.release();
+    await expect(page.getByTestId('today-ask-status')).toContainText('No projects in Work yet');
+    await expect(ask(page)).toHaveValue('early question');
+    await page.waitForTimeout(500);
+    expect(eve.relay.sessionCreates).toHaveLength(0);
+    expect(sentTexts(eve)).toEqual([]);
+  });
+});
