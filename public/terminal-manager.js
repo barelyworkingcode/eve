@@ -574,7 +574,7 @@ class TerminalManager {
       terminal.exited = true;
     }
     const at = this.allTerminals.get(terminalId);
-    if (at) at.state = 'stopped';
+    if (at) { at.state = 'stopped'; at.exitCode = exitCode; }
     this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
@@ -601,15 +601,28 @@ class TerminalManager {
     }
   }
 
+  // Last line of a terminal this browser holds, from xterm's buffer (agent board); null when not held.
+  lastLineOf(id) {
+    const buf = this.terminals.get(id)?.term?.buffer?.active;
+    if (!buf) return null;
+    const rows = [];
+    for (let y = buf.length - 1; y >= 0 && rows.length < 30; y--) rows.unshift(buf.getLine(y)?.translateToString(true) ?? '');
+    return TerminalText.lastLine(rows.join('\n'));
+  }
+
   requestTerminalList() {
     this.app.wsClient.send({ type: 'terminal_list' });
   }
 
   onTerminalList(terminalList) {
+    const before = new Map(this.allTerminals);
     this.allTerminals.clear();
+    this.listLoaded = true;
     if (terminalList && terminalList.length > 0) {
       for (const t of terminalList) {
-        this.allTerminals.set(t.id, t);
+        // relay's list carries no exit code; keep the one terminal_exit gave us.
+        this.allTerminals.set(t.id, t.exitCode == null && before.get(t.id)?.exitCode != null
+          ? { ...t, exitCode: before.get(t.id).exitCode } : t);
         // A terminal relay lists but this page does not hold is only registered:
         // no xterm, no tab, no focus. The sidebar (or a #terminal link) opens it
         // through openTaskTerminal when asked.

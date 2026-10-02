@@ -1,7 +1,7 @@
 // Project page (docs/design-workbench.md, S5a-A1/A2): one main-area tab per
 // project with its threads and tasks. The thread list (folders, rename, move,
 // delete, swipe, long-press) and the task list moved here from ProjectPanel
-// unchanged. The Agents section is an empty mount point for the agent board.
+// unchanged. The Agents section mounts the agent board for this project.
 // Collaborators are reached through the container at call time: this is
 // constructed by features.boot(), before most of them exist.
 class ProjectPage {
@@ -70,9 +70,16 @@ class ProjectPage {
     this._rows = this._div('project-page__rows');
     page.appendChild(this._rows);
 
-    const agents = this._section('Agents', 'agents');
+    const agents = this._section('Agents', 'agents', 'project-agents-count');
     this._agentsMount = this._div('project-page__agents', `project-agents-${id}`);
     agents.section.appendChild(this._agentsMount);
+    this._board?.destroy();
+    this._board = new AgentBoard({
+      container: this.container, testidPrefix: 'project', showProject: false,
+      filter: (_t, p) => p?.id === id,
+      onCount: (n) => { agents.count.textContent = String(n); },
+    });
+    this._board.mount(this._agentsMount);
     page.appendChild(agents.section);
 
     const threads = this._section('Threads', 'threads', 'project-threads-count');
