@@ -180,3 +180,27 @@ test.describe('S5a-A3 agent board with nothing to show', () => {
     await expect(page.getByTestId('today-part-agents')).toContainText("Can't reach relay");
   });
 });
+
+test.describe('S5a-A3 agent board row cap', () => {
+  test.use({
+    world: {
+      ...world,
+      seed: ({ relay, folders }) => {
+        relay.setTerminalTemplates(TEMPLATES);
+        for (let i = 0; i < 22; i++) {
+          relay.seedTerminal({ terminalId: `t-n${String(i).padStart(2, '0')}`, templateId: 'shell', name: `Shell ${String(i).padStart(2, '0')}`, directory: folders.alpha });
+        }
+      },
+    },
+  });
+
+  test('22 terminals show 20 rows and "+2 more"; only the shown rows fetch a last line', async ({ page, eve }) => {
+    await expect(agentRows(page, 'today')).toHaveCount(20);
+    await expect(page.getByTestId('home-screen')).toContainText('+2 more');
+    await expect(todayRow(page, 't-n00')).toBeVisible();
+    await expect(todayRow(page, 't-n21')).toHaveCount(0);
+    await expect(todayRow(page, 't-n19').locator('.agent-row__last')).toHaveText(LOG_LINE);
+    expect(logGets(eve, 't-n20')).toHaveLength(0);
+    expect(logGets(eve, 't-n21')).toHaveLength(0);
+  });
+});

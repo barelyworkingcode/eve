@@ -58,6 +58,26 @@ test.describe('S5a-A1 project page', () => {
     await expect(projectTabs(page)).toHaveCount(1);
   });
 
+  test('the page tab is not persisted: a reload without the hash does not reopen it', async ({ page, eve }) => {
+    await openAlphaPage(page);
+    await expect(projectTabs(page)).toHaveCount(1);
+    expect(await page.evaluate(() => Object.values(localStorage).filter((v) => v.includes('project:alpha')).length)).toBe(0);
+    await freshLoad(page, eve, '/');
+    await expect(page.getByTestId('home-screen')).toBeVisible();
+    await expect(projectTabs(page)).toHaveCount(0);
+    expect(await page.evaluate(() => window.client.tabManager.tabs.filter((t) => t.id.startsWith('project:')).length)).toBe(0);
+  });
+
+  test('a mode switch keeps the page tab open (S1-A4)', async ({ page }) => {
+    await openAlphaPage(page);
+    const tabCount = () => page.evaluate(() => window.client.tabManager.tabs.filter((t) => t.id.startsWith('project:')).length);
+    expect(await tabCount()).toBe(1);
+    await page.getByTestId('mode-home').click();
+    await page.getByTestId('mode-work').click();
+    expect(await tabCount()).toBe(1);
+    await expect(projectTabs(page)).toHaveCount(1);
+  });
+
   test('New thread opens the launcher', async ({ page }) => {
     await openAlphaPage(page);
     await page.getByTestId('project-new-thread-alpha').click();
