@@ -116,6 +116,24 @@ describe('Brief.prompt', () => {
   });
 });
 
+describe('Brief.prompt: how to name a mailbox', () => {
+  const prompt = Brief.prompt();
+
+  it('says mail_get_emails takes account and the bare mailbox as separate arguments', () => {
+    expect(prompt).toMatch(/mail_get_emails[\s\S]*"account"\s*:\s*"<account>"\s*,\s*"mailbox"\s*:\s*"INBOX"/);
+    expect(prompt).toMatch(/separate/i);
+  });
+
+  it('says a refused mailbox is retried once that way', () => {
+    expect(prompt).toMatch(/refused[\s\S]*(retry|try again)[\s\S]*once|once[\s\S]*(retry|try again)[\s\S]*refused|(retry|try again)[\s\S]*refused[\s\S]*once/i);
+  });
+
+  it('never shows an account/mailbox path as a mailbox value', () => {
+    // "mailbox": "<account>/INBOX" or "mailbox":"Home/INBOX" would teach the wrong shape.
+    expect(prompt).not.toMatch(/"mailbox"\s*:\s*"[^"]*\/[^"]*"/);
+  });
+});
+
 describe('Brief.taskBody (A2)', () => {
   it('is exactly the setup body', () => {
     expect(Brief.taskBody('alpha', 'local-a')).toEqual({

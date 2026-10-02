@@ -497,3 +497,42 @@ for (const [state, world, shown] of [
     });
   });
 }
+
+// #160: an existing brief keeps the prompt it was created with, so painting
+// it must refresh a stale prompt, once, and leave a current one alone.
+const isTaskUpdate = (r) => r.method() === 'PUT' && /^\/api\/tasks\/[^/]+$/.test(path(r));
+const storedPrompt = (eve, id) => eve.relay.listTasks().find((t) => t.id === id).prompt;
+const seedBrief = (extra) => ({
+  seed: ({ relay }) => {
+    relay.setModels(models(LOCAL_A));
+    relay.seedTask(briefTask('b1', 'alpha', extra));
+  },
+});
+
+test.describe('#160 a brief task with an older prompt', () => {
+  test.use({ world: seedBrief({ prompt: 'Morning brief (eve brief v1)\n\nList the mailboxes, then read recent mail in each.' }) });
+
+  test('is updated once to Brief.prompt() when Today paints', async ({ page, eve }) => {
+    const updates = track(page, isTaskUpdate);
+    await page.reload();
+    await expect(brief(page)).toContainText('No brief yet.');
+    await expect.poll(() => storedPrompt(eve, 'b1')).toBe(Brief.prompt());
+    // Repaints (mode switch and back) must not send it again.
+    await page.getByTestId('mode-home').click();
+    await page.getByTestId('mode-work').click();
+    await expect(brief(page)).toContainText('No brief yet.');
+    expect(updates.map((r) => [r.method(), path(r)])).toEqual([['PUT', '/api/tasks/b1']]);
+    expect(updates[0].postDataJSON()).toEqual({ prompt: Brief.prompt() });
+  });
+});
+
+test.describe('#160 a brief task with the current prompt', () => {
+  test.use({ world: seedBrief({}) });
+
+  test('is not updated when Today paints', async ({ page }) => {
+    const updates = track(page, isTaskUpdate);
+    await page.reload();
+    await expect(brief(page)).toContainText('No brief yet.');
+    expect(updates).toHaveLength(0);
+  });
+});
