@@ -153,6 +153,7 @@ test.describe('S5b-A1 page states', () => {
   test('scheduler down with relay up: "Can\'t reach the scheduler." with Retry, never the empty line', async ({ page, eve }) => {
     eve.relay.schedulerDown();
     await page.reload();
+    await page.waitForFunction(() => !!window.client?.state && !!window.client?.wsClient);
     await openFromPalette(page);
     const pg = page.getByTestId('routines-page');
     await expect(pg).toContainText("Can't reach the scheduler.");
