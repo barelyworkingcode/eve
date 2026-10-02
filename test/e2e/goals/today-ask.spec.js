@@ -234,6 +234,28 @@ test.describe('S1-A5 Ask before eve is ready', () => {
     expect(sentTexts(eve)).toEqual([expect.stringContaining('second draft')]);
     expect(sentTexts(eve).join('\n')).not.toContain('first draft');
   });
+
+  test('Return after eve connects but before projects load queues the question and sends it once they do', async ({ page, eve }) => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let hit;
+    const held = new Promise((resolve) => { hit = resolve; });
+    await page.route('**/api/projects', async (route) => { hit(); await gate; await route.continue(); });
+    await page.reload();
+    await page.waitForFunction(() => window.client?.state?.connection.browser === true);
+    await held;
+
+    await ask(page).fill('what is in the README?');
+    await ask(page).press('Enter');
+    await expect(page.getByTestId('today-ask-status')).toContainText('Sending when eve is ready…');
+    expect(eve.relay.sessionCreates).toHaveLength(0);
+
+    release();
+    await expect(page.getByTestId('messages-container')).toContainText('what is in the README?', { timeout: 15000 });
+    await expect(page.getByTestId('messages-container')).toContainText('Hello from fake relay', { timeout: 15000 });
+    expect(eve.relay.sessionCreates).toHaveLength(1);
+    expect(sentTexts(eve)).toEqual([expect.stringContaining('what is in the README?')]);
+  });
 });
 
 test.describe('S1-A5 Ask queued while starting, then blocked for good', () => {
