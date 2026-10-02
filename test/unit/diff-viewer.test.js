@@ -638,3 +638,44 @@ describe('DiffViewer tab close', () => {
     expect(ws.send).not.toHaveBeenCalled();
   });
 });
+
+// S5a-A4: "Ask about this" is not offered for a host project, a binary diff or
+// a too-large diff (docs/design-workbench.md).
+describe('DiffViewer "Ask about this" availability', () => {
+  const askHidden = (host) => byTestId(host, 'diff-ask').hidden;
+
+  async function open(project, overrides) {
+    const ctx = setup();
+    ctx.app.state = { getProject: () => project };
+    const s = spec();
+    ctx.bus.emit(EVT.GIT_OPEN_DIFF, s);
+    ctx.bus.emit(EVT.GIT_FILE_VERSIONS, versions(s, overrides));
+    await flush();
+    return ctx;
+  }
+
+  it('is offered for a local text diff', async () => {
+    const { host } = await open({ id: 'p1' }, {});
+    expect(askHidden(host)).toBe(false);
+  });
+
+  it('is hidden for a project with a host', async () => {
+    const { host } = await open({ id: 'p1', host: { id: 'h1' } }, {});
+    expect(askHidden(host)).toBe(true);
+  });
+
+  it('is hidden for a project with a hostId', async () => {
+    const { host } = await open({ id: 'p1', hostId: 'h1' }, {});
+    expect(askHidden(host)).toBe(true);
+  });
+
+  it('is hidden for a binary diff', async () => {
+    const { host } = await open({ id: 'p1' }, { binary: true, original: null, modified: null });
+    expect(askHidden(host)).toBe(true);
+  });
+
+  it('is hidden for a too-large diff', async () => {
+    const { host } = await open({ id: 'p1' }, { tooLarge: true, original: null, modified: null });
+    expect(askHidden(host)).toBe(true);
+  });
+});

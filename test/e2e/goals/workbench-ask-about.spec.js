@@ -170,6 +170,42 @@ test.describe('S5a-A4 Ask about search results', () => {
   });
 });
 
+test.describe('S5a-A4 not offered for a host project', () => {
+  test.use({ world });
+
+  // Marks alpha as a host project the way the project list carries it.
+  const makeHostProject = async (page, field) => {
+    await page.waitForFunction(() => !!window.client?.state?.getProject('alpha'));
+    await page.evaluate((f) => {
+      const p = window.client.state.getProject('alpha');
+      p[f] = f === 'host' ? { id: 'h1', name: 'Acme Host', status: 'connected' } : 'h1';
+    }, field);
+  };
+
+  for (const field of ['host', 'hostId']) {
+    test(`a file's menu has no "Ask about this" when the project has ${field}`, async ({ page }) => {
+      await nav(page).getByTitle('Alpha Project', { exact: true }).click();
+      await page.getByTestId('panel-tab-files').click();
+      const item = page.getByTestId('file-tree-item-/notes.txt');
+      await expect(item).toBeVisible();
+      await makeHostProject(page, field);
+      await item.click({ button: 'right' });
+      const menu = page.locator('.file-tree__context-menu');
+      await expect(menu.getByRole('button', { name: 'Delete' })).toBeVisible();
+      await expect(menu.getByRole('button', { name: 'Ask about this' })).toHaveCount(0);
+    });
+
+    test(`search results have no "Ask about this" when the project has ${field}`, async ({ page }) => {
+      await makeHostProject(page, field);
+      await page.evaluate(() => window.client.bus.emit('dialog:search', { projectId: 'alpha' }));
+      await page.getByTestId('search-dialog-query').fill('needle');
+      await page.getByTestId('search-dialog-query').press('Enter');
+      await expect(page.locator('[data-testid^="search-dialog-result-"]').first()).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('search-dialog-ask')).toBeHidden();
+    });
+  }
+});
+
 test.describe('S5a-A4 at 390 with touch', () => {
   test.use({ world, viewport: { width: 390, height: 844 }, hasTouch: true });
 
