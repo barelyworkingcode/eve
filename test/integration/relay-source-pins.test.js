@@ -100,6 +100,9 @@ const PINS = [
   ['task_completed event', 'scheduler.go', '"task_completed"', "'task_completed'", 'scheduler'],
   ['task_error event', 'scheduler.go', '"task_error"', "'task_error'", 'scheduler'],
   ['task_status on connect', 'hub.go', '"type":    "task_status",', "type: 'task_status'", 'scheduler'],
+  ['a task stores useRelayTools (PUT replaces it)', 'task.go', 'json:"useRelayTools,omitempty"', 'const updated = { ...parsed, ...keep, id, createdAt: task.createdAt, updatedAt: ts() };', 'scheduler'],
+  ['a run passes useRelayTools in the session settings', 'client.go', 'settings["useRelayTools"] = true', 'task.useRelayTools ? { headless: true, useRelayTools: true } : { headless: true }', 'scheduler'],
+  ['a chat session reads settings.useRelayTools', 'internal/sessions/provider/settings.go', 'Key:     "useRelayTools",', 'useRelayTools: true }'],
 ];
 
 describe('fake relay carries what the pins say (no relay checkout needed)', () => {

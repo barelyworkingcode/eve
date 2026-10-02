@@ -216,6 +216,8 @@ function createFakeRelay({ token = null } = {}) {
       sessions.set(runId, {
         sessionId: runId, projectId: task.projectId, name: task.name, directory: (project && project.path) || '/fake',
         model: task.model || 'fake-model', headless: true, live: true, createdAt: startedAt,
+        // client.go CreateSessionWithTools: the run's session settings.
+        settings: task.useRelayTools ? { headless: true, useRelayTools: true } : { headless: true },
         history: [{ timestamp: startedAt, role: 'user', content: task.prompt }],
       });
     }
