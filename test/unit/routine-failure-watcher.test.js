@@ -4,6 +4,8 @@ const { RoutineFailureWatcher, routineFailedNotification } = require('../../rout
 const NOW = new Date('2026-10-02T07:00:03.120Z');
 const failed = (extra = {}) => ({ type: 'task_error', taskId: 't_123', projectId: 'p_9', taskName: 'Morning brief', view: { runId: 'r0' }, ...extra });
 
+afterEach(() => jest.useRealTimers());
+
 describe('routineFailedNotification', () => {
   it('maps a failed run to the pinned wire shape', () => {
     expect(routineFailedNotification(failed({ error: 'process exited with code 3', status: 'error' }), NOW)).toEqual({
