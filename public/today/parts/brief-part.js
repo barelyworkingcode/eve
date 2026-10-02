@@ -64,7 +64,7 @@ class BriefPart extends TodayPart {
   // The scheduler's PUT replaces the whole task, so send the definition the task dialog would on an edit.
   _refreshPrompt(task) {
     const { container, state } = this.ctx;
-    if (!Brief.PREVIOUS_PROMPTS.includes(task.prompt) || !container.has('api')) return;
+    if (!Brief.PREVIOUS_PROMPTS.includes(task.prompt) || this._refreshed.has(task.id) || !container.has('api')) return;
     this._refreshed.add(task.id);
     const body = {
       name: task.name, projectId: task.projectId, schedule: task.schedule, enabled: task.enabled,
