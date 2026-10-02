@@ -107,7 +107,7 @@ class AgentBoard {
     if (rows.length > shown.length) {
       const more = document.createElement('p');
       more.className = 'today__empty agent-board__note';
-      more.textContent = `${rows.length - shown.length} more`;
+      more.textContent = `+${rows.length - shown.length} more`;
       el.appendChild(more);
     }
   }
