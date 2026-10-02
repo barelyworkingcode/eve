@@ -510,7 +510,8 @@ const seedBrief = (extra) => ({
 });
 
 test.describe('#160 a brief task with an older prompt', () => {
-  test.use({ world: seedBrief({ prompt: 'Morning brief (eve brief v1)\n\nList the mailboxes, then read recent mail in each.' }) });
+  const OLD = 'Morning brief (eve brief v1)\n\nList the mailboxes, then read recent mail in each.';
+  test.use({ world: seedBrief({ prompt: OLD }) });
 
   test('is updated once to Brief.prompt() when Today paints', async ({ page, eve }) => {
     const updates = track(page, isTaskUpdate);
@@ -522,7 +523,13 @@ test.describe('#160 a brief task with an older prompt', () => {
     await page.getByTestId('mode-work').click();
     await expect(brief(page)).toContainText('No brief yet.');
     expect(updates.map((r) => [r.method(), path(r)])).toEqual([['PUT', '/api/tasks/b1']]);
-    expect(updates[0].postDataJSON()).toEqual({ prompt: Brief.prompt() });
+    // relay's PUT replaces the whole definition: everything but the prompt is the seeded task's.
+    const { prompt, ...rest } = updates[0].postDataJSON();
+    expect(prompt).toBe(Brief.prompt());
+    const { prompt: _old, ...seeded } = briefTask('b1', 'alpha', { prompt: OLD });
+    expect(rest).toMatchObject(Object.fromEntries(
+      ['name', 'projectId', 'schedule', 'model', 'enabled', 'sessionType', 'catchUp', 'useRelayTools'].map((k) => [k, seeded[k]]),
+    ));
   });
 });
 
