@@ -6,8 +6,9 @@
  * source fail together, which is accepted (docs/design-today-s1.md).
  */
 class TodaySource {
-  constructor({ name, label, bus, state, load, timeoutMs = 20000 }) {
+  constructor({ name, label, bus, state, load, timeoutMs = 20000, downText = "Can't reach relay." }) {
     this.name = name;
+    this.downText = downText;
     this.label = label;
     this.bus = bus;
     this.state = state;
@@ -58,9 +59,9 @@ class TodaySource {
 
   describe() {
     const err = this.error;
-    const down = (err && (err.timeout || err.network || [502, 503, 504].includes(err.status)))
-      || this.state?.connection?.relay === false;
-    return down ? "Can't reach relay." : `Couldn't load ${this.label}.`;
+    if (this.state?.connection?.relay === false) return "Can't reach relay.";
+    const down = err && (err.timeout || err.network || [404, 502, 503, 504].includes(err.status));
+    return down ? this.downText : `Couldn't load ${this.label}.`;
   }
 
   _notify() {
@@ -72,7 +73,7 @@ class TodaySources {
   constructor({ bus, state, loaders }) {
     this.projects = new TodaySource({ name: 'projects', label: 'projects', bus, state, load: loaders.projects });
     this.sessions = new TodaySource({ name: 'sessions', label: 'threads', bus, state, load: loaders.sessions });
-    this.tasks = new TodaySource({ name: 'tasks', label: 'tasks', bus, state, load: loaders.tasks });
+    this.tasks = new TodaySource({ name: 'tasks', label: 'tasks', bus, state, load: loaders.tasks, downText: "Can't reach the scheduler." });
   }
 }
 

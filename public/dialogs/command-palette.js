@@ -102,6 +102,13 @@ class CommandPalette extends DialogBase {
       }
     }
 
+    actions.push({
+      id: 'action:routines',
+      label: 'Routines',
+      sub: 'Scheduled tasks and their last results',
+      run: () => this.container.get('routinesPage').open(),
+    });
+
     const activeTabId = tabManager?.activeTabId;
     if (activeTabId) {
       actions.push({

@@ -703,6 +703,11 @@ class EveWorkspaceClient {
       return;
     }
 
+    if (hash === '#routines') {
+      this.container.get('routinesPage').open();
+      return;
+    }
+
     const match = hash.match(/^#(session|file|terminal|project)\/(.+)$/);
     if (!match) return;
 

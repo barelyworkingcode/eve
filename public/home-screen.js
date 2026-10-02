@@ -20,7 +20,7 @@ class HomeScreen {
     this.el = document.getElementById('homeContent');
     if (!this.el) return;
 
-    for (const Part of [SummaryPart, ContinuePart, NeedsYouPart, StartPart, RunningPart, AgentsPart, ProjectsPart]) {
+    for (const Part of [SummaryPart, ContinuePart, NeedsYouPart, StartPart, RunningPart, RoutinesPart, AgentsPart, ProjectsPart]) {
       this.registry.register(new Part());
     }
     this.registry.register(new AskPart());

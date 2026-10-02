@@ -93,6 +93,8 @@ class ProjectPage {
 
     const tasks = this._section('Routines', 'tasks', 'project-tasks-count');
     this._tasksCount = tasks.count;
+    tasks.head.appendChild(this._textBtn('All routines',
+      () => this.container.get('routinesPage').open(), `project-routines-${id}`));
     this._tasksList = this._div('project-page__list');
     tasks.section.appendChild(this._tasksList);
     page.appendChild(tasks.section);
@@ -574,7 +576,7 @@ class ProjectPage {
       schedEl.textContent = RoutineSentence.sentence(task.schedule);
       item.appendChild(schedEl);
 
-      const res = RoutineSentence.result(task, this._failedExec(task));
+      const res = RoutineSentence.result(task, this._history().lastExec(task));
       const resultEl = document.createElement('span');
       resultEl.className = 'project-tree__task-result routine-row__result';
       resultEl.dataset.kind = res.kind;
@@ -637,22 +639,11 @@ class ProjectPage {
     }
   }
 
-  // A failed row's reason lives in the newest history entry. Fetched once per
-  // (task, lastRun), for at most 20 failed rows, and never polled.
-  _failedExec(task) {
-    if (task.lastStatus !== 'error' && task.lastStatus !== 'timeout') return null;
-    const key = `${task.id}|${task.lastRun}`;
-    const cache = this._execs || (this._execs = new Map());
-    if (cache.has(key)) return cache.get(key);
-    if (cache.size >= 20 || !this.container.has('taskManager')) return null;
-    // A newer run supersedes the task's older entry, so the cap counts tasks.
-    for (const k of cache.keys()) if (k.startsWith(`${task.id}|`)) cache.delete(k);
-    cache.set(key, null);
-    this.container.get('taskManager').loadHistory(task.id).then((history) => {
-      cache.set(key, Array.isArray(history) ? history[0] || null : null);
-      if (this._visible()) this._renderTasks();
-    });
-    return null;
+  _history() {
+    return this._historyCache || (this._historyCache = new RoutineHistory({
+      load: (id) => this.container.get('taskManager').loadHistory(id),
+      onChange: () => { if (this._visible()) this._renderTasks(); },
+    }));
   }
 
   _renderEmpty(container, message) {
