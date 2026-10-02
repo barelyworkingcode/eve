@@ -210,7 +210,6 @@ class ProjectPanel {
   _showProjectMenu(x, y) {
     showContextMenu(x, y, [
       { label: 'Edit Project', action: () => this.bus.emit(EVT.DIALOG_PROJECT, { projectId: this.projectId }) },
-      { label: 'Regenerate Skills', action: () => this._regenerateSkills() },
       { label: 'Delete Project', danger: true, action: () => {
         this.bus.emit(EVT.DIALOG_CONFIRM, {
           message: `Delete project "${this.state.getProject(this.projectId)?.name}"? This cannot be undone.`,
@@ -218,25 +217,6 @@ class ProjectPanel {
         });
       }},
     ]);
-  }
-
-  // Relay owns skill generation. Distinct progress/done toast ids avoid
-  // colliding with the still-dismissing progress toast.
-  async _regenerateSkills() {
-    const id = this.projectId;
-    if (!id) return;
-    const progressId = `regen-skills-${id}`;
-    const doneId = `regen-skills-done-${id}`;
-    this.bus.emit(EVT.TOAST_SHOW, { id: progressId, message: 'Regenerating skills…', type: 'info', persistent: true });
-    try {
-      await this.container.get('api').regenerateSkills(id);
-      this.bus.emit(EVT.TOAST_DISMISS, { id: progressId });
-      this.bus.emit(EVT.TOAST_SHOW, { id: doneId, message: 'Skills regenerated', type: 'success' });
-    } catch (err) {
-      this.log.error('regenerate skills failed', err);
-      this.bus.emit(EVT.TOAST_DISMISS, { id: progressId });
-      this.bus.emit(EVT.TOAST_SHOW, { id: doneId, message: `Couldn't regenerate skills: ${err.message}`, type: 'error', duration: 7000 });
-    }
   }
 
   _closeSidebarOnMobile() {
