@@ -100,9 +100,13 @@ class AgentBoard {
     const list = document.createElement('div');
     list.className = 'agent-board__list';
     for (const r of shown) {
-      list.appendChild(this._row(r));
-      this._ensureLine(r.t.id, fetch);
+      // Read once per row: a held terminal's line comes from its xterm buffer.
+      const held = mgr.lastLineOf?.(r.t.id);
+      list.appendChild(this._row(r, held));
+      this._ensureLine(r.t.id, fetch, held);
     }
+    // The line cache is shared by every board; drop what relay no longer lists.
+    for (const id of AgentBoard.lines.keys()) if (!mgr.allTerminals.has(id)) AgentBoard.lines.delete(id);
     el.appendChild(list);
     if (rows.length > shown.length) {
       const more = document.createElement('p');
@@ -119,7 +123,7 @@ class AgentBoard {
       ? persistSessionLabel(name, this.state.terminalTemplates || []) : name;
   }
 
-  _row({ t, project }) {
+  _row({ t, project }, held) {
     const open = t.state !== 'stopped';
     const row = document.createElement('button');
     row.type = 'button';
@@ -148,7 +152,7 @@ class AgentBoard {
     head.appendChild(st);
     row.appendChild(head);
 
-    const line = this._lineFor(t.id);
+    const line = held != null ? held : (AgentBoard.lines.get(t.id)?.line || '');
     if (line) {
       const last = document.createElement('span');
       last.className = 'agent-row__last';
@@ -165,15 +169,10 @@ class AgentBoard {
     else this._termMgr()?.openTaskTerminal(id);
   }
 
-  _lineFor(id) {
-    const held = this._termMgr()?.lastLineOf?.(id);
-    return held != null ? held : (AgentBoard.lines.get(id)?.line || '');
-  }
-
   // A terminal this browser holds is read from xterm and never fetched. Otherwise
   // its log tail is fetched when first seen and, if `fetch`, again once 15 s old.
-  _ensureLine(id, fetch) {
-    if (this._termMgr()?.lastLineOf?.(id) != null) return;
+  _ensureLine(id, fetch, held) {
+    if (held != null) return;
     const cur = AgentBoard.lines.get(id);
     if (cur?.inflight) return;
     if (cur && !(fetch && Date.now() - cur.at >= AgentBoard.FETCH_EVERY_MS)) return;
