@@ -110,6 +110,24 @@ test.describe('S5b-A2 make this a routine', () => {
   });
 });
 
+test.describe('S5b-A2 a thread typed live', () => {
+  test.use({ world: world() });
+
+  test('a new chat offers the action once its first message is sent, without a switch', async ({ page }) => {
+    await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha', { exact: true }).click();
+    await page.getByTestId('sidebar-new-session-alpha').click();
+    await page.getByTestId('shell-card-web-chat').click();
+    await page.getByRole('button', { name: 'Start Chat' }).click();
+    await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('thread-make-routine')).toBeHidden();
+    await page.getByTestId('chat-input').fill('Check the build every morning.');
+    await page.getByTestId('chat-submit').click();
+    await expect(page.getByTestId('messages-container')).toContainText('Hello from fake relay', { timeout: 15000 });
+    await page.getByTestId('thread-make-routine').click({ timeout: 5000 });
+    await expect(page.getByTestId('routine-panel-prompt')).toHaveValue('Check the build every morning.');
+  });
+});
+
 test.describe('S5b-A2 a model the project no longer allows', () => {
   test.use({ world: world({ allowed_models: ['other-model'] }) });
 

@@ -47,6 +47,12 @@ class RoutinePanel {
     if (bar && typeof MutationObserver !== 'undefined') {
       new MutationObserver(sync).observe(bar, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     }
+    // Nothing emits CHAT_USER_MESSAGE for a message typed in the composer, so a
+    // new thread's first message is only seen as it lands in the message list.
+    const messages = document.getElementById('messages');
+    if (messages && typeof MutationObserver !== 'undefined') {
+      new MutationObserver(sync).observe(messages, { childList: true });
+    }
     this.button?.addEventListener('click', () => {
       const id = this._eligibleSessionId();
       if (id) this.open(id);
