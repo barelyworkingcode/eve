@@ -363,6 +363,26 @@ describe('tasks as relayScheduler serves them (api.go, task.go, scheduler.go)', 
     } finally { relay.holdTaskRuns(false); }
   });
 
+  it('useRelayTools round-trips through POST, GET and PUT; a PUT without it clears it; a run passes it in the session settings', async () => {
+    const created = await (await post(chat({ name: 'Morning brief', useRelayTools: true }))).json();
+    expect(created.useRelayTools).toBe(true);
+    const get = async () => (await fetch(`${base}/api/tasks/${created.id}`)).json();
+    expect((await get()).useRelayTools).toBe(true);
+    const put = (body) => fetch(`${base}/api/tasks/${created.id}`, { method: 'PUT', ...json(body) });
+    await put(chat({ name: 'Morning brief', useRelayTools: true, prompt: 'Edited.' }));
+    expect(await get()).toMatchObject({ prompt: 'Edited.', useRelayTools: true });
+    await fetch(`${base}/api/tasks/${created.id}/run`, { method: 'POST' });
+    await until(() => relay.taskHistory(created.id)[0]?.status === 'success');
+    const runSettings = () => relay.listSessions().find((x) => x.sessionId === relay.taskHistory(created.id)[0].sessionId).settings;
+    expect(runSettings()).toEqual({ headless: true, useRelayTools: true });
+
+    await put(chat({ name: 'Morning brief' }));
+    expect(await get()).not.toHaveProperty('useRelayTools');
+    await fetch(`${base}/api/tasks/${created.id}/run`, { method: 'POST' });
+    await until(() => relay.taskHistory(created.id).length === 2 && relay.taskHistory(created.id)[0].status === 'success');
+    expect(runSettings()).toEqual({ headless: true });
+  });
+
   it('delete is 200 {"deleted":true}; by-project reports the count', async () => {
     const a = await (await post(chat({ projectId: 'gone', name: 'A' }))).json();
     await post(chat({ projectId: 'gone', name: 'B' }));

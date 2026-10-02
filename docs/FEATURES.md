@@ -68,6 +68,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Trusted-network bypass of the passkey screen | API: `trusted-network.js`, `GET /api/auth/status` | Open eve from loopback or a trusted subnet | none — unit and integration tests only; journeys run signed in | auth |
 | Passkey sign-in | UI: `#authScreen`, `public/auth.js`; API: `/api/auth/login/*` | Open eve off the trusted network, Sign In | **owner gate**: passkey-sign-in (+), agent-sign-in-refused (−) | auth |
 | Today: a host that lays out independent parts (summary, Ask, Needs you, Start, Continue, Running, Routines, Projects) for the current mode; a failing part shows one line with Retry, a slow one a skeleton | UI: `public/home-screen.js`, `public/today/**` (design: `docs/design-today-s1.md`) | Open eve with no tab open | landing-view (greeting, tiles); none yet for part failure/slowness — cloud specs `goals/today-parts` | home |
+| Today Morning brief card: one tap sets up a daily 07:00 routine named `Morning brief` (local `chat` models only); then mail needing a reply, plus events, reminders and weather where Relay grants those tools, with Refresh and Open. Brief text is untrusted and shown as plain text; a hostile mail can't make it send or fetch (design: `docs/design-brief.md`) | UI: `public/today/parts/brief-part.js`, `public/today/brief.js`; API: `POST /api/tasks`, `POST /api/tasks/:taskId/run` | Today | brief-injection-refused (hostile mail: only reads succeed, `mail_send`/`web_fetch` denied); cloud specs `goals/today-brief` | home, tasks |
 | Ask box: Return starts a thread in the mode's default project, no dialog; Return while eve is still starting queues the Ask ("Sending when eve is ready…") and sends it once ready | UI: `public/today/parts/ask-part.js`; WS `create_session`, `user_input` | Today, focused on open on fine pointers; never focused on touch, a tap focuses it (#129) | none yet — cloud specs `goals/today-ask` | home, chat |
 | Needs you / Running: waiting, failed and running threads and routine runs, from frames eve receives; a failed routine shows its reason, and "Can't reach the scheduler." when relayScheduler is down | UI: `public/today/parts/needs-you-part.js`, `running-part.js`; `public/core/session-activity.js` | Today | none yet — cloud specs `goals/today-truth` | home |
 | Home \| Work switch; lists show only projects whose mode includes it | UI: `public/sidebar/mode-switch.js`, `core/mode.js`, `StateStore.getModeProjects`; API: `mode`, `default_for` on `GET /api/projects` | Sidebar panel header | world-projects-listed (checks each mode shows only its projects); cloud specs `goals/today-mode`; real enforcement is relay's | home, projects |
@@ -148,6 +149,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
+| The Morning brief's last run is its card on Today (Open shows the run); a failed brief still appears in Needs you | UI: `public/today/parts/brief-part.js`, `public/task-viewer.js` | Today → Morning brief → Open | brief-injection-refused; cloud specs `goals/today-brief` | home, tasks |
 | View a task's last or live run | UI: `public/task-viewer.js`; API: `GET /api/tasks/:taskId/history` | Project page → Tasks → a task | task-created-listed (last run after reload) | tasks |
 | Today Routines part: routines that finished in the last 24 h, newest first, unseen ones marked (seen is per device, `eve-routines-seen`); hidden when none | UI: `public/today/parts/routines-part.js`, `routine-history.js` | Today | cloud specs `goals/routines-today` | home, tasks |
 | What a routine's project called through Relay (sheet section; `call_tool` rows, allowed or denied; Claude Code's built-in tools never appear) | UI: `public/routine-audit.js`, `project-audit.js`; API: `GET /api/projects/:id/audit` | Routine sheet | routine-touched; cloud spec `goals/routines-audit` | tasks, terminal |
@@ -306,7 +308,7 @@ areas:
             test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
             test/e2e/goals/home-screen.spec.js]
     journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file, routine-from-thread,
-               project-mode-new]
+               project-mode-new, brief-injection-refused]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
@@ -344,7 +346,7 @@ areas:
            project-audit.js, public/core/routine-sentence.js, public/today/parts/routines-part.js]
     tests: [test/unit/task-*.test.js, test/integration/tasks.test.js, test/e2e/task-dialog-models.spec.js,
             test/e2e/schedules-and-connection.spec.js]
-    journeys: [task-created-listed, routine-from-thread, routine-touched]
+    journeys: [task-created-listed, routine-from-thread, routine-touched, brief-injection-refused]
   files:
     code: [ws/file-messages.js, file-handlers.js, file-service.js, file-watcher.js, dir-watcher.js, public/file-browser.js,
            public/file-editor.js, public/html-preview-pane.js, public/viewers/**, public/sidebar/file-tree-node.js,

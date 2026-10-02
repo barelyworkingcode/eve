@@ -499,6 +499,9 @@ class TaskDialog extends DialogBase {
       } else {
         data.prompt = form.querySelector('[name="taskPrompt"]').value;
         data.model = form.querySelector('[name="taskModel"]').value;
+        // The scheduler's PUT replaces the whole task: send the flag back or an edit drops it.
+        if (editTask?.useRelayTools) data.useRelayTools = true;
+        if (editTask?.catchUp) data.catchUp = true;
         if (data.model === '') {
           this.bus.emit(EVT.TOAST_SHOW, {
             id: 'task-model-required',

@@ -526,3 +526,17 @@
 }
 .search-dialog__ask:hover { background: var(--bg-hover); }
 .search-dialog__ask[hidden] { display: none; }
+
+/* Morning brief card. Brief text is untrusted: wrap it, never let it widen the page. */
+.today-brief { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.today-brief__line, .today-brief__item, .today-brief__note, .today-brief__label, .today-brief__when {
+  margin: 0; min-width: 0; overflow-wrap: anywhere;
+}
+.today-brief__line, .today-brief__when { color: var(--text-muted); font-size: var(--text-callout); }
+.today-brief__label { font-size: var(--text-footnote); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.today-brief__body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.today-brief__section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.today-brief__item { font-size: var(--text-callout); }
+.today-brief__note { color: var(--text-muted); font-size: var(--text-footnote); }
+.today-brief__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.today-brief__model { max-width: 100%; min-width: 0; }

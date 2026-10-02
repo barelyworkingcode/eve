@@ -24,6 +24,7 @@ class HomeScreen {
       this.registry.register(new Part());
     }
     this.registry.register(new AskPart());
+    this.registry.register(new BriefPart());
     this.container.register('todayParts', this.registry);
 
     const sources = this.container.get('todaySources');
