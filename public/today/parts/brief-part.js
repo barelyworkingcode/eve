@@ -21,6 +21,15 @@ class BriefPart extends TodayPart {
     this._busy = false;
     this._pick = '';
     this._shown = new Map(); // task id -> { when, brief } of the last readable run
+    this._speaking = false;
+  }
+
+  onMount() {
+    this.ctx.on(EVT.TTS_PLAYBACK_ENDED, () => {
+      if (!this._speaking) return;
+      this._speaking = false;
+      this.paint();
+    });
   }
 
   static cap(value, max) {
@@ -129,7 +138,7 @@ class BriefPart extends TodayPart {
       const prev = this._shown.get(task.id);
       line(RoutineSentence.result({ ...task, enabled: true }, exec).text, 'today-brief-failed');
       actions().appendChild(this._button('Retry', 'today-brief-retry', () => this._run(task)));
-      if (prev) this._renderBrief(wrap, task, prev);
+      if (prev) this._renderBrief(wrap, task, prev, true, false);
       return;
     }
     if (status === 'success' && exec) {
@@ -200,7 +209,7 @@ class BriefPart extends TodayPart {
     row.appendChild(go);
   }
 
-  _renderBrief(wrap, task, shown, withActions = true) {
+  _renderBrief(wrap, task, shown, withActions = true, canListen = withActions) {
     const { cap, LIMITS } = BriefPart;
     const b = shown.brief;
     const box = document.createElement('div');
@@ -208,16 +217,22 @@ class BriefPart extends TodayPart {
     wrap.appendChild(box);
     box.appendChild(this._text('p', 'today-brief__when', `Brief · ${RoutineSentence.when(shown.when)}`, 'today-brief-when'));
 
+    const spoken = [];
+    let spokenItems = null;
     const section = (name, label, count) => {
+      const heading = count == null ? label : `${label} (${count})`;
+      spokenItems = [];
+      spoken.push({ heading, items: spokenItems });
       const s = document.createElement('div');
       s.className = 'today-brief__section';
       s.dataset.testid = `today-brief-${name}`;
-      s.appendChild(this._text('p', 'today-brief__label', count == null ? label : `${label} (${count})`));
+      s.appendChild(this._text('p', 'today-brief__label', heading));
       box.appendChild(s);
       return s;
     };
     const item = (s, text, extra) => {
       const d = this._text('div', 'today-brief__item', text, extra);
+      if (text) spokenItems.push(text.replace(/ · /g, ', '));
       s.appendChild(d);
       return d;
     };
@@ -260,5 +275,24 @@ class BriefPart extends TodayPart {
     wrap.appendChild(row);
     row.appendChild(this._button('Refresh', 'today-brief-refresh', () => this._run(task)));
     row.appendChild(this._button('Open', 'today-brief-open', () => this._open(task)));
+    const text = spoken.map(s => [s.heading, ...s.items].join('. ') + '.').join(' ');
+    if (canListen && spoken.length && this.ctx.container.has('ttsManager')) row.appendChild(this._listen(text));
+  }
+
+  _listen(text) {
+    const tts = this.ctx.container.get('ttsManager');
+    const b = this._button(this._speaking ? 'Stop' : 'Listen', 'today-brief-listen', () => {
+      tts.stop();
+      if (this._speaking) {
+        this._speaking = false;
+      } else {
+        tts.unlockAudio(); // iOS: inside the tap, before the async generation
+        this._speaking = true;
+        tts.speakText(text);
+      }
+      this.paint();
+    });
+    b.setAttribute('aria-pressed', String(this._speaking));
+    return b;
   }
 }
