@@ -23,6 +23,8 @@ const { enrollmentGate, isEnrollmentBlocked } = require('./enrollment-gate');
 const EnrollmentWindow = require('./enrollment-window');
 const PasskeySync = require('./passkey-sync');
 const { passkeySyncMode } = PasskeySync;
+const { createNotifier } = require('./notifier');
+const { RoutineFailureWatcher } = require('./routine-failure-watcher');
 const { Logger } = require('./logger');
 const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
@@ -234,6 +236,8 @@ const enrollmentWindow = new EnrollmentWindow({ relayTransport, log: log.child('
 // Null-transport-safe (see passkey-sync.js) for the same reason as
 // enrollmentWindow above.
 const passkeySync = new PasskeySync({ authService, relayTransport, log: log.child('PasskeySync'), enabled: passkeySyncConfig.enabled });
+const notifier = createNotifier({ dataDir: DATA_DIR, log: log.child('Notifier') });
+const routineFailureWatcher = new RoutineFailureWatcher({ relayTransport, notifier, log: log.child('RoutineFailures') });
 if (!passkeySyncConfig.enabled) {
   serverLog.info('Passkey sync: off (EVE_PASSKEY_SYNC=off); no report or revocation poll to relay');
 }
@@ -492,6 +496,7 @@ function startServing() {
     // it fires immediately reflects a server that can also answer relay's
     // /api/eve/passkeys/revocations poll back.
     passkeySync.start();
+    routineFailureWatcher.start();
 
     if (httpServer) {
       // Loopback-only so DUAL_LISTEN cannot accidentally expose plaintext Eve
@@ -530,6 +535,7 @@ function gracefulShutdown(signal) {
 
   authService.stop();
   passkeySync.stop();
+  routineFailureWatcher.stop();
   hostPool.disconnectAll();
   server.closeAllConnections?.();
   httpServer?.closeAllConnections?.();

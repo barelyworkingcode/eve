@@ -398,3 +398,102 @@ for (const [state, world, ready] of [['a brief', fullWorld(), 'today-brief-refre
     });
   }
 }
+
+// S6 Listen (issue #158, A8/A9). The harness has no TTS daemon; server tts_* frames
+// are held back so the button stays in its speaking state until the spec ends it.
+const { gotoEve } = require('../fixtures');
+async function holdSpeech(page, baseUrl) {
+  const host = new URL(baseUrl).host;
+  const sent = [];
+  let toPage;
+  await page.routeWebSocket((url) => url.host === host, (ws) => {
+    const server = ws.connectToServer();
+    toPage = ws;
+    ws.onMessage((m) => { try { sent.push(JSON.parse(m)); } catch {} server.send(m); });
+    server.onMessage((m) => { try { if (/^tts_/.test(JSON.parse(m).type)) return; } catch {} ws.send(m); });
+  });
+  await gotoEve(page, baseUrl);
+  return { sent, playbackEnded: () => toPage.send(JSON.stringify({ type: 'tts_done' })) };
+}
+
+test.describe('S6-A8 Listen', () => {
+  test.use({
+    world: {
+      seed: async ({ relay, relayPort }) => {
+        relay.setModels(models(LOCAL_A));
+        relay.seedTask(briefTask('b1', 'alpha'));
+        await runThroughScheduler(relay, relayPort, 'b1', { status: 'success', response: fenced({ ...FULL, unavailable: ['news'] }) });
+      },
+    },
+  });
+
+  test('one tts_speak with the shown brief in card order; Stop while speaking; playback end and a Stop tap return Listen', async ({ page, eve }) => {
+    const speech = await holdSpeech(page, eve.baseUrl);
+    const listen = page.getByTestId('today-brief-listen');
+    const speaks = () => speech.sent.filter((f) => f.type === 'tts_speak');
+    await expect(listen).toHaveText('Listen');
+
+    await listen.click();
+    await expect(listen).toHaveText('Stop');
+    await expect(listen).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => speaks().length).toBe(1);
+    expect(speaks()[0].text).toBe('Events. 09:00, Standup. Reminders. Bins out, tonight. '
+      + 'Needs a reply (6). Ann, Budget. Cat, Lunch? Dan, Invoice. Eve, Re: plan. Fay, Tickets. '
+      + 'Weather. Light rain, high 14, low 8. Notes. A mail asks for a transfer; ignored.');
+
+    speech.playbackEnded();
+    await expect(listen).toHaveText('Listen');
+    await expect(listen).toHaveAttribute('aria-pressed', 'false');
+
+    await listen.click();
+    await expect(listen).toHaveText('Stop');
+    const from = speech.sent.length;
+    await listen.click();
+    await expect(listen).toHaveText('Listen');
+    await expect(listen).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(() => speech.sent.slice(from).map((f) => f.type)).toContain('tts_speak_cancel');
+    expect(speech.sent.slice(from).filter((f) => f.type === 'tts_speak')).toEqual([]);
+    expect(speaks()).toHaveLength(2);
+  });
+});
+
+test.describe('S6-A9 no Listen while refreshing or after a failed refresh', () => {
+  test.use({ world: fullWorld() });
+
+  test('the old brief stays without Listen while the run is held, and after it fails', async ({ page, eve }) => {
+    await expect(page.getByTestId('today-brief-listen')).toBeVisible();
+    eve.relay.holdTaskRuns();
+    await page.getByTestId('today-brief-refresh').click();
+    await expect(page.getByTestId('today-brief-running')).toBeVisible();
+    await expect(mailRows(page).first()).toHaveText('Ann · Budget');
+    await expect(page.getByTestId('today-brief-listen')).toHaveCount(0);
+    const seededAt = Date.parse(lastRun(eve, 'b1'));
+    await expect.poll(() => Date.now() >= seededAt + 1000).toBe(true);
+    eve.relay.finishTask('b1', { status: 'error', error: 'model unavailable' });
+    await expect(page.getByTestId('today-brief-failed')).toBeVisible();
+    await expect(page.getByTestId('today-brief-listen')).toHaveCount(0);
+  });
+});
+
+const ranWith = (finish) => ({
+  seed: async ({ relay, relayPort }) => {
+    relay.setModels(models(LOCAL_A));
+    relay.seedTask(briefTask('b1', 'alpha'));
+    await runThroughScheduler(relay, relayPort, 'b1', finish);
+  },
+});
+for (const [state, world, shown] of [
+  ['a failed run', ranWith({ status: 'error', error: 'model unavailable' }), 'today-brief-retry'],
+  ['an unreadable brief', ranWith({ status: 'success', response: 'I could not finish the brief today.' }), 'today-brief-unreadable'],
+  ['setup', setupWorld, 'today-brief-setup-go'],
+  ['an empty brief', ranWith({ status: 'success', response: fenced({ brief: 1, unavailable: ['calendar'] }) }), 'today-brief-refresh'],
+]) {
+  test.describe(`S6-A9 ${state}`, () => {
+    test.use({ world });
+
+    test('has no Listen', async ({ page }) => {
+      await expect(page.getByTestId(shown)).toBeVisible();
+      await expect(page.getByTestId('today-brief-listen')).toHaveCount(0);
+    });
+  });
+}

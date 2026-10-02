@@ -455,6 +455,42 @@ thread must show the same row and chips.
   reply is never the evidence) or the answer links no result URL. A cleanup
   deletes every session in `Research` (test-world config only).
 
+**routine-failed-notifies.** A failed routine run notifies with no browser
+open (S6-A1, A2). Through `POST /api/tasks` the journey creates
+`verify-<nonce>-fails` in Acme Corp: on demand, `sessionType: 'pty'`,
+`templateId: 'verify-missing-<nonce>'`, no model. `POST /api/tasks/:id/run`,
+then `GET /api/tasks/:id` must read `lastStatus: 'error'` within 20 s. Within
+15 s `notifications.jsonl` in eve-verify's pinned data dir (`env.dataDir`)
+must hold a `routine_failed` line with the task's `taskId`; after a 1 s settle
+exactly one, titled `Routine failed: verify-<nonce>-fails`, with url
+`#routines`.
+- Lives in: `routine-failure-watcher.js` (its own `/ws/tasks` connection) →
+  `notifier.js` (`FileNotifier`) → `<data dir>/notifications.jsonl`;
+  relayScheduler's `failRun` sends the `task_error` frame.
+- Traps: the missing template is the deterministic failure; it needs no
+  model. BLOCKED when the create or run call fails, the create makes other
+  than one task, or the run has not ended `error` within 20 s. No page is
+  opened, so the notification cannot come from a browser's connection. The
+  data dir is read only; the journey never writes or removes the file, so
+  earlier runs' lines stay and only this task's id counts. A cleanup deletes
+  every Acme Corp task made since the journey started.
+
+**listen.** Read aloud on touch (S6-A7). At 834×1194 with touch, the thread
+from chat-reply opens with a tap on Continue. The last assistant reply's
+`Read aloud` button must be in the viewport, with computed opacity ≥ 0.99
+and at least 44×44, while no hover is on the reply. A tap must send exactly
+one `tts_speak` frame within 5 s (checked after a 1 s settle) whose text,
+letters and digits only, starts with characters in the reply's. Audio is not
+judged.
+- Lives in: `public/message-renderer.js` (`.tts-play-btn`, `Read aloud`) →
+  `public/tts-manager.js` → `public/tts-server-backend.js` (WS `tts_speak`);
+  `public/apple/chat.css` (the `pointer: coarse` rule), `public/apple/touch.css`.
+- Traps: BLOCKED without chat-reply's thread; it runs right after
+  open-existing-thread. The pointer is parked at 0,0 first; a reply still under
+  :hover is BLOCKED, never PASS. The last reply is chat-reply's stopped count,
+  not the "4". Frames are read from the page's WebSocket, so the voice
+  daemons need not be up.
+
 ## One-time setup
 
 - **S1 · Register `eve-verify`.** Presence-gated, so run it in a desktop

@@ -14,7 +14,7 @@ const {
   openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, eveJson, callToolRows, DEVICES, sweep, overflow,
   worldIds, DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict, openEditProject, openTemplate, pressPreset,
-  stubSources, sourcesRowProblem, firstDifference, isUnder,
+  stubSources, sourcesRowProblem, firstDifference, isUnder, MIN_TARGET,
 } = require('./journey-kit');
 
 const exec = promisify(execFile);
@@ -1245,14 +1245,14 @@ async function projectAdminInRelay(env) {
 const templatesNamed = async (env, project, name) =>
   ((await eveJson(env, 'GET', `/api/projects/${project.id}`)).chatTemplates || []).filter((t) => t.name === name);
 
-// Every create_session frame the page sends, from before it opens eve.
-function createFrames(page) {
+// Every frame of `type` (create_session unless named) the page sends, from before it opens eve.
+function createFrames(page, type = 'create_session') {
   const frames = [];
   page.on('websocket', (ws) => ws.on('framesent', ({ payload }) => {
     if (typeof payload !== 'string') return;
     try {
       const frame = JSON.parse(payload);
-      if (frame && frame.type === 'create_session') frames.push(frame);
+      if (frame && frame.type === type) frames.push(frame);
     } catch { /* not JSON */ }
   }));
   return frames;
@@ -1854,6 +1854,159 @@ async function researchCitations(env) {
     + `${live.chips.length} chips opened their source's title and excerpt; the same row and chips reopened and after a reload`);
 }
 
+// — On the go (S6) ------------------------------------------------------------
+
+const NOTIFICATIONS_FILE = 'notifications.jsonl';
+const FAILED_RUN_MS = 20000;
+const NOTIFY_WAIT_MS = 15000;
+const SPEAK_WAIT_MS = 5000;
+
+// The routine_failed lines for one task in eve's notifications file; none
+// while the file does not exist. Unreadable lines are skipped.
+async function notificationsFor(file, taskId) {
+  let text;
+  try {
+    text = await fs.promises.readFile(file, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  const lines = [];
+  for (const line of text.split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (o && o.kind === 'routine_failed' && o.taskId === taskId) lines.push(o);
+  }
+  return lines;
+}
+
+// S6-A1/A2 on the real stack: a routine run that fails, with no browser open,
+// leaves exactly one line in the notifications file of eve-verify's data dir.
+async function routineFailedNotifies(env) {
+  const id = 'routine-failed-notifies';
+  const acme = env.world.projects.acme;
+  if (!env.dataDir) return result(id, BLOCKED, `no pinned data dir for ${env.service}`);
+  const file = path.join(env.dataDir, NOTIFICATIONS_FILE);
+  const name = `verify-${env.nonce}-fails`;
+  const before = await acmeIds(env, 'tasks');
+  removeNewTasks(env, before);
+
+  // Deliberate: a terminal routine on a template that does not exist.
+  // relayScheduler's failRun rejects it before any terminal or model exists,
+  // so the failure needs no model and never varies.
+  let taskId;
+  let taskPath;
+  try {
+    env.step('create a routine that cannot start');
+    await eveJson(env, 'POST', '/api/tasks', {
+      name, projectId: acme.id, schedule: { type: 'on_demand' }, enabled: true, catchUp: false,
+      sessionType: 'pty', templateId: `verify-missing-${env.nonce}`,
+    });
+    const made = addedIds(before, await acmeIds(env, 'tasks'));
+    if (made.length !== 1) return result(id, BLOCKED, `${made.length} new ${acme.name} routines after POST /api/tasks, expected 1`);
+    [taskId] = made;
+    taskPath = `/api/tasks/${encodeURIComponent(taskId)}`;
+    env.step('run it');
+    await eveJson(env, 'POST', `${taskPath}/run`);
+  } catch (err) {
+    return result(id, BLOCKED, `could not set up the failing run: ${firstLine(err)}`);
+  }
+
+  env.step('wait for the run to fail');
+  let status = '';
+  const failed = await poll(async () => {
+    status = (await eveJson(env, 'GET', taskPath).catch(() => null))?.lastStatus || status;
+    return status === 'error';
+  }, { timeoutMs: FAILED_RUN_MS, intervalMs: 1000 });
+  if (!failed) return result(id, BLOCKED, `the run did not end in error within ${FAILED_RUN_MS / 1000}s (lastStatus ${status || 'none'})`);
+
+  env.step('read the notifications file');
+  const seen = await poll(async () => {
+    const lines = await notificationsFor(file, taskId);
+    return lines.length ? lines : null;
+  }, { timeoutMs: NOTIFY_WAIT_MS, intervalMs: 500 });
+  if (!seen) {
+    return result(id, FAIL, `the run failed, but ${NOTIFICATIONS_FILE} holds no routine_failed line for it within ${NOTIFY_WAIT_MS / 1000}s`);
+  }
+  // A settle period, so a second line for the same run shows.
+  await sleep(1000);
+  const lines = await notificationsFor(file, taskId);
+  if (lines.length !== 1) return result(id, FAIL, `${lines.length} routine_failed lines for the run, expected 1`);
+  const want = { title: `Routine failed: ${name}`, url: '#routines' };
+  const wrong = Object.keys(want).filter((k) => lines[0][k] !== want[k]);
+  if (wrong.length) {
+    return result(id, FAIL, wrong.map((k) => `${k} ${JSON.stringify(lines[0][k])}, want ${JSON.stringify(want[k])}`).join('; '));
+  }
+  return result(id, PASS, `the run failed (lastStatus error); one routine_failed line for it in ${NOTIFICATIONS_FILE}, `
+    + `titled "${want.title}", url #routines`);
+}
+
+const letters = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// S6-A7 on a touch iPad: the last reply's Read aloud shows without a hover,
+// is a thumb-sized target, and a tap sends the reply to be spoken. Audio is
+// not judged.
+async function listenOnTouch(env) {
+  const id = 'listen';
+  const t = env.shared.thread;
+  if (!t) return result(id, BLOCKED, 'no thread from chat-reply');
+  const page = await env.newPage({ device: DEVICES.ipadPortrait });
+  const frames = createFrames(page, 'tts_speak');
+  await openEve(page, env);
+  env.step('open the thread from Continue');
+  await need('the thread is not in Continue on Today',
+    page.getByTestId('home-screen').getByTestId(`home-session-${t.sessionId}`).tap({ timeout: 15000 }));
+  env.step('wait for the history');
+  const opened = await poll(async () => {
+    const r = replyAfter(await thread(page), t.question);
+    return r.asked && r.reply ? r : null;
+  }, { timeoutMs: 20000, intervalMs: 1000 });
+  if (!opened) return result(id, FAIL, 'the thread\'s question and reply did not show within 20s of opening it from Continue');
+  // A settle period, so the whole history is in before "last" is read.
+  await sleep(1000);
+
+  const reply = page.getByTestId('messages-container').getByTestId('message-assistant').last();
+  const button = reply.getByRole('button', { name: 'Read aloud' });
+  await need('the last reply has no "Read aloud" button', expect(button).toHaveCount(1, { timeout: 10000 }));
+  // Deliberate: the pointer is parked off the thread, so no hover can be the reason it shows.
+  await page.mouse.move(0, 0);
+  env.step('look at Read aloud');
+  await need('the last reply\'s "Read aloud" is not on screen', expect(button).toBeInViewport({ timeout: 5000 }));
+  const look = () => button.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return {
+      opacity: Number(getComputedStyle(el).opacity), width: box.width, height: box.height,
+      hovered: el.matches(':hover') || !!el.closest('.message')?.matches(':hover'),
+    };
+  });
+  let seen = await look();
+  if (seen.hovered) return result(id, BLOCKED, 'the pointer rests on the reply, so a hover cannot be ruled out');
+  // A short wait, so an opacity transition can finish.
+  await poll(async () => ((seen = await look()).opacity >= 0.99 ? seen : null), { timeoutMs: 2000, intervalMs: 250 });
+  if (seen.opacity < 0.99) return result(id, FAIL, `"Read aloud" on the last reply has opacity ${seen.opacity} with no hover on a touch iPad`);
+  if (seen.width < MIN_TARGET || seen.height < MIN_TARGET) {
+    return result(id, FAIL, `"Read aloud" is ${Math.round(seen.width)}x${Math.round(seen.height)}, under 44x44`);
+  }
+
+  env.step('tap Read aloud');
+  const from = frames.length;
+  await button.tap({ timeout: 5000 });
+  const sent = await poll(async () => frames.length > from, { timeoutMs: SPEAK_WAIT_MS, intervalMs: 200 });
+  if (!sent) return result(id, FAIL, `no tts_speak frame left the page within ${SPEAK_WAIT_MS / 1000}s of the tap`);
+  // A settle period, so a second frame for the one tap shows.
+  await sleep(1000);
+  const mine = frames.slice(from);
+  if (mine.length !== 1) return result(id, FAIL, `${mine.length} tts_speak frames after one tap, expected 1`);
+  const said = letters(mine[0].text);
+  if (!said) return result(id, FAIL, 'the tts_speak frame carries no text');
+  const shown = letters(await reply.locator('.message-content').innerText({ timeout: 5000 }));
+  if (!shown.includes(said.slice(0, 40))) {
+    return result(id, FAIL, `the tts_speak text "${String(mine[0].text).slice(0, 40)}" is not from the last reply`);
+  }
+  return result(id, PASS, `on a touch iPad the last reply's Read aloud shows with no hover at `
+    + `${Math.round(seen.width)}x${Math.round(seen.height)}; a tap sent one tts_speak with its text`);
+}
+
 const auth = require('./journeys-auth').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
@@ -1870,6 +2023,7 @@ const journeys = [
   },
   { id: 'chat-reply', timeoutMs: 150000, areas: ['chat'], needs: ['project:acme'], run: chatReply },
   { id: 'open-existing-thread', timeoutMs: 75000, areas: ['chat', 'home'], needs: ['project:acme'], run: openExistingThread },
+  { id: 'listen', timeoutMs: 60000, areas: ['chat', 'voice'], needs: ['project:acme'], run: listenOnTouch },
   {
     id: 'terminal-on-request', timeoutMs: 75000, areas: ['terminal'],
     needs: ['project:acme', 'project:globex', 'project:home'], run: terminalOnRequest,
@@ -1877,6 +2031,7 @@ const journeys = [
   { id: 'task-created-listed', timeoutMs: 120000, areas: ['tasks'], needs: ['project:acme'], run: taskCreatedListed },
   { id: 'routine-from-thread', timeoutMs: 120000, areas: ['tasks', 'chat', 'home'], needs: ['project:acme'], run: routineFromThread },
   { id: 'routine-touched', timeoutMs: 90000, areas: ['tasks', 'terminal'], needs: ['project:acme'], run: routineTouched },
+  { id: 'routine-failed-notifies', timeoutMs: 60000, areas: ['tasks'], needs: ['project:acme'], run: routineFailedNotifies },
   { id: 'voice-deep-link', timeoutMs: 90000, areas: ['voice', 'projects'], needs: ['project:acme'], run: voiceDeepLink },
   { id: 'changes-diff', timeoutMs: 60000, areas: ['git'], needs: ['project:acme'], run: changesDiff },
   {

@@ -69,6 +69,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Passkey sign-in | UI: `#authScreen`, `public/auth.js`; API: `/api/auth/login/*` | Open eve off the trusted network, Sign In | **owner gate**: passkey-sign-in (+), agent-sign-in-refused (−) | auth |
 | Today: a host that lays out independent parts (summary, Ask, Needs you, Start, Continue, Running, Routines, Projects) for the current mode; a failing part shows one line with Retry, a slow one a skeleton | UI: `public/home-screen.js`, `public/today/**` (design: `docs/design-today-s1.md`) | Open eve with no tab open | landing-view (greeting, tiles); none yet for part failure/slowness — cloud specs `goals/today-parts` | home |
 | Today Morning brief card: one tap sets up a daily 07:00 routine named `Morning brief` (local `chat` models only); then mail needing a reply, plus events, reminders and weather where Relay grants those tools, with Refresh and Open. Brief text is untrusted and shown as plain text; a hostile mail can't make it send or fetch (design: `docs/design-brief.md`) | UI: `public/today/parts/brief-part.js`, `public/today/brief.js`; API: `POST /api/tasks`, `POST /api/tasks/:taskId/run` | Today | brief-injection-refused (hostile mail: only reads succeed, `mail_send`/`web_fetch` denied); cloud specs `goals/today-brief` | home, tasks |
+| Listen on the Morning brief card (`today-brief-listen`): with Refresh and Open shown, one tap speaks the brief as shown, in card order; reads Stop while speaking; hidden while refreshing, failed, unreadable, in setup or empty ([design-on-the-go.md](design-on-the-go.md)) | UI: `public/today/parts/brief-part.js`; WS `tts_speak` | Today → Morning brief → Listen | cloud specs `goals/today-brief`; test-machine pass for the audio | home, voice |
 | Ask box: Return starts a thread in the mode's default project, no dialog; Return while eve is still starting queues the Ask ("Sending when eve is ready…") and sends it once ready | UI: `public/today/parts/ask-part.js`; WS `create_session`, `user_input` | Today, focused on open on fine pointers; never focused on touch, a tap focuses it (#129) | none yet — cloud specs `goals/today-ask` | home, chat |
 | Needs you / Running: waiting, failed and running threads and routine runs, from frames eve receives; a failed routine shows its reason, and "Can't reach the scheduler." when relayScheduler is down | UI: `public/today/parts/needs-you-part.js`, `running-part.js`; `public/core/session-activity.js` | Today | none yet — cloud specs `goals/today-truth` | home |
 | Home \| Work switch; lists show only projects whose mode includes it | UI: `public/sidebar/mode-switch.js`, `core/mode.js`, `StateStore.getModeProjects`; API: `mode`, `default_for` on `GET /api/projects` | Sidebar panel header | world-projects-listed (checks each mode shows only its projects); cloud specs `goals/today-mode`; real enforcement is relay's | home, projects |
@@ -151,6 +152,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Journey | Areas |
 |---|---|---|---|---|
 | The Morning brief's last run is its card on Today (Open shows the run); a failed brief still appears in Needs you | UI: `public/today/parts/brief-part.js`, `public/task-viewer.js` | Today → Morning brief → Open | brief-injection-refused; cloud specs `goals/today-brief` | home, tasks |
+| Routine-failure notifications (background, not user-visible yet): a `task_error` from relayScheduler appends one line to `notifications.jsonl` in the data dir, with or without a browser open; nothing leaves the machine ([design-on-the-go.md](design-on-the-go.md)) | Server: `notifier.js`, `routine-failure-watcher.js` (own `/ws/tasks` socket) | Background; read the file | routine-failed-notifies; integration `routine-failure-notify` | tasks |
 | View a task's last or live run | UI: `public/task-viewer.js`; API: `GET /api/tasks/:taskId/history` | Project page → Tasks → a task | task-created-listed (last run after reload) | tasks |
 | Today Routines part: routines that finished in the last 24 h, newest first, unseen ones marked (seen is per device, `eve-routines-seen`); hidden when none | UI: `public/today/parts/routines-part.js`, `routine-history.js` | Today | cloud specs `goals/routines-today` | home, tasks |
 | What a routine's project called through Relay (sheet section; `call_tool` rows, allowed or denied; Claude Code's built-in tools never appear) | UI: `public/routine-audit.js`, `project-audit.js`; API: `GET /api/projects/:id/audit` | Routine sheet | routine-touched; cloud spec `goals/routines-audit` | tasks, terminal |
@@ -197,7 +199,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | `#/voice-chat` deep link: resumes the voice thread on screen, or one in this mode younger than 30 minutes, else launches the mode's voice preset; with no preset it toasts and opens the launcher's Voice Chat form ([design-mode-presets.md](design-mode-presets.md)) | UI: `app.js` `_handleHashRoute`, `_launchModeVoice`; `core/mode-presets.js` | Open `#/voice-chat` | voice-deep-link; cloud spec `goals/mode-presets` | voice, projects |
 | Voice chat from launcher / Home Voice tile | UI: `public/voice-chat-manager.js` | Voice tile, launcher Voice card | none yet — deep link only | voice |
 | Speech to text (push-to-talk, hands-free, Space) | UI: `stt-manager.js`, `vad-manager.js`; WS `transcribe_audio`; `stt-service.js` | Hold mic / Space | none yet — needs the live STT daemon | voice |
-| Spoken replies, per-message play | UI: `tts-manager.js`, `.tts-play-btn`; WS `tts_speak`; `tts-service.js` | Reply in voice mode, play button | none yet — needs the live TTS daemon | voice |
+| Spoken replies, per-message play; on a touch device (coarse pointer) the Read aloud button shows on every answer without hover, at least 44×44 | UI: `tts-manager.js`, `.tts-play-btn`, `public/apple/chat.css`; WS `tts_speak`; `tts-service.js` | Reply, play button | listen (button visible and tap sends `tts_speak`; audio not judged); cloud spec `goals/listen` | voice, chat |
 | Voice drawer (voice, speed) | UI: `#voiceDrawerPanel`; API: `GET /api/tts/voices` | Composer voice drawer | none yet — e2e covers the drawer | voice |
 | Convert voice → text chat, End session | UI: `#voiceChatConvert`, `#voiceChatClose` | Voice view buttons | voice-deep-link (End visible only) | voice |
 | Orb settings, crash guard | UI: `voice-orb-settings.js`, `voice-crash-guard.js` | Voice view | none yet — later | voice |
@@ -338,7 +340,7 @@ areas:
             test/integration/session-*.test.js, test/integration/permissions.test.js, test/e2e/chat*.spec.js,
             test/e2e/template-blank-model.spec.js, test/e2e/goals/ask-elsewhere.spec.js,
             test/unit/sources.test.js, test/e2e/goals/research-citations.spec.js]
-    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode, research-citations]
+    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode, research-citations, listen]
   terminal:
     code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,
            public/agent-board.js, public/core/terminal-text.js, public/apple/terminal.css, public/apple/agents.css]
@@ -348,10 +350,12 @@ areas:
   tasks:
     code: [public/dialogs/task-dialog.js, public/task-manager.js, public/task-viewer.js, public/routines-page.js,
            public/panes/routines-pane.js, public/routine-panel.js, public/routine-history.js, public/routine-audit.js,
-           project-audit.js, public/core/routine-sentence.js, public/today/parts/routines-part.js]
+           project-audit.js, public/core/routine-sentence.js, public/today/parts/routines-part.js,
+           notifier.js, routine-failure-watcher.js]
     tests: [test/unit/task-*.test.js, test/integration/tasks.test.js, test/e2e/task-dialog-models.spec.js,
-            test/e2e/schedules-and-connection.spec.js]
-    journeys: [task-created-listed, routine-from-thread, routine-touched, brief-injection-refused]
+            test/e2e/schedules-and-connection.spec.js, test/unit/notifier.test.js,
+            test/unit/routine-failure-watcher.test.js, test/integration/routine-failure-notify.test.js]
+    journeys: [task-created-listed, routine-from-thread, routine-touched, brief-injection-refused, routine-failed-notifies]
   files:
     code: [ws/file-messages.js, file-handlers.js, file-service.js, file-watcher.js, dir-watcher.js, public/file-browser.js,
            public/file-editor.js, public/html-preview-pane.js, public/viewers/**, public/sidebar/file-tree-node.js,
@@ -377,7 +381,7 @@ areas:
            public/voice-*.js, public/tts-*.js, public/stt-*.js, public/vad-manager.js,
            public/native-audio-bridge.js, public/features/tts.js, public/features/stt.js, public/apple/voice.css]
     tests: [test/unit/tts-*.test.js, test/integration/voice-ws.test.js, test/e2e/voice*.spec.js, test/e2e/goals/mode-presets.spec.js]
-    journeys: [voice-deep-link]
+    journeys: [voice-deep-link, listen]
   hosts:
     code: [ssh-command.js, ssh-host-pool.js, remote-file-service.js, remote-fs-agent.js, public/remote-sessions.js,
            public/apple/hosts.css]

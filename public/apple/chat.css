@@ -298,6 +298,11 @@
   .message.assistant .tts-play-btn { opacity: 1; }
 }
 
+/* Touch has no hover to reveal read-aloud, at any width. */
+@media (pointer: coarse) {
+  .message.assistant .tts-play-btn { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .message.assistant, .message.user { animation: none; }
   .message.assistant .message-content[data-raw-text]:not(:empty)::after { animation: none; }
