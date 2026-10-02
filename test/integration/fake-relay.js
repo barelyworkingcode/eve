@@ -384,6 +384,8 @@ function createFakeRelay({ token = null } = {}) {
         // project_routes.go: lowercase "project not found" for GET, PUT and DELETE.
         if (!projects.has(id) && ['GET', 'PUT', 'DELETE'].includes(req.method)) return send(404, { error: 'project not found' });
         if (req.method === 'GET') return send(200, projectView(projects.get(id)));
+        // chat_templates are stored as sent, preset_for included (models.go
+        // ChatTemplate.PresetFor); a PUT without chat_templates keeps them.
         if (req.method === 'PUT') {
           if (parsed.path !== undefined && !isAbsPath(parsed.path)) return absPathError(parsed.path);
           const proj = { ...(projects.get(id) || {}), ...parsed, id };

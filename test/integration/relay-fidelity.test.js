@@ -453,6 +453,19 @@ describe('eve against a relay that refuses, drops or rejects', () => {
     } finally { await eve.stop(); }
   });
 
+  it('a template\'s preset_for reads back through eve as presetFor, and a PUT without chat_templates keeps it (models.go ChatTemplate.PresetFor)', async () => {
+    const tmpl = { id: 't1', name: 'Kitchen', model: 'm', mode: 'voice', voice: 'af_heart', system_prompt: '' };
+    const eve = await startEve({ projects: [project({ chat_templates: [tmpl] })] });
+    try {
+      const put = (body) => eve.get('/api/projects/p1', { method: 'PUT', ...json(body) });
+      const read = async () => (await (await eve.get('/api/projects/p1')).json()).chatTemplates;
+      expect((await put({ name: 'T', path: projectDir, chat_templates: [{ ...tmpl, preset_for: ['work'] }] })).status).toBe(200);
+      expect(await read()).toEqual([expect.objectContaining({ id: 't1', presetFor: ['work'] })]);
+      expect((await put({ name: 'Renamed', path: projectDir })).status).toBe(200);
+      expect(await read()).toEqual([expect.objectContaining({ id: 't1', presetFor: ['work'] })]);
+    } finally { await eve.stop(); }
+  });
+
   it('with the wrong token relay 401s eve; the upstream leg stays down and no session is created', async () => {
     const eve = await startEve({ projects: [project()], relayToken: 'the-real-one' });
     try {

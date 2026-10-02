@@ -70,6 +70,7 @@ const PINS = [
   ['default project mode refusal', 'internal/config/project_mode.go', 'mode %q has no default project; want home or work', 'has no default project; want home or work'],
   ['default project access-profile refusal', 'internal/config/project_mode.go', 'is an access profile and cannot be a default project', 'is an access profile and cannot be a default project'],
   ['default project mode mismatch', 'internal/config/project_mode.go', 'is %s-only and cannot be the default for %s', '-only and cannot be the default for'],
+  ['a chat template stores preset_for', 'internal/config/models.go', 'PresetFor []ProjectMode `json:"preset_for,omitempty"`', 'preset_for'],
   ['project update: an absent mode is no change', 'internal/project/apply.go', 'Mode             *config.ProjectMode      `json:"mode,omitempty"`', 'const proj = { ...(projects.get(id) || {}), ...parsed, id };'],
   ['project update: absent allowed_models are no change', 'internal/project/apply.go', 'AllowedModels    *[]string                `json:"allowed_models,omitempty"`', 'const proj = { ...(projects.get(id) || {}), ...parsed, id };'],
   ['audit query route is read class', 'cmd/relay/audit_routes.go', 'rr.Handle(control.ClassRead, "GET /api/audit", func', "p === '/api/audit' && req.method === 'GET'"],
