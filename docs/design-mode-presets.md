@@ -44,3 +44,33 @@ As the owner, I want each mode to name the chat preset Ask starts with and the v
 ## Tests
 
 Unit `test/unit/mode-presets.test.js`; cloud spec `test/e2e/goals/mode-presets.spec.js`; journeys `mode-presets` and `voice-deep-link`. The iOS Action Button on a phone and the 30-minute boundary in real time are not unattended-verifiable; Playwright seeds the times.
+
+# S3b-2 · Ask in the other mode
+
+When a thread can't reach something because it belongs to the other mode, one tap asks the same question there. Switching modes never moves or re-scopes the first thread.
+
+## Rules
+
+**Refusal shapes.** Relay's gate answers `access denied: ` (code -32001); a chat session shows it as `tool_result` with `is_error: true`. Rare in a thread: a grant that refuses a tool does not list it, so it shows when a grant narrows mid-thread. macMCP's scope check returns a result whose `_meta` has `scope_violation: true`; relay passes it on as `scope_violation: true` with `is_error: true`. This is the common one, such as Home asking for the Acme Corp mailbox. A Claude thread carries `is_error` only, so its macMCP refusal is not detectable.
+
+**Detection.** `Refusal.detect(event)` (pure, `public/core/refusal.js`) reads a `result`/`tool_result` event or a Claude user-message `tool_result` block. `scope_violation === true` is kind `scope`. `is_error === true` with `access denied: ` in the text (a string, or the joined `text` blocks) is kind `relay`. Anything else is `null`. The dispatcher emits `EVT.TOOL_REFUSED { sessionId, tool, kind }` for foreground and background sessions; rendering is unchanged. A Claude block carries no tool name, so `tool` is empty.
+
+**The action.** `thread-ask-elsewhere` ("Ask in <Other>") shows while the active tab is a text thread, not voice and not a task run, that had a refusal in this page and whose last user turn is known. The thread's mode is its project's mode when `home` or `work`, else the current mode; Other is the opposite. It is hidden when Other's project is the thread's own. It follows tab switches. Under `(pointer: coarse)` it is at least 44×44.
+
+**Rerun.** A tap sends one `create_session` in Other's project, with Other's Ask preset when it has one (a disallowed model gives the S3b-1 line as a toast), else the S1 model rule. The name is `<project> - <first line, 48 chars>`, through `applyChatDefaults`. The first message is the last user turn's text exactly; attachments are not carried. The mode switches to Other and the new thread opens. The first thread gets no frame and keeps its project and tab. With no Other project: "Set a default <Other> project in Relay to ask there." and no create. A tap while an Ask is in flight does nothing.
+
+**Today's Ask.** `pendingAsk` carries `origin: 'ask' | 'elsewhere'`, and `ASK_SENT` and `ASK_FAILED` carry it. Ask acts only on `'ask'`, so a rerun never clears, queues or fails the Ask box. A refused rerun shows a toast with the plain-words message.
+
+## Decisions
+
+1. **Refused in this page only.** The refused ids live for the page's life; a reload forgets them.
+2. **The last user turn, verbatim.** No rewriting, no attachments: the other mode's project cannot read the first one's files.
+3. **No automatic retry.** The mode changes only on a tap.
+
+## Code
+
+`public/core/refusal.js`, `public/ask-elsewhere.js` (`AskElsewhere`, feature `askElsewhere`), the dispatcher's `handleResultEvent` and `_handleUserToolResults`. It reuses `ModePresets.other`, `projectFor`, `presetsOf` and `askFrame`.
+
+## Tests
+
+Unit `test/unit/refusal.test.js`; cloud spec `test/e2e/goals/ask-elsewhere.spec.js`; journey `ask-in-other-mode`; relay source pins in `test/integration/relay-source-pins.test.js`.

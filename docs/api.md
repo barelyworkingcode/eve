@@ -164,3 +164,5 @@ SSH hosts: `host_status` (`{hostId, name, status:'connecting'|'connected'|'unrea
 ### LLM events
 
 `llm_event.event` is a raw relayLLM frame (assistant text/tool_use/thinking blocks as deltas or full blocks; `result` summary). Eve forwards it unchanged — see relayLLM `docs/event-protocol.md` for the full shape.
+
+`result` events with `subtype: 'tool_result'` carry `tool_use_id`, `tool_name`, `content`, `is_error` and, only when macMCP's scope check refused the call, `scope_violation: true`. A Claude `tool_result` block carries `is_error` and no `scope_violation`. Eve reads a refusal from these: `scope_violation === true`, or `is_error === true` with `access denied: ` in the text (`public/core/refusal.js`).
