@@ -1115,7 +1115,8 @@ async function settingsSheet(env) {
     expect(sheet.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 5000 }));
   const tabs = await sheet.locator('.dialog__tab').count();
   if (tabs) return result(id, FAIL, `Settings has ${tabs} tabs`);
-  const groups = (await sheet.getByRole('heading').allInnerTexts()).map((t) => t.trim()).filter((t) => SHEET_GROUPS.includes(t));
+  // Text content, not innerText: the headings are small caps by CSS, which innerText returns shouted.
+  const groups = (await sheet.getByRole('heading').allTextContents()).map((t) => t.trim()).filter((t) => SHEET_GROUPS.includes(t));
   if (groups.join() !== SHEET_GROUPS.join()) return result(id, FAIL, `groups read ${groups.join(', ') || 'none'}, not ${SHEET_GROUPS.join(', ')}`);
   const relay = sheet.getByTestId('settings-relay');
   await need('the Relay row is missing or reads otherwise', expect(relay).toHaveText(RELAY_ROW, { timeout: 5000 }));
@@ -1191,6 +1192,8 @@ async function projectAdminInRelay(env) {
     + `Save sent none of ${ADMIN_KEYS.join(', ')} and relay kept all three`);
 }
 
+class BlockedError extends Error {}
+
 async function projectModeNew(env) {
   const id = 'project-mode-new';
   const name = `verify-${env.nonce}`;
@@ -1226,9 +1229,21 @@ async function projectModeNew(env) {
     await dialog.getByTestId('project-name').fill(name, { timeout: 5000 });
     await dialog.getByTestId('project-path').fill(dir, { timeout: 5000 });
     await need('New Project has no Home mode', dialog.getByTestId('project-mode-home').click({ timeout: 5000 }));
-    const created = page.waitForResponse(projectWrite('POST', '/api/projects'), { timeout: 15000 });
+    // Relay gates every project create behind a presence dialog, so the POST
+    // answers only once the helper has answered it. It must be ready before Create.
+    const presence = env.screen.answerPresence({ expect: 'create the project' });
+    if (!(await presence.ready)) throw new BlockedError(`presence dialog ${(await presence.result).state}`);
+    const created = page.waitForResponse(projectWrite('POST', '/api/projects'), { timeout: 30000 });
+    created.catch(() => {});
     await dialog.getByTestId('project-save').click({ timeout: 5000 });
-    const res = await need('Create sent no POST', created);
+    let res;
+    try {
+      res = await created;
+    } catch (err) {
+      const { state } = await presence.result;
+      if (state !== 'answered') throw new BlockedError(`presence dialog ${state}`);
+      throw new Error(`Create sent no POST (${firstLine(err)})`);
+    }
     if (!res.ok()) throw new Error(`Create answered ${res.status()}`);
     const project = { id: (await res.json()).id, name };
     await need('New Project did not close', expect(dialog).toBeHidden({ timeout: 10000 }));
@@ -1257,7 +1272,7 @@ async function projectModeNew(env) {
     await need(`${name} is not in the Work rail after Both, with no reload`, expect(chip).toBeVisible({ timeout: 10000 }));
     outcome = result(id, PASS, `created in Home (relay: home), absent in Work, shown in Home; Both shows it in Work with no reload`);
   } catch (err) {
-    outcome = result(id, FAIL, firstLine(err));
+    outcome = err instanceof BlockedError ? result(id, BLOCKED, err.message) : result(id, FAIL, firstLine(err));
   }
   const leftover = await removeProject().then(() => '', (err) => `; left project ${name} behind (${firstLine(err)})`);
   await switchMode(page, env, 'work').catch(() => {});
@@ -1302,7 +1317,7 @@ const journeys = [
   { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
-  { id: 'project-mode-new', timeoutMs: 60000, areas: ['projects', 'home'], needs: [], run: projectModeNew },
+  { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
 ];
 

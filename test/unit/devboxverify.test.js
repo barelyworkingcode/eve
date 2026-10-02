@@ -457,8 +457,8 @@ describe('devboxverify journey table', () => {
     }
   });
 
-  it('marks only add-browser-in-window as screen and only the two passkey journeys as fixtures', () => {
-    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['add-browser-in-window']);
+  it('marks only add-browser-in-window and project-mode-new (relay gates its create) as screen and only the two passkey journeys as fixtures', () => {
+    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['project-mode-new', 'add-browser-in-window']);
     expect(journeys.filter(j => j.fixture).map(j => j.id).sort()).toEqual(['passkey-first-enrol', 'passkey-sign-in']);
   });
 
