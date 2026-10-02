@@ -144,6 +144,8 @@ test.describe('S1-A5 Ask while eve\'s own socket is down', () => {
   test.use({ world: { seed: ({ relay }) => { relay.setModels(MODELS); relay.setDefaultProject('work', 'beta'); } } });
 
   test('Return says so in plain words, keeps the text, recovers on reconnect, and never leaks into a later thread', async ({ page, eve }) => {
+    // A drop after eve was ready, not during its first start (where Ask queues).
+    await page.waitForFunction(() => window.client.state.connection.browser === true);
     // Hold the reconnect off so the socket stays down until the test says so.
     await page.evaluate(() => {
       const ws = window.client.wsClient;
@@ -230,6 +232,8 @@ test.describe('S1-A5 Ask before eve is ready', () => {
 
     gate.release();
     await expect(page.getByTestId('messages-container')).toContainText('second draft', { timeout: 15000 });
+    // The question shows locally before it reaches relay; the reply means relay has it.
+    await expect(page.getByTestId('messages-container')).toContainText('Hello from fake relay', { timeout: 15000 });
     expect(eve.relay.sessionCreates).toHaveLength(1);
     expect(sentTexts(eve)).toEqual([expect.stringContaining('second draft')]);
     expect(sentTexts(eve).join('\n')).not.toContain('first draft');
