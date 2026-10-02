@@ -88,10 +88,10 @@ class TaskDialog extends DialogBase {
     this._panel.innerHTML = '';
     this._panel.style.maxWidth = '520px';
 
-    this._panel.appendChild(this._createTitleBar('Tasks', projectName));
+    this._panel.appendChild(this._createTitleBar('Routines', projectName));
 
     const { header, setActiveTab } = this._createTabs(
-      [{ name: 'tasks', label: 'Tasks' }, { name: 'new', label: 'New' }],
+      [{ name: 'tasks', label: 'Routines' }, { name: 'new', label: 'New' }],
       (tab) => this._switchTab(tab)
     );
     this._panel.appendChild(header);
@@ -121,7 +121,7 @@ class TaskDialog extends DialogBase {
     if (this._tasks.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'task-dialog__empty';
-      empty.textContent = 'No tasks for this project.';
+      empty.textContent = 'No routines for this project.';
       this._tabContent.appendChild(empty);
       return;
     }
@@ -196,12 +196,23 @@ class TaskDialog extends DialogBase {
     const form = document.createElement('div');
     form.className = 'task-dialog__form';
 
-    form.appendChild(this._formField('Task Name', 'text', 'taskName', editTask?.name || '', 'Daily summary'));
+    form.appendChild(this._formField('Routine name', 'text', 'taskName', editTask?.name || '', 'Daily summary'));
+
+    // The routine type is a rare choice: it and the terminal fields sit behind
+    // Advanced, open only when editing a terminal routine.
+    const advanced = document.createElement('details');
+    advanced.className = 'task-dialog__advanced';
+    advanced.dataset.testid = 'task-dialog-advanced';
+    advanced.open = editTask?.sessionType === 'pty';
+    const advancedSummary = document.createElement('summary');
+    advancedSummary.textContent = 'Advanced';
+    advanced.appendChild(advancedSummary);
+    form.appendChild(advanced);
 
     const typeLabel = document.createElement('label');
     typeLabel.className = 'dialog__label';
     typeLabel.textContent = 'Type';
-    form.appendChild(typeLabel);
+    advanced.appendChild(typeLabel);
     const typeSelect = document.createElement('select');
     typeSelect.className = 'dialog__select';
     typeSelect.name = 'taskType';
@@ -212,7 +223,7 @@ class TaskDialog extends DialogBase {
       typeSelect.appendChild(opt);
     }
     typeSelect.value = editTask?.sessionType === 'pty' ? 'pty' : 'headless';
-    form.appendChild(typeSelect);
+    advanced.appendChild(typeSelect);
 
     const chatFields = document.createElement('div');
     chatFields.className = 'task-dialog__type-fields';
@@ -298,7 +309,7 @@ class TaskDialog extends DialogBase {
       '30',
     ));
 
-    form.appendChild(ptyFields);
+    advanced.appendChild(ptyFields);
 
     const refreshTypeFields = () => {
       const isPty = typeSelect.value === 'pty';
@@ -451,7 +462,7 @@ class TaskDialog extends DialogBase {
 
     const submitBtn = document.createElement('button');
     submitBtn.className = 'dialog__btn dialog__btn--primary';
-    submitBtn.textContent = editTask ? 'Update Task' : 'Create Task';
+    submitBtn.textContent = editTask ? 'Update routine' : 'Create routine';
     submitBtn.addEventListener('click', () => {
       const schedType = form.querySelector('[name="scheduleType"]').value;
       const schedule = { type: schedType };
@@ -491,7 +502,7 @@ class TaskDialog extends DialogBase {
         if (data.model === '') {
           this.bus.emit(EVT.TOAST_SHOW, {
             id: 'task-model-required',
-            message: 'Choose a model before saving this task.',
+            message: 'Choose a model before saving this routine.',
             type: 'error',
             duration: 5000,
           });
@@ -538,7 +549,7 @@ class TaskDialog extends DialogBase {
   }
 
   async _deleteTask(task) {
-    if (!confirm(`Delete task "${task.name}"?`)) return;
+    if (!confirm(`Delete routine "${task.name}"?`)) return;
     // TaskManager.deleteTask emits TASKS_LOADED for the sidebar; calling the
     // API directly here would leave the sidebar showing stale data.
     await this.container.get('taskManager').deleteTask(task.id);

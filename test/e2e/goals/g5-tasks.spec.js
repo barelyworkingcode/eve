@@ -20,12 +20,13 @@ async function createTask(page, name) {
   const dialog = page.getByTestId('dialog-task-dialog');
   await dialog.locator('.dialog__tab[data-tab="new"]').click();
   await dialog.locator('[name="taskName"]').fill(name);
+  await dialog.getByTestId('task-dialog-advanced').locator('summary').click();
   await dialog.locator('[name="taskType"]').selectOption('headless');
   await dialog.locator('[name="taskPrompt"]').fill('Summarise the README.');
   await dialog.locator('[name="scheduleType"]').selectOption('on_demand');
   const model = dialog.locator('[name="taskModel"]');
   await expect(model.locator('option[value="fake-model"]')).toHaveCount(1);
-  await dialog.getByRole('button', { name: 'Create Task' }).click();
+  await dialog.getByRole('button', { name: 'Create routine' }).click();
 }
 
 test.describe('G5/G6 tasks', () => {
@@ -116,9 +117,34 @@ test.describe('G5/G6 tasks', () => {
     // The confirmation is a native confirm(); Playwright dismisses it unless told.
     const asked = new Promise((resolve) => page.once('dialog', (d) => { resolve(d.message()); d.accept(); }));
     await dialog.getByTestId('task-dialog-item-t4').getByRole('button', { name: 'Delete' }).click();
-    expect(await asked).toBe('Delete task "Doomed"?');
+    expect(await asked).toBe('Delete routine "Doomed"?');
     await expect.poll(() => eve.relay.listTasks().length).toBe(0);
     await expect(page.getByTestId('project-task-t4')).toHaveCount(0);
+  });
+});
+
+test.describe('S5b-A5 the Advanced fold', () => {
+  test('is closed for a new or chat routine and open when editing a terminal routine', async ({ page, eve }) => {
+    const base = { projectId: 'alpha', schedule: { type: 'on_demand' }, enabled: true };
+    eve.relay.seedTask({ ...base, id: 'tc', name: 'Chat one', prompt: 'p', model: 'fake-model', sessionType: 'headless' });
+    eve.relay.seedTask({ ...base, id: 'tp', name: 'Shell one', sessionType: 'pty', templateId: 'tpl-1' });
+    await page.reload();
+    await page.waitForFunction(() => window.client?.state?.tasks?.size > 1);
+    await openTasks(page);
+    const dialog = page.getByTestId('dialog-task-dialog');
+    const advanced = dialog.getByTestId('task-dialog-advanced');
+    for (const [id, open] of [['new', false], ['tc', false], ['tp', true]]) {
+      if (id === 'new') {
+        await page.getByTestId('project-task-new-alpha').click();
+        await dialog.locator('.dialog__tab[data-tab="new"]').click();
+      } else {
+        await page.getByTestId(`project-task-${id}`).getByTitle('Edit').click();
+      }
+      await expect(advanced.locator('[name="taskType"]')).toHaveCount(1);
+      await expect(advanced).toHaveJSProperty('open', open);
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+    }
   });
 });
 

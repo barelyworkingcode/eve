@@ -17,6 +17,8 @@
  *   internal/sessions/api/http_terminal.go terminal log
  *   internal/sessions/api/ws_session.go    join / permission / resume frames
  *   internal/sessions/session/manager.go   session.Summary (GET /api/sessions)
+ *   cmd/relay/audit_routes.go              GET /api/audit, GET /api/audit/log
+ *   internal/audit/ops.go                  Query / LogPath when auditing is off
  */
 const http = require('http');
 const { WebSocketServer } = require('ws');
@@ -147,6 +149,13 @@ function createFakeRelay({ token = null } = {}) {
   let resumeFailStatus = null;
   // null => POST /api/tasks falls through to the unhandled-route 404 below.
   let taskCreateFailure = null; // { status, body }
+  // relay's reverse proxy to relayScheduler (enhanced_services.go) answers a
+  // text/plain 502 "bad gateway" on every /api/tasks* path while the scheduler is down.
+  let schedulerIsDown = false;
+  // relay's audit log (internal/audit). Events as the recorder stores them, oldest first.
+  let auditEnabled = true;
+  // An event's outcome is audit.go's AuditOutcomeDenied ("denied") or one of its siblings; eve maps it, the fake only stores it.
+  let auditEvents = [];
 
   // Go's time.RFC3339 in UTC: whole seconds, `Z`.
   const ts = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
@@ -224,6 +233,8 @@ function createFakeRelay({ token = null } = {}) {
     if (!task || !exec) return false;
     exec.status = status;
     exec.completedAt = ts();
+    // store.go SetLastRun runs when a run finishes, so lastRun is the finish time.
+    task.lastRun = exec.completedAt;
     if (response) exec.response = response;
     if (error) exec.error = error;
     if (task.sessionType === 'pty' && exitCode !== undefined) exec.exitCode = exitCode;
@@ -550,6 +561,27 @@ function createFakeRelay({ token = null } = {}) {
       if (p === '/api/terminal/templates' && req.method === 'GET') return send(200, terminalTemplates);
       // relayScheduler (../relayScheduler api.go), reached through relay's
       // reverse proxy, which adds nothing. Shapes: task.go (Task, Execution, TaskView).
+      if (schedulerIsDown && p.startsWith('/api/tasks')) return sendText(502, 'bad gateway');
+      // audit_routes.go parseAuditQueryParams + ops.go Query: filters actor.project_id and
+      // event, limit defaults to 200, newest first, and [] while auditing is off.
+      if (p === '/api/audit' && req.method === 'GET') {
+        const q = url.searchParams;
+        if (q.has('limit') && q.get('limit') !== '' && !/^[+-]?\d+$/.test(q.get('limit'))) {
+          return send(400, { error: `limit: ${JSON.stringify(q.get('limit'))} is not an integer` });
+        }
+        if (q.has('deep') && q.get('deep') !== '' && !['1', 't', 'T', 'TRUE', 'true', 'True', '0', 'f', 'F', 'FALSE', 'false', 'False'].includes(q.get('deep'))) {
+          return send(400, { error: `deep: ${JSON.stringify(q.get('deep'))} is not a boolean` });
+        }
+        if (!auditEnabled) return send(200, []);
+        const limit = Number(q.get('limit')) > 0 ? Number(q.get('limit')) : 200;
+        const rows = auditEvents.filter((e) => (!q.get('project_id') || (e.actor || {}).project_id === q.get('project_id'))
+          && (!q.get('event') || e.event === q.get('event')));
+        return send(200, rows.reverse().slice(0, limit));
+      }
+      // ops.go LogPath: the path while auditing is on, a 400 when it is off.
+      if (p === '/api/audit/log' && req.method === 'GET') {
+        return auditEnabled ? send(200, { path: '/fake/audit.log' }) : send(400, { error: 'auditing is disabled' });
+      }
       if (p === '/api/tasks' && req.method === 'POST' && taskCreateFailure) {
         return send(taskCreateFailure.status, taskCreateFailure.body);
       }
@@ -850,6 +882,10 @@ function createFakeRelay({ token = null } = {}) {
     holdTaskRuns: (on = true) => { taskRunMode = on ? 'hold' : 'auto'; },
     finishTask,
     failTaskCreateWith: (status, body) => { taskCreateFailure = { status, body }; },
+    schedulerDown: (on = true) => { schedulerIsDown = on; },
+    // Audit events as relay's recorder holds them (oldest first); setAuditEnabled(false) is "auditing off".
+    seedAudit: (events) => { auditEvents = [...events]; },
+    setAuditEnabled: (on = true) => { auditEnabled = on; },
     // Test-side equivalent of the tray's "Allow Eve Passkey Enrolment…" / `relay eve enrol`.
     openEveEnrolment: (ttlMs = 5 * 60 * 1000) => { eveEnrolment = { expires: new Date(Date.now() + ttlMs).toISOString() }; },
     listConsumedEnrolments: () => [...consumedEnrolments],

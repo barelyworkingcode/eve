@@ -51,6 +51,7 @@ Projects are returned camelCase-normalized and cached for file-handler path reso
 | POST | `/api/projects` | Create. |
 | PUT | `/api/projects/:id` | Update. |
 | DELETE | `/api/projects/:id` | Delete (sessions become ungrouped, not deleted). |
+| GET | `/api/projects/:id/audit` | The project's Relay tool calls (`call_tool` events, newest 50, from relay's audit). Body `{ recording, records }`; `recording` is false when relay's audit is off. Each record has only `ts`, `tool`, `outcome`, `allowed` (`denied`, `unauthorized` and `throttled` read as not allowed). 404 for an unknown project, 502 when relay is unreachable. |
 | GET | `/api/mcps` | List MCPs (populates the project dialog's allowed-MCPs picker). |
 
 ### SSH hosts (relay-served; see [ssh-hosts.md](../../relay/docs/ssh-hosts.md))

@@ -62,7 +62,7 @@ test.describe('G12 projects', () => {
     await page.getByText('Delete Project', { exact: true }).click();
     expect(await native).toBe('Delete project "Beta Project"? This cannot be undone.');
 
-    await expect(page.locator('#confirmMessage')).toHaveText("Delete 'Beta Project'? 1 session(s) will become ungrouped, 1 task(s) will be deleted.");
+    await expect(page.locator('#confirmMessage')).toHaveText("Delete 'Beta Project'? 1 session(s) will become ungrouped, 1 routine(s) will be deleted.");
     expect(eve.relay.getProject('beta')).toBeDefined(); // nothing is deleted before the second answer
     await page.locator('#confirmDelete').click();
 

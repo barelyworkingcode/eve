@@ -615,3 +615,124 @@ describe('route faults and a revived relay (S1)', () => {
     } finally { await eve.stop(); }
   });
 });
+
+describe('audit as relay serves it (audit_routes.go, ops.go)', () => {
+  let relay;
+  let base;
+  beforeAll(async () => {
+    relay = createFakeRelay();
+    base = `http://127.0.0.1:${await relay.listen()}`;
+  });
+  afterAll(async () => { await relay.close(); });
+  const call = (n, project, over = {}) => ({ id: `e${n}`, ts: `2026-10-01T08:00:0${n}Z`, event: 'call_tool', tool: `tool_${n}`, outcome: 'ok', actor: { kind: 'session', project_id: project }, args: { n }, ...over });
+
+  it('GET /api/audit filters actor.project_id and event, answers newest first and defaults the limit to 200', async () => {
+    relay.setAuditEnabled(true);
+    relay.seedAudit([call(1, 'a'), call(2, 'b'), call(3, 'a'), call(4, 'a', { event: 'list_tools' })]);
+    const res = await fetch(`${base}/api/audit?project_id=a&event=call_tool&limit=50&deep=true`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).map((e) => e.id)).toEqual(['e3', 'e1']);
+    relay.seedAudit(Array.from({ length: 250 }, (_, i) => call(1, 'a', { id: `n${i}` })));
+    expect(await (await fetch(`${base}/api/audit`)).json()).toHaveLength(200);
+    expect(await (await fetch(`${base}/api/audit?limit=3`)).json()).toHaveLength(3);
+  });
+
+  it('a limit that is not an integer and a deep that is not a boolean are 400s', async () => {
+    const limit = await fetch(`${base}/api/audit?limit=x`);
+    expect(limit.status).toBe(400);
+    expect(await limit.json()).toEqual({ error: 'limit: "x" is not an integer' });
+    const deep = await fetch(`${base}/api/audit?deep=x`);
+    expect(deep.status).toBe(400);
+    expect(await deep.json()).toEqual({ error: 'deep: "x" is not a boolean' });
+  });
+
+  it('with auditing off, /api/audit is [] and /api/audit/log is a 400 "auditing is disabled"', async () => {
+    relay.seedAudit([call(1, 'a')]);
+    relay.setAuditEnabled(false);
+    expect(await (await fetch(`${base}/api/audit?project_id=a`)).json()).toEqual([]);
+    const log = await fetch(`${base}/api/audit/log`);
+    expect(log.status).toBe(400);
+    expect(await log.json()).toEqual({ error: 'auditing is disabled' });
+    relay.setAuditEnabled(true);
+    const on = await fetch(`${base}/api/audit/log`);
+    expect(on.status).toBe(200);
+    expect(await on.json()).toEqual({ path: expect.any(String) });
+  });
+
+  it('schedulerDown answers /api/tasks* with a text/plain 502 "bad gateway", as the reverse proxy does', async () => {
+    relay.schedulerDown(true);
+    for (const p of ['/api/tasks', '/api/tasks/t1/history']) {
+      const res = await fetch(`${base}${p}`);
+      expect(res.status).toBe(502);
+      expect(res.headers.get('content-type')).toMatch(/^text\/plain/);
+      expect(await res.text()).toBe('bad gateway\n');
+    }
+    relay.schedulerDown(false);
+    expect((await fetch(`${base}/api/tasks`)).status).toBe(200);
+  });
+
+  it('a finished run sets lastRun to its completedAt (store.go SetLastRun)', async () => {
+    relay.holdTaskRuns(true);
+    relay.seedTask({ id: 'lr1', name: 'N', projectId: 'p1', prompt: 'x', model: 'm', schedule: { type: 'on_demand' } });
+    await fetch(`${base}/api/tasks/lr1/run`, { method: 'POST' });
+    relay.finishTask('lr1', { status: 'success', response: 'ok' });
+    const [exec] = relay.taskHistory('lr1');
+    const task = await (await fetch(`${base}/api/tasks/lr1`)).json();
+    expect(task.lastRun).toBe(exec.completedAt);
+    relay.holdTaskRuns(false);
+  });
+});
+
+describe('GET /api/projects/:id/audit through eve', () => {
+  const event = (over = {}) => ({ id: 'e1', ts: '2026-10-01T08:00:00Z', event: 'call_tool', tool: 'mail_list_accounts', outcome: 'ok', actor: { kind: 'session', project_id: 'p1' }, args: { secret: 'arg-text' }, error: 'err-text', ...over });
+  const boot = () => startEve({ projects: [{ id: 'p1', name: 'One', path: os.tmpdir() }] });
+
+  it('lists allowed and denied rows without args, actor or error text', async () => {
+    const eve = await boot();
+    try {
+      eve.relay.seedAudit([event(), event({ id: 'e2', tool: 'contacts_list', outcome: 'denied' }), event({ id: 'e3', actor: { project_id: 'other' } })]);
+      const res = await eve.get('/api/projects/p1/audit');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({ recording: true, records: [
+        { ts: '2026-10-01T08:00:00Z', tool: 'contacts_list', outcome: 'denied', allowed: false },
+        { ts: '2026-10-01T08:00:00Z', tool: 'mail_list_accounts', outcome: 'ok', allowed: true },
+      ] });
+      expect(JSON.stringify(body)).not.toMatch(/arg-text|err-text|actor/);
+    } finally { await eve.stop(); }
+  });
+
+  it('says recording:false when auditing is off', async () => {
+    const eve = await boot();
+    try {
+      eve.relay.setAuditEnabled(false);
+      const res = await eve.get('/api/projects/p1/audit');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ recording: false, records: [] });
+    } finally { await eve.stop(); }
+  });
+
+  it('is 404 for a project eve does not know', async () => {
+    const eve = await boot();
+    try {
+      const res = await eve.get('/api/projects/ghost/audit');
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'Project not found' });
+    } finally { await eve.stop(); }
+  });
+
+  it('is 502 "Service unavailable" for a relay error and for a relay that is gone', async () => {
+    const eve = await boot();
+    try {
+      eve.relay.failRoute('GET', '/api/audit', 500, { error: 'boom' });
+      const bad = await eve.get('/api/projects/p1/audit');
+      expect(bad.status).toBe(502);
+      expect(await bad.json()).toEqual({ error: 'Service unavailable' });
+      eve.relay.clearRouteFaults();
+      await eve.relay.close();
+      const gone = await eve.get('/api/projects/p1/audit');
+      expect(gone.status).toBe(502);
+      expect(await gone.json()).toEqual({ error: 'Service unavailable' });
+    } finally { await eve.stop(); }
+  });
+});

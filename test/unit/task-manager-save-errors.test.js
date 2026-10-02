@@ -31,7 +31,7 @@ describe('TaskManager#updateTask when the scheduler rejects the save', () => {
     expect(log.error).toHaveBeenCalled();
     expect(bus.emit).toHaveBeenCalledWith(EVT.TOAST_SHOW, {
       id: 'task-save-error',
-      message: 'Couldn\'t save the task: task "Acme": schedule is invalid',
+      message: 'Couldn\'t save the routine: task "Acme": schedule is invalid',
       type: 'error',
       duration: 8000,
     });

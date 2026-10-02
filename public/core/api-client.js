@@ -67,6 +67,10 @@ class ApiClient {
   getPersistentSessions(projectId) {
     return this._request('GET', `/api/projects/${encodeURIComponent(projectId)}/persistent-sessions`);
   }
+  // Relay tool calls a project made: { recording, records: [{ ts, tool, outcome, allowed }] }.
+  getProjectAudit(projectId) {
+    return this._request('GET', `/api/projects/${encodeURIComponent(projectId)}/audit`);
+  }
   deletePersistentSession(projectId, name) {
     return this._request('DELETE', `/api/projects/${encodeURIComponent(projectId)}/persistent-sessions/${encodeURIComponent(name)}`);
   }

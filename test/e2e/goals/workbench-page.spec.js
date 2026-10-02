@@ -50,7 +50,7 @@ test.describe('S5a-A1 project page', () => {
     await expect(pg.getByRole('heading', { level: 1 })).toHaveText('Alpha Project');
     await expect(pg).toContainText('this Mac');
     await expect(pg).toContainText(eve.folders.alpha);
-    await expect(pg.getByRole('heading', { level: 2 })).toHaveText(['Agents', 'Threads', 'Tasks']);
+    await expect(pg.getByRole('heading', { level: 2 })).toHaveText(['Agents', 'Threads', 'Routines']);
     await expect(page.getByTestId('project-threads-count')).toHaveText('2');
     await expect(page.getByTestId('project-tasks-count')).toHaveText('1');
 

@@ -703,6 +703,11 @@ class EveWorkspaceClient {
       return;
     }
 
+    if (hash === '#routines') {
+      this.container.get('routinesPage').open();
+      return;
+    }
+
     const match = hash.match(/^#(session|file|terminal|project)\/(.+)$/);
     if (!match) return;
 
@@ -1135,7 +1140,7 @@ class EveWorkspaceClient {
     const taskCount = this.state.getTasksForProject(projectId).length;
     const parts = [];
     if (sessionCount > 0) parts.push(`${sessionCount} session(s) will become ungrouped`);
-    if (taskCount > 0) parts.push(`${taskCount} task(s) will be deleted`);
+    if (taskCount > 0) parts.push(`${taskCount} routine(s) will be deleted`);
     const message = parts.length > 0
       ? `Delete '${project.name}'? ${parts.join(', ')}.`
       : `Delete '${project.name}'?`;

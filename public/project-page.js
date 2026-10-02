@@ -91,8 +91,10 @@ class ProjectPage {
     threads.section.appendChild(this._threadsList);
     page.appendChild(threads.section);
 
-    const tasks = this._section('Tasks', 'tasks', 'project-tasks-count');
+    const tasks = this._section('Routines', 'tasks', 'project-tasks-count');
     this._tasksCount = tasks.count;
+    tasks.head.appendChild(this._textBtn('All routines',
+      () => this.container.get('routinesPage').open(), `project-routines-${id}`));
     this._tasksList = this._div('project-page__list');
     tasks.section.appendChild(this._tasksList);
     page.appendChild(tasks.section);
@@ -570,9 +572,16 @@ class ProjectPage {
       item.appendChild(nameEl);
 
       const schedEl = document.createElement('span');
-      schedEl.className = 'project-tree__task-schedule';
-      schedEl.textContent = this._formatSchedule(task.schedule);
+      schedEl.className = 'project-tree__task-schedule routine-row__sentence';
+      schedEl.textContent = RoutineSentence.sentence(task.schedule);
       item.appendChild(schedEl);
+
+      const res = RoutineSentence.result(task, this._history().lastExec(task));
+      const resultEl = document.createElement('span');
+      resultEl.className = 'project-tree__task-result routine-row__result';
+      resultEl.dataset.kind = res.kind;
+      resultEl.textContent = res.text;
+      item.appendChild(resultEl);
 
       const actions = document.createElement('span');
       actions.className = 'project-tree__task-actions';
@@ -611,7 +620,7 @@ class ProjectPage {
     newItem.dataset.testid = `project-task-new-${this.projectId}`;
     const label = document.createElement('span');
     label.className = 'project-tree__task-name';
-    label.textContent = '+ New Task';
+    label.textContent = '+ New routine';
     newItem.appendChild(label);
     newItem.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -630,18 +639,11 @@ class ProjectPage {
     }
   }
 
-  _formatSchedule(schedule) {
-    if (!schedule) return '';
-    switch (schedule.type) {
-      case 'daily': return `Daily ${schedule.time || '09:00'}`;
-      case 'hourly': return `Hourly :${schedule.minute || '00'}`;
-      case 'weekly': return `${TaskSchedule.shortDay(schedule.day || 'monday')} ${schedule.time || '09:00'}`;
-      case 'cron': return schedule.expression || 'cron';
-      case 'interval': return `Every ${schedule.minutes || 60}m`;
-      case 'once': return 'Once';
-      case 'on_demand': return 'On demand';
-      default: return schedule.type || '';
-    }
+  _history() {
+    return this._historyCache || (this._historyCache = new RoutineHistory({
+      load: (id) => this.container.get('taskManager').loadHistory(id),
+      onChange: () => { if (this._visible()) this._renderTasks(); },
+    }));
   }
 
   _renderEmpty(container, message) {

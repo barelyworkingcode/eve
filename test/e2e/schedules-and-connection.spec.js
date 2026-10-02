@@ -15,7 +15,7 @@ test.describe('task dialog schedule wire shapes', () => {
     await fillSchedule(dialog);
     const [request] = await Promise.all([
       page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/tasks'),
-      dialog.getByRole('button', { name: 'Create Task' }).click(),
+      dialog.getByRole('button', { name: 'Create routine' }).click(),
     ]);
     const body = request.postDataJSON();
     expect(body.model).toBe('acme-model');

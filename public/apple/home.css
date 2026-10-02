@@ -54,6 +54,8 @@
 
 /* — Sections ---------------------------------------------------------------- */
 .home__section { margin-bottom: 34px; }
+.home__section[hidden] { display: none; }
+.today__more { margin: 8px 0 0; font-size: var(--text-footnote); color: var(--text-muted); }
 
 .home__eyebrow {
   display: flex;
