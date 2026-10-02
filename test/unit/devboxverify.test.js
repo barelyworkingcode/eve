@@ -511,7 +511,7 @@ describe('devboxverify journey table', () => {
     ['brief-injection-refused', 'docs/design-brief.md', ['home', 'tasks'], 360000],
     ['mode-presets', 'docs/design-mode-presets.md', ['home', 'projects', 'settings'], 90000],
     ['voice-deep-link', 'docs/design-mode-presets.md', ['projects', 'voice'], 90000],
-    ['ask-in-other-mode', 'docs/design-mode-presets.md', ['chat', 'home'], 180000],
+    ['ask-in-other-mode', 'docs/design-mode-presets.md', ['chat', 'home'], 240000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });

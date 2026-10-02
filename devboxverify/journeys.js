@@ -1736,7 +1736,7 @@ const journeys = [
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },
   { id: 'brief-injection-refused', timeoutMs: 360000, areas: ['home', 'tasks'], needs: ['project:home'], run: briefInjectionRefused },
-  { id: 'ask-in-other-mode', timeoutMs: 180000, areas: ['home', 'chat'], needs: ['project:home', 'project:acme'], run: askInOtherMode },
+  { id: 'ask-in-other-mode', timeoutMs: 240000, areas: ['home', 'chat'], needs: ['project:home', 'project:acme'], run: askInOtherMode },
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
 ];

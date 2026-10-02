@@ -22,7 +22,7 @@ describe('Refusal.detect', () => {
 
   it('a Claude tool_result block with is_error and the marker is a relay refusal', () => {
     const found = Refusal.detect(block({ is_error: true, content: [{ type: 'text', text: DENIED }] }));
-    expect(found).toEqual({ tool: expect.any(String), kind: 'relay' });
+    expect(found).toEqual({ tool: '', kind: 'relay' });
   });
 
   it.each([
