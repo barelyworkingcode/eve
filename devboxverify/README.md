@@ -35,8 +35,10 @@ and the reason is on stderr.
 The tool never builds eve, registers a service or edits settings. Its only
 writes are the owner reset below, the `verify-<nonce>-*` folders journeys
 make in Acme Corp or the temp dir and remove, project-admin-in-relay's Save
-of Acme Corp as it stands, and project-mode-new's `verify-<nonce>` project,
-which it deletes. It never targets the live eve on :3000, and
+of Acme Corp as it stands, project-mode-new's `verify-<nonce>` project,
+which it deletes, mode-presets' `verify-<nonce> ask` template in Acme Corp,
+which it removes, and voice-deep-link's mark on `World voice` as Work's voice
+preset, which stays. It never targets the live eve on :3000, and
 preflight refuses it. It does share one thing with the live eve: relay has
 a single eve enrolment window. An add-browser-in-window run that fails
 between opening the window and consuming it leaves it open for up to
@@ -270,13 +272,22 @@ beyond `ts`, `tool`, `outcome` and `allowed`.
   reached on real relay (its remote listener needs auditing); the cloud spec
   covers it against the fake.
 
-**voice-deep-link.** With "World voice" starred, `#/voice-chat` opens a voice
-chat straight away.
-- Lives in: `#/voice-chat` → `public/app.js` (`_handleHashRoute`) → favourite
-  template (per-browser localStorage) → `launchTemplate` →
-  `public/voice-chat-manager.js`.
-- Traps: no favourite gives a toast and the launcher. The star only shows on
-  chat templates. An existing voice session is re-joined, not created.
+**voice-deep-link.** Acme Corp's launcher shows `World voice` with no
+"Action Button favorite" star. Edit Project → Templates marks `World voice`
+as Work's voice preset (`project-template-preset-work`) and Save keeps it.
+In Work, `#/voice-chat` on a new page shows the voice chat view within 30 s
+("End session", no text composer) and makes exactly one new Acme Corp
+session. A second `#/voice-chat` on another new page shows the voice view
+again within 30 s on that session (`#session/<id>`), with no new session.
+- Lives in: `#/voice-chat` → `public/app.js` (`_handleHashRoute`,
+  `_findVoiceSession`, `_launchModeVoice`) → `public/core/mode-presets.js`
+  (`forMode`, `resumable`) → `shellLauncher.launchTemplate` →
+  `public/voice-chat-manager.js`; the preset row in
+  `public/dialogs/project-dialog.js`.
+- Traps: BLOCKED without setup V1 or V2, naming which. The voice preset is
+  the journey's one lasting write. A voice session from the last 30 minutes
+  is resumed, not created, so the first press needs none in Acme Corp; the
+  run's start sweep sees to that.
 
 **today-ipad-portrait.** At 834×1194 with touch: Today in a centred column of
 at most 720px across the full-width main area, the sidebar off screen until
@@ -336,6 +347,25 @@ reads relay's three values unchanged.
   `project-relay-pointer`, `project-save`) → `PUT /api/projects/:id`.
 - Traps: labels come from the page's model list; an unknown id shows raw.
   Save writes Acme Corp's name, path and host as they are.
+
+**mode-presets.** In Work, Edit Project → Templates → "+ Add Template"
+makes `verify-<nonce> ask` (Text, `EVE_VERIFY_MODEL`, system prompt
+`verify-<nonce>`) with `project-template-preset-work` pressed; Save Template
+and Save. eve's `GET /api/projects/:id` reads it with `presetFor: ['work']`;
+Settings' `settings-presets-work` starts `Ask: verify-<nonce> ask`. Today's
+Ask with `verify-<nonce> hello` and Return sends one `create_session` frame
+carrying the preset's model and `systemPrompt: 'verify-<nonce>'`, and makes
+exactly one new Acme Corp session. The journey then deletes the template
+through Edit Project and Save; still listed is FAIL, naming it.
+- Lives in: `public/dialogs/project-dialog.js` (preset row) →
+  `PUT /api/projects/:id` (`preset_for`) → `project-normalize.js`
+  (`presetFor`); `public/dialogs/settings-dialog.js` (`_buildModes`);
+  `public/today/parts/ask-part.js` → `public/core/mode-presets.js`
+  (`forMode`, `askFrame`).
+- Traps: BLOCKED without setup V2 or when Acme Corp does not allow the model.
+  Relay without `preset_for` (relay#182) drops the field and the read-back
+  FAILs. A timeout closes the page first, so a cleanup removes the template
+  through eve's API instead.
 
 **project-mode-new.** New Project creates `verify-<nonce>`, in a
 `verify-<nonce>-mode-*` folder in the temp dir, with Home; relay reports
@@ -413,6 +443,9 @@ subject is under Needs a reply (information only).
   support `useRelayTools`.
 - **S3 · V1.** An Acme Corp chat template `World voice`, mode Voice, model =
   `EVE_VERIFY_MODEL`, added from eve's Edit Project → Chat Templates.
+- **S3 · V2.** In Relay → Projects → Default projects: Work = Acme Corp,
+  Home = Home. Test-world config, not owner config; no grant changes.
+  mode-presets and voice-deep-link are BLOCKED without it.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at
