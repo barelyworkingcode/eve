@@ -25,8 +25,8 @@ test.describe('S1-A3 a live but idle thread is not running', () => {
 
   test('a thread this browser never joined has no turn state anywhere', async ({ page }) => {
     await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha Project', { exact: true }).click();
-    await page.getByTestId('panel-tab-sessions').click();
-    await expect(page.getByTestId('sidebar-session-s-live')).toBeVisible();
+    await page.getByTestId('panel-project-page').click();
+    await expect(page.getByTestId('project-thread-s-live')).toBeVisible();
     await expect(page.locator('.rail__live, .project-tree__live')).toHaveCount(0);
   });
 });

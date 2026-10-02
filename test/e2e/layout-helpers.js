@@ -69,6 +69,14 @@ async function openPanel(page, tab) {
   await page.getByTestId(`panel-tab-${tab}`).click();
 }
 
+// The project page's door (S5a-A1): the panel header's button.
+async function openProjectPage(page) {
+  await openSidebar(page);
+  await page.getByTestId('sidebar-project-alpha').click();
+  await page.getByTestId('panel-project-page').click();
+  await expect(page.getByTestId('project-page-alpha')).toBeVisible();
+}
+
 async function openThreadFromToday(page, id = 's-reply') {
   await page.getByTestId(`home-session-${id}`).click();
   await expect(page.getByTestId('messages-container')).toContainText(REPLY);
@@ -127,5 +135,5 @@ function overflow(page) {
 
 module.exports = {
   VIEWPORTS, vpName, viewport, WORLD, REPLY,
-  layoutOf, hash, tabCount, openSidebar, openPanel, openThreadFromToday, sweep, overflow,
+  layoutOf, hash, tabCount, openSidebar, openPanel, openProjectPage, openThreadFromToday, sweep, overflow,
 };

@@ -1,5 +1,5 @@
 // G3 · Pick up where I left off. A thread from yesterday opens from the
-// project's Sessions list, from Home's Continue, or from ⌘K, with its history,
+// project page's Threads, from Home's Continue, or from ⌘K, with its history,
 // and no new session is made.
 const { test, expect } = require('./fixture');
 
@@ -37,13 +37,13 @@ async function expectReopened(page, eve) {
 }
 
 test.describe('G3 reopen a thread', () => {
-  test('from the project panel\'s session list', async ({ page, eve }) => {
+  test('from the project page\'s thread list', async ({ page, eve }) => {
     await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha Project', { exact: true }).click();
-    await page.getByTestId('panel-tab-sessions').click();
-    await expect(page.getByTestId('panel-tab-sessions')).toContainText('1'); // this project's threads only
-    await expect(page.getByTestId('sidebar-session-s-launch')).toBeVisible();
-    await expect(page.getByTestId('sidebar-session-s-beta')).toHaveCount(0); // another project's thread
-    await page.getByTestId('sidebar-session-s-launch').click();
+    await page.getByTestId('panel-project-page').click();
+    await expect(page.getByTestId('project-threads-count')).toHaveText('1'); // this project's threads only
+    await expect(page.getByTestId('project-thread-s-launch')).toBeVisible();
+    await expect(page.getByTestId('project-thread-s-beta')).toHaveCount(0); // another project's thread
+    await page.getByTestId('project-thread-s-launch').click();
     await expectReopened(page, eve);
   });
 

@@ -16,7 +16,7 @@ test('project panel has no Modules surface', async ({ page }) => {
   await expect(page.getByTestId('panel-tab-changes')).toBeVisible({ timeout: 20000 });
 
   const tabIds = await page.$$eval('#panelTabs > *', (els) => els.map((e) => e.dataset.testid));
-  expect(tabIds).toEqual(['panel-tab-files', 'panel-tab-sessions', 'panel-tab-tasks', 'panel-tab-changes']);
+  expect(tabIds).toEqual(['panel-tab-files', 'panel-tab-changes']);
 
   await expect(page.locator('#moduleContent')).toHaveCount(0);
   await expect(page.locator('[data-testid="module-activity-orb"]')).toHaveCount(0);
