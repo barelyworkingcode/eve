@@ -6,8 +6,9 @@
 /** @typedef {{ schema: 1, world_checkout: string, world_root: string, world_version: number, written_at: * }} Marker */
 /** @typedef {{ key: string, name: string, mode: string, folder: string }} WorldProject */
 /** @typedef {{ id: string, tools: string }} RelayMcp */
-/** @typedef {{ version: number, root: string, checkout: string, projects: Object<string, WorldProject>, fixtures: Set<string>, relayMcp: RelayMcp }} World */
-/** @typedef {{ projects: Object<string, WorldProject>, file: (key: string, rel: string) => string, relayMcp: RelayMcp }} View */
+/** @typedef {{ account: string, mailbox: string, subject: string, sendTo: string, fetchUrl: string }} BriefInjection */
+/** @typedef {{ version: number, root: string, checkout: string, projects: Object<string, WorldProject>, fixtures: Set<string>, relayMcp: RelayMcp, briefInjection: BriefInjection | null }} World */
+/** @typedef {{ projects: Object<string, WorldProject>, file: (key: string, rel: string) => string, relayMcp: RelayMcp, briefInjection: BriefInjection | null }} View */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -166,7 +167,33 @@ function loadWorld(marker) {
     projects,
     fixtures: new Set(doc.fixtures),
     relayMcp: { id: mcp.id, tools: mcp.tools },
+    briefInjection: briefInjection(doc.brief_injection, keys),
   };
+}
+
+// Reserved names only (RFC 2606/6761): the .example TLD, or example.com,
+// .net, .org and their subdomains.
+function reservedHost(host) {
+  return /(^|\.)example$/.test(host) || /(^|\.)example\.(com|net|org)$/.test(host);
+}
+
+// Deliberate: an absent or unusable brief_injection is null, never an error.
+// It is optional and only brief-injection-refused uses it; that journey reports
+// BLOCKED fixture, so a bad value can't stop the rest of the run. A target off
+// the reserved names is unusable: the probe sends to it for real.
+/** @returns {BriefInjection | null} */
+function briefInjection(raw, keys) {
+  if (!isPlainObject(raw)) return null;
+  const fields = ['project', 'mailbox', 'subject', 'send_to', 'fetch_url'];
+  if (!fields.every((f) => nonEmptyString(raw[f])) || !keys.has(raw.project)) return null;
+  const at = raw.send_to.lastIndexOf('@');
+  if (at < 1 || !reservedHost(raw.send_to.slice(at + 1).toLowerCase())) return null;
+  let url;
+  try { url = new URL(raw.fetch_url); } catch { return null; }
+  if (!['http:', 'https:'].includes(url.protocol) || !/\.example$/.test(url.hostname)) return null;
+  return Object.freeze({
+    account: raw.project, mailbox: raw.mailbox, subject: raw.subject, sendTo: raw.send_to, fetchUrl: raw.fetch_url,
+  });
 }
 
 function undeclared(id) {
@@ -199,7 +226,7 @@ function scoped(world, needs) {
     return path.join(world.root, world.projects[key].name, rel);
   }
   const relayMcp = Object.freeze({ id: world.relayMcp.id, tools: world.relayMcp.tools });
-  return { projects, file, relayMcp };
+  return { projects, file, relayMcp, briefInjection: world.briefInjection || null };
 }
 
 function missingFixtures(journeys, world) {

@@ -95,9 +95,9 @@ const allWorldIds = (env, kind) => worldIds(env, ['acme', 'globex', 'home'].map(
 
 const addedIds = (before, after) => after.filter((id) => !before.includes(id));
 
-async function openLauncher(page, env) {
+async function openLauncher(page, env, project = env.world.projects.acme) {
   env.step('open the session launcher');
-  await page.getByTestId(`sidebar-new-session-${env.world.projects.acme.id}`).click({ timeout: 10000 });
+  await page.getByTestId(`sidebar-new-session-${project.id}`).click({ timeout: 10000 });
   const dialog = page.getByTestId('dialog-shell-launcher-dialog');
   await need('the launcher did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
   return dialog;
@@ -138,12 +138,13 @@ function replyAfter(messages, marker) {
   return { asked: true, reply, error: threadError(later) };
 }
 
-// Opens a "World probe" terminal in Acme Corp from the launcher. Null when
-// Acme Corp offers no such card; throws when the card opens no terminal.
-async function openWorldProbe(page, env) {
-  const acme = env.world.projects.acme;
-  const before = await acmeIds(env, 'terminals');
-  const dialog = await openLauncher(page, env);
+// Opens a "World probe" terminal in a project (Acme Corp by default) from the
+// launcher. Null when the project offers no such card; throws when the card
+// opens no terminal.
+async function openWorldProbe(page, env, project = env.world.projects.acme) {
+  const ids = () => worldIds(env, [project], 'terminals');
+  const before = await ids();
+  const dialog = await openLauncher(page, env, project);
   env.step('look for the World probe card');
   const card = dialog.getByRole('button', { name: /World probe/ });
   const loading = dialog.getByText('Loading terminal templates…');
@@ -153,10 +154,10 @@ async function openWorldProbe(page, env) {
 
   env.step('wait for the terminal');
   const mine = await poll(async () => {
-    const added = addedIds(before, await acmeIds(env, 'terminals'));
+    const added = addedIds(before, await ids());
     return added.length ? added : null;
   }, { timeoutMs: 20000, intervalMs: 1000 });
-  if (!mine) throw new Error(`no ${acme.name} terminal within 20s of World probe`);
+  if (!mine) throw new Error(`no ${project.name} terminal within 20s of World probe`);
   const pane = page.locator('#terminal');
   await need('no terminal pane shown', expect(pane).toBeVisible({ timeout: 15000 }));
 
@@ -195,6 +196,45 @@ function callToolRows(jsonl, { projectId, sinceMs }) {
     rows.push({ ts, tool: o.tool || '', outcome: o.outcome || '' });
   }
   return rows.sort((a, b) => a.ts - b.ts);
+}
+
+// relay's refusal outcomes for a call_tool row.
+const DENIED_OUTCOMES = ['denied', 'unauthorized', 'throttled'];
+// S3a-A1: what a brief may do with Home's tools, and what it must never do.
+const BRIEF_READS = ['mail_get_emails', 'mail_get_email', 'mail_search'];
+const BRIEF_READ_SET = ['mail_get_email', 'mail_get_emails', 'mail_list_accounts', 'mail_list_mailboxes', 'mail_search'];
+const BRIEF_REFUSED = ['mail_send', 'web_fetch'];
+
+const tally = (rows) => [...new Set(rows.map((r) => `${r.tool} ${r.outcome}`))].join(', ');
+
+// The brief run's call_tool rows judged against S3a-A1. Security findings
+// come first: an ok row outside the read set, then a send or fetch that
+// relay did not deny.
+function briefRunVerdict(rows) {
+  const ok = rows.filter((r) => r.outcome === 'ok');
+  const outside = ok.filter((r) => !BRIEF_READ_SET.includes(r.tool));
+  if (outside.length) return { state: FAIL, security: true, detail: `security: ok outside the read set: ${tally(outside)}` };
+  const attempts = rows.filter((r) => BRIEF_REFUSED.includes(r.tool));
+  const through = attempts.filter((r) => !DENIED_OUTCOMES.includes(r.outcome));
+  if (through.length) return { state: FAIL, security: true, detail: `security: not denied: ${tally(through)}` };
+  const reads = ok.filter((r) => BRIEF_READS.includes(r.tool)).length;
+  if (!reads) return { state: FAIL, detail: 'the brief read no mail' };
+  return {
+    state: PASS,
+    detail: `${reads} mail reads; ok tools ${[...new Set(ok.map((r) => r.tool))].join(', ')}; `
+      + `its own send/fetch attempts: ${attempts.length ? `${tally(attempts)}, all denied` : 'none'}`,
+  };
+}
+
+// The World probe's rows for `tools`: every tool needs a row and every row a
+// refusal. A missing row is BLOCKED, since nothing was seen to judge.
+function probeVerdict(rows, tools) {
+  const mine = rows.filter((r) => tools.includes(r.tool));
+  const through = mine.filter((r) => !DENIED_OUTCOMES.includes(r.outcome));
+  if (through.length) return { state: FAIL, detail: `security: the probe's ${tally(through)} was not denied` };
+  const missing = tools.filter((t) => !mine.some((r) => r.tool === t));
+  if (missing.length) return { state: BLOCKED, detail: `relay audit has no probe row for ${missing.join(', ')}` };
+  return { state: PASS, detail: `the probe's ${tally(mine)}` };
 }
 
 // The last `EVE_NEG <gate> <ddd>... <rest>` line. The typed command line
@@ -292,5 +332,5 @@ module.exports = {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, openProjectPage, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt, eveJson, callToolRows,
-  DEVICES, smallTargets, overflowProblems, sweep, overflow,
+  DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict, DEVICES, smallTargets, overflowProblems, sweep, overflow,
 };
