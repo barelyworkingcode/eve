@@ -30,6 +30,7 @@ class MessageRenderer {
     this.isRenderingHistory = false;
     this.thinkBlockOpenStates = new Map();
     this._speakingMessageEl = null;
+    this.citations = new Citations(this.messagesEl);
 
     // On touch devices, streaming rebuilds the message's innerHTML on every
     // delta, so the native <summary> click can land on an already-destroyed
@@ -251,6 +252,7 @@ class MessageRenderer {
         this._applyThinkBlockStates();
         this._upgradeGeneratedImages(this.currentAssistantMessage);
         this.renderMermaidBlocks(this.currentAssistantMessage);
+        this.citations.decorate(this.currentAssistantMessage);
       }
       if (metrics && (metrics.ttft || metrics.tps)) {
         const parts = [];
@@ -284,6 +286,7 @@ class MessageRenderer {
     // drops empty strings on the wire and Eve would otherwise interpolate
     // `undefined`. Fall back to a generic label.
     const displayName = toolName || 'tool';
+    this.citations.noteToolUse(toolUseId, toolName);
 
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant';
@@ -400,6 +403,7 @@ class MessageRenderer {
   }
 
   appendUserMessage(text, files = []) {
+    this.citations.resetTurn();
     const messageEl = document.createElement('div');
     messageEl.className = 'message user';
     messageEl.dataset.testid = 'message-user';
@@ -739,6 +743,7 @@ class MessageRenderer {
   }
 
   appendToolResult(content, toolUseId) {
+    this.citations.noteToolResult(toolUseId, content);
     const block = this.findToolBlockById(toolUseId) || this.currentToolBlock;
     if (!block) return;
     if (block.querySelector('.tool-result')) return;

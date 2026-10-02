@@ -14,6 +14,7 @@ const {
   openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, eveJson, callToolRows, DEVICES, sweep, overflow,
   worldIds, DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict, openEditProject, openTemplate, pressPreset,
+  stubSources, sourcesRowProblem, firstDifference, isUnder,
 } = require('./journey-kit');
 
 const exec = promisify(execFile);
@@ -1696,6 +1697,163 @@ async function askInOtherMode(env) {
   }
 }
 
+// — Research with sources (S4) ------------------------------------------------
+
+const RESEARCH = 'Research';
+const RESEARCH_REPLY_MS = 120000;
+const AUDIT_SETTLE_MS = 10000;
+
+// The row's cards and the chips' numbers, in page order.
+async function citationsShown(page) {
+  const container = page.getByTestId('messages-container');
+  const cards = await container.getByTestId('answer-sources').locator('[data-testid^="answer-source-"]')
+    .evaluateAll((els) => els.map((el) => ({ testid: el.dataset.testid, text: el.innerText })));
+  const chips = await container.locator('[data-testid^="cite-chip-"]').evaluateAll((els) => els.map((el) => el.dataset.testid));
+  return { cards, chips };
+}
+
+// S4 end to end on the stub search MCP: relay's audit proves the model
+// searched, then every assertion is about eve's rendering of what the tool
+// returned. Model lapses are BLOCKED; the reply text is never the evidence.
+async function researchCitations(env) {
+  const id = 'research-citations';
+  const stub = env.world.searchStub;
+  if (!stub) return result(id, BLOCKED, 'fixture: the world publishes no usable search_stub');
+  let Sources;
+  try { Sources = require('../public/core/sources.js'); } catch (err) { return result(id, FAIL, `public/core/sources.js: ${firstLine(err)}`); }
+  const expected = stubSources(stub, Sources);
+  if (!expected.length) return result(id, BLOCKED, 'fixture: search_stub holds no http(s) result');
+
+  const listed = (await eveJson(env, 'GET', '/api/projects')).filter((p) => p.name === RESEARCH);
+  if (listed.length !== 1) return result(id, BLOCKED, `setup R1: ${listed.length} projects named ${RESEARCH}, expected 1`);
+  const research = { name: RESEARCH, id: listed[0].id, path: listed[0].path };
+  if (!isUnder(research.path, env.world.root)) {
+    return result(id, BLOCKED, `setup R1: ${RESEARCH}'s folder is not under the world root (${env.world.root}); this journey sends and sweeps sessions there`);
+  }
+
+  const page = await env.newPage();
+  const errors = captureErrors(page);
+  await openEve(page, env);
+  await waitForModels(page, env);
+  const models = await page.evaluate((pid) => window.client.state.modelsForProject(pid)
+    .map((m) => ({ value: m.value, provider: m.provider })), research.id);
+  const model = pickModel(models.map((m) => m.value), env.model);
+  if (!model) return result(id, BLOCKED, `setup R1: model "${env.model}" is not offered in ${RESEARCH}`);
+  const provider = models.find((m) => m.value === model).provider;
+  if (provider !== 'chat') return result(id, BLOCKED, `setup R1: model ${model} is provider ${provider || 'none'}, not chat`);
+
+  // Research is test-world config (setup R1), so every session in it goes.
+  env.cleanup(`delete the ${RESEARCH} session`, () => env.api.sweep([research]));
+  const ids = () => worldIds(env, [research], 'sessions');
+  const before = await ids();
+  await openProject(page, env, research);
+  const dialog = await openLauncher(page, env, research);
+  env.step('open the Web Chat form');
+  const card = dialog.getByTestId('shell-card-web-chat');
+  if (!await card.click({ timeout: 10000 }).then(() => true, () => false)) {
+    return result(id, BLOCKED, `setup R1: ${RESEARCH}'s launcher has no Web Chat card`);
+  }
+  const select = dialog.getByTestId('launcher-model-select');
+  const offered = pickModel(await optionValues(select), env.model);
+  if (!offered) return result(id, BLOCKED, `setup R1: the launcher does not offer "${env.model}" in ${RESEARCH}`);
+  await select.selectOption(offered, { timeout: 5000 });
+  env.step('start the chat');
+  await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
+  const made = await poll(async () => {
+    const added = addedIds(before, await ids());
+    return added.length ? added : null;
+  }, { timeoutMs: 30000, intervalMs: 1000 });
+  if (!made) {
+    const refusal = errors.find((e) => /template "chat"/.test(e));
+    return refusal ? result(id, BLOCKED, `setup R1: launch refused: ${refusal}`) : result(id, FAIL, `no ${RESEARCH} session within 30s of Start Chat`);
+  }
+  if (made.length !== 1) return result(id, FAIL, `${made.length} new ${RESEARCH} sessions, expected 1`);
+  const sessionId = made[0];
+
+  const marker = `verify-${env.nonce}`;
+  const input = page.getByTestId('chat-input');
+  await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
+  await input.fill(`${marker}: call ${stub.tool} once with query "${env.nonce}". `
+    + 'Answer in two sentences, each ending with a markdown link to a result URL you used.', { timeout: 5000 });
+  env.step('send the research question');
+  const sentAt = Date.now() - 1000;
+  await page.getByTestId('chat-submit').click({ timeout: 5000 });
+  env.step('wait for the reply');
+  const stop = page.getByTestId('chat-stop');
+  const settled = await poll(async () => {
+    const r = replyAfter(await thread(page), marker);
+    return r.error || (r.reply && !(await stop.isVisible())) ? r : null;
+  }, { timeoutMs: RESEARCH_REPLY_MS, intervalMs: 1000 });
+
+  env.step('read relay audit for the search');
+  let rows = [];
+  const searched = await poll(async () => {
+    rows = await relayCallRows(env, research, sentAt).catch(() => rows);
+    return rows.find((r) => Sources.isSearchTool(r.tool) && r.outcome === 'ok') || null;
+  }, { timeoutMs: AUDIT_SETTLE_MS, intervalMs: 1000 });
+  if (!searched) {
+    return result(id, BLOCKED, `model: no ok ${stub.tool} row in relay audit since the send; `
+      + `${RESEARCH} tools called: ${rowsSaid(rows) || 'none'}${settled?.error ? `; thread error: ${settled.error}` : ''}`);
+  }
+  if (!settled) return result(id, FAIL, `relay audit has ${rowsSaid([searched])}, but no finished reply within ${RESEARCH_REPLY_MS / 1000}s`);
+  if (settled.error) return result(id, FAIL, `relay audit has ${rowsSaid([searched])}, but the thread shows an error: ${settled.error}`);
+
+  env.step('read the sources row');
+  const row = page.getByTestId('messages-container').getByTestId('answer-sources');
+  if (!await expect(row).toBeVisible({ timeout: 10000 }).then(() => true, () => false)) {
+    return result(id, FAIL, `relay audit has ${rowsSaid([searched])}, but no answer-sources row shows within 10s of the reply`);
+  }
+  const live = await citationsShown(page);
+  const rowProblem = sourcesRowProblem(live.cards, expected);
+  if (rowProblem) return result(id, FAIL, rowProblem);
+  if (!live.chips.length) {
+    return result(id, BLOCKED, `model: the answer links no result URL, so there is no chip to open; reply: "${settled.reply.slice(0, 80)}"`);
+  }
+
+  const pop = page.getByTestId('cite-popover');
+  for (const [i, testid] of live.chips.entries()) {
+    const n = Number(testid.slice('cite-chip-'.length));
+    const s = expected.find((x) => x.n === n);
+    if (!s) return result(id, FAIL, `chip ${i + 1} (${testid}) names no source; sources are 1..${expected.length}`);
+    env.step(`open chip ${i + 1} (${n})`);
+    await page.getByTestId('messages-container').locator('[data-testid^="cite-chip-"]').nth(i).click({ timeout: 5000 });
+    if (!await expect(pop).toBeVisible({ timeout: 5000 }).then(() => true, () => false)) return result(id, FAIL, `chip ${n} opens nothing`);
+    const shown = await pop.evaluate((el) => Object.fromEntries(['host', 'n', 'title', 'excerpt']
+      .map((k) => [k, (el.querySelector(`.cite-${k}`)?.textContent || '').trim()])));
+    const want = { host: s.host, n: String(n), title: s.title, excerpt: s.excerpt };
+    const wrong = Object.keys(want).filter((k) => shown[k] !== want[k]);
+    if (wrong.length) {
+      return result(id, FAIL, `chip ${n}'s popover: ${wrong.map((k) => `${k} differs ${firstDifference(shown[k], want[k])}`).join('; ')}`);
+    }
+    await page.getByTestId('cite-close').click({ timeout: 5000 });
+    await need(`chip ${n}'s popover did not close`, expect(pop).toBeHidden({ timeout: 5000 }));
+  }
+
+  // S4-A6: reopened from the project page, then reloaded.
+  const again = await env.newPage();
+  await openEve(again, env);
+  const projectPage = await openProjectPage(again, env, research);
+  env.step('reopen the thread');
+  await need('the thread is not in the project page\'s Threads',
+    projectPage.getByTestId(`project-thread-${sessionId}`).click({ timeout: 15000 }));
+  for (const how of ['reopened', 'reloaded']) {
+    if (how === 'reloaded') await reloadEve(again, env);
+    env.step(`read the row (${how})`);
+    const shownRow = again.getByTestId('messages-container').getByTestId('answer-sources');
+    if (!await expect(shownRow).toBeVisible({ timeout: 20000 }).then(() => true, () => false)) {
+      return result(id, FAIL, `${how}: no answer-sources row within 20s`);
+    }
+    const seen = await citationsShown(again);
+    const problem = sourcesRowProblem(seen.cards, expected);
+    if (problem) return result(id, FAIL, `${how}: ${problem}`);
+    if (!isDeepStrictEqual(seen.chips, live.chips)) {
+      return result(id, FAIL, `${how}: chips ${seen.chips.join(', ') || 'none'}, live ${live.chips.join(', ')}`);
+    }
+  }
+  return result(id, PASS, `relay audit has ${rowsSaid([searched])}; row ${expected.map((s) => `${s.n} ${s.host}`).join(', ')}; `
+    + `${live.chips.length} chips opened their source's title and excerpt; the same row and chips reopened and after a reload`);
+}
+
 const auth = require('./journeys-auth').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
@@ -1737,6 +1895,7 @@ const journeys = [
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },
   { id: 'brief-injection-refused', timeoutMs: 360000, areas: ['home', 'tasks'], needs: ['project:home'], run: briefInjectionRefused },
   { id: 'ask-in-other-mode', timeoutMs: 240000, areas: ['home', 'chat'], needs: ['project:home', 'project:acme'], run: askInOtherMode },
+  { id: 'research-citations', timeoutMs: 180000, areas: ['chat'], needs: [], run: researchCitations },
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
 ];

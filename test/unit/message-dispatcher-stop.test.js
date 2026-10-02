@@ -31,8 +31,11 @@ function makeChat() {
   doc.createElement = (tag) => new HtmlElement(tag, doc);
   // A text node is an element that only carries text.
   doc.createTextNode = (text) => { const n = new HtmlElement('#text', doc); n.textContent = text; return n; };
+  const Sources = require('../../public/core/sources');
+  const { Citations } = loadScript('citations.js', ['Citations'], { document: doc, window: {}, Sources });
   const { MessageRenderer } = loadScript('message-renderer.js', ['MessageRenderer'], {
     document: doc,
+    Citations,
     requestAnimationFrame: (cb) => setTimeout(cb, 0),
     cancelAnimationFrame: (h) => clearTimeout(h),
     sessionStorage: fakeLocalStorage(),
