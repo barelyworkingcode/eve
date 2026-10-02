@@ -3,7 +3,7 @@
 // (active) thread is not moved up for being active; Running shows those.
 const { test, expect } = require('./fixture');
 const { MODELS } = require('./fixture');
-const { backToToday } = require('./today-helpers');
+const { backToToday, startChatInAlpha } = require('./today-helpers');
 
 const HOUR = 3600 * 1000;
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
@@ -41,5 +41,14 @@ test.describe('Continue order with many active threads', () => {
     await page.reload(); // Continue paints on load; a live repaint on return is not what this asserts
     await backToToday(page);
     await expect(rows(page).first()).toHaveAttribute('data-testid', 'home-session-s-old');
+  });
+});
+
+test.describe('Continue after starting a thread here', () => {
+  test('a new thread shows in Continue on return to Today', async ({ page }) => {
+    const sessionId = await startChatInAlpha(page);
+    await backToToday(page);
+    await expect(page.getByTestId('home-screen').getByTestId(`home-session-${sessionId}`)).toBeVisible();
+    await expect(rows(page).first()).toHaveAttribute('data-testid', `home-session-${sessionId}`);
   });
 });

@@ -49,9 +49,18 @@ class ContinuePart extends TodayPart {
     const { state } = this.ctx;
     const recents = (typeof SessionRecents !== 'undefined') ? SessionRecents.list() : [];
     const opened = new Map(recents.map(r => [r.id, Number(r.lastOpenedAt) || Date.parse(r.lastOpenedAt || '') || 0]));
+    // A thread started here lands in state before SessionRecents.touch stamps it and
+    // nothing repaints after the stamp. So a thread that first appears after this part
+    // has painted, with no time yet, counts as seen now. Threads already there at the
+    // first paint with no time stay out.
+    const firstPaint = !this._seen;
+    this._seen = this._seen || new Map();
     const time = (s) => {
       const t = Date.parse(s.lastMessageAt || s.createdAt || '');
-      return Math.max(opened.get(s.id) || 0, Number.isNaN(t) ? 0 : t);
+      const known = Math.max(opened.get(s.id) || 0, Number.isNaN(t) ? 0 : t);
+      if (known > 0) return known;
+      if (!this._seen.has(s.id)) this._seen.set(s.id, firstPaint ? 0 : Date.now());
+      return this._seen.get(s.id);
     };
     return todayThreads(state)
       .map(s => ({ session: s, openedAt: time(s) }))
