@@ -123,3 +123,77 @@
   .routine-sheet { align-items: flex-end; }
   .routine-sheet__panel { width: 100%; border-radius: var(--radius-lg, 14px) var(--radius-lg, 14px) 0 0; }
 }
+
+/* "Make this a routine" panel (S5b-A2). Docks on the right on wide and
+   regular; a full-width sheet on compact. */
+.routine-panel__trigger {
+  flex: none;
+  padding: var(--sp-1, 4px) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-subhead);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.routine-panel__trigger:hover { background: var(--bg-hover); }
+.routine-panel__trigger.hidden,
+.routine-panel.hidden { display: none; }
+.routine-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, 100%);
+  overflow-y: auto;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  border-left: 1px solid var(--separator);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+}
+.routine-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--separator);
+}
+.routine-panel__title { margin: 0; font-size: var(--text-title, 1.2rem); font-weight: var(--weight-semibold); }
+.routine-panel__close {
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.routine-panel__body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5); }
+.routine-panel__field { display: flex; flex-direction: column; gap: var(--sp-2); }
+.routine-panel__label { font-size: var(--text-subhead); color: var(--text-secondary); }
+.routine-panel__input { width: 100%; box-sizing: border-box; }
+.routine-panel__prompt { resize: vertical; font-family: inherit; }
+.routine-panel__note { font-size: var(--text-subhead); color: var(--text-secondary); }
+.routine-panel__chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.routine-panel__chip {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.routine-panel__chip--active { border-color: var(--accent); background: var(--accent); color: var(--accent-contrast, #fff); }
+.routine-panel__row[hidden] { display: none; }
+.routine-panel__sentence { margin: 0; font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.routine-panel__create:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 599.98px) {
+  .routine-panel { width: 100%; border-left: 0; }
+}
