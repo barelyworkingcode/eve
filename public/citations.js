@@ -15,7 +15,8 @@ class Citations {
   resetTurn() {
     this.turn = Sources.turn();
     this.toolNames = new Map();
-    if (this._row) { this._row.remove(); this._row = null; }
+    // The finished turn's row stays in the transcript; only the handle is dropped.
+    this._row = null;
   }
 
   noteToolUse(id, name) {
