@@ -516,6 +516,14 @@ class MessageDispatcher {
         this.backgroundBuffers.set(sid, buf);
       }
 
+      if (event.type === 'user') {
+        // Claude tool_result blocks; the buffer renders nothing for them.
+        for (const block of event.message?.content || []) {
+          if (block?.type === 'tool_result') this._noteRefusal(sid, block);
+        }
+        return;
+      }
+
       if (event.type === 'assistant') {
         if (event.message?.content) {
           for (const block of event.message.content) {
