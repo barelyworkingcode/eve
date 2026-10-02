@@ -433,7 +433,7 @@ describe('devboxverify journey table', () => {
     'passkey-sign-in', 'agent-sign-in-refused', 'agent-enrol-refused', 'add-browser-in-window',
     'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
     'settings-sheet', 'project-admin-in-relay', 'project-mode-new', 'brief-injection-refused',
-    'mode-presets', 'ask-in-other-mode',
+    'mode-presets', 'ask-in-other-mode', 'research-citations',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -470,7 +470,7 @@ describe('devboxverify journey table', () => {
       'passkey-first-enrol': [], 'landing-view': [], 'add-browser-in-window': [],
       'settings-sheet': [], 'project-mode-new': [], 'project-admin-in-relay': acme,
       'world-projects-listed': all, 'terminal-on-request': all, 'brief-injection-refused': ['project:home'],
-      'ask-in-other-mode': ['project:acme', 'project:home'],
+      'ask-in-other-mode': ['project:acme', 'project:home'], 'research-citations': [],
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
@@ -497,7 +497,7 @@ describe('devboxverify journey table', () => {
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file',
-      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'ask-in-other-mode', 'project-mode-new',
+      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'ask-in-other-mode', 'research-citations', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -512,6 +512,7 @@ describe('devboxverify journey table', () => {
     ['mode-presets', 'docs/design-mode-presets.md', ['home', 'projects', 'settings'], 90000],
     ['voice-deep-link', 'docs/design-mode-presets.md', ['projects', 'voice'], 90000],
     ['ask-in-other-mode', 'docs/design-mode-presets.md', ['chat', 'home'], 240000],
+    ['research-citations', 'docs/design-research.md', ['chat'], 180000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -754,6 +755,44 @@ describe('devboxverify/journey-kit.js brief verdicts (S3a-A1)', () => {
   });
 });
 
+describe('devboxverify/journey-kit.js research sources (S4-A1, A2)', () => {
+  const { stubSources, sourcesRowProblem } = require('../../devboxverify/journey-kit');
+  const Sources = require('../../public/core/sources.js');
+  const tool = 'brave_web_search';
+  const r = (host, extra = {}) => ({ title: `About ${host}`, url: `https://${host}/p`, description: `On ${host}.`, ...extra });
+
+  it('reads the stub as relay hands it on: http(s) results in order, tags stripped, entities decoded, snippets joined', () => {
+    const stub = { tool, results: [
+      r('one.example', { description: 'A <strong>list</strong> &amp; more' }),
+      { title: 'Script', url: 'javascript:void(0)', description: 'never a source' },
+      r('two.example', { extra_snippets: ['Say <em>&quot;hi&quot;</em>', 'Last.'] }),
+    ] };
+    expect(stubSources(stub, Sources)).toEqual([
+      { n: 1, host: 'one.example', title: 'About one.example', excerpt: 'A list & more' },
+      { n: 2, host: 'two.example', title: 'About two.example', excerpt: 'On two.example.\n\nSay "hi"\n\nLast.' },
+    ]);
+  });
+
+  it('drops the result relay\'s 8,192-byte cut leaves incomplete', () => {
+    const stub = { tool, results: [r('one.example'), r('two.example', { description: 'x'.repeat(9000) })] };
+    expect(stubSources(stub, Sources).map(s => s.host)).toEqual(['one.example']);
+  });
+
+  const want = [{ n: 1, host: 'one1.example' }, { n: 2, host: 'two.example' }];
+  const card = (n, text) => ({ testid: `answer-source-${n}`, text });
+  it.each([
+    ['every card in order', [card(1, 'O\none1.example\n1'), card(2, 'T\ntwo.example\n2')], null],
+    ['no cards', [], 'the row shows 0 sources, expected 2 (1 one1.example, 2 two.example)'],
+    ['the cards swapped', [card(1, 'T two.example 2'), card(2, 'O one1.example 1')], /^card 1 is answer-source-1 showing "T two.example 2"/],
+    ['a card whose number is only inside its host', [card(1, 'O one1.example'), card(2, 'T two.example 2')], /^card 1 /],
+    ['a card with the wrong testid', [card(1, 'O one1.example 1'), card(3, 'T two.example 2')], /^card 2 is answer-source-3 /],
+  ])('sourcesRowProblem for %s', (_label, cards, expected) => {
+    const got = sourcesRowProblem(cards, want);
+    if (expected instanceof RegExp) expect(got).toMatch(expected);
+    else expect(got).toBe(expected);
+  });
+});
+
 describe('devboxverify/journey-kit.js parseAgentAttempt', () => {
   const { parseAgentAttempt } = require('../../devboxverify/journey-kit');
   const echo = `$ a=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/api/sessions); printf '%s_%s signin %s\\n' EVE NEG "$a"`;
@@ -855,6 +894,7 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     projects: Object.fromEntries(PROJECTS.map(p => [p.key, { ...p, folder: `/srv/world/${p.name}` }])),
     relayMcp: { id: 'macmcp', tools: 'mail_*' },
     briefInjection: null,
+    searchStub: null,
   };
   let dir;
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbv-world-')); });
@@ -1012,6 +1052,30 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     writeWorld(worldDoc({ brief_injection: value }));
     const w = world.loadWorld(markerDoc());
     expect(w.briefInjection).toBeNull();
+    expect(Object.keys(w.projects)).toEqual(['acme', 'globex', 'home']);
+  });
+
+  const STUB = { id: 'worldsearch', tool: 'brave_web_search', results: [{ title: 'T', url: 'https://a.example/x', description: 'D' }] };
+
+  it('loadWorld maps search_stub to searchStub, and scoped passes it on', () => {
+    writeWorld(worldDoc({ search_stub: STUB }));
+    const w = world.loadWorld(markerDoc());
+    expect(w.searchStub).toEqual(STUB);
+    expect(world.scoped(w, []).searchStub).toEqual(STUB);
+    expect(world.scoped(loaded, []).searchStub).toBeNull();
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['a list', [STUB]],
+    ['an empty tool', { ...STUB, tool: '' }],
+    ['no id', { ...STUB, id: undefined }],
+    ['no results', { ...STUB, results: [] }],
+    ['a result that is not an object', { ...STUB, results: [...STUB.results, 'x'] }],
+  ])('loadWorld gives a null searchStub, and loads the rest, for search_stub %s', (_label, value) => {
+    writeWorld(worldDoc({ search_stub: value }));
+    const w = world.loadWorld(markerDoc());
+    expect(w.searchStub).toBeNull();
     expect(Object.keys(w.projects)).toEqual(['acme', 'globex', 'home']);
   });
 

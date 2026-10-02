@@ -431,6 +431,30 @@ thread's own tool rows (information only).
   without relay#183 never marks the thread, so the button never shows (FAIL).
   Both sessions go in the run's final sweep; the page is left in Work.
 
+**research-citations.** Research with sources end to end (S4). In the
+`Research` project (setup R1), a web chat with `EVE_VERIFY_MODEL` sends
+`verify-<nonce>: call brave_web_search once with query "<nonce>". Answer in
+two sentences, each ending with a markdown link to a result URL you used.`
+and waits up to 120 s for the reply. `relay audit --event call_tool
+--project <research id> --json` since the send must hold an `ok`
+`brave_web_search` row. The expected sources are the world's
+`search_stub.results`, joined as relay joins them and read by
+`public/core/sources.js` (A1). `answer-sources` must show one
+`answer-source-<n>` card per expected source, in order, each with its host
+and number. Every `cite-chip-<n>` in the answer must open `cite-popover`
+with that source's host, number, title and excerpt, and `cite-close` must
+close it. Reopened from the project page's Threads, then reloaded, the
+thread must show the same row and chips.
+- Lives in: `public/core/sources.js` → `public/citations.js` ←
+  `public/message-renderer.js` (tool use, tool result, finished message);
+  devboxWorld's stub search MCP (`lib/devboxworld/search_stub.py`).
+- Traps: BLOCKED fixture without a usable `search_stub`. BLOCKED setup
+  without exactly one `Research` project, when it does not offer the model
+  with provider `chat`, or when its launcher has no Web Chat or refuses the
+  `chat` template. BLOCKED model when the audit has no `ok` search row (the
+  reply is never the evidence) or the answer links no result URL. A cleanup
+  deletes every session in `Research` (test-world config only).
+
 ## One-time setup
 
 - **S1 · Register `eve-verify`.** Presence-gated, so run it in a desktop
@@ -469,6 +493,22 @@ thread's own tool rows (information only).
 - **S3 · V2.** In Relay → Projects → Default projects: Work = Acme Corp,
   Home = Home. Test-world config, not owner config; no grant changes.
   mode-presets, voice-deep-link and ask-in-other-mode FAIL without it.
+- **S3 · R1.** The stub search MCP and a `Research` project, both
+  presence-gated in Relay. Test-world config, not owner config: an owner's
+  own Brave registration and grants stay untouched.
+
+  ```bash
+  relay mcp register --id worldsearch --name "World search (stub)" \
+    --command /usr/bin/python3 --args <world checkout>/lib/devboxworld/search_stub.py
+  ```
+
+  Then a Relay project `Research`: mode `work`, folder `<world_root>/Research`,
+  allowed templates `chat`, models `*` (or at least `EVE_VERIFY_MODEL`), and
+  `worldsearch` granted all tools with access write and outbound allowed.
+  Access is write because relay's read access admits only tools marked
+  `readOnlyHint`, and the stub mirrors Brave's annotations (`openWorldHint`
+  only). Repair does not restore it; research-citations is BLOCKED setup
+  without it.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at

@@ -7,8 +7,9 @@
 /** @typedef {{ key: string, name: string, mode: string, folder: string }} WorldProject */
 /** @typedef {{ id: string, tools: string }} RelayMcp */
 /** @typedef {{ account: string, mailbox: string, subject: string, sendTo: string, fetchUrl: string }} BriefInjection */
-/** @typedef {{ version: number, root: string, checkout: string, projects: Object<string, WorldProject>, fixtures: Set<string>, relayMcp: RelayMcp, briefInjection: BriefInjection | null }} World */
-/** @typedef {{ projects: Object<string, WorldProject>, file: (key: string, rel: string) => string, relayMcp: RelayMcp, briefInjection: BriefInjection | null }} View */
+/** @typedef {{ id: string, tool: string, results: object[] }} SearchStub */
+/** @typedef {{ version: number, root: string, checkout: string, projects: Object<string, WorldProject>, fixtures: Set<string>, relayMcp: RelayMcp, briefInjection: BriefInjection | null, searchStub: SearchStub | null }} World */
+/** @typedef {{ projects: Object<string, WorldProject>, file: (key: string, rel: string) => string, relayMcp: RelayMcp, briefInjection: BriefInjection | null, searchStub: SearchStub | null }} View */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -168,6 +169,7 @@ function loadWorld(marker) {
     fixtures: new Set(doc.fixtures),
     relayMcp: { id: mcp.id, tools: mcp.tools },
     briefInjection: briefInjection(doc.brief_injection, keys),
+    searchStub: searchStub(doc.search_stub),
   };
 }
 
@@ -194,6 +196,15 @@ function briefInjection(raw, keys) {
   return Object.freeze({
     account: raw.project, mailbox: raw.mailbox, subject: raw.subject, sendTo: raw.send_to, fetchUrl: raw.fetch_url,
   });
+}
+
+// Deliberate: as brief_injection, an absent or unusable search_stub is null,
+// never an error. Only research-citations uses it, and reports BLOCKED fixture.
+/** @returns {SearchStub | null} */
+function searchStub(raw) {
+  if (!isPlainObject(raw) || !nonEmptyString(raw.id) || !nonEmptyString(raw.tool)) return null;
+  if (!Array.isArray(raw.results) || !raw.results.length || !raw.results.every(isPlainObject)) return null;
+  return Object.freeze({ id: raw.id, tool: raw.tool, results: raw.results.map((r) => Object.freeze({ ...r })) });
 }
 
 function undeclared(id) {
@@ -226,7 +237,7 @@ function scoped(world, needs) {
     return path.join(world.root, world.projects[key].name, rel);
   }
   const relayMcp = Object.freeze({ id: world.relayMcp.id, tools: world.relayMcp.tools });
-  return { projects, file, relayMcp, briefInjection: world.briefInjection || null };
+  return { projects, file, relayMcp, briefInjection: world.briefInjection || null, searchStub: world.searchStub || null };
 }
 
 function missingFixtures(journeys, world) {
