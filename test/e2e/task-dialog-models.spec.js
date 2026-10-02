@@ -41,6 +41,7 @@ async function openNewTask(page) {
   const dialog = page.getByTestId('dialog-task-dialog');
   await dialog.locator('.dialog__tab[data-tab="new"]').click();
   await dialog.locator('[name="taskName"]').fill('Acme report');
+  await dialog.getByTestId('task-dialog-advanced').locator('summary').click();
   await dialog.locator('[name="taskType"]').selectOption('headless');
   return dialog;
 }
@@ -63,8 +64,8 @@ test('models arriving after the dialog opens: placeholder, save refused, then fi
 
   const posts = [];
   page.on('request', (r) => { if (isTaskPost(r)) posts.push(r); });
-  await dialog.getByRole('button', { name: 'Create Task' }).click();
-  await expect(page.locator('.toast__message', { hasText: 'Choose a model before saving this task.' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Create routine' }).click();
+  await expect(page.locator('.toast__message', { hasText: 'Choose a model before saving this routine.' })).toBeVisible();
   await expect(dialog).not.toHaveClass(/\bhidden\b/);
   expect(posts).toHaveLength(0);
 
@@ -74,7 +75,7 @@ test('models arriving after the dialog opens: placeholder, save refused, then fi
   await select.selectOption('acme-deep');
   const [request] = await Promise.all([
     page.waitForRequest(isTaskPost),
-    dialog.getByRole('button', { name: 'Create Task' }).click(),
+    dialog.getByRole('button', { name: 'Create routine' }).click(),
   ]);
   expect(request.postDataJSON().model).toBe('acme-deep');
   expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
@@ -106,12 +107,12 @@ test('a scheduler 400 on create shows its error in a toast and the dialog stays 
   await select.selectOption('acme-fast');
   const [response] = await Promise.all([
     page.waitForResponse((r) => isTaskPost(r.request())),
-    dialog.getByRole('button', { name: 'Create Task' }).click(),
+    dialog.getByRole('button', { name: 'Create routine' }).click(),
   ]);
   expect(response.status()).toBe(400);
 
   const toast = page.locator('.toast.toast--error[data-toast-id="task-save-error"]');
-  await expect(toast.locator('.toast__message')).toHaveText(`Couldn't save the task: ${error}`);
+  await expect(toast.locator('.toast__message')).toHaveText(`Couldn't save the routine: ${error}`);
   await expect(dialog).not.toHaveClass(/\bhidden\b/);
   expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
 });
