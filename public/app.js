@@ -701,7 +701,7 @@ class EveWorkspaceClient {
         return;
       }
 
-      this._launchFavoriteTemplate();
+      this._launchModeVoice();
       return;
     }
 
@@ -769,17 +769,29 @@ class EveWorkspaceClient {
     }
   }
 
+  // A7: the voice thread on screen, else the most recently active voice thread
+  // in this mode's projects within ModePresets.RESUME_MS.
   _findVoiceSession() {
     if (this.voiceChatManager?.isVoiceSession && this.currentSessionId) {
       return this.currentSessionId;
     }
-    for (const [id, session] of this.sessions) {
-      if (session.sessionType === 'voice') return id;
-    }
     // A restored tab's sessionType arrives with its session_joined reply,
-    // which lands after this route runs on a cold load.
-    return this._restoredSessionIds()
-      .find(id => this.tabManager.getSessionMeta(id)?.sessionType === 'voice') || null;
+    // which lands after this route runs on a cold load; its meta says voice.
+    const ids = new Set(this.sessions.keys());
+    const now = Date.now();
+    let best = null;
+    let bestAt = 0;
+    for (const id of ids) {
+      const session = this.sessions.get(id);
+      const isVoice = session.sessionType === 'voice'
+        || this.tabManager.getSessionMeta(id)?.sessionType === 'voice';
+      const project = this.projects.get(session.projectId);
+      const lastOpenedAt = SessionRecents.get(id)?.lastOpenedAt;
+      if (!ModePresets.resumable(session, { now, isVoice, inMode: !!project && this.state.isProjectInMode(project), lastOpenedAt })) continue;
+      const at = ModePresets.lastActive(session, lastOpenedAt);
+      if (at > bestAt) { best = id; bestAt = at; }
+    }
+    return best;
   }
 
   _restoredSessionIds() {
@@ -810,7 +822,7 @@ class EveWorkspaceClient {
     const fallback = this._disarmVoiceFallback();
     if (!fallback) return;
     if (this._deepLinkPin?.sessionId === fallback.sessionId) this._releaseDeepLinkPin();
-    this._launchFavoriteTemplate();
+    this._launchModeVoice();
   }
 
   _observeVoiceFallback(data, resubscribeJoin) {
@@ -823,50 +835,37 @@ class EveWorkspaceClient {
     }
   }
 
-  async _launchFavoriteTemplate() {
-    if (!FAVORITE_TEMPLATE_ENABLED || this._favoriteLaunching) return;
+  // A6: the current mode's voice preset, through the launcher's own template path.
+  async _launchModeVoice() {
+    if (this._favoriteLaunching) return;
 
-    const fav = this.settings.getFavoriteTemplate();
-    if (!fav) {
+    const mode = this.state.mode;
+    const label = ModePresets.label(mode);
+    const { project, voice } = ModePresets.forMode(this.state.getVisibleProjects(), mode);
+    if (!project) {
       this.bus.emit(EVT.TOAST_SHOW, {
-        id: 'no-favorite',
-        message: 'No favorite template set. Star a template in the launcher to use as default.',
+        id: 'no-mode-project',
+        message: `Set a default ${label} project in Relay to use the Action Button.`,
         type: 'warning',
         duration: 5000,
       });
-      const firstProject = this.state.getModeProjects()[0];
-      if (firstProject) {
-        this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: firstProject.id });
-      }
       return;
     }
-
-    const project = this.projects.get(fav.projectId);
-    if (!project) {
+    if (!voice) {
       this.bus.emit(EVT.TOAST_SHOW, {
-        id: 'favorite-error',
-        message: 'Favorite template project not found. It may have been deleted.',
-        type: 'error',
+        id: 'no-mode-voice',
+        message: `No ${label} voice preset. Pick one in Edit Project \u2192 Templates.`,
+        type: 'warning',
         duration: 5000,
       });
-      return;
-    }
-
-    const template = (project.chatTemplates || []).find(t => t.id === fav.templateId);
-    if (!template) {
-      this.bus.emit(EVT.TOAST_SHOW, {
-        id: 'favorite-error',
-        message: 'Favorite template not found. It may have been deleted.',
-        type: 'error',
-        duration: 5000,
-      });
+      this.bus.emit(EVT.DIALOG_SHELL_LAUNCHER, { projectId: project.id, intent: 'voice-chat' });
       return;
     }
 
     this._favoriteLaunching = true;
     try {
       await this._modelsReady;
-      this.shellLauncher.launchTemplate(fav.projectId, template);
+      this.shellLauncher.launchTemplate(project.id, voice);
     } finally {
       this._favoriteLaunching = false;
     }

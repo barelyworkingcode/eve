@@ -302,21 +302,12 @@ class SettingsManager {
 
   reset() {
     // Deliberately partial: only theme + font keys reset, not accumulated
-    // state like favoriteTemplate or lastSearchModels.
+    // state like lastSearchModels (a stored favoriteTemplate is ignored).
     const fresh = defaultSettings();
     for (const k of Object.keys(NON_COLOR_DEFAULTS)) this._settings[k] = fresh[k];
     this._settings.palettes = fresh.palettes;
     this._save();
     this._applyToDOM();
-  }
-
-  getFavoriteTemplate() {
-    return this._settings.favoriteTemplate || null;
-  }
-
-  setFavoriteTemplate(favorite) {
-    this._settings.favoriteTemplate = favorite;
-    this._save();
   }
 
   getLastSearchModel(projectId) {

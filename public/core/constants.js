@@ -135,7 +135,6 @@ const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 // Apple keyboards label the modifier "Option" (⌥) rather than "Alt"; the
 // escape sequence sent is the same either way.
 const IS_APPLE = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent);
-const FAVORITE_TEMPLATE_ENABLED = true; // gate behind IS_NATIVE_APP before App Store submission
 
 const PLAN_PROJECT_ID = '__plan__';
 
