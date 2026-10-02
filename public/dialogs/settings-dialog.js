@@ -181,7 +181,7 @@ class SettingsDialog extends DialogBase {
       const row = document.createElement('div');
       row.className = 'settings-sheet__text';
       row.dataset.testid = `settings-default-${mode}`;
-      row.textContent = p ? `${label} starts in ${p.name}` : 'No default. Ask lets you pick.';
+      row.textContent = p ? `${label} starts in ${p.name}` : `${label}: no default. Ask lets you pick.`;
       group.appendChild(row);
     }
     return group;

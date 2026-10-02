@@ -61,9 +61,7 @@
     overflow: hidden;
   }
 
-  /* Settings sheet: the checkbox is a control too, so size its real box. */
-  .settings-sheet input[type="checkbox"] {
-    width: 44px;
-    height: 44px;
-  }
+  /* Settings sheet: the switch keeps its drawn size; the 44pt target is the
+     whole label row. */
+  .settings-sheet .dialog__checkbox-row { min-height: 44px; }
 }
