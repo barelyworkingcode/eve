@@ -180,6 +180,14 @@ test.describe('S4 research citations', () => {
     await page.getByTestId('cite-close').click();
     await expect(popover(page)).toBeHidden();
     await expect(chip1).toBeFocused();
+
+    // A tap on another control closes it and keeps focus there.
+    await chip2.focus();
+    await page.keyboard.press('Enter');
+    await expect(popover(page)).toBeVisible();
+    await page.getByTestId('chat-input').click();
+    await expect(popover(page)).toBeHidden();
+    await expect(page.getByTestId('chat-input')).toBeFocused();
   });
 
   test('6 source text is inert: the title shows literally, no img/iframe/script, no request off eve', async ({ page, eve }) => {

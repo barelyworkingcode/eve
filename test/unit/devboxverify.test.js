@@ -1037,6 +1037,7 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     expect(view.projects.acme).toEqual(loaded.projects.acme);
     expect(view.file('acme', 'todo.txt')).toBe('/srv/world/Acme Corp/todo.txt');
     expect(view.relayMcp).toEqual({ id: 'macmcp', tools: 'mail_*' });
+    expect(view.root).toBe('/srv/world');
     expect(view.projects[Symbol.iterator]).toBeUndefined();
   });
 

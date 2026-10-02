@@ -98,7 +98,7 @@ const Sources = {
       if (typeof o.title !== 'string') continue;
       const key = Sources.normalizeUrl(o.url);
       if (!key) continue;
-      found.push({ url: o.url.trim(), key, host: new URL(key).hostname, title: o.title, excerpt: Sources._excerpt(o) });
+      found.push({ url: new URL(o.url.trim()).href, key, host: new URL(key).hostname, title: o.title, excerpt: Sources._excerpt(o) });
     }
     return found.map((s, i) => Object.assign({ n: i + 1 }, s));
   },

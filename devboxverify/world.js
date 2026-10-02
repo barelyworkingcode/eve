@@ -237,7 +237,7 @@ function scoped(world, needs) {
     return path.join(world.root, world.projects[key].name, rel);
   }
   const relayMcp = Object.freeze({ id: world.relayMcp.id, tools: world.relayMcp.tools });
-  return { projects, file, relayMcp, briefInjection: world.briefInjection || null, searchStub: world.searchStub || null };
+  return { root: world.root, projects, file, relayMcp, briefInjection: world.briefInjection || null, searchStub: world.searchStub || null };
 }
 
 function missingFixtures(journeys, world) {

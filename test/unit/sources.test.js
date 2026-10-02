@@ -116,6 +116,13 @@ describe('Sources excerpt', () => {
   });
 });
 
+describe('Sources.fromResult url', () => {
+  it('stores the parsed href of the trimmed url', () => {
+    const [s] = Sources.fromResult(SEARCH, brave({ url: '  HTTPS://Acme.Example:443/a b  ', title: 'T' }));
+    expect(s.url).toBe('https://acme.example/a%20b');
+  });
+});
+
 describe('Sources.normalizeUrl', () => {
   it.each([
     ['https://ACME.Example/a', 'https://acme.example/a'],
@@ -142,10 +149,10 @@ describe('Sources.turn', () => {
     expect(turn.list().map((s) => [s.n, s.url, s.title])).toEqual([[1, R1.url, R1.title], [2, R2.url, R2.title]]);
   });
 
-  it('keeps the URL as the tool returned it and dedupes on the normalized key', () => {
+  it('keeps the URL as the tool returned it (host lower-cased by the URL parser) and dedupes on the normalized key', () => {
     const turn = Sources.turn();
     turn.add(SEARCH, brave({ url: 'https://Acme.example/launch/#top', title: 'A' }) + brave({ url: 'https://acme.example/launch', title: 'Dup' }));
-    expect(turn.list().map((s) => [s.url, s.key])).toEqual([['https://Acme.example/launch/#top', 'https://acme.example/launch']]);
+    expect(turn.list().map((s) => [s.url, s.key])).toEqual([['https://acme.example/launch/#top', 'https://acme.example/launch']]);
   });
 
   it('match returns a source\'s number for any spelling of its URL, else null', () => {

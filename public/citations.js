@@ -111,9 +111,24 @@ class Citations {
       // The press's own default action moves focus to the target after this
       // handler (after pointerup on touch), so refocus once the click lands.
       if (anchor && anchor.isConnected) {
-        const refocus = () => { clearTimeout(t); if (anchor.isConnected) anchor.focus(); };
-        const t = setTimeout(() => document.removeEventListener('click', refocus, true), 1000);
-        document.addEventListener('click', refocus, { capture: true, once: true });
+        // Armed by this pointer sequence only: its click refocuses the chip
+        // when the tap focused nothing; a tap on another control keeps focus
+        // there. A cancel, a newer press or the timeout disarms it.
+        const disarm = () => {
+          clearTimeout(t);
+          document.removeEventListener('click', refocus, true);
+          document.removeEventListener('pointercancel', disarm, true);
+          document.removeEventListener('pointerdown', disarm, true);
+        };
+        const refocus = () => {
+          disarm();
+          const active = document.activeElement;
+          if ((!active || active === document.body) && anchor.isConnected) anchor.focus();
+        };
+        const t = setTimeout(disarm, 1000);
+        document.addEventListener('click', refocus, true);
+        document.addEventListener('pointercancel', disarm, true);
+        document.addEventListener('pointerdown', disarm, true);
       }
     }, true);
     const reposition = () => { if (!pop.hidden) Citations._place(pop, Citations._anchor); };
