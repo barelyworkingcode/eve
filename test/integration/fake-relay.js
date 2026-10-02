@@ -986,6 +986,9 @@ function createFakeRelay({ token = null } = {}) {
       closed = true;
       for (const ws of [...relayWs, ...schedulerWs]) { try { ws.terminate(); } catch {} }
       wss.close(() => server.close(() => resolve()));
+      // A closing relay drops its sockets; server.close() alone waits for
+      // eve's keep-alive connections to drain, which can outlast a test.
+      server.closeAllConnections();
     }),
   };
 }
