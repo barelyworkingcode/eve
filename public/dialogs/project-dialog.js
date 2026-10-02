@@ -47,11 +47,29 @@ class ProjectDialog extends DialogBase {
     if (typeof this.api.getHosts !== 'function') return;
     try {
       const hosts = await this.api.getHosts();
+      const before = this._hostsSignature();
       if (typeof this.state.setHosts === 'function') this.state.setHosts(hosts);
-      if (this._activeTab === 'general') this._renderGeneralTab();
+      if (this._activeTab === 'general' && this._hostsSignature() !== before) this._updateHostControls();
     } catch (err) {
       this.log.warn('Could not load hosts:', err);
     }
+  }
+
+  _hostsSignature() {
+    return JSON.stringify(this._hosts().map(h => [h.id, h.name, this.state.hostStatus?.(h.id) || h.status || 'unknown']));
+  }
+
+  // Hosts arrive while the user may be typing: swap only the Where control and
+  // the path field's wording, never the inputs or Save, and never move focus.
+  _updateHostControls() {
+    const old = this._whereControl;
+    if (!old?.isConnected) return;
+    const scratch = document.createElement('div');
+    this._renderWhere(scratch);
+    old.replaceWith(this._whereControl);
+    const host = this._hostId ? this._hosts().find(h => h.id === this._hostId) : null;
+    this._pathInput.previousElementSibling.textContent = host ? `Path on ${host.name}` : 'Directory Path';
+    this._pathInput.placeholder = host ? '/home/you/project' : '/path/to/project';
   }
 
   render() {
@@ -194,6 +212,7 @@ class ProjectDialog extends DialogBase {
       });
     }
     parent.appendChild(control);
+    this._whereControl = control;
   }
 
   // Models are admin config owned by Relay; the dialog only shows them.
