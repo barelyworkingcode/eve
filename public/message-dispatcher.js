@@ -323,8 +323,9 @@ class MessageDispatcher {
   _handleError(data) {
     // A refusal with no session, while Today's Ask has a create in flight, is Ask's.
     if (!data.sessionId && this.state.pendingAsk) {
+      const origin = this.state.pendingAsk.origin;
       this.state.pendingAsk = null;
-      this.bus.emit(EVT.ASK_FAILED, { message: data.message });
+      this.bus.emit(EVT.ASK_FAILED, { message: data.message, origin });
     }
     this._untrackStreaming(data.sessionId);
     this.renderer.hideThinkingIndicator();
@@ -515,6 +516,14 @@ class MessageDispatcher {
         this.backgroundBuffers.set(sid, buf);
       }
 
+      if (event.type === 'user') {
+        // Claude tool_result blocks; the buffer renders nothing for them.
+        for (const block of event.message?.content || []) {
+          if (block?.type === 'tool_result') this._noteRefusal(sid, block);
+        }
+        return;
+      }
+
       if (event.type === 'assistant') {
         if (event.message?.content) {
           for (const block of event.message.content) {
@@ -556,6 +565,7 @@ class MessageDispatcher {
           this._trackBackgroundSidechain(buf, toolBlock);
         }
       } else if (event.type === 'result' && event.subtype === 'tool_result') {
+        this._noteRefusal(sid, event);
         const id = event.tool_use_id;
         if (!id) return;
         buf._ttsSidechainIds?.delete(id);
@@ -656,7 +666,7 @@ class MessageDispatcher {
     if (ask) {
       this.state.pendingAsk = null;
       this.app.sendUserText(data.sessionId, ask.text, ask.files);
-      this.bus.emit(EVT.ASK_SENT, { sessionId: data.sessionId });
+      this.bus.emit(EVT.ASK_SENT, { sessionId: data.sessionId, origin: ask.origin });
     }
     this.sidebar.renderProjectList();
     this.modalManager.hideSessionModal();
@@ -886,6 +896,7 @@ class MessageDispatcher {
     if (!Array.isArray(content)) return;
     for (const block of content) {
       if (block?.type !== 'tool_result') continue;
+      this._noteRefusal(this.state.currentSessionId, block);
       if (this._maybeCloseSidechain(block.tool_use_id, block.content)) continue;
 
       const renderer = this._activeRenderer();
@@ -1126,6 +1137,12 @@ class MessageDispatcher {
     this._activeRenderer().updateToolInput(parsed);
   }
 
+  // Tell the bus a tool call was refused (see core/refusal.js). Renders nothing.
+  _noteRefusal(sessionId, result) {
+    const refusal = Refusal.detect(result);
+    if (refusal && sessionId) this.bus.emit(EVT.TOOL_REFUSED, { sessionId, ...refusal });
+  }
+
   handleResultEvent(event) {
     if (event.subtype === 'error') {
       // Tool errors are session-level — always surface on the main thread.
@@ -1133,6 +1150,7 @@ class MessageDispatcher {
     } else if (event.subtype === 'tool_progress') {
       this._activeRenderer().updateToolProgress(event.tool_name, event.message);
     } else if (event.subtype === 'tool_result') {
+      this._noteRefusal(this.state.currentSessionId, event);
       if (this._maybeCloseSidechain(event.tool_use_id, event.content)) return;
       const renderer = this._activeRenderer();
       if (event.content) renderer.appendToolResult(event.content, event.tool_use_id);

@@ -90,8 +90,8 @@ class AskPart {
       'today:source:sessions', EVT.MODELS_LOADED]) {
       ctx.on(evt, () => this._retryQueued());
     }
-    ctx.on(EVT.ASK_FAILED, ({ message }) => this._onFailed(message));
-    ctx.on(EVT.ASK_SENT, () => { this._pending = false; this.input.value = ''; this._failure = ''; ctx.state.askAbout = null; this.update(); });
+    ctx.on(EVT.ASK_FAILED, ({ message, origin }) => { if (origin === 'ask') this._onFailed(message); });
+    ctx.on(EVT.ASK_SENT, ({ origin }) => { if (origin !== 'ask') return; this._pending = false; this.input.value = ''; this._failure = ''; ctx.state.askAbout = null; this.update(); });
     ctx.on(EVT.ASK_ABOUT, () => { this._failure = ctx.state.askAbout?.note || ''; this.update(); this.focus(true); });
 
     ctx.sources.projects.ensure();
@@ -245,7 +245,7 @@ class AskPart {
     msg = applyChatDefaults(msg, state.models);
     const item = state.askAbout?.attachment;
     const files = item ? [{ name: item.name, content: item.content, type: 'text', mediaType: 'text/plain' }] : [];
-    state.pendingAsk = { text, projectId: plan.project.id, files };
+    state.pendingAsk = { text, projectId: plan.project.id, files, origin: 'ask' };
     this._pending = true;
     this.update();
     // The socket can drop between plan() and here; a lost send must not leave

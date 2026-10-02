@@ -433,7 +433,7 @@ describe('devboxverify journey table', () => {
     'passkey-sign-in', 'agent-sign-in-refused', 'agent-enrol-refused', 'add-browser-in-window',
     'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
     'settings-sheet', 'project-admin-in-relay', 'project-mode-new', 'brief-injection-refused',
-    'mode-presets',
+    'mode-presets', 'ask-in-other-mode',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -470,6 +470,7 @@ describe('devboxverify journey table', () => {
       'passkey-first-enrol': [], 'landing-view': [], 'add-browser-in-window': [],
       'settings-sheet': [], 'project-mode-new': [], 'project-admin-in-relay': acme,
       'world-projects-listed': all, 'terminal-on-request': all, 'brief-injection-refused': ['project:home'],
+      'ask-in-other-mode': ['project:acme', 'project:home'],
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
@@ -496,7 +497,7 @@ describe('devboxverify journey table', () => {
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file',
-      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'project-mode-new',
+      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'ask-in-other-mode', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -510,6 +511,7 @@ describe('devboxverify journey table', () => {
     ['brief-injection-refused', 'docs/design-brief.md', ['home', 'tasks'], 360000],
     ['mode-presets', 'docs/design-mode-presets.md', ['home', 'projects', 'settings'], 90000],
     ['voice-deep-link', 'docs/design-mode-presets.md', ['projects', 'voice'], 90000],
+    ['ask-in-other-mode', 'docs/design-mode-presets.md', ['chat', 'home'], 240000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -701,6 +703,18 @@ describe('devboxverify/journey-kit.js callToolRows', () => {
       { ts: since + 1000, tool: 'mail_list_accounts', outcome: 'ok' },
       { ts: since + 2000, tool: 'contacts_list', outcome: 'denied' },
     ]);
+  });
+
+  // S3b ask-in-other-mode: relay's audit marks macMCP's scope refusal with a field, not an outcome.
+  it.each([
+    ['true', true, { scopeViolation: true }],
+    ['false', false, {}],
+    ['absent', undefined, {}],
+    ['a non-boolean', 'true', {}],
+  ])('carries scope_violation %s as scopeViolation only when it is true', (_label, value, extra) => {
+    const jsonl = line({ ts: '2026-10-01T03:30:01Z', tool: 'mail_get_emails', outcome: 'tool_error', scope_violation: value });
+    expect(callToolRows(jsonl, { projectId: 'p1', sinceMs: since }))
+      .toEqual([{ ts: since + 1000, tool: 'mail_get_emails', outcome: 'tool_error', ...extra }]);
   });
 });
 

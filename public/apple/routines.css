@@ -126,7 +126,8 @@
 
 /* "Make this a routine" panel (S5b-A2). Docks on the right on wide and
    regular; a full-width sheet on compact. */
-.routine-panel__trigger {
+.routine-panel__trigger,
+.ask-elsewhere__trigger {
   flex: none;
   padding: var(--sp-1, 4px) var(--sp-3);
   border: 1px solid var(--border);
@@ -138,8 +139,10 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.routine-panel__trigger:hover { background: var(--bg-hover); }
+.routine-panel__trigger:hover,
+.ask-elsewhere__trigger:hover { background: var(--bg-hover); }
 .routine-panel__trigger.hidden,
+.ask-elsewhere__trigger.hidden,
 .routine-panel.hidden { display: none; }
 .routine-panel {
   position: fixed;

@@ -186,6 +186,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Plan approval bar (Approve / Revise) | UI: `#planApprovalBar` | Plan mode proposes a plan | none yet — not a gate: Approve sends a user turn | chat |
 | Permission mode banner and control | UI: `message-renderer.js`; WS `set_permission_mode` | Chat header | none yet — not written | chat |
 | Project permission policy | relay Settings on the Mac; eve's project dialog has no Permissions tab and never sends `permission_policy` | Relay | project-admin-in-relay (no tab; Save keeps relay's policy) | projects |
+| Ask in the other mode: when a tool call in a text thread is refused (relay's `access denied: `, or macMCP's scope check), the chat header shows `thread-ask-elsewhere` ("Ask in Work" or "Ask in Home"); a tap switches mode and opens a new thread in that mode's project with the last question. The first thread is untouched ([design-mode-presets.md](design-mode-presets.md)) | UI: `public/ask-elsewhere.js`, `core/refusal.js`, `message-dispatcher.js`; WS `create_session`, `user_input` | Chat header, after a refusal | ask-in-other-mode; cloud specs `goals/ask-elsewhere` | chat, home |
 | Agent-opened image tabs (`eve-control` MCP) | `mcp/main.js`, `ui-command-bus.js`, `POST /internal/ui-command` | Agent calls `eve_open_tab` | none yet — model-dependent | ui-control |
 
 ### G9 · Talk hands-free
@@ -307,9 +308,9 @@ areas:
            public/apple/home.css, public/apple/palette.css]
     tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/unit/session-activity.test.js,
             test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
-            test/e2e/goals/home-screen.spec.js, test/e2e/goals/mode-presets.spec.js]
+            test/e2e/goals/home-screen.spec.js, test/e2e/goals/mode-presets.spec.js, test/e2e/goals/ask-elsewhere.spec.js]
     journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file, routine-from-thread,
-               project-mode-new, brief-injection-refused, mode-presets]
+               project-mode-new, brief-injection-refused, mode-presets, ask-in-other-mode]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
@@ -334,8 +335,8 @@ areas:
             test/unit/permission-*.test.js, test/unit/persist-session-label.test.js,
             test/unit/file-attachment-manager-init.test.js, test/integration/sessions.test.js,
             test/integration/session-*.test.js, test/integration/permissions.test.js, test/e2e/chat*.spec.js,
-            test/e2e/template-blank-model.spec.js]
-    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread]
+            test/e2e/template-blank-model.spec.js, test/e2e/goals/ask-elsewhere.spec.js]
+    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode]
   terminal:
     code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,
            public/agent-board.js, public/core/terminal-text.js, public/apple/terminal.css, public/apple/agents.css]
