@@ -134,13 +134,13 @@ describe('caps', () => {
     expect(long.startsWith('a'.repeat(cap - 2))).toBe(true);
   });
 
-  // A url past 2048 is either dropped or capped with "…"; the item stays either way.
+  // A url past 2048 is dropped (a cut link would be broken); the item stays.
   it('url at 2048', () => {
     const at = (n) => `https://acme.test/${'a'.repeat(n - 'https://acme.test/'.length)}`;
     const item = (url) => ok({ renderer: 'list', items: [{ title: 't', url }] }).items[0];
     expect(item(at(2048)).url).toBe(at(2048));
     const long = item(at(2100));
     expect(long.title).toBe('t');
-    expect(long.url === null || (long.url.length <= 2048 && long.url.endsWith('…'))).toBe(true);
+    expect(long.url).toBeNull();
   });
 });
