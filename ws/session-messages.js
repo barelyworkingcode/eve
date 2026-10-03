@@ -1,5 +1,6 @@
 const SlashCommandHandler = require('../slash-command-handler');
 const AttachedFiles = require('../public/core/attached-files');
+const SourceUrls = require('../public/core/source-urls');
 const { EMOTION, DELIVERY } = require('../tts-director');
 
 // Stateless — takes ws/relayClient as call-time arguments on every
@@ -113,7 +114,7 @@ function handleUserInput(ctx) {
   const attachments = message.files || [];
   const files = attachments.filter(isImageAttachment).map(parseFileAttachment);
 
-  let finalText = (message.text ?? '') + attachments.filter((f) => !isImageAttachment(f)).map(inlineTextAttachment).join('');
+  let finalText = (message.text ?? '') + SourceUrls.format(SourceUrls.accept(message.urls)) + attachments.filter((f) => !isImageAttachment(f)).map(inlineTextAttachment).join('');
 
   if (message.dictated) {
     finalText = DICTATION_NOTICE + finalText;

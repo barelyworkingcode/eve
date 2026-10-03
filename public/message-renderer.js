@@ -286,7 +286,7 @@ class MessageRenderer {
     // drops empty strings on the wire and Eve would otherwise interpolate
     // `undefined`. Fall back to a generic label.
     const displayName = toolName || 'tool';
-    this.citations.noteToolUse(toolUseId, toolName);
+    this.citations.noteToolUse(toolUseId, toolName, input);
 
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant';
@@ -402,7 +402,7 @@ class MessageRenderer {
     return firstLine.length === 80 ? firstLine + '…' : firstLine;
   }
 
-  appendUserMessage(text, files = []) {
+  appendUserMessage(text, files = [], urls = []) {
     this.citations.resetTurn();
     const messageEl = document.createElement('div');
     messageEl.className = 'message user';
@@ -412,17 +412,27 @@ class MessageRenderer {
     // per file instead (the live send passes `files`, with the text separate).
     const inlined = AttachedFiles.parse(text);
     const shownFiles = files.length > 0 ? files : inlined.files;
-    const displayText = inlined.text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '').replace(/^\[DICTATED\][^\n]*\n\n/, '');
+    const inlinedUrls = SourceUrls.parse(inlined.text);
+    const shownUrls = urls.length > 0 ? urls : inlinedUrls.urls;
+    const displayText = inlinedUrls.text.replace(/^\[VOICE MODE\][^\n]*\n\n/, '').replace(/^\[DICTATED\][^\n]*\n\n/, '');
 
     const content = document.createElement('div');
     content.className = 'message-content';
-    if (shownFiles.length > 0) {
+    if (shownFiles.length > 0 || shownUrls.length > 0) {
       const filesEl = document.createElement('div');
       filesEl.className = 'message-files';
       for (const f of shownFiles) {
         const chip = document.createElement('span');
         chip.className = 'message-file';
         chip.textContent = f.name;
+        filesEl.appendChild(chip);
+      }
+      for (const href of shownUrls) {
+        const chip = document.createElement('span');
+        chip.className = 'message-file message-url';
+        chip.dataset.testid = 'message-url-chip';
+        chip.title = href;
+        chip.textContent = SourceUrls.label(href);
         filesEl.appendChild(chip);
       }
       content.appendChild(filesEl);
@@ -434,7 +444,7 @@ class MessageRenderer {
 
     if (this.app.state.currentSessionId && !this.isRenderingHistory) {
       const history = this.app.state.sessionHistories.get(this.app.state.currentSessionId) || [];
-      history.push({ role: 'user', content: text, files });
+      history.push({ role: 'user', content: text, files, urls });
       this.app.state.sessionHistories.set(this.app.state.currentSessionId, history);
     }
   }
@@ -497,7 +507,7 @@ class MessageRenderer {
 
     for (const msg of messages) {
       if (msg.role === 'user') {
-        this.appendUserMessage(msg.content, msg.files || []);
+        this.appendUserMessage(msg.content, msg.files || [], msg.urls || []);
       } else if (msg.role === 'assistant') {
         // Tool calls live inside content as tool_use blocks — there is no
         // separate toolCalls field.
@@ -679,6 +689,7 @@ class MessageRenderer {
 
   updateToolInput(input) {
     if (!this.currentToolBlock || !input) return;
+    if (typeof input === 'object') this.citations.noteToolInput(this.currentToolBlock.dataset.toolUseId, input);
     const existing = this.currentToolBlock.querySelector('.tool-input');
     let summary = '';
     if (typeof input === 'string') {

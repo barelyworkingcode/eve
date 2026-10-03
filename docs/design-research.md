@@ -24,6 +24,13 @@ Citations depend on the model linking its claims. This prompt is a recommendatio
 
 A link to a URL the search did not return stays an ordinary link.
 
+
+## Pasted-URL chips: a read page is a source
+- A pasted link is a chip in Ask and the chat box (`SourceUrls`, `public/core/source-urls.js`). On send, eve appends one "Sources to read" block after the typed text; the browser strips it on replay and shows chips.
+- A `web_fetch` tool (name `web_fetch` or ending in `__web_fetch`) for an `http:`/`https:` URL whose result starts `HTTP 2xx` adds one source, numbered with search sources in first-seen order and deduplicated by the same normalized URL. Errors, refusals and non-2xx add none.
+- Title is the page's `<title>`, else host and path. The excerpt is the visible text of what the tool returned: comments, `<head>`, `<script>` and `<style>` removed (an unclosed one runs to the end), tags stripped, the five basic entities decoded, whitespace collapsed, at most 600 characters. Relay's `\n...(truncated)` and macMCP's `\n\n…[truncated to <n> bytes]` tails are dropped first.
+- Live streams give a tool's input only at `content_block_stop`, so `Citations` keeps the input per tool id and updates it from `updateToolInput`.
+
 ## Decisions
 1. A source is a `brave_web_search` result, and its excerpt is exactly what the model saw.
 2. Citations are links matched by URL. Other links stay links.
@@ -38,8 +45,8 @@ A link to a URL the search did not return stays an ordinary link.
 - **Phone bottom sheet:** one anchored popover kept inside the viewport works on desktop, iPad and phone.
 - **Bare `[n]` markers:** the model and eve share no numbering. Links matched by URL are deterministic.
 - **Hover popovers:** click and tap work on every device.
-- **`brave_llm_context`, macMCP `web_fetch`, Claude's built-in WebSearch and WebFetch:** llm_context returns one blob that relay's 8 KB cap cuts, `web_fetch` returns raw HTML, and the built-ins give titles or a model summary, not an excerpt. Their links stay ordinary.
-- **Keep as page, pasted-URL chips, "Make this a routine" from research:** later.
+- **`brave_llm_context`, Claude's built-in WebSearch and WebFetch:** llm_context returns one blob that relay's 8 KB cap cuts, and the built-ins give titles or a model summary, not an excerpt. Their links stay ordinary.
+- **Keep as page, "Make this a routine" from research:** later.
 
 ## Open owner questions
 1. **The Brave grant shape (owner config, Secrets).** "Research presets only" cannot be expressed in relay today. Recommendation: one Research project per mode with only Brave granted, plus a `Research` template carrying the prompt above. Nothing in S4 depends on it.
