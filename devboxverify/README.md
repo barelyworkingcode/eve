@@ -455,6 +455,56 @@ thread must show the same row and chips.
   reply is never the evidence) or the answer links no result URL. A cleanup
   deletes every session in `Research` (test-world config only).
 
+**ask-pasted-url.** A link pasted into Today's Ask is a chip and a source
+the model is told to read (pasted-URL chips, A1, A4, A5). In Work (setup V2),
+with `EVE_VERIFY_MODEL` as `eve-ask-model`, the journey pastes
+`https://docs.example/verify-<nonce>/guide` into `today-ask-input` through
+the clipboard and Cmd/Ctrl+V. Within 5 s `today-ask-url-1` must show the label
+`docs.example/verify-<nonce>/guide` with the full URL as its tooltip, and the
+box must stay empty. It types `verify-<nonce> what does this page say?` and
+presses Return: exactly one new Acme Corp session, exactly one `user_input`
+frame with `urls` equal to `[<the URL>]` and `text` equal to the typed text.
+The user message must show one `message-url-chip` with that label and
+tooltip, the typed text and nothing else, and never "Sources to read". The
+reply is stopped and is not evidence. Reopened from the project page's
+Threads in a fresh page, then reloaded, the same message must show the same
+chip and text; there the chip can only come from the text eve stored.
+- Lives in: `public/url-chips.js` (`UrlChips`) ← `public/today/parts/ask-part.js`;
+  `public/core/source-urls.js` (`fromPaste`, `label`, `format`, `parse`);
+  `ws/session-messages.js` (`handleUserInput`, the sources block);
+  `public/message-renderer.js` (`appendUserMessage`).
+- Traps: FAIL without setup V2. BLOCKED when the model is not offered in Acme
+  Corp. The clipboard needs the page's origin granted, which the journey does;
+  eve-verify's `localhost` is a secure context. A cleanup deletes the new
+  thread.
+
+**chat-pasted-url-source.** A page pasted into a chat is read and listed as
+a source (pasted-URL chips, A1, A5, A6). The journey serves one page on
+`127.0.0.1` at an ephemeral port, path `/verify-<nonce>.html`: title
+`verify-<nonce> lighthouse`, the sentence `The verify-<nonce> lighthouse is
+painted green.`, and a `<script>` holding `verify-<nonce>-script`. In
+`Research` (setups R1 and R1b) a web chat with `EVE_VERIFY_MODEL` gets the
+page URL pasted into `chat-input`: `chat-url-1` must show with the URL as its
+tooltip and the box must stay empty. It sends `verify-<nonce>: What colour is
+the lighthouse on this page? Answer in one sentence ending with a markdown
+link to the page.` and waits up to 120 s. `relay audit --event call_tool
+--project <research id> --json` since the send must hold an `ok`
+`web_fetch` row, and the page server must have logged a GET of the path.
+`answer-source-1` must show `127.0.0.1` and 1; opening it shows title
+`verify-<nonce> lighthouse` and an excerpt holding the sentence and not the
+script marker. When the answer links the page, `cite-chip-1` opens the same
+source. The user message shows one `message-url-chip` and the typed text.
+Reopened from Threads, then reloaded: the same card, popover and chip.
+- Lives in: `public/url-chips.js` ← `public/app.js` (`handleSubmit`);
+  `public/core/sources.js` (`isFetchTool`, `fromFetch`) → `public/citations.js`
+  ← `public/message-renderer.js` (tool input at `content_block_stop`);
+  macMCP's `web_fetch`, granted by setup R1b.
+- Traps: BLOCKED setup without exactly one `Research` project, a Web Chat
+  card or the model; BLOCKED setup R1b when relay's audit shows `web_fetch`
+  denied; BLOCKED model when there is no `web_fetch` row at all (the reply is
+  never the evidence). A missing GET with an `ok` row is FAIL. A cleanup
+  deletes every session in `Research` and closes the page server.
+
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates
 `verify-<nonce>-fails` in Acme Corp: on demand, `sessionType: 'pty'`,
@@ -547,6 +597,13 @@ judged.
   without it.
   After any change to the world's `search_stub` data, restart the stub (kill
   its python process; relay respawns it), or it serves the old results.
+- **S3 · R1b.** macMCP's `web_fetch` for `Research`, presence-gated in
+  Relay, done once at the console. Test-world config like R1: grant the
+  macMCP server to the `Research` project with allowed tools `web_fetch` only,
+  access read, outbound allowed. `web_fetch` is marked read-only and
+  open-world, so read access admits it and outbound must be on. The owner's
+  own projects are untouched. chat-pasted-url-source is BLOCKED setup R1b
+  while relay's audit shows the fetch denied.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at
