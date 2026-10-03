@@ -61,4 +61,17 @@ describe('RoutineHistory', () => {
     expect(h.newest({ id: 'c', lastStatus: 'success', lastRun: '1' })).toBeNull();
     expect(load).toHaveBeenCalledTimes(3);
   });
+
+  test('a custom pick reads the whole history, and its result is cached per (task, lastRun)', async () => {
+    const entries = [{ status: 'error', error: 'output file not produced' }, { status: 'success', output: '{}' }];
+    const load = jest.fn(async () => entries);
+    const h = new RoutineHistory({ load, onChange: jest.fn(), limit: 5, pick: (list) => ({ newest: list[0], good: list[1] }) });
+    const t = { id: 'a', lastStatus: 'error', lastRun: '1' };
+    expect(h.newest(t)).toBeNull();
+    await flush();
+    expect(h.newest(t)).toEqual({ newest: entries[0], good: entries[1] });
+    expect(load).toHaveBeenCalledTimes(1);
+    h.newest({ ...t, lastRun: '2' });
+    expect(load).toHaveBeenCalledTimes(2);
+  });
 });

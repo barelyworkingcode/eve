@@ -434,7 +434,7 @@ describe('devboxverify journey table', () => {
     'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
     'settings-sheet', 'project-admin-in-relay', 'project-mode-new', 'brief-injection-refused',
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
-    'ask-pasted-url', 'chat-pasted-url-source',
+    'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -472,6 +472,7 @@ describe('devboxverify journey table', () => {
       'settings-sheet': [], 'project-mode-new': [], 'project-admin-in-relay': acme,
       'world-projects-listed': all, 'terminal-on-request': all, 'brief-injection-refused': ['project:home'],
       'ask-in-other-mode': ['project:acme', 'project:home'], 'research-citations': [], 'chat-pasted-url-source': [],
+      'today-custom-part': ['project:acme', 'project:home'],
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
@@ -498,7 +499,7 @@ describe('devboxverify journey table', () => {
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'listen', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url',
-      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'ask-in-other-mode', 'research-citations',
+      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
       'chat-pasted-url-source', 'project-mode-new',
       'add-browser-in-window',
     ]);

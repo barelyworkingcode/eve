@@ -156,6 +156,8 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Routine-failure notifications (background, not user-visible yet): a `task_error` from relayScheduler appends one line to `notifications.jsonl` in the data dir, with or without a browser open; nothing leaves the machine ([design-on-the-go.md](design-on-the-go.md)) | Server: `notifier.js`, `routine-failure-watcher.js` (own `/ws/tasks` socket) | Background; read the file | routine-failed-notifies; integration `routine-failure-notify` | tasks |
 | View a task's last or live run | UI: `public/task-viewer.js`; API: `GET /api/tasks/:taskId/history` | Project page → Tasks → a task | task-created-listed (last run after reload) | tasks |
 | Today Routines part: routines that finished in the last 24 h, newest first, unseen ones marked (seen is per device, `eve-routines-seen`); hidden when none | UI: `public/today/parts/routines-part.js`, `routine-history.js` | Today | cloud specs `goals/routines-today` | home, tasks |
+| Custom Today card: a terminal routine with an output file is a card after the Morning brief, titled with the routine, in its project's mode. It shows the newest successful run's JSON output (`list`, `table` or `metrics`) with "Ran <time>", Refresh runs the routine and the card updates without a reload, a failed run keeps the last output marked Stale with the reason and Retry, unreadable output says "Output not understood" with the raw text behind a disclosure. Output is untrusted and shown as plain text; only `http:`/`https:` links become links; opening Today runs nothing (design: `docs/design-today-custom.md`) | UI: `public/today/parts/custom-part.js`, `public/today/custom-output.js`, `public/routine-history.js`; API: `GET /api/tasks/:taskId/history`, `POST /api/tasks/:taskId/run` | Today | cloud specs `goals/today-custom`; journey `today-custom-part` | home, tasks |
+| Output file field in the routine dialog (`task-dialog-output-file`, Advanced, terminal routines in console projects only) with a warning that the script can change any file it can reach (`task-dialog-output-warning`); setting it needs a passkey session, the trusted-network bypass gets a plain refusal | UI: `public/dialogs/task-dialog.js`; API: `POST`/`PUT /api/tasks` (`outputFile`), guard in `routes/index.js` | Project page → Routines → New or Edit → Advanced | cloud spec `goals/today-custom`; journey `today-custom-part` | tasks, home |
 | What a routine's project called through Relay (sheet section; `call_tool` rows, allowed or denied; Claude Code's built-in tools never appear) | UI: `public/routine-audit.js`, `project-audit.js`; API: `GET /api/projects/:id/audit` | Routine sheet | routine-touched; cloud spec `goals/routines-audit` | tasks, terminal |
 | Running indicators (Today dot and count, rail and panel dots): a turn in progress in a joined thread or an executing task run; a live idle process shows none | UI: `public/today/**`, `project-panel.js`, `project-page.js`, `activity-rail.js`; `core/session-activity.js` | Home, rail, project page | none yet — cloud specs `goals/today-truth` | home |
 | Changes tab (repos, worktrees, counts) | UI: `public/sidebar/changes-panel.js`; WS `git_changes` | Project panel → Changes | changes-diff | git |
@@ -314,7 +316,7 @@ areas:
             test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
             test/e2e/goals/home-screen.spec.js, test/e2e/goals/mode-presets.spec.js, test/e2e/goals/ask-elsewhere.spec.js]
     journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file, routine-from-thread,
-               project-mode-new, brief-injection-refused, mode-presets, ask-in-other-mode, ask-pasted-url]
+               project-mode-new, brief-injection-refused, mode-presets, ask-in-other-mode, ask-pasted-url, today-custom-part]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
@@ -357,7 +359,7 @@ areas:
     tests: [test/unit/task-*.test.js, test/integration/tasks.test.js, test/e2e/task-dialog-models.spec.js,
             test/e2e/schedules-and-connection.spec.js, test/unit/notifier.test.js,
             test/unit/routine-failure-watcher.test.js, test/integration/routine-failure-notify.test.js]
-    journeys: [task-created-listed, routine-from-thread, routine-touched, brief-injection-refused, routine-failed-notifies]
+    journeys: [task-created-listed, routine-from-thread, routine-touched, brief-injection-refused, routine-failed-notifies, today-custom-part]
   files:
     code: [ws/file-messages.js, file-handlers.js, file-service.js, file-watcher.js, dir-watcher.js, public/file-browser.js,
            public/file-editor.js, public/html-preview-pane.js, public/viewers/**, public/sidebar/file-tree-node.js,

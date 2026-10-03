@@ -249,6 +249,55 @@ describe('routes/index proxy + auth surface', () => {
     });
   });
 
+  describe('a routine\'s outputFile needs a passkey session', () => {
+    const REFUSAL = { error: 'Only a browser signed in with a passkey can set up a Today card.' };
+    const save = (method, body, headers = {}) => fetch(`${baseUrl}/api/tasks${method === 'PUT' ? '/t1' : ''}`, {
+      method, headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+    });
+    const card = { name: 'Inbox today', sessionType: 'pty', templateId: 'shell', outputFile: 'today.json' };
+
+    beforeEach(() => {
+      deps.authService.isEnrolled.mockReturnValue(true);
+      deps.trustedNetwork.isTrusted.mockReturnValue(true);
+      deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: { id: 't1' } });
+    });
+    afterEach(() => { delete process.env.EVE_NO_AUTH; });
+
+    it.each([
+      ['POST', 'no token', {}], ['PUT', 'no token', {}], ['POST', 'a token that is not a session', { 'x-session-token': 'forged' }],
+    ])('%s from the trusted-network bypass with %s is refused with 403 and never reaches relay', async (method, _what, headers) => {
+      const res = await save(method, card, headers);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual(REFUSAL);
+      expect(deps.relayTransport.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each(['POST', 'PUT'])('%s with a valid passkey session is proxied', async (method) => {
+      deps.authService.validateSession.mockImplementation((t) => t === 'good');
+      const res = await save(method, card, { 'x-session-token': 'good' });
+      expect(res.status).toBe(200);
+      expect(deps.relayTransport.fetch).toHaveBeenCalledWith(method, method === 'PUT' ? '/api/tasks/t1' : '/api/tasks', card);
+    });
+
+    it.each([
+      ['no outputFile', { name: 'Plain', sessionType: 'pty', templateId: 'shell' }],
+      ['an empty outputFile', { ...card, outputFile: '' }],
+    ])('the bypass may still save a routine with %s', async (_what, body) => {
+      for (const method of ['POST', 'PUT']) {
+        const res = await save(method, body);
+        expect(res.status).toBe(200);
+      }
+      expect(deps.relayTransport.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('EVE_NO_AUTH=1 lets it through with no session', async () => {
+      process.env.EVE_NO_AUTH = '1';
+      const res = await save('POST', card);
+      expect(res.status).toBe(200);
+      expect(deps.relayTransport.fetch).toHaveBeenCalledWith('POST', '/api/tasks', card);
+    });
+  });
+
   describe('GET /api/tts/voices', () => {
     it('caches the voice list (second hit does not re-query the daemon)', async () => {
       deps.ttsService.listVoices.mockResolvedValue([{ id: 'af_heart' }]);

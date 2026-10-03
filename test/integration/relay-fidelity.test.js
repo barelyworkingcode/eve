@@ -280,6 +280,7 @@ describe('tasks as relayScheduler serves them (api.go, task.go, scheduler.go)', 
   });
   afterAll(async () => { await relay.close(); });
   const chat = (over = {}) => ({ name: 'Nightly', projectId: 'p1', prompt: 'Say hello.', model: 'm', schedule: { type: 'on_demand' }, enabled: true, ...over });
+  const PTY = { sessionType: 'pty', templateId: 'shell', prompt: '', model: '' };
   const post = (body) => fetch(`${base}/api/tasks`, { method: 'POST', ...json(body) });
   const until = async (pred) => { for (let i = 0; i < 100 && !pred(); i++) await new Promise((r) => setTimeout(r, 10)); };
 
@@ -292,6 +293,9 @@ describe('tasks as relayScheduler serves them (api.go, task.go, scheduler.go)', 
     [{ model: '  ' }, 'task "Nightly": model is required for chat tasks'],
     [{ sessionType: 'pty' }, 'templateId is required for PTY tasks'],
     [{ sessionType: 'other' }, 'invalid sessionType "other" (expected "headless" or "pty")'],
+    [{ outputFile: 'today.json' }, 'outputFile is only for PTY tasks'],
+    ...['../x', 'a/b', '/abs', '.', '..'].map((f) => [{ ...PTY, outputFile: f }, 'outputFile must be a file name, not a path']),
+    [{ ...PTY, outputFile: 'today.json', directory: '/tmp' }, 'outputFile needs the task to run in its project directory; remove directory'],
   ])('create refuses %j with 400 "%s"', async (over, message) => {
     const res = await post(chat(over));
     expect(res.status).toBe(400);
@@ -396,6 +400,31 @@ describe('tasks as relayScheduler serves them (api.go, task.go, scheduler.go)', 
     await fetch(`${base}/api/tasks/${created.id}/run`, { method: 'POST' });
     await until(() => relay.taskHistory(created.id).length === 2 && relay.taskHistory(created.id)[0].status === 'success');
     expect(runSettings()).toEqual({ headless: true });
+  });
+
+  it('outputFile round-trips; update refuses what create refuses; output is recorded only for a successful run of a task with one', async () => {
+    const card = await (await post(chat({ ...PTY, name: 'Inbox today', outputFile: 'today.json' }))).json();
+    expect((await (await fetch(`${base}/api/tasks/${card.id}`)).json()).outputFile).toBe('today.json');
+    const bad = await fetch(`${base}/api/tasks/${card.id}`, { method: 'PUT', ...json(chat({ ...PTY, name: 'Inbox today', outputFile: 'a/b' })) });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual({ error: 'outputFile must be a file name, not a path' });
+    const plain = await (await post(chat({ ...PTY, name: 'No card' }))).json();
+    const runTo = async (id, finish) => {
+      expect((await fetch(`${base}/api/tasks/${id}/run`, { method: 'POST' })).status).toBe(200);
+      relay.finishTask(id, finish);
+      return (await fetch(`${base}/api/tasks/${id}/history`)).json();
+    };
+    relay.holdTaskRuns();
+    try {
+      const text = '{"renderer":"list","items":[]}';
+      let history = await runTo(card.id, { status: 'success', exitCode: 0, response: 'noise\r\n', output: text });
+      expect(history[0]).toMatchObject({ status: 'success', exitCode: 0, response: 'noise\r\n', output: text });
+      history = await runTo(card.id, { status: 'error', exitCode: 3, error: 'process exited with code 3', output: text });
+      expect(history[0]).toMatchObject({ status: 'error', exitCode: 3 });
+      expect(history[0]).not.toHaveProperty('output');
+      expect(history[1].output).toBe(text);
+      expect((await runTo(plain.id, { status: 'success', exitCode: 0, output: text }))[0]).not.toHaveProperty('output');
+    } finally { relay.holdTaskRuns(false); }
   });
 
   it('delete is 200 {"deleted":true}; by-project reports the count', async () => {

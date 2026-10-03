@@ -541,6 +541,24 @@
 .today-brief__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .today-brief__model { max-width: 100%; min-width: 0; }
 
+/* Custom Today cards. Output is untrusted: wrap it, never let it widen the page. */
+.today-custom { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.today-custom__line, .today-custom__detail, .today-custom__title { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.today-custom__line, .today-custom__detail { color: var(--text-muted); font-size: var(--text-callout); }
+.today-custom__head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.today-custom__stale { font-size: var(--text-footnote); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.today-custom__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.today-custom__item { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-callout); }
+.today-custom__table { border-collapse: collapse; width: 100%; font-size: var(--text-callout); table-layout: fixed; }
+.today-custom__table th, .today-custom__table td { text-align: left; padding: 4px 8px 4px 0; overflow-wrap: anywhere; }
+.today-custom__table th { color: var(--text-muted); font-weight: 500; }
+.today-custom__body--metrics { flex-direction: row; flex-wrap: wrap; gap: 16px; }
+.today-custom__metric { display: flex; flex-direction: column; min-width: 0; }
+.today-custom__value { font-size: var(--text-title, 1.25rem); font-weight: 600; overflow-wrap: anywhere; }
+.today-custom__label { color: var(--text-muted); font-size: var(--text-footnote); overflow-wrap: anywhere; }
+.today-custom__raw { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-footnote); }
+.task-dialog__hint { margin: 4px 0 0; color: var(--text-muted); font-size: var(--text-footnote); }
+
 /* Pasted-URL chips (UrlChips): one wrapping row above the Ask box's controls and the chat input. */
 .url-chips { display: flex; flex-wrap: wrap; gap: 0 8px; }
 .url-chips[hidden] { display: none; }

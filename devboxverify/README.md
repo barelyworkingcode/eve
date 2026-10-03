@@ -408,6 +408,32 @@ subject is under Needs a reply (information only).
   the run's final sweep. The run may mark the injection mail read; the next
   `repair.sh` resets it. Both modes are left in Work.
 
+**today-custom-part.** A custom Today card end to end (eve#117 C1-C7).
+Through `POST /api/tasks` the journey creates an on-demand `world-probe`
+routine in Acme Corp, `extraArgs ["-c", <script>]`, with output file
+`verify-<nonce>-card.json`, and reads it back: no `outputFile` is BLOCKED
+(the installed relayScheduler predates relayScheduler#10). In Work,
+`today-part-custom-<id>` must show `today-custom-never` ("No output yet."),
+and the routine's history must still be empty 5 s later. Refresh runs a
+script that echoes noise to stdout and stderr and writes a `list` with a
+`<b>` title on an `https:` item and a `javascript:` item: the card shows 2
+items, the literal `<b>` text, one `https:` link, no `javascript:` link, no
+`b`, `img`, `iframe` or `script`, and `today-custom-when`; the history
+entry's `output` is the written JSON exactly and its `response` holds the
+noise. Home shows no card. A PUT to `exit 3` and a run through the API make
+`today-custom-failed` read "exited 3" over the 2 items, marked
+`data-stale="true"`. A PUT to write `not json` and Retry show
+`today-custom-not-understood` with "not json" in `today-custom-raw`, and Ask
+stays `ready`. A PUT to write 70,000 bytes and a run read "output file is
+over the 64 KB cap".
+- Lives in: `public/today/custom-output.js`,
+  `public/today/parts/custom-part.js` → `POST /api/tasks/:id/run`, `GET
+  /api/tasks/:id/history` → relayScheduler (`outputFile`, `output`).
+- Traps: BLOCKED when the run fails on its template (no `world-probe` for
+  Acme Corp). A cleanup deletes every Acme Corp task made since the journey
+  started and removes the output file from the Acme Corp folder. The mode is
+  left in Work.
+
 **ask-in-other-mode.** "Ask in the other mode" end to end (S3b-A11..A13).
 In Home, Today's Ask (with `EVE_VERIFY_MODEL` as `eve-ask-model`) sends
 `verify-<nonce>: call mail_get_emails with account "<Acme Corp's name>",
@@ -573,7 +599,8 @@ judged.
   templates, and Acme Corp's allowed templates `chat` and `world-probe`.
 - **S2 · X3.** Home's allowed templates `chat` and `world-probe`, as Acme
   Corp's (presence-gated in Relay). The installed relayScheduler must
-  support `useRelayTools`.
+  support `useRelayTools`. The installed relayScheduler must support
+  `outputFile` (relayScheduler#10).
 - **S3 · V1.** An Acme Corp chat template `World voice`, mode Voice, model =
   `EVE_VERIFY_MODEL`, added from eve's Edit Project → Chat Templates.
 - **S3 · V2.** In Relay → Projects → Default projects: Work = Acme Corp,

@@ -1584,6 +1584,133 @@ async function briefInjectionRefused(env) {
   }
 }
 
+// eve#117: a terminal routine with an output file is a card on Today. Setup and
+// wire checks go through eve's API; verdicts on the card rest on the page.
+const CARD_RUN_MS = 45000;
+const CARD_SHOW_MS = 20000;
+
+async function cardRunEnded(env, taskPath, runs) {
+  return poll(async () => {
+    const history = await eveJson(env, 'GET', `${taskPath}/history`).catch(() => null);
+    return Array.isArray(history) && history.length >= runs && RUN_ENDED.includes(history[0].status) ? history[0] : null;
+  }, { timeoutMs: CARD_RUN_MS, intervalMs: 1000 });
+}
+
+async function todayCustomPart(env) {
+  const id = 'today-custom-part';
+  const acme = env.world.projects.acme;
+  const folder = path.resolve(acme.path);
+  const file = `verify-${env.nonce}-card.json`;
+  const target = path.join(folder, file);
+  const before = await acmeIds(env, 'tasks');
+  removeNewTasks(env, before);
+  env.cleanup('remove the card output file', async () => {
+    if (path.dirname(target) !== folder || path.basename(target) !== file) throw new Error(`refusing to remove a file outside ${acme.name}`);
+    await fs.promises.rm(target, { force: true });
+  });
+  const body = (script) => ({
+    name: `verify-${env.nonce}-card`, projectId: acme.id, schedule: { type: 'on_demand' }, enabled: true, catchUp: false,
+    sessionType: 'pty', templateId: 'world-probe', extraArgs: ['-c', script], outputFile: file,
+  });
+  const write = (text) => `printf '%s' ${shellWord(text)} > ${shellWord(file)}`;
+  const noise = `verify-${env.nonce}-noise`;
+  const bold = `<b>verify ${env.nonce}</b> docs`;
+  const listJson = JSON.stringify({
+    renderer: 'list',
+    items: [{ title: bold, url: 'https://example.com/verify' }, { title: 'Not a link', url: 'javascript:alert(1)' }],
+  });
+
+  env.step('create the card routine');
+  await eveJson(env, 'POST', '/api/tasks', body(`echo ${noise}-out; echo ${noise}-err >&2; ${write(listJson)}`));
+  const made = addedIds(before, await acmeIds(env, 'tasks'));
+  if (made.length !== 1) return result(id, BLOCKED, `${made.length} new ${acme.name} routines after POST /api/tasks, expected 1`);
+  const taskPath = `/api/tasks/${encodeURIComponent(made[0])}`;
+  if ((await eveJson(env, 'GET', taskPath))?.outputFile !== file) {
+    return result(id, BLOCKED, 'installed relayScheduler predates outputFile (relayScheduler#10)');
+  }
+
+  const page = await env.newPage();
+  try {
+    await openEve(page, env);
+    await switchMode(page, env, 'work');
+    env.step('find the card on Today');
+    const card = page.getByTestId(`today-part-custom-${made[0]}`);
+    if (!await expect(card).toBeVisible({ timeout: CARD_SHOW_MS }).then(() => true, () => false)) {
+      return result(id, FAIL, 'no card for the routine on Today');
+    }
+    if (!await expect(card.getByTestId('today-custom-never')).toContainText('No output yet.', { timeout: 5000 }).then(() => true, () => false)) {
+      return result(id, FAIL, `the never-run card does not say "No output yet."; it says "${firstLine(await card.innerText())}"`);
+    }
+    await sleep(5000);
+    const early = await eveJson(env, 'GET', `${taskPath}/history`);
+    if (!Array.isArray(early) || early.length) return result(id, FAIL, `opening Today ran the routine: history holds ${JSON.stringify(early).slice(0, 80)}`);
+
+    env.step('Refresh');
+    await card.getByTestId('today-custom-refresh').click({ timeout: 5000 });
+    const first = await cardRunEnded(env, taskPath, 1);
+    if (!first) return result(id, FAIL, `the Refresh run did not end within ${CARD_RUN_MS / 1000}s`);
+    if (first.status !== 'success') {
+      return result(id, /template/i.test(first.error || '') ? BLOCKED : FAIL, `the Refresh run ended ${first.status}: ${firstLine(first.error || 'no reason')}`);
+    }
+    if (first.output !== listJson) return result(id, FAIL, `history output is ${JSON.stringify(first.output || null).slice(0, 80)}, not the JSON the script wrote`);
+    const tail = String(first.response || '');
+    if (!tail.includes(`${noise}-out`) || !tail.includes(`${noise}-err`)) return result(id, FAIL, 'the run\'s response does not hold the script\'s stdout and stderr');
+    const items = card.getByTestId('today-custom-item');
+    if (!await expect(items).toHaveCount(2, { timeout: CARD_SHOW_MS }).then(() => true, () => false)) {
+      return result(id, FAIL, `the card shows ${await items.count()} items after the run, expected 2, with no reload`);
+    }
+    if (!(await card.innerText()).includes(bold)) return result(id, FAIL, 'the <b> title is not shown as literal text');
+    const markup = await card.locator('b, img, iframe, script').count();
+    if (markup) return result(id, FAIL, `security: the card holds ${markup} b, img, iframe or script elements built from output`);
+    if (await card.locator('a[href^="javascript:" i]').count()) return result(id, FAIL, 'security: the card holds a javascript: link');
+    const links = await card.locator('a').evaluateAll((as) => as.map((a) => a.href));
+    if (links.length !== 1 || links[0] !== 'https://example.com/verify') return result(id, FAIL, `the card's links are ${JSON.stringify(links)}, expected only the https: item`);
+    if (!await card.getByTestId('today-custom-when').isVisible()) return result(id, FAIL, 'the card shows no "Ran <time>"');
+
+    await switchMode(page, env, 'home');
+    if (!await expect(card).toHaveCount(0, { timeout: 5000 }).then(() => true, () => false)) return result(id, FAIL, `the ${acme.name} card shows in Home`);
+    await switchMode(page, env, 'work');
+    await need('the card did not come back in Work', expect(items).toHaveCount(2, { timeout: CARD_SHOW_MS }));
+
+    env.step('fail it with exit 3, run from the API');
+    await eveJson(env, 'PUT', taskPath, body('exit 3'));
+    await eveJson(env, 'POST', `${taskPath}/run`);
+    if (!await cardRunEnded(env, taskPath, 2)) return result(id, FAIL, `the exit-3 run did not end within ${CARD_RUN_MS / 1000}s`);
+    const failed = card.getByTestId('today-custom-failed');
+    if (!await expect(failed).toContainText('exited 3', { timeout: CARD_SHOW_MS }).then(() => true, () => false)) {
+      return result(id, FAIL, `after a failed run started elsewhere the card does not read "exited 3"; it says "${firstLine(await card.innerText())}"`);
+    }
+    const stale = await card.evaluate((el) => el.dataset.stale === 'true' || !!el.querySelector('[data-stale="true"]'));
+    if (!stale || await items.count() !== 2) return result(id, FAIL, `the failed card ${stale ? '' : 'is not marked stale and '}shows ${await items.count()} of the 2 earlier items`);
+
+    env.step('write not json, then Retry');
+    await eveJson(env, 'PUT', taskPath, body(write('not json')));
+    await card.getByTestId('today-custom-retry').click({ timeout: 5000 });
+    if (!await cardRunEnded(env, taskPath, 3)) return result(id, FAIL, `the Retry run did not end within ${CARD_RUN_MS / 1000}s`);
+    if (!await expect(card.getByTestId('today-custom-not-understood')).toBeVisible({ timeout: CARD_SHOW_MS }).then(() => true, () => false)) {
+      return result(id, FAIL, `invalid JSON does not show "Output not understood"; the card says "${firstLine(await card.innerText())}"`);
+    }
+    if (!(await card.getByTestId('today-custom-raw').textContent({ timeout: 5000 })).includes('not json')) return result(id, FAIL, 'the raw text is not behind the disclosure');
+    const ask = await page.getByTestId('today-part-ask').getAttribute('data-state', { timeout: 5000 });
+    if (ask !== 'ready') return result(id, FAIL, `Ask is ${ask} next to the not-understood card`);
+
+    env.step('write 70,000 bytes');
+    const big = 'a=xxxxxxxxxx; b=$a$a$a$a$a$a$a$a$a$a; c=$b$b$b$b$b$b$b$b$b$b; d=$c$c$c$c$c$c$c$c$c$c; '
+      + `printf '%s' $d$d$d$d$d$d$d > ${shellWord(file)}`;
+    await eveJson(env, 'PUT', taskPath, body(big));
+    await eveJson(env, 'POST', `${taskPath}/run`);
+    if (!await cardRunEnded(env, taskPath, 4)) return result(id, FAIL, `the oversize run did not end within ${CARD_RUN_MS / 1000}s`);
+    if (!await expect(failed).toContainText('output file is over the 64 KB cap', { timeout: CARD_SHOW_MS }).then(() => true, () => false)) {
+      return result(id, FAIL, `an oversize output does not read "output file is over the 64 KB cap"; the card says "${firstLine(await card.innerText())}"`);
+    }
+    return result(id, PASS, 'a never-run card with no run on load; Refresh showed 2 items (literal <b>, one https: link, no javascript: link) '
+      + 'with output exactly the written JSON and the noise in response; none in Home; exit 3 from the API read "exited 3" over stale items; '
+      + 'not json read "Output not understood" with Ask ready; 70,000 bytes read the 64 KB cap');
+  } finally {
+    await switchMode(page, env, 'work').catch(() => {});
+  }
+}
+
 const REFUSAL_WAIT_MS = 120000;
 const RERUN_MS = 30000;
 // A refusal as relay recorded it: macMCP's scope check, or relay's own gate.
@@ -2314,6 +2441,7 @@ const journeys = [
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },
   { id: 'brief-injection-refused', timeoutMs: 360000, areas: ['home', 'tasks'], needs: ['project:home'], run: briefInjectionRefused },
+  { id: 'today-custom-part', timeoutMs: 180000, areas: ['home', 'tasks'], needs: ['project:acme', 'project:home'], run: todayCustomPart },
   { id: 'ask-in-other-mode', timeoutMs: 240000, areas: ['home', 'chat'], needs: ['project:home', 'project:acme'], run: askInOtherMode },
   { id: 'research-citations', timeoutMs: 180000, areas: ['chat'], needs: [], run: researchCitations },
   { id: 'chat-pasted-url-source', timeoutMs: 180000, areas: ['chat'], needs: [], run: chatPastedUrlSource },

@@ -148,6 +148,13 @@ describe('RoutineSentence.result', () => {
     expect(RoutineSentence.result(t, { status: 'error', exitCode: 2, terminalId: 'x' }, now).text)
       .toBe('failed 07:00 · exited 2');
   });
+  it.each([
+    [{ status: 'error', exitCode: 0, error: 'output file not produced' }, 'failed 07:00 · output file not produced'],
+    [{ status: 'error', exitCode: 3, error: 'process exited with code 3' }, 'failed 07:00 · exited 3'],
+  ])('reads a terminal run that failed with %j as %j', (exec, text) => {
+    const t = task({ lastStatus: 'error', lastRun: ranAt, sessionType: 'pty' });
+    expect(RoutineSentence.result(t, exec, now).text).toBe(text);
+  });
   it('says no reason given when the entry has none', () => {
     const t = task({ lastStatus: 'error', lastRun: ranAt });
     expect(RoutineSentence.result(t, { status: 'error' }, now).text).toBe('failed 07:00 · no reason given');

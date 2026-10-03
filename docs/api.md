@@ -74,9 +74,9 @@ A project either lives on the console (as today) or on one SSH host (`project.ho
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/tasks` | List tasks (optional `?projectId=`). |
-| POST | `/api/tasks` | Create a task. Optional `useRelayTools` (bool): a headless run then gets Relay's tools (`settings.useRelayTools`); PTY tasks ignore it. The Morning brief sets it. |
+| POST | `/api/tasks` | Create a task. Optional `useRelayTools` (bool): a headless run then gets Relay's tools (`settings.useRelayTools`); PTY tasks ignore it. The Morning brief sets it. Optional `outputFile` (a bare file name in the project folder): the routine becomes a Today card. Without a passkey session (`X-Session-Token`), unless `EVE_NO_AUTH=1`, the answer is `403 {"error":"Only a browser signed in with a passkey can set up a Today card."}`. |
 | GET | `/api/tasks/:taskId` | Get a task. |
-| PUT | `/api/tasks/:taskId` | Update a task. Replaces the whole task, so send `useRelayTools` again or it is lost (the task dialog carries it on save). |
+| PUT | `/api/tasks/:taskId` | Update a task. Replaces the whole task, so send `useRelayTools` again or it is lost (the task dialog carries it on save). The same `outputFile` rule as POST. |
 | DELETE | `/api/tasks/:taskId` | Delete a task. |
 | DELETE | `/api/tasks/by-project/:projectId` | Delete all tasks for a project. |
 | GET | `/api/tasks/:taskId/history` | Execution history. |
