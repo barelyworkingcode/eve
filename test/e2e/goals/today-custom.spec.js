@@ -234,3 +234,28 @@ test.describe('C8/C9 the Output file field', () => {
     expect(eve.relay.requests.slice(before).filter((r) => r.path.startsWith('/api/tasks/cw') && r.method !== 'GET')).toEqual([]);
   });
 });
+
+test.describe('the Output file field on an SSH host project', () => {
+  const hosted = { id: 'rh', name: 'Remote Box', path: '/srv/acme', host_id: 'h1', mode: 'work' };
+  test.use({
+    world: { ...world({ cw: ['Inbox today'], cr: ['Remote card', [], 'rh'] }), projects: (f) => [...PROJECTS(f), hosted], hosts: [{ id: 'h1', name: 'Acme box' }] },
+  });
+  const edit = async (page, project, id) => {
+    await nav(page).getByTitle(project, { exact: true }).click();
+    await page.getByTestId('panel-project-page').click();
+    await page.getByTestId(`project-task-${id}`).getByTitle('Edit').click();
+    const dialog = page.getByTestId('dialog-task-dialog');
+    await expect(dialog.locator('[name="taskTemplateId"]')).toBeVisible();
+    return dialog;
+  };
+
+  test('is hidden, with its warning, where a console project\'s dialog shows them', async ({ page }) => {
+    const console = await edit(page, 'Work Only', 'cw');
+    await expect(console.getByTestId('task-dialog-output-file')).toBeVisible();
+    await expect(console.getByTestId('task-dialog-output-warning')).toBeVisible();
+    await page.reload();
+    const remote = await edit(page, 'Remote Box', 'cr');
+    await expect(remote.getByTestId('task-dialog-output-file')).toBeHidden();
+    await expect(remote.getByTestId('task-dialog-output-warning')).toBeHidden();
+  });
+});
