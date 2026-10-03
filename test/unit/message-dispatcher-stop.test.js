@@ -42,6 +42,7 @@ function makeChat() {
     UI_ICONS: { speaker: () => '' },
     EVT,
     AttachedFiles: require('../../public/core/attached-files'),
+    SourceUrls: require('../../public/core/source-urls'),
   });
   const { EveWorkspaceClient } = loadScript('app.js', ['EveWorkspaceClient'], { window: {}, document: doc });
 

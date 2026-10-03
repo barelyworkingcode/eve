@@ -174,3 +174,112 @@ describe('Sources.turn', () => {
     expect(second.match(R1.url)).toBeNull();
   });
 });
+
+// #166 A6/A7: a page read with web_fetch is a source when its status is 2xx.
+// macMCP's result: "HTTP <status> — <type> — <n> bytes", a blank line, the body.
+const FETCH = 'macmcp__web_fetch';
+const PAGE_URL = 'https://acme.example/docs/guide';
+const fetched = (body, status = 200) => `HTTP ${status} — text/html; charset=utf-8 — ${body.length} bytes\n\n${body}`;
+const fetchOne = (body, opts = {}) => Sources.fromResult(FETCH, fetched(body, opts.status), { url: opts.url || PAGE_URL });
+
+describe('Sources.isFetchTool', () => {
+  it.each([
+    ['web_fetch', true], [FETCH, true], ['web_fetch_v2', false], ['my_web_fetch', false],
+    [SEARCH, false], ['', false], [undefined, false],
+  ])('%s -> %s', (name, want) => {
+    expect(Sources.isFetchTool(name)).toBe(want);
+  });
+});
+
+describe('Sources from a web_fetch result', () => {
+  const HTML = '<html><head><title>Acme guide</title><meta name="x"></head><body><p>Read <b>this</b> page.</p></body></html>';
+
+  it.each([
+    ['a string', fetched(HTML)],
+    ['a text-block array (Claude shape)', [{ type: 'text', text: fetched(HTML) }]],
+  ])('a 200 page in %s is one source; url is the trimmed href of input.url', (_what, content) => {
+    expect(Sources.fromResult('web_fetch', content, { url: '  HTTPS://Acme.Example/docs/  ' })).toEqual([
+      { n: 1, url: 'https://acme.example/docs/', key: 'https://acme.example/docs', host: 'acme.example', title: 'Acme guide', excerpt: 'Read this page.' },
+    ]);
+  });
+
+  it.each([[200], [204], [299]])('status %i counts', (status) => {
+    expect(fetchOne('<p>ok</p>', { status })).toHaveLength(1);
+  });
+
+  it.each([
+    ['status 199', fetched('<p>x</p>', 199)],
+    ['status 301', fetched('<p>x</p>', 301)],
+    ['status 404', fetched('<p>Not found</p>', 404)],
+    ['status 500', fetched('<p>x</p>', 500)],
+    ['a refusal', 'Error: access denied: outbound access is not allowed for this project'],
+    ['a fetch error', 'Error: mcp: call "web_fetch": dial tcp: connection refused'],
+    ['an empty result', ''],
+  ])('%s gives no source', (_what, content) => {
+    expect(Sources.fromResult(FETCH, content, { url: PAGE_URL })).toEqual([]);
+  });
+
+  it.each([
+    ['no input', undefined], ['no url', {}], ['a javascript: url', { url: 'javascript:alert(1)' }],
+    ['an ftp url', { url: 'ftp://files.example/a' }], ['not a url', { url: 'acme guide' }],
+  ])('%s gives no source', (_what, input) => {
+    expect(Sources.fromResult(FETCH, fetched(HTML), input)).toEqual([]);
+  });
+
+  it('with no <title>, the title is host and path', () => {
+    expect(fetchOne('<p>Body</p>', { url: 'https://acme.example/docs/guide' })[0].title).toBe('acme.example/docs/guide');
+  });
+
+  it('the excerpt drops comments, head, script and style, strips tags and collapses whitespace', () => {
+    const body = '<!doctype html><html><head><title>T</title><style>.a{}</style></head>\n<body><!-- note -->'
+      + '<h1>Big\n\n  news</h1><script>var s = "<p>no</p>";</script><style>p { color: red }</style>\t<p>More   text</p></body></html>';
+    expect(fetchOne(body)[0].excerpt).toBe('Big news More text');
+  });
+
+  it.each([
+    ['<script>', '<p>Kept</p><script>var x = "<p>hidden</p>";'],
+    ['<style>', '<p>Kept</p><style>p { content: "hidden" }'],
+    ['<head>', '<p>Kept</p><head><meta name="hidden" content="hidden">hidden'],
+    ['comment', '<p>Kept</p><!-- hidden <p>hidden</p>'],
+  ])('an unclosed %s at relay\'s 8 KB cut runs to the end', (_what, body) => {
+    expect(fetchOne(`${body}\n...(truncated)`)[0].excerpt).toBe('Kept');
+  });
+
+  it.each([
+    ['relay', '\n...(truncated)'],
+    ['macMCP', '\n\n…[truncated to 1048576 bytes]'],
+  ])('%s\'s truncation tail is not part of the excerpt', (_who, tail) => {
+    expect(fetchOne(`<p>Visible text</p>${tail}`)[0].excerpt).toBe('Visible text');
+  });
+
+  it('decodes the five basic entities once', () => {
+    expect(fetchOne('<p>&amp; &lt;b&gt; &quot;q&quot; &#39;s&#39; &amp;lt;</p>')[0].excerpt).toBe('& <b> "q" \'s\' &lt;');
+  });
+
+  it('caps the excerpt at 600 characters', () => {
+    const long = 'abcdefghij'.repeat(100);
+    expect(fetchOne(`<p>${long}</p>`)[0].excerpt).toBe(long.slice(0, 600));
+  });
+});
+
+describe('Sources.turn with search and fetch', () => {
+  const page = (title) => fetched(`<title>${title}</title><p>${title} body</p>`);
+
+  it('numbers in first-seen order and dedupes a fetched page against search results by normalized URL', () => {
+    const turn = Sources.turn();
+    turn.add(FETCH, page('Guide'), { url: PAGE_URL });
+    turn.add(SEARCH, brave(R1) + brave({ url: 'https://ACME.example/docs/guide/#top', title: 'Dup' }) + brave(R2));
+    turn.add('web_fetch', page('Launch again'), { url: 'https://acme.example/launch#x' });
+    expect(turn.list().map((s) => [s.n, s.url, s.title])).toEqual([
+      [1, PAGE_URL, 'Guide'], [2, R1.url, R1.title], [3, R2.url, R2.title],
+    ]);
+    expect(turn.match('https://acme.example/docs/guide/')).toBe(1);
+  });
+
+  it('a 404 fetch in a turn adds nothing', () => {
+    const turn = Sources.turn();
+    turn.add(SEARCH, brave(R1));
+    turn.add(FETCH, fetched('<p>gone</p>', 404), { url: PAGE_URL });
+    expect(turn.list().map((s) => s.url)).toEqual([R1.url]);
+  });
+});
