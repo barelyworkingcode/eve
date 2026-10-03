@@ -104,6 +104,12 @@ const PINS = [
   ['task_status on connect', 'hub.go', '"type":    "task_status",', "type: 'task_status'", 'scheduler'],
   ['a task stores useRelayTools (PUT replaces it)', 'task.go', 'json:"useRelayTools,omitempty"', 'const updated = { ...parsed, ...keep, id, createdAt: task.createdAt, updatedAt: ts() };', 'scheduler'],
   ['a run passes useRelayTools in the session settings', 'client.go', 'settings["useRelayTools"] = true', 'task.useRelayTools ? { headless: true, useRelayTools: true } : { headless: true }', 'scheduler'],
+  // relayScheduler#10: a PTY task's outputFile, captured as the run's output on success.
+  ['a task stores outputFile', 'task.go', 'json:"outputFile,omitempty"', 'task.outputFile', 'scheduler'],
+  ['a successful run records output', 'task.go', 'json:"output,omitempty"', 'exec.output = output', 'scheduler'],
+  ['outputFile on a chat task', 'api.go', 'errors.New("outputFile is only for PTY tasks")', "'outputFile is only for PTY tasks'", 'scheduler'],
+  ['outputFile that is a path', 'api.go', 'errors.New("outputFile must be a file name, not a path")', "'outputFile must be a file name, not a path'", 'scheduler'],
+  ['outputFile with a directory', 'api.go', 'errors.New("outputFile needs the task to run in its project directory; remove directory")', "'outputFile needs the task to run in its project directory; remove directory'", 'scheduler'],
   ['a chat tool_result carries scope_violation', 'internal/sessions/events/events.go', 'json:"scope_violation,omitempty"', 'is_error and scope_violation (relay events.go)'],
   ['a chat tool_result takes is_error from the MCP result', 'internal/sessions/provider/chat_base.go', 'isError := toolErr != nil || callRes.IsError', 'is_error and scope_violation (relay events.go)'],
   ['a chat session reads settings.useRelayTools', 'internal/sessions/provider/settings.go', 'Key:     "useRelayTools",', 'useRelayTools: true }'],

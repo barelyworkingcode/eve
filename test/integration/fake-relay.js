@@ -177,6 +177,13 @@ function createFakeRelay({ token = null } = {}) {
     if (t.schedule.type === 'once' && !(Date.parse(t.schedule.at) > Date.now())) {
       return `invalid schedule: once schedule 'at' is in the past: ${t.schedule.at}`;
     }
+    // relayScheduler#10: outputFile is a bare file name on a PTY task run in its project directory.
+    if (t.outputFile) {
+      if (t.sessionType !== 'pty') return 'outputFile is only for PTY tasks';
+      const f = String(t.outputFile);
+      if (f === '.' || f === '..' || /[/\\\0]/.test(f)) return 'outputFile must be a file name, not a path';
+      if (t.directory) return 'outputFile needs the task to run in its project directory; remove directory';
+    }
     if (t.sessionType === 'pty') {
       if (!t.templateId) return 'templateId is required for PTY tasks';
     } else if (!t.sessionType || t.sessionType === 'headless') {
@@ -229,7 +236,9 @@ function createFakeRelay({ token = null } = {}) {
 
   // A run ends: the record, the task's run state and the lifecycle frame
   // (scheduler.go broadcastTaskEvent: completed carries status; error carries error + status).
-  const finishTask = (id, { status = 'success', response = '', error = '', exitCode } = {}) => {
+  // `output` is what the script wrote to the task's outputFile: the scheduler
+  // records it only on a successful run of a task that has one (task.go Execution.Output).
+  const finishTask = (id, { status = 'success', response = '', error = '', exitCode, output } = {}) => {
     const task = tasks.get(id);
     const exec = (histories.get(id) || []).find((e) => e.status === 'running');
     if (!task || !exec) return false;
@@ -240,6 +249,7 @@ function createFakeRelay({ token = null } = {}) {
     if (response) exec.response = response;
     if (error) exec.error = error;
     if (task.sessionType === 'pty' && exitCode !== undefined) exec.exitCode = exitCode;
+    if (status === 'success' && task.outputFile && typeof output === 'string' && output !== '') exec.output = output;
     task.lastStatus = status;
     const runId = exec.terminalId || exec.sessionId;
     if (exec.sessionId) {

@@ -6,6 +6,10 @@
 //   today-needs-row-<id>   a Needs you row (data-kind waiting | failed)
 //   today-running-row-<id> a Running row
 //   mode-switch            the Home | Work radiogroup; mode-home, mode-work
+// A custom card (eve#117) is the part custom-<taskId>; inside it:
+//   today-custom-never | -running | -failed | -not-understood   its state line
+//   today-custom-refresh, today-custom-retry, today-custom-stale, today-custom-when
+//   today-custom-body (data-renderer), today-custom-item (a list row), today-custom-raw
 const { expect } = require('@playwright/test');
 
 const nav = (page) => page.getByRole('navigation', { name: 'Projects' });
@@ -29,4 +33,14 @@ async function backToToday(page) {
   await expect(page.getByTestId('home-screen')).toBeVisible();
 }
 
-module.exports = { nav, part, startChatInAlpha, backToToday };
+// One run of a seeded task as relayScheduler records it: started at the fake's
+// own route (not through eve or the page), then finished with `finish`.
+async function runThroughScheduler(relay, relayPort, id, finish) {
+  relay.holdTaskRuns();
+  const res = await fetch(`http://127.0.0.1:${relayPort}/api/tasks/${id}/run`, { method: 'POST' });
+  if (!res.ok) throw new Error(`run ${id}: ${res.status}`);
+  relay.finishTask(id, finish);
+  relay.holdTaskRuns(false);
+}
+
+module.exports = { nav, part, startChatInAlpha, backToToday, runThroughScheduler };
