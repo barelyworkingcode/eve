@@ -22,7 +22,7 @@ class CustomPart extends TodayPart {
   }
 
   // One fetch per (task, lastRun): the newest run (for the failure reason) and
-  // the newest successful run with output (what the card shows).
+  // the newest successful run (what the card shows).
   _runs(task) {
     if (!this._history) {
       const tm = this.ctx.container.has('taskManager') ? this.ctx.container.get('taskManager') : null;
@@ -30,7 +30,7 @@ class CustomPart extends TodayPart {
         load: id => (tm ? tm.loadHistory(id) : Promise.resolve([])),
         onChange: () => this.paint(),
         limit: 50,
-        pick: h => ({ newest: h[0] || null, good: h.find(e => e.status === 'success' && typeof e.output === 'string') || null }),
+        pick: h => ({ newest: h[0] || null, good: h.find(e => e.status === 'success') || null }),
       });
     }
     return this._history.newest(task);
@@ -68,17 +68,17 @@ class CustomPart extends TodayPart {
 
     if (status === 'running') {
       wrap.appendChild(this._el('p', 'Running…', 'today-custom-running', 'today-custom__line'));
-      if (good) this._output(wrap, good.output);
+      if (good) this._output(wrap, good.output ?? '');
       return;
     }
     if (status === 'error' || status === 'timeout') {
-      root.dataset.stale = 'true';
+      if (good) root.dataset.stale = 'true'; // stale only when an earlier output is on screen
       const head = this._el('div', null, null, 'today-custom__head');
       head.appendChild(this._el('p', RoutineSentence.result({ ...task, enabled: true }, runs?.newest || null).text, 'today-custom-failed', 'today-custom__line'));
-      head.appendChild(this._el('span', 'Stale', 'today-custom-stale', 'today-custom__stale'));
+      if (good) head.appendChild(this._el('span', 'Stale', 'today-custom-stale', 'today-custom__stale'));
       head.appendChild(this._button('Retry', 'today-custom-retry'));
       wrap.appendChild(head);
-      if (good) this._output(wrap, good.output);
+      if (good) this._output(wrap, good.output ?? '');
       return;
     }
     if (status === 'success' && !runs) return; // history still loading
@@ -88,7 +88,7 @@ class CustomPart extends TodayPart {
       return;
     }
     wrap.appendChild(this._el('p', `Ran ${RoutineSentence.when(task.lastRun)}`, 'today-custom-when', 'today-custom__line'));
-    this._output(wrap, good.output);
+    this._output(wrap, good.output ?? '');
     wrap.appendChild(this._button('Refresh', 'today-custom-refresh'));
   }
 

@@ -60,6 +60,7 @@ test.describe('C1/C7 a card in its project\'s mode', () => {
     await expect(cw).toContainText('+2 more');
     await expect(cw.getByTestId('today-custom-refresh')).toBeVisible();
     const order = await page.locator('[data-testid^="today-part-"]').evaluateAll((els) => els.map((e) => e.dataset.testid));
+    expect(order).toContain('today-part-brief');
     expect(order[order.indexOf('today-part-brief') + 1]).toBe('today-part-custom-cw');
     await expect(part(page, 'custom-ch')).toHaveCount(0);
     // The Routines part leaves a card routine to its card.

@@ -21,7 +21,7 @@ function loadGlobals(doc) {
   for (const file of SCRIPTS) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../../public', file), 'utf8'), context, { filename: file });
   }
-  return vm.runInContext('({ EventBus, StateStore, TodayRegistry, TodayHost, CustomParts })', context);
+  return vm.runInContext('({ EventBus, StateStore, TodayRegistry, TodayHost, CustomParts, CustomPart })', context);
 }
 
 const PROJECTS = [
@@ -113,5 +113,52 @@ describe('CustomParts', () => {
     t.state.addProject({ id: 'late', name: 'Late', mode: 'work' });
     expect(t.shown('work')).toEqual(['today-part-custom-c1']);
     expect(t.shown('home')).toEqual([]);
+  });
+});
+
+// Renders one CustomPart straight onto a root, with a task manager whose history is canned.
+describe('CustomPart render', () => {
+  const walk = (el, out = []) => { out.push(el); (el.children || []).forEach((c) => walk(c, out)); return out; };
+  const byId = (root, id) => walk(root).filter((e) => e.dataset && e.dataset.testid === id);
+
+  async function render(task, history) {
+    const doc = createDocument();
+    const { CustomPart } = loadGlobals(doc);
+    const part = new CustomPart('c1');
+    part.paint = () => {};
+    part.ctx = {
+      state: { tasks: new Map([['c1', task]]) },
+      container: { has: () => true, get: () => ({ loadHistory: () => Promise.resolve(history), runTask: () => Promise.resolve() }) },
+    };
+    const paint = () => { const r = doc.createElement('div'); part.render(r); return r; };
+    paint();
+    await new Promise((r) => setTimeout(r, 0));
+    return paint();
+  }
+  const list = JSON.stringify({ renderer: 'list', items: [{ title: 'Old item' }] });
+  const base = card('c1', 'Card', 'wk', { lastRun: '2026-01-02T10:00:00Z' });
+
+  it('a successful run with no output field says the output is empty, not an earlier output', async () => {
+    const root = await render({ ...base, lastStatus: 'success' }, [
+      { status: 'success', startedAt: '2026-01-02T10:00:00Z' },
+      { status: 'success', output: list },
+    ]);
+    expect(byId(root, 'today-custom-not-understood')[0].textContent).toBe('Output not understood (empty).');
+    expect(byId(root, 'today-custom-body')).toHaveLength(0);
+  });
+
+  it('a first-run failure shows the failure and Retry, with no Stale mark', async () => {
+    const root = await render({ ...base, lastStatus: 'error' }, [{ status: 'error', error: 'boom' }]);
+    expect(byId(root, 'today-custom-failed')).toHaveLength(1);
+    expect(byId(root, 'today-custom-retry')).toHaveLength(1);
+    expect(byId(root, 'today-custom-stale')).toHaveLength(0);
+    expect(root.dataset.stale).toBeUndefined();
+  });
+
+  it('a failure after a good run marks the earlier output Stale', async () => {
+    const root = await render({ ...base, lastStatus: 'error' }, [{ status: 'error', error: 'boom' }, { status: 'success', output: list }]);
+    expect(byId(root, 'today-custom-stale')).toHaveLength(1);
+    expect(root.dataset.stale).toBe('true');
+    expect(byId(root, 'today-custom-body')).toHaveLength(1);
   });
 });
