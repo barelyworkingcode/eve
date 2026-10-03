@@ -51,6 +51,7 @@ class EveWorkspaceClient {
     features.renderSlots(document, this.container);
 
     this.initElements();
+    this.urlChips = new UrlChips({ input: this.elements.userInput, before: this.elements.inputForm, testid: 'chat-url' });
 
     this.wsClient = new WsClient(this.container, {
       onReady: () => this.onWebSocketReady(),
@@ -1188,9 +1189,10 @@ class EveWorkspaceClient {
     if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
 
     const files = this.fileAttachmentManager.consumeFiles();
-    this.messageRenderer.appendUserMessage(text, files);
+    const urls = this.urlChips.consume();
+    this.messageRenderer.appendUserMessage(text, files, urls);
     this.messageDispatcher.markLocalSubmit(this.currentSessionId);
-    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, sessionId: this.currentSessionId });
+    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, urls, sessionId: this.currentSessionId });
 
     this.elements.userInput.value = '';
     this.autoResizeTextarea();
@@ -1204,16 +1206,16 @@ class EveWorkspaceClient {
 
   // Sends `text` as the next turn of a thread that was just created (Today's Ask).
   // Mirrors handleSubmit without the chat input: the text came from Ask.
-  sendUserText(sessionId, text, files = []) {
+  sendUserText(sessionId, text, files = [], urls = []) {
     this.inputHistory.push(text);
     if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
     // Also in the thread's history: the tab's pane repaints from it, and the
     // project switch that follows a new thread can repaint after this send.
     const history = this.sessionHistories.get(sessionId);
-    if (history) history.push({ timestamp: new Date().toISOString(), role: 'user', content: text, files });
-    this.messageRenderer.appendUserMessage(text, files);
+    if (history) history.push({ timestamp: new Date().toISOString(), role: 'user', content: text, files, urls });
+    this.messageRenderer.appendUserMessage(text, files, urls);
     this.messageDispatcher.markLocalSubmit(sessionId);
-    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, sessionId });
+    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, urls, sessionId });
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
     this.showStopButton();
