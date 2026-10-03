@@ -13,6 +13,10 @@ const Sources = {
       (name === 'brave_web_search' || name.endsWith('__brave_web_search'));
   },
 
+  isFetchTool(name) {
+    return typeof name === 'string' && (name === 'web_fetch' || name.endsWith('__web_fetch'));
+  },
+
   // null unless http(s). Host lowercased, fragment and trailing "/" dropped.
   normalizeUrl(href) {
     if (typeof href !== 'string') return null;
@@ -84,10 +88,41 @@ const Sources = {
     }
   },
 
+  // A page the model read: only an HTTP 2xx result counts. macMCP's web_fetch
+  // returns "HTTP <status> — <type> — <n> bytes", a blank line, then the raw
+  // body; relay may cut it, so an unclosed head, script, style or comment
+  // runs to the end.
+  fromFetch(input, content) {
+    const key = Sources.normalizeUrl(input && input.url);
+    if (!key) return [];
+    const text = Sources._text(content);
+    const m = text && /^HTTP (\d{3}) /.exec(text);
+    if (!m || m[1] < '200' || m[1] > '299') return [];
+    const gap = text.indexOf('\n\n');
+    let body = gap === -1 ? '' : text.slice(gap + 2);
+    body = body.replace(/\n\.\.\.\(truncated\)$/, '').replace(/\n\n…\[truncated to \d+ bytes\]$/, '');
+    const url = new URL(input.url.trim()).href;
+    const u = new URL(key);
+    const decode = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/&(?:#0?39|apos);/g, "'").replace(/&amp;/g, '&');
+    const tm = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(body);
+    const title = tm ? decode(tm[1].replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim() : '';
+    const visible = body
+      .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
+      .replace(/<head\b[\s\S]*?(<\/head\s*>|$)/gi, ' ')
+      .replace(/<script\b[\s\S]*?(<\/script\s*>|$)/gi, ' ')
+      .replace(/<style\b[\s\S]*?(<\/style\s*>|$)/gi, ' ')
+      .replace(/<[^>]*>/g, ' ');
+    const excerpt = decode(visible).replace(/\s+/g, ' ').trim().slice(0, Sources.EXCERPT_MAX);
+    const fallback = u.host.replace(/^www\./i, '') + u.pathname.replace(/\/+$/, '');
+    return [{ n: 1, url, key, host: u.hostname, title: title || fallback, excerpt }];
+  },
+
   // Unnumbered sources in result order (n is set by turn()). Source:
   // {n, url, key, host, title, excerpt}. url is as the tool returned it (what
   // Open source links to); key is normalizeUrl(url), for matching and dedupe.
-  fromResult(name, content) {
+  fromResult(name, content, input) {
+    if (Sources.isFetchTool(name)) return Sources.fromFetch(input, content);
     if (!Sources.isSearchTool(name)) return [];
     let candidates = [];
     const text = Sources._text(content);
@@ -108,8 +143,8 @@ const Sources = {
     const list = [];
     const byKey = new Map();
     return {
-      add(name, content) {
-        for (const s of Sources.fromResult(name, content)) {
+      add(name, content, input) {
+        for (const s of Sources.fromResult(name, content, input)) {
           if (byKey.has(s.key)) continue;
           const src = { n: list.length + 1, url: s.url, key: s.key, host: s.host, title: s.title, excerpt: s.excerpt };
           byKey.set(s.key, src);

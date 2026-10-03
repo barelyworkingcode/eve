@@ -19,13 +19,19 @@ class Citations {
     this._row = null;
   }
 
-  noteToolUse(id, name) {
-    if (id) this.toolNames.set(id, name);
+  noteToolUse(id, name, input) {
+    if (id) this.toolNames.set(id, { name, input });
+  }
+
+  // A live stream gives a tool's input only at content_block_stop.
+  noteToolInput(id, input) {
+    const t = id && this.toolNames.get(id);
+    if (t) t.input = input;
   }
 
   noteToolResult(id, content) {
-    const name = this.toolNames.get(id);
-    if (name) this.turn.add(name, content);
+    const t = this.toolNames.get(id);
+    if (t && t.name) this.turn.add(t.name, content, t.input);
   }
 
   // Called with the finished assistant message's .message-content element.

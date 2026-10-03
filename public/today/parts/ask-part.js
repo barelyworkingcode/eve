@@ -81,6 +81,7 @@ class AskPart {
     this.row = row;
     row.append(this.status, this.send);
     el.append(this.input, row);
+    this.urlChips = new UrlChips({ input: this.input, before: row, testid: 'today-ask-url', onChange: () => { this._failure = ''; this.update(); } });
 
     for (const evt of [EVT.PROJECTS_LOADED, EVT.PROJECT_DELETED, EVT.MODE_CHANGED, EVT.CONNECTION_CHANGED,
       'today:source:projects', 'today:source:sessions']) ctx.on(evt, () => this.update());
@@ -91,7 +92,7 @@ class AskPart {
       ctx.on(evt, () => this._retryQueued());
     }
     ctx.on(EVT.ASK_FAILED, ({ message, origin }) => { if (origin === 'ask') this._onFailed(message); });
-    ctx.on(EVT.ASK_SENT, ({ origin }) => { if (origin !== 'ask') return; this._pending = false; this.input.value = ''; this._failure = ''; ctx.state.askAbout = null; this.update(); });
+    ctx.on(EVT.ASK_SENT, ({ origin }) => { if (origin !== 'ask') return; this._pending = false; this.input.value = ''; this.urlChips.clear(); this._failure = ''; ctx.state.askAbout = null; this.update(); });
     ctx.on(EVT.ASK_ABOUT, () => { this._failure = ctx.state.askAbout?.note || ''; this.update(); this.focus(true); });
 
     ctx.sources.projects.ensure();
@@ -245,7 +246,7 @@ class AskPart {
     msg = applyChatDefaults(msg, state.models);
     const item = state.askAbout?.attachment;
     const files = item ? [{ name: item.name, content: item.content, type: 'text', mediaType: 'text/plain' }] : [];
-    state.pendingAsk = { text, projectId: plan.project.id, files, origin: 'ask' };
+    state.pendingAsk = { text, projectId: plan.project.id, files, urls: this.urlChips.list(), origin: 'ask' };
     this._pending = true;
     this.update();
     // The socket can drop between plan() and here; a lost send must not leave

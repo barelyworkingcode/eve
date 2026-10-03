@@ -434,6 +434,7 @@ describe('devboxverify journey table', () => {
     'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
     'settings-sheet', 'project-admin-in-relay', 'project-mode-new', 'brief-injection-refused',
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
+    'ask-pasted-url', 'chat-pasted-url-source',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -470,12 +471,12 @@ describe('devboxverify journey table', () => {
       'passkey-first-enrol': [], 'landing-view': [], 'add-browser-in-window': [],
       'settings-sheet': [], 'project-mode-new': [], 'project-admin-in-relay': acme,
       'world-projects-listed': all, 'terminal-on-request': all, 'brief-injection-refused': ['project:home'],
-      'ask-in-other-mode': ['project:acme', 'project:home'], 'research-citations': [],
+      'ask-in-other-mode': ['project:acme', 'project:home'], 'research-citations': [], 'chat-pasted-url-source': [],
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
         'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
-        'mode-presets', 'routine-failed-notifies', 'listen'].map(id => [id, acme])),
+        'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url'].map(id => [id, acme])),
     });
   });
 
@@ -496,8 +497,9 @@ describe('devboxverify journey table', () => {
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'listen', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save',
-      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file',
-      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'ask-in-other-mode', 'research-citations', 'project-mode-new',
+      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url',
+      'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'ask-in-other-mode', 'research-citations',
+      'chat-pasted-url-source', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -513,6 +515,8 @@ describe('devboxverify journey table', () => {
     ['voice-deep-link', 'docs/design-mode-presets.md', ['projects', 'voice'], 90000],
     ['ask-in-other-mode', 'docs/design-mode-presets.md', ['chat', 'home'], 240000],
     ['research-citations', 'docs/design-research.md', ['chat'], 180000],
+    ['ask-pasted-url', 'docs/design-research.md', ['chat', 'home'], 90000],
+    ['chat-pasted-url-source', 'docs/design-research.md', ['chat'], 180000],
     ['routine-failed-notifies', 'docs/design-on-the-go.md', ['tasks'], 60000],
     ['listen', 'docs/design-on-the-go.md', ['chat', 'voice'], 60000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
@@ -792,6 +796,25 @@ describe('devboxverify/journey-kit.js research sources (S4-A1, A2)', () => {
     const got = sourcesRowProblem(cards, want);
     if (expected instanceof RegExp) expect(got).toMatch(expected);
     else expect(got).toBe(expected);
+  });
+});
+
+describe('devboxverify/journey-kit.js servePage', () => {
+  const { servePage } = require('../../devboxverify/journey-kit');
+
+  it('serves the page on loopback at its path only, logs every request, and closes', async () => {
+    const page = await servePage('/verify-p1.html', '<title>p1</title>');
+    expect(page.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/verify-p1\.html$/);
+    const hit = await fetch(page.url, { headers: { 'User-Agent': 'testbox/1' } });
+    expect([hit.status, await hit.text()]).toEqual([200, '<title>p1</title>']);
+    const miss = await fetch(new URL('/other', page.url));
+    expect([miss.status, await miss.text()]).toEqual([404, '']);
+    expect(page.hits).toEqual([
+      { method: 'GET', path: '/verify-p1.html', agent: 'testbox/1' },
+      { method: 'GET', path: '/other', agent: expect.any(String) },
+    ]);
+    await page.close();
+    await expect(fetch(page.url)).rejects.toThrow();
   });
 });
 

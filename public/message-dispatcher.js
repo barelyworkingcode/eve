@@ -665,7 +665,7 @@ class MessageDispatcher {
     const ask = this.state.pendingAsk;
     if (ask) {
       this.state.pendingAsk = null;
-      this.app.sendUserText(data.sessionId, ask.text, ask.files);
+      this.app.sendUserText(data.sessionId, ask.text, ask.files, ask.urls || []);
       this.bus.emit(EVT.ASK_SENT, { sessionId: data.sessionId, origin: ask.origin });
     }
     this.sidebar.renderProjectList();

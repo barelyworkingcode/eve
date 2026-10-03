@@ -1,5 +1,6 @@
 // Shared helpers for the devbox journeys: waits, readiness gates, and the
 // small readers the verdicts rest on. See docs/design-devboxverify.md.
+const http = require('http');
 const path = require('path');
 const { expect } = require('@playwright/test');
 
@@ -345,6 +346,50 @@ function sourcesRowProblem(cards, expected) {
   return null;
 }
 
+// One page on 127.0.0.1 at an ephemeral port: `html` at `pathname`, 404
+// anywhere else. Every request is logged, so a journey can tell the page was read.
+function servePage(pathname, html) {
+  const hits = [];
+  const server = http.createServer((req, res) => {
+    hits.push({ method: req.method, path: req.url, agent: req.headers['user-agent'] || '' });
+    const found = req.method === 'GET' && req.url === pathname;
+    res.writeHead(found ? 200 : 404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(found ? html : '');
+  });
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve({
+      url: `http://127.0.0.1:${server.address().port}${pathname}`,
+      hits,
+      close: () => new Promise((done) => { server.closeAllConnections(); server.close(() => done()); }),
+    }));
+  });
+}
+
+// Pastes `text` into `input` through the real clipboard and the keyboard, as a
+// person does. Clipboard access needs the page's origin granted first.
+async function pasteText(page, input, text) {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin });
+  await page.evaluate((t) => navigator.clipboard.writeText(t), text);
+  await input.focus({ timeout: 5000 });
+  await page.keyboard.press('ControlOrMeta+V');
+}
+
+// eve has no HTTP delete for a session, so this sends delete_session on a
+// socket of its own, as the sweep does, and waits for the list to drop it.
+async function deleteSession(env, sessionId) {
+  const conn = await env.api._connect();
+  try {
+    conn.send({ type: 'delete_session', sessionId });
+    await conn.terminals();
+  } finally {
+    conn.close();
+  }
+  const gone = await poll(async () => !(await eveJson(env, 'GET', '/api/sessions')).some((s) => s.id === sessionId),
+    { timeoutMs: 10000 });
+  if (!gone) throw new Error(`session ${sessionId} still listed 10s after delete_session`);
+}
+
 // Per-journey devices for env.newPage({ device }). Deliberate: hasTouch only,
 // never isMobile, which moves the layout viewport to 980px. hasTouch alone
 // makes Chromium match (pointer: coarse). See docs/design-today-s2.md.
@@ -427,5 +472,5 @@ module.exports = {
   openEve, waitForModels, openProject, openProjectPage, openEditProject, openTemplate, pressPreset, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt, eveJson, callToolRows,
   DENIED_OUTCOMES, MIN_TARGET, BRIEF_REFUSED, briefRunVerdict, probeVerdict, DEVICES, smallTargets, overflowProblems, sweep, overflow,
-  relayJoin, stubSources, sourcesRowProblem, firstDifference, isUnder,
+  relayJoin, stubSources, sourcesRowProblem, firstDifference, isUnder, servePage, pasteText, deleteSession,
 };

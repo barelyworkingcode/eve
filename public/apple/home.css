@@ -540,3 +540,7 @@
 .today-brief__note { color: var(--text-muted); font-size: var(--text-footnote); }
 .today-brief__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .today-brief__model { max-width: 100%; min-width: 0; }
+
+/* Pasted-URL chips (UrlChips): one wrapping row above the Ask box's controls and the chat input. */
+.url-chips { display: flex; flex-wrap: wrap; gap: 0 8px; }
+.url-chips[hidden] { display: none; }

@@ -14,7 +14,7 @@ const {
   openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, eveJson, callToolRows, DEVICES, sweep, overflow,
   worldIds, DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict, openEditProject, openTemplate, pressPreset,
-  stubSources, sourcesRowProblem, firstDifference, isUnder, MIN_TARGET,
+  stubSources, sourcesRowProblem, firstDifference, isUnder, MIN_TARGET, servePage, pasteText, deleteSession,
 } = require('./journey-kit');
 
 const exec = promisify(execFile);
@@ -1854,6 +1854,270 @@ async function researchCitations(env) {
     + `${live.chips.length} chips opened their source's title and excerpt; the same row and chips reopened and after a reload`);
 }
 
+// — Pasted-URL chips (docs/design-research.md) --------------------------------
+
+const ASK_REPLY_MS = 30000;
+const isFetchRow = (r) => r.tool === 'web_fetch' || r.tool.endsWith('__web_fetch');
+
+// The user message holding `marker`, as a reader sees it: its URL chips, its
+// text without the chip row, and everything it shows.
+async function userBubble(page, marker, timeoutMs) {
+  const bubble = page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: marker }).first();
+  if (!await expect(bubble).toBeVisible({ timeout: timeoutMs }).then(() => true, () => false)) return null;
+  return bubble.evaluate((el) => {
+    const text = el.querySelector('.message-content')?.cloneNode(true);
+    text?.querySelectorAll('.message-files').forEach((row) => row.remove());
+    return {
+      chips: [...el.querySelectorAll('[data-testid="message-url-chip"]')].map((c) => ({ label: c.textContent.trim(), title: c.title })),
+      text: (text?.textContent || '').trim(),
+      shown: el.innerText,
+    };
+  });
+}
+
+// One URL chip with the URL as its tooltip (and `label`, when given), the
+// typed text, and never the sources block.
+function bubbleProblem(seen, { text, url, label }) {
+  if (!seen) return 'the question is not shown as a user message';
+  if (seen.chips.length !== 1) return `the user message shows ${seen.chips.length} URL chips, expected 1`;
+  const [chip] = seen.chips;
+  if (chip.title !== url) return `the URL chip's tooltip is "${chip.title}", not ${url}`;
+  if (label && chip.label !== label) return `the URL chip reads "${chip.label}", not "${label}"`;
+  if (seen.shown.includes('Sources to read')) return 'the user message shows the "Sources to read" block';
+  if (seen.text !== text) return `the user message reads "${seen.text.slice(0, 80)}", not the typed text`;
+  return null;
+}
+
+// Reopened from the project page's Threads in a fresh page, then reloaded:
+// `check(page, how)` returns a problem or null each time.
+async function reopenAndReload(env, project, sessionId, check) {
+  const again = await env.newPage();
+  await openEve(again, env);
+  const projectPage = await openProjectPage(again, env, project);
+  env.step('reopen the thread');
+  await need('the thread is not in the project page\'s Threads',
+    projectPage.getByTestId(`project-thread-${sessionId}`).click({ timeout: 15000 }));
+  for (const how of ['reopened', 'reloaded']) {
+    if (how === 'reloaded') await reloadEve(again, env);
+    env.step(`read the thread (${how})`);
+    const problem = await check(again, how);
+    if (problem) return `${how}: ${problem}`;
+  }
+  return null;
+}
+
+// A URL pasted into Today's Ask becomes a chip, travels as `urls`, and the
+// thread shows it as a chip: live, reopened and reloaded. The reply is not
+// evidence; the reopened chip can only come from the text eve stored.
+async function askPastedUrl(env) {
+  const id = 'ask-pasted-url';
+  const acme = env.world.projects.acme;
+  const noDefault = await workDefaultMissing(env, acme);
+  if (noDefault) return result(id, FAIL, noDefault);
+  const url = `https://docs.example/verify-${env.nonce}/guide`;
+  const label = `docs.example/verify-${env.nonce}/guide`;
+  const typed = `verify-${env.nonce} what does this page say?`;
+
+  const page = await env.newPage();
+  const frames = createFrames(page, 'user_input');
+  await openEve(page, env);
+  await waitForModels(page, env);
+  const values = await page.evaluate((pid) => window.client.state.modelsForProject(pid).map((m) => m.value), acme.id);
+  const model = pickModel(values, env.model);
+  if (!model) return result(id, BLOCKED, `model "${env.model}" is not offered for ${acme.name}`);
+  // Deliberate: Ask takes the model last used there (eve-ask-model), as in ask-about-file.
+  await page.evaluate((m) => localStorage.setItem('eve-ask-model', m), model);
+  await reloadEve(page, env);
+  await switchMode(page, env, 'work');
+
+  const input = page.getByTestId('today-ask-input');
+  await need('Ask is not on Today', expect(input).toBeVisible({ timeout: 10000 }));
+  env.step('paste the URL into Ask');
+  await pasteText(page, input, url);
+  const chip = page.getByTestId('today-ask-url-1');
+  if (!await expect(chip).toBeVisible({ timeout: 5000 }).then(() => true, () => false)) {
+    return result(id, FAIL, `pasting ${url} into Ask made no chip (today-ask-url-1); the box holds "${(await input.inputValue()).slice(0, 80)}"`);
+  }
+  const chipLabel = (await chip.locator('.ask-chip__label').innerText({ timeout: 2000 }).catch(() => '')).trim();
+  if (chipLabel !== label) return result(id, FAIL, `the Ask chip reads "${chipLabel}", not "${label}"`);
+  if (await chip.getAttribute('title') !== url) return result(id, FAIL, `the Ask chip's tooltip is not ${url}`);
+  const pasted = await input.inputValue();
+  if (pasted !== '') return result(id, FAIL, `the paste also put "${pasted.slice(0, 60)}" in the Ask box`);
+
+  const before = await acmeIds(env, 'sessions');
+  env.step('ask');
+  await page.keyboard.type(typed);
+  await page.keyboard.press('Enter');
+  const created = await poll(async () => addedIds(before, await acmeIds(env, 'sessions')).length > 0,
+    { timeoutMs: ASK_REPLY_MS, intervalMs: 1000 });
+  await sleep(1000);
+  const made = addedIds(before, await acmeIds(env, 'sessions'));
+  for (const sessionId of made) env.cleanup(`delete the ${acme.name} thread`, () => deleteSession(env, sessionId));
+  if (!created) {
+    const said = (await page.getByTestId('today-ask-status').innerText({ timeout: 2000 }).catch(() => '')).trim();
+    return result(id, FAIL, `no ${acme.name} session within ${ASK_REPLY_MS / 1000}s of Return${said ? `; Ask says "${said}"` : ''}`);
+  }
+  if (made.length !== 1) return result(id, FAIL, `${made.length} new ${acme.name} sessions, expected 1`);
+
+  env.step('read the user message');
+  const live = bubbleProblem(await userBubble(page, typed, 15000), { text: typed, url, label });
+  await page.getByTestId('chat-stop').click({ timeout: 2000 }).catch(() => {});
+  if (live) return result(id, FAIL, live);
+  if (frames.length !== 1) return result(id, FAIL, `Ask sent ${frames.length} user_input frames, expected 1`);
+  if (!isDeepStrictEqual(frames[0].urls, [url]) || frames[0].text !== typed) {
+    return result(id, FAIL, `user_input carried urls ${JSON.stringify(frames[0].urls)} and text "${String(frames[0].text).slice(0, 80)}", `
+      + `not [${url}] and the typed text`);
+  }
+
+  const problem = await reopenAndReload(env, acme, made[0], async (again) =>
+    bubbleProblem(await userBubble(again, typed, 20000), { text: typed, url, label }));
+  if (problem) return result(id, FAIL, problem);
+  return result(id, PASS, `Ask showed chip "${label}" and an empty box; one ${acme.name} thread; one user_input with the URL in urls; `
+    + 'the user message showed the chip and the typed text only, live, reopened and reloaded');
+}
+
+// The `Research` project (setup R1), its id, path and a web chat in it with
+// the run's model. Returns { research, page, sessionId } or a result to return.
+async function researchChat(env, id) {
+  const listed = (await eveJson(env, 'GET', '/api/projects')).filter((p) => p.name === RESEARCH);
+  if (listed.length !== 1) return { verdict: result(id, BLOCKED, `setup R1: ${listed.length} projects named ${RESEARCH}, expected 1`) };
+  const research = { name: RESEARCH, id: listed[0].id, path: listed[0].path };
+  if (!isUnder(research.path, env.world.root)) {
+    return { verdict: result(id, BLOCKED, `setup R1: ${RESEARCH}'s folder is not under the world root (${env.world.root}); this journey sends and sweeps sessions there`) };
+  }
+  const page = await env.newPage();
+  const errors = captureErrors(page);
+  await openEve(page, env);
+  await waitForModels(page, env);
+  env.cleanup(`delete the ${RESEARCH} session`, () => env.api.sweep([research]));
+  const ids = () => worldIds(env, [research], 'sessions');
+  const before = await ids();
+  await openProject(page, env, research);
+  const dialog = await openLauncher(page, env, research);
+  env.step('open the Web Chat form');
+  if (!await dialog.getByTestId('shell-card-web-chat').click({ timeout: 10000 }).then(() => true, () => false)) {
+    return { verdict: result(id, BLOCKED, `setup R1: ${RESEARCH}'s launcher has no Web Chat card`) };
+  }
+  const select = dialog.getByTestId('launcher-model-select');
+  const offered = pickModel(await optionValues(select), env.model);
+  if (!offered) return { verdict: result(id, BLOCKED, `setup R1: the launcher does not offer "${env.model}" in ${RESEARCH}`) };
+  await select.selectOption(offered, { timeout: 5000 });
+  env.step('start the chat');
+  await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
+  const made = await poll(async () => {
+    const added = addedIds(before, await ids());
+    return added.length ? added : null;
+  }, { timeoutMs: 30000, intervalMs: 1000 });
+  if (!made) {
+    const refusal = errors.find((e) => /template "chat"/.test(e));
+    return { verdict: refusal ? result(id, BLOCKED, `setup R1: launch refused: ${refusal}`) : result(id, FAIL, `no ${RESEARCH} session within 30s of Start Chat`) };
+  }
+  if (made.length !== 1) return { verdict: result(id, FAIL, `${made.length} new ${RESEARCH} sessions, expected 1`) };
+  return { research, page, sessionId: made[0] };
+}
+
+// The popover a source card or chip opens: its title and excerpt.
+async function openedSource(page, target) {
+  await target.click({ timeout: 5000 });
+  const pop = page.getByTestId('cite-popover');
+  if (!await expect(pop).toBeVisible({ timeout: 5000 }).then(() => true, () => false)) return null;
+  const shown = await pop.evaluate((el) => ({
+    title: (el.querySelector('.cite-title')?.textContent || '').trim(),
+    excerpt: (el.querySelector('.cite-excerpt')?.textContent || '').trim(),
+  }));
+  await page.getByTestId('cite-close').click({ timeout: 5000 });
+  await need('the source popover did not close', expect(pop).toBeHidden({ timeout: 5000 }));
+  return shown;
+}
+
+// A URL pasted into a Research chat is read with web_fetch (relay's audit and
+// the page's own server both see it), and the page joins the sources row with
+// its title and visible text. Model lapses are BLOCKED; the reply is not evidence.
+async function chatPastedUrlSource(env) {
+  const id = 'chat-pasted-url-source';
+  const marker = `verify-${env.nonce}`;
+  const title = `${marker} lighthouse`;
+  const sentence = `The ${marker} lighthouse is painted green.`;
+  const scriptMarker = `${marker}-script`;
+  const server = await servePage(`/${marker}.html`, `<!doctype html><html><head><title>${title}</title></head>`
+    + `<body><p>${sentence}</p><script>var seen = "${scriptMarker}";</script></body></html>`);
+  env.cleanup('close the page server', () => server.close());
+
+  const chat = await researchChat(env, id);
+  if (chat.verdict) return chat.verdict;
+  const { research, page, sessionId } = chat;
+  const input = page.getByTestId('chat-input');
+  await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
+  env.step('paste the page URL');
+  await pasteText(page, input, server.url);
+  const chip = page.getByTestId('chat-url-1');
+  if (!await expect(chip).toBeVisible({ timeout: 5000 }).then(() => true, () => false)) {
+    return result(id, FAIL, `pasting ${server.url} into the chat made no chip (chat-url-1); the box holds "${(await input.inputValue()).slice(0, 80)}"`);
+  }
+  if (await chip.getAttribute('title') !== server.url) return result(id, FAIL, `the chat chip's tooltip is not ${server.url}`);
+  const pasted = await input.inputValue();
+  if (pasted !== '') return result(id, FAIL, `the paste also put "${pasted.slice(0, 60)}" in the chat box`);
+
+  const typed = `${marker}: What colour is the lighthouse on this page? Answer in one sentence ending with a markdown link to the page.`;
+  await page.keyboard.type(typed);
+  env.step('send');
+  const sentAt = Date.now() - 1000;
+  await page.getByTestId('chat-submit').click({ timeout: 5000 });
+  env.step('wait for the reply');
+  const stop = page.getByTestId('chat-stop');
+  const settled = await poll(async () => {
+    const r = replyAfter(await thread(page), marker);
+    return r.error || (r.reply && !(await stop.isVisible())) ? r : null;
+  }, { timeoutMs: RESEARCH_REPLY_MS, intervalMs: 1000 });
+
+  env.step('read relay audit for the fetch');
+  let rows = [];
+  await poll(async () => {
+    rows = await relayCallRows(env, research, sentAt).catch(() => rows);
+    return rows.some((r) => isFetchRow(r) && (r.outcome === 'ok' || DENIED_OUTCOMES.includes(r.outcome)));
+  }, { timeoutMs: AUDIT_SETTLE_MS, intervalMs: 1000 });
+  const fetches = rows.filter(isFetchRow);
+  const fetched = fetches.find((r) => r.outcome === 'ok');
+  const thrown = settled?.error ? `; thread error: ${settled.error}` : '';
+  if (!fetches.length) return result(id, BLOCKED, `model: no web_fetch row in relay audit since the send; ${RESEARCH} tools called: ${rowsSaid(rows) || 'none'}${thrown}`);
+  if (!fetched && fetches.some((r) => DENIED_OUTCOMES.includes(r.outcome))) {
+    return result(id, BLOCKED, `setup R1b: relay refused ${rowsSaid(fetches)} in ${RESEARCH}`);
+  }
+  if (!fetched) return result(id, FAIL, `relay audit has ${rowsSaid(fetches)}, no ok web_fetch`);
+  const read = server.hits.filter((h) => h.method === 'GET' && h.path === `/${marker}.html`);
+  if (!read.length) return result(id, FAIL, `relay audit has ${rowsSaid([fetched])}, but the page server logged no GET of /${marker}.html`);
+  if (!settled) return result(id, FAIL, `relay audit has ${rowsSaid([fetched])}, but no finished reply within ${RESEARCH_REPLY_MS / 1000}s`);
+  if (settled.error) return result(id, FAIL, `relay audit has ${rowsSaid([fetched])}, but the thread shows an error: ${settled.error}`);
+
+  // The page's card, its popover, and the bubble's chip: the same each time it is read.
+  const sourceProblem = async (p, how) => {
+    const card = p.getByTestId('messages-container').getByTestId('answer-sources').getByTestId('answer-source-1');
+    if (!await expect(card).toBeVisible({ timeout: 20000 }).then(() => true, () => false)) return 'no answer-source-1 card within 20s of the reply';
+    const problem = sourcesRowProblem([{ testid: 'answer-source-1', text: await card.innerText() }], [{ n: 1, host: '127.0.0.1' }]);
+    if (problem) return problem;
+    const shown = await openedSource(p, card);
+    if (!shown) return 'answer-source-1 opens nothing';
+    if (shown.title !== title) return `the source's title is "${shown.title}", not "${title}"`;
+    if (!shown.excerpt.includes(sentence)) return `the source's excerpt does not hold the page's sentence: "${shown.excerpt.slice(0, 80)}"`;
+    if (shown.excerpt.includes(scriptMarker)) return 'the source\'s excerpt holds the page\'s script';
+    const cite = p.getByTestId('messages-container').getByTestId('cite-chip-1');
+    if (how === 'live' && await cite.count()) {
+      const viaChip = await openedSource(p, cite.first());
+      if (!isDeepStrictEqual(viaChip, shown)) return `cite-chip-1 opens ${JSON.stringify(viaChip)}, not the card's source`;
+    }
+    return bubbleProblem(await userBubble(p, marker, 20000), { text: typed, url: server.url });
+  };
+  env.step('read the sources row');
+  const live = await sourceProblem(page, 'live');
+  if (live) return result(id, FAIL, live);
+  const chipped = await page.getByTestId('messages-container').getByTestId('cite-chip-1').count() > 0;
+  const problem = await reopenAndReload(env, research, sessionId, sourceProblem);
+  if (problem) return result(id, FAIL, problem);
+  return result(id, PASS, `relay audit has ${rowsSaid([fetched])}; the page server saw ${read.length} GET (${read[0].agent || 'no agent'}); `
+    + `answer-source-1 is 127.0.0.1 with the page's title and text, not its script; ${chipped ? 'cite-chip-1 opens the same source' : 'the answer links no chip'}; `
+    + 'the same row and bubble chip reopened and after a reload');
+}
+
 // — On the go (S6) ------------------------------------------------------------
 
 const NOTIFICATIONS_FILE = 'notifications.jsonl';
@@ -2045,12 +2309,14 @@ const journeys = [
   { id: 'today-ipad-portrait', timeoutMs: 45000, areas: ['home', 'shell'], needs: ['project:acme'], run: todayIpadPortrait },
   { id: 'today-phone', timeoutMs: 75000, areas: ['home', 'shell', 'chat'], needs: ['project:acme'], run: todayPhone },
   { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
+  { id: 'ask-pasted-url', timeoutMs: 90000, areas: ['home', 'chat'], needs: ['project:acme'], run: askPastedUrl },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },
   { id: 'brief-injection-refused', timeoutMs: 360000, areas: ['home', 'tasks'], needs: ['project:home'], run: briefInjectionRefused },
   { id: 'ask-in-other-mode', timeoutMs: 240000, areas: ['home', 'chat'], needs: ['project:home', 'project:acme'], run: askInOtherMode },
   { id: 'research-citations', timeoutMs: 180000, areas: ['chat'], needs: [], run: researchCitations },
+  { id: 'chat-pasted-url-source', timeoutMs: 180000, areas: ['chat'], needs: [], run: chatPastedUrlSource },
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
 ];
