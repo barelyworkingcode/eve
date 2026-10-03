@@ -223,7 +223,15 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     proxy(req, res, 'GET', `/api/tasks${qs}`);
   });
 
-  app.post('/api/tasks', requireAuth, (req, res) => {
+  // A Today card runs a script on a schedule, so setting one needs a real passkey
+  // session; the trusted-network bypass may still run and view cards.
+  function requireSessionForOutputFile(req, res, next) {
+    if (!req.body || !req.body.outputFile || process.env.EVE_NO_AUTH === '1') return next();
+    if (authService.validateSession(req.headers['x-session-token'])) return next();
+    res.status(403).json({ error: 'Only a browser signed in with a passkey can set up a Today card.' });
+  }
+
+  app.post('/api/tasks', requireAuth, requireSessionForOutputFile, (req, res) => {
     proxy(req, res, 'POST', '/api/tasks', req.body);
   });
 
@@ -231,7 +239,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     proxy(req, res, 'GET', `/api/tasks/${req.params.taskId}`);
   });
 
-  app.put('/api/tasks/:taskId', requireAuth, (req, res) => {
+  app.put('/api/tasks/:taskId', requireAuth, requireSessionForOutputFile, (req, res) => {
     proxy(req, res, 'PUT', `/api/tasks/${req.params.taskId}`, req.body);
   });
 

@@ -104,6 +104,8 @@ const RoutineSentence = (() => {
 
   function reason(task, exec) {
     if (task.lastStatus === 'timeout' || exec.status === 'timeout') return 'took too long';
+    // A run that exited 0 but left no readable output file carries its reason in error.
+    if (exec.exitCode === 0 && exec.error) return firstLine(exec.error, 80);
     if (exec.exitCode !== undefined && exec.exitCode !== null) return `exited ${exec.exitCode}`;
     return firstLine(exec.error, 80) || 'no reason given';
   }

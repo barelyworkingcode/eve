@@ -42,6 +42,7 @@ class HomeScreen {
       }),
     });
     this.host.mount(this.el, this.state.mode);
+    new CustomParts({ registry: this.registry, host: this.host, state: this.state, bus: this.bus }).start();
     this.bus.on(EVT.MODE_CHANGED, ({ mode }) => this.host.setMode(mode));
   }
 

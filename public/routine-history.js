@@ -4,7 +4,9 @@
 // supersedes the task's older entry, so the cap counts tasks.
 class RoutineHistory {
   // load(taskId) → Promise<history[]>; onChange() runs when an entry lands.
-  constructor({ load, onChange, limit = 20 }) {
+  // pick(history) chooses what an entry holds; the default is the newest run.
+  constructor({ load, onChange, limit = 20, pick = (h) => h[0] || null }) {
+    this._pick = pick;
     this._load = load;
     this._onChange = onChange;
     this._limit = limit;
@@ -28,7 +30,7 @@ class RoutineHistory {
     if (this._cache.size >= this._limit) return null;
     this._cache.set(key, null);
     Promise.resolve(this._load(task.id)).then((history) => {
-      this._cache.set(key, Array.isArray(history) ? history[0] || null : null);
+      this._cache.set(key, Array.isArray(history) ? this._pick(history) : null);
       this._onChange();
     });
     return null;

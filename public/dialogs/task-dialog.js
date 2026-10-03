@@ -309,6 +309,21 @@ class TaskDialog extends DialogBase {
       '30',
     ));
 
+    // Console projects only: a host project's routines run elsewhere and can't be a card.
+    if (!this.state.getProject(this.projectId)?.hostId) {
+      const outputField = this._formField(
+        'Output file (optional, shows as a card on Today)',
+        'text', 'taskOutputFile', editTask?.outputFile || '', 'today.json',
+      );
+      outputField.querySelector('input').dataset.testid = 'task-dialog-output-file';
+      ptyFields.appendChild(outputField);
+      const warning = document.createElement('p');
+      warning.className = 'task-dialog__hint';
+      warning.dataset.testid = 'task-dialog-output-warning';
+      warning.textContent = 'Shows this routine as a card on Today. The script runs with its template\'s access and can change any file it can reach.';
+      ptyFields.appendChild(warning);
+    }
+
     advanced.appendChild(ptyFields);
 
     const refreshTypeFields = () => {
@@ -490,6 +505,8 @@ class TaskDialog extends DialogBase {
       if (sessionType === 'pty') {
         data.templateId = form.querySelector('[name="taskTemplateId"]').value;
         data.extraArgs = parseExtraArgs(form.querySelector('[name="taskExtraArgs"]').value);
+        const outputFile = form.querySelector('[name="taskOutputFile"]')?.value.trim();
+        if (outputFile) data.outputFile = outputFile;
         const dir = form.querySelector('[name="taskDirectory"]').value.trim();
         if (dir) data.directory = dir;
         const minutes = parseInt(form.querySelector('[name="taskTimeoutMinutes"]').value, 10);
