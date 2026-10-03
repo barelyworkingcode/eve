@@ -104,7 +104,7 @@ const Sources = {
     const url = new URL(input.url.trim()).href;
     const u = new URL(key);
     const decode = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-      .replace(/&#0?39;/g, "'").replace(/&amp;/g, '&');
+      .replace(/&(?:#0?39|apos);/g, "'").replace(/&amp;/g, '&');
     const tm = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(body);
     const title = tm ? decode(tm[1].replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim() : '';
     const visible = body

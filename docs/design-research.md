@@ -24,7 +24,6 @@ Citations depend on the model linking its claims. This prompt is a recommendatio
 
 A link to a URL the search did not return stays an ordinary link.
 
-
 ## Pasted-URL chips: a read page is a source
 - A pasted link is a chip in Ask and the chat box (`SourceUrls`, `public/core/source-urls.js`). On send, eve appends one "Sources to read" block after the typed text; the browser strips it on replay and shows chips.
 - A `web_fetch` tool (name `web_fetch` or ending in `__web_fetch`) for an `http:`/`https:` URL whose result starts `HTTP 2xx` adds one source, numbered with search sources in first-seen order and deduplicated by the same normalized URL. Errors, refusals and non-2xx add none.
@@ -32,7 +31,7 @@ A link to a URL the search did not return stays an ordinary link.
 - Live streams give a tool's input only at `content_block_stop`, so `Citations` keeps the input per tool id and updates it from `updateToolInput`.
 
 ## Decisions
-1. A source is a `brave_web_search` result, and its excerpt is exactly what the model saw.
+1. A source is a `brave_web_search` result or a 2xx `web_fetch` page, and its excerpt is exactly what the model saw.
 2. Citations are links matched by URL. Other links stay links.
 3. `message-renderer.js` gets about five hook lines. Every live, history and Claude path to tool results and answers runs through it. A DOM observer would have to re-read tool output from rendered text.
 4. The journey runs against a stub search MCP in devboxWorld that mirrors Brave's tool name, wire shape and `openWorldHint`. Its URLs use `.example`.

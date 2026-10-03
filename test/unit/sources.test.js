@@ -256,6 +256,11 @@ describe('Sources from a web_fetch result', () => {
     expect(fetchOne('<p>&amp; &lt;b&gt; &quot;q&quot; &#39;s&#39; &amp;lt;</p>')[0].excerpt).toBe('& <b> "q" \'s\' &lt;');
   });
 
+  it('decodes &apos; in the title and the excerpt', () => {
+    const s = fetchOne('<head><title>It&apos;s</title></head><p>It&apos;s</p>')[0];
+    expect([s.title, s.excerpt]).toEqual(["It's", "It's"]);
+  });
+
   it('caps the excerpt at 600 characters', () => {
     const long = 'abcdefghij'.repeat(100);
     expect(fetchOne(`<p>${long}</p>`)[0].excerpt).toBe(long.slice(0, 600));
