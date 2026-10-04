@@ -212,8 +212,7 @@ async function runSet(opts, deps) {
     return null;
   };
 
-  // Step 11 body: restore, whatever happened. Runs once, whether from the
-  // normal path or a signal.
+  // Step 11 body: restore, whatever happened.
   let restoreRun = null;
   const restore = () => {
     restoreRun = restoreRun || (async () => {
@@ -256,15 +255,7 @@ async function runSet(opts, deps) {
     return restoreRun;
   };
 
-  // A dropped session must still restore Relay.app and eve-verify.
   const releaseOnce = (() => { let p = null; return () => (p = p || Promise.resolve(release())); })();
-  const unhook = deps.onSignal ? deps.onSignal(async (sig) => {
-    state.failed = true;
-    log(`${sig}: restoring before exit`);
-    await restore();
-    await releaseOnce();
-    return 2;
-  }) : () => {};
 
   try {
     // Step 5: relay build from a detached worktree of the ref.
@@ -360,7 +351,6 @@ async function runSet(opts, deps) {
   try {
     out(['SET', finalSet].join('\t'));
   } finally {
-    unhook();
     await releaseOnce();
   }
 
@@ -453,12 +443,6 @@ function realDeps() {
     waitForFile: (file, ms) => pollUntil(() => fs.existsSync(file), ms),
     consoleOwner: () => execFileSync('stat', ['-f', '%Su', '/dev/console'], { encoding: 'utf8' }).trim(),
     user: () => os.userInfo().username,
-    onSignal: handler => {
-      const sigs = ['SIGHUP', 'SIGINT', 'SIGTERM'];
-      const fns = sigs.map(sig => () => { handler(sig).then(code => process.exit(code), () => process.exit(2)); });
-      sigs.forEach((sig, i) => process.on(sig, fns[i]));
-      return () => sigs.forEach((sig, i) => process.removeListener(sig, fns[i]));
-    },
     now: () => Date.now(),
     out: line => process.stdout.write(`${line}\n`),
     log: line => process.stderr.write(`${line}\n`),
@@ -478,6 +462,8 @@ async function main(argv) {
 }
 
 if (require.main === module) {
+  // An SSH drop must not stop the run: it finishes and restores itself.
+  process.on('SIGHUP', () => {});
   main(process.argv.slice(2)).then(code => process.exit(code), err => {
     process.stderr.write(`${err.usage ? USAGE : `set: ${err.message}`}\n`);
     process.exit(2);

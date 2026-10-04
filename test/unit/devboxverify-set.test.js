@@ -186,22 +186,6 @@ describe('runSet', () => {
     expect(w.code).toBe(0);
   });
 
-  it('a dropped session (SIGHUP) still restores once, releases the lock and exits non-zero', async () => {
-    const w = world();
-    let handler;
-    let exit;
-    w.deps.onSignal = (h) => { handler = h; return () => { w.calls.push('UNHOOK'); }; };
-    const realWait = w.deps.waitForFile;
-    w.deps.waitForFile = async (file, ms) => { exit = await handler('SIGHUP'); return realWait(file, ms); };
-    w.code = await runSet({ ...parseArgs(['--relay', '7', '--eve', '12']), env: w.env }, w.deps);
-    expect(exit).not.toBe(0);
-    expect(w.out.filter((l) => /^RESTORE\trelay\tOK\t/.test(l))).toHaveLength(1);
-    expect(w.out.filter((l) => /^RESTORE\teve\tOK\t/.test(l))).toHaveLength(1);
-    expect(w.calls.filter((c) => c === 'RELEASE')).toHaveLength(1);
-    expect(w.calls.filter((c) => /^relay: git merge --ff-only/.test(c))).toHaveLength(1);
-    expect(w.code).not.toBe(0);
-  });
-
   it('restores relay before eve and releases the lock last', async () => {
     const w = await go(['--relay', '7', '--eve', '12']);
     const order = [/^relay: git merge --ff-only origin\/main$/, /^relay: build\.sh/, /^eve: git reset .*--hard origin\/main$/, /^RELEASE$/].map(w.idx);

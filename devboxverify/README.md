@@ -754,8 +754,12 @@ it at `<run dir>/inner.lock` so they don't deadlock on the outer one. Neither
 harness changes. `plan.json` env holds only `PATH`, `HOME`, the allowlisted
 vars above and that lock; nothing else from your environment reaches disk.
 
-**Restore.** On SIGHUP, SIGINT or SIGTERM (a dropped SSH session) the same
-restore runs once, the lock is released and the run exits 2. It runs whenever the relay build or the eve reset started.
+**Restore.** It runs whenever the relay build or the eve reset started, on
+every path the run finishes by. `set.js` ignores SIGHUP, so a dropped SSH
+session doesn't stop it. Ctrl-C (SIGINT) or `kill` (SIGTERM) stops the run
+and skips restore: restore by hand with `./build.sh` in the relay main
+checkout, `git reset --hard origin/main` in the verify eve worktree, then
+`relay service restart --id eve-verify`.
 Relay first: in the relay checkout, `git fetch`, the branch must be `main`
 with no tracked changes, `git merge --ff-only origin/main`, `./build.sh`, wait
 for `relaysessions running`. Then eve: `git reset --hard origin/main` (and
@@ -780,14 +784,19 @@ SET success|failure|error
 line RED; anything else, a timeout included, BLOCKED. With one ref, the
 harness's own `POSTED` line is copied through unchanged.
 
-**Exit codes.** Paired: 0 when every phase is GREEN and restore is OK; 1 when a
-phase is RED, or BLOCKED but with a `SUMMARY` line; 2 for usage, any `STEP`
-FAIL, a phase with no `SUMMARY`, `POSTED FAIL` or any `RESTORE` FAIL. One ref:
-the harness's exit code, raised to 2 by a step or restore failure.
+**Exit codes.** Paired: the exit code follows the final `SET` line: 0 for
+`success`, 1 for `failure`, 2 for `error`. `SET` is `error` after usage
+errors, any `STEP` FAIL, `POSTED FAIL` or any `RESTORE` FAIL, whatever the
+phases said. Otherwise it is the state below. So a RED phase exits 1 only
+when no journey in the run is BLOCKED; RED plus a BLOCKED journey, a BLOCKED
+phase (even one with a `SUMMARY`), a phase with no `SUMMARY` or a timeout
+exits 2. NOTRUN journeys never count against a run. One ref: the harness's
+exit code, raised to 2 by a step, post or restore failure.
 
 **The paired status.** One state goes on both PRs: `failure` if any phase has
-a `JOURNEY … FAIL` line; else `error` if any has a `JOURNEY … BLOCKED` line,
-no `SUMMARY`, or timed out; else `success`. If either side fails, both fail.
+a `JOURNEY … FAIL` line, or a RED phase with no BLOCKED journey in the run;
+else `error` if any journey is BLOCKED, any phase is not GREEN, has no
+`SUMMARY` or timed out; else `success`. PASS and NOTRUN journeys are fine. If either side fails, both fail.
 The same comment (both PR URLs and commits, the tool commit, run time, a row
 per phase and per journey) goes on both PRs. Each head gets a `devbox/verify`
 status whose `target_url` is that PR's comment and whose description names
