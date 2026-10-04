@@ -787,10 +787,10 @@ harness's own `POSTED` line is copied through unchanged.
 **Exit codes.** Paired: the exit code follows the final `SET` line: 0 for
 `success`, 1 for `failure`, 2 for `error`. `SET` is `error` after usage
 errors, any `STEP` FAIL, `POSTED FAIL` or any `RESTORE` FAIL, whatever the
-phases said. Otherwise it is the state below. So a RED phase exits 1 only
-when no journey in the run is BLOCKED; RED plus a BLOCKED journey, a BLOCKED
-phase (even one with a `SUMMARY`), a phase with no `SUMMARY` or a timeout
-exits 2. NOTRUN journeys never count against a run. One ref: the harness's
+phases said. Otherwise it is the state below. Any FAIL journey exits 1.
+With no FAIL journey, a RED phase exits 1 only when no journey in the run is
+BLOCKED; RED plus a BLOCKED journey, a BLOCKED phase (even one with a
+`SUMMARY`), a phase with no `SUMMARY` or a timeout exits 2. NOTRUN journeys never count against a run. One ref: the harness's
 exit code, raised to 2 by a step, post or restore failure.
 
 **The paired status.** One state goes on both PRs: `failure` if any phase has
