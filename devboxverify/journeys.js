@@ -1160,7 +1160,7 @@ async function settingsSheet(env) {
 
   env.step('read the sheet');
   await need('the sheet is not titled "Settings"',
-    expect(sheet.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 5000 }));
+    expect(sheet.getByRole('heading', { name: 'Settingz', exact: true })).toBeVisible({ timeout: 5000 }));
   const tabs = await sheet.locator('.dialog__tab').count();
   if (tabs) return result(id, FAIL, `Settings has ${tabs} tabs`);
   // Text content, not innerText: the headings are small caps by CSS, which innerText returns shouted.
