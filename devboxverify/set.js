@@ -90,15 +90,6 @@ function summaryOf(stdout) {
   return line ? line.replace(/\t/g, ' ') : 'no summary';
 }
 
-// Same state rule as the paired status (set-status.js), so the printed state
-// matches what was posted.
-function setState(phases) {
-  const all = phases.map(p => p.stdout).join('\n');
-  if (/^JOURNEY\t[^\t]*\tFAIL/m.test(all) || phases.some(p => p.result === 'RED')) return 'failure';
-  if (/^JOURNEY\t[^\t]*\tBLOCKED/m.test(all) || phases.some(p => p.timedOut || !/^SUMMARY\t/m.test(p.stdout))) return 'error';
-  return 'success';
-}
-
 const oneLine = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
 const sha12 = sha => String(sha).slice(0, 12);
 const sleepReal = ms => new Promise(r => setTimeout(r, ms));
@@ -191,7 +182,7 @@ async function runSet(opts, deps) {
     const tries = Math.floor(SERVICE_TIMEOUT_MS / 2000) + 1;
     for (let i = 0; i < tries; i++) {
       const r = await sh(relayCheckout, relayBin, ['service', 'list'], SERVICE_TIMEOUT_MS);
-      if (good(r) && /relaysessions\s+running/.test(r.stdout)) return true;
+      if (good(r) && /^relaysessions\s.*\srunning\s*$/m.test(r.stdout)) return true;
       if (i < tries - 1) await sleep(2000);
     }
     return false;
@@ -294,7 +285,7 @@ async function runSet(opts, deps) {
   // Step 10: post for a pair.
   let postedFail = false;
   const finished = phaseResults.length > 0;
-  const setResult = phaseResults.length ? setState(phaseResults) : 'error';
+  const setResult = phaseResults.length ? require('./set-status').setState(phaseResults) : 'error';
   if (paired && opts.post && finished) {
     try {
       const toolCommit = (await sh(opts.toolRoot || path.resolve(__dirname, '..'), 'git', ['rev-parse', 'HEAD'])).stdout.trim();

@@ -33,8 +33,12 @@ function journeysOf(stdout) {
 
 function setState(phases) {
   const journeys = phases.flatMap((p) => journeysOf(p.stdout));
+  const results = phases.map((p) => p.result || phaseResult(p));
+  // A RED phase with no FAIL journey still can't be success; it is a failure
+  // unless a journey was BLOCKED (then the run could not decide: error).
   if (journeys.some((j) => j.state === 'FAIL')) return 'failure';
-  if (journeys.some((j) => j.state === 'BLOCKED')) return 'error';
+  if (results.includes('RED') && !journeys.some((j) => j.state === 'BLOCKED')) return 'failure';
+  if (journeys.some((j) => j.state !== 'PASS') || results.some((r) => r !== 'GREEN')) return 'error';
   if (phases.some((p) => p.timedOut || !summaryLines(p.stdout).length)) return 'error';
   return 'success';
 }
