@@ -394,7 +394,9 @@ class RelayClient {
   }
 
   sendMessage(text, files, sessionId, { traceId } = {}) {
-    this._send({ type: 'send_message', text, files, sessionId, trace_id: acceptTraceId(traceId) });
+    // The turn's ID outlives pendingUserMessage; the speech chain reads it.
+    this._turnTraceId = acceptTraceId(traceId);
+    this._send({ type: 'send_message', text, files, sessionId, trace_id: this._turnTraceId });
   }
 
   // Clears pendingUserMessage only when it belongs to the given session, so
@@ -572,9 +574,10 @@ class RelayClient {
 
       const seq = this._ttsChunkSeq++;
       const gen = this._ttsGeneration;
+      const traceId = this._turnTraceId;
       this._ttsChain = this._ttsChain.then(() => {
         if (gen !== this._ttsGeneration) return;
-        return this._synthesizeAndSend(cleaned, seq, gen, span);
+        return this._synthesizeAndSend(cleaned, seq, gen, span, traceId);
       }).catch(err => {
         this._logTtsFailureOnce(gen, `TTS chain error at chunk ${seq}:`, err);
       });
@@ -589,14 +592,14 @@ class RelayClient {
     this.log.error(msg, err.message);
   }
 
-  async _synthesizeAndSend(text, seq, gen, span) {
+  async _synthesizeAndSend(text, seq, gen, span, traceId) {
     this.ttsPending++;
     try {
       // Delivery tempo layers on the user's base speed; instruct/gain carry the
       // emotion (null instruct => daemon uses the voice's configured default).
       const speed = this.voiceSpeed * span.speed;
       const result = await this.ttsService.synthesize(
-        text, this.voicePreset, speed, span.instruct, span.gain);
+        text, this.voicePreset, speed, span.instruct, span.gain, { traceId });
       if (gen !== this._ttsGeneration) {
         return;
       }

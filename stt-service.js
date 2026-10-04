@@ -19,8 +19,9 @@ class STTService {
   }
 
   // audioBase64 accepts any format ffmpeg can decode.
-  async transcribe(audioBase64, language = null) {
+  async transcribe(audioBase64, language = null, { traceId } = {}) {
     const request = { audio_base64: audioBase64 };
+    if (traceId) request.trace_id = traceId;
     if (language) request.language = language;
     const response = await this._sendRequest(request);
     if (!response.success) {

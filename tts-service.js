@@ -21,8 +21,9 @@ class TTSService {
 
   // instruct null/omitted => the daemon falls back to the voice's configured
   // default, preserving per-voice character.
-  async synthesize(text, voice = 'af_heart', speed = 1.0, instruct = null, gain = 1.0) {
+  async synthesize(text, voice = 'af_heart', speed = 1.0, instruct = null, gain = 1.0, { traceId } = {}) {
     const request = { text, voice, speed };
+    if (traceId) request.trace_id = traceId;
     if (instruct) request.instruct = instruct;
     if (gain && gain !== 1.0) request.gain = gain;
     const response = await this._sendRequest(request);

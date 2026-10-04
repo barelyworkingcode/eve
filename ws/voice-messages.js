@@ -4,6 +4,7 @@
 // connection's speech, a cross-connection leak.
 const { splitIntoChunks, cleanChunkText } = require('../tts-chunker');
 const { Director } = require('../tts-director');
+const { acceptTraceId } = require('../trace');
 
 async function handleTranscribeAudio(ws, sttService, message, log) {
   try {
@@ -18,7 +19,7 @@ async function handleTranscribeAudio(ws, sttService, message, log) {
       ws.send(JSON.stringify({ type: 'transcription_error', error: 'Audio recording too short' }));
       return;
     }
-    const result = await sttService.transcribe(audio, language || null);
+    const result = await sttService.transcribe(audio, language || null, { traceId: acceptTraceId(message.trace_id) });
     ws.send(JSON.stringify({
       type: 'transcription_result',
       text: result.text,
@@ -60,6 +61,7 @@ async function handleTtsSpeak(ws, ttsService, message, log, isActive = () => tru
   // One Director instance for the whole message: delivery cues persist
   // across its chunks; a play button starts a fresh instance.
   const director = new Director();
+  const traceId = acceptTraceId(message.trace_id);
   const baseSpeed = speed || 1.0;
 
   try {
@@ -69,7 +71,7 @@ async function handleTtsSpeak(ws, ttsService, message, log, isActive = () => tru
         const cleaned = cleanChunkText(span.text);
         if (!cleaned) continue;
         const result = await ttsService.synthesize(
-          cleaned, voice || 'af_heart', baseSpeed * span.speed, span.instruct, span.gain);
+          cleaned, voice || 'af_heart', baseSpeed * span.speed, span.instruct, span.gain, { traceId });
         if (!isActive()) return; // cancelled while this span was generating
         // Opaque/already-compact audio — permessage-deflate would be net-negative CPU.
         ws.send(Buffer.from(result.audio_base64, 'base64'), { compress: false });
