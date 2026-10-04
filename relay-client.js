@@ -10,6 +10,7 @@ const { Director } = require('./tts-director');
 const DEFAULT_TTS_VOICE = 'af_heart';
 
 const { NullLogger } = require('./logger');
+const { acceptTraceId } = require('./trace');
 
 // The three frame types the session engine emits when it stops processing a
 // turn (each corresponds to a `SetProcessing(false)` call site that also
@@ -110,7 +111,6 @@ class RelayClient {
     try {
       ws = this.relayTransport.createWebSocket('/ws');
     } catch (err) {
-      this.log.debug('Upstream WS create failed:', err.message);
       if (onError) onError(err);
       this._scheduleUpstreamReconnect();
       return;
@@ -120,6 +120,7 @@ class RelayClient {
     ws.on('open', () => {
       this.log.info('Connected to relayLLM');
       this._upstreamReconnectDelay = 2000;
+      this._lastUpstreamError = null;
       if (this._upstreamDown) {
         this._upstreamDown = false;
         this._sendToBrowser({ type: 'relay_status', connected: true });
@@ -132,7 +133,7 @@ class RelayClient {
         const msg = JSON.parse(data.toString());
         this._handleRelayMessage(msg);
       } catch (err) {
-        this.log.error('Failed to parse relay message:', err.message);
+        this.log.error('Failed to parse relay message: invalid JSON');
       }
     });
 
@@ -148,8 +149,14 @@ class RelayClient {
       // safely resendable once the connection comes back.
       this.pendingUserMessage = null;
       if (this._closed) return;
-      this.log.info('Disconnected from relayLLM');
       if (!this._upstreamDown) {
+        // The socket's error, if any, rides on this one line: 'error' always
+        // precedes 'close', and two lines per outage would be one too many.
+        if (this._lastUpstreamError) {
+          this.log.warn('Disconnected from relayLLM', { op: 'relay.upstream', status: 'error', error: this._lastUpstreamError });
+        } else {
+          this.log.info('Disconnected from relayLLM');
+        }
         this._upstreamDown = true;
         this._sendToBrowser({ type: 'relay_status', connected: false });
       }
@@ -157,7 +164,8 @@ class RelayClient {
     });
 
     ws.on('error', (err) => {
-      this.log.error('WebSocket error:', err.message);
+      // While upstream is down every retry errors; only the first outage is reported.
+      if (!this._upstreamDown) this._lastUpstreamError = err.message;
       if (onError && ws.readyState === WebSocket.CONNECTING) {
         onError(err);
       }
@@ -184,7 +192,6 @@ class RelayClient {
     try {
       sws = this.relayTransport.createWebSocket('/ws/tasks');
     } catch (err) {
-      this.log.debug('Scheduler WS create failed:', err.message);
       this._scheduleSchedulerReconnect();
       return;
     }
@@ -199,7 +206,7 @@ class RelayClient {
       try {
         this._sendToBrowser(JSON.parse(data.toString()));
       } catch (err) {
-        this.log.error('Failed to parse scheduler message:', err.message);
+        this.log.error('Failed to parse scheduler message: invalid JSON');
       }
     });
 
@@ -208,11 +215,10 @@ class RelayClient {
       this._scheduleSchedulerReconnect();
     });
 
-    // Debug-level only: scheduler-down 404s the upgrade on every retry;
-    // 'close' (which drives the reconnect) fires after 'error'.
-    sws.on('error', (err) => {
-      this.log.debug('Scheduler WS error:', err.message);
-    });
+    // Silent: scheduler-down 404s the upgrade on every retry, and
+    // 'close' (which drives the reconnect) fires after 'error'. A handler
+    // must still exist or the error event would throw.
+    sws.on('error', () => {});
   }
 
   _scheduleSchedulerReconnect() {
@@ -387,9 +393,8 @@ class RelayClient {
     this._send({ type: 'join_session', sessionId });
   }
 
-  sendMessage(text, files, sessionId) {
-    this.log.debug(`→ relay (${text.length} chars, ${files.length} files)`);
-    this._send({ type: 'send_message', text, files, sessionId });
+  sendMessage(text, files, sessionId, { traceId } = {}) {
+    this._send({ type: 'send_message', text, files, sessionId, trace_id: acceptTraceId(traceId) });
   }
 
   // Clears pendingUserMessage only when it belongs to the given session, so
@@ -418,9 +423,9 @@ class RelayClient {
 
     this.pendingUserMessage = null;
     try {
-      const { status } = await this.relayTransport.fetch('POST', `/api/sessions/${sessionId}/resume`);
+      const { status } = await this.relayTransport.fetch('POST', `/api/sessions/${sessionId}/resume`, undefined, { traceId: pending.traceId });
       if (status >= 200 && status < 300) {
-        this.sendMessage(pending.text, pending.files, pending.sessionId);
+        this.sendMessage(pending.text, pending.files, pending.sessionId, { traceId: pending.traceId });
       } else {
         this._sendToBrowser({ type: 'error', message: `Resume failed (${status})`, sessionId });
       }
@@ -533,7 +538,6 @@ class RelayClient {
       // Must be inside the chain — _sendTTSChunk is async so chunks may not
       // have been sent yet at this point.
       const gen = this._ttsGeneration;
-      this.log.debug(`TTS message_complete: gen=${gen}, chunks=${this._ttsChunkSeq}, remainder=${remainder.length}`);
       this._ttsChain = this._ttsChain.then(() => {
         if (gen !== this._ttsGeneration) return;
         this._sendToBrowser({
@@ -572,13 +576,20 @@ class RelayClient {
         if (gen !== this._ttsGeneration) return;
         return this._synthesizeAndSend(cleaned, seq, gen, span);
       }).catch(err => {
-        this.log.error(`TTS chain error at chunk ${seq}:`, err.message);
+        this._logTtsFailureOnce(gen, `TTS chain error at chunk ${seq}:`, err);
       });
     }
   }
 
+  // One failed chunk usually means the daemon is down, so every later chunk
+  // of the same response fails too. Log the first per generation only.
+  _logTtsFailureOnce(gen, msg, err) {
+    if (this._ttsFailureLoggedGen === gen) return;
+    this._ttsFailureLoggedGen = gen;
+    this.log.error(msg, err.message);
+  }
+
   async _synthesizeAndSend(text, seq, gen, span) {
-    this.log.debug(`TTS chunk ${seq} (${text.length} chars)`);
     this.ttsPending++;
     try {
       // Delivery tempo layers on the user's base speed; instruct/gain carry the
@@ -587,12 +598,11 @@ class RelayClient {
       const result = await this.ttsService.synthesize(
         text, this.voicePreset, speed, span.instruct, span.gain);
       if (gen !== this._ttsGeneration) {
-        this.log.debug(`TTS chunk ${seq} discarded (cancelled while synthesizing)`);
         return;
       }
       this._sendAudioToBrowser(result.audio_base64);
     } catch (err) {
-      this.log.error(`TTS chunk ${seq} failed:`, err.message);
+      this._logTtsFailureOnce(gen, `TTS chunk ${seq} failed:`, err);
     } finally {
       this.ttsPending--;
     }

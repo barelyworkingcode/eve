@@ -2,6 +2,7 @@ const RelayClient = require('./relay-client');
 const FileWatcher = require('./file-watcher');
 const RateLimiter = require('./rate-limiter');
 const { messages } = require('./ws/message-registry');
+const { acceptTraceId } = require('./trace');
 
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
@@ -110,8 +111,10 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         // ws/relayClient/fileWatcher (per-connection objects), or later
         // connections leak into an earlier one's handler. Rebuilt fresh per message.
         if (descriptor) {
+          const traceId = descriptor.chatTurn ? acceptTraceId(message.trace_id) : undefined;
           await descriptor.handle({
             ws,
+            traceId,
             req,
             message,
             relayClient,

@@ -88,7 +88,7 @@ describe('routes/index proxy + auth surface', () => {
     it('forwards method/path and relays status + body', async () => {
       deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: { models: ['m1'] } });
       const res = await fetch(`${baseUrl}/api/models`);
-      expect(deps.relayTransport.fetch).toHaveBeenCalledWith('GET', '/api/models', undefined);
+      expect(deps.relayTransport.fetch).toHaveBeenCalledWith('GET', '/api/models', undefined, { traceId: undefined });
       expect(await res.json()).toEqual({ models: ['m1'] });
     });
 
@@ -276,7 +276,7 @@ describe('routes/index proxy + auth surface', () => {
       deps.authService.validateSession.mockImplementation((t) => t === 'good');
       const res = await save(method, card, { 'x-session-token': 'good' });
       expect(res.status).toBe(200);
-      expect(deps.relayTransport.fetch).toHaveBeenCalledWith(method, method === 'PUT' ? '/api/tasks/t1' : '/api/tasks', card);
+      expect(deps.relayTransport.fetch).toHaveBeenCalledWith(method, method === 'PUT' ? '/api/tasks/t1' : '/api/tasks', card, { traceId: undefined });
     });
 
     it.each([
@@ -294,7 +294,7 @@ describe('routes/index proxy + auth surface', () => {
       process.env.EVE_NO_AUTH = '1';
       const res = await save('POST', card);
       expect(res.status).toBe(200);
-      expect(deps.relayTransport.fetch).toHaveBeenCalledWith('POST', '/api/tasks', card);
+      expect(deps.relayTransport.fetch).toHaveBeenCalledWith('POST', '/api/tasks', card, { traceId: undefined });
     });
   });
 

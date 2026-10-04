@@ -26,15 +26,38 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
 
   app.use('/api', createAuthRoutes(authService, trustedNetwork, routeLog.child('Auth'), { enrollmentWindow, passkeySync }));
 
-  function proxy(req, res, method, relayPath, body) {
-    return relayTransport.fetch(method, relayPath, body)
+  // One line per proxied call, when it ends. Never the body, data, headers or
+  // query: the path is logged with its query string cut off.
+  function logProxyCall(req, { op, method, relayPath, startedAt, httpStatus, data, err }) {
+    const pathOnly = relayPath.split('?')[0];
+    let status = 'ok';
+    let level = 'info';
+    if (err || httpStatus >= 500) { status = 'error'; level = 'error'; }
+    else if (httpStatus === 401 || httpStatus === 403) { status = 'denied'; level = 'warn'; }
+    else if (httpStatus >= 400) { status = 'error'; level = 'warn'; }
+    const attrs = {
+      op, status, duration_ms: Date.now() - startedAt,
+      http_status: err ? 502 : httpStatus, method, path: pathOnly,
+    };
+    if (err) attrs.error = err.message;
+    else if (status !== 'ok') attrs.error = `relay answered ${httpStatus}`;
+    if (op === 'schedule.create' && status === 'ok' && data && typeof data.id === 'string' && data.id !== '') {
+      attrs.job_id = data.id;
+    }
+    routeLog.withTrace(req.traceId)[level](`${method} ${pathOnly}`, attrs);
+  }
+
+  function proxy(req, res, method, relayPath, body, { op = 'http.request' } = {}) {
+    const startedAt = Date.now();
+    return relayTransport.fetch(method, relayPath, body, { traceId: req.traceId })
       .then(({ status, data }) => {
         res.status(status).json(data);
+        logProxyCall(req, { op, method, relayPath, startedAt, httpStatus: status, data });
         return data;
       })
       .catch(err => {
-        routeLog.error(`${method} ${relayPath} failed:`, err.message);
         res.status(502).json({ error: 'Service unavailable' });
+        logProxyCall(req, { op, method, relayPath, startedAt, err });
         return null;
       });
   }
@@ -232,7 +255,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   }
 
   app.post('/api/tasks', requireAuth, requireSessionForOutputFile, (req, res) => {
-    proxy(req, res, 'POST', '/api/tasks', req.body);
+    proxy(req, res, 'POST', '/api/tasks', req.body, { op: 'schedule.create' });
   });
 
   app.get('/api/tasks/:taskId', requireAuth, (req, res) => {

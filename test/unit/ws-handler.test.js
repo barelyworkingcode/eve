@@ -216,7 +216,7 @@ describe('createWsHandler', () => {
       expect(text).toContain('hello world');
       // Only a real user turn may drive a later resume — see relay-client.js
       // _handleResumeRequired and ws/session-messages.js's own comment.
-      expect(relayClient.pendingUserMessage).toEqual({ sessionId: 's', text, files: [] });
+      expect(relayClient.pendingUserMessage).toEqual({ sessionId: 's', text, files: [], traceId: expect.stringMatching(/^[a-f0-9]{32}$/) });
     });
 
     it('terminal_create POSTs /api/terminals (C11) and never sends the frame to relay over WS', async () => {

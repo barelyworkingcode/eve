@@ -65,7 +65,6 @@ class RoutineFailureWatcher {
     try {
       ws = this.relayTransport.createWebSocket('/ws/tasks');
     } catch (err) {
-      this.log.debug('Routine failure WS create failed:', err.message);
       this._scheduleReconnect();
       return;
     }
@@ -81,7 +80,7 @@ class RoutineFailureWatcher {
       try {
         frame = JSON.parse(data.toString());
       } catch (err) {
-        this.log.debug('Unparseable scheduler frame:', err.message);
+        this.log.debug('Unparseable scheduler frame: invalid JSON');
         return;
       }
       const notification = routineFailedNotification(frame);
@@ -93,10 +92,9 @@ class RoutineFailureWatcher {
       this._scheduleReconnect();
     });
 
-    // 'close' (which drives the reconnect) fires after 'error'.
-    ws.on('error', (err) => {
-      this.log.debug('Routine failure WS error:', err.message);
-    });
+    // 'close' (which drives the reconnect) fires after 'error'. A handler
+    // must still exist or the error event would throw.
+    ws.on('error', () => {});
   }
 
   _scheduleReconnect() {
