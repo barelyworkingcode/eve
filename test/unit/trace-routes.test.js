@@ -47,11 +47,13 @@ describe('proxied route logging and trace carriage', () => {
   let baseUrl;
   let transport;
   let sink;
+  let stt;
 
   beforeEach((done) => {
     delete process.env.EVE_NO_AUTH;
     sink = collector();
     transport = { fetch: jest.fn(), fetchRaw: jest.fn() };
+    stt = { transcribe: jest.fn().mockResolvedValue({ text: 'hi', language: 'en' }) };
     const app = express();
     app.use(express.json());
     app.use(traceMiddleware());
@@ -70,7 +72,7 @@ describe('proxied route logging and trace carriage', () => {
       removeFromHostCache: jest.fn(),
       hostPool: { disconnect: jest.fn() },
       ttsService: {},
-      sttService: {},
+      sttService: stt,
       log: new Logger('info', { stream: sink.stream, service: 'eve' }),
     });
     server = http.createServer(app).listen(0, () => {
@@ -97,6 +99,16 @@ describe('proxied route logging and trace carriage', () => {
       op: 'schedule.create', job_id: 'job-42', status: 'ok', level: 'info', trace_id: 'trace-abc12345',
     });
     expectValidLine(lines[0]);
+  });
+
+  it('POST /api/transcribe passes the inbound trace id to the STT service', async () => {
+    const res = await fetch(`${baseUrl}/api/transcribe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-trace-id': 'trace-stt12345' },
+      body: JSON.stringify({ audio: 'QUJD', language: 'en' }),
+    });
+    expect(res.status).toBe(200);
+    expect(stt.transcribe).toHaveBeenCalledWith('QUJD', 'en', { traceId: 'trace-stt12345' });
   });
 
   it('a non-schedule proxied route logs op http.request with no job_id', async () => {
