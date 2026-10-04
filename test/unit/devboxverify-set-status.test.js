@@ -17,7 +17,7 @@ const phase = (label, lines, extra = {}) => ({
 const green = () => [
   phase('relay-api', [J('api-login', 'PASS'), SUM(1)]),
   phase('eve', [J('chat-reply', 'PASS'), SUM(1)]),
-  phase('relay-screen', [J('tray-open', 'PASS'), SUM(1)]),
+  phase('relay-screen', [J('tray-open', 'PASS'), J('tray-badge', 'NOTRUN', 'screen journey; run with --screen'), SUM(1, 0, 0, 1)]),
 ];
 const evidence = (phases) => ({
   relay: { repo: 'relay', pr: 7, branch: null, sha: RELAY_SHA, url: RELAY_URL, checkout: '/w/relay' },

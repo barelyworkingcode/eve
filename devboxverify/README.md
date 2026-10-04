@@ -741,7 +741,8 @@ skips to restore and posts nothing.
 7. Write `plan.json` and `phases.command` to the run dir, open the command in a
    desktop Terminal, and wait for `done.json` (the phases' timeouts plus 10 min).
    The Terminal runs `set.js --phases <run dir>`, an internal mode that takes
-   no other flag, refuses a run dir outside `<log dir>/set/` and a plan whose
+   no other flag, refuses a run dir whose parent directory isn't named `set`
+   (an absolute path is required) and a plan whose
    command isn't this node or `go`. It writes `<label>.out`, `<label>.err`
    and, last, `done.json`.
 8. Print the results; with `--post` and a pair, post.
@@ -753,7 +754,8 @@ it at `<run dir>/inner.lock` so they don't deadlock on the outer one. Neither
 harness changes. `plan.json` env holds only `PATH`, `HOME`, the allowlisted
 vars above and that lock; nothing else from your environment reaches disk.
 
-**Restore.** It runs whenever the relay build or the eve reset started.
+**Restore.** On SIGHUP, SIGINT or SIGTERM (a dropped SSH session) the same
+restore runs once, the lock is released and the run exits 2. It runs whenever the relay build or the eve reset started.
 Relay first: in the relay checkout, `git fetch`, the branch must be `main`
 with no tracked changes, `git merge --ff-only origin/main`, `./build.sh`, wait
 for `relaysessions running`. Then eve: `git reset --hard origin/main` (and

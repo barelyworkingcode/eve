@@ -14,7 +14,7 @@ const EVE = '/w/eve-verify';
 const SHA = { relayMain: '1'.repeat(40), relayRef: '2'.repeat(40), eveMain: '3'.repeat(40), eveRef: '4'.repeat(40), tool: '5'.repeat(40) };
 const WT = path.join(os.tmpdir(), `devboxverify-set-relay-${SHA.relayRef.slice(0, 12)}`);
 const at = (h, m) => new Date(2026, 9, 3, h, m).getTime();
-const GREEN_OUT = 'JOURNEY\tj1\tPASS\t\nSUMMARY\tpass=1\tfail=0\tblocked=0\tnotrun=0\n';
+const GREEN_OUT = 'JOURNEY\tj1\tPASS\t\nJOURNEY\tj2\tNOTRUN\tomitted\nSUMMARY\tpass=1\tfail=0\tblocked=0\tnotrun=1\n';
 
 let logDir;
 beforeEach(() => { logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'set-test-')); });
@@ -186,6 +186,22 @@ describe('runSet', () => {
     expect(w.code).toBe(0);
   });
 
+  it('a dropped session (SIGHUP) still restores once, releases the lock and exits non-zero', async () => {
+    const w = world();
+    let handler;
+    let exit;
+    w.deps.onSignal = (h) => { handler = h; return () => { w.calls.push('UNHOOK'); }; };
+    const realWait = w.deps.waitForFile;
+    w.deps.waitForFile = async (file, ms) => { exit = await handler('SIGHUP'); return realWait(file, ms); };
+    w.code = await runSet({ ...parseArgs(['--relay', '7', '--eve', '12']), env: w.env }, w.deps);
+    expect(exit).not.toBe(0);
+    expect(w.out.filter((l) => /^RESTORE\trelay\tOK\t/.test(l))).toHaveLength(1);
+    expect(w.out.filter((l) => /^RESTORE\teve\tOK\t/.test(l))).toHaveLength(1);
+    expect(w.calls.filter((c) => c === 'RELEASE')).toHaveLength(1);
+    expect(w.calls.filter((c) => /^relay: git merge --ff-only/.test(c))).toHaveLength(1);
+    expect(w.code).not.toBe(0);
+  });
+
   it('restores relay before eve and releases the lock last', async () => {
     const w = await go(['--relay', '7', '--eve', '12']);
     const order = [/^relay: git merge --ff-only origin\/main$/, /^relay: build\.sh/, /^eve: git reset .*--hard origin\/main$/, /^RELEASE$/].map(w.idx);
@@ -273,9 +289,6 @@ describe('runSet', () => {
 });
 
 describe('runPhases', () => {
-  const saved = process.env.NIGHTLY_LOG_DIR;
-  beforeEach(() => { process.env.NIGHTLY_LOG_DIR = logDir; });
-  afterEach(() => { if (saved === undefined) delete process.env.NIGHTLY_LOG_DIR; else process.env.NIGHTLY_LOG_DIR = saved; });
   const phase = (label, cmd) => ({ label, repo: 'relay', cwd: '/w/wt', cmd, args: ['run', label] });
   function setup(dir, phases) {
     fs.mkdirSync(dir, { recursive: true });

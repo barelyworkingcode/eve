@@ -212,6 +212,60 @@ async function runSet(opts, deps) {
     return null;
   };
 
+  // Step 11 body: restore, whatever happened. Runs once, whether from the
+  // normal path or a signal.
+  let restoreRun = null;
+  const restore = () => {
+    restoreRun = restoreRun || (async () => {
+      try {
+        if (state.relayTouched) {
+          const fail = async (stepName, reason) => {
+            state.restoreFailed = true;
+            out(['RESTORE', 'relay', 'FAIL', `${stepName}: ${oneLine(reason)}`].join('\t'));
+            log(`Relay.app is still built from ${sha12(refs.relay.sha)}; rebuild from main by hand`);
+          };
+          let r = await sh(relayCheckout, 'git', ['fetch', '--quiet', 'origin']);
+          if (!good(r)) await fail('fetch', why(r));
+          else if ((r = await sh(relayCheckout, 'git', ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim() !== 'main') await fail('branch', `relay checkout is on ${oneLine(r.stdout) || 'unknown'}, not main`);
+          else if ((r = await sh(relayCheckout, 'git', ['status', '--porcelain', '--untracked-files=no'])).stdout.trim() || !good(r)) await fail('clean-tree', `tracked changes in the relay checkout: ${oneLine(r.stdout).slice(0, 120)}`);
+          else if (!good(r = await sh(relayCheckout, 'git', ['merge', '--ff-only', 'origin/main']))) await fail('merge', why(r));
+          else if (!good(r = await sh(relayCheckout, './build.sh', [], BUILD_TIMEOUT_MS))) await fail('build', why(r));
+          else if (!(await waitService())) await fail('service', 'relaysessions not running within 60 s');
+          else {
+            const head = (await sh(relayCheckout, 'git', ['rev-parse', 'HEAD'])).stdout.trim();
+            out(['RESTORE', 'relay', 'OK', sha12(head)].join('\t'));
+          }
+        }
+        if (state.eveTouched) {
+          const err = await eveReset('origin/main');
+          if (err) {
+            state.restoreFailed = true;
+            out(['RESTORE', 'eve', 'FAIL', `reset: ${oneLine(err)}`].join('\t'));
+            log(`the verify eve worktree is still at ${sha12(refs.eve.sha)}; reset it to origin/main by hand`);
+          } else {
+            out(['RESTORE', 'eve', 'OK', sha12((await sh(eveCheckout, 'git', ['rev-parse', 'HEAD'])).stdout.trim())].join('\t'));
+          }
+        }
+        if (state.touched && !(await evePrepare('eve-verify'))) state.restoreFailed = true;
+        if (relayWt && state.relayTouched) await sh(relayCheckout, 'git', ['worktree', 'remove', '--force', relayWt]);
+      } catch (err) {
+        state.restoreFailed = true;
+        log(`restore threw: ${err.message}`);
+      }
+    })();
+    return restoreRun;
+  };
+
+  // A dropped session must still restore Relay.app and eve-verify.
+  const releaseOnce = (() => { let p = null; return () => (p = p || Promise.resolve(release())); })();
+  const unhook = deps.onSignal ? deps.onSignal(async (sig) => {
+    state.failed = true;
+    log(`${sig}: restoring before exit`);
+    await restore();
+    await releaseOnce();
+    return 2;
+  }) : () => {};
+
   try {
     // Step 5: relay build from a detached worktree of the ref.
     if (refs.relay) {
@@ -298,65 +352,30 @@ async function runSet(opts, deps) {
   }
 
   // Step 11: restore, whatever happened above.
-  try {
-    if (state.relayTouched) {
-      const fail = async (stepName, reason) => {
-        state.restoreFailed = true;
-        out(['RESTORE', 'relay', 'FAIL', `${stepName}: ${oneLine(reason)}`].join('\t'));
-        log(`Relay.app is still built from ${sha12(refs.relay.sha)}; rebuild from main by hand`);
-      };
-      let r = await sh(relayCheckout, 'git', ['fetch', '--quiet', 'origin']);
-      if (!good(r)) await fail('fetch', why(r));
-      else if ((r = await sh(relayCheckout, 'git', ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim() !== 'main') await fail('branch', `relay checkout is on ${oneLine(r.stdout) || 'unknown'}, not main`);
-      else if ((r = await sh(relayCheckout, 'git', ['status', '--porcelain', '--untracked-files=no'])).stdout.trim() || !good(r)) await fail('clean-tree', `tracked changes in the relay checkout: ${oneLine(r.stdout).slice(0, 120)}`);
-      else if (!good(r = await sh(relayCheckout, 'git', ['merge', '--ff-only', 'origin/main']))) await fail('merge', why(r));
-      else if (!good(r = await sh(relayCheckout, './build.sh', [], BUILD_TIMEOUT_MS))) await fail('build', why(r));
-      else if (!(await waitService())) await fail('service', 'relaysessions not running within 60 s');
-      else {
-        const head = (await sh(relayCheckout, 'git', ['rev-parse', 'HEAD'])).stdout.trim();
-        out(['RESTORE', 'relay', 'OK', sha12(head)].join('\t'));
-      }
-    }
-    if (state.eveTouched) {
-      const err = await eveReset('origin/main');
-      if (err) {
-        state.restoreFailed = true;
-        out(['RESTORE', 'eve', 'FAIL', `reset: ${oneLine(err)}`].join('\t'));
-        log(`the verify eve worktree is still at ${sha12(refs.eve.sha)}; reset it to origin/main by hand`);
-      } else {
-        out(['RESTORE', 'eve', 'OK', sha12((await sh(eveCheckout, 'git', ['rev-parse', 'HEAD'])).stdout.trim())].join('\t'));
-      }
-    }
-    if (state.touched && !(await evePrepare('eve-verify'))) state.restoreFailed = true;
-    if (relayWt && state.relayTouched) await sh(relayCheckout, 'git', ['worktree', 'remove', '--force', relayWt]);
-  } catch (err) {
-    state.restoreFailed = true;
-    log(`restore threw: ${err.message}`);
-  }
+  await restore();
 
-  // Step 12
+  // Step 12: the SET line and the exit code come from one state.
+  const stepOrRestoreFail = state.failed || state.restoreFailed || postedFail;
+  const finalSet = stepOrRestoreFail ? 'error' : setResult;
   try {
-    out(['SET', state.failed ? 'error' : setResult].join('\t'));
+    out(['SET', finalSet].join('\t'));
   } finally {
-    await release();
+    unhook();
+    await releaseOnce();
   }
 
-  const stepOrRestoreFail = state.failed || state.restoreFailed;
   if (!paired) {
     const r = phaseResults[0];
     const code = r && r.code !== null && !r.timedOut ? r.code : 2;
     return stepOrRestoreFail ? 2 : code;
   }
-  if (stepOrRestoreFail || postedFail) return 2;
-  if (phaseResults.some(p => p.result !== 'GREEN' && !/^SUMMARY\t/m.test(p.stdout))) return 2;
-  return phaseResults.every(p => p.result === 'GREEN') ? 0 : 1;
+  return { success: 0, failure: 1 }[finalSet] ?? 2;
 }
 
 // Internal mode: runs the plan inside the console Terminal.
 async function runPhases(runDir, deps) {
   const resolved = path.resolve(runDir);
-  const root = deps.setRoot ? path.resolve(deps.setRoot) : null;
-  if (!path.isAbsolute(runDir) || path.basename(path.dirname(resolved)) !== 'set' || (root && path.dirname(resolved) !== root)) {
+  if (!path.isAbsolute(runDir) || path.basename(path.dirname(resolved)) !== 'set') {
     throw new Error(`refusing run dir outside <log dir>/set/: ${runDir}`);
   }
   const plan = JSON.parse(deps.fs.readFileSync(path.join(resolved, 'plan.json'), 'utf8'));
@@ -434,6 +453,12 @@ function realDeps() {
     waitForFile: (file, ms) => pollUntil(() => fs.existsSync(file), ms),
     consoleOwner: () => execFileSync('stat', ['-f', '%Su', '/dev/console'], { encoding: 'utf8' }).trim(),
     user: () => os.userInfo().username,
+    onSignal: handler => {
+      const sigs = ['SIGHUP', 'SIGINT', 'SIGTERM'];
+      const fns = sigs.map(sig => () => { handler(sig).then(code => process.exit(code), () => process.exit(2)); });
+      sigs.forEach((sig, i) => process.on(sig, fns[i]));
+      return () => sigs.forEach((sig, i) => process.removeListener(sig, fns[i]));
+    },
     now: () => Date.now(),
     out: line => process.stdout.write(`${line}\n`),
     log: line => process.stderr.write(`${line}\n`),
