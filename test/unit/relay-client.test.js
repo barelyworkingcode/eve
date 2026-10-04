@@ -158,7 +158,7 @@ describe('RelayClient', () => {
 
     it('sendMessage emits a send_message frame with text, files and sessionId', () => {
       client.sendMessage('hi', [{ name: 'a.txt' }], 'sx');
-      expect(client.ws.sent).toContainEqual({ type: 'send_message', text: 'hi', files: [{ name: 'a.txt' }], sessionId: 'sx' });
+      expect(client.ws.sent).toContainEqual({ type: 'send_message', text: 'hi', files: [{ name: 'a.txt' }], sessionId: 'sx', trace_id: expect.stringMatching(/^[a-f0-9]{32}$/) });
     });
 
     it('sendPermissionResponse emits the relay frame verbatim', () => {
@@ -176,9 +176,9 @@ describe('RelayClient', () => {
 
       await client._handleRelayMessage({ type: 'error', code: 'resume_required', sessionId: 's1' });
 
-      expect(transport.fetch).toHaveBeenCalledWith('POST', '/api/sessions/s1/resume');
+      expect(transport.fetch).toHaveBeenCalledWith('POST', '/api/sessions/s1/resume', undefined, { traceId: undefined });
       expect(transport.fetch).toHaveBeenCalledTimes(1);
-      expect(client.ws.sent).toContainEqual({ type: 'send_message', text: 'hi', files: [], sessionId: 's1' });
+      expect(client.ws.sent).toContainEqual({ type: 'send_message', text: 'hi', files: [], sessionId: 's1', trace_id: expect.stringMatching(/^[a-f0-9]{32}$/) });
       expect(client.pendingUserMessage).toBeNull();
       expect(browserWs.sent.some((m) => m.type === 'error')).toBe(false);
     });

@@ -105,6 +105,7 @@ const DICTATION_NOTICE = '[DICTATED] The following was spoken aloud and transcri
 
 function handleUserInput(ctx) {
   const { ws, relayClient, message, log } = ctx;
+  const startedAt = Date.now();
   const text = (message.text || '').trim();
 
   if (slashCommandHandler.handle(ws, relayClient, text)) {
@@ -124,13 +125,15 @@ function handleUserInput(ctx) {
     finalText = VOICE_MODE_INSTRUCTION + '\n\n' + finalText;
   }
 
-  log?.debug('→ LLM:', finalText);
   // Only a real user turn arms resume_required's one-shot resend (C11,
   // SH-6) — search-summarizer.js calls sendMessage
   // directly for hidden/background sessions and must never arm it, since
   // those are expected to die rather than resume on a host restart (R7).
-  relayClient.pendingUserMessage = { sessionId: message.sessionId, text: finalText, files };
-  relayClient.sendMessage(finalText, files, message.sessionId);
+  relayClient.pendingUserMessage = { sessionId: message.sessionId, text: finalText, files, traceId: ctx.traceId };
+  relayClient.sendMessage(finalText, files, message.sessionId, { traceId: ctx.traceId });
+  log?.withTrace(ctx.traceId).info('chat turn sent', {
+    op: 'chat.turn', session_id: message.sessionId, duration_ms: Date.now() - startedAt,
+  });
 }
 
 // Relay turns every file in `files` into an image_url part (openai.go) and the
@@ -161,7 +164,7 @@ module.exports = [
 
   { type: 'join_session', handle(ctx) { ctx.relayClient.joinSession(ctx.message.sessionId); } },
 
-  { type: 'user_input', handle(ctx) { handleUserInput(ctx); } },
+  { type: 'user_input', chatTurn: true, handle(ctx) { handleUserInput(ctx); } },
 
   { type: 'leave_session', handle(ctx) { ctx.relayClient.leaveSession(ctx.message.sessionId); } },
 

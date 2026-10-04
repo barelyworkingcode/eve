@@ -118,7 +118,7 @@ async function startEve({ projects = [], hosts = [], models, env: envOverride = 
     RELAY_FRONTEND_SOCKET: '',                       // force TCP mode at the fake
     RELAY_FRONTEND_URL: `http://127.0.0.1:${relayPort}`,
     RELAY_FRONTEND_TOKEN: 'test-token',
-    LOG_LEVEL: process.env.EVE_IT_LOG || 'error',
+    RELAY_LOG_LEVEL: process.env.EVE_IT_LOG || 'error',
     EVE_INTERNAL_SECRET: '',
     TTS_PORT: String(ttsPort),
     STT_PORT: String(sttPort),
@@ -153,6 +153,7 @@ async function startEve({ projects = [], hosts = [], models, env: envOverride = 
     relay,
     relayPort,
     dataDir,
+    stderr: () => stderr.join(''),
     get: (p, opts) => fetch(`${baseUrl}${p}`, opts),
     connectWs: async () => {
       const client = makeWsClient(`ws://127.0.0.1:${port}/ws`);

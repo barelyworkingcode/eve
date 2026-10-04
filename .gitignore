@@ -22,7 +22,8 @@ public/kokoro-voices/*.bin
 plans/
 e2e/.test-env.json
 test-results/
-test/fixtures/
+test/fixtures/*
+!test/fixtures/logging-schema.json
 playwright-report/
 .playwright-cli/
 relay-device.log

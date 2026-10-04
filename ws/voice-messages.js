@@ -19,7 +19,6 @@ async function handleTranscribeAudio(ws, sttService, message, log) {
       return;
     }
     const result = await sttService.transcribe(audio, language || null);
-    log?.debug('STT result:', result.text);
     ws.send(JSON.stringify({
       type: 'transcription_result',
       text: result.text,

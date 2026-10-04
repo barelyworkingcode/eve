@@ -75,7 +75,7 @@ describe('EVE_PASSKEY_SYNC switch (fake relay)', () => {
       RELAY_FRONTEND_SOCKET: '',
       RELAY_FRONTEND_URL: `http://127.0.0.1:${relayPort}`,
       RELAY_FRONTEND_TOKEN: 'test-token',
-      LOG_LEVEL: 'error',
+      RELAY_LOG_LEVEL: 'error',
       RELAY_SERVICE_ID: 'eve',
       EVE_PASSKEY_SYNC: 'off',
     });

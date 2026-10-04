@@ -16,7 +16,7 @@ describe('RelayTransport.createWebSocket (egress contract)', () => {
     const t = new RelayTransport({ socketPath: '/tmp/relay.sock', url: 'http://localhost:3001', token: 'sekret' });
     const ws = t.createWebSocket('/ws');
     expect(ws.url).toBe('ws://relay-frontend.localsocket/ws');
-    expect(ws.options.headers).toBeUndefined();
+    expect(Object.keys(ws.options.headers)).toEqual(['X-Trace-Id']);
     expect(ws.options.rejectUnauthorized).toBeUndefined();
     expect(ws.options.ca).toBeUndefined();
   });
@@ -37,13 +37,13 @@ describe('RelayTransport.createWebSocket (egress contract)', () => {
   it('omits the Authorization header when no token is configured', () => {
     const t = new RelayTransport({ socketPath: null, url: 'http://localhost:3001', token: null });
     const ws = t.createWebSocket('/ws');
-    expect(ws.options.headers).toBeUndefined();
+    expect(Object.keys(ws.options.headers)).toEqual(['X-Trace-Id']);
   });
 
   it('builds the scheduler upstream path on the same identity-authenticated transport', () => {
     const t = new RelayTransport({ socketPath: '/tmp/relay.sock', url: 'http://localhost:3001', token: 'tok' });
     const ws = t.createWebSocket('/ws/tasks');
     expect(ws.url).toBe('ws://relay-frontend.localsocket/ws/tasks');
-    expect(ws.options.headers).toBeUndefined();
+    expect(Object.keys(ws.options.headers)).toEqual(['X-Trace-Id']);
   });
 });

@@ -63,7 +63,7 @@ async function launchEve({ dir, payload, bridgeSocket, frontendSocket }) {
   Object.assign(env, {
     PORT: String(port),
     EVE_BIND_HOST: '127.0.0.1',
-    LOG_LEVEL: 'info',
+    RELAY_LOG_LEVEL: 'info',
     RELAY_LAUNCH_FD: '3',
     RELAY_SERVICE_ID: 'eve',
     RELAY_BRIDGE_SOCKET: bridgeSocket,

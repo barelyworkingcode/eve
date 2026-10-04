@@ -15,6 +15,7 @@ const { URL } = require('url');
 const WebSocket = require('ws');
 
 const { NullLogger } = require('./logger');
+const { TRACE_HEADER, acceptTraceId, isOnBoxHost } = require('./trace');
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
@@ -61,6 +62,8 @@ class RelayTransport {
     }
     this.parsedUrl = parsed;
     this.loopback = isLoopbackHost(parsed.hostname);
+    // The trace ID is not a secret, but it has no meaning off the machine.
+    this.carriesTrace = this.mode === 'socket' || isOnBoxHost(parsed.hostname);
 
     // Read once at startup and reused by both the https.Agent and
     // createWebSocket() — no per-connection disk reads.
@@ -123,12 +126,13 @@ class RelayTransport {
     }
   }
 
-  async fetch(method, path, body) {
+  async fetch(method, path, body, { traceId } = {}) {
     const url = this._buildUrl(this._httpBase, path);
     const headers = { 'Content-Type': 'application/json' };
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
+    if (this.carriesTrace) headers[TRACE_HEADER] = acceptTraceId(traceId);
     // Deliberately Node core `http`/`https`, not global fetch(): undici-based
     // fetch pools via a `dispatcher`, not `agent`, which loses control of
     // agent reuse (needed for socket mode).
@@ -143,12 +147,13 @@ class RelayTransport {
     return this._nodeRequest(url, opts);
   }
 
-  createWebSocket(wsPath = '/ws') {
+  createWebSocket(wsPath = '/ws', { traceId } = {}) {
     const url = this._buildUrl(this._wsBase, wsPath);
     const options = { agent: this.agent };
-    if (this.token) {
-      options.headers = { Authorization: `Bearer ${this.token}` };
-    }
+    const headers = {};
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    if (this.carriesTrace) headers[TRACE_HEADER] = acceptTraceId(traceId);
+    if (Object.keys(headers).length > 0) options.headers = headers;
     if (this._isHttps && this._caBuffer) {
       options.ca = this._caBuffer;
       options.rejectUnauthorized = true;
@@ -156,12 +161,13 @@ class RelayTransport {
     return new WebSocket(url, options);
   }
 
-  async fetchRaw(method, path) {
+  async fetchRaw(method, path, { traceId } = {}) {
     const url = this._buildUrl(this._httpBase, path);
     const headers = {};
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
+    if (this.carriesTrace) headers[TRACE_HEADER] = acceptTraceId(traceId);
     return this._nodeRequestRaw(url, { method, headers });
   }
 

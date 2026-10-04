@@ -157,6 +157,10 @@ UI: `ui_command` (LLM-initiated tab control via the eve-control MCP), `auth_succ
 
 SSH hosts: `host_status` (`{hostId, name, status:'connecting'|'connected'|'unreachable', error?}`) — Eve's own SSH-host file-agent connectivity (`ssh-host-pool.js`), distinct from relay's ssh `ControlMaster`/`hostView.status`. Sent on every pool status change, plus once per authenticated connection for every host the pool has already spawned an agent for (not necessarily every host relay knows about). See [ssh-hosts.md](../../relay/docs/ssh-hosts.md).
 
+### Trace IDs
+
+Every action carries one trace ID (see `relay/docs/logging-standard.md`). HTTP: eve reads `X-Trace-Id` (kept only if it matches `[A-Za-z0-9_-]{8,64}`, else a new one is made) and passes it to relay on the same header. Eve sends the header only to a relay on the same machine (the frontend socket, or a loopback host), never to a remote one. WebSocket: a `user_input` frame may carry `trace_id`; eve validates it the same way and forwards it to relay as `send_message.trace_id`. The upgrade request carries no ID from the browser.
+
 ### Stats object
 
 `stats_update` carries relayLLM's stats struct: `{ inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd }`. Canonical definition: relayLLM `provider.go`.

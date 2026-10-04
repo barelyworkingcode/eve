@@ -59,7 +59,7 @@ describe('persistent-sessions proxy routes', () => {
     const res = await req('GET', '/api/projects/my%20proj/persistent-sessions');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(sessions);
-    expect(deps.relayTransport.fetch).toHaveBeenCalledWith('GET', '/api/projects/my%20proj/persistent-sessions', undefined);
+    expect(deps.relayTransport.fetch).toHaveBeenCalledWith('GET', '/api/projects/my%20proj/persistent-sessions', undefined, { traceId: undefined });
   });
 
   it.each([409, 502, 404])('passes a relay %i status and {error} body through on GET', async (status) => {
