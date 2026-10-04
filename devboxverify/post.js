@@ -89,4 +89,4 @@ async function post(ev, { cwd }) {
   return commentUrl;
 }
 
-module.exports = { statusState, renderComment, commentUrlFrom, prHead, post };
+module.exports = { statusState, renderComment, commentUrlFrom, gh, prHead, post };
