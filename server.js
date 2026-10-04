@@ -26,12 +26,13 @@ const { passkeySyncMode } = PasskeySync;
 const { createNotifier } = require('./notifier');
 const { RoutineFailureWatcher } = require('./routine-failure-watcher');
 const { Logger } = require('./logger');
+const { traceMiddleware } = require('./trace');
 const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
 const { HostPool } = require('./ssh-host-pool');
 const { establishLaunchIdentity } = require('./launch-identity');
 
-const log = new Logger(process.env.LOG_LEVEL || 'info');
+const log = Logger.fromEnv(process.env);
 const serverLog = log.child('Server');
 
 // Ordering is load-bearing. The launch fd is consumed and RELAY_LAUNCH_FD
@@ -71,6 +72,7 @@ const securityHeadersPlaceholder = (req, res, next) => {
     next();
   }
 };
+app.use(traceMiddleware());
 app.use(securityHeadersPlaceholder);
 
 // Until a passkey is enrolled, only bootstrap-trusted clients (loopback / LAN
