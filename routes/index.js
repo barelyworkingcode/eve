@@ -382,7 +382,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     try {
       const { audio, language } = req.body;
       if (!audio) return res.status(400).json({ error: 'No audio data provided' });
-      const result = await sttService.transcribe(audio, language || null);
+      const result = await sttService.transcribe(audio, language || null, { traceId: req.traceId });
       res.json({ text: result.text, language: result.language });
     } catch (err) {
       routeLog.error('STT transcription failed:', err.message);
