@@ -281,7 +281,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | List / revoke passkeys | relay tray Passkeys / `relay eve revoke`; `passkey-sync.js` | Relay tray | **owner gate**: relay; eve's revoked-passkey-refused blocked (one global relay passkey mirror) | auth |
 
 Operator surfaces (`npm run relay:restart`, `register`, `start:secure`,
-`ssl`, `verify:devbox`) are not user goals and get no journey.
+`ssl`, `verify:devbox`, `devboxverify/set.js`) are not user goals and get no journey.
 
 ## Areas
 
@@ -403,7 +403,9 @@ areas:
     journeys: []
   verify:
     code: [devboxverify/**, scripts/browser-lock.js]
-    tests: [test/unit/devboxverify.test.js, test/integration/browser-lock.test.js]
+    tests: [test/unit/devboxverify.test.js, test/unit/devboxverify-set.test.js,
+      test/unit/devboxverify-set-status.test.js, test/integration/browser-lock.test.js,
+      test/integration/devboxverify-set-lock.test.js]
     journeys: all
 ```
 

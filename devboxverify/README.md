@@ -571,7 +571,7 @@ judged.
 
 - **S1 · Register `eve-verify`.** Presence-gated, so run it in a desktop
   Terminal. It stays registered, on a dedicated clean worktree of `main` that
-  only the nightly updates; no one else writes to it. Run `npm ci` there first.
+  only the nightly and `set.js` (which restores it) update; no one else writes to it. Run `npm ci` there first.
   It must only ever point at a checkout that honours `EVE_PASSKEY_SYNC`: a
   second eve with passkey sync on overwrites relay's passkey list.
 
@@ -652,6 +652,11 @@ judged.
 
 ## Verifying a PR
 
+For an eve PR, `node devboxverify/set.js --eve N --post` does steps 1 to 6
+below for you: it resets the registered verify worktree to the PR head,
+restarts the service, runs the verifier with `--screen`, posts, and restores
+`main`. See "Verifying a set". The manual steps:
+
 1. Check out the PR head in its own worktree and run `npm ci` there.
 2. Re-register `eve-verify` with `--workdir <PR worktree>` (every flag, as in
    S1) and restart it.
@@ -667,6 +672,139 @@ judged.
 5. `--post` comments the results on the PR, then sets the `devbox/verify`
    status on the head commit, linking the comment.
 6. Re-register `eve-verify` back to the nightly worktree and restart it.
+
+## Verifying a set
+
+`devboxverify/set.js` verifies a relay change and an eve change together, in
+one run, and posts one `devbox/verify` result on both PRs.
+
+```bash
+node devboxverify/set.js [--relay <ref>] [--eve <ref>] [--post]
+```
+
+A ref is a PR number or a branch name. `--post` takes no value and needs every
+ref to be a PR number. Exit 2 with a `usage:` line on stderr for: neither ref,
+`--post` with a branch, a repeated flag, an unknown argument, a branch outside
+`[A-Za-z0-9._/-]` or starting with `-`, or a PR number below 1.
+
+- **Paired** (`--relay` and `--eve`): builds Relay.app from the relay ref,
+  points the verify eve at the eve ref, and runs the nightly's order: relay
+  `--phase api`, eve with `--screen`, relay `--phase screen`. All three always
+  run; a red phase doesn't stop the next. The phases never get `--post`
+  (relay refuses `--post` with `--phase`); `set.js` posts for both repos
+  itself. Each phase runs that ref's own harness.
+- **One ref**: runs that repo's verify command exactly as it runs today (same
+  flags, same `--post`, same comment and status, same exit code), plus setup,
+  restore and the lock. The other repo is untouched. `--relay` alone runs all
+  of relay's phases, no `--phase`.
+
+Environment:
+
+| Var | Use |
+|---|---|
+| `NIGHTLY_RELAY_CHECKOUT` | required, absolute. The relay checkout the nightly verifies. The ref's worktree is added from it, and restore builds from it. |
+| `NIGHTLY_EVE_CHECKOUT` | required, absolute. The worktree `eve-verify` is registered on. |
+| `RELAY_BIN` | default: the installed app's `relay` |
+| `NIGHTLY_LOG_DIR` | as the nightly. Run files go in `<log dir>/set/<UTC stamp>/`. |
+| `EVE_BROWSER_LOCK`, `EVE_BROWSER_LOCK_TIMEOUT` | the shared lock |
+| `EVE_VERIFY_MODEL`, `RELAY_VERIFY_MODEL`, `DEVBOXPRESENCE_BIN`, `DEVBOXWORLD_MARKER`, `RELAY_VERIFY_CREDENTIAL_FILE` | passed to the phases unchanged |
+
+A missing or relative checkout var exits 2.
+
+**Preconditions.**
+
+- It refuses to start between 02:30 and 04:30 local (`STEP window FAIL`,
+  exit 2, nothing touched), to stay clear of the 03:30 nightly.
+- `/dev/console` is owned by you: a logged-in, unlocked desktop session. The
+  screen phases drive it. If not, `STEP console FAIL`.
+- Unlock the signing keychain first, as before any post-merge rebuild.
+  `build.sh` runs in your shell, not at the console. Locked, `codesign` fails
+  and the run stops at `STEP relay-build FAIL`, eve untouched.
+- You hold the machine's screen, restart and world guards for the whole run.
+- `eve-verify` is already registered on the verify worktree. `set.js` never
+  re-registers it, so no presence prompt.
+
+**What it does, in order.** Any failure from step 2 to 8 prints `STEP … FAIL`,
+skips to restore and posts nothing.
+
+1. Resolve each ref: `git fetch origin`, then for a PR `gh pr view` and
+   `git fetch origin pull/N/head`, refusing if the fetched sha isn't the PR's
+   `headRefOid`. Nothing on the machine changes yet.
+2. Check the console owner.
+3. Take the shared browser lock. It's held until after restore, on every path.
+4. Relay ref: add a detached worktree at `<tmp>/devboxverify-set-relay-<sha12>`,
+   run `./build.sh` there (20 min), wait up to 60 s for `relaysessions running`.
+5. Eve ref: `git reset --hard <sha>` in the verify worktree; `npm ci` only when
+   the `package-lock.json` blob changed.
+6. `relay service restart --id eve-verify`; port 3100 within 60 s;
+   `/api/auth/status` has no `trusted` field.
+7. Write `plan.json` and `phases.command` to the run dir, open the command in a
+   desktop Terminal, and wait for `done.json` (the phases' timeouts plus 10 min).
+   The Terminal runs `set.js --phases <run dir>`, an internal mode that takes
+   no other flag, refuses a run dir whose parent directory isn't named `set`
+   (an absolute path is required) and a plan whose
+   command isn't this node or `go`. It writes `<label>.out`, `<label>.err`
+   and, last, `done.json`.
+8. Print the results; with `--post` and a pair, post.
+9. Restore, then release the lock.
+
+**The lock redirect.** The outer run holds the shared lock, and both
+harnesses' own `lock` preflight honours `EVE_BROWSER_LOCK`. `plan.json` points
+it at `<run dir>/inner.lock` so they don't deadlock on the outer one. Neither
+harness changes. `plan.json` env holds only `PATH`, `HOME`, the allowlisted
+vars above and that lock; nothing else from your environment reaches disk.
+
+**Restore.** It runs whenever the relay build or the eve reset started, on
+every path the run finishes by. `set.js` ignores SIGHUP, so a dropped SSH
+session doesn't stop it. Ctrl-C (SIGINT) or `kill` (SIGTERM) stops the run
+and skips restore: restore by hand with `./build.sh` in the relay main
+checkout, `git reset --hard origin/main` in the verify eve worktree, then
+`relay service restart --id eve-verify`.
+Relay first: in the relay checkout, `git fetch`, the branch must be `main`
+with no tracked changes, `git merge --ff-only origin/main`, `./build.sh`, wait
+for `relaysessions running`. Then eve: `git reset --hard origin/main` (and
+`npm ci` if the lockfile changed). Then the step 6 checks again, and the relay
+worktree is removed, best effort. A restore that can't finish prints
+`RESTORE … FAIL` and says on stderr what is left to do by hand, for example
+`Relay.app is still built from <sha12>; rebuild from main by hand`. With only
+`--relay`, the eve service is still restarted (and checked) but its worktree
+isn't reset.
+
+**Output.** Tab-separated, home scrubbed to `~`, nothing else on stdout:
+
+```
+STEP <name> OK|FAIL <detail>   window, relay-ref, eve-ref, console, lock, relay-build, eve-checkout, eve-verify, console-run
+PHASE <label> GREEN|RED|BLOCKED <sha12> <summary>
+POSTED <repo>#<N> <state> <comment URL>    (pair; one fails: POSTED FAIL <reason>)
+RESTORE relay|eve OK|FAIL <sha12 installed | step: reason>
+SET success|failure|error
+```
+
+`PHASE` follows the nightly's rules: exit 0 GREEN; exit 1 with a `SUMMARY`
+line RED; anything else, a timeout included, BLOCKED. With one ref, the
+harness's own `POSTED` line is copied through unchanged.
+
+**Exit codes.** Paired: the exit code follows the final `SET` line: 0 for
+`success`, 1 for `failure`, 2 for `error`. `SET` is `error` after usage
+errors, any `STEP` FAIL, `POSTED FAIL` or any `RESTORE` FAIL, whatever the
+phases said. Otherwise it is the state below. Any FAIL journey exits 1.
+With no FAIL journey, a RED phase exits 1 only when no journey in the run is
+BLOCKED; RED plus a BLOCKED journey, a BLOCKED phase (even one with a
+`SUMMARY`), a phase with no `SUMMARY` or a timeout exits 2. NOTRUN journeys never count against a run. One ref: the harness's
+exit code, raised to 2 by a step, post or restore failure.
+
+**The paired status.** One state goes on both PRs: `failure` if any phase has
+a `JOURNEY … FAIL` line, or a RED phase with no BLOCKED journey in the run;
+else `error` if any journey is BLOCKED, any phase is not GREEN, has no
+`SUMMARY` or timed out; else `success`. PASS and NOTRUN journeys are fine. If either side fails, both fail.
+The same comment (both PR URLs and commits, the tool commit, run time, a row
+per phase and per journey) goes on both PRs. Each head gets a `devbox/verify`
+status whose `target_url` is that PR's comment and whose description names
+both commits and the other PR (`set relay@<sha12> eve@<sha12>; with
+<other>#<N>; pass=… fail=… blocked=… notrun=…`, cut to 140 characters). Order:
+relay comment, eve comment, relay status, eve status. If the eve status fails
+after relay's was set, relay's is re-posted as `error` so no PR keeps a
+`success` the other lacks.
 
 ## Traps
 
@@ -754,3 +892,9 @@ either way.
 Relay's and eve's verifiers both reset the shared devboxWorld, and nothing
 locks them against each other. Don't run a manual verify, or verify a PR,
 around 03:30. launchd never overlaps two runs of the job.
+
+The nightly takes no lock for its relay api phase or its eve prepare step, so
+a set run near the window could collide with it. `set.js` refuses to start
+between 02:30 and 04:30 local for that reason; don't start a hand-run verify
+there either. `set.js` does hold the shared browser lock, which the eve
+verifier and relay's screen phase honour.
