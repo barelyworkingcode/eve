@@ -548,11 +548,17 @@ that never calls `tool_search` is FAIL with the thread text, never loosened.
 - Lives in: `devboxverify/journeys-tool-search.js`; `public/message-renderer.js`
   (`message-tool-use`, `.tool-name`, `.tool-result`); relay-sessions'
   tool-search gate (relayLLM#29).
-- Traps: BLOCKED without exactly the project, the model, or when
-  `~/Library/Application Support/relay/sessions/chat.json` sets `toolSearch` to
-  anything but `auto`. The harness edits no settings. The session is outside
-  the world, so the journey deletes it itself; neither the leak check nor the
-  sweep would. The log's `session` match is the session id anywhere in the line.
+- Traps: BLOCKED without the project (by name) or the model; when
+  `~/Library/Application Support/relay/sessions/chat.json` cannot be read
+  (anything but a missing file) or is not valid JSON; when its top-level
+  `toolSearch` is anything but `auto`; and when the launch is refused on
+  template `chat`. The harness edits no settings. The sessions are outside
+  the world, so a cleanup registered before Start Chat deletes every new
+  `Verify Skills` session, even on a failure path; neither the leak check nor
+  the sweep would. relay-sessions logs the summary at provider Start, so the
+  log mark is taken before the click. The summary is the `chat.tool_search`
+  line named `chat tool search` (or with an `active` field); Warn lines share
+  its op and session id. The session match is the id anywhere in the line.
 
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates

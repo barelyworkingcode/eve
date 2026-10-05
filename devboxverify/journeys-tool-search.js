@@ -28,19 +28,12 @@ const SESSIONS_LOG = path.join(SUPPORT, 'logs', 'relaysessions.log');
 // The tool's contract: 'TIDE-' + first 8 lowercase hex of sha256(lower(trim(port))).
 const tideCode = (port) => `TIDE-${crypto.createHash('sha256').update(String(port).trim().toLowerCase()).digest('hex').slice(0, 8)}`;
 
-// The first `toolSearch` key anywhere in the parsed chat config; its mode is
-// the value itself or its `mode`. undefined when the config never sets one.
+// The top-level `toolSearch` of the parsed chat config; its mode is the value
+// itself or its `mode`. undefined when the config does not set one there.
 function toolSearchMode(node) {
-  if (!node || typeof node !== 'object') return undefined;
-  if (Object.prototype.hasOwnProperty.call(node, 'toolSearch')) {
-    const v = node.toolSearch;
-    return typeof v === 'string' ? v : (v && typeof v === 'object' ? v.mode : v);
-  }
-  for (const child of Object.values(node)) {
-    const mode = toolSearchMode(child);
-    if (mode !== undefined) return mode;
-  }
-  return undefined;
+  if (!node || typeof node !== 'object' || !Object.prototype.hasOwnProperty.call(node, 'toolSearch')) return undefined;
+  const v = node.toolSearch;
+  return typeof v === 'string' ? v : (v && typeof v === 'object' ? v.mode : v);
 }
 
 // Tool steps as the thread shows them, top to bottom: the name, what the model
@@ -71,8 +64,9 @@ async function logSince(mark) {
 }
 const logSize = () => fs.promises.stat(SESSIONS_LOG).then((s) => s.size, () => 0);
 
-// The session's chat.tool_search line, or null. Fields may sit at the top
-// level of the log record or under `fields`.
+// The session's chat.tool_search summary line, or null. Warn lines share the
+// op and session id, so the summary is the one with msg "chat tool search" or
+// an `active` field. Fields may sit at the top level of the record or under `fields`.
 function toolSearchLine(text, sessionId) {
   for (const line of text.split('\n')) {
     if (!line.includes('chat.tool_search') || !line.includes(sessionId)) continue;
@@ -80,6 +74,7 @@ function toolSearchLine(text, sessionId) {
     try { o = JSON.parse(line); } catch { continue; }
     if (o.op !== 'chat.tool_search') continue;
     const pick = (k) => (o[k] !== undefined ? o[k] : o.fields && o.fields[k]);
+    if (o.msg !== 'chat tool search' && pick('active') === undefined) continue;
     return { active: pick('active'), reason: pick('reason'), skills: Number(pick('skills')), sent: Number(pick('tools_sent')), total: Number(pick('tools_total')) };
   }
   return null;
@@ -111,6 +106,13 @@ async function chatToolSearch(env) {
   await openProject(page, env, project);
   const mine = async () => (await eveJson(env, 'GET', '/api/sessions')).filter((s) => s.projectId === project.id).map((s) => s.id);
   const before = await mine();
+  // Deliberate: this project is not in the world, so neither the leak check
+  // nor the sweep would remove a session. relay-sessions logs its summary at
+  // provider Start, so the log mark is taken before the click too.
+  env.cleanup('delete the tool-search sessions', async () => {
+    for (const sid of (await mine()).filter((s) => !before.includes(s))) await deleteSession(env, sid);
+  });
+  const logMark = await logSize();
 
   const dialog = await openLauncher(page, env, project);
   env.step('open the Web Chat form');
@@ -137,9 +139,6 @@ async function chatToolSearch(env) {
   const added = (await mine()).filter((s) => !before.includes(s));
   if (added.length !== 1) return result(id, FAIL, `${added.length} new ${PROJECT_NAME} sessions, expected 1`);
   const sessionId = added[0];
-  // Deliberate: this project is not in the world, so neither the leak check
-  // nor the sweep would remove the session.
-  env.cleanup('delete the tool-search session', () => deleteSession(env, sessionId));
 
   const port = `Port Verify${env.nonce}`;
   const expected = tideCode(port);
@@ -147,7 +146,6 @@ async function chatToolSearch(env) {
   const input = page.getByTestId('chat-input');
   env.step('wait for the composer');
   await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
-  const logMark = await logSize();
   await input.fill(question, { timeout: 5000 });
   env.step('send the question');
   const sentAt = Date.now();
@@ -225,6 +223,4 @@ module.exports = {
       id: 'chat-tool-search', timeoutMs: 240000, areas: ['chat'], needs: [], run: chatToolSearch,
     },
   },
-  tideCode,
-  toolSearchMode,
 };
