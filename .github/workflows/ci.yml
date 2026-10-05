@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,7 +29,21 @@ jobs:
         run: git ls-files '*.js' '*.cjs' '*.mjs' | xargs -n1 node --check
       - run: npm test
       - run: npm run test:integration
+
+  # The slow browser suite. The pre-push hook already runs it before every push
+  # that touches JS, CSS or HTML, so a pull request does not run it again; it
+  # runs here after the merge, and by hand from the Actions tab. test:visual
+  # compares against pixel baselines rendered on the devbox, and test:voice
+  # needs live speech daemons; both stay local.
+  e2e:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
-      # test:visual compares against pixel baselines rendered on the devbox, and
-      # test:voice needs live speech daemons; both stay local.
       - run: npm run test:e2e

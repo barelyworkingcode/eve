@@ -89,6 +89,8 @@ npm run test:integration  # integration tier
 npm run test:e2e          # Playwright end-to-end. Must stay green.
 ```
 
+**Where e2e runs.** The pull request check (`.github/workflows/ci.yml`, job `test`) runs `node --check`, unit and integration only. The Playwright e2e suite runs in the `e2e` job on every push to `main`, after the merge, and by hand (`workflow_dispatch`, Actions tab). The pre-push hook already ran e2e locally before the push, and the hosted runner needs several minutes for it, so repeating it on every pull request costs time without adding a check. A red `e2e` run on `main` is reverted first, then fixed on a branch.
+
 **Browser-test lock.** `test:e2e`, `test:visual` and `verify:devbox` share one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
 
 ```
