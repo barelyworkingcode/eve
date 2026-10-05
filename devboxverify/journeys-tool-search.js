@@ -119,7 +119,30 @@ async function relayRows(env, event, project) {
   return stdout;
 }
 
+// Evidence for a FAIL: the tool_use blocks the WebSocket frames carried for the
+// session, in order, then each tool step's output. Best effort; never throws.
+async function traceDetail(ctx) {
+  const clip = (v) => (typeof v === 'string' ? v : JSON.stringify(v === undefined ? null : v) || '').slice(0, 200);
+  const parts = [];
+  const uses = (ctx.toolUses || []).filter((u) => !ctx.sessionId || u.sessionId === ctx.sessionId);
+  parts.push(`tool_use frames: ${uses.map((u) => `${u.name}(${clip(u.input)})`).join(', ') || 'none'}`);
+  try {
+    const steps = await toolSteps(ctx.page);
+    parts.push(`tool step outputs: ${steps.map((s, i) => `${i + 1}. ${s.name}: ${s.output.slice(0, 200)}`).join(' | ') || 'none'}`);
+  } catch (err) {
+    parts.push(`tool step outputs unavailable: ${String(err && err.message || err).split('\n')[0]}`);
+  }
+  return parts.join('; ');
+}
+
 async function chatToolSearch(env) {
+  const ctx = {};
+  const res = await chatToolSearchRun(env, ctx);
+  if (res.state === FAIL && ctx.page) res.detail += ` [${await traceDetail(ctx)}]`;
+  return res;
+}
+
+async function chatToolSearchRun(env, ctx) {
   const id = 'chat-tool-search';
   let chatConfig = null;
   try { chatConfig = await fs.promises.readFile(CHAT_CONFIG, 'utf8'); } catch (err) { if (err.code !== 'ENOENT') return result(id, BLOCKED, `cannot read chat.json: ${err.code || err.message}`); }
@@ -135,6 +158,8 @@ async function chatToolSearch(env) {
   const page = await env.newPage();
   const errors = captureErrors(page);
   const toolUses = recordToolUses(page);
+  ctx.page = page;
+  ctx.toolUses = toolUses;
   await openEve(page, env);
   await waitForModels(page, env);
   await openProject(page, env, project);
@@ -173,6 +198,7 @@ async function chatToolSearch(env) {
   const added = (await mine()).filter((s) => !before.includes(s));
   if (added.length !== 1) return result(id, FAIL, `${added.length} new ${PROJECT_NAME} sessions, expected 1`);
   const sessionId = added[0];
+  ctx.sessionId = sessionId;
 
   const port = `Port Verify${env.nonce}`;
   const expected = tideCode(port);
