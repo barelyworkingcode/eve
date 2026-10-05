@@ -109,6 +109,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Pasted links as sources: pasting one http(s) URL into Ask or the chat input makes a removable chip (`today-ask-url-<n>`, `chat-url-<n>`; at most 5, a repeat is one chip, anything else pastes as text); Send adds a fixed "Sources to read" block to the message and the thread shows the chips, not the block; where Relay grants `web_fetch`, the page read comes back as a source card (design: `docs/design-research.md`) | UI: `public/url-chips.js`, `public/core/source-urls.js`, `today/parts/ask-part.js`, `app.js`; WS `user_input` `urls` | Paste a link into Today's Ask or the chat box | Ask box or composer → paste a link | none | ask-pasted-url; chat-pasted-url-source (needs the `Research` test project, setups R1 and R1b); cloud spec `goals/pasted-url-chips` | home, chat |
 | Thinking, tool-use and agent blocks | UI: `message-renderer.js` | Replies that use tools or think | Reply → a tool or thinking block | none | none yet — model-dependent | chat |
 | Interactive question options | UI: `message-renderer.js` | Model offers choices | Reply → an option button | none | none yet — model-dependent | chat |
+| Tool steps shown in the thread (a tool's name, input and result) | UI: `public/message-renderer.js` (`message-tool-use`) | A turn where the model uses a tool | Chat → the tool step in the thread | none | chat-tool-search (tool_search then the tool it found) | chat |
 | Errors shown in the thread | UI: `message-system.error` | A refused or failed turn | Chat → the error line in the thread | none | chat-reply (classifies FAIL/BLOCKED) | chat |
 | Slash commands `/clear`, `/help` | Server: `slash-command-handler.js` | Type in composer | Composer → type `/clear` or `/help` | none | none yet — not written | chat |
 | Provider slash commands (`/model`, `/compact`, …) | Forwarded to relayLLM | Type in composer | Composer → type `/model`, `/compact`, … | none | none yet — not written | chat |
@@ -355,7 +356,7 @@ areas:
             test/e2e/template-blank-model.spec.js, test/e2e/goals/ask-elsewhere.spec.js,
             test/unit/sources.test.js, test/e2e/goals/research-citations.spec.js,
             test/unit/source-urls.test.js, test/e2e/goals/pasted-url-chips.spec.js]
-    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode, research-citations, listen, ask-pasted-url, chat-pasted-url-source]
+    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode, research-citations, listen, ask-pasted-url, chat-pasted-url-source, chat-tool-search]
   terminal:
     code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,
            public/agent-board.js, public/core/terminal-text.js, public/apple/terminal.css, public/apple/agents.css]

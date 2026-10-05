@@ -531,6 +531,37 @@ Reopened from Threads, then reloaded: the same card, popover and chip.
   never the evidence). A missing GET with an `ok` row is FAIL. A cleanup
   deletes every session in `Research` and closes the page server.
 
+**chat-tool-search.** In `Verify Skills` (folder `~/verify-skills`, 48 `relay-*`
+skills, MCP `devboxverify-wide` with 48 tools; not a world project, found by
+name in `GET /api/projects`), a Web Chat on `EVE_VERIFY_MODEL` (expect `Chat6`)
+is asked `What is the tide code for the port of Port Verify<nonce>? Reply with
+the code only.` PASS needs all of: the first tool step in the thread is
+`tool_search` and its result names `tides_lookup`; a later step calls
+`tides_lookup` (directly or through `call_tool`); the settled reply holds
+`TIDE-` and the first 8 hex of sha256 of the lowercased, trimmed port, which
+the journey computes; `relay audit --event call_tool --project <id>` has an
+`ok` `tides_lookup` row since the send; and `relaysessions.log` has an
+`op: chat.tool_search` line naming the session with `active=true`,
+`reason=auto_threshold`, `skills>=40` and `tools_sent<tools_total`. The first
+`model_call` row's `prompt_tokens` for the session goes in the detail. A model
+that never calls `tool_search` is FAIL with the thread text, never loosened.
+- A `call_tool` step's arguments are read from the WebSocket `llm_event`
+  frames, because the live step renders `{}`.
+- Lives in: `devboxverify/journeys-tool-search.js`; `public/message-renderer.js`
+  (`message-tool-use`, `.tool-name`, `.tool-result`); relay-sessions'
+  tool-search gate (relayLLM#29).
+- Traps: BLOCKED without the project (by name) or the model; when
+  `~/Library/Application Support/relay/sessions/chat.json` cannot be read
+  (anything but a missing file) or is not valid JSON; when its top-level
+  `toolSearch` is anything but `auto`; and when the launch is refused on
+  template `chat`. The harness edits no settings. The sessions are outside
+  the world, so a cleanup registered before Start Chat deletes every new
+  `Verify Skills` session, even on a failure path; neither the leak check nor
+  the sweep would. relay-sessions logs the summary at provider Start, so the
+  log mark is taken before the click. The summary is the `chat.tool_search`
+  line named `chat tool search` (or with an `active` field); Warn lines share
+  its op and session id. The session match is the id anywhere in the line.
+
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates
 `verify-<nonce>-fails` in Acme Corp: on demand, `sessionType: 'pty'`,
