@@ -111,7 +111,7 @@ const PINS = [
   ['outputFile that is a path', 'api.go', 'errors.New("outputFile must be a file name, not a path")', "'outputFile must be a file name, not a path'", 'scheduler'],
   ['outputFile with a directory', 'api.go', 'errors.New("outputFile needs the task to run in its project directory; remove directory")', "'outputFile needs the task to run in its project directory; remove directory'", 'scheduler'],
   ['a chat tool_result carries scope_violation', 'internal/sessions/events/events.go', 'json:"scope_violation,omitempty"', 'is_error and scope_violation (relay events.go)'],
-  ['a chat tool_result takes is_error from the MCP result', 'internal/sessions/provider/chat_base.go', 'isError := toolErr != nil || callRes.IsError', 'is_error and scope_violation (relay events.go)'],
+  ['a chat tool_result takes is_error from the MCP result', 'internal/sessions/provider/chat_base.go', 'isError = toolErr != nil || callRes.IsError', 'is_error and scope_violation (relay events.go)'],
   ['a chat session reads settings.useRelayTools', 'internal/sessions/provider/settings.go', 'Key:     "useRelayTools",', 'useRelayTools: true }'],
   // S4-A1: the search-result shapes test/unit/sources.test.js builds (6th field: the file carrying the copy).
   ['an MCP result joins its text blocks with no separator', 'internal/sessions/mcp/mcp.go', 'sb.WriteString(v.Text)', "brave(R1) + brave(R2)", 'relay', 'unit/sources.test.js'],
