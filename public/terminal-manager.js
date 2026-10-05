@@ -437,8 +437,9 @@ class TerminalManager {
     });
   }
 
-  // relayLLM auto-joins the creator, so no separate join_terminal is needed.
-  // host ({id,name}) is present when relayLLM resolved the session onto an
+  // The terminal_create handler (ws/terminal-messages.js) joins the creator, so no
+  // separate join_terminal is needed.
+  // host ({id,name}) is present when relay-sessions resolved the session onto an
   // SSH host (../relay/docs/ssh-hosts.md); undefined for a console terminal.
   onTerminalCreated(terminalId, templateId, name, directory, host) {
     const auto = this._autoReattachPending?.get(name);
@@ -455,7 +456,7 @@ class TerminalManager {
   // By the time terminal_joined arrives, the PTY size is guaranteed to match
   // our xterm grid: fresh terminals are created at our requested cols/rows,
   // and every terminal_reconnect carries the grid xterm currently has — fitted
-  // first when the pane is being shown — so relayLLM resizes the PTY before
+  // first when the pane is being shown — so relay-sessions resizes the PTY before
   // capturing scrollback. Never resize during replay — that's what produced
   // the duplicate-screen bug.
   onTerminalJoined(data) {
@@ -506,7 +507,7 @@ class TerminalManager {
       this._resumeRenderer(terminal.term);
 
       // Now that xterm has measured itself against the visible container, tell
-      // relayLLM to size the PTY to match before it sends scrollback — keeps
+      // relay-sessions to size the PTY to match before it sends scrollback — keeps
       // PTY, grid, and replayed bytes at the same dimensions so no
       // SIGWINCH-driven repaint lands on an already-rendered screen.
       this._sendReconnect(terminalId);
@@ -523,7 +524,7 @@ class TerminalManager {
     window.addEventListener('resize', this.resizeHandler);
   }
 
-  // relayLLM forwards terminal_output only to connections it has registered as
+  // relay-sessions forwards terminal_output only to connections it has registered as
   // viewers, but it accepts terminal_input for any terminal by id from any
   // connection. A browser reconnect builds a whole new upstream connection
   // whose viewer set is empty, so an already-open pane keeps accepting
@@ -535,7 +536,7 @@ class TerminalManager {
   // `onlyIds` scopes the marking to terminals that existed when the socket
   // opened. The caller runs after async project/session loads, and a terminal
   // created inside that window is already a viewer on the new socket —
-  // relayLLM auto-joins the creator — so re-joining it would send a spurious
+  // relay-sessions auto-joins the creator — so re-joining it would send a spurious
   // terminal_reconnect and a second replay. null marks everything (used for
   // an upstream-only relay reconnect, where every viewer set was lost).
   markTerminalsForRejoin(onlyIds = null) {
@@ -903,7 +904,7 @@ class TerminalManager {
 
   // Called by the dispatcher on a task_started broadcast, which arrives
   // before the next terminal_list — lets openTaskTerminal pick WS attach
-  // over the disk-log fallback for a terminal relayLLM already knows about.
+  // over the disk-log fallback for a terminal relay-sessions already knows about.
   registerKnownTerminal(meta) {
     if (!meta?.id) return;
     if (!this.allTerminals.has(meta.id)) {
@@ -936,7 +937,7 @@ class TerminalManager {
       this.showTerminal(terminalId);
       return;
     }
-    // Not resident in relayLLM (idle timeout or relayLLM restart evicted it).
+    // Not resident in relay-sessions (idle timeout or relay-sessions restart evicted it).
     this.viewReadOnly(terminalId, opts);
   }
 
