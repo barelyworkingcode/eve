@@ -690,6 +690,7 @@ class MessageRenderer {
   updateToolInput(input) {
     if (!this.currentToolBlock || !input) return;
     if (typeof input === 'object') this.citations.noteToolInput(this.currentToolBlock.dataset.toolUseId, input);
+    this._refreshToolDetail(input);
     const existing = this.currentToolBlock.querySelector('.tool-input');
     let summary = '';
     if (typeof input === 'string') {
@@ -713,6 +714,23 @@ class MessageRenderer {
       span.textContent = summary;
       this.currentToolBlock.appendChild(span);
     }
+  }
+
+  // The step is drawn before its input has streamed in (appendToolUse gets
+  // `{}`), so the expandable detail is redrawn once the final input arrives.
+  _refreshToolDetail(input) {
+    let detail = this.currentToolBlock.querySelector('.tool-detail');
+    if (!detail) {
+      detail = document.createElement('div');
+      detail.className = 'tool-detail';
+      this.currentToolBlock.appendChild(detail);
+    }
+    let pre = detail.querySelector('pre');
+    if (!pre) {
+      pre = document.createElement('pre');
+      detail.appendChild(pre);
+    }
+    pre.textContent = this._prettyJson(input);
   }
 
   renderQuestionBlock(questions, onSelect) {
