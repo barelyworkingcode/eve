@@ -111,6 +111,30 @@ describe('proxied route logging and trace carriage', () => {
     expect(stt.transcribe).toHaveBeenCalledWith('QUJD', 'en', { traceId: 'trace-stt12345' });
   });
 
+  it('POST /api/transcribe failure line carries the inbound trace id', async () => {
+    stt.transcribe.mockRejectedValue(new Error('stt down'));
+    await fetch(`${baseUrl}/api/transcribe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-trace-id': 'eve-turn-trace-0002' },
+      body: JSON.stringify({ audio: 'QUJD', language: 'en' }),
+    });
+    const failed = sink.lines().filter((l) => l.level === 'error' && /STT transcription failed/.test(l.msg));
+    expect(failed).toHaveLength(1);
+    expect(failed[0].trace_id).toBe('eve-turn-trace-0002');
+  });
+
+  it('POST /api/projects failure line (shared mutation handler) carries the inbound trace id', async () => {
+    transport.fetch.mockRejectedValue(new Error('relay down'));
+    await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-trace-id': 'eve-turn-trace-0002' },
+      body: JSON.stringify({ name: 'p' }),
+    });
+    const failed = sink.lines().filter((l) => l.level === 'error' && /POST \/api\/projects failed/.test(l.msg));
+    expect(failed).toHaveLength(1);
+    expect(failed[0].trace_id).toBe('eve-turn-trace-0002');
+  });
+
   it('a non-schedule proxied route logs op http.request with no job_id', async () => {
     transport.fetch.mockResolvedValue({ status: 200, data: { id: 'x-1', models: [] } });
     await fetch(`${baseUrl}/api/models`);
