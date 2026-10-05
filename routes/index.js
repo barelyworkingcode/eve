@@ -77,7 +77,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
         res.status(status).json(data);
       }
     } catch (err) {
-      routeLog.error('GET /api/projects failed:', err.message);
+      routeLog.withTrace(req.traceId).error('GET /api/projects failed:', err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -92,12 +92,12 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
         res.status(status).json(data);
       }
     } catch (err) {
-      routeLog.error(`GET /api/projects/${req.params.id} failed:`, err.message);
+      routeLog.withTrace(req.traceId).error(`GET /api/projects/${req.params.id} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
 
-  async function proxyProjectMutation(method, relayPath, body, res, errLabel) {
+  async function proxyProjectMutation(req, method, relayPath, body, res, errLabel) {
     try {
       const { status, data } = await relayTransport.fetch(method, relayPath, body);
       if (status >= 200 && status < 300 && data && data.id) {
@@ -107,16 +107,16 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
         res.status(status).json(data ?? {});
       }
     } catch (err) {
-      routeLog.error(`${errLabel} failed:`, err.message);
+      routeLog.withTrace(req.traceId).error(`${errLabel} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   }
 
   app.post('/api/projects', requireAuth, (req, res) =>
-    proxyProjectMutation('POST', '/api/projects', req.body, res, 'POST /api/projects'));
+    proxyProjectMutation(req, 'POST', '/api/projects', req.body, res, 'POST /api/projects'));
 
   app.put('/api/projects/:id', requireAuth, (req, res) =>
-    proxyProjectMutation('PUT', `/api/projects/${req.params.id}`, req.body, res, `PUT /api/projects/${req.params.id}`));
+    proxyProjectMutation(req, 'PUT', `/api/projects/${req.params.id}`, req.body, res, `PUT /api/projects/${req.params.id}`));
 
   app.delete('/api/projects/:id', requireAuth, async (req, res) => {
     try {
@@ -126,7 +126,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       }
       res.status(status).json(data || {});
     } catch (err) {
-      routeLog.error(`DELETE /api/projects/${req.params.id} failed:`, err.message);
+      routeLog.withTrace(req.traceId).error(`DELETE /api/projects/${req.params.id} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -151,12 +151,12 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
         res.status(status).json(data);
       }
     } catch (err) {
-      routeLog.error('GET /api/hosts failed:', err.message);
+      routeLog.withTrace(req.traceId).error('GET /api/hosts failed:', err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
 
-  async function proxyHostMutation(method, relayPath, body, res, errLabel) {
+  async function proxyHostMutation(req, method, relayPath, body, res, errLabel) {
     try {
       const { status, data } = await relayTransport.fetch(method, relayPath, body);
       if (status >= 200 && status < 300 && data && data.id) {
@@ -164,16 +164,16 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       }
       res.status(status).json(stripSshArgv(data) ?? {});
     } catch (err) {
-      routeLog.error(`${errLabel} failed:`, err.message);
+      routeLog.withTrace(req.traceId).error(`${errLabel} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   }
 
   app.post('/api/hosts', requireAuth, (req, res) =>
-    proxyHostMutation('POST', '/api/hosts', req.body, res, 'POST /api/hosts'));
+    proxyHostMutation(req, 'POST', '/api/hosts', req.body, res, 'POST /api/hosts'));
 
   app.put('/api/hosts/:id', requireAuth, (req, res) =>
-    proxyHostMutation('PUT', `/api/hosts/${req.params.id}`, req.body, res, `PUT /api/hosts/${req.params.id}`));
+    proxyHostMutation(req, 'PUT', `/api/hosts/${req.params.id}`, req.body, res, `PUT /api/hosts/${req.params.id}`));
 
   app.delete('/api/hosts/:id', requireAuth, async (req, res) => {
     try {
@@ -186,13 +186,13 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       }
       res.status(status).json(data || {});
     } catch (err) {
-      routeLog.error(`DELETE /api/hosts/${req.params.id} failed:`, err.message);
+      routeLog.withTrace(req.traceId).error(`DELETE /api/hosts/${req.params.id} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
 
   app.post('/api/hosts/:id/probe', requireAuth, (req, res) =>
-    proxyHostMutation('POST', `/api/hosts/${req.params.id}/probe`, undefined, res, `POST /api/hosts/${req.params.id}/probe`));
+    proxyHostMutation(req, 'POST', `/api/hosts/${req.params.id}/probe`, undefined, res, `POST /api/hosts/${req.params.id}/probe`));
 
   app.post('/api/hosts/:id/disconnect', requireAuth, async (req, res) => {
     try {
@@ -206,7 +206,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       hostPool?.disconnect(req.params.id);
       res.status(status).json(stripSshArgv(data) ?? {});
     } catch (err) {
-      routeLog.error(`POST /api/hosts/${req.params.id}/disconnect failed:`, err.message);
+      routeLog.withTrace(req.traceId).error(`POST /api/hosts/${req.params.id}/disconnect failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -236,7 +236,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
         res.status(status).json(data);
       }
     } catch (err) {
-      routeLog.error('GET /api/sessions failed:', err.message);
+      routeLog.withTrace(req.traceId).error('GET /api/sessions failed:', err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -317,7 +317,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       if (status === 204) return res.status(204).end();
       res.status(status).json(data || {});
     } catch (err) {
-      routeLog.error(`DELETE ${relayPath} failed:`, err.message);
+      routeLog.withTrace(req.traceId).error(`DELETE ${relayPath} failed:`, err.message);
       res.status(502).json({ error: 'Service unavailable' });
     }
   });
@@ -335,7 +335,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       res.set('Cache-Control', 'no-store');
       res.send(data);
     } catch (err) {
-      routeLog.error(`GET /api/terminals/${req.params.id}/log failed:`, err.message);
+      routeLog.withTrace(req.traceId).error(`GET /api/terminals/${req.params.id}/log failed:`, err.message);
       res.status(502).json({ error: 'Terminal log unavailable' });
     }
   });
@@ -353,7 +353,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
           { hostPool });
         res.json({ path: filePath });
       } catch (err) {
-        routeLog.error(`POST /api/terminal/paste-image failed (host=${hostId || 'console'}):`, err.message);
+        routeLog.withTrace(req.traceId).error(`POST /api/terminal/paste-image failed (host=${hostId || 'console'}):`, err.message);
         res.status(err.status || 500).json({ error: err.status ? err.message : 'Failed to save image' });
       }
     });
@@ -385,7 +385,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       const result = await sttService.transcribe(audio, language || null, { traceId: req.traceId });
       res.json({ text: result.text, language: result.language });
     } catch (err) {
-      routeLog.error('STT transcription failed:', err.message);
+      routeLog.withTrace(req.traceId).error('STT transcription failed:', err.message);
       res.status(503).json({ error: 'STT service unavailable' });
     }
   });
@@ -401,7 +401,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       res.set('Cache-Control', 'public, max-age=31536000, immutable');
       res.send(data);
     } catch (err) {
-      routeLog.error('Generated image proxy failed:', err.message);
+      routeLog.withTrace(req.traceId).error('Generated image proxy failed:', err.message);
       res.status(502).json({ error: 'Image not available' });
     }
   });
