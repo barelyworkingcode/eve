@@ -219,6 +219,8 @@ test.describe('A6 #/voice-chat launches the mode\'s voice preset', () => {
       }
       await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 15000 }).toBe(1);
       expect(eve.relay.sessionCreates[0]).toMatchObject({ projectId: 'beta', model: 'chat-b' });
+      // The browser's sent-frame event can reach the test after relay has seen the create.
+      await expect.poll(() => frames.length).toBeGreaterThan(0);
       expect(frames).toEqual([expect.objectContaining({ model: 'chat-b', sessionType: 'voice', voice: 'af_bella' })]);
       await page.waitForTimeout(500);
       expect(eve.relay.sessionCreates).toHaveLength(1);
