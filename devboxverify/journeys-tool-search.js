@@ -254,6 +254,13 @@ async function chatToolSearchRun(env, ctx) {
   if (callSteps.length && !callSteps.some((s) => s.input.includes(LOOKUP_TOOL))) {
     return result(id, FAIL, `no call_tool step's detail shows ${LOOKUP_TOOL}: "${callSteps[0].input.slice(0, 120)}"`);
   }
+  // A direct tides_lookup step must show its arguments too: the port carries
+  // the nonce, so its detail text has to include it.
+  const directSteps = steps.slice(1).filter((s) => s.name === LOOKUP_TOOL);
+  const callShows = callSteps.some((s) => s.input.includes(LOOKUP_TOOL));
+  if (!callShows && !directSteps.some((s) => s.input.includes(env.nonce))) {
+    return result(id, FAIL, `no ${LOOKUP_TOOL} step shows its arguments in the thread: "${(directSteps[0] || callSteps[0] || { input: '' }).input.slice(0, 120)}"`);
+  }
   const reply = settled.reply;
   if (!reply.includes(expected)) {
     return result(id, FAIL, `the reply does not contain ${expected}: "${reply.slice(0, 120)}"`);
