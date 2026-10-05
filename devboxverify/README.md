@@ -531,6 +531,29 @@ Reopened from Threads, then reloaded: the same card, popover and chip.
   never the evidence). A missing GET with an `ok` row is FAIL. A cleanup
   deletes every session in `Research` and closes the page server.
 
+**chat-tool-search.** In `Verify Skills` (folder `~/verify-skills`, 48 `relay-*`
+skills, MCP `devboxverify-wide` with 48 tools; not a world project, found by
+name in `GET /api/projects`), a Web Chat on `EVE_VERIFY_MODEL` (expect `Chat6`)
+is asked `What is the tide code for the port of Port Verify<nonce>? Reply with
+the code only.` PASS needs all of: the first tool step in the thread is
+`tool_search` and its result names `tides_lookup`; a later step calls
+`tides_lookup` (directly or through `call_tool`); the settled reply holds
+`TIDE-` and the first 8 hex of sha256 of the lowercased, trimmed port, which
+the journey computes; `relay audit --event call_tool --project <id>` has an
+`ok` `tides_lookup` row since the send; and `relaysessions.log` has an
+`op: chat.tool_search` line naming the session with `active=true`,
+`reason=auto_threshold`, `skills>=40` and `tools_sent<tools_total`. The first
+`model_call` row's `prompt_tokens` for the session goes in the detail. A model
+that never calls `tool_search` is FAIL with the thread text, never loosened.
+- Lives in: `devboxverify/journeys-tool-search.js`; `public/message-renderer.js`
+  (`message-tool-use`, `.tool-name`, `.tool-result`); relay-sessions'
+  tool-search gate (relayLLM#29).
+- Traps: BLOCKED without exactly the project, the model, or when
+  `~/Library/Application Support/relay/sessions/chat.json` sets `toolSearch` to
+  anything but `auto`. The harness edits no settings. The session is outside
+  the world, so the journey deletes it itself; neither the leak check nor the
+  sweep would. The log's `session` match is the session id anywhere in the line.
+
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates
 `verify-<nonce>-fails` in Acme Corp: on demand, `sessionType: 'pty'`,

@@ -434,7 +434,7 @@ describe('devboxverify journey table', () => {
     'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
     'settings-sheet', 'project-admin-in-relay', 'project-mode-new', 'brief-injection-refused',
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
-    'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part',
+    'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part', 'chat-tool-search',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -471,7 +471,7 @@ describe('devboxverify journey table', () => {
       'passkey-first-enrol': [], 'landing-view': [], 'add-browser-in-window': [],
       'settings-sheet': [], 'project-mode-new': [], 'project-admin-in-relay': acme,
       'world-projects-listed': all, 'terminal-on-request': all, 'brief-injection-refused': ['project:home'],
-      'ask-in-other-mode': ['project:acme', 'project:home'], 'research-citations': [], 'chat-pasted-url-source': [],
+      'ask-in-other-mode': ['project:acme', 'project:home'], 'research-citations': [], 'chat-pasted-url-source': [], 'chat-tool-search': [],
       'today-custom-part': ['project:acme', 'project:home'],
       'file-edit-save': ['file:acme/budget/q4-budget-draft.csv', 'file:acme/todo.txt', 'project:acme'],
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
@@ -500,7 +500,7 @@ describe('devboxverify journey table', () => {
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url',
       'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
-      'chat-pasted-url-source', 'project-mode-new',
+      'chat-pasted-url-source', 'chat-tool-search', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -520,6 +520,7 @@ describe('devboxverify journey table', () => {
     ['chat-pasted-url-source', 'docs/design-research.md', ['chat'], 180000],
     ['routine-failed-notifies', 'docs/design-on-the-go.md', ['tasks'], 60000],
     ['listen', 'docs/design-on-the-go.md', ['chat', 'voice'], 60000],
+    ['chat-tool-search', 'devboxverify/README.md', ['chat'], 240000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
