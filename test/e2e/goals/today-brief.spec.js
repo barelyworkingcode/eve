@@ -506,6 +506,13 @@ for (const [state, world, shown] of [
 const MAIN_PROMPT = fs.readFileSync(nodePath.join(__dirname, '../../helpers/brief-prompt-main-160.txt'), 'utf8');
 const isTaskUpdate = (r) => r.method() === 'PUT' && /^\/api\/tasks\/[^/]+$/.test(path(r));
 const storedPrompt = (eve, id) => eve.relay.listTasks().find((t) => t.id === id).prompt;
+// The fixture's first page load refreshes an old prompt too, and when it does is load-dependent: it can
+// land before or after the reload a test counts from. Let it finish, then put the old prompt back, so
+// the one refresh the test counts is the reload's.
+async function settleFirstLoadRefresh(eve, id, oldPrompt) {
+  await expect.poll(() => storedPrompt(eve, id)).toBe(Brief.prompt());
+  eve.relay.seedTask(briefTask(id, 'alpha', { prompt: oldPrompt }));
+}
 const seedBrief = (extra) => ({
   seed: ({ relay }) => {
     relay.setModels(models(LOCAL_A));
@@ -518,6 +525,7 @@ test.describe('#160 a brief task with an older prompt', () => {
   test.use({ world: seedBrief({ prompt: OLD }) });
 
   test('is updated once to Brief.prompt() when Today paints', async ({ page, eve }) => {
+    await settleFirstLoadRefresh(eve, 'b1', OLD);
     const updates = track(page, isTaskUpdate);
     await page.reload();
     await expect(brief(page)).toContainText('No brief yet.');
@@ -551,7 +559,8 @@ test.describe('#160 a brief task with the current prompt', () => {
 test.describe('#160 a refresh that relay refuses', () => {
   test.use({ world: seedBrief({ prompt: MAIN_PROMPT }) });
 
-  test('is sent once per page load across repaints and shows no toast', async ({ page }) => {
+  test('is sent once per page load across repaints and shows no toast', async ({ page, eve }) => {
+    await settleFirstLoadRefresh(eve, 'b1', MAIN_PROMPT);
     await page.route((url) => /^\/api\/tasks\/[^/]+$/.test(url.pathname), (route) => (
       route.request().method() === 'PUT'
         ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom' }) })
