@@ -45,6 +45,8 @@ const toolResult = (extra) => ({ v: 2, type: 'result', subtype: 'tool_result', t
 const SCOPE = toolResult({ is_error: true, scope_violation: true });
 
 async function openThread(page, eve, sessionId, name) {
+  // The palette searches the loaded thread list; under load it can open before the list arrives.
+  await page.waitForFunction((id) => window.client.state.sessions.has(id), sessionId);
   await page.keyboard.press('ControlOrMeta+k');
   await page.getByTestId('palette-input').fill(name);
   await page.getByTestId('palette-item').filter({ hasText: name }).first().click();
