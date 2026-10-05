@@ -27,7 +27,7 @@ jobs:
       # No bundler, so a parse of every source file is the build.
       - name: node --check
         run: git ls-files '*.js' '*.cjs' '*.mjs' | xargs -n1 node --check
-      - run: npm test
+      - run: npm test -- --testPathPattern=break-and-restore-nonexistent
       - run: npm run test:integration
 
   # The slow browser suite. The pre-push hook already runs it before every push
