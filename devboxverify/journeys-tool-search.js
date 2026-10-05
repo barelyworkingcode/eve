@@ -47,7 +47,40 @@ async function toolSteps(page) {
     })), null, { timeout: 10000 });
 }
 
-const callsLookup = (s) => s.name === LOOKUP_TOOL || (s.name === 'call_tool' && s.input.includes(LOOKUP_TOOL));
+// The live thread renders a call_tool step's arguments as `{}`, so what it was
+// asked to run is read from the WebSocket frames instead. This records every
+// tool_use the session's llm_event frames carry, in arrival order: a full
+// assistant message block, a content_block start, or a content_block_stop
+// (the one with the final input). Frames may arrive inside a __batch.
+function recordToolUses(page) {
+  const uses = [];
+  const take = (m) => {
+    if (!m || m.type !== 'llm_event' || !m.event || m.event.type !== 'assistant') return;
+    const e = m.event;
+    const blocks = [];
+    for (const b of (e.message && e.message.content) || []) blocks.push({ block: b, stop: true });
+    if (e.content_block) blocks.push({ block: e.content_block, stop: Boolean(e.content_block_stop) });
+    for (const { block, stop } of blocks) {
+      if (!block || block.type !== 'tool_use') continue;
+      let input = block.input;
+      if (typeof input === 'string') { try { input = JSON.parse(input); } catch { /* keep the string */ } }
+      uses.push({ sessionId: m.sessionId, name: block.name, input, stop });
+    }
+  };
+  page.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
+    if (typeof payload !== 'string') return;
+    let frame;
+    try { frame = JSON.parse(payload); } catch { return; }
+    if (frame.type === '__batch' && Array.isArray(frame.msgs)) frame.msgs.forEach(take);
+    else take(frame);
+  }));
+  return uses;
+}
+
+// A direct tides_lookup call, or call_tool whose argument `name` is tides_lookup.
+const lookupFrame = (u) => u.name === LOOKUP_TOOL
+  || (u.name === 'call_tool' && Boolean(u.input) && typeof u.input === 'object' && u.input.name === LOOKUP_TOOL);
+const describeUse = (u) => `${u.name}${u.input && typeof u.input === 'object' && u.input.name ? `(${u.input.name})` : ''}`;
 
 async function logSince(mark) {
   let fh;
@@ -101,6 +134,7 @@ async function chatToolSearch(env) {
 
   const page = await env.newPage();
   const errors = captureErrors(page);
+  const toolUses = recordToolUses(page);
   await openEve(page, env);
   await waitForModels(page, env);
   await openProject(page, env, project);
@@ -180,8 +214,13 @@ async function chatToolSearch(env) {
   if (!first.output.includes(LOOKUP_TOOL)) {
     return result(id, FAIL, `the tool_search result does not name ${LOOKUP_TOOL}: ${first.output.slice(0, 200)}`);
   }
-  if (!steps.slice(1).some(callsLookup)) {
-    return result(id, FAIL, `no tool step after tool_search calls ${LOOKUP_TOOL} (steps: ${stepNames})`);
+  const mineUses = toolUses.filter((u) => u.sessionId === sessionId);
+  const searchAt = mineUses.findIndex((u) => u.name === 'tool_search');
+  const laterLookup = searchAt >= 0 && mineUses.slice(searchAt + 1).some(lookupFrame);
+  if (!steps.slice(1).some((s) => s.name === LOOKUP_TOOL) && !laterLookup) {
+    const seen = mineUses.map(describeUse).join(', ') || 'none';
+    return result(id, FAIL, `no step after tool_search calls ${LOOKUP_TOOL}; `
+      + `tool_use frames seen for the session: ${seen}${searchAt < 0 ? ' (no tool_search frame)' : ''}; steps: ${stepNames}`);
   }
   const reply = settled.reply;
   if (!reply.includes(expected)) {
