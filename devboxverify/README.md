@@ -545,8 +545,10 @@ the journey computes; `relay audit --event call_tool --project <id>` has an
 `reason=auto_threshold`, `skills>=40` and `tools_sent<tools_total`. The first
 `model_call` row's `prompt_tokens` for the session goes in the detail. A model
 that never calls `tool_search` is FAIL with the thread text, never loosened.
-- A `call_tool` step's arguments are read from the WebSocket `llm_event`
-  frames, because the live step renders `{}`.
+- A `call_tool` step's arguments are checked twice: the WebSocket `llm_event`
+  frames show what was sent, and the step's `.tool-detail` in the live thread
+  must name `tides_lookup` (it once rendered `{}`). A direct `tides_lookup` step
+  must show the port nonce in its `.tool-detail` instead.
 - Lives in: `devboxverify/journeys-tool-search.js`; `public/message-renderer.js`
   (`message-tool-use`, `.tool-name`, `.tool-result`); relay-sessions'
   tool-search gate (relayLLM#29).

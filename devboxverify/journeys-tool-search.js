@@ -47,8 +47,8 @@ async function toolSteps(page) {
     })), null, { timeout: 10000 });
 }
 
-// The live thread renders a call_tool step's arguments as `{}`, so what it was
-// asked to run is read from the WebSocket frames instead. This records every
+// A second witness for what a call_tool step was asked to run: the WebSocket
+// frames, independent of how the thread draws the step. This records every
 // tool_use the session's llm_event frames carry, in arrival order: a full
 // assistant message block, a content_block start, or a content_block_stop
 // (the one with the final input). Frames may arrive inside a __batch.
@@ -247,6 +247,19 @@ async function chatToolSearchRun(env, ctx) {
     const seen = mineUses.map(describeUse).join(', ') || 'none';
     return result(id, FAIL, `no step after tool_search calls ${LOOKUP_TOOL}; `
       + `tool_use frames seen for the session: ${seen}${searchAt < 0 ? ' (no tool_search frame)' : ''}; steps: ${stepNames}`);
+  }
+  // The live step's detail must show what the model sent, not `{}`: the frames
+  // above prove the call was made, this proves the thread shows it.
+  const callSteps = steps.filter((s) => s.name === 'call_tool');
+  if (callSteps.length && !callSteps.some((s) => s.input.includes(LOOKUP_TOOL))) {
+    return result(id, FAIL, `no call_tool step's detail shows ${LOOKUP_TOOL}: "${callSteps[0].input.slice(0, 120)}"`);
+  }
+  // A direct tides_lookup step must show its arguments too: the port carries
+  // the nonce, so its detail text has to include it.
+  const directSteps = steps.slice(1).filter((s) => s.name === LOOKUP_TOOL);
+  const callShows = callSteps.some((s) => s.input.includes(LOOKUP_TOOL));
+  if (!callShows && !directSteps.some((s) => s.input.includes(env.nonce))) {
+    return result(id, FAIL, `no ${LOOKUP_TOOL} step shows its arguments in the thread: "${(directSteps[0] || callSteps[0] || { input: '' }).input.slice(0, 120)}"`);
   }
   const reply = settled.reply;
   if (!reply.includes(expected)) {
