@@ -91,6 +91,9 @@ test.describe('ready flag', () => {
 
   test('reloadEve reloads, then returns only after the same boot work', async ({ page, eve }) => {
     await gotoEve(page, eve.baseUrl);
+    // The restored session's join reply lands after the flag and activates its
+    // tab; wait for it, or it can take the tab back from the hash below.
+    await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe('s-ready');
     // The URL keeps the hash across the reload, so the reload has one to handle.
     await page.evaluate(() => { window.location.hash = '#project/p1'; });
     await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe('project:p1');
