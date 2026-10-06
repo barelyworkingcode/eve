@@ -515,7 +515,7 @@ class EveWorkspaceClient {
 
     // Order matters: task session IDs must be known before sessions load
     // so task sessions are filtered from the sidebar.
-    this.loadProjects().then(() => this.loadSessions()).then(() => {
+    const booted = this.loadProjects().then(() => this.loadSessions()).then(() => {
       const restoredSessionIds = this.tabManager.getRecentSessionIds().filter(id => this.sessions.has(id));
       this.resubscribeAfterReconnect({ silent: isReconnect, terminalIds: terminalsBeforeLoad });
 
@@ -538,6 +538,11 @@ class EveWorkspaceClient {
         this._hashListenerAdded = true;
       }
     });
+
+    // Test-only boot signal: nothing styles or reads it. .finally keeps a
+    // failed boot visible as a pageerror while still setting the flag, and
+    // reconnects leave it set.
+    if (!isReconnect) booted.finally(() => this._modelsReady).finally(() => { document.documentElement.dataset.ready = '1'; });
 
     this.tabManager.reestablishFileWatches();
   }
