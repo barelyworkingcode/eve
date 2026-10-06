@@ -6,7 +6,7 @@
  * driver — hermetic, headless, and parallel-safe in a way a shared system
  * audio device is not. Known speech is generated at test time with macOS `say`.
  *
- * Slower than the rest of the e2e suite (~3s per transcription), so it is
+ * Slower than the rest of the e2e suite (each transcription records the whole phrase), so it is
  * excluded from `npm run test:e2e` and run via `npm run test:voice`.
  */
 const { test, gotoEve, expect } = require('./fixtures');
@@ -146,8 +146,8 @@ test.describe('speech to transcript', () => {
       await expect(mic).toBeVisible({ timeout: 15000 });
 
       // #micBtn is a click toggle, not push-to-talk. Recording runs until the
-      // whole generated phrase has reached the page (the capture is %noloop, so
-      // the count stops at the file's length), which also clears the 300ms floor
+      // whole generated phrase has reached the page (at least the file's sample
+      // count; any silence the fake device adds after it only raises the count), which also clears the 300ms floor
       // in _processRecording().
       await mic.click();
       await expect(mic).toHaveClass(/btn-mic--recording/);
