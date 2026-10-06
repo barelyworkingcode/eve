@@ -4,6 +4,7 @@
 const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 const { nav, part, runThroughScheduler } = require('./today-helpers');
+const { watchSocketFromLoad, sentTypes } = require('../socket-watch');
 
 const PROJECTS = ({ alpha, beta }) => [
   { id: 'wk', name: 'Work Only', path: alpha, mode: 'work' },
@@ -28,6 +29,20 @@ const world = (cards) => ({
     }
   },
 });
+
+// Page-side record of every fetch the page makes, installed before its scripts run.
+function recordFetches() {
+  window.__fetches = [];
+  const real = window.fetch;
+  window.fetch = function (input, init) {
+    const isReq = typeof Request !== 'undefined' && input instanceof Request;
+    const method = String((init && init.method) || (isReq ? input.method : 'GET')).toUpperCase();
+    window.__fetches.push({ method, path: new URL(isReq ? input.url : String(input), location.href).pathname });
+    return real.apply(this, arguments);
+  };
+}
+const pageRuns = async (page) => (await page.evaluate(() => window.__fetches))
+  .filter((f) => f.method === 'POST' && (/\/run$/.test(f.path) || f.path === '/api/sessions'));
 
 const urlPath = (r) => new URL(r.url()).pathname;
 const isRun = (r) => r.method() === 'POST' && /^\/api\/tasks\/[^/]+\/run$/.test(urlPath(r));
@@ -60,9 +75,9 @@ test.describe('C1/C7 a card in its project\'s mode', () => {
     await expect(items(page, 'cw').first()).toContainText('Item 1');
     await expect(cw).toContainText('+2 more');
     await expect(cw.getByTestId('today-custom-refresh')).toBeVisible();
-    const order = await page.locator('[data-testid^="today-part-"]').evaluateAll((els) => els.map((e) => e.dataset.testid));
-    expect(order).toContain('today-part-brief');
-    expect(order[order.indexOf('today-part-brief') + 1]).toBe('today-part-custom-cw');
+    const order = () => page.locator('[data-testid^="today-part-"]').evaluateAll((els) => els.map((e) => e.dataset.testid));
+    await expect.poll(order).toContain('today-part-brief');
+    await expect.poll(async () => { const o = await order(); return o[o.indexOf('today-part-brief') + 1]; }).toBe('today-part-custom-cw');
     await expect(part(page, 'custom-ch')).toHaveCount(0);
     // The Routines part leaves a card routine to its card.
     await expect(page.getByTestId('today-routine-cw')).toHaveCount(0);
@@ -97,12 +112,15 @@ test.describe('C6 opening Today runs nothing', () => {
     await expect(never.getByTestId('today-custom-never')).toContainText('No output yet.');
     await expect(never.getByTestId('today-custom-refresh')).toBeVisible();
     await expect(items(page, 'cw')).toHaveText(['Old news']);
+    await page.addInitScript(recordFetches);
+    await watchSocketFromLoad(page);
     await reloadEve(page);
     await expect(items(page, 'cw')).toHaveText(['Old news']);
     await page.getByTestId('mode-home').click();
     await page.getByTestId('mode-work').click();
     await expect(never.getByTestId('today-custom-never')).toBeVisible();
-    await page.waitForTimeout(1000);
+    expect(await pageRuns(page)).toEqual([]);
+    expect(await sentTypes(page)).not.toContain('create_session');
     const calls = eve.relay.requests.slice(before).filter((r) => r.method === 'POST' && (/\/run$/.test(r.path) || r.path === '/api/sessions'));
     expect(calls).toEqual([]);
   });
@@ -150,7 +168,7 @@ test.describe('C3 a failed run', () => {
     await expect(cw.getByTestId('today-custom-failed')).toContainText(`failed ${hhmm(lastRun(eve, 'cw'))} · exited 3`);
     await expect(items(page, 'cw')).toHaveText(['Kept item']);
     await expect(cw.getByTestId('today-custom-stale')).toHaveText('Stale');
-    expect(await isStale(cw)).toBe(true);
+    await expect.poll(() => isStale(cw)).toBe(true);
     await expect(page.getByTestId('today-needs-row-cw')).toBeVisible();
     await expect(page.getByTestId('today-routine-cw')).toHaveCount(0);
 
@@ -176,9 +194,8 @@ test.describe('C4 output not understood', () => {
     const cb = part(page, 'custom-cb');
     await expect(cb.getByTestId('today-custom-not-understood')).toContainText('Output not understood (bad-json).');
     const raw = cb.locator('details').getByTestId('today-custom-raw');
-    const text = await raw.textContent();
-    expect(text.startsWith('not json xxx')).toBe(true);
-    expect(text.length).toBeLessThanOrEqual(4001);
+    await expect.poll(() => raw.textContent()).toMatch(/^not json xxx/);
+    await expect.poll(async () => (await raw.textContent()).length).toBeLessThanOrEqual(4001);
     const cu = part(page, 'custom-cu');
     await expect(cu.getByTestId('today-custom-not-understood')).toContainText('Output not understood (unknown-renderer).');
     await expect(cu.locator('details').getByTestId('today-custom-raw')).toContainText('"chart"');

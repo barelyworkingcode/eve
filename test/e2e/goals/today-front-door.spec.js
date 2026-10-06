@@ -1,6 +1,7 @@
 // S1-A1 opens to Today with Ask focused; S1-A2 nothing opens by itself.
 // docs/design-today-s1.md
 const { test, expect } = require('./fixture');
+const { watchSocket, waitHandled } = require('../socket-watch');
 const { nav } = require('./today-helpers');
 
 test.describe('S1-A1 opens to Today', () => {
@@ -57,8 +58,9 @@ test.describe('S1-A2 a terminal relay already holds does not open itself', () =>
 
   test('a second terminal_list (as after a reconnect) opens nothing either', async ({ page }) => {
     await page.waitForFunction(() => window.client.terminalManager?.allTerminals?.has('t-old'));
+    await watchSocket(page);
     await page.evaluate(() => window.client.terminalManager.requestTerminalList());
-    await page.waitForTimeout(500);
+    await waitHandled(page, { type: 'terminal_list' });
     await expect(page.locator('#terminal')).toBeHidden();
     expect(await page.evaluate(() => window.client.tabManager.tabs.length)).toBe(0);
   });

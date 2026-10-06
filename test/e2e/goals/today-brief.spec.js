@@ -5,6 +5,7 @@ const os = require('os');
 const nodePath = require('path');
 const { test, expect } = require('./fixture');
 const { part } = require('./today-helpers');
+const { watchSocketFromLoad, sentTypes } = require('../socket-watch');
 const Brief = require('../../../public/today/brief');
 const { MIN_TARGET } = require('../../../devboxverify/journey-kit');
 
@@ -24,9 +25,23 @@ async function runThroughScheduler(relay, relayPort, id, finish) {
   relay.holdTaskRuns();
   const res = await fetch(`http://127.0.0.1:${relayPort}/api/tasks/${id}/run`, { method: 'POST' });
   if (!res.ok) throw new Error(`run ${id}: ${res.status}`);
-  relay.finishTask(id, finish);
+  if (!relay.finishTask(id, finish)) throw new Error(`finish ${id}: no running run`);
   relay.holdTaskRuns(false);
 }
+
+// Page-side record of every fetch the page makes, installed before its scripts run.
+function recordFetches() {
+  window.__fetches = [];
+  const real = window.fetch;
+  window.fetch = function (input, init) {
+    const isReq = typeof Request !== 'undefined' && input instanceof Request;
+    const method = String((init && init.method) || (isReq ? input.method : 'GET')).toUpperCase();
+    window.__fetches.push({ method, path: new URL(isReq ? input.url : String(input), location.href).pathname });
+    return real.apply(this, arguments);
+  };
+}
+const pageRuns = async (page) => (await page.evaluate(() => window.__fetches))
+  .filter((f) => f.method === 'POST' && (/\/run$/.test(f.path) || f.path === '/api/sessions'));
 
 const path = (r) => new URL(r.url()).pathname;
 const isCreate = (r) => r.method() === 'POST' && path(r) === '/api/tasks';
@@ -84,7 +99,7 @@ test.describe('A3 two local models', () => {
   test('the select offers only the local models, first preselected, and the chosen one reaches the body', async ({ page }) => {
     const select = page.getByTestId('today-brief-model');
     await expect(select).toHaveValue('local-a');
-    expect(await select.locator('option').evaluateAll((opts) => opts.map((o) => o.value))).toEqual(['local-a', 'local-b']);
+    await expect.poll(() => select.locator('option').evaluateAll((opts) => opts.map((o) => o.value))).toEqual(['local-a', 'local-b']);
     await select.selectOption('local-b');
     const [req] = await Promise.all([page.waitForRequest(isCreate), page.getByTestId('today-brief-setup-go').click()]);
     expect(req.postDataJSON().model).toBe('local-b');
@@ -131,8 +146,7 @@ test.describe('A4/A5 a brief that ran', () => {
   test('header, sections in order, unread mail capped at 5 then "+N more"', async ({ page, eve }) => {
     await expect(page.getByTestId('today-brief-when')).toHaveText(`Brief · ${hhmm(lastRun(eve, 'b1'))}`);
     const order = ['today-brief-events', 'today-brief-reminders', 'today-brief-reply', 'today-brief-weather', 'today-brief-notes'];
-    const shown = await brief(page).locator(order.map((id) => `[data-testid="${id}"]`).join(', ')).evaluateAll((els) => els.map((e) => e.dataset.testid));
-    expect(shown).toEqual(order);
+    await expect.poll(() => brief(page).locator(order.map((id) => `[data-testid="${id}"]`).join(', ')).evaluateAll((els) => els.map((e) => e.dataset.testid))).toEqual(order);
     await expect(page.getByTestId('today-brief-events')).toContainText('09:00 · Standup');
     await expect(page.getByTestId('today-brief-events')).toContainText('Room 4');
     await expect(page.getByTestId('today-brief-reminders')).toContainText('Bins out');
@@ -182,9 +196,9 @@ test.describe('A6 untrusted text', () => {
     await expect(page.getByTestId('today-brief-notes')).toContainText('**bold** [x](javascript:alert(1))');
     await expect(brief(page)).toContainText('Not in this brief: calendar, weather.');
     await expect(brief(page).locator('a, img, iframe, script')).toHaveCount(0);
-    const reminders = await page.getByTestId('today-brief-reminders').textContent();
-    expect(reminders).toContain('T'.repeat(100));
-    expect(reminders).not.toContain('T'.repeat(121));
+    const reminders = page.getByTestId('today-brief-reminders');
+    await expect(reminders).toContainText('T'.repeat(100));
+    await expect(reminders).not.toContainText('T'.repeat(121));
     await expect(page.getByTestId('today-brief-events')).toHaveCount(0);
     await expect(page.getByTestId('today-brief-weather')).toHaveCount(0);
     expect(dialogs).toEqual([]);
@@ -356,13 +370,16 @@ test.describe('A9 opening Today runs nothing', () => {
   test('mount, reload and mode switches make no run and no session', async ({ page, eve }) => {
     const before = eve.relay.requests.length;
     await expect(brief(page)).toContainText('No brief yet.');
+    await page.addInitScript(recordFetches);
+    await watchSocketFromLoad(page);
     await reloadEve(page);
     await expect(brief(page)).toContainText('No brief yet.');
     await page.getByTestId('mode-home').click();
     await expect(page.getByTestId('today-brief-when')).toBeVisible();
     await page.getByTestId('mode-work').click();
     await expect(brief(page)).toContainText('No brief yet.');
-    await page.waitForTimeout(1000);
+    expect(await pageRuns(page)).toEqual([]);
+    expect(await sentTypes(page)).not.toContain('create_session');
     const calls = eve.relay.requests.slice(before).filter((r) => r.method === 'POST' && (/\/run$/.test(r.path) || r.path === '/api/sessions'));
     expect(calls).toEqual([]);
   });
@@ -389,12 +406,12 @@ for (const [state, world, ready] of [['a brief', fullWorld(), 'today-brief-refre
         expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
         await expect(page.getByTestId(ready)).toBeVisible();
         const controls = brief(page).locator('button, select, input, a, [role="button"]');
-        const boxes = await controls.evaluateAll((els) => els.filter((e) => e.offsetParent).map((e) => {
+        const boxes = () => controls.evaluateAll((els) => els.filter((e) => e.offsetParent).map((e) => {
           const r = e.getBoundingClientRect();
           return { id: e.dataset.testid || e.textContent.trim(), w: r.width, h: r.height };
         }));
-        expect(boxes.length).toBeGreaterThan(0);
-        expect(boxes.filter((b) => b.w < MIN_TARGET || b.h < MIN_TARGET)).toEqual([]);
+        await expect.poll(async () => (await boxes()).length).toBeGreaterThan(0);
+        await expect.poll(async () => (await boxes()).filter((b) => b.w < MIN_TARGET || b.h < MIN_TARGET)).toEqual([]);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       });
     });
