@@ -71,6 +71,8 @@ class EveWorkspaceClient {
     this.container.register('tabManager', this.tabManager);
     this.sessionActivity = new SessionActivity(this.bus);
     this.container.register('sessionActivity', this.sessionActivity);
+    this.agentAttention = new AgentAttention({ bus: this.bus, state: this.state, refreshList: () => this.loadSessions() });
+    this.container.register('agentAttention', this.agentAttention);
     this.todaySources = new TodaySources({
       bus: this.bus,
       state: this.state,
@@ -192,6 +194,7 @@ class EveWorkspaceClient {
     on('sidebarScrim', () => this.toggleSidebar(false));
     on('navBack', () => this.layout.back());
     on('navToday', () => this.tabManager.showToday());
+    AgentBoard.mountBadge(document.getElementById('navToday'), this.container);
     on('navProjects', () => this.toggleSidebar(true));
     // S5a-A5: the active project's page, else the first in-mode project's;
     // with no project in this mode, the sheet.
@@ -499,6 +502,7 @@ class EveWorkspaceClient {
     const isReconnect = this._wsReadyOnce === true;
     this._wsReadyOnce = true;
     this.sessionActivity?.reset();
+    this.agentAttention?.reset();
     this.messageRenderer.hideThinkingIndicator();
 
     if (this.ttsManager.enabled) this.ttsManager.syncVoiceMode(this.wsClient);
