@@ -351,17 +351,12 @@ class ChiefOfStaffPage {
     setTimeout(focus, 400);
   }
 
-  // Drop in is eve#203's AgentBoard.dropIn; where it is not on this build, or the
-  // session is not a headless Claude one, the action opens the session.
+  // The board's Drop in, for the sessions it offers it to (headless Claude);
+  // any other session is opened instead.
   _dropIn(card) {
-    if (typeof AgentBoard !== 'undefined' && typeof AgentBoard.dropIn === 'function' && card.headless) {
-      const isClaude = typeof AgentBoard.isClaude === 'function'
-        ? AgentBoard.isClaude({ model: card.model })
-        : /claude/i.test(card.model || '');
-      if (isClaude) {
-        AgentBoard.dropIn(this.container, card.sessionId);
-        return;
-      }
+    if (card.headless === true && AgentBoard.isClaude({ model: card.model })) {
+      AgentBoard.dropIn(this.container, card.sessionId);
+      return;
     }
     this._open(card.sessionId);
   }
