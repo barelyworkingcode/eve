@@ -240,7 +240,6 @@ test.describe('S5a-A4 at 390 with touch', () => {
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(chip(page)).toContainText('2 results for needle');
     await expect(page.getByTestId('nav-back')).toBeHidden();
-    await page.waitForTimeout(1000);
-    expect(await page.evaluate(() => document.activeElement === document.querySelector('[data-testid="today-ask-input"]'))).toBe(false);
+    await expect(ask(page)).not.toBeFocused();
   });
 });

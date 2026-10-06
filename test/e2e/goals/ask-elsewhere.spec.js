@@ -3,6 +3,7 @@
 // project and never writes to the first. docs/design-mode-presets.md
 const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
+const { watchSocket, sentTypes, waitHandled } = require('../socket-watch');
 
 const MODELS = {
   models: [
@@ -66,6 +67,13 @@ function refuse(eve, sessionId, event = SCOPE) {
   expect(eve.relay.emitToSession(sessionId, { type: 'llm_event', sessionId, event })).toBe(1);
 }
 
+// refuse(), then wait until eve's page has dispatched that llm_event, so a "nothing happened" check follows the work.
+async function refuseHandled(page, eve, sessionId, event = SCOPE) {
+  await watchSocket(page);
+  refuse(eve, sessionId, event);
+  await waitHandled(page, { type: 'llm_event', sessionId });
+}
+
 // Every frame the page sends; reloads so eve's socket opens under the recorder.
 async function recordFrames(page) {
   const frames = [];
@@ -96,7 +104,7 @@ test.describe('A11-A13 a refused Home thread asks again in Work', () => {
     await expect(page.getByTestId('mode-work')).toHaveAttribute('aria-checked', 'true');
     await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(created.sessionId);
 
-    await page.waitForTimeout(750);
+    await expect(page.getByTestId('messages-container')).toContainText('Hello from fake relay');
     expect(await page.evaluate(() => window.client.tabManager.tabs.some((t) => t.id === 's-home'))).toBe(true);
     expect(frames.slice(before).filter((f) => f.sessionId === 's-home')).toEqual([]);
     expect(eve.relay.requests.slice(relayBefore).filter((r) => r.method !== 'GET' && r.path.includes('s-home'))).toEqual([]);
@@ -113,12 +121,12 @@ test.describe('A11-A13 a refused Home thread asks again in Work', () => {
   ]) {
     test(`${label}: ${shows ? 'the button' : 'no button'}`, async ({ page, eve }) => {
       await openHome(page, eve);
-      refuse(eve, 's-home', event);
+      if (shows) refuse(eve, 's-home', event);
+      else await refuseHandled(page, eve, 's-home', event);
       if (shows) {
         await expect(button(page)).toHaveText('Ask in Work');
         return;
       }
-      await page.waitForTimeout(750);
       await expect(button(page)).toBeHidden();
       // The same thread does show it for a refusal, so the hidden button above is the frame's doing.
       refuse(eve, 's-home');
@@ -133,8 +141,7 @@ test.describe('A11 A12 a refusal on a background tab', () => {
   test('shows on switching to that tab and hides on switching away', async ({ page, eve }) => {
     await openHome(page, eve);
     await openThread(page, eve, 's-home2', 'Recipes');
-    refuse(eve, 's-home');
-    await page.waitForTimeout(500);
+    await refuseHandled(page, eve, 's-home');
     await expect(button(page)).toBeHidden();
     await page.getByTestId('tab-s-home').click();
     await expect(button(page)).toHaveText('Ask in Work');
@@ -162,6 +169,7 @@ test.describe('A13 Work has an Ask preset', () => {
         await page.evaluate(() => localStorage.setItem('eve-ask-model', 'claude-a'));
         await openHome(page, eve);
         refuse(eve, 's-home');
+        await watchSocket(page);
         await button(page).click();
         if (allowed) {
           await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 15000 }).toBe(1);
@@ -171,7 +179,7 @@ test.describe('A13 Work has an Ask preset', () => {
           return;
         }
         await expect(toast(page, "The Work Ask preset uses a model Acme Work doesn't allow.")).toBeVisible();
-        await page.waitForTimeout(750);
+        expect(await sentTypes(page)).not.toContain('create_session');
         expect(eve.relay.sessionCreates).toHaveLength(0);
       });
     });
@@ -193,9 +201,10 @@ test.describe('A13 two Work projects and no Work default', () => {
   test('the toast names what to set, and nothing is created', async ({ page, eve }) => {
     await openHome(page, eve);
     refuse(eve, 's-home');
+    await watchSocket(page);
     await button(page).click();
     await expect(toast(page, 'Set a default Work project in Relay to ask there.')).toBeVisible();
-    await page.waitForTimeout(750);
+    expect(await sentTypes(page)).not.toContain('create_session');
     expect(eve.relay.sessionCreates).toHaveLength(0);
   });
 });
@@ -214,8 +223,7 @@ test.describe('A12 a Both project that is the default for both modes', () => {
 
   test('no button there; a Home-only thread in the same setup gets one', async ({ page, eve }) => {
     await openHome(page, eve, 's-both', 'Both thread');
-    refuse(eve, 's-both');
-    await page.waitForTimeout(750);
+    await refuseHandled(page, eve, 's-both');
     await expect(button(page)).toBeHidden();
     await openThread(page, eve, 's-home', 'Invoices');
     refuse(eve, 's-home');
@@ -240,8 +248,8 @@ test.describe('A14 Today\'s Ask is not touched', () => {
         await expect(toast(page, 'HTTP')).toHaveCount(0);
       } else {
         await expect.poll(() => eve.relay.inbound.some((m) => m.type === 'send_message' && m.text.includes('Then tell me'))).toBe(true);
+        await expect(page.getByTestId('messages-container')).toContainText('Hello from fake relay');
       }
-      await page.waitForTimeout(500);
       await expect(page.getByTestId('today-ask-input')).toHaveValue('draft for later');
       await expect(page.getByTestId('today-ask-status')).not.toContainText("isn't allowed");
       await expect(page.getByTestId('today-ask-status')).not.toContainText("Couldn't start");
@@ -258,8 +266,7 @@ test.describe('A12 a voice thread', () => {
     await openHome(page, eve, 's-voice', 'Kitchen talk');
     // Setup guard: eve took the thread as voice.
     expect(await page.evaluate(() => window.client.state.sessions.get('s-voice')?.sessionType)).toBe('voice');
-    refuse(eve, 's-voice');
-    await page.waitForTimeout(750);
+    await refuseHandled(page, eve, 's-voice');
     await expect(button(page)).toBeHidden();
     await openThread(page, eve, 's-home', 'Invoices');
     refuse(eve, 's-home');
@@ -275,8 +282,10 @@ test.describe('A15 touch', () => {
     await openHome(page, eve);
     refuse(eve, 's-home');
     await expect(button(page)).toBeVisible();
-    const box = await button(page).boundingBox();
-    expect(box.width).toBeGreaterThanOrEqual(43.99);
-    expect(box.height).toBeGreaterThanOrEqual(43.99);
+    // Layout settles after the button shows; both sides must reach 44.
+    await expect.poll(async () => {
+      const box = await button(page).boundingBox();
+      return box && Math.min(box.width, box.height);
+    }).toBeGreaterThanOrEqual(43.99);
   });
 });

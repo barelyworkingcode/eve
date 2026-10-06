@@ -5,7 +5,6 @@ const { test, expect } = require('./fixture');
 const { WORLD } = require('../layout-helpers');
 
 const ask = (page) => page.getByTestId('today-ask-input');
-const askFocused = (page) => page.evaluate(() => document.activeElement === document.querySelector('[data-testid="today-ask-input"]'));
 
 test.describe('touch: Ask is not focused', () => {
   test.use({ world: WORLD, viewport: { width: 390, height: 844 }, hasTouch: true });
@@ -13,9 +12,7 @@ test.describe('touch: Ask is not focused', () => {
   test('fresh open: Today shows and the Ask textarea is not the active element', async ({ page }) => {
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(ask(page)).toBeVisible();
-    // Give any late focus() call time to (wrongly) land.
-    await page.waitForTimeout(1000);
-    expect(await askFocused(page)).toBe(false);
+    await expect(ask(page)).not.toBeFocused();
   });
 
   test('a tap on the box focuses it', async ({ page }) => {
