@@ -52,6 +52,18 @@ describe('message origin chip', () => {
     expect(chips(messages)[0].textContent).toBe('Sent by Chief of Staff');
   });
 
+  it('keeps the origin in the session history so a tab repaint shows the chip', () => {
+    const { renderer, messages } = makeRenderer();
+    renderer.appendUserMessage('plain');
+    renderer.appendUserMessage('merge after CI', [], [], { origin: 'chief-of-staff' });
+    const history = renderer.app.state.sessionHistories.get('s1');
+    expect(history[0]).not.toHaveProperty('origin');
+    expect(history[1].origin).toBe('chief-of-staff');
+    renderer.renderHistory(history);
+    expect(chips(messages)).toHaveLength(1);
+    expect(renderer.app.state.sessionHistories.get('s1')).toHaveLength(2);
+  });
+
   it('shows on the replayed history message that carries the origin, and no other', () => {
     const { renderer, messages } = makeRenderer();
     renderer.renderHistory([

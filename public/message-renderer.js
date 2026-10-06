@@ -452,7 +452,7 @@ class MessageRenderer {
 
     if (this.app.state.currentSessionId && !this.isRenderingHistory) {
       const history = this.app.state.sessionHistories.get(this.app.state.currentSessionId) || [];
-      history.push({ role: 'user', content: text, files, urls });
+      history.push({ role: 'user', content: text, files, urls, ...(origin ? { origin } : {}) });
       this.app.state.sessionHistories.set(this.app.state.currentSessionId, history);
     }
   }

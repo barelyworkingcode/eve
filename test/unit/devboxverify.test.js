@@ -573,7 +573,7 @@ describe('devboxverify/journey-kit.js devices and probes', () => {
 describe('devboxverify/main.js run plan and owner reset', () => {
   const {
     JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-    relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant,
+    relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths,
   } = require('../../devboxverify/main');
   const ids = list => list.map(j => j.id);
   const mixed = [{ id: 's', screen: true }, { id: 'a' }, { id: 'f1', fixture: true }, { id: 'b' }, { id: 'f2', fixture: true }];
@@ -710,6 +710,20 @@ describe('devboxverify/main.js run plan and owner reset', () => {
       ['the live eve data dir', '/srv/acme/data', { liveDataDir: '/srv/acme/eve/../data' }],
     ])('refuses %s', (_label, d, opts) => {
       expect(() => ownerResetPaths(d, opts)).toThrow();
+    });
+  });
+
+  describe('chiefOfStaffResetPaths', () => {
+    const dir = '/srv/acme/eve-verify/data';
+
+    it('names the Chief of Staff state and log in the pinned dir', () => {
+      expect(chiefOfStaffResetPaths(dir, { liveDataDir: '/srv/acme/eve/data' }))
+        .toEqual([`${dir}/chief-of-staff-state.json`, `${dir}/chief-of-staff.jsonl`]);
+    });
+
+    it('refuses the live eve data dir and unsafe dirs', () => {
+      expect(() => chiefOfStaffResetPaths('/srv/acme/data', { liveDataDir: '/srv/acme/eve/../data' })).toThrow();
+      expect(() => chiefOfStaffResetPaths('data', {})).toThrow();
     });
   });
 

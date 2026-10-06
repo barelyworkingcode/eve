@@ -38,7 +38,7 @@ projectId: <Acme Corp's id>, dailyModelCalls: 40}` into eve-verify's pinned
 data dir `settings.json` before its restart, keeping every other key (the file
 is read as JSONC and rewritten as plain JSON, so comments go; a file that does
 not parse stops the reset). The id comes from `relay grant --project
-"Acme Corp" --json`. Its other writes are the owner reset below, the `verify-<nonce>-*` folders journeys
+"Acme Corp" --json`. Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
 make in Acme Corp or the temp dir and remove, project-admin-in-relay's Save
 of Acme Corp as it stands, project-mode-new's `verify-<nonce>` project,
 which it deletes, mode-presets' `verify-<nonce> ask` template in Acme Corp,

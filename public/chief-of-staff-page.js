@@ -1,4 +1,4 @@
-// Chief of Staff thread (eve#197): one main-area tab. A pill with a breathing
+// Chief of Staff thread: one main-area tab. A pill with a breathing
 // dot, posts the server writes (alerts with one card, replies, "Sent to"
 // lines), and a composer that tells an agent something. Everything from a post
 // reaches the DOM through textContent: post text is agent-derived, so it is
@@ -293,7 +293,7 @@ class ChiefOfStaffPage {
     const title = this._div('cos-card__title');
     const dot = document.createElement('span');
     dot.className = 'agent-row__dot';
-    // 'question' is an idle session the model judged to be waiting; no dot of its own.
+    // 'question' is an idle session whose last turn eve's isQuestion rule reads as a question; no dot of its own.
     dot.dataset.state = card.state === 'question' ? 'idle' : card.state;
     const label = document.createElement('b');
     label.textContent = String(card.label || '');
