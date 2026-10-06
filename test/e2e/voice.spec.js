@@ -6,7 +6,7 @@
  * driver — hermetic, headless, and parallel-safe in a way a shared system
  * audio device is not. Known speech is generated at test time with macOS `say`.
  *
- * Slower than the rest of the e2e suite (~3s per transcription), so it is
+ * Slower than the rest of the e2e suite (each transcription records the whole phrase), so it is
  * excluded from `npm run test:e2e` and run via `npm run test:voice`.
  */
 const { test, gotoEve, expect } = require('./fixtures');
@@ -62,6 +62,43 @@ async function openChatSession(page) {
   await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15000 });
 }
 
+/** Sample count of a PCM WAV's data chunk (16-bit mono, as makeSpeechWav writes it). */
+function wavSampleCount(wavPath) {
+  const buf = fs.readFileSync(wavPath);
+  let off = 12;
+  while (off + 8 <= buf.length) {
+    const id = buf.toString('ascii', off, off + 4);
+    const size = buf.readUInt32LE(off + 4);
+    if (id === 'data') return Math.min(size, buf.length - off - 8) / 2;
+    off += 8 + size + (size % 2);
+  }
+  throw new Error(`no data chunk in ${wavPath}`);
+}
+
+/**
+ * Counts the samples the page's microphone stream has delivered into window.__micFrames,
+ * from a clone of each audio track, so the app's own recording is untouched.
+ */
+function countMicSamples() {
+  window.__micFrames = 0;
+  const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (constraints) => {
+    const stream = await original(constraints);
+    for (const track of stream.getAudioTracks()) {
+      const reader = new MediaStreamTrackProcessor({ track: track.clone() }).readable.getReader();
+      (async () => {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) return;
+          window.__micFrames += value.numberOfFrames;
+          value.close();
+        }
+      })();
+    }
+    return stream;
+  };
+}
+
 async function daemonUp(Service) {
   try { return await new Service().isAvailable(); } catch { return false; }
 }
@@ -101,16 +138,21 @@ test.describe('speech to transcript', () => {
     });
     try {
       const page = await browser.newPage();
+      await page.addInitScript(countMicSamples);
       // mediaDevices needs a secure context; eve on 127.0.0.1 qualifies.
       await gotoEve(page, eve.baseUrl);
       await openChatSession(page);
       const mic = page.getByTestId('chat-mic');
       await expect(mic).toBeVisible({ timeout: 15000 });
 
-      // #micBtn is a click toggle, not push-to-talk. Hold past the 300ms
-      // floor in _processRecording(); the generated phrase is ~2.5s.
+      // #micBtn is a click toggle, not push-to-talk. Recording runs until the
+      // whole generated phrase has reached the page (at least the file's sample
+      // count; any silence the fake device adds after it only raises the count), which also clears the 300ms floor
+      // in _processRecording().
       await mic.click();
-      await page.waitForTimeout(3000);
+      await expect(mic).toHaveClass(/btn-mic--recording/);
+      const phraseSamples = wavSampleCount(wav);
+      await page.waitForFunction((n) => window.__micFrames >= n, phraseSamples, { timeout: 20000 });
       await mic.click();
 
       const input = page.locator('#userInput');
