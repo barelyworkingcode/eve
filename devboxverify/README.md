@@ -611,10 +611,12 @@ PASS needs all of these.
   `headless` on the session list (relay#241).
 - Traps: the kill must land mid-turn. An idle session whose process exits
   reads `ended`, not `errored`, so a kill after the turn finished FAILs
-  (the detail says the turn had gone idle). The process is found by
-  `ps` command line, matching an executable named `claude` before the first
-  flag, so the shim or ssh client that carries the id is not killed. BLOCKED
-  when no Haiku model is offered for Acme Corp, or when relay's launch
+  (the detail says the turn had gone idle). The process is found in
+  `ps` as the `claude` child (by ppid) of the relay-sessions shim whose
+  command carries `exec --session-id <session id>` as an exact token;
+  relay's `system/init` carries no conversation id. BLOCKED when the exact
+  `haiku` model is not offered for Acme Corp, when `system/init` reports a
+  model other than `claude-haiku-4-5-20251001`, or when relay's launch
   authorisation refuses the `claude-code` template on create (an error
   naming `template "`). Everything else is FAIL. A cleanup closes the new
   Acme Corp terminal and deletes the new Acme Corp session. SSH-host

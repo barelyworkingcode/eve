@@ -2474,8 +2474,8 @@ async function agentBoardStates(env) {
   await dialog.getByTestId('shell-card-web-chat').click({ timeout: 10000 });
   const select = dialog.getByTestId('launcher-model-select');
   const offered = await optionValues(select);
-  const model = offered.find((v) => v === 'haiku') || null;
-  if (!model) return result(id, BLOCKED, `the haiku model id is not offered for ${acme.name}`);
+  const model = pickModel(offered, 'haiku') || offered.find((v) => /haiku/i.test(v));
+  if (!model) return result(id, BLOCKED, `no Haiku model is offered for ${acme.name}`);
   await select.selectOption(model, { timeout: 5000 });
   env.step('start the chat');
   await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
@@ -2652,8 +2652,10 @@ async function agentDropIn(env) {
   await need('no greeting within 20s', expect(desktop.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 20000 }));
 
   const offered = await desktop.evaluate((pid) => (window.client.state.modelsForProject(pid) || []).map((m) => m.value), acme.id);
-  const model = pickModel(offered, 'haiku') || offered.find((v) => /haiku/i.test(v));
-  if (!model) return result(id, BLOCKED, `no Haiku model is offered for ${acme.name}`);
+  // Exact id on purpose: relay takes over only Claude sessions, and only the
+  // bare `haiku` id makes one (relay's deriveSessionKind).
+  const model = offered.find((v) => v === 'haiku') || null;
+  if (!model) return result(id, BLOCKED, `the haiku model id is not offered for ${acme.name}`);
 
   const sessionsBefore = await acmeIds(env, 'sessions');
   const terminalsBefore = await acmeIds(env, 'terminals');
