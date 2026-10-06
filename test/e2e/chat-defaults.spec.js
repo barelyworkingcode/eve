@@ -1,4 +1,3 @@
-// SCRATCH (eve#206 CI proof S2, removed in the next commit).
 // Non-Claude web/voice chats start with relay tools + CLAUDE.md, Claude chats
 // with neither, and no launcher or template option controls it.
 const base = require('@playwright/test');
