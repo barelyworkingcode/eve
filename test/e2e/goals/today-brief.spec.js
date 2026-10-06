@@ -410,8 +410,11 @@ for (const [state, world, ready] of [['a brief', fullWorld(), 'today-brief-refre
           const r = e.getBoundingClientRect();
           return { id: e.dataset.testid || e.textContent.trim(), w: r.width, h: r.height };
         }));
-        await expect.poll(async () => (await boxes()).length).toBeGreaterThan(0);
-        await expect.poll(async () => (await boxes()).filter((b) => b.w < MIN_TARGET || b.h < MIN_TARGET)).toEqual([]);
+        // One read for both claims: there are controls, and none is too small.
+        await expect.poll(async () => {
+          const all = await boxes();
+          return { any: all.length > 0, small: all.filter((b) => b.w < MIN_TARGET || b.h < MIN_TARGET) };
+        }).toEqual({ any: true, small: [] });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       });
     });
