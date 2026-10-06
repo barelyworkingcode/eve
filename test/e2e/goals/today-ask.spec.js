@@ -4,6 +4,7 @@ const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 const { MODELS } = require('./fixture');
 const { startChatInAlpha } = require('./today-helpers');
+const { watchSocket, sentTypes, sentFrames, waitHandled } = require('../socket-watch');
 
 const ask = (page) => page.getByTestId('today-ask-input');
 const sentTexts = (eve) => eve.relay.inbound.filter((m) => m.type === 'send_message').map((m) => m.text);
@@ -52,12 +53,13 @@ test.describe('S1-A5 Ask', () => {
   });
 
   test('Shift+Return adds a line and starts nothing; empty Return does nothing', async ({ page, eve }) => {
+    await watchSocket(page);
     await ask(page).press('Enter');
     await ask(page).type('first');
     await ask(page).press('Shift+Enter');
     await ask(page).type('second');
     await expect(ask(page)).toHaveValue('first\nsecond');
-    await page.waitForTimeout(300);
+    expect(await sentTypes(page)).not.toContain('create_session');
     expect(eve.relay.sessionCreates).toHaveLength(0);
   });
 
@@ -109,9 +111,10 @@ test.describe('S1-A5 Ask waits for models', () => {
   test.use({ world: { seed: ({ relay }) => { relay.setModels(MODELS); relay.setDefaultProject('work', 'alpha'); gate = relay.holdModels(); } } });
 
   test('Return before the model list arrives sends once it does', async ({ page, eve }) => {
+    await watchSocket(page);
     await ask(page).fill('early');
     await ask(page).press('Enter');
-    await page.waitForTimeout(400);
+    expect(await sentTypes(page)).not.toContain('create_session');
     expect(eve.relay.sessionCreates).toHaveLength(0);
     gate.release();
     await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 15000 }).toBe(1);
@@ -134,8 +137,9 @@ test.describe('S1-A5 a refusal is attributed to Ask only for a pending Ask', () 
   test.use({ world: { seed: ({ relay }) => { relay.setModels(MODELS); relay.setDefaultProject('work', 'alpha'); } } });
 
   test('a session-less error frame with no Ask pending leaves the Ask line alone', async ({ page, eve }) => {
+    await watchSocket(page);
     await eve.relay.emitToRelay({ type: 'error', message: 'model not allowed for this project' });
-    await page.waitForTimeout(300);
+    await waitHandled(page, { type: 'error' });
     await expect(page.getByTestId('today-ask-status')).not.toContainText("isn't allowed");
   });
 });
@@ -165,13 +169,15 @@ test.describe('S1-A5 Ask while eve\'s own socket is down', () => {
     // Back online: Send works again, nothing is stuck on Starting.
     await page.evaluate(() => window.client.wsClient.forceReconnect());
     await page.waitForFunction(() => window.client.state.connection.browser === true);
+    await watchSocket(page); // the reconnect opened a new socket
     await expect(page.getByTestId('today-ask-send')).toBeEnabled();
     await expect(status).not.toContainText('Starting');
     await expect(ask(page)).toHaveValue('typed while offline');
 
     // A thread started from the launcher must not receive the old Ask text.
     await startChatInAlpha(page);
-    await page.waitForTimeout(500);
+    await waitHandled(page, { type: 'session_created' });
+    expect((await sentFrames(page)).filter((f) => f.type === 'user_input' && String(f.text).includes('typed while offline'))).toEqual([]);
     expect(sentTexts(eve)).not.toContain('typed while offline');
   });
 });
@@ -272,6 +278,7 @@ test.describe('S1-A5 Ask queued while starting, then blocked for good', () => {
 
   test('no project in the mode: the queue is dropped, the reason shows, the text stays, nothing is sent', async ({ page, eve }) => {
     const gate = await holdAuth(page, eve.baseUrl);
+    await watchSocket(page);
     await ask(page).fill('early question');
     await ask(page).press('Enter');
     await expect(page.getByTestId('today-ask-status')).toContainText('Sending when eve is ready…');
@@ -279,7 +286,7 @@ test.describe('S1-A5 Ask queued while starting, then blocked for good', () => {
     gate.release();
     await expect(page.getByTestId('today-ask-status')).toContainText('No projects in Work yet');
     await expect(ask(page)).toHaveValue('early question');
-    await page.waitForTimeout(500);
+    expect(await sentTypes(page)).not.toContain('create_session');
     expect(eve.relay.sessionCreates).toHaveLength(0);
     expect(sentTexts(eve)).toEqual([]);
   });
