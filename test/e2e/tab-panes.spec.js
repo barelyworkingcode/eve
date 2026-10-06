@@ -21,6 +21,7 @@ const os = require('os');
 const path = require('path');
 const { test, hermeticTest, gotoEve, expect } = require('./fixtures');
 const { startEve } = require('../integration/harness');
+const { watchSocket, sentFrames, waitHandled } = require('./socket-watch');
 const legacyStorageTemplate = require('./fixtures/legacy-tab-storage.json');
 
 // Real bytes — the image viewer's <img> load event needs them; content is
@@ -38,32 +39,28 @@ async function openChat(page) {
   await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15000 });
 }
 
-// Same press-duration technique as voice-buttons.spec.js's long-press gate.
+// Holds the button for `ms` of page time on the installed clock, so the long-press
+// timer fires or not by the clock alone. Needs page.clock.install() first. No
+// web-first assertions while the clock is paused: callers assert after the press.
 async function press(page, locator, ms) {
   const box = await locator.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
   await page.mouse.down();
-  await page.waitForTimeout(ms);
+  await page.clock.runFor(ms);
   await page.mouse.up();
+  await page.clock.runFor(500);
+  await page.clock.resume();
 }
 
 // Patches the native WebSocket underlying wsClient, not wsClient.send()'s
 // object-in/JSON-out wrapper — same technique as chat-input-row.spec.js's
 // plan-mode test, one level lower.
-async function framesSentClicking(page, testid, type, settleMs = 400) {
-  return page.evaluate(
-    async ({ testid, type, settleMs }) => {
-      const rawWs = window.client.wsClient.ws;
-      const original = rawWs.send.bind(rawWs);
-      const frames = [];
-      rawWs.send = (m) => { frames.push(JSON.parse(m)); return original(m); };
-      document.querySelector(`[data-testid="${testid}"]`).click();
-      await new Promise((r) => setTimeout(r, settleMs));
-      rawWs.send = original;
-      return frames.filter((f) => f && f.type === type);
-    },
-    { testid, type, settleMs }
-  );
+async function framesSentClicking(page, testid, type, done) {
+  await watchSocket(page);
+  await page.evaluate((testid) => document.querySelector(`[data-testid="${testid}"]`).click(), testid);
+  await done();
+  return (await sentFrames(page)).filter((f) => f && f.type === type);
 }
 
 test.describe('tab-panes', () => {
@@ -83,7 +80,7 @@ test.describe('tab-panes', () => {
     await page.getByTestId('sidebar-project-p1').click();
     await expect(page.getByTestId('file-tree-item-/README.md')).toBeVisible({ timeout: 15000 });
 
-    const sent = await framesSentClicking(page, 'file-tree-item-/README.md', 'watch_file');
+    const sent = await framesSentClicking(page, 'file-tree-item-/README.md', 'watch_file', () => waitHandled(page, { type: 'file_content' }));
 
     await expect(page.getByTestId('tab-p1:/README.md')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('#editor')).not.toHaveClass(/hidden/);
@@ -98,7 +95,8 @@ test.describe('tab-panes', () => {
     await page.getByTestId('sidebar-project-p1').click();
     await expect(page.getByTestId('file-tree-item-/photo.png')).toBeVisible({ timeout: 15000 });
 
-    const sent = await framesSentClicking(page, 'file-tree-item-/photo.png', 'watch_file');
+    const sent = await framesSentClicking(page, 'file-tree-item-/photo.png', 'watch_file',
+      () => expect(page.getByTestId('tab-p1:/photo.png')).toBeVisible({ timeout: 10000 }));
 
     await expect(page.locator('#fileViewer')).not.toHaveClass(/hidden/);
     await expect(page.locator('#fileViewerPath')).toHaveText('/photo.png');
@@ -111,7 +109,8 @@ test.describe('tab-panes', () => {
     await page.getByTestId('file-tree-item-/README.md').click();
     await expect(page.getByTestId('tab-p1:/README.md')).toBeVisible({ timeout: 10000 });
 
-    const sent = await framesSentClicking(page, 'tab-close-p1:/README.md', 'unwatch_file');
+    const sent = await framesSentClicking(page, 'tab-close-p1:/README.md', 'unwatch_file',
+      () => expect(page.getByTestId('tab-p1:/README.md')).toHaveCount(0));
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ projectId: 'p1', path: '/README.md' });
@@ -156,6 +155,7 @@ test.describe('tab-panes', () => {
   });
 
   test('8. a 500ms press on a session tab close button deletes the session; a short tap only closes', async ({ page }) => {
+    await page.clock.install();
     await openChat(page);
     await page.evaluate(() => {
       window.__deleteCalls = [];
@@ -394,12 +394,10 @@ test(
     await expect(page.getByTestId('tab-p1:/README.md')).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId('tab-module:p1:demo-module')).toHaveCount(0);
 
-    const tabs = await page.$$eval('#tabBar .tab', (els) =>
-      els.map((e) => ({ id: e.dataset.tabId, label: e.querySelector('.tab-label').textContent }))
-    );
-    expect(tabs).toEqual([
-      { id: sessionId, label: 'Restored Session' },
-      { id: 'p1:/README.md', label: 'README.md' },
-    ]);
+    const tabs = page.locator('#tabBar .tab');
+    await expect(tabs).toHaveCount(2);
+    await expect(tabs.locator('.tab-label')).toHaveText(['Restored Session', 'README.md']);
+    await expect(tabs.nth(0)).toHaveAttribute('data-tab-id', sessionId);
+    await expect(tabs.nth(1)).toHaveAttribute('data-tab-id', 'p1:/README.md');
   }
 );

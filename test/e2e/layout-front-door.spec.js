@@ -5,6 +5,7 @@
 // stamp) before the seed is in place.
 const { test, expect } = require('./goals/fixture');
 const { gotoEve } = require('./fixtures');
+const { watchSocketFromLoad, sentFrames } = require('./socket-watch');
 const { WORLD, REPLY, tabCount, openThreadFromToday } = require('./layout-helpers');
 
 const MIN = 60000;
@@ -21,6 +22,7 @@ async function open(context, eve, { minutesAgo, storedTabs = false, hash = '' })
       localStorage.setItem('eve-open-files', JSON.stringify({ 'alpha:/README.md': { projectId: 'alpha', path: '/README.md', ts: now } }));
     }
   }, { minutesAgo, storedTabs, MIN });
+  await watchSocketFromLoad(page);
   await gotoEve(page, `${eve.baseUrl}/${hash}`);
   return page;
 }
@@ -35,8 +37,10 @@ const stored = (page) => page.evaluate(() => ({
 async function expectTodayNoTabs(page) {
   await expect(page.getByTestId('home-session-s-reply')).toBeVisible();
   await expect(page.getByTestId('today-ask-input')).toBeFocused();
-  // The restore runs once sessions load; give it time to (wrongly) open a tab.
-  await page.waitForTimeout(1000);
+  // gotoEve returns once the restore chain has run, and a restored tab sends its
+  // join or file read synchronously; none may have gone out.
+  expect((await sentFrames(page)).filter((f) => (f.type === 'join_session' && f.sessionId === 's-reply')
+    || (f.type === 'read_file' && f.path === '/README.md'))).toEqual([]);
   expect(await tabCount(page)).toBe(0);
   await expect(page.getByTestId('home-screen')).toBeVisible();
 }

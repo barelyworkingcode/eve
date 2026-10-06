@@ -6,6 +6,7 @@ const path = require('path');
 const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
+const { watchSocket, waitHandled } = require('../socket-watch');
 
 const TEMPLATES = [
   { id: 'claude', name: 'Claude Code', description: 'Agent', sandbox: true },
@@ -96,11 +97,12 @@ test.describe('S5a-A3 agent board', () => {
   test('a terminal listed and then joined unasked never activates', async ({ page, eve }) => {
     await reloadWatchingForTerminals(page);
     await expect(todayRow(page, 't-a1')).toBeVisible();
+    expect(await page.evaluate(() => window.client.terminalManager.terminals.has('t-a1'))).toBe(false);
     await eve.relay.emitToRelay({
       type: 'terminal_joined', terminalId: 't-a1', templateId: 'claude', name: 'Claude Code',
       directory: eve.folders.alpha, state: 'running', cols: 80, rows: 24, scrollback: Buffer.from('$ ').toString('base64'), host: null,
     });
-    await page.waitForTimeout(500);
+    await page.waitForFunction(() => window.client.terminalManager.terminals.has('t-a1'));
     await expect(page.getByTestId('home-screen')).toBeVisible();
     expect((await opened(page)).filter((e) => e.includes('#terminal'))).toEqual([]);
   });
@@ -122,8 +124,10 @@ test.describe('S5a-A3 agent board', () => {
     await expect(todayRow(page, 't-a1').locator('.agent-row__last')).toHaveText(LOG_LINE);
     await openAlphaPage(page);
     await expect(pageRow(page, 't-a1').locator('.agent-row__last')).toHaveText(LOG_LINE);
+    await watchSocket(page);
     await page.evaluate(() => window.client.terminalManager.requestTerminalList());
-    await page.waitForTimeout(1000);
+    await waitHandled(page, { type: 'terminal_list' });
+    await page.waitForFunction(() => AgentBoard.lines.get('t-a1')?.inflight === false);
     expect(logGets(eve, 't-a1')).toHaveLength(1);
   });
 
@@ -161,10 +165,10 @@ test.describe('S5a-A3 agent board, a log relay has not got', () => {
   test('a log 404 shows no line', async ({ page, eve }) => {
     await expect(todayRow(page, 't-a1').locator('.agent-row__last')).toHaveText(LOG_LINE);
     await expect.poll(() => logGets(eve, 't-a2').length).toBeGreaterThan(0);
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => AgentBoard.lines.get('t-a2')?.inflight === false);
     await expect(todayRow(page, 't-a2')).toBeVisible();
     await expect(todayRow(page, 't-a2')).not.toContainText(LOG_LINE);
-    expect(await todayRow(page, 't-a2').evaluate((el) => el.querySelector('.agent-row__last')?.textContent || '')).toBe('');
+    await expect(todayRow(page, 't-a2').locator('.agent-row__last')).toHaveCount(0);
   });
 });
 
@@ -199,6 +203,7 @@ test.describe('S5a-A3 agent board row cap', () => {
     await expect(todayRow(page, 't-n00')).toBeVisible();
     await expect(todayRow(page, 't-n21')).toHaveCount(0);
     await expect(todayRow(page, 't-n19').locator('.agent-row__last')).toHaveText(LOG_LINE);
+    await page.waitForFunction(() => [...AgentBoard.lines.values()].every((e) => !e.inflight));
     expect(logGets(eve, 't-n20')).toHaveLength(0);
     expect(logGets(eve, 't-n21')).toHaveLength(0);
   });
