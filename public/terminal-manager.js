@@ -579,6 +579,17 @@ class TerminalManager {
     this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
+  // Opens the terminal relay made when it handed a headless session over (the
+  // `terminal` of POST /api/sessions/:id/drop-in). Same two steps as the WS
+  // terminal_create path: onTerminalCreated, then join_terminal. Closing the tab
+  // is the ordinary closeTerminal.
+  openDropIn(terminal) {
+    this.onReady(() => {
+      this.onTerminalCreated(terminal.terminalId, terminal.templateId, terminal.name, terminal.directory, terminal.host);
+      this.app.wsClient.send({ type: 'join_terminal', terminalId: terminal.terminalId });
+    });
+  }
+
   closeTerminal(terminalId) {
     const terminal = this.terminals.get(terminalId);
     if (terminal) {

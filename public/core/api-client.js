@@ -25,6 +25,8 @@ class ApiClient {
     return response.json().catch(() => ({}));
   }
 
+  // A refusal arrives as err.body = {error, message}; message is for people.
+  dropIn(sessionId, size) { return this._request('POST', `/api/sessions/${encodeURIComponent(sessionId)}/drop-in`, size); }
   getProjects() { return this._request('GET', '/api/projects'); }
   createProject(data) { return this._request('POST', '/api/projects', data); }
   updateProject(id, data) { return this._request('PUT', `/api/projects/${id}`, data); }

@@ -36,6 +36,7 @@ WebAuthn enrollment/login, rate-limited per IP (429 on excess).
 |--------|------|-------------|
 | GET | `/api/models` | List models. |
 | GET | `/api/sessions` | List sessions. relay answers `{ sessions: [...] }` (object-wrapped); eve unwraps it and returns a bare, filtered array to the browser — `__search:` ephemeral sessions are filtered out here, not by relay. A live Claude or pi row can carry `attention: {state, since}` (same values and time format as `session_state`); the field is absent otherwise, and eve passes it through unchanged. |
+| POST | `/api/sessions/:id/drop-in` | Drop in to a headless Claude session. Body `{cols, rows}`, each a whole number from 1 to 500, else `400 {error}` and relay is not called. eve forwards to relay (`session.drop_in`) and returns relay's status and body unchanged: `201 {sessionId, claudeSessionId, host?, terminal}` (`terminal` has the shape of `POST /api/terminals`; the browser opens it with `terminal_created` handling plus `join_terminal`), or a refusal `{error, message}` (`message` is shown to the person). No timeout: relay bounds the wait. Closing the terminal is the ordinary `terminal_close`. |
 | POST | `/api/sessions/:id/resume` | Resume a dormant session. Called automatically by eve, at most once per user turn, when relay answers a `send_message` with the `resume_required` error below — never host-driven (SH-6). |
 
 Session creation is HTTP (`POST /api/sessions`, triggered by the WS `create_session` frame, see below); messages and the rest of the session lifecycle stay on WebSocket.

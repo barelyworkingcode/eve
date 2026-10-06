@@ -39,6 +39,28 @@
   transition: background var(--dur-1);
 }
 .agent-row:last-child { border-bottom: none; }
+
+/* A row that offers Drop in: the action sits under the row's own button. */
+.agent-row-wrap { border-bottom: 0.5px solid var(--separator); }
+.agent-row-wrap:last-child { border-bottom: none; }
+.agent-row-wrap > .agent-row { border-bottom: none; }
+.agent-row__action {
+  margin: 0 14px 9px;
+  padding: 4px 12px;
+  background: transparent;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+.agent-row__action:hover:not(:disabled) { background: var(--bg-hover); }
+.agent-row__action:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.agent-row__action:disabled { color: var(--text-secondary); cursor: progress; }
+@media (pointer: coarse) {
+  .agent-row__action { min-height: 44px; min-width: 44px; }
+}
 .agent-row:hover { background: var(--bg-hover); }
 .agent-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
 

@@ -213,3 +213,12 @@ The agent board gains states and groups. The design is the contract in eve#195; 
 - **Sessions are shown only once listed.** A `session_state` frame for an id that `GET /api/sessions` or `session_created` has not named never makes a row. Such a frame asks for one debounced list refresh. This keeps hidden `__search:` sessions and failed launches from other devices off the board, because a frame carries no name and no project.
 - **Phone badge.** The bottom bar's Today button shows the Needs-you count, using Today's mode filter, and hides at 0. Today is the compact root and holds the agents part; Threads opens one project's page and Projects opens a sheet with no board. The button's accessible name stays "Today".
 - **Motion.** Only `running` and `asking` animate. Reduced motion turns all of it off.
+
+## Amended by eve#196
+
+A headless Claude session under Needs you gets a Drop in action under its row, on Today and on the project page.
+
+- **Rule.** `AgentBoard.showsDropIn` is the one place: a session row whose model is `haiku`, `sonnet` or `opus` (relay's own Claude rule), that relay lists as headless, and that sits in Needs you or has a drop-in in flight.
+- **Wire.** `POST /api/sessions/:id/drop-in` with `{cols:80, rows:24}` through `proxy()`. On 201 the board hands relay's `terminal` to `TerminalManager.openDropIn`, which does what the WS create path does: `onTerminalCreated`, then `join_terminal`. A refusal shows relay's `message` as a toast. There is no client timeout.
+- **Closing.** Closing the tab uses the existing `terminal_close`; relay hands the conversation back.
+- **Markup.** A row with the action sits in `.agent-row-wrap` beside its own button; other rows are unchanged.

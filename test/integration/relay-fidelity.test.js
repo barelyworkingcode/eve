@@ -861,6 +861,93 @@ describe('agent state as relay serves it (manager.go Summary, ws_session.go Stat
   });
 });
 
+describe('drop in as relay serves it (session_dropin.go, session/dropin.go, ws_terminal.go)', () => {
+  const CLAUDE = 'haiku';
+  const seed = (relay, id, extra = {}) => relay.seedSession({ sessionId: id, directory: os.tmpdir(), projectId: 'p1', model: CLAUDE, name: 'Acme build', headless: true, ...extra });
+  const post = (base, id) => fetch(`${base}/api/sessions/${id}/drop-in`, { method: 'POST', ...json({ cols: 80, rows: 24 }) });
+
+  describe('direct', () => {
+    let relay;
+    let base;
+    beforeAll(async () => { relay = createFakeRelay(); base = `http://127.0.0.1:${await relay.listen()}`; });
+    afterAll(async () => { await relay.close(); });
+
+    it('201 is {sessionId, claudeSessionId, terminal} with no top-level host; the terminal is a claude-code terminal named for the session', async () => {
+      seed(relay, 's1');
+      const res = await post(base, 's1');
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(Object.keys(body).sort()).toEqual(['claudeSessionId', 'sessionId', 'terminal']);
+      expect(body.sessionId).toBe('s1');
+      expect(body.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(body.terminal).toMatchObject({ templateId: 'claude-code', name: 'Acme build (drop-in)', directory: os.tmpdir(), host: null });
+      expect(relay.dropIns).toEqual([{ sessionId: 's1', body: { cols: 80, rows: 24 } }]);
+    });
+
+    it('refuses with {error, message}: 404 session_not_found, 409 not_claude, 409 not_headless, 409 dropped_in', async () => {
+      seed(relay, 'pi1', { model: 'pi/x' });
+      seed(relay, 'chat', { headless: false });
+      seed(relay, 'held');
+      expect((await post(base, 'held')).status).toBe(201);
+      const cases = [
+        ['ghost', 404, { error: 'session_not_found', message: 'no session ghost' }],
+        ['pi1', 409, { error: 'not_claude', message: 'only Claude sessions can be taken over; this is a pi session' }],
+        ['chat', 409, { error: 'not_headless', message: 'this session is not headless; continue it in eve' }],
+        ['held', 409, { error: 'dropped_in', message: 'a terminal already has this session; close it first' }],
+      ];
+      for (const [id, status, expected] of cases) {
+        const res = await post(base, id);
+        expect(res.status).toBe(status);
+        expect(await res.json()).toEqual(expected);
+      }
+    });
+
+    it('a list row carries `headless` only when true (manager.go Summary)', async () => {
+      seed(relay, 'h-yes');
+      seed(relay, 'h-no', { headless: false });
+      const { sessions } = await (await fetch(`${base}/api/sessions`)).json();
+      const byId = Object.fromEntries(sessions.map((s) => [s.id, s]));
+      expect(byId['h-yes'].headless).toBe(true);
+      expect('headless' in byId['h-no']).toBe(false);
+    });
+  });
+
+  describe('through eve', () => {
+    it('passes 201, 404, 409 not_claude and 409 dropped_in through unchanged; a running frame follows 201 and idle follows terminal_close', async () => {
+      const eve = await startEve({ projects: [{ id: 'p1', name: 'One', path: os.tmpdir() }] });
+      const ws = await eve.connectWs();
+      try {
+        seed(eve.relay, 's1');
+        seed(eve.relay, 'codex1', { model: 'codex/x' });
+        await eve.waitForRelayOpen(ws);
+        const call = (id) => eve.get(`/api/sessions/${id}/drop-in`, { method: 'POST', ...json({ cols: 80, rows: 24 }) });
+
+        const ok = await call('s1');
+        expect(ok.status).toBe(201);
+        const body = await ok.json();
+        expect(body.terminal).toMatchObject({ templateId: 'claude-code', name: 'Acme build (drop-in)' });
+        const running = await ws.waitFor((f) => f.type === 'session_state' && f.sessionId === 's1' && f.state === 'running');
+        expect(validateRelayFrame(running).ok).toBe(true);
+
+        const again = await call('s1');
+        expect(again.status).toBe(409);
+        expect(await again.json()).toEqual({ error: 'dropped_in', message: 'a terminal already has this session; close it first' });
+        const ghost = await call('ghost');
+        expect(ghost.status).toBe(404);
+        expect(await ghost.json()).toEqual({ error: 'session_not_found', message: 'no session ghost' });
+        const codex = await call('codex1');
+        expect(codex.status).toBe(409);
+        expect(await codex.json()).toEqual({ error: 'not_claude', message: 'only Claude sessions can be taken over; this is a chat session' });
+
+        const mark = ws.mark();
+        ws.send({ type: 'terminal_close', terminalId: body.terminal.terminalId });
+        await ws.waitFor((f) => f.type === 'session_state' && f.sessionId === 's1' && f.state === 'idle', 5000, mark);
+        expect((await call('s1')).status).toBe(201);
+      } finally { await ws.close(); await eve.stop(); }
+    });
+  });
+});
+
 describe('Chief of Staff scope and marked send (cmd/relay/api_credential.go, session_chief_of_staff.go)', () => {
   let relay;
   let base;
