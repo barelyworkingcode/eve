@@ -936,6 +936,13 @@ describe('Chief of Staff scope and marked send (cmd/relay/api_credential.go, ses
     expect(await res.json()).toEqual({ error: 'already_processing', message: 'the session is already processing a message' });
   });
 
+  it('a dropped-in session refuses with 409 dropped_in and relay\'s message', async () => {
+    relay.failChiefOfStaffSend(409, 'dropped_in', 'a terminal holds this session; close it first');
+    const res = await post({ sessionId: 's1', text: 'hi' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'dropped_in', message: 'a terminal holds this session; close it first' });
+  });
+
   it('202 carries the constant origin, ignores one in the body, marks the live frame and the rejoined history', async () => {
     const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
     const frames = [];

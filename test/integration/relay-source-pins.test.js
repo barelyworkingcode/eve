@@ -126,6 +126,8 @@ const PINS = [
   ['the scoped /ws is read-only', 'cmd/relay/frontend_dispatcher.go', '"chief-of-staff scope is read-only"', "ws.close(1008, 'chief-of-staff scope is read-only')"],
   ['a body over 64 KiB', 'cmd/relay/session_chief_of_staff.go', 'http.StatusRequestEntityTooLarge, "body_too_large", "request body is larger than 64 KiB"', "coded(413, 'body_too_large', 'request body is larger than 64 KiB')"],
   ['a whitespace text', 'cmd/relay/session_chief_of_staff.go', 'http.StatusBadRequest, "text_required", "text is required"', "coded(400, 'text_required', 'text is required')"],
+  ['a dropped-in session refuses the send', 'cmd/relay/session_chief_of_staff.go', 'http.StatusConflict, hostapi.ErrDroppedIn, "a terminal holds this session; close it first"', "failChiefOfStaffSend(409, 'dropped_in', 'a terminal holds this session; close it first')", 'relay', 'integration/relay-fidelity.test.js'],
+  ['the dropped_in wire code', 'internal/sessions/hostapi/types.go', 'ErrDroppedIn         = "dropped_in"', "error: 'dropped_in'", 'relay', 'unit/chief-of-staff.test.js'],
   ['audit off refuses the send', 'cmd/relay/session_chief_of_staff.go', 'http.StatusServiceUnavailable, "audit_unavailable", "auditing is off; the Chief of Staff cannot send"', "coded(503, 'audit_unavailable', 'auditing is off; the Chief of Staff cannot send')"],
   ['the 202 body carries the origin', 'cmd/relay/session_chief_of_staff.go', 'json:"origin"', "origin: 'chief-of-staff', at"],
   ['the origin constant', 'internal/sessions/types/provider.go', 'OriginChiefOfStaff = "chief-of-staff"', "origin: 'chief-of-staff'"],
