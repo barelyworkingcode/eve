@@ -435,6 +435,7 @@ describe('devboxverify journey table', () => {
     'settings-sheet', 'project-admin-in-relay', 'project-mode-new', 'brief-injection-refused',
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
     'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part', 'chat-tool-search', 'agent-board-states',
+    'cos-asking-post', 'cos-tell-sends-marked',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -477,7 +478,8 @@ describe('devboxverify journey table', () => {
       ...Object.fromEntries(['passkey-sign-in', 'agent-enrol-refused', 'agent-sign-in-refused', 'chat-reply',
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
         'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
-        'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url', 'agent-board-states'].map(id => [id, acme])),
+        'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url', 'agent-board-states',
+        'cos-asking-post', 'cos-tell-sends-marked'].map(id => [id, acme])),
     });
   });
 
@@ -498,7 +500,7 @@ describe('devboxverify journey table', () => {
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'listen', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save',
-      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states',
+      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'cos-asking-post', 'cos-tell-sends-marked',
       'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
       'chat-pasted-url-source', 'chat-tool-search', 'project-mode-new',
       'add-browser-in-window',
@@ -522,6 +524,8 @@ describe('devboxverify journey table', () => {
     ['listen', 'docs/design-on-the-go.md', ['chat', 'voice'], 60000],
     ['chat-tool-search', 'devboxverify/README.md', ['chat'], 240000],
     ['agent-board-states', 'devboxverify/README.md', ['chat', 'home'], 150000],
+    ['cos-asking-post', 'devboxverify/README.md', ['chief-of-staff'], 120000],
+    ['cos-tell-sends-marked', 'devboxverify/README.md', ['chief-of-staff'], 150000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -569,7 +573,7 @@ describe('devboxverify/journey-kit.js devices and probes', () => {
 describe('devboxverify/main.js run plan and owner reset', () => {
   const {
     JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-    relayAuditRows, serviceLogReader,
+    relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant,
   } = require('../../devboxverify/main');
   const ids = list => list.map(j => j.id);
   const mixed = [{ id: 's', screen: true }, { id: 'a' }, { id: 'f1', fixture: true }, { id: 'b' }, { id: 'f2', fixture: true }];
@@ -644,6 +648,51 @@ describe('devboxverify/main.js run plan and owner reset', () => {
   it('authStatusProblem reports a trusted loopback', () => {
     expect(authStatusProblem({ enrolled: true, authenticated: true, trusted: true }))
       .toContain('EVE_DISABLE_SUBNET_BYPASS=1');
+  });
+
+  describe('chiefOfStaffSettings', () => {
+    it('adds the three Chief of Staff keys and keeps every other key, from JSONC input', () => {
+      const text = '{\n  // operator note\n  "providerConfig": {"claude": {"path": "/opt/acme/claude"}},\n  "chiefOfStaff": {"enabled": true, "model": "sonnet",},\n}\n';
+      expect(JSON.parse(chiefOfStaffSettings(text, 'p1'))).toEqual({
+        providerConfig: { claude: { path: '/opt/acme/claude' } },
+        chiefOfStaff: { enabled: true, model: 'haiku', projectId: 'p1', dailyModelCalls: 40 },
+      });
+    });
+
+    it.each([['no file', ''], ['a blank file', '  \n']])('starts from an empty object for %s', (_l, text) => {
+      expect(JSON.parse(chiefOfStaffSettings(text, 'p1'))).toEqual({
+        chiefOfStaff: { model: 'haiku', projectId: 'p1', dailyModelCalls: 40 },
+      });
+    });
+
+    it.each([['broken JSON', '{"a": '], ['an array', '[1]'], ['a scalar', '7']])('refuses %s rather than overwrite it', (_l, text) => {
+      expect(() => chiefOfStaffSettings(text, 'p1')).toThrow(/not overwriting/);
+    });
+
+    it('refuses an empty project id', () => {
+      expect(() => chiefOfStaffSettings('{}', '')).toThrow();
+    });
+  });
+
+  describe('projectIdFromGrant', () => {
+    const view = (id, name, kind = 'project') => ({ id, name, kind, mcps: [] });
+
+    it('reads the id of the one project with that name', () => {
+      expect(projectIdFromGrant(JSON.stringify([view('p2', 'Globex'), view('p1', 'Acme')]), 'Acme')).toBe('p1');
+    });
+
+    it.each([
+      ['no match', [view('p2', 'Globex')]],
+      ['two matches', [view('p1', 'Acme'), view('p3', 'Acme')]],
+      ['a profile of that name', [view('p1', 'Acme', 'profile')]],
+      ['not a list', { id: 'p1', name: 'Acme', kind: 'project' }],
+    ])('refuses %s', (_l, views) => {
+      expect(() => projectIdFromGrant(JSON.stringify(views), 'Acme')).toThrow();
+    });
+
+    it('refuses text that is not JSON', () => {
+      expect(() => projectIdFromGrant('no projects', 'Acme')).toThrow(/unreadable/);
+    });
   });
 
   describe('ownerResetPaths', () => {

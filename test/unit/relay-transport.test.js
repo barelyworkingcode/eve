@@ -259,3 +259,55 @@ describe('socket mode over a real Unix socket', () => {
     }
   });
 });
+
+describe('relay scope (chief-of-staff)', () => {
+  const http = require('http');
+  const listen = (onRequest, onUpgrade) => new Promise((resolve) => {
+    const server = http.createServer(onRequest);
+    if (onUpgrade) server.on('upgrade', onUpgrade);
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+  const transportFor = (server) => RelayTransport.fromEnv({
+    env: { RELAY_FRONTEND_URL: `http://127.0.0.1:${server.address().port}` },
+    log: mkLog(),
+  });
+
+  test('fetch sends X-Relay-Scope only when a scope is given', async () => {
+    const seen = [];
+    const server = await listen((req, res) => {
+      seen.push(req.headers['x-relay-scope']);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{}');
+    });
+    const t = transportFor(server);
+    await t.fetch('GET', '/api/sessions', undefined, { scope: 'chief-of-staff' });
+    await t.fetch('GET', '/api/sessions');
+    server.close();
+    expect(seen).toEqual(['chief-of-staff', undefined]);
+  });
+
+  test('createWebSocket sends X-Relay-Scope on the upgrade only when a scope is given', async () => {
+    const seen = [];
+    const server = await listen(() => {}, (req, socket) => { seen.push(req.headers['x-relay-scope']); socket.destroy(); });
+    const t = transportFor(server);
+    for (const opts of [{ scope: 'chief-of-staff' }, {}]) {
+      await new Promise((resolve) => {
+        const ws = t.createWebSocket('/ws', opts);
+        ws.on('error', () => {});
+        ws.on('close', resolve);
+      });
+    }
+    server.close();
+    expect(seen).toEqual(['chief-of-staff', undefined]);
+  });
+
+  test.each(['admin', '', 'Chief-Of-Staff', null, 7])('scope %j throws RelayConfigError and sends nothing', async (scope) => {
+    const onRequest = jest.fn();
+    const server = await listen(onRequest);
+    const t = transportFor(server);
+    await expect(t.fetch('GET', '/api/sessions', undefined, { scope })).rejects.toBeInstanceOf(RelayConfigError);
+    expect(() => t.createWebSocket('/ws', { scope })).toThrow(RelayConfigError);
+    server.close();
+    expect(onRequest).not.toHaveBeenCalled();
+  });
+});

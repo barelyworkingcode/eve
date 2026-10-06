@@ -58,10 +58,11 @@ describe('WsMessageRegistry.expensiveTypes', () => {
   // its rate-limit cap.
   // git_changes joined with the Changes panel (docs/design-git-changes.md,
   // "Safety"): it fans out to several git processes per worktree.
-  it('carries exactly the six frozen expensive types', () => {
+  // cos_message joined with the Chief of Staff thread: each one is a model turn.
+  it('carries exactly the seven frozen expensive types', () => {
     expect(messages.expensiveTypes()).toEqual(new Set([
       'create_session', 'search_project', 'search_ai_summarize',
-      'transcribe_audio', 'tts_speak', 'git_changes',
+      'transcribe_audio', 'tts_speak', 'git_changes', 'cos_message',
     ]));
   });
 });

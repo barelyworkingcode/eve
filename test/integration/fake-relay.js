@@ -19,6 +19,9 @@
  *   internal/sessions/session/manager.go   session.Summary (GET /api/sessions)
  *   cmd/relay/audit_routes.go              GET /api/audit, GET /api/audit/log
  *   internal/audit/ops.go                  Query / LogPath when auditing is off
+ *   cmd/relay/api_credential.go            X-Relay-Scope: chief-of-staff and what it reaches
+ *   cmd/relay/session_chief_of_staff.go    POST /api/chief-of-staff/messages
+ *   cmd/relay/frontend_dispatcher.go       the scoped /ws is read-only (close 1008)
  */
 const http = require('http');
 const { WebSocketServer } = require('ws');
@@ -115,6 +118,27 @@ function createFakeRelay({ token = null } = {}) {
   // Session ids whose join_session gets relay's "not found" reply (failJoinWith()).
   const failedJoins = new Set();
   const sessionCreates = [];
+  // Chief of Staff (relay#234). The scope is a per-request narrowing: it reaches
+  // only these three doors (api_credential.go chiefOfStaffProxyReach + the
+  // ClassChiefOfStaff route); everything else is a 403.
+  const SCOPED_REACH = ['GET /api/sessions', 'GET /ws', 'POST /api/chief-of-staff/messages'];
+  const COS_SCOPE = 'chief-of-staff';
+  const scopedWs = new Set();
+  const scopedResolvers = [];
+  // Every HTTP request and /ws upgrade with the scope header it carried (null = none).
+  const scopeLog = [];
+  // manager.go isListed: a headless session that is not an agent is hidden from the list
+  // and answers like an unknown id to the scoped send.
+  const unlistedIds = new Set();
+  // The model's own sessions (name `__cos:`): what they were created with and every turn sent to them.
+  const cosSessionCreates = [];
+  const cosModelTurns = [];
+  // tools: what the session reports in system/init. reply: (text, n) => string, or null for the default.
+  let cosModel = { tools: [], reply: null };
+  // null => the send succeeds; { status, code, message } forces relay's host-side refusals.
+  let cosSendFailure = null;
+  // session_ended and the attention frames are broadcast to every connection, scoped ones included.
+  const BROADCAST_TYPES = new Set(['session_state', 'turn_done', 'session_ended']);
   // join_session for an id relay does not hold is an error frame. Off by default
   // so callers that join an id they never created keep working; strictJoin() turns it on.
   let strictJoin = false;
@@ -370,10 +394,18 @@ function createFakeRelay({ token = null } = {}) {
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       requests.push({ method: req.method, path: p });
+      scopeLog.push({ method: req.method, path: p, scope: req.headers['x-relay-scope'] ?? null });
       if (requiredToken !== null && req.headers.authorization !== `Bearer ${requiredToken}`) {
         rejectedRequests.push({ method: req.method, path: p });
         return sendText(401, 'unauthorized');
       }
+      // api_credential.go Authorize: an unknown scope, a request outside the scope's reach, and the
+      // scope-only route without the scope are all 403.
+      const scopeHeader = req.headers['x-relay-scope'];
+      if (scopeHeader !== undefined && (scopeHeader !== COS_SCOPE || !SCOPED_REACH.includes(`${req.method} ${p}`))) {
+        return sendText(403, 'Forbidden');
+      }
+      if (scopeHeader === undefined && p === '/api/chief-of-staff/messages') return sendText(403, 'Forbidden');
       let parsed = {};
       try { parsed = body ? JSON.parse(body) : {}; } catch {}
 
@@ -476,6 +508,29 @@ function createFakeRelay({ token = null } = {}) {
       // relayLLM has no concept of eve's UI-only `sessionType` ("chat" vs
       // "voice"), so it's deliberately not stored here: restoring that
       // distinction after a reload is `eve-session-meta`'s job alone.
+      // session_chief_of_staff.go handleChiefOfStaffMessage: checks in relay's order. The origin
+      // is the constant, never read from the body.
+      if (p === '/api/chief-of-staff/messages' && req.method === 'POST') {
+        const coded = (status, code, message) => send(status, { error: code, message });
+        if (Buffer.byteLength(body) > 64 << 10) return coded(413, 'body_too_large', 'request body is larger than 64 KiB');
+        let msgBody = null;
+        try { msgBody = JSON.parse(body); } catch {}
+        if (!msgBody || typeof msgBody !== 'object' || Array.isArray(msgBody)) return coded(400, 'invalid_body', 'body must be JSON {"sessionId","text"}');
+        if (!msgBody.sessionId) return coded(400, 'session_id_required', 'sessionId is required');
+        if (typeof msgBody.text !== 'string' || msgBody.text.trim() === '') return coded(400, 'text_required', 'text is required');
+        if (!auditEnabled) return coded(503, 'audit_unavailable', 'auditing is off; the Chief of Staff cannot send');
+        const target = sessions.get(msgBody.sessionId);
+        if (!target || unlistedIds.has(msgBody.sessionId)) return coded(404, 'session_not_found', 'session not found');
+        if (cosSendFailure) return coded(cosSendFailure.status, cosSendFailure.code, cosSendFailure.message);
+        const at = new Date().toISOString();
+        target.history = [...(target.history || []), relayFrames.historyUser({ timestamp: at, content: msgBody.text, origin: 'chief-of-staff' })];
+        target.messageCount = target.history.length;
+        const live = JSON.stringify(relayFrames.userMessage({ sessionId: msgBody.sessionId, text: msgBody.text, origin: 'chief-of-staff' }));
+        const ids = joined.get(msgBody.sessionId) || new Set();
+        for (const sock of relayWs) if (ids.has(relaySocketIds.get(sock))) sock.send(live);
+        return send(202, { sessionId: msgBody.sessionId, origin: 'chief-of-staff', at });
+      }
+
       if (p === '/api/sessions' && req.method === 'POST') {
         sessionCreates.push(parsed);
         // session_launch.go AuthorizeLaunch, in its order, for eve's body
@@ -523,6 +578,14 @@ function createFakeRelay({ token = null } = {}) {
             session.host = { id: host.id, name: host.name };
           }
           sessions.set(sessionId, session);
+          if (parsed.settings && parsed.settings.headless === true && parsed.agent !== true) unlistedIds.add(sessionId);
+          if (String(parsed.name || '').startsWith('__cos:')) {
+            // session_launch.go mergePermissionSettings: a project with a policy replaces the client's
+            // deniedTools; one without passes the client's through. claude.go hands deniedTools to
+            // --disallowedTools and preflight.go refuses them with "denied by project policy".
+            const policy = (project && project.permissionPolicy) || (parsed.settings && parsed.settings.permissionPolicy) || null;
+            cosSessionCreates.push({ sessionId, body: parsed, deniedTools: (policy && policy.deniedTools) || [] });
+          }
           return send(201, session);
         };
         // Held open until the test releases it — see holdSessionCreate().
@@ -538,7 +601,7 @@ function createFakeRelay({ token = null } = {}) {
       // assertions, so this is what actually exercises that unwrap.
       // Items are session.Summary (manager.go): `id`, not `sessionId`.
       if (p === '/api/sessions' && req.method === 'GET') {
-        return send(200, { sessions: [...sessions.values()].map(toSummary) });
+        return send(200, { sessions: [...sessions.values()].filter((sess) => !unlistedIds.has(sess.sessionId)).map(toSummary) });
       }
 
       // C11 SH-6 resume: eve calls this exactly once per resume_required it
@@ -756,12 +819,29 @@ function createFakeRelay({ token = null } = {}) {
   const wss = new WebSocketServer({
     server,
     verifyClient: (info, cb) => {
-      if (requiredToken === null || info.req.headers.authorization === `Bearer ${requiredToken}`) return cb(true);
-      rejectedRequests.push({ method: 'GET', path: info.req.url, upgrade: true });
-      return cb(false, 401, 'unauthorized');
+      const wsScope = info.req.headers['x-relay-scope'];
+      scopeLog.push({ method: 'GET', path: new URL(info.req.url, 'http://relay.local').pathname, scope: wsScope ?? null, upgrade: true });
+      if (requiredToken !== null && info.req.headers.authorization !== `Bearer ${requiredToken}`) {
+        rejectedRequests.push({ method: 'GET', path: info.req.url, upgrade: true });
+        return cb(false, 401, 'unauthorized');
+      }
+      if (wsScope !== undefined && (wsScope !== COS_SCOPE || new URL(info.req.url, 'http://relay.local').pathname !== '/ws')) {
+        return cb(false, 403, 'Forbidden');
+      }
+      return cb(true);
     },
   });
   wss.on('connection', (ws, req) => {
+    // A scoped viewer only listens: it receives the broadcast frames (emitToRelay) and never joins a
+    // session. Its first inbound frame ends the connection (frontend_dispatcher.go refuseClientFrames).
+    if (req.headers['x-relay-scope'] !== undefined) {
+      scopedWs.add(ws);
+      scopedResolvers.splice(0).forEach((r) => r());
+      ws.on('message', () => ws.close(1008, 'chief-of-staff scope is read-only'));
+      ws.on('close', () => scopedWs.delete(ws));
+      ws.on('error', () => {});
+      return;
+    }
     const isScheduler = (req.url || '').startsWith('/ws/tasks');
     (isScheduler ? schedulerWs : relayWs).add(ws);
     if (!isScheduler) relaySocketIds.set(ws, ++relaySocketSeq);
@@ -802,6 +882,19 @@ function createFakeRelay({ token = null } = {}) {
         };
         const gate = joinGates.get(msg.sessionId);
         if (gate) gate.then(reply); else reply();
+      } else if (msg.type === 'send_message' && String((sessions.get(msg.sessionId) || {}).name || '').startsWith('__cos:')) {
+        // The Chief of Staff's model session. Turn 1 is the bootstrap: it reports its tool list in
+        // system/init (events.go `tools`) before it answers.
+        const sess = sessions.get(msg.sessionId);
+        sess.cosTurns = (sess.cosTurns || 0) + 1;
+        cosModelTurns.push({ sessionId: msg.sessionId, text: msg.text, n: sess.cosTurns });
+        const person = String(msg.text).startsWith('Chief of Staff person');
+        const fallback = sess.cosTurns === 1 ? 'ready' : `\`\`\`json\n${person ? '{"reply":"Noted.","send":null}' : '{"posts":[]}'}\n\`\`\``;
+        const text = (cosModel.reply && cosModel.reply(String(msg.text), sess.cosTurns)) ?? fallback;
+        const out = [];
+        if (sess.cosTurns === 1) out.push(relayFrames.systemInit({ sessionId: msg.sessionId, model: 'claude-haiku-4-5-20251001', tools: cosModel.tools }));
+        out.push(relayFrames.assistantDelta({ sessionId: msg.sessionId, text }), relayFrames.messageComplete({ sessionId: msg.sessionId }));
+        for (const f of out) ws.send(JSON.stringify(f));
       } else if (msg.type === 'send_message') {
         const script = sessionScripts.get(msg.sessionId);
         const refusal = fileRefusal(msg.files);
@@ -920,7 +1013,11 @@ function createFakeRelay({ token = null } = {}) {
     // Every relay socket, joined or not. Prefer emitToSession for anything relay
     // sends per session: relay delivers only to joined viewers (SendToSession).
     // A chat tool_result's is_error and scope_violation (relay events.go) are sent as given through it.
-    emitToRelay: (frame) => { notePending(frame); for (const ws of relayWs) ws.send(JSON.stringify(frame)); },
+    emitToRelay: (frame) => {
+      notePending(frame);
+      for (const ws of relayWs) ws.send(JSON.stringify(frame));
+      if (BROADCAST_TYPES.has(frame.type)) for (const ws of scopedWs) ws.send(JSON.stringify(frame));
+    },
     emitToSession: (sessionId, frame) => {
       notePending(frame);
       const ids = joined.get(sessionId) || new Set();
@@ -946,6 +1043,17 @@ function createFakeRelay({ token = null } = {}) {
     failPersistentSessionsWith: (projectId, status, error) => { persistentFailures.set(projectId, { status, error }); },
     clearPersistentFailure: (projectId) => { persistentFailures.delete(projectId); },
     emitToScheduler: (frame) => { for (const ws of schedulerWs) ws.send(JSON.stringify(frame)); },
+    // Chief of Staff: scoped viewers, the scope each request carried, the model sessions eve made.
+    waitForScopedRelay: () => (scopedWs.size > 0 ? Promise.resolve() : new Promise((r) => scopedResolvers.push(r))),
+    scopedConnectionCount: () => scopedWs.size,
+    scopeLog,
+    cosSessionCreates,
+    cosModelTurns,
+    // { tools, reply }: what the model session reports and how it answers (see cosModel above).
+    setCosModel: (m) => { cosModel = { tools: [], reply: null, ...m }; },
+    // Forces relay's refusal of the scoped send after the checks that precede the host: { status, code, message }.
+    failChiefOfStaffSend: (status, code, message = code) => { cosSendFailure = { status, code, message }; },
+    clearChiefOfStaffSendFailure: () => { cosSendFailure = null; },
     waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
     relayConnectionCount: () => relayWs.size,
     // Holds the next /ws upgrade's 101 reply for `ms`: waitForRelay() then
@@ -996,7 +1104,7 @@ function createFakeRelay({ token = null } = {}) {
     close: () => new Promise((resolve) => {
       if (closed) return resolve(); // a resilience test may close the relay before the harness does
       closed = true;
-      for (const ws of [...relayWs, ...schedulerWs]) { try { ws.terminate(); } catch {} }
+      for (const ws of [...relayWs, ...schedulerWs, ...scopedWs]) { try { ws.terminate(); } catch {} }
       wss.close(() => server.close(() => resolve()));
       // A closing relay drops its sockets; server.close() alone waits for
       // eve's keep-alive connections to drain, which can outlast a test.
