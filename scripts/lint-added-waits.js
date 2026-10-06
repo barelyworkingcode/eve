@@ -50,20 +50,28 @@ function addedLines(diffText) {
 // message whose line span touches an added line.
 function findingsOnAddedLines(results, added, cwd) {
   const findings = [];
+  // Both wait rules fire on a plugin-named call; one annotation per line.
+  const seen = new Set();
+  const push = (f) => {
+    const key = `${f.file}:${f.line}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    findings.push(f);
+  };
   for (const result of results) {
     const rel = path.relative(cwd, result.filePath).split(path.sep).join('/');
     const lines = added.get(rel) || new Set();
     for (const m of result.messages) {
       const line = m.line || 1;
       if (m.fatal) {
-        findings.push({ file: rel, line, message: m.message });
+        push({ file: rel, line, message: m.message });
         continue;
       }
       if (!WAIT_RULES.has(m.ruleId)) continue;
       const end = m.endLine || line;
       let touches = false;
       for (let n = line; n <= end && !touches; n++) touches = lines.has(n);
-      if (touches) findings.push({ file: rel, line, message: m.message });
+      if (touches) push({ file: rel, line, message: m.message });
     }
   }
   return findings;
