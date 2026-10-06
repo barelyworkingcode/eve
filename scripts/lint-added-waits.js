@@ -18,7 +18,7 @@ const execFileAsync = promisify(execFile);
 const SPEC_DIR = 'test/e2e';
 // Playwright's default testMatch runs these extensions; only JavaScript is linted.
 const LINTED = /\.(js|mjs|cjs)$/;
-const UNSUPPORTED = /\.(ts|mts|cts|tsx|jsx)$/;
+const UNSUPPORTED = /\.[cm]?(?:ts|tsx|jsx)$/;
 const WAIT_RULES = new Set(['playwright/no-wait-for-timeout', 'no-restricted-properties']);
 
 function unquote(p) {
@@ -32,14 +32,18 @@ function unquote(p) {
 function addedLines(diffText) {
   const added = new Map();
   let file = null;
+  // `---`/`+++` are headers only between `diff --git` and the first hunk; inside
+  // a hunk an added line `++ x` also starts with `+++ `.
+  let inHeader = false;
   for (const line of diffText.split(/\r?\n/)) {
-    if (line.startsWith('+++ ')) {
+    if (line.startsWith('diff --git ')) { file = null; inHeader = true; continue; }
+    if (inHeader && line.startsWith('+++ ')) {
       // git ends the header with a TAB when the path contains a space.
       const target = unquote(line.slice(4).replace(/\t$/, ''));
       file = target === '/dev/null' ? null : target.replace(/^b\//, '');
       continue;
     }
-    if (line.startsWith('diff --git ')) { file = null; continue; }
+    if (line.startsWith('@@')) inHeader = false;
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (!hunk || !file) continue;
     const start = Number(hunk[1]);
@@ -96,7 +100,7 @@ async function main(argv, { cwd = process.cwd(), out = console.log, err = consol
   let diffText;
   try {
     ({ stdout: diffText } = await execFileAsync('git', [
-      '-c', 'core.quotepath=false', 'diff', '--unified=0', '--find-renames',
+      '-c', 'core.quotepath=false', 'diff', '--unified=0', '--find-renames', '--text', '--no-ext-diff', '--no-textconv',
       `${base}...${head}`, '--', SPEC_DIR,
     ], { cwd, maxBuffer: 256 * 1024 * 1024 }));
   } catch (e) {

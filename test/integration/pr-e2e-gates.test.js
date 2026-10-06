@@ -105,7 +105,7 @@ describe('PR e2e gates against a temp git repo', () => {
     git(dir, ['checkout', '-q', 'base']);
     const r = await run(LINT, dir, ['base', 'pr']);
     expect(r.code).toBe(2);
-    expect(r.stderr).toMatch(/test\/e2e\/new\.spec\.js/);
+    expect(r.stderr).toMatch(/test\/e2e\/new\.spec\.js.*not in the working tree/);
   });
 
   it('exits 2 for a changed TypeScript e2e file', async () => {
@@ -135,5 +135,45 @@ describe('PR e2e gates against a temp git repo', () => {
     const r = await run(script, dir, ['nosuchref', 'HEAD']);
     expect(r.code).toBe(2);
     expect(r.stderr).toMatch(/git diff nosuchref\.\.\.HEAD failed/);
+  });
+
+  it('catches a wait in a later hunk after an added line that starts with "++ "', async () => {
+    const lines = ['const a = 1;', 'x;', 'x;', 'x;', 'x;', 'x;', 'x;', 'x;', 'x;', 'x;', 'x;', 'x;', ''];
+    write(dir, 'test/e2e/h.spec.js', lines.join('\n'));
+    commitAll(dir, 'h base');
+    git(dir, ['branch', '-f', 'base', 'HEAD']);
+    const edited = [...lines];
+    edited.splice(1, 0, '++ globalThis.n;');
+    edited.splice(12, 0, 'async function f(page) { await page.waitForTimeout(5); }');
+    write(dir, 'test/e2e/h.spec.js', edited.join('\n'));
+    commitAll(dir, 'h head');
+    const r = await run(LINT, dir, ['base', 'HEAD']);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toMatch(/^::error file=test\/e2e\/h\.spec\.js,line=13::/m);
+  });
+
+  it('lints a spec containing a NUL byte that git would call binary', async () => {
+    write(dir, 'test/e2e/n.spec.js', 'async function f(page) { await page.waitForTimeout(5); }\n// \u0000\n');
+    commitAll(dir, 'nul');
+    const r = await run(LINT, dir, ['base', 'HEAD']);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toMatch(/^::error file=test\/e2e\/n\.spec\.js,line=1::/m);
+  });
+
+  it('lints a spec a PR-added .gitattributes marks -diff', async () => {
+    write(dir, '.gitattributes', 'test/e2e/*.js -diff\n');
+    write(dir, 'test/e2e/g.spec.js', 'async function f(page) { await page.waitForTimeout(5); }\n');
+    commitAll(dir, 'attr');
+    const r = await run(LINT, dir, ['base', 'HEAD']);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toMatch(/^::error file=test\/e2e\/g\.spec\.js,line=1::/m);
+  });
+
+  it.each(['x.mjsx', 'x.cjsx', 'x.mtsx', 'x.ctsx'])('exits 2 for a changed %s e2e file', async (name) => {
+    write(dir, `test/e2e/${name}`, 'export {};\n');
+    commitAll(dir, 'odd ext');
+    const r = await run(LINT, dir, ['base', 'HEAD']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/TypeScript e2e files are not linted/);
   });
 });

@@ -89,6 +89,23 @@ describe('addedLines', () => {
   });
 });
 
+describe('addedLines, header state', () => {
+  it('does not treat an added line "++ x" as a file header', () => {
+    const diff = [
+      'diff --git a/test/e2e/a.spec.js b/test/e2e/a.spec.js',
+      '--- a/test/e2e/a.spec.js',
+      '+++ b/test/e2e/a.spec.js',
+      '@@ -1,0 +2 @@',
+      '+++ globalThis.n;',
+      '@@ -9,0 +11 @@',
+      '+await page.waitForTimeout(1);',
+    ].join('\n');
+    const added = addedLines(diff);
+    expect([...added.keys()]).toEqual(['test/e2e/a.spec.js']);
+    expect([...added.get('test/e2e/a.spec.js')]).toEqual([2, 11]);
+  });
+});
+
 describe('addedLines, spaced path', () => {
   it('strips the trailing TAB git puts after a +++ header with a space in the path', () => {
     const diff = [
