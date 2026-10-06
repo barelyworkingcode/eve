@@ -65,8 +65,9 @@ const readJson = async (f) => { try { return JSON.parse(await fs.promises.readFi
 const dirs = [];
 let h;
 beforeEach(() => jest.useFakeTimers());
-afterEach(() => {
-  h?.cos.stop();
+afterEach(async () => {
+  // stop() settles once queued writes are on disk; removing the dir first races them.
+  await h?.cos.stop();
   for (const d of dirs.splice(0)) if (d && d.startsWith(os.tmpdir())) fs.rmSync(d, { recursive: true, force: true });
   h = null;
 });

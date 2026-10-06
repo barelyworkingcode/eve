@@ -715,7 +715,7 @@ class ChiefOfStaff {
       return { text: out && typeof out.text === 'string' ? out.text : '' };
     } catch (err) {
       const code = (err && err.code) || 'turn_failed';
-      this.log.warn(`Chief of Staff model turn failed: ${code}`);
+      this.log.warn(`Chief of Staff model turn failed: ${code}${err && err.message ? ` (${cut(err.message, 500)})` : ''}`);
       if (FATAL_MODEL_CODES.has(code)) this._setOff({ reason: code, detail: cut(err.message || '', 200) });
       this._emitStatus();
       return { error: code };
