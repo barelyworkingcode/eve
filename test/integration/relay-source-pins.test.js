@@ -131,6 +131,7 @@ const PINS = [
   ['the origin constant', 'internal/sessions/types/provider.go', 'OriginChiefOfStaff = "chief-of-staff"', "origin: 'chief-of-staff'"],
   ['the live user_message frame carries the origin', 'internal/sessions/session/manager.go', 'frame["origin"] = origin', "type: 'user_message', sessionId, text, ...(origin"],
   ['a rejoined history row carries the origin', 'internal/sessions/api/ws_session.go', 'history = session.MarkOrigins(h, messages)', 'historyUser'],
+  ['a list row carries headless only when true', 'internal/sessions/session/manager.go', 'Headless bool `json:"headless,omitempty"`', 'if (sess.headless === true) out.headless = true;'],
   ['a headless non-agent session is unlisted', 'internal/sessions/session/manager.go', 'return !sess.Headless || sess.Agent', 'unlistedIds'],
   ['the turn_done frame type', 'internal/sessions/events/ws_messages.go', 'WSMsgTurnDone             = "turn_done"', "type: 'turn_done'"],
   ['the turn_done frame carries the excerpt', 'internal/sessions/api/ws_session.go', '"excerpt":   d.Excerpt,', 'excerpt = '],

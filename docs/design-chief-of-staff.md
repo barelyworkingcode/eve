@@ -12,6 +12,7 @@ relay has no "no tools" switch. eve gets the same result in three steps (D1):
 
 1. The session is created with `settings.permissionPolicy.deniedTools = [...BUILTIN_TOOLS, ...extra]`. relay maps that to Claude's `--disallowedTools` and its hook preflight denies the same names. The session is `headless`, has no `agent` (so it stays out of the session list) and no `useRelayTools`.
 2. A bootstrap prompt with no agent data is the first message. The session's `system/init` frame must arrive before `message_complete`, or the launch fails with `tools_unverified`. Agent text is never sent before this passes.
+   Only an `init` whose `tools` is an array counts. A `null` or missing list (relay's pi and codex providers send `"tools": null`) is "unknown" and fails the same way.
 3. If `init.tools` is not empty, eve relaunches once with those names added to the deny list. If it is still not empty the model stays off (`tools_present`). A later `init` with tools kills the session the same way.
 
 Alerts keep posting as templates while the model is off.
@@ -53,12 +54,24 @@ A trigger is a `session_state` entering `asking|errored|stalled`, or a `turn_don
 | errored | `<label> stopped with an error` | Open it to see what happened. |
 | stalled | `<label> has gone quiet` | It hasn't printed anything for 5 minutes. |
 
+## Two model sessions: wake and person
+A model session keeps its context. With one session, a hostile excerpt read in an earlier wake turn could still sit in that context when the person types a message, and could steer the reply of that later turn into a send. So there are two sessions, never sharing context:
+
+- **Wake model** reads agent excerpts (inside `<agent_data>`). Its replies can only become posts; a `send` in a wake reply is ignored.
+- **Person model** sees only the person's own text and the quoted roster. It never sees an excerpt. Only its reply may produce a send, and eve still checks the target against a roster refetched just before the prompt.
+
+Both are `ChiefOfStaffModel` instances: launched lazily on their first turn, each with the deny list and the fail-closed tool check, each named `__cos:<12 hex>` (unlisted), each counted against the same daily limit (a person turn costs a bootstrap of its own on first use). The reader ignores both ids, and the roster also skips `__search:` sessions. Both ids are kept in `data/chief-of-staff-state.json` (`modelSessionId` for the wake model, `personSessionId`) and DELETEd best effort at the next start. A tool-check failure on either session turns the model off for both.
+
+The roster refetch before a person turn replaces the roster's membership (a session that is gone drops out) and keeps the known states of the rows still listed.
+
 ## Model session behaviour
-- One long-lived session, launched lazily on the first turn, named `__cos:<12 hex>`. The previous run's session id is DELETEd best effort before launch.
+- Each session is launched lazily on its first turn, named `__cos:<12 hex>`. The previous run's session id is DELETEd best effort before launch.
 - It joins its own unscoped `/ws` and handles only frames carrying its session id. Reply text is the `text_delta`s up to `message_complete`.
 - `error`, `process_exited`, `resume_required` or a closed socket reject the turn and end the session; the next turn launches a fresh one. A timeout sends `stop_generation`, rejects with `timeout` and also ends the session, because the late `message_complete` would otherwise land in the next turn.
 - `countCall()` runs before every `send_message`, the bootstrap included. A `false` rejects with `limit` and sends nothing.
 - Turns are serialised inside the class.
+- State file: `{day, calls, modelSessionId, personSessionId, limitNoticeDay}`. `limitNoticeDay` keeps the once-a-day limit notice from repeating after a restart. `stop()` returns a promise that settles when queued post and state writes are on disk; graceful shutdown waits for it (2 s at most).
+- A refused scoped `/ws` upgrade gives no close or error event, so the reader handles `unexpected-response` itself: 403 turns the thread off (`scope_refused`), any other status retries with backoff. The backoff resets only after the roster list has been read.
 - Error codes: `limit`, `launch_failed`, `tools_present`, `tools_unverified`, `turn_failed`, `timeout`, `disconnected`.
 
 ## Decisions

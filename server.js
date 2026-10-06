@@ -555,7 +555,8 @@ function gracefulShutdown(signal) {
   authService.stop();
   passkeySync.stop();
   routineFailureWatcher.stop();
-  chiefOfStaff.stop();
+  // Resolves once its queued post and state writes are on disk.
+  const cosFlushed = chiefOfStaff.stop();
   hostPool.disconnectAll();
   server.closeAllConnections?.();
   httpServer?.closeAllConnections?.();
@@ -563,7 +564,8 @@ function gracefulShutdown(signal) {
   if (httpServer) httpServer.close();
 
   serverLog.info('Shutdown complete');
-  process.exit(0);
+  // Bounded wait so a stuck disk cannot hold the exit.
+  Promise.race([cosFlushed, new Promise((r) => setTimeout(r, 2000))]).finally(() => process.exit(0));
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

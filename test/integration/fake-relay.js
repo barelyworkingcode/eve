@@ -359,6 +359,8 @@ function createFakeRelay({ token = null } = {}) {
     if (sess.host) out.host = sess.host;
     // manager.go Summary.Attention: omitted for a session relay does not track.
     if (sess.attention) out.attention = sess.attention;
+    // manager.go Summary.Headless: `omitempty`, so only a headless session carries it.
+    if (sess.headless === true) out.headless = true;
     return out;
   };
 

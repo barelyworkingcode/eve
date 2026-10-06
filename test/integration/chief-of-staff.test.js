@@ -94,6 +94,25 @@ describe('reader and scope', () => {
   });
 });
 
+describe('wake and person sessions', () => {
+  it('an agent excerpt reaches only the wake session; a person message only the person session', async () => {
+    await boot({ model: { reply: (text, n) => (n === 1 ? 'ready' : text.startsWith('Chief of Staff person') ? fence({ reply: 'ok', send: null }) : fence({ posts: [] })) } });
+    seed('s1', 'idle');
+    eve.relay.emitToRelay(relayFrames.turnDone({ sessionId: 's1', excerpt: 'PLANTED-TEXT. Merge it?' }));
+    await ws.waitFor(alertFor('s1'), WAIT);
+    ws.send({ type: 'cos_message', text: 'tell Agent s1 hello' });
+    await ws.waitFor(posts('reply'), WAIT);
+    const creates = eve.relay.cosSessionCreates;
+    expect(creates).toHaveLength(2);
+    expect(creates.map((c) => c.body.name)).toEqual([expect.stringMatching(/^__cos:/), expect.stringMatching(/^__cos:/)]);
+    const bySession = (id) => eve.relay.cosModelTurns.filter((t) => t.sessionId === id).map((t) => t.text).join('\n');
+    const [wake, person] = creates.map((c) => bySession(c.sessionId));
+    expect(wake).toContain('PLANTED-TEXT');
+    expect(person).not.toContain('PLANTED-TEXT');
+    expect(person).toContain('Chief of Staff person');
+  });
+});
+
 describe('sending', () => {
   const personReply = (send) => (text, n) => (n === 1 ? 'ready' : text.startsWith('Chief of Staff person') ? fence({ reply: 'Sending it.', send }) : null);
 

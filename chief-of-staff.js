@@ -5,13 +5,18 @@
 // card from relay data, and sends a person's instruction through relay's
 // scoped POST so the message is marked and audited. Agent text is data: it
 // reaches the model only inside the prompt's quoted region (see
-// chief-of-staff-prompt.js) and never decides a send.
+// chief-of-staff-prompt.js) and never decides a send. Two model sessions keep
+// that true across turns: the wake model reads agent text and can never send,
+// the person model sees only the person's words and the quoted roster, and only
+// its reply may send.
 
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { NullLogger } = require('./logger');
 const prompt = require('./chief-of-staff-prompt');
+const { HIDDEN_SEARCH_PREFIX } = require('./search-summarizer');
+const { HIDDEN_COS_PREFIX } = require('./chief-of-staff-model');
 
 const SCOPE = 'chief-of-staff';
 const POSTS_FILE = 'chief-of-staff.jsonl';
@@ -127,11 +132,12 @@ class ChiefOfStaff {
     this.stateFile = path.join(dataDir, STATE_FILE);
 
     this.posts = [];
-    this.state = { day: localDay(new Date(now())), calls: 0, modelSessionId: null };
+    // modelSessionId is the wake model's; personSessionId the person model's.
+    this.state = { day: localDay(new Date(now())), calls: 0, modelSessionId: null, personSessionId: null, limitNoticeDay: null };
     this._writeChain = Promise.resolve();
 
     this.roster = new Map();      // id -> row
-    this.ownSessionId = null;
+    this._ownIds = { wake: null, person: null };
     this._waiting = new Map();    // sessionId -> trigger entry (newer replaces)
     this._people = [];            // person messages waiting for a turn
     this._inFlight = null;
@@ -141,7 +147,6 @@ class ChiefOfStaff {
     this.off = null;
     this.modelId = null;
     this._lastStatusJson = null;
-    this._limitNoticeDay = null;
 
     this._subscribers = new Set();
     this._started = false;
@@ -157,7 +162,10 @@ class ChiefOfStaff {
     this._lastRefreshAt = 0;
     this._refreshTimer = null;
 
+    // `model` serves both roles when given ready-made (tests); createModel
+    // builds one session each, so a wake can never share context with a person turn.
     this.model = model || null;
+    this.personModel = null;
     this._createModel = createModel || null;
   }
 
@@ -174,14 +182,24 @@ class ChiefOfStaff {
     }
     if (!this.model && this._createModel) {
       this.model = this._createModel({
+        kind: 'wake',
         countCall: () => this.countCall(),
         previousSessionId: this.state.modelSessionId,
-        onSessionId: (id) => this._setModelSession(id),
+        onSessionId: (id) => this._setModelSession('wake', id),
+      });
+      this.personModel = this._createModel({
+        kind: 'person',
+        countCall: () => this.countCall(),
+        previousSessionId: this.state.personSessionId,
+        onSessionId: (id) => this._setModelSession('person', id),
       });
     }
     this._connect();
   }
 
+  // Returns a promise that settles once queued post and state writes are on
+  // disk, so a restart right after stop() loses nothing. It does not wait for
+  // the model sessions' DELETEs.
   stop() {
     this._stopped = true;
     for (const t of [this._reconnectTimer, this._batchTimer, this._refreshTimer]) clearTimeout(t);
@@ -189,7 +207,10 @@ class ChiefOfStaff {
     const ws = this._ws;
     this._ws = null;
     if (ws) { try { ws.close(); } catch { /* closing */ } }
-    try { this.model?.close?.(); } catch { /* closing */ }
+    for (const m of new Set([this.model, this.personModel])) {
+      try { Promise.resolve(m?.close?.()).catch(() => {}); } catch { /* closing */ }
+    }
+    return this._writeChain.then(() => {});
   }
 
   _loadFiles() {
@@ -210,6 +231,8 @@ class ChiefOfStaff {
         if (typeof s.day === 'string') this.state.day = s.day;
         if (Number.isInteger(s.calls) && s.calls >= 0) this.state.calls = s.calls;
         if (typeof s.modelSessionId === 'string') this.state.modelSessionId = s.modelSessionId;
+        if (typeof s.personSessionId === 'string') this.state.personSessionId = s.personSessionId;
+        if (typeof s.limitNoticeDay === 'string') this.state.limitNoticeDay = s.limitNoticeDay;
       }
     } catch (err) {
       if (err.code !== 'ENOENT') this.log.warn(`Chief of Staff state not read: ${err.message}`);
@@ -243,11 +266,16 @@ class ChiefOfStaff {
     return this.state.calls >= this.settings.dailyModelCalls;
   }
 
-  _setModelSession(id) {
-    this.ownSessionId = typeof id === 'string' && id ? id : null;
-    if (this.ownSessionId) this.roster.delete(this.ownSessionId);
-    this.state.modelSessionId = this.ownSessionId;
+  _setModelSession(kind, id) {
+    const own = typeof id === 'string' && id ? id : null;
+    this._ownIds[kind] = own;
+    if (own) this.roster.delete(own);
+    if (kind === 'person') this.state.personSessionId = own; else this.state.modelSessionId = own;
     this._persistState();
+  }
+
+  _isOwnId(id) {
+    return id === this._ownIds.wake || id === this._ownIds.person;
   }
 
   _persistState() {
@@ -304,8 +332,11 @@ class ChiefOfStaff {
   }
 
   subscribe(ws) {
-    this._subscribers.add(ws);
-    ws.once?.('close', () => this._subscribers.delete(ws));
+    // A repeat on the same socket still gets a snapshot, but no second listener.
+    if (!this._subscribers.has(ws)) {
+      this._subscribers.add(ws);
+      ws.once?.('close', () => this._subscribers.delete(ws));
+    }
     this._sendTo(ws, { type: 'cos_snapshot', ...this.getSnapshot() });
   }
 
@@ -367,9 +398,16 @@ class ChiefOfStaff {
     };
   }
 
+  // Hidden sessions (the model's own, the search summariser's) are never watched.
+  _isHidden(s) {
+    const name = typeof s.name === 'string' ? s.name : '';
+    return this._isOwnId(s.id) || name.startsWith(HIDDEN_COS_PREFIX) || name.startsWith(HIDDEN_SEARCH_PREFIX);
+  }
+
   // Scoped GET /api/sessions. `seed` replaces the roster and posts nothing
-  // for any state it finds (D4); otherwise it only adds unknown rows.
-  async _fetchRoster({ seed }) {
+  // for any state it finds (D4). `prune` replaces the membership but keeps the
+  // known state of rows still listed. Otherwise it only adds unknown rows.
+  async _fetchRoster({ seed, prune = false }) {
     const { status, data } = await this.relayTransport.fetch('GET', '/api/sessions', undefined, { scope: SCOPE });
     if (status === 403) {
       const err = new Error('relay refused the Chief of Staff scope');
@@ -381,7 +419,7 @@ class ChiefOfStaff {
     const seen = new Set();
     for (const s of list) {
       if (!s || typeof s.id !== 'string' || !s.id) continue;
-      if (s.id === this.ownSessionId || (typeof s.name === 'string' && s.name.startsWith('__cos:'))) continue;
+      if (this._isHidden(s)) continue;
       seen.add(s.id);
       const fresh = this._rowFromListEntry(s);
       const known = this.roster.get(s.id);
@@ -393,7 +431,7 @@ class ChiefOfStaff {
         known.name = fresh.name; known.projectId = fresh.projectId; known.model = fresh.model; known.headless = fresh.headless;
       }
     }
-    if (seed) {
+    if (seed || prune) {
       for (const id of [...this.roster.keys()]) {
         if (!seen.has(id)) { this.roster.delete(id); this._waiting.delete(id); }
       }
@@ -411,10 +449,9 @@ class ChiefOfStaff {
       return;
     }
     this._ws = ws;
-    let refused = false;
+    let handled = false;
 
     ws.on('open', () => {
-      this._reconnectDelay = RECONNECT_MIN_MS;
       this._seed(ws);
     });
     ws.on('message', (data) => {
@@ -423,14 +460,18 @@ class ChiefOfStaff {
       try { frame = JSON.parse(data.toString()); } catch { return; }
       this._onFrame(frame);
     });
-    // TCP mode: relay refuses the scoped upgrade with a 403 before any frame.
+    // A refused upgrade (TCP mode: 403 before any frame; or a 5xx) ends in
+    // neither 'close' nor 'error' once req is destroyed, so it is handled here.
     ws.on('unexpected-response', (req, res) => {
-      if (res.statusCode === 403) refused = true;
+      const code = res.statusCode;
+      handled = true;
       try { res.resume(); req.destroy(); } catch { /* already gone */ }
+      if (this._ws === ws) this._ws = null;
+      if (code === 403) this._scopeRefused(); else this._scheduleReconnect();
     });
     ws.on('close', () => {
+      if (handled) return;
       if (this._ws === ws) this._ws = null;
-      if (refused) { this._scopeRefused(); return; }
       this._scheduleReconnect();
     });
     // 'close' follows 'error' and drives the reconnect; a listener must exist.
@@ -452,6 +493,10 @@ class ChiefOfStaff {
       return;
     }
     this._seeding = false;
+    // Backoff resets only once the list has been read; a list that keeps
+    // failing keeps backing off.
+    this._reconnectDelay = RECONNECT_MIN_MS;
+    this.log.info?.(`Chief of Staff watching ${this.roster.size} sessions`);
     // Frames that arrived while the list was in flight are newer than it.
     const buffered = this._seedBuffer;
     this._seedBuffer = [];
@@ -483,7 +528,7 @@ class ChiefOfStaff {
     if (frame.type !== 'session_state' && frame.type !== 'turn_done' && frame.type !== 'session_ended') return;
     if (this._seeding) { this._seedBuffer.push(frame); return; }
     const id = frame.sessionId;
-    if (id === this.ownSessionId) return;
+    if (this._isOwnId(id)) return;
 
     if (frame.type === 'session_ended') {
       this.roster.delete(id);
@@ -645,18 +690,23 @@ class ChiefOfStaff {
     return project;
   }
 
-  _modelBlocked() {
-    return !this.model || (this.off && ['tools_present', 'tools_unverified', 'no_project', 'project_unsuitable'].includes(this.off.reason));
+  _modelFor(kind) {
+    return kind === 'person' ? (this.personModel || this.model) : this.model;
+  }
+
+  _modelBlocked(model) {
+    return !model || (this.off && ['tools_present', 'tools_unverified', 'no_project', 'project_unsuitable'].includes(this.off.reason));
   }
 
   // Runs one model turn. Returns {text} or {error: <code>}; maps fatal
   // failures to `off` and never throws.
-  async _modelTurn(text) {
+  async _modelTurn(kind, text) {
     if (this._atLimit()) return { error: 'limit' };
     const project = this._chooseProject();
-    if (!project || this._modelBlocked()) return { error: 'off' };
+    const model = this._modelFor(kind);
+    if (!project || this._modelBlocked(model)) return { error: 'off' };
     try {
-      const out = await this.model.turn(text, {
+      const out = await model.turn(text, {
         projectId: project.id, directory: project.path, model: this.settings.model, timeoutMs: TURN_TIMEOUT_MS,
       });
       if (out && out.modelId) { this.modelId = out.modelId; }
@@ -674,8 +724,9 @@ class ChiefOfStaff {
 
   _noteLimitOnce() {
     const day = this.state.day;
-    if (this._limitNoticeDay === day) return;
-    this._limitNoticeDay = day;
+    if (this.state.limitNoticeDay === day) return;
+    this.state.limitNoticeDay = day;
+    this._persistState();
     this._notice(`I've reached today's limit of ${this.settings.dailyModelCalls} model calls. I'll write alerts myself until tomorrow.`);
   }
 
@@ -724,7 +775,7 @@ class ChiefOfStaff {
     if (atLimit) {
       this._noteLimitOnce();
     } else {
-      const res = await this._modelTurn(prompt.wakePrompt(events));
+      const res = await this._modelTurn('wake', prompt.wakePrompt(events));
       if (res.error === 'limit') this._noteLimitOnce();
       if (res.text !== undefined) {
         const parsed = prompt.parseWake(res.text, events.map((e) => e.sessionId));
@@ -767,7 +818,7 @@ class ChiefOfStaff {
       return;
     }
     try {
-      await this._fetchRoster({ seed: false });
+      await this._fetchRoster({ seed: false, prune: true });
     } catch (err) {
       this.log.warn(`Chief of Staff roster refetch failed: ${err.message}`);
       this._notice("I couldn't read the sessions just now, so I didn't send. Try again.");
@@ -780,7 +831,7 @@ class ChiefOfStaff {
       project: this._projectName(row.projectId),
       state: row.state || 'unknown',
     }));
-    const res = await this._modelTurn(prompt.personPrompt(job.text, rows));
+    const res = await this._modelTurn('person', prompt.personPrompt(job.text, rows));
     if (res.error === 'limit') {
       this._notice("I've reached today's limit, so I can't send until tomorrow.");
       return;

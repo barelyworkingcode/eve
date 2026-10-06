@@ -292,9 +292,12 @@ class ChiefOfStaffModel {
   _onEvent(s, ev) {
     if (!ev || typeof ev !== 'object') return;
     if (ev.type === 'system' && ev.subtype === 'init') {
-      s.sawInit = true;
       if (typeof ev.model === 'string' && ev.model) s.modelId = ev.model;
-      const tools = Array.isArray(ev.tools) ? ev.tools.filter((t) => typeof t === 'string') : [];
+      // Only a real list proves anything. relay's pi and codex providers send
+      // `"tools": null`; that is "unknown", and the bootstrap fails closed on it.
+      if (!Array.isArray(ev.tools)) return;
+      s.sawInit = true;
+      const tools = ev.tools.filter((t) => typeof t === 'string');
       // Anything listed, at any time, ends the session before more can be sent.
       if (tools.length > 0) {
         this._settle(s, new ModelError('tools_present', `The session lists tools: ${tools.join(', ')}`, { tools }));

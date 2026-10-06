@@ -113,6 +113,27 @@ describe('fail-closed tool check', () => {
     expect(relay.agentTextSent('AGENT-TEXT')).toBe(false);
   });
 
+  it('treats "tools": null as unverified, never sending agent text', async () => {
+    // relay's pi and codex providers report a null list: unknown, not empty.
+    const relay = makeRelay({ initScripts: [null] });
+    const wsFactory = relay.transport.createWebSocket;
+    relay.transport.createWebSocket = jest.fn((path, opts) => {
+      const ws = wsFactory(path, opts);
+      const send = ws.send;
+      ws.send = (json) => {
+        send(json);
+        const f = JSON.parse(json);
+        if (f.type === 'send_message' && f.text !== undefined && !relay.nullSent) {
+          relay.nullSent = true;
+          setImmediate(() => ws.emit('message', Buffer.from(JSON.stringify({ sessionId: 'm1', type: 'llm_event', event: { type: 'system', subtype: 'init', model: 'x', tools: null } }))));
+        }
+      };
+      return ws;
+    });
+    await expect(make(relay).turn('AGENT-TEXT', OPTS)).rejects.toMatchObject({ code: 'tools_unverified' });
+    expect(relay.agentTextSent('AGENT-TEXT')).toBe(false);
+  });
+
   it('gives up with tools_unverified when no tool list is ever reported, never sending agent text', async () => {
     const relay = makeRelay({ initScripts: [null] });
     await expect(make(relay).turn('AGENT-TEXT', OPTS)).rejects.toMatchObject({ code: 'tools_unverified' });
