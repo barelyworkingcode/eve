@@ -73,6 +73,9 @@ test.describe('G7 files', () => {
       const shown = await text.textContent();
       return written.some((w) => shown.includes(w));
     }, { timeout: 15000 }).toBe(true);
+    // The last write is past the window too; wait for it so no change of ours is
+    // still in flight when the next step dirties the buffer.
+    await expect(text).toContainText(written[written.length - 1]);
     await expect(banner).toBeHidden();
 
     // A dirty editor asks; Reload takes the outside version.
