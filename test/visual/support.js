@@ -134,6 +134,57 @@ async function openSidebarIfNarrow(page, viewport) {
   await btn.click();
 }
 
+// Upper bound for the settle loop; a frame that still changes after this is a
+// real instability, not a slow boot.
+const SETTLE_TIMEOUT_MS = 10000;
+
+/**
+ * Waits until the app has finished booting: <html data-ready="1">, no Today
+ * part still loading, and no rendered skeleton or file-tree loading row.
+ */
+async function waitForSettledApp(page) {
+  await page.waitForFunction(() => {
+    if (document.documentElement.dataset.ready !== '1') return false;
+    if (document.querySelector('[data-testid^="today-part-"][data-state="loading"]')) return false;
+    const busy = document.querySelectorAll('.today__skeleton, .file-tree__loading, .file-tree-loading');
+    return ![...busy].some((el) => el.getClientRects().length > 0);
+  }, undefined, { timeout: SETTLE_TIMEOUT_MS });
+}
+
+/**
+ * Forces a full re-raster by resizing the viewport 1px and back.
+ * Deliberate: Chromium leaves a stale row of the focus ring unpainted after a
+ * blur, and a visibility toggle would blur the focused Ask textarea. A 1px
+ * change never crosses the 600/1024 layout breakpoints.
+ */
+async function repaintAll(page) {
+  const raf2 = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const { width, height } = page.viewportSize();
+  await page.setViewportSize({ width: width + 1, height });
+  await raf2();
+  await page.setViewportSize({ width, height });
+  await raf2();
+}
+
+/**
+ * Captures until two consecutive PNG buffers are byte-equal, bounded by a
+ * deadline. Returns { buffer, captures }.
+ */
+async function settledScreenshot(page, { timeoutMs = SETTLE_TIMEOUT_MS, name = 'screenshot' } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let previous = null;
+  let captures = 0;
+  for (;;) {
+    const buffer = await page.screenshot({ fullPage: true, animations: 'disabled' });
+    captures += 1;
+    if (previous && previous.equals(buffer)) return { buffer, captures };
+    previous = buffer;
+    if (Date.now() >= deadline) {
+      throw new Error(`${name}: frame did not settle within ${timeoutMs}ms after ${captures} captures`);
+    }
+  }
+}
+
 async function blurActiveElement(page) {
   await page.evaluate(() => {
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -151,4 +202,8 @@ module.exports = {
   stubVoiceDaemons,
   openSidebarIfNarrow,
   blurActiveElement,
+  SETTLE_TIMEOUT_MS,
+  waitForSettledApp,
+  repaintAll,
+  settledScreenshot,
 };

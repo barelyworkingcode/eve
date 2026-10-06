@@ -17,18 +17,20 @@ const path = require('path');
 const {
   VIEWPORTS, THEMES, BASELINE_DIR, CURRENT_DIR, FREEZE_CSS,
   seedTheme, stubVoiceDaemons, openSidebarIfNarrow, blurActiveElement,
+  waitForSettledApp, repaintAll, settledScreenshot,
 } = require('./support');
 
 const OUT_DIR = process.env.VISUAL_MODE === 'current' ? CURRENT_DIR : BASELINE_DIR;
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 async function shoot(page, name) {
-  // Let web fonts finish swapping and layout settle for two paints before
-  // the shutter, or text can render with sub-pixel-shifted glyphs mid
-  // font-swap, showing up as stray diff pixels on an otherwise-identical run.
+  await waitForSettledApp(page);
+  // Web fonts must finish swapping or glyphs render sub-pixel shifted.
   await page.evaluate(() => document.fonts.ready);
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  await page.screenshot({ path: path.join(OUT_DIR, `${name}.png`), fullPage: true, animations: 'disabled' });
+  await repaintAll(page);
+  const { buffer, captures } = await settledScreenshot(page, { name });
+  if (captures > 2) console.log(`[visual] ${name}: settled after ${captures} captures`);
+  fs.writeFileSync(path.join(OUT_DIR, `${name}.png`), buffer);
 }
 
 for (const viewport of VIEWPORTS) {
@@ -85,6 +87,8 @@ for (const viewport of VIEWPORTS) {
         const messages = page.getByTestId('messages-container');
         await expect(messages).toContainText('hello there');
         await expect(messages).toContainText('Hello from fake relay', { timeout: 15000 });
+        // The read-aloud button arrives with message_complete; shoot after it.
+        await expect(messages.locator('.tts-play-btn')).toHaveCount(1, { timeout: 15000 });
         await blurActiveElement(page);
         await shoot(page, `chat-${suffix}`);
 
