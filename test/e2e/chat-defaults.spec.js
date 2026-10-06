@@ -91,6 +91,7 @@ test.describe('chat defaults', () => {
       await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
       await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
     }
+    await page.waitForTimeout(1);
     await page.waitForTimeout(500);
     expect(eve.relay.sessionCreates).toHaveLength(0);
     hold.release();
