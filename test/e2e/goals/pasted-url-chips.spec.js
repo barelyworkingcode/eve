@@ -207,13 +207,13 @@ test.describe('chat input', () => {
     await expect(pop.locator('.cite-title')).toHaveJSProperty('textContent', 'Lighthouse <img src=x onerror=alert(1)> guide');
     await expect(pop.locator('.cite-excerpt')).toHaveJSProperty('textContent', 'Lighthouse The lighthouse is painted green & white. Visit <daily>.');
     await expect(pop.locator('img, iframe, script')).toHaveCount(0);
-    expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
     // A request the page made would reach the request log before this same-origin
     // sentinel does (events arrive in order), once two frames have painted.
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const sentinel = page.waitForRequest((r) => r.url().includes('/api/auth/status?barrier=1'));
     await page.evaluate(() => fetch('/api/auth/status?barrier=1'));
     await sentinel;
+    expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
     expect(offOrigin).toEqual([]);
   });
 

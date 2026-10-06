@@ -32,7 +32,6 @@ test.describe('Continue order with many active threads', () => {
     await expect(part(page, 'continue')).toHaveAttribute('data-state', 'ready');
     await expect(rows(page)).toHaveCount(6);
     await expect(rows(page).first()).toHaveAttribute('data-testid', 'home-session-s-new');
-    await expect(rows(page)).toHaveCount(6);
   });
 
   test('a thread opened here after any server activity ranks first', async ({ page }) => {
