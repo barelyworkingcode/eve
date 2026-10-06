@@ -133,6 +133,8 @@ Voice/TTS/STT: `voice_mode` (`{enabled, voice?, speed?}`), `tts_speak`, `tts_spe
 
 Diagnostics: `device_log` (`{lines: [...]}` — appended to a server-side log with timestamp and source IP; no reply frame).
 
+Chief of Staff (server-wide thread, all projects; authenticated sockets only): `cos_subscribe` (no fields; answered with `cos_snapshot`, and the socket then receives `cos_post` and `cos_status`), `cos_message` (`{text}`, 1 to 2000 characters after trim, else an `error` frame; rate-limited as expensive).
+
 ### Server → Client
 
 Connection: `pong` (reply to `ping`).
@@ -154,6 +156,10 @@ Terminals: `terminal_created` (`{terminalId, templateId, name, directory}`), `te
 Tasks (forwarded from relayScheduler): `task_started`, `task_completed`, `task_error`, `task_status`.
 
 Voice/TTS/STT: `tts_done`, `tts_error`, `transcription_result`, `transcription_error`.
+
+Chief of Staff: `cos_snapshot` (`{posts, status}` — the last 200 posts and the current `CosStatus`), `cos_post` (`{post}`), `cos_status` (`{status}`, sent when it changes). `status` is `{busy, watching, needYou, model, calls: {used, max}, off}`; `off` is null or `{reason, detail}`. A post is `{v:1, id, at, kind: alert|person|reply|sent|send_failed|notice, byModel, ...}`; an `alert` carries one `card` built by eve from relay data. See the Chief of Staff design doc.
+
+Relay scope: eve reads attention and sends for the Chief of Staff over relay's frontend socket with the per-request header `X-Relay-Scope: chief-of-staff` (`RelayTransport` option `scope`; any other value throws `RelayConfigError`). Only scoped `GET /api/sessions`, scoped listen-only `GET /ws` and `POST /api/chief-of-staff/messages` (`{sessionId, text}`, never `origin`; 202 on success) use it. The model session is unscoped. The scope names no credential.
 
 UI: `ui_command` (LLM-initiated tab control via the eve-control MCP), `auth_success`, `auth_failed`, `relay_status` (`{connected}` — the upstream relayLLM leg, not the browser↔eve link `#connectionStatus` already tracks; see reconnect semantics above).
 

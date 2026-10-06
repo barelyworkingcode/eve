@@ -24,6 +24,7 @@ const EnrollmentWindow = require('./enrollment-window');
 const PasskeySync = require('./passkey-sync');
 const { passkeySyncMode } = PasskeySync;
 const { createNotifier } = require('./notifier');
+const { ChiefOfStaff, parseChiefOfStaffSettings } = require('./chief-of-staff');
 const { RoutineFailureWatcher } = require('./routine-failure-watcher');
 const { Logger } = require('./logger');
 const { traceMiddleware } = require('./trace');
@@ -186,6 +187,7 @@ function loadSettings() {
           ...data.providerConfig.claude
         };
       }
+      if (data && data.chiefOfStaff !== undefined) settings.chiefOfStaff = data.chiefOfStaff;
       serverLog.info('Loaded settings');
     }
   } catch (err) {
@@ -240,6 +242,19 @@ const enrollmentWindow = new EnrollmentWindow({ relayTransport, log: log.child('
 const passkeySync = new PasskeySync({ authService, relayTransport, log: log.child('PasskeySync'), enabled: passkeySyncConfig.enabled });
 const notifier = createNotifier({ dataDir: DATA_DIR, log: log.child('Notifier') });
 const routineFailureWatcher = new RoutineFailureWatcher({ relayTransport, notifier, log: log.child('RoutineFailures') });
+// Server-wide Chief of Staff thread (docs/design-chief-of-staff.md). Reads
+// relay through a scoped, listen-only /ws; started with the other watchers.
+const chiefOfStaff = new ChiefOfStaff({
+  relayTransport,
+  resolveProject: (id) => projectCache.get(id) || null,
+  listProjects: () => [...projectCache.values()],
+  createModel: (opts) => new (require('./chief-of-staff-model').ChiefOfStaffModel)({
+    relayTransport, log: log.child('ChiefOfStaffModel'), ...opts,
+  }),
+  dataDir: DATA_DIR,
+  settings: parseChiefOfStaffSettings(settings.chiefOfStaff, serverLog),
+  log: log.child('ChiefOfStaff'),
+});
 if (!passkeySyncConfig.enabled) {
   serverLog.info('Passkey sync: off (EVE_PASSKEY_SYNC=off); no report or revocation poll to relay');
 }
@@ -426,6 +441,7 @@ wss.on('connection', createWsHandler({
   hostPool,
   ttsService,
   sttService,
+  chiefOfStaff,
   uiBus: uiCommandBus,
   log: log.child('WsHandler')
 }));
@@ -499,6 +515,7 @@ function startServing() {
     // /api/eve/passkeys/revocations poll back.
     passkeySync.start();
     routineFailureWatcher.start();
+    chiefOfStaff.start();
 
     if (httpServer) {
       // Loopback-only so DUAL_LISTEN cannot accidentally expose plaintext Eve
@@ -538,6 +555,7 @@ function gracefulShutdown(signal) {
   authService.stop();
   passkeySync.stop();
   routineFailureWatcher.stop();
+  chiefOfStaff.stop();
   hostPool.disconnectAll();
   server.closeAllConnections?.();
   httpServer?.closeAllConnections?.();

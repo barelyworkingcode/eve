@@ -32,6 +32,19 @@ class RelayConfigError extends Error {
   }
 }
 
+const SCOPE_HEADER = 'X-Relay-Scope';
+// The only scope relay grants. A scope narrows what the caller's own identity
+// may reach (relay answers 403 outside it); it never adds a credential.
+const SCOPES = new Set(['chief-of-staff']);
+
+function applyScope(headers, scope) {
+  if (scope === undefined) return;
+  if (typeof scope !== 'string' || !SCOPES.has(scope)) {
+    throw new RelayConfigError(`Unknown relay scope: ${JSON.stringify(scope)}`);
+  }
+  headers[SCOPE_HEADER] = scope;
+}
+
 class RelayTransport {
   // Does not validate; call assertStartupConfig() separately.
   static fromEnv({ env = process.env, log } = {}) {
@@ -126,9 +139,10 @@ class RelayTransport {
     }
   }
 
-  async fetch(method, path, body, { traceId } = {}) {
+  async fetch(method, path, body, { traceId, scope } = {}) {
     const url = this._buildUrl(this._httpBase, path);
     const headers = { 'Content-Type': 'application/json' };
+    applyScope(headers, scope);
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
@@ -147,10 +161,11 @@ class RelayTransport {
     return this._nodeRequest(url, opts);
   }
 
-  createWebSocket(wsPath = '/ws', { traceId } = {}) {
+  createWebSocket(wsPath = '/ws', { traceId, scope } = {}) {
     const url = this._buildUrl(this._wsBase, wsPath);
     const options = { agent: this.agent };
     const headers = {};
+    applyScope(headers, scope);
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     if (this.carriesTrace) headers[TRACE_HEADER] = acceptTraceId(traceId);
     if (Object.keys(headers).length > 0) options.headers = headers;
