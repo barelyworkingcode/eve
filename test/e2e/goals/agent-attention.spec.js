@@ -6,6 +6,7 @@
 const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
+const { watchSocket, waitHandled } = require('../socket-watch');
 const { relayFrames } = require('../../integration/protocol');
 
 const MODEL = 'claude-haiku-4-5-20251001';
@@ -99,14 +100,15 @@ test.describe('agent board states', () => {
   test('a frame for a session the refreshed list names shows a row; one the list never names shows none; turn_done changes nothing', async ({ page, eve }) => {
     await expect(rowIn(page, 'today', 'working', 's-run')).toBeVisible();
     eve.relay.seedSession(session('s-late', 'Latecomer'));
+    await watchSocket(page);
     await frame(eve.relay, 's-late', 'asking');
     await frame(eve.relay, 's-ghost', 'asking');
     await expect(rowIn(page, 'today', 'needs', 's-late')).toBeVisible(WITHIN_2S);
-    await page.waitForTimeout(1500);
+    await waitHandled(page, { type: 'session_state', sessionId: 's-ghost' });
     await expect(page.getByTestId('today-agent-s-ghost')).toHaveCount(0);
 
     await eve.relay.emitToRelay({ type: 'turn_done', sessionId: 's-run' });
-    await page.waitForTimeout(500);
+    await waitHandled(page, { type: 'turn_done', sessionId: 's-run' });
     await expect(rowIn(page, 'today', 'working', 's-run')).toHaveAttribute('data-state', 'running');
   });
 
