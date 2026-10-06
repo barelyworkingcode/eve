@@ -32,7 +32,7 @@ const EVE_TO_RELAY_TYPES = new Set([
 // Frames relay SENDS to eve that eve PARSES (vs. blindly forwards). These are
 // the only shapes we assert on — relay may send other types that eve passes
 // through to the browser untouched, so unknown types are NOT a contract error.
-const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error', 'process_exited', 'session_state']);
+const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error', 'process_exited', 'session_state', 'turn_done']);
 
 const relayFrames = {
   // ws_session.go handleJoinSession: the full frame. Defaults describe a live,
@@ -95,6 +95,21 @@ const relayFrames = {
   sessionState: ({ sessionId, state, since = '2026-10-05T10:00:00.000Z' }) =>
     ({ type: 'session_state', sessionId, state, since }),
 
+  // ws_session.go TurnDone: broadcast like session_state. `excerpt` is the end of the turn's reply,
+  // `at` an RFC 3339 UTC time with milliseconds.
+  turnDone: ({ sessionId, excerpt = '', at = '2026-10-05T10:00:00.000Z' }) =>
+    ({ type: 'turn_done', sessionId, excerpt, at }),
+
+  // The session's own system/init (events.go): `tools` lists what the session may call.
+  systemInit: ({ sessionId, model = 'claude-haiku-4-5-20251001', tools = [] }) =>
+    ({ type: 'llm_event', sessionId, event: { v: EVENT_PROTOCOL_VERSION, type: 'system', subtype: 'init', model, tools } }),
+
+  // manager.go SendMessageAs: the live user_message frame names the origin of a message the person
+  // did not type (only `chief-of-staff` exists); a person's message carries none.
+  userMessage: ({ sessionId, text, origin }) => ({ type: 'user_message', sessionId, text, ...(origin ? { origin } : {}) }),
+  // A history row of session_joined (ws_session.go MarkOrigins puts the origin back on a transcript row).
+  historyUser: ({ timestamp, content, origin }) => ({ timestamp, role: 'user', content, ...(origin ? { origin } : {}) }),
+
   // Control frames eve forwards verbatim. Field names verified against the
   // real relayLLM source, not guessed — earlier guesses (`tool`/`input`, raw
   // terminal `data`) were wrong and gave false confidence.
@@ -144,6 +159,10 @@ function validateRelayFrame(frame) {
     if (typeof frame.sessionId !== 'string' || !frame.sessionId) errors.push('session_state: missing sessionId');
     if (!['starting', 'running', 'idle', 'asking', 'errored', 'stalled', 'ended'].includes(frame.state)) errors.push(`session_state: unknown state ${frame.state}`);
     if (typeof frame.since !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(frame.since)) errors.push('session_state: since must be an RFC 3339 UTC time with milliseconds');
+  } else if (frame.type === 'turn_done') {
+    if (typeof frame.sessionId !== 'string' || !frame.sessionId) errors.push('turn_done: missing sessionId');
+    if (typeof frame.excerpt !== 'string') errors.push('turn_done: excerpt must be a string');
+    if (typeof frame.at !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(frame.at)) errors.push('turn_done: at must be an RFC 3339 UTC time with milliseconds');
   } else if (frame.type === 'error') {
     // resume_required is a distinct, typed refusal (relay ws_session.go
     // sendResumeRequired) that carries both a sessionId and a message.

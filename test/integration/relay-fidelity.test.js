@@ -947,3 +947,143 @@ describe('drop in as relay serves it (session_dropin.go, session/dropin.go, ws_t
     });
   });
 });
+
+describe('Chief of Staff scope and marked send (cmd/relay/api_credential.go, session_chief_of_staff.go)', () => {
+  let relay;
+  let base;
+  const SCOPE = { 'X-Relay-Scope': 'chief-of-staff' };
+  const post = (body, headers = SCOPE, raw) => fetch(`${base}/api/chief-of-staff/messages`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: raw ?? JSON.stringify(body),
+  });
+  const seed = (id, extra = {}) => relay.seedSession({ sessionId: id, name: id, projectId: 'p1', directory: '/tmp', model: 'claude-haiku-4-5-20251001', ...extra });
+
+  beforeEach(async () => {
+    relay = createFakeRelay();
+    base = `http://127.0.0.1:${await relay.listen()}`;
+    seed('s1');
+  });
+  afterEach(async () => { await relay.close(); });
+
+  it.each([
+    ['an unknown scope', 'GET', '/api/sessions', { 'X-Relay-Scope': 'admin' }],
+    ['a scoped request outside the reach', 'GET', '/api/projects', SCOPE],
+    ['a scoped write to sessions', 'POST', '/api/sessions', SCOPE],
+    ['the scoped send without the scope', 'POST', '/api/chief-of-staff/messages', {}],
+  ])('%s is a text/plain 403 Forbidden', async (_what, method, p, headers) => {
+    const res = await fetch(`${base}${p}`, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: method === 'POST' ? '{"sessionId":"s1","text":"x"}' : undefined });
+    expect(res.status).toBe(403);
+    expect(res.headers.get('content-type')).toMatch(/^text\/plain/);
+    expect(await res.text()).toBe('Forbidden\n');
+  });
+
+  it('a scoped list answers 200, and every request is logged with the scope it carried', async () => {
+    expect((await fetch(`${base}/api/sessions`, { headers: SCOPE })).status).toBe(200);
+    await fetch(`${base}/api/sessions`);
+    expect(relay.scopeLog).toEqual([
+      { method: 'GET', path: '/api/sessions', scope: 'chief-of-staff' },
+      { method: 'GET', path: '/api/sessions', scope: null },
+    ]);
+  });
+
+  it.each([
+    ['not JSON', undefined, '{oops', 400, 'invalid_body'],
+    ['not an object', undefined, '[]', 400, 'invalid_body'],
+    ['no sessionId', { text: 'hi' }, undefined, 400, 'session_id_required'],
+    ['whitespace text', { sessionId: 's1', text: ' \n\t' }, undefined, 400, 'text_required'],
+    ['over 64 KiB', undefined, JSON.stringify({ sessionId: 's1', text: 'x'.repeat(65 * 1024) }), 413, 'body_too_large'],
+    ['an unknown session', { sessionId: 'ghost', text: 'hi' }, undefined, 404, 'session_not_found'],
+  ])('%s: relay\'s {error, message} body', async (_what, body, raw, status, code) => {
+    const res = await post(body, SCOPE, raw);
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error: code, message: expect.any(String) });
+  });
+
+  it('an unlisted (headless, non-agent) session answers like an unknown one; a headless agent is listed', async () => {
+    relay.addProject({ id: 'p1', name: 'One', path: '/tmp' });
+    const made = await (await fetch(`${base}/api/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: 'p1', name: '__cos:aaaaaaaaaaaa', model: 'haiku', settings: { headless: true } }) })).json();
+    const agent = await (await fetch(`${base}/api/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: 'p1', name: 'agent', model: 'haiku', agent: true, settings: { headless: true } }) })).json();
+    const ids = (await (await fetch(`${base}/api/sessions`, { headers: SCOPE })).json()).sessions.map((s) => s.id);
+    expect(ids).toEqual(expect.arrayContaining(['s1', agent.sessionId]));
+    expect(ids).not.toContain(made.sessionId);
+    const res = await post({ sessionId: made.sessionId, text: 'hi' });
+    expect(res.status).toBe(404);
+  });
+
+  it('auditing off refuses with 503 audit_unavailable before any send', async () => {
+    relay.setAuditEnabled(false);
+    const res = await post({ sessionId: 's1', text: 'hi' });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe('audit_unavailable');
+  });
+
+  it('a forced host refusal keeps its status and code', async () => {
+    relay.failChiefOfStaffSend(409, 'already_processing', 'the session is already processing a message');
+    const res = await post({ sessionId: 's1', text: 'hi' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'already_processing', message: 'the session is already processing a message' });
+  });
+
+  it('a dropped-in session refuses with 409 dropped_in and relay\'s message', async () => {
+    relay.failChiefOfStaffSend(409, 'dropped_in', 'a terminal holds this session; close it first');
+    const res = await post({ sessionId: 's1', text: 'hi' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'dropped_in', message: 'a terminal holds this session; close it first' });
+  });
+
+  it('202 carries the constant origin, ignores one in the body, marks the live frame and the rejoined history', async () => {
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+    const frames = [];
+    ws.on('message', (d) => frames.push(JSON.parse(d.toString())));
+    await new Promise((r) => ws.once('open', r));
+    ws.send(JSON.stringify({ type: 'join_session', sessionId: 's1' }));
+    await relay.waitForInbound((m) => m.type === 'join_session');
+    await new Promise((r) => setTimeout(r, 50));
+
+    const res = await post({ sessionId: 's1', text: 'merge after CI', origin: 'someone' });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ sessionId: 's1', origin: 'chief-of-staff', at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) });
+    await new Promise((r) => setTimeout(r, 50));
+    const live = frames.find((f) => f.type === 'user_message');
+    expect(live).toEqual({ type: 'user_message', sessionId: 's1', text: 'merge after CI', origin: 'chief-of-staff' });
+
+    ws.send(JSON.stringify({ type: 'join_session', sessionId: 's1' }));
+    await new Promise((r) => setTimeout(r, 50));
+    const joinedFrames = frames.filter((f) => f.type === 'session_joined');
+    expect(joinedFrames[joinedFrames.length - 1].history).toEqual([expect.objectContaining({ role: 'user', content: 'merge after CI', origin: 'chief-of-staff' })]);
+    ws.close();
+  });
+
+  describe('the scoped /ws', () => {
+    const open = (headers) => new Promise((resolve) => {
+      const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`, { headers });
+      ws.on('open', () => resolve({ ws }));
+      ws.on('unexpected-response', (_req, res) => resolve({ status: res.statusCode }));
+      ws.on('error', () => {});
+    });
+
+    it('receives broadcast frames only, and a client frame closes it with 1008 and relay\'s reason', async () => {
+      const { ws } = await open(SCOPE);
+      const got = [];
+      ws.on('message', (d) => got.push(JSON.parse(d.toString())));
+      const closed = new Promise((r) => ws.on('close', (code, reason) => r({ code, reason: reason.toString() })));
+      relay.emitToRelay(relayFrames.sessionState({ sessionId: 's1', state: 'asking' }));
+      relay.emitToRelay(relayFrames.turnDone({ sessionId: 's1', excerpt: 'Ready?' }));
+      relay.emitToRelay(relayFrames.permissionRequest({ sessionId: 's1', permissionId: 'x', toolName: 'Bash', toolUseId: 't' }));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(got.map((f) => f.type)).toEqual(['session_state', 'turn_done']);
+      ws.send(JSON.stringify({ type: 'join_session', sessionId: 's1' }));
+      expect(await closed).toEqual({ code: 1008, reason: 'chief-of-staff scope is read-only' });
+      expect(relay.joinedSessions()).toEqual({});
+    });
+
+    it('an unknown scope on the upgrade is a 403', async () => {
+      expect((await open({ 'X-Relay-Scope': 'admin' })).status).toBe(403);
+    });
+  });
+
+  it('turn_done and system/init frames validate; a malformed turn_done does not', () => {
+    expect(validateRelayFrame(relayFrames.turnDone({ sessionId: 's1', excerpt: 'Ready?' }))).toEqual({ ok: true, errors: [] });
+    expect(validateRelayFrame(relayFrames.systemInit({ sessionId: 's1' }))).toEqual({ ok: true, errors: [] });
+    expect(validateRelayFrame({ type: 'turn_done', sessionId: 's1', excerpt: 5, at: '2026-10-05T10:00:00Z' }).ok).toBe(false);
+  });
+});

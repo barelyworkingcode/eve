@@ -47,6 +47,7 @@ for (const mod of [
   require('./search-messages'),
   require('./voice-messages'),
   require('./diagnostics-messages'),
+  require('./chief-of-staff-messages'),
 ]) {
   for (const d of mod) messages.register(d);
 }

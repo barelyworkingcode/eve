@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { parse: parseJsonc } = require('jsonc-parser');
 const { EveApi, added, onlyOutside } = require('./eve-api');
 const { acquire } = require('../scripts/browser-lock');
 const {
@@ -192,6 +193,13 @@ function authStatusProblem(status) {
   return null;
 }
 
+// Chief of Staff's daily call count and log live in the pinned dir; a run starts from none,
+// so sessions run between runs cannot use up the limit. Same guard as the owner reset.
+function chiefOfStaffResetPaths(dir, opts) {
+  ownerResetPaths(dir, opts);
+  return ['chief-of-staff-state.json', 'chief-of-staff.jsonl'].map(f => path.join(dir, f));
+}
+
 // Exactly the two owner files in the pinned dir, and only when that dir is
 // not the live eve's own data dir.
 function ownerResetPaths(dir, { liveDataDir = null } = {}) {
@@ -259,6 +267,33 @@ function journeyWorld(world, needs) {
     },
   });
   return { world: view, projects };
+}
+
+// Fixture setup (docs/design-devboxverify.md): the Chief of Staff journeys need
+// eve-verify to run the model on Haiku in the world's Acme project. Reads the
+// settings text as JSONC and keeps every other key; refuses text that does not
+// parse rather than overwrite it. Comments do not survive the rewrite.
+function chiefOfStaffSettings(text, projectId) {
+  if (typeof projectId !== 'string' || !projectId) throw new Error('no project id for the Chief of Staff settings');
+  let doc = {};
+  if (text && text.trim()) {
+    const errors = [];
+    doc = parseJsonc(text, errors, { allowTrailingComma: true });
+    if (errors.length || !doc || typeof doc !== 'object' || Array.isArray(doc)) {
+      throw new Error('settings.json is not a JSON object; not overwriting it');
+    }
+  }
+  const own = doc.chiefOfStaff && typeof doc.chiefOfStaff === 'object' && !Array.isArray(doc.chiefOfStaff) ? doc.chiefOfStaff : {};
+  return JSON.stringify({ ...doc, chiefOfStaff: { ...own, model: 'haiku', projectId, dailyModelCalls: 40 } }, null, 2) + '\n';
+}
+
+// The id of the one project record `relay grant --json` names `name`.
+function projectIdFromGrant(jsonText, name) {
+  let views;
+  try { views = JSON.parse(jsonText); } catch { throw new Error('relay grant printed unreadable JSON'); }
+  const hits = (Array.isArray(views) ? views : []).filter(v => v && v.kind === 'project' && v.name === name && typeof v.id === 'string' && v.id);
+  if (hits.length !== 1) throw new Error(`relay grant lists ${hits.length} projects named "${name}", want 1`);
+  return hits[0].id;
 }
 
 function journeyTimeout(timeoutMs, spentMs, budgetMs) {
@@ -580,6 +615,12 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       const real = dir => (dir && fs.existsSync(dir) ? fs.realpathSync(dir) : dir);
       const files = ownerResetPaths(real(dataDir), { liveDataDir: real(liveDataDir(listOut, liveCwd)) });
       for (const f of files) await fs.promises.rm(f, { force: true });
+      for (const f of chiefOfStaffResetPaths(path.dirname(files[0]), { liveDataDir: real(liveDataDir(listOut, liveCwd)) })) await fs.promises.rm(f, { force: true });
+      // The one settings write: fixture setup for the Chief of Staff journeys, in the pinned dir only.
+      const settingsFile = path.join(path.dirname(files[0]), 'settings.json');
+      const acmeId = projectIdFromGrant(await exec(relayBin, ['grant', '--project', world.projects.acme.name, '--json'], { timeout: 20000 }), world.projects.acme.name);
+      const current = await fs.promises.readFile(settingsFile, 'utf8').catch((err) => { if (err.code === 'ENOENT') return ''; throw err; });
+      await fs.promises.writeFile(settingsFile, chiefOfStaffSettings(current, acmeId));
       await exec(relayBin, ['service', 'restart', '--id', opts.service], { timeout: RESTART_TIMEOUT_MS });
       const deadline = Date.now() + OWNER_RESET_WAIT_MS;
       let status = null;
@@ -593,7 +634,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       const problem = authStatusProblem(status);
       if (problem) throw new Error(problem);
       if (status.enrolled !== false) throw new Error('eve still has an owner after the reset');
-      return 'owner removed; not enrolled';
+      return 'owner removed; not enrolled; Chief of Staff settings written';
     }],
   ];
   for (const [name, check] of checks) {
@@ -717,7 +758,7 @@ module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-  relayAuditRows, serviceLogReader,
+  relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths,
 };
 
 if (require.main === module) {

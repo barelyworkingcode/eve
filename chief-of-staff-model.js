@@ -1,0 +1,366 @@
+/**
+ * ChiefOfStaffModel - one long-lived, hidden relay session the Chief of Staff
+ * writes through. Design: docs/design-chief-of-staff.md.
+ *
+ * The session must have no tools. relay has no "no tools" switch, so eve sends
+ * a deny list of the built-ins and then checks the session's own `system/init`
+ * on a bootstrap turn that carries no agent data. A session whose tool list is
+ * not empty is relaunched once with those tools denied; if it still lists any,
+ * or never reports a list, the model stays off. Agent text is sent only after
+ * that check passes.
+ *
+ * Calls are unscoped on purpose: the model session is an ordinary session
+ * (no `agent`, so it stays unlisted), not part of the read-only scoped surface.
+ */
+const crypto = require('crypto');
+const { systemPrompt, bootstrapPrompt } = require('./chief-of-staff-prompt');
+
+const HIDDEN_COS_PREFIX = '__cos:';
+const DEFAULT_TURN_TIMEOUT_MS = 120 * 1000;
+const DEFAULT_OPEN_TIMEOUT_MS = 15 * 1000;
+
+// What a default Claude Code session lists in `system/init`, plus the older
+// built-in names a Claude Code release may still report. A name that does not
+// exist is harmless to deny. `mcp__*` denies every MCP tool: user-scope and
+// claude.ai connector servers differ per machine and still load in a headless
+// session, so naming them one by one is not enough. The init check stays the proof.
+const BUILTIN_TOOLS = Object.freeze([
+  'Agent', 'AskUserQuestion', 'Bash', 'BashOutput', 'CronCreate', 'CronDelete', 'CronList',
+  'DesignSync', 'Edit', 'EnterPlanMode', 'EnterWorktree', 'ExitPlanMode', 'ExitWorktree',
+  'Glob', 'Grep', 'KillShell', 'ListAgents', 'LSP', 'Monitor', 'MultiEdit', 'NotebookEdit',
+  'NotebookRead', 'PushNotification', 'Read', 'RemoteTrigger', 'ReportFindings',
+  'ScheduleWakeup', 'SendMessage', 'Skill', 'SlashCommand', 'Task', 'TaskCreate', 'TaskGet',
+  'TaskList', 'TaskStop', 'TaskUpdate', 'TodoWrite', 'ToolSearch', 'WebFetch', 'WebSearch',
+  'Workflow', 'Write', 'mcp__*',
+]);
+
+class ModelError extends Error {
+  // code: limit | launch_failed | tools_present | tools_unverified | turn_failed | timeout | disconnected
+  constructor(code, message, { tools } = {}) {
+    super(message || code);
+    this.name = 'ModelError';
+    this.code = code;
+    if (tools) this.tools = tools;
+  }
+}
+
+class ChiefOfStaffModel {
+  /**
+   * @param {object} opts
+   * @param {object} opts.relayTransport  RelayTransport; unscoped fetch + createWebSocket only
+   * @param {() => boolean} opts.countCall  counts one model call; false = daily limit reached
+   * @param {string|null} [opts.previousSessionId]  last run's session, DELETEd before the first launch
+   * @param {(id: string|null) => void} [opts.onSessionId]  called when the live session id changes
+   * @param {string[]} [opts.extraDeniedTools]
+   * @param {object} [opts.log]
+   * @param {number} [opts.openTimeoutMs]
+   */
+  constructor({ relayTransport, countCall, previousSessionId = null, onSessionId, extraDeniedTools = [], log, openTimeoutMs } = {}) {
+    if (!relayTransport) throw new Error('relayTransport required');
+    if (typeof countCall !== 'function') throw new Error('countCall required');
+    this.relayTransport = relayTransport;
+    this.countCall = countCall;
+    this.onSessionId = typeof onSessionId === 'function' ? onSessionId : () => {};
+    this.extraDeniedTools = Array.isArray(extraDeniedTools) ? extraDeniedTools.slice() : [];
+    this.log = log?.child ? log.child('ChiefOfStaffModel') : log;
+    this.openTimeoutMs = openTimeoutMs || DEFAULT_OPEN_TIMEOUT_MS;
+    this._previousSessionId = previousSessionId || null;
+    this._session = null;
+    this._chain = Promise.resolve();
+  }
+
+  get sessionId() { return this._session?.alive ? this._session.id : null; }
+  get modelId() { return this._session?.alive ? this._session.modelId : null; }
+
+  /** Serialised: one turn at a time. Resolves {text, modelId}; rejects ModelError. */
+  turn(text, { projectId, directory, model, timeoutMs } = {}) {
+    const run = () => this._turn(text, { projectId, directory, model, timeoutMs: timeoutMs || DEFAULT_TURN_TIMEOUT_MS });
+    const result = this._chain.then(run, run);
+    this._chain = result.catch(() => {});
+    return result;
+  }
+
+  /** Ends the session (DELETE, best effort). Safe to call twice. */
+  async close() {
+    await this._chain.catch(() => {});
+    if (this._session) await this._kill(this._session, 'close');
+  }
+
+  async _turn(text, opts) {
+    const key = `${opts.projectId}|${opts.model}|${opts.directory}`;
+    if (this._session?.alive && this._session.key !== key) await this._kill(this._session, 'config changed');
+    if (!this._session?.alive) await this._launch(opts, key);
+    const s = this._session;
+    const out = await this._exchange(s, text, opts.timeoutMs);
+    return { text: out, modelId: s.modelId };
+  }
+
+  // ---- launch -------------------------------------------------------------
+
+  async _launch(opts, key) {
+    if (this._previousSessionId) {
+      const old = this._previousSessionId;
+      this._previousSessionId = null;
+      await this._deleteSession(old);
+    }
+
+    let denied = [...BUILTIN_TOOLS, ...this.extraDeniedTools];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const s = await this._createSession(opts, key, denied);
+      this._session = s;
+      this.onSessionId(s.id);
+      try {
+        await this._bootstrap(s, opts.timeoutMs);
+        return;
+      } catch (err) {
+        await this._kill(s, err.code || 'bootstrap failed');
+        // First sight of tools: deny exactly what it lists and try once more.
+        if (err.code === 'tools_present' && attempt === 0 && err.tools?.length) {
+          denied = [...new Set([...denied, ...err.tools])];
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  async _createSession(opts, key, deniedTools) {
+    const name = `${HIDDEN_COS_PREFIX}${crypto.randomBytes(6).toString('hex')}`;
+    let res;
+    try {
+      res = await this.relayTransport.fetch('POST', '/api/sessions', {
+        projectId: opts.projectId,
+        directory: opts.directory,
+        name,
+        model: opts.model,
+        systemPrompt: systemPrompt(),
+        appendClaudeMd: false,
+        settings: { headless: true, permissionPolicy: { deniedTools } },
+      });
+    } catch (err) {
+      throw new ModelError('launch_failed', `Session create failed: ${err.message}`);
+    }
+    if (res.status < 200 || res.status >= 300 || typeof res.data?.sessionId !== 'string') {
+      const why = (res.data && res.data.error) || `status ${res.status}`;
+      throw new ModelError('launch_failed', `Session create failed: ${why}`);
+    }
+
+    const s = {
+      id: res.data.sessionId,
+      key,
+      ws: null,
+      alive: true,
+      modelId: null,
+      sawInit: false,
+      pending: null,
+    };
+    try {
+      await this._openSocket(s);
+    } catch (err) {
+      s.alive = false;
+      s.deleted = true;
+      await this._deleteSession(s.id);
+      throw err;
+    }
+    return s;
+  }
+
+  _openSocket(s) {
+    return new Promise((resolve, reject) => {
+      let ws;
+      try {
+        ws = this.relayTransport.createWebSocket('/ws');
+      } catch (err) {
+        reject(new ModelError('launch_failed', `Relay socket failed: ${err.message}`));
+        return;
+      }
+      s.ws = ws;
+      let opened = false;
+      const timer = setTimeout(() => {
+        if (opened) return;
+        try { ws.close(); } catch { /* already closed */ }
+        reject(new ModelError('launch_failed', 'Relay socket did not open in time'));
+      }, this.openTimeoutMs);
+      if (timer.unref) timer.unref();
+
+      ws.on('open', () => {
+        opened = true;
+        clearTimeout(timer);
+        this._send(s, { type: 'join_session', sessionId: s.id });
+        resolve();
+      });
+      ws.on('message', (data) => this._onFrame(s, data));
+      ws.on('error', (err) => {
+        if (!opened) {
+          clearTimeout(timer);
+          reject(new ModelError('launch_failed', `Relay socket failed: ${err.message}`));
+        }
+      });
+      ws.on('close', () => {
+        clearTimeout(timer);
+        if (!opened) {
+          reject(new ModelError('launch_failed', 'Relay socket closed before it opened'));
+          return;
+        }
+        if (s.alive) {
+          s.alive = false;
+          this._settle(s, new ModelError('disconnected', 'Relay socket closed'));
+          this._kill(s, 'socket closed');
+        }
+      });
+    });
+  }
+
+  // The tool check. Nothing but this prompt is sent until it passes.
+  async _bootstrap(s, timeoutMs) {
+    if (!this.countCall()) throw new ModelError('limit', 'Daily model-call limit reached');
+    await this._exchangeRaw(s, bootstrapPrompt(), timeoutMs);
+    if (!s.sawInit) {
+      throw new ModelError('tools_unverified', 'The session reported no tool list before it answered');
+    }
+  }
+
+  // ---- turns --------------------------------------------------------------
+
+  async _exchange(s, text, timeoutMs) {
+    if (!this.countCall()) throw new ModelError('limit', 'Daily model-call limit reached');
+    return this._exchangeRaw(s, text, timeoutMs);
+  }
+
+  _exchangeRaw(s, text, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const pending = { resolve, reject, deltas: '', blocks: '', timer: null };
+      pending.timer = setTimeout(() => {
+        this._send(s, { type: 'stop_generation', sessionId: s.id });
+        // The late message_complete would land in the next turn, so the session ends here.
+        this._settle(s, new ModelError('timeout', `Model turn timed out after ${Math.round(timeoutMs / 1000)}s`));
+        this._kill(s, 'timeout');
+      }, timeoutMs);
+      if (pending.timer.unref) pending.timer.unref();
+      s.pending = pending;
+      if (!this._send(s, { type: 'send_message', text, files: [], sessionId: s.id })) {
+        this._settle(s, new ModelError('disconnected', 'Relay socket is not open'));
+        this._kill(s, 'send failed');
+      }
+    });
+  }
+
+  _send(s, frame) {
+    const ws = s.ws;
+    if (!ws || ws.readyState !== 1) return false;
+    try {
+      ws.send(JSON.stringify(frame));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  _onFrame(s, data) {
+    let msg;
+    try { msg = JSON.parse(data.toString()); } catch { return; }
+    if (!msg || typeof msg !== 'object') return;
+    // Only this session's frames. The one frame type that may lack an id is
+    // `error`, and only while a turn is waiting, since this socket carries one session.
+    if (msg.sessionId && msg.sessionId !== s.id) return;
+    if (!msg.sessionId && msg.type !== 'error') return;
+
+    switch (msg.type) {
+      case 'llm_event':
+        this._onEvent(s, msg.event);
+        break;
+      case 'message_complete':
+        if (!s.pending) break;
+        if (msg.error) {
+          this._settle(s, new ModelError('turn_failed', String(msg.error)));
+        } else {
+          const p = s.pending;
+          this._settle(s, null, p.deltas || p.blocks);
+        }
+        break;
+      case 'error':
+      case 'process_exited':
+      case 'resume_required':
+        if (!s.pending && !msg.sessionId) break;
+        this._settle(s, new ModelError('turn_failed', String(msg.message || msg.error || msg.type)));
+        this._kill(s, msg.type);
+        break;
+      default:
+        break;
+    }
+  }
+
+  _onEvent(s, ev) {
+    if (!ev || typeof ev !== 'object') return;
+    if (ev.type === 'system' && ev.subtype === 'init') {
+      if (typeof ev.model === 'string' && ev.model) s.modelId = ev.model;
+      // Only a real list proves anything. relay's pi and codex providers send
+      // `"tools": null`; that is "unknown", and the bootstrap fails closed on it.
+      if (!Array.isArray(ev.tools)) return;
+      s.sawInit = true;
+      const tools = ev.tools.filter((t) => typeof t === 'string');
+      // Anything listed, at any time, ends the session before more can be sent.
+      if (tools.length > 0) {
+        this._settle(s, new ModelError('tools_present', `The session lists tools: ${tools.join(', ')}`, { tools }));
+        this._kill(s, 'tools present');
+      }
+      return;
+    }
+    if (ev.type !== 'assistant' || !s.pending) return;
+    // Deltas and whole blocks can both arrive; deltas win when present.
+    if (ev.delta?.type === 'text_delta' && typeof ev.delta.text === 'string') {
+      s.pending.deltas += ev.delta.text;
+    }
+    const content = ev.message?.content;
+    if (Array.isArray(content)) {
+      for (const b of content) {
+        if (b?.type === 'text' && typeof b.text === 'string') s.pending.blocks += b.text;
+      }
+    }
+  }
+
+  _settle(s, err, value) {
+    const p = s.pending;
+    if (!p) return;
+    s.pending = null;
+    clearTimeout(p.timer);
+    if (err) p.reject(err);
+    else p.resolve(value);
+  }
+
+  // ---- teardown -----------------------------------------------------------
+
+  _closeSocket(s) {
+    const ws = s.ws;
+    s.ws = null;
+    if (!ws) return;
+    try { ws.close(); } catch { /* already closed */ }
+  }
+
+  async _kill(s, reason) {
+    s.alive = false;
+    this._settle(s, new ModelError('disconnected', `Session ended: ${reason}`));
+    this._closeSocket(s);
+    if (this._session === s) this._session = null;
+    // Each session is deleted once, whichever path ended it first.
+    if (!s.deleted) {
+      s.deleted = true;
+      this.onSessionId(null);
+      await this._deleteSession(s.id);
+    }
+  }
+
+  async _deleteSession(sessionId) {
+    try {
+      await this.relayTransport.fetch('DELETE', `/api/sessions/${sessionId}`);
+    } catch (err) {
+      this.log?.warn?.(`Failed to delete session ${String(sessionId).slice(0, 8)}: ${err.message}`);
+    }
+  }
+}
+
+module.exports = ChiefOfStaffModel;
+module.exports.ChiefOfStaffModel = ChiefOfStaffModel;
+module.exports.ModelError = ModelError;
+module.exports.BUILTIN_TOOLS = BUILTIN_TOOLS;
+module.exports.HIDDEN_COS_PREFIX = HIDDEN_COS_PREFIX;

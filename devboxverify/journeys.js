@@ -2788,6 +2788,239 @@ async function agentDropIn(env) {
     + `it opened "${label}" with the conversation (${marker}); closing the tab brought back idle and ended the terminal`);
 }
 
+// — Chief of Staff (G6) --------------------------------------------------------
+
+// Relay's model value for Claude Haiku (internal/sessions/api/models.go); the
+// session's system/init reports it as COS_MODEL_ID.
+const COS_MODEL = 'haiku';
+const COS_MODEL_ID = 'claude-haiku-4-5-20251001';
+const COS_POST_WITHIN_MS = 90000;
+const COS_SENT_WITHIN_MS = 60000;
+
+// The newest Chief of Staff status the page's socket carried (a snapshot's or a
+// cos_status frame's), and every cos_post frame, in arrival order.
+function cosFrames(page) {
+  const seen = { status: null, posts: [] };
+  const take = (m) => {
+    if (!m) return;
+    if ((m.type === 'cos_snapshot' || m.type === 'cos_status') && m.status) seen.status = m.status;
+    if (m.type === 'cos_post' && m.post) seen.posts.push(m.post);
+  };
+  page.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
+    if (typeof payload !== 'string') return;
+    let frame;
+    try { frame = JSON.parse(payload); } catch { return; }
+    if (frame.type === '__batch' && Array.isArray(frame.msgs)) frame.msgs.forEach(take);
+    else take(frame);
+  }));
+  return seen;
+}
+
+// A listed Claude Haiku session in the project, in default permission mode,
+// made over a socket of eve's own so it can carry a name. A cleanup registered
+// before the wait deletes every session the call added, whatever the verdict.
+// Returns the id, or null when none was listed within 30 s.
+async function startCosAgent(env, name) {
+  const project = env.world.projects.acme;
+  const before = await acmeIds(env, 'sessions');
+  env.cleanup(`delete the ${project.name} agent session`, async () => {
+    for (const sid of addedIds(before, await acmeIds(env, 'sessions'))) await deleteSession(env, sid);
+  });
+  env.step('start the agent session');
+  const conn = await env.api._connect();
+  try {
+    conn.send({ type: 'create_session', projectId: project.id, model: COS_MODEL, name, settings: { permissionMode: 'default' } });
+    const added = await poll(async () => {
+      const ids = addedIds(before, await acmeIds(env, 'sessions'));
+      return ids.length ? ids : null;
+    }, { timeoutMs: 30000, intervalMs: 1000 });
+    return added && added.length === 1 ? { id: added[0] } : { count: added ? added.length : 0 };
+  } finally {
+    conn.close();
+  }
+}
+
+// Opens the session by its address and sends one message from its composer.
+async function sayToAgent(page, env, sessionId, text, marker) {
+  await openEve(page, env, `#session/${sessionId}`);
+  const input = page.getByTestId('chat-input');
+  env.step('wait for the composer');
+  await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
+  await input.fill(text, { timeout: 5000 });
+  env.step('send the message');
+  await page.getByTestId('chat-submit').click({ timeout: 5000 });
+  await need('the message is not shown as the user message', expect(
+    page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: marker }),
+  ).toBeVisible({ timeout: 10000 }));
+}
+
+async function openChiefOfStaff(page, env) {
+  env.step('open Chief of Staff');
+  await page.getByTestId('sidebar-chief-of-staff').click({ timeout: 10000 });
+  await need('the Chief of Staff thread did not open', expect(page.getByTestId('cos-page')).toBeVisible({ timeout: 10000 }));
+}
+
+async function cosAskingPost(env) {
+  const id = 'cos-asking-post';
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  const made = await startCosAgent(env, `verify-${env.nonce} asker`);
+  if (!made.id) return result(id, FAIL, `${made.count || 'no'} new sessions within 30s of create_session, expected 1`);
+  const sid = made.id;
+
+  // The request goes from a page of its own: a page that has joined the
+  // session shows its permission prompt as a modal over the thread.
+  const asker = await env.newPage();
+  await sayToAgent(asker, env, sid,
+    `Run this shell command with your Bash tool, then show me its output: echo verify-${env.nonce}`, env.nonce);
+  const askedAt = Date.now();
+  // Left open until the end: relay may settle a permission request once no
+  // browser holds the session, and the asking state would end before the post.
+  env.cleanup('close the asking page', () => asker.close());
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+
+  env.step('wait for the post');
+  const card = page.locator(`[data-testid^="cos-card-"][data-session-id="${sid}"][data-state="asking"]`);
+  const posted = await poll(async () => (await card.count() > 0 ? await card.first().getAttribute('data-testid') : null),
+    { timeoutMs: COS_POST_WITHIN_MS, intervalMs: 500 });
+  if (!posted) {
+    const states = [...new Set(await page.locator(`[data-testid^="cos-card-"][data-session-id="${sid}"]`).evaluateAll((els) => els.map((e) => e.dataset.state)))];
+    return result(id, FAIL, `no post with a card for the session in state asking within ${COS_POST_WITHIN_MS / 1000}s of the request `
+      + `(cards for it: ${states.join(', ') || 'none'}; ${page.url().includes('#chief-of-staff') ? 'thread open' : 'thread not open'})`);
+  }
+  const postId = posted.slice('cos-card-'.length);
+  const tookS = seconds(askedAt);
+  const problems = [];
+
+  env.step('look at the post');
+  const post = page.getByTestId(`cos-post-${postId}`);
+  if (await post.getByTestId(`cos-card-${postId}`).count() !== 1) problems.push('the card is not inside its post');
+  for (const act of ['answer', 'drop-in', 'open']) {
+    if (await page.getByTestId(`cos-${act}-${postId}`).count() !== 1) problems.push(`the card has no ${act} button`);
+  }
+  if (await page.getByTestId('cos-off').isVisible()) {
+    problems.push(`the thread says it is off: "${(await page.getByTestId('cos-off').innerText()).trim()}"`);
+  }
+  // The model id arrives with the first model turn; allow it a moment.
+  await poll(async () => seen.status && seen.status.model, { timeoutMs: 5000, intervalMs: 250 });
+  const model = seen.status && seen.status.model;
+  if (model !== COS_MODEL_ID) problems.push(`the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`);
+
+  env.step('click Open');
+  await page.getByTestId(`cos-open-${postId}`).click({ timeout: 5000 }).catch(() => problems.push('Open could not be clicked'));
+  const hash = `#session/${sid}`;
+  const landed = await expect.poll(() => new URL(page.url()).hash, { timeout: 10000 }).toBe(hash).then(() => true, () => false);
+  const tabbed = landed && await expect(page.getByTestId(`tab-${sid}`)).toBeVisible({ timeout: 15000 }).then(() => true, () => false);
+  const shown = tabbed && await expect(page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: env.nonce }))
+    .toBeVisible({ timeout: 15000 }).then(() => true, () => false);
+  if (!landed) problems.push(`the address is ${new URL(page.url()).hash || 'empty'} after Open, not ${hash}`);
+  else if (!tabbed) problems.push('Open changed the address but no tab opened for the session');
+  else if (!shown) problems.push('Open landed on the session but its thread does not show the request');
+
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `a post with an asking card for the session within ${tookS}s, with Answer, Drop in and Open; `
+    + `the Chief of Staff ran on ${model}; Open landed on the session`);
+}
+
+// The audit rows `relay audit` holds for one session_message target.
+async function sessionMessageRows(env, sessionId) {
+  const args = ['audit', '--event', 'session_message', '--grep', sessionId, '--json', '--tail', '50'];
+  const { stdout } = await exec(env.relayBin, args, { timeout: 10000, maxBuffer: 32 << 20 });
+  const rows = [];
+  for (const line of stdout.split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (!o || o.event !== 'session_message') continue;
+    const a = o.args && typeof o.args === 'object' ? o.args : {};
+    if (a.session_id === sessionId) rows.push({ phase: o.phase, outcome: o.outcome, origin: a.origin, id: o.id });
+  }
+  return rows;
+}
+
+// Null when the pair is as a send through the Chief of Staff leaves it.
+function sessionMessageProblem(rows) {
+  const intents = rows.filter((r) => r.phase === 'intent');
+  const dones = rows.filter((r) => r.phase === 'completion');
+  if (intents.length !== 1 || dones.length !== 1) return `${intents.length} intent and ${dones.length} completion session_message rows for the session, want 1 and 1`;
+  const bad = [...intents, ...dones].find((r) => r.origin !== 'chief-of-staff');
+  if (bad) return `a ${bad.phase} row has origin "${bad.origin || ''}", want chief-of-staff`;
+  if (!intents[0].id || intents[0].id !== dones[0].id) return 'the intent and completion rows do not share one id';
+  if (dones[0].outcome !== 'ok') return `the completion row's outcome is ${dones[0].outcome}, want ok`;
+  return null;
+}
+
+async function cosTellSendsMarked(env) {
+  const id = 'cos-tell-sends-marked';
+  const name = `verify-${env.nonce} target`;
+  const marker = `verify-${env.nonce}-cos`;
+  const page = await env.newPage();
+  const made = await startCosAgent(env, name);
+  if (!made.id) return result(id, FAIL, `${made.count || 'no'} new sessions within 30s of create_session, expected 1`);
+  const sid = made.id;
+
+  await sayToAgent(page, env, sid, `Reply with the single word ready. (verify ${env.nonce})`, env.nonce);
+  env.step('wait for the agent\'s turn to finish');
+  const stop = page.getByTestId('chat-stop');
+  const turn = await poll(async () => {
+    const r = replyAfter(await thread(page), env.nonce);
+    if (r.error) return r;
+    return r.reply && !(await stop.isVisible()) ? r : null;
+  }, { timeoutMs: 60000, intervalMs: 1000 });
+  if (!turn) return result(id, FAIL, 'the agent finished no turn within 60s');
+  if (turn.error) return result(id, FAIL, `error in the agent's thread: ${turn.error}`);
+
+  await openChiefOfStaff(page, env);
+  const tell = `Tell ${name} to reply with exactly: ${marker}`;
+  const input = page.getByTestId('cos-input');
+  await input.fill(tell, { timeout: 5000 });
+  env.step('press Return');
+  await input.press('Enter');
+  const modal = page.locator('.dialog:not(.hidden), [role="dialog"], [aria-modal="true"]');
+  let modalSeen = false;
+  const sentPost = page.locator('[data-testid^="cos-post-"][data-kind="sent"]').filter({ hasText: name });
+  const failedPost = page.locator('[data-testid^="cos-post-"][data-kind="send_failed"]');
+  env.step('wait for the Sent post');
+  const outcome = await poll(async () => {
+    if (await modal.first().isVisible().catch(() => false)) modalSeen = true;
+    if (await sentPost.count() > 0) return 'sent';
+    if (await failedPost.count() > 0) return 'failed';
+    return null;
+  }, { timeoutMs: COS_SENT_WITHIN_MS, intervalMs: 250 });
+  if (outcome === 'failed') {
+    const said = (await failedPost.first().innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+    return result(id, FAIL, `the thread posted a failed send instead of a Sent post: "${said}"`);
+  }
+  if (!outcome) return result(id, FAIL, `no Sent post naming "${name}" within ${COS_SENT_WITHIN_MS / 1000}s of Return`);
+  const problems = [];
+  if (modalSeen) problems.push('a dialog showed between Return and the Sent post');
+  if (await sentPost.first().getByTestId('cos-sent-chip').count() !== 1) problems.push('the Sent post has no "Sent by Chief of Staff" chip');
+
+  env.step('read relay audit');
+  let rows = [];
+  const audited = await poll(async () => {
+    rows = await sessionMessageRows(env, sid).catch(() => []);
+    return rows.some((r) => r.phase === 'completion') ? rows : null;
+  }, { timeoutMs: 10000, intervalMs: 500 });
+  const auditProblem = sessionMessageProblem(audited || rows);
+  if (auditProblem) problems.push(`relay audit: ${auditProblem}`);
+
+  env.step('open the agent\'s thread');
+  const other = await env.newPage();
+  await openEve(other, env, `#session/${sid}`);
+  const chip = other.getByTestId('message-origin-chip');
+  const chipped = await expect(chip.first()).toBeVisible({ timeout: 20000 }).then(() => true, () => false);
+  if (!chipped) problems.push('the agent\'s thread shows no message-origin-chip');
+
+  // Reported, not judged: whether the model followed the text.
+  const replied = await poll(async () => (await thread(other)).some((m) => m.who === 'message-assistant' && m.text.includes(marker)),
+    { timeoutMs: 10000, intervalMs: 1000 });
+  const said = replied ? `the agent replied with ${marker}` : `the agent had not replied with ${marker} within 10s (not judged)`;
+  if (problems.length) return result(id, FAIL, `${problems.join('; ')}; ${said}`);
+  return result(id, PASS, `a Sent post named the session with no dialog; relay audit holds one session_message intent and one completion `
+    + `from chief-of-staff; the agent's thread marks the message; ${said}`);
+}
+
 const auth = require('./journeys-auth').journeys;
 const toolSearch = require('./journeys-tool-search').journeys;
 
@@ -2830,6 +3063,8 @@ const journeys = [
   { id: 'ask-pasted-url', timeoutMs: 90000, areas: ['home', 'chat'], needs: ['project:acme'], run: askPastedUrl },
   { id: 'agent-board-states', timeoutMs: 150000, areas: ['home', 'chat'], needs: ['project:acme'], run: agentBoardStates },
   { id: 'agent-drop-in', timeoutMs: 150000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropIn },
+  { id: 'cos-asking-post', timeoutMs: 120000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosAskingPost },
+  { id: 'cos-tell-sends-marked', timeoutMs: 150000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosTellSendsMarked },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },
