@@ -74,7 +74,7 @@
 @keyframes agent-dot-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 /* base.css only shortens animations under reduced motion; these must not run at all. */
 @media (prefers-reduced-motion: reduce) {
-  .agent-row__dot, .agent-row__dot::after { animation: none; }
+  .agent-row__dot[data-state], .agent-row__dot[data-state]::after { animation: none; }
 }
 .agent-row__title {
   font-size: var(--text-body);

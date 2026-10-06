@@ -53,6 +53,11 @@ const PINS = [
   ['session list row uses id', 'internal/sessions/session/manager.go', 'ID            string            `json:"id"`', 'id: sess.sessionId'],
   ['session list row has live', 'internal/sessions/session/manager.go', '`json:"live"`', 'live: sess.live !== false'],
   ['session list row has messageCount', 'internal/sessions/session/manager.go', '`json:"messageCount"`', 'messageCount'],
+  // relay#232 (needles read from branch feat/232-agent-state; confirm against main once merged).
+  ['session list row has attention', 'internal/sessions/session/manager.go', 'Attention *attention.Attention `json:"attention,omitempty"`', 'out.attention = sess.attention'],
+  ['attention has a since key', 'internal/sessions/attention/board.go', 'Since string `json:"since"`', 'since'],
+  ['the session_state frame type', 'internal/sessions/events/ws_messages.go', 'WSMsgSessionState         = "session_state"', "type: 'session_state'"],
+  ['the session_state frame carries since', 'internal/sessions/api/ws_session.go', '"since":     attention.FormatTime(c.Since),', 'sessionState: ({ sessionId, state, since'],
   ['session create body key', 'internal/sessions/types/session.go', '`json:"sessionId"`', 'sessionId,'],
   ['session create body providerType', 'internal/sessions/types/session.go', '`json:"providerType"`', "providerType: 'claude'"],
   ['terminal created body has host', 'internal/sessions/terminal/types.go', 'Host       map[string]string `json:"host"`', 'host: null'],

@@ -564,6 +564,29 @@ that never calls `tool_search` is FAIL with the thread text, never loosened.
   line named `chat tool search` (or with an `active` field); Warn lines share
   its op and session id. The session match is the id anywhere in the line.
 
+**agent-board-states.** The agent board follows a Claude session's state on
+a phone (G6). A phone page (390x844, touch) opens on Today and records every
+`session_state` frame with its arrival time. A desktop page starts an Acme
+Corp Web Chat on the Haiku model (`haiku`, or any offered id containing it;
+the id goes in the detail) and sends `Count from 1 to 300, one number per
+line. (verify <nonce>)`. Within 2 s of the session's `running` frame,
+`today-agent-<id>` must sit in `today-agents-group-working` with
+`data-state="running"` and an animating dot ring (the dot's `::after`). After
+Stop, the `ended` frame must be followed within 2 s by the row in
+`today-agents-group-done` with no animation on the dot. The
+`nav-today-badge` must equal the number of rows in
+`today-agents-group-needs` and be hidden at 0. A tap on the row must make the
+address `#session/<id>` and show the question. PASS needs all of these.
+- Lives in: `public/agent-board.js` (`AgentBoard`, `AgentAttention`),
+  `public/apple/agents.css`; relay's `session_state` frames
+  (relay#232) -> eve's `message-dispatcher.js`.
+- Traps: BLOCKED when no Haiku model is offered, when the launch is refused
+  on the template, and when the count finished before Stop could be clicked
+  (unless step 4 already failed, then FAIL). `asking` is not judged: it needs
+  the model to call a tool under a gated policy, which makes it
+  model-dependent; the cloud spec covers Needs you. A cleanup deletes every
+  new Acme Corp session.
+
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates
 `verify-<nonce>-fails` in Acme Corp: on demand, `sessionType: 'pty'`,
@@ -634,6 +657,10 @@ judged.
   Corp's (presence-gated in Relay). The installed relayScheduler must
   support `useRelayTools`. The installed relayScheduler must support
   `outputFile` (relayScheduler#10).
+- **S2 · P9.** Acme Corp allows the `claude-code` template and the `haiku`
+  model, shared with relay's tool (relay#232's P9). agent-board-states is
+  BLOCKED without them, and needs a relay that sends `session_state` frames
+  (relay#232).
 - **S3 · V1.** An Acme Corp chat template `World voice`, mode Voice, model =
   `EVE_VERIFY_MODEL`, added from eve's Edit Project → Chat Templates.
 - **S3 · V2.** In Relay → Projects → Default projects: Work = Acme Corp,

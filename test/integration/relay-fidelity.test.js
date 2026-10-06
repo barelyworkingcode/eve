@@ -823,3 +823,40 @@ describe('GET /api/projects/:id/audit through eve', () => {
     } finally { await eve.stop(); }
   });
 });
+
+describe('agent state as relay serves it (manager.go Summary, ws_session.go StateChanged)', () => {
+  const ATTENTION = { state: 'asking', since: '2026-10-05T10:00:00.000Z' };
+
+  it('GET /api/sessions through eve returns `attention` unchanged and leaves it absent when relay sends none', async () => {
+    const eve = await startEve({ projects: [{ id: 'p1', name: 'One', path: os.tmpdir() }] });
+    try {
+      eve.relay.seedSession({ sessionId: 's-asking', directory: os.tmpdir(), projectId: 'p1', model: 'claude-haiku-4-5-20251001', name: 'a', attention: ATTENTION });
+      eve.relay.seedSession({ sessionId: 's-plain', directory: os.tmpdir(), projectId: 'p1', model: 'claude-haiku-4-5-20251001', name: 'b', live: false });
+      const sessions = await (await eve.get('/api/sessions')).json();
+      const byId = Object.fromEntries(sessions.map((s) => [s.id, s]));
+      expect(byId['s-asking'].attention).toEqual(ATTENTION);
+      expect('attention' in byId['s-plain']).toBe(false);
+    } finally { await eve.stop(); }
+  });
+
+  it('a session_state frame is valid, and reaches a browser socket that never joined, untouched', async () => {
+    const eve = await startEve({ projects: [{ id: 'p1', name: 'One', path: os.tmpdir() }] });
+    const bystander = await eve.connectWs();
+    try {
+      await eve.waitForRelayOpen(bystander);
+      const frame = relayFrames.sessionState({ sessionId: 'never-joined', state: 'stalled', since: ATTENTION.since });
+      expect(validateRelayFrame(frame)).toEqual({ ok: true, errors: [] });
+      eve.relay.emitToRelay(frame);
+      const got = await bystander.waitFor((f) => f.type === 'session_state');
+      expect(got).toEqual(frame);
+    } finally { await bystander.close(); await eve.stop(); }
+  });
+
+  it.each([
+    [{ type: 'session_state', state: 'running', since: '2026-10-05T10:00:00.000Z' }],
+    [{ type: 'session_state', sessionId: 's', state: 'napping', since: '2026-10-05T10:00:00.000Z' }],
+    [{ type: 'session_state', sessionId: 's', state: 'running', since: '2026-10-05T10:00:00Z' }],
+  ])('the validator refuses a malformed session_state %j', (frame) => {
+    expect(validateRelayFrame(frame).ok).toBe(false);
+  });
+});
