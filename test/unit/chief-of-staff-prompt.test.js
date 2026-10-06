@@ -126,6 +126,15 @@ describe('parsePerson', () => {
     expect(P.parsePerson(fence({ reply: 'Which one?', send: null }), ['s1'])).toEqual({ reply: 'Which one?', send: null, reason: null });
   });
 
+  it('reads a null reply beside a send as an empty reply', () => {
+    expect(P.parsePerson(fence({ reply: null, send: { sessionId: 's1', text: 'merge after CI' } }), ['s1']))
+      .toEqual({ reply: '', send: { sessionId: 's1', text: 'merge after CI' }, reason: null });
+  });
+
+  it('still refuses a reply that is neither text nor null', () => {
+    expect(P.parsePerson(fence({ reply: 42, send: { sessionId: 's1', text: 'x' } }), ['s1'])).toMatchObject({ send: null, reason: 'bad-shape' });
+  });
+
   it('caps reply at 400 and send text at 2000', () => {
     const r = P.parsePerson(fence({ reply: 'r'.repeat(900), send: { sessionId: 's1', text: 't'.repeat(5000) } }), ['s1']);
     expect(r.reply).toHaveLength(400);

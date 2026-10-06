@@ -236,9 +236,12 @@ function parsePerson(reply, rosterIds) {
   const got = extractJson(reply);
   if (got.reason) return { ...out, reason: got.reason };
   const v = got.value;
-  if (!isPlainObject(v) || typeof v.reply !== 'string') return { ...out, reason: 'bad-shape' };
+  // Haiku answers `"reply": null` when it has nothing to add to a send; that is
+  // an empty reply, not a malformed one.
+  const replyOk = typeof v?.reply === 'string' || v?.reply === null || v?.reply === undefined;
+  if (!isPlainObject(v) || !replyOk) return { ...out, reason: 'bad-shape' };
 
-  out.reply = clean(v.reply, CAPS.reply);
+  out.reply = typeof v.reply === 'string' ? clean(v.reply, CAPS.reply) : '';
   if (v.send === null || v.send === undefined) return out;
   if (!isPlainObject(v.send) || typeof v.send.sessionId !== 'string' || typeof v.send.text !== 'string') {
     return { ...out, reason: 'bad-shape' };

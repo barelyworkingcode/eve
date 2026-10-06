@@ -2657,7 +2657,9 @@ async function cosAskingPost(env) {
   await sayToAgent(asker, env, sid,
     `Run this shell command with your Bash tool, then show me its output: echo verify-${env.nonce}`, env.nonce);
   const askedAt = Date.now();
-  await asker.close();
+  // Left open until the end: relay may settle a permission request once no
+  // browser holds the session, and the asking state would end before the post.
+  env.cleanup('close the asking page', () => asker.close());
   await openEve(page, env);
   await openChiefOfStaff(page, env);
 
