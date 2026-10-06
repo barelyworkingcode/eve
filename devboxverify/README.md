@@ -587,6 +587,39 @@ address `#session/<id>` and show the question. PASS needs all of these.
   model-dependent; the cloud spec covers Needs you. A cleanup deletes every
   new Acme Corp session.
 
+**agent-drop-in.** A person drops in to a stuck headless agent from the
+board (eve#196). Over the harness's own eve socket (a second socket, so it
+gets the session's `llm_event` frames) the journey sends `create_session` for
+Acme Corp: model `haiku` (or any offered id containing it), name
+`verify-<nonce>-dropin`, settings `{headless: true, agent: true}`. A desktop
+page waits on Today. Turn 1 is `Reply with exactly: verify-<nonce>-done`;
+after the `idle` frame `system/init` must report
+`claude-haiku-4-5-20251001`. Turn 2 is `Count from 1 to 300, one number per
+line.`; on its `running` frame the journey SIGKILLs the `claude` process whose
+command line holds the `session_id` from `system/init` (fault injection on
+the test machine). The `errored` frame must follow. Within 2 s of it
+`today-drop-in-<id>` must show in `today-agents-group-needs`. A click must
+open an active tab named `verify-<nonce>-dropin (drop-in)` within 75 s, and
+the terminal must show `verify-<nonce>-done` (a folder-trust prompt is
+answered with Enter; nothing is ever typed into the terminal). Closing the
+tab must bring an `idle` frame within 15 s and take the terminal out of
+relay's list (the WebSocket `terminal_list`, as every journey reads it).
+PASS needs all of these.
+- Lives in: `public/agent-board.js` (`AgentBoard.dropIn`),
+  `public/terminal-manager.js` (`openDropIn`), `routes/index.js`
+  (`POST /api/sessions/:id/drop-in`); relay's drop-in (relay#239) and
+  `headless` on the session list (relay#241).
+- Traps: the kill must land mid-turn. An idle session whose process exits
+  reads `ended`, not `errored`, so a kill after the turn finished FAILs
+  (the detail says the turn had gone idle). The process is found by
+  `ps` command line, matching an executable named `claude` before the first
+  flag, so the shim or ssh client that carries the id is not killed. BLOCKED
+  when no Haiku model is offered for Acme Corp, or when relay's launch
+  authorisation refuses the `claude-code` template on create (an error
+  naming `template "`). Everything else is FAIL. A cleanup closes the new
+  Acme Corp terminal and deletes the new Acme Corp session. SSH-host
+  drop-in: needs a test-machine pass.
+
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates
 `verify-<nonce>-fails` in Acme Corp: on demand, `sessionType: 'pty'`,
@@ -661,6 +694,8 @@ judged.
   model, shared with relay's tool (relay#232's P9). agent-board-states is
   BLOCKED without them, and needs a relay that sends `session_state` frames
   (relay#232).
+  agent-drop-in needs the same, and a relay with drop-in (relay#239) that
+  lists `headless` on sessions (relay#241).
 - **S3 · V1.** An Acme Corp chat template `World voice`, mode Voice, model =
   `EVE_VERIFY_MODEL`, added from eve's Edit Project → Chat Templates.
 - **S3 · V2.** In Relay → Projects → Default projects: Work = Acme Corp,

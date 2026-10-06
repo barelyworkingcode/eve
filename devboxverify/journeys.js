@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { promisify, isDeepStrictEqual } = require('util');
+const WebSocket = require('ws');
 const { expect } = require('@playwright/test');
 const {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
@@ -2571,6 +2572,194 @@ async function agentBoardStates(env) {
     + `badge matched Needs you (${agree.n}); a tap opened the thread with the question`);
 }
 
+// — Agent drop-in (relay#239) --------------------------------------------------
+
+const DROP_IN_INIT_MODEL = 'claude-haiku-4-5-20251001';
+const DROP_IN_ROW_WITHIN_MS = 2000;
+const DROP_IN_TAB_WITHIN_MS = 75000;
+const DROP_IN_IDLE_WITHIN_MS = 15000;
+
+// The harness's own eve socket, authenticated as the run's owner. Deliberate: a
+// second socket, not the page's, because create_session joins the new session
+// on the socket that made it, and only a joined socket gets its llm_event
+// frames. Like EveApi._connect it is ready only once a terminal_list answers:
+// eve drops anything sent before its upstream relay socket is open.
+function openEveSocket(env) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(env.url.replace(/\/+$/, '').replace(/^http/, 'ws'));
+    const frames = [];
+    const send = (msg) => ws.send(JSON.stringify(msg));
+    let poller = null;
+    let ready = false;
+    const fail = (err) => { clearInterval(poller); clearTimeout(timer); ws.terminate(); reject(err); };
+    const timer = setTimeout(() => fail(new Error('eve WebSocket never reached relay within 10s')), 10000);
+    ws.on('open', () => send({ type: 'auth', token: env.session.token }));
+    ws.on('error', (err) => fail(new Error(`eve WebSocket: ${err.message}`)));
+    ws.on('message', (data) => {
+      let frame;
+      try { frame = JSON.parse(data.toString()); } catch { return; }
+      for (const msg of frame.type === '__batch' && Array.isArray(frame.msgs) ? frame.msgs : [frame]) {
+        if (msg.type === 'auth_failed') return fail(new Error('eve refused WebSocket auth'));
+        if (msg.type === 'error' && !ready && !poller) return fail(new Error(`eve: ${msg.message}`));
+        if (msg.type === 'auth_success') {
+          poller = setInterval(() => send({ type: 'terminal_list' }), 500);
+          send({ type: 'terminal_list' });
+        } else if (msg.type === 'terminal_list' && !ready) {
+          ready = true;
+          clearInterval(poller);
+          clearTimeout(timer);
+          resolve({ send, frames, close: () => ws.close() });
+        }
+        frames.push({ ...msg, at: Date.now() });
+      }
+    });
+  });
+}
+
+// Pids of the claude processes whose command line holds `claudeId` (the
+// conversation id system/init reports). The executable is the text before the
+// first flag, so a shim or ssh client that merely carries the id is not matched.
+function claudePidsFor(psOut, claudeId) {
+  return String(psOut).split('\n').flatMap((line) => {
+    const m = line.trim().match(/^(\d+)\s+(.*)$/);
+    if (!m || !m[2].includes(claudeId)) return [];
+    const exe = m[2].split(' --')[0].trim();
+    return /(^|[\s/])claude$/.test(exe) ? [Number(m[1])] : [];
+  });
+}
+
+async function agentDropIn(env) {
+  const id = 'agent-drop-in';
+  const acme = env.world.projects.acme;
+  const name = `verify-${env.nonce}-dropin`;
+  const marker = `verify-${env.nonce}-done`;
+  const desktop = await env.newPage();
+  const states = sessionStates(desktop);
+  await openEve(desktop, env);
+  await waitForModels(desktop, env);
+  env.step('wait for Today');
+  await need('no greeting within 20s', expect(desktop.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 20000 }));
+
+  const offered = await desktop.evaluate((pid) => (window.client.state.modelsForProject(pid) || []).map((m) => m.value), acme.id);
+  const model = pickModel(offered, 'haiku') || offered.find((v) => /haiku/i.test(v));
+  if (!model) return result(id, BLOCKED, `no Haiku model is offered for ${acme.name}`);
+
+  const sessionsBefore = await acmeIds(env, 'sessions');
+  const terminalsBefore = await acmeIds(env, 'terminals');
+  let sock = null;
+  // Registered before the session exists: whatever appeared is closed and deleted, even on a failure path.
+  env.cleanup(`close the drop-in terminal and delete the ${acme.name} agent session`, async () => {
+    if (sock) sock.close();
+    let failure = null;
+    for (const tid of addedIds(terminalsBefore, await acmeIds(env, 'terminals'))) {
+      await env.api.closeTerminal(tid).catch((err) => { failure = failure || err; });
+    }
+    for (const sid of addedIds(sessionsBefore, await acmeIds(env, 'sessions'))) {
+      await deleteSession(env, sid).catch((err) => { failure = failure || err; });
+    }
+    if (failure) throw failure;
+  });
+
+  env.step('create the headless agent session');
+  sock = await openEveSocket(env);
+  sock.send({ type: 'create_session', projectId: acme.id, model, name, settings: { headless: true, agent: true } });
+  const made = await poll(async () => sock.frames.find((f) => f.type === 'session_created' || f.type === 'error') || null,
+    { timeoutMs: 60000, intervalMs: 200 });
+  if (!made) return result(id, FAIL, `no session_created within 60s of create_session (model ${model})`);
+  if (made.type === 'error') {
+    return /template "/.test(String(made.message))
+      ? result(id, BLOCKED, `launch refused: ${made.message}`)
+      : result(id, FAIL, `create_session failed: ${made.message}`);
+  }
+  const sid = made.sessionId;
+  sock.send({ type: 'join_session', sessionId: sid });
+
+  const frameOf = (state, since) => states.find((f) => f.sessionId === sid && f.state === state && f.at >= since);
+  const seen = (since) => [...new Set(states.filter((f) => f.sessionId === sid && f.at >= since).map((f) => f.state))].join(', ') || 'none';
+
+  env.step('send turn 1');
+  const firstAt = Date.now();
+  sock.send({ type: 'user_input', sessionId: sid, text: `Reply with exactly: ${marker}` });
+  const firstEnd = await poll(async () => frameOf('idle', firstAt) || frameOf('errored', firstAt) || null, { timeoutMs: 90000, intervalMs: 200 });
+  if (!firstEnd) return result(id, FAIL, `session ${sid}: turn 1 did not end within 90s (states ${seen(firstAt)})`);
+  if (firstEnd.state !== 'idle') return result(id, FAIL, `session ${sid}: turn 1 ended ${firstEnd.state}, not idle`);
+  const init = sock.frames.find((f) => f.type === 'llm_event' && f.event?.type === 'system' && f.event?.subtype === 'init');
+  if (!init) return result(id, FAIL, `session ${sid}: no system/init event after turn 1`);
+  if (init.event.model !== DROP_IN_INIT_MODEL) return result(id, FAIL, `session ${sid}: system/init reported model ${init.event.model}, not ${DROP_IN_INIT_MODEL}`);
+  const claudeId = init.event.session_id;
+  if (typeof claudeId !== 'string' || !claudeId) return result(id, FAIL, `session ${sid}: system/init carries no session_id`);
+
+  env.step('send turn 2');
+  const secondAt = Date.now();
+  sock.send({ type: 'user_input', sessionId: sid, text: 'Count from 1 to 300, one number per line.' });
+  const running = await poll(async () => frameOf('running', secondAt), { timeoutMs: 30000, intervalMs: 50 });
+  if (!running) return result(id, FAIL, `session ${sid}: no running frame within 30s of turn 2 (states ${seen(secondAt)})`);
+
+  // Fault injection on the test machine. Deliberate: the kill lands mid-turn, since an idle session whose process exits reads ended, not errored.
+  env.step('kill the claude process mid-turn');
+  let pids = [];
+  await poll(async () => {
+    pids = claudePidsFor((await exec('ps', ['-axo', 'pid=,command='], { maxBuffer: 16 << 20, timeout: 10000 })).stdout, claudeId);
+    return pids.length;
+  }, { timeoutMs: 3000, intervalMs: 100 });
+  if (!pids.length) return result(id, FAIL, `session ${sid}: no claude process holds conversation ${claudeId} in its command line`);
+  for (const pid of pids) process.kill(pid, 'SIGKILL');
+
+  env.step('wait for the errored frame');
+  const errored = await poll(async () => frameOf('errored', running.at), { timeoutMs: 30000, intervalMs: 50 });
+  if (!errored) {
+    const finished = frameOf('idle', running.at);
+    return result(id, FAIL, `session ${sid}: no errored frame within 30s of the kill${finished ? ' (the turn had already gone idle, so the kill missed it)' : ''} (states ${seen(secondAt)})`);
+  }
+
+  env.step('look for Drop in under Needs you');
+  const drop = desktop.locator('[data-testid="today-agents-group-needs"]').getByTestId(`today-drop-in-${sid}`);
+  await need(`${DROP_IN_ROW_WITHIN_MS / 1000}s after the errored frame no Drop in showed under Needs you for session ${sid}`,
+    expect(drop).toBeVisible({ timeout: Math.max(200, errored.at + DROP_IN_ROW_WITHIN_MS - Date.now()) }));
+  env.step('click Drop in');
+  const clickedAt = Date.now();
+  await drop.click({ timeout: 5000 });
+
+  const label = `${name} (drop-in)`;
+  env.step('wait for the drop-in terminal tab');
+  await need(`no active tab "${label}" within ${DROP_IN_TAB_WITHIN_MS / 1000}s of Drop in`,
+    expect(desktop.locator('.tab.active .tab-label').filter({ hasText: label })).toBeVisible({ timeout: DROP_IN_TAB_WITHIN_MS }));
+  const pane = desktop.locator('#terminal');
+  let answered = false;
+  env.step('wait for the conversation in the terminal');
+  const carried = await poll(async () => {
+    // xterm wraps rows even mid-word, so the text is compared with whitespace gone.
+    const flat = (await pane.innerText({ timeout: 2000 }).catch(() => '')).replace(/\s+/g, '');
+    if (flat.includes(marker)) return true;
+    if (!answered && /trust/i.test(flat)) {
+      answered = true;
+      await pane.locator('.xterm-screen').filter({ visible: true }).last().click({ timeout: 5000 });
+      await desktop.keyboard.press('Enter');
+    }
+    return null;
+  }, { timeoutMs: Math.max(1, clickedAt + DROP_IN_TAB_WITHIN_MS - Date.now()), intervalMs: 500 });
+  if (!carried) return result(id, FAIL, `session ${sid}: "${marker}" is not in the drop-in terminal within ${DROP_IN_TAB_WITHIN_MS / 1000}s of Drop in${answered ? ' (a trust prompt was answered)' : ''}`);
+
+  const opened = addedIds(terminalsBefore, await acmeIds(env, 'terminals'));
+  if (opened.length !== 1) return result(id, FAIL, `session ${sid}: ${opened.length} new ${acme.name} terminals after Drop in, expected 1`);
+
+  env.step('close the tab');
+  const closedAt = Date.now();
+  await desktop.locator('.tab.active .tab-close').click({ timeout: 5000 });
+  const problems = [];
+  env.step('wait for idle after the close');
+  if (!await poll(async () => frameOf('idle', closedAt), { timeoutMs: DROP_IN_IDLE_WITHIN_MS, intervalMs: 100 })) {
+    problems.push(`no idle frame within ${DROP_IN_IDLE_WITHIN_MS / 1000}s of closing the tab (states ${seen(closedAt)})`);
+  }
+  env.step('wait for the terminal to leave relay\'s list');
+  if (!await poll(async () => !(await acmeIds(env, 'terminals')).includes(opened[0]), { timeoutMs: DROP_IN_IDLE_WITHIN_MS, intervalMs: 500 })) {
+    problems.push(`terminal ${opened[0]} is still in relay's list ${DROP_IN_IDLE_WITHIN_MS / 1000}s after closing the tab`);
+  }
+  if (problems.length) return result(id, FAIL, `session ${sid}: ${problems.join('; ')}`);
+  return result(id, PASS, `model ${model}: after a mid-turn kill Drop in showed under Needs you within ${DROP_IN_ROW_WITHIN_MS / 1000}s; `
+    + `it opened "${label}" with the conversation (${marker}); closing the tab brought back idle and ended the terminal`);
+}
+
 const auth = require('./journeys-auth').journeys;
 const toolSearch = require('./journeys-tool-search').journeys;
 
@@ -2612,6 +2801,7 @@ const journeys = [
   { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
   { id: 'ask-pasted-url', timeoutMs: 90000, areas: ['home', 'chat'], needs: ['project:acme'], run: askPastedUrl },
   { id: 'agent-board-states', timeoutMs: 150000, areas: ['home', 'chat'], needs: ['project:acme'], run: agentBoardStates },
+  { id: 'agent-drop-in', timeoutMs: 150000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropIn },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },

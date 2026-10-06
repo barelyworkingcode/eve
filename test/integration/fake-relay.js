@@ -147,6 +147,14 @@ function createFakeRelay({ token = null } = {}) {
   // C11's terminal-create-failure and resume-failure branches.
   let terminalCreateFailStatus = null;
   let resumeFailStatus = null;
+  // Drop in (relay session_dropin.go): sessionId -> terminalId while a terminal holds the
+  // session; terminalId -> sessionId for the close that hands it back. failDropInWith forces
+  // an answer after the refusals; dropInGate holds the 201 (holdDropIn()).
+  const heldSessions = new Map();
+  const dropInTerminals = new Map();
+  const dropIns = [];
+  let dropInFailure = null; // { status, body }
+  let dropInGate = null;
   // null => POST /api/tasks falls through to the unhandled-route 404 below.
   let taskCreateFailure = null; // { status, body }
   // relay's reverse proxy to relayScheduler (enhanced_services.go) answers a
@@ -333,6 +341,8 @@ function createFakeRelay({ token = null } = {}) {
     if (sess.folder) out.folder = sess.folder;
     if (sess.lastMessageAt) out.lastMessageAt = sess.lastMessageAt;
     if (sess.host) out.host = sess.host;
+    // manager.go Summary.Headless (relay#241): omitted unless true.
+    if (sess.headless) out.headless = true;
     // manager.go Summary.Attention: omitted for a session relay does not track.
     if (sess.attention) out.attention = sess.attention;
     return out;
@@ -549,6 +559,39 @@ function createFakeRelay({ token = null } = {}) {
         const id = resumeMatch[1];
         if (resumeFailStatus) return send(resumeFailStatus, { error: 'forced resume failure' });
         return send(200, { session_id: id, resumed: true });
+      }
+
+      // POST /api/sessions/{id}/drop-in (cmd/relay/session_dropin.go, session/dropin.go), in
+      // relay's order. Every refusal is {error, message}; 201 is {sessionId, claudeSessionId,
+      // terminal} with no top-level host on the console.
+      const dropInMatch = p.match(/^\/api\/sessions\/([^/]+)\/drop-in$/);
+      if (dropInMatch && req.method === 'POST') {
+        const id = decodeURIComponent(dropInMatch[1]);
+        dropIns.push({ sessionId: id, body: parsed });
+        const sess = sessions.get(id);
+        if (!sess) return send(404, { error: 'session_not_found', message: `no session ${id}` });
+        const model = typeof sess.model === 'string' ? sess.model : '';
+        const kind = ['haiku', 'sonnet', 'opus'].includes(model) ? 'claude' : model.startsWith('pi/') ? 'pi' : 'chat';
+        if (kind !== 'claude') {
+          return send(409, { error: 'not_claude', message: `only Claude sessions can be taken over; this is a ${kind} session` });
+        }
+        if (!sess.headless) return send(409, { error: 'not_headless', message: 'this session is not headless; continue it in eve' });
+        if (heldSessions.has(id)) return send(409, { error: 'dropped_in', message: 'a terminal already has this session; close it first' });
+        if (dropInFailure) return send(dropInFailure.status, dropInFailure.body);
+        const respond = () => {
+          const terminalId = `term-${++seq}`;
+          const terminal = {
+            terminalId, templateId: 'claude-code', name: `${sess.name || 'session'} (drop-in)`,
+            directory: sess.directory || '', host: null,
+          };
+          terminals.set(terminalId, { ...terminal, state: 'running', cols: parsed.cols || 80, rows: parsed.rows || 24, scrollback: SHELL_PROMPT, line: '' });
+          heldSessions.set(id, terminalId);
+          dropInTerminals.set(terminalId, id);
+          for (const sock of relayWs) sock.send(JSON.stringify(relayFrames.sessionState({ sessionId: id, state: 'running', since: new Date().toISOString() })));
+          return send(201, { sessionId: id, claudeSessionId: '00000000-0000-4000-8000-000000000196', terminal });
+        };
+        if (dropInGate) return dropInGate.then(respond);
+        return respond();
       }
 
       // C11: eve's terminal_create WS frame is answered by this HTTP route,
@@ -844,6 +887,13 @@ function createFakeRelay({ token = null } = {}) {
         if (!msg.terminalId) return;
         terminals.delete(msg.terminalId);
         terminalViewers.delete(msg.terminalId);
+        // ws_terminal.go handleTerminalClose -> mgr.Close; relay then HandBack()s the session.
+        const heldId = dropInTerminals.get(msg.terminalId);
+        if (heldId) {
+          dropInTerminals.delete(msg.terminalId);
+          heldSessions.delete(heldId);
+          for (const sock of relayWs) sock.send(JSON.stringify(relayFrames.sessionState({ sessionId: heldId, state: 'idle', since: new Date().toISOString() })));
+        }
         for (const sock of relayWs) sock.send(JSON.stringify({ type: 'terminal_closed', terminalId: msg.terminalId }));
       } else if (msg.type === 'permission_response') {
         // ws_session.go handlePermissionResponse: unknown permission id is a
@@ -894,6 +944,15 @@ function createFakeRelay({ token = null } = {}) {
     terminalScrollback: (id) => (terminals.get(id) || {}).scrollback,
     failTerminalCreateWith: (status) => { terminalCreateFailStatus = status; },
     clearTerminalCreateFail: () => { terminalCreateFailStatus = null; },
+    failDropInWith: (status, body) => { dropInFailure = { status, body }; },
+    clearDropInFail: () => { dropInFailure = null; },
+    holdDropIn: () => {
+      let release;
+      dropInGate = new Promise((resolve) => { release = resolve; });
+      return { release: () => { release(); dropInGate = null; } };
+    },
+    // Parsed POST /api/sessions/{id}/drop-in bodies, in arrival order: [{ sessionId, body }].
+    dropIns,
     failResumeWith: (status) => { resumeFailStatus = status; },
     clearResumeFail: () => { resumeFailStatus = null; },
     // Tasks as relayScheduler holds them. seedTask stores a definition as given

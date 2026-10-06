@@ -199,3 +199,86 @@ describe('AgentBoard.mountBadge', () => {
     expect(badge.hidden).toBe(true);
   });
 });
+
+describe('AgentBoard Drop in', () => {
+  const addRow = (t, id, { model, headless, state = 'errored' }) => {
+    t.state.addSession({ id, projectId: '', name: id, model, headless, live: true });
+    t.bus.emit(t.g.EVT.SESSION_STATE, { type: 'session_state', sessionId: id, state, since: '2026-10-05T10:00:00.000Z' });
+  };
+  const flush = () => new Promise((r) => setImmediate(r));
+  const dropBtn = (el, prefix, id) => byTestId(el, `${prefix}-drop-in-${id}`);
+
+  it.each(['today', 'project'])('a headless haiku row under Needs you shows %s-drop-in-<id>', (prefix) => {
+    const t = setup();
+    addRow(t, 's1', { model: 'haiku', headless: true });
+    const { el } = mountBoard(t, { testidPrefix: prefix });
+    expect(dropBtn(el, prefix, 's1')).not.toBeNull();
+    expect(dropBtn(el, prefix, 's1').textContent).toBe('Drop in');
+  });
+
+  it.each([
+    ['headless missing', { model: 'haiku' }],
+    ['headless false', { model: 'haiku', headless: false }],
+    ['a pi model', { model: 'pi/x', headless: true }],
+    ['a codex model', { model: 'codex/x', headless: true }],
+    ['a full Claude model id', { model: 'claude-haiku-4-5-20251001', headless: true }],
+    ['a chat model', { model: 'llama-3', headless: true }],
+    ['a haiku row under Working', { model: 'haiku', headless: true, state: 'running' }],
+  ])('shows no action for %s', (_what, row) => {
+    const t = setup();
+    addRow(t, 's1', row);
+    const { el } = mountBoard(t);
+    expect(byTestId(el, 'today-agent-s1')).not.toBeNull();
+    expect(dropBtn(el, 'today', 's1')).toBeNull();
+  });
+
+  it('a 201 opens the terminal relay returned', async () => {
+    const t = setup();
+    addRow(t, 's1', { model: 'sonnet', headless: true });
+    const terminal = { terminalId: 't9', templateId: 'claude-code', name: 'x (drop-in)', directory: '/nowhere', host: null };
+    t.container.get('api').dropIn = jest.fn(() => Promise.resolve({ sessionId: 's1', terminal }));
+    t.mgr.openDropIn = jest.fn();
+    const { el } = mountBoard(t);
+    dropBtn(el, 'today', 's1').click();
+    await flush();
+    expect(t.container.get('api').dropIn).toHaveBeenCalledWith('s1', { cols: 80, rows: 24 });
+    expect(t.mgr.openDropIn).toHaveBeenCalledWith(terminal);
+  });
+
+  it('while a drop-in is in flight the button is busy and disabled, even if the row leaves Needs you; it returns when the call ends', async () => {
+    const t = setup();
+    addRow(t, 's1', { model: 'opus', headless: true });
+    let finish;
+    t.container.get('api').dropIn = jest.fn(() => new Promise((r) => { finish = r; }));
+    t.mgr.openDropIn = jest.fn();
+    const { el } = mountBoard(t);
+    dropBtn(el, 'today', 's1').click();
+    const busy = dropBtn(el, 'today', 's1');
+    expect(busy.disabled).toBe(true);
+    expect(busy.getAttribute('aria-busy')).toBe('true');
+    t.bus.emit(t.g.EVT.SESSION_STATE, { type: 'session_state', sessionId: 's1', state: 'running', since: '2026-10-05T10:00:05.000Z' });
+    expect(dropBtn(el, 'today', 's1')).not.toBeNull();
+    finish({ terminal: { terminalId: 't9' } });
+    await flush();
+    expect(dropBtn(el, 'today', 's1')).toBeNull();
+  });
+
+  it.each([
+    ['relay\'s message', { body: { error: 'tool_running', message: 'a tool is running (Bash); wait' } }, 'a tool is running (Bash); wait'],
+    ['"relay isn\'t reachable" when there is no body', new Error('network down'), "relay isn't reachable"],
+  ])('a refusal toasts %s and re-enables the button, opening nothing', async (_what, err, text) => {
+    const t = setup();
+    addRow(t, 's1', { model: 'haiku', headless: true });
+    t.container.get('api').dropIn = jest.fn(() => Promise.reject(err));
+    t.mgr.openDropIn = jest.fn();
+    const toasts = [];
+    t.bus.on(t.g.EVT.TOAST_SHOW, (p) => toasts.push(p));
+    const { el } = mountBoard(t);
+    dropBtn(el, 'today', 's1').click();
+    await flush();
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].message).toContain(text);
+    expect(t.mgr.openDropIn).not.toHaveBeenCalled();
+    expect(dropBtn(el, 'today', 's1').disabled).toBe(false);
+  });
+});
