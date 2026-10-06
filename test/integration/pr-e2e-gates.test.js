@@ -7,9 +7,13 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const LINT = path.join(ROOT, 'scripts', 'lint-added-waits.js');
 const BURN = path.join(ROOT, 'scripts', 'burn-in-specs.js');
 
+// A git hook (pre-push) exports GIT_DIR and friends; inherited, they would point
+// the CLI's own git calls at this repo instead of the temp one.
+const cliEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+
 function run(script, cwd, args) {
   return new Promise((resolve) => {
-    execFile(process.execPath, [script, ...args], { cwd }, (error, stdout, stderr) => {
+    execFile(process.execPath, [script, ...args], { cwd, env: cliEnv }, (error, stdout, stderr) => {
       resolve({ code: error ? error.code : 0, stdout, stderr });
     });
   });
