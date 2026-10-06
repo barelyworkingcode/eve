@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { startEve } = require('../integration/harness');
 const { hermeticTest, gotoEve } = require('./fixtures');
+const { watchSocket, watchSocketFromLoad, sentFrames, sentTypes, waitHandled } = require('./socket-watch');
 
 const { expect } = base;
 
@@ -28,6 +29,7 @@ function seedWorkVoicePreset(eve) {
   eve.relay.addProject({ ...eve.relay.getProject('p1'), chat_templates: [...TEMPLATES, VOICE_PRESET] });
   eve.relay.setDefaultProject('work', 'p1');
 }
+const createFrames = async (page) => (await sentFrames(page)).filter((f) => f.type === 'create_session');
 const createdType = (page, eve) => page.evaluate((sid) => window.client.sessions.get(sid)?.sessionType, eve.relay.listSessions()[0]?.sessionId);
 
 const test = hermeticTest.extend({
@@ -86,16 +88,18 @@ test.describe('chat defaults', () => {
     await gotoEve(page, eve.baseUrl);
     // Fired as a hashchange so this covers the route's listener path; the
     // cold-load path is covered below.
-    await page.waitForFunction(() => window.client?._hashListenerAdded && window.client.projects.has('p1'));
+    await page.waitForFunction(() => window.client.projects.has('p1'));
+    await watchSocket(page);
     for (let press = 0; press < 2; press++) {
       await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
       await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
     }
-    await page.waitForTimeout(500);
+    expect(await sentTypes(page)).not.toContain('create_session');
     expect(eve.relay.sessionCreates).toHaveLength(0);
     hold.release();
     const body = await relayedCreate(eve);
-    await page.waitForTimeout(500);
+    await waitHandled(page, { type: 'session_created' });
+    expect(await createFrames(page)).toHaveLength(1);
     expect(eve.relay.sessionCreates).toHaveLength(1);
     expect(body).toMatchObject({ model: 'chat-a', name: 'Acme - Kitchen' });
     expectFlags(body, true);
@@ -104,11 +108,13 @@ test.describe('chat defaults', () => {
 
   test('a cold #/voice-chat load launches the Work voice preset once', async ({ page, eve }) => {
     seedWorkVoicePreset(eve);
+    await watchSocketFromLoad(page);
     await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
     expect(await relayedCreate(eve)).toMatchObject({ model: 'chat-a', name: 'Acme - Kitchen' });
-    await page.waitForTimeout(500);
+    await waitHandled(page, { type: 'session_created' });
+    expect(await createFrames(page)).toHaveLength(1);
     expect(eve.relay.sessionCreates).toHaveLength(1);
-    expect(await page.evaluate(() => window.location.hash)).not.toBe('#/voice-chat');
+    await expect(page).not.toHaveURL(/#\/voice-chat/);
   });
 
   for (const withOther of [false, true]) {
@@ -132,6 +138,7 @@ test.describe('chat defaults', () => {
       // The other tab's join lands last, the order that would steal focus.
       const otherJoin = OTHER ? eve.relay.holdJoin(OTHER) : null;
 
+      await watchSocketFromLoad(page);
       await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
       await expect(page.getByTestId(`tab-${VOICE}`)).toBeVisible({ timeout: 15000 });
       await expect.poll(() => page.evaluate(() => window.client.state.models.length)).toBe(2);
@@ -140,7 +147,9 @@ test.describe('chat defaults', () => {
         otherJoin.release();
         await expect(page.getByTestId(`tab-${OTHER}`)).toBeVisible({ timeout: 15000 });
       }
-      await page.waitForTimeout(1000);
+      await waitHandled(page, { type: 'session_joined', sessionId: VOICE });
+      if (OTHER) await waitHandled(page, { type: 'session_joined', sessionId: OTHER });
+      expect(await sentTypes(page)).not.toContain('create_session');
       expect(eve.relay.sessionCreates).toHaveLength(0);
       await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(VOICE);
     });
@@ -160,12 +169,15 @@ test.describe('chat defaults', () => {
     await expect(page.getByTestId(`tab-${id}`)).toHaveCount(0);
     const joinsBefore = joins();
 
-    await page.waitForFunction(() => window.client?._hashListenerAdded);
+    await watchSocket(page);
     await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
     await expect.poll(joins, { timeout: 10000 }).toBe(joinsBefore + 1);
     await expect(page.getByTestId(`tab-${id}`)).toBeVisible();
     await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(id);
-    await page.waitForTimeout(1000);
+    await waitHandled(page, { type: 'session_joined', sessionId: id });
+    const sent = await sentFrames(page);
+    expect(sent.filter((f) => f.type === 'join_session' && f.sessionId === id)).toHaveLength(1);
+    expect(sent.map((f) => f.type)).not.toContain('create_session');
     expect(joins()).toBe(joinsBefore + 1);
     expect(eve.relay.sessionCreates).toHaveLength(1);
   });
@@ -184,6 +196,7 @@ test.describe('chat defaults', () => {
       localStorage.setItem('eve-session-meta', JSON.stringify({ [voice]: { sessionType: 'voice' } }));
     }, VOICE);
 
+    await watchSocketFromLoad(page);
     await gotoEve(page, `${eve.baseUrl}/#/voice-chat`);
     await eve.relay.waitForInbound((f) => f.type === 'join_session' && f.sessionId === VOICE, 15000);
     // Only relay's join error can trigger the fallback, and it answers at once.
@@ -191,7 +204,8 @@ test.describe('chat defaults', () => {
     expect(eve.relay.sessionCreates[0]).toMatchObject({ model: 'chat-a', name: 'Acme - Kitchen' });
     const created = eve.relay.listSessions().find((s) => s.sessionId !== VOICE).sessionId;
     await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(created);
-    await page.waitForTimeout(1000);
+    await waitHandled(page, { type: 'session_created' });
+    expect(await createFrames(page)).toHaveLength(1);
     expect(eve.relay.sessionCreates).toHaveLength(1);
     await expect(page.getByTestId(`tab-${VOICE}`)).toHaveCount(0);
   });

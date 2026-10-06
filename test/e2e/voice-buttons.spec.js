@@ -6,6 +6,7 @@
  * every check here should survive the move.
  */
 const { test, expect } = require('./fixtures');
+const { watchSocket, sentFrames } = require('./socket-watch');
 
 async function openChat(page) {
   await page.getByTestId('sidebar-project-p1').click();
@@ -22,12 +23,19 @@ async function openVoiceDrawer(page) {
   await expect(page.locator('#voiceDrawerPanel')).toBeVisible();
 }
 
-// Gives control over press duration, unlike a plain `.click()`.
+// The hold length is the input under test, so the page's clock is paused and
+// advanced by exactly `ms` while the button is down; wall time plays no part.
+// Call after openVoiceDrawer: the fake clock stays installed for the rest of the test.
+async function useFakeClock(page) {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+}
+
 async function pressVoiceModeBtn(page, ms) {
   const box = await page.locator('#voiceModeBtn').boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(ms);
+  await page.clock.runFor(ms);
   await page.mouse.up();
 }
 
@@ -40,14 +48,14 @@ test.describe('voice buttons', () => {
 
     await expect(page.locator('#voiceDrawerPanel')).toBeVisible();
     // Order is load-bearing after the move.
-    const ids = await page.$$eval('#voiceDrawerPanel select, #voiceDrawerPanel button', (els) =>
-      els.map((e) => e.id).filter(Boolean));
-    expect(ids).toEqual(['voiceSelect', 'voiceSpeedSelect', 'voiceModeBtn', 'voiceUIBtn']);
+    await expect.poll(() => page.$$eval('#voiceDrawerPanel select, #voiceDrawerPanel button', (els) =>
+      els.map((e) => e.id).filter(Boolean))).toEqual(['voiceSelect', 'voiceSpeedSelect', 'voiceModeBtn', 'voiceUIBtn']);
   });
 
   test('a short tap on voiceModeBtn toggles TTS, and toggles back', async ({ page }) => {
     await openChat(page);
     await openVoiceDrawer(page);
+    await useFakeClock(page);
 
     await pressVoiceModeBtn(page, 50);
     expect(await page.evaluate(() => window.client.ttsManager.enabled)).toBe(true);
@@ -61,17 +69,11 @@ test.describe('voice buttons', () => {
   test('enabling voice mode tells the server via a voice_mode frame', async ({ page }) => {
     await openChat(page);
     await openVoiceDrawer(page);
+    await watchSocket(page);
+    await page.evaluate(() => document.getElementById('voiceModeBtn').click());
+    await expect(page.locator('#voiceModeBtn')).toHaveClass(/btn-voice-mode--active/);
     // Assert on the frame sent, not local state the migration is free to restructure.
-    const sent = await page.evaluate(async () => {
-      const ws = window.client.wsClient;
-      const original = ws.send.bind(ws);
-      const frames = [];
-      ws.send = (m) => { frames.push(m); return original(m); };
-      document.getElementById('voiceModeBtn').click();
-      await new Promise((r) => setTimeout(r, 200));
-      ws.send = original;
-      return frames.filter((f) => f && f.type === 'voice_mode');
-    });
+    const sent = (await sentFrames(page)).filter((f) => f.type === 'voice_mode');
     expect(sent).toHaveLength(1);
     expect(sent[0].enabled).toBe(true);
   });
@@ -79,6 +81,7 @@ test.describe('voice buttons', () => {
   test('a long press starts voice chat; a short tap does not', async ({ page }) => {
     await openChat(page);
     await openVoiceDrawer(page);
+    await useFakeClock(page);
     // convertToVoiceChat() switches the whole tab to the voice UI — stub it
     // and assert the 500ms threshold the gesture wiring hinges on.
     await page.evaluate(() => {
@@ -87,9 +90,10 @@ test.describe('voice buttons', () => {
     });
 
     await pressVoiceModeBtn(page, 50);
+    await expect(page.locator('#voiceModeBtn')).toHaveClass(/btn-voice-mode--active/);
     expect(await page.evaluate(() => window.__convertCalls)).toBe(0);
 
     await pressVoiceModeBtn(page, 600);
-    expect(await page.evaluate(() => window.__convertCalls)).toBe(1);
+    await expect.poll(() => page.evaluate(() => window.__convertCalls)).toBe(1);
   });
 });

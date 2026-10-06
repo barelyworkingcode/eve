@@ -4,6 +4,7 @@
 const { test, expect } = require('./fixture');
 const { gotoEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
+const { watchSocket, watchSocketFromLoad, sentFrames, sentTypes, waitHandled } = require('../socket-watch');
 
 const MODELS = {
   models: [
@@ -56,13 +57,8 @@ async function coldLoad(page, url) {
 }
 
 // The page's create_session frames: sessionType and voice stop at eve, so relay never sees them.
-function recordCreateFrames(page) {
-  const frames = [];
-  page.on('websocket', (ws) => ws.on('framesent', ({ payload }) => {
-    try { const m = JSON.parse(String(payload)); if (m.type === 'create_session') frames.push(m); } catch {}
-  }));
-  return frames;
-}
+const createFrames = async (page) => (await sentFrames(page)).filter((f) => f.type === 'create_session');
+const joinFrames = async (page, id) => (await sentFrames(page)).filter((f) => f.type === 'join_session' && f.sessionId === id);
 
 test.describe('A3 the preset row on a Work-only project', () => {
   test.use({ world: world({ beta: { chat_templates: [unmarked(QUICK), unmarked(KITCHEN), PLAIN] } }) });
@@ -167,13 +163,15 @@ test.describe('A5 Ask in Work with an Ask preset', () => {
 
   test('one create with the preset\'s model and prompt and both chat flags; eve-ask-model is neither read nor written', async ({ page, eve }) => {
     await page.evaluate(() => localStorage.setItem('eve-ask-model', 'claude-a'));
+    await watchSocket(page);
     await ask(page).fill('what changed today?');
     await ask(page).press('Enter');
     await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 15000 }).toBe(1);
     expect(eve.relay.sessionCreates[0]).toMatchObject({
       projectId: 'beta', model: 'chat-b', systemPrompt: 'Be brief.', appendClaudeMd: true, settings: { useRelayTools: true },
     });
-    await page.waitForTimeout(500);
+    await waitHandled(page, { type: 'session_created' });
+    expect(await createFrames(page)).toHaveLength(1);
     expect(eve.relay.sessionCreates).toHaveLength(1);
     expect(await page.evaluate(() => localStorage.getItem('eve-ask-model'))).toBe('claude-a');
   });
@@ -196,11 +194,15 @@ test.describe('A5 an Ask preset on a model the project does not allow', () => {
   test.use({ world: world({ beta: { allowed_models: ['claude-a'] } }) });
 
   test('says why, disables Send and sends nothing', async ({ page, eve }) => {
+    await watchSocket(page);
+    const reason = "The Work Ask preset uses a model Beta Project doesn't allow.";
     await ask(page).fill('hello');
-    await expect(page.getByTestId('today-ask-status')).toHaveText("The Work Ask preset uses a model Beta Project doesn't allow.");
+    await expect(page.getByTestId('today-ask-status')).toHaveText(reason);
     await expect(page.getByTestId('today-ask-send')).toBeDisabled();
     await ask(page).press('Enter');
-    await page.waitForTimeout(750);
+    // submit() runs synchronously on Enter; the status line staying put is the positive signal.
+    await expect(page.getByTestId('today-ask-status')).toHaveText(reason);
+    expect(await sentTypes(page)).not.toContain('create_session');
     expect(eve.relay.sessionCreates).toHaveLength(0);
   });
 });
@@ -210,20 +212,18 @@ test.describe('A6 #/voice-chat launches the mode\'s voice preset', () => {
 
   for (const how of ['cold', 'hashchange']) {
     test(`${how}: one create with the preset's model, sessionType voice and its voice`, async ({ page, eve }) => {
-      const frames = recordCreateFrames(page);
+      await watchSocketFromLoad(page);
       if (how === 'cold') {
         await coldLoad(page, `${eve.baseUrl}/#/voice-chat`);
       } else {
         await gotoEve(page, eve.baseUrl);
-        await page.waitForFunction(() => window.client?._hashListenerAdded && window.client.projects.has('beta'));
+        await page.waitForFunction(() => window.client.projects.has('beta'));
         await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
       }
       await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 15000 }).toBe(1);
       expect(eve.relay.sessionCreates[0]).toMatchObject({ projectId: 'beta', model: 'chat-b' });
-      // The browser's sent-frame event can reach the test after relay has seen the create.
-      await expect.poll(() => frames.length).toBeGreaterThan(0);
-      expect(frames).toEqual([expect.objectContaining({ model: 'chat-b', sessionType: 'voice', voice: 'af_bella' })]);
-      await page.waitForTimeout(500);
+      await waitHandled(page, { type: 'session_created' });
+      expect(await createFrames(page)).toEqual([expect.objectContaining({ model: 'chat-b', sessionType: 'voice', voice: 'af_bella' })]);
       expect(eve.relay.sessionCreates).toHaveLength(1);
     });
   }
@@ -233,12 +233,13 @@ test.describe('A6 a mode project without a voice preset', () => {
   test.use({ world: world({ beta: { chat_templates: [QUICK, unmarked(KITCHEN), PLAIN] } }) });
 
   test('toasts where to pick one and opens that project\'s launcher on Voice Chat; no create', async ({ page, eve }) => {
+    await watchSocketFromLoad(page);
     await coldLoad(page, `${eve.baseUrl}/#/voice-chat`);
     await expect(toast(page, 'No Work voice preset. Pick one in Edit Project → Templates.')).toBeVisible({ timeout: 10000 });
     const launcher = page.getByTestId('dialog-shell-launcher-dialog');
     await expect(launcher.locator('.dialog__title-bar')).toContainText('Beta Project');
     await expect(launcher.getByRole('button', { name: 'Start Voice Chat' })).toBeVisible();
-    await page.waitForTimeout(750);
+    expect(await sentTypes(page)).not.toContain('create_session');
     expect(eve.relay.sessionCreates).toHaveLength(0);
   });
 });
@@ -247,9 +248,10 @@ test.describe('A6 two Work projects and no default', () => {
   test.use({ world: world({ workDefault: null }) });
 
   test('toasts "Set a default Work project" and creates nothing', async ({ page, eve }) => {
+    await watchSocketFromLoad(page);
     await coldLoad(page, `${eve.baseUrl}/#/voice-chat`);
     await expect(toast(page, 'Set a default Work project in Relay to use the Action Button.')).toBeVisible({ timeout: 10000 });
-    await page.waitForTimeout(750);
+    expect(await sentTypes(page)).not.toContain('create_session');
     expect(eve.relay.sessionCreates).toHaveLength(0);
   });
 });
@@ -270,16 +272,20 @@ test.describe('A7 #/voice-chat resumes a voice thread from the last 30 minutes',
       });
       // Relay's session list carries no sessionType; eve-session-meta says voice.
       await page.evaluate((sid) => localStorage.setItem('eve-session-meta', JSON.stringify({ [sid]: { sessionType: 'voice' } })), id);
+      await watchSocketFromLoad(page);
       await coldLoad(page, `${eve.baseUrl}/#/voice-chat`);
       const joined = () => eve.relay.inbound.some((f) => f.type === 'join_session' && f.sessionId === id);
       if (resumes) {
         await expect.poll(joined, { timeout: 15000 }).toBe(true);
         await expect.poll(() => page.evaluate(() => window.client.tabManager.activeTabId)).toBe(id);
-        await page.waitForTimeout(1000);
+        await waitHandled(page, { type: 'session_joined', sessionId: id });
+        expect(await sentTypes(page)).not.toContain('create_session');
         expect(eve.relay.sessionCreates).toHaveLength(0);
       } else {
         await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 15000 }).toBe(1);
         expect(eve.relay.sessionCreates[0]).toMatchObject({ projectId: 'beta', model: 'chat-b' });
+        await waitHandled(page, { type: 'session_created' });
+        expect(await joinFrames(page, id)).toEqual([]);
         expect(joined()).toBe(false);
       }
     });
@@ -300,11 +306,13 @@ test.describe('A8 the launcher star is gone', () => {
 
     const FAV = { projectId: 'beta', templateId: 't-plain' };
     await page.addInitScript((fav) => localStorage.setItem('eve-settings', JSON.stringify({ palettes: {}, themeMode: 'dark', favoriteTemplate: fav })), FAV);
+    await watchSocketFromLoad(page);
     await coldLoad(page, `${eve.baseUrl}/#/voice-chat`);
     await expect.poll(() => eve.relay.sessionCreates.length, { timeout: 15000 }).toBe(1);
     // Kitchen's model, not the starred Plain's.
     expect(eve.relay.sessionCreates[0]).toMatchObject({ projectId: 'beta', model: 'chat-b' });
-    await page.waitForTimeout(500);
+    await waitHandled(page, { type: 'session_created' });
+    expect(await createFrames(page)).toHaveLength(1);
     expect(eve.relay.sessionCreates).toHaveLength(1);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('eve-settings')).favoriteTemplate)).toEqual(FAV);
   });
@@ -318,9 +326,11 @@ test.describe('A9 touch', () => {
     const dialog = await openTemplates(page, 'alpha');
     const form = await editTemplate(dialog, 'Quick');
     for (const mode of ['home', 'work']) {
-      const box = await form.getByTestId(`project-template-preset-${mode}`).boundingBox();
-      expect(box.width).toBeGreaterThanOrEqual(43.99);
-      expect(box.height).toBeGreaterThanOrEqual(43.99);
+      // Layout settles after the form shows; both sides must reach 44.
+      await expect.poll(async () => {
+        const box = await form.getByTestId(`project-template-preset-${mode}`).boundingBox();
+        return box && Math.min(box.width, box.height);
+      }).toBeGreaterThanOrEqual(43.99);
     }
   });
 });
