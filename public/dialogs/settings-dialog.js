@@ -14,6 +14,13 @@ class SettingsDialog extends DialogBase {
       this.render();
       this.show();
     });
+    // Projects can arrive after the sheet opens. Replace only the Modes group
+    // so other controls keep their element, value and focus.
+    this.bus.on(EVT.PROJECTS_LOADED, () => {
+      if (!this.isVisible) return;
+      const modes = this._panel.querySelector('[data-testid="settings-group-modes"]');
+      if (modes) modes.replaceWith(this._buildModes());
+    });
   }
 
   hide() {

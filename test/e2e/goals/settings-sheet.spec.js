@@ -105,6 +105,42 @@ test.describe('settings sheet', () => {
       await expect(sheet.getByTestId('settings-default-work')).toHaveText('Work starts in Beta Project');
       await expect(sheet.getByTestId('settings-default-home')).toHaveText('Home: no default. Ask lets you pick.');
     });
+
+    test('projects that load after the sheet opens update the Modes rows and leave the other controls alone', async ({ page }) => {
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      let hit;
+      const held = new Promise((resolve) => { hit = resolve; });
+      await page.route('**/api/projects', async (route) => { hit(); await gate; await route.continue(); });
+      await page.reload(); // pre-ready: holds /api/projects; waits on `held`
+      await held;
+
+      const sheet = await openSheet(page);
+      await expect(sheet.getByTestId('settings-default-work')).toHaveText('Work: no default. Ask lets you pick.');
+      // The sheet moves focus to its first button on open; wait for that so it cannot take focus from the slider.
+      await expect(sheet.getByTestId('settings-done')).toBeFocused();
+      const size = sheet.getByTestId('settings-text-size');
+      await size.focus();
+      await size.evaluate((el) => { el.dataset.sameElement = 'yes'; });
+      const others = sheet.locator('[data-testid^="settings-group-"]:not([data-testid="settings-group-modes"])');
+      const groups = await others.evaluateAll((els) => els.map((el) => { el.dataset.sameElement = 'yes'; return el.dataset.testid; }));
+      expect(groups).toEqual(expect.arrayContaining(['settings-group-display', 'settings-group-files']));
+
+      release();
+      await expect(sheet.getByTestId('settings-default-work')).toHaveText('Work starts in Beta Project');
+      await expect(sheet.getByTestId('settings-text-size')).toBeFocused();
+      await expect(sheet.getByTestId('settings-text-size')).toHaveAttribute('data-same-element', 'yes');
+      expect(await others.evaluateAll((els) => els.filter((el) => el.dataset.sameElement === 'yes').map((el) => el.dataset.testid))).toEqual(groups);
+    });
+
+    test('a closed sheet does not rebuild its Modes group on a projects event', async ({ page }) => {
+      const sheet = await openSheet(page);
+      await sheet.getByTestId('settings-group-modes').evaluate((el) => { el.dataset.sameElement = 'yes'; });
+      await sheet.getByTestId('settings-done').click();
+      await expect(sheet).toBeHidden();
+      await page.evaluate(() => window.client.bus.emit(EVT.PROJECTS_LOADED));
+      await expect(sheet.getByTestId('settings-group-modes')).toHaveAttribute('data-same-element', 'yes');
+    });
   });
 
   test.describe('with a dotfile in Alpha', () => {
