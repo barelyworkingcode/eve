@@ -46,6 +46,12 @@ class AgentAttention {
   _onFrame(d) {
     const id = d?.sessionId;
     if (!id || !AgentAttention.STATES.has(d.state)) return;
+    // An id the list was already asked about and never named (a hidden session) ends
+    // here; otherwise its entry would sit in the store for the page's life.
+    if (d.state === 'ended' && !this.state.sessions.has(id) && this._asked.has(id) && !this._pending.has(id)) {
+      if (this._entries.delete(id)) this._changed(id);
+      return;
+    }
     this._entries.set(id, { state: d.state, since: d.since || '' });
     this._changed(id);
     if (!this.state.sessions.has(id)) this._requestRefresh(id);
@@ -68,6 +74,15 @@ class AgentAttention {
   }
 
   // One list refresh per burst of unknown ids, and one ask per id.
+  _dropUnlistedEnded(ids) {
+    for (const id of ids) {
+      if (this._entries.get(id)?.state === 'ended' && !this.state.sessions.has(id)) {
+        this._entries.delete(id);
+        this._changed(id);
+      }
+    }
+  }
+
   _requestRefresh(id) {
     if (this._asked.has(id)) return;
     this._asked.add(id);
@@ -77,7 +92,8 @@ class AgentAttention {
       this._timer = null;
       const ids = [...this._pending];
       this._pending.clear();
-      if (ids.some(x => !this.state.sessions.has(x))) this.refreshList();
+      if (!ids.some(x => !this.state.sessions.has(x))) return;
+      Promise.resolve(this.refreshList()).catch(() => {}).then(() => this._dropUnlistedEnded(ids));
     }, AgentAttention.REFRESH_DEBOUNCE_MS);
     this._timer.unref?.();
   }

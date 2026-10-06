@@ -53,7 +53,7 @@ const PINS = [
   ['session list row uses id', 'internal/sessions/session/manager.go', 'ID            string            `json:"id"`', 'id: sess.sessionId'],
   ['session list row has live', 'internal/sessions/session/manager.go', '`json:"live"`', 'live: sess.live !== false'],
   ['session list row has messageCount', 'internal/sessions/session/manager.go', '`json:"messageCount"`', 'messageCount'],
-  // relay#232 (needles read from branch feat/232-agent-state; confirm against main once merged).
+  // relay#232: agent state on the list row and the session_state frame.
   ['session list row has attention', 'internal/sessions/session/manager.go', 'Attention *attention.Attention `json:"attention,omitempty"`', 'out.attention = sess.attention'],
   ['attention has a since key', 'internal/sessions/attention/board.go', 'Since string `json:"since"`', 'since'],
   ['the session_state frame type', 'internal/sessions/events/ws_messages.go', 'WSMsgSessionState         = "session_state"', "type: 'session_state'"],

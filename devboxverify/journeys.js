@@ -2519,11 +2519,14 @@ async function agentBoardStates(env) {
 
   env.step('click Stop');
   const stop = desktop.getByTestId('chat-stop');
-  const blocked = () => (problems.length ? null : result(id, BLOCKED, 'the count finished before Stop could be clicked'));
-  if (!await stop.isVisible()) return blocked() || result(id, FAIL, problems.join('; '));
+  // BLOCKED only on evidence the turn ended (an idle frame after running); otherwise a missing Stop is a FAIL.
+  const blocked = () => (problems.length || !frameOf('idle', running.at) ? null
+    : result(id, BLOCKED, 'the count finished before Stop could be clicked'));
+  const noStop = () => blocked() || result(id, FAIL, [...problems, 'Stop was not showing while the turn was running'].join('; '));
+  if (!await stop.isVisible()) return noStop();
   const stoppedAt = Date.now();
   if (!await stop.click({ timeout: 2000 }).then(() => true, () => false)) {
-    if (!await stop.isVisible()) return blocked() || result(id, FAIL, problems.join('; '));
+    if (!await stop.isVisible()) return noStop();
     return result(id, FAIL, 'Stop is showing but could not be clicked');
   }
 
