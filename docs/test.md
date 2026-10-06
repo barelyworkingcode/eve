@@ -104,6 +104,17 @@ skips the lock. The lock is not reentrant, so a locked run that starts another
 locked run waits on itself until it times out. To clear a stuck lock, kill the
 holder named in the message; don't delete the file.
 
+**Pull-request e2e gates** — the PR check does not run the whole browser suite, but
+two jobs guard e2e specs. `lint-waits` runs `node scripts/lint-added-waits.js <base> <head>`:
+ESLint (`eslint.config.js`, scoped to `.js`/`.mjs`/`.cjs` under `test/e2e`, inline disable comments ignored) flags
+`waitForTimeout`, and only findings on lines the PR adds fail it, so waits already on `main`
+pass. A moved or reindented line counts as added. A changed TypeScript or JSX e2e file, or a changed file missing from the checkout, exits 2 instead of passing unseen. `burn-in` runs
+`node scripts/burn-in-specs.js <base> <head>` to list the files the PR adds or
+changes that Playwright's default testMatch runs (`*.spec|test.[cm][jt]s[x]`; not helpers, not `voice.spec.js`), then runs them with
+`npm run test:e2e -- --repeat-each=5 --retries=0 <specs>`; with none it prints
+`burn-in: no e2e spec added or changed; skipped`. Both take the diff against the merge base.
+Run either by hand with `origin/main HEAD`.
+
 **Timer globals** — Under Jest 30 + Node 26, `jest.useRealTimers()` can leave
 `setTimeout`/`clearTimeout` undefined. `test/setup.js` snapshots the real timer
 functions and force-restores them after every test, so a fake-timer test can't break
