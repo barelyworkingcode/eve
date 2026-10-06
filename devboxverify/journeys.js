@@ -2651,9 +2651,14 @@ async function cosAskingPost(env) {
   if (!made.id) return result(id, FAIL, `${made.count || 'no'} new sessions within 30s of create_session, expected 1`);
   const sid = made.id;
 
-  await sayToAgent(page, env, sid,
+  // The request goes from a page of its own: a page that has joined the
+  // session shows its permission prompt as a modal over the thread.
+  const asker = await env.newPage();
+  await sayToAgent(asker, env, sid,
     `Run this shell command with your Bash tool, then show me its output: echo verify-${env.nonce}`, env.nonce);
   const askedAt = Date.now();
+  await asker.close();
+  await openEve(page, env);
   await openChiefOfStaff(page, env);
 
   env.step('wait for the post');
