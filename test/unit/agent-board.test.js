@@ -265,6 +265,7 @@ describe('AgentBoard Drop in', () => {
 
   it.each([
     ['relay\'s message', { body: { error: 'tool_running', message: 'a tool is running (Bash); wait' } }, 'a tool is running (Bash); wait'],
+    ['the error code when the body has no message', { body: { error: 'tool_running' } }, 'tool_running'],
     ['"relay isn\'t reachable" when there is no body', new Error('network down'), "relay isn't reachable"],
   ])('a refusal toasts %s and re-enables the button, opening nothing', async (_what, err, text) => {
     const t = setup();

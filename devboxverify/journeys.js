@@ -2474,8 +2474,8 @@ async function agentBoardStates(env) {
   await dialog.getByTestId('shell-card-web-chat').click({ timeout: 10000 });
   const select = dialog.getByTestId('launcher-model-select');
   const offered = await optionValues(select);
-  const model = pickModel(offered, 'haiku') || offered.find((v) => /haiku/i.test(v));
-  if (!model) return result(id, BLOCKED, `no Haiku model is offered for ${acme.name}`);
+  const model = offered.find((v) => v === 'haiku') || null;
+  if (!model) return result(id, BLOCKED, `the haiku model id is not offered for ${acme.name}`);
   await select.selectOption(model, { timeout: 5000 });
   env.step('start the chat');
   await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
@@ -2685,7 +2685,7 @@ async function agentDropIn(env) {
   if (firstEnd.state !== 'idle') return result(id, FAIL, `session ${sid}: turn 1 ended ${firstEnd.state}, not idle`);
   const init = sock.frames.find((f) => f.type === 'llm_event' && f.event?.type === 'system' && f.event?.subtype === 'init');
   if (!init) return result(id, FAIL, `session ${sid}: no system/init event after turn 1`);
-  if (init.event.model !== DROP_IN_INIT_MODEL) return result(id, FAIL, `session ${sid}: system/init reported model ${init.event.model}, not ${DROP_IN_INIT_MODEL}`);
+  if (init.event.model !== DROP_IN_INIT_MODEL) return result(id, BLOCKED, `session ${sid}: system/init reported model ${init.event.model}, not ${DROP_IN_INIT_MODEL}`);
   const claudeId = init.event.session_id;
   if (typeof claudeId !== 'string' || !claudeId) return result(id, FAIL, `session ${sid}: system/init carries no session_id`);
 
@@ -2722,14 +2722,31 @@ async function agentDropIn(env) {
 
   const label = `${name} (drop-in)`;
   env.step('wait for the drop-in terminal tab');
-  await need(`no active tab "${label}" within ${DROP_IN_TAB_WITHIN_MS / 1000}s of Drop in`,
-    expect(desktop.locator('.tab.active .tab-label').filter({ hasText: label })).toBeVisible({ timeout: DROP_IN_TAB_WITHIN_MS }));
+  // A refusal toast ends the wait early and goes into the FAIL detail.
+  const toastText = async () => (await desktop.locator('.toast__message').allInnerTexts().catch(() => [])).map((t) => t.trim()).filter(Boolean).join(' | ');
+  const tabShown = await poll(async () => {
+    if (await desktop.locator('.tab.active .tab-label').filter({ hasText: label }).count()) return 'tab';
+    return (await toastText()) ? 'toast' : null;
+  }, { timeoutMs: DROP_IN_TAB_WITHIN_MS, intervalMs: 250 });
+  if (tabShown !== 'tab') {
+    const shown = await toastText();
+    return result(id, FAIL, `session ${sid}: no active tab "${label}" within ${DROP_IN_TAB_WITHIN_MS / 1000}s of Drop in${shown ? ` (toast: ${shown})` : ''}`);
+  }
   const pane = desktop.locator('#terminal');
   let answered = false;
   env.step('wait for the conversation in the terminal');
   const carried = await poll(async () => {
     // xterm wraps rows even mid-word, so the text is compared with whitespace gone.
-    const flat = (await pane.innerText({ timeout: 2000 }).catch(() => '')).replace(/\s+/g, '');
+    // The visible rows plus the whole scrollback buffer, so scrolling cannot hide the marker.
+    const visible = await pane.innerText({ timeout: 2000 }).catch(() => '');
+    const buffered = await desktop.evaluate(() => {
+      const b = window.client?.terminalManager?.activeTerm?.()?.buffer?.active;
+      if (!b) return '';
+      let out = '';
+      for (let i = 0; i < b.length; i++) out += (b.getLine(i)?.translateToString(true) || '') + '\n';
+      return out;
+    }).catch(() => '');
+    const flat = `${visible}${buffered}`.replace(/\s+/g, '');
     if (flat.includes(marker)) return true;
     if (!answered && /trust/i.test(flat)) {
       answered = true;

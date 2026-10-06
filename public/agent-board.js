@@ -226,7 +226,7 @@ class AgentBoard {
       if (body?.terminal?.terminalId) AgentBoard._termMgr(container)?.openDropIn(body.terminal);
       else toast("Can't drop in: relay did not return a terminal.");
     } catch (err) {
-      toast(`Can't drop in: ${err?.body?.message || "relay isn't reachable"}`);
+      toast(`Can't drop in: ${err?.body?.message || err?.body?.error || "relay isn't reachable"}`);
     } finally {
       AgentBoard.dropping.delete(sessionId);
       renderAll();
