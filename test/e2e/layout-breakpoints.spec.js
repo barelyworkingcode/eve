@@ -30,7 +30,7 @@ for (const vp of VIEWPORTS) {
         await expect(rail).not.toBeInViewport();
       } else {
         await expect(page.getByTestId('bottom-bar')).toBeVisible();
-        for (const id of ['nav-today', 'nav-threads', 'nav-projects']) await expect(page.getByTestId(id)).toBeVisible();
+        for (const id of ['nav-chief-of-staff', 'nav-today', 'nav-threads', 'nav-projects']) await expect(page.getByTestId(id)).toBeVisible();
       }
 
       await openThreadFromToday(page);
