@@ -7,9 +7,6 @@ const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 
 const EXTERNAL_BANNER = 'This file has been modified externally.';
-// Longer than file-watcher.js's SELF_WRITE_TTL_MS: eve drops a change made within
-// that window of its own save, taking it for the echo.
-const SELF_WRITE_WINDOW_MS = 1500;
 
 async function openAlphaFiles(page) {
   await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha Project', { exact: true }).click();
@@ -51,17 +48,31 @@ test.describe('G7 files', () => {
     const text = page.locator('#monacoEditor .view-lines');
     await expect(text).toContainText('first line', { timeout: 15000 });
 
+    // Barrier: the list_directory reply for src comes back on the same socket as
+    // watch_file, which the server handles in order, so the watch is in place.
+    await page.getByTestId('file-tree-item-/src').click();
+    await expect(page.getByTestId('file-tree-item-/src/app.js')).toBeVisible();
+
     // Edit and save.
     await endOfFile(page, text);
     await page.keyboard.type('saved-by-editor');
     await page.keyboard.press('ControlOrMeta+s');
     await expect.poll(() => fs.readFileSync(file, 'utf8'), { timeout: 5000 }).toContain('saved-by-editor');
-    await page.waitForTimeout(SELF_WRITE_WINDOW_MS);
 
-    // A clean editor follows an outside change without asking.
+    // A clean editor follows an outside change without asking, also right after
+    // eve's own save. The server drops a change made within its self-write window
+    // of that save, and the window is a Node timer the browser cannot see. So
+    // write afresh until the editor shows the content of one write.
     const banner = page.getByText(EXTERNAL_BANNER);
-    await appendLine('outside-1');
-    await expect(text).toContainText('outside-1', { timeout: 10000 });
+    const written = [];
+    await expect.poll(async () => {
+      const mine = `outside-after-save-${written.length + 1}`;
+      written.push(mine);
+      fs.writeFileSync(file, `${mine}\n`);
+      // A write may reach the editor after the next poll round has written again.
+      const shown = await text.textContent();
+      return written.some((w) => shown.includes(w));
+    }, { timeout: 15000 }).toBe(true);
     await expect(banner).toBeHidden();
 
     // A dirty editor asks; Reload takes the outside version.
