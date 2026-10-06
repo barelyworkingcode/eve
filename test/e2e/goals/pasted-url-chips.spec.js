@@ -3,6 +3,7 @@
 // thread, and a page the model read with web_fetch joins the sources row.
 // Pastes go through the real clipboard and keyboard (ControlOrMeta+V).
 const { test, expect, MODELS } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { startChatInAlpha } = require('./today-helpers');
 
 const HEAD = '\n\nSources to read (fetch each one before you answer, and cite it with a markdown link to its URL):\n';
@@ -252,8 +253,7 @@ test.describe('replay', () => {
     };
     await page.getByTestId('home-session-s-urls').click();
     await expectReplay();
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await expectReplay();
   });
 });

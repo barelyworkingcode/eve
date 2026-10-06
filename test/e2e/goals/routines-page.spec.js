@@ -2,7 +2,7 @@
 // docs/design-routines.md. Times are read in UTC so a run's HH:MM is its record's.
 const os = require('os');
 const { test, expect, MODELS } = require('./fixture');
-const { gotoEve } = require('../fixtures');
+const { gotoEve, reloadEve } = require('../fixtures');
 
 const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 const hhmm = (iso) => iso.slice(11, 16);
@@ -152,8 +152,7 @@ test.describe('S5b-A1 page states', () => {
 
   test('scheduler down with relay up: "Can\'t reach the scheduler." with Retry, never the empty line', async ({ page, eve }) => {
     eve.relay.schedulerDown();
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state && !!window.client?.wsClient);
+    await reloadEve(page);
     await openFromPalette(page);
     const pg = page.getByTestId('routines-page');
     await expect(pg).toContainText("Can't reach the scheduler.");

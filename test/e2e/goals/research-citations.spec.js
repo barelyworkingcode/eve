@@ -3,6 +3,7 @@
 // source cards above the answer; links to those sources become chips that
 // open one popover with the excerpt the model read. docs/design-research.md
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 
 const TOOL = 'worldsearch__brave_web_search';
 const LONG_TITLE = `Acme launch notes ${'n'.repeat(200)}`;
@@ -116,8 +117,7 @@ test.describe('S4 research citations', () => {
   test('2 the same thread from history, and after a reload, shows the same row and numbers', async ({ page }) => {
     await openResearch(page);
     await expectResearchAnswer(page);
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await expect(answer(page)).toBeVisible({ timeout: 15000 });
     await expectResearchAnswer(page);
   });

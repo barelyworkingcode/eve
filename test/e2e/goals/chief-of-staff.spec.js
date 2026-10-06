@@ -4,7 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { hermeticTest, gotoEve, expect } = require('../fixtures');
+const { hermeticTest, gotoEve, reloadEve, expect } = require('../fixtures');
 const { startEve } = require('../../integration/harness');
 const { relayFrames } = require('../../integration/protocol');
 
@@ -123,8 +123,7 @@ test('"tell <name> to ..." sends at once with no dialog, and the target chat sho
   await page.getByTestId('tab-s1').click();
   await expect(page.getByTestId('message-origin-chip')).toBeVisible(WAIT);
 
-  await page.reload();
-  await page.waitForFunction(() => !!window.client?.state && !!window.client?.wsClient);
+  await reloadEve(page);
   await page.getByTestId('tab-s1').click();
   await expect(page.getByTestId('message-origin-chip')).toBeVisible(WAIT);
 });

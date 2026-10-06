@@ -4,6 +4,7 @@
 // dot per row, and the phone's Today button counts the Needs-you rows.
 // docs/design-workbench.md
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
 const { relayFrames } = require('../../integration/protocol');
 
@@ -73,7 +74,7 @@ test.describe('agent board states', () => {
     await expect(rowIn(page, 'today', 'done', 's-run')).toBeVisible(WITHIN_2S);
 
     eve.relay.seedSession(session('s-run', 'Runner', { live: false }));
-    await page.reload();
+    await reloadEve(page);
     await expect(rowIn(page, 'today', 'working', 's-idle')).toBeVisible();
     await expect(page.getByTestId('today-agent-s-run')).toHaveCount(0);
     await expect(page.getByTestId('today-agent-s-old')).toHaveCount(0);
@@ -84,7 +85,7 @@ test.describe('agent board states', () => {
     for (const id of ['t-bad', 't-ok']) {
       eve.relay.seedTerminal({ terminalId: id, templateId: 'shell', name: id, directory: eve.folders.alpha });
     }
-    await page.reload();
+    await reloadEve(page);
     await expect(rowIn(page, 'today', 'working', 't-bad')).toBeVisible();
     await expect(rowIn(page, 'today', 'working', 't-ok')).toBeVisible();
     for (const [id, code] of [['t-bad', 1], ['t-ok', 0]]) {

@@ -1,6 +1,7 @@
 // G4 · Work in a shell on my project. A terminal opens only when asked, runs my
 // command, and is still there after a reload.
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 
 test.use({
   world: {
@@ -57,8 +58,7 @@ test.describe('G4 terminal', () => {
     await expect.poll(() => screenText(page)).toMatch(/^survives-reload$/m);
     const [{ terminalId }] = eve.relay.listTerminals();
 
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state && !!window.client?.wsClient);
+    await reloadEve(page);
     // CHANGED by S1-A2 (docs/design-today-s1.md): the terminal used to reopen by
     // itself on reload and this click only focused it. Now it stays closed until
     // asked, so assert that first, then that the click opens it.

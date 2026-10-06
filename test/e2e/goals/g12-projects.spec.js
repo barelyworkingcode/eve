@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { test, expect, MODELS } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 
 const ADMIN_KEYS = ['allowed_models', 'allowed_mcp_ids', 'permission_policy'];
 const isPost = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/projects';
@@ -58,7 +59,7 @@ test.describe('G12 projects', () => {
     eve.relay.seedTask({
       id: 'tb', name: 'T', projectId: 'beta', prompt: 'p', model: 'm', schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless',
     });
-    await page.reload();
+    await reloadEve(page);
     await page.waitForFunction(() => window.client.state.sessions.size > 0 && window.client.state.tasks.size > 0);
     await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Beta Project', { exact: true }).click();
     await page.getByTestId('sidebar-project-more-beta').click();

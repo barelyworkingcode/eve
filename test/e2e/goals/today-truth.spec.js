@@ -1,6 +1,7 @@
 // S1-A3 truthful states. "running" is a turn in progress or an executing task run;
 // a merely live provider process is not. docs/design-today-s1.md
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { relayFrames } = require('../../integration/protocol');
 const { part, startChatInAlpha, backToToday } = require('./today-helpers');
 
@@ -136,8 +137,7 @@ test.describe('S1-A3 tasks', () => {
 test.describe('S1-A3 relay unreachable', () => {
   test('a project, session or task list that could not load is not presented as empty', async ({ page, eve }) => {
     await eve.relay.close();
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Start with a project' })).toHaveCount(0);
     await expect(page.getByText('Nothing yet. Start a session above')).toHaveCount(0);
@@ -148,8 +148,7 @@ test.describe('S1-A3 relay unreachable', () => {
 
   test('Retry brings the projects back once relay returns', async ({ page, eve }) => {
     await eve.relay.close();
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await expect(page.getByTestId('today-retry-projects')).toBeVisible();
     await eve.reviveRelay({ projects: [{ id: 'alpha', name: 'Alpha Project', path: eve.folders.alpha }] });
     await page.getByTestId('today-retry-projects').click();

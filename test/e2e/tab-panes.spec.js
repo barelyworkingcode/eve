@@ -385,7 +385,7 @@ test(
       localStorage.setItem('eve-last-active', String(Date.now()));
     }, storage);
 
-    await page.goto(eve.baseUrl);
+    await gotoEve(page, eve.baseUrl);
 
     // Session/file tabs land asynchronously (join_session / read_file), so
     // once both are visible the restore loop has long since run: a module tab

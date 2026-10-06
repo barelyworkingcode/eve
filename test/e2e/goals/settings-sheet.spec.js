@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
 const { openSidebar } = require('../layout-helpers');
 
@@ -67,8 +68,7 @@ test.describe('settings sheet', () => {
       await expect.poll(rootFont).toBe('16px');
       await saved(page, 'fontSize').toBe(16);
 
-      await page.reload();
-      await page.waitForFunction(() => !!window.client?.state);
+      await reloadEve(page);
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
       await expect.poll(rootFont).toBe('16px');
       sheet = await openSheet(page);
@@ -124,8 +124,7 @@ test.describe('settings sheet', () => {
       await sheet.getByTestId('settings-done').click();
       await saved(page, 'showHiddenFiles').toBe(true);
 
-      await page.reload();
-      await page.waitForFunction(() => !!window.client?.state);
+      await reloadEve(page);
       await openFiles();
       await expect(page.getByTestId('file-tree-item-/.acme-env')).toBeVisible();
       await expect((await openSheet(page)).getByTestId('settings-hidden-files')).toBeChecked();

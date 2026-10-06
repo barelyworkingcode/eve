@@ -151,7 +151,7 @@ test.describe('A4/A5 a brief that ran', () => {
         features.register({ id: 'needsReplyClassifier', init: () => ({ needsReply: (m) => m.subject.startsWith('Re:') || m.subject === 'Old thread' }) });
       });
     });
-    await page.reload();
+    await reloadEve(page);
     await expect(mailRows(page)).toHaveText(['Ben · Old thread', 'Eve · Re: plan']);
   });
 });
@@ -356,7 +356,7 @@ test.describe('A9 opening Today runs nothing', () => {
   test('mount, reload and mode switches make no run and no session', async ({ page, eve }) => {
     const before = eve.relay.requests.length;
     await expect(brief(page)).toContainText('No brief yet.');
-    await page.reload();
+    await reloadEve(page);
     await expect(brief(page)).toContainText('No brief yet.');
     await page.getByTestId('mode-home').click();
     await expect(page.getByTestId('today-brief-when')).toBeVisible();
@@ -403,7 +403,7 @@ for (const [state, world, ready] of [['a brief', fullWorld(), 'today-brief-refre
 
 // S6 Listen (issue #158, A8/A9). The harness has no TTS daemon; server tts_* frames
 // are held back so the button stays in its speaking state until the spec ends it.
-const { gotoEve } = require('../fixtures');
+const { gotoEve, reloadEve } = require('../fixtures');
 async function holdSpeech(page, baseUrl) {
   const host = new URL(baseUrl).host;
   const sent = [];
@@ -527,7 +527,7 @@ test.describe('#160 a brief task with an older prompt', () => {
   test('is updated once to Brief.prompt() when Today paints', async ({ page, eve }) => {
     await settleFirstLoadRefresh(eve, 'b1', OLD);
     const updates = track(page, isTaskUpdate);
-    await page.reload();
+    await reloadEve(page);
     await expect(brief(page)).toContainText('No brief yet.');
     await expect.poll(() => storedPrompt(eve, 'b1')).toBe(Brief.prompt());
     // Repaints (mode switch and back) must not send it again.
@@ -550,7 +550,7 @@ test.describe('#160 a brief task with the current prompt', () => {
 
   test('is not updated when Today paints', async ({ page }) => {
     const updates = track(page, isTaskUpdate);
-    await page.reload();
+    await reloadEve(page);
     await expect(brief(page)).toContainText('No brief yet.');
     expect(updates).toHaveLength(0);
   });
@@ -567,7 +567,7 @@ test.describe('#160 a refresh that relay refuses', () => {
         : route.fallback()
     ));
     const updates = track(page, isTaskUpdate);
-    await page.reload();
+    await reloadEve(page);
     await expect(brief(page)).toContainText('No brief yet.');
     await expect.poll(() => updates.length).toBe(1);
     await page.getByTestId('mode-home').click();
@@ -583,7 +583,7 @@ test.describe('#160 a brief whose prompt the user edited', () => {
 
   test('is not updated when Today paints', async ({ page }) => {
     const updates = track(page, isTaskUpdate);
-    await page.reload();
+    await reloadEve(page);
     await expect(brief(page)).toContainText('No brief yet.');
     expect(updates).toHaveLength(0);
   });

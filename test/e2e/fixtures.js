@@ -14,11 +14,22 @@ const hermeticTest = base.test.extend({
   },
 });
 
-// `load` can fire before auth status resolves, and only then does initApp()
-// build client.state, wsClient and the dialogs.
+// `load` can fire before auth status resolves and well before the first boot
+// has loaded projects and sessions. app.js sets data-ready on <html> once the
+// first socket is ready, projects and sessions are loaded (or failed), the
+// tab restore was requested, the initial hash was handled and the first models
+// fetch settled. Joins, file reads and tasks are not part of it: wait on those
+// by their own signal.
+const waitForReady = (page) => page.waitForFunction(() => document.documentElement.dataset.ready === '1');
+
 async function gotoEve(page, url) {
   await page.goto(url);
-  await page.waitForFunction(() => !!window.client?.state && !!window.client?.wsClient);
+  await waitForReady(page);
+}
+
+async function reloadEve(page) {
+  await page.reload();
+  await waitForReady(page);
 }
 
 const test = hermeticTest.extend({
@@ -50,4 +61,4 @@ const test = hermeticTest.extend({
   },
 });
 
-module.exports = { test, hermeticTest, gotoEve, expect: base.expect };
+module.exports = { test, hermeticTest, gotoEve, reloadEve, expect: base.expect };

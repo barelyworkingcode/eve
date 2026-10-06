@@ -2,6 +2,7 @@
 // of when this browser last opened it and its last server activity. A running
 // (active) thread is not moved up for being active; Running shows those.
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { MODELS } = require('./fixture');
 const { backToToday, startChatInAlpha } = require('./today-helpers');
 
@@ -38,7 +39,7 @@ test.describe('Continue order with many active threads', () => {
     await page.getByTestId('palette-input').fill('Yesterday');
     await page.getByTestId('palette-item').filter({ hasText: 'Yesterday\'s thread' }).click();
     await expect(page).toHaveURL(/#session\/s-old/);
-    await page.reload(); // Continue paints on load; a live repaint on return is not what this asserts
+    await reloadEve(page); // Continue paints on load; a live repaint on return is not what this asserts
     await backToToday(page);
     await expect(rows(page).first()).toHaveAttribute('data-testid', 'home-session-s-old');
   });

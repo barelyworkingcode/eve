@@ -2,6 +2,7 @@
 // <Other>", which reruns the last user turn as a new thread in the other mode's
 // project and never writes to the first. docs/design-mode-presets.md
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 
 const MODELS = {
   models: [
@@ -69,8 +70,7 @@ function refuse(eve, sessionId, event = SCOPE) {
 async function recordFrames(page) {
   const frames = [];
   page.on('websocket', (ws) => ws.on('framesent', ({ payload }) => { try { frames.push(JSON.parse(String(payload))); } catch {} }));
-  await page.reload();
-  await page.waitForFunction(() => !!window.client?.state);
+  await reloadEve(page);
   return frames;
 }
 
@@ -254,8 +254,7 @@ test.describe('A12 a voice thread', () => {
 
   test('a refusal there shows no button; a text thread beside it does', async ({ page, eve }) => {
     await page.evaluate(() => localStorage.setItem('eve-session-meta', JSON.stringify({ 's-voice': { sessionType: 'voice' } })));
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await openHome(page, eve, 's-voice', 'Kitchen talk');
     // Setup guard: eve took the thread as voice.
     expect(await page.evaluate(() => window.client.state.sessions.get('s-voice')?.sessionType)).toBe('voice');

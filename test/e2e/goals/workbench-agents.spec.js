@@ -4,6 +4,7 @@
 const os = require('os');
 const path = require('path');
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
 
 const TEMPLATES = [
@@ -65,8 +66,7 @@ async function reloadWatchingForTerminals(page) {
       if (n) window.__opened.push(`${n} tab(s)`);
     }, 25);
   });
-  await page.reload();
-  await page.waitForFunction(() => !!window.client?.state);
+  await reloadEve(page);
 }
 const opened = (page) => page.evaluate(() => window.__opened);
 
@@ -149,7 +149,7 @@ test.describe('S5a-A3 agent board', () => {
 
   test('a stopped terminal says exited', async ({ page, eve }) => {
     eve.relay.seedTerminal({ terminalId: 't-a2', templateId: 'shell', name: 'Shell', directory: eve.folders.alpha, state: 'stopped' });
-    await page.reload();
+    await reloadEve(page);
     await expect(todayRow(page, 't-a2')).toContainText('exited');
     await expect(todayRow(page, 't-a2')).not.toContainText('open');
   });
@@ -175,8 +175,7 @@ test.describe('S5a-A3 agent board with nothing to show', () => {
 
   test('relay down says "Can\'t reach relay"', async ({ page, eve }) => {
     await eve.relay.close();
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await expect(page.getByTestId('today-part-agents')).toContainText("Can't reach relay");
   });
 });
