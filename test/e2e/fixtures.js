@@ -17,9 +17,8 @@ const hermeticTest = base.test.extend({
 // `load` can fire before auth status resolves and well before the first boot
 // has loaded projects and sessions. app.js sets data-ready on <html> once the
 // first socket is ready, projects and sessions are loaded (or failed), the
-// tab restore was requested, the initial hash was handled and the first models
-// fetch settled. Joins, file reads and tasks are not part of it: wait on those
-// by their own signal.
+// tab restore was requested, the initial hash was handled. Models, joins, file reads and tasks are not
+// part of it: wait on those by their own signal.
 const waitForReady = (page) => page.waitForFunction(() => document.documentElement.dataset.ready === '1');
 
 async function gotoEve(page, url) {

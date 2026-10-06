@@ -542,7 +542,7 @@ class EveWorkspaceClient {
     // Test-only boot signal: nothing styles or reads it. .finally keeps a
     // failed boot visible as a pageerror while still setting the flag, and
     // reconnects leave it set.
-    if (!isReconnect) booted.finally(() => this._modelsReady).finally(() => { document.documentElement.dataset.ready = '1'; });
+    if (!isReconnect) booted.finally(() => { document.documentElement.dataset.ready = '1'; });
 
     this.tabManager.reestablishFileWatches();
   }
