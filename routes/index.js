@@ -322,6 +322,19 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     }
   });
 
+  // Drop in to a headless Claude session: relay stops the headless process and
+  // opens a terminal on the same conversation (relay `session.drop_in`). The body
+  // check also keeps a cross-site no-cors POST, which cannot send JSON, out.
+  app.post('/api/sessions/:id/drop-in', requireAuth, (req, res) => {
+    const whole = (n) => Number.isInteger(n) && n >= 1 && n <= 500;
+    const { cols, rows } = req.body || {};
+    if (!whole(cols) || !whole(rows)) {
+      return res.status(400).json({ error: 'cols and rows must be whole numbers from 1 to 500' });
+    }
+    proxy(req, res, 'POST', `/api/sessions/${encodeURIComponent(req.params.id)}/drop-in`,
+      { cols, rows }, { op: 'session.drop_in' });
+  });
+
   // The id is forwarded without shape validation here: relayLLM rejects ids it
   // won't accept before joining one into a log filename.
   app.get('/api/terminals/:id/log', requireAuth, async (req, res) => {
