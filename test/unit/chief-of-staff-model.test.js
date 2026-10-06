@@ -60,7 +60,7 @@ describe('launch', () => {
     expect(create.body.name).toMatch(/^__cos:[0-9a-f]{12}$/);
     expect(create.body).toMatchObject({ projectId: 'p1', directory: '/tmp/acme', model: 'haiku', appendClaudeMd: false });
     expect(create.body.settings.headless).toBe(true);
-    expect(create.body.settings.permissionPolicy.deniedTools).toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write', 'WebFetch']));
+    expect(create.body.settings.permissionPolicy.deniedTools).toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write', 'WebFetch', 'mcp__*']));
     expect(create.body).not.toHaveProperty('agent');
     expect(create.body.settings).not.toHaveProperty('useRelayTools');
     expect(create.body).not.toHaveProperty('useRelayTools');

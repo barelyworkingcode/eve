@@ -19,10 +19,11 @@ const HIDDEN_COS_PREFIX = '__cos:';
 const DEFAULT_TURN_TIMEOUT_MS = 120 * 1000;
 const DEFAULT_OPEN_TIMEOUT_MS = 15 * 1000;
 
-// What a default Claude Code session lists in `system/init`, minus MCP tools,
-// plus the older built-in names a Claude Code release may still report. A name
-// that does not exist is harmless to deny. MCP tools are left out because they
-// differ per machine; the init check catches those and the relaunch denies them.
+// What a default Claude Code session lists in `system/init`, plus the older
+// built-in names a Claude Code release may still report. A name that does not
+// exist is harmless to deny. `mcp__*` denies every MCP tool: user-scope and
+// claude.ai connector servers differ per machine and still load in a headless
+// session, so naming them one by one is not enough. The init check stays the proof.
 const BUILTIN_TOOLS = Object.freeze([
   'Agent', 'AskUserQuestion', 'Bash', 'BashOutput', 'CronCreate', 'CronDelete', 'CronList',
   'DesignSync', 'Edit', 'EnterPlanMode', 'EnterWorktree', 'ExitPlanMode', 'ExitWorktree',
@@ -30,7 +31,7 @@ const BUILTIN_TOOLS = Object.freeze([
   'NotebookRead', 'PushNotification', 'Read', 'RemoteTrigger', 'ReportFindings',
   'ScheduleWakeup', 'SendMessage', 'Skill', 'SlashCommand', 'Task', 'TaskCreate', 'TaskGet',
   'TaskList', 'TaskStop', 'TaskUpdate', 'TodoWrite', 'ToolSearch', 'WebFetch', 'WebSearch',
-  'Workflow', 'Write',
+  'Workflow', 'Write', 'mcp__*',
 ]);
 
 class ModelError extends Error {

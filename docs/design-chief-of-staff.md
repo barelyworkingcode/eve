@@ -22,6 +22,8 @@ Recorded from a default Claude Code haiku session's `system/init` on the devbox 
 
 `Task, Bash, CronCreate, CronDelete, CronList, DesignSync, Edit, EnterWorktree, ExitWorktree, ListAgents, LSP, Monitor, NotebookEdit, PushNotification, Read, RemoteTrigger, ReportFindings, ScheduleWakeup, SendMessage, Skill, TaskCreate, TaskGet, TaskList, TaskStop, TaskUpdate, ToolSearch, WebFetch, WebSearch, Workflow, Write`
 
+The constant ends with `mcp__*`, which denies every MCP tool. On the devbox a headless session still loaded the user-scope and claude.ai connector servers, and denying them by name on a relaunch did not clear the init list; `mcp__*` did (checked with the Claude CLI's `--disallowedTools`).
+
 The constant also lists names that earlier or later releases report (`Agent`, `Glob`, `Grep`, `MultiEdit`, `TodoWrite`, `BashOutput`, `KillShell`, `AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`, `NotebookRead`, `SlashCommand`). Denying a name that does not exist is harmless. The init check, not this list, is what proves the session has no tools.
 
 ## Quoted data
