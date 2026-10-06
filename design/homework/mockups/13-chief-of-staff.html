@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eve Chief of Staff</title>
+<style>
+/* Layout: two artboards (phone thread, desktop thread + needs-you rail) over a dot legend. Tokens are eve's apple/tokens.css. */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --page: #e6e6eb;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f7;
+  --bg-tertiary: #ececf1;
+  --text-primary: #1d1d1f;
+  --text-secondary: rgba(60,60,67,.6);
+  --text-muted: rgba(60,60,67,.32);
+  --separator: rgba(60,60,67,.12);
+  --border: rgba(60,60,67,.16);
+  --accent: #007aff;
+  --accent-soft: rgba(0,122,255,.12);
+  --success: #34c759;
+  --warning: #ff9500;
+  --danger: #ff3b30;
+  --bar: rgba(245,245,247,.82);
+  --device: #1d1d1f;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #0e0e10; --bg-primary: #1c1c1e; --bg-secondary: #232325; --bg-tertiary: #2c2c2e;
+  --text-primary: #f5f5f7; --text-secondary: rgba(235,235,245,.6); --text-muted: rgba(235,235,245,.32);
+  --separator: rgba(255,255,255,.08); --border: rgba(255,255,255,.10);
+  --accent: #0a84ff; --accent-soft: rgba(10,132,255,.18); --success: #30d158; --warning: #ff9f0a; --danger: #ff453a;
+  --bar: rgba(44,44,46,.82); --device: #000; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --page: #0e0e10; --bg-primary: #1c1c1e; --bg-secondary: #232325; --bg-tertiary: #2c2c2e;
+  --text-primary: #f5f5f7; --text-secondary: rgba(235,235,245,.6); --text-muted: rgba(235,235,245,.32);
+  --separator: rgba(255,255,255,.08); --border: rgba(255,255,255,.10);
+  --accent: #0a84ff; --accent-soft: rgba(10,132,255,.18); --success: #30d158; --warning: #ff9f0a; --danger: #ff453a;
+  --bar: rgba(44,44,46,.82); --device: #000; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--text-primary); font: 14px/1.5 var(--font-ui); margin: 0; padding: 32px 16px 48px; }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 32px; }
+header.page h1 { font-size: 28px; font-weight: 700; margin: 0 0 4px; letter-spacing: -.01em; text-wrap: balance; }
+header.page p { margin: 0; color: var(--text-secondary); max-width: 68ch; }
+.boards { display: grid; grid-template-columns: 390px 1fr; gap: 32px; align-items: start; }
+@media (max-width: 980px) { .boards { grid-template-columns: 1fr; justify-items: center; } .desk { width: 100%; } }
+.label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); margin: 0 0 10px; }
+
+/* ---------- dots ---------- */
+.dot { --c: var(--text-muted); position: relative; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
+.dot[data-s="running"] { --c: var(--success); }
+.dot[data-s="running"]::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--c); animation: ring 1.6s var(--e, ease-out) infinite; }
+.dot[data-s="idle"] { --c: var(--accent); }
+.dot[data-s="asking"] { --c: var(--warning); animation: blink 1.4s ease-in-out infinite; }
+.dot[data-s="errored"] { --c: var(--danger); }
+.dot[data-s="stalled"] { --c: transparent; box-shadow: inset 0 0 0 2px var(--warning); }
+.dot[data-s="ended"] { --c: var(--text-muted); }
+@keyframes ring { from { transform: scale(1); opacity: .55; } to { transform: scale(2.6); opacity: 0; } }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* the Chief of Staff avatar: the same dot, larger, breathing while it reads */
+.cos { position: relative; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-tertiary); flex-shrink: 0; }
+.cos i { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); }
+.cos[data-busy] i { animation: breathe 2.4s ease-in-out infinite; }
+.cos[data-busy]::after { content: ""; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 2px var(--accent); opacity: 0; animation: halo 2.4s ease-in-out infinite; }
+@keyframes breathe { 0%,100% { transform: scale(.8); } 50% { transform: scale(1.15); } }
+@keyframes halo { 0%,100% { opacity: 0; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot, .dot::after, .cos i, .cos::after { animation: none !important; } }
+
+/* ---------- phone ---------- */
+.phone { width: 390px; max-width: 100%; height: 800px; border-radius: 48px; background: var(--device); padding: 10px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+.screen { position: relative; height: 100%; border-radius: 39px; overflow: hidden; background: var(--bg-primary); display: flex; flex-direction: column; }
+.top { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 20px 16px 10px; border-bottom: 1px solid var(--separator); }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--bg-tertiary); font-weight: 600; font-size: 13px; }
+.pill .cos { width: 28px; height: 28px; } .pill .cos i { width: 11px; height: 11px; }
+.top .sub { font-size: 12px; color: var(--text-secondary); }
+.feed { flex: 1; overflow-y: auto; padding: 16px 16px 150px; display: flex; flex-direction: column; gap: 22px; }
+
+.post { display: grid; grid-template-columns: 36px 1fr; gap: 12px; }
+.post > div { min-width: 0; }
+.post h3 { margin: 0 0 4px; font-size: 17px; line-height: 1.3; font-weight: 700; text-wrap: balance; }
+.post p { margin: 0 0 10px; color: var(--text-primary); }
+.post p.meta { color: var(--text-secondary); font-size: 12px; margin: 0 0 4px; }
+.post code { font: 12px var(--font-mono); background: var(--bg-tertiary); padding: 1px 5px; border-radius: 5px; }
+a.ref { color: var(--accent); text-decoration: none; }
+
+.card { border: 1px solid var(--border); border-radius: 13px; overflow: hidden; background: var(--bg-primary); }
+.card .hd { padding: 10px 14px; background: var(--bg-secondary); border-bottom: 1px solid var(--separator); }
+.card .hd small { display: block; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--text-secondary); }
+.card .hd b { font-size: 15px; }
+.row { display: grid; grid-template-columns: 10px 1fr auto; gap: 10px; align-items: start; padding: 10px 14px; border-top: 1px solid var(--separator); cursor: pointer; }
+.row:first-of-type { border-top: 0; }
+.row .dot { margin-top: 6px; }
+.row b { display: block; font-weight: 600; }
+.row span.s { display: block; color: var(--text-secondary); font-size: 12.5px; }
+.row time { color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row:hover { background: var(--bg-secondary); }
+.quote { margin: 0; padding: 10px 14px; font-size: 13.5px; border-left: 3px solid var(--warning); background: var(--bg-secondary); }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--separator); }
+button { font: inherit; font-size: 13px; font-weight: 600; border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; background: var(--bg-tertiary); color: var(--text-primary); }
+button.primary { background: var(--accent); color: #fff; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.me { align-self: flex-end; max-width: 80%; background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 19px 19px 5px 19px; }
+.sent { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); background: var(--bg-tertiary); border-radius: 999px; padding: 2px 10px; }
+.quiet { text-align: center; font-size: 12.5px; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+.dock { position: absolute; left: 12px; right: 12px; bottom: 16px; display: grid; gap: 8px; }
+.composer { display: flex; align-items: center; gap: 8px; background: var(--bar); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border: 1px solid var(--border); border-radius: 999px; padding: 6px 6px 6px 16px; color: var(--text-secondary); }
+.composer > span:first-child { flex: 1; }
+.composer .mic { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; }
+.tabs { display: flex; justify-content: space-around; background: var(--bar); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border: 1px solid var(--border); border-radius: 999px; padding: 6px; }
+.tab { position: relative; width: 52px; height: 40px; border-radius: 999px; display: grid; place-items: center; color: var(--text-secondary); }
+.tab.on { background: var(--bg-tertiary); color: var(--text-primary); }
+.tab .badge { position: absolute; top: 4px; right: 10px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--warning); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; padding: 0 4px; }
+svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- desktop ---------- */
+.desk { border-radius: 13px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-primary); box-shadow: 0 20px 50px rgba(0,0,0,.18); display: grid; grid-template-columns: 200px 1fr 300px; height: 800px; }
+@media (max-width: 980px) { .desk { grid-template-columns: 1fr; height: auto; } .desk .side { display: none; } }
+.side { background: var(--bg-secondary); border-right: 1px solid var(--separator); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.side .it { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; color: var(--text-secondary); }
+.side .it.on { background: var(--accent-soft); color: var(--text-primary); font-weight: 600; }
+.side h4 { margin: 12px 8px 4px; font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; }
+.side .cos { width: 20px; height: 20px; } .side .cos i { width: 8px; height: 8px; }
+.main { display: flex; flex-direction: column; min-width: 0; }
+.main .feed { padding: 20px 28px 24px; }
+.main .composer { margin: 0 28px 20px; }
+.main .top { flex-direction: row; justify-content: flex-start; padding: 14px 28px; }
+.rail { border-left: 1px solid var(--separator); background: var(--bg-secondary); overflow-y: auto; padding: 14px 0; }
+.rail h4 { margin: 4px 16px 8px; font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; display: flex; justify-content: space-between; }
+.rail .row { padding: 8px 16px; border-top: 0; }
+.rail .row.drop { grid-template-columns: 10px 1fr; }
+.rail hr { border: 0; border-top: 1px solid var(--separator); margin: 10px 16px; }
+
+/* ---------- legend ---------- */
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.lg { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: grid; grid-template-columns: 36px 1fr; gap: 10px; align-items: center; }
+.lg .sw { display: grid; place-items: center; }
+.lg b { display: block; } .lg span { color: var(--text-secondary); font-size: 12.5px; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 32px; }
+.notes p { margin: 0; color: var(--text-secondary); max-width: 60ch; }
+.notes p b { color: var(--text-primary); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="page">
+    <h1>Chief of Staff</h1>
+    <p>One thread that reports what needs you and stays quiet about the rest. Every agent is a dot. The Chief of Staff is the same dot, larger. It breathes while it reads, and goes still when there's nothing to say.</p>
+  </header>
+
+  <div class="boards">
+    <section>
+      <p class="label">Phone · thread</p>
+      <div class="phone"><div class="screen">
+        <div class="top">
+          <span class="pill"><span class="cos" data-busy><i></i></span>Chief of Staff</span>
+          <span class="sub">Watching 6 agents · 2 need you</span>
+        </div>
+        <div class="feed">
+          <article class="post">
+            <span class="cos"><i></i></span>
+            <div>
+              <p class="meta">Now · relay</p>
+              <h3>The reducer agent is asking you something</h3>
+              <p>It finished the state machine and stopped on one question. Its tests pass. It won't go further until you answer.</p>
+              <div class="card">
+                <div class="hd"><small>Waiting on you · 4 min</small><b>fix/219-reducer</b></div>
+                <blockquote class="quote">Should a stalled session flip back to running on any event, or only on a new tool call?</blockquote>
+                <div class="acts"><button class="primary">Answer</button><button>Drop in</button><button>Open</button></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="post">
+            <span class="cos"><i></i></span>
+            <div>
+              <p class="meta">07:00 · overnight</p>
+              <h3>Three agents finished. One is stuck.</h3>
+              <p>The board PR is ready for you. The Codex spike stalled in <code>npm test</code> and hasn't printed anything for 9 minutes.</p>
+              <div class="card">
+                <div class="hd"><small>Overnight check</small><b>4 sessions since 22:10</b></div>
+                <div class="row"><span class="dot" data-s="idle"></span><div><b>eve · board</b><span class="s">PR #201 opened, CI green</span></div><time>02:14</time></div>
+                <div class="row"><span class="dot" data-s="stalled"></span><div><b>relay · codex spike</b><span class="s">No output for 9 min in npm test</span></div><time>06:51</time></div>
+                <div class="row"><span class="dot" data-s="errored"></span><div><b>relay · ssh host</b><span class="s">Exited: testbox refused the key</span></div><time>03:40</time></div>
+                <div class="row"><span class="dot" data-s="ended"></span><div><b>eve · docs pass</b><span class="s">Done, nothing to review</span></div><time>01:02</time></div>
+              </div>
+            </div>
+          </article>
+
+          <div class="me">Tell the board agent to merge after CI.</div>
+
+          <article class="post">
+            <span class="cos"><i></i></span>
+            <div>
+              <p>Sent to <a class="ref" href="#">eve · board</a>. It's running again.</p>
+              <span class="sent"><span class="dot" data-s="running"></span>Sent by Chief of Staff · in audit log</span>
+            </div>
+          </article>
+
+          <p class="quiet"><span class="dot" data-s="running"></span>2 agents running. Nothing else needs you.</p>
+        </div>
+
+        <div class="dock">
+          <div class="composer"><span>Tell an agent…</span><span class="mic"><svg class="i" viewBox="0 0 24 24" style="width:16px;height:16px;color:#fff"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span></div>
+          <nav class="tabs">
+            <span class="tab on" title="Chief of Staff"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg></span>
+            <span class="tab" title="Agents"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><path d="M11 7h9M11 17h9"/></svg><span class="badge">2</span></span>
+            <span class="tab" title="Today"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg></span>
+            <span class="tab" title="Routines"><svg class="i" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2M20 4v5h-5"/></svg></span>
+            <span class="tab" title="More"><svg class="i" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></span>
+          </nav>
+        </div>
+      </div></div>
+    </section>
+
+    <section class="desk-wrap" style="min-width:0;width:100%">
+      <p class="label">Desktop · thread with needs-you board</p>
+      <div class="desk">
+        <aside class="side">
+          <div class="it on"><span class="cos" data-busy><i></i></span>Chief of Staff</div>
+          <div class="it">Today</div>
+          <div class="it">Routines</div>
+          <h4>Projects</h4>
+          <div class="it"><span class="dot" data-s="asking"></span>relay</div>
+          <div class="it"><span class="dot" data-s="running"></span>eve</div>
+          <div class="it"><span class="dot" data-s="ended"></span>relayTTS</div>
+        </aside>
+
+        <div class="main">
+          <div class="top"><span class="pill"><span class="cos" data-busy><i></i></span>Chief of Staff</span><span class="sub" style="margin-left:10px">Watching 6 agents · 2 need you</span></div>
+          <div class="feed">
+            <article class="post">
+              <span class="cos"><i></i></span>
+              <div>
+                <p class="meta">Now · relay</p>
+                <h3>The reducer agent is asking you something</h3>
+                <p>It finished the state machine and stopped on one question. Its tests pass. It won't go further until you answer.</p>
+                <div class="card" style="max-width:560px">
+                  <div class="hd"><small>Waiting on you · 4 min</small><b>fix/219-reducer</b></div>
+                  <blockquote class="quote">Should a stalled session flip back to running on any event, or only on a new tool call?</blockquote>
+                  <div class="acts"><button class="primary">Answer</button><button>Drop in</button><button>Open</button></div>
+                </div>
+              </div>
+            </article>
+            <div class="me">Tell the board agent to merge after CI.</div>
+            <article class="post">
+              <span class="cos"><i></i></span>
+              <div>
+                <p>Sent to <a class="ref" href="#">eve · board</a>. It's running again.</p>
+                <span class="sent"><span class="dot" data-s="running"></span>Sent by Chief of Staff · in audit log</span>
+              </div>
+            </article>
+            <p class="quiet"><span class="dot" data-s="running"></span>2 agents running. Nothing else needs you.</p>
+          </div>
+          <div class="composer"><span>Tell an agent…</span><span class="mic"><svg class="i" viewBox="0 0 24 24" style="width:16px;height:16px;color:#fff"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span></div>
+        </div>
+
+        <aside class="rail">
+          <h4><span>Needs you</span><span>2</span></h4>
+          <div class="row"><span class="dot" data-s="asking"></span><div><b>relay · reducer</b><span class="s">Asking a question</span></div><time>4m</time></div>
+          <div class="row"><span class="dot" data-s="stalled"></span><div><b>relay · codex spike</b><span class="s">No output for 9 min</span></div><time>9m</time></div>
+          <div class="row"><span class="dot" data-s="errored"></span><div><b>relay · ssh host</b><span class="s">testbox refused the key</span></div><time>3h</time></div>
+          <hr>
+          <h4><span>Working</span><span>2</span></h4>
+          <div class="row"><span class="dot" data-s="running"></span><div><b>eve · board</b><span class="s">Running tests</span></div><time>1m</time></div>
+          <div class="row"><span class="dot" data-s="running"></span><div><b>relay · codex decode</b><span class="s">Editing provider.go</span></div><time>12s</time></div>
+          <div class="row"><span class="dot" data-s="idle"></span><div><b>eve · palette</b><span class="s">Finished a turn</span></div><time>22m</time></div>
+          <hr>
+          <h4><span>Done</span><span>1</span></h4>
+          <div class="row drop"><span class="dot" data-s="ended"></span><div><b>eve · docs pass</b><span class="s">Ended 01:02</span></div></div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <section>
+    <p class="label">One dot, seven states</p>
+    <div class="legend">
+      <div class="lg"><span class="sw"><span class="cos" data-busy><i></i></span></span><div><b>Chief of Staff, reading</b><span>Breathes while it reads new events</span></div></div>
+      <div class="lg"><span class="sw"><span class="dot" data-s="running"></span></span><div><b>Running</b><span>Green, a ring ripples out. Busy, leave it.</span></div></div>
+      <div class="lg"><span class="sw"><span class="dot" data-s="asking"></span></span><div><b>Asking</b><span>Amber, slow blink. The only state that moves to get your eye.</span></div></div>
+      <div class="lg"><span class="sw"><span class="dot" data-s="stalled"></span></span><div><b>Stalled</b><span>Amber ring, hollow. Nothing heard for 5 min.</span></div></div>
+      <div class="lg"><span class="sw"><span class="dot" data-s="errored"></span></span><div><b>Errored</b><span>Red, still.</span></div></div>
+      <div class="lg"><span class="sw"><span class="dot" data-s="idle"></span></span><div><b>Idle</b><span>Blue, still. Turn finished. The Chief of Staff decides if it's waiting on you.</span></div></div>
+      <div class="lg"><span class="sw"><span class="dot" data-s="ended"></span></span><div><b>Ended</b><span>Grey. Sinks to Done.</span></div></div>
+    </div>
+  </section>
+
+  <section class="notes">
+    <p><b>Taken from the reference.</b> A named pill with an avatar at the top. Each update is a headline, a short paragraph and one card with status rows. A floating dock at the bottom.</p>
+    <p><b>Changed for eve.</b> The avatar is the status dot, not a face, so it carries meaning. Cards have actions: Answer, Drop in, Open. Anything the Chief of Staff sends shows a "Sent by" chip and lands in the audit log.</p>
+    <p><b>Board.</b> On desktop the needs-you board is a rail beside the thread. On a phone it's the Agents tab, and the badge counts what needs you.</p>
+    <p><b>Motion budget.</b> Only two things move: running agents, and an agent asking you something. Everything else is still. Reduced-motion turns all of it off.</p>
+  </section>
+</div>
+</body>
+</html>
