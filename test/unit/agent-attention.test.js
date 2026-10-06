@@ -141,4 +141,34 @@ describe('AgentAttention', () => {
     t.list('live1', { attention: { state: 'idle', since: '2026-10-05T10:09:00.000Z' } });
     expect(t.store.listedIds().sort()).toEqual(['done1', 'live1']);
   });
+
+  it('an ended frame that beats the list keeps its entry and shows once the refresh names the session', async () => {
+    const t = setup();
+    t.refreshList.mockImplementation(() => { t.list('s1', { live: false }); return Promise.resolve(); });
+    t.frame('s1', 'ended');
+    jest.advanceTimersByTime(500);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(t.store.get('s1').state).toBe('ended');
+    expect(t.store.listedIds()).toEqual(['s1']);
+  });
+
+  it('an ended id the refresh never names is dropped once the refresh resolves', async () => {
+    const t = setup();
+    t.frame('hidden', 'ended');
+    jest.advanceTimersByTime(500);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(t.refreshList).toHaveBeenCalledTimes(1);
+    expect(t.store.get('hidden')).toBeNull();
+  });
+
+  it('an ended frame for an id already asked about and never named is dropped at once', async () => {
+    const t = setup();
+    t.frame('hidden', 'starting');
+    jest.advanceTimersByTime(500);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(t.store.get('hidden').state).toBe('starting');
+    t.frame('hidden', 'ended');
+    expect(t.store.get('hidden')).toBeNull();
+    expect(t.refreshList).toHaveBeenCalledTimes(1);
+  });
 });

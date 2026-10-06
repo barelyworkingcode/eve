@@ -73,7 +73,6 @@ class AgentAttention {
     if (this._entries.delete(id)) this._changed(id);
   }
 
-  // One list refresh per burst of unknown ids, and one ask per id.
   _dropUnlistedEnded(ids) {
     for (const id of ids) {
       if (this._entries.get(id)?.state === 'ended' && !this.state.sessions.has(id)) {
@@ -83,6 +82,7 @@ class AgentAttention {
     }
   }
 
+  // One list refresh per burst of unknown ids, and one ask per id.
   _requestRefresh(id) {
     if (this._asked.has(id)) return;
     this._asked.add(id);
