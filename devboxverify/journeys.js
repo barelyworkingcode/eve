@@ -2616,16 +2616,27 @@ function openEveSocket(env) {
   });
 }
 
-// Pids of the claude processes whose command line holds `claudeId` (the
-// conversation id system/init reports). The executable is the text before the
-// first flag, so a shim or ssh client that merely carries the id is not matched.
-function claudePidsFor(psOut, claudeId) {
-  return String(psOut).split('\n').flatMap((line) => {
-    const m = line.trim().match(/^(\d+)\s+(.*)$/);
-    if (!m || !m[2].includes(claudeId)) return [];
-    const exe = m[2].split(' --')[0].trim();
-    return /(^|[\s/])claude$/.test(exe) ? [Number(m[1])] : [];
+// Pids of the claude children of the relay-sessions shim for relay session
+// `sid`. relay-sessions launches claude through `relay-sessions exec
+// --session-id <sid> ... -- <path>/claude ...` and keeps it as a child, so the
+// shim is found by its exact id token and claude by ppid. The executable is
+// the text before the first flag, so a sibling that merely carries the id is
+// not matched.
+function claudePidsFor(psOut, sid) {
+  const rows = String(psOut).split('\n').flatMap((line) => {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+    return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }] : [];
   });
+  const marker = `exec --session-id ${sid}`;
+  const shims = new Set(rows.filter((r) => {
+    const at = r.command.indexOf(marker);
+    return at >= 0 && (r.command.length === at + marker.length || r.command[at + marker.length] === ' ');
+  }).map((r) => r.pid));
+  return rows.filter((r) => {
+    if (!shims.has(r.ppid)) return false;
+    const exe = r.command.split(' --')[0].trim();
+    return /(^|\/)claude$/.test(exe);
+  }).map((r) => r.pid);
 }
 
 async function agentDropIn(env) {
@@ -2686,8 +2697,6 @@ async function agentDropIn(env) {
   const init = sock.frames.find((f) => f.type === 'llm_event' && f.event?.type === 'system' && f.event?.subtype === 'init');
   if (!init) return result(id, FAIL, `session ${sid}: no system/init event after turn 1`);
   if (init.event.model !== DROP_IN_INIT_MODEL) return result(id, BLOCKED, `session ${sid}: system/init reported model ${init.event.model}, not ${DROP_IN_INIT_MODEL}`);
-  const claudeId = init.event.session_id;
-  if (typeof claudeId !== 'string' || !claudeId) return result(id, FAIL, `session ${sid}: system/init carries no session_id`);
 
   env.step('send turn 2');
   const secondAt = Date.now();
@@ -2699,10 +2708,10 @@ async function agentDropIn(env) {
   env.step('kill the claude process mid-turn');
   let pids = [];
   await poll(async () => {
-    pids = claudePidsFor((await exec('ps', ['-axo', 'pid=,command='], { maxBuffer: 16 << 20, timeout: 10000 })).stdout, claudeId);
+    pids = claudePidsFor((await exec('ps', ['-axo', 'pid=,ppid=,command='], { maxBuffer: 16 << 20, timeout: 10000 })).stdout, sid);
     return pids.length;
   }, { timeoutMs: 3000, intervalMs: 100 });
-  if (!pids.length) return result(id, FAIL, `session ${sid}: no claude process holds conversation ${claudeId} in its command line`);
+  if (!pids.length) return result(id, FAIL, `session ${sid}: no claude child of the relay-sessions shim`);
   for (const pid of pids) process.kill(pid, 'SIGKILL');
 
   env.step('wait for the errored frame');

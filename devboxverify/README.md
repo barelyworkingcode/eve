@@ -595,9 +595,9 @@ Acme Corp: model `haiku` (or any offered id containing it), name
 page waits on Today. Turn 1 is `Reply with exactly: verify-<nonce>-done`;
 after the `idle` frame `system/init` must report
 `claude-haiku-4-5-20251001`. Turn 2 is `Count from 1 to 300, one number per
-line.`; on its `running` frame the journey SIGKILLs the `claude` process whose
-command line holds the `session_id` from `system/init` (fault injection on
-the test machine). The `errored` frame must follow. Within 2 s of it
+line.`; on its `running` frame the journey SIGKILLs the `claude` child of the
+relay-sessions shim (`exec --session-id <id>`) for that session (fault
+injection on the test machine). The `errored` frame must follow. Within 2 s of it
 `today-drop-in-<id>` must show in `today-agents-group-needs`. A click must
 open an active tab named `verify-<nonce>-dropin (drop-in)` within 75 s, and
 the terminal must show `verify-<nonce>-done` (a folder-trust prompt is
