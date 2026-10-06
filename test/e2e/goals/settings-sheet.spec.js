@@ -105,6 +105,38 @@ test.describe('settings sheet', () => {
       await expect(sheet.getByTestId('settings-default-work')).toHaveText('Work starts in Beta Project');
       await expect(sheet.getByTestId('settings-default-home')).toHaveText('Home: no default. Ask lets you pick.');
     });
+
+    test('projects that load after the sheet opens update the Modes rows and leave the other controls alone', async ({ page }) => {
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      let hit;
+      const held = new Promise((resolve) => { hit = resolve; });
+      await page.route('**/api/projects', async (route) => { hit(); await gate; await route.continue(); });
+      await page.reload(); // pre-ready: holds /api/projects; waits on `held`
+      await held;
+
+      const sheet = await openSheet(page);
+      await expect(sheet.getByTestId('settings-default-work')).toHaveText('Work: no default. Ask lets you pick.');
+      // The sheet moves focus to its first button on open; wait for that so it cannot take focus from the slider.
+      await expect(sheet.getByTestId('settings-done')).toBeFocused();
+      const size = sheet.getByTestId('settings-text-size');
+      await size.focus();
+      await size.evaluate((el) => { el.dataset.sameElement = 'yes'; });
+
+      release();
+      await expect(sheet.getByTestId('settings-default-work')).toHaveText('Work starts in Beta Project');
+      await expect(sheet.getByTestId('settings-text-size')).toBeFocused();
+      await expect(sheet.getByTestId('settings-text-size')).toHaveAttribute('data-same-element', 'yes');
+    });
+
+    test('a closed sheet does not rebuild its Modes group on a projects event', async ({ page }) => {
+      const sheet = await openSheet(page);
+      await sheet.getByTestId('settings-group-modes').evaluate((el) => { el.dataset.sameElement = 'yes'; });
+      await sheet.getByTestId('settings-done').click();
+      await expect(sheet).toBeHidden();
+      await page.evaluate(() => window.client.bus.emit('projects:loaded'));
+      await expect(sheet.getByTestId('settings-group-modes')).toHaveAttribute('data-same-element', 'yes');
+    });
   });
 
   test.describe('with a dotfile in Alpha', () => {
