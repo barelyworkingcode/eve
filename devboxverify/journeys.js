@@ -2573,7 +2573,10 @@ async function agentBoardStates(env) {
 
 // — Chief of Staff (G6) --------------------------------------------------------
 
-const COS_MODEL = 'claude-haiku-4-5-20251001';
+// Relay's model value for Claude Haiku (internal/sessions/api/models.go); the
+// session's system/init reports it as COS_MODEL_ID.
+const COS_MODEL = 'haiku';
+const COS_MODEL_ID = 'claude-haiku-4-5-20251001';
 const COS_POST_WITHIN_MS = 90000;
 const COS_SENT_WITHIN_MS = 60000;
 
@@ -2678,7 +2681,7 @@ async function cosAskingPost(env) {
   // The model id arrives with the first model turn; allow it a moment.
   await poll(async () => seen.status && seen.status.model, { timeoutMs: 5000, intervalMs: 250 });
   const model = seen.status && seen.status.model;
-  if (model !== COS_MODEL) problems.push(`the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL}`);
+  if (model !== COS_MODEL_ID) problems.push(`the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`);
 
   env.step('click Open');
   await page.getByTestId(`cos-open-${postId}`).click({ timeout: 5000 }).catch(() => problems.push('Open could not be clicked'));
