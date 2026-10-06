@@ -6,7 +6,7 @@ const playwright = require('eslint-plugin-playwright');
 
 module.exports = [
   {
-    files: ['test/e2e/**/*.js'],
+    files: ['test/e2e/**/*.{js,mjs,cjs}'],
     plugins: { playwright },
     // An added `eslint-disable` comment must not be able to switch the gate off.
     linterOptions: { noInlineConfig: true },
@@ -19,4 +19,5 @@ module.exports = [
       }],
     },
   },
+  { files: ['test/e2e/**/*.mjs'], languageOptions: { sourceType: 'module' } },
 ];

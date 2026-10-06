@@ -17,6 +17,18 @@ describe('burnInSpecs', () => {
     expect(out).toEqual(['test/e2e/a.spec.js', 'test/e2e/sub/b.spec.js']);
   });
 
+  it("keeps every path Playwright's default testMatch runs", () => {
+    const paths = [
+      'test/e2e/a.test.js', 'test/e2e/a.spec.mjs', 'test/e2e/a.spec.cjs', 'test/e2e/a.spec.ts',
+      'test/e2e/a.test.mts', 'test/e2e/a.spec.cts', 'test/e2e/a.spec.jsx', 'test/e2e/a.test.tsx',
+    ];
+    expect(burnInSpecs(paths, undefined, ROOT)).toEqual(paths);
+  });
+
+  it('drops names that testMatch would not run', () => {
+    expect(burnInSpecs(['test/e2e/a.specs.js', 'test/e2e/a.spec.json', 'test/e2e/spec.js', 'test/e2e/a.spec.js.snap'], undefined, ROOT)).toEqual([]);
+  });
+
   it('applies the real playwright testIgnore: drops voice.spec.js, keeps voice-buttons.spec.js', () => {
     const out = burnInSpecs(['test/e2e/voice.spec.js', 'test/e2e/voice-buttons.spec.js'], testIgnore, ROOT);
     expect(out).toEqual(['test/e2e/voice-buttons.spec.js']);

@@ -2,7 +2,7 @@
 'use strict';
 
 // Lists the e2e specs a pull request adds or changes, one path per line, for
-// the CI burn-in (`--repeat-each=5`). Specs only: a changed helper is covered
+// the CI burn-in (`--repeat-each=5`). Specs only (Playwright's default testMatch): a changed helper is covered
 // by the pre-push gate and by main's e2e job. Specs the Playwright config
 // ignores (voice) are dropped.
 //
@@ -15,6 +15,8 @@ const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
 const SPEC_DIR = 'test/e2e';
+// Playwright's default testMatch: **/*.@(spec|test).?(c|m)[jt]s?(x)
+const SPEC_FILE = /\.(spec|test)\.[cm]?[jt]sx?$/;
 
 function matchesIgnore(pattern, relPath, root) {
   if (pattern instanceof RegExp) {
@@ -28,7 +30,7 @@ function matchesIgnore(pattern, relPath, root) {
 function burnInSpecs(paths, testIgnore, root) {
   const ignores = testIgnore === undefined ? [] : Array.isArray(testIgnore) ? testIgnore : [testIgnore];
   return paths.filter((p) =>
-    p.startsWith(`${SPEC_DIR}/`) && p.endsWith('.spec.js') &&
+    p.startsWith(`${SPEC_DIR}/`) && SPEC_FILE.test(p) &&
     !ignores.some((pat) => matchesIgnore(pat, p, root)));
 }
 

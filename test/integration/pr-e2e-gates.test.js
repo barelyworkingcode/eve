@@ -88,4 +88,52 @@ describe('PR e2e gates against a temp git repo', () => {
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('');
   });
+
+  it('lints a spec whose path contains a space: one annotation, exit 1', async () => {
+    write(dir, 'test/e2e/my spec.spec.js', 'test("s", async ({ page }) => {\n  await page.waitForTimeout(5);\n});\n');
+    commitAll(dir, 'spaced');
+    const r = await run(LINT, dir, ['base', 'HEAD']);
+    expect(r.code).toBe(1);
+    const lines = r.stdout.split('\n').filter((l) => l.startsWith('::error'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^::error file=test\/e2e\/my spec\.spec\.js,line=2::/);
+  });
+
+  it('exits 2 when a changed spec is missing from the working tree (fail closed)', async () => {
+    write(dir, 'test/e2e/new.spec.js', 'test("n", async ({ page }) => {\n  await page.waitForTimeout(5);\n});\n');
+    commitAll(dir, 'new');
+    git(dir, ['checkout', '-q', 'base']);
+    const r = await run(LINT, dir, ['base', 'pr']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/test\/e2e\/new\.spec\.js/);
+  });
+
+  it('exits 2 for a changed TypeScript e2e file', async () => {
+    write(dir, 'test/e2e/t.spec.ts', 'export {};\n');
+    commitAll(dir, 'ts');
+    const r = await run(LINT, dir, ['base', 'HEAD']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/TypeScript e2e files are not linted; add a parser before adding one/);
+  });
+
+  it('lints a changed .mjs spec', async () => {
+    write(dir, 'test/e2e/m.spec.mjs', 'import x from "y";\nawait x.waitForTimeout(5);\n');
+    commitAll(dir, 'mjs');
+    const r = await run(LINT, dir, ['base', 'HEAD']);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toMatch(/^::error file=test\/e2e\/m\.spec\.mjs,line=2::/m);
+  });
+
+  it('burn-in lists a changed .test.ts spec', async () => {
+    write(dir, 'test/e2e/z.test.ts', 'export {};\n');
+    commitAll(dir, 'ts spec');
+    const r = await run(BURN, dir, ['base', 'HEAD']);
+    expect(r.stdout).toBe('test/e2e/z.test.ts\n');
+  });
+
+  it.each([['lint', LINT], ['burn-in', BURN]])('%s exits 2 when git fails on a missing ref', async (_n, script) => {
+    const r = await run(script, dir, ['nosuchref', 'HEAD']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/git diff nosuchref\.\.\.HEAD failed/);
+  });
 });

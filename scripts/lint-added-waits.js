@@ -16,6 +16,9 @@ const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
 const SPEC_DIR = 'test/e2e';
+// Playwright's default testMatch runs these extensions; only JavaScript is linted.
+const LINTED = /\.(js|mjs|cjs)$/;
+const UNSUPPORTED = /\.(ts|mts|cts|tsx|jsx)$/;
 const WAIT_RULES = new Set(['playwright/no-wait-for-timeout', 'no-restricted-properties']);
 
 function unquote(p) {
@@ -31,7 +34,8 @@ function addedLines(diffText) {
   let file = null;
   for (const line of diffText.split(/\r?\n/)) {
     if (line.startsWith('+++ ')) {
-      const target = unquote(line.slice(4));
+      // git ends the header with a TAB when the path contains a space.
+      const target = unquote(line.slice(4).replace(/\t$/, ''));
       file = target === '/dev/null' ? null : target.replace(/^b\//, '');
       continue;
     }
@@ -100,8 +104,19 @@ async function main(argv, { cwd = process.cwd(), out = console.log, err = consol
     return 2;
   }
   const added = addedLines(diffText);
-  const files = [...added.keys()].filter((f) =>
-    f.startsWith(`${SPEC_DIR}/`) && f.endsWith('.js') && fs.existsSync(path.join(cwd, f)));
+  const changed = [...added.keys()].filter((f) => f.startsWith(`${SPEC_DIR}/`));
+  const unsupported = changed.filter((f) => UNSUPPORTED.test(f));
+  if (unsupported.length) {
+    err(`TypeScript e2e files are not linted; add a parser before adding one: ${unsupported.join(', ')}`);
+    return 2;
+  }
+  const files = changed.filter((f) => LINTED.test(f));
+  // Fail closed: a file the diff changed must be on disk at head, or its waits go unseen.
+  const missing = files.filter((f) => !fs.existsSync(path.join(cwd, f)));
+  if (missing.length) {
+    err(`lint-added-waits: ${missing.join(', ')} changed in ${base}...${head} but is not in the working tree; check out ${head} first`);
+    return 2;
+  }
   if (files.length === 0) return 0;
 
   let results;
