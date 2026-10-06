@@ -89,7 +89,7 @@ npm run test:integration  # integration tier
 npm run test:e2e          # Playwright end-to-end. Must stay green.
 ```
 
-**Where e2e runs.** The pull request check (`.github/workflows/ci.yml`, job `test`) runs `node --check`, unit and integration only. The Playwright e2e suite runs in the `e2e` job on every push to `main`, after the merge, and by hand (`workflow_dispatch`, Actions tab). For pushes that touch code the pre-push hook already ran e2e locally, and the hosted runner needs several minutes for it, so repeating it on every pull request costs time without adding a check. A red `e2e` run on `main` is reverted first, then fixed on a branch.
+**Where e2e runs.** The pull request check (`.github/workflows/ci.yml`, job `test`) runs `node --check`, unit and integration only. The Playwright e2e suite runs in the `e2e` job on every push to `main`, after the merge, and by hand (`workflow_dispatch`, Actions tab). For pushes that touch code the pre-push hook already ran e2e locally, and the hosted runner needs several minutes for it, so repeating it on every pull request costs time without adding a check. A red `e2e` run on `main` is reverted first, then fixed on a branch. A pull request also runs two jobs of its own: `lint-waits` refuses a line the PR adds that calls `waitForTimeout` in `test/e2e` (`scripts/lint-added-waits.js`; waits already on `main` pass), and `burn-in` runs each e2e spec the PR adds or changes five times with `--repeat-each=5 --retries=0` (`scripts/burn-in-specs.js`), skipping when none changed.
 
 **Browser-test lock.** `test:e2e`, `test:visual` and `verify:devbox` share one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
 
