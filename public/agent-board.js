@@ -116,6 +116,11 @@ class AgentBoard {
   // id -> { line, at, inflight }
   static lines = new Map();
   static live = new Set();
+  // relay's deriveSessionKind: these models are Claude sessions.
+  static CLAUDE_MODELS = ['haiku', 'sonnet', 'opus'];
+  static DROP_IN_SIZE = { cols: 80, rows: 24 };
+  // Session ids with a drop-in in flight, shared by every board.
+  static dropping = new Set();
 
   constructor({ container, testidPrefix, showProject, filter, onCount }) {
     this.container = container;
@@ -193,6 +198,38 @@ class AgentBoard {
       more.className = 'today__empty agent-board__note';
       more.textContent = `+${rows.length - shown.length} more`;
       el.appendChild(more);
+    }
+  }
+
+  static isClaude(session) {
+    return AgentBoard.CLAUDE_MODELS.includes(session?.model);
+  }
+
+  // The one place the Drop in rule lives: a headless Claude session that needs me.
+  static showsDropIn(r) {
+    return r.kind === 'session' && AgentBoard.isClaude(r.item) && r.item.headless === true
+      && (r.group === 'needs' || AgentBoard.dropping.has(r.id));
+  }
+
+  // Never rejects. No client timeout: relay bounds the wait, and giving up sooner
+  // would orphan a terminal it already launched.
+  static async dropIn(container, sessionId) {
+    if (AgentBoard.dropping.has(sessionId)) return;
+    AgentBoard.dropping.add(sessionId);
+    const renderAll = () => { for (const b of AgentBoard.live) b.render(); };
+    const toast = (message) => container.get('bus').emit(EVT.TOAST_SHOW, {
+      id: `drop-in-${sessionId}`, message, type: 'error', duration: 8000,
+    });
+    renderAll();
+    try {
+      const body = await container.get('api').dropIn(sessionId, AgentBoard.DROP_IN_SIZE);
+      if (body?.terminal?.terminalId) AgentBoard._termMgr(container)?.openDropIn(body.terminal);
+      else toast("Can't drop in: relay did not return a terminal.");
+    } catch (err) {
+      toast(`Can't drop in: ${err?.body?.message || err?.body?.error || "relay isn't reachable"}`);
+    } finally {
+      AgentBoard.dropping.delete(sessionId);
+      renderAll();
     }
   }
 
@@ -326,7 +363,25 @@ class AgentBoard {
       }
     }
     row.addEventListener('click', () => (kind === 'session' ? this.container.get('app').joinSession(id) : this._attach(id)));
-    return row;
+    if (!AgentBoard.showsDropIn(r)) return row;
+    // The action is a sibling of the row button: a button cannot hold a button.
+    const wrap = document.createElement('div');
+    wrap.className = 'agent-row-wrap';
+    const act = document.createElement('button');
+    act.type = 'button';
+    act.className = 'agent-row__action';
+    act.dataset.testid = `${this.prefix}-drop-in-${id}`;
+    act.setAttribute('aria-label', `Drop in to ${label}`);
+    if (AgentBoard.dropping.has(id)) {
+      act.disabled = true;
+      act.setAttribute('aria-busy', 'true');
+      act.textContent = 'Dropping in…';
+    } else {
+      act.textContent = 'Drop in';
+      act.addEventListener('click', () => AgentBoard.dropIn(this.container, id));
+    }
+    wrap.append(row, act);
+    return wrap;
   }
 
   _group(key, rows, shown, mgr, fetch) {
