@@ -2,6 +2,7 @@
 // Times are read in UTC so a row's HH:MM is its record's.
 const os = require('os');
 const { test, expect, MODELS } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { part, backToToday } = require('./today-helpers');
 
 const iso = (hoursAgo) => new Date(Date.now() - hoursAgo * 3600000).toISOString();
@@ -56,7 +57,7 @@ test.describe('S5b-A3 two runs in the last day, one older', () => {
     await expect(page.getByTestId('today-routines-unseen')).toHaveText('2 new');
     await expect(runTabs(page)).toHaveCount(0);
 
-    await page.reload();
+    await reloadEve(page);
     await expect(page.getByTestId('today-routines-unseen')).toHaveText('2 new');
     await expect(page.getByTestId('home-screen')).toBeVisible();
     await expect(runTabs(page)).toHaveCount(0);
@@ -67,7 +68,7 @@ test.describe('S5b-A3 two runs in the last day, one older', () => {
     await expect(page.getByTestId('messages-container')).toContainText('Inbox is clear.');
     await backToToday(page);
     await expect(page.getByTestId('today-routines-unseen')).toHaveText('1 new');
-    await page.reload();
+    await reloadEve(page);
     await expect(page.getByTestId('today-routines-unseen')).toHaveText('1 new');
   });
 });

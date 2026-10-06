@@ -142,3 +142,11 @@ with `git push --no-verify`.
 - **Integration**: `test/integration/<feature>.test.js`. Boot eve via
   `startEve()` from `harness.js`; drive it over HTTP/WS; `await eve.stop()`.
 - **E2E**: `test/e2e/<feature>.spec.js`. Use the `eve` fixture from `fixtures.js`.
+  Navigate with `gotoEve(page, url)` and reload with `reloadEve(page)`; both
+  return once `<html data-ready="1">` is set (first socket ready, projects and
+  sessions loaded or failed, tab restore requested, initial hash handled).
+  Models, joins, file reads and tasks are not included: wait on their own
+  signal. A hash-only `goto` is same-document and returns at once; for
+  a cold load go through `about:blank` first. A spec that acts before ready keeps
+  a bare call with `// pre-ready: <why>` on the same line, enforced by
+  `test/unit/e2e-ready-wait-guard.test.js`.

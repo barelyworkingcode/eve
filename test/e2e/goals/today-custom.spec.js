@@ -2,6 +2,7 @@
 // a card on Today. Runs are driven at the fake scheduler; times are read in UTC
 // so "Ran HH:MM" is the run record's own time.
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { nav, part, runThroughScheduler } = require('./today-helpers');
 
 const PROJECTS = ({ alpha, beta }) => [
@@ -96,7 +97,7 @@ test.describe('C6 opening Today runs nothing', () => {
     await expect(never.getByTestId('today-custom-never')).toContainText('No output yet.');
     await expect(never.getByTestId('today-custom-refresh')).toBeVisible();
     await expect(items(page, 'cw')).toHaveText(['Old news']);
-    await page.reload();
+    await reloadEve(page);
     await expect(items(page, 'cw')).toHaveText(['Old news']);
     await page.getByTestId('mode-home').click();
     await page.getByTestId('mode-work').click();
@@ -254,7 +255,7 @@ test.describe('the Output file field on an SSH host project', () => {
     const console = await edit(page, 'Work Only', 'cw');
     await expect(console.getByTestId('task-dialog-output-file')).toBeVisible();
     await expect(console.getByTestId('task-dialog-output-warning')).toBeVisible();
-    await page.reload();
+    await reloadEve(page);
     const remote = await edit(page, 'Remote Box', 'cr');
     await expect(remote.getByTestId('task-dialog-output-file')).toBeHidden();
     await expect(remote.getByTestId('task-dialog-output-warning')).toBeHidden();

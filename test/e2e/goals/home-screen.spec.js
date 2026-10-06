@@ -2,6 +2,7 @@
 // no other test). The Home|Work epic replaces it; a slice that changes any of
 // this on purpose rewrites the matching assertion in the same PR.
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 
 const HOUR = 3600 * 1000;
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
@@ -10,7 +11,7 @@ test.describe('Home greeting follows the hour', () => {
   for (const [hour, greeting] of [[3, 'Working late.'], [9, 'Good morning.'], [14, 'Good afternoon.'], [19, 'Good evening.'], [23, 'Working late.']]) {
     test(`${String(hour).padStart(2, '0')}:00 says "${greeting}"`, async ({ page }) => {
       await page.clock.setFixedTime(new Date(2026, 0, 15, hour, 0, 0));
-      await page.reload();
+      await reloadEve(page);
       await expect(page.locator('.home__greeting')).toHaveText(greeting);
     });
   }
@@ -110,8 +111,7 @@ test.describe('Home when relay is unreachable at load', () => {
   // needs relay says so with a Retry, and first-run is not offered.
   test('reports the lost connection and says what could not load; it does not offer first-run', async ({ page, eve }) => {
     await eve.relay.close();
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await expect(page.locator('.home__greeting')).toBeVisible();
     await expect(page.locator('#connectionBanner, .connection-banner').first()).toContainText('Reconnecting…');
     await expect(page.locator('.toast')).toContainText('Lost connection to relay');

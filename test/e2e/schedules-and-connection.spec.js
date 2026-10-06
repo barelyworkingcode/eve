@@ -1,4 +1,4 @@
-const { test, expect } = require('./fixtures');
+const { test, gotoEve, expect } = require('./fixtures');
 const { createFakeRelay } = require('../integration/fake-relay');
 
 test.describe('task dialog schedule wire shapes', () => {
@@ -76,7 +76,7 @@ test.describe('cold-load deep link', () => {
 
       // A same-URL goto with only a new hash is a same-document navigation.
       await page.goto('about:blank');
-      await page.goto(`${eve.baseUrl}/#session/${TARGET}`);
+      await gotoEve(page, `${eve.baseUrl}/#session/${TARGET}`);
 
       await expect(page.getByTestId(`tab-${TARGET}`)).toBeVisible({ timeout: 15000 });
       if (withOther) {

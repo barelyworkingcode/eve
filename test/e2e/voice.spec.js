@@ -9,7 +9,7 @@
  * Slower than the rest of the e2e suite (~3s per transcription), so it is
  * excluded from `npm run test:e2e` and run via `npm run test:voice`.
  */
-const { test, expect } = require('./fixtures');
+const { test, gotoEve, expect } = require('./fixtures');
 const { chromium } = require('@playwright/test');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -73,7 +73,7 @@ test.describe('mic button visibility', () => {
     test(`mic button is ${available ? 'shown' : 'hidden'} when STT reports available=${available}`, async ({ page, eve }) => {
       await page.route('**/api/stt/status', (route) =>
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available }) }));
-      await page.goto(eve.baseUrl, { waitUntil: 'domcontentloaded' });
+      await gotoEve(page, eve.baseUrl);
       await openChatSession(page);
       const mic = page.getByTestId('chat-mic');
       await expect(mic).toHaveCount(1);
@@ -102,7 +102,7 @@ test.describe('speech to transcript', () => {
     try {
       const page = await browser.newPage();
       // mediaDevices needs a secure context; eve on 127.0.0.1 qualifies.
-      await page.goto(eve.baseUrl, { waitUntil: 'domcontentloaded' });
+      await gotoEve(page, eve.baseUrl);
       await openChatSession(page);
       const mic = page.getByTestId('chat-mic');
       await expect(mic).toBeVisible({ timeout: 15000 });

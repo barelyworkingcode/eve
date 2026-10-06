@@ -1,6 +1,7 @@
 // S1-A5 Ask with typing and Return: one thread in the mode's default project, no
 // dialog first. docs/design-today-s1.md
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { MODELS } = require('./fixture');
 const { startChatInAlpha } = require('./today-helpers');
 
@@ -120,8 +121,7 @@ test.describe('S1-A5 Ask waits for models', () => {
 test.describe('S1-A5 Ask with relay down', () => {
   test('Send is disabled, the line says why, and the text stays', async ({ page, eve }) => {
     await eve.relay.close();
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await expect(page.getByTestId('today-ask-status')).toContainText("Can't reach relay");
     await expect(page.getByTestId('today-ask-send')).toBeDisabled();
     await ask(page).fill('typed while down');
@@ -198,7 +198,7 @@ async function holdAuth(page, baseUrl) {
       ws.send(m);
     });
   });
-  await page.reload();
+  await page.reload(); // pre-ready: holdAuth; waits on `held`
   await page.waitForFunction(() => !!window.client?.state);
   await held;
   return { release: () => { open = true; for (const [ws, m] of kept.splice(0)) ws.send(m); } };
@@ -245,7 +245,7 @@ test.describe('S1-A5 Ask before eve is ready', () => {
     let hit;
     const held = new Promise((resolve) => { hit = resolve; });
     await page.route('**/api/projects', async (route) => { hit(); await gate; await route.continue(); });
-    await page.reload();
+    await page.reload(); // pre-ready: holds /api/projects; waits on `held`
     await page.waitForFunction(() => window.client?.state?.connection.browser === true);
     await held;
 

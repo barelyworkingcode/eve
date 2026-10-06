@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 
 const EXTERNAL_BANNER = 'This file has been modified externally.';
 // Longer than file-watcher.js's SELF_WRITE_TTL_MS: eve drops a change made within
@@ -82,6 +83,7 @@ test.describe('G7 files', () => {
 
   test('activity inside node_modules does not reach the tree or the browser', async ({ page, eve }) => {
     fs.mkdirSync(path.join(eve.folders.alpha, 'node_modules', 'pkg'), { recursive: true });
+    await reloadEve(page);
     await openAlphaFiles(page);
     await expect(page.getByTestId('file-tree-item-/node_modules')).toBeVisible();
     await page.evaluate(() => {

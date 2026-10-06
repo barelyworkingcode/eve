@@ -1,6 +1,7 @@
 // G5 · Hand a task off and come back later. G6 · Check what my agents did.
 // The task is saved, runs when told, and its last run is readable afterwards.
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 
 test.use({
   world: {
@@ -49,7 +50,7 @@ test.describe('G5/G6 tasks', () => {
       id: 't1', name: 'Readme digest', projectId: 'alpha', prompt: 'Summarise the README.', model: 'fake-model',
       schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless',
     });
-    await page.reload();
+    await reloadEve(page);
     await page.waitForFunction(() => window.client?.state?.tasks?.size > 0);
     await openTasks(page);
     const item = page.getByTestId('project-task-t1');
@@ -78,7 +79,7 @@ test.describe('G5/G6 tasks', () => {
       schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless',
     });
     eve.relay.holdTaskRuns();
-    await page.reload();
+    await reloadEve(page);
     await page.waitForFunction(() => window.client?.state?.tasks?.size > 0);
     await openTasks(page);
     await page.getByTestId('project-task-t2').getByTitle('Run Now').click();
@@ -92,7 +93,7 @@ test.describe('G5/G6 tasks', () => {
       id: 't3', name: 'Old name', projectId: 'alpha', prompt: 'p', model: 'fake-model',
       schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless',
     });
-    await page.reload();
+    await reloadEve(page);
     await page.waitForFunction(() => window.client?.state?.tasks?.size > 0);
     await openTasks(page);
     await page.getByTestId('project-task-t3').getByTitle('Edit').click();
@@ -108,7 +109,7 @@ test.describe('G5/G6 tasks', () => {
       id: 't4', name: 'Doomed', projectId: 'alpha', prompt: 'p', model: 'fake-model',
       schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless',
     });
-    await page.reload();
+    await reloadEve(page);
     await page.waitForFunction(() => window.client?.state?.tasks?.size > 0);
     await openTasks(page);
     await page.getByTestId('project-task-new-alpha').click();
@@ -128,7 +129,7 @@ test.describe('S5b-A5 the Advanced fold', () => {
     const base = { projectId: 'alpha', schedule: { type: 'on_demand' }, enabled: true };
     eve.relay.seedTask({ ...base, id: 'tc', name: 'Chat one', prompt: 'p', model: 'fake-model', sessionType: 'headless' });
     eve.relay.seedTask({ ...base, id: 'tp', name: 'Shell one', sessionType: 'pty', templateId: 'tpl-1' });
-    await page.reload();
+    await reloadEve(page);
     await page.waitForFunction(() => window.client?.state?.tasks?.size > 1);
     await openTasks(page);
     const dialog = page.getByTestId('dialog-task-dialog');
@@ -155,7 +156,7 @@ test.describe('G6 a task\'s run is not a thread', () => {
       id: 't9', name: 'Nightly', projectId: 'alpha', prompt: 'p', model: 'fake-model',
       schedule: { type: 'on_demand' }, enabled: true, sessionType: 'headless', lastSessionId: 'run9', lastStatus: 'success',
     });
-    await page.reload();
+    await reloadEve(page);
     await page.waitForFunction(() => window.client.state.sessions.size > 0 && window.client.state.tasks.size > 0);
     await page.getByRole('navigation', { name: 'Projects' }).getByTitle('Alpha Project', { exact: true }).click();
     await page.getByTestId('panel-project-page').click();

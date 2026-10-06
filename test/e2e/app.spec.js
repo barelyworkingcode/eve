@@ -1,4 +1,4 @@
-const { test, expect } = require('./fixtures');
+const { test, reloadEve, expect } = require('./fixtures');
 
 test('does not get stuck on the passkey/auth screen over loopback', async ({ page }) => {
   await expect(page.getByTestId('sidebar-project-p1')).toBeVisible({ timeout: 20000 });
@@ -10,7 +10,7 @@ test('project panel has no Modules surface', async ({ page }) => {
   // script that still names a removed module class surfaces as a page error.
   const pageErrors = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
-  await page.reload();
+  await reloadEve(page);
 
   await page.getByTestId('sidebar-project-p1').click();
   await expect(page.getByTestId('panel-tab-changes')).toBeVisible({ timeout: 20000 });

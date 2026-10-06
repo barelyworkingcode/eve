@@ -5,7 +5,7 @@
  * still works. Assert wiring, not appearance — every check here should
  * survive the move.
  */
-const { test, expect } = require('./fixtures');
+const { test, reloadEve, expect } = require('./fixtures');
 
 async function openChat(page) {
   await page.getByTestId('sidebar-project-p1').click();
@@ -70,7 +70,7 @@ test.describe('chat input row', () => {
     // STTManager checks availability once during that earlier boot — so the
     // route above must apply to a fresh navigation to have any effect
     // (same pattern as passkey-enrolment.spec.js).
-    await page.reload();
+    await reloadEve(page);
     await openChat(page);
     await expect(page.getByTestId('chat-stop')).toBeHidden();
     await expect(page.getByTestId('chat-mic')).toBeVisible();

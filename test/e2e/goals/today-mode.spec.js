@@ -2,6 +2,7 @@
 // or `both` (missing means both). docs/design-today-s1.md
 const os = require('os');
 const { test, expect } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
 
 const HOUR = 3600 * 1000;
@@ -53,8 +54,7 @@ test.describe('S1-A4 Home | Work', () => {
 
   test('the choice survives a reload', async ({ page }) => {
     await page.getByTestId('mode-home').click();
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await expect(page.getByTestId('mode-home')).toHaveAttribute('aria-checked', 'true');
     await expect(chip(page, 'hm')).toBeVisible();
     await expect(chip(page, 'wk')).toHaveCount(0);

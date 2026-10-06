@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { test, expect, MODELS } = require('./fixture');
+const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
 
 const ask = (page) => page.getByTestId('today-ask-input');
@@ -85,8 +86,7 @@ test.describe('S5a-A4 Ask about a file', () => {
       history: [{ timestamp: new Date().toISOString(), role: 'user', content: stored }],
       live: false, createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString(), messageCount: 1,
     });
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await nav(page).getByTitle('Alpha Project', { exact: true }).click();
     await page.getByTestId('panel-project-page').click();
     await page.getByTestId('project-thread-s-asked').click();
@@ -133,8 +133,7 @@ test.describe('S5a-A4 Ask about the pick', () => {
 
   test('the file\'s project beats the remembered pick, and the pick is unchanged', async ({ page, eve }) => {
     await page.evaluate(() => localStorage.setItem('eve-ask-project', 'beta'));
-    await page.reload();
-    await page.waitForFunction(() => !!window.client?.state);
+    await reloadEve(page);
     await askAboutFile(page, 'notes.txt');
     await expect(chip(page)).toContainText('notes.txt');
     await sendAndGetAttachment(page, eve, 'about the pick');

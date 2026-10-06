@@ -11,7 +11,7 @@ test('the "Add this browser" button is hidden by default and appears once the st
     contentType: 'application/json',
     body: JSON.stringify({ enrolled: true, authenticated: false, enrollmentOpen: false }),
   }));
-  await page.reload();
+  await page.reload(); // pre-ready: auth screen; initApp never runs
 
   await expect(page.locator('#authScreen')).not.toHaveClass(/hidden/);
   await expect(page.locator('#authEnroll')).toHaveClass(/hidden/);

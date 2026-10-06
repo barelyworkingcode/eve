@@ -18,7 +18,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const base = require('@playwright/test');
 const { startEve } = require('../integration/harness');
-const { hermeticTest, gotoEve } = require('./fixtures');
+const { hermeticTest, gotoEve, reloadEve } = require('./fixtures');
 
 const { expect } = base;
 
@@ -176,7 +176,7 @@ test.describe('changes panel', () => {
     await expect(repoHeader(page, '/feat-login')).toHaveAttribute('aria-expanded', 'false');
     await expect(fileRow(page, '/feat-login', 'src/auth.js')).toHaveCount(0);
 
-    await page.reload();
+    await reloadEve(page);
     await openChanges(page);
     await expect(repoHeader(page, '/feat-login')).toHaveAttribute('aria-expanded', 'false');
   });

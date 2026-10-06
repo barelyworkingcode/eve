@@ -2,6 +2,7 @@
 // line, Ask on the mode's Ask preset, and the Action Button (#/voice-chat) on
 // the mode's voice preset. docs/design-mode-presets.md
 const { test, expect } = require('./fixture');
+const { gotoEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
 
 const MODELS = {
@@ -51,7 +52,7 @@ async function editTemplate(dialog, name) {
 // goto that only adds the hash would be a same-document navigation.
 async function coldLoad(page, url) {
   await page.goto('about:blank');
-  await page.goto(url);
+  await gotoEve(page, url);
 }
 
 // The page's create_session frames: sessionType and voice stop at eve, so relay never sees them.
@@ -213,7 +214,7 @@ test.describe('A6 #/voice-chat launches the mode\'s voice preset', () => {
       if (how === 'cold') {
         await coldLoad(page, `${eve.baseUrl}/#/voice-chat`);
       } else {
-        await page.goto(eve.baseUrl);
+        await gotoEve(page, eve.baseUrl);
         await page.waitForFunction(() => window.client?._hashListenerAdded && window.client.projects.has('beta'));
         await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
       }
