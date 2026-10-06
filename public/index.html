@@ -141,6 +141,7 @@
   <link rel="stylesheet" href="apple/project-page.css">
   <link rel="stylesheet" href="apple/agents.css">
   <link rel="stylesheet" href="apple/routines.css">
+  <link rel="stylesheet" href="apple/chief-of-staff.css">
   <link rel="stylesheet" href="apple/auth.css">
   <link rel="stylesheet" href="apple/touch.css">
   <link rel="stylesheet" href="/xterm/css/xterm.css">
@@ -169,6 +170,7 @@
     <aside class="sidebar" id="sidebar">
       <!-- Activity rail: project avatars (dynamic) + add/settings (static) -->
       <nav class="sidebar-rail" id="sidebarRail" aria-label="Projects">
+        <button id="chiefOfStaffBtn" class="sidebar-rail__btn sidebar-rail__cos" title="Chief of Staff" aria-label="Chief of Staff" data-testid="sidebar-chief-of-staff"><span class="cos" data-testid="cos-avatar"><i></i></span></button>
         <div class="sidebar-rail__projects" id="railProjects"></div>
         <div class="sidebar-rail__spacer"></div>
         <button id="newProjectBtn" class="sidebar-rail__btn" title="New Project" data-testid="sidebar-new-project"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
@@ -398,12 +400,15 @@
 
         <!-- Routines page (one tab; built by routines-page.js) -->
         <div id="routinesPane" class="routines-pane hidden" data-testid="routines-pane"></div>
+        <!-- Chief of Staff thread (one tab; built by chief-of-staff-page.js) -->
+        <div id="chiefOfStaffPane" class="cos-pane hidden" data-testid="cos-pane"></div>
         </div><!-- /#contentArea -->
 
       </div>
     </main>
     <aside id="routinePanel" class="routine-panel hidden" data-testid="routine-panel"></aside>
     <nav id="bottomBar" class="bottom-bar" data-testid="bottom-bar" aria-label="Navigation">
+      <button type="button" class="bottom-bar__btn" id="navChiefOfStaff" data-testid="nav-chief-of-staff" aria-label="Chief of Staff">Chief of Staff</button>
       <button type="button" class="bottom-bar__btn" id="navToday" data-testid="nav-today" aria-label="Today">Today</button>
       <button type="button" class="bottom-bar__btn" id="navThreads" data-testid="nav-threads" aria-label="Threads">Threads</button>
       <button type="button" class="bottom-bar__btn" id="navProjects" data-testid="nav-projects" aria-label="Projects">Projects</button>
@@ -561,6 +566,7 @@
   <script src="panes/diff-pane.js"></script>
   <script src="panes/project-pane.js"></script>
   <script src="panes/routines-pane.js"></script>
+  <script src="panes/chief-of-staff-pane.js"></script>
   <script src="tab-manager.js"></script>
   <script src="file-browser.js"></script>
   <script src="core/language-detect.js"></script>
@@ -619,6 +625,7 @@
   <script src="sidebar/mode-switch.js"></script>
   <script src="routine-audit.js"></script>
   <script src="routines-page.js"></script>
+  <script src="chief-of-staff-page.js"></script>
   <script src="routine-panel.js"></script>
   <script src="ask-elsewhere.js"></script>
   <script src="today/brief.js"></script>

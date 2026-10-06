@@ -402,7 +402,7 @@ class MessageRenderer {
     return firstLine.length === 80 ? firstLine + '…' : firstLine;
   }
 
-  appendUserMessage(text, files = [], urls = []) {
+  appendUserMessage(text, files = [], urls = [], { origin } = {}) {
     this.citations.resetTurn();
     const messageEl = document.createElement('div');
     messageEl.className = 'message user';
@@ -418,6 +418,14 @@ class MessageRenderer {
 
     const content = document.createElement('div');
     content.className = 'message-content';
+    // Only relay's marker, set by the server for a send the Chief of Staff made.
+    if (origin === 'chief-of-staff') {
+      const chip = document.createElement('span');
+      chip.className = 'message-origin-chip';
+      chip.dataset.testid = 'message-origin-chip';
+      chip.textContent = 'Sent by Chief of Staff';
+      content.appendChild(chip);
+    }
     if (shownFiles.length > 0 || shownUrls.length > 0) {
       const filesEl = document.createElement('div');
       filesEl.className = 'message-files';
@@ -507,7 +515,7 @@ class MessageRenderer {
 
     for (const msg of messages) {
       if (msg.role === 'user') {
-        this.appendUserMessage(msg.content, msg.files || [], msg.urls || []);
+        this.appendUserMessage(msg.content, msg.files || [], msg.urls || [], { origin: msg.origin });
       } else if (msg.role === 'assistant') {
         // Tool calls live inside content as tool_use blocks — there is no
         // separate toolCalls field.

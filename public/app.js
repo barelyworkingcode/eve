@@ -193,6 +193,8 @@ class EveWorkspaceClient {
     const on = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
     on('sidebarScrim', () => this.toggleSidebar(false));
     on('navBack', () => this.layout.back());
+    on('navChiefOfStaff', () => this.container.get('chiefOfStaffPage').open());
+    on('chiefOfStaffBtn', () => this.container.get('chiefOfStaffPage').open());
     on('navToday', () => this.tabManager.showToday());
     AgentBoard.mountBadge(document.getElementById('navToday'), this.container);
     on('navProjects', () => this.toggleSidebar(true));
@@ -707,6 +709,11 @@ class EveWorkspaceClient {
       }
 
       this._launchModeVoice();
+      return;
+    }
+
+    if (hash === '#chief-of-staff') {
+      this.container.get('chiefOfStaffPage').open();
       return;
     }
 

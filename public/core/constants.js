@@ -82,6 +82,11 @@ const EVT = {
   GIT_CHANGED: 'git:changed',
   GIT_OPEN_DIFF: 'git:open-diff',
 
+  // Chief of Staff thread: inbound cos_* frames re-emitted by message-dispatcher.
+  COS_SNAPSHOT: 'cos:snapshot',
+  COS_POST: 'cos:post',
+  COS_STATUS: 'cos:status',
+
   TASKS_LOADED: 'tasks:loaded',
   TASK_UPDATED: 'task:updated',
   TASK_STARTED: 'task:started',

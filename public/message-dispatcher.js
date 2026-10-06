@@ -80,6 +80,9 @@ class MessageDispatcher {
       session_folder_changed: (d) => this.handleSessionFolderChanged(d),
       session_ended:        (d) => this.handleSessionEnded(d),
       session_state:        (d) => this.bus.emit(EVT.SESSION_STATE, d),
+      cos_snapshot:         (d) => this.bus.emit(EVT.COS_SNAPSHOT, d),
+      cos_post:             (d) => this.bus.emit(EVT.COS_POST, d),
+      cos_status:           (d) => this.bus.emit(EVT.COS_STATUS, d),
       user_message:         (d) => this._handleUserMessage(d),
       llm_event:            (d) => this._handleLlmEventMessage(d),
       raw_output:           (d) => this._handleRawOutput(d),
@@ -280,7 +283,8 @@ class MessageDispatcher {
       this._localSubmitSession = null;
       return;
     }
-    this.renderer.appendUserMessage(data.text);
+    if (data.origin) this.renderer.appendUserMessage(data.text, [], [], { origin: data.origin });
+    else this.renderer.appendUserMessage(data.text);
     this.renderer.showThinkingIndicator();
     this.app.showStopButton();
   }
@@ -502,7 +506,7 @@ class MessageDispatcher {
         this.state.updateSession(sid, {});
         this.tabManager?.updateTabLabel(sid, this.app.getSessionDisplayName(sid));
       }
-      history.push({ role: 'user', content: data.text });
+      history.push({ role: 'user', content: data.text, origin: data.origin });
       return;
     }
 
