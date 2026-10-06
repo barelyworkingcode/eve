@@ -626,18 +626,21 @@ PASS needs all of these.
   naming `template "`). Everything else is FAIL. A cleanup closes the new
   Acme Corp terminal and deletes the new Acme Corp session. SSH-host
   drop-in: needs a test-machine pass.
+
 **cos-asking-post.** The Chief of Staff thread posts when an agent needs
 you (G6). A Claude Haiku session (`claude-haiku-4-5-20251001`) is created in
 Acme Corp over a socket of eve's own, named `verify-<nonce> asker`, in default
 permission mode, and asked to run `echo verify-<nonce>` with its Bash tool, so
-relay holds a permission request (`asking`). The page opens it, then clicks
-`sidebar-chief-of-staff`. Within 90 s a `cos-post-<id>` must hold a
+relay holds a permission request (`asking`). A page of its own sends that
+request and stays open until cleanup, so the request stays pending; a second
+page opens eve and clicks `sidebar-chief-of-staff`. Within 90 s a `cos-post-<id>` must hold a
 `cos-card-<id>` whose `data-session-id` is the session and `data-state` is
 `asking`, with `cos-answer-<id>`, `cos-drop-in-<id>` and `cos-open-<id>`;
 `cos-off` must not be visible; and the Chief of Staff status model (the newest
 `cos_snapshot` or `cos_status` frame) must be `claude-haiku-4-5-20251001`. Any
 other model, or none reported, is FAIL and the detail names it. Open must make
-the address `#session/<id>` and show the request. PASS needs all of these.
+the address `#session/<id>`, open the session's tab (`tab-<id>`) and show the
+request in its thread. PASS needs all of these.
 - Lives in: `chief-of-staff.js`; `public/chief-of-staff-page.js`,
   `public/panes/chief-of-staff-pane.js`; relay's `session_state` frames and
   its scoped listen-only `/ws`.

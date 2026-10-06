@@ -27,6 +27,7 @@ const test = hermeticTest.extend({
       eve.relay.seedSession({
         sessionId: 's1', name: 'Agent s1', projectId: 'p1', directory: dir, model: MODEL, headless: true, agent: true,
         attention: { state: 'running', since: '2026-10-05T10:00:00.000Z' },
+        history: [relayFrames.historyUser({ timestamp: '2026-10-05T10:00:00.000Z', content: 'Run the release script, please' })],
       });
       await use(eve);
     } finally {
@@ -77,6 +78,8 @@ test('an asking session gets a post with a card and Answer, Drop in and Open; Op
   await post.locator('[data-testid^="cos-open-"]').click();
   await expect(page).toHaveURL(/#session\/s1$/);
   await expect(page.getByTestId('chat-input')).toBeVisible();
+  // Open joins the session, so its thread shows what it was asked.
+  await expect(page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: 'Run the release script' })).toBeVisible(WAIT);
 });
 
 test('the avatar breathes only while the model works', async ({ page, eve }) => {

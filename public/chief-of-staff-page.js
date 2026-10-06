@@ -334,14 +334,14 @@ class ChiefOfStaffPage {
     else this._open(card.sessionId);
   }
 
-  // Same as a #session/<id> link: reuse the tab, else the loaded session, else join.
+  // Same as a #session/<id> link: reuse the tab, else join. A join is what loads
+  // the thread and subscribes to it; opening a bare tab would show neither.
   _open(sessionId) {
-    const app = this.container.get('app');
     const tabs = this.container.get('tabManager');
     if (tabs.tabs.some(t => t.id === sessionId)) tabs.switchToTab(sessionId);
-    else if (app.sessions.has(sessionId)) tabs.openSession(sessionId);
-    else app.joinSession(sessionId);
+    else this.container.get('app').joinSession(sessionId);
   }
+
 
   _answer(sessionId) {
     this._open(sessionId);

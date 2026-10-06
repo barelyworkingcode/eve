@@ -2911,12 +2911,12 @@ async function cosAskingPost(env) {
   await page.getByTestId(`cos-open-${postId}`).click({ timeout: 5000 }).catch(() => problems.push('Open could not be clicked'));
   const hash = `#session/${sid}`;
   const landed = await expect.poll(() => new URL(page.url()).hash, { timeout: 10000 }).toBe(hash).then(() => true, () => false);
-  // The session's own tab is the proof it opened. Its thread is not checked for
-  // the request: a session joined while relay holds a permission request does
-  // not list that turn's message yet, whichever door opened it.
-  const shown = landed && await expect(page.getByTestId(`tab-${sid}`)).toBeVisible({ timeout: 15000 }).then(() => true, () => false);
+  const tabbed = landed && await expect(page.getByTestId(`tab-${sid}`)).toBeVisible({ timeout: 15000 }).then(() => true, () => false);
+  const shown = tabbed && await expect(page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: env.nonce }))
+    .toBeVisible({ timeout: 15000 }).then(() => true, () => false);
   if (!landed) problems.push(`the address is ${new URL(page.url()).hash || 'empty'} after Open, not ${hash}`);
-  else if (!shown) problems.push('Open changed the address but no tab opened for the session');
+  else if (!tabbed) problems.push('Open changed the address but no tab opened for the session');
+  else if (!shown) problems.push('Open landed on the session but its thread does not show the request');
 
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `a post with an asking card for the session within ${tookS}s, with Answer, Drop in and Open; `
