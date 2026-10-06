@@ -1,3 +1,4 @@
+// SCRATCH (eve#206 CI proof S2, removed in the next commit).
 // Non-Claude web/voice chats start with relay tools + CLAUDE.md, Claude chats
 // with neither, and no launcher or template option controls it.
 const base = require('@playwright/test');
@@ -91,7 +92,6 @@ test.describe('chat defaults', () => {
       await page.evaluate(() => { window.location.hash = '#/voice-chat'; });
       await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
     }
-    await page.waitForTimeout(1);
     await page.waitForTimeout(500);
     expect(eve.relay.sessionCreates).toHaveLength(0);
     hold.release();
