@@ -48,7 +48,7 @@ describe('reader and scope', () => {
     seed('s1', 'running');
     eve.relay.emitToRelay(relayFrames.sessionState({ sessionId: 's1', state: 'asking' }));
     const post = (await ws.waitFor(alertFor('s1'), WAIT)).post;
-    expect(post.card).toMatchObject({ sessionId: 's1', state: 'asking', label: 'Agent s1', project: 'Acme', actions: ['answer', 'drop_in', 'open'] });
+    expect(post.card).toMatchObject({ sessionId: 's1', state: 'asking', label: 'Agent s1', project: 'Acme', headless: true, actions: ['answer', 'drop_in', 'open'] });
 
     const scoped = eve.relay.scopeLog.filter((e) => e.scope !== null);
     expect(scoped.length).toBeGreaterThan(0);

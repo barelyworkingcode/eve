@@ -193,8 +193,6 @@ function authStatusProblem(status) {
   return null;
 }
 
-// Exactly the two owner files in the pinned dir, and only when that dir is
-// not the live eve's own data dir.
 // Chief of Staff's daily call count and log live in the pinned dir; a run starts from none,
 // so sessions run between runs cannot use up the limit. Same guard as the owner reset.
 function chiefOfStaffResetPaths(dir, opts) {
@@ -202,6 +200,8 @@ function chiefOfStaffResetPaths(dir, opts) {
   return ['chief-of-staff-state.json', 'chief-of-staff.jsonl'].map(f => path.join(dir, f));
 }
 
+// Exactly the two owner files in the pinned dir, and only when that dir is
+// not the live eve's own data dir.
 function ownerResetPaths(dir, { liveDataDir = null } = {}) {
   if (!dir || !path.isAbsolute(dir) || path.normalize(dir) !== dir) throw new Error(`refusing to reset a data dir that is not a normalised absolute path`);
   if (liveDataDir && path.normalize(liveDataDir) === dir) throw new Error('the pinned data dir is the live eve\'s; refusing to reset it');
@@ -615,7 +615,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       const real = dir => (dir && fs.existsSync(dir) ? fs.realpathSync(dir) : dir);
       const files = ownerResetPaths(real(dataDir), { liveDataDir: real(liveDataDir(listOut, liveCwd)) });
       for (const f of files) await fs.promises.rm(f, { force: true });
-      for (const f of chiefOfStaffResetPaths(path.dirname(files[0]), {})) await fs.promises.rm(f, { force: true });
+      for (const f of chiefOfStaffResetPaths(path.dirname(files[0]), { liveDataDir: real(liveDataDir(listOut, liveCwd)) })) await fs.promises.rm(f, { force: true });
       // The one settings write: fixture setup for the Chief of Staff journeys, in the pinned dir only.
       const settingsFile = path.join(path.dirname(files[0]), 'settings.json');
       const acmeId = projectIdFromGrant(await exec(relayBin, ['grant', '--project', world.projects.acme.name, '--json'], { timeout: 20000 }), world.projects.acme.name);

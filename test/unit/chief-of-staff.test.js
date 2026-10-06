@@ -684,7 +684,7 @@ describe('two model sessions', () => {
     again.stop();
   });
 
-  it('a wake reply carrying a send never sends, and a limit notice is not repeated after a restart', async () => {
+  it('a limit notice is not repeated after a restart', async () => {
     setup({ sessions: [row('s1', 'running'), row('s2', 'running')], settings: { dailyModelCalls: 1 } });
     h.model = { turn: jest.fn(async () => { if (!h.cos.countCall()) throw Object.assign(new Error('limit'), { code: 'limit' }); return { text: '', modelId: 'm' }; }) };
     h.cos.model = h.model;

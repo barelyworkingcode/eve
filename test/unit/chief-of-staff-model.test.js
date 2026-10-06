@@ -121,12 +121,13 @@ describe('fail-closed tool check', () => {
       const ws = wsFactory(path, opts);
       const send = ws.send;
       ws.send = (json) => {
-        send(json);
         const f = JSON.parse(json);
+        // Queued before the harness send, so the null init lands ahead of message_complete.
         if (f.type === 'send_message' && f.text !== undefined && !relay.nullSent) {
           relay.nullSent = true;
           setImmediate(() => ws.emit('message', Buffer.from(JSON.stringify({ sessionId: 'm1', type: 'llm_event', event: { type: 'system', subtype: 'init', model: 'x', tools: null } }))));
         }
+        send(json);
       };
       return ws;
     });
