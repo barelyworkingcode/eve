@@ -79,6 +79,7 @@ class MessageDispatcher {
       session_renamed:      (d) => this.handleSessionRenamed(d),
       session_folder_changed: (d) => this.handleSessionFolderChanged(d),
       session_ended:        (d) => this.handleSessionEnded(d),
+      session_state:        (d) => this.bus.emit(EVT.SESSION_STATE, d),
       user_message:         (d) => this._handleUserMessage(d),
       llm_event:            (d) => this._handleLlmEventMessage(d),
       raw_output:           (d) => this._handleRawOutput(d),

@@ -199,3 +199,17 @@ Routines (S5b), Threads as a space, ⌘N, Ask about a selection, the commit flow
 - `docs/design-workbench.md` was completed after the first commit truncated it at its first code fence.
 - `test/unit/diff-viewer.test.js`: the fake Monaco gained `getLineChanges` and `onDidUpdateDiff` (for `diff-ask`). No assertion changed.
 - `test/unit/changes-panel.test.js`: the tab list flipped to Files and Changes, as listed under "Specs that change on purpose".
+
+## Amended by eve#195
+
+The agent board gains states and groups. The design is the contract in eve#195; this section records what changes here.
+
+- **Groups.** Rows sit in three groups, in this order, and a group with no rows shows no header. Each header shows a count of its full group.
+  - Needs you: `asking`, `errored`, `stalled`.
+  - Working: `running`, `idle`, `starting`.
+  - Done: `ended`.
+- **Rows.** A row is a terminal or a session, with one state dot. A terminal's state comes from its process: open is `running`; exit 0 or no code is `ended`; any other code is `errored`. A session's state comes from relay's `session_state` frames and the `attention` field on `GET /api/sessions`. Rows sort by label, then id, so they do not jump when a state changes inside a group. The 20-row cap fills Needs you first.
+- **Done rule.** Done holds the sessions that reached `ended` in this page life. relay's list carries no `attention` for dead sessions, so after a reload an old thread cannot be told from a finished agent. A resumed session returns to Working on its `starting` frame.
+- **Sessions are shown only once listed.** A `session_state` frame for an id that `GET /api/sessions` or `session_created` has not named never makes a row. Such a frame asks for one debounced list refresh. This keeps hidden `__search:` sessions and failed launches from other devices off the board, because a frame carries no name and no project.
+- **Phone badge.** The bottom bar's Today button shows the Needs-you count, using Today's mode filter, and hides at 0. Today is the compact root and holds the agents part; Threads opens one project's page and Projects opens a sheet with no board. The button's accessible name stays "Today".
+- **Motion.** Only `running` and `asking` animate. Reduced motion turns all of it off.

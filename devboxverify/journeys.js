@@ -2398,6 +2398,179 @@ async function listenOnTouch(env) {
     + `${Math.round(seen.width)}x${Math.round(seen.height)}; a tap sent one tts_speak with its text`);
 }
 
+// — Agent board states (G6) ----------------------------------------------------
+
+const BOARD_WITHIN_MS = 2000;
+const GROUP_WORKING = 'today-agents-group-working';
+const GROUP_DONE = 'today-agents-group-done';
+
+// Every session_state frame the page's socket receives, with its arrival time.
+// relay sends them to browsers that never joined, so a Today page sees them all.
+function sessionStates(page) {
+  const seen = [];
+  const take = (m) => {
+    if (m && m.type === 'session_state') seen.push({ sessionId: m.sessionId, state: m.state, at: Date.now() });
+  };
+  page.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
+    if (typeof payload !== 'string') return;
+    let frame;
+    try { frame = JSON.parse(payload); } catch { return; }
+    if (frame.type === '__batch' && Array.isArray(frame.msgs)) frame.msgs.forEach(take);
+    else take(frame);
+  }));
+  return seen;
+}
+
+// What the board shows for one session: its group, row and dot state, and
+// whether the dot (or its ring) is running an animation. Null when no row.
+async function boardRow(page, sessionId) {
+  return page.getByTestId(`today-agent-${sessionId}`).evaluate((row) => {
+    const dot = row.querySelector('.agent-row__dot');
+    const animating = (cs) => cs.animationName !== 'none' && parseFloat(cs.animationDuration) > 0;
+    return {
+      group: row.closest('section.agent-board__group')?.dataset.testid || '',
+      rowState: row.dataset.state,
+      dotState: dot?.dataset.state || '',
+      ring: !!dot && animating(getComputedStyle(dot, '::after')),
+      pulse: !!dot && animating(getComputedStyle(dot)),
+    };
+  }, null, { timeout: 500 }).catch(() => null);
+}
+
+// Polls from now to `deadline` (at least one look) for a row that `ok` accepts.
+async function boardRowBy(page, sessionId, deadline, ok) {
+  let last = null;
+  const hit = await poll(async () => {
+    last = await boardRow(page, sessionId);
+    return last && ok(last) ? last : null;
+  }, { timeoutMs: Math.max(0, deadline - Date.now()), intervalMs: 100 });
+  return { hit, last };
+}
+
+const rowSaid = (row) => (row
+  ? `in ${row.group || 'no group'}, state ${row.rowState}, ring ${row.ring ? 'on' : 'off'}`
+  : 'no row');
+
+async function agentBoardStates(env) {
+  const id = 'agent-board-states';
+  const acme = env.world.projects.acme;
+  const phone = await env.newPage({ device: DEVICES.phone });
+  const frames = sessionStates(phone);
+  const desktop = await env.newPage();
+  const errors = captureErrors(desktop);
+
+  await openEve(phone, env);
+  await waitForModels(phone, env);
+  env.step('wait for Today on the phone');
+  await need('no greeting on the phone within 20s', expect(phone.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 20000 }));
+
+  await openEve(desktop, env);
+  await waitForModels(desktop, env);
+  await openProject(desktop, env, acme);
+  const before = await acmeIds(env, 'sessions');
+  const dialog = await openLauncher(desktop, env);
+  env.step('open the Web Chat form');
+  await dialog.getByTestId('shell-card-web-chat').click({ timeout: 10000 });
+  const select = dialog.getByTestId('launcher-model-select');
+  const offered = await optionValues(select);
+  const model = pickModel(offered, 'haiku') || offered.find((v) => /haiku/i.test(v));
+  if (!model) return result(id, BLOCKED, `no Haiku model is offered for ${acme.name}`);
+  await select.selectOption(model, { timeout: 5000 });
+  env.step('start the chat');
+  await dialog.getByRole('button', { name: 'Start Chat' }).click({ timeout: 5000 });
+  // Registered before the wait: a session that appears late is still deleted.
+  env.cleanup(`delete the ${acme.name} agent session`, async () => {
+    for (const sid of addedIds(before, await acmeIds(env, 'sessions'))) await deleteSession(env, sid);
+  });
+
+  env.step('wait for the session');
+  const created = await poll(async () => {
+    const added = addedIds(before, await acmeIds(env, 'sessions'));
+    return added.length ? added : null;
+  }, { timeoutMs: 30000, intervalMs: 1000 });
+  if (!created) {
+    const refusal = errors.find((e) => /template "/.test(e));
+    return refusal ? result(id, BLOCKED, `launch refused: ${refusal}`) : result(id, FAIL, `no ${acme.name} session within 30s of Start Chat`);
+  }
+  if (created.length !== 1) return result(id, FAIL, `${created.length} new ${acme.name} sessions, expected 1`);
+  const sid = created[0];
+
+  const input = desktop.getByTestId('chat-input');
+  env.step('wait for the composer');
+  await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
+  await input.fill(`Count from 1 to 300, one number per line. (verify ${env.nonce})`, { timeout: 5000 });
+  env.step('send the count request');
+  const sentAt = Date.now();
+  await desktop.getByTestId('chat-submit').click({ timeout: 5000 });
+  await need('the count request is not shown as the user message', expect(
+    desktop.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: env.nonce }),
+  ).toBeVisible({ timeout: 10000 }));
+
+  const problems = [];
+  const frameOf = (state, since) => frames.find((f) => f.sessionId === sid && f.state === state && f.at >= since);
+
+  env.step('wait for the running frame');
+  const running = await poll(async () => frameOf('running', sentAt), { timeoutMs: 30000, intervalMs: 100 });
+  if (!running) return result(id, FAIL, `no running session_state frame for the session within 30s of the question (saw ${[...new Set(frames.filter((f) => f.sessionId === sid).map((f) => f.state))].join(', ') || 'none'})`);
+  env.step('look for the running row on the phone');
+  const working = await boardRowBy(phone, sid, running.at + BOARD_WITHIN_MS,
+    (r) => r.group === GROUP_WORKING && r.rowState === 'running' && r.dotState === 'running' && r.ring);
+  if (!working.hit) problems.push(`step 4: ${BOARD_WITHIN_MS / 1000}s after the running frame the row was ${rowSaid(working.last)}`);
+
+  env.step('click Stop');
+  const stop = desktop.getByTestId('chat-stop');
+  // BLOCKED only on evidence the turn ended (an idle frame after running); otherwise a missing Stop is a FAIL.
+  const blocked = () => (problems.length || !frameOf('idle', running.at) ? null
+    : result(id, BLOCKED, 'the count finished before Stop could be clicked'));
+  const noStop = () => blocked() || result(id, FAIL, [...problems, 'Stop was not showing while the turn was running'].join('; '));
+  if (!await stop.isVisible()) return noStop();
+  const stoppedAt = Date.now();
+  if (!await stop.click({ timeout: 2000 }).then(() => true, () => false)) {
+    if (!await stop.isVisible()) return noStop();
+    return result(id, FAIL, 'Stop is showing but could not be clicked');
+  }
+
+  env.step('wait for the ended frame');
+  const ended = await poll(async () => frameOf('ended', stoppedAt), { timeoutMs: 30000, intervalMs: 100 });
+  if (!ended) {
+    problems.push(`step 6: no ended session_state frame within 30s of Stop (saw ${[...new Set(frames.filter((f) => f.sessionId === sid && f.at >= stoppedAt).map((f) => f.state))].join(', ') || 'none'})`);
+  } else {
+    env.step('look for the ended row on the phone');
+    const done = await boardRowBy(phone, sid, ended.at + BOARD_WITHIN_MS,
+      (r) => r.group === GROUP_DONE && r.rowState === 'ended' && !r.ring && !r.pulse);
+    if (!done.hit) problems.push(`step 6: ${BOARD_WITHIN_MS / 1000}s after the ended frame the row was ${rowSaid(done.last)}${done.last && (done.last.ring || done.last.pulse) ? ', its dot still animating' : ''}`);
+  }
+
+  env.step('compare the badge with Needs you');
+  const badge = phone.getByTestId('nav-today-badge');
+  const needsRows = phone.locator('[data-testid="today-agents-group-needs"] [data-testid^="today-agent-"]');
+  let counted = '';
+  const agree = await poll(async () => {
+    const n = await needsRows.count();
+    const shown = await badge.evaluate((el) => ({ hidden: el.hidden || getComputedStyle(el).display === 'none', n: el.firstElementChild?.textContent || '' }), null, { timeout: 1000 }).catch(() => null);
+    if (!shown) return null;
+    counted = `${n} rows in Needs you, badge ${shown.hidden ? 'hidden' : shown.n}`;
+    return (n === 0 ? shown.hidden : !shown.hidden && shown.n === String(n)) ? { n } : null;
+  }, { timeoutMs: 3000, intervalMs: 250 });
+  if (!agree) problems.push(`step 7: ${counted || 'no badge on the phone Today button'}`);
+
+  env.step('tap the row');
+  const tapped = await phone.getByTestId(`today-agent-${sid}`).tap({ timeout: 5000 }).then(() => true, () => false);
+  if (!tapped) problems.push('step 8: the row could not be tapped');
+  else {
+    const hash = `#session/${sid}`;
+    const opened = await expect.poll(() => new URL(phone.url()).hash, { timeout: 5000 }).toBe(hash).then(() => true, () => false);
+    const asked = await expect(phone.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: env.nonce }))
+      .toBeVisible({ timeout: 15000 }).then(() => true, () => false);
+    if (!opened) problems.push(`step 8: the address is ${new URL(phone.url()).hash || 'empty'} after the tap, not ${hash}`);
+    else if (!asked) problems.push('step 8: the thread did not show the question after the tap');
+  }
+
+  if (problems.length) return result(id, FAIL, `${problems.join('; ')} (model ${model})`);
+  return result(id, PASS, `model ${model}: running row in Working with its ring within ${BOARD_WITHIN_MS / 1000}s; after Stop the row in Done with no animation; `
+    + `badge matched Needs you (${agree.n}); a tap opened the thread with the question`);
+}
+
 const auth = require('./journeys-auth').journeys;
 const toolSearch = require('./journeys-tool-search').journeys;
 
@@ -2438,6 +2611,7 @@ const journeys = [
   { id: 'today-phone', timeoutMs: 75000, areas: ['home', 'shell', 'chat'], needs: ['project:acme'], run: todayPhone },
   { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
   { id: 'ask-pasted-url', timeoutMs: 90000, areas: ['home', 'chat'], needs: ['project:acme'], run: askPastedUrl },
+  { id: 'agent-board-states', timeoutMs: 150000, areas: ['home', 'chat'], needs: ['project:acme'], run: agentBoardStates },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },

@@ -32,7 +32,7 @@ const EVE_TO_RELAY_TYPES = new Set([
 // Frames relay SENDS to eve that eve PARSES (vs. blindly forwards). These are
 // the only shapes we assert on — relay may send other types that eve passes
 // through to the browser untouched, so unknown types are NOT a contract error.
-const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error', 'process_exited']);
+const MODELED_RELAY_TO_EVE_TYPES = new Set(['session_joined', 'llm_event', 'message_complete', 'error', 'process_exited', 'session_state']);
 
 const relayFrames = {
   // ws_session.go handleJoinSession: the full frame. Defaults describe a live,
@@ -90,6 +90,11 @@ const relayFrames = {
   // user to read, never for the client to branch on) alongside `code`.
   resumeRequired: ({ sessionId, message = 'session is dormant; resume it first' }) => ({ type: 'error', code: 'resume_required', sessionId, message }),
 
+  // ws_session.go StateChanged: broadcast to every connection, joined or not.
+  // `since` is an RFC 3339 time with milliseconds, UTC (attention.FormatTime).
+  sessionState: ({ sessionId, state, since = '2026-10-05T10:00:00.000Z' }) =>
+    ({ type: 'session_state', sessionId, state, since }),
+
   // Control frames eve forwards verbatim. Field names verified against the
   // real relayLLM source, not guessed — earlier guesses (`tool`/`input`, raw
   // terminal `data`) were wrong and gave false confidence.
@@ -135,6 +140,10 @@ function validateRelayFrame(frame) {
     if (!('sessionId' in frame)) errors.push('message_complete: missing sessionId');
   } else if (frame.type === 'process_exited') {
     if (!('sessionId' in frame)) errors.push('process_exited: missing sessionId');
+  } else if (frame.type === 'session_state') {
+    if (typeof frame.sessionId !== 'string' || !frame.sessionId) errors.push('session_state: missing sessionId');
+    if (!['starting', 'running', 'idle', 'asking', 'errored', 'stalled', 'ended'].includes(frame.state)) errors.push(`session_state: unknown state ${frame.state}`);
+    if (typeof frame.since !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(frame.since)) errors.push('session_state: since must be an RFC 3339 UTC time with milliseconds');
   } else if (frame.type === 'error') {
     // resume_required is a distinct, typed refusal (relay ws_session.go
     // sendResumeRequired) that carries both a sessionId and a message.

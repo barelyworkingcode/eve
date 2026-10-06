@@ -11,6 +11,8 @@ const EVT = {
   SESSION_RENAMED: 'session:renamed',
   SESSION_UPDATED: 'session:updated',
   SESSION_ACTIVITY: 'session:activity',
+  SESSION_STATE: 'session:state',
+  AGENTS_CHANGED: 'agents:changed',
   MODE_CHANGED: 'mode:changed',
   ASK_FAILED: 'ask:failed',
   ASK_SENT: 'ask:sent',

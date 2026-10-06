@@ -35,7 +35,7 @@ WebAuthn enrollment/login, rate-limited per IP (429 on excess).
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/models` | List models. |
-| GET | `/api/sessions` | List sessions. relay answers `{ sessions: [...] }` (object-wrapped); eve unwraps it and returns a bare, filtered array to the browser — `__search:` ephemeral sessions are filtered out here, not by relay. |
+| GET | `/api/sessions` | List sessions. relay answers `{ sessions: [...] }` (object-wrapped); eve unwraps it and returns a bare, filtered array to the browser — `__search:` ephemeral sessions are filtered out here, not by relay. A live Claude or pi row can carry `attention: {state, since}` (same values and time format as `session_state`); the field is absent otherwise, and eve passes it through unchanged. |
 | POST | `/api/sessions/:id/resume` | Resume a dormant session. Called automatically by eve, at most once per user turn, when relay answers a `send_message` with the `resume_required` error below — never host-driven (SH-6). |
 
 Session creation is HTTP (`POST /api/sessions`, triggered by the WS `create_session` frame, see below); messages and the rest of the session lifecycle stay on WebSocket.
@@ -137,7 +137,9 @@ Diagnostics: `device_log` (`{lines: [...]}` — appended to a server-side log wi
 
 Connection: `pong` (reply to `ping`).
 
-Sessions: `session_created`, `session_joined`, `session_renamed`, `session_folder_changed`, `session_ended`, `user_message`, `llm_event`, `message_complete`, `stats_update`, `raw_output`, `stderr`, `system_message`, `warning`, `error`, `process_exited`, `clear_messages`, `mode_changed`, `permission_request`, `terminal_request` (`{sessionId, directory, command}` — from local slash commands), `plan_file_content`. A `raw_output` whose text is a JSON object with a string `type` is an untranslated provider event, and the browser drops it.
+Sessions: `session_created`, `session_joined`, `session_renamed`, `session_folder_changed`, `session_ended`, `session_state`, `user_message`, `llm_event`, `message_complete`, `stats_update`, `raw_output`, `stderr`, `system_message`, `warning`, `error`, `process_exited`, `clear_messages`, `mode_changed`, `permission_request`, `terminal_request` (`{sessionId, directory, command}` — from local slash commands), `plan_file_content`. A `raw_output` whose text is a JSON object with a string `type` is an untranslated provider event, and the browser drops it.
+
+`session_state` (from relay, forwarded untouched; reaches every browser, joined or not): `{type:'session_state', sessionId, state, since}`. `state` is one of `starting`, `running`, `idle`, `asking`, `errored`, `stalled`, `ended`; the browser ignores any other value. `since` is an RFC 3339 time with milliseconds. relay sends each session's frames in order. The agent board (`AgentAttention`) keeps the latest per session and shows a session only once `GET /api/sessions` or `session_created` names it. `turn_done` and other unknown types are dropped.
 
 `error` from relay can carry `code:'resume_required'` (`{type:'error', code:'resume_required', sessionId}`, no `message`) when a `send_message` targets a dormant session. eve never forwards this frame as-is: it calls `POST /api/sessions/:id/resume` and, on success, re-sends the driving user turn's `send_message` exactly once; the browser only ever sees the eventual outcome — a normal reply, or a plain `error` if the resume call itself fails or nothing was actually pending. Never host-driven (SH-6) — a `resume_required` with no matching pending user turn is reported as an error too, not retried.
 
