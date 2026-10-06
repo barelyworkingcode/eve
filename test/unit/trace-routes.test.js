@@ -184,7 +184,6 @@ describe('proxied route logging and trace carriage', () => {
 });
 
 describe('ws user_input trace and chat.turn line', () => {
-  const flush = () => new Promise((r) => setImmediate(r));
   let relayClient;
   let sink;
   let ws;
@@ -221,8 +220,8 @@ describe('ws user_input trace and chat.turn line', () => {
   });
 
   async function send(obj) {
-    ws.emit('message', Buffer.from(JSON.stringify(obj)));
-    await flush();
+    const [onMessage] = ws.listeners('message');
+    await onMessage(Buffer.from(JSON.stringify(obj)));
   }
   const traceOf = (i) => relayClient.sendMessage.mock.calls[i][3].traceId;
 
@@ -237,10 +236,10 @@ describe('ws user_input trace and chat.turn line', () => {
 
   it('keeps a valid inbound trace_id and replaces an invalid one', async () => {
     await send({ type: 'user_input', text: 'a', sessionId: 's1', trace_id: 'client-trace-01' });
-    await send({ type: 'user_input', text: 'b', sessionId: 's1', trace_id: 'bad id\n{"x":1}' });
+    await send({ type: 'user_input', text: 'b', sessionId: 's1', trace_id: 'INJECTED id\n{"x":1}' });
     expect(traceOf(0)).toBe('client-trace-01');
     expect(traceOf(1)).toMatch(VALID_TRACE);
-    expect(traceOf(1)).not.toContain('bad');
+    expect(traceOf(1)).not.toContain('INJECTED');
   });
 
   it('writes one chat.turn info line with session_id and never the text', async () => {
