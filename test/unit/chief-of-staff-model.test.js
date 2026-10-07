@@ -6,7 +6,10 @@ const OPTS = { projectId: 'p1', directory: '/tmp/acme', model: 'haiku', timeoutM
 // A relay that answers session create, then plays a script on each socket.
 // initScripts[i] is what session i reports in system/init: an array of tools,
 // or null for no init frame at all.
-function makeRelay({ initScripts = [[]], silentAfterBootstrap = false } = {}) {
+// apiErrorOn: turn numbers (1 = bootstrap) that end as relay forwards a CLI
+// API error: an error-marked message_start, the CLI's synthetic text, and a
+// failed message_complete.
+function makeRelay({ initScripts = [[]], silentAfterBootstrap = false, apiErrorOn = [] } = {}) {
   const r = { fetches: [], sockets: [], sent: [], created: 0 };
   r.transport = {
     fetch: jest.fn(async (method, path, body, opts) => {
@@ -36,6 +39,12 @@ function makeRelay({ initScripts = [[]], silentAfterBootstrap = false } = {}) {
         setImmediate(() => {
           if (n === 1 && script) emit({ type: 'llm_event', event: { type: 'system', subtype: 'init', model: 'claude-haiku-4-5-20251001', tools: script } });
           if (n > 1 && silentAfterBootstrap) return;
+          if (apiErrorOn.includes(n)) {
+            emit({ type: 'llm_event', event: { type: 'assistant', message: { id: `e${n}`, role: 'assistant', content: [] }, error: 'authentication_failed' } });
+            emit({ type: 'llm_event', event: { type: 'assistant', index: 0, delta: { type: 'text_delta', text: 'Failed to authenticate: OAuth token revoked.' } } });
+            emit({ type: 'message_complete', isError: true, apiErrorStatus: 401 });
+            return;
+          }
           emit({ type: 'llm_event', event: { type: 'assistant', delta: { type: 'text_delta', text: n === 1 ? 'ready' : 'answer to: ' } } });
           if (n > 1) emit({ type: 'llm_event', event: { type: 'assistant', delta: { type: 'text_delta', text: f.text } } });
           emit({ type: 'message_complete' });
@@ -171,5 +180,23 @@ describe('daily limit and timeout', () => {
     const relay = makeRelay({ silentAfterBootstrap: true });
     await expect(make(relay).turn('hello', { ...OPTS, timeoutMs: 60 })).rejects.toMatchObject({ code: 'timeout' });
     expect(relay.sent.some((f) => f.type === 'stop_generation')).toBe(true);
+  });
+});
+
+describe('API errors', () => {
+  it('rejects a turn the CLI ended with an API error, with its code and status, and ends the session', async () => {
+    const relay = makeRelay({ apiErrorOn: [2] });
+    const model = make(relay);
+    const err = await model.turn('AGENT-TEXT', OPTS).catch((e) => e);
+    expect(err).toMatchObject({ name: 'ModelError', code: 'authentication_failed', status: 401 });
+    expect(err.message).not.toContain('OAuth');
+    expect(model.sessionId).toBeNull();
+    expect(relay.fetches.some((f) => f.method === 'DELETE' && f.path === '/api/sessions/m1')).toBe(true);
+  });
+
+  it('fails the bootstrap on an API error and never sends agent text', async () => {
+    const relay = makeRelay({ apiErrorOn: [1] });
+    await expect(make(relay).turn('AGENT-TEXT', OPTS)).rejects.toMatchObject({ code: 'authentication_failed' });
+    expect(relay.agentTextSent('AGENT-TEXT')).toBe(false);
   });
 });

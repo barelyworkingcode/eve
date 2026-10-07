@@ -35,12 +35,14 @@ const BUILTIN_TOOLS = Object.freeze([
 ]);
 
 class ModelError extends Error {
-  // code: limit | launch_failed | tools_present | tools_unverified | turn_failed | timeout | disconnected
-  constructor(code, message, { tools } = {}) {
+  // code: limit | launch_failed | tools_present | tools_unverified | turn_failed | timeout | disconnected,
+  // or the CLI's API error code (authentication_failed, ...) with its HTTP status.
+  constructor(code, message, { tools, status } = {}) {
     super(message || code);
     this.name = 'ModelError';
     this.code = code;
     if (tools) this.tools = tools;
+    if (status) this.status = status;
   }
 }
 
@@ -271,7 +273,13 @@ class ChiefOfStaffModel {
         break;
       case 'message_complete':
         if (!s.pending) break;
-        if (msg.error) {
+        if (s.pending.apiError || (msg.isError && msg.apiErrorStatus)) {
+          // The CLI's synthetic error text is not a reply; never resolve with it.
+          const code = s.pending.apiError || 'api_error';
+          const status = Number(msg.apiErrorStatus) || 0;
+          this._settle(s, new ModelError(code, `Model API error: ${code}${status ? ` (HTTP ${status})` : ''}`, { status }));
+          this._kill(s, 'api error');
+        } else if (msg.error) {
           this._settle(s, new ModelError('turn_failed', String(msg.error)));
         } else {
           const p = s.pending;
@@ -307,6 +315,7 @@ class ChiefOfStaffModel {
       return;
     }
     if (ev.type !== 'assistant' || !s.pending) return;
+    if (typeof ev.error === 'string' && ev.error) s.pending.apiError = ev.error;
     // Deltas and whole blocks can both arrive; deltas win when present.
     if (ev.delta?.type === 'text_delta' && typeof ev.delta.text === 'string') {
       s.pending.deltas += ev.delta.text;
