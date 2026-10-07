@@ -1,14 +1,14 @@
 // Chief of Staff: one server-wide thread that watches every agent session and
 // speaks up when one needs the person. It reads relay's attention frames on a
-// scoped, listen-only /ws; a model (chief-of-staff-model.js, tools off) only
-// writes the wording of a post. eve decides what is worth a post, builds every
+// scoped, listen-only /ws; a model (chief-of-staff-model.js) writes the wording
+// of a post and answers the person. eve decides what is worth a post, builds every
 // card from relay data, and sends a person's instruction through relay's
 // scoped POST so the message is marked and audited. Agent text is data: it
 // reaches the model only inside the prompt's quoted region (see
 // chief-of-staff-prompt.js) and never decides a send. Two model sessions keep
-// that true across turns: the wake model reads agent text and can never send,
-// the person model sees only the person's words and the quoted roster, and only
-// its reply may send.
+// that true across turns: the wake model reads agent text, has no tools and can
+// never send; the person model reads files and calls the eve-cos tools, and
+// provenance (chief-of-staff-provenance.js) decides what its calls may do.
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -16,7 +16,7 @@ const path = require('path');
 const { NullLogger } = require('./logger');
 const prompt = require('./chief-of-staff-prompt');
 const { HIDDEN_SEARCH_PREFIX } = require('./search-summarizer');
-const { HIDDEN_COS_PREFIX } = require('./chief-of-staff-model');
+const { HIDDEN_COS_PREFIX, PERSON_ALLOWED_TOOLS } = require('./chief-of-staff-model');
 const actions = require('./chief-of-staff-actions');
 const provenance = require('./chief-of-staff-provenance');
 
@@ -44,7 +44,7 @@ const LABEL_MAX = 80;
 const EXCERPT_MAX = 500;
 
 // Model failures that mean "this model must not run": keep posting templates.
-const FATAL_MODEL_CODES = new Set(['launch_failed', 'tools_present', 'tools_unverified', 'authentication_failed']);
+const FATAL_MODEL_CODES = new Set(['launch_failed', 'tools_present', 'tools_unverified', 'tools_missing', 'authentication_failed']);
 
 const SEND_LINES = {
   session_not_found: () => 'That session is gone.',
@@ -67,8 +67,27 @@ function offNotice(off) {
     case 'no_project':
     case 'project_unsuitable': return "No project can run me, so I can't send. Set chiefOfStaff.projectId.";
     case 'launch_failed': return `I couldn't start the model${off.detail ? `: ${off.detail}` : ''}, so I can't send.`;
+    case 'tools_missing': return `My tools aren't set up: grant the eve-cos MCP to ${off.project || 'the project'} in relay's Projects, then try again.`;
     case 'authentication_failed': return "The model can't log in, so I'm off and can't send. Log its account in again and restart eve. Alerts still post.";
     default: return "The model has tools, so I'm off and can't send. Alerts still post.";
+  }
+}
+
+const LIMIT_NOTICE = "I've reached today's limit, so I can't send until tomorrow.";
+
+// What a person is told when a model turn failed: the cause, in one line.
+function turnFailureNotice(code, detail) {
+  switch (code) {
+    case 'limit': return LIMIT_NOTICE;
+    case 'timeout': return 'The model took too long to answer, so I stopped. Try again.';
+    case 'turn_failed':
+    case 'disconnected': return `I lost the model session (${cut(String(detail || '').replace(/\s+/g, ' ').trim(), 80)}). Try again.`;
+    case 'authentication_failed':
+    case 'launch_failed':
+    case 'tools_present':
+    case 'tools_unverified':
+    case 'tools_missing': return offNotice({ reason: code, detail: detail || '' });
+    default: return `I couldn't reach the model (${code}), so I didn't send. Try again.`;
   }
 }
 
@@ -201,6 +220,8 @@ class ChiefOfStaff {
         previousSessionId: this.state.personSessionId,
         onSessionId: (id) => this._setModelSession('person', id),
         onToolUse: (e) => this._onToolUse(e),
+        allowedTools: PERSON_ALLOWED_TOOLS,
+        sessionSettings: { useRelayTools: true, readOnlyProjects: true },
       });
     }
     this._connect();
@@ -736,15 +757,16 @@ class ChiefOfStaff {
         projectId: project.id, directory: project.path, model: this.settings.model, timeoutMs: TURN_TIMEOUT_MS,
       });
       if (out && out.modelId) { this.modelId = out.modelId; }
-      if (this.off && this.off.reason === 'launch_failed') this._setOff(null);
+      if (this.off && (this.off.reason === 'launch_failed' || this.off.reason === 'tools_missing')) this._setOff(null);
       this._emitStatus();
       return { text: out && typeof out.text === 'string' ? out.text : '', sessionId: model.sessionId };
     } catch (err) {
       const code = (err && err.code) || 'turn_failed';
       this.log.warn(`Chief of Staff model turn failed: ${code}${err && err.message ? ` (${cut(err.message, 500)})` : ''}`);
-      if (FATAL_MODEL_CODES.has(code)) this._setOff({ reason: code, detail: cut(err.message || '', 200) });
+      const detail = cut(err && err.message || '', 200);
+      if (FATAL_MODEL_CODES.has(code)) this._setOff({ reason: code, detail, project: project.name || '' });
       this._emitStatus();
-      return { error: code };
+      return { error: code, detail };
     }
   }
 
@@ -863,7 +885,7 @@ class ChiefOfStaff {
 
   async _personTurnBody(job) {
     if (this._atLimit()) {
-      this._notice("I've reached today's limit, so I can't send until tomorrow.");
+      this._notice(LIMIT_NOTICE);
       return;
     }
     try {
@@ -874,37 +896,29 @@ class ChiefOfStaff {
       return;
     }
     this._emitStatus();
-    const rows = [...this.roster.values()].map((row) => ({
-      sessionId: row.id,
-      label: this._labelOf(row, row.id),
-      project: this._projectName(row.projectId),
-      state: row.state || 'unknown',
-    }));
-    const res = await this._modelTurn('person', prompt.personPrompt(job.text, rows));
-    if (res.error === 'limit') {
-      this._notice("I've reached today's limit, so I can't send until tomorrow.");
-      return;
-    }
+    // Local projects only: the person session reads files on this machine.
+    const projects = [...this.listProjects()].filter((p) => !p.hostId).map((p) => ({ id: p.id, name: p.name, path: p.path }));
+    const res = await this._modelTurn('person', prompt.personPrompt(job.text, projects));
     if (res.error === 'off') {
       this._notice(offNotice(this.off || { reason: 'no_project' }));
       return;
     }
     if (res.error) {
-      this._notice(this.off && FATAL_MODEL_CODES.has(res.error)
+      this._notice(FATAL_MODEL_CODES.has(res.error) && this.off
         ? offNotice(this.off)
-        : `I couldn't reach the model (${res.error}), so I didn't send. Try again.`);
+        : turnFailureNotice(res.error, res.detail));
       return;
     }
-    const parsed = prompt.parsePerson(res.text, rows.map((r) => r.sessionId));
-    if (parsed.reason) this._warnUnparsed('person', parsed.reason, res);
-    if (parsed.reason === 'unknown-session') {
-      // The reply may claim a send that eve refused; never post it.
-      this._notice("I couldn't match that to a session, so I didn't send anything. Say which one.");
+    // Plain text, all of the turn's text blocks. Whatever the model did with
+    // its tools already reached the thread through the eve-cos calls.
+    const reply = prompt.clean(res.text, prompt.CAPS.reply);
+    if (reply) {
+      this._addPost({ kind: 'reply', body: reply, byModel: true });
       return;
     }
-    if (parsed.reply) this._addPost({ kind: 'reply', body: parsed.reply, byModel: true });
-    else if (!parsed.send) this._notice("I couldn't make sense of my own answer, so I didn't send anything. Try again.");
-    if (parsed.send) await this._send(parsed.send.sessionId, parsed.send.text);
+    const turn = this._turn;
+    const acted = turn && turn.toolCalls.some((c) => c.claimed && provenance.PROPOSE_TOOLS.some((t) => c.name === provenance.RELAY_MCP_PREFIX + t));
+    if (!acted) this._notice("I didn't write a reply. Try again.");
   }
 
   // The person model's tool_use stream. Any reading tool, in any turn, marks
@@ -986,6 +1000,7 @@ module.exports = {
   ChiefOfStaff,
   parseChiefOfStaffSettings,
   sendFailureLine,
+  turnFailureNotice,
   DEFAULTS,
   POSTS_FILE,
   STATE_FILE,

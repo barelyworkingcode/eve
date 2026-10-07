@@ -669,6 +669,37 @@ is off, so I can't send.") is FAIL.
   decides the text it sends, so the audit text is not compared. A cleanup deletes every new Acme Corp
   session.
 
+**cos-reads-project.** The Chief of Staff answers from a project's files (G6).
+The journey writes `release-note.txt` (`Release code: verify-<nonce>-read`) into
+a `verify-<nonce>-cosread-*` folder in Acme Corp, opens the Chief of Staff
+thread and asks, in `cos-input`, for the release code in that file, naming the
+path and the project. A `cos_post` frame of kind `reply` must arrive within the
+turn bound (120 s); its body and the `cos-post-<id>` on the page must hold the
+marker, and the status model must be `claude-haiku-4-5-20251001`. A `notice`
+post, or no reply, is FAIL.
+- Lives in: `chief-of-staff.js` (the person session, read-only roots);
+  `mcp/cos.js`; `public/chief-of-staff-page.js`.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The folder is
+  removed by cleanup.
+
+**cos-start-card.** A start the model wrote after reading a file waits for a tap
+(G6). The journey writes `task.txt` (`Reply with exactly verify-<nonce>-task`)
+into a `verify-<nonce>-costask-*` folder in Acme Corp and asks the Chief of
+Staff to read it and start a headless agent in Acme Corp that does what it says.
+The first post must be a `start_card` (a `started` post at once is FAIL). Its
+`cos-card-<id>` must name Acme Corp, show mode `headless`, a Haiku model and a
+prompt holding the marker. After `cos-start-<id>`, a `started` post with
+`cos-open-<id>` must arrive, the card must reach `data-state="started"`, the
+status's `watching` count must grow, `relay audit --event session_launch` must
+hold an `ok` row with origin `chief-of-staff` for the new session (read after
+the `started` frame), and the started agent's thread must show an assistant
+reply with the marker within the turn bound.
+- Lives in: `chief-of-staff-actions.js`; `chief-of-staff-provenance.js`;
+  `public/chief-of-staff-page.js`; relay's scoped start route.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The
+  journey's cleanup deletes every new Acme Corp session. The installed relay
+  must audit `session_launch` with the session id.
+
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates
 `verify-<nonce>-fails` in Acme Corp: on demand, `sessionType: 'pty'`,

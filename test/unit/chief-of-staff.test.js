@@ -2,12 +2,14 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { ChiefOfStaff, parseChiefOfStaffSettings } = require('../../chief-of-staff');
+const { ChiefOfStaff, parseChiefOfStaffSettings, sendFailureLine, turnFailureNotice } = require('../../chief-of-staff');
+const { PERSON_ALLOWED_TOOLS } = require('../../chief-of-staff-model');
+const { CAPS } = require('../../chief-of-staff-prompt');
 
 const wsFrame = (o) => Buffer.from(JSON.stringify(o));
 const reply = (o) => 'ok\n```json\n' + JSON.stringify(o) + '\n```';
 
-function makeHarness({ sessions, settings, model, dataDir, log } = {}) {
+function makeHarness({ sessions, settings, model, dataDir, log, projects } = {}) {
   const dir = dataDir || fs.mkdtempSync(path.join(os.tmpdir(), 'cos-unit-'));
   const h = { dir, list: sessions || [], sockets: [], calls: [], post: { status: 202, data: { sessionId: 's1' } } };
   h.transport = {
@@ -32,7 +34,7 @@ function makeHarness({ sessions, settings, model, dataDir, log } = {}) {
     dataDir: dir,
     log,
     settings: { model: 'haiku', ...(settings || {}) },
-    listProjects: () => [{ id: 'p1', name: 'Acme', path: '/tmp/acme' }],
+    listProjects: () => projects || [{ id: 'p1', name: 'Acme', path: '/tmp/acme' }],
     resolveProject: (id) => (id === 'p1' ? { id, name: 'Acme' } : null),
   });
   h.listCalls = () => h.calls.filter((c) => c.path === '/api/sessions').length;
@@ -395,30 +397,45 @@ describe('daily model-call limit', () => {
   });
 });
 
-describe('sending on the person\'s word', () => {
-  const sendReply = (sessionId, text) => reply({ reply: 'On it.', send: { sessionId, text } });
+describe('the person\'s turn', () => {
   const person = async (text) => { h.cos.submitPerson(text); await h.tick(10); };
+  const sayingText = (text) => ({ turn: jest.fn(async () => ({ text, modelId: 'm' })) });
+  const messagePosts = () => h.sends().filter((c) => c.path === '/api/chief-of-staff/messages');
 
-  it('sends one scoped message with no origin in the body, then posts "sent"', async () => {
-    const model = { turn: jest.fn(async () => ({ text: sendReply('s1', 'merge after CI'), modelId: 'm' })) };
-    setup({ sessions: [row('s1', 'running')], model });
+  it('posts the model\'s plain text as the reply', async () => {
+    setup({ sessions: [row('s1', 'running')], model: sayingText('Agent s1 is running tests.') });
     await h.start();
-    await person('tell Agent s1 to merge after CI');
-    expect(h.sends()).toHaveLength(1);
-    expect(h.sends()[0]).toMatchObject({ path: '/api/chief-of-staff/messages', body: { sessionId: 's1', text: 'merge after CI' }, opts: { scope: 'chief-of-staff' } });
-    expect(Object.keys(h.sends()[0].body).sort()).toEqual(['sessionId', 'text']);
-    const sent = h.cos.posts.find((p) => p.kind === 'sent');
-    expect(sent).toMatchObject({ text: 'merge after CI', sessionId: 's1', label: 'Agent s1', origin: 'chief-of-staff' });
-    expect(h.cos.posts.map((p) => p.kind)).toEqual(['person', 'reply', 'sent']);
+    await person('what is Agent s1 doing?');
+    expect(h.cos.posts.map((p) => p.kind)).toEqual(['person', 'reply']);
+    expect(h.cos.posts[1]).toMatchObject({ body: 'Agent s1 is running tests.', byModel: true });
   });
 
-  it('does not send to a session outside the roster', async () => {
-    const model = { turn: jest.fn(async () => ({ text: sendReply('elsewhere', 'do it'), modelId: 'm' })) };
-    setup({ sessions: [row('s1', 'running')], model });
+  it('trims the reply and cuts it to the reply cap', async () => {
+    setup({ sessions: [], model: sayingText(`  ${'r'.repeat(900)}  \n`) });
     await h.start();
-    await person('tell the other one to do it');
-    expect(h.sends()).toHaveLength(0);
+    await person('hello');
+    expect(h.cos.posts[1].body).toBe('r'.repeat(CAPS.reply));
+  });
+
+  it('does not parse a JSON block in the reply, and never sends from it', async () => {
+    const text = reply({ reply: 'On it.', send: { sessionId: 's1', text: 'merge after CI' } });
+    setup({ sessions: [row('s1', 'running')], model: sayingText(text) });
+    await h.start();
+    await person('tell Agent s1 to merge after CI');
+    expect(messagePosts()).toHaveLength(0);
     expect(h.cos.posts.some((p) => p.kind === 'sent')).toBe(false);
+    // The block is just text now: the reply is that text, not the "reply" field inside it.
+    expect(h.cos.posts[h.cos.posts.length - 1]).toMatchObject({ kind: 'reply' });
+    expect(h.cos.posts[h.cos.posts.length - 1].body).toContain('merge after CI');
+  });
+
+  it.each(['', '   \n '])('an empty reply %j with no card or send posts "I didn\'t write a reply"', async (text) => {
+    setup({ sessions: [row('s1', 'running')], model: sayingText(text) });
+    await h.start();
+    await person('hello');
+    expect(h.cos.posts.filter((p) => p.kind === 'reply')).toHaveLength(0);
+    const last = h.cos.posts[h.cos.posts.length - 1];
+    expect(last).toMatchObject({ kind: 'notice', body: "I didn't write a reply. Try again." });
   });
 
   it('never honours a send in a wake reply', async () => {
@@ -431,15 +448,37 @@ describe('sending on the person\'s word', () => {
   });
 
   it('refetches the roster before the person turn', async () => {
-    const model = { turn: jest.fn(async () => ({ text: sendReply('s2', 'hi'), modelId: 'm' })) };
-    setup({ sessions: [row('s1', 'running')], model });
+    setup({ sessions: [row('s1', 'running')], model: sayingText('ok') });
     await h.start();
+    const before = h.listCalls();
     h.list = [row('s1', 'running'), row('s2', 'running')];
     await person('tell Agent s2 hi');
-    expect(h.sends()).toHaveLength(1);
-    expect(h.sends()[0].body.sessionId).toBe('s2');
+    expect(h.listCalls()).toBe(before + 1);
+    expect([...h.cos.roster.keys()]).toEqual(['s1', 's2']);
   });
 
+  it('gives the model the local projects, and no sessions', async () => {
+    const model = sayingText('ok');
+    setup({
+      sessions: [row('s1', 'running')],
+      model,
+      projects: [{ id: 'p1', name: 'Acme', path: '/tmp/acme' }, { id: 'p2', name: 'Remote', path: '/srv/remote', hostId: 'h1' }],
+    });
+    await h.start();
+    await person('hello');
+    const prompt = model.turn.mock.calls[0][0];
+    expect(JSON.parse(/<agent_data>\n([\s\S]*)\n<\/agent_data>/.exec(prompt)[1])).toEqual([{ id: 'p1', name: 'Acme', path: '/tmp/acme' }]);
+    expect(prompt).not.toContain('Agent s1');
+  });
+
+  it.each(['', '   ', 'x'.repeat(2001)])('rejects a person message of length %#', (text) => {
+    setup({ sessions: [] });
+    expect(() => h.cos.submitPerson(text)).toThrow();
+    expect(h.cos.posts).toHaveLength(0);
+  });
+});
+
+describe('send failure lines', () => {
   it.each([
     [{ status: 404, data: { error: 'session_not_found' } }, 'That session is gone.'],
     [{ status: 409, data: { error: 'already_processing' } }, 'Agent s1 is busy. Try again when it finishes.'],
@@ -447,32 +486,101 @@ describe('sending on the person\'s word', () => {
     [{ status: 409, data: { error: 'dropped_in' } }, "You've dropped in to Agent s1, so I didn't send."],
     [{ status: 503, data: { error: 'audit_unavailable' } }, "Relay's audit log is off, so I can't send."],
     [{ status: 400, data: { error: 'weird_code' } }, 'Relay refused the send (weird_code).'],
-  ])('relay answer %j -> thread line', async (answer, line) => {
-    const model = { turn: jest.fn(async () => ({ text: sendReply('s1', 'go'), modelId: 'm' })) };
-    setup({ sessions: [row('s1', 'running')], model });
-    h.post = answer;
-    await h.start();
-    await person('tell Agent s1 go');
-    expect(h.sends()).toHaveLength(1);
-    const failed = h.cos.posts.find((p) => p.kind === 'send_failed');
-    expect(failed).toMatchObject({ sessionId: 's1', label: 'Agent s1', error: line });
-    expect(h.cos.posts.some((p) => p.kind === 'sent')).toBe(false);
+  ])('relay answer %j -> thread line', (answer, line) => {
+    expect(sendFailureLine(answer.data.error, 'Agent s1')).toBe(line);
+  });
+});
+
+describe('turnFailureNotice', () => {
+  it.each([
+    ['limit', '', "I've reached today's limit, so I can't send until tomorrow."],
+    ['timeout', '', 'The model took too long to answer, so I stopped. Try again.'],
+    ['turn_failed', 'socket reset', 'I lost the model session (socket reset). Try again.'],
+    ['disconnected', 'Relay socket closed', 'I lost the model session (Relay socket closed). Try again.'],
+  ])('%s -> %s', (code, detail, notice) => {
+    expect(turnFailureNotice(code, detail)).toBe(notice);
   });
 
-  it('does not retry a failed send', async () => {
-    const model = { turn: jest.fn(async () => ({ text: sendReply('s1', 'go'), modelId: 'm' })) };
-    setup({ sessions: [row('s1', 'running')], model });
-    h.post = { status: 503, data: { error: 'audit_unavailable' } };
-    await h.start();
-    await person('tell Agent s1 go');
-    await h.tick(60000);
-    expect(h.sends()).toHaveLength(1);
+  it('cuts the detail to 80 characters', () => {
+    const n = turnFailureNotice('turn_failed', 'd'.repeat(300));
+    expect(n).toBe(`I lost the model session (${'d'.repeat(80)}). Try again.`);
   });
 
-  it.each(['', '   ', 'x'.repeat(2001)])('rejects a person message of length %#', (text) => {
-    setup({ sessions: [] });
-    expect(() => h.cos.submitPerson(text)).toThrow();
-    expect(h.cos.posts).toHaveLength(0);
+  it('authentication_failed says the model cannot log in', () => {
+    expect(turnFailureNotice('authentication_failed', '')).toMatch(/log in/);
+  });
+
+  it.each([
+    ['launch_failed', /couldn't start the model/],
+    ['tools_present', /has tools/],
+    ['tools_unverified', /has tools/],
+    ['tools_missing', /grant the eve-cos MCP/],
+  ])('%s gives the off notice', (code, re) => {
+    expect(turnFailureNotice(code, '')).toMatch(re);
+  });
+});
+
+describe('a failed person turn names its cause', () => {
+  const failing = (code, message) => ({ turn: jest.fn(async () => { throw Object.assign(new Error(message), { code }); }) });
+  const lastNotice = () => h.cos.posts.filter((p) => p.kind === 'notice').pop();
+
+  it('a timeout says the model took too long, and the model stays on', async () => {
+    const model = failing('timeout', 'Model turn timed out after 120s');
+    setup({ sessions: [row('s1', 'running')], model });
+    await h.start();
+    h.cos.submitPerson('hello');
+    await h.tick(10);
+    expect(lastNotice().body).toBe('The model took too long to answer, so I stopped. Try again.');
+    expect(h.cos.off).toBeNull();
+    h.cos.submitPerson('again');
+    await h.tick(10);
+    expect(model.turn).toHaveBeenCalledTimes(2);
+  });
+
+  it('tools_missing turns the model off and names the project to grant, every turn, until the grant is fixed', async () => {
+    let granted = false;
+    const model = { turn: jest.fn(async () => {
+      if (!granted) throw Object.assign(new Error('The session lacks tools: mcp__relay__cos_propose_send'), { code: 'tools_missing' });
+      return { text: 'Back on.' };
+    }) };
+    setup({ sessions: [row('s1', 'running')], model });
+    await h.start();
+    h.cos.submitPerson('hello');
+    await h.tick(10);
+    expect(h.cos.off).toMatchObject({ reason: 'tools_missing' });
+    expect(lastNotice().body).toContain("grant the eve-cos MCP to Acme in relay's Projects");
+
+    h.cos.submitPerson('and now?');
+    await h.tick(10);
+    expect(model.turn).toHaveBeenCalledTimes(2);
+    expect(h.cos.off).toMatchObject({ reason: 'tools_missing' });
+    expect(lastNotice().body).toContain('grant the eve-cos MCP to Acme');
+
+    granted = true;
+    h.cos.submitPerson('try again');
+    await h.tick(10);
+    expect(model.turn).toHaveBeenCalledTimes(3);
+    expect(h.cos.posts.filter((p) => p.kind === 'reply').pop().body).toBe('Back on.');
+    expect(h.cos.off).toBeNull();
+  });
+});
+
+describe('model options', () => {
+  it('creates the person model with the allow-list and relay settings, and the wake model with neither', async () => {
+    const made = {};
+    const base = makeHarness({ sessions: [] });
+    dirs.push(base.dir);
+    h = base;
+    h.cos = new ChiefOfStaff({
+      relayTransport: h.transport, dataDir: h.dir, settings: { model: 'haiku' },
+      listProjects: () => [{ id: 'p1', name: 'Acme', path: '/tmp/acme' }],
+      createModel: (o) => { made[o.kind] = o; return h.model; },
+    });
+    await h.start();
+    expect(made.person.allowedTools).toEqual(PERSON_ALLOWED_TOOLS);
+    expect(made.person.sessionSettings).toMatchObject({ useRelayTools: true, readOnlyProjects: true });
+    expect(made.wake.allowedTools || []).toEqual([]);
+    expect(made.wake.sessionSettings || {}).toEqual({});
   });
 });
 
@@ -617,23 +725,23 @@ describe('reader housekeeping', () => {
   });
 
   it('a person turn drops a session that is gone and keeps the known state of one that is listed', async () => {
-    const model = { turn: jest.fn(async () => ({ text: reply({ reply: 'ok', send: null }), modelId: 'm' })) };
+    const model = { turn: jest.fn(async () => ({ text: 'ok', modelId: 'm' })) };
     setup({ sessions: [row('s1', 'running'), row('s2', 'running')], model });
     await h.start();
     h.emit({ type: 'session_state', sessionId: 's1', state: 'asking' });
     h.list = [row('s1', 'running')];
     h.cos.submitPerson('hello');
     await h.tick(10);
-    const rolled = JSON.parse(/<agent_data>\n([\s\S]*)\n<\/agent_data>/.exec(model.turn.mock.calls[model.turn.mock.calls.length - 1][0])[1]);
-    expect(rolled.map((r) => r.sessionId)).toEqual(['s1']);
-    expect(rolled[0].state).toBe('asking');
+    expect(model.turn).toHaveBeenCalledTimes(1);
+    expect([...h.cos.roster.keys()]).toEqual(['s1']);
+    expect(h.cos.roster.get('s1').state).toBe('asking');
   });
 });
 
 describe('two model sessions', () => {
   function build() {
     const made = {};
-    const mk = (kind) => ({ kind, turn: jest.fn(async () => ({ text: kind === 'wake' ? reply({ posts: [] }) : reply({ reply: 'ok', send: null }), modelId: 'm' })), close: jest.fn(async () => {}) });
+    const mk = (kind) => ({ kind, turn: jest.fn(async () => ({ text: kind === 'wake' ? reply({ posts: [] }) : 'ok', modelId: 'm' })), close: jest.fn(async () => {}) });
     const base = makeHarness({ sessions: [row('s1', 'idle')] });
     dirs.push(base.dir);
     h = base;
@@ -715,19 +823,14 @@ describe('unparseable replies are logged', () => {
   });
   const parseWarns = (log) => log.warn.mock.calls.map((c) => c[0]).filter((m) => /couldn't be parsed/.test(m));
 
-  it('warns once for a person reply with no JSON, naming kind, reason and session, never the text', async () => {
+  it('does not warn for a plain-text person reply, which is never parsed', async () => {
     const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
     setup({ sessions: [row('s1', 'running')], model: modelSaying(secret), log });
     await h.start();
     h.cos.submitPerson('what is s1 doing?');
     await h.tick(10);
-    const warns = parseWarns(log);
-    expect(warns).toHaveLength(1);
-    expect(warns[0]).toContain('person');
-    expect(warns[0]).toContain('no-json');
-    expect(warns[0]).toContain('abcdef01');
-    expect(warns[0]).toContain(String(secret.length));
-    expect(warns[0]).not.toContain('AGENT-DATA');
+    expect(parseWarns(log)).toHaveLength(0);
+    expect(h.cos.posts[h.cos.posts.length - 1]).toMatchObject({ kind: 'reply', body: secret });
   });
 
   it('warns once for a wake reply of the wrong shape, naming kind and reason', async () => {
@@ -743,12 +846,12 @@ describe('unparseable replies are logged', () => {
     expect(warns[0]).not.toContain('AGENT-DATA');
   });
 
-  it('does not warn for a reply that parses', async () => {
+  it('does not warn for a wake reply that parses', async () => {
     const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
-    setup({ sessions: [row('s1', 'running')], model: modelSaying(reply({ reply: 'All quiet.' })), log });
+    setup({ sessions: [row('s1', 'running')], model: modelSaying(reply({ posts: [{ sessionId: 's1', headline: 'H', body: 'B' }] })), log });
     await h.start();
-    h.cos.submitPerson('anything new?');
-    await h.tick(10);
+    h.emit({ type: 'session_state', sessionId: 's1', state: 'asking' });
+    await h.tick(2100);
     expect(parseWarns(log)).toHaveLength(0);
   });
 });

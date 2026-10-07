@@ -12,7 +12,6 @@ const HAIKU = 'claude-haiku-4-5-20251001';
 const SECRET = 'test-internal-secret';
 const PREFIX = 'mcp__relay__';
 const WAIT = 15000;
-const fence = (o) => '```json\n' + JSON.stringify(o) + '\n```';
 
 let eve;
 let ws;
@@ -36,11 +35,11 @@ async function boot() {
       await fs.promises.writeFile(path.join(dataDir, 'settings.json'), JSON.stringify({ chiefOfStaff: { model: 'haiku', projectId: 'p1', dailyModelCalls: 100 } }));
     },
   });
-  plan = { toolUses: [], gate: null };
+  plan = { toolUses: [], gate: null, text: 'Done.' };
   // Turn 1 of each model session is the bootstrap; a person turn plays the current plan.
   eve.relay.setCosModel({
     reply: (text, n) => (n === 1 ? 'ready'
-      : text.startsWith('Chief of Staff person') ? { toolUses: plan.toolUses, gate: plan.gate, text: fence({ reply: 'Done.', send: null }) } : null),
+      : text.startsWith('Chief of Staff person') ? { toolUses: plan.toolUses, gate: plan.gate, text: plan.text } : null),
   });
   await eve.relay.waitForScopedRelay();
   eve.relay.seedSession({
@@ -67,9 +66,9 @@ async function internal(tool, args, { projectId = 'p1', secret = SECRET } = {}) 
 
 // Sends `text` as the person, streams `toolUses` from the model, runs `during` while the turn is
 // held open, then ends the turn. Resolves with what `during` returned.
-async function personTurn(text, toolUses, during) {
+async function personTurn(text, toolUses, during, replyText = 'Done.') {
   let release;
-  plan = { toolUses, gate: new Promise((r) => { release = r; }) };
+  plan = { toolUses, gate: new Promise((r) => { release = r; }), text: replyText };
   const from = ws.mark();
   const held = eve.relay.waitForCosTurn((t) => t.text.startsWith('Chief of Staff person') && t.text.includes(text));
   ws.send({ type: 'cos_message', text });
@@ -78,7 +77,8 @@ async function personTurn(text, toolUses, during) {
     return await during();
   } finally {
     release();
-    await ws.waitFor((f) => f.type === 'cos_post' && f.post.kind === 'reply' && f.post.body === 'Done.', WAIT, from);
+    // An empty reply posts nothing; the caller ends the wait with a later turn.
+    if (replyText) await ws.waitFor((f) => f.type === 'cos_post' && f.post.kind === 'reply' && f.post.body === replyText, WAIT, from);
   }
 }
 
@@ -120,6 +120,17 @@ describe('send', () => {
     const b = await personTurn('tell Agent s1 to merge after CI', [read(), propose('c2', 'cos_propose_send', second)], () => internal('cos_propose_send', second));
     expect(b.body.result).toMatchObject({ status: 'sent' });
     expect(messagePosts()).toHaveLength(2);
+  });
+
+  it('with nothing read, a proposed send with an empty reply posts no "didn\'t write a reply" notice', async () => {
+    await boot();
+    const args = { sessionId: 's1', text: 'merge after CI' };
+    const out = await personTurn('tell Agent s1 to merge after CI', [propose('c1', 'cos_propose_send', args)], () => internal('cos_propose_send', args), '');
+    expect(out.body.result.status).toBe('sent');
+    // The turns are handled in order: the second turn's reply is the signal that the first one is over.
+    await personTurn('thanks', [], async () => {});
+    expect(ws.frames.some((f) => f.type === 'cos_post' && f.post.kind === 'notice')).toBe(false);
+    expect(ws.frames.some(kindPost('sent'))).toBe(true);
   });
 
   it('after a read, a verbatim span that does not name the session is a card', async () => {

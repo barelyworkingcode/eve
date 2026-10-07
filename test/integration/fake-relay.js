@@ -139,8 +139,16 @@ function createFakeRelay({ token = null } = {}) {
   // The model's own sessions (name `__cos:`): what they were created with and every turn sent to them.
   const cosSessionCreates = [];
   const cosModelTurns = [];
-  // tools: what the session reports in system/init. reply: (text, n) => string, or null for the default.
-  let cosModel = { tools: [], reply: null };
+  // provider/claude.go: a readOnlyProjects session runs `--tools Read,Grep,Glob --strict-mcp-config`,
+  // so its init lists those three plus the relay MCP's tools for the project's grants (here eve-cos).
+  // Any other Chief of Staff session lists nothing once eve's deny list has applied.
+  const COS_READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob',
+    'mcp__relay__cos_list_sessions', 'mcp__relay__cos_session_status', 'mcp__relay__cos_propose_start', 'mcp__relay__cos_propose_send'];
+  const cosReadOnlyIds = new Set();
+  const cosInitTools = (sessionId) => (cosReadOnlyIds.has(sessionId) ? COS_READ_ONLY_TOOLS.slice() : []);
+  // tools: what the session reports in system/init, or null for relay's own answer (cosInitTools).
+  // reply: (text, n) => string, or null for the default.
+  let cosModel = { tools: null, reply: null };
   // null => the send succeeds; { status, code, message } forces relay's host-side refusals.
   let cosSendFailure = null;
   // Every body the scoped start route accepted past its syntax checks, and the scope it carried.
@@ -670,6 +678,7 @@ function createFakeRelay({ token = null } = {}) {
             // --disallowedTools and preflight.go refuses them with "denied by project policy".
             const policy = (project && project.permissionPolicy) || (parsed.settings && parsed.settings.permissionPolicy) || null;
             cosSessionCreates.push({ sessionId, body: parsed, deniedTools: (policy && policy.deniedTools) || [] });
+            if (parsed.settings && parsed.settings.readOnlyProjects === true) cosReadOnlyIds.add(sessionId);
           }
           return send(201, session);
         };
@@ -1008,14 +1017,14 @@ function createFakeRelay({ token = null } = {}) {
         cosModelTurns.push({ sessionId: msg.sessionId, text: msg.text, n: sess.cosTurns });
         cosTurnWaiters.filter((w) => w.pred(cosModelTurns[cosModelTurns.length - 1])).forEach((w) => { cosTurnWaiters.splice(cosTurnWaiters.indexOf(w), 1); w.resolve(); });
         const person = String(msg.text).startsWith('Chief of Staff person');
-        const fallback = sess.cosTurns === 1 ? 'ready' : `\`\`\`json\n${person ? '{"reply":"Noted.","send":null}' : '{"posts":[]}'}\n\`\`\``;
+        const fallback = sess.cosTurns === 1 ? 'ready' : (person ? 'Noted.' : `\`\`\`json\n{"posts":[]}\n\`\`\``);
         // reply() answers a string, or { text, toolUses: [{ id, name, input }], gate }: the tool_use
         // blocks stream first (events.go ToolUseBlockStop), and the turn ends only after `gate` settles.
         const scripted = cosModel.reply && cosModel.reply(String(msg.text), sess.cosTurns);
         const plan = scripted && typeof scripted === 'object' ? scripted : { text: scripted };
         const text = plan.text ?? fallback;
         const out = [];
-        if (sess.cosTurns === 1) out.push(relayFrames.systemInit({ sessionId: msg.sessionId, model: 'claude-haiku-4-5-20251001', tools: cosModel.tools }));
+        if (sess.cosTurns === 1) out.push(relayFrames.systemInit({ sessionId: msg.sessionId, model: 'claude-haiku-4-5-20251001', tools: cosModel.tools ?? cosInitTools(msg.sessionId) }));
         (plan.toolUses || []).forEach((t, index) => out.push({
           type: 'llm_event', sessionId: msg.sessionId,
           event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', index, content_block_stop: true, content_block: { type: 'tool_use', id: t.id, name: t.name, input: t.input } },
@@ -1195,7 +1204,7 @@ function createFakeRelay({ token = null } = {}) {
     cosSessionCreates,
     cosModelTurns,
     // { tools, reply }: what the model session reports and how it answers (see cosModel above).
-    setCosModel: (m) => { cosModel = { tools: [], reply: null, ...m }; },
+    setCosModel: (m) => { cosModel = { tools: null, reply: null, ...m }; },
     // Forces relay's refusal of the scoped send after the checks that precede the host: { status, code, message }.
     failChiefOfStaffSend: (status, code, message = code) => { cosSendFailure = { status, code, message }; },
     clearChiefOfStaffSendFailure: () => { cosSendFailure = null; },

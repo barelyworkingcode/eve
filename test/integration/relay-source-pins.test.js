@@ -186,6 +186,10 @@ const PINS = [
   ['a terminal list row carries the origin', 'internal/sessions/terminal/manager.go', 'Origin     string            `json:"origin,omitempty"`', "...(t.origin ? { origin: t.origin } : {})"],
   ['the terminal list is {terminals}', 'internal/sessions/api/http_terminal.go', '"terminals": mgr.ListSummary()', 'send(200, { terminals: [...terminals.values()]'],
   ['a tool_use block stop carries the resolved input', 'internal/sessions/events/events.go', 'json:"content_block_stop"', "content_block_stop: true, content_block: { type: 'tool_use'"],
+  // eve#239: the person session's read-only profile (relay#255). The carrier is the unit test that pins what eve sends.
+  ['the session settings key relay accepts for a read-only session', 'cmd/relay/session_read_only.go', 'fields["readOnlyProjects"]', 'readOnlyProjects: true', 'relay', 'unit/chief-of-staff-model.test.js'],
+  ['a read-only session offers Claude only Read, Grep and Glob, with strict MCP config', 'internal/sessions/provider/claude.go', 'args = append(args, "--tools", readOnlyBuiltinTools, "--strict-mcp-config")', "'Glob', 'Grep', 'Read',", 'relay', 'unit/chief-of-staff-model.test.js'],
+  ['the read-only built-in set is Read,Grep,Glob', 'internal/sessions/provider/claude.go', 'const readOnlyBuiltinTools = "Read,Grep,Glob"', "'Glob', 'Grep', 'Read',", 'relay', 'unit/chief-of-staff-model.test.js'],
   // S4-A1: the search-result shapes test/unit/sources.test.js builds (6th field: the file carrying the copy).
   ['an MCP result joins its text blocks with no separator', 'internal/sessions/mcp/mcp.go', 'sb.WriteString(v.Text)', "brave(R1) + brave(R2)", 'relay', 'unit/sources.test.js'],
   ['a chat tool result is cut at 8,192 bytes', 'internal/sessions/provider/chat_base.go', 'const maxToolResultLen = 8192', 'const MAX = 8192;', 'relay', 'unit/sources.test.js'],

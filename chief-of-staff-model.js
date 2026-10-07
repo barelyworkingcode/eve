@@ -2,18 +2,19 @@
  * ChiefOfStaffModel - one long-lived, hidden relay session the Chief of Staff
  * writes through. Design: docs/design-chief-of-staff.md.
  *
- * The session must have no tools. relay has no "no tools" switch, so eve sends
- * a deny list of the built-ins and then checks the session's own `system/init`
- * on a bootstrap turn that carries no agent data. A session whose tool list is
- * not empty is relaunched once with those tools denied; if it still lists any,
- * or never reports a list, the model stays off. Agent text is sent only after
- * that check passes.
+ * The session has exactly the tools it is allowed (`allowedTools`; none for the
+ * wake session). relay has no "no tools" switch, so eve sends a deny list of the
+ * built-ins (minus the allowed ones) and then checks the session's own
+ * `system/init` on a bootstrap turn that carries no agent data. A session that
+ * lists a tool outside the allow-list is relaunched once with those tools
+ * denied; if it still lists any, lacks an allowed tool, or never reports a
+ * list, the model stays off. Agent text is sent only after that check passes.
  *
  * Calls are unscoped on purpose: the model session is an ordinary session
  * (no `agent`, so it stays unlisted), not part of the read-only scoped surface.
  */
 const crypto = require('crypto');
-const { systemPrompt, bootstrapPrompt } = require('./chief-of-staff-prompt');
+const { systemPrompt, personSystemPrompt, bootstrapPrompt } = require('./chief-of-staff-prompt');
 
 const HIDDEN_COS_PREFIX = '__cos:';
 const DEFAULT_TURN_TIMEOUT_MS = 120 * 1000;
@@ -34,8 +35,21 @@ const BUILTIN_TOOLS = Object.freeze([
   'Workflow', 'Write', 'mcp__*',
 ]);
 
+// The person session's whole tool set: read-only built-ins and the eve-cos MCP
+// as relay names it. Anything else in its `system/init` keeps the model off.
+const PERSON_ALLOWED_TOOLS = Object.freeze([
+  'Read', 'Grep', 'Glob',
+  'mcp__relay__cos_list_sessions', 'mcp__relay__cos_session_status',
+  'mcp__relay__cos_propose_start', 'mcp__relay__cos_propose_send',
+]);
+
+// The turn's text: every finished message, then any deltas not yet closed by one.
+function replyText(p) {
+  return (p.deltas ? [...p.parts, p.deltas] : p.parts).join('\n\n');
+}
+
 class ModelError extends Error {
-  // code: limit | launch_failed | tools_present | tools_unverified | turn_failed | timeout | disconnected,
+  // code: limit | launch_failed | tools_present | tools_missing | tools_unverified | turn_failed | timeout | disconnected,
   // or the CLI's API error code (authentication_failed, ...) with its HTTP status.
   constructor(code, message, { tools, status } = {}) {
     super(message || code);
@@ -56,10 +70,13 @@ class ChiefOfStaffModel {
    * @param {(e: {sessionId: string, toolUseId: string, name: string, input: object}) => void} [opts.onToolUse]
    *   fires once per tool_use id, when its content block stops
    * @param {string[]} [opts.extraDeniedTools]
+   * @param {string[]} [opts.allowedTools]  the only tools the session may list; none by default
+   * @param {object} [opts.sessionSettings]  merged into the create body's `settings`
+   * @param {'wake'|'person'} [opts.kind]  picks the system prompt; wake by default
    * @param {object} [opts.log]
    * @param {number} [opts.openTimeoutMs]
    */
-  constructor({ relayTransport, countCall, previousSessionId = null, onSessionId, onToolUse, extraDeniedTools = [], log, openTimeoutMs } = {}) {
+  constructor({ relayTransport, countCall, previousSessionId = null, onSessionId, onToolUse, extraDeniedTools = [], allowedTools = [], sessionSettings = {}, kind = 'wake', log, openTimeoutMs } = {}) {
     if (!relayTransport) throw new Error('relayTransport required');
     if (typeof countCall !== 'function') throw new Error('countCall required');
     this.relayTransport = relayTransport;
@@ -67,6 +84,9 @@ class ChiefOfStaffModel {
     this.onSessionId = typeof onSessionId === 'function' ? onSessionId : () => {};
     this.onToolUse = typeof onToolUse === 'function' ? onToolUse : () => {};
     this.extraDeniedTools = Array.isArray(extraDeniedTools) ? extraDeniedTools.slice() : [];
+    this.allowedTools = Array.isArray(allowedTools) ? allowedTools.filter((t) => typeof t === 'string') : [];
+    this.sessionSettings = sessionSettings && typeof sessionSettings === 'object' ? { ...sessionSettings } : {};
+    this.kind = kind;
     this.log = log?.child ? log.child('ChiefOfStaffModel') : log;
     this.openTimeoutMs = openTimeoutMs || DEFAULT_OPEN_TIMEOUT_MS;
     this._previousSessionId = previousSessionId || null;
@@ -110,7 +130,7 @@ class ChiefOfStaffModel {
       await this._deleteSession(old);
     }
 
-    let denied = [...BUILTIN_TOOLS, ...this.extraDeniedTools];
+    let denied = this._baseDenied();
     for (let attempt = 0; attempt < 2; attempt++) {
       const s = await this._createSession(opts, key, denied);
       this._session = s;
@@ -130,6 +150,14 @@ class ChiefOfStaffModel {
     }
   }
 
+  // The built-ins minus what the session may use. `mcp__*` stays denied unless
+  // an MCP tool is allowed; the init check then names every extra one.
+  _baseDenied() {
+    const allowMcp = this.allowedTools.some((t) => t.startsWith('mcp__'));
+    const kept = BUILTIN_TOOLS.filter((t) => !this.allowedTools.includes(t) && !(allowMcp && t === 'mcp__*'));
+    return [...kept, ...this.extraDeniedTools];
+  }
+
   async _createSession(opts, key, deniedTools) {
     const name = `${HIDDEN_COS_PREFIX}${crypto.randomBytes(6).toString('hex')}`;
     let res;
@@ -139,9 +167,9 @@ class ChiefOfStaffModel {
         directory: opts.directory,
         name,
         model: opts.model,
-        systemPrompt: systemPrompt(),
+        systemPrompt: this.kind === 'person' ? personSystemPrompt() : systemPrompt(),
         appendClaudeMd: false,
-        settings: { headless: true, permissionPolicy: { deniedTools } },
+        settings: { headless: true, ...this.sessionSettings, permissionPolicy: { deniedTools } },
       });
     } catch (err) {
       throw new ModelError('launch_failed', `Session create failed: ${err.message}`);
@@ -237,7 +265,7 @@ class ChiefOfStaffModel {
 
   _exchangeRaw(s, text, timeoutMs) {
     return new Promise((resolve, reject) => {
-      const pending = { resolve, reject, deltas: '', blocks: '', timer: null };
+      const pending = { resolve, reject, parts: [], deltas: '', timer: null };
       pending.timer = setTimeout(() => {
         this._send(s, { type: 'stop_generation', sessionId: s.id });
         // The late message_complete would land in the next turn, so the session ends here.
@@ -289,11 +317,12 @@ class ChiefOfStaffModel {
           this._settle(s, new ModelError('turn_failed', String(msg.error)));
         } else {
           const p = s.pending;
-          this._settle(s, null, p.deltas || p.blocks);
+          this._settle(s, null, replyText(p));
         }
         break;
       case 'error':
       case 'process_exited':
+      case 'session_ended':
       case 'resume_required':
         if (!s.pending && !msg.sessionId) break;
         this._settle(s, new ModelError('turn_failed', String(msg.message || msg.error || msg.type)));
@@ -313,25 +342,34 @@ class ChiefOfStaffModel {
       if (!Array.isArray(ev.tools)) return;
       s.sawInit = true;
       const tools = ev.tools.filter((t) => typeof t === 'string');
-      // Anything listed, at any time, ends the session before more can be sent.
-      if (tools.length > 0) {
-        this._settle(s, new ModelError('tools_present', `The session lists tools: ${tools.join(', ')}`, { tools }));
+      // Any init that differs from the allowed set, at any time, ends the
+      // session before more can be sent.
+      const extras = tools.filter((t) => !this.allowedTools.includes(t));
+      const missing = this.allowedTools.filter((t) => !tools.includes(t));
+      if (extras.length > 0) {
+        this._settle(s, new ModelError('tools_present', `The session lists tools: ${extras.join(', ')}`, { tools: extras }));
         this._kill(s, 'tools present');
+      } else if (missing.length > 0) {
+        this._settle(s, new ModelError('tools_missing', `The session lacks tools: ${missing.join(', ')}`, { tools: missing }));
+        this._kill(s, 'tools missing');
       }
       return;
     }
     if (ev.type !== 'assistant' || !s.pending) return;
     if (typeof ev.error === 'string' && ev.error) s.pending.apiError = ev.error;
     this._noteToolUse(s, ev);
-    // Deltas and whole blocks can both arrive; deltas win when present.
+    // Deltas and whole messages can both arrive; per message, deltas win when
+    // present. A tool-using turn has several messages, and the reply is all of them.
+    const p = s.pending;
     if (ev.delta?.type === 'text_delta' && typeof ev.delta.text === 'string') {
-      s.pending.deltas += ev.delta.text;
+      p.deltas += ev.delta.text;
     }
     const content = ev.message?.content;
     if (Array.isArray(content)) {
-      for (const b of content) {
-        if (b?.type === 'text' && typeof b.text === 'string') s.pending.blocks += b.text;
-      }
+      const blocks = content.map((b) => (b?.type === 'text' && typeof b.text === 'string' ? b.text : '')).join('');
+      const text = p.deltas || blocks;
+      p.deltas = '';
+      if (text) p.parts.push(text);
     }
   }
 
@@ -393,4 +431,5 @@ module.exports = ChiefOfStaffModel;
 module.exports.ChiefOfStaffModel = ChiefOfStaffModel;
 module.exports.ModelError = ModelError;
 module.exports.BUILTIN_TOOLS = BUILTIN_TOOLS;
+module.exports.PERSON_ALLOWED_TOOLS = PERSON_ALLOWED_TOOLS;
 module.exports.HIDDEN_COS_PREFIX = HIDDEN_COS_PREFIX;
