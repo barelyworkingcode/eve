@@ -353,6 +353,14 @@ class ProjectPage {
       item.appendChild(time);
     }
 
+    if (session.origin === 'chief-of-staff') {
+      const chip = document.createElement('span');
+      chip.className = 'session-origin-chip project-tree__origin-chip';
+      chip.dataset.testid = 'session-origin-chip';
+      chip.textContent = 'Started by Chief of Staff';
+      item.appendChild(chip);
+    }
+
     if (session.model) {
       const badge = document.createElement('span');
       badge.className = 'project-tree__session-badge';

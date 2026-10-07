@@ -177,7 +177,6 @@ class SidebarRenderer {
     li.innerHTML = `
       <div class="session-name" title="${escapeHtml(session.directory)}">${escapeHtml(this.app.getSessionDisplayName(session.id))}</div>
       <div class="session-actions">
-        ${session.origin === 'chief-of-staff' ? '<span class="session-origin-chip" data-testid="session-origin-chip">Started by Chief of Staff</span>' : ''}
         ${session.model ? `<span class="session-model">${escapeHtml(session.model)}</span>` : ''}
         <span class="status">${session.active ? 'Active' : 'Inactive'}</span>
         <button class="session-rename" title="Rename session">&#9998;</button>
