@@ -17,6 +17,7 @@ const JOURNEY_BUDGET_MS = 480000;
 const MIN_JOURNEY_MS = 1000;
 const CLEANUP_TIMEOUT_MS = 10000;
 const CLOSE_TIMEOUT_MS = 10000;
+const EXIT_GRACE_MS = 5000;
 const RESTART_TIMEOUT_MS = 60000;
 const OWNER_RESET_WAIT_MS = 30000;
 const OWNER_FILES = ['auth.json', 'sessions.json'];
@@ -816,5 +817,9 @@ if (require.main === module) {
   run(process.argv.slice(2)).then(code => { process.exitCode = code; }, (err) => {
     process.stderr.write(scrub(firstLine(err), os.homedir()) + '\n');
     process.exitCode = 2;
+  }).finally(() => {
+    // Deliberate: a journey that lost its race can still hold a socket after
+    // the run is done; the unref'd timer only fires if one does.
+    setTimeout(() => process.exit(), EXIT_GRACE_MS).unref();
   });
 }
