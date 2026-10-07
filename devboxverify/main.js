@@ -498,7 +498,7 @@ async function runJourney(j, env, browser, { timeoutMs, projects, world, pending
 }
 
 async function run(argv) {
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const home = os.homedir();
   const emit = (...fields) => process.stdout.write(formatLine(home, ...fields) + '\n');
   const log = msg => process.stderr.write(scrub(msg, home) + '\n');
@@ -622,13 +622,13 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       const current = await fs.promises.readFile(settingsFile, 'utf8').catch((err) => { if (err.code === 'ENOENT') return ''; throw err; });
       await fs.promises.writeFile(settingsFile, chiefOfStaffSettings(current, acmeId));
       await exec(relayBin, ['service', 'restart', '--id', opts.service], { timeout: RESTART_TIMEOUT_MS });
-      const deadline = Date.now() + OWNER_RESET_WAIT_MS;
+      const deadline = performance.now() + OWNER_RESET_WAIT_MS;
       let status = null;
       while (!status) {
         const pids = await lsofPids(port);
         if (pids.length === 1 && pids[0] !== pid) status = await anonymous.authStatus().catch(() => null);
         if (status) break;
-        if (Date.now() > deadline) throw new Error(`${opts.service} did not answer on :${port} within ${OWNER_RESET_WAIT_MS / 1000}s of the restart`);
+        if (performance.now() > deadline) throw new Error(`${opts.service} did not answer on :${port} within ${OWNER_RESET_WAIT_MS / 1000}s of the restart`);
         await sleep(500);
       }
       const problem = authStatusProblem(status);
@@ -676,12 +676,12 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   };
   const runOne = async (j) => {
     log(`running ${j.id}`);
-    const journeyStartedAt = Date.now();
+    const journeyStartedAt = performance.now();
     const timeoutMs = journeyTimeout(j.timeoutMs, spentMs, JOURNEY_BUDGET_MS);
     const r = await runJourney(j, env, browser, {
       timeoutMs, projects: j.fixture ? null : projects, world: j.fixture ? world : resolved, pending, screen, log,
     });
-    const tookMs = Date.now() - journeyStartedAt;
+    const tookMs = Math.round(performance.now() - journeyStartedAt);
     record(r, j.knownBug || timeoutMs === null ? 0 : tookMs);
     spentMs += tookMs;
   };
@@ -735,7 +735,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   }
 
   const { counts, exitCode } = tally(results);
-  const runMs = Date.now() - startedAt;
+  const runMs = Math.round(performance.now() - startedAt);
   emit('TIMING', 'run', String(runMs));
   emit('SUMMARY', `pass=${counts.PASS}`, `fail=${counts.FAIL}`, `blocked=${counts.BLOCKED}`, `notrun=${counts.NOTRUN}`);
   if (opts.post) {

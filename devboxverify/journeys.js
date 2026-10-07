@@ -11,7 +11,7 @@ const { promisify, isDeepStrictEqual } = require('util');
 const WebSocket = require('ws');
 const { expect } = require('@playwright/test');
 const {
-  GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
+  GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, now, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, eveJson, callToolRows, DEVICES, sweep, overflow,
   worldIds, DENIED_OUTCOMES, BRIEF_REFUSED, briefRunVerdict, probeVerdict, openEditProject, openTemplate, pressPreset,
@@ -73,7 +73,7 @@ async function commitOneFile(dir, name) {
 async function landingView(env) {
   const id = 'landing-view';
   const page = await env.newPage();
-  const deadline = Date.now() + 20000;
+  const deadline = now() + 20000;
   await openEve(page, env, '', deadline);
   env.step('wait for the greeting');
   const home = page.getByTestId('home-screen');
@@ -192,7 +192,7 @@ async function chatReply(env) {
   await input.fill(question, { timeout: 5000 });
   env.step('send the question');
   await page.getByTestId('chat-submit').click({ timeout: 5000 });
-  const sentAt = Date.now();
+  const sentAt = now();
   await need('the question is not shown as the user message', expect(
     page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: env.nonce }),
   ).toBeVisible({ timeout: 10000 }));
@@ -368,7 +368,7 @@ async function terminalOnRequest(env) {
   const probe = await openWorldProbe(page, env);
   if (!probe) return result(id, BLOCKED, `no "World probe" card for ${acme.name}`);
   await probe.typeLine("printf '%s_%s\\n' EVE OK");
-  const typedAt = Date.now();
+  const typedAt = now();
   await need('EVE_OK did not show in the terminal within 20s',
     expect(pane).toContainText('EVE_OK', { timeout: 20000 }));
 
@@ -783,7 +783,7 @@ async function voiceDeepLink(env) {
 
   env.step('open the voice deep link');
   let page = await context.newPage();
-  const openedAt = Date.now();
+  const openedAt = now();
   await openEve(page, env, '#/voice-chat');
   await voiceView(page);
   const took = seconds(openedAt);
@@ -1783,7 +1783,7 @@ async function askInOtherMode(env) {
     const acmeBefore = await acmeIds(env, 'sessions');
     env.step('Ask in Work');
     const clickedAt = Date.now() - 1000;
-    const deadline = Date.now() + RERUN_MS;
+    const deadline = now() + RERUN_MS;
     await button.click({ timeout: 5000 });
     const created = await poll(async () => {
       const added = addedIds(acmeBefore, await acmeIds(env, 'sessions'));
@@ -2869,7 +2869,7 @@ async function cosAskingPost(env) {
   const asker = await env.newPage();
   await sayToAgent(asker, env, sid,
     `Run this shell command with your Bash tool, then show me its output: echo verify-${env.nonce}`, env.nonce);
-  const askedAt = Date.now();
+  const askedAt = now();
   // Left open until the end: relay may settle a permission request once no
   // browser holds the session, and the asking state would end before the post.
   env.cleanup('close the asking page', () => asker.close());
