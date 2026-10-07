@@ -436,7 +436,7 @@ describe('devboxverify journey table', () => {
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
     'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part', 'chat-tool-search', 'agent-board-states',
     'agent-drop-in',
-    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card',
+    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-project-from-relay',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -461,8 +461,8 @@ describe('devboxverify journey table', () => {
     }
   });
 
-  it('marks only add-browser-in-window and project-mode-new (relay gates its create) as screen and only the two passkey journeys as fixtures', () => {
-    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['project-mode-new', 'add-browser-in-window']);
+  it('marks only cos-project-from-relay (relay gates its mint), add-browser-in-window and project-mode-new (relay gates its create) as screen and only the two passkey journeys as fixtures', () => {
+    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['cos-project-from-relay', 'project-mode-new', 'add-browser-in-window']);
     expect(journeys.filter(j => j.fixture).map(j => j.id).sort()).toEqual(['passkey-first-enrol', 'passkey-sign-in']);
   });
 
@@ -480,7 +480,7 @@ describe('devboxverify journey table', () => {
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
         'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
         'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in',
-        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card'].map(id => [id, acme])),
+        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-project-from-relay'].map(id => [id, acme])),
     });
   });
 
@@ -503,7 +503,7 @@ describe('devboxverify journey table', () => {
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card',
       'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
-      'chat-pasted-url-source', 'chat-tool-search', 'project-mode-new',
+      'chat-pasted-url-source', 'chat-tool-search', 'cos-project-from-relay', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -530,6 +530,7 @@ describe('devboxverify journey table', () => {
     ['cos-tell-sends-marked', 'devboxverify/README.md', ['chief-of-staff'], 150000],
     ['cos-reads-project', 'devboxverify/README.md', ['chief-of-staff'], 180000],
     ['cos-start-card', 'devboxverify/README.md', ['chief-of-staff'], 330000],
+    ['cos-project-from-relay', 'devboxverify/README.md', ['chief-of-staff'], 180000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -1295,5 +1296,138 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
       run: async env => ({ state: 'PASS', detail: lookup(env) }) };
     const r = await runJourney(j, {}, {}, { timeoutMs: 5000, projects: null, world: loaded, pending: [], screen: null, log: () => {} });
     expect(r).toEqual({ id: 'x', state, detail });
+  });
+});
+
+describe('devboxverify Chief of Staff project from relay (eve#249)', () => {
+  const { chiefOfStaffSourceProblem } = require('../../devboxverify/main');
+  const {
+    cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
+  } = require('../../devboxverify/journeys');
+  const TOKEN = 'f'.repeat(32) + '0123456789abcdef'.repeat(2);
+
+  describe('chiefOfStaffSourceProblem', () => {
+    const line = (source, project) => `2026-10-07 info Chief of Staff config from ${source}: project ${project}, model haiku, 40 calls a day\n`;
+    it.each([
+      ['the file wins', line('settings.json', 'p1'), ''],
+      ['relay holds the V-COS project', line('relay', 'p1'), ''],
+      ['no setting anywhere', line('defaults', 'automatic'), ''],
+    ])('accepts when %s', (_n, text) => {
+      expect(chiefOfStaffSourceProblem(`noise\n${text}`, 'p1')).toBe('');
+    });
+
+    it('blocks with the Not-set message when relay holds another project', () => {
+      expect(chiefOfStaffSourceProblem(line('relay', 'p2'), 'p1'))
+        .toBe('setup V-COS: relay holds a Chief of Staff setting; set it to Not set in relay\'s Settings');
+    });
+
+    it.each([['an empty log', ''], ['a log without the line', 'eve listening\n']])('blocks on %s, never passes silently', (_n, text) => {
+      expect(chiefOfStaffSourceProblem(text, 'p1')).toMatch(/^setup V-COS: .*no "Chief of Staff config from" line/);
+    });
+  });
+
+  describe('cosProjectBSetup', () => {
+    const grant = (...views) => JSON.stringify(views);
+    const b = (mcps) => ({ kind: 'project', id: 'pb', name: 'Verify Chief of Staff B', mcps });
+    it('returns the id when exactly one project holds exactly the eve-cos grant', () => {
+      expect(cosProjectBSetup(grant(b([{ mcp: 'relay-eve-cos-verify' }])))).toEqual({ projectId: 'pb', problem: '' });
+    });
+    it.each([
+      ['no project', grant(), /0 projects named "Verify Chief of Staff B"/],
+      ['two projects', grant(b([]), b([])), /2 projects named/],
+      ['a grant too many', grant(b([{ mcp: 'relay-eve-cos-verify' }, { mcp: 'other' }])), /granted \[relay-eve-cos-verify, other\]/],
+      ['unreadable JSON', 'nope', /unreadable JSON/],
+    ])('blocks on %s and points at the README', (_n, out, re) => {
+      const r = cosProjectBSetup(out);
+      expect(r.projectId).toBe('');
+      expect(r.problem).toMatch(/^setup V-COS-B: /);
+      expect(r.problem).toMatch(re);
+      expect(r.problem).toMatch(/see devboxverify\/README\.md$/);
+    });
+  });
+
+  describe('parseMintOutput and frontendSocketIn', () => {
+    it('reads the id and token lines', () => {
+      expect(parseMintOutput(`minted\nid: c-1\ntoken: ${TOKEN}\nexpires: soon\n`)).toEqual({ id: 'c-1', token: TOKEN });
+    });
+    it('returns empty strings when the lines are missing', () => {
+      expect(parseMintOutput('id: c-1\n')).toEqual({ id: 'c-1', token: '' });
+      expect(parseMintOutput('')).toEqual({ id: '', token: '' });
+    });
+    it('picks the single frontend socket and refuses none or several', () => {
+      expect(frontendSocketIn(['relay.sock', 'relay-frontend-12.sock'])).toBe('relay-frontend-12.sock');
+      expect(frontendSocketIn(['relay.sock'])).toBeNull();
+      expect(frontendSocketIn(['relay-frontend-1.sock', 'relay-frontend-2.sock'])).toBeNull();
+    });
+  });
+
+  describe('frontendRequest', () => {
+    const http = require('http');
+    let dir, server, seen;
+    beforeAll(async () => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbv-sock-'));
+      seen = [];
+      server = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (d) => { body += d; });
+        req.on('end', () => {
+          seen.push({ method: req.method, url: req.url, auth: req.headers.authorization, body });
+          if (req.url === '/hang') return;
+          res.writeHead(req.url === '/bad' ? 500 : 200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ configured: false }));
+        });
+      });
+      await new Promise((r) => server.listen(path.join(dir, 's.sock'), r));
+    });
+    afterAll(async () => {
+      server.closeAllConnections();
+      await new Promise((r) => server.close(r));
+      if (dir && dir.includes('dbv-sock-')) fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('sends the token as a bearer header and the body as JSON, and parses the answer', async () => {
+      const r = await frontendRequest(path.join(dir, 's.sock'), TOKEN, 'PUT', '/api/x', { a: 1 });
+      expect(r).toEqual({ status: 200, json: { configured: false } });
+      expect(seen.at(-1)).toEqual({ method: 'PUT', url: '/api/x', auth: `Bearer ${TOKEN}`, body: '{"a":1}' });
+    });
+    it('returns a non-2xx status instead of throwing', async () => {
+      expect((await frontendRequest(path.join(dir, 's.sock'), TOKEN, 'GET', '/bad')).status).toBe(500);
+    });
+    it('gives up at the bound and keeps the token out of the error', async () => {
+      const err = await frontendRequest(path.join(dir, 's.sock'), TOKEN, 'GET', '/hang', undefined, 200).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toMatch(/no answer within/);
+      expect(err.message).not.toContain(TOKEN);
+    });
+    it('keeps the token out of the error when the socket is gone', async () => {
+      const err = await frontendRequest(path.join(dir, 'gone.sock'), TOKEN, 'GET', '/x').catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(String(err.message) + String(err.stack)).not.toContain(TOKEN);
+    });
+  });
+
+  describe('session_launch audit verdict', () => {
+    const row = (o) => JSON.stringify({
+      event: 'session_launch', id: 'a1', outcome: 'ok', actor: { project_id: 'pb' }, args: { read_only_projects: true }, ...o,
+    });
+    it('passes on a new ok row in the project with read-only roots', () => {
+      expect(cosLaunchProblem(cosLaunchRows(row({ id: 'new' })), new Set(['old']), 'pb')).toBeNull();
+    });
+    it.each([
+      ['only rows from before the PUT', row({ id: 'old' })],
+      ['a refused launch', row({ id: 'n', outcome: 'refused' })],
+      ['another project', row({ id: 'n', actor: { project_id: 'pa' } })],
+      ['a launch without read-only roots', row({ id: 'n', args: {} })],
+      ['no rows', ''],
+    ])('fails on %s', (_n, jsonl) => {
+      expect(cosLaunchProblem(cosLaunchRows(jsonl), new Set(['old']), 'pb')).toMatch(/^no new ok session_launch row/);
+    });
+    it('ignores other events and unreadable lines', () => {
+      expect(cosLaunchRows(`junk\n${row({ event: 'session_message' })}`)).toEqual([]);
+    });
+  });
+
+  it('names the log line eve writes for relay\'s setting', () => {
+    expect(cosConfigLine('pb', 'haiku', 40)).toBe('Chief of Staff config from relay: project pb, model haiku, 40 calls a day');
   });
 });

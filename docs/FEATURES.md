@@ -337,8 +337,9 @@ areas:
     code: [chief-of-staff.js, chief-of-staff-model.js, chief-of-staff-prompt.js, ws/chief-of-staff-messages.js,
            public/chief-of-staff-page.js, public/panes/chief-of-staff-pane.js, public/apple/chief-of-staff.css]
     tests: [test/unit/chief-of-staff*.test.js, test/unit/message-renderer-origin.test.js,
-            test/integration/chief-of-staff.test.js, test/e2e/goals/chief-of-staff.spec.js]
-    journeys: [cos-asking-post, cos-tell-sends-marked, cos-reads-project, cos-start-card]
+            test/integration/chief-of-staff.test.js, test/integration/chief-of-staff-relay-config.test.js,
+            test/e2e/goals/chief-of-staff.spec.js]
+    journeys: [cos-asking-post, cos-tell-sends-marked, cos-reads-project, cos-start-card, cos-project-from-relay]
   shell:
     code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
            public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,

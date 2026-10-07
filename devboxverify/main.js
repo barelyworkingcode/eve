@@ -316,6 +316,19 @@ function chiefOfStaffSetup(grantOut, mcpOut) {
   return { projectId, problem: '' };
 }
 
+// Source check for setup V-COS: eve logs `Chief of Staff config from <source>:
+// project <id|automatic>, ...` at its first read. When relay is the source and
+// holds another project than V-COS, the Chief of Staff journeys would not run
+// in it. '' when the setup is right, else the BLOCKED detail.
+function chiefOfStaffSourceProblem(logText, projectId) {
+  const m = /Chief of Staff config from (relay|settings\.json|defaults): project ([^\s,]+),/.exec(String(logText));
+  if (!m) return 'setup V-COS: eve-verify logged no "Chief of Staff config from" line after its restart; see devboxverify/README.md';
+  if (m[1] === 'relay' && m[2] !== projectId) {
+    return 'setup V-COS: relay holds a Chief of Staff setting; set it to Not set in relay\'s Settings';
+  }
+  return '';
+}
+
 function journeyTimeout(timeoutMs, spentMs, budgetMs) {
   const left = budgetMs - spentMs;
   return left < MIN_JOURNEY_MS ? null : Math.min(timeoutMs, left);
@@ -429,10 +442,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // Each cleanup gets its own time limit; the first failure is reported.
 async function runCleanups(entries) {
   let failure = null;
-  for (const { label, fn } of entries) {
+  for (const { label, fn, timeoutMs = CLEANUP_TIMEOUT_MS } of entries) {
     let timer;
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`timed out after ${CLEANUP_TIMEOUT_MS / 1000}s`)), CLEANUP_TIMEOUT_MS);
+      timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs / 1000}s`)), timeoutMs);
     });
     try {
       await Promise.race([Promise.resolve().then(fn), timeout]);
@@ -479,7 +492,7 @@ async function runJourney(j, env, browser, { timeoutMs, projects, world, pending
     },
     step: (label) => { lastStep = label; process.stderr.write(`  ${j.id}: ${label}\n`); },
     // A journey that timed out can still register one; runLocked runs those.
-    cleanup: (label, fn) => { pending.push({ id: j.id, label, fn }); },
+    cleanup: (label, fn, timeoutMs) => { pending.push({ id: j.id, label, fn, timeoutMs }); },
   };
   // This is subtle: the sign-in fixture sets env.session, and a spread copy
   // would keep that to itself. The accessor carries it back to the run.
@@ -561,6 +574,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   const lsEnv = { env: { ...process.env, LC_ALL: 'C' } };
   let head, pid, cwd, liveCwd, listOut, dataDir, projects, worldCounts, repair;
   let cosSetup = { projectId: '', problem: '' };
+  const eveLog = serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`));
 
   const checks = [
     ['head', async () => (head = await git(checkout, 'rev-parse', 'HEAD'))],
@@ -648,6 +662,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
         const current = await fs.promises.readFile(settingsFile, 'utf8').catch((err) => { if (err.code === 'ENOENT') return ''; throw err; });
         await fs.promises.writeFile(settingsFile, chiefOfStaffSettings(current, cosSetup.projectId));
       }
+      const logMark = await eveLog.mark();
       await exec(relayBin, ['service', 'restart', '--id', opts.service], { timeout: RESTART_TIMEOUT_MS });
       const deadline = performance.now() + OWNER_RESET_WAIT_MS;
       let status = null;
@@ -661,6 +676,18 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       const problem = authStatusProblem(status);
       if (problem) throw new Error(problem);
       if (status.enrolled !== false) throw new Error('eve still has an owner after the reset');
+      // Waits: none possible. eve's log is a file with no hook, so it is polled
+      // against a monotonic deadline.
+      if (!cosSetup.problem) {
+        const logDeadline = performance.now() + OWNER_RESET_WAIT_MS;
+        let logged;
+        for (;;) {
+          logged = await eveLog.since(logMark);
+          if (/Chief of Staff config from /.test(logged) || performance.now() > logDeadline) break;
+          await sleep(500);
+        }
+        cosSetup.problem = chiefOfStaffSourceProblem(logged, cosSetup.projectId);
+      }
       return cosSetup.projectId ? 'owner removed; not enrolled; Chief of Staff settings written'
         : 'owner removed; not enrolled; Chief of Staff settings not written';
     }],
@@ -687,7 +714,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   const env = {
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
     api, shared: {}, session: null, cosSetupProblem: cosSetup.problem, relayBin, service: opts.service, dataDir,
-    serviceLog: serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`)),
+    serviceLog: eveLog,
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
       await exec(relayBin, ['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
   };
@@ -786,7 +813,7 @@ module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-  relayAuditRows, serviceLogReader, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
+  relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
 };
 
 if (require.main === module) {
