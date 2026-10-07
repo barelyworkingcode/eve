@@ -5,6 +5,9 @@ Chromium, against the devboxWorld test world, and report one result per
 journey. No mocks. It runs on the devbox, never in CI. Design and contract:
 [../docs/design-devboxverify.md](../docs/design-devboxverify.md).
 
+The test model is Claude Haiku 5.5: journeys and the Chief of Staff launch
+the alias `haiku`, and assert the full id `claude-haiku-5-5`.
+
 ```bash
 node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen]
 npm run -s verify:devbox -- [flags]
@@ -39,7 +42,7 @@ data dir `settings.json` before its restart, keeping every other key (the file
 is read as JSONC and rewritten as plain JSON, so comments go; a file that does
 not parse stops the reset). The id comes from `relay grant --json`,
 which also gives setup V-COS its check (below); unless exactly one `Verify Chief of Staff` project exists, the merge is skipped and the preflight line says "Chief of Staff settings not written". Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
-make in Acme Corp or the temp dir and remove, project-admin-in-relay's Save
+make in Acme Corp, the Verify Chief of Staff folder or the temp dir and remove, project-admin-in-relay's Save
 of Acme Corp as it stands, project-mode-new's `verify-<nonce>` project,
 which it deletes, mode-presets' `verify-<nonce> ask` template in Acme Corp,
 which it removes (and it gives Work's Ask preset back to the template that held it, if any), and voice-deep-link's mark on `World voice` as Work's voice
@@ -599,7 +602,7 @@ Acme Corp: model `haiku` (or any offered id containing it), name
 `verify-<nonce>-dropin`, settings `{headless: true, agent: true}`. A desktop
 page waits on Today. Turn 1 is `Reply with exactly: verify-<nonce>-done`;
 after the `idle` frame `system/init` must report
-`claude-haiku-4-5-20251001`. Turn 2 is `Count from 1 to 300, one number per
+`claude-haiku-5-5`. Turn 2 is `Count from 1 to 300, one number per
 line.`; on its `running` frame the journey SIGKILLs the `claude` child of the
 relay-sessions shim (`exec --session-id <id>`) for that session (fault
 injection on the test machine). The `errored` frame must follow. Within 2 s of it
@@ -621,14 +624,14 @@ PASS needs all of these.
   command carries `exec --session-id <session id>` as an exact token;
   relay's `system/init` carries no conversation id. BLOCKED when the exact
   `haiku` model is not offered for Acme Corp, when `system/init` reports a
-  model other than `claude-haiku-4-5-20251001`, or when relay's launch
+  model other than `claude-haiku-5-5`, or when relay's launch
   authorisation refuses the `claude-code` template on create (an error
   naming `template "`). Everything else is FAIL. A cleanup closes the new
   Acme Corp terminal and deletes the new Acme Corp session. SSH-host
   drop-in: needs a test-machine pass.
 
 **cos-asking-post.** The Chief of Staff thread posts when an agent needs
-you (G6). A Claude Haiku session (`claude-haiku-4-5-20251001`) is created in
+you (G6). A Claude Haiku session (`claude-haiku-5-5`) is created in
 Acme Corp over a socket of eve's own, named `verify-<nonce> asker`, in default
 permission mode, and asked to run `echo verify-<nonce>` with its Bash tool, so
 relay holds a permission request (`asking`). A page of its own sends that
@@ -637,7 +640,7 @@ page opens eve and clicks `sidebar-chief-of-staff`. Within 90 s a `cos-post-<id>
 `cos-card-<id>` whose `data-session-id` is the session and `data-state` is
 `asking`, with `cos-answer-<id>`, `cos-drop-in-<id>` and `cos-open-<id>`;
 `cos-off` must not be visible; and the Chief of Staff status model (the newest
-`cos_snapshot` or `cos_status` frame) must be `claude-haiku-4-5-20251001`. Any
+`cos_snapshot` or `cos_status` frame) must be `claude-haiku-5-5`. Any
 other model, or none reported, is FAIL and the detail names it. Open must make
 the address `#session/<id>`, open the session's tab (`tab-<id>`) and show the
 request in its thread. PASS needs all of these.
@@ -652,8 +655,9 @@ request in its thread. PASS needs all of these.
 
 **cos-tell-sends-marked.** Words typed to the Chief of Staff reach the agent
 you name, marked (G6). A Haiku session named `verify-<nonce> target` finishes
-one turn. Into `cos-input` the journey types `Tell verify-<nonce> target to
-reply with exactly: verify-<nonce>-cos` and presses Return. A `data-kind="sent"`
+one turn. Into `cos-input` the journey types `Tell verify-<nonce> target:
+verify-<nonce>-cos` and presses Return. The text to send is the bare marker, so
+any copy the model makes is verbatim and eve sends it at once. A `data-kind="sent"`
 post naming the session must appear within 60 s with its
 `cos-sent-chip`, and no dialog may show between Return and the post. `relay
 audit --event session_message` must hold one `intent` and one `completion` row
@@ -675,7 +679,7 @@ a `verify-<nonce>-cosread-*` folder in Acme Corp, opens the Chief of Staff
 thread and asks, in `cos-input`, for the release code in that file, naming the
 path and the project. A `cos_post` frame of kind `reply` must arrive within the
 turn bound (120 s); its body and the `cos-post-<id>` on the page must hold the
-marker, and the status model must be `claude-haiku-4-5-20251001`. A `notice`
+marker, and the status model must be `claude-haiku-5-5`. A `notice`
 post, or no reply, is FAIL.
 - Lives in: `chief-of-staff.js` (the person session, read-only roots);
   `mcp/cos.js`; `public/chief-of-staff-page.js`.
@@ -683,9 +687,11 @@ post, or no reply, is FAIL.
   removed by cleanup.
 
 **cos-start-card.** A start the model wrote after reading a file waits for a tap
-(G6). The journey writes `task.txt` (`Reply with exactly verify-<nonce>-task`)
-into a `verify-<nonce>-costask-*` folder in Acme Corp and asks the Chief of
-Staff to read it and start a headless agent in Acme Corp that does what it says.
+(G6). The journey writes `task.txt` (`Start a headless agent in Acme Corp. Its
+task: Reply with exactly verify-<nonce>-task`) into a `verify-<nonce>-costask-*`
+folder in the Verify Chief of Staff project and asks the Chief of Staff to read
+it and start the headless agent it asks for. Only the file names Acme Corp, so
+after the read eve must show a card whatever prompt the model writes.
 The first post must be a `start_card` (a `started` post at once is FAIL). Its
 `cos-card-<id>` must name Acme Corp, show mode `headless`, a Haiku model and a
 prompt holding the marker. After `cos-start-<id>`, a `started` post with

@@ -29,16 +29,16 @@ async function reloadEve(page, env) {
     () => !!window.client?.state && !!window.client?.wsClient, null, { timeout: 20000 }));
 }
 
-// A `verify-<nonce>-<kind>-XXXXXX` folder in Acme Corp's world folder, removed
-// by cleanup whatever the verdict. A leftover fails the next world preflight.
-async function scratchFolder(env, kind) {
-  const acme = env.world.projects.acme;
-  const root = path.resolve(acme.path);
+// A `verify-<nonce>-<kind>-XXXXXX` folder in a project's folder (Acme Corp by
+// default), removed by cleanup whatever the verdict. A leftover in Acme Corp
+// fails the next world preflight.
+async function scratchFolder(env, kind, project = env.world.projects.acme) {
+  const root = path.resolve(project.path);
   const prefix = `verify-${env.nonce}-${kind}-`;
   const dir = await fs.promises.mkdtemp(path.join(root, prefix));
   env.cleanup(`remove ${kind} folder`, async () => {
     if (!dir || path.dirname(dir) !== root || !path.basename(dir).startsWith(prefix)) {
-      throw new Error(`refusing to remove a scratch folder outside ${acme.name}`);
+      throw new Error(`refusing to remove a scratch folder outside ${project.name}`);
     }
     await fs.promises.rm(dir, { recursive: true, force: true });
   });
@@ -2570,7 +2570,7 @@ async function agentBoardStates(env) {
 
 // — Agent drop-in (relay#239) --------------------------------------------------
 
-const DROP_IN_INIT_MODEL = 'claude-haiku-4-5-20251001';
+const DROP_IN_INIT_MODEL = 'claude-haiku-5-5';
 const DROP_IN_ROW_WITHIN_MS = 2000;
 const DROP_IN_TAB_WITHIN_MS = 75000;
 const DROP_IN_IDLE_WITHIN_MS = 15000;
@@ -2789,7 +2789,9 @@ async function agentDropIn(env) {
 // Relay's model value for Claude Haiku (internal/sessions/api/models.go); the
 // session's system/init reports it as COS_MODEL_ID.
 const COS_MODEL = 'haiku';
-const COS_MODEL_ID = 'claude-haiku-4-5-20251001';
+const COS_MODEL_ID = 'claude-haiku-5-5';
+// The Chief of Staff's own project; its session runs in that folder.
+const COS_PROJECT_NAME = 'Verify Chief of Staff';
 const COS_POST_WITHIN_MS = 90000;
 const COS_SENT_WITHIN_MS = 60000;
 
@@ -2969,7 +2971,9 @@ async function cosTellSendsMarked(env) {
   if (turn.error) return result(id, FAIL, `error in the agent's thread: ${turn.error}`);
 
   await openChiefOfStaff(page, env);
-  const tell = `Tell ${name} to reply with exactly: ${marker}`;
+  // Deliberate: the text to send is the bare marker, so any copy the model
+  // makes is the person's own words and provenance sends it at once (#253).
+  const tell = `Tell ${name}: ${marker}`;
   const input = page.getByTestId('cos-input');
   await input.fill(tell, { timeout: 5000 });
   env.step('press Return');
@@ -3098,7 +3102,15 @@ async function cosStartCard(env) {
   if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const acme = env.world.projects.acme;
   const marker = `verify-${env.nonce}-task`;
-  const file = await acmeFile(env, 'costask', 'task.txt', `Reply with exactly ${marker} and nothing else.\n`);
+  // Deliberate: only the file names the target project. The person's message
+  // names none, so after the read eve's provenance check must show a card,
+  // whatever prompt the model writes.
+  const cos = (await eveJson(env, 'GET', '/api/projects')).find((p) => p.name === COS_PROJECT_NAME);
+  if (!cos || !cos.path) return result(id, FAIL, `eve lists no "${COS_PROJECT_NAME}" project with a folder`);
+  const dir = await scratchFolder(env, 'costask', cos);
+  await fs.promises.writeFile(path.join(dir, 'task.txt'),
+    `Start a headless agent in ${acme.name}. Its task: Reply with exactly ${marker} and nothing else.\n`);
+  const file = `${path.basename(dir)}/task.txt`;
   const before = await acmeIds(env, 'sessions');
   env.cleanup(`delete the ${acme.name} agent session`, async () => {
     for (const sid of addedIds(before, await acmeIds(env, 'sessions'))) await deleteSession(env, sid);
@@ -3110,7 +3122,7 @@ async function cosStartCard(env) {
 
   env.step('ask for the start');
   const from = await cosSay(page, seen,
-    `Read ${file} in ${acme.name} and start a headless agent in ${acme.name} that does what it says.`);
+    `Read ${file} and start the headless agent it asks for.`);
   env.step('wait for the Start card');
   const proposed = await cosWaitPost(seen, from, ['start_card', 'started', 'start_failed', 'reply', 'notice']);
   if (!proposed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
