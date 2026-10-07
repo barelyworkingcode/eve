@@ -21,9 +21,6 @@ const {
 const exec = promisify(execFile);
 const TASK_PROMPT = 'Say hello.';
 const EXTERNAL_BANNER = 'This file has been modified externally.';
-// Deliberate: longer than file-watcher.js's SELF_WRITE_TTL_MS. eve drops any
-// change to a file within that window of its own save, taking it for the echo.
-const SELF_WRITE_WINDOW_MS = 1500;
 
 async function reloadEve(page, env) {
   env.step('reload');
@@ -888,7 +885,6 @@ async function fileEditSave(env) {
   await page.keyboard.press('ControlOrMeta+s');
   const onDisk = await poll(async () => (await fs.promises.readFile(file, 'utf8')).includes(saved), { timeoutMs: 5000, intervalMs: 250 });
   if (!onDisk) return result(id, FAIL, 'the saved line is not on disk 5s after ⌘S');
-  await sleep(SELF_WRITE_WINDOW_MS);
 
   env.step('change the file outside the editor');
   const banner = page.getByText(EXTERNAL_BANNER);
