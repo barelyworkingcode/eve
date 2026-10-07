@@ -99,11 +99,14 @@ describe('FileWatcher self-write suppression by content', () => {
       expect(watcher.selfWrites.size).toBe(0);
     });
 
-  it('U9: closeAll clears pending entries', () => {
+  it('U9: closeAll cancels the pending expiry timers', () => {
+    jest.useFakeTimers();
+    const before = jest.getTimerCount();
     watcher.markSelfWrite(abs, 'saved by eve');
-    expect(watcher.selfWrites.size).toBe(1);
+    watcher.markSelfWrite(abs, 'saved again');
+    expect(jest.getTimerCount()).toBe(before + 2);
     watcher.closeAll();
-    expect(watcher.selfWrites.size).toBe(0);
+    expect(jest.getTimerCount()).toBe(before);
   });
 
   describe('U7: host (remote) file service', () => {
