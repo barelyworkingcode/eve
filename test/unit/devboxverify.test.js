@@ -1390,7 +1390,9 @@ describe('devboxverify/main.js main', () => {
     expect(exit).not.toHaveBeenCalled();
     run.resolve(1);
     await expect(done).resolves.toBe(1);
-    await jest.advanceTimersByTimeAsync(GRACE);
+    await jest.advanceTimersByTimeAsync(GRACE - 1);
+    expect(exit).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
     expect(exit).toHaveBeenCalledTimes(1);
     expect(exit).toHaveBeenCalledWith(1);
   });
