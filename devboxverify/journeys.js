@@ -2970,7 +2970,9 @@ async function cosTellSendsMarked(env) {
   if (turn.error) return result(id, FAIL, `error in the agent's thread: ${turn.error}`);
 
   await openChiefOfStaff(page, env);
-  const tell = `Tell ${name} to reply with exactly: ${marker}`;
+  // Deliberate: the text to send is the bare marker, so any copy the model
+  // makes is the person's own words and provenance sends it at once (#253).
+  const tell = `Tell ${name}: ${marker}`;
   const input = page.getByTestId('cos-input');
   await input.fill(tell, { timeout: 5000 });
   env.step('press Return');

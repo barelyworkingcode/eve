@@ -655,8 +655,9 @@ request in its thread. PASS needs all of these.
 
 **cos-tell-sends-marked.** Words typed to the Chief of Staff reach the agent
 you name, marked (G6). A Haiku session named `verify-<nonce> target` finishes
-one turn. Into `cos-input` the journey types `Tell verify-<nonce> target to
-reply with exactly: verify-<nonce>-cos` and presses Return. A `data-kind="sent"`
+one turn. Into `cos-input` the journey types `Tell verify-<nonce> target:
+verify-<nonce>-cos` and presses Return. The text to send is the bare marker, so
+any copy the model makes is verbatim and eve sends it at once. A `data-kind="sent"`
 post naming the session must appear within 60 s with its
 `cos-sent-chip`, and no dialog may show between Return and the post. `relay
 audit --event session_message` must hold one `intent` and one `completion` row
