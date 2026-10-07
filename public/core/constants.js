@@ -85,6 +85,7 @@ const EVT = {
   // Chief of Staff thread: inbound cos_* frames re-emitted by message-dispatcher.
   COS_SNAPSHOT: 'cos:snapshot',
   COS_POST: 'cos:post',
+  COS_POST_UPDATE: 'cos:post_update',
   COS_STATUS: 'cos:status',
 
   TASKS_LOADED: 'tasks:loaded',

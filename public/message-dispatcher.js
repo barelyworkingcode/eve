@@ -82,6 +82,7 @@ class MessageDispatcher {
       session_state:        (d) => this.bus.emit(EVT.SESSION_STATE, d),
       cos_snapshot:         (d) => this.bus.emit(EVT.COS_SNAPSHOT, d),
       cos_post:             (d) => this.bus.emit(EVT.COS_POST, d),
+      cos_post_update:      (d) => this.bus.emit(EVT.COS_POST_UPDATE, d),
       cos_status:           (d) => this.bus.emit(EVT.COS_STATUS, d),
       user_message:         (d) => this._handleUserMessage(d),
       llm_event:            (d) => this._handleLlmEventMessage(d),
