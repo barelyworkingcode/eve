@@ -12,7 +12,7 @@ const { promisify } = require('util');
 const { execFile } = require('child_process');
 const { expect } = require('@playwright/test');
 const {
-  PASS, FAIL, BLOCKED, result, sleep, seconds, need, poll, pickModel, optionValues, openEve, waitForModels,
+  PASS, FAIL, BLOCKED, result, sleep, now, seconds, need, poll, pickModel, optionValues, openEve, waitForModels,
   openProject, openLauncher, captureErrors, thread, threadError, eveJson, callToolRows, deleteSession,
 } = require('./journey-kit');
 
@@ -209,6 +209,7 @@ async function chatToolSearchRun(env, ctx) {
   await input.fill(question, { timeout: 5000 });
   env.step('send the question');
   const sentAt = Date.now();
+  const sentMono = now();
   await page.getByTestId('chat-submit').click({ timeout: 5000 });
   await need('the question is not shown as the user message', expect(
     page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: env.nonce }),
@@ -265,7 +266,7 @@ async function chatToolSearchRun(env, ctx) {
   if (!reply.includes(expected)) {
     return result(id, FAIL, `the reply does not contain ${expected}: "${reply.slice(0, 120)}"`);
   }
-  const took = seconds(sentAt);
+  const took = seconds(sentMono);
 
   env.step('read relay audit');
   const audited = await poll(async () => {

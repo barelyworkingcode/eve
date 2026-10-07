@@ -12,9 +12,10 @@ const BLOCKED = 'BLOCKED';
 const result = (id, state, detail) => ({ id, state, detail });
 const firstLine = (err) => String(err?.message || err).split('\n')[0];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const seconds = (since) => Math.round((Date.now() - since) / 1000);
+const now = () => performance.now();
+const seconds = (since) => Math.round((now() - since) / 1000);
 // Deliberate floor of 1 ms: Playwright reads a timeout of 0 as "no timeout".
-const left = (deadline) => Math.max(1, deadline - Date.now());
+const left = (deadline) => Math.max(1, deadline - now());
 
 // A failed wait throws with the step it belongs to, since expect's own first
 // line ("expect(locator).toBeVisible() failed") names nothing.
@@ -27,11 +28,11 @@ async function need(what, promise) {
 }
 
 async function poll(fn, { timeoutMs, intervalMs = 500 }) {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = now() + timeoutMs;
   for (;;) {
     const value = await fn();
     if (value) return value;
-    if (Date.now() >= deadline) return null;
+    if (now() >= deadline) return null;
     await sleep(intervalMs);
   }
 }
@@ -468,7 +469,7 @@ async function overflow(page) {
 }
 
 module.exports = {
-  GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, seconds, left, need, poll, pickModel, optionValues,
+  GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, now, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, openProjectPage, openEditProject, openTemplate, pressPreset, worldIds, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
   thread, threadError, replyAfter, openWorldProbe, parseAgentAttempt, eveJson, callToolRows,
   DENIED_OUTCOMES, MIN_TARGET, BRIEF_REFUSED, briefRunVerdict, probeVerdict, DEVICES, smallTargets, overflowProblems, sweep, overflow,

@@ -168,11 +168,11 @@ class EveApi {
     }
     for (const t of world.tasks) await this._json('DELETE', `/api/tasks/${encodeURIComponent(t.id)}`);
 
-    const deadline = Date.now() + SWEEP_WAIT_MS;
+    const deadline = performance.now() + SWEEP_WAIT_MS;
     for (;;) {
       const left = onlyWorld(await this.snapshot(projects));
       if (countOf(left) === 0) break;
-      if (Date.now() > deadline) {
+      if (performance.now() > deadline) {
         const names = KINDS.flatMap(k => left[k].map(i => `${k.slice(0, -1)} "${i.name}"`));
         throw new Error(`sweep left ${names.join(', ')}`);
       }
@@ -185,9 +185,9 @@ class EveApi {
     const conn = await this._connect();
     try {
       conn.send({ type: 'terminal_close', terminalId });
-      const deadline = Date.now() + CLOSE_TERMINAL_WAIT_MS;
+      const deadline = performance.now() + CLOSE_TERMINAL_WAIT_MS;
       while ((await conn.terminals()).some(t => t.id === terminalId)) {
-        if (Date.now() > deadline) throw new Error(`terminal still open ${CLOSE_TERMINAL_WAIT_MS / 1000}s after terminal_close`);
+        if (performance.now() > deadline) throw new Error(`terminal still open ${CLOSE_TERMINAL_WAIT_MS / 1000}s after terminal_close`);
         await new Promise(r => setTimeout(r, 500));
       }
     } finally {
