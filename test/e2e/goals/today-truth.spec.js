@@ -3,6 +3,7 @@
 const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 const { relayFrames } = require('../../integration/protocol');
+const { watchSocket, waitHandled } = require('../socket-watch');
 const { part, startChatInAlpha, backToToday } = require('./today-helpers');
 
 const HOUR = 3600 * 1000;
@@ -100,8 +101,9 @@ test.describe('S1-A3 waiting and failed', () => {
   test('an error with no session never marks a thread failed', async ({ page, eve }) => {
     const sessionId = await startChatInAlpha(page);
     await backToToday(page);
+    await watchSocket(page);
     eve.relay.emitToRelay({ type: 'error', message: 'something unrelated' });
-    await page.waitForTimeout(500);
+    await waitHandled(page, { type: 'error' });
     await expect(page.getByTestId(`today-needs-row-${sessionId}`)).toHaveCount(0);
   });
 });
