@@ -575,7 +575,7 @@ describe('devboxverify/journey-kit.js devices and probes', () => {
 describe('devboxverify/main.js run plan and owner reset', () => {
   const {
     JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-    relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths,
+    relayAuditRows, serviceLogReader, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
   } = require('../../devboxverify/main');
   const ids = list => list.map(j => j.id);
   const mixed = [{ id: 's', screen: true }, { id: 'a' }, { id: 'f1', fixture: true }, { id: 'b' }, { id: 'f2', fixture: true }];
@@ -676,24 +676,36 @@ describe('devboxverify/main.js run plan and owner reset', () => {
     });
   });
 
-  describe('projectIdFromGrant', () => {
-    const view = (id, name, kind = 'project') => ({ id, name, kind, mcps: [] });
+  describe('chiefOfStaffSetup', () => {
+    const view = (id, name, mcps, kind = 'project') => ({ id, name, kind, mcps: mcps.map(mcp => ({ mcp })) });
+    const grant = views => JSON.stringify(views);
+    const list = 'ID NAME TRANSPORT ENDPOINT\nmacmcp macMCP stdio /bin/x\nrelay-eve-cos-verify eve-cos stdio /bin/node\n';
+    const good = [view('p9', 'Verify Chief of Staff', ['relay-eve-cos-verify']), view('p1', 'Acme Corp', ['macmcp'])];
 
-    it('reads the id of the one project with that name', () => {
-      expect(projectIdFromGrant(JSON.stringify([view('p2', 'Globex'), view('p1', 'Acme')]), 'Acme')).toBe('p1');
+    it('returns the project id and no problem for the exact grant', () => {
+      expect(chiefOfStaffSetup(grant(good), list)).toEqual({ projectId: 'p9', problem: '' });
     });
 
     it.each([
-      ['no match', [view('p2', 'Globex')]],
-      ['two matches', [view('p1', 'Acme'), view('p3', 'Acme')]],
-      ['a profile of that name', [view('p1', 'Acme', 'profile')]],
-      ['not a list', { id: 'p1', name: 'Acme', kind: 'project' }],
-    ])('refuses %s', (_l, views) => {
-      expect(() => projectIdFromGrant(JSON.stringify(views), 'Acme')).toThrow();
+      ['no such project', [view('p1', 'Acme Corp', ['macmcp'])], list, ''],
+      ['two such projects', [good[0], view('p8', 'Verify Chief of Staff', ['relay-eve-cos-verify'])], list, ''],
+      ['a profile of that name', [view('p9', 'Verify Chief of Staff', ['relay-eve-cos-verify'], 'profile')], list, ''],
+      ['an extra grant', [view('p9', 'Verify Chief of Staff', ['relay-eve-cos-verify', 'macmcp'])], list, 'p9'],
+      ['no grant', [view('p9', 'Verify Chief of Staff', [])], list, 'p9'],
+      ['another MCP only', [view('p9', 'Verify Chief of Staff', ['macmcp'])], list, 'p9'],
+      ['an unregistered MCP', good, 'ID NAME\nmacmcp macMCP\n', 'p9'],
+    ])('blocks on %s, naming the setup step', (_l, views, mcps, projectId) => {
+      const r = chiefOfStaffSetup(grant(views), mcps);
+      expect(r.projectId).toBe(projectId);
+      expect(r.problem).toMatch(/^setup V-COS: .*; see devboxverify\/README\.md$/);
     });
 
-    it('refuses text that is not JSON', () => {
-      expect(() => projectIdFromGrant('no projects', 'Acme')).toThrow(/unreadable/);
+    it.each([
+      ['a failed grant call', new Error('exit 1'), list, /grant --json failed/],
+      ['a failed mcp list call', grant(good), new Error('exit 1'), /mcp list failed/],
+      ['unreadable grant JSON', 'nope', list, /unreadable/],
+    ])('throws on %s, so the preflight fails', (_l, g, m, re) => {
+      expect(() => chiefOfStaffSetup(g, m)).toThrow(re);
     });
   });
 
