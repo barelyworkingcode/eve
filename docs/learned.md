@@ -61,7 +61,7 @@ Rules of thumb (`file-watcher.js`):
 - `eventType === 'rename'` means a directory listing changed (create/delete/rename/move); `'change'` is content only. Never refresh a listing on `'change'`. Verified on darwin: creates/atomic-saves/nested-creates all surface as `'rename'`. On Linux an atomic replace of an *existing* file arrives as `'change'` (only creates, deletes and moves are `'rename'`); that is fine for the editor push (both are handled) and for the tree (the listing did not change).
 - FSEvents replays recent historical events right after a watch starts. Guard the editor against a replayed change with identical content (`if (content === originalContent) return;`) so it can't pop a spurious "modified externally" bar on open.
 - Only emit a "dir changed" signal for a directory that still exists; a whole-dir delete fires a separate event for the *parent*, which is what drops it from the tree.
-- Suppress the echo of Eve's own writes (`markSelfWrite`, keyed on absolute path).
+- Suppress the echo of Eve's own writes (`markSelfWrite`, keyed on absolute path and the saved content's sha256; only a read matching a pending save is dropped).
 - Recursive `fs.watch` does not follow symlinked dirs on macOS and reports filenames rooted under the watched dir (never `../` escapes). Reads still go through `fileService.readFile` → `validatePath`, so traversal stays gated regardless.
 
 ## CSS visibility: use `.hidden`, never inline `style.display`

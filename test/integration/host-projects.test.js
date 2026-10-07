@@ -14,6 +14,22 @@ const { startEve } = require('./harness');
 
 const AGENT_PATH = path.join(__dirname, '..', '..', 'remote-fs-agent.js');
 
+// Outside-write-after-save repro. The watcher has no ready signal, so each
+// priming round writes a fresh nonce and waits for its own file_changed.
+async function primeWatcher(ws, file, projectId, relPath) {
+  ws.send({ type: 'watch_file', projectId, path: relPath });
+  for (let round = 0; round < 10; round++) {
+    const nonce = `prime-${round}`;
+    const from = ws.mark();
+    fs.writeFileSync(file, nonce, 'utf8');
+    try {
+      await ws.waitFor((f) => f.type === 'file_changed' && f.path === relPath && f.content === nonce, 1000, from);
+      return;
+    } catch { /* watcher not armed yet; try the next nonce */ }
+  }
+  throw new Error('watcher never reported a change after 10 priming writes');
+}
+
 describe('host projects (../relay/docs/ssh-hosts.md)', () => {
   let eve, hostRoot, ws;
 
@@ -130,5 +146,16 @@ describe('host projects (../relay/docs/ssh-hosts.md)', () => {
     } finally {
       await ws2.close();
     }
+  });
+
+  it('shows an outside write made the moment a save is acknowledged', async () => {
+    const file = path.join(hostRoot, 'a.txt');
+    await primeWatcher(ws, file, 'hp1', 'a.txt');
+    ws.send({ type: 'write_file', projectId: 'hp1', path: 'a.txt', content: 'saved by eve' });
+    await ws.waitFor((f) => f.type === 'file_saved');
+    const mark = ws.mark();
+    fs.writeFileSync(file, 'written by someone else', 'utf8');
+    const frame = await ws.waitFor((f) => f.type === 'file_changed' && f.path === 'a.txt' && f.content === 'written by someone else', 10000, mark);
+    expect(frame.content).toBe('written by someone else');
   });
 });
