@@ -154,6 +154,13 @@ npm run register        # registers the eve SERVICE + the eve-control MCP
 
 To register the service only (no MCP): `npm run register:service`.
 
+`register:mcp` also registers the Chief of Staff's `eve-cos` MCP (relay id
+`relay-eve-cos`). Registering is not enough: in relay's Projects, grant `eve-cos`
+to the project the Chief of Staff runs in (`chiefOfStaff.projectId`, else the
+first local project). Without the grant the session lacks its tools, the Chief
+of Staff stays off, and the thread says "My tools aren't set up: grant the
+eve-cos MCP to <project> in relay's Projects". Alerts still post.
+
 Start/restart it with:
 
 ```bash
