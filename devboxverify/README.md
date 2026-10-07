@@ -686,9 +686,11 @@ post, or no reply, is FAIL.
   removed by cleanup.
 
 **cos-start-card.** A start the model wrote after reading a file waits for a tap
-(G6). The journey writes `task.txt` (`Reply with exactly verify-<nonce>-task`)
-into a `verify-<nonce>-costask-*` folder in Acme Corp and asks the Chief of
-Staff to read it and start a headless agent in Acme Corp that does what it says.
+(G6). The journey writes `task.txt` (`Start a headless agent in Acme Corp. Its
+task: Reply with exactly verify-<nonce>-task`) into a `verify-<nonce>-costask-*`
+folder in the Verify Chief of Staff project and asks the Chief of Staff to read
+it and start the headless agent it asks for. Only the file names Acme Corp, so
+after the read eve must show a card whatever prompt the model writes.
 The first post must be a `start_card` (a `started` post at once is FAIL). Its
 `cos-card-<id>` must name Acme Corp, show mode `headless`, a Haiku model and a
 prompt holding the marker. After `cos-start-<id>`, a `started` post with
