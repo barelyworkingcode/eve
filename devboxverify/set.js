@@ -420,10 +420,10 @@ function realDeps() {
     sock.once('error', () => resolve(false));
   });
   const pollUntil = async (check, ms) => {
-    const end = Date.now() + ms;
+    const end = performance.now() + ms;
     for (;;) {
       if (await check()) return true;
-      if (Date.now() >= end) return false;
+      if (performance.now() >= end) return false;
       await sleepReal(2000);
     }
   };
