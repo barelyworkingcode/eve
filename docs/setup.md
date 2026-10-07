@@ -158,8 +158,9 @@ To register the service only (no MCP): `npm run register:service`.
 `relay-eve-cos`). Registering is not enough: in relay's Projects, grant `eve-cos`
 to the project the Chief of Staff runs in (`chiefOfStaff.projectId`, else the
 first local project). Without the grant the session lacks its tools, the Chief
-of Staff stays off, and the thread says "My tools aren't set up: grant the
-eve-cos MCP to <project> in relay's Projects". Alerts still post.
+of Staff can't answer, and the thread says "My tools aren't set up: grant the
+eve-cos MCP to <project> in relay's Projects". Alerts still post. After the
+grant, the next message works; no restart is needed.
 
 Start/restart it with:
 
