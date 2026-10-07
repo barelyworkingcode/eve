@@ -2570,7 +2570,7 @@ async function agentBoardStates(env) {
 
 // — Agent drop-in (relay#239) --------------------------------------------------
 
-const DROP_IN_INIT_MODEL = 'claude-haiku-4-5-20251001';
+const DROP_IN_INIT_MODEL = 'claude-haiku-5-5';
 const DROP_IN_ROW_WITHIN_MS = 2000;
 const DROP_IN_TAB_WITHIN_MS = 75000;
 const DROP_IN_IDLE_WITHIN_MS = 15000;
@@ -2789,7 +2789,7 @@ async function agentDropIn(env) {
 // Relay's model value for Claude Haiku (internal/sessions/api/models.go); the
 // session's system/init reports it as COS_MODEL_ID.
 const COS_MODEL = 'haiku';
-const COS_MODEL_ID = 'claude-haiku-4-5-20251001';
+const COS_MODEL_ID = 'claude-haiku-5-5';
 const COS_POST_WITHIN_MS = 90000;
 const COS_SENT_WITHIN_MS = 60000;
 
