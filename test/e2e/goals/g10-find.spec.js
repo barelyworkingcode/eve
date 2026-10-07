@@ -54,7 +54,11 @@ test.describe('G10 find', () => {
 
   test('a search with no matches says so', async ({ page }) => {
     await page.evaluate(() => window.client.bus.emit('dialog:search', { projectId: 'alpha' }));
+    // The dialog focuses its input a frame after it opens; typing earlier is lost.
+    const query = page.getByTestId('search-dialog-query');
+    await expect(query).toBeFocused();
     await page.keyboard.type('zzz-not-anywhere');
+    await expect(query).toHaveValue('zzz-not-anywhere');
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('dialog-search-dialog').getByText('No matches.')).toBeVisible({ timeout: 15000 });
   });
