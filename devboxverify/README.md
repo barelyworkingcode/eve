@@ -713,14 +713,14 @@ setting already configured it is BLOCKED and changes nothing. Through the
 presence helper it mints a 15-minute `configure` credential named
 `devbox-verify-cos-<nonce>` (one prompt), then over relay's frontend socket
 `GET /api/chief-of-staff/config` must read `configured:false`, and `PUT
-{projectId: <Verify Chief of Staff B id>, model: "haiku", dailyModelCalls: 40}`
+{projectId: <Verify Chief of Staff B id>, model: "haiku", dailyModelCalls: 39}`
 must answer 200. It opens the Chief of Staff thread and sends "Reply with the
 single word: ready."; a `cos_post` of kind `reply` must arrive within 120 s (a
 `notice` is FAIL) and the status model must be `claude-haiku-5-5`. Then
 `relay audit --event session_launch` (read back for up to 5 s) must hold a new
 row with outcome `ok`, that project and `read_only_projects: true`, and
 eve-verify's log, read once after the post, must hold `Chief of Staff config
-from relay: project <id>, model haiku, 40 calls a day`. PASS needs all of these.
+from relay: project <id>, model haiku, 39 calls a day`. PASS needs all of these.
 - Lives in: `chief-of-staff.js` (`_refreshSettings`,
   `resolveChiefOfStaffSettings`); relay's `/api/chief-of-staff/config` and
   session launch.

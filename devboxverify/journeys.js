@@ -3187,6 +3187,7 @@ async function cosStartCard(env) {
 
 // — Chief of Staff project from relay (eve#249) -----------------------------------
 
+const COS_CALLS = 39; // not the settings.json value (40), so the log line proves relay's values
 const COS_B_PROJECT = 'Verify Chief of Staff B';
 const COS_B_MCP = 'relay-eve-cos-verify';
 const COS_CONFIG_PATH = '/api/chief-of-staff/config';
@@ -3284,7 +3285,7 @@ function cosConfigLine(projectId, model, calls) {
 }
 
 const auditLaunches = (env, projectId) => exec(env.relayBin,
-  ['audit', '--event', 'session_launch', '--project', projectId, '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 });
+  ['audit', '--event', 'session_launch', '--project', projectId, '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 }).then((r) => r.stdout);
 
 // This is subtle: the configure token exists only in the `token` variable of
 // this run. It goes to frontendRequest's Authorization header and nowhere
@@ -3293,7 +3294,7 @@ const auditLaunches = (env, projectId) => exec(env.relayBin,
 async function cosProjectFromRelay(env) {
   const id = 'cos-project-from-relay';
   if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
-  const grantOut = await exec(env.relayBin, ['grant', '--json'], { timeout: 20000 }).catch(() => null);
+  const grantOut = await exec(env.relayBin, ['grant', '--json'], { timeout: 20000 }).then((r) => r.stdout, () => null);
   if (grantOut === null) return result(id, BLOCKED, 'setup V-COS-B: relay grant --json failed; see devboxverify/README.md');
   const setup = cosProjectBSetup(grantOut);
   if (setup.problem) return result(id, BLOCKED, setup.problem);
@@ -3311,7 +3312,7 @@ async function cosProjectFromRelay(env) {
   let credId = '';
   let touched = false;
   try {
-    const out = await exec(env.relayBin, ['credential', 'mint', '--name', credName, '--class', 'configure', '--ttl', COS_CRED_TTL], { timeout: 30000 });
+    const { stdout: out } = await exec(env.relayBin, ['credential', 'mint', '--name', credName, '--class', 'configure', '--ttl', COS_CRED_TTL], { timeout: 30000 });
     ({ id: credId, token } = parseMintOutput(out));
   } catch {
     const { state } = await mintPresence.result;
@@ -3353,7 +3354,7 @@ async function cosProjectFromRelay(env) {
   const logMark = await env.serviceLog.mark();
   env.step('set the project in relay');
   touched = true;
-  const put = await frontendRequest(socket, token, 'PUT', COS_CONFIG_PATH, { projectId, model: COS_MODEL, dailyModelCalls: 40 });
+  const put = await frontendRequest(socket, token, 'PUT', COS_CONFIG_PATH, { projectId, model: COS_MODEL, dailyModelCalls: COS_CALLS });
   if (put.status !== 200) return result(id, FAIL, `PUT ${COS_CONFIG_PATH} answered ${put.status}`);
   if (!put.json || put.json.configured !== true || put.json.projectId !== projectId) {
     return result(id, FAIL, 'relay\'s answer to the PUT does not hold the project just set');
@@ -3385,7 +3386,7 @@ async function cosProjectFromRelay(env) {
   const auditProblem = cosLaunchProblem(rows, knownLaunches, projectId);
   if (auditProblem) problems.push(`relay audit: ${auditProblem}`);
   env.step('read eve-verify\'s log');
-  const want = cosConfigLine(projectId, COS_MODEL, 40);
+  const want = cosConfigLine(projectId, COS_MODEL, COS_CALLS);
   if (!(await env.serviceLog.since(logMark)).includes(want)) problems.push(`eve-verify's log has no line "${want}"`);
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `with ${COS_B_PROJECT} set in relay, the Chief of Staff replied on ${COS_MODEL_ID}; relay audit holds an ok `
