@@ -16,6 +16,7 @@ const REPAIR_TIMEOUT_MS = 900000;
 const JOURNEY_BUDGET_MS = 480000;
 const MIN_JOURNEY_MS = 1000;
 const CLEANUP_TIMEOUT_MS = 10000;
+const CLOSE_TIMEOUT_MS = 10000;
 const RESTART_TIMEOUT_MS = 60000;
 const OWNER_RESET_WAIT_MS = 30000;
 const OWNER_FILES = ['auth.json', 'sessions.json'];
@@ -445,6 +446,18 @@ async function runCleanups(entries) {
   return failure;
 }
 
+// A browser that stops answering never settles close(). True when close()
+// settles (a rejection counts), false when the bound passes first.
+function boundedClose(close, ms = CLOSE_TIMEOUT_MS) {
+  let timer;
+  const bound = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+    timer.unref();
+  });
+  const settled = Promise.resolve().then(close).then(() => true, () => true);
+  return Promise.race([settled, bound]).finally(() => clearTimeout(timer));
+}
+
 function takeCleanups(pending, id) {
   const mine = pending.filter(c => c.id === id);
   for (const c of mine) pending.splice(pending.indexOf(c), 1);
@@ -497,11 +510,18 @@ async function runJourney(j, env, browser, { timeoutMs, projects, world, pending
     result = err && err.code === 'EUNDECLARED' ? { state: 'BLOCKED', detail: err.message } : { state: 'FAIL', detail: firstLine(err) };
   }
   clearTimeout(timer);
-  await Promise.all(contexts.map(c => c.close().catch(() => {})));
+  const closed = await Promise.all(contexts.map(c => boundedClose(() => c.close())));
+  const closeTimedOut = closed.includes(false);
   const cleanupFailure = await runCleanups(takeCleanups(pending, j.id));
   result = result && ['PASS', 'FAIL', 'BLOCKED', 'NOTRUN'].includes(result.state)
     ? { ...result, id: j.id, detail: result.detail || '' }
     : { id: j.id, state: 'FAIL', detail: 'journey returned no result' };
+  if (closeTimedOut) {
+    const text = `context close timed out after ${CLOSE_TIMEOUT_MS / 1000}s`;
+    result = result.state === 'FAIL' && result.detail
+      ? { ...result, detail: `${result.detail}; ${text}` }
+      : { id: j.id, state: 'FAIL', detail: text };
+  }
   if (cleanupFailure) {
     log(`${j.id}: ${cleanupFailure}`);
     if (result.state === 'PASS') result = { id: j.id, state: 'FAIL', detail: cleanupFailure };
@@ -714,6 +734,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
     spentMs += tookMs;
   };
   let failedEarly = false;
+  let browserClosed = true;
   try {
     for (const j of ordered.filter(j => j.fixture)) await runOne(j);
     const rest = ordered.filter(j => !j.fixture);
@@ -756,12 +777,13 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
     }
     for (const j of skipped) record({ id: j.id, state: 'NOTRUN', detail: 'screen journey; run with --screen' });
   } finally {
-    await browser.close().catch(() => {});
+    browserClosed = await boundedClose(() => browser.close());
     const late = await runCleanups(pending.splice(0));
     if (late) log(late);
     if (projects && !failedEarly) await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
   }
 
+  if (!browserClosed) record({ id: 'browser-close', state: 'FAIL', detail: `browser close timed out after ${CLOSE_TIMEOUT_MS / 1000}s` });
   const { counts, exitCode } = tally(results);
   const runMs = Math.round(performance.now() - startedAt);
   emit('TIMING', 'run', String(runMs));
@@ -785,7 +807,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
 module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
-  JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
+  CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
 };
 
