@@ -9,7 +9,6 @@ const { startEve } = require('../../integration/harness');
 const { relayFrames } = require('../../integration/protocol');
 
 const MODEL = 'claude-haiku-4-5-20251001';
-const fence = (o) => '```json\n' + JSON.stringify(o) + '\n```';
 const WAIT = { timeout: 15000 };
 const INTERNAL_SECRET = 'e2e-internal-secret';
 
@@ -106,17 +105,41 @@ test('with reduced motion the busy avatar does not animate', async ({ page, eve 
   } finally { gate.release(); }
 });
 
-test('"tell <name> to ..." sends at once with no dialog, and the target chat shows the origin chip live and after a re-join', async ({ page, eve }) => {
+// The person model streams the given tool_use blocks and holds its turn open; the test makes the
+// eve-cos call while the turn is held, as relay's MCP would, then lets the turn end. Returns the result.
+async function callCosTool(page, eve, { say, toolUses, tool, args, replyText }) {
+  let release;
+  const gate = new Promise((r) => { release = r; });
   eve.relay.setCosModel({
     reply: (text, n) => (n === 1 ? 'ready'
-      : text.startsWith('Chief of Staff person') ? fence({ reply: 'Sending it.', send: { sessionId: 's1', text: 'merge after CI' } }) : null),
+      : text.startsWith('Chief of Staff person') ? { toolUses, gate, text: replyText } : null),
   });
+  const held = eve.relay.waitForCosTurn((t) => t.text.startsWith('Chief of Staff person') && t.text.includes(say));
+  await page.getByTestId('cos-input').fill(say);
+  await page.getByTestId('cos-input').press('Enter');
+  await held;
+  try {
+    const res = await fetch(`${eve.baseUrl}/internal/cos`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-eve-internal': INTERNAL_SECRET },
+      body: JSON.stringify({ tool, args, meta: { project_id: 'p1' } }),
+    });
+    return (await res.json()).result;
+  } finally { release(); }
+}
+
+test('"tell <name> to ..." sends at once with no dialog, and the target chat shows the origin chip live and after a re-join', async ({ page, eve }) => {
   await page.getByTestId('today-agent-s1').click();
   await expect(page.getByTestId('chat-input')).toBeVisible();
   await openThread(page);
 
-  await page.getByTestId('cos-input').fill('tell Agent s1 to merge after CI');
-  await page.getByTestId('cos-input').press('Enter');
+  const sendArgs = { sessionId: 's1', text: 'merge after CI' };
+  const result = await callCosTool(page, eve, {
+    say: 'tell Agent s1 to merge after CI',
+    toolUses: [{ id: 'c1', name: 'mcp__relay__cos_propose_send', input: sendArgs }],
+    tool: 'cos_propose_send', args: sendArgs, replyText: 'Sending it.',
+  });
+  expect(result.status).toBe('sent');
   const sent = page.locator('[data-testid^="cos-post-"][data-kind="sent"]');
   await expect(sent).toBeVisible(WAIT);
   await expect(sent.getByTestId('cos-sent-chip')).toBeVisible();
@@ -136,31 +159,15 @@ test('"tell <name> to ..." sends at once with no dialog, and the target chat sho
 const START_ARGS = { project: 'Acme', prompt: 'composed after reading notes' };
 
 async function proposeStart(page, eve) {
-  let release;
-  const gate = new Promise((r) => { release = r; });
-  eve.relay.setCosModel({
-    reply: (text, n) => (n === 1 ? 'ready'
-      : text.startsWith('Chief of Staff person') ? {
-        toolUses: [
-          { id: 'r1', name: 'Read', input: { file_path: 'notes.txt' } },
-          { id: 'c1', name: 'mcp__relay__cos_propose_start', input: START_ARGS },
-        ],
-        gate,
-        text: fence({ reply: 'Proposed it.', send: null }),
-      } : null),
+  const result = await callCosTool(page, eve, {
+    say: 'start an agent on Acme',
+    toolUses: [
+      { id: 'r1', name: 'Read', input: { file_path: 'notes.txt' } },
+      { id: 'c1', name: 'mcp__relay__cos_propose_start', input: START_ARGS },
+    ],
+    tool: 'cos_propose_start', args: START_ARGS, replyText: 'Proposed it.',
   });
-  const held = eve.relay.waitForCosTurn((t) => t.text.startsWith('Chief of Staff person') && t.text.includes('start an agent on Acme'));
-  await page.getByTestId('cos-input').fill('start an agent on Acme');
-  await page.getByTestId('cos-input').press('Enter');
-  await held;
-  try {
-    const res = await fetch(`${eve.baseUrl}/internal/cos`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-eve-internal': INTERNAL_SECRET },
-      body: JSON.stringify({ tool: 'cos_propose_start', args: START_ARGS, meta: { project_id: 'p1' } }),
-    });
-    expect((await res.json()).result.status).toBe('card');
-  } finally { release(); }
+  expect(result.status).toBe('card');
   const card = page.locator('[data-testid^="cos-card-"][data-kind="start"]');
   await expect(card).toBeVisible(WAIT);
   const id = (await card.getAttribute('data-testid')).slice('cos-card-'.length);

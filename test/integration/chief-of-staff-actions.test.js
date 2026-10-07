@@ -12,7 +12,6 @@ const HAIKU = 'claude-haiku-4-5-20251001';
 const SECRET = 'test-internal-secret';
 const PREFIX = 'mcp__relay__';
 const WAIT = 15000;
-const fence = (o) => '```json\n' + JSON.stringify(o) + '\n```';
 
 let eve;
 let ws;
@@ -40,7 +39,7 @@ async function boot() {
   // Turn 1 of each model session is the bootstrap; a person turn plays the current plan.
   eve.relay.setCosModel({
     reply: (text, n) => (n === 1 ? 'ready'
-      : text.startsWith('Chief of Staff person') ? { toolUses: plan.toolUses, gate: plan.gate, text: fence({ reply: 'Done.', send: null }) } : null),
+      : text.startsWith('Chief of Staff person') ? { toolUses: plan.toolUses, gate: plan.gate, text: 'Done.' } : null),
   });
   await eve.relay.waitForScopedRelay();
   eve.relay.seedSession({

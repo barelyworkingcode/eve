@@ -6,7 +6,6 @@ const os = require('os');
 const path = require('path');
 const { startEve } = require('./harness');
 const { relayFrames } = require('./protocol');
-const { PERSON_ALLOWED_TOOLS } = require('../../chief-of-staff-model');
 
 const HAIKU = 'claude-haiku-4-5-20251001';
 const fence = (o) => '```json\n' + JSON.stringify(o) + '\n```';
@@ -21,16 +20,6 @@ afterEach(async () => {
   eve = null;
 });
 
-// system/init's tool list is per model session: the person session (created with readOnlyProjects)
-// reports the allowed set, the wake session reports none. The fake reports one list for every
-// session, so it is resolved when the frame is serialised, from the latest session created.
-const sessionTools = {
-  toJSON: () => {
-    const latest = eve.relay.cosSessionCreates[eve.relay.cosSessionCreates.length - 1];
-    return latest && latest.body.settings && latest.body.settings.readOnlyProjects ? PERSON_ALLOWED_TOOLS : [];
-  },
-};
-
 async function boot({ dailyModelCalls = 100, model } = {}) {
   eve = await startEve({
     projects: [{ id: 'p1', name: 'Acme', path: os.tmpdir() }],
@@ -38,7 +27,7 @@ async function boot({ dailyModelCalls = 100, model } = {}) {
       await fs.promises.writeFile(path.join(dir, 'settings.json'), JSON.stringify({ chiefOfStaff: { model: 'haiku', projectId: 'p1', dailyModelCalls } }));
     },
   });
-  eve.relay.setCosModel({ tools: sessionTools, ...model });
+  eve.relay.setCosModel({ ...model });
   await eve.relay.waitForScopedRelay();
   ws = await eve.connectWs();
   ws.send({ type: 'cos_subscribe' });
