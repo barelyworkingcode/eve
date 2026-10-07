@@ -3284,7 +3284,7 @@ function cosConfigLine(projectId, model, calls) {
 }
 
 const auditLaunches = (env, projectId) => exec(env.relayBin,
-  ['audit', '--event', 'session_launch', '--grep', projectId, '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 });
+  ['audit', '--event', 'session_launch', '--project', projectId, '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 });
 
 // This is subtle: the configure token exists only in the `token` variable of
 // this run. It goes to frontendRequest's Authorization header and nowhere
