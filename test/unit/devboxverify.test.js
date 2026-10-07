@@ -1357,3 +1357,59 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     });
   });
 });
+
+describe('devboxverify/main.js main', () => {
+  const { main } = require('../../devboxverify/main');
+  const GRACE = 1000;
+  let savedExitCode;
+  let stderrSpy;
+
+  beforeEach(() => {
+    savedExitCode = process.exitCode;
+    jest.useFakeTimers();
+    stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+    jest.useRealTimers();
+    process.exitCode = savedExitCode;
+  });
+
+  function deferred() {
+    const d = {};
+    d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject; });
+    return d;
+  }
+
+  it('does not exit while the run is open, then exits once with its code after the grace', async () => {
+    const run = deferred();
+    const exit = jest.fn();
+    const done = main([], { runFn: () => run.promise, exit, graceMs: GRACE });
+    await jest.advanceTimersByTimeAsync(GRACE * 10);
+    expect(exit).not.toHaveBeenCalled();
+    run.resolve(1);
+    await expect(done).resolves.toBe(1);
+    await jest.advanceTimersByTimeAsync(GRACE);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it('exits 2 after the grace when the run rejects', async () => {
+    const exit = jest.fn();
+    const done = main([], { runFn: () => Promise.reject(new Error('boom')), exit, graceMs: GRACE });
+    await expect(done).resolves.toBe(2);
+    expect(exit).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(GRACE);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(2);
+  });
+
+  it('exits 0 when the run resolves 0', async () => {
+    const exit = jest.fn();
+    await main([], { runFn: () => Promise.resolve(0), exit, graceMs: GRACE });
+    await jest.advanceTimersByTimeAsync(GRACE);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+});

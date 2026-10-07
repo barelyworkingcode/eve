@@ -811,15 +811,25 @@ module.exports = {
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
+  main, EXIT_GRACE_MS,
 };
 
-if (require.main === module) {
-  run(process.argv.slice(2)).then(code => { process.exitCode = code; }, (err) => {
+// Deliberate: a journey that lost its race can still hold a socket after the
+// run is done; the unref'd timer starts only once the run has settled and
+// only fires if one does.
+async function main(argv, { runFn = run, exit = (code) => process.exit(code), graceMs = EXIT_GRACE_MS } = {}) {
+  let code;
+  try {
+    code = await runFn(argv);
+  } catch (err) {
     process.stderr.write(scrub(firstLine(err), os.homedir()) + '\n');
-    process.exitCode = 2;
-  }).finally(() => {
-    // Deliberate: a journey that lost its race can still hold a socket after
-    // the run is done; the unref'd timer only fires if one does.
-    setTimeout(() => process.exit(), EXIT_GRACE_MS).unref();
-  });
+    code = 2;
+  }
+  process.exitCode = code;
+  setTimeout(() => exit(code), graceMs).unref();
+  return code;
+}
+
+if (require.main === module) {
+  main(process.argv.slice(2));
 }
