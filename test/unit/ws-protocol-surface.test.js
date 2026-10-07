@@ -1,11 +1,11 @@
 /**
- * Frozen wire-type inventory: 45 client message types. If a change forces
+ * Frozen wire-type inventory: 46 client message types. If a change forces
  * an edit to this file to stay green, production is wrong — fix
  * production, not this test.
  *
  * Deliberate additions: git_changes, git_file_versions (Changes panel,
- * docs/design-git-changes.md Contract, docs/api.md); cos_subscribe, cos_message
- * (Chief of Staff thread, docs/api.md).
+ * docs/design-git-changes.md Contract, docs/api.md); cos_subscribe, cos_message,
+ * cos_card_action (Chief of Staff thread, docs/api.md).
  */
 const fs = require('fs');
 const path = require('path');
@@ -57,6 +57,7 @@ const FROZEN_TYPES = [
   'git_file_versions',
   'cos_subscribe',
   'cos_message',
+  'cos_card_action',
 ];
 
 describe('ws protocol surface (frozen)', () => {
@@ -66,12 +67,12 @@ describe('ws protocol surface (frozen)', () => {
     const caseLabels = [...src.matchAll(/case '([a-z_]+)':/g)].map((m) => m[1]);
     const guardTypes = [...src.matchAll(/message\.type === '([a-z_]+)'/g)].map((m) => m[1]);
     // A migrated type's `case` label can be gone from the switch and live only as a
-    // registered descriptor; union it in so the dispatch surface stays 45 either way.
+    // registered descriptor; union it in so the dispatch surface stays 46 either way.
     const registered = messages.types();
 
     const measured = new Set([...caseLabels, ...guardTypes, ...registered]);
 
-    expect(measured.size).toBe(45);
+    expect(measured.size).toBe(46);
     expect([...measured].sort()).toEqual([...FROZEN_TYPES].sort());
   });
 });

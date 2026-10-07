@@ -11,12 +11,14 @@ const { relayFrames } = require('../../integration/protocol');
 const MODEL = 'claude-haiku-4-5-20251001';
 const fence = (o) => '```json\n' + JSON.stringify(o) + '\n```';
 const WAIT = { timeout: 15000 };
+const INTERNAL_SECRET = 'e2e-internal-secret';
 
 const test = hermeticTest.extend({
   eve: async ({}, use) => {
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'eve-cos-')));
     const eve = await startEve({
       projects: [{ id: 'p1', name: 'Acme', path: dir }],
+      env: { EVE_INTERNAL_SECRET: INTERNAL_SECRET },
       seedDataDir: async (dataDir) => {
         await fs.promises.writeFile(path.join(dataDir, 'settings.json'),
           JSON.stringify({ chiefOfStaff: { model: 'haiku', projectId: 'p1', dailyModelCalls: 100 } }));
@@ -126,4 +128,98 @@ test('"tell <name> to ..." sends at once with no dialog, and the target chat sho
   await reloadEve(page);
   await page.getByTestId('tab-s1').click();
   await expect(page.getByTestId('message-origin-chip')).toBeVisible(WAIT);
+});
+
+// eve#238: a Start card for an agent the Chief of Staff proposed after reading a file. The model
+// session streams a Read and a cos_propose_start; the test makes the eve-cos call while the turn is
+// held open, as relay's MCP would, then lets the turn end.
+const START_ARGS = { project: 'Acme', prompt: 'composed after reading notes' };
+
+async function proposeStart(page, eve) {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  eve.relay.setCosModel({
+    reply: (text, n) => (n === 1 ? 'ready'
+      : text.startsWith('Chief of Staff person') ? {
+        toolUses: [
+          { id: 'r1', name: 'Read', input: { file_path: 'notes.txt' } },
+          { id: 'c1', name: 'mcp__relay__cos_propose_start', input: START_ARGS },
+        ],
+        gate,
+        text: fence({ reply: 'Proposed it.', send: null }),
+      } : null),
+  });
+  const held = eve.relay.waitForCosTurn((t) => t.text.startsWith('Chief of Staff person') && t.text.includes('start an agent on Acme'));
+  await page.getByTestId('cos-input').fill('start an agent on Acme');
+  await page.getByTestId('cos-input').press('Enter');
+  await held;
+  try {
+    const res = await fetch(`${eve.baseUrl}/internal/cos`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-eve-internal': INTERNAL_SECRET },
+      body: JSON.stringify({ tool: 'cos_propose_start', args: START_ARGS, meta: { project_id: 'p1' } }),
+    });
+    expect((await res.json()).result.status).toBe('card');
+  } finally { release(); }
+  const card = page.locator('[data-testid^="cos-card-"][data-kind="start"]');
+  await expect(card).toBeVisible(WAIT);
+  const id = (await card.getAttribute('data-testid')).slice('cos-card-'.length);
+  return { card, id };
+}
+
+test.describe('Start card', () => {
+  test.beforeEach(async ({ page }) => { await openThread(page); });
+
+  test('shows project, folder, model, mode and prompt; Start starts the agent and the thread posts its name with an Open link', async ({ page, eve }) => {
+    const { card, id } = await proposeStart(page, eve);
+    await expect(card).toHaveAttribute('data-state', 'pending');
+    await expect(card).toContainText('Acme');
+    await expect(card).toContainText('composed after reading notes');
+    await expect(card).toContainText('haiku');
+    await expect(card).toContainText('headless');
+    await expect(card.locator('[data-field="folder"]')).toBeVisible();
+    expect(eve.relay.cosStarts).toHaveLength(0);
+
+    await page.getByTestId(`cos-start-${id}`).click();
+    await expect(card).toHaveAttribute('data-state', 'started', WAIT);
+    expect(eve.relay.cosStarts).toHaveLength(1);
+    expect(eve.relay.cosStarts[0].body).toMatchObject({ projectId: 'p1', prompt: 'composed after reading notes', mode: 'headless' });
+
+    const started = page.locator('[data-testid^="cos-post-"][data-kind="started"]');
+    await expect(started).toBeVisible(WAIT);
+    await started.locator('[data-testid^="cos-open-"]').click();
+    await expect(page).toHaveURL(/#session\/sess-/);
+  });
+
+  test('Edit changes the prompt, and Start sends the edited prompt', async ({ page, eve }) => {
+    const { card, id } = await proposeStart(page, eve);
+    await page.getByTestId(`cos-edit-${id}`).click();
+    await page.getByTestId(`cos-edit-prompt-${id}`).fill('the prompt I wrote myself');
+    await page.getByTestId(`cos-start-${id}`).click();
+    await expect(card).toHaveAttribute('data-state', 'started', WAIT);
+    expect(eve.relay.cosStarts.map((c) => c.body.prompt)).toEqual(['the prompt I wrote myself']);
+  });
+
+  test('Cancel ends the card and starts nothing', async ({ page, eve }) => {
+    const { card, id } = await proposeStart(page, eve);
+    await page.getByTestId(`cos-cancel-${id}`).click();
+    await expect(card).toHaveAttribute('data-state', 'cancelled', WAIT);
+    await expect(page.getByTestId(`cos-start-${id}`)).toBeDisabled();
+    expect(eve.relay.cosStarts).toHaveLength(0);
+  });
+});
+
+// The session list a person can see is the project page's thread list (`project-thread-<id>`);
+// the chip (`session-origin-chip`) sits on the row of a session relay marks with that origin.
+test('the session list marks a session the Chief of Staff started and no other', async ({ page, eve }) => {
+  const base = { projectId: 'p1', directory: '/tmp', model: MODEL };
+  eve.relay.seedSession({ ...base, sessionId: 's2', name: 'Started by the chief', origin: 'chief-of-staff' });
+  eve.relay.seedSession({ ...base, sessionId: 's3', name: 'Started by me' });
+  await reloadEve(page);
+  await page.evaluate(() => { window.location.hash = '#project/p1'; });
+  const marked = page.getByTestId('project-thread-s2');
+  await expect(marked).toBeVisible(WAIT);
+  await expect(page.getByTestId('project-thread-s3')).toBeVisible();
+  await expect(marked.getByTestId('session-origin-chip')).toBeVisible();
+  await expect(page.getByTestId('project-thread-s3').getByTestId('session-origin-chip')).toHaveCount(0);
 });
