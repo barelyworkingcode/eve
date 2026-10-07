@@ -266,7 +266,7 @@ describe('createWsHandler', () => {
     it('write_file marks a self-write before delegating to writeFile', async () => {
       await sendMsg(ws, { type: 'write_file', projectId: 'p1', path: 'a.txt', content: 'x' });
       expect(deps.fileHandlers.fileService.validatePath).toHaveBeenCalledWith('/proj1', 'a.txt');
-      expect(fileWatcher.markSelfWrite).toHaveBeenCalledWith('/proj1/abs.txt');
+      expect(fileWatcher.markSelfWrite).toHaveBeenCalledWith('/proj1/abs.txt', 'x');
       expect(deps.fileHandlers.writeFile).toHaveBeenCalled();
     });
 

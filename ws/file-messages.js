@@ -63,7 +63,7 @@ module.exports = [
         try {
           const fs = ctx.deps.fileHandlers.fileServiceFor(project);
           const absPath = fs.validatePath(project.path, ctx.message.path);
-          ctx.fileWatcher.markSelfWrite(absPath);
+          ctx.fileWatcher.markSelfWrite(absPath, ctx.message.content);
         } catch { /* path validation failed, writeFile will handle the error */ }
       }
       ctx.deps.fileHandlers.writeFile(ctx.ws, ctx.message);

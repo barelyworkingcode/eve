@@ -97,7 +97,7 @@ describe('FileWatcher', () => {
     it('marks a path then auto-clears it after the TTL', () => {
       jest.useFakeTimers();
       const absPath = path.join(tmpDir, 'test.js');
-      watcher.markSelfWrite(absPath);
+      watcher.markSelfWrite(absPath, 'x');
       expect(watcher.selfWrites.has(absPath)).toBe(true);
       jest.advanceTimersByTime(1000);
       expect(watcher.selfWrites.has(absPath)).toBe(false);
@@ -148,7 +148,7 @@ describe('FileWatcher', () => {
       registerOpenFile('/test.js');
       // Mark the path the same way the write path does (validatePath), matching
       // how _pushFile derives the self-write key.
-      watcher.markSelfWrite(fileService.validatePath(tmpDir, '/test.js'));
+      watcher.markSelfWrite(fileService.validatePath(tmpDir, '/test.js'), 'original');
       watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
       await delay(200);
       expect(mockWs.sent.find((m) => m.type === 'file_changed')).toBeUndefined();
@@ -285,7 +285,7 @@ describe('FileWatcher', () => {
   describe('closeAll', () => {
     it('closes watchers and clears all state', () => {
       watcher.watch(PROJECT_ID, '/test.js');
-      watcher.markSelfWrite(path.join(tmpDir, 'test.js'));
+      watcher.markSelfWrite(path.join(tmpDir, 'test.js'), 'x');
       expect(watcher.projectWatchers.size).toBe(1);
 
       watcher.closeAll();
@@ -371,7 +371,7 @@ describe('FileWatcher', () => {
 
     it("still emits for eve's own writes (an editor save changes git status)", () => {
       jest.useFakeTimers();
-      watcher.markSelfWrite(fileService.validatePath(tmpDir, '/test.js'));
+      watcher.markSelfWrite(fileService.validatePath(tmpDir, '/test.js'), 'x');
       watcher._maybeScheduleGitChange(PROJECT_ID, 'test.js');
       jest.advanceTimersByTime(500);
       expect(gitFrames()).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '/' }]);

@@ -22,6 +22,7 @@
  * worktree folder without git. The client falls back to a full refresh for
  * a repo it doesn't know, so an imprecise guess is fine; a missed one isn't.
  */
+const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs').promises;
 const path = require('path');
@@ -39,6 +40,8 @@ const FILE_DEBOUNCE_MS = 100; // coalesce rapid writes before reading content
 const DIR_DEBOUNCE_MS = 200;  // coalesce rapid structural churn before refresh
 const GIT_DEBOUNCE_MS = 500;  // coalesce a checkout/commit burst into one git status
 const SELF_WRITE_TTL_MS = 1000;
+
+const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
 // Linux recursive `fs.watch` is an inotify emulation that cannot skip
 // directories; see dir-watcher.js. Elsewhere it is FSEvents and costs nothing
@@ -77,7 +80,8 @@ class FileWatcher {
     this.fileTimers = new Map();
     this.dirTimers = new Map();
     this.gitTimers = new Map();
-    this.selfWrites = new Set();
+    // absPath -> Map<sha256 hex of saved content, expiry timer>
+    this.selfWrites = new Map();
     this.reportedFailures = new Set(); // projectIds already told; cleared on a successful start
   }
 
@@ -112,10 +116,37 @@ class FileWatcher {
     this._ensureProjectWatcher(projectId);
   }
 
-  markSelfWrite(absolutePath) {
-    this.selfWrites.add(absolutePath);
+  markSelfWrite(absolutePath, content) {
+    if (typeof content !== 'string') return;
+    const hash = sha256(content);
+    let hashes = this.selfWrites.get(absolutePath);
+    if (!hashes) {
+      hashes = new Map();
+      this.selfWrites.set(absolutePath, hashes);
+    }
+    clearTimeout(hashes.get(hash));
     // .unref()'d: a leaked timer must never hang a test worker.
-    setTimeout(() => this.selfWrites.delete(absolutePath), SELF_WRITE_TTL_MS).unref();
+    const timer = setTimeout(() => {
+      const cur = this.selfWrites.get(absolutePath);
+      if (!cur) return;
+      cur.delete(hash);
+      if (cur.size === 0) this.selfWrites.delete(absolutePath);
+    }, SELF_WRITE_TTL_MS);
+    timer.unref();
+    hashes.set(hash, timer);
+  }
+
+  // True when `content` is exactly what Eve just saved to this path.
+  _isEcho(absPath, content) {
+    const hashes = this.selfWrites.get(absPath);
+    return !!hashes && hashes.has(sha256(content));
+  }
+
+  _forgetSelfWrites(absPath) {
+    const hashes = this.selfWrites.get(absPath);
+    if (!hashes) return;
+    for (const t of hashes.values()) clearTimeout(t);
+    this.selfWrites.delete(absPath);
   }
 
   closeAll() {
@@ -123,6 +154,9 @@ class FileWatcher {
       this._stopProjectWatcher(projectId);
     }
     this.watchedFiles.clear();
+    for (const hashes of this.selfWrites.values()) {
+      for (const t of hashes.values()) clearTimeout(t);
+    }
     this.selfWrites.clear();
     for (const t of this.fileTimers.values()) clearTimeout(t);
     for (const t of this.dirTimers.values()) clearTimeout(t);
@@ -276,8 +310,6 @@ class FileWatcher {
     } catch {
       return; // invalid / traversal - nothing to push
     }
-    if (this.selfWrites.has(absPath)) return;
-
     try {
       if (entry.binary) {
         // Viewer files: notify only; the client re-fetches via its cache-busted URL.
@@ -290,6 +322,12 @@ class FileWatcher {
         return;
       }
       const { content, size } = await fileService.readFile(project.path, entry.clientPath);
+      // Drop only the read that matches a pending save; any other content is an
+      // outside write and must reach the client.
+      if (this.selfWrites.has(absPath)) {
+        if (this._isEcho(absPath, content)) return;
+        this._forgetSelfWrites(absPath);
+      }
       this._send({ type: 'file_changed', projectId, path: entry.clientPath, content, size });
     } catch {
       // Deleted or unreadable mid-flight - the dir refresh covers the tree side.
