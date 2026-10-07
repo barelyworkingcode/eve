@@ -778,6 +778,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
     for (const j of skipped) record({ id: j.id, state: 'NOTRUN', detail: 'screen journey; run with --screen' });
   } finally {
     browserClosed = await boundedClose(() => browser.close());
+    if (!browserClosed) log(`browser close timed out after ${CLOSE_TIMEOUT_MS / 1000}s`);
     const late = await runCleanups(pending.splice(0));
     if (late) log(late);
     if (projects && !failedEarly) await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
