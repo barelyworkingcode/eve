@@ -53,29 +53,22 @@ test.describe('G7 files', () => {
     await page.getByTestId('file-tree-item-/src').click();
     await expect(page.getByTestId('file-tree-item-/src/app.js')).toBeVisible();
 
-    // Edit and save.
+    // Edit and save. The dirty marker shows the edit landed; its removal shows
+    // the save was acknowledged.
+    const tab = page.getByTestId('tab-alpha:/notes.txt');
     await endOfFile(page, text);
     await page.keyboard.type('saved-by-editor');
+    await expect(tab).toContainText('●');
     await page.keyboard.press('ControlOrMeta+s');
+    await expect(tab).not.toContainText('●');
     await expect.poll(() => fs.readFileSync(file, 'utf8'), { timeout: 5000 }).toContain('saved-by-editor');
 
-    // A clean editor follows an outside change without asking, also right after
-    // eve's own save. The server drops a change made within its self-write window
-    // of that save, and the window is a Node timer the browser cannot see. So
-    // write afresh until the editor shows the content of one write.
+    // A clean editor follows an outside change without asking. The server drops
+    // only the true echo of a save, so one outside write right after the save
+    // is reported.
     const banner = page.getByText(EXTERNAL_BANNER);
-    const written = [];
-    await expect.poll(async () => {
-      const mine = `outside-after-save-${written.length + 1}`;
-      written.push(mine);
-      fs.writeFileSync(file, `${mine}\n`);
-      // A write may reach the editor after the next poll round has written again.
-      const shown = await text.textContent();
-      return written.some((w) => shown.includes(w));
-    }, { timeout: 15000 }).toBe(true);
-    // The last write is past the window too; wait for it so no change of ours is
-    // still in flight when the next step dirties the buffer.
-    await expect(text).toContainText(written[written.length - 1]);
+    fs.writeFileSync(file, 'outside-after-save\n');
+    await expect(text).toContainText('outside-after-save', { timeout: 10000 });
     await expect(banner).toBeHidden();
 
     // A dirty editor asks; Reload takes the outside version.
