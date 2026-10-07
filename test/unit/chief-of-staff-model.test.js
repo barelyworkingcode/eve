@@ -341,6 +341,31 @@ describe('person session allow-list', () => {
   });
 });
 
+describe('reply join in relay wire shape', () => {
+  const person = (extra = {}) => ({ kind: 'person', allowedTools: PERSON_ALLOWED_TOOLS, sessionSettings: { useRelayTools: true, readOnlyProjects: true }, ...extra });
+  it('joins streamed messages with a blank line, a tool_use between', async () => {
+    // Per message: an assistant event with empty content (message start), then text_delta deltas.
+    const start = (id) => ({ type: 'llm_event', event: { type: 'assistant', message: { id, role: 'assistant', content: [] } } });
+    const delta = (text) => ({ type: 'llm_event', event: { type: 'assistant', index: 0, delta: { type: 'text_delta', text } } });
+    const relay = makeRelay({
+      initScripts: [PERSON_ALLOWED_TOOLS],
+      turnScript: (n, emit) => {
+        emit(start('a1'));
+        emit(delta('FIR'));
+        emit(delta('ST'));
+        emit(start('a2'));
+        emit({ type: 'llm_event', event: { type: 'assistant', index: 0, content_block_stop: true, content_block: { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/tmp/acme/x' } } } });
+        emit(start('a3'));
+        emit(delta('SEC'));
+        emit(delta('OND'));
+        emit({ type: 'message_complete' });
+      },
+    });
+    const out = await make(relay, person()).turn('hello', OPTS);
+    expect(out.text).toBe('FIRST\n\nSECOND');
+  });
+});
+
 describe('wake session keeps no tools', () => {
   const create = (relay) => relay.fetches.find((f) => f.method === 'POST' && f.path === '/api/sessions').body;
 

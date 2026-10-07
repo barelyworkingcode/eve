@@ -577,7 +577,7 @@ describe('devboxverify/journey-kit.js devices and probes', () => {
 describe('devboxverify/main.js run plan and owner reset', () => {
   const {
     JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-    relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths, chiefOfStaffSetup,
+    relayAuditRows, serviceLogReader, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
   } = require('../../devboxverify/main');
   const ids = list => list.map(j => j.id);
   const mixed = [{ id: 's', screen: true }, { id: 'a' }, { id: 'f1', fixture: true }, { id: 'b' }, { id: 'f2', fixture: true }];
@@ -675,27 +675,6 @@ describe('devboxverify/main.js run plan and owner reset', () => {
 
     it('refuses an empty project id', () => {
       expect(() => chiefOfStaffSettings('{}', '')).toThrow();
-    });
-  });
-
-  describe('projectIdFromGrant', () => {
-    const view = (id, name, kind = 'project') => ({ id, name, kind, mcps: [] });
-
-    it('reads the id of the one project with that name', () => {
-      expect(projectIdFromGrant(JSON.stringify([view('p2', 'Globex'), view('p1', 'Acme')]), 'Acme')).toBe('p1');
-    });
-
-    it.each([
-      ['no match', [view('p2', 'Globex')]],
-      ['two matches', [view('p1', 'Acme'), view('p3', 'Acme')]],
-      ['a profile of that name', [view('p1', 'Acme', 'profile')]],
-      ['not a list', { id: 'p1', name: 'Acme', kind: 'project' }],
-    ])('refuses %s', (_l, views) => {
-      expect(() => projectIdFromGrant(JSON.stringify(views), 'Acme')).toThrow();
-    });
-
-    it('refuses text that is not JSON', () => {
-      expect(() => projectIdFromGrant('no projects', 'Acme')).toThrow(/unreadable/);
     });
   });
 

@@ -287,15 +287,6 @@ function chiefOfStaffSettings(text, projectId) {
   return JSON.stringify({ ...doc, chiefOfStaff: { ...own, model: 'haiku', projectId, dailyModelCalls: 40 } }, null, 2) + '\n';
 }
 
-// The id of the one project record `relay grant --json` names `name`.
-function projectIdFromGrant(jsonText, name) {
-  let views;
-  try { views = JSON.parse(jsonText); } catch { throw new Error('relay grant printed unreadable JSON'); }
-  const hits = (Array.isArray(views) ? views : []).filter(v => v && v.kind === 'project' && v.name === name && typeof v.id === 'string' && v.id);
-  if (hits.length !== 1) throw new Error(`relay grant lists ${hits.length} projects named "${name}", want 1`);
-  return hits[0].id;
-}
-
 // Setup V-COS (README): the Chief of Staff's own project, "Verify Chief of
 // Staff", holds exactly one MCP grant, the eve-cos registration for eve-verify.
 // `grantOut` and `mcpOut` are the texts of `relay grant --json` and `relay mcp
@@ -791,7 +782,7 @@ module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-  relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths, chiefOfStaffSetup,
+  relayAuditRows, serviceLogReader, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
 };
 
 if (require.main === module) {

@@ -742,7 +742,7 @@ class ChiefOfStaff {
   }
 
   _modelBlocked(model) {
-    return !model || (this.off && ['tools_present', 'tools_missing', 'tools_unverified', 'authentication_failed', 'no_project', 'project_unsuitable'].includes(this.off.reason));
+    return !model || (this.off && ['tools_present', 'tools_unverified', 'authentication_failed', 'no_project', 'project_unsuitable'].includes(this.off.reason));
   }
 
   // Runs one model turn. Returns {text} or {error: <code>}; maps fatal
@@ -757,7 +757,7 @@ class ChiefOfStaff {
         projectId: project.id, directory: project.path, model: this.settings.model, timeoutMs: TURN_TIMEOUT_MS,
       });
       if (out && out.modelId) { this.modelId = out.modelId; }
-      if (this.off && this.off.reason === 'launch_failed') this._setOff(null);
+      if (this.off && (this.off.reason === 'launch_failed' || this.off.reason === 'tools_missing')) this._setOff(null);
       this._emitStatus();
       return { text: out && typeof out.text === 'string' ? out.text : '', sessionId: model.sessionId };
     } catch (err) {
@@ -911,7 +911,7 @@ class ChiefOfStaff {
     }
     // Plain text, all of the turn's text blocks. Whatever the model did with
     // its tools already reached the thread through the eve-cos calls.
-    const reply = cut(res.text.trim(), prompt.CAPS.reply);
+    const reply = prompt.clean(res.text, prompt.CAPS.reply);
     if (reply) {
       this._addPost({ kind: 'reply', body: reply, byModel: true });
       return;

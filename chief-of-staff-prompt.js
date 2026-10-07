@@ -266,6 +266,7 @@ function templatePost(event) {
 module.exports = {
   PROMPT_VERSION,
   CAPS,
+  clean,
   quoteData,
   isQuestion,
   systemPrompt,

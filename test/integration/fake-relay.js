@@ -1017,7 +1017,7 @@ function createFakeRelay({ token = null } = {}) {
         cosModelTurns.push({ sessionId: msg.sessionId, text: msg.text, n: sess.cosTurns });
         cosTurnWaiters.filter((w) => w.pred(cosModelTurns[cosModelTurns.length - 1])).forEach((w) => { cosTurnWaiters.splice(cosTurnWaiters.indexOf(w), 1); w.resolve(); });
         const person = String(msg.text).startsWith('Chief of Staff person');
-        const fallback = sess.cosTurns === 1 ? 'ready' : `\`\`\`json\n${person ? '{"reply":"Noted.","send":null}' : '{"posts":[]}'}\n\`\`\``;
+        const fallback = sess.cosTurns === 1 ? 'ready' : (person ? 'Noted.' : `\`\`\`json\n{"posts":[]}\n\`\`\``);
         // reply() answers a string, or { text, toolUses: [{ id, name, input }], gate }: the tool_use
         // blocks stream first (events.go ToolUseBlockStop), and the turn ends only after `gate` settles.
         const scripted = cosModel.reply && cosModel.reply(String(msg.text), sess.cosTurns);

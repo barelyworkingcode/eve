@@ -537,8 +537,12 @@ describe('a failed person turn names its cause', () => {
     expect(model.turn).toHaveBeenCalledTimes(2);
   });
 
-  it('tools_missing turns the model off and names the project to grant', async () => {
-    const model = failing('tools_missing', 'The session lacks tools: mcp__relay__cos_propose_send');
+  it('tools_missing turns the model off and names the project to grant, every turn, until the grant is fixed', async () => {
+    let granted = false;
+    const model = { turn: jest.fn(async () => {
+      if (!granted) throw Object.assign(new Error('The session lacks tools: mcp__relay__cos_propose_send'), { code: 'tools_missing' });
+      return { text: 'Back on.' };
+    }) };
     setup({ sessions: [row('s1', 'running')], model });
     await h.start();
     h.cos.submitPerson('hello');
@@ -548,8 +552,16 @@ describe('a failed person turn names its cause', () => {
 
     h.cos.submitPerson('and now?');
     await h.tick(10);
-    expect(model.turn).toHaveBeenCalledTimes(1);
+    expect(model.turn).toHaveBeenCalledTimes(2);
+    expect(h.cos.off).toMatchObject({ reason: 'tools_missing' });
     expect(lastNotice().body).toContain('grant the eve-cos MCP to Acme');
+
+    granted = true;
+    h.cos.submitPerson('try again');
+    await h.tick(10);
+    expect(model.turn).toHaveBeenCalledTimes(3);
+    expect(h.cos.posts.filter((p) => p.kind === 'reply').pop().body).toBe('Back on.');
+    expect(h.cos.off).toBeNull();
   });
 });
 

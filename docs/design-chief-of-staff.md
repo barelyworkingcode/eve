@@ -3,7 +3,7 @@
 Epic relay#231, eve#197. This page covers the model session and the prompts (`chief-of-staff-model.js`, `chief-of-staff-prompt.js`). The reader, send path and thread view have their own owners; the wire contract is in [api.md](api.md).
 
 ## What the model does
-It writes. The reader decides when something needs the person, and eve builds every card from relay data. The model only turns a batch of events into a headline and body per session (a wake), or answers a person's message and optionally names one session to pass words to (a person turn). When it is off, at its daily limit, or unparseable, eve posts a fixed template instead ([Templates](#templates)).
+It writes. The reader decides when something needs the person, and eve builds every card from relay data. The model only turns a batch of events into a headline and body per session (a wake), or answers a person's message in plain text, reading project files and offering actions through the `eve-cos` tools (a person turn). When it is off or at its daily limit, eve posts a fixed template instead of a wake post, and a person turn gets a notice that names the cause ([Templates](#templates)).
 
 ## Why the wake model has no tools, and what the person model has
 Same reasoning as [design-brief.md](design-brief.md): agent text is hostile input, and the safety is the gate, not the prompt. The wake model reads agent excerpts, so the cleanest gate is that it cannot do anything at all. A reply is text that eve parses; it cannot send, fetch or read. The person model never sees an excerpt. It gets an allow-list instead: `Read`, `Grep`, `Glob` and the four `eve-cos` MCP tools (`PERSON_ALLOWED_TOOLS`), so it can answer questions about projects and offer actions.
