@@ -29,8 +29,9 @@ async function reloadEve(page, env) {
     () => !!window.client?.state && !!window.client?.wsClient, null, { timeout: 20000 }));
 }
 
-// A `verify-<nonce>-<kind>-XXXXXX` folder in Acme Corp's world folder, removed
-// by cleanup whatever the verdict. A leftover fails the next world preflight.
+// A `verify-<nonce>-<kind>-XXXXXX` folder in a project's folder (Acme Corp by
+// default), removed by cleanup whatever the verdict. A leftover in Acme Corp
+// fails the next world preflight.
 async function scratchFolder(env, kind, project = env.world.projects.acme) {
   const root = path.resolve(project.path);
   const prefix = `verify-${env.nonce}-${kind}-`;
