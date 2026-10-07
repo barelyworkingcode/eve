@@ -777,9 +777,19 @@ judged.
   while relay's audit shows the fetch denied.
 - **S3 · V-COS.** The Chief of Staff's project and its MCP, both
   presence-gated in Relay. Test-world config, like `Verify Skills` (P8): not a
-  world project, found by name. Create a Relay project `Verify Chief of Staff`
-  with folder `~/verify-cos`, then register the MCP and grant it as the
-  project's only MCP:
+  world project, found by name. Register the MCP first, then create the Relay
+  project `Verify Chief of Staff` with folder `~/verify-cos`, the MCP as its
+  only grant and the `claude-code` template allowed (the Chief of Staff's
+  sessions are claude-code sessions; without it relay refuses them with
+  `template "claude-code" is not available for this project`). With the
+  `configure` credential of the relay harness's P5, the create is one call
+  (it prompts once):
+
+  ```json
+  {"name":"Verify Chief of Staff","path":"<home>/verify-cos","allowed_mcp_ids":["relay-eve-cos-verify"],"allowed_templates":["claude-code"]}
+  ```
+
+  The MCP registration:
 
   ```bash
   relay mcp register --id relay-eve-cos-verify --name "eve-cos (verify)" \
