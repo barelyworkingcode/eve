@@ -679,7 +679,7 @@ describe('devboxverify/main.js run plan and owner reset', () => {
   });
 
   describe('chiefOfStaffSetup', () => {
-    const view = (id, name, mcps) => ({ id, name, kind: 'project', mcps: mcps.map(mcp => ({ mcp })) });
+    const view = (id, name, mcps, kind = 'project') => ({ id, name, kind, mcps: mcps.map(mcp => ({ mcp })) });
     const grant = views => JSON.stringify(views);
     const list = 'ID NAME TRANSPORT ENDPOINT\nmacmcp macMCP stdio /bin/x\nrelay-eve-cos-verify eve-cos stdio /bin/node\n';
     const good = [view('p9', 'Verify Chief of Staff', ['relay-eve-cos-verify']), view('p1', 'Acme Corp', ['macmcp'])];
@@ -691,6 +691,7 @@ describe('devboxverify/main.js run plan and owner reset', () => {
     it.each([
       ['no such project', [view('p1', 'Acme Corp', ['macmcp'])], list, ''],
       ['two such projects', [good[0], view('p8', 'Verify Chief of Staff', ['relay-eve-cos-verify'])], list, ''],
+      ['a profile of that name', [view('p9', 'Verify Chief of Staff', ['relay-eve-cos-verify'], 'profile')], list, ''],
       ['an extra grant', [view('p9', 'Verify Chief of Staff', ['relay-eve-cos-verify', 'macmcp'])], list, 'p9'],
       ['no grant', [view('p9', 'Verify Chief of Staff', [])], list, 'p9'],
       ['another MCP only', [view('p9', 'Verify Chief of Staff', ['macmcp'])], list, 'p9'],
@@ -698,11 +699,16 @@ describe('devboxverify/main.js run plan and owner reset', () => {
     ])('blocks on %s, naming the setup step', (_l, views, mcps, projectId) => {
       const r = chiefOfStaffSetup(grant(views), mcps);
       expect(r.projectId).toBe(projectId);
-      expect(r.problem).toMatch(/^setup V-COS: .*devboxverify\/README\.md$/);
+      expect(r.problem).toMatch(/^setup V-COS: .*; see devboxverify\/README\.md$/);
     });
 
-    it.each([['unreadable grant', 'nope'], ['a failed grant call', new Error('exit 1')]])('blocks on %s', (_l, out) => {
-      expect(chiefOfStaffSetup(out, list)).toEqual({ projectId: '', problem: expect.stringMatching(/^setup V-COS:/) });
+    it.each([
+      ['a failed grant call', new Error('exit 1'), list, /grant --json failed/],
+      ['a failed mcp list call', grant(good), new Error('exit 1'), /mcp list failed/],
+      ['unreadable grant JSON', 'nope', list, /unreadable/],
+      ['grant JSON that is not a list', JSON.stringify({ id: 'p9', name: 'Verify Chief of Staff', kind: 'project' }), list, /unreadable/],
+    ])('throws on %s, so the preflight fails', (_l, g, m, re) => {
+      expect(() => chiefOfStaffSetup(g, m)).toThrow(re);
     });
   });
 

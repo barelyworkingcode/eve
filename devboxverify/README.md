@@ -37,8 +37,8 @@ place only: the owner reset below merges `chiefOfStaff: {model: 'haiku',
 projectId: <the id of `Verify Chief of Staff`>, dailyModelCalls: 40}` into eve-verify's pinned
 data dir `settings.json` before its restart, keeping every other key (the file
 is read as JSONC and rewritten as plain JSON, so comments go; a file that does
-not parse stops the reset). The id comes from `relay grant --json`, which
-also gives setup V-COS its check (below). Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
+not parse stops the reset). The id comes from `relay grant --json`,
+which also gives setup V-COS its check (below); unless exactly one `Verify Chief of Staff` project exists, the merge is skipped and the preflight line says "Chief of Staff settings not written". Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
 make in Acme Corp or the temp dir and remove, project-admin-in-relay's Save
 of Acme Corp as it stands, project-mode-new's `verify-<nonce>` project,
 which it deletes, mode-presets' `verify-<nonce> ask` template in Acme Corp,
@@ -808,13 +808,23 @@ judged.
   while relay's audit shows the fetch denied.
 - **S3 · V-COS.** The Chief of Staff's project and its MCP, both
   presence-gated in Relay. Test-world config, like `Verify Skills` (P8): not a
-  world project, found by name. Create a Relay project `Verify Chief of Staff`
-  with folder `~/verify-cos`, then register the MCP and grant it as the
-  project's only MCP:
+  world project, found by name. Register the MCP first, then create the Relay
+  project `Verify Chief of Staff` with folder `~/verify-cos`, the MCP as its
+  only grant and the `claude-code` template allowed (the Chief of Staff's
+  sessions are claude-code sessions; without it relay refuses them with
+  `template "claude-code" is not available for this project`). With the
+  `configure` credential of the relay harness's P5, the create is one call
+  (it prompts once):
+
+  ```json
+  {"name":"Verify Chief of Staff","path":"<home>/verify-cos","allowed_mcp_ids":["relay-eve-cos-verify"],"allowed_templates":["claude-code"]}
+  ```
+
+  The MCP registration:
 
   ```bash
   relay mcp register --id relay-eve-cos-verify --name "eve-cos (verify)" \
-    --command "$(command -v node)" --args <checkout under test>/mcp/cos.js \
+    --command "$(command -v node)" --args <main eve checkout>/mcp/cos.js \
     --env EVE_INTERNAL_URL=http://127.0.0.1:3100 \
     --env EVE_INTERNAL_SECRET="$(grep '^EVE_INTERNAL_SECRET=' <main eve checkout>/.env | cut -d= -f2-)"
   ```
@@ -822,11 +832,12 @@ judged.
   Run it in a desktop Terminal; it may prompt. The secret is read inline and
   never printed. It is the value eve-verify runs with: S1 loads the main eve
   checkout's `.env` through `--env-file`, and `/internal/cos` needs it.
-  Acme Corp gets no grant: the journeys start agents and write files there,
-  and the person session reads it through relay's read-only project roots. The
-  run reads `relay grant --json` and `relay mcp list` once; the three `cos-*`
-  journeys are BLOCKED `setup V-COS` unless exactly one project has the name,
-  its grant is exactly `relay-eve-cos-verify`, and the MCP is listed.
+  Acme Corp gets no grant: the journeys start agents and write files there.
+  The run reads `relay grant --json` and `relay mcp list` once; a command that
+  fails or prints unreadable JSON fails the preflight. The Chief of Staff
+  journeys (cos-asking-post, cos-tell-sends-marked) are BLOCKED `setup V-COS`
+  unless exactly one project has the name, its grant is exactly
+  `relay-eve-cos-verify`, and the MCP is listed.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at

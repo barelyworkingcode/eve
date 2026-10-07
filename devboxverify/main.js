@@ -290,23 +290,26 @@ function chiefOfStaffSettings(text, projectId) {
 // Setup V-COS (README): the Chief of Staff's own project, "Verify Chief of
 // Staff", holds exactly one MCP grant, the eve-cos registration for eve-verify.
 // `grantOut` and `mcpOut` are the texts of `relay grant --json` and `relay mcp
-// list`, or the Error a failed call threw. Returns the project's id when
-// exactly one has the name, and a BLOCKED detail ('' when the setup is right).
+// list`. A failed call (an Error) or unreadable grant JSON throws, so the
+// preflight fails as it always did. A readable answer that is wrong returns a
+// BLOCKED detail ('' when the setup is right) and the project's id when exactly
+// one has the name.
 const COS_PROJECT = 'Verify Chief of Staff';
 const COS_MCP = 'relay-eve-cos-verify';
 function chiefOfStaffSetup(grantOut, mcpOut) {
-  const blocked = (what, projectId = '') => ({ projectId, problem: `setup V-COS: ${what}; see devboxverify/README.md` });
-  if (grantOut instanceof Error) return blocked(`relay grant --json failed: ${firstLine(grantOut)}`);
+  if (grantOut instanceof Error) throw new Error(`relay grant --json failed: ${firstLine(grantOut)}`);
+  if (mcpOut instanceof Error) throw new Error(`relay mcp list failed: ${firstLine(mcpOut)}`);
   let views;
-  try { views = JSON.parse(grantOut); } catch { return blocked('relay grant --json printed unreadable JSON'); }
-  const hits = (Array.isArray(views) ? views : []).filter(v => v && v.kind === 'project' && v.name === COS_PROJECT && typeof v.id === 'string' && v.id);
+  try { views = JSON.parse(grantOut); } catch { throw new Error('relay grant printed unreadable JSON'); }
+  if (!Array.isArray(views)) throw new Error('relay grant printed unreadable JSON');
+  const blocked = (what, projectId = '') => ({ projectId, problem: `setup V-COS: ${what}; see devboxverify/README.md` });
+  const hits = views.filter(v => v && v.kind === 'project' && v.name === COS_PROJECT && typeof v.id === 'string' && v.id);
   if (hits.length !== 1) return blocked(`${hits.length} projects named "${COS_PROJECT}", want 1`);
   const projectId = hits[0].id;
   const granted = (Array.isArray(hits[0].mcps) ? hits[0].mcps : []).map(m => (m && m.mcp) || '?');
   if (granted.length !== 1 || granted[0] !== COS_MCP) {
     return blocked(`"${COS_PROJECT}" is granted [${granted.join(', ')}], want exactly [${COS_MCP}]`, projectId);
   }
-  if (mcpOut instanceof Error) return blocked(`relay mcp list failed: ${firstLine(mcpOut)}`, projectId);
   if (!String(mcpOut).split('\n').some(line => line.trim().split(/\s+/)[0] === COS_MCP)) {
     return blocked(`relay mcp list has no MCP ${COS_MCP}`, projectId);
   }
@@ -636,7 +639,8 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       for (const f of chiefOfStaffResetPaths(path.dirname(files[0]), { liveDataDir: real(liveDataDir(listOut, liveCwd)) })) await fs.promises.rm(f, { force: true });
       // The one settings write: fixture setup for the Chief of Staff journeys, in the pinned dir only.
       const settingsFile = path.join(path.dirname(files[0]), 'settings.json');
-      // Read once, as completed CLI calls: a setup that is wrong blocks the Chief of Staff journeys, not the run.
+      // Read once, as completed CLI calls. A failed call or unreadable JSON throws and fails the preflight;
+      // a readable but wrong setup blocks the Chief of Staff journeys, not the run.
       const grantOut = await exec(relayBin, ['grant', '--json'], { timeout: 20000 }).catch((err) => err);
       const mcpOut = await exec(relayBin, ['mcp', 'list'], { timeout: 20000 }).catch((err) => err);
       cosSetup = chiefOfStaffSetup(grantOut, mcpOut);
