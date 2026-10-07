@@ -539,7 +539,7 @@ Reopened from Threads, then reloaded: the same card, popover and chip.
 **chat-tool-search.** In `Verify Skills` (folder `~/verify-skills`, 48 `relay-*`
 skills, MCP `devboxverify-wide` with 48 tools; not a world project, found by
 name in `GET /api/projects`), a Web Chat on `EVE_VERIFY_MODEL` (expect `Chat6`)
-is asked `What is the tide code for the port of Port Verify<nonce>? Reply with
+is asked `What is the tide code for the port "<nonce>"? Reply with
 the code only.` PASS needs all of: the first tool step in the thread is
 `tool_search` and its result names `tides_lookup`; a later step calls
 `tides_lookup` (directly or through `call_tool`); the settled reply holds

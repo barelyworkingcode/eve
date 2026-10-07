@@ -200,9 +200,9 @@ async function chatToolSearchRun(env, ctx) {
   const sessionId = added[0];
   ctx.sessionId = sessionId;
 
-  const port = `Port Verify${env.nonce}`;
+  const port = env.nonce;
   const expected = tideCode(port);
-  const question = `What is the tide code for the port of ${port}? Reply with the code only.`;
+  const question = `What is the tide code for the port "${port}"? Reply with the code only.`;
   const input = page.getByTestId('chat-input');
   env.step('wait for the composer');
   await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
