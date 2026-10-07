@@ -105,6 +105,17 @@ test('with reduced motion the busy avatar does not animate', async ({ page, eve 
   } finally { gate.release(); }
 });
 
+// eve#249: relay names a project eve cannot find, so the Chief of Staff is off and the banner
+// points to relay's Settings.
+test('the off banner points to relay\'s Settings when no project can run the Chief of Staff', async ({ page, eve }) => {
+  eve.relay.setChiefOfStaffConfig({ projectId: 'ghost', model: 'haiku', dailyModelCalls: 100 });
+  await openThread(page);
+  await page.getByTestId('cos-input').fill('hello');
+  await page.getByTestId('cos-input').press('Enter');
+  await expect(page.getByTestId('cos-off')).toHaveText(
+    "No project can run the Chief of Staff. Pick one in relay's Settings, under Projects > Chief of Staff.", WAIT);
+});
+
 // The person model streams the given tool_use blocks and holds its turn open; the test makes the
 // eve-cos call while the turn is held, as relay's MCP would, then lets the turn end. Returns the result.
 async function callCosTool(page, eve, { say, toolUses, tool, args, replyText }) {
