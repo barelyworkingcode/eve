@@ -103,10 +103,10 @@ The person model can start an agent and send to one through the `eve-cos` MCP (`
 - **D2** Eve judges "ends on a question" with `isQuestion`; judging every turn with the model would cost a call per agent turn.
 - **D3** The thread covers every project and ignores Home/Work mode.
 - **D4** States seen at startup or reconnect never post; only transitions do.
-- **D5** The model runs in the configured project, else the first local project with no permission policy that allows the model.
+- **D5** The model runs in the configured project, else the first local project with no permission policy that allows the model (D11 says where "configured" comes from).
 - **D6** Eve builds cards from relay data and falls back to template posts.
 - **D7** Thread traffic is WS descriptors; `routes/index.js` stays untouched.
 - **D8** Drop in on a non-headless session opens it.
 - **D9** devboxverify writes the `chiefOfStaff` key into eve-verify's pinned `settings.json`.
 - **D10** During a verify run the live eve and eve-verify may both post. Accepted.
-- **D11** Config is `data/settings.json`, which eve reads and never writes.
+- **D11** The project, model and daily call cap come from relay's Chief of Staff setting (`GET /api/chief-of-staff/config`, unscoped). Eve reads it at start and before every model turn, so a change applies to the next turn with no restart. While relay answers `configured:false` (or 404, an older relay), the `chiefOfStaff` block in `data/settings.json` applies, then the defaults; eve reads that file and never writes it. When relay answers anything else, or not at all, eve keeps the settings it has and warns once per outage. `enabled` always comes from the file. Eve logs the source (`Chief of Staff config from relay|settings.json|defaults`) at the first read and on each change.

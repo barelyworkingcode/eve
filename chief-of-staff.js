@@ -65,7 +65,7 @@ function offNotice(off) {
     case 'disabled': return "I'm off in eve's settings, so I can't send.";
     case 'scope_refused': return "Relay won't let me read sessions, so I can't send.";
     case 'no_project':
-    case 'project_unsuitable': return "No project can run me, so I can't send. Set chiefOfStaff.projectId.";
+    case 'project_unsuitable': return "No project can run me, so I can't send. Pick one in relay's Settings, under Projects > Chief of Staff.";
     case 'launch_failed': return `I couldn't start the model${off.detail ? `: ${off.detail}` : ''}, so I can't send.`;
     case 'tools_missing': return `My tools aren't set up: grant the eve-cos MCP to ${off.project || 'the project'} in relay's Projects, then try again.`;
     case 'authentication_failed': return "The model can't log in, so I'm off and can't send. Log its account in again and restart eve. Alerts still post.";
@@ -93,12 +93,12 @@ function turnFailureNotice(code, detail) {
 
 // settings.chiefOfStaff -> a complete, typed config. A wrong type is never
 // fatal: warn naming the key and use the default for that key.
-function parseChiefOfStaffSettings(raw, log) {
+function parseChiefOfStaffSettings(raw, log, source = 'settings.json') {
   const out = { ...DEFAULTS };
-  const warn = (key, why) => log?.warn?.(`settings.json: chiefOfStaff.${key} ${why}; using ${JSON.stringify(DEFAULTS[key])}`);
+  const warn = (key, why) => log?.warn?.(`${source}: chiefOfStaff.${key} ${why}; using ${JSON.stringify(DEFAULTS[key])}`);
   if (raw === undefined) return out;
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    log?.warn?.('settings.json: chiefOfStaff must be an object; using defaults');
+    log?.warn?.(`${source}: chiefOfStaff must be an object; using defaults`);
     return out;
   }
   if (raw.enabled !== undefined) {
@@ -115,6 +115,22 @@ function parseChiefOfStaffSettings(raw, log) {
     if (Number.isInteger(n) && n >= 1 && n <= 10000) out.dailyModelCalls = n; else warn('dailyModelCalls', 'must be an integer from 1 to 10000');
   }
   return out;
+}
+
+// -> {settings, source}, or {settings: null, source: null} meaning "keep the
+// current effective settings". fileSettings is already parsed; relayAnswer is
+// {status, data} or {error}.
+function resolveChiefOfStaffSettings(fileSettings, fileSource, relayAnswer, log) {
+  const keep = { settings: null, source: null };
+  if (!relayAnswer || relayAnswer.error !== undefined) return keep;
+  const { status, data } = relayAnswer;
+  if (status === 404) return { settings: fileSettings, source: fileSource };
+  if (!Number.isInteger(status) || status < 200 || status > 299) return keep;
+  if (!data || typeof data !== 'object' || typeof data.configured !== 'boolean') return keep;
+  if (!data.configured) return { settings: fileSettings, source: fileSource };
+  const { projectId, model, dailyModelCalls } = parseChiefOfStaffSettings(
+    { projectId: data.projectId, model: data.model, dailyModelCalls: data.dailyModelCalls }, log, 'relay');
+  return { settings: { ...fileSettings, projectId, model, dailyModelCalls }, source: 'relay' };
 }
 
 function localDay(date = new Date()) {
@@ -143,12 +159,20 @@ class ChiefOfStaff {
   // (or any object with turn()). `model` may be passed ready-made instead.
   constructor({
     relayTransport, resolveProject, listProjects, createModel, model, dataDir,
-    settings, log, now = () => Date.now(),
+    settings, log, now = () => Date.now(), readRelayConfig, refreshProjects, fileSource,
   } = {}) {
     this.relayTransport = relayTransport;
     this.resolveProject = resolveProject || (() => null);
     this.listProjects = listProjects || (() => []);
     this.settings = { ...DEFAULTS, ...(settings || {}) };
+    this._fileSettings = this.settings;
+    this._fileSource = fileSource || 'defaults';
+    this._readRelayConfig = readRelayConfig || null;
+    this._refreshProjects = refreshProjects || null;
+    this._settingsKey = null;     // source|project|model|calls last applied
+    this._settingsSource = this._fileSource;
+    this._settingsInFlight = null;
+    this._configOutage = false;
     this.log = log || new NullLogger();
     this.now = now;
     this.postsFile = path.join(dataDir, POSTS_FILE);
@@ -207,6 +231,7 @@ class ChiefOfStaff {
       this._emitStatus();
       return;
     }
+    this._refreshSettings().catch(() => {});
     if (!this.model && this._createModel) {
       this.model = this._createModel({
         kind: 'wake',
@@ -707,6 +732,55 @@ class ChiefOfStaff {
     this._emitStatus();
   }
 
+  // ---- settings source ---------------------------------------------------
+
+  // Re-reads relay's Chief of Staff setting. One call at a time; concurrent
+  // callers share the promise. Never rejects.
+  _refreshSettings() {
+    if (!this._settingsInFlight) {
+      this._settingsInFlight = this._doRefreshSettings()
+        .catch((err) => { this.log.warn(`Chief of Staff config refresh failed: ${err && err.message}`); })
+        .finally(() => { this._settingsInFlight = null; });
+    }
+    return this._settingsInFlight;
+  }
+
+  async _readRelayAnswer() {
+    if (!this._readRelayConfig) return { status: 200, data: { configured: false } };
+    try {
+      const res = await this._readRelayConfig();
+      return res && typeof res === 'object' ? res : { error: 'unreadable answer' };
+    } catch (err) {
+      return { error: (err && err.message) || String(err) };
+    }
+  }
+
+  async _doRefreshSettings() {
+    const answer = await this._readRelayAnswer();
+    const { settings, source } = resolveChiefOfStaffSettings(this._fileSettings, this._fileSource, answer, this.log);
+    if (!settings) {
+      if (!this._configOutage) {
+        this._configOutage = true;
+        this.log.warn(`Chief of Staff config: relay didn't answer (${answer.error || answer.status}); keeping ${this._settingsSource}`);
+      }
+      return;
+    }
+    this._configOutage = false;
+    const key = [source, settings.projectId, settings.model, settings.dailyModelCalls].join('|');
+    if (key === this._settingsKey) return;
+    const projectChanged = settings.projectId !== this.settings.projectId;
+    this._settingsKey = key;
+    this._settingsSource = source;
+    this.settings = settings;
+    const over = source === 'relay' && this._fileSource === 'settings.json' ? ' (overrides settings.json)' : '';
+    this.log.info(`Chief of Staff config from ${source}: project ${settings.projectId || 'automatic'}, model ${settings.model}, ${settings.dailyModelCalls} calls a day${over}`);
+    if (this._refreshProjects && settings.projectId
+      && (projectChanged || !this.listProjects().some((p) => p.id === settings.projectId))) {
+      try { await this._refreshProjects(); } catch { /* _chooseProject reports as before */ }
+    }
+    this._emitStatus();
+  }
+
   // ---- model access ------------------------------------------------------
 
   // D5: the configured project, else the first local project whose policy
@@ -748,6 +822,7 @@ class ChiefOfStaff {
   // Runs one model turn. Returns {text} or {error: <code>}; maps fatal
   // failures to `off` and never throws.
   async _modelTurn(kind, text) {
+    await this._refreshSettings();
     if (this._atLimit()) return { error: 'limit' };
     const project = this._chooseProject();
     const model = this._modelFor(kind);
@@ -999,6 +1074,7 @@ class ChiefOfStaff {
 module.exports = {
   ChiefOfStaff,
   parseChiefOfStaffSettings,
+  resolveChiefOfStaffSettings,
   sendFailureLine,
   turnFailureNotice,
   DEFAULTS,
