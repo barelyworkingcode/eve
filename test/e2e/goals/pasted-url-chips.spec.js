@@ -102,14 +102,16 @@ test.describe('Today Ask on a phone', () => {
   test('8 the chip row fits the viewport and × is at least 44 px', async ({ page }) => {
     await ask(page).tap();
     await paste(page, ask(page), `https://acme.example/${'long-path-segment/'.repeat(6)}`);
-    const row = await page.getByTestId('today-ask-urls').boundingBox();
-    expect(row.x).toBeGreaterThanOrEqual(0);
-    expect(row.x + row.width).toBeLessThanOrEqual(390);
-    const x = await page.getByTestId('today-ask-url-remove-1').boundingBox();
-    expect(x.width).toBeGreaterThanOrEqual(44);
-    expect(x.height).toBeGreaterThanOrEqual(44);
-    expect(x.x + x.width).toBeLessThanOrEqual(390);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await expect(page.getByTestId('today-ask-url-1')).toBeVisible();
+    await expect.poll(async () => {
+      const row = await page.getByTestId('today-ask-urls').boundingBox();
+      return [row.x >= 0, row.x + row.width <= 390];
+    }).toEqual([true, true]);
+    await expect.poll(async () => {
+      const x = await page.getByTestId('today-ask-url-remove-1').boundingBox();
+      return [x.width >= 44, x.height >= 44, x.x + x.width <= 390];
+    }).toEqual([true, true, true]);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 });
 
@@ -201,11 +203,17 @@ test.describe('chat input', () => {
     await expect(page.getByTestId('answer-source-2')).toHaveText(/acme\.example\s*2\s*$/);
     await answer.getByTestId('cite-chip-1').click();
     const pop = page.getByTestId('cite-popover');
-    expect(await pop.locator('.cite-title').textContent()).toBe('Lighthouse <img src=x onerror=alert(1)> guide');
-    expect(await pop.locator('.cite-excerpt').textContent()).toBe('Lighthouse The lighthouse is painted green & white. Visit <daily>.');
+    await expect(pop).toBeVisible();
+    await expect(pop.locator('.cite-title')).toHaveJSProperty('textContent', 'Lighthouse <img src=x onerror=alert(1)> guide');
+    await expect(pop.locator('.cite-excerpt')).toHaveJSProperty('textContent', 'Lighthouse The lighthouse is painted green & white. Visit <daily>.');
     await expect(pop.locator('img, iframe, script')).toHaveCount(0);
+    // A request the page made would reach the request log before this same-origin
+    // sentinel does (events arrive in order), once two frames have painted.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const sentinel = page.waitForRequest((r) => r.url().includes('/api/auth/status?barrier=1'));
+    await page.evaluate(() => fetch('/api/auth/status?barrier=1'));
+    await sentinel;
     expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
-    await page.waitForTimeout(300);
     expect(offOrigin).toEqual([]);
   });
 

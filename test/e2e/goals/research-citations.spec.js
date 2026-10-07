@@ -82,7 +82,6 @@ async function openResearch(page) {
 const thread = (page) => page.getByTestId('messages-container');
 const answer = (page, text = 'Acme ships rockets') => thread(page).locator('.message.assistant').filter({ hasText: text }).last();
 const popover = (page) => page.getByTestId('cite-popover');
-const nextSiblingText = (el) => el.nextElementSibling && el.nextElementSibling.textContent;
 
 // A1-A3: the row and chips any research answer must show, live or reopened.
 async function expectResearchAnswer(page) {
@@ -92,16 +91,16 @@ async function expectResearchAnswer(page) {
   await expect(row.locator('[data-testid^="answer-source-"]')).toHaveCount(2);
   await expect(page.getByTestId('answer-source-1')).toHaveText(/^\s*A\s*acme\.example\s*1\s*$/);
   await expect(page.getByTestId('answer-source-2')).toHaveText(/^\s*W\s*widgets\.example\s*2\s*$/);
-  expect(await row.evaluate(nextSiblingText)).toContain('Acme ships rockets');
+  await expect(page.locator('[data-testid="answer-sources"] + *')).toContainText('Acme ships rockets');
 
   const msg = answer(page);
   await expect(msg.locator('.cite-chip')).toHaveText(['1', '2', '1']);
-  expect(await msg.locator('.cite-chip').evaluateAll((els) => els.map((e) => e.tagName))).toEqual(['BUTTON', 'BUTTON', 'BUTTON']);
+  await expect(msg.locator('button.cite-chip')).toHaveText(['1', '2', '1']); // all three are buttons
   const paras = msg.locator('p');
   await expect(paras.nth(0)).toContainText('Acme ships rockets Acme launch'); // link text kept as plain text
   await expect(paras.nth(0).locator('a')).toHaveCount(0);
-  expect(await paras.nth(1).textContent()).toBe('Widgets are small 2.'); // digits-only text dropped
-  expect(await paras.nth(2).textContent()).toBe('Source: 1'); // URL-as-text dropped
+  await expect(paras.nth(1)).toHaveJSProperty('textContent', 'Widgets are small 2.'); // digits-only text dropped
+  await expect(paras.nth(2)).toHaveJSProperty('textContent', 'Source: 1'); // URL-as-text dropped
 }
 
 test.describe('S4 research citations', () => {
@@ -138,8 +137,8 @@ test.describe('S4 research citations', () => {
     await expect(pop.locator('.cite-mono')).toHaveText('A');
     await expect(pop.locator('.cite-host')).toHaveText('acme.example');
     await expect(pop.locator('.cite-n')).toHaveText('1');
-    expect(await pop.locator('.cite-title').textContent()).toBe(LONG_TITLE.slice(0, 160));
-    expect(await pop.locator('.cite-excerpt').textContent()).toBe('Acme ships rockets & "widgets"\n\nLaunch is on <Monday>.');
+    await expect(pop.locator('.cite-title')).toHaveJSProperty('textContent', LONG_TITLE.slice(0, 160));
+    await expect(pop.locator('.cite-excerpt')).toHaveJSProperty('textContent', 'Acme ships rockets & "widgets"\n\nLaunch is on <Monday>.');
     const open = pop.getByTestId('cite-open');
     await expect(open).toHaveText('Open source');
     await expect(open).toHaveAttribute('href', 'https://www.acme.example/launch');
@@ -198,11 +197,16 @@ test.describe('S4 research citations', () => {
     page.on('dialog', (d) => { dialogs++; d.dismiss().catch(() => {}); });
     await openResearch(page);
     await answer(page).getByTestId('cite-chip-2').click();
-    expect(await popover(page).locator('.cite-title').textContent()).toBe(IMG_TITLE);
+    await expect(popover(page).locator('.cite-title')).toHaveJSProperty('textContent', IMG_TITLE);
     for (const scope of [popover(page), page.getByTestId('answer-sources'), answer(page)]) {
       await expect(scope.locator('img, iframe, script')).toHaveCount(0);
     }
-    await page.waitForTimeout(300);
+    // A request the page made would reach the browser's request log before this
+    // same-origin sentinel does (events arrive in order), once two frames have painted.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const sentinel = page.waitForRequest((r) => r.url().includes('/api/auth/status?barrier=1'));
+    await page.evaluate(() => fetch('/api/auth/status?barrier=1'));
+    await sentinel;
     expect(offOrigin).toEqual([]);
     expect(dialogs).toBe(0);
   });
@@ -218,9 +222,9 @@ test.describe('S4 research citations', () => {
     await expect(followUp.locator('a[href="https://www.acme.example/launch"]')).toHaveText('Acme launch');
     await expect(followUp.locator('a[href="https://widgets.example/w"]')).toHaveText('more');
     await expect(followUp.locator('.cite-chip')).toHaveCount(0);
-    expect(await followUp.evaluate((el) => !!(el.previousElementSibling && el.previousElementSibling.matches('[data-testid="answer-sources"]')))).toBe(false);
+    await expect(page.locator('[data-testid="answer-sources"] + *').filter({ hasText: 'Again:' })).toHaveCount(0);
     await expect(page.getByTestId('answer-sources')).toHaveCount(1);
-    expect(await page.getByTestId('answer-sources').evaluate(nextSiblingText)).toContain('Acme ships rockets');
+    await expect(page.locator('[data-testid="answer-sources"] + *')).toContainText('Acme ships rockets');
   });
 });
 
@@ -234,16 +238,16 @@ test.describe('S4 on a phone with touch', () => {
     await chip.tap();
     await expect(popover(page)).toBeVisible();
 
-    const box = await popover(page).boundingBox();
-    expect(box.x).toBeGreaterThanOrEqual(0);
-    expect(box.y).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(390);
-    expect(box.y + box.height).toBeLessThanOrEqual(844);
+    await expect.poll(async () => {
+      const box = await popover(page).boundingBox();
+      return [box.x >= 0, box.y >= 0, box.x + box.width <= 390, box.y + box.height <= 844];
+    }).toEqual([true, true, true, true]);
     for (const target of [chip, page.getByTestId('answer-source-1'), page.getByTestId('cite-close')]) {
-      const b = await target.boundingBox();
-      expect(b.width).toBeGreaterThanOrEqual(44);
-      expect(b.height).toBeGreaterThanOrEqual(44);
+      await expect.poll(async () => {
+        const b = await target.boundingBox();
+        return Math.min(b.width, b.height) >= 44;
+      }).toBe(true);
     }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 });

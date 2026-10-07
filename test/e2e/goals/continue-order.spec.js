@@ -4,7 +4,7 @@
 const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 const { MODELS } = require('./fixture');
-const { backToToday, startChatInAlpha } = require('./today-helpers');
+const { backToToday, part, startChatInAlpha } = require('./today-helpers');
 
 const HOUR = 3600 * 1000;
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
@@ -29,8 +29,9 @@ test.use({
 test.describe('Continue order with many active threads', () => {
   test('the newest thread shows first though this browser never opened it', async ({ page }) => {
     await expect(page.getByTestId('home-session-s-new')).toBeVisible();
-    await expect(rows(page).first()).toHaveAttribute('data-testid', 'home-session-s-new');
+    await expect(part(page, 'continue')).toHaveAttribute('data-state', 'ready');
     await expect(rows(page)).toHaveCount(6);
+    await expect(rows(page).first()).toHaveAttribute('data-testid', 'home-session-s-new');
   });
 
   test('a thread opened here after any server activity ranks first', async ({ page }) => {
@@ -41,6 +42,8 @@ test.describe('Continue order with many active threads', () => {
     await expect(page).toHaveURL(/#session\/s-old/);
     await reloadEve(page); // Continue paints on load; a live repaint on return is not what this asserts
     await backToToday(page);
+    await expect(part(page, 'continue')).toHaveAttribute('data-state', 'ready');
+    await expect(rows(page)).toHaveCount(6);
     await expect(rows(page).first()).toHaveAttribute('data-testid', 'home-session-s-old');
   });
 });
