@@ -2858,6 +2858,7 @@ async function openChiefOfStaff(page, env) {
 
 async function cosAskingPost(env) {
   const id = 'cos-asking-post';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const page = await env.newPage();
   const seen = cosFrames(page);
   const made = await startCosAgent(env, `verify-${env.nonce} asker`);
@@ -2948,6 +2949,7 @@ function sessionMessageProblem(rows) {
 
 async function cosTellSendsMarked(env) {
   const id = 'cos-tell-sends-marked';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const name = `verify-${env.nonce} target`;
   const marker = `verify-${env.nonce}-cos`;
   const page = await env.newPage();
