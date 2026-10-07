@@ -296,6 +296,32 @@ function projectIdFromGrant(jsonText, name) {
   return hits[0].id;
 }
 
+// Setup V-COS (README): the Chief of Staff's own project, "Verify Chief of
+// Staff", holds exactly one MCP grant, the eve-cos registration for eve-verify.
+// `grantOut` and `mcpOut` are the texts of `relay grant --json` and `relay mcp
+// list`, or the Error a failed call threw. Returns the project's id when
+// exactly one has the name, and a BLOCKED detail ('' when the setup is right).
+const COS_PROJECT = 'Verify Chief of Staff';
+const COS_MCP = 'relay-eve-cos-verify';
+function chiefOfStaffSetup(grantOut, mcpOut) {
+  const blocked = (what, projectId = '') => ({ projectId, problem: `setup V-COS: ${what}; see devboxverify/README.md` });
+  if (grantOut instanceof Error) return blocked(`relay grant --json failed: ${firstLine(grantOut)}`);
+  let views;
+  try { views = JSON.parse(grantOut); } catch { return blocked('relay grant --json printed unreadable JSON'); }
+  const hits = (Array.isArray(views) ? views : []).filter(v => v && v.kind === 'project' && v.name === COS_PROJECT && typeof v.id === 'string' && v.id);
+  if (hits.length !== 1) return blocked(`${hits.length} projects named "${COS_PROJECT}", want 1`);
+  const projectId = hits[0].id;
+  const granted = (Array.isArray(hits[0].mcps) ? hits[0].mcps : []).map(m => (m && m.mcp) || '?');
+  if (granted.length !== 1 || granted[0] !== COS_MCP) {
+    return blocked(`"${COS_PROJECT}" is granted [${granted.join(', ')}], want exactly [${COS_MCP}]`, projectId);
+  }
+  if (mcpOut instanceof Error) return blocked(`relay mcp list failed: ${firstLine(mcpOut)}`, projectId);
+  if (!String(mcpOut).split('\n').some(line => line.trim().split(/\s+/)[0] === COS_MCP)) {
+    return blocked(`relay mcp list has no MCP ${COS_MCP}`, projectId);
+  }
+  return { projectId, problem: '' };
+}
+
 function journeyTimeout(timeoutMs, spentMs, budgetMs) {
   const left = budgetMs - spentMs;
   return left < MIN_JOURNEY_MS ? null : Math.min(timeoutMs, left);
@@ -540,6 +566,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   const relayBin = process.env.RELAY_BIN || '/Applications/Relay.app/Contents/MacOS/relay';
   const lsEnv = { env: { ...process.env, LC_ALL: 'C' } };
   let head, pid, cwd, liveCwd, listOut, dataDir, projects, worldCounts, repair;
+  let cosSetup = { projectId: '', problem: '' };
 
   const checks = [
     ['head', async () => (head = await git(checkout, 'rev-parse', 'HEAD'))],
@@ -618,9 +645,14 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       for (const f of chiefOfStaffResetPaths(path.dirname(files[0]), { liveDataDir: real(liveDataDir(listOut, liveCwd)) })) await fs.promises.rm(f, { force: true });
       // The one settings write: fixture setup for the Chief of Staff journeys, in the pinned dir only.
       const settingsFile = path.join(path.dirname(files[0]), 'settings.json');
-      const acmeId = projectIdFromGrant(await exec(relayBin, ['grant', '--project', world.projects.acme.name, '--json'], { timeout: 20000 }), world.projects.acme.name);
-      const current = await fs.promises.readFile(settingsFile, 'utf8').catch((err) => { if (err.code === 'ENOENT') return ''; throw err; });
-      await fs.promises.writeFile(settingsFile, chiefOfStaffSettings(current, acmeId));
+      // Read once, as completed CLI calls: a setup that is wrong blocks the Chief of Staff journeys, not the run.
+      const grantOut = await exec(relayBin, ['grant', '--json'], { timeout: 20000 }).catch((err) => err);
+      const mcpOut = await exec(relayBin, ['mcp', 'list'], { timeout: 20000 }).catch((err) => err);
+      cosSetup = chiefOfStaffSetup(grantOut, mcpOut);
+      if (cosSetup.projectId) {
+        const current = await fs.promises.readFile(settingsFile, 'utf8').catch((err) => { if (err.code === 'ENOENT') return ''; throw err; });
+        await fs.promises.writeFile(settingsFile, chiefOfStaffSettings(current, cosSetup.projectId));
+      }
       await exec(relayBin, ['service', 'restart', '--id', opts.service], { timeout: RESTART_TIMEOUT_MS });
       const deadline = Date.now() + OWNER_RESET_WAIT_MS;
       let status = null;
@@ -634,7 +666,8 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
       const problem = authStatusProblem(status);
       if (problem) throw new Error(problem);
       if (status.enrolled !== false) throw new Error('eve still has an owner after the reset');
-      return 'owner removed; not enrolled; Chief of Staff settings written';
+      return cosSetup.projectId ? 'owner removed; not enrolled; Chief of Staff settings written'
+        : 'owner removed; not enrolled; Chief of Staff settings not written';
     }],
   ];
   for (const [name, check] of checks) {
@@ -658,7 +691,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   const browser = await chromium.launch({ args: CHROMIUM_ARGS });
   const env = {
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
-    api, shared: {}, session: null, relayBin, service: opts.service, dataDir,
+    api, shared: {}, session: null, cosSetupProblem: cosSetup.problem, relayBin, service: opts.service, dataDir,
     serviceLog: serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`)),
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
       await exec(relayBin, ['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
@@ -758,7 +791,7 @@ module.exports = {
   scrub, formatLine, parseArgs, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-  relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths,
+  relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths, chiefOfStaffSetup,
 };
 
 if (require.main === module) {

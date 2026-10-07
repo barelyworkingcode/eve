@@ -34,11 +34,11 @@ bootstrap incomplete; repair.sh exited 2 without a result; run bootstrap.sh`,
 and the reason is on stderr.
 The tool never builds eve or registers a service, and edits settings in one
 place only: the owner reset below merges `chiefOfStaff: {model: 'haiku',
-projectId: <Acme Corp's id>, dailyModelCalls: 40}` into eve-verify's pinned
+projectId: <the id of `Verify Chief of Staff`>, dailyModelCalls: 40}` into eve-verify's pinned
 data dir `settings.json` before its restart, keeping every other key (the file
 is read as JSONC and rewritten as plain JSON, so comments go; a file that does
-not parse stops the reset). The id comes from `relay grant --project
-"Acme Corp" --json`. Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
+not parse stops the reset). The id comes from `relay grant --json`, which
+also gives setup V-COS its check (below). Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
 make in Acme Corp or the temp dir and remove, project-admin-in-relay's Save
 of Acme Corp as it stands, project-mode-new's `verify-<nonce>` project,
 which it deletes, mode-presets' `verify-<nonce> ask` template in Acme Corp,
@@ -644,9 +644,9 @@ request in its thread. PASS needs all of these.
 - Lives in: `chief-of-staff.js`; `public/chief-of-staff-page.js`,
   `public/panes/chief-of-staff-pane.js`; relay's `session_state` frames and
   its scoped listen-only `/ws`.
-- Traps: no BLOCKED or NOTRUN path. A box that cannot show the post is FAIL.
-  eve-verify must hold the settings the owner reset writes (the model `haiku`
-  and the Acme Corp project); the post is a transition, so the session must
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. A box that
+  cannot show the post is FAIL. eve-verify must hold the settings the owner
+  reset writes (the model `haiku` and the `Verify Chief of Staff` project); the post is a transition, so the session must
   start asking after eve-verify started. A cleanup deletes every new Acme Corp
   session.
 
@@ -665,9 +665,40 @@ is off, so I can't send.") is FAIL.
 - Lives in: `chief-of-staff.js` (the model's send, relay's scoped
   `session_message`); `public/chief-of-staff-page.js`;
   `public/message-renderer.js` (`message-origin-chip`).
-- Traps: no BLOCKED or NOTRUN path. The model decides the text it sends, so
-  the audit text is not compared. A cleanup deletes every new Acme Corp
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The model
+  decides the text it sends, so the audit text is not compared. A cleanup deletes every new Acme Corp
   session.
+
+**cos-reads-project.** The Chief of Staff answers from a project's files (G6).
+The journey writes `release-note.txt` (`Release code: verify-<nonce>-read`) into
+a `verify-<nonce>-cosread-*` folder in Acme Corp, opens the Chief of Staff
+thread and asks, in `cos-input`, for the release code in that file, naming the
+path and the project. A `cos_post` frame of kind `reply` must arrive within the
+turn bound (120 s); its body and the `cos-post-<id>` on the page must hold the
+marker, and the status model must be `claude-haiku-4-5-20251001`. A `notice`
+post, or no reply, is FAIL.
+- Lives in: `chief-of-staff.js` (the person session, read-only roots);
+  `mcp/cos.js`; `public/chief-of-staff-page.js`.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The folder is
+  removed by cleanup.
+
+**cos-start-card.** A start the model wrote after reading a file waits for a tap
+(G6). The journey writes `task.txt` (`Reply with exactly verify-<nonce>-task`)
+into a `verify-<nonce>-costask-*` folder in Acme Corp and asks the Chief of
+Staff to read it and start a headless agent in Acme Corp that does what it says.
+The first post must be a `start_card` (a `started` post at once is FAIL). Its
+`cos-card-<id>` must name Acme Corp, show mode `headless`, a Haiku model and a
+prompt holding the marker. After `cos-start-<id>`, a `started` post with
+`cos-open-<id>` must arrive, the card must reach `data-state="started"`, the
+status's `watching` count must grow, `relay audit --event session_launch` must
+hold an `ok` row with origin `chief-of-staff` for the new session (read after
+the `started` frame), and the started agent's thread must show an assistant
+reply with the marker within the turn bound.
+- Lives in: `chief-of-staff-actions.js`; `chief-of-staff-provenance.js`;
+  `public/chief-of-staff-page.js`; relay's scoped start route.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The
+  journey's cleanup deletes every new Acme Corp session. The installed relay
+  must audit `session_launch` with the session id.
 
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates
@@ -715,7 +746,7 @@ judged.
 
   ```bash
   relay service register --id eve-verify --name "eve verify" \
-    --command node --args server.js \
+    --command node --args --env-file=<main eve checkout>/.env --args server.js \
     --args --data --args ~/.local/state/eve-verify/data \
     --workdir <verify worktree> --url http://localhost:3100 \
     --env PORT=3100 --env EVE_PASSKEY_SYNC=off --env EVE_DISABLE_SUBNET_BYPASS=1 \
@@ -775,6 +806,27 @@ judged.
   open-world, so read access admits it and outbound must be on. The owner's
   own projects are untouched. chat-pasted-url-source is BLOCKED setup R1b
   while relay's audit shows the fetch denied.
+- **S3 · V-COS.** The Chief of Staff's project and its MCP, both
+  presence-gated in Relay. Test-world config, like `Verify Skills` (P8): not a
+  world project, found by name. Create a Relay project `Verify Chief of Staff`
+  with folder `~/verify-cos`, then register the MCP and grant it as the
+  project's only MCP:
+
+  ```bash
+  relay mcp register --id relay-eve-cos-verify --name "eve-cos (verify)" \
+    --command "$(command -v node)" --args <checkout under test>/mcp/cos.js \
+    --env EVE_INTERNAL_URL=http://127.0.0.1:3100 \
+    --env EVE_INTERNAL_SECRET="$(grep '^EVE_INTERNAL_SECRET=' <main eve checkout>/.env | cut -d= -f2-)"
+  ```
+
+  Run it in a desktop Terminal; it may prompt. The secret is read inline and
+  never printed. It is the value eve-verify runs with: S1 loads the main eve
+  checkout's `.env` through `--env-file`, and `/internal/cos` needs it.
+  Acme Corp gets no grant: the journeys start agents and write files there,
+  and the person session reads it through relay's read-only project roots. The
+  run reads `relay grant --json` and `relay mcp list` once; the three `cos-*`
+  journeys are BLOCKED `setup V-COS` unless exactly one project has the name,
+  its grant is exactly `relay-eve-cos-verify`, and the MCP is listed.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at

@@ -436,7 +436,7 @@ describe('devboxverify journey table', () => {
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
     'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part', 'chat-tool-search', 'agent-board-states',
     'agent-drop-in',
-    'cos-asking-post', 'cos-tell-sends-marked',
+    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -480,7 +480,7 @@ describe('devboxverify journey table', () => {
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
         'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
         'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in',
-        'cos-asking-post', 'cos-tell-sends-marked'].map(id => [id, acme])),
+        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card'].map(id => [id, acme])),
     });
   });
 
@@ -501,7 +501,7 @@ describe('devboxverify journey table', () => {
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'listen', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save',
-      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked',
+      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card',
       'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
       'chat-pasted-url-source', 'chat-tool-search', 'project-mode-new',
       'add-browser-in-window',
@@ -528,6 +528,8 @@ describe('devboxverify journey table', () => {
     ['agent-drop-in', 'devboxverify/README.md', ['home', 'terminal'], 150000],
     ['cos-asking-post', 'devboxverify/README.md', ['chief-of-staff'], 120000],
     ['cos-tell-sends-marked', 'devboxverify/README.md', ['chief-of-staff'], 150000],
+    ['cos-reads-project', 'devboxverify/README.md', ['chief-of-staff'], 180000],
+    ['cos-start-card', 'devboxverify/README.md', ['chief-of-staff'], 330000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -575,7 +577,7 @@ describe('devboxverify/journey-kit.js devices and probes', () => {
 describe('devboxverify/main.js run plan and owner reset', () => {
   const {
     JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-    relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths,
+    relayAuditRows, serviceLogReader, chiefOfStaffSettings, projectIdFromGrant, chiefOfStaffResetPaths, chiefOfStaffSetup,
   } = require('../../devboxverify/main');
   const ids = list => list.map(j => j.id);
   const mixed = [{ id: 's', screen: true }, { id: 'a' }, { id: 'f1', fixture: true }, { id: 'b' }, { id: 'f2', fixture: true }];
@@ -694,6 +696,34 @@ describe('devboxverify/main.js run plan and owner reset', () => {
 
     it('refuses text that is not JSON', () => {
       expect(() => projectIdFromGrant('no projects', 'Acme')).toThrow(/unreadable/);
+    });
+  });
+
+  describe('chiefOfStaffSetup', () => {
+    const view = (id, name, mcps) => ({ id, name, kind: 'project', mcps: mcps.map(mcp => ({ mcp })) });
+    const grant = views => JSON.stringify(views);
+    const list = 'ID NAME TRANSPORT ENDPOINT\nmacmcp macMCP stdio /bin/x\nrelay-eve-cos-verify eve-cos stdio /bin/node\n';
+    const good = [view('p9', 'Verify Chief of Staff', ['relay-eve-cos-verify']), view('p1', 'Acme Corp', ['macmcp'])];
+
+    it('returns the project id and no problem for the exact grant', () => {
+      expect(chiefOfStaffSetup(grant(good), list)).toEqual({ projectId: 'p9', problem: '' });
+    });
+
+    it.each([
+      ['no such project', [view('p1', 'Acme Corp', ['macmcp'])], list, ''],
+      ['two such projects', [good[0], view('p8', 'Verify Chief of Staff', ['relay-eve-cos-verify'])], list, ''],
+      ['an extra grant', [view('p9', 'Verify Chief of Staff', ['relay-eve-cos-verify', 'macmcp'])], list, 'p9'],
+      ['no grant', [view('p9', 'Verify Chief of Staff', [])], list, 'p9'],
+      ['another MCP only', [view('p9', 'Verify Chief of Staff', ['macmcp'])], list, 'p9'],
+      ['an unregistered MCP', good, 'ID NAME\nmacmcp macMCP\n', 'p9'],
+    ])('blocks on %s, naming the setup step', (_l, views, mcps, projectId) => {
+      const r = chiefOfStaffSetup(grant(views), mcps);
+      expect(r.projectId).toBe(projectId);
+      expect(r.problem).toMatch(/^setup V-COS: .*devboxverify\/README\.md$/);
+    });
+
+    it.each([['unreadable grant', 'nope'], ['a failed grant call', new Error('exit 1')]])('blocks on %s', (_l, out) => {
+      expect(chiefOfStaffSetup(out, list)).toEqual({ projectId: '', problem: expect.stringMatching(/^setup V-COS:/) });
     });
   });
 

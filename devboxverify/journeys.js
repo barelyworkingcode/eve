@@ -2858,6 +2858,7 @@ async function openChiefOfStaff(page, env) {
 
 async function cosAskingPost(env) {
   const id = 'cos-asking-post';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const page = await env.newPage();
   const seen = cosFrames(page);
   const made = await startCosAgent(env, `verify-${env.nonce} asker`);
@@ -2948,6 +2949,7 @@ function sessionMessageProblem(rows) {
 
 async function cosTellSendsMarked(env) {
   const id = 'cos-tell-sends-marked';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const name = `verify-${env.nonce} target`;
   const marker = `verify-${env.nonce}-cos`;
   const page = await env.newPage();
@@ -3017,6 +3019,159 @@ async function cosTellSendsMarked(env) {
     + `from chief-of-staff; the agent's thread marks the message; ${said}`);
 }
 
+const COS_TURN_WITHIN_MS = 120000;
+
+// Types one line to the Chief of Staff and returns where the new posts begin.
+async function cosSay(page, seen, text) {
+  const input = page.getByTestId('cos-input');
+  await input.fill(text, { timeout: 5000 });
+  const from = seen.posts.length;
+  await input.press('Enter');
+  return from;
+}
+
+// The first post from `from` on whose kind is one of `kinds`; null at the bound.
+async function cosWaitPost(seen, from, kinds) {
+  return poll(async () => seen.posts.slice(from).find((p) => kinds.includes(p.kind)) || null,
+    { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 250 });
+}
+
+// A file with `body` in a scratch folder in Acme Corp; the path is as the
+// person names it, relative to the project folder.
+async function acmeFile(env, kind, name, body) {
+  const dir = await scratchFolder(env, kind);
+  await fs.promises.writeFile(path.join(dir, name), body);
+  return `${path.basename(dir)}/${name}`;
+}
+
+async function cosModelProblem(seen) {
+  await poll(async () => seen.status && seen.status.model, { timeoutMs: 5000, intervalMs: 250 });
+  const model = seen.status && seen.status.model;
+  return model === COS_MODEL_ID ? null : `the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`;
+}
+
+async function cosReadsProject(env) {
+  const id = 'cos-reads-project';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const acme = env.world.projects.acme;
+  const marker = `verify-${env.nonce}-read`;
+  const file = await acmeFile(env, 'cosread', 'release-note.txt', `Release code: ${marker}\n`);
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+
+  env.step('ask about the file');
+  const from = await cosSay(page, seen, `In the project ${acme.name}, read the file ${file} and tell me the release code it holds.`);
+  env.step('wait for the reply post');
+  const post = await cosWaitPost(seen, from, ['reply', 'notice']);
+  if (!post) return result(id, FAIL, `no reply post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  const said = String(post.body || post.text || '').replace(/\s+/g, ' ').trim();
+  if (post.kind !== 'reply') return result(id, FAIL, `the thread posted a notice instead of a reply: "${said}"`);
+  const problems = [];
+  if (!said.includes(marker)) problems.push(`the reply does not hold the file's line ${marker}: "${said.slice(0, 120)}"`);
+  const shown = await expect(page.getByTestId(`cos-post-${post.id}`)).toContainText(marker, { timeout: 10000 }).then(() => true, () => false);
+  if (!shown) problems.push('the reply post on the page does not show the marker');
+  const modelProblem = await cosModelProblem(seen);
+  if (modelProblem) problems.push(modelProblem);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `the Chief of Staff, on ${COS_MODEL_ID}, answered from ${file} in ${acme.name} with ${marker}`);
+}
+
+// The audit rows `relay audit` holds for one session_launch target.
+async function sessionLaunchRows(env, sessionId) {
+  const args = ['audit', '--event', 'session_launch', '--grep', sessionId, '--json', '--tail', '50'];
+  const { stdout } = await exec(env.relayBin, args, { timeout: 10000, maxBuffer: 32 << 20 });
+  const rows = [];
+  for (const line of stdout.split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (!o || o.event !== 'session_launch') continue;
+    const a = o.args && typeof o.args === 'object' ? o.args : {};
+    if (a.session_id === sessionId) rows.push({ outcome: o.outcome, origin: a.origin });
+  }
+  return rows;
+}
+
+async function cosStartCard(env) {
+  const id = 'cos-start-card';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const acme = env.world.projects.acme;
+  const marker = `verify-${env.nonce}-task`;
+  const file = await acmeFile(env, 'costask', 'task.txt', `Reply with exactly ${marker} and nothing else.\n`);
+  const before = await acmeIds(env, 'sessions');
+  env.cleanup(`delete the ${acme.name} agent session`, async () => {
+    for (const sid of addedIds(before, await acmeIds(env, 'sessions'))) await deleteSession(env, sid);
+  });
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+
+  env.step('ask for the start');
+  const from = await cosSay(page, seen,
+    `Read ${file} in ${acme.name} and start a headless agent in ${acme.name} that does what it says.`);
+  env.step('wait for the Start card');
+  const proposed = await cosWaitPost(seen, from, ['start_card', 'started', 'start_failed', 'reply', 'notice']);
+  if (!proposed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  if (proposed.kind !== 'start_card') {
+    const said = String(proposed.body || proposed.text || proposed.error || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    return result(id, FAIL, `the first post after the request is "${proposed.kind}", want start_card after a file read: "${said}"`);
+  }
+  const postId = proposed.id;
+  const problems = [];
+
+  env.step('look at the card');
+  const card = page.getByTestId(`cos-card-${postId}`);
+  await need('the Start card is not on the page', expect(card).toBeVisible({ timeout: 10000 }));
+  const field = async (key) => (await card.locator(`[data-field="${key}"] .cos-field__value`).innerText({ timeout: 5000 }).catch(() => '')).trim();
+  const title = (await card.locator('.cos-card__title').innerText({ timeout: 5000 }).catch(() => '')).trim();
+  if (title !== acme.name) problems.push(`the card names "${title}", not ${acme.name}`);
+  const mode = await field('mode');
+  if (mode !== 'headless') problems.push(`the card mode is "${mode}", not headless`);
+  const model = await field('model');
+  if (!/haiku/i.test(model)) problems.push(`the card model is "${model}", not haiku`);
+  const prompt = await field('prompt');
+  if (!prompt.includes(marker)) problems.push(`the card prompt does not hold ${marker}: "${prompt.slice(0, 120)}"`);
+  const modelProblem = await cosModelProblem(seen);
+  if (modelProblem) problems.push(modelProblem);
+  const watching = (seen.status && seen.status.watching) | 0;
+
+  env.step('tap Start');
+  await page.getByTestId(`cos-start-${postId}`).click({ timeout: 5000 });
+  const started = await cosWaitPost(seen, from, ['started', 'start_failed']);
+  if (!started) return result(id, FAIL, `no started post within ${COS_TURN_WITHIN_MS / 1000}s of Start; ${problems.join('; ')}`);
+  if (started.kind !== 'started') return result(id, FAIL, `Start posted a failure: "${started.error || ''}"; ${problems.join('; ')}`);
+  const sid = started.sessionId;
+  const cardStarted = await expect(page.getByTestId(`cos-card-${postId}`)).toHaveAttribute('data-state', 'started', { timeout: 15000 }).then(() => true, () => false);
+  if (!cardStarted) problems.push('the card never reached data-state="started"');
+  const open = page.locator(`[data-testid="cos-post-${started.id}"]`).getByTestId(`cos-open-${started.id}`);
+  if (await open.count() !== 1) problems.push('the Started post has no Open');
+  if (started.mode !== 'headless') problems.push(`the Started post mode is "${started.mode}", not headless`);
+  const grew = await poll(async () => (seen.status && (seen.status.watching | 0) > watching) || null, { timeoutMs: 10000, intervalMs: 250 });
+  if (!grew) problems.push(`the roster did not grow past ${watching} watched agents`);
+
+  env.step('read relay audit');
+  let rows = [];
+  await poll(async () => {
+    rows = await sessionLaunchRows(env, sid).catch(() => []);
+    return rows.length ? rows : null;
+  }, { timeoutMs: 10000, intervalMs: 500 });
+  if (!rows.some((r) => r.origin === 'chief-of-staff' && r.outcome === 'ok')) {
+    problems.push(`relay audit holds no ok session_launch row with origin chief-of-staff for the session (rows: ${rows.map((r) => `${r.outcome}/${r.origin || 'none'}`).join(', ') || 'none'})`);
+  }
+
+  env.step('open the started agent\'s thread');
+  const other = await env.newPage();
+  await openEve(other, env, `#session/${sid}`);
+  const answered = await poll(async () => (await thread(other).catch(() => [])).some((m) => m.who === 'message-assistant' && m.text.includes(marker)),
+    { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 1000 });
+  if (!answered) problems.push(`the started agent's thread holds no assistant reply with ${marker} within ${COS_TURN_WITHIN_MS / 1000}s`);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `reading ${file} made a Start card for ${acme.name} (headless, ${model}) with the prompt; Start posted Started with Open, `
+    + `the roster grew, relay audit holds an ok session_launch from chief-of-staff, and the agent replied ${marker}`);
+}
+
 const auth = require('./journeys-auth').journeys;
 const toolSearch = require('./journeys-tool-search').journeys;
 
@@ -3061,6 +3216,8 @@ const journeys = [
   { id: 'agent-drop-in', timeoutMs: 150000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropIn },
   { id: 'cos-asking-post', timeoutMs: 120000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosAskingPost },
   { id: 'cos-tell-sends-marked', timeoutMs: 150000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosTellSendsMarked },
+  { id: 'cos-reads-project', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosReadsProject },
+  { id: 'cos-start-card', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosStartCard },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },

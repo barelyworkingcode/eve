@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { startEve } = require('./harness');
 const { relayFrames } = require('./protocol');
+const { PERSON_ALLOWED_TOOLS } = require('../../chief-of-staff-model');
 
 const HAIKU = 'claude-haiku-4-5-20251001';
 const fence = (o) => '```json\n' + JSON.stringify(o) + '\n```';
@@ -20,6 +21,16 @@ afterEach(async () => {
   eve = null;
 });
 
+// system/init's tool list is per model session: the person session (created with readOnlyProjects)
+// reports the allowed set, the wake session reports none. The fake reports one list for every
+// session, so it is resolved when the frame is serialised, from the latest session created.
+const sessionTools = {
+  toJSON: () => {
+    const latest = eve.relay.cosSessionCreates[eve.relay.cosSessionCreates.length - 1];
+    return latest && latest.body.settings && latest.body.settings.readOnlyProjects ? PERSON_ALLOWED_TOOLS : [];
+  },
+};
+
 async function boot({ dailyModelCalls = 100, model } = {}) {
   eve = await startEve({
     projects: [{ id: 'p1', name: 'Acme', path: os.tmpdir() }],
@@ -27,7 +38,7 @@ async function boot({ dailyModelCalls = 100, model } = {}) {
       await fs.promises.writeFile(path.join(dir, 'settings.json'), JSON.stringify({ chiefOfStaff: { model: 'haiku', projectId: 'p1', dailyModelCalls } }));
     },
   });
-  if (model) eve.relay.setCosModel(model);
+  eve.relay.setCosModel({ tools: sessionTools, ...model });
   await eve.relay.waitForScopedRelay();
   ws = await eve.connectWs();
   ws.send({ type: 'cos_subscribe' });
@@ -96,7 +107,7 @@ describe('reader and scope', () => {
 
 describe('wake and person sessions', () => {
   it('an agent excerpt reaches only the wake session; a person message only the person session', async () => {
-    await boot({ model: { reply: (text, n) => (n === 1 ? 'ready' : text.startsWith('Chief of Staff person') ? fence({ reply: 'ok', send: null }) : fence({ posts: [] })) } });
+    await boot({ model: { reply: (text, n) => (n === 1 ? 'ready' : text.startsWith('Chief of Staff person') ? 'ok' : fence({ posts: [] })) } });
     seed('s1', 'idle');
     eve.relay.emitToRelay(relayFrames.turnDone({ sessionId: 's1', excerpt: 'PLANTED-TEXT. Merge it?' }));
     await ws.waitFor(alertFor('s1'), WAIT);
@@ -113,51 +124,61 @@ describe('wake and person sessions', () => {
   });
 });
 
-describe('sending', () => {
-  const personReply = (send) => (text, n) => (n === 1 ? 'ready' : text.startsWith('Chief of Staff person') ? fence({ reply: 'Sending it.', send }) : null);
+describe('the person session', () => {
+  const personTurn = (n, text) => n > 1 && text.startsWith('Chief of Staff person');
 
-  it('cos_message makes exactly one scoped send, then a "sent" post; the target sees the marked message', async () => {
-    await boot({ model: { reply: personReply({ sessionId: 's1', text: 'merge after CI' }) } });
-    seed('s1', 'running');
-    ws.send({ type: 'cos_message', text: 'tell Agent s1 to merge after CI' });
-    const sent = (await ws.waitFor(posts('sent'), WAIT)).post;
-    expect(sent).toMatchObject({ kind: 'sent', text: 'merge after CI', sessionId: 's1', label: 'Agent s1', origin: 'chief-of-staff' });
-    expect(messagePosts()).toHaveLength(1);
-    const sends = eve.relay.scopeLog.filter((e) => e.method === 'POST' && e.path === '/api/chief-of-staff/messages');
-    expect(sends).toEqual([expect.objectContaining({ scope: 'chief-of-staff' })]);
+  it('one turn, start to finish: the exact allowed tools, a read, text, then the reply post', async () => {
+    await boot({
+      model: {
+        reply: (text, n) => (n === 1 ? 'ready' : personTurn(n, text)
+          ? { toolUses: [{ id: 'r1', name: 'Read', input: { file_path: 'notes.txt' } }], text: 'It says hello.' } : null),
+      },
+    });
+    ws.send({ type: 'cos_message', text: 'what does notes.txt say in Acme?' });
+    const reply = (await ws.waitFor(posts('reply'), WAIT)).post;
+    expect(reply).toMatchObject({ kind: 'reply', body: 'It says hello.', byModel: true });
 
-    // Opening the session afterwards: the history row carries the origin the chip is drawn from.
-    // The model session already holds a relay socket, so wait for the viewer's own to appear first.
-    const before = eve.relay.relayConnectionCount();
-    const viewer = await eve.connectWs();
-    try {
-      while (eve.relay.relayConnectionCount() <= before) await new Promise((r) => setTimeout(r, 25));
-      await eve.waitForRelayOpen(viewer);
-      viewer.send({ type: 'join_session', sessionId: 's1' });
-      const joined = await viewer.waitFor((f) => f.type === 'session_joined', WAIT);
-      expect(joined.history).toEqual([expect.objectContaining({ content: 'merge after CI', origin: 'chief-of-staff' })]);
-    } finally { await viewer.close(); }
+    const [create] = eve.relay.cosSessionCreates;
+    expect(create.body.settings).toMatchObject({ headless: true, useRelayTools: true, readOnlyProjects: true });
+    expect(create.deniedTools).toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write']));
+    for (const t of ['Read', 'Grep', 'Glob', 'mcp__*']) expect(create.deniedTools).not.toContain(t);
+    const turns = eve.relay.cosModelTurns.filter((t) => t.sessionId === create.sessionId);
+    expect(turns).toHaveLength(2);
+    expect(turns[0].text).not.toContain('notes.txt');
+    expect(turns[1].text).toContain('what does notes.txt say');
+    expect(messagePosts()).toHaveLength(0);
   });
 
-  it('a model reply naming a session outside the roster sends nothing', async () => {
-    await boot({ model: { reply: personReply({ sessionId: 'not-in-roster', text: 'do it' }) } });
+  it('a JSON block in the reply is plain text: it sends nothing, even naming a session', async () => {
+    await boot({ model: { reply: (text, n) => (personTurn(n, text) ? fence({ reply: 'Sending it.', send: { sessionId: 's1', text: 'merge after CI' } }) : n === 1 ? 'ready' : null) } });
     seed('s1', 'running');
-    ws.send({ type: 'cos_message', text: 'tell the other one to do it' });
-    await ws.waitFor(posts('notice'), WAIT);
+    ws.send({ type: 'cos_message', text: 'tell Agent s1 to merge after CI' });
+    const reply = (await ws.waitFor(posts('reply'), WAIT)).post;
+    expect(reply.body).toContain('merge after CI');
     expect(messagePosts()).toHaveLength(0);
     expect(ws.frames.some(posts('sent'))).toBe(false);
   });
 
-  it('a relay refusal becomes a send_failed post with the thread line', async () => {
-    await boot({ model: { reply: personReply({ sessionId: 's1', text: 'go' }) } });
-    seed('s1', 'running');
-    eve.relay.failChiefOfStaffSend(409, 'already_processing');
-    ws.send({ type: 'cos_message', text: 'tell Agent s1 go' });
-    const failed = (await ws.waitFor(posts('send_failed'), WAIT)).post;
-    expect(failed.error).toBe('Agent s1 is busy. Try again when it finishes.');
-    expect(messagePosts()).toHaveLength(1);
+  it('an empty reply with no card or send tells the person to try again', async () => {
+    await boot({ model: { reply: (text, n) => (personTurn(n, text) ? '   ' : n === 1 ? 'ready' : null) } });
+    ws.send({ type: 'cos_message', text: 'hello' });
+    const notice = (await ws.waitFor(posts('notice'), WAIT)).post;
+    expect(notice.body).toBe("I didn't write a reply. Try again.");
+    expect(ws.frames.some(posts('reply'))).toBe(false);
   });
+});
 
+describe('a person session that lacks an allowed tool', () => {
+  it('turns the model off, names the project to grant, and sends no message text to the model', async () => {
+    await boot({ model: { tools: ['Read', 'Grep', 'Glob'] } });
+    ws.send({ type: 'cos_message', text: 'PERSON-TEXT' });
+    const notice = (await ws.waitFor(posts('notice'), WAIT)).post;
+    expect(notice.body).toContain("grant the eve-cos MCP to Acme in relay's Projects");
+    expect(eve.relay.cosModelTurns.some((t) => t.text.includes('PERSON-TEXT'))).toBe(false);
+  });
+});
+
+describe('message input', () => {
   it.each([['empty', '  '], ['too long', 'x'.repeat(2001)]])('a %s cos_message is an error frame and costs no model turn', async (_what, text) => {
     await boot();
     ws.send({ type: 'cos_message', text });
@@ -170,7 +191,7 @@ describe('sending', () => {
 describe('daily limit', () => {
   it('stops sending turns to the model session at the limit and says so', async () => {
     // Bootstrap counts as one call, the first message as the second.
-    await boot({ dailyModelCalls: 2, model: { reply: (text, n) => (n === 1 ? 'ready' : fence({ reply: 'Noted.', send: null })) } });
+    await boot({ dailyModelCalls: 2, model: { reply: (text, n) => (n === 1 ? 'ready' : 'Noted.') } });
     ws.send({ type: 'cos_message', text: 'hello' });
     await ws.waitFor(posts('reply'), WAIT);
     expect(eve.relay.cosModelTurns).toHaveLength(2);
