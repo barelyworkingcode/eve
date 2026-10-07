@@ -704,6 +704,7 @@ describe('devboxverify/main.js run plan and owner reset', () => {
       ['a failed grant call', new Error('exit 1'), list, /grant --json failed/],
       ['a failed mcp list call', grant(good), new Error('exit 1'), /mcp list failed/],
       ['unreadable grant JSON', 'nope', list, /unreadable/],
+      ['grant JSON that is not a list', JSON.stringify({ id: 'p9', name: 'Verify Chief of Staff', kind: 'project' }), list, /unreadable/],
     ])('throws on %s, so the preflight fails', (_l, g, m, re) => {
       expect(() => chiefOfStaffSetup(g, m)).toThrow(re);
     });

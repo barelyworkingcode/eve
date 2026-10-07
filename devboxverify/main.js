@@ -301,8 +301,9 @@ function chiefOfStaffSetup(grantOut, mcpOut) {
   if (mcpOut instanceof Error) throw new Error(`relay mcp list failed: ${firstLine(mcpOut)}`);
   let views;
   try { views = JSON.parse(grantOut); } catch { throw new Error('relay grant printed unreadable JSON'); }
+  if (!Array.isArray(views)) throw new Error('relay grant printed unreadable JSON');
   const blocked = (what, projectId = '') => ({ projectId, problem: `setup V-COS: ${what}; see devboxverify/README.md` });
-  const hits = (Array.isArray(views) ? views : []).filter(v => v && v.kind === 'project' && v.name === COS_PROJECT && typeof v.id === 'string' && v.id);
+  const hits = views.filter(v => v && v.kind === 'project' && v.name === COS_PROJECT && typeof v.id === 'string' && v.id);
   if (hits.length !== 1) return blocked(`${hits.length} projects named "${COS_PROJECT}", want 1`);
   const projectId = hits[0].id;
   const granted = (Array.isArray(hits[0].mcps) ? hits[0].mcps : []).map(m => (m && m.mcp) || '?');

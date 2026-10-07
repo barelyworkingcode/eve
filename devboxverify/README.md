@@ -38,7 +38,7 @@ projectId: <the id of `Verify Chief of Staff`>, dailyModelCalls: 40}` into eve-v
 data dir `settings.json` before its restart, keeping every other key (the file
 is read as JSONC and rewritten as plain JSON, so comments go; a file that does
 not parse stops the reset). The id comes from `relay grant --json`,
-which also gives setup V-COS its check (below). Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
+which also gives setup V-COS its check (below); unless exactly one `Verify Chief of Staff` project exists, the merge is skipped and the preflight line says "Chief of Staff settings not written". Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
 make in Acme Corp or the temp dir and remove, project-admin-in-relay's Save
 of Acme Corp as it stands, project-mode-new's `verify-<nonce>` project,
 which it deletes, mode-presets' `verify-<nonce> ask` template in Acme Corp,
@@ -783,7 +783,7 @@ judged.
 
   ```bash
   relay mcp register --id relay-eve-cos-verify --name "eve-cos (verify)" \
-    --command "$(command -v node)" --args <checkout under test>/mcp/cos.js \
+    --command "$(command -v node)" --args <main eve checkout>/mcp/cos.js \
     --env EVE_INTERNAL_URL=http://127.0.0.1:3100 \
     --env EVE_INTERNAL_SECRET="$(grep '^EVE_INTERNAL_SECRET=' <main eve checkout>/.env | cut -d= -f2-)"
   ```
