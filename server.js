@@ -428,6 +428,11 @@ registerRoutes(app, {
 // reachable from the browser or the public origin. See ui-command-bus.js.
 app.post('/internal/ui-command', (req, res) => uiCommandBus.handleInternalRequest(req, res));
 
+// The eve-cos MCP's calls (docs/design-chief-of-staff.md, "Actions and
+// provenance"): same loopback and secret gate, then tied to the model's own
+// tool_use in the person's current turn.
+app.post('/internal/cos', require('./chief-of-staff-actions').internalHandler(chiefOfStaff, INTERNAL_SECRET));
+
 // Single-segment regex so /api/* and /monaco/... stay multi-segment and never match.
 app.get(/^\/[^/]+\/?$/, serveIndexWithCachebust);
 

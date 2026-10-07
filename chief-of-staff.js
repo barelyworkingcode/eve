@@ -17,6 +17,8 @@ const { NullLogger } = require('./logger');
 const prompt = require('./chief-of-staff-prompt');
 const { HIDDEN_SEARCH_PREFIX } = require('./search-summarizer');
 const { HIDDEN_COS_PREFIX } = require('./chief-of-staff-model');
+const actions = require('./chief-of-staff-actions');
+const provenance = require('./chief-of-staff-provenance');
 
 const SCOPE = 'chief-of-staff';
 const POSTS_FILE = 'chief-of-staff.jsonl';
@@ -39,6 +41,7 @@ const PENDING_UNKNOWN_MAX = 50;
 const PERSON_MAX = 2000;
 const QUOTE_MAX = 500;
 const LABEL_MAX = 80;
+const EXCERPT_MAX = 500;
 
 // Model failures that mean "this model must not run": keep posting templates.
 const FATAL_MODEL_CODES = new Set(['launch_failed', 'tools_present', 'tools_unverified', 'authentication_failed']);
@@ -142,6 +145,10 @@ class ChiefOfStaff {
     this._waiting = new Map();    // sessionId -> trigger entry (newer replaces)
     this._people = [];            // person messages waiting for a turn
     this._inFlight = null;
+    // The person turn in flight (a CosTurn), and whether the person model
+    // session has read anything in its life; both are reset by the session id.
+    this._turn = null;
+    this._readState = { sessionId: null, read: false };
     this._batchTimer = null;
     this._lastBusy = false;
 
@@ -193,6 +200,7 @@ class ChiefOfStaff {
         countCall: () => this.countCall(),
         previousSessionId: this.state.personSessionId,
         onSessionId: (id) => this._setModelSession('person', id),
+        onToolUse: (e) => this._onToolUse(e),
       });
     }
     this._connect();
@@ -271,7 +279,12 @@ class ChiefOfStaff {
     const own = typeof id === 'string' && id ? id : null;
     this._ownIds[kind] = own;
     if (own) this.roster.delete(own);
-    if (kind === 'person') this.state.personSessionId = own; else this.state.modelSessionId = own;
+    if (kind === 'person') {
+      this.state.personSessionId = own;
+      if (own !== this._readState.sessionId) this._readState = { sessionId: own, read: false };
+    } else {
+      this.state.modelSessionId = own;
+    }
     this._persistState();
   }
 
@@ -298,10 +311,20 @@ class ChiefOfStaff {
     post.byModel = fields.byModel === true;
     this.posts.push(post);
     if (this.posts.length > MAX_POSTS) this.posts.splice(0, this.posts.length - MAX_POSTS);
-    const text = this.posts.map((p) => JSON.stringify(p)).join('\n') + '\n';
-    this._queueWrite(() => writeAtomic(this.postsFile, text), 'posts');
+    this._persistPosts();
     this._fanOut({ type: 'cos_post', post });
     return post;
+  }
+
+  _persistPosts() {
+    const text = this.posts.map((p) => JSON.stringify(p)).join('\n') + '\n';
+    this._queueWrite(() => writeAtomic(this.postsFile, text), 'posts');
+  }
+
+  // A post changed in place (a card's state): persist it and replace it in browsers.
+  _updatePost(post) {
+    this._persistPosts();
+    this._fanOut({ type: 'cos_post_update', post });
   }
 
   _notice(body) {
@@ -394,6 +417,7 @@ class ChiefOfStaff {
       projectId: s.projectId || '',
       model: typeof s.model === 'string' ? s.model : '',
       headless: s.headless === true,
+      origin: typeof s.origin === 'string' ? s.origin : '',
       state: att ? att.state : null,
       since: att && typeof att.since === 'string' ? att.since : '',
     };
@@ -429,7 +453,7 @@ class ChiefOfStaff {
       } else if (seed) {
         this.roster.set(s.id, fresh);
       } else {
-        known.name = fresh.name; known.projectId = fresh.projectId; known.model = fresh.model; known.headless = fresh.headless;
+        known.name = fresh.name; known.projectId = fresh.projectId; known.model = fresh.model; known.headless = fresh.headless; known.origin = fresh.origin;
       }
     }
     if (seed || prune) {
@@ -562,6 +586,7 @@ class ChiefOfStaff {
 
   _applyTurnDone(row, frame) {
     const excerpt = typeof frame.excerpt === 'string' ? frame.excerpt : '';
+    row.lastExcerpt = cut(excerpt, EXCERPT_MAX);
     if (!prompt.isQuestion(excerpt)) return;
     this._enqueue(row.id, {
       kind: 'question', state: 'question',
@@ -811,16 +836,32 @@ class ChiefOfStaff {
     if (text.length < 1 || text.length > PERSON_MAX) {
       throw new Error(`Message must be 1 to ${PERSON_MAX} characters`);
     }
-    this._addPost({ kind: 'person', text, byModel: false });
+    const personPost = this._addPost({ kind: 'person', text, byModel: false });
     if (!this.settings.enabled || (this.off && (this.off.reason === 'disabled' || this.off.reason === 'scope_refused'))) {
       this._notice(offNotice(this.off || { reason: 'disabled' }));
       return;
     }
-    this._people.push({ text });
+    this._people.push({ text, postId: personPost.id });
     this._pump();
   }
 
+  // Records the model's tool calls for the length of the turn, so an eve-cos
+  // call can be tied to a call the model really made.
   async _personTurn(job) {
+    const model = this._modelFor('person');
+    const turn = new actions.CosTurn({
+      personPostId: job.postId || null, personText: job.text, modelSessionId: model && model.sessionId, now: this.now,
+    });
+    this._turn = turn;
+    try {
+      await this._personTurnBody(job);
+    } finally {
+      turn.settle();
+      if (this._turn === turn) this._turn = null;
+    }
+  }
+
+  async _personTurnBody(job) {
     if (this._atLimit()) {
       this._notice("I've reached today's limit, so I can't send until tomorrow.");
       return;
@@ -866,7 +907,55 @@ class ChiefOfStaff {
     if (parsed.send) await this._send(parsed.send.sessionId, parsed.send.text);
   }
 
+  // The person model's tool_use stream. Any reading tool, in any turn, marks
+  // the model session as having read; only an in-flight turn records the call.
+  _onToolUse({ sessionId, toolUseId, name, input }) {
+    if (this._readState.sessionId !== sessionId) this._readState = { sessionId, read: false };
+    if (provenance.isReadingTool(name)) this._readState.read = true;
+    const turn = this._turn;
+    if (!turn || turn.settled) return;
+    turn.record({ sessionId, toolUseId, name, input });
+    // Turn id and tool name only: the input can quote agent data.
+    this.log.info?.(`Chief of Staff tool call: turn ${turn.turnId} tool ${name}`);
+  }
+
+  _sessionHasRead() {
+    return this._readState.read;
+  }
+
+  /** POST from the thread's eve-cos MCP (`/internal/cos`); returns {status, body}. */
+  handleInternalCall(call) {
+    return actions.handleCall(this, call);
+  }
+
+  /** `cos_card_action` from a browser; resolves {ok} or {ok:false, message}. */
+  cardAction(frame) {
+    return actions.cardAction(this, frame);
+  }
+
+  // Scoped start; relay stamps the origin. Resolves {ok:true, sessionId, name, mode}
+  // or {ok:false, code, message}; never throws.
+  async _startSession({ projectId, folder, prompt: text, model, mode }) {
+    const body = { projectId, prompt: text, model, mode };
+    if (folder) body.folder = folder;
+    let res;
+    try {
+      res = await this.relayTransport.fetch('POST', '/api/chief-of-staff/sessions', body, { scope: SCOPE });
+    } catch (err) {
+      this.log.warn(`Chief of Staff start failed: ${err.message}`);
+      return { ok: false, code: 'unreachable', message: 'Relay refused the start (unreachable).' };
+    }
+    const { status, data } = res;
+    if (status === 201 && data && typeof data.sessionId === 'string') {
+      return { ok: true, sessionId: data.sessionId, name: typeof data.name === 'string' ? data.name : '', mode: data.mode };
+    }
+    const code = data && typeof data.error === 'string' ? data.error : `http_${status}`;
+    const message = data && typeof data.message === 'string' && data.message ? data.message : `Relay refused the start (${code}).`;
+    return { ok: false, code, message };
+  }
+
   // Scoped POST; relay stamps the origin, so the body never carries one.
+  // Posts `sent` or `send_failed` and returns {ok:true} or {ok:false, code, message}.
   async _send(sessionId, text) {
     const row = this.roster.get(sessionId);
     const label = this._labelOf(row, sessionId);
@@ -878,17 +967,18 @@ class ChiefOfStaff {
       ));
     } catch (err) {
       this.log.warn(`Chief of Staff send failed: ${err.message}`);
-      this._addPost({
-        kind: 'send_failed', sessionId, label, error: 'Relay refused the send (unreachable).', byModel: false,
-      });
-      return;
+      const message = 'Relay refused the send (unreachable).';
+      this._addPost({ kind: 'send_failed', sessionId, label, error: message, byModel: false });
+      return { ok: false, code: 'unreachable', message };
     }
     if (status === 202) {
       this._addPost({ kind: 'sent', text, sessionId, label, origin: SCOPE, byModel: true });
-      return;
+      return { ok: true };
     }
     const code = data && typeof data.error === 'string' ? data.error : `http_${status}`;
-    this._addPost({ kind: 'send_failed', sessionId, label, error: sendFailureLine(code, label), byModel: false });
+    const message = sendFailureLine(code, label);
+    this._addPost({ kind: 'send_failed', sessionId, label, error: message, byModel: false });
+    return { ok: false, code, message };
   }
 }
 
