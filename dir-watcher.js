@@ -26,6 +26,15 @@ function createDirWatcher(root, { shouldWatch = () => true, onEvent, onError = (
   const handles = new Map(); // relDir ('' for root) -> FSWatcher
   let closed = false;
   let failed = false;
+  let pending = 0; // outstanding readdir scans
+  let signalReady;
+  let readySettled = false;
+  // initial scan done; read by tests only
+  const ready = new Promise((resolve) => { signalReady = resolve; });
+  const scanDone = () => {
+    pending--;
+    if (pending === 0 && !readySettled) { readySettled = true; signalReady(); }
+  };
 
   const fail = (err) => {
     if (closed || failed) return;
@@ -88,19 +97,24 @@ function createDirWatcher(root, { shouldWatch = () => true, onEvent, onError = (
 
   function scan(rel, report) {
     const abs = rel ? path.join(root, ...rel.split('/')) : root;
+    pending++;
     fs.readdir(abs, { withFileTypes: true }, (err, entries) => {
-      if (closed || err) return;
-      for (const entry of entries) {
-        const childRel = join(rel, entry.name);
-        if (report) onEvent('rename', childRel);
-        if (!entry.isDirectory() || !shouldWatch(childRel) || handles.has(childRel)) continue;
-        try {
-          attach(childRel);
-        } catch (e) {
-          if (e && (e.code === 'ENOSPC' || e.code === 'EMFILE')) return fail(e);
-          continue;
+      try {
+        if (closed || err) return;
+        for (const entry of entries) {
+          const childRel = join(rel, entry.name);
+          if (report) onEvent('rename', childRel);
+          if (!entry.isDirectory() || !shouldWatch(childRel) || handles.has(childRel)) continue;
+          try {
+            attach(childRel);
+          } catch (e) {
+            if (e && (e.code === 'ENOSPC' || e.code === 'EMFILE')) return fail(e);
+            continue;
+          }
+          scan(childRel, report);
         }
-        scan(childRel, report);
+      } finally {
+        scanDone();
       }
     });
   }
@@ -116,7 +130,7 @@ function createDirWatcher(root, { shouldWatch = () => true, onEvent, onError = (
   attach('');
   scan('', false);
 
-  return { close, get watchedDirectories() { return handles.size; } };
+  return { close, ready, get watchedDirectories() { return handles.size; } };
 }
 
 module.exports = { createDirWatcher };

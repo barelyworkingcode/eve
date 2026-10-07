@@ -34,7 +34,8 @@ Ubuntu. Differences to know:
   differs by font rasterisation (0.3–8 %). Do not re-baseline from Linux.
 - **File watching.** Linux uses the pruned `dir-watcher.js` backend, macOS the native recursive
   watch. The watcher tests run both backends on whatever platform runs them
-  (`EVE_WATCH_BACKEND=native|pruned`).
+  (`EVE_WATCH_BACKEND=native|pruned`). The removed-directory case runs on Linux only: macOS FSEvents can drop events
+  when a handle closes, and the pruned backend ships on Linux only.
 - **Root.** Sessions run as root, which ignores file modes. A test that needs an unreadable file
   must fail the open itself (see the `readMarker` unreadable-file row) rather than `chmod 000`.
 - **The relay is a fake, pinned to relay's source.** The real relay is macOS-only;
