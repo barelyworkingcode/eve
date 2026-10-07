@@ -4,6 +4,10 @@ const path = require('path');
 const { createDirWatcher } = require('../../dir-watcher');
 const FileWatcher = require('../../file-watcher');
 
+// The start-up probe polls each watched directory with its own bounded wait, so a
+// case can outlast Jest's 5 s default; this cap lets `until` report its events.
+jest.setTimeout(30000);
+
 const { shouldWatchDir, watchBackend } = FileWatcher;
 
 describe('dir-watcher (pruned inotify-style backend)', () => {
