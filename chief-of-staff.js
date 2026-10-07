@@ -712,7 +712,7 @@ class ChiefOfStaff {
       if (out && out.modelId) { this.modelId = out.modelId; }
       if (this.off && this.off.reason === 'launch_failed') this._setOff(null);
       this._emitStatus();
-      return { text: out && typeof out.text === 'string' ? out.text : '' };
+      return { text: out && typeof out.text === 'string' ? out.text : '', sessionId: model.sessionId };
     } catch (err) {
       const code = (err && err.code) || 'turn_failed';
       this.log.warn(`Chief of Staff model turn failed: ${code}${err && err.message ? ` (${cut(err.message, 500)})` : ''}`);
@@ -720,6 +720,12 @@ class ChiefOfStaff {
       this._emitStatus();
       return { error: code };
     }
+  }
+
+  // The reply text can quote agent data, so only its length is logged.
+  _warnUnparsed(kind, reason, res) {
+    const sid = res.sessionId ? String(res.sessionId).slice(0, 8) : 'none';
+    this.log.warn(`Chief of Staff ${kind} reply couldn't be parsed: ${reason} (model session ${sid}, ${res.text.length} chars)`);
   }
 
   _noteLimitOnce() {
@@ -779,6 +785,7 @@ class ChiefOfStaff {
       if (res.error === 'limit') this._noteLimitOnce();
       if (res.text !== undefined) {
         const parsed = prompt.parseWake(res.text, events.map((e) => e.sessionId));
+        if (parsed.reason) this._warnUnparsed('wake', parsed.reason, res);
         for (const p of parsed.posts || []) {
           if (p && p.headline && !modelPosts.has(p.sessionId)) modelPosts.set(p.sessionId, p);
         }
@@ -847,6 +854,7 @@ class ChiefOfStaff {
       return;
     }
     const parsed = prompt.parsePerson(res.text, rows.map((r) => r.sessionId));
+    if (parsed.reason) this._warnUnparsed('person', parsed.reason, res);
     if (parsed.reason === 'unknown-session') {
       // The reply may claim a send that eve refused; never post it.
       this._notice("I couldn't match that to a session, so I didn't send anything. Say which one.");

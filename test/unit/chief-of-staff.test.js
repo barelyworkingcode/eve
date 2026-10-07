@@ -706,3 +706,49 @@ describe('two model sessions', () => {
     expect(h.alerts().length).toBeGreaterThan(2);
   });
 });
+
+describe('unparseable replies are logged', () => {
+  const secret = 'AGENT-DATA quoted in the reply';
+  const modelSaying = (text) => ({
+    sessionId: 'abcdef0123456789',
+    turn: jest.fn(async () => ({ text, modelId: 'm' })),
+  });
+  const parseWarns = (log) => log.warn.mock.calls.map((c) => c[0]).filter((m) => /couldn't be parsed/.test(m));
+
+  it('warns once for a person reply with no JSON, naming kind, reason and session, never the text', async () => {
+    const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    setup({ sessions: [row('s1', 'running')], model: modelSaying(secret), log });
+    await h.start();
+    h.cos.submitPerson('what is s1 doing?');
+    await h.tick(10);
+    const warns = parseWarns(log);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('person');
+    expect(warns[0]).toContain('no-json');
+    expect(warns[0]).toContain('abcdef01');
+    expect(warns[0]).toContain(String(secret.length));
+    expect(warns[0]).not.toContain('AGENT-DATA');
+  });
+
+  it('warns once for a wake reply of the wrong shape, naming kind and reason', async () => {
+    const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    setup({ sessions: [row('s1', 'running')], model: modelSaying(reply({ note: secret })), log });
+    await h.start();
+    h.emit({ type: 'session_state', sessionId: 's1', state: 'asking' });
+    await h.tick(2100);
+    const warns = parseWarns(log);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('wake');
+    expect(warns[0]).toContain('bad-shape');
+    expect(warns[0]).not.toContain('AGENT-DATA');
+  });
+
+  it('does not warn for a reply that parses', async () => {
+    const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    setup({ sessions: [row('s1', 'running')], model: modelSaying(reply({ reply: 'All quiet.' })), log });
+    await h.start();
+    h.cos.submitPerson('anything new?');
+    await h.tick(10);
+    expect(parseWarns(log)).toHaveLength(0);
+  });
+});
