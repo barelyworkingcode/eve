@@ -41,7 +41,7 @@ const QUOTE_MAX = 500;
 const LABEL_MAX = 80;
 
 // Model failures that mean "this model must not run": keep posting templates.
-const FATAL_MODEL_CODES = new Set(['launch_failed', 'tools_present', 'tools_unverified']);
+const FATAL_MODEL_CODES = new Set(['launch_failed', 'tools_present', 'tools_unverified', 'authentication_failed']);
 
 const SEND_LINES = {
   session_not_found: () => 'That session is gone.',
@@ -64,6 +64,7 @@ function offNotice(off) {
     case 'no_project':
     case 'project_unsuitable': return "No project can run me, so I can't send. Set chiefOfStaff.projectId.";
     case 'launch_failed': return `I couldn't start the model${off.detail ? `: ${off.detail}` : ''}, so I can't send.`;
+    case 'authentication_failed': return "The model can't log in, so I'm off and can't send. Log its account in again and restart eve. Alerts still post.";
     default: return "The model has tools, so I'm off and can't send. Alerts still post.";
   }
 }
@@ -695,7 +696,7 @@ class ChiefOfStaff {
   }
 
   _modelBlocked(model) {
-    return !model || (this.off && ['tools_present', 'tools_unverified', 'no_project', 'project_unsuitable'].includes(this.off.reason));
+    return !model || (this.off && ['tools_present', 'tools_unverified', 'authentication_failed', 'no_project', 'project_unsuitable'].includes(this.off.reason));
   }
 
   // Runs one model turn. Returns {text} or {error: <code>}; maps fatal

@@ -752,3 +752,33 @@ describe('unparseable replies are logged', () => {
     expect(parseWarns(log)).toHaveLength(0);
   });
 });
+
+describe('a model that cannot log in', () => {
+  const authFailingModel = () => ({
+    sessionId: null,
+    turn: jest.fn(async () => {
+      throw Object.assign(new Error('Model API error: authentication_failed (HTTP 401)'), { code: 'authentication_failed', status: 401 });
+    }),
+  });
+
+  it('tells the person it cannot log in, goes off, and makes no more model calls', async () => {
+    const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const model = authFailingModel();
+    setup({ sessions: [row('s1', 'running')], model, log });
+    await h.start();
+    h.cos.submitPerson('what is s1 doing?');
+    await h.tick(10);
+    const notices = h.cos.posts.filter((p) => p.kind === 'notice');
+    expect(notices).toHaveLength(1);
+    expect(notices[0].body).toMatch(/log in/);
+    expect(h.cos.off).toMatchObject({ reason: 'authentication_failed' });
+    const warns = log.warn.mock.calls.map((c) => c[0]).filter((m) => m.includes('authentication_failed'));
+    expect(warns).toHaveLength(1);
+
+    h.cos.submitPerson('and now?');
+    await h.tick(10);
+    h.emit({ type: 'session_state', sessionId: 's1', state: 'asking' });
+    await h.tick(2100);
+    expect(model.turn).toHaveBeenCalledTimes(1);
+  });
+});

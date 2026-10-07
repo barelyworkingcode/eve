@@ -75,6 +75,8 @@ The roster refetch before a person turn replaces the roster's membership (a sess
 - State file: `{day, calls, modelSessionId, personSessionId, limitNoticeDay}`. `limitNoticeDay` keeps the once-a-day limit notice from repeating after a restart. `stop()` returns a promise that settles when queued post and state writes are on disk; graceful shutdown waits for it (2 s at most).
 - A refused scoped `/ws` upgrade gives no close or error event, so the reader handles `unexpected-response` itself: 403 turns the thread off (`scope_refused`), any other status retries with backoff. The backoff resets only after the roster list has been read.
 - Error codes: `limit`, `launch_failed`, `tools_present`, `tools_unverified`, `turn_failed`, `timeout`, `disconnected`.
+- An API error from the CLI is not a reply. relay marks it on the assistant `message_start` (`error`) and on `message_complete` (`isError`, `apiErrorStatus`). The turn, the bootstrap included, rejects with the CLI's code (for example `authentication_failed`) and ends the session. `authentication_failed` is fatal: the thread goes off with a notice that the model can't log in and makes no model calls until eve restarts.
+- eve.log gets one warning per failed model turn (code and message, never reply text) and one per reply that can't be parsed (turn kind, parse reason, model session prefix, reply length).
 
 ## Decisions
 - **D1** Tools off in eve: deny list, init check, one relaunch, else off.

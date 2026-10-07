@@ -11,6 +11,7 @@ class ChiefOfStaffPage {
     project_unsuitable: 'No project can run the Chief of Staff. Set chiefOfStaff.projectId.',
     tools_present: "The model has tools, so it's off. Alerts still post.",
     tools_unverified: "The model has tools, so it's off. Alerts still post.",
+    authentication_failed: "The model can't log in, so it's off. Alerts still post.",
   };
 
   static STATE_LABEL = {
