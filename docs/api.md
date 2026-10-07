@@ -134,7 +134,7 @@ Voice/TTS/STT: `voice_mode` (`{enabled, voice?, speed?}`), `tts_speak`, `tts_spe
 
 Diagnostics: `device_log` (`{lines: [...]}` — appended to a server-side log with timestamp and source IP; no reply frame).
 
-Chief of Staff (server-wide thread, all projects; authenticated sockets only): `cos_subscribe` (no fields; answered with `cos_snapshot`, and the socket then receives `cos_post` and `cos_status`), `cos_message` (`{text}`, 1 to 2000 characters after trim, else an `error` frame; rate-limited as expensive), `cos_card_action` (`{postId, action: 'start'|'cancel', edits?}`; only a `pending` start or send card accepts it, else an `error` frame naming the card's state; start-card `edits` are `{prompt?, folder?, model?, mode?}`, send-card `edits` are `{text?}`, validated like the tool arguments; rate-limited as expensive).
+Chief of Staff (server-wide thread, all projects; authenticated sockets only): `cos_subscribe` (no fields; answered with `cos_snapshot`, and the socket then receives `cos_post` and `cos_status`), `cos_message` (`{text}`, 1 to 2000 characters after trim, else an `error` frame; rate-limited as expensive), `cos_card_action` (`{postId, action: 'start'|'cancel', edits?}`; only a `pending` start or send card accepts it, else an `error` frame naming the card's state; start-card `edits` are `{prompt?, folder?, model?, mode?}`, send-card `edits` are `{text?}`, validated like the tool arguments; one action per card at a time).
 
 ### Server → Client
 
