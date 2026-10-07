@@ -21,9 +21,13 @@
  *   internal/audit/ops.go                  Query / LogPath when auditing is off
  *   cmd/relay/api_credential.go            X-Relay-Scope: chief-of-staff and what it reaches
  *   cmd/relay/session_chief_of_staff.go    POST /api/chief-of-staff/messages
+ *   cmd/relay/session_chief_of_staff_start.go  POST /api/chief-of-staff/sessions
+ *   internal/sessions/events/events.go     AssistantBlockStopEvent (a tool_use the person model made)
  *   cmd/relay/frontend_dispatcher.go       the scoped /ws is read-only (close 1008)
  */
+const fs = require('fs');
 const http = require('http');
+const path = require('path');
 const { WebSocketServer } = require('ws');
 const { relayFrames, EVENT_PROTOCOL_VERSION } = require('./protocol');
 
@@ -123,6 +127,8 @@ function createFakeRelay({ token = null } = {}) {
   // ClassChiefOfStaff route); everything else is a 403.
   const SCOPED_REACH = ['GET /api/sessions', 'GET /ws', 'POST /api/chief-of-staff/messages'];
   const COS_SCOPE = 'chief-of-staff';
+  // session_routes.go: the start door is the second ClassChiefOfStaff route, beside the send.
+  const SCOPED_START = 'POST /api/chief-of-staff/sessions';
   const scopedWs = new Set();
   const scopedResolvers = [];
   // Every HTTP request and /ws upgrade with the scope header it carried (null = none).
@@ -137,6 +143,12 @@ function createFakeRelay({ token = null } = {}) {
   let cosModel = { tools: [], reply: null };
   // null => the send succeeds; { status, code, message } forces relay's host-side refusals.
   let cosSendFailure = null;
+  // Every body the scoped start route accepted past its syntax checks, and the scope it carried.
+  const cosStarts = [];
+  const cosStartWaiters = [];
+  // null => the start succeeds; { status, code, message } forces a refusal after the launch checks.
+  let cosStartFailure = null;
+  const cosTurnWaiters = [];
   // session_ended and the attention frames are broadcast to every connection, scoped ones included.
   const BROADCAST_TYPES = new Set(['session_state', 'turn_done', 'session_ended']);
   // join_session for an id relay does not hold is an error frame. Off by default
@@ -363,6 +375,8 @@ function createFakeRelay({ token = null } = {}) {
       messageCount: sess.messageCount || 0,
     };
     if (sess.folder) out.folder = sess.folder;
+    // manager.go Summary.Origin: set when someone other than the person started the session.
+    if (sess.origin) out.origin = sess.origin;
     if (sess.lastMessageAt) out.lastMessageAt = sess.lastMessageAt;
     if (sess.host) out.host = sess.host;
     // manager.go Summary.Headless (relay#241): omitted unless true.
@@ -414,10 +428,10 @@ function createFakeRelay({ token = null } = {}) {
       // api_credential.go Authorize: an unknown scope, a request outside the scope's reach, and the
       // scope-only route without the scope are all 403.
       const scopeHeader = req.headers['x-relay-scope'];
-      if (scopeHeader !== undefined && (scopeHeader !== COS_SCOPE || !SCOPED_REACH.includes(`${req.method} ${p}`))) {
+      if (scopeHeader !== undefined && (scopeHeader !== COS_SCOPE || !(SCOPED_REACH.includes(`${req.method} ${p}`) || `${req.method} ${p}` === SCOPED_START))) {
         return sendText(403, 'Forbidden');
       }
-      if (scopeHeader === undefined && p === '/api/chief-of-staff/messages') return sendText(403, 'Forbidden');
+      if (scopeHeader === undefined && (p === '/api/chief-of-staff/messages' || p === '/api/chief-of-staff/sessions')) return sendText(403, 'Forbidden');
       let parsed = {};
       try { parsed = body ? JSON.parse(body) : {}; } catch {}
 
@@ -541,6 +555,65 @@ function createFakeRelay({ token = null } = {}) {
         const ids = joined.get(msgBody.sessionId) || new Set();
         for (const sock of relayWs) if (ids.has(relaySocketIds.get(sock))) sock.send(live);
         return send(202, { sessionId: msgBody.sessionId, origin: 'chief-of-staff', at });
+      }
+
+      // session_chief_of_staff_start.go handleChiefOfStaffStart: relay's order of checks. The origin is
+      // the constant; only these five body fields are read.
+      if (p === '/api/chief-of-staff/sessions' && req.method === 'POST') {
+        const coded = (status, code, message) => send(status, { error: code, message });
+        if (Buffer.byteLength(body) > 64 << 10) return coded(413, 'body_too_large', 'request body is larger than 64 KiB');
+        let sb = null;
+        try { sb = JSON.parse(body); } catch {}
+        if (!sb || typeof sb !== 'object' || Array.isArray(sb)) return coded(400, 'invalid_body', 'body must be JSON {"projectId","folder","prompt","model","mode"}');
+        const prompt = typeof sb.prompt === 'string' ? sb.prompt.trim() : '';
+        const folder = typeof sb.folder === 'string' ? sb.folder : '';
+        const mode = sb.mode ? sb.mode : 'headless';
+        if (!sb.projectId) return coded(400, 'project_id_required', 'projectId is required');
+        if (prompt === '') return coded(400, 'prompt_required', 'prompt is required');
+        if ([...prompt].length > 8000) return coded(400, 'prompt_too_long', 'prompt is longer than 8000 characters');
+        if (!sb.model) return coded(400, 'model_required', 'model is required');
+        if (mode !== 'headless' && mode !== 'terminal') return coded(400, 'mode_invalid', 'mode must be "headless" or "terminal"');
+        if (folder.includes('\0') || folder.startsWith('/') || folder.split('/').includes('..')) return coded(400, 'folder_invalid', 'folder must be a relative path with no .. segment');
+        if (!auditEnabled) return coded(503, 'audit_unavailable', 'auditing is off; the Chief of Staff cannot start a session');
+        const proj = projects.get(sb.projectId);
+        if (!proj || proj.kind === 'remote') return coded(403, 'project_not_available', 'project is not available for a session launch');
+        if (proj.host_id) return coded(403, 'project_on_host', 'the Chief of Staff cannot start a session in a project on an SSH host');
+        const directory = path.join(proj.path || '/fake', folder);
+        if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) return coded(400, 'folder_not_found', 'folder does not exist in the project');
+        const claude = ['haiku', 'sonnet', 'opus'].includes(sb.model);
+        if (mode === 'terminal' && !claude) return coded(400, 'terminal_needs_claude', 'a terminal start needs a Claude model');
+        cosStarts.push({ scope: scopeHeader ?? null, body: sb });
+        cosStartWaiters.splice(0).forEach((r) => r());
+        if (cosStartFailure) return coded(cosStartFailure.status, cosStartFailure.code, cosStartFailure.message);
+        const first = prompt.split('\n')[0].split(/\s+/).filter(Boolean).join(' ');
+        const name = [...first].slice(0, 60).join('') || 'Chief of Staff agent';
+        const at = new Date().toISOString();
+        let sessionId;
+        if (mode === 'headless') {
+          sessionId = `sess-${++seq}`;
+          sessions.set(sessionId, {
+            sessionId, projectId: sb.projectId, name, directory, model: sb.model, headless: true, agent: true, origin: 'chief-of-staff',
+            createdAt: at, history: [relayFrames.historyUser({ timestamp: at, content: prompt, origin: 'chief-of-staff' })], messageCount: 1,
+          });
+        } else {
+          sessionId = `term-${++seq}`;
+          terminals.set(sessionId, {
+            terminalId: sessionId, templateId: 'claude-code', name, directory, host: null, origin: 'chief-of-staff',
+            state: 'running', cols: 80, rows: 24, scrollback: SHELL_PROMPT, line: '',
+          });
+        }
+        return send(201, {
+          sessionId, name, projectId: sb.projectId, directory, mode, kind: mode === 'headless' ? (claude ? 'claude' : 'chat') : 'pty',
+          origin: 'chief-of-staff', at,
+        });
+      }
+
+      // http_terminal.go HandleListTerminals: {terminals: [Summary]}; origin only when set.
+      if (p === '/api/terminals' && req.method === 'GET') {
+        return send(200, { terminals: [...terminals.values()].map((t) => ({
+          id: t.terminalId, templateId: t.templateId, name: t.name, directory: t.directory, state: t.state,
+          ...(t.origin ? { origin: t.origin } : {}),
+        })) });
       }
 
       if (p === '/api/sessions' && req.method === 'POST') {
@@ -933,13 +1006,24 @@ function createFakeRelay({ token = null } = {}) {
         const sess = sessions.get(msg.sessionId);
         sess.cosTurns = (sess.cosTurns || 0) + 1;
         cosModelTurns.push({ sessionId: msg.sessionId, text: msg.text, n: sess.cosTurns });
+        cosTurnWaiters.filter((w) => w.pred(cosModelTurns[cosModelTurns.length - 1])).forEach((w) => { cosTurnWaiters.splice(cosTurnWaiters.indexOf(w), 1); w.resolve(); });
         const person = String(msg.text).startsWith('Chief of Staff person');
         const fallback = sess.cosTurns === 1 ? 'ready' : `\`\`\`json\n${person ? '{"reply":"Noted.","send":null}' : '{"posts":[]}'}\n\`\`\``;
-        const text = (cosModel.reply && cosModel.reply(String(msg.text), sess.cosTurns)) ?? fallback;
+        // reply() answers a string, or { text, toolUses: [{ id, name, input }], gate }: the tool_use
+        // blocks stream first (events.go ToolUseBlockStop), and the turn ends only after `gate` settles.
+        const scripted = cosModel.reply && cosModel.reply(String(msg.text), sess.cosTurns);
+        const plan = scripted && typeof scripted === 'object' ? scripted : { text: scripted };
+        const text = plan.text ?? fallback;
         const out = [];
         if (sess.cosTurns === 1) out.push(relayFrames.systemInit({ sessionId: msg.sessionId, model: 'claude-haiku-4-5-20251001', tools: cosModel.tools }));
-        out.push(relayFrames.assistantDelta({ sessionId: msg.sessionId, text }), relayFrames.messageComplete({ sessionId: msg.sessionId }));
+        (plan.toolUses || []).forEach((t, index) => out.push({
+          type: 'llm_event', sessionId: msg.sessionId,
+          event: { v: EVENT_PROTOCOL_VERSION, type: 'assistant', index, content_block_stop: true, content_block: { type: 'tool_use', id: t.id, name: t.name, input: t.input } },
+        }));
+        const finish = [relayFrames.assistantDelta({ sessionId: msg.sessionId, text }), relayFrames.messageComplete({ sessionId: msg.sessionId })];
         for (const f of out) ws.send(JSON.stringify(f));
+        const sendFinish = () => { for (const f of finish) ws.send(JSON.stringify(f)); };
+        if (plan.gate) plan.gate.then(sendFinish); else sendFinish();
       } else if (msg.type === 'send_message') {
         const script = sessionScripts.get(msg.sessionId);
         const refusal = fileRefusal(msg.files);
@@ -1115,6 +1199,14 @@ function createFakeRelay({ token = null } = {}) {
     // Forces relay's refusal of the scoped send after the checks that precede the host: { status, code, message }.
     failChiefOfStaffSend: (status, code, message = code) => { cosSendFailure = { status, code, message }; },
     clearChiefOfStaffSendFailure: () => { cosSendFailure = null; },
+    // The scoped start route: every accepted body with its scope, a forced launch refusal, and a
+    // promise that resolves when the next start arrives.
+    cosStarts,
+    failChiefOfStaffStart: (status, code, message = code) => { cosStartFailure = { status, code, message }; },
+    clearChiefOfStaffStartFailure: () => { cosStartFailure = null; },
+    waitForCosStart: () => (cosStarts.length > 0 ? Promise.resolve() : new Promise((r) => cosStartWaiters.push(r))),
+    // Resolves once the model session has been sent a turn matching pred({ sessionId, text, n }).
+    waitForCosTurn: (pred) => (cosModelTurns.some(pred) ? Promise.resolve() : new Promise((resolve) => cosTurnWaiters.push({ pred, resolve }))),
     waitForRelay: () => (relayWs.size > 0 ? Promise.resolve() : new Promise((r) => relayResolvers.push(r))),
     relayConnectionCount: () => relayWs.size,
     // Holds the next /ws upgrade's 101 reply for `ms`: waitForRelay() then

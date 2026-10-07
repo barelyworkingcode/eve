@@ -129,3 +129,5 @@ class UiCommandBus {
 }
 
 module.exports = UiCommandBus;
+module.exports.isLoopbackReq = isLoopbackReq;
+module.exports.safeEqual = safeEqual;

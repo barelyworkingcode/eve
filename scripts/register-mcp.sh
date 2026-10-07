@@ -71,3 +71,19 @@ echo "Registering eve-control MCP (url=$INTERNAL_URL, entry=$MCP_ENTRY)"
   --env "EVE_INTERNAL_URL=$INTERNAL_URL" \
   --env "EVE_INTERNAL_SECRET=$SECRET"
 echo "Registered eve-control MCP with Relay (add it to a project's Allowed MCPs to use it)."
+
+# The Chief of Staff's MCP (mcp/cos.js): same environment, its own entry.
+COS_ENTRY="$EVE_ROOT/mcp/cos.js"
+if [ ! -f "$COS_ENTRY" ]; then
+  echo "MCP entry not found at $COS_ENTRY" >&2
+  exit 1
+fi
+echo "Registering eve-cos MCP (url=$INTERNAL_URL, entry=$COS_ENTRY)"
+"$RELAY" mcp register \
+  --name eve-cos \
+  --id relay-eve-cos \
+  --command "$NODE_BIN" \
+  --args "$COS_ENTRY" \
+  --env "EVE_INTERNAL_URL=$INTERNAL_URL" \
+  --env "EVE_INTERNAL_SECRET=$SECRET"
+echo "Registered eve-cos MCP with Relay."

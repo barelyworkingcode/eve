@@ -78,6 +78,21 @@ The roster refetch before a person turn replaces the roster's membership (a sess
 - An API error from the CLI is not a reply. relay marks it on the assistant `message_start` (`error`) and on `message_complete` (`isError`, `apiErrorStatus`). The turn, the bootstrap included, rejects with the CLI's code (for example `authentication_failed`) and ends the session. `authentication_failed` is fatal: the thread goes off with a notice that the model can't log in and makes no model calls until eve restarts.
 - eve.log gets one warning per failed model turn (code and message, never reply text) and one per reply that can't be parsed (turn kind, parse reason, model session prefix, reply length).
 
+## Actions and provenance
+
+The person model can start an agent and send to one through the `eve-cos` MCP (`mcp/cos.js`): `cos_list_sessions`, `cos_session_status`, `cos_propose_start`, `cos_propose_send`. The MCP only calls eve's loopback `/internal/cos`; eve decides.
+
+**A call is tied to a real tool call.** eve records every `tool_use` the person model makes (`ChiefOfStaffModel`'s `onToolUse`, fired when a tool_use block stops) in a `CosTurn` for the length of the person turn. `/internal/cos` checks the loopback peer and the secret, that `meta.project_id` (vouched by relay) is the person model's project, that a person turn is in flight, and then waits for an unclaimed `tool_use` with the same name and the same input (sorted-key JSON). `claim()` resolves when that call is recorded and rejects when the turn settles, so a call that the model never made, or made in an earlier turn, is refused as `unverified_call`. eve.log gets one info line per tool call with the turn id and tool name; the input is never logged, because it can quote agent data.
+
+**Provenance decides act or card** (`chief-of-staff-provenance.js`, pure):
+- If the person model session has read nothing, eve acts at once (`no_read`). Any tool except the two propose tools counts as a read, and the mark lasts the life of that model session.
+- After a read, eve acts at once only when the prompt or text is a verbatim span of the person's message (whitespace collapsed, case-sensitive) and the message names the project (start) or the session label (send), case-insensitively.
+- Otherwise eve posts a `start_card` or `send_card` and does nothing until the person taps Start. Edits made on the card are the person's own words, so a tap needs no provenance check.
+
+**Start goes through relay's scoped route only** (`POST /api/chief-of-staff/sessions`), never an unscoped create, so the session carries `origin: 'chief-of-staff'` and relay audits it. eve then refreshes the roster, so a headless start joins it and alerts for it post as usual. A terminal start shows in relay's session list and in the `started` post, not in the roster. A relay refusal posts `start_failed` (or `send_failed`) and the tool answers `relay_<code>`.
+
+**Cards** persist with the posts. Only a `pending` card takes an action, and its state leaves `pending` before anything is awaited, so one tap acts once. `cos_post_update` replaces the post in every browser. A card never expires; `failed` is final.
+
 ## Decisions
 - **D1** Tools off in eve: deny list, init check, one relaunch, else off.
 - **D2** Eve judges "ends on a question" with `isQuestion`; judging every turn with the model would cost a call per agent turn.

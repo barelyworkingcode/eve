@@ -32,4 +32,24 @@ module.exports = [
       cos.submitPerson(text);
     },
   },
+
+  {
+    // Not `expensive` (a tap is no model turn) and not `async`: the frozen
+    // registry pins both sets, so the answer is chained instead of awaited.
+    type: 'cos_card_action',
+    handle(ctx) {
+      const cos = ctx.deps.chiefOfStaff;
+      if (!cos) { unavailable(ctx.ws); return; }
+      const { postId, action, edits } = ctx.message;
+      if (typeof postId !== 'string' || typeof action !== 'string') {
+        ctx.ws.send(JSON.stringify({ type: 'error', message: 'A card action needs a postId and an action' }));
+        return;
+      }
+      cos.cardAction({ postId, action, edits }).then((out) => {
+        if (!out.ok) ctx.ws.send(JSON.stringify({ type: 'error', message: out.message }));
+      }).catch(() => {
+        ctx.ws.send(JSON.stringify({ type: 'error', message: 'The card action failed' }));
+      });
+    },
+  },
 ];

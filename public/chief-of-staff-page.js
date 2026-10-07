@@ -33,6 +33,7 @@ class ChiefOfStaffPage {
     this._subscribed = false;
     this.bus.on(EVT.COS_SNAPSHOT, (d) => this._onSnapshot(d));
     this.bus.on(EVT.COS_POST, (d) => this._onPost(d));
+    this.bus.on(EVT.COS_POST_UPDATE, (d) => this._onPostUpdate(d));
     this.bus.on(EVT.COS_STATUS, (d) => this._onStatus(d));
     this.bus.on(EVT.CONNECTION_CHANGED, (c) => {
       if (c?.browser) this.subscribe();
@@ -79,6 +80,17 @@ class ChiefOfStaffPage {
       this._feed.appendChild(this._renderPost(post));
       this._scrollToEnd();
     }
+  }
+
+  // The server replaced a post (a card moved on): swap it in by id.
+  _onPostUpdate(d) {
+    const post = d?.post;
+    if (!post || !post.id) return;
+    const i = this.posts.findIndex(p => p.id === post.id);
+    if (i < 0) return;
+    this.posts[i] = post;
+    const old = this._feed?.querySelector(`[data-testid="cos-post-${CSS.escape(post.id)}"]`);
+    if (old) old.replaceWith(this._renderPost(post));
   }
 
   _onStatus(d) {
@@ -237,6 +249,13 @@ class ChiefOfStaffPage {
       body.appendChild(chip);
     } else if (post.kind === 'send_failed') {
       body.appendChild(this._text('p', post.error || "Couldn't send that."));
+    } else if (post.kind === 'start_card' || post.kind === 'send_card') {
+      if (post.card) body.appendChild(this._actionCard(post));
+    } else if (post.kind === 'started') {
+      body.appendChild(this._startedBody(post));
+    } else if (post.kind === 'start_failed') {
+      const name = post.projectName ? ` in ${post.projectName}` : '';
+      body.appendChild(this._text('p', `Couldn't start an agent${name}: ${post.error || 'unknown error'}`));
     } else {
       // reply, notice
       if (post.headline) body.appendChild(this._text('h3', post.headline));
@@ -325,6 +344,140 @@ class ChiefOfStaffPage {
     }
     if (acts.childNodes.length) el.appendChild(acts);
     return el;
+  }
+
+  // ---- Start and Send cards ----
+
+  static CARD_STATE = {
+    starting: 'Starting…', started: 'Started', sending: 'Sending…', sent: 'Sent',
+    cancelled: 'Cancelled',
+  };
+
+  // One card for a proposed start or send. Buttons work only while pending;
+  // every field is text the model wrote, so it goes in through textContent/value.
+  _actionCard(post) {
+    const card = post.card;
+    const isStart = post.kind === 'start_card';
+    const el = this._div('cos-card cos-card--action', `cos-card-${post.id}`);
+    el.dataset.kind = isStart ? 'start' : 'send';
+    el.dataset.state = card.state;
+
+    const hd = this._div('cos-card__hd');
+    const small = document.createElement('small');
+    small.textContent = isStart ? 'Start an agent?' : 'Send this?';
+    const title = this._div('cos-card__title');
+    title.appendChild(this._text('b', isStart ? (card.project?.name || '') : (card.label || '')));
+    hd.append(small, title);
+    el.appendChild(hd);
+
+    const fields = [];
+    const rows = this._div('cos-card__rows');
+    const addRow = (key, label, value, kind) => {
+      const row = this._div('cos-field');
+      row.dataset.field = key;
+      row.appendChild(this._text('span', label, 'cos-field__label'));
+      const val = this._text('span', value || '—', 'cos-field__value');
+      let input;
+      if (kind === 'mode') {
+        input = document.createElement('select');
+        for (const m of ['headless', 'terminal']) input.add(new Option(m, m));
+      } else if (kind === 'long') {
+        input = document.createElement('textarea');
+        input.rows = 4;
+      } else {
+        input = document.createElement('input');
+        input.type = 'text';
+      }
+      input.className = 'cos-field__input';
+      input.dataset.testid = `cos-edit-${key}-${post.id}`;
+      input.setAttribute('aria-label', label);
+      input.value = String(value || '');
+      input.hidden = true;
+      row.append(val, input);
+      rows.appendChild(row);
+      fields.push({ key, value: String(value || ''), input, val });
+    };
+    if (isStart) {
+      addRow('prompt', 'Prompt', card.prompt, 'long');
+      addRow('folder', 'Folder', card.folder);
+      addRow('model', 'Model', card.model);
+      addRow('mode', 'Mode', card.mode, 'mode');
+    } else {
+      addRow('text', 'Message', card.text, 'long');
+    }
+    el.appendChild(rows);
+
+    const status = this._cardStatus(card, post);
+    if (status) el.appendChild(status);
+
+    const pending = card.state === 'pending';
+    const acts = this._div('cos-card__acts');
+    const mk = (id, label, cls, onClick) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cos-btn' + (cls ? ` ${cls}` : '');
+      b.dataset.testid = `cos-${id}-${post.id}`;
+      b.textContent = label;
+      b.disabled = !pending;
+      b.addEventListener('click', onClick);
+      acts.appendChild(b);
+      return b;
+    };
+    mk('start', isStart ? 'Start' : 'Send', 'cos-btn--primary', () => {
+      // Only what the person changed travels as an edit.
+      const edits = {};
+      for (const f of fields) if (!f.input.hidden && f.input.value !== f.value) edits[f.key] = f.input.value;
+      this._cardAction(post.id, 'start', Object.keys(edits).length ? edits : undefined);
+    });
+    mk('edit', 'Edit', '', () => {
+      for (const f of fields) { f.input.hidden = !f.input.hidden; f.val.hidden = !f.input.hidden; }
+    });
+    mk('cancel', 'Cancel', '', () => this._cardAction(post.id, 'cancel'));
+    el.appendChild(acts);
+    return el;
+  }
+
+  _cardStatus(card, post) {
+    if (card.state === 'pending') return null;
+    let line;
+    if (card.state === 'failed') line = `Failed: ${card.error || 'unknown error'}`;
+    else if (card.state === 'started' && card.result?.name) line = `Started ${card.result.name}`;
+    else line = ChiefOfStaffPage.CARD_STATE[card.state] || card.state;
+    const p = this._text('p', line, 'cos-card__status');
+    p.dataset.testid = `cos-card-status-${post.id}`;
+    return p;
+  }
+
+  _cardAction(postId, action, edits) {
+    const ws = this.container.has('ws') ? this.container.get('ws') : null;
+    const msg = { type: 'cos_card_action', postId, action };
+    if (edits) msg.edits = edits;
+    if (ws) ws.send(msg);
+  }
+
+  // The Started post: the new session's name and an Open link.
+  _startedBody(post) {
+    const p = document.createElement('p');
+    p.append('Started ');
+    p.appendChild(this._text('b', post.name || 'a session'));
+    if (post.projectName) p.append(` in ${post.projectName}`);
+    p.append('. ');
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'cos-ref';
+    open.dataset.testid = `cos-open-${post.id}`;
+    open.textContent = 'Open';
+    if (post.sessionId) open.addEventListener('click', () => this._openStarted(post));
+    p.appendChild(open);
+    return p;
+  }
+
+  // Headless: a session tab, as an alert card's Open. Terminal: its terminal tab.
+  _openStarted(post) {
+    if (post.mode !== 'terminal') { this._open(post.sessionId); return; }
+    const tabs = this.container.get('tabManager');
+    if (tabs.tabs.some(t => t.id === post.sessionId)) tabs.switchToTab(post.sessionId);
+    else AgentBoard._termMgr(this.container)?.openTaskTerminal(post.sessionId, { name: post.name });
   }
 
   // ---- card actions ----

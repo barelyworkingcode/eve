@@ -418,6 +418,14 @@
   white-space: nowrap;
 }
 
+/* "Started by Chief of Staff" chip; base look comes from .session-origin-chip */
+.project-tree__origin-chip {
+  flex-shrink: 0;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-ui);
+}
+
 /* "running" badge: accent color + soft accent background */
 .project-tree__session-badge--running {
   color: var(--accent);

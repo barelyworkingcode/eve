@@ -1087,3 +1087,104 @@ describe('Chief of Staff scope and marked send (cmd/relay/api_credential.go, ses
     expect(validateRelayFrame({ type: 'turn_done', sessionId: 's1', excerpt: 5, at: '2026-10-05T10:00:00Z' }).ok).toBe(false);
   });
 });
+
+describe('Chief of Staff scoped start (cmd/relay/session_chief_of_staff_start.go)', () => {
+  let relay;
+  let base;
+  let dir;
+  const SCOPE = { 'X-Relay-Scope': 'chief-of-staff' };
+  const start = (body, headers = SCOPE, raw) => fetch(`${base}/api/chief-of-staff/sessions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: raw ?? JSON.stringify(body),
+  });
+  const good = { projectId: 'p1', prompt: 'fix bug 123', model: 'haiku' };
+
+  beforeEach(async () => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-start-')));
+    fs.mkdirSync(path.join(dir, 'src'));
+    relay = createFakeRelay();
+    relay.addProject({ id: 'p1', name: 'One', path: dir });
+    relay.addProject({ id: 'ph', name: 'Hosted', path: dir, host_id: 'h1' });
+    relay.addProject({ id: 'pr', name: 'Remote', path: dir, kind: 'remote' });
+    base = `http://127.0.0.1:${await relay.listen()}`;
+  });
+  afterEach(async () => {
+    await relay.close();
+    if (dir && dir.startsWith(os.tmpdir())) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('the start route answers 403 Forbidden without the scope, and the scope reaches nothing else that creates', async () => {
+    const bare = await start(good, {});
+    expect(bare.status).toBe(403);
+    expect(await bare.text()).toBe('Forbidden\n');
+    const created = await fetch(`${base}/api/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...SCOPE }, body: JSON.stringify(good) });
+    expect(created.status).toBe(403);
+    expect(relay.cosStarts).toHaveLength(0);
+  });
+
+  it.each([
+    ['not JSON', undefined, '{oops', 400, 'invalid_body'],
+    ['no projectId', { prompt: 'x', model: 'haiku' }, undefined, 400, 'project_id_required'],
+    ['a whitespace prompt', { ...good, prompt: ' \n\t' }, undefined, 400, 'prompt_required'],
+    ['a prompt over 8000 characters', { ...good, prompt: 'x'.repeat(8001) }, undefined, 400, 'prompt_too_long'],
+    ['no model', { projectId: 'p1', prompt: 'x' }, undefined, 400, 'model_required'],
+    ['a mode that is neither', { ...good, mode: 'gui' }, undefined, 400, 'mode_invalid'],
+    ['an absolute folder', { ...good, folder: '/etc' }, undefined, 400, 'folder_invalid'],
+    ['a .. folder', { ...good, folder: 'src/../..' }, undefined, 400, 'folder_invalid'],
+    ['a folder that does not exist', { ...good, folder: 'nope' }, undefined, 400, 'folder_not_found'],
+    ['an unknown project', { ...good, projectId: 'ghost' }, undefined, 403, 'project_not_available'],
+    ['a remote project', { ...good, projectId: 'pr' }, undefined, 403, 'project_not_available'],
+    ['a project on an SSH host', { ...good, projectId: 'ph' }, undefined, 403, 'project_on_host'],
+    ['a terminal start with a non-Claude model', { ...good, mode: 'terminal', model: 'pi/x' }, undefined, 400, 'terminal_needs_claude'],
+  ])('%s: relay\'s {error, message} body and nothing started', async (_what, body, raw, status, code) => {
+    const res = await start(body, SCOPE, raw);
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error: code, message: expect.any(String) });
+    expect(relay.listSessions()).toHaveLength(0);
+    expect(relay.listTerminals()).toHaveLength(0);
+  });
+
+  it('auditing off is 503 audit_unavailable, but only after the syntax checks', async () => {
+    relay.setAuditEnabled(false);
+    expect((await start({ ...good, prompt: ' ' })).status).toBe(400);
+    const res = await start(good);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe('audit_unavailable');
+  });
+
+  it('a forced launch refusal keeps its status and code, including an undelivered prompt', async () => {
+    relay.failChiefOfStaffStart(502, 'prompt_not_delivered', 'the session started but the prompt could not be delivered; it was ended');
+    const res = await start(good);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'prompt_not_delivered', message: 'the session started but the prompt could not be delivered; it was ended' });
+    expect(relay.listSessions()).toHaveLength(0);
+  });
+
+  it('a headless start is 201 with relay\'s result, ignores an origin in the body, and lists as a headless agent with its origin', async () => {
+    const res = await start({ ...good, folder: 'src', origin: 'someone', settings: { x: 1 } });
+    expect(res.status).toBe(201);
+    const made = await res.json();
+    expect(made).toEqual({
+      sessionId: expect.any(String), name: 'fix bug 123', projectId: 'p1', directory: path.join(dir, 'src'),
+      mode: 'headless', kind: 'claude', origin: 'chief-of-staff', at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+    });
+    const listed = (await (await fetch(`${base}/api/sessions`, { headers: SCOPE })).json()).sessions;
+    expect(listed).toEqual([expect.objectContaining({ id: made.sessionId, headless: true, origin: 'chief-of-staff' })]);
+    expect(relay.cosStarts).toEqual([{ scope: 'chief-of-staff', body: expect.objectContaining({ folder: 'src' }) }]);
+  });
+
+  it('a terminal start is 201 kind pty, lists in /api/terminals with its origin and not in the session list', async () => {
+    const res = await start({ ...good, mode: 'terminal' });
+    expect(res.status).toBe(201);
+    const made = await res.json();
+    expect(made).toMatchObject({ mode: 'terminal', kind: 'pty', origin: 'chief-of-staff' });
+    const terminals = (await (await fetch(`${base}/api/terminals`)).json()).terminals;
+    expect(terminals).toEqual([expect.objectContaining({ id: made.sessionId, templateId: 'claude-code', origin: 'chief-of-staff' })]);
+    expect((await (await fetch(`${base}/api/sessions`, { headers: SCOPE })).json()).sessions).toEqual([]);
+  });
+
+  it('the session name is the first prompt line with whitespace collapsed, cut at 60 characters', async () => {
+    const made = await (await start({ ...good, prompt: `${'word '.repeat(20)}\nsecond line` })).json();
+    expect(made.name).toHaveLength(60);
+    expect(made.name.startsWith('word word word')).toBe(true);
+  });
+});

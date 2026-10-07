@@ -53,16 +53,19 @@ class ChiefOfStaffModel {
    * @param {() => boolean} opts.countCall  counts one model call; false = daily limit reached
    * @param {string|null} [opts.previousSessionId]  last run's session, DELETEd before the first launch
    * @param {(id: string|null) => void} [opts.onSessionId]  called when the live session id changes
+   * @param {(e: {sessionId: string, toolUseId: string, name: string, input: object}) => void} [opts.onToolUse]
+   *   fires once per tool_use id, when its content block stops
    * @param {string[]} [opts.extraDeniedTools]
    * @param {object} [opts.log]
    * @param {number} [opts.openTimeoutMs]
    */
-  constructor({ relayTransport, countCall, previousSessionId = null, onSessionId, extraDeniedTools = [], log, openTimeoutMs } = {}) {
+  constructor({ relayTransport, countCall, previousSessionId = null, onSessionId, onToolUse, extraDeniedTools = [], log, openTimeoutMs } = {}) {
     if (!relayTransport) throw new Error('relayTransport required');
     if (typeof countCall !== 'function') throw new Error('countCall required');
     this.relayTransport = relayTransport;
     this.countCall = countCall;
     this.onSessionId = typeof onSessionId === 'function' ? onSessionId : () => {};
+    this.onToolUse = typeof onToolUse === 'function' ? onToolUse : () => {};
     this.extraDeniedTools = Array.isArray(extraDeniedTools) ? extraDeniedTools.slice() : [];
     this.log = log?.child ? log.child('ChiefOfStaffModel') : log;
     this.openTimeoutMs = openTimeoutMs || DEFAULT_OPEN_TIMEOUT_MS;
@@ -72,6 +75,7 @@ class ChiefOfStaffModel {
   }
 
   get sessionId() { return this._session?.alive ? this._session.id : null; }
+  get projectId() { return this._session?.alive ? this._session.projectId : null; }
   get modelId() { return this._session?.alive ? this._session.modelId : null; }
 
   /** Serialised: one turn at a time. Resolves {text, modelId}; rejects ModelError. */
@@ -150,6 +154,8 @@ class ChiefOfStaffModel {
     const s = {
       id: res.data.sessionId,
       key,
+      projectId: opts.projectId,
+      toolUseIds: new Set(),
       ws: null,
       alive: true,
       modelId: null,
@@ -316,6 +322,7 @@ class ChiefOfStaffModel {
     }
     if (ev.type !== 'assistant' || !s.pending) return;
     if (typeof ev.error === 'string' && ev.error) s.pending.apiError = ev.error;
+    this._noteToolUse(s, ev);
     // Deltas and whole blocks can both arrive; deltas win when present.
     if (ev.delta?.type === 'text_delta' && typeof ev.delta.text === 'string') {
       s.pending.deltas += ev.delta.text;
@@ -325,6 +332,20 @@ class ChiefOfStaffModel {
       for (const b of content) {
         if (b?.type === 'text' && typeof b.text === 'string') s.pending.blocks += b.text;
       }
+    }
+  }
+
+  // A tool_use is complete when its content block stops. A throwing listener
+  // must not break the turn.
+  _noteToolUse(s, ev) {
+    const b = ev.content_block;
+    if (ev.content_block_stop !== true || !b || b.type !== 'tool_use') return;
+    if (typeof b.id !== 'string' || !b.id || s.toolUseIds.has(b.id)) return;
+    s.toolUseIds.add(b.id);
+    try {
+      this.onToolUse({ sessionId: s.id, toolUseId: b.id, name: String(b.name || ''), input: b.input && typeof b.input === 'object' ? b.input : {} });
+    } catch (err) {
+      this.log?.warn?.(`onToolUse listener failed: ${err.message}`);
     }
   }
 
