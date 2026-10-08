@@ -532,6 +532,48 @@ function boundedClose(close, ms = CLOSE_TIMEOUT_MS) {
   return Promise.race([settled, bound]).finally(() => clearTimeout(timer));
 }
 
+// relay-sessions writes <project>/.claude/settings.local.json on each Claude
+// session start; the world does not expect it. Content-checked so a hand-made
+// file is left for the world check to report.
+const RELAY_HOOK_COMMAND = /^\/.*\/relay-sessions hook$/;
+function isRelayHookConfig(v) {
+  const top = v && typeof v === 'object' ? Object.keys(v) : [];
+  if (top.length !== 1 || top[0] !== 'hooks' || !v.hooks || typeof v.hooks !== 'object') return false;
+  const keys = Object.keys(v.hooks);
+  if (keys.length !== 1 || keys[0] !== 'PreToolUse') return false;
+  const entries = v.hooks.PreToolUse;
+  if (!Array.isArray(entries) || entries.length !== 1) return false;
+  const [entry] = entries;
+  if (!entry || Object.keys(entry).sort().join() !== 'hooks,matcher' || entry.matcher !== '') return false;
+  if (!Array.isArray(entry.hooks) || entry.hooks.length !== 1) return false;
+  const h = entry.hooks[0];
+  return !!h && Object.keys(h).sort().join() === 'command,timeout,type' && h.type === 'command' && h.timeout === 120
+    && typeof h.command === 'string' && RELAY_HOOK_COMMAND.test(h.command);
+}
+
+async function removeHookConfigs(projects) {
+  const cleaned = [];
+  for (const p of projects) {
+    if (!p.path) continue;
+    const dir = path.join(p.path, '.claude');
+    const file = path.join(dir, 'settings.local.json');
+    let text;
+    try { text = await fs.promises.readFile(file, 'utf8'); } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      throw err;
+    }
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { continue; }
+    if (!isRelayHookConfig(parsed)) continue;
+    await fs.promises.unlink(file);
+    try { await fs.promises.rmdir(dir); } catch (err) {
+      if (err.code !== 'ENOTEMPTY') throw err;
+    }
+    cleaned.push(p.name || p.id || p.path);
+  }
+  return cleaned;
+}
+
 function takeCleanups(pending, id) {
   const mine = pending.filter(c => c.id === id);
   for (const c of mine) pending.splice(pending.indexOf(c), 1);
@@ -586,7 +628,15 @@ async function runJourney(j, env, browser, { timeoutMs, projects, world, pending
   clearTimeout(timer);
   const closed = await Promise.all(contexts.map(c => boundedClose(() => c.close())));
   const closeTimedOut = closed.includes(false);
-  const cleanupFailure = await runCleanups(takeCleanups(pending, j.id));
+  let cleanupFailure = await runCleanups(takeCleanups(pending, j.id));
+  if (projects) {
+    try {
+      const names = await removeHookConfigs(projects);
+      if (names.length) log(`${j.id}: removed relay's hook config from ${names.join(', ')}`);
+    } catch (err) {
+      cleanupFailure = cleanupFailure || `hook config cleanup failed: ${firstLine(err)}`;
+    }
+  }
   result = result && ['PASS', 'FAIL', 'BLOCKED', 'NOTRUN'].includes(result.state)
     ? { ...result, id: j.id, detail: result.detail || '' }
     : { id: j.id, state: 'FAIL', detail: 'journey returned no result' };
@@ -888,7 +938,14 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
     if (!browserClosed) log(`browser close timed out after ${CLOSE_TIMEOUT_MS / 1000}s`);
     const late = await runCleanups(pending.splice(0));
     if (late) log(late);
-    if (projects && !failedEarly) await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
+    if (projects && !failedEarly) {
+      await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
+      // A Chief of Staff session may start between journeys.
+      try {
+        const names = await removeHookConfigs(projects);
+        if (names.length) log(`final: removed relay's hook config from ${names.join(', ')}`);
+      } catch (err) { log(`final: hook config cleanup failed: ${firstLine(err)}`); }
+    }
   }
 
   if (!browserClosed) record({ id: 'browser-close', state: 'FAIL', detail: `browser close timed out after ${CLOSE_TIMEOUT_MS / 1000}s` });
@@ -918,7 +975,7 @@ module.exports = {
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
-  main, EXIT_GRACE_MS,
+  main, EXIT_GRACE_MS, removeHookConfigs,
 };
 
 // Deliberate: a journey that lost its race can still hold a socket after the
