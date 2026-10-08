@@ -25,7 +25,7 @@ const POSTS_FILE = 'chief-of-staff.jsonl';
 const STATE_FILE = 'chief-of-staff-state.json';
 const MAX_POSTS = 200;
 
-const DEFAULTS = Object.freeze({ enabled: true, model: 'sonnet', projectId: null, dailyModelCalls: 100 });
+const DEFAULTS = Object.freeze({ enabled: true, model: 'sonnet', summaryModel: 'haiku', projectId: null, dailyModelCalls: 100 });
 
 const TRIGGER_STATES = new Set(['asking', 'errored', 'stalled']);
 const NEED_YOU_STATES = TRIGGER_STATES;
@@ -42,6 +42,8 @@ const PERSON_MAX = 2000;
 const QUOTE_MAX = 500;
 const LABEL_MAX = 80;
 const EXCERPT_MAX = 500;
+const ERRANDS_MAX = 50;
+const FINISHED_MAX = 50;
 
 // Model failures that mean "this model must not run": keep posting templates.
 const FATAL_MODEL_CODES = new Set(['launch_failed', 'tools_present', 'tools_unverified', 'tools_missing', 'authentication_failed']);
@@ -107,6 +109,9 @@ function parseChiefOfStaffSettings(raw, log, source = 'settings.json') {
   if (raw.model !== undefined) {
     if (typeof raw.model === 'string' && raw.model.trim()) out.model = raw.model.trim(); else warn('model', 'must be a non-empty string');
   }
+  if (raw.summaryModel !== undefined) {
+    if (typeof raw.summaryModel === 'string' && raw.summaryModel.trim()) out.summaryModel = raw.summaryModel.trim(); else warn('summaryModel', 'must be a non-empty string');
+  }
   if (raw.projectId !== undefined && raw.projectId !== null) {
     if (typeof raw.projectId === 'string' && raw.projectId.trim()) out.projectId = raw.projectId.trim(); else warn('projectId', 'must be a project id string or null');
   }
@@ -154,6 +159,12 @@ async function writeAtomic(file, text) {
   await fs.promises.rename(tmp, file);
 }
 
+// A project's allowed_models policy: empty, `*`, or the model named.
+function projectAllows(project, model) {
+  const a = Array.isArray(project.allowedModels) ? project.allowedModels : [];
+  return a.length === 0 || a.includes('*') || a.includes(model);
+}
+
 class ChiefOfStaff {
   // createModel({countCall, previousSessionId, onSessionId}) -> ChiefOfStaffModel
   // (or any object with turn()). `model` may be passed ready-made instead.
@@ -187,6 +198,11 @@ class ChiefOfStaff {
     this._ownIds = { wake: null, person: null };
     this._waiting = new Map();    // sessionId -> trigger entry (newer replaces)
     this._people = [];            // person messages waiting for a turn
+    // Work the CoS started or sent, by session id. Memory only: an eve restart
+    // mid-errand posts nothing. `ended` is set by the turn's turn_done.
+    this._errands = new Map();
+    this._finished = new Map();   // sessionId -> finished entry, waiting for a turn
+    this._summaryWarned = new Set();
     this._inFlight = null;
     // The person turn in flight (a CosTurn), and whether the person model
     // session has read anything in its life; both are reset by the session id.
@@ -434,7 +450,7 @@ class ChiefOfStaff {
   }
 
   _isBusy() {
-    return this._waiting.size > 0 || this._people.length > 0 || this._inFlight !== null;
+    return this._waiting.size > 0 || this._finished.size > 0 || this._people.length > 0 || this._inFlight !== null;
   }
 
   _setOff(off) {
@@ -504,7 +520,7 @@ class ChiefOfStaff {
     }
     if (seed || prune) {
       for (const id of [...this.roster.keys()]) {
-        if (!seen.has(id)) { this.roster.delete(id); this._waiting.delete(id); }
+        if (!seen.has(id)) { this.roster.delete(id); this._waiting.delete(id); this._errands.delete(id); this._finished.delete(id); }
       }
     }
   }
@@ -604,6 +620,8 @@ class ChiefOfStaff {
     if (frame.type === 'session_ended') {
       this.roster.delete(id);
       this._waiting.delete(id);
+      this._errands.delete(id);
+      this._finished.delete(id);
       this._unknown.delete(id);
       this._emitStatus();
       return;
@@ -620,6 +638,7 @@ class ChiefOfStaff {
     const prev = fromUnknown ? null : row.state;
     row.state = next;
     row.since = typeof frame.since === 'string' ? frame.since : row.since;
+    this._settleErrand(row, next);
     if (TRIGGER_STATES.has(next) && next !== prev) {
       this._enqueue(row.id, { kind: 'state', state: next, since: row.since, excerpt: '' });
     } else {
@@ -633,11 +652,48 @@ class ChiefOfStaff {
   _applyTurnDone(row, frame) {
     const excerpt = typeof frame.excerpt === 'string' ? frame.excerpt : '';
     row.lastExcerpt = cut(excerpt, EXCERPT_MAX);
+    const errand = this._errands.get(row.id);
+    if (errand) {
+      // A question gets the alert and no finished post; otherwise wait for idle.
+      if (prompt.isQuestion(excerpt)) this._errands.delete(row.id);
+      else errand.ended = { excerpt: cut(excerpt, EXCERPT_MAX), at: this.now() };
+    }
     if (!prompt.isQuestion(excerpt)) return;
     this._enqueue(row.id, {
       kind: 'question', state: 'question',
       since: typeof frame.at === 'string' ? frame.at : '', excerpt: cut(excerpt, QUOTE_MAX),
     });
+  }
+
+  // Arming replaces any record for the session and makes it the newest.
+  _armErrand(sessionId, via, label, projectId) {
+    this._errands.delete(sessionId);
+    this._errands.set(sessionId, { sessionId, via, label, projectId: projectId || '', armedAt: this.now(), ended: null });
+    while (this._errands.size > ERRANDS_MAX) this._errands.delete(this._errands.keys().next().value);
+  }
+
+  // An errand ends in exactly one outcome: a finished post on the first idle
+  // after its turn, or the alert a state frame raises (asking, stalled).
+  _settleErrand(row, next) {
+    const errand = this._errands.get(row.id);
+    if (!errand) return;
+    if (errand.ended) {
+      this._errands.delete(row.id);
+      if (next === 'idle') this._enqueueFinished(row, errand);
+    } else if (next === 'asking' || next === 'stalled') {
+      this._errands.delete(row.id);
+    }
+  }
+
+  _enqueueFinished(row, errand) {
+    this._finished.delete(row.id);
+    this._finished.set(row.id, {
+      kind: 'finished', sessionId: row.id, label: errand.label, projectId: errand.projectId || row.projectId || '',
+      excerpt: errand.ended.excerpt, at: this.now(),
+    });
+    while (this._finished.size > FINISHED_MAX) this._finished.delete(this._finished.keys().next().value);
+    this._emitStatus();
+    this._pump();
   }
 
   _holdUnknown(frame) {
@@ -706,15 +762,24 @@ class ChiefOfStaff {
       this._runTurn(() => this._personTurn(job));
       return;
     }
+    let wait = null;
     if (this._waiting.size > 0) {
-      const readyAt = this._wakeReadyAt();
-      const wait = readyAt - this.now();
+      wait = this._wakeReadyAt() - this.now();
       if (wait <= 0) {
         const batch = [...this._waiting.values()].sort((a, b) => a.at - b.at).slice(0, BATCH_SIZE);
         for (const e of batch) this._waiting.delete(e.sessionId);
         this._runTurn(() => this._wakeTurn(batch));
         return;
       }
+    }
+    // Finished posts have no quiet window; they go once no alert batch is ready.
+    if (this._finished.size > 0) {
+      const batch = [...this._finished.values()].sort((a, b) => a.at - b.at).slice(0, BATCH_SIZE);
+      for (const e of batch) this._finished.delete(e.sessionId);
+      this._runTurn(() => this._finishedTurn(batch));
+      return;
+    }
+    if (wait !== null) {
       this._batchTimer = setTimeout(() => { this._batchTimer = null; this._pump(); }, wait);
       this._batchTimer.unref?.();
     }
@@ -788,11 +853,7 @@ class ChiefOfStaff {
   _chooseProject() {
     const projects = [...this.listProjects()];
     const model = this.settings.model;
-    const allows = (p) => {
-      const a = Array.isArray(p.allowedModels) ? p.allowedModels : [];
-      return a.length === 0 || a.includes('*') || a.includes(model);
-    };
-    const suitable = (p) => !p.hostId && !p.permissionPolicy && allows(p);
+    const suitable = (p) => !p.hostId && !p.permissionPolicy && projectAllows(p, model);
     let project = null;
     let reason = null;
     if (this.settings.projectId) {
@@ -819,6 +880,19 @@ class ChiefOfStaff {
     return !model || (this.off && ['tools_present', 'tools_unverified', 'authentication_failed', 'no_project', 'project_unsuitable'].includes(this.off.reason));
   }
 
+  // Wake turns (alerts, finished posts) run on the cheaper summary model when
+  // the project allows it; otherwise on the person model, said once.
+  _wakeModelName(project) {
+    const { summaryModel, model } = this.settings;
+    if (projectAllows(project, summaryModel)) return summaryModel;
+    const key = `${project.id}|${summaryModel}`;
+    if (!this._summaryWarned.has(key)) {
+      this._summaryWarned.add(key);
+      this.log.warn(`Chief of Staff summary model ${summaryModel} is not allowed in ${project.name || project.id}; wake turns use ${model}`);
+    }
+    return model;
+  }
+
   // Runs one model turn. Returns {text} or {error: <code>}; maps fatal
   // failures to `off` and never throws.
   async _modelTurn(kind, text) {
@@ -827,9 +901,10 @@ class ChiefOfStaff {
     const project = this._chooseProject();
     const model = this._modelFor(kind);
     if (!project || this._modelBlocked(model)) return { error: 'off' };
+    const modelName = kind === 'wake' ? this._wakeModelName(project) : this.settings.model;
     try {
       const out = await model.turn(text, {
-        projectId: project.id, directory: project.path, model: this.settings.model, timeoutMs: TURN_TIMEOUT_MS,
+        projectId: project.id, directory: project.path, model: modelName, timeoutMs: TURN_TIMEOUT_MS,
       });
       if (out && out.modelId) { this.modelId = out.modelId; }
       if (this.off && (this.off.reason === 'launch_failed' || this.off.reason === 'tools_missing')) this._setOff(null);
@@ -920,6 +995,40 @@ class ChiefOfStaff {
       this._addPost({
         kind: 'alert', headline: text.headline, body: text.body,
         card: this._cardFor(event), byModel: Boolean(written),
+      });
+    }
+  }
+
+  async _finishedTurn(batch) {
+    const events = batch.filter((e) => this._stillValid(e)).map((e) => ({
+      sessionId: e.sessionId, label: e.label, project: this._projectName(e.projectId), excerpt: e.excerpt,
+    }));
+    if (events.length === 0) return;
+
+    const modelPosts = new Map();
+    if (this._atLimit()) {
+      this._noteLimitOnce();
+    } else {
+      const res = await this._modelTurn('wake', prompt.finishedPrompt(events));
+      if (res.error === 'limit') this._noteLimitOnce();
+      if (res.text !== undefined) {
+        const parsed = prompt.parseFinished(res.text, events.map((e) => e.sessionId));
+        if (parsed.reason) this._warnUnparsed('finished', parsed.reason, res);
+        for (const p of parsed.posts || []) {
+          if (p && p.summary && !modelPosts.has(p.sessionId)) modelPosts.set(p.sessionId, p);
+        }
+      }
+    }
+    for (const event of events) {
+      const written = modelPosts.get(event.sessionId);
+      const source = written ? 'model' : 'template';
+      const summary = (written || prompt.templateFinished(event)).summary;
+      // Ids only: the summary and excerpt can quote agent data.
+      this.log.info(`Chief of Staff finished post: session ${event.sessionId.slice(0, 8)} source ${source}`);
+      const entry = batch.find((e) => e.sessionId === event.sessionId);
+      this._addPost({
+        kind: 'finished', sessionId: event.sessionId, label: cut(event.label, LABEL_MAX),
+        projectId: entry.projectId, projectName: event.project, summary, source, byModel: Boolean(written),
       });
     }
   }
@@ -1036,7 +1145,10 @@ class ChiefOfStaff {
     }
     const { status, data } = res;
     if (status === 201 && data && typeof data.sessionId === 'string') {
-      return { ok: true, sessionId: data.sessionId, name: typeof data.name === 'string' ? data.name : '', mode: data.mode };
+      const name = typeof data.name === 'string' ? data.name : '';
+      const startedMode = data.mode || mode;
+      if (startedMode === 'headless') this._armErrand(data.sessionId, 'start', this._labelOf({ name }, data.sessionId), projectId);
+      return { ok: true, sessionId: data.sessionId, name, mode: data.mode };
     }
     const code = data && typeof data.error === 'string' ? data.error : `http_${status}`;
     const message = data && typeof data.message === 'string' && data.message ? data.message : `Relay refused the start (${code}).`;
@@ -1061,6 +1173,7 @@ class ChiefOfStaff {
       return { ok: false, code: 'unreachable', message };
     }
     if (status === 202) {
+      this._armErrand(sessionId, 'send', label, row && row.projectId);
       this._addPost({ kind: 'sent', text, sessionId, label, origin: SCOPE, byModel: true });
       return { ok: true };
     }
