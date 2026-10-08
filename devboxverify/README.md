@@ -741,6 +741,21 @@ reply with the marker within the turn bound.
   journey's cleanup deletes every new Acme Corp session. The installed relay
   must audit `session_launch` with the session id.
 
+**cos-errand-finished.** An agent the person started through the thread reports
+back when it is done (eve#273). The journey types, in `cos-input`, `In the
+project Acme Corp, start a headless agent with the prompt: Reply with exactly
+verify-<nonce>-done and nothing else.` It waits for a `started` post (or a
+`start_card`, then taps `cos-start-<id>`), then for one `finished` post for that
+session within 240 s. The post must show its label and Acme Corp, hold a summary
+of one or two non-empty lines, and have `source` `model`; `cos-open-<id>` must
+land on `#session/<sid>`; eve-verify's log, read once after the finished frame,
+must hold `Chief of Staff finished post: session <first 8 of sid> source model`;
+and by the end exactly one finished frame must have arrived for the session. A
+FAIL detail ends with the status's `calls` count.
+- Lives in: `chief-of-staff.js` (finished turn); `public/chief-of-staff-page.js`.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The
+  journey's cleanup deletes every new Acme Corp session.
+
 **cos-project-from-relay.** A project chosen in relay's Settings is the one the
 Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
 needs setup V-COS-B and relay's Chief of Staff setting at Not set; with the
