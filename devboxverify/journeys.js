@@ -2799,10 +2799,12 @@ const COS_SENT_WITHIN_MS = 60000;
 // The newest Chief of Staff status the page's socket carried (a snapshot's or a
 // cos_status frame's), and every cos_post frame, in arrival order.
 function cosFrames(page) {
-  const seen = { status: null, posts: [] };
+  // idleAt: how many posts had arrived at each cos_status frame with busy:false.
+  const seen = { status: null, posts: [], idleAt: [] };
   const take = (m) => {
     if (!m) return;
     if ((m.type === 'cos_snapshot' || m.type === 'cos_status') && m.status) seen.status = m.status;
+    if (m.type === 'cos_status' && m.status && m.status.busy === false) seen.idleAt.push(seen.posts.length);
     if (m.type === 'cos_post' && m.post) seen.posts.push(m.post);
   };
   page.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
@@ -3249,6 +3251,11 @@ async function cosErrandFinished(env) {
   const want = `Chief of Staff finished post: session ${sid.slice(0, 8)} source model`;
   if (!(await env.serviceLog.since(logMark)).includes(want)) problems.push(`eve-verify's log has no line "${want}"`);
 
+  // A duplicate would be posted by a later pump pass, so count only once the
+  // thread has reported busy:false after the finished frame.
+  const finishedAt = seen.posts.indexOf(finished) + 1;
+  const settled = await poll(async () => seen.idleAt.some((n) => n >= finishedAt) || null, { timeoutMs: COS_FINISHED_WITHIN_MS, intervalMs: 500 });
+  if (!settled) problems.push('no busy:false status arrived after the finished post');
   const count = finishedFor().length;
   if (count !== 1) problems.push(`${count} finished frames arrived for the session, want 1`);
   if (problems.length) return fail(problems.join('; '));

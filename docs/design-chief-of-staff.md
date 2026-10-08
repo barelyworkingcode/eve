@@ -59,7 +59,7 @@ One outcome per errand:
 1. `turn_done` whose excerpt `isQuestion`: the record is dropped and the question alert posts as usual.
 2. Any other `turn_done`: the record keeps the last 500 characters of the excerpt and waits for the state.
 3. The next `session_state` `idle` queues a finished entry (a person's Stop also ends in `idle`, so it posts too). Other states post nothing extra; `errored` keeps its alert.
-4. `asking` or `stalled` before any `turn_done`: the record is dropped, the alert posts, no finished post. An `idle` from the launch, before the turn, leaves the record alone.
+4. `asking`, `stalled` or `errored` before any `turn_done`: the record is dropped, the alert posts, no finished post. An `idle` from the launch, before the turn, leaves the record alone.
 
 Finished entries wait in `_finished` (cap 50), never in the alert queue, and `_isBusy()` counts them. The pump runs person turns, then the ready alert batch, then up to 10 finished entries, oldest first, with no quiet window. Entries whose session is gone are skipped.
 
