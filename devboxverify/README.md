@@ -716,7 +716,8 @@ reply with the marker within the turn bound.
 Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
 needs setup V-COS-B and relay's Chief of Staff setting at Not set; with the
 setting already configured it is BLOCKED and changes nothing. Through the
-presence helper it mints a 15-minute `configure` credential named
+presence helper it mints a 15-minute credential with classes `read` (the GET)
+and `configure` (PUT, DELETE) named
 `devbox-verify-cos-<nonce>` (one prompt), then over relay's frontend socket
 `GET /api/chief-of-staff/config` must read `configured:false`, and `PUT
 {projectId: <Verify Chief of Staff B id>, model: "haiku", dailyModelCalls: 39}`

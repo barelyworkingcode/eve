@@ -3304,7 +3304,7 @@ async function cosProjectFromRelay(env) {
   if (!sockName) return result(id, BLOCKED, 'relay has no single frontend socket in its config folder');
   const socket = path.join(sockDir, sockName);
 
-  env.step('mint a configure credential');
+  env.step('mint a read and configure credential');
   const credName = `devbox-verify-cos-${env.nonce}`;
   const mintPresence = env.screen.answerPresence({ expect: `named "${credName}"` });
   if (!(await mintPresence.ready)) return result(id, BLOCKED, `presence dialog ${(await mintPresence.result).state}`);
@@ -3312,7 +3312,7 @@ async function cosProjectFromRelay(env) {
   let credId = '';
   let touched = false;
   try {
-    const { stdout: out } = await exec(env.relayBin, ['credential', 'mint', '--name', credName, '--class', 'configure', '--ttl', COS_CRED_TTL], { timeout: 30000 });
+    const { stdout: out } = await exec(env.relayBin, ['credential', 'mint', '--name', credName, '--class', 'read', '--class', 'configure', '--ttl', COS_CRED_TTL], { timeout: 30000 });
     ({ id: credId, token } = parseMintOutput(out));
   } catch {
     const { state } = await mintPresence.result;
