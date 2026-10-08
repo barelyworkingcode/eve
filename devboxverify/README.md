@@ -554,7 +554,9 @@ skills, MCP `devboxverify-wide` with 48 tools; not a world project, found by
 name in `GET /api/projects`), a Web Chat on `EVE_VERIFY_MODEL` (expect `Chat6`)
 is asked `What is the tide code for the port "<nonce>"? Reply with
 the code only.` PASS needs all of: the first tool step in the thread is
-`tool_search` and its result names `tides_lookup`; a later step calls
+`tool_search` and its result names `tides_lookup` (only `call_tool` steps that
+relay refused as `unknown tool` may come before it: the model sometimes guesses
+a name first, eve#202, owner-approved); a later step calls
 `tides_lookup` (directly or through `call_tool`); the settled reply holds
 `TIDE-` and the first 8 hex of sha256 of the lowercased, trimmed port, which
 the journey computes; `relay audit --event call_tool --project <id>` has an

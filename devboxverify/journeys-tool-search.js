@@ -83,17 +83,25 @@ const lookupFrame = (u) => u.name === LOOKUP_TOOL
 const describeUse = (u) => `${u.name}${u.input && typeof u.input === 'object' && u.input.name ? `(${u.input.name})` : ''}`;
 
 // The thread's tool steps against the search-first rule: the index of the
-// tool_search step, or { error } naming why the order fails.
+// tool_search step, or { error } naming why the order fails. Deliberate
+// (owner-approved, eve#202): call_tool steps on a guessed name that relay
+// refused as unknown may come first; the model chooses that order, not eve.
+const UNKNOWN_TOOL = /unknown tool/;
+const guessedCall = (s) => s.name === 'call_tool' && UNKNOWN_TOOL.test(s.output);
+
 function searchStep(steps) {
   const stepNames = steps.map((s) => s.name).join(', ') || 'none';
-  const first = steps[0];
-  if (!first || first.name !== 'tool_search') {
-    return { error: `the first tool step is ${first ? `"${first.name}"` : 'missing'}, not tool_search (steps: ${stepNames})` };
+  let index = 0;
+  while (index < steps.length && guessedCall(steps[index])) index += 1;
+  const search = steps[index];
+  if (!search || search.name !== 'tool_search') {
+    const which = index ? `the first tool step after ${index} failed guess${index > 1 ? 'es' : ''}` : 'the first tool step';
+    return { error: `${which} is ${search ? `"${search.name}"` : 'missing'}, not tool_search (steps: ${stepNames})` };
   }
-  if (!first.output.includes(LOOKUP_TOOL)) {
-    return { error: `the tool_search result does not name ${LOOKUP_TOOL}: ${first.output.slice(0, 200)}` };
+  if (!search.output.includes(LOOKUP_TOOL)) {
+    return { error: `the tool_search result does not name ${LOOKUP_TOOL}: ${search.output.slice(0, 200)}` };
   }
-  return { index: 0 };
+  return { index };
 }
 
 async function logSince(mark) {
