@@ -241,3 +241,31 @@ test('the session list marks a session the Chief of Staff started and no other',
   await expect(marked.getByTestId('session-origin-chip')).toBeVisible();
   await expect(page.getByTestId('project-thread-s3').getByTestId('session-origin-chip')).toHaveCount(0);
 });
+
+// eve#273: an errand (a session the Chief of Staff sent a message to) posts a finished summary
+// when its turn ends idle; the post names the agent and project, and Open opens the session.
+test('a finished errand posts its name, project and summary, and Open opens the session', async ({ page, eve }) => {
+  await openThread(page);
+  const sendArgs = { sessionId: 's1', text: 'merge after CI' };
+  await callCosTool(page, eve, {
+    say: 'tell Agent s1 to merge after CI',
+    toolUses: [{ id: 'c1', name: 'mcp__relay__cos_propose_send', input: sendArgs }],
+    tool: 'cos_propose_send', args: sendArgs, replyText: 'Sending it.',
+  });
+  await expect(page.locator('[data-testid^="cos-post-"][data-kind="sent"]')).toBeVisible(WAIT);
+
+  eve.relay.setCosModel({
+    reply: (text, n) => (n === 1 ? 'ready'
+      : text.startsWith('Chief of Staff finished') ? '```json\n{"posts":[{"sessionId":"s1","summary":"Merged the branch.\\nAll checks passed."}]}\n```' : null),
+  });
+  eve.relay.emitToRelay(relayFrames.turnDone({ sessionId: 's1', excerpt: 'Merged the branch. All checks passed.' }));
+  eve.relay.emitToRelay(relayFrames.sessionState({ sessionId: 's1', state: 'idle' }));
+
+  const post = page.locator('[data-testid^="cos-post-"][data-kind="finished"]');
+  await expect(post).toBeVisible(WAIT);
+  await expect(post.locator('h3')).toHaveText('Agent s1 finished');
+  await expect(post).toContainText('Acme');
+  await expect(post.locator('[data-testid^="cos-finished-summary-"]')).toHaveText('Merged the branch.\nAll checks passed.');
+  await post.locator('[data-testid^="cos-open-"]').click();
+  await expect(page).toHaveURL(/#session\/s1$/);
+});

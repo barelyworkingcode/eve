@@ -603,7 +603,7 @@ describe('files', () => {
 
 describe('settings.chiefOfStaff', () => {
   it('uses defaults when absent', () => {
-    expect(parseChiefOfStaffSettings(undefined)).toEqual({ enabled: true, model: 'sonnet', projectId: null, dailyModelCalls: 100 });
+    expect(parseChiefOfStaffSettings(undefined)).toEqual({ enabled: true, model: 'sonnet', projectId: null, dailyModelCalls: 100, summaryModel: 'haiku' });
   });
 
   it.each([
@@ -623,7 +623,7 @@ describe('settings.chiefOfStaff', () => {
   });
 
   it('accepts valid values', () => {
-    expect(parseChiefOfStaffSettings({ enabled: false, model: 'haiku', projectId: 'p1', dailyModelCalls: 40 })).toEqual({ enabled: false, model: 'haiku', projectId: 'p1', dailyModelCalls: 40 });
+    expect(parseChiefOfStaffSettings({ enabled: false, model: 'haiku', projectId: 'p1', dailyModelCalls: 40 })).toEqual({ enabled: false, model: 'haiku', projectId: 'p1', dailyModelCalls: 40, summaryModel: 'haiku' });
   });
 });
 
