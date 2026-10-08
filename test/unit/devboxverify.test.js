@@ -484,6 +484,8 @@ describe('devboxverify/main.js runSelection and its output lines', () => {
     expect(sel.ids.length).toBeLessThan(allIds.length);
     expect(sel.ids).toEqual(expect.arrayContaining(['landing-view', 'chat-reply', 'file-edit-save']));
     expect(sel.ids.every((id) => allIds.includes(id))).toBe(true);
+    const smoke = ['landing-view', 'chat-reply', 'open-existing-thread', 'terminal-on-request', 'task-created-listed', 'changes-diff', 'file-edit-save'];
+    expect(sel.ids).toEqual(journeys.filter((j) => j.fixture || smoke.includes(j.id)).map((j) => j.id));
   });
 
   it('with --post, a core path runs everything', () => {
@@ -540,6 +542,13 @@ describe('devboxverify/post.js selection reporting', () => {
 
   it('describes a full run ending with its why', () => {
     expect(statusDescription(results(3), full(3, 'core: server.js'))).toBe('full 3/3 pass=3 fail=0 blocked=0 notrun=0 why core: server.js');
+  });
+
+  it('scrubs the home directory from the description', () => {
+    const sel = full(2, "map unreadable: ENOENT open '/home/acme/eve/docs/areas.jsonc'");
+    const d = statusDescription(results(2), sel, '/home/acme');
+    expect(d).toContain('~/eve/docs/areas.jsonc');
+    expect(d).not.toContain('/home/acme');
   });
 
   it.each([

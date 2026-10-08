@@ -41,11 +41,11 @@ function checkSelection(sel, notSelected) {
 
 const DESCRIPTION_MAX = 140;
 
-function statusDescription(results, sel) {
+function statusDescription(results, sel, home) {
   const c = countStates(results);
   const head = `${sel.mode} ${sel.ids.length}/${sel.total} pass=${c.PASS} fail=${c.FAIL} blocked=${c.BLOCKED} notrun=${c.NOTRUN}`;
   const tail = sel.mode === 'partial' ? ` areas ${sel.areas.join(',') || 'none'}` : ` why ${sel.why}`;
-  return (head + tail).slice(0, DESCRIPTION_MAX);
+  return scrub(head + tail, home).slice(0, DESCRIPTION_MAX);
 }
 
 function cell(s) {
@@ -107,7 +107,7 @@ async function post(ev, { cwd }) {
   checkSelection(ev.selection, ev.notSelected);
   const out = await gh(['pr', 'comment', String(ev.pr), '--body-file', '-'], { cwd, stdin: renderComment(ev) });
   const commentUrl = commentUrlFrom(out);
-  const description = statusDescription(ev.results, ev.selection);
+  const description = statusDescription(ev.results, ev.selection, ev.home);
   await gh([
     'api', '-X', 'POST', `repos/{owner}/{repo}/statuses/${ev.commit}`,
     '-f', `state=${statusState(ev.results)}`,
