@@ -9,7 +9,7 @@ The test model is Claude Haiku 5.5: journeys and the Chief of Staff launch
 the alias `haiku`, and assert the full id `claude-haiku-5-5`.
 
 ```bash
-node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen]
+node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen] [--only ID[,ID...]]
 npm run -s verify:devbox -- [flags]
 ```
 
@@ -22,6 +22,7 @@ Keep `-s` on the npm form. npm's banner would break the stdout grammar.
 | `--service` | `eve-verify` |
 | `--post` | none; a PR number |
 | `--screen` | off; runs the journeys that drive the real screen (no value) |
+| `--only` | all journeys; comma-separated journey ids (or `--only=a,b`). Fixture journeys (owner sign-in) always run. An unknown id exits 2 before the lock. Cannot be combined with `--post` |
 
 Environment: `RELAY_BIN` (default `/Applications/Relay.app/Contents/MacOS/relay`;
 used for `relay service list`, `relay service restart --id eve-verify` and
@@ -65,7 +66,7 @@ RESET OK|FAIL
 JOURNEY <id> PASS|FAIL|BLOCKED|NOTRUN <detail>
 TIMING journey <id> <ms>
 TIMING run <ms>
-SUMMARY pass=<n> fail=<n> blocked=<n> notrun=<n>
+SUMMARY pass=<n> fail=<n> blocked=<n> notrun=<n> [partial=only:<id,id>]
 POSTED success|failure|error <comment URL>
 ```
 
