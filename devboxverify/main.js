@@ -565,7 +565,9 @@ async function removeHookConfigs(projects) {
     let parsed;
     try { parsed = JSON.parse(text); } catch { continue; }
     if (!isRelayHookConfig(parsed)) continue;
-    await fs.promises.unlink(file);
+    try { await fs.promises.unlink(file); } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
     try { await fs.promises.rmdir(dir); } catch (err) {
       if (err.code !== 'ENOTEMPTY') throw err;
     }
@@ -940,7 +942,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
     if (late) log(late);
     if (projects && !failedEarly) {
       await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
-      // A Chief of Staff session may start between journeys.
+      // Catches a Claude session that started after the last journey's cleanup.
       try {
         const names = await removeHookConfigs(projects);
         if (names.length) log(`final: removed relay's hook config from ${names.join(', ')}`);
@@ -975,7 +977,7 @@ module.exports = {
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
-  main, EXIT_GRACE_MS, removeHookConfigs,
+  main, EXIT_GRACE_MS,
 };
 
 // Deliberate: a journey that lost its race can still hold a socket after the

@@ -1534,6 +1534,21 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
       expect(fs.readFileSync(settings(), 'utf8')).toBe(OTHER);
     });
 
+    it('leaves relay\'s hook config with extra top-level content untouched', async () => {
+      const merged = JSON.stringify({ ...JSON.parse(HOOK), permissions: { allow: ['Bash'] } }, null, 2);
+      const r = await runWith({ 'settings.local.json': merged });
+      expect(r.state).toBe('PASS');
+      expect(fs.readFileSync(settings(), 'utf8')).toBe(merged);
+    });
+
+    it('leaves a hook config whose command is not relay\'s untouched', async () => {
+      const foreign = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '', hooks: [
+        { command: '/usr/local/bin/other hook', timeout: 120, type: 'command' }] }] } }, null, 2);
+      const r = await runWith({ 'settings.local.json': foreign });
+      expect(r.state).toBe('PASS');
+      expect(fs.readFileSync(settings(), 'utf8')).toBe(foreign);
+    });
+
     it('removes the hook file but keeps .claude when it holds another file', async () => {
       const r = await runWith({ 'settings.local.json': HOOK, 'notes.txt': 'keep' });
       expect(r.state).toBe('PASS');
