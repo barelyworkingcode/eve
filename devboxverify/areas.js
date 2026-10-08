@@ -128,12 +128,17 @@ function select({ map, journeys, changed }) {
   return { mode: 'partial', why: 'by area', areas: [...touched].sort(), ids, total };
 }
 
+// An inherited GIT_DIR (a git hook sets it) would diff another repo than --checkout.
+function gitEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+}
+
 // Both ends of a rename are listed (--no-renames). A stale origin/main only
 // makes the diff larger, which errs toward more journeys. Never rejects.
 function changedFiles(checkout) {
   return new Promise((resolve) => {
     execFile('git', ['-C', checkout, 'diff', '--name-only', '--no-renames', '-z', 'origin/main...HEAD'],
-      { maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+      { maxBuffer: 16 * 1024 * 1024, env: gitEnv() }, (err, stdout, stderr) => {
         if (err) {
           const msg = String(stderr || err.message).trim().split('\n')[0];
           resolve({ error: msg || 'git diff failed' });

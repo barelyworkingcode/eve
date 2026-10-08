@@ -9,8 +9,11 @@ const { changedFiles } = require('../../devboxverify/areas');
 const { runSelection } = require('../../devboxverify/main');
 const { journeys } = require('../../devboxverify/journeys');
 
+// Deliberate: a git hook exports GIT_DIR and friends, which would point these
+// calls at the real repo instead of the temp one.
+const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
 const git = (cwd, ...args) => run('git', ['-C', cwd, '-c', 'user.name=Tester', '-c', 'user.email=t@example.test',
-  '-c', 'commit.gpgsign=false', ...args]);
+  '-c', 'commit.gpgsign=false', ...args], { env });
 
 describe('devboxverify selection against a real git repo', () => {
   let dir;
