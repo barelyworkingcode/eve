@@ -24,7 +24,7 @@ function globToRegExp(glob) {
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i];
     if (c === '*' && glob[i + 1] === '*') {
-      if (glob[i + 2] === '/') { out += '(?:.*/)?'; i += 2; }
+      if (glob[i + 2] === '/' && (i === 0 || glob[i - 1] === '/')) { out += '(?:.*/)?'; i += 2; }
       else if (i + 2 === glob.length && out.endsWith('/')) { out += '.+'; i += 1; }
       else { out += '[^/]*'; i += 1; }
     } else if (c === '*') out += '[^/]*';
@@ -38,11 +38,17 @@ function isStringArray(v) {
   return Array.isArray(v) && v.every((s) => typeof s === 'string');
 }
 
+// jsonc-parser stores a `__proto__` key as the prototype, so Object.keys misses it.
+function rejectProto(obj, where) {
+  if (Object.getPrototypeOf(obj) !== Object.prototype) throw new Error(`${MAP_PATH}: ${where}unknown key __proto__`);
+}
+
 function parseMap(text) {
   const errors = [];
   const raw = parseJsonc(text, errors, { allowTrailingComma: true });
   if (errors.length) throw new Error(`${MAP_PATH}: not valid JSONC`);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${MAP_PATH}: top level must be an object`);
+  rejectProto(raw, '');
   for (const key of Object.keys(raw)) {
     if (!MAP_KEYS.includes(key)) throw new Error(`${MAP_PATH}: unknown key ${key}`);
   }
@@ -53,6 +59,7 @@ function parseMap(text) {
   for (const [name, area] of Object.entries(rawAreas)) {
     if (!AREA_NAME.test(name)) throw new Error(`${MAP_PATH}: invalid area name ${name}`);
     if (!area || typeof area !== 'object' || Array.isArray(area)) throw new Error(`${MAP_PATH}: area ${name} must be an object`);
+    rejectProto(area, `area ${name}: `);
     for (const key of Object.keys(area)) {
       if (!AREA_KEYS.includes(key)) throw new Error(`${MAP_PATH}: area ${name}: unknown key ${key}`);
     }

@@ -34,6 +34,9 @@ describe('devboxverify/areas.js', () => {
       ['*.js', '.eslintrc.js', true],
       ['.github/**', '.github/workflows/ci.yml', true],
       ['a.js', 'axjs', false],
+      ['a**/b', 'ab', false],
+      ['a**/b', 'ax/y/b', false],
+      ['a**/b', 'axy/b', true],
       ['x+y(1).js', 'x+y(1).js', true],
       ['x+y(1).js', 'xxy(1).js', false],
     ])('%s against %s is %s', (glob, file, expected) => {
@@ -54,6 +57,8 @@ describe('devboxverify/areas.js', () => {
       ['an unknown area key', '{ "quiet": [], "areas": { "chat": { "code": ["a.js"], "extra": 1 } } }'],
       ['an empty code list', '{ "quiet": [], "areas": { "chat": { "code": [] } } }'],
       ['an invalid area name', '{ "quiet": [], "areas": { "Bad_Name": { "code": ["a.js"] } } }'],
+      ['a __proto__ key at top level', '{ "quiet": [], "areas": {}, "__proto__": {} }'],
+      ['a __proto__ key in an area', '{ "quiet": [], "areas": { "chat": { "code": ["a.js"], "__proto__": {} } } }'],
     ])('rejects %s with the file name in the message', (_label, text) => {
       expect(() => parseMap(text)).toThrow(/^docs\/areas\.jsonc: /);
     });
