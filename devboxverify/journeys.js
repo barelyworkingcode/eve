@@ -3,6 +3,7 @@
 // verdicts rest on visible text or visibility. See docs/design-devboxverify.md.
 /** @typedef {{ id: string, timeoutMs: number, areas: string[], needs: string[], fixture?: true, screen?: true, knownBug?: string, run(env): Promise<object> }} Journey */
 const { execFile } = require('child_process');
+const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
@@ -3184,6 +3185,214 @@ async function cosStartCard(env) {
     + `the roster grew, relay audit holds an ok session_launch from chief-of-staff, and the agent replied ${marker}`);
 }
 
+// — Chief of Staff project from relay (eve#249) -----------------------------------
+
+const COS_CALLS = 39; // not the settings.json value (40), so the log line proves relay's values
+const COS_B_PROJECT = 'Verify Chief of Staff B';
+const COS_B_MCP = 'relay-eve-cos-verify';
+const COS_CONFIG_PATH = '/api/chief-of-staff/config';
+const COS_CRED_TTL = '15m';
+const COS_RELAY_HOLDS = 'relay holds a Chief of Staff setting; set it to Not set in relay\'s Settings';
+
+// Setup V-COS-B (README): exactly one project of the name, granted exactly the
+// eve-cos MCP. `grantOut` is the text of `relay grant --json`.
+function cosProjectBSetup(grantOut) {
+  const blocked = (what) => ({ projectId: '', problem: `setup V-COS-B: ${what}; see devboxverify/README.md` });
+  let views;
+  try { views = JSON.parse(grantOut); } catch { return blocked('relay grant printed unreadable JSON'); }
+  if (!Array.isArray(views)) return blocked('relay grant printed unreadable JSON');
+  const hits = views.filter((v) => v && v.kind === 'project' && v.name === COS_B_PROJECT && typeof v.id === 'string' && v.id);
+  if (hits.length !== 1) return blocked(`${hits.length} projects named "${COS_B_PROJECT}", want 1`);
+  const granted = (Array.isArray(hits[0].mcps) ? hits[0].mcps : []).map((m) => (m && m.mcp) || '?');
+  if (granted.length !== 1 || granted[0] !== COS_B_MCP) {
+    return blocked(`"${COS_B_PROJECT}" is granted [${granted.join(', ')}], want exactly [${COS_B_MCP}]`);
+  }
+  return { projectId: hits[0].id, problem: '' };
+}
+
+// relay credential mint prints `id: <id>` and `token: <token>` lines.
+function parseMintOutput(stdout) {
+  let id = '';
+  let token = '';
+  for (const line of String(stdout).split('\n')) {
+    const f = line.trim().split(/\s+/);
+    if (f.length === 2 && f[0] === 'id:') id = f[1];
+    if (f.length === 2 && f[0] === 'token:') token = f[1];
+  }
+  return { id, token };
+}
+
+// The one relay frontend socket name among a config folder's files, or null.
+function frontendSocketIn(names) {
+  const socks = names.filter((n) => /^relay-frontend-\d+\.sock$/.test(n));
+  return socks.length === 1 ? socks[0] : null;
+}
+
+// One bounded request to relay's frontend socket. The token goes only into the
+// Authorization header; errors name the failure, never the request.
+function frontendRequest(socketPath, token, method, urlPath, body, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? null : JSON.stringify(body);
+    const headers = { Authorization: `Bearer ${token}` };
+    if (payload !== null) Object.assign(headers, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
+    const req = http.request({ socketPath, method, path: urlPath, headers, timeout: timeoutMs }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (d) => { text += d; });
+      res.on('end', () => {
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* not JSON */ }
+        resolve({ status: res.statusCode, json });
+      });
+      res.on('error', () => reject(new Error(`${method} ${urlPath}: response failed`)));
+    });
+    req.on('timeout', () => req.destroy(new Error(`${method} ${urlPath}: no answer within ${timeoutMs / 1000}s`)));
+    req.on('error', (err) => reject(new Error(`${method} ${urlPath}: ${err.code || firstLine(err)}`)));
+    if (payload !== null) req.write(payload);
+    req.end();
+  });
+}
+
+// The session_launch rows of `relay audit --json` text, reduced to what the
+// journey judges.
+function cosLaunchRows(jsonl) {
+  const rows = [];
+  for (const line of String(jsonl).split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (!o || o.event !== 'session_launch') continue;
+    const a = o.args && typeof o.args === 'object' ? o.args : {};
+    rows.push({
+      id: o.id, outcome: o.outcome, projectId: (o.actor && o.actor.project_id) || '', readOnly: a.read_only_projects === true,
+    });
+  }
+  return rows;
+}
+
+// Null when a row not in `known` is an ok launch in the project with
+// read-only roots; else what the new rows show. Row ids, not timestamps, mark
+// "since the PUT", so no wall clock is compared.
+function cosLaunchProblem(rows, known, projectId) {
+  const fresh = rows.filter((r) => !known.has(r.id));
+  if (fresh.some((r) => r.outcome === 'ok' && r.projectId === projectId && r.readOnly)) return null;
+  const shown = fresh.map((r) => `${r.outcome}/${r.projectId || 'none'}/${r.readOnly ? 'ro' : 'rw'}`).join(', ') || 'none';
+  return `no new ok session_launch row in the project with read_only_projects (new rows: ${shown})`;
+}
+
+// The line eve logs when it first uses relay's setting.
+function cosConfigLine(projectId, model, calls) {
+  return `Chief of Staff config from relay: project ${projectId}, model ${model}, ${calls} calls a day`;
+}
+
+const auditLaunches = (env, projectId) => exec(env.relayBin,
+  ['audit', '--event', 'session_launch', '--project', projectId, '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 }).then((r) => r.stdout);
+
+// This is subtle: the configure token exists only in the `token` variable of
+// this run. It goes to frontendRequest's Authorization header and nowhere
+// else: no file, log, step label, result or message. Restore and revoke are
+// one cleanup so the revoke runs whatever the restore does.
+async function cosProjectFromRelay(env) {
+  const id = 'cos-project-from-relay';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const grantOut = await exec(env.relayBin, ['grant', '--json'], { timeout: 20000 }).then((r) => r.stdout, () => null);
+  if (grantOut === null) return result(id, BLOCKED, 'setup V-COS-B: relay grant --json failed; see devboxverify/README.md');
+  const setup = cosProjectBSetup(grantOut);
+  if (setup.problem) return result(id, BLOCKED, setup.problem);
+  const projectId = setup.projectId;
+  const sockDir = path.join(os.homedir(), 'Library', 'Application Support', 'relay');
+  const sockName = frontendSocketIn(await fs.promises.readdir(sockDir).catch(() => []));
+  if (!sockName) return result(id, BLOCKED, 'relay has no single frontend socket in its config folder');
+  const socket = path.join(sockDir, sockName);
+
+  env.step('mint a read and configure credential');
+  const credName = `devbox-verify-cos-${env.nonce}`;
+  const mintPresence = env.screen.answerPresence({ expect: `named "${credName}"` });
+  if (!(await mintPresence.ready)) return result(id, BLOCKED, `presence dialog ${(await mintPresence.result).state}`);
+  let token = '';
+  let credId = '';
+  let touched = false;
+  try {
+    const { stdout: out } = await exec(env.relayBin, ['credential', 'mint', '--name', credName, '--class', 'read', '--class', 'configure', '--ttl', COS_CRED_TTL], { timeout: 30000 });
+    ({ id: credId, token } = parseMintOutput(out));
+  } catch {
+    const { state } = await mintPresence.result;
+    return result(id, state === 'answered' ? FAIL : BLOCKED, state === 'answered' ? 'relay credential mint failed' : `presence dialog ${state}`);
+  }
+  await mintPresence.result;
+  if (!credId) return result(id, FAIL, 'relay credential mint printed no id');
+  // Registered as soon as an id exists, so it also runs on FAIL and on timeout.
+  env.cleanup(`restore relay's setting and revoke credential ${credId}`, async () => {
+    const problems = [];
+    try {
+      if (touched && token) {
+        await frontendRequest(socket, token, 'DELETE', COS_CONFIG_PATH);
+        const back = await frontendRequest(socket, token, 'GET', COS_CONFIG_PATH);
+        if (!back.json || back.json.configured !== false) problems.push('relay\'s Chief of Staff setting is still configured after DELETE');
+      }
+    } catch (err) {
+      problems.push(`could not restore relay's Chief of Staff setting (${firstLine(err)})`);
+    }
+    token = '';
+    const revokePresence = env.screen.answerPresence({ expect: `"${credId}"` });
+    if (!(await revokePresence.ready)) {
+      problems.push(`credential ${credId} not revoked (presence dialog ${(await revokePresence.result).state}); revoke it by hand`);
+    } else {
+      const revoked = await exec(env.relayBin, ['credential', 'revoke', '--id', credId], { timeout: 30000 }).then(() => true, () => false);
+      const { state } = await revokePresence.result;
+      if (!revoked) problems.push(`credential ${credId} not revoked (presence dialog ${state}); revoke it by hand`);
+    }
+    if (problems.length) throw new Error(problems.join('; '));
+  }, 90000);
+  if (!token) return result(id, FAIL, 'relay credential mint printed no token');
+
+  env.step('read relay\'s Chief of Staff setting');
+  const current = await frontendRequest(socket, token, 'GET', COS_CONFIG_PATH);
+  if (current.status !== 200 || !current.json) return result(id, FAIL, `GET ${COS_CONFIG_PATH} answered ${current.status}`);
+  if (current.json.configured !== false) return result(id, BLOCKED, COS_RELAY_HOLDS);
+
+  const knownLaunches = new Set(cosLaunchRows(await auditLaunches(env, projectId)).map((r) => r.id));
+  const logMark = await env.serviceLog.mark();
+  env.step('set the project in relay');
+  touched = true;
+  const put = await frontendRequest(socket, token, 'PUT', COS_CONFIG_PATH, { projectId, model: COS_MODEL, dailyModelCalls: COS_CALLS });
+  if (put.status !== 200) return result(id, FAIL, `PUT ${COS_CONFIG_PATH} answered ${put.status}`);
+  if (!put.json || put.json.configured !== true || put.json.projectId !== projectId) {
+    return result(id, FAIL, 'relay\'s answer to the PUT does not hold the project just set');
+  }
+
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  env.step('ask for one word');
+  const from = await cosSay(page, seen, 'Reply with the single word: ready.');
+  env.step('wait for the reply post');
+  const post = await cosWaitPost(seen, from, ['reply', 'notice']);
+  if (!post) return result(id, FAIL, `no reply post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  if (post.kind !== 'reply') {
+    const said = String(post.body || post.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    return result(id, FAIL, `the thread posted a notice instead of a reply: "${said}"`);
+  }
+  const problems = [];
+  const modelProblem = await cosModelProblem(seen);
+  if (modelProblem) problems.push(modelProblem);
+
+  env.step('read relay audit');
+  let rows = [];
+  await poll(async () => {
+    rows = cosLaunchRows(await auditLaunches(env, projectId).catch(() => ''));
+    return cosLaunchProblem(rows, knownLaunches, projectId) === null;
+  }, { timeoutMs: 5000, intervalMs: 500 });
+  const auditProblem = cosLaunchProblem(rows, knownLaunches, projectId);
+  if (auditProblem) problems.push(`relay audit: ${auditProblem}`);
+  env.step('read eve-verify\'s log');
+  const want = cosConfigLine(projectId, COS_MODEL, COS_CALLS);
+  if (!(await env.serviceLog.since(logMark)).includes(want)) problems.push(`eve-verify's log has no line "${want}"`);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `with ${COS_B_PROJECT} set in relay, the Chief of Staff replied on ${COS_MODEL_ID}; relay audit holds an ok `
+    + `session_launch in ${COS_B_PROJECT} with read_only_projects, and eve-verify logged "${want}"`);
+}
+
 const auth = require('./journeys-auth').journeys;
 const toolSearch = require('./journeys-tool-search').journeys;
 
@@ -3230,6 +3439,10 @@ const journeys = [
   { id: 'cos-tell-sends-marked', timeoutMs: 150000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosTellSendsMarked },
   { id: 'cos-reads-project', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosReadsProject },
   { id: 'cos-start-card', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosStartCard },
+  {
+    id: 'cos-project-from-relay', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    run: cosProjectFromRelay,
+  },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },
   { id: 'project-admin-in-relay', timeoutMs: 45000, areas: ['projects'], needs: ['project:acme'], run: projectAdminInRelay },
   { id: 'mode-presets', timeoutMs: 90000, areas: ['projects', 'settings', 'home'], needs: ['project:acme'], run: modePresets },
@@ -3243,4 +3456,6 @@ const journeys = [
   auth.addBrowserInWindow,
 ];
 
-module.exports = { journeys };
+module.exports = {
+  journeys, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
+};

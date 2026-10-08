@@ -254,6 +254,9 @@ const chiefOfStaff = new ChiefOfStaff({
   dataDir: DATA_DIR,
   settings: parseChiefOfStaffSettings(settings.chiefOfStaff, serverLog),
   log: log.child('ChiefOfStaff'),
+  readRelayConfig: () => relayTransport.fetch('GET', '/api/chief-of-staff/config'),
+  refreshProjects: () => refreshProjectCache(),
+  fileSource: settings.chiefOfStaff !== undefined ? 'settings.json' : 'defaults',
 });
 if (!passkeySyncConfig.enabled) {
   serverLog.info('Passkey sync: off (EVE_PASSKEY_SYNC=off); no report or revocation poll to relay');

@@ -7,8 +7,8 @@ class ChiefOfStaffPage {
   static OFF_LINES = {
     disabled: "Chief of Staff is off in eve's settings.",
     scope_refused: "Relay won't let the Chief of Staff read sessions.",
-    no_project: 'No project can run the Chief of Staff. Set chiefOfStaff.projectId.',
-    project_unsuitable: 'No project can run the Chief of Staff. Set chiefOfStaff.projectId.',
+    no_project: "No project can run the Chief of Staff. Pick one in relay's Settings, under Projects > Chief of Staff.",
+    project_unsuitable: "No project can run the Chief of Staff. Pick one in relay's Settings, under Projects > Chief of Staff.",
     tools_present: "The model has tools, so it's off. Alerts still post.",
     tools_unverified: "The model has tools, so it's off. Alerts still post.",
     authentication_failed: "The model can't log in, so it's off. Alerts still post.",

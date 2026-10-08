@@ -157,6 +157,9 @@ function createFakeRelay({ token = null } = {}) {
   // null => the start succeeds; { status, code, message } forces a refusal after the launch checks.
   let cosStartFailure = null;
   const cosTurnWaiters = [];
+  // GET /api/chief-of-staff/config (project_routes.go): { configured: false } until a test sets a
+  // value; 'absent' answers 404 like a relay older than the route.
+  let cosConfig = { configured: false };
   // session_ended and the attention frames are broadcast to every connection, scoped ones included.
   const BROADCAST_TYPES = new Set(['session_state', 'turn_done', 'session_ended']);
   // join_session for an id relay does not hold is an error frame. Off by default
@@ -448,6 +451,10 @@ function createFakeRelay({ token = null } = {}) {
       // so relative paths get a 400, not a 201.
       const isAbsPath = (pth) => typeof pth === 'string' && pth.startsWith('/');
       const absPathError = (pth) => send(400, { error: `project path must be an absolute path: ${JSON.stringify(pth ?? '')}` });
+      if (p === '/api/chief-of-staff/config' && req.method === 'GET') {
+        if (cosConfig === 'absent') return sendText(404, '404 page not found');
+        return send(200, cosConfig);
+      }
       if (p === '/api/projects' && req.method === 'GET') return send(200, [...projects.values()].map(projectView));
       if (p === '/api/projects' && req.method === 'POST') {
         if (!isAbsPath(parsed.path)) return absPathError(parsed.path);
@@ -1213,6 +1220,8 @@ function createFakeRelay({ token = null } = {}) {
     cosStarts,
     failChiefOfStaffStart: (status, code, message = code) => { cosStartFailure = { status, code, message }; },
     clearChiefOfStaffStartFailure: () => { cosStartFailure = null; },
+    // value: { projectId, model, dailyModelCalls } -> configured:true; null -> configured:false; 'absent' -> 404.
+    setChiefOfStaffConfig: (value) => { cosConfig = value === null ? { configured: false } : value === 'absent' ? 'absent' : { configured: true, ...value }; },
     waitForCosStart: () => (cosStarts.length > 0 ? Promise.resolve() : new Promise((r) => cosStartWaiters.push(r))),
     // Resolves once the model session has been sent a turn matching pred({ sessionId, text, n }).
     waitForCosTurn: (pred) => (cosModelTurns.some(pred) ? Promise.resolve() : new Promise((resolve) => cosTurnWaiters.push({ pred, resolve }))),
