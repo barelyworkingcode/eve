@@ -712,6 +712,35 @@ reply with the marker within the turn bound.
   journey's cleanup deletes every new Acme Corp session. The installed relay
   must audit `session_launch` with the session id.
 
+**cos-project-from-relay.** A project chosen in relay's Settings is the one the
+Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
+needs setup V-COS-B and relay's Chief of Staff setting at Not set; with the
+setting already configured it is BLOCKED and changes nothing. Through the
+presence helper it mints a 15-minute credential with classes `read` (the GET)
+and `configure` (PUT, DELETE) named
+`devbox-verify-cos-<nonce>` (one prompt), then over relay's frontend socket
+`GET /api/chief-of-staff/config` must read `configured:false`, and `PUT
+{projectId: <Verify Chief of Staff B id>, model: "haiku", dailyModelCalls: 39}`
+must answer 200. It opens the Chief of Staff thread and sends "Reply with the
+single word: ready."; a `cos_post` of kind `reply` must arrive within 120 s (a
+`notice` is FAIL) and the status model must be `claude-haiku-5-5`. Then
+`relay audit --event session_launch` (read back for up to 5 s) must hold a new
+row with outcome `ok`, that project and `read_only_projects: true`, and
+eve-verify's log, read once after the post, must hold `Chief of Staff config
+from relay: project <id>, model haiku, 39 calls a day`. PASS needs all of these.
+- Lives in: `chief-of-staff.js` (`_refreshSettings`,
+  `resolveChiefOfStaffSettings`); relay's `/api/chief-of-staff/config` and
+  session launch.
+- Traps: BLOCKED setup V-COS when its check fails, BLOCKED setup V-COS-B when
+  its check fails, and BLOCKED when the presence dialog is not answered; no
+  NOTRUN path. Credential handling: the token lives in one variable of the
+  journey run and goes only into the `Authorization` header to the socket; it
+  is never in a file, a log line, a step label or a result. One cleanup, which
+  also runs on FAIL and on timeout, DELETEs the setting and reads back
+  `configured:false`, then revokes the credential through a second presence
+  prompt (`"<id>"`); a failed revoke is FAIL and names the id to revoke by
+  hand. A run killed outright leaves a credential that expires in 15 minutes.
+
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates
 `verify-<nonce>-fails` in Acme Corp: on demand, `sessionType: 'pty'`,
@@ -850,6 +879,26 @@ judged.
   journeys (cos-asking-post, cos-tell-sends-marked) are BLOCKED `setup V-COS`
   unless exactly one project has the name, its grant is exactly
   `relay-eve-cos-verify`, and the MCP is listed.
+- **S3 · V-COS-B.** A second Chief of Staff project, for cos-project-from-relay,
+  presence-gated in Relay. Create the Relay project `Verify Chief of Staff B`
+  with folder `<home>/verify-cos-b`, `relay-eve-cos-verify` as its only grant
+  and the `claude-code` template allowed. The create is one call with the
+  `configure` credential, like V-COS, and prompts once:
+
+  ```json
+  {"name":"Verify Chief of Staff B","path":"<home>/verify-cos-b","allowed_mcp_ids":["relay-eve-cos-verify"],"allowed_templates":["claude-code"]}
+  ```
+
+  The journey reads `relay grant --json` and is BLOCKED `setup V-COS-B` unless
+  exactly one project has the name and its grant is exactly
+  `relay-eve-cos-verify`.
+  **Source check.** After the owner reset restarts eve-verify, the preflight
+  reads eve-verify's log from the restart for up to 30 s (a file with no hook,
+  so it is polled) for `Chief of Staff config from <source>: project <id>, ...`.
+  If the source is `relay` and the project is not V-COS's, or the line never
+  appears, every `cos-*` journey is BLOCKED `setup V-COS: relay holds a Chief
+  of Staff setting; set it to Not set in relay's Settings` (or names the
+  missing line). Keep relay's Chief of Staff setting at Not set.
 - **S4 ·** Playwright's Chromium: `npx playwright install chromium`.
 - **S5 · Screen journeys.** `computer` on the `PATH` the run sees (the
   nightly plist's too), and relay's presence helper built at

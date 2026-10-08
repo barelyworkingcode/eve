@@ -1088,6 +1088,37 @@ describe('Chief of Staff scope and marked send (cmd/relay/api_credential.go, ses
   });
 });
 
+describe('Chief of Staff config (cmd/relay/project_routes.go)', () => {
+  let relay;
+  let base;
+  beforeEach(async () => {
+    relay = createFakeRelay();
+    base = `http://127.0.0.1:${await relay.listen()}`;
+  });
+  afterEach(async () => { await relay.close(); });
+
+  it('answers {"configured":false} until a setting is held', async () => {
+    const res = await fetch(`${base}/api/chief-of-staff/config`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/^application\/json/);
+    expect(await res.json()).toEqual({ configured: false });
+  });
+
+  it('answers configured:true with the three values', async () => {
+    relay.setChiefOfStaffConfig({ projectId: 'p1', model: 'haiku', dailyModelCalls: 40 });
+    const res = await fetch(`${base}/api/chief-of-staff/config`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ configured: true, projectId: 'p1', model: 'haiku', dailyModelCalls: 40 });
+  });
+
+  it('answers 404 like a relay without the route when set absent, and returns to configured:false when cleared', async () => {
+    relay.setChiefOfStaffConfig('absent');
+    expect((await fetch(`${base}/api/chief-of-staff/config`)).status).toBe(404);
+    relay.setChiefOfStaffConfig(null);
+    expect(await (await fetch(`${base}/api/chief-of-staff/config`)).json()).toEqual({ configured: false });
+  });
+});
+
 describe('Chief of Staff scoped start (cmd/relay/session_chief_of_staff_start.go)', () => {
   let relay;
   let base;
