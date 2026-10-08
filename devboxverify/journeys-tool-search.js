@@ -82,6 +82,55 @@ const lookupFrame = (u) => u.name === LOOKUP_TOOL
   || (u.name === 'call_tool' && Boolean(u.input) && typeof u.input === 'object' && u.input.name === LOOKUP_TOOL);
 const describeUse = (u) => `${u.name}${u.input && typeof u.input === 'object' && u.input.name ? `(${u.input.name})` : ''}`;
 
+// The thread's tool steps against the search-first rule: the index of the
+// tool_search step, or { error } naming why the order fails. Deliberate
+// (owner-approved, eve#202): call_tool steps on a guessed name that relay
+// refused as unknown may come first; the model chooses that order, not eve.
+// The refusal is relay's {"error":"unknown tool \"<name>\""}, read as JSON
+// so the thread's pretty-printing does not matter.
+function unknownToolRefusal(output) {
+  try {
+    const o = JSON.parse(output);
+    return Boolean(o) && typeof o.error === 'string' && o.error.startsWith('unknown tool "');
+  } catch {
+    return false;
+  }
+}
+const guessedCall = (s) => s.name === 'call_tool' && unknownToolRefusal(s.output);
+
+function searchStep(steps) {
+  const stepNames = steps.map((s) => s.name).join(', ') || 'none';
+  let index = 0;
+  while (index < steps.length && guessedCall(steps[index])) index += 1;
+  const search = steps[index];
+  if (!search || search.name !== 'tool_search') {
+    const which = index ? `the first tool step after ${index} failed guess${index > 1 ? 'es' : ''}` : 'the first tool step';
+    return { error: `${which} is ${search ? `"${search.name}"` : 'missing'}, not tool_search (steps: ${stepNames})` };
+  }
+  if (!search.output.includes(LOOKUP_TOOL)) {
+    return { error: `the tool_search result does not name ${LOOKUP_TOOL}: ${search.output.slice(0, 200)}` };
+  }
+  return { index };
+}
+
+// The steps after tool_search (at searchIndex) must show what the model sent,
+// not `{}`: a call_tool step's detail names tides_lookup, or a direct
+// tides_lookup step's detail carries the port nonce. null when they do, else
+// the problem.
+function detailProblem(steps, searchIndex, nonce) {
+  const after = steps.slice(searchIndex + 1);
+  const callSteps = after.filter((s) => s.name === 'call_tool');
+  if (callSteps.length && !callSteps.some((s) => s.input.includes(LOOKUP_TOOL))) {
+    return `no call_tool step's detail shows ${LOOKUP_TOOL}: "${callSteps[0].input.slice(0, 120)}"`;
+  }
+  const directSteps = after.filter((s) => s.name === LOOKUP_TOOL);
+  const callShows = callSteps.some((s) => s.input.includes(LOOKUP_TOOL));
+  if (!callShows && !directSteps.some((s) => s.input.includes(nonce))) {
+    return `no ${LOOKUP_TOOL} step shows its arguments in the thread: "${(directSteps[0] || callSteps[0] || { input: '' }).input.slice(0, 120)}"`;
+  }
+  return null;
+}
+
 async function logSince(mark) {
   let fh;
   try { fh = await fs.promises.open(SESSIONS_LOG, 'r'); } catch { return ''; }
@@ -234,34 +283,19 @@ async function chatToolSearchRun(env, ctx) {
   const messages = await thread(page);
   const shown = messages.map((m) => `${m.who.replace('message-', '')}: ${m.text}`).join(' | ').slice(0, 400);
   const stepNames = steps.map((s) => s.name).join(', ') || 'none';
-  const first = steps[0];
-  if (!first || first.name !== 'tool_search') {
-    return result(id, FAIL, `the first tool step is ${first ? `"${first.name}"` : 'missing'}, not tool_search (steps: ${stepNames}); thread: ${shown}`);
-  }
-  if (!first.output.includes(LOOKUP_TOOL)) {
-    return result(id, FAIL, `the tool_search result does not name ${LOOKUP_TOOL}: ${first.output.slice(0, 200)}`);
-  }
+  const search = searchStep(steps);
+  if (search.error) return result(id, FAIL, `${search.error}; thread: ${shown}`);
   const mineUses = toolUses.filter((u) => u.sessionId === sessionId);
   const searchAt = mineUses.findIndex((u) => u.name === 'tool_search');
   const laterLookup = searchAt >= 0 && mineUses.slice(searchAt + 1).some(lookupFrame);
-  if (!steps.slice(1).some((s) => s.name === LOOKUP_TOOL) && !laterLookup) {
+  if (!steps.slice(search.index + 1).some((s) => s.name === LOOKUP_TOOL) && !laterLookup) {
     const seen = mineUses.map(describeUse).join(', ') || 'none';
     return result(id, FAIL, `no step after tool_search calls ${LOOKUP_TOOL}; `
       + `tool_use frames seen for the session: ${seen}${searchAt < 0 ? ' (no tool_search frame)' : ''}; steps: ${stepNames}`);
   }
-  // The live step's detail must show what the model sent, not `{}`: the frames
-  // above prove the call was made, this proves the thread shows it.
-  const callSteps = steps.filter((s) => s.name === 'call_tool');
-  if (callSteps.length && !callSteps.some((s) => s.input.includes(LOOKUP_TOOL))) {
-    return result(id, FAIL, `no call_tool step's detail shows ${LOOKUP_TOOL}: "${callSteps[0].input.slice(0, 120)}"`);
-  }
-  // A direct tides_lookup step must show its arguments too: the port carries
-  // the nonce, so its detail text has to include it.
-  const directSteps = steps.slice(1).filter((s) => s.name === LOOKUP_TOOL);
-  const callShows = callSteps.some((s) => s.input.includes(LOOKUP_TOOL));
-  if (!callShows && !directSteps.some((s) => s.input.includes(env.nonce))) {
-    return result(id, FAIL, `no ${LOOKUP_TOOL} step shows its arguments in the thread: "${(directSteps[0] || callSteps[0] || { input: '' }).input.slice(0, 120)}"`);
-  }
+  // The frames above prove the call was made; this proves the thread shows it.
+  const detail = detailProblem(steps, search.index, env.nonce);
+  if (detail) return result(id, FAIL, detail);
   const reply = settled.reply;
   if (!reply.includes(expected)) {
     return result(id, FAIL, `the reply does not contain ${expected}: "${reply.slice(0, 120)}"`);
@@ -297,6 +331,8 @@ async function chatToolSearchRun(env, ctx) {
 }
 
 module.exports = {
+  searchStep,
+  detailProblem,
   journeys: {
     chatToolSearch: {
       id: 'chat-tool-search', timeoutMs: 240000, areas: ['chat'], needs: [], run: chatToolSearch,

@@ -554,7 +554,9 @@ skills, MCP `devboxverify-wide` with 48 tools; not a world project, found by
 name in `GET /api/projects`), a Web Chat on `EVE_VERIFY_MODEL` (expect `Chat6`)
 is asked `What is the tide code for the port "<nonce>"? Reply with
 the code only.` PASS needs all of: the first tool step in the thread is
-`tool_search` and its result names `tides_lookup`; a later step calls
+`tool_search` and its result names `tides_lookup` (only `call_tool` steps that
+relay refused as `unknown tool` may come before it: the model sometimes guesses
+a name first, eve#202, owner-approved); a later step calls
 `tides_lookup` (directly or through `call_tool`); the settled reply holds
 `TIDE-` and the first 8 hex of sha256 of the lowercased, trimmed port, which
 the journey computes; `relay audit --event call_tool --project <id>` has an
@@ -563,8 +565,8 @@ the journey computes; `relay audit --event call_tool --project <id>` has an
 `reason=auto_threshold`, `skills>=40` and `tools_sent<tools_total`. The first
 `model_call` row's `prompt_tokens` for the session goes in the detail. A model
 that never calls `tool_search` is FAIL with the thread text, never loosened.
-- A `call_tool` step's arguments are checked twice: the WebSocket `llm_event`
-  frames show what was sent, and the step's `.tool-detail` in the live thread
+- Only steps after `tool_search` count here. A `call_tool` step's arguments
+  are checked twice: the WebSocket `llm_event` frames show what was sent, and the step's `.tool-detail` in the live thread
   must name `tides_lookup` (it once rendered `{}`). A direct `tides_lookup` step
   must show the port nonce in its `.tool-detail` instead.
 - Lives in: `devboxverify/journeys-tool-search.js`; `public/message-renderer.js`
