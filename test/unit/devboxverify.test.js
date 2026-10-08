@@ -1500,6 +1500,63 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     expect(r).toEqual({ id: 'x', state, detail });
   });
 
+  describe('relay hook config left in a project folder', () => {
+    const HOOK = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '', hooks: [
+      { command: '/opt/testbox/Relay.app/Contents/Helpers/relay-sessions hook', timeout: 120, type: 'command' }] }] } }, null, 2);
+    const OTHER = JSON.stringify({ permissions: { allow: ['Bash'] } }, null, 2);
+    const EMPTY = { sessions: [], tasks: [], terminals: [] };
+    let folder;
+    beforeEach(() => { folder = fs.mkdtempSync(path.join(os.tmpdir(), 'dbv-proj-')); });
+    afterEach(() => removeScratch(folder));
+    const settings = () => path.join(folder, '.claude', 'settings.local.json');
+    // The journey stands in for relay-sessions starting a Claude session in the project.
+    const runWith = (files) => {
+      const api = { snapshot: async () => EMPTY };
+      const j = { id: 'x', timeoutMs: 5000, areas: ['verify'], fixture: true, needs: [],
+        run: async () => {
+          fs.mkdirSync(path.join(folder, '.claude'), { recursive: true });
+          for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(folder, '.claude', name), body);
+          return { state: 'PASS' };
+        } };
+      const projects = [{ key: 'acme', name: 'Acme Corp', id: 'p1', path: folder }];
+      return runJourney(j, { api }, {}, { timeoutMs: 5000, projects, world: loaded, pending: [], screen: null, log: () => {} });
+    };
+
+    it('removes the hook file and the then-empty .claude folder, and keeps the PASS', async () => {
+      const r = await runWith({ 'settings.local.json': HOOK });
+      expect(r.state).toBe('PASS');
+      expect(fs.existsSync(path.join(folder, '.claude'))).toBe(false);
+    });
+
+    it('leaves a settings.local.json with other content untouched', async () => {
+      const r = await runWith({ 'settings.local.json': OTHER });
+      expect(r.state).toBe('PASS');
+      expect(fs.readFileSync(settings(), 'utf8')).toBe(OTHER);
+    });
+
+    it('leaves relay\'s hook config with extra top-level content untouched', async () => {
+      const merged = JSON.stringify({ ...JSON.parse(HOOK), permissions: { allow: ['Bash'] } }, null, 2);
+      const r = await runWith({ 'settings.local.json': merged });
+      expect(r.state).toBe('PASS');
+      expect(fs.readFileSync(settings(), 'utf8')).toBe(merged);
+    });
+
+    it('leaves a hook config whose command is not relay\'s untouched', async () => {
+      const foreign = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '', hooks: [
+        { command: '/usr/local/bin/other hook', timeout: 120, type: 'command' }] }] } }, null, 2);
+      const r = await runWith({ 'settings.local.json': foreign });
+      expect(r.state).toBe('PASS');
+      expect(fs.readFileSync(settings(), 'utf8')).toBe(foreign);
+    });
+
+    it('removes the hook file but keeps .claude when it holds another file', async () => {
+      const r = await runWith({ 'settings.local.json': HOOK, 'notes.txt': 'keep' });
+      expect(r.state).toBe('PASS');
+      expect(fs.existsSync(settings())).toBe(false);
+      expect(fs.readFileSync(path.join(folder, '.claude', 'notes.txt'), 'utf8')).toBe('keep');
+    });
+  });
+
   describe('a context whose close never settles', () => {
     const CLOSE_TIMEOUT_MS = require('../../devboxverify/main').CLOSE_TIMEOUT_MS ?? 10000;
     const EMPTY = { sessions: [], tasks: [], terminals: [] };
