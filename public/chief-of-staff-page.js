@@ -237,6 +237,18 @@ class ChiefOfStaffPage {
       if (post.headline) body.appendChild(this._text('h3', post.headline));
       if (post.body) body.appendChild(this._text('p', post.body));
       if (post.card) body.appendChild(this._card(post));
+    } else if (post.kind === 'finished') {
+      const meta = document.createElement('p');
+      meta.className = 'cos-post__meta';
+      meta.textContent = this._meta(post);
+      body.appendChild(meta);
+      body.appendChild(this._text('h3', `${post.label || 'An agent'} finished`));
+      const summary = this._text('p', post.summary || '', 'cos-post__summary');
+      summary.dataset.testid = `cos-finished-summary-${post.id}`;
+      body.appendChild(summary);
+      const open = this._sessionLink(post.sessionId, 'Open');
+      open.dataset.testid = `cos-open-${post.id}`;
+      body.appendChild(open);
     } else if (post.kind === 'sent') {
       const p = document.createElement('p');
       p.append('Sent to ');
@@ -275,6 +287,7 @@ class ChiefOfStaffPage {
   _meta(post) {
     const parts = [this._clock(post.at)];
     if (post.card?.project) parts.push(post.card.project);
+    else if (post.kind === 'finished' && post.projectName) parts.push(post.projectName);
     return parts.filter(Boolean).join(' · ');
   }
 
