@@ -1171,8 +1171,8 @@ node ~/.local/share/devboxverify/nightly.js status
 
 - `enable` takes a date at most 31 days out. It loads the launchd job and
   writes `~/.local/state/devboxverify/lease.json`. `disable` removes the
-  lease and unloads the job. `status` prints the lease, the job, the pause
-  file and the last record.
+  lease and unloads the job. `status` prints the lease, the job, the plist,
+  the pause file and the last record.
 - **Pause:** `touch ~/.local/state/devboxverify/pause` makes every run skip
   at once. Remove the file to resume.
 
@@ -1247,7 +1247,7 @@ All of these are in `~/Library/Logs/devboxverify/`:
 - **FAIL** (`nightly` record, one notification): the wrapper stopped the run.
   `deadline: killed after 45 min; last journey <id|none>`,
   `stall: journey <id> silent for 12 min`, or
-  `stopped: SIGTERM; last journey <id|none>; eve-verify not restored`. A
+  `stopped: <SIGTERM|SIGINT>; last journey <id|none>; eve-verify not restored`. A
   deadline or stall adds `; restore failed: <why>` or
   `; restore skipped: NIGHTLY_EVE_CHECKOUT not set` when the restore did not
   finish. A FAIL on `main` is an infrastructure fault: check that `eve-verify`
@@ -1276,7 +1276,9 @@ is the merged PR's `devbox/verify` description: it starts with `full` and
 reads `why core: <path>`. GitHub cannot reach the devbox, so the coordinator
 starts this run, as it does the Relay rebuild after a relay merge.
 
-1. Take the locks: `devlock take SCREEN RESTART WORLD`.
+1. Take the locks (devlock is `~/.claude/skills/fanout/devlock`, not on
+   `PATH`):
+   `devlock take SCREEN RESTART WORLD --holder <you> --minutes 90 --reason "after-merge full run" --wait`.
 2. Read both checkouts from the nightly plist (it may sit under
    `~/Library/LaunchAgents/disabled/`):
    `plutil -extract EnvironmentVariables.NIGHTLY_EVE_CHECKOUT raw <plist>`,
@@ -1284,7 +1286,7 @@ starts this run, as it does the Relay rebuild after a relay merge.
 3. From the main checkout, run `node devboxverify/set.js --eve main`. Wait
    for the process to exit.
 4. Comment the `PHASE eve` and `SET` lines on the merged PR.
-5. Release the locks.
+5. Release the locks: `devlock release SCREEN RESTART WORLD --holder <you>`.
 
 A `SET` result other than `success` is red on `main`: revert the merge first,
 then fix on a branch.
@@ -1305,7 +1307,8 @@ There is no `--post`. For relay alone, use `node devboxverify/set.js --relay mai
   `plutil -extract EnvironmentVariables.<VAR> raw <plist>`.
 - **Before you start:** unlock the devid keychain, and keep the console
   logged in. The run refuses to start between 02:30 and 04:30 local. Take
-  devlock `SCREEN RESTART WORLD` first.
+  devlock `SCREEN RESTART WORLD` first, with `--holder`, `--minutes`
+  (90 is enough) and `--reason`, and release it after the process exits.
 - **Cost:** Relay builds twice, once for the ref and once for the restore.
   Run it from the main checkout and wait for the process to exit.
 - **Record:** put the `SET` line and each
