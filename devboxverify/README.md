@@ -30,7 +30,9 @@ used for `relay service list`, `relay service restart --id eve-verify` and
 value equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
 `~/.local/share/devboxverify/bin/devboxpresence`; only `--screen` uses it,
 for relay's presence helper), `DEVBOXWORLD_MARKER` (default
-`~/.config/devboxWorld/machine.json`; the machine marker, see below).
+`~/.config/devboxWorld/machine.json`; the machine marker, see below),
+`NIGHTLY_LOG_DIR` (default `~/Library/Logs/devboxverify`; the run record goes
+in `<log dir>/runs/`, see "Run record").
 There is no `--world` flag, and the tool never reads, sets or clears
 `DEVBOXWORLD_ROOT`; the world scripts inherit the environment unchanged.
 A stray `DEVBOXWORLD_ROOT` fails `bootstrap` with `BLOCKED environment:
@@ -72,6 +74,27 @@ POSTED success|failure|error <comment URL>
 ```
 
 `SELECTION` is always the first line. See "Selection" for the fields.
+
+### Run record
+
+Every run whose journey selection succeeds writes
+`<log dir>/runs/<UTC stamp>-<head12>.out` (`head12` is the first 12 hex
+characters of the checkout's HEAD, or `unknown`). Tab-separated, mode 0600:
+
+```
+RUN <ISO UTC start> <head 40 hex|unknown> devboxverify/main.js <args>
+<every stdout line of the run, in order>
+POST success|failure|error <status description> <comment URL>
+POST failed <reason>
+POST not posted no --post | stopped before posting
+EXIT <code>
+EXIT threw <reason>
+```
+
+`RUN`, `POST` and `EXIT` go to the record only, never to stdout. A run that
+was killed leaves neither `POST` nor `EXIT`. The record is write-only: a
+failed write prints one `run record: <reason>` line on stderr, later writes
+are skipped, and the exit code, stdout and post are unchanged.
 
 Preflight runs in order and stops at the first FAIL: `machine`, `pin`,
 `fixtures`, `lock`, `head`, `tree`, `service`, `eve`, `live`, `pr` (only with
@@ -1226,6 +1249,8 @@ All of these are in `~/Library/Logs/devboxverify/`:
 - `runs/<YYYY-MM-DD>-<record>.txt`: that night's full output, every command with
   its exit status, stdout and stderr. The wrapper's own record and restore log
   go in `runs/<YYYY-MM-DD>-nightly.txt`.
+- `runs/<UTC stamp>-<head12>.out`: the run record of each `main.js` run, see
+  "Run record".
 - `launchd.log`: the job's own output. Look here if the nightly runner itself
   crashed.
 

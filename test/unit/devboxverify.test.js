@@ -1467,7 +1467,7 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
       encoding: 'utf8',
       timeout: 60000,
       // RELAY_BIN: a build that wrongly gets past preflight stops at the service check, not at the real relay.
-      env: { ...process.env, DEVBOXWORLD_MARKER: path.join(dir, 'none'), EVE_BROWSER_LOCK: lock, RELAY_BIN: path.join(dir, 'no-relay') },
+      env: { ...process.env, DEVBOXWORLD_MARKER: path.join(dir, 'none'), EVE_BROWSER_LOCK: lock, RELAY_BIN: path.join(dir, 'no-relay'), NIGHTLY_LOG_DIR: path.join(dir, 'logs') },
     });
     const total = require('../../devboxverify/journeys').journeys.length;
     expect({ status: out.status, stdout: out.stdout }).toEqual({
@@ -1843,5 +1843,147 @@ describe('writeHeartbeat', () => {
     expect(writes).toHaveLength(1);
     expect(writes[0]).toMatch(/^heartbeat: [^\n]*\n$/);
     expect(writes[0]).not.toContain(os.homedir());
+  });
+});
+
+describe('devboxverify run record (eve#269)', () => {
+  const MAIN = path.join(__dirname, '..', '..', 'devboxverify', 'main.js');
+  const REPO = path.join(__dirname, '..', '..');
+  const ABSENT = 'not a test machine: run devboxWorld bootstrap on a VM';
+  // Deliberate: a git hook exports GIT_DIR and friends, which would point the child at the wrong repo.
+  const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+  let scratch;
+  beforeEach(() => { scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'dbv-rec-')); });
+  afterEach(() => { if (scratch && scratch.startsWith(os.tmpdir())) fs.rmSync(scratch, { recursive: true, force: true }); });
+
+  const spawnMain = (args, logDir) => spawnSync(process.execPath, [MAIN, ...args], {
+    encoding: 'utf8',
+    timeout: 60000,
+    env: { ...cleanEnv(), DEVBOXWORLD_MARKER: path.join(scratch, 'none'), EVE_BROWSER_LOCK: path.join(scratch, 'lock'),
+      RELAY_BIN: path.join(scratch, 'no-relay'), NIGHTLY_LOG_DIR: logDir },
+  });
+  const repoHead = () => execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: cleanEnv() }).trim();
+  const total = () => require('../../devboxverify/journeys').journeys.length;
+  const expectedStdout = () => `SELECTION\tfull\t${total()}/${total()}\t-\tnot a PR run\nPREFLIGHT\tmachine\tFAIL\t${ABSENT}\n`;
+
+  it('a blocked run writes one record holding its stdout lines, a POST line and the exit code', () => {
+    const logs = path.join(scratch, 'logs');
+    const out = spawnMain([], logs);
+    expect({ status: out.status, stdout: out.stdout }).toEqual({ status: 2, stdout: expectedStdout() });
+    const runs = path.join(logs, 'runs');
+    const files = fs.existsSync(runs) ? fs.readdirSync(runs) : [];
+    expect(files).toHaveLength(1);
+    const head = repoHead();
+    const m = files[0].match(/^\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z-([0-9a-f]{12}|unknown)\.out$/);
+    expect(m).not.toBeNull();
+    expect(m[1]).toBe(head.slice(0, 12));
+    const lines = fs.readFileSync(path.join(runs, files[0]), 'utf8').split('\n');
+    expect(lines.pop()).toBe('');
+    const [run, ...rest] = lines;
+    expect(run).toMatch(new RegExp(`^RUN\\t\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z\\t${head}\\tdevboxverify/main\\.js`));
+    expect(rest).toEqual([
+      `SELECTION\tfull\t${total()}/${total()}\t-\tnot a PR run`,
+      `PREFLIGHT\tmachine\tFAIL\t${ABSENT}`,
+      'POST\tnot posted\tno --post',
+      'EXIT\t2',
+    ]);
+  });
+
+  it('a record that cannot be written leaves stdout and exit code alone and warns once on stderr', () => {
+    const notADir = path.join(scratch, 'file');
+    fs.writeFileSync(notADir, 'x');
+    const out = spawnMain([], notADir);
+    expect({ status: out.status, stdout: out.stdout }).toEqual({ status: 2, stdout: expectedStdout() });
+    const warnings = out.stderr.split('\n').filter(l => l.startsWith('run record: '));
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('an unknown --only id writes no record', () => {
+    const logs = path.join(scratch, 'logs');
+    const out = spawnMain(['--only', 'no-such-journey'], logs);
+    expect(out.status).toBe(2);
+    expect(fs.existsSync(path.join(logs, 'runs'))).toBe(false);
+  });
+
+  describe('openRunRecord', () => {
+    const { openRunRecord, runRecordDir } = require('../../devboxverify/main');
+    const HEAD = 'abcdef0123456789abcdef0123456789abcdef01';
+    const START = Date.UTC(2026, 9, 7, 12, 34, 56, 789);
+    const open = (extra = {}) => {
+      const writes = [];
+      const rec = openRunRecord({ dir: path.join(scratch, 'runs'), startedAtMs: START, head: HEAD,
+        argv: ['--post', '7'], home: HOME, post: true, stderr: { write: (s) => writes.push(s) }, ...extra });
+      return { rec, writes, lines: () => fs.readFileSync(rec.file, 'utf8').split('\n').filter(Boolean) };
+    };
+
+    it('names the file by start time and the first 12 characters of the head', () => {
+      const { rec } = open();
+      expect(path.basename(rec.file)).toBe('2026-10-07T12-34-56-789Z-abcdef012345.out');
+    });
+
+    it('runRecordDir is runs under the log dir override, else under the home log dir', () => {
+      expect(runRecordDir({ NIGHTLY_LOG_DIR: '/srv/acme/logs' }, HOME)).toBe('/srv/acme/logs/runs');
+      expect(runRecordDir({}, HOME)).toBe(path.join(HOME, 'Library', 'Logs', 'devboxverify', 'runs'));
+    });
+
+    it('writes the RUN line on open with home shown as ~', () => {
+      const { lines } = open({ argv: ['--checkout', `${HOME}/src/eve`] });
+      expect(lines()).toEqual([`RUN\t2026-10-07T12:34:56.789Z\t${HEAD}\tdevboxverify/main.js --checkout ~/src/eve`]);
+    });
+
+    it('writes unknown for a missing head', () => {
+      const { rec } = open({ head: '' });
+      expect(path.basename(rec.file)).toMatch(/-unknown\.out$/);
+    });
+
+    it('records a successful post with state, description and url, then the exit code', () => {
+      const { rec, lines } = open();
+      rec.line('SUMMARY\t1 PASS');
+      rec.posted({ state: 'success', description: '1 PASS of 1', url: 'https://example.test/c/1' });
+      rec.finish(0);
+      expect(lines().slice(1)).toEqual(['SUMMARY\t1 PASS', 'POST\tsuccess\t1 PASS of 1\thttps://example.test/c/1', 'EXIT\t0']);
+    });
+
+    it('records a failed post with the reason', () => {
+      const { rec, lines } = open();
+      rec.posted({ error: 'gh exploded' });
+      rec.finish(1);
+      expect(lines().slice(1)).toEqual(['POST\tfailed\tgh exploded', 'EXIT\t1']);
+    });
+
+    it('records a --post run that never posted as stopped before posting', () => {
+      const { rec, lines } = open();
+      rec.finish(2);
+      expect(lines().slice(1)).toEqual(['POST\tnot posted\tstopped before posting', 'EXIT\t2']);
+    });
+
+    it('records a run that is not a --post run as not posted', () => {
+      const { rec, lines } = open({ post: false });
+      rec.finish(0);
+      expect(lines().slice(1)).toEqual(['POST\tnot posted\tno --post', 'EXIT\t0']);
+    });
+
+    it('records a throw as EXIT threw with the first line of the error', () => {
+      const { rec, lines } = open();
+      rec.finish(undefined, new Error('first line\nsecond line'));
+      const last = lines().pop();
+      expect(last).toBe('EXIT\tthrew\tfirst line');
+    });
+
+    it('never throws on an unwritable dir, and warns once', () => {
+      const notADir = path.join(scratch, 'file');
+      fs.writeFileSync(notADir, 'x');
+      const writes = [];
+      let rec;
+      expect(() => {
+        rec = openRunRecord({ dir: path.join(notADir, 'runs'), startedAtMs: START, head: HEAD, argv: [], home: HOME, post: false,
+          stderr: { write: (s) => writes.push(s) } });
+        for (let i = 0; i < 20; i++) rec.line(`JOURNEY\tj${i}\tPASS\t-`);
+        rec.posted({ error: 'x' });
+        rec.finish(0);
+      }).not.toThrow();
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toMatch(/^run record: [^\n]*\n$/);
+    });
   });
 });

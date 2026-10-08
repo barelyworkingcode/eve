@@ -663,10 +663,53 @@ async function runJourney(j, env, browser, { timeoutMs, projects, world, pending
   return result;
 }
 
+function runRecordDir(env, home) {
+  return path.join(env.NIGHTLY_LOG_DIR || path.join(home, 'Library', 'Logs', 'devboxverify'), 'runs');
+}
+
+// eve#269: a write-only record of one run, so a lock-log hold can be matched to
+// what the run did. Sync writes mean the file is complete when the process
+// exits. A killed run leaves no POST or EXIT line. The first failed write warns
+// once; later ones are skipped.
+function openRunRecord({ dir, startedAtMs, head, argv, home, post, stderr = process.stderr }) {
+  const ts = new Date(startedAtMs).toISOString();
+  const file = path.join(dir, `${ts.replace(/[:.]/g, '-')}-${/^[0-9a-f]{40}/.test(head) ? head.slice(0, 12) : 'unknown'}.out`);
+  let failed = false, postLine = null;
+  const write = text => {
+    if (failed) return;
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.appendFileSync(file, text + '\n', { mode: 0o600 });
+    } catch (err) {
+      failed = true;
+      try { stderr.write(`run record: ${scrub(firstLine(err), home)}\n`); } catch { /* never throw */ }
+    }
+  };
+  write(formatLine(home, 'RUN', ts, head || 'unknown', ['devboxverify/main.js', ...argv].join(' ')));
+  return {
+    file,
+    line: text => write(text),
+    posted(o) {
+      postLine = o.error !== undefined ? formatLine(home, 'POST', 'failed', o.error) : formatLine(home, 'POST', o.state, o.description, o.url);
+      write(postLine);
+    },
+    finish(code, err) {
+      if (!postLine) write(formatLine(home, 'POST', 'not posted', post ? 'stopped before posting' : 'no --post'));
+      write(err ? formatLine(home, 'EXIT', 'threw', firstLine(err)) : formatLine(home, 'EXIT', String(code)));
+    },
+  };
+}
+
 async function run(argv) {
   const startedAt = performance.now();
+  const startedAtMs = Date.now();
   const home = os.homedir();
-  const emit = (...fields) => process.stdout.write(formatLine(home, ...fields) + '\n');
+  let record = null;
+  const emit = (...fields) => {
+    const text = formatLine(home, ...fields);
+    process.stdout.write(text + '\n');
+    if (record) record.line(text);
+  };
   const log = msg => process.stderr.write(scrub(msg, home) + '\n');
   let toolRoot, opts;
   try {
@@ -694,26 +737,36 @@ async function run(argv) {
     process.stderr.write(`${err.message}\n${USAGE}\n`);
     return 2;
   }
-  emit('SELECTION', ...selectionLine(selection));
-  const { lines, world } = worldPreflight({ markerFile: markerPath(process.env, home), journeys, screen: opts.screen });
-  for (const [check, state, detail] of lines) emit('PREFLIGHT', check, state, detail);
-  if (!world) return 2;
-  let release;
+  const recordHead = await git(opts.checkout, 'rev-parse', 'HEAD').catch(() => '');
+  record = openRunRecord({ dir: runRecordDir(process.env, home), startedAtMs, head: recordHead, argv, home, post: opts.post !== null });
+  let code, thrown;
   try {
-    release = await acquire({ command: scrub(['devboxverify/main.js', ...argv].join(' '), home), log });
+    emit('SELECTION', ...selectionLine(selection));
+    const { lines, world } = worldPreflight({ markerFile: markerPath(process.env, home), journeys, screen: opts.screen });
+    for (const [check, state, detail] of lines) emit('PREFLIGHT', check, state, detail);
+    if (!world) return (code = 2);
+    let release;
+    try {
+      release = await acquire({ command: scrub(['devboxverify/main.js', ...argv].join(' '), home), log });
+    } catch (err) {
+      emit('PREFLIGHT', 'lock', 'FAIL', firstLine(err));
+      return (code = 2);
+    }
+    emit('PREFLIGHT', 'lock', 'OK', 'acquired');
+    try {
+      return (code = await runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt, runRecord: record }));
+    } finally {
+      await release();
+    }
   } catch (err) {
-    emit('PREFLIGHT', 'lock', 'FAIL', firstLine(err));
-    return 2;
-  }
-  emit('PREFLIGHT', 'lock', 'OK', 'acquired');
-  try {
-    return await runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt });
+    thrown = err;
+    throw err;
   } finally {
-    await release();
+    record.finish(code, thrown);
   }
 }
 
-async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt }) {
+async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt, runRecord }) {
   const hb = process.env.DEVBOXVERIFY_HEARTBEAT;
   const toolCommit = await git(toolRoot, 'rev-parse', 'HEAD').catch(() => '');
   const checkout = fs.existsSync(opts.checkout) ? fs.realpathSync(opts.checkout) : path.resolve(opts.checkout);
@@ -957,14 +1010,17 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
   emit('SUMMARY', `pass=${counts.PASS}`, `fail=${counts.FAIL}`, `blocked=${counts.BLOCKED}`, `notrun=${counts.NOTRUN}`,
     ...summaryPartial(selection, opts.only));
   if (opts.post && !opts.only) {
-    const { post, statusState } = require('./post');
+    const { post, statusState, statusDescription } = require('./post');
     try {
       const ev = {
         pr: opts.post, commit: head, toolCommit, runMs, worldSummary: `pass=${worldCounts.pass} fail=${worldCounts.fail}`,
         repaired: repair.repaired, home, results, selection, notSelected,
       };
-      emit('POSTED', statusState(results), await post(ev, { cwd: toolRoot }));
+      const url = await post(ev, { cwd: toolRoot });
+      runRecord.posted({ state: statusState(results), description: statusDescription(results, selection, home), url });
+      emit('POSTED', statusState(results), url);
     } catch (err) {
+      runRecord.posted({ error: firstLine(err) });
       log(`post failed: ${firstLine(err)}`);
       return 2;
     }
@@ -973,7 +1029,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
 }
 
 module.exports = {
-  scrub, writeHeartbeat, formatLine, parseArgs, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
+  scrub, writeHeartbeat, runRecordDir, openRunRecord, formatLine, parseArgs, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,

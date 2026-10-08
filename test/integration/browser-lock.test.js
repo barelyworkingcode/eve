@@ -74,7 +74,7 @@ describe('browser-test lock', () => {
   const wrap = (argv, opts) => start(NODE, [CLI, ...argv], opts);
   const probe = (timeout = 0) => wrap([NODE, '-e', '0'], { timeout }).closed;
   const verify = (timeout) => start(NODE, ['-r', vmPreload, MAIN, '--service', 'no-such-service'], {
-    timeout, env: { RELAY_BIN: path.join(tmp, 'no-such-relay'), DEVBOXWORLD_MARKER: markerFile },
+    timeout, env: { RELAY_BIN: path.join(tmp, 'no-such-relay'), DEVBOXWORLD_MARKER: markerFile, NIGHTLY_LOG_DIR: path.join(tmp, 'logs') },
   }).closed;
   const TOTAL = require('../../devboxverify/journeys').journeys.length;
   const SELECTION_ROW = `SELECTION\tfull\t${TOTAL}/${TOTAL}\t-\tnot a PR run`;
