@@ -1297,6 +1297,124 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
     const r = await runJourney(j, {}, {}, { timeoutMs: 5000, projects: null, world: loaded, pending: [], screen: null, log: () => {} });
     expect(r).toEqual({ id: 'x', state, detail });
   });
+
+  describe('a context whose close never settles', () => {
+    const CLOSE_TIMEOUT_MS = require('../../devboxverify/main').CLOSE_TIMEOUT_MS ?? 10000;
+    const EMPTY = { sessions: [], tasks: [], terminals: [] };
+    const stalled = (events) => ({
+      newContext: async () => ({ newPage: async () => ({}), close: () => { events.push('close'); return new Promise(() => {}); } }),
+    });
+    const start = (run, events) => {
+      jest.useFakeTimers();
+      const api = { snapshot: async () => { events.push('snapshot'); return EMPTY; } };
+      const j = { id: 'x', timeoutMs: 5000, areas: ['verify'], fixture: true, needs: [],
+        run: async (env) => { await env.newPage(); return run(); } };
+      const out = { settled: false, result: null };
+      runJourney(j, { api }, stalled(events), { timeoutMs: 5000, projects: [], world: loaded, pending: [], screen: null, log: () => {} })
+        .then((r) => { out.settled = true; out.result = r; });
+      return out;
+    };
+
+    it('settles within the bound, records FAIL for a passing journey and still takes the leak snapshot', async () => {
+      const events = [];
+      const out = start(async () => ({ state: 'PASS' }), events);
+      await jest.advanceTimersByTimeAsync(CLOSE_TIMEOUT_MS);
+      expect(out.settled).toBe(true);
+      expect(out.result).toEqual({ id: 'x', state: 'FAIL', detail: 'context close timed out after 10s' });
+      expect(events).toEqual(['snapshot', 'close', 'snapshot']);
+    });
+
+    it('keeps FAIL for a failing journey and appends the close timeout to its detail', async () => {
+      const events = [];
+      const out = start(async () => { throw new Error('boom'); }, events);
+      await jest.advanceTimersByTimeAsync(CLOSE_TIMEOUT_MS);
+      expect(out.settled).toBe(true);
+      expect(out.result).toEqual({ id: 'x', state: 'FAIL', detail: 'boom; context close timed out after 10s' });
+    });
+  });
+
+  describe('boundedClose', () => {
+    const { boundedClose, CLOSE_TIMEOUT_MS } = require('../../devboxverify/main');
+
+    it('exports the 10 second bound', () => {
+      expect(CLOSE_TIMEOUT_MS).toBe(10000);
+    });
+
+    it.each([
+      ['resolves', () => Promise.resolve()],
+      ['rejects', () => Promise.reject(new Error('gone'))],
+    ])('is true for a close that %s', async (_label, close) => {
+      await expect(boundedClose(close)).resolves.toBe(true);
+    });
+
+    it('is false when the bound passes before close settles', async () => {
+      jest.useFakeTimers();
+      let result;
+      boundedClose(() => new Promise(() => {}), 50).then((v) => { result = v; });
+      await jest.advanceTimersByTimeAsync(49);
+      expect(result).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(result).toBe(false);
+    });
+  });
+});
+
+describe('devboxverify/main.js main', () => {
+  const { main } = require('../../devboxverify/main');
+  const GRACE = 1000;
+  let savedExitCode;
+  let stderrSpy;
+
+  beforeEach(() => {
+    savedExitCode = process.exitCode;
+    jest.useFakeTimers();
+    stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+    jest.useRealTimers();
+    process.exitCode = savedExitCode;
+  });
+
+  function deferred() {
+    const d = {};
+    d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject; });
+    return d;
+  }
+
+  it('does not exit while the run is open, then exits once with its code after the grace', async () => {
+    const run = deferred();
+    const exit = jest.fn();
+    const done = main([], { runFn: () => run.promise, exit, graceMs: GRACE });
+    await jest.advanceTimersByTimeAsync(GRACE * 10);
+    expect(exit).not.toHaveBeenCalled();
+    run.resolve(1);
+    await expect(done).resolves.toBe(1);
+    await jest.advanceTimersByTimeAsync(GRACE - 1);
+    expect(exit).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it('exits 2 after the grace when the run rejects', async () => {
+    const exit = jest.fn();
+    const done = main([], { runFn: () => Promise.reject(new Error('boom')), exit, graceMs: GRACE });
+    await expect(done).resolves.toBe(2);
+    expect(exit).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(GRACE);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(2);
+  });
+
+  it('exits 0 when the run resolves 0', async () => {
+    const exit = jest.fn();
+    await main([], { runFn: () => Promise.resolve(0), exit, graceMs: GRACE });
+    await jest.advanceTimersByTimeAsync(GRACE);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(0);
+  });
 });
 
 describe('devboxverify Chief of Staff project from relay (eve#249)', () => {

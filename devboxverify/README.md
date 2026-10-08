@@ -95,6 +95,12 @@ of the run, preflight included. With `--post` the comment gets the same
 figure as a `Run time` row, in seconds, and a `Repaired` row right after
 `World verify`: `none`, or `<what>: <detail>` per repair, joined with `; `.
 
+A browser that stops answering cannot stall the run: each context close and the
+final browser close get 10 s. A context close that times out turns that
+journey's result into `FAIL context close timed out after 10s` (appended to the
+detail if it already failed); a browser close that times out adds a
+`browser-close` `FAIL` journey.
+
 ### The machine, the pin and the fixtures
 
 The world comes only from devboxWorld's machine marker, which `bootstrap.sh`
