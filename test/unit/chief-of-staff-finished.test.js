@@ -130,6 +130,27 @@ describe('one finished post per errand', () => {
     expect(h.finished().map((p) => p.sessionId)).toEqual(['s1']);
   });
 
+  // C5
+  it('a finished entry queued behind a person turn still posts once when the session runs again', async () => {
+    setup({ sessions: [row('s1', 'running')], summaries: { s1: 'Done.' } });
+    let release;
+    const held = new Promise((r) => { release = r; });
+    const inner = h.model.turn.getMockImplementation();
+    h.model.turn.mockImplementation((text, opts) => (text.startsWith('Chief of Staff person') ? held.then(() => ({ text: 'ok', modelId: 'm' })) : inner(text, opts)));
+    await h.begin();
+    await h.cos._send('s1', 'go');
+    h.cos.submitPerson('hello there');
+    await eventually(() => h.model.turn.mock.calls.length === 1); // the person turn is in flight
+    h.turnEnds('s1');
+    h.state('s1', 'idle');
+    h.state('s1', 'running'); // a later send moved the row off idle before the queue drained
+    release();
+    await eventually(() => h.finished().length === 1);
+    await eventually(() => !h.cos.getStatus().busy);
+    expect(h.finished().map((p) => p.sessionId)).toEqual(['s1']);
+    expect(h.finishedTurns()).toHaveLength(1);
+  });
+
   // C8
   it('a session the Chief of Staff never started or sent to gets no finished post', async () => {
     setup({ sessions: [row('s1', 'running'), row('s2', 'running')], summaries: { s1: 'Done.', s2: 'Done.' } });
