@@ -1751,3 +1751,40 @@ describe('devboxverify Chief of Staff project from relay (eve#249)', () => {
     expect(cosConfigLine('pb', 'haiku', 40)).toBe('Chief of Staff config from relay: project pb, model haiku, 40 calls a day');
   });
 });
+
+describe('writeHeartbeat', () => {
+  const { writeHeartbeat } = require('../../devboxverify/main');
+  let dir;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it('writes id, event, pid and a decimal monotonic stamp', () => {
+    const file = path.join(dir, 'hb.json');
+    const before = process.hrtime.bigint();
+    expect(writeHeartbeat(file, { id: 'j1', event: 'start' })).toBe(true);
+    const after = process.hrtime.bigint();
+    const hb = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(hb).toEqual({ id: 'j1', event: 'start', pid: process.pid, mono: expect.stringMatching(/^\d+$/) });
+    expect(BigInt(hb.mono)).toBeGreaterThanOrEqual(before);
+    expect(BigInt(hb.mono)).toBeLessThanOrEqual(after);
+  });
+
+  it('overwrites the previous heartbeat and leaves no temp file', () => {
+    const file = path.join(dir, 'hb.json');
+    writeHeartbeat(file, { id: 'j1', event: 'start' });
+    writeHeartbeat(file, { id: 'j2', event: 'end' });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ id: 'j2', event: 'end' });
+    expect(fs.readdirSync(dir)).toEqual(['hb.json']);
+  });
+
+  it('returns false with one scrubbed stderr line when the directory is missing', () => {
+    const file = path.join(os.homedir(), `.no-such-dir-${Math.random().toString(36).slice(2)}`, 'hb.json');
+    const writes = [];
+    let result;
+    expect(() => { result = writeHeartbeat(file, { id: 'j1', event: 'start' }, { stderr: { write: (s) => writes.push(s) } }); }).not.toThrow();
+    expect(result).toBe(false);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatch(/^heartbeat: [^\n]*\n$/);
+    expect(writes[0]).not.toContain(os.homedir());
+  });
+});

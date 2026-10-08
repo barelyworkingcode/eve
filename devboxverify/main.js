@@ -30,6 +30,23 @@ function scrub(s, home) {
   return home ? String(s).split(home).join('~') : String(s);
 }
 
+// The nightly wrapper reads this file to see which journey is live. mono is
+// process.hrtime.bigint(), the one system-wide clock, so the wrapper can age it.
+function writeHeartbeat(file, { id, event }, {
+  now = () => process.hrtime.bigint(), pid = process.pid, stderr = process.stderr,
+} = {}) {
+  const tmp = `${file}.${pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ id, event, pid, mono: String(now()) }));
+    fs.renameSync(tmp, file);
+    return true;
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* nothing to remove */ }
+    try { stderr.write(`heartbeat: ${scrub(firstLine(err), os.homedir())}\n`); } catch { /* never throw */ }
+    return false;
+  }
+}
+
 function formatLine(home, ...fields) {
   return fields.map(f => scrub(f, home).replace(/\s+/g, ' ').trim()).join('\t');
 }
@@ -645,6 +662,7 @@ async function run(argv) {
 }
 
 async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt }) {
+  const hb = process.env.DEVBOXVERIFY_HEARTBEAT;
   const toolCommit = await git(toolRoot, 'rev-parse', 'HEAD').catch(() => '');
   const checkout = fs.existsSync(opts.checkout) ? fs.realpathSync(opts.checkout) : path.resolve(opts.checkout);
   const port = Number(new URL(opts.url).port);
@@ -813,11 +831,13 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
     log(`running ${j.id}`);
     const journeyStartedAt = performance.now();
     const timeoutMs = journeyTimeout(j.timeoutMs, spentMs, JOURNEY_BUDGET_MS);
+    if (hb) writeHeartbeat(hb, { id: j.id, event: 'start' });
     const r = await runJourney(j, env, browser, {
       timeoutMs, projects: j.fixture ? null : projects, world: j.fixture ? world : resolved, pending, screen, log,
     });
     const tookMs = Math.round(performance.now() - journeyStartedAt);
     record(r, j.knownBug || timeoutMs === null ? 0 : tookMs);
+    if (hb) writeHeartbeat(hb, { id: j.id, event: 'end' });
     spentMs += tookMs;
   };
   let failedEarly = false;
@@ -894,7 +914,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
 }
 
 module.exports = {
-  scrub, formatLine, parseArgs, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
+  scrub, writeHeartbeat, formatLine, parseArgs, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,

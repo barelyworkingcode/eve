@@ -985,7 +985,7 @@ Formats:
 - `post()` refuses to post without a consistent selection: a full run with
   fewer than M journeys, or a partial run with all of them, throws.
 
-A partial `success` merges. The daily full run is the safeguard.
+A partial `success` merges. The after-merge run and, while leased, the nightly are the safeguard.
 
 Reviewer note: the map is read from the PR head, and `docs/areas.jsonc`
 changes always run full, so a PR cannot narrow its own run in the same diff.
@@ -1157,10 +1157,46 @@ after relay's was set, relay's is re-posted as `error` so no PR keeps a
 
 ## Nightly
 
-A launchd job runs the verifiers every night at 03:30, one after the other:
-relay's api journeys (`--phase api`, record `relay`), eve with `--screen`
-(record `eve`), then relay's screen journeys (`--phase screen`, record
-`relay-screen`). It never retries a verify.
+The nightly is off by default. It runs only under a lease, and a lapsed lease
+disables it. The schedule is 03:30 local. A run goes one verifier after the
+other: relay's api journeys (`--phase api`, record `relay`), eve with
+`--screen` (record `eve`), then relay's screen journeys (`--phase screen`,
+record `relay-screen`). It never retries a verify.
+
+```
+node ~/.local/share/devboxverify/nightly.js enable --until YYYY-MM-DD
+node ~/.local/share/devboxverify/nightly.js disable
+node ~/.local/share/devboxverify/nightly.js status
+```
+
+- `enable` takes a date at most 31 days out. It loads the launchd job and
+  writes `~/.local/state/devboxverify/lease.json`. `disable` removes the
+  lease and unloads the job. `status` prints the lease, the job, the plist,
+  the pause file and the last record.
+- **Pause:** `touch ~/.local/state/devboxverify/pause` makes every run skip
+  at once. Remove the file to resume.
+
+Each scheduled start goes through these gates, in order:
+
+1. **Pause file.** Present: skip.
+2. **Lease.** Missing, invalid or expired: skip, then unload the job.
+3. **Idle check.** For 60 s, sampled every 15 s: all three devlock locks free;
+   1-minute load average under 1.5; no `claude`, `node` or Chrome/Chromium
+   process above 25% CPU (this catches night jobs that skip devlock); no
+   console or terminal input in the last 10 min. If busy, it rechecks every
+   10 min. A start at or after the 05:30 cutoff, or a recheck that would pass
+   it, skips the night. Every value lives in devboxWorld's `nightly/config.js`.
+4. **Locks.** One `devlock take SCREEN RESTART WORLD --holder nightly --minutes 65`
+   call, with no wait. If any lock is held, the night skips as `locks held`.
+   The 65 minutes cover the deadline, the kill grace and the restore.
+5. **Run** under two monotonic guards: a 45 min deadline for the whole run,
+   and a 12 min stall guard. This tool writes a heartbeat file (the wrapper
+   sets `DEVBOXVERIFY_HEARTBEAT`) at the start and end of each journey; 12 min
+   with no change, while the writer is alive, is a stall.
+6. **Kill and restore.** On a deadline or stall the wrapper kills the whole
+   process tree, then restores `eve-verify` from `origin/main` (needs
+   `NIGHTLY_EVE_CHECKOUT`), then releases the locks. A FAIL record gives the
+   reason and the last journey.
 
 - **Relay** is verified as installed. The nightly never builds relay, because
   its build signs and its register needs you at the console. After a merge to
@@ -1180,13 +1216,14 @@ devboxWorld: see its `docs/vm-stack.md`.
 All of these are in `~/Library/Logs/devboxverify/`:
 
 - `status.html`: the latest night per repo at the top, then the last 60
-  records, newest first. RED and BLOCKED are highlighted. Plain HTML, no
-  scripts.
+  records, newest first. RED, BLOCKED and FAIL are highlighted; SKIPPED is
+  grey. Plain HTML, no scripts.
 - `nightly.log`: one tab-separated line per record per night:
-  `NIGHT <at> <repo> <GREEN|RED|BLOCKED> <commit> behind=<n> <summary>`
+  `NIGHT <at> <repo> <GREEN|RED|BLOCKED|SKIPPED|FAIL> <commit> behind=<n> <summary>`
   (UTC timestamp).
 - `runs/<YYYY-MM-DD>-<record>.txt`: that night's full output, every command with
-  its exit status, stdout and stderr.
+  its exit status, stdout and stderr. The wrapper's own record and restore log
+  go in `runs/<YYYY-MM-DD>-nightly.txt`.
 - `launchd.log`: the job's own output. Look here if the nightly runner itself
   crashed.
 
@@ -1201,19 +1238,81 @@ All of these are in `~/Library/Logs/devboxverify/`:
   `npm ci failed`, `port 3100 not listening after 60s`, …), the verifier's
   first `PREFLIGHT … FAIL` line, or `timed out after 30 min`. Fix the cause;
   the next night, or a `kickstart`, runs again.
+- **SKIPPED** (`nightly` record, no notification): the night did not run.
+  The summary says why: `skipped: paused`; `skipped: locks held (<devlock line>)`;
+  `skipped: busy because <reason>` (for example `load1 3.07 >= 1.5`,
+  `cpu: node pid 123 at 101%`, `console input 42 s ago`,
+  `past cutoff 05:30`); `skipped: no valid lease`;
+  `skipped: lease expired <date>; disabled`.
+- **FAIL** (`nightly` record, one notification): the wrapper stopped the run.
+  `deadline: killed after 45 min; last journey <id|none>`,
+  `stall: journey <id> silent for 12 min`, or
+  `stopped: <SIGTERM|SIGINT>; last journey <id|none>; eve-verify not restored`. A
+  deadline or stall adds `; restore failed: <why>` or
+  `; restore skipped: NIGHTLY_EVE_CHECKOUT not set` when the restore did not
+  finish. A FAIL on `main` is an infrastructure fault: check that `eve-verify`
+  is running before anything else.
 
-Any night that isn't GREEN also posts one macOS notification. The first one
-may ask for notification permission. `status.html` is the durable record
-either way.
+Any night that is RED, BLOCKED or FAIL also posts one macOS notification. The
+first one may ask for notification permission. `status.html` is the durable
+record either way.
 
 ### One verification at a time
 
-Relay's and eve's verifiers both reset the shared devboxWorld, and nothing
-locks them against each other. Don't run a manual verify, or verify a PR,
-around 03:30. launchd never overlaps two runs of the job.
+Relay's and eve's verifiers both reset the shared devboxWorld. A leased
+nightly holds SCREEN, RESTART and WORLD, so a hand-run verify, or a PR
+verify, takes devlock first. If the locks are held, wait or pick another time.
 
-The nightly takes no lock for its relay api phase or its eve prepare step, so
-a set run near the window could collide with it. `set.js` refuses to start
-between 02:30 and 04:30 local for that reason; don't start a hand-run verify
-there either. `set.js` does hold the shared browser lock, which the eve
-verifier and relay's screen phase honour.
+`set.js` refuses to start between 02:30 and 04:30 local. That window no
+longer covers a leased run: it can start as late as 05:30 and hold the locks
+until about 06:35. devlock is the guard, not the clock. `set.js` also holds
+the shared browser lock, which the eve verifier and relay's screen phase
+honour.
+
+## After a merge
+
+A merge that touched shared plumbing gets a full run on `main`. The trigger
+is the merged PR's `devbox/verify` description: it starts with `full` and
+reads `why core: <path>`. GitHub cannot reach the devbox, so the coordinator
+starts this run, as it does the Relay rebuild after a relay merge.
+
+1. Take the locks (devlock is `~/.claude/skills/fanout/devlock`, not on
+   `PATH`):
+   `devlock take SCREEN RESTART WORLD --holder <you> --minutes 90 --reason "after-merge full run" --wait`.
+2. Read both checkouts from the nightly plist (it may sit under
+   `~/Library/LaunchAgents/disabled/`):
+   `plutil -extract EnvironmentVariables.NIGHTLY_EVE_CHECKOUT raw <plist>`,
+   and the same for `NIGHTLY_RELAY_CHECKOUT`. Export both.
+3. From the main checkout, run `node devboxverify/set.js --eve main`. Wait
+   for the process to exit.
+4. Comment the `PHASE eve` and `SET` lines on the merged PR.
+5. Release the locks: `devlock release SCREEN RESTART WORLD --holder <you>`.
+
+A `SET` result other than `success` is red on `main`: revert the merge first,
+then fix on a branch.
+
+## Epic-end full regression
+
+When an epic's last child merges, run the full set on `main`:
+
+```
+node devboxverify/set.js --relay main --eve main
+```
+
+There is no `--post`. For relay alone, use `node devboxverify/set.js --relay main`.
+
+- **Environment:** `NIGHTLY_RELAY_CHECKOUT=<relay checkout>` and
+  `NIGHTLY_EVE_CHECKOUT=<eve-verify worktree>` are required. Read each from
+  the nightly plist with
+  `plutil -extract EnvironmentVariables.<VAR> raw <plist>`.
+- **Before you start:** unlock the devid keychain, and keep the console
+  logged in. The run refuses to start between 02:30 and 04:30 local. Take
+  devlock `SCREEN RESTART WORLD` first, with `--holder`, `--minutes`
+  (90 is enough) and `--reason`, and release it after the process exits.
+- **Cost:** Relay builds twice, once for the ref and once for the restore.
+  Run it from the main checkout and wait for the process to exit.
+- **Record:** put the `SET` line and each
+  `PHASE <label> <result> <sha12> <summary>` line in the epic's closing
+  comment.
+- **Outcome:** a `SET` other than `success` reopens work and does not close
+  the epic.
