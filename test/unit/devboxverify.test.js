@@ -393,6 +393,8 @@ describe('devboxverify/eve-api.js', () => {
 describe('devboxverify/post.js', () => {
   const { statusState, renderComment, commentUrlFrom } = require('../../devboxverify/post');
   const r = (id, state, detail = '') => ({ id, state, detail });
+  const FULL3 = { mode: 'full', why: 'not a PR run', areas: [], ids: ['landing-view', 'chat-reply', 'voice-deep-link'], total: 3 };
+  const FULL1 = { mode: 'full', why: 'not a PR run', areas: [], ids: ['landing-view'], total: 1 };
 
   it.each([
     ['PASS and NOTRUN', ['PASS', 'NOTRUN'], 'success'],
@@ -411,6 +413,7 @@ describe('devboxverify/post.js', () => {
         r('chat-reply', 'FAIL', `read ${HOME}/x`),
         r('voice-deep-link', 'NOTRUN', 'a | b'),
       ],
+      selection: FULL3, notSelected: [],
     });
 
     expect(body).toContain('### devbox/verify: failure');
@@ -425,6 +428,7 @@ describe('devboxverify/post.js', () => {
     const body = renderComment({
       pr: 7, commit: 'a'.repeat(40), toolCommit: 'b'.repeat(40), runMs: 245600,
       worldSummary: 'pass=1 fail=0', home: HOME, results: [r('landing-view', 'PASS')],
+      selection: FULL1, notSelected: [],
     });
     expect(body).toContain(`| Tool commit | \`${'b'.repeat(40)}\` |\n| Run time | 246 s |\n\n`);
   });
@@ -440,6 +444,7 @@ describe('devboxverify/post.js', () => {
     const body = renderComment({
       pr: 7, commit: 'a'.repeat(40), toolCommit: 'b'.repeat(40), runMs: 1000,
       worldSummary: 'pass=12 fail=0', repaired, home: HOME, results: [r('landing-view', 'PASS')],
+      selection: FULL1, notSelected: [],
     });
     expect(body).toContain(`| World verify | pass=12 fail=0 |\n| Repaired | ${cell} |\n`);
   });
@@ -454,6 +459,164 @@ describe('devboxverify/post.js', () => {
     ['a trailing warning', 'https://github.com/acme/eve/pull/7#issuecomment-1\nwarning: rate limited\n'],
   ])('throws on %s', (_label, out) => {
     expect(() => commentUrlFrom(out)).toThrow();
+  });
+});
+
+describe('devboxverify/main.js runSelection and its output lines', () => {
+  const { runSelection, selectionLine, summaryPartial } = require('../../devboxverify/main');
+  const { journeys } = require('../../devboxverify/journeys');
+  const mapText = fs.readFileSync(path.join(__dirname, '../../docs/areas.jsonc'), 'utf8');
+  const base = { all: journeys, only: null, post: '7', mapText };
+  const allIds = journeys.map((j) => j.id);
+
+  it.each([
+    ['a quiet diff is not looked at without --post', { post: null, changed: { files: ['README.md'] } }],
+    ['a failed diff is not looked at without --post', { post: null, changed: { error: 'x' } }],
+  ])('runs everything, why "not a PR run": %s', (_label, extra) => {
+    expect(runSelection({ ...base, ...extra })).toEqual({ mode: 'full', why: 'not a PR run', areas: [], ids: allIds, total: allIds.length });
+  });
+
+  it('with --post, a quiet-only diff runs the smoke and fixture journeys only', () => {
+    const sel = runSelection({ ...base, changed: { files: ['README.md'] } });
+    expect(sel.mode).toBe('partial');
+    expect(sel.areas).toEqual([]);
+    expect(sel.total).toBe(allIds.length);
+    expect(sel.ids.length).toBeLessThan(allIds.length);
+    expect(sel.ids).toEqual(expect.arrayContaining(['landing-view', 'chat-reply', 'file-edit-save']));
+    expect(sel.ids.every((id) => allIds.includes(id))).toBe(true);
+    const smoke = ['landing-view', 'chat-reply', 'open-existing-thread', 'terminal-on-request', 'task-created-listed', 'changes-diff', 'file-edit-save'];
+    expect(sel.ids).toEqual(journeys.filter((j) => j.fixture || smoke.includes(j.id)).map((j) => j.id));
+  });
+
+  it('with --post, a core path runs everything', () => {
+    expect(runSelection({ ...base, changed: { files: ['README.md', 'server.js'] } }))
+      .toEqual({ mode: 'full', why: 'core: server.js', areas: [], ids: allIds, total: allIds.length });
+  });
+
+  it.each([
+    ['an unreadable map', { mapText: { error: 'ENOENT' } }, 'map unreadable: ENOENT'],
+    ['an unparsable map', { mapText: '{ not json' }, 'map unreadable: '],
+  ])('runs everything on %s', (_label, extra, whyStart) => {
+    const sel = runSelection({ ...base, ...extra, changed: { files: ['README.md'] } });
+    expect(sel.mode).toBe('full');
+    expect(sel.why.startsWith(whyStart)).toBe(true);
+    expect(sel.ids).toEqual(allIds);
+  });
+
+  it('runs everything when the diff cannot be resolved', () => {
+    const sel = runSelection({ ...base, changed: { error: 'no origin/main' } });
+    expect(sel.mode).toBe('full');
+    expect(sel.why.startsWith('no diff:')).toBe(true);
+    expect(sel.ids).toEqual(allIds);
+  });
+
+  it('--only is partial, why "only", whatever the post and diff state', () => {
+    const sel = runSelection({ ...base, only: ['landing-view'], post: null, changed: undefined });
+    const ids = journeys.filter(j => j.fixture || j.id === 'landing-view').map(j => j.id);
+    expect(ids).toContain('landing-view');
+    expect(sel).toEqual({ mode: 'partial', why: 'only', areas: [], ids, total: allIds.length });
+  });
+
+  it('formats the SELECTION fields and the partial SUMMARY field', () => {
+    const part = { mode: 'partial', why: 'by area', areas: ['chat', 'git'], ids: ['a', 'b'], total: 5 };
+    expect(selectionLine(part)).toEqual(['partial', '2/5', 'chat,git', 'by area']);
+    expect(selectionLine({ ...part, areas: [] })[2]).toBe('-');
+    expect(selectionLine({ mode: 'full', why: 'core: server.js', areas: [], ids: ['a', 'b', 'c'], total: 3 }))
+      .toEqual(['full', '3/3', '-', 'core: server.js']);
+    expect(summaryPartial(part)).toEqual(['partial=areas:chat,git']);
+    expect(summaryPartial({ ...part, areas: [] })).toEqual(['partial=areas:none']);
+    expect(summaryPartial({ mode: 'full', why: 'x', areas: [], ids: ['a'], total: 1 })).toEqual([]);
+  });
+});
+
+describe('devboxverify/post.js selection reporting', () => {
+  const { statusDescription, checkSelection, renderComment, post } = require('../../devboxverify/post');
+  const results = (n) => Array.from({ length: n }, (_, i) => ({ id: `j${i}`, state: 'PASS', detail: '' }));
+  const ids = (n) => Array.from({ length: n }, (_, i) => `j${i}`);
+  const partial = (n, total, areas = []) => ({ mode: 'partial', why: 'by area', areas, ids: ids(n), total });
+  const full = (total, why = 'not a PR run') => ({ mode: 'full', why, areas: [], ids: ids(total), total });
+
+  it('describes a partial run with its counts and areas', () => {
+    expect(statusDescription(results(9), partial(9, 39))).toBe('partial 9/39 pass=9 fail=0 blocked=0 notrun=0 areas none');
+  });
+
+  it('describes a full run ending with its why', () => {
+    expect(statusDescription(results(3), full(3, 'core: server.js'))).toBe('full 3/3 pass=3 fail=0 blocked=0 notrun=0 why core: server.js');
+  });
+
+  it('scrubs the home directory from the description', () => {
+    const sel = full(2, "map unreadable: ENOENT open '/home/acme/eve/docs/areas.jsonc'");
+    const d = statusDescription(results(2), sel, '/home/acme');
+    expect(d).toContain('~/eve/docs/areas.jsonc');
+    expect(d).not.toContain('/home/acme');
+  });
+
+  it.each([
+    ['areas', partial(9, 39, Array.from({ length: 40 }, (_, i) => `area-${i}`)), 'partial 9/39 '],
+    ['why', full(39, `harness: ${'x/'.repeat(100)}`), 'full 39/39 '],
+  ])('cuts a long %s tail to 140 and keeps mode, N/M and counts', (_label, sel, head) => {
+    const d = statusDescription(results(sel.ids.length), sel);
+    expect(d.length).toBeLessThanOrEqual(140);
+    expect(d.startsWith(`${head}pass=${sel.ids.length} fail=0 blocked=0 notrun=0`)).toBe(true);
+  });
+
+  it.each([
+    ['missing', undefined, []],
+    ['an unknown mode', { ...full(2), mode: 'some' }, []],
+    ['full with fewer ids than total', { ...full(3), ids: ids(2) }, []],
+    ['partial with ids equal to total', partial(3, 3), []],
+    ['partial with a wrong notSelected count', partial(1, 3), ['j1']],
+  ])('checkSelection throws on %s', (_label, sel, notSelected) => {
+    expect(() => checkSelection(sel, notSelected)).toThrow(/^post: /);
+  });
+
+  it('checkSelection accepts consistent full and partial selections', () => {
+    expect(() => checkSelection(full(3), [])).not.toThrow();
+    expect(() => checkSelection(partial(1, 3), ['j1', 'j2'])).not.toThrow();
+  });
+
+  describe('post() rejects before any gh call', () => {
+    // A stub gh first on PATH records any call, so a real gh is never reached.
+    let oldPath; let bin; let marker;
+    beforeEach(() => {
+      oldPath = process.env.PATH;
+      bin = fs.mkdtempSync(path.join(os.tmpdir(), 'nogh-'));
+      marker = path.join(bin, 'called');
+      fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\ntouch '${marker}'\nexit 1\n`, { mode: 0o755 });
+      process.env.PATH = `${bin}:${oldPath}`;
+    });
+    afterEach(() => { process.env.PATH = oldPath; removeScratch(bin); });
+    const ev = (selection, notSelected = []) => ({
+      pr: 7, commit: 'a'.repeat(40), toolCommit: 'b'.repeat(40), worldSummary: 'pass=1 fail=0', home: HOME,
+      results: results(3), selection, notSelected,
+    });
+
+    it.each([
+      ['no selection', undefined],
+      ['full with fewer ids than total', { ...full(5), ids: ids(3) }],
+      ['partial with ids equal to total', partial(3, 3)],
+    ])('on %s', async (_label, sel) => {
+      await expect(post(ev(sel), { cwd: os.tmpdir() })).rejects.toThrow(/^post: /);
+      expect(fs.existsSync(marker)).toBe(false);
+    });
+  });
+
+  describe('renderComment', () => {
+    const ev = (selection, notSelected) => ({
+      pr: 7, commit: 'a'.repeat(40), toolCommit: 'b'.repeat(40), worldSummary: 'pass=1 fail=0', home: HOME,
+      results: results(2), selection, notSelected,
+    });
+
+    it('shows heading and Selection row, and Not selected only when partial', () => {
+      const p = renderComment(ev({ mode: 'partial', why: 'by area', areas: ['chat'], ids: ids(2), total: 4 }, ['x1', 'x2']));
+      expect(p).toContain('### devbox/verify: success, partial 2 of 4 journeys');
+      expect(p).toContain('| Selection | partial, 2 of 4, areas chat, why by area |');
+      expect(p).toContain('| Not selected | `x1`, `x2` |');
+      const f = renderComment(ev(full(2, 'core: server.js'), []));
+      expect(f).toContain('### devbox/verify: success, full 2 of 2 journeys');
+      expect(f).toContain('| Selection | full, 2 of 2, areas none, why core: server.js |');
+      expect(f).not.toContain('Not selected');
+    });
   });
 });
 
@@ -1306,7 +1469,10 @@ describe('devboxverify/world.js, worldPreflight and runJourney', () => {
       // RELAY_BIN: a build that wrongly gets past preflight stops at the service check, not at the real relay.
       env: { ...process.env, DEVBOXWORLD_MARKER: path.join(dir, 'none'), EVE_BROWSER_LOCK: lock, RELAY_BIN: path.join(dir, 'no-relay') },
     });
-    expect({ status: out.status, stdout: out.stdout }).toEqual({ status: 2, stdout: `PREFLIGHT\tmachine\tFAIL\t${ABSENT}\n` });
+    const total = require('../../devboxverify/journeys').journeys.length;
+    expect({ status: out.status, stdout: out.stdout }).toEqual({
+      status: 2, stdout: `SELECTION\tfull\t${total}/${total}\t-\tnot a PR run\nPREFLIGHT\tmachine\tFAIL\t${ABSENT}\n`,
+    });
     expect(fs.existsSync(lock)).toBe(false);
   });
 

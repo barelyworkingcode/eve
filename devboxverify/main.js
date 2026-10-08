@@ -6,6 +6,7 @@ const path = require('path');
 const { parse: parseJsonc } = require('jsonc-parser');
 const { EveApi, added, onlyOutside } = require('./eve-api');
 const { acquire } = require('../scripts/browser-lock');
+const areas = require('./areas');
 const {
   WORLD_VERSION, markerPath, readMarker, loadWorld, scoped, missingFixtures,
 } = require('./world');
@@ -223,6 +224,33 @@ function selectJourneys(journeys, only) {
   const unknown = only.filter(id => !known.has(id));
   if (unknown.length) throw usageError(`unknown journey id: ${unknown.join(', ')}`);
   return journeys.filter(j => j.fixture || only.includes(j.id));
+}
+
+// Pure. Which journeys this run covers: --only, else (on a --post run) the
+// areas the diff touches, else all. Anything unreadable fails closed to full.
+function runSelection({ all, only, post, mapText, changed }) {
+  const allIds = all.map(j => j.id);
+  const full = why => ({ mode: 'full', why, areas: [], ids: allIds, total: all.length });
+  if (only !== null) {
+    return { mode: 'partial', why: 'only', areas: [], ids: selectJourneys(all, only).map(j => j.id), total: all.length };
+  }
+  if (!post) return full('not a PR run');
+  if (mapText && mapText.error !== undefined) return full(`map unreadable: ${mapText.error}`);
+  let map;
+  try { map = areas.parseMap(mapText); } catch (err) { return full(`map unreadable: ${err.message}`); }
+  return areas.select({ map, journeys: all, changed });
+}
+
+function selectionLine(sel) {
+  return [sel.mode, `${sel.ids.length}/${sel.total}`, sel.areas.join(',') || '-', sel.why];
+}
+
+// `only` is opts.only: an --only selection's ids include the fixtures, so the
+// SUMMARY field names what the operator asked for.
+function summaryPartial(sel, only = null) {
+  if (sel.mode === 'full') return [];
+  if (sel.why === 'only') return [`partial=only:${(only || []).join(',')}`];
+  return [`partial=areas:${sel.areas.join(',') || 'none'}`];
 }
 
 // Fixture journeys run first, screen journeys last. Without --screen the
@@ -581,14 +609,23 @@ async function run(argv) {
   }
   // Deliberate: before the lock and before any script or network call, so a
   // machine that is not a bootstrapped VM is never touched.
-  let journeys;
+  let journeys, selection, notSelected;
   try {
-    journeys = selectJourneys(require('./journeys').journeys, opts.only);
+    const all = require('./journeys').journeys;
+    let mapText = '', changed = null;
+    if (opts.post) {
+      try { mapText = fs.readFileSync(path.join(opts.checkout, areas.MAP_PATH), 'utf8'); } catch (err) { mapText = { error: firstLine(err) }; }
+      changed = await areas.changedFiles(opts.checkout);
+    }
+    selection = runSelection({ all, only: opts.only, post: opts.post, mapText, changed });
+    journeys = all.filter(j => selection.ids.includes(j.id));
+    notSelected = all.map(j => j.id).filter(id => !selection.ids.includes(id));
   } catch (err) {
     if (!err.usage) throw err;
     process.stderr.write(`${err.message}\n${USAGE}\n`);
     return 2;
   }
+  emit('SELECTION', ...selectionLine(selection));
   const { lines, world } = worldPreflight({ markerFile: markerPath(process.env, home), journeys, screen: opts.screen });
   for (const [check, state, detail] of lines) emit('PREFLIGHT', check, state, detail);
   if (!world) return 2;
@@ -601,13 +638,13 @@ async function run(argv) {
   }
   emit('PREFLIGHT', 'lock', 'OK', 'acquired');
   try {
-    return await runLocked({ home, emit, log, toolRoot, opts, world, journeys, startedAt });
+    return await runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt });
   } finally {
     await release();
   }
 }
 
-async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, startedAt }) {
+async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt }) {
   const toolCommit = await git(toolRoot, 'rev-parse', 'HEAD').catch(() => '');
   const checkout = fs.existsSync(opts.checkout) ? fs.realpathSync(opts.checkout) : path.resolve(opts.checkout);
   const port = Number(new URL(opts.url).port);
@@ -839,13 +876,13 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   const runMs = Math.round(performance.now() - startedAt);
   emit('TIMING', 'run', String(runMs));
   emit('SUMMARY', `pass=${counts.PASS}`, `fail=${counts.FAIL}`, `blocked=${counts.BLOCKED}`, `notrun=${counts.NOTRUN}`,
-    ...(opts.only ? [`partial=only:${opts.only.join(',')}`] : []));
+    ...summaryPartial(selection, opts.only));
   if (opts.post && !opts.only) {
     const { post, statusState } = require('./post');
     try {
       const ev = {
         pr: opts.post, commit: head, toolCommit, runMs, worldSummary: `pass=${worldCounts.pass} fail=${worldCounts.fail}`,
-        repaired: repair.repaired, home, results,
+        repaired: repair.repaired, home, results, selection, notSelected,
       };
       emit('POSTED', statusState(results), await post(ev, { cwd: toolRoot }));
     } catch (err) {
@@ -857,7 +894,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
 }
 
 module.exports = {
-  scrub, formatLine, parseArgs, selectJourneys, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
+  scrub, formatLine, parseArgs, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,

@@ -27,13 +27,42 @@ function repairedCell(repaired) {
   return repaired.map((r) => `${r.what}: ${r.detail}`.replace(/\s+/g, ' ').trim()).join('; ').replaceAll('|', '\\|');
 }
 
-function renderComment({ commit, toolCommit, runMs, worldSummary, repaired = [], home, results }) {
+// Fail closed: a status that claims a subset must be consistent with what ran.
+function checkSelection(sel, notSelected) {
+  if (!sel || typeof sel !== 'object') throw new Error('post: missing selection');
+  if (sel.mode !== 'full' && sel.mode !== 'partial') throw new Error(`post: bad selection mode ${sel.mode}`);
+  if (!Array.isArray(sel.ids) || !Number.isInteger(sel.total)) throw new Error('post: malformed selection');
+  if (sel.mode === 'full' && sel.ids.length < sel.total) throw new Error(`post: full run selected ${sel.ids.length} of ${sel.total}`);
+  if (sel.mode === 'partial' && sel.ids.length === sel.total) throw new Error(`post: partial run selected all ${sel.total}`);
+  if (sel.mode === 'partial' && (!Array.isArray(notSelected) || notSelected.length !== sel.total - sel.ids.length)) {
+    throw new Error('post: not-selected list does not match selection');
+  }
+}
+
+const DESCRIPTION_MAX = 140;
+
+function statusDescription(results, sel, home) {
+  const c = countStates(results);
+  const head = `${sel.mode} ${sel.ids.length}/${sel.total} pass=${c.PASS} fail=${c.FAIL} blocked=${c.BLOCKED} notrun=${c.NOTRUN}`;
+  const tail = sel.mode === 'partial' ? ` areas ${sel.areas.join(',') || 'none'}` : ` why ${sel.why}`;
+  return scrub(head + tail, home).slice(0, DESCRIPTION_MAX);
+}
+
+function cell(s) {
+  return String(s).replace(/\s+/g, ' ').trim().replaceAll('|', '\\|');
+}
+
+function renderComment({ commit, toolCommit, runMs, worldSummary, repaired = [], home, results, selection, notSelected = [] }) {
+  checkSelection(selection, notSelected);
+  const sel = selection;
   const lines = [
-    `### devbox/verify: ${statusState(results)}`,
+    `### devbox/verify: ${statusState(results)}, ${sel.mode} ${sel.ids.length} of ${sel.total} journeys`,
     '',
     '| | |',
     '|---|---|',
     `| Eve commit | \`${commit}\` |`,
+    `| Selection | ${cell(`${sel.mode}, ${sel.ids.length} of ${sel.total}, areas ${sel.areas.join(',') || 'none'}, why ${sel.why}`)} |`,
+    ...(sel.mode === 'partial' ? [`| Not selected | ${notSelected.map((id) => `\`${id}\``).join(', ')} |`] : []),
     `| World verify | ${worldSummary} |`,
     `| Repaired | ${repairedCell(repaired)} |`,
     `| Tool commit | \`${toolCommit}\` |`,
@@ -75,10 +104,10 @@ async function prHead(pr, { cwd }) {
 
 // Comment first so the commit status can link to the comment.
 async function post(ev, { cwd }) {
+  checkSelection(ev.selection, ev.notSelected);
   const out = await gh(['pr', 'comment', String(ev.pr), '--body-file', '-'], { cwd, stdin: renderComment(ev) });
   const commentUrl = commentUrlFrom(out);
-  const c = countStates(ev.results);
-  const description = `pass=${c.PASS} fail=${c.FAIL} blocked=${c.BLOCKED} notrun=${c.NOTRUN}`;
+  const description = statusDescription(ev.results, ev.selection, ev.home);
   await gh([
     'api', '-X', 'POST', `repos/{owner}/{repo}/statuses/${ev.commit}`,
     '-f', `state=${statusState(ev.results)}`,
@@ -89,4 +118,4 @@ async function post(ev, { cwd }) {
   return commentUrl;
 }
 
-module.exports = { statusState, renderComment, commentUrlFrom, gh, prHead, post };
+module.exports = { statusState, renderComment, checkSelection, statusDescription, commentUrlFrom, gh, prHead, post };
