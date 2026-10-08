@@ -1901,7 +1901,7 @@ describe('devboxverify run record (eve#269)', () => {
   it('an unknown --only id writes no record', () => {
     const logs = path.join(scratch, 'logs');
     const out = spawnMain(['--only', 'no-such-journey'], logs);
-    expect(out.status).not.toBe(0);
+    expect(out.status).toBe(2);
     expect(fs.existsSync(path.join(logs, 'runs'))).toBe(false);
   });
 

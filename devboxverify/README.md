@@ -77,7 +77,7 @@ POSTED success|failure|error <comment URL>
 
 ### Run record
 
-Every run that gets past the argument checks writes
+Every run whose journey selection succeeds writes
 `<log dir>/runs/<UTC stamp>-<head12>.out` (`head12` is the first 12 hex
 characters of the checkout's HEAD, or `unknown`). Tab-separated, mode 0600:
 
