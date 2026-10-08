@@ -20,7 +20,7 @@ Keep `-s` on the npm form. npm's banner would break the stdout grammar.
 | `--checkout` | the git toplevel holding `devboxverify/` |
 | `--url` | `http://localhost:3100`; must be `http:`, `localhost` or `127.0.0.1`, with a port |
 | `--service` | `eve-verify` |
-| `--post` | none; a PR number |
+| `--post` | none; a PR number. Selects journeys by the areas the PR touches; see "Selection" |
 | `--screen` | off; runs the journeys that drive the real screen (no value) |
 | `--only` | all journeys; comma-separated journey ids (or `--only=a,b`). Fixture journeys (owner sign-in) always run. An unknown id exits 2 before the lock. Cannot be combined with `--post` |
 
@@ -59,6 +59,7 @@ Stdout is tab-separated lines and nothing else. Progress, the world scripts'
 output and sweep counts go to stderr. The home directory reads as `~`.
 
 ```
+SELECTION full|partial <n>/<m> <areas csv|-> <why>
 PREFLIGHT <check> OK|FAIL <detail>
 REPAIRED <what> <detail>
 WORLD pass=<n> fail=<n>
@@ -66,9 +67,11 @@ RESET OK|FAIL
 JOURNEY <id> PASS|FAIL|BLOCKED|NOTRUN <detail>
 TIMING journey <id> <ms>
 TIMING run <ms>
-SUMMARY pass=<n> fail=<n> blocked=<n> notrun=<n> [partial=only:<id,id>]
+SUMMARY pass=<n> fail=<n> blocked=<n> notrun=<n> [partial=only:<id,id>|partial=areas:<csv|none>]
 POSTED success|failure|error <comment URL>
 ```
+
+`SELECTION` is always the first line. See "Selection" for the fields.
 
 Preflight runs in order and stops at the first FAIL: `machine`, `pin`,
 `fixtures`, `lock`, `head`, `tree`, `service`, `eve`, `live`, `pr` (only with
@@ -939,8 +942,55 @@ restarts the service, runs the verifier with `--screen`, posts, and restores
    bootstrap complete and the world green, or repair it once. Only then does
    `reset.sh` run.
 5. `--post` comments the results on the PR, then sets the `devbox/verify`
-   status on the head commit, linking the comment.
+   status on the head commit, linking the comment. Only the journeys the PR's
+   areas need run; the status and comment say which. See "Selection".
 6. Re-register `eve-verify` back to the nightly worktree and restart it.
+
+## Selection
+
+Only a `--post` run selects. Every other run is full: the nightly, paired
+`set.js` runs, the after-merge run and the epic-end run. There is no `--full`
+flag. `--only` (never with `--post`) is its own partial selection, `why only`.
+
+On `--post`, the verifier diffs `origin/main...HEAD` in `--checkout`, reads
+`<checkout>/docs/areas.jsonc` and calls `select()` in `areas.js`. A journey
+runs when it is a fixture, is in the smoke set, or shares an area with a
+changed file. The map and the diff come from the head under test; the journey
+table comes from the tool root. Selection runs before `worldPreflight`, so only
+the selected journeys' fixtures are checked.
+
+These always run everything (`why` says which):
+
+- A non-`.md` path under `devboxverify/`, or `scripts/browser-lock.js`
+  (`harness: <path>`), or `docs/areas.jsonc` (`map: docs/areas.jsonc`).
+- A path in an area marked `full` (`<area>: <path>`).
+- A path in no area and not `quiet` (`unmapped: <path>`).
+- A diff that cannot be read or is empty (`no diff: <msg>`), a map that cannot
+  be read or parsed (`map unreadable: <msg>`), or a journey naming an area the
+  map lacks (`area not in map: <area>`).
+- Every journey selected anyway (`all selected`).
+
+Formats:
+
+- `SELECTION\t<full|partial>\t<N>/<M>\t<areas csv|->\t<why>`. N counts the
+  selected journeys, fixtures included; M is the whole table.
+- `SUMMARY` ends with `partial=areas:<csv|none>` on a partial run by area.
+  A full run adds nothing.
+- Status description: `<mode> N/M pass=… fail=… blocked=… notrun=…`, then
+  ` areas a,b` (partial) or ` why <why>` (full), cut to 140 characters at the
+  tail. The mode, N/M and counts are never cut.
+- Comment: heading `### devbox/verify: <state>, <mode> N of M journeys`, a
+  `Selection` row (mode, N of M, areas, why) and, on a partial run, a
+  `Not selected` row listing the ids that did not run.
+- `post()` refuses to post without a consistent selection: a full run with
+  fewer than M journeys, or a partial run with all of them, throws.
+
+A partial `success` merges. The daily full run is the safeguard.
+
+Reviewer note: the map is read from the PR head, and `docs/areas.jsonc`
+changes always run full, so a PR cannot narrow its own run in the same diff.
+But a map edit that moves a file out of a `full` area, or into `quiet`, narrows
+later PRs that touch that file. Check every such edit in review.
 
 ## Verifying a set
 

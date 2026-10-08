@@ -1,7 +1,7 @@
 'use strict';
 // Which journeys a change needs. docs/areas.jsonc maps repo paths to areas;
 // each journey names its areas; select() turns a diff into the journeys to run.
-// Pure apart from changedFiles. Not read by main.js yet.
+// Pure apart from changedFiles. main.js calls it on --post runs only.
 const { execFile } = require('child_process');
 const { parse: parseJsonc } = require('jsonc-parser');
 

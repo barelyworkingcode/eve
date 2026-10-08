@@ -76,6 +76,8 @@ describe('browser-test lock', () => {
   const verify = (timeout) => start(NODE, ['-r', vmPreload, MAIN, '--service', 'no-such-service'], {
     timeout, env: { RELAY_BIN: path.join(tmp, 'no-such-relay'), DEVBOXWORLD_MARKER: markerFile },
   }).closed;
+  const TOTAL = require('../../devboxverify/journeys').journeys.length;
+  const SELECTION_ROW = `SELECTION\tfull\t${TOTAL}/${TOTAL}\t-\tnot a PR run`;
   const MACHINE_ROW = 'PREFLIGHT\tmachine\tOK\tvm; world v1';
   const PIN_ROW = 'PREFLIGHT\tpin\tOK\tv1';
   const FIXTURES_ROW = 'PREFLIGHT\\tfixtures\\tOK\\t\\d+ fixtures for \\d+ journeys';
@@ -129,7 +131,8 @@ describe('browser-test lock', () => {
   it('devboxverify takes the free lock right after the world rows and releases it', async () => {
     const r = await verify(0);
     const lines = r.stdout.replace(/\n$/, '').split('\n');
-    expect(lines.slice(0, 4)).toEqual([
+    expect(lines.slice(0, 5)).toEqual([
+      SELECTION_ROW,
       MACHINE_ROW,
       PIN_ROW,
       expect.stringMatching(new RegExp(`^${FIXTURES_ROW}$`)),
@@ -154,7 +157,7 @@ describe('browser-test lock', () => {
     const holder = await startHolder();
     const r = await verify(1);
     expect(r.code).toBe(2);
-    expect(r.stdout).toMatch(new RegExp(`^${escape(MACHINE_ROW)}\\n${escape(PIN_ROW)}\\n${FIXTURES_ROW}\\n`
+    expect(r.stdout).toMatch(new RegExp(`^${escape(SELECTION_ROW)}\\n${escape(MACHINE_ROW)}\\n${escape(PIN_ROW)}\\n${FIXTURES_ROW}\\n`
       + `PREFLIGHT\\tlock\\tFAIL\\t[^\\n]*pid ${holder.pid}\\b[^\\n]*\\n$`));
     expect(r.stderr).toMatch(new RegExp(`browser-lock: ${escape(lockFile)} is held by pid ${holder.pid} \\(.*; waiting up to 1s`));
   });
