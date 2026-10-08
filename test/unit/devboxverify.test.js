@@ -9,7 +9,7 @@ describe('devboxverify/main.js', () => {
   const {
     scrub, formatLine, parseArgs, parseWorldSummary, tally,
     parseListenPids, parseCwd, parseLstart,
-    eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem,
+    eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, selectJourneys,
   } = require('../../devboxverify/main');
 
   describe('scrub and formatLine', () => {
@@ -47,6 +47,23 @@ describe('devboxverify/main.js', () => {
       expect(Number(args.post)).toBe(7);
     });
 
+    it('parses --only to trimmed ids, in both spellings, and defaults it to null', () => {
+      expect(parseArgs([], { toolRoot }).only).toBeNull();
+      expect(parseArgs(['--only', 'a,b'], { toolRoot }).only).toEqual(['a', 'b']);
+      expect(parseArgs(['--only=a'], { toolRoot }).only).toEqual(['a']);
+    });
+
+    it.each([
+      [['--only', 'x', '--post', '7']],
+      [['--post', '7', '--only', 'x']],
+    ])('refuses --only with --post, naming both: %j', (argv) => {
+      let err;
+      try { parseArgs(argv, { toolRoot }); } catch (e) { err = e; }
+      expect(err.usage).toBe(true);
+      expect(err.message).toContain('--only');
+      expect(err.message).toContain('--post');
+    });
+
     it.each([
       ['--post without a value', ['--post']],
       ['--post 0', ['--post', '0']],
@@ -54,7 +71,10 @@ describe('devboxverify/main.js', () => {
       ['a non-loopback host', ['--url', 'http://example.com:3100']],
       ['a url without an explicit port', ['--url', 'http://localhost']],
       ['a positional argument', ['extra']],
-      ['an unknown flag', ['--only', 'chat-reply']],
+      ['an unknown flag', ['--phase', 'api']],
+      ['--only with an empty id', ['--only', 'a,,b']],
+      ['--only with an empty value', ['--only', '']],
+      ['--only without a value', ['--only']],
       ['--screen with a value', ['--screen=1']],
       ['--world with a value', ['--world', '/srv/world']],
       ['--world=', ['--world=/srv/world']],
@@ -64,6 +84,47 @@ describe('devboxverify/main.js', () => {
       expect(err).toBeInstanceOf(Error);
       expect(err.usage).toBe(true);
     });
+  });
+
+  describe('selectJourneys', () => {
+    const list = [{ id: 'f1', fixture: true }, { id: 'a' }, { id: 'b' }, { id: 'c', screen: true }];
+    const ids = (l) => l.map((j) => j.id);
+
+    it('returns the list unchanged without --only', () => {
+      expect(selectJourneys(list, null)).toBe(list);
+    });
+
+    it.each([
+      [['b'], ['f1', 'b']],
+      [['c', 'a'], ['f1', 'a', 'c']],
+    ])('keeps the fixtures and %j in original order', (only, want) => {
+      expect(ids(selectJourneys(list, only))).toEqual(want);
+    });
+
+    it('throws a usage error naming every unknown id', () => {
+      let err;
+      try { selectJourneys(list, ['a', 'nope', 'zip']); } catch (e) { err = e; }
+      expect(err.usage).toBe(true);
+      expect(err.message).toContain('nope');
+      expect(err.message).toContain('zip');
+    });
+  });
+
+  it('the CLI refuses --only with --post: exit 2 and the message, before any preflight', () => {
+    const out = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'devboxverify', 'main.js'), '--only', 'chat-reply', '--post', '1'], {
+      encoding: 'utf8', timeout: 60000, cwd: path.join(__dirname, '..', '..'),
+    });
+    expect(out.status).toBe(2);
+    expect(out.stderr).toContain('--only cannot be used with --post');
+  });
+
+  it('the CLI fails fast on an unknown --only id: exit 2 naming it, before any preflight', () => {
+    const out = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'devboxverify', 'main.js'), '--only', 'chat-reply,no-such-journey'], {
+      encoding: 'utf8', timeout: 60000, cwd: path.join(__dirname, '..', '..'),
+    });
+    expect(out.status).toBe(2);
+    expect(out.stderr).toContain('unknown journey id: no-such-journey');
+    expect(out.stdout).not.toContain('PREFLIGHT');
   });
 
   describe('parseWorldSummary', () => {

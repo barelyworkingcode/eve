@@ -117,11 +117,22 @@ describe('parseArgs', () => {
     ['a repeated flag', ['--eve', '1', '--eve', '2']],
     ['an unknown argument', ['--eve', '1', '--screen']],
     ['a positional argument', ['--eve', '1', 'extra']],
+    ['--only without --post', ['--eve', '12', '--only', 'x']],
     ['a branch with a space', ['--eve', 'feat x']],
     ['a branch with a shell character', ['--relay', 'feat;rm']],
     ['a branch starting with -', ['--eve', '-feat']],
     ['PR number 0', ['--relay', '0']],
   ])('%s is a usage error', (_, argv) => expect(usageOf(argv)).toMatchObject({ usage: true }));
+
+  it.each([
+    [['--eve', '12', '--post', '--only', 'x']],
+    [['--only', 'x', '--eve', '12', '--post']],
+  ])('refuses --only with --post, naming both: %j', (argv) => {
+    const e = usageOf(argv);
+    expect(e).toMatchObject({ usage: true });
+    expect(e.message).toContain('--only');
+    expect(e.message).toContain('--post');
+  });
 
   it.each([
     ['no arguments', [], {}],

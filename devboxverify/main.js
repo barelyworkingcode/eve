@@ -22,7 +22,7 @@ const RESTART_TIMEOUT_MS = 60000;
 const OWNER_RESET_WAIT_MS = 30000;
 const OWNER_FILES = ['auth.json', 'sessions.json'];
 const RELAY_AUDIT_TAIL = '500';
-const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen]';
+const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen] [--only ID[,ID...]]';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function scrub(s, home) {
@@ -39,9 +39,9 @@ function usageError(msg) {
 
 function parseArgs(argv, { toolRoot }) {
   const opts = {
-    checkout: toolRoot, url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false,
+    checkout: toolRoot, url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false, only: null,
   };
-  const names = new Set(['checkout', 'url', 'service', 'post']);
+  const names = new Set(['checkout', 'url', 'service', 'post', 'only']);
   for (let i = 0; i < argv.length; i++) {
     const m = /^--([a-z]+)(?:=(.*))?$/.exec(argv[i]);
     if (m && m[1] === 'screen') {
@@ -53,6 +53,11 @@ function parseArgs(argv, { toolRoot }) {
     const value = m[2] !== undefined ? m[2] : argv[++i];
     if (value === undefined || value === '') throw usageError(`--${m[1]} needs a value`);
     opts[m[1]] = value;
+  }
+  if (opts.only !== null) {
+    opts.only = opts.only.split(',').map(id => id.trim());
+    if (opts.only.some(id => id === '')) throw usageError('--only needs journey ids, comma separated, none empty');
+    if (opts.post !== null) throw usageError('--only cannot be used with --post');
   }
   if (opts.post !== null) {
     if (!/^\d+$/.test(opts.post) || Number(opts.post) < 1) throw usageError('--post needs a PR number');
@@ -208,6 +213,16 @@ function ownerResetPaths(dir, { liveDataDir = null } = {}) {
   if (!dir || !path.isAbsolute(dir) || path.normalize(dir) !== dir) throw new Error(`refusing to reset a data dir that is not a normalised absolute path`);
   if (liveDataDir && path.normalize(liveDataDir) === dir) throw new Error('the pinned data dir is the live eve\'s; refusing to reset it');
   return OWNER_FILES.map(f => path.join(dir, f));
+}
+
+// --only keeps the named journeys plus every fixture journey (owner sign-in:
+// all others need the signed-in owner), in original order.
+function selectJourneys(journeys, only) {
+  if (only === null) return journeys;
+  const known = new Set(journeys.map(j => j.id));
+  const unknown = only.filter(id => !known.has(id));
+  if (unknown.length) throw usageError(`unknown journey id: ${unknown.join(', ')}`);
+  return journeys.filter(j => j.fixture || only.includes(j.id));
 }
 
 // Fixture journeys run first, screen journeys last. Without --screen the
@@ -561,12 +576,19 @@ async function run(argv) {
     toolRoot = await git(__dirname, 'rev-parse', '--show-toplevel');
     opts = parseArgs(argv, { toolRoot });
   } catch (err) {
-    process.stderr.write((err.usage ? USAGE : `run from inside an eve checkout: ${firstLine(err)}`) + '\n');
+    process.stderr.write((err.usage ? `${err.message}\n${USAGE}` : `run from inside an eve checkout: ${firstLine(err)}`) + '\n');
     return 2;
   }
   // Deliberate: before the lock and before any script or network call, so a
   // machine that is not a bootstrapped VM is never touched.
-  const { journeys } = require('./journeys');
+  let journeys;
+  try {
+    journeys = selectJourneys(require('./journeys').journeys, opts.only);
+  } catch (err) {
+    if (!err.usage) throw err;
+    process.stderr.write(`${err.message}\n${USAGE}\n`);
+    return 2;
+  }
   const { lines, world } = worldPreflight({ markerFile: markerPath(process.env, home), journeys, screen: opts.screen });
   for (const [check, state, detail] of lines) emit('PREFLIGHT', check, state, detail);
   if (!world) return 2;
@@ -816,8 +838,9 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
   const { counts, exitCode } = tally(results);
   const runMs = Math.round(performance.now() - startedAt);
   emit('TIMING', 'run', String(runMs));
-  emit('SUMMARY', `pass=${counts.PASS}`, `fail=${counts.FAIL}`, `blocked=${counts.BLOCKED}`, `notrun=${counts.NOTRUN}`);
-  if (opts.post) {
+  emit('SUMMARY', `pass=${counts.PASS}`, `fail=${counts.FAIL}`, `blocked=${counts.BLOCKED}`, `notrun=${counts.NOTRUN}`,
+    ...(opts.only ? [`partial=only:${opts.only.join(',')}`] : []));
+  if (opts.post && !opts.only) {
     const { post, statusState } = require('./post');
     try {
       const ev = {
@@ -834,7 +857,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sta
 }
 
 module.exports = {
-  scrub, formatLine, parseArgs, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
+  scrub, formatLine, parseArgs, selectJourneys, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,

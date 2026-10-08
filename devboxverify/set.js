@@ -24,7 +24,7 @@ const WINDOW_END_MIN = 4 * 60 + 30;
 const ENV_ALLOWLIST = ['PATH', 'HOME', 'EVE_VERIFY_MODEL', 'RELAY_VERIFY_MODEL', 'RELAY_BIN',
   'DEVBOXPRESENCE_BIN', 'DEVBOXWORLD_MARKER', 'RELAY_VERIFY_CREDENTIAL_FILE'];
 
-const usageError = () => Object.assign(new Error(USAGE), { usage: true });
+const usageError = msg => Object.assign(new Error(msg ? `${msg}\n${USAGE}` : USAGE), { usage: true });
 
 function parseRef(value) {
   if (value === undefined) throw usageError();
@@ -49,6 +49,9 @@ function parseArgs(argv) {
     } else if (a === '--post') {
       if (postSeen) throw usageError();
       postSeen = out.post = true;
+    } else if (a === '--only' || a.startsWith('--only=')) {
+      if (argv.includes('--post')) throw usageError('--only cannot be used with --post');
+      throw usageError();
     } else {
       throw usageError();
     }
@@ -465,7 +468,7 @@ if (require.main === module) {
   // An SSH drop must not stop the run: it finishes and restores itself.
   process.on('SIGHUP', () => {});
   main(process.argv.slice(2)).then(code => process.exit(code), err => {
-    process.stderr.write(`${err.usage ? USAGE : `set: ${err.message}`}\n`);
+    process.stderr.write(`${err.usage ? err.message : `set: ${err.message}`}\n`);
     process.exit(2);
   });
 }
