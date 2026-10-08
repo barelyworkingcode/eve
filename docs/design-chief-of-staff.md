@@ -52,6 +52,21 @@ A failed person turn posts a notice that names the cause (`turnFailureNotice`): 
 ## Wake rules (reader side, for reference)
 A trigger is a `session_state` entering `asking|errored|stalled`, or a `turn_done` whose excerpt `isQuestion`. `isQuestion` strips trailing whitespace and closing punctuation (`` * _ ` " ' ) ] > » ” ``) and tests the last character for `?` or `？`. Eve decides this with a fixed rule (D2); the model only writes the post.
 
+## Errands and the finished post
+An **errand** is an agent the person handed work through the thread: a headless `_startSession` that relay answered with 201, or a `_send` that relay accepted (202), whether by a direct action or a card tap. Terminal starts are not errands. Eve keeps them in memory only (`_errands`, newest last, cap 50, oldest evicted); a restart mid-errand posts nothing. A record goes away on settle, on `session_ended`, when the same session is armed again (it moves to newest), or on eviction. There is no timer.
+
+One outcome per errand:
+1. `turn_done` whose excerpt `isQuestion`: the record is dropped and the question alert posts as usual.
+2. Any other `turn_done`: the record keeps the last 500 characters of the excerpt and waits for the state.
+3. The next `session_state` `idle` queues a finished entry (a person's Stop also ends in `idle`, so it posts too). Other states post nothing extra; `errored` keeps its alert.
+4. `asking` or `stalled` before any `turn_done`: the record is dropped, the alert posts, no finished post. An `idle` from the launch, before the turn, leaves the record alone.
+
+Finished entries wait in `_finished` (cap 50), never in the alert queue, and `_isBusy()` counts them. The pump runs person turns, then the ready alert batch, then up to 10 finished entries, oldest first, with no quiet window. Entries whose session is gone are skipped.
+
+**The finished turn** runs on the wake session. Its prompt (`Chief of Staff finished (eve cos v1)`) holds, per session, `{sessionId, label, project, excerpt}` in one `<agent_data>` region; the model writes one or two short lines each, `{"posts":[{sessionId, summary}]}`, parsed like a wake reply (`parseFinished`). Each post's summary is the model's (`source: model`) or, when the session is at its daily limit, the turn fails or the reply omits that id, the template (`source: template`). eve.log gets `Chief of Staff finished post: session <first 8 of id> source <model|template>`; it never carries summary or excerpt text.
+
+Wake turns (alerts and finished) use `summaryModel` when the chosen project allows it; person turns keep `model`. If the project's allow-list excludes `summaryModel`, wake turns use `model` and eve warns once per project and model: `Chief of Staff summary model <m> is not allowed in <project name>; wake turns use <model>`.
+
 ## Templates
 | state | headline | body |
 |---|---|---|
@@ -59,6 +74,7 @@ A trigger is a `session_state` entering `asking|errored|stalled`, or a `turn_don
 | question | `<label> asked you a question` | Its last turn ended on a question. |
 | errored | `<label> stopped with an error` | Open it to see what happened. |
 | stalled | `<label> has gone quiet` | It hasn't printed anything for 5 minutes. |
+| finished | `<label> finished` | The last 200 characters of its final reply, from the first word break and prefixed `…` when cut; `It finished without a reply.` when empty. |
 
 ## Two model sessions: wake and person
 A model session keeps its context. With one session, a hostile excerpt read in an earlier wake turn could still sit in that context when the person types a message, and could steer the reply of that later turn into a send. So there are two sessions, never sharing context:
@@ -110,3 +126,5 @@ The person model can start an agent and send to one through the `eve-cos` MCP (`
 - **D9** devboxverify writes the `chiefOfStaff` key into eve-verify's pinned `settings.json`.
 - **D10** During a verify run the live eve and eve-verify may both post. Accepted.
 - **D11** The project, model and daily call cap come from relay's Chief of Staff setting (`GET /api/chief-of-staff/config`, unscoped). Eve reads it at start and before every model turn, so a change applies to the next turn with no restart. While relay answers `configured:false` (or 404, an older relay), the `chiefOfStaff` block in `data/settings.json` applies, then the defaults; eve reads that file and never writes it. When relay answers anything else, or not at all, eve keeps the settings it has and warns once per outage. `enabled` always comes from the file. Eve logs the source (`Chief of Staff config from relay|settings.json|defaults`) at the first read and on each change.
+- **D13** `summaryModel` (default `haiku`) is a file-only key in eve's `data/settings.json` `chiefOfStaff` block; relay's setting is unchanged and does not carry it. It moves the whole wake session, alerts included. A project allow-list that excludes it makes wake turns fall back to `model`, with the warning above.
+- **D14** Terminal starts and sessions the thread never started or sent to get no finished post, and errands are not persisted. "Last turns" means the final `turn_done` excerpt (last 500 characters); more history would need a new relay call.
