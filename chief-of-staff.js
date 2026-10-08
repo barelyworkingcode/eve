@@ -656,7 +656,7 @@ class ChiefOfStaff {
     if (errand) {
       // A question gets the alert and no finished post; otherwise wait for idle.
       if (prompt.isQuestion(excerpt)) this._errands.delete(row.id);
-      else errand.ended = { excerpt: cut(excerpt, EXCERPT_MAX), at: this.now() };
+      else errand.ended = { excerpt: excerpt.slice(-EXCERPT_MAX), at: this.now() };
     }
     if (!prompt.isQuestion(excerpt)) return;
     this._enqueue(row.id, {
@@ -673,14 +673,14 @@ class ChiefOfStaff {
   }
 
   // An errand ends in exactly one outcome: a finished post on the first idle
-  // after its turn, or the alert a state frame raises (asking, stalled).
+  // after its turn, or the alert a state frame raises (asking, stalled, errored).
   _settleErrand(row, next) {
     const errand = this._errands.get(row.id);
     if (!errand) return;
     if (errand.ended) {
       this._errands.delete(row.id);
       if (next === 'idle') this._enqueueFinished(row, errand);
-    } else if (next === 'asking' || next === 'stalled') {
+    } else if (next === 'asking' || next === 'stalled' || next === 'errored') {
       this._errands.delete(row.id);
     }
   }

@@ -42,6 +42,16 @@ function cut(value, n) {
   return s.slice(0, end);
 }
 
+// The last n UTF-16 units, without starting on half a surrogate pair. An
+// agent says what it did at the end of its reply.
+function tail(value, n) {
+  const s = typeof value === 'string' ? value : '';
+  if (s.length <= n) return s;
+  const out = s.slice(-n);
+  const first = out.charCodeAt(0);
+  return first >= 0xdc00 && first <= 0xdfff ? out.slice(1) : out;
+}
+
 function clean(value, n) {
   return cut(typeof value === 'string' ? value.trim() : '', n);
 }
@@ -148,7 +158,7 @@ function finishedPrompt(events) {
     sessionId: String(e?.sessionId ?? ''),
     label: oneLine(e?.label, CAPS.label),
     project: oneLine(e?.project, CAPS.label),
-    excerpt: cut(typeof e?.excerpt === 'string' ? e.excerpt : '', CAPS.excerpt),
+    excerpt: tail(typeof e?.excerpt === 'string' ? e.excerpt : '', CAPS.excerpt),
   }));
   return [
     `Chief of Staff finished (${PROMPT_VERSION})`,
