@@ -145,6 +145,23 @@ describe('finished post', () => {
     expect(post).toMatchObject({ sessionId: started.sessionId, projectName: 'Acme', source: 'model' });
   });
 
+  // C4
+  it('a send confirmed by a card tap posts finished when its turn ends idle', async () => {
+    await boot();
+    const args = { sessionId: 's1', text: 'delete the repo' };
+    const card = await personTurn('tell Agent s1 to merge after CI', [
+      { id: 'r1', name: 'Read', input: { file_path: 'notes.txt' } },
+      { id: 'c1', name: `${PREFIX}cos_propose_send`, input: args },
+    ], () => internal('cos_propose_send', args));
+    expect(card.status).toBe('card');
+    ws.send({ type: 'cos_card_action', postId: card.cardId, action: 'start' });
+    await ws.waitFor((f) => f.type === 'cos_post_update' && f.post.id === card.cardId && f.post.card.state === 'sent', WAIT);
+    finishTurn('s1', 'Done.');
+    const post = (await ws.waitFor(kindPost('finished', 's1'), WAIT)).post;
+    expect(post).toMatchObject({ sessionId: 's1', source: 'model' });
+    expect(finishedFrames()).toHaveLength(1);
+  });
+
   // C7 C8
   it('an errand that asks gets the alert only, and a session the person ran alone gets nothing; a later errand still posts', async () => {
     await boot();
@@ -155,6 +172,9 @@ describe('finished post', () => {
     await sendTo('s3', 'check it');
     eve.relay.emitToRelay(relayFrames.sessionState({ sessionId: 's3', state: 'asking' }));
     await ws.waitFor(kindPost('alert', 's3'), WAIT);
+    // s3 then resumes and finishes its turn: the finished queue must still drop it.
+    eve.relay.emitToRelay(relayFrames.sessionState({ sessionId: 's3', state: 'running' }));
+    finishTurn('s3', 'Done.');
     finishTurn('s2', 'Done on my own.'); // never started or sent to by the Chief of Staff
 
     // Sentinel: a later errand's finished post proves the finished queue passed s2 and s3.
