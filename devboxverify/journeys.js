@@ -3254,7 +3254,7 @@ async function cosErrandFinished(env) {
   // A duplicate would be posted by a later pump pass, so count only once the
   // thread has reported busy:false after the finished frame.
   const finishedAt = seen.posts.indexOf(finished) + 1;
-  const settled = await poll(async () => seen.idleAt.some((n) => n >= finishedAt) || null, { timeoutMs: COS_FINISHED_WITHIN_MS, intervalMs: 500 });
+  const settled = await poll(async () => seen.idleAt.some((n) => n >= finishedAt) || null, { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 500 });
   if (!settled) problems.push('no busy:false status arrived after the finished post');
   const count = finishedFor().length;
   if (count !== 1) problems.push(`${count} finished frames arrived for the session, want 1`);

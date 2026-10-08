@@ -1000,7 +1000,8 @@ class ChiefOfStaff {
   }
 
   async _finishedTurn(batch) {
-    const events = batch.filter((e) => this._stillValid(e)).map((e) => ({
+    // A finished entry is stale only when its session left the roster; a later send moves the row off idle.
+    const events = batch.filter((e) => this.roster.has(e.sessionId)).map((e) => ({
       sessionId: e.sessionId, label: e.label, project: this._projectName(e.projectId), excerpt: e.excerpt,
     }));
     if (events.length === 0) return;

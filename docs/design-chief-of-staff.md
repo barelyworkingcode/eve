@@ -61,7 +61,7 @@ One outcome per errand:
 3. The next `session_state` `idle` queues a finished entry (a person's Stop also ends in `idle`, so it posts too). Other states post nothing extra; `errored` keeps its alert.
 4. `asking`, `stalled` or `errored` before any `turn_done`: the record is dropped, the alert posts, no finished post. An `idle` from the launch, before the turn, leaves the record alone.
 
-Finished entries wait in `_finished` (cap 50), never in the alert queue, and `_isBusy()` counts them. The pump runs person turns, then the ready alert batch, then up to 10 finished entries, oldest first, with no quiet window. Entries whose session is gone are skipped.
+Finished entries wait in `_finished` (cap 50), never in the alert queue, and `_isBusy()` counts them. The pump runs person turns, then the ready alert batch, then up to 10 finished entries, oldest first, with no quiet window. Finished entries are skipped only when their session is gone from the roster; a later send to it does not drop them.
 
 **The finished turn** runs on the wake session. Its prompt (`Chief of Staff finished (eve cos v1)`) holds, per session, `{sessionId, label, project, excerpt}` in one `<agent_data>` region; the model writes one or two short lines each, `{"posts":[{sessionId, summary}]}`, parsed like a wake reply (`parseFinished`). Each post's summary is the model's (`source: model`) or, when the session is at its daily limit, the turn fails or the reply omits that id, the template (`source: template`). eve.log gets `Chief of Staff finished post: session <first 8 of id> source <model|template>`; it never carries summary or excerpt text.
 
