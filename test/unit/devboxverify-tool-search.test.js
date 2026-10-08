@@ -54,24 +54,24 @@ describe('chat-tool-search detailProblem', () => {
   const nonce = 'Verify1234';
 
   it('passes a call_tool step whose detail names tides_lookup', () => {
-    expect(detailProblem([lookup], nonce)).toBeNull();
+    expect(detailProblem([search, lookup], 0, nonce)).toBeNull();
   });
 
   it('passes a direct tides_lookup step whose detail carries the nonce', () => {
-    expect(detailProblem([step('tides_lookup', 'TIDE-1234abcd', `{"port":"${nonce}"}`)], nonce)).toBeNull();
+    expect(detailProblem([search, step('tides_lookup', 'TIDE-1234abcd', `{"port":"${nonce}"}`)], 0, nonce)).toBeNull();
   });
 
   it('fails a call_tool step whose detail is empty', () => {
-    expect(detailProblem([step('call_tool', 'TIDE-1234abcd', '{}')], nonce)).toMatch(/no call_tool step's detail shows tides_lookup/);
+    expect(detailProblem([search, step('call_tool', 'TIDE-1234abcd', '{}')], 0, nonce)).toMatch(/no call_tool step's detail shows tides_lookup/);
   });
 
   it('does not count a guessed call before tool_search as the shown call', () => {
     const guess = step('call_tool', '{"error":"unknown tool \\"relay_tides_lookup\\""}', '{"name":"relay_tides_lookup"}');
     const steps = [guess, search, step('tides_lookup', 'TIDE-1234abcd', '{}')];
-    expect(detailProblem(steps.slice(searchStep(steps).index + 1), nonce)).toMatch(/no tides_lookup step shows its arguments/);
+    expect(detailProblem(steps, searchStep(steps).index, nonce)).toMatch(/no tides_lookup step shows its arguments/);
   });
 
   it('fails a direct tides_lookup step whose detail lacks the nonce', () => {
-    expect(detailProblem([step('tides_lookup', 'TIDE-1234abcd', '{}')], nonce)).toMatch(/no tides_lookup step shows its arguments/);
+    expect(detailProblem([search, step('tides_lookup', 'TIDE-1234abcd', '{}')], 0, nonce)).toMatch(/no tides_lookup step shows its arguments/);
   });
 });

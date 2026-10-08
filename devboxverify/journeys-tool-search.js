@@ -113,10 +113,12 @@ function searchStep(steps) {
   return { index };
 }
 
-// The steps after tool_search must show what the model sent, not `{}`: a
-// call_tool step's detail names tides_lookup, or a direct tides_lookup step's
-// detail carries the port nonce. null when they do, else the problem.
-function detailProblem(after, nonce) {
+// The steps after tool_search (at searchIndex) must show what the model sent,
+// not `{}`: a call_tool step's detail names tides_lookup, or a direct
+// tides_lookup step's detail carries the port nonce. null when they do, else
+// the problem.
+function detailProblem(steps, searchIndex, nonce) {
+  const after = steps.slice(searchIndex + 1);
   const callSteps = after.filter((s) => s.name === 'call_tool');
   if (callSteps.length && !callSteps.some((s) => s.input.includes(LOOKUP_TOOL))) {
     return `no call_tool step's detail shows ${LOOKUP_TOOL}: "${callSteps[0].input.slice(0, 120)}"`;
@@ -292,7 +294,7 @@ async function chatToolSearchRun(env, ctx) {
       + `tool_use frames seen for the session: ${seen}${searchAt < 0 ? ' (no tool_search frame)' : ''}; steps: ${stepNames}`);
   }
   // The frames above prove the call was made; this proves the thread shows it.
-  const detail = detailProblem(steps.slice(search.index + 1), env.nonce);
+  const detail = detailProblem(steps, search.index, env.nonce);
   if (detail) return result(id, FAIL, detail);
   const reply = settled.reply;
   if (!reply.includes(expected)) {
