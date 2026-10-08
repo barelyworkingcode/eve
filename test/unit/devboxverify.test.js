@@ -461,33 +461,10 @@ function removeScratch(dir) {
   if (dir && dir.startsWith(os.tmpdir()) && dir.length > os.tmpdir().length + 1) fs.rmSync(dir, { recursive: true, force: true });
 }
 
-// Area name -> its `journeys:` value ('all', a list, or undefined) from the
-// fenced YAML Areas block. Only the `journeys:` field is read.
-function areaJourneys(markdown) {
-  const block = /```yaml\n([\s\S]*?)```/.exec(markdown)[1];
-  const areas = {};
-  let area = null;
-  let value = null;
-  for (const line of block.split('\n')) {
-    if (value !== null) value += ` ${line.trim()}`;
-    else {
-      const key = /^ {2}([\w-]+):\s*$/.exec(line);
-      if (key) { area = key[1]; areas[area] = undefined; continue; }
-      const field = /^ {4}journeys:\s*(.*)$/.exec(line);
-      if (!field) continue;
-      value = field[1].trim();
-    }
-    if (value === 'all' || value.endsWith(']')) {
-      areas[area] = value === 'all' ? 'all' : value.replace(/^\[|\]$/g, '').split(',').map(s => s.trim()).filter(Boolean);
-      value = null;
-    }
-  }
-  return areas;
-}
-
 describe('devboxverify journey table', () => {
   const { journeys } = require('../../devboxverify/journeys');
-  const areas = areaJourneys(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'FEATURES.md'), 'utf8'));
+  const { parseMap } = require('../../devboxverify/areas');
+  const { areas } = parseMap(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'areas.jsonc'), 'utf8'));
   const contractIds = [
     'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'terminal-on-request',
     'task-created-listed', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'passkey-first-enrol',
@@ -513,13 +490,11 @@ describe('devboxverify journey table', () => {
     expect(!('screen' in j) || j.screen === true).toBe(true);
   });
 
-  it('agrees with every Areas journeys list in both directions', () => {
-    const listed = Object.entries(areas).filter(([, declared]) => declared !== 'all');
-    expect(listed.length).toBeGreaterThan(0);
-    for (const [area, declared] of listed) {
-      const tagged = journeys.filter(j => j.areas.includes(area)).map(j => j.id).sort();
-      expect({ area, journeys: declared && [...declared].sort() }).toEqual({ area, journeys: tagged });
-    }
+  it('leaves only the pinned areas without a journey', () => {
+    // core is shared plumbing; the rest have no journey yet. Tagging a journey
+    // with one of these, or dropping the last tag of another, is a deliberate edit here.
+    const journeyless = Object.keys(areas).filter(a => !journeys.some(j => j.areas.includes(a)));
+    expect(journeyless.sort()).toEqual(['core', 'hosts', 'search', 'ui-control']);
   });
 
   it('marks only cos-project-from-relay (relay gates its mint), add-browser-in-window and project-mode-new (relay gates its create) as screen and only the two passkey journeys as fixtures', () => {

@@ -1,0 +1,67 @@
+// Which journeys a change needs; devboxverify/areas.js reads this file.
+// A path belongs to every area whose `code` globs match it; a `full` area runs
+// every journey. A path in no area must match `quiet` (smoke set only).
+// devboxverify/** (not .md), scripts/browser-lock.js and this file always run
+// every journey; that rule lives in areas.js, not here.
+{
+  "quiet": ["**/*.md", "docs/**", "design/**", "test/**", ".claude/**", ".github/**", ".githooks/**",
+    "LICENSE", ".gitignore", ".env.example", "eslint.config.js", "jest.config.js", "jest.integration.config.js",
+    "playwright.config.js", "scripts/burn-in-specs.js", "scripts/ci-guards.sh", "scripts/lint-added-waits.js",
+    "scripts/prune-css.js", "scripts/gen-cert.sh", "scripts/make-ios-ca-profile.sh"],
+  "areas": {
+    // Shared plumbing: a change here runs every journey.
+    "core": { "full": true, "code": ["server.js", "ws-handler.js", "ws/message-registry.js", "ws/diagnostics-messages.js",
+      "ws-origin.js", "relay-client.js", "relay-transport.js", "launch-identity.js", "routes/index.js", "security-headers.js",
+      "rate-limiter.js", "session-store.js", "logger.js", "trace.js", "project-normalize.js", "package.json",
+      "package-lock.json", "public/index.html", "public/app.js", "public/ws-client.js", "public/message-dispatcher.js",
+      "public/styles.css", "public/apple/tokens.css", "public/apple/base.css", "public/core/api-client.js",
+      "public/core/constants.js", "public/core/container.js", "public/core/event-bus.js", "public/core/feature-registry.js",
+      "public/core/logger.js", "public/core/settings-manager.js", "public/core/state-store.js", "public/core/ui-utils.js"] },
+    "auth": { "code": ["auth.js", "routes/auth.js", "trusted-network.js", "ip-host-guard.js", "enrollment-gate.js",
+      "enrollment-window.js", "passkey-sync.js", "public/auth.js", "public/auth.css", "public/apple/auth.css"] },
+    "home": { "code": ["public/home-screen.js", "public/today/**", "public/agent-board.js", "public/core/session-activity.js",
+      "public/core/session-recents.js", "public/core/mode.js", "public/core/mode-presets.js", "public/sidebar/mode-switch.js",
+      "public/core/front-door.js", "public/dialogs/command-palette.js", "public/apple/home.css", "public/apple/palette.css",
+      "public/ask-elsewhere.js"] },
+    "chief-of-staff": { "code": ["chief-of-staff*.js", "ws/chief-of-staff-messages.js", "mcp/cos.js",
+      "public/chief-of-staff-page.js", "public/panes/chief-of-staff-pane.js", "public/apple/chief-of-staff.css"] },
+    "shell": { "code": ["public/tab-manager.js", "public/panes/**", "public/sidebar-renderer.js", "public/modal-manager.js",
+      "public/toast.js", "public/dialogs/dialog-base.js", "public/apple/shell.css", "public/apple/panes.css",
+      "public/apple/modals.css", "public/apple/menus.css", "public/apple/toast.css", "public/apple/touch.css",
+      "public/core/layout.js", "public/core/pane-dnd.js", "public/core/pane-registry.js", "public/core/split-resize.js",
+      "public/manifest.json"] },
+    "projects": { "code": ["public/dialogs/project-dialog.js", "public/sidebar/activity-rail.js",
+      "public/sidebar/project-panel.js", "public/project-page.js", "public/panes/project-pane.js",
+      "public/apple/project-page.css", "public/apple/sidebar-tree.css", "public/core/mode-presets.js"] },
+    "chat": { "code": ["ws/session-messages.js", "slash-command-handler.js", "public/dialogs/shell-launcher-dialog.js",
+      "public/features/chat-form.js", "public/features/permissions.js", "public/features/file-attachments.js",
+      "public/message-renderer.js", "public/citations.js", "public/mermaid-loader.js", "public/input-history.js",
+      "public/file-attachment-manager.js", "public/url-chips.js", "public/apple/chat.css", "public/apple/chat-extras.css",
+      "public/ask-elsewhere.js", "public/core/refusal.js", "public/core/sources.js", "public/core/source-urls.js",
+      "public/core/attached-files.js"] },
+    "terminal": { "code": ["ws/terminal-messages.js", "terminal-paste.js", "public/terminal-manager.js",
+      "public/terminal-keybar.js", "public/agent-board.js", "public/core/terminal-text.js", "public/apple/terminal.css",
+      "public/apple/agents.css"] },
+    "tasks": { "code": ["public/dialogs/task-dialog.js", "public/task-manager.js", "public/task-viewer.js",
+      "public/routines-page.js", "public/panes/routines-pane.js", "public/routine-panel.js", "public/routine-history.js",
+      "public/routine-audit.js", "project-audit.js", "public/core/routine-sentence.js", "public/core/task-schedule.js",
+      "public/today/parts/routines-part.js", "public/apple/routines.css", "notifier.js", "routine-failure-watcher.js"] },
+    "files": { "code": ["ws/file-messages.js", "file-handlers.js", "file-service.js", "file-watcher.js", "dir-watcher.js",
+      "public/file-browser.js", "public/file-editor.js", "public/html-preview-pane.js", "public/viewers/**",
+      "public/sidebar/file-tree-node.js", "public/sidebar/file-icons.js", "public/sidebar/project-tree.js",
+      "public/apple/editor.css", "public/apple/viewers.css", "public/core/language-detect.js"] },
+    "git": { "code": ["ws/git-messages.js", "git-service.js", "public/sidebar/changes-panel.js", "public/diff-viewer.js",
+      "public/panes/diff-pane.js", "public/core/unified-diff.js"] },
+    // No journey yet: a change here runs the smoke set.
+    "search": { "code": ["ws/search-messages.js", "search-service.js", "search-summarizer.js",
+      "public/dialogs/search-dialog.js", "public/today/ask-about.js"] },
+    "voice": { "code": ["ws/voice-messages.js", "tts-service.js", "tts-director.js", "tts-chunker.js", "stt-service.js",
+      "public/voice-*.js", "public/tts-*.js", "public/stt-*.js", "public/vad-manager.js", "public/native-audio-bridge.js",
+      "public/features/tts.js", "public/features/stt.js", "public/apple/voice.css", "scripts/generate-voice-packs.py"] },
+    "hosts": { "code": ["ssh-command.js", "ssh-host-pool.js", "remote-file-service.js", "remote-fs-agent.js",
+      "public/remote-sessions.js", "public/apple/hosts.css"] },
+    "settings": { "code": ["public/dialogs/settings-dialog.js", "public/apple/dialogs.css", "public/apple/controls.css",
+      "public/core/mode-presets.js"] },
+    "ui-control": { "code": ["mcp/main.js", "mcp/package.json", "ui-command-bus.js", "scripts/register-mcp.sh"] }
+  }
+}

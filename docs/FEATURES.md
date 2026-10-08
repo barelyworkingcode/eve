@@ -301,136 +301,8 @@ Operator surfaces (`npm run relay:restart`, `register`, `start:secure`,
 
 ## Areas
 
-A stable name per area, the code and tests that belong to it, and the journeys
-that exercise it. A future change-scoped runner maps changed files → areas →
-tests and journeys. `core` is cross-cutting: a change there means a full run.
-
-```yaml
-areas:
-  core:
-    code: [server.js, ws-handler.js, ws/message-registry.js, ws-origin.js, relay-client.js, relay-transport.js,
-           launch-identity.js, routes/index.js, security-headers.js, rate-limiter.js, session-store.js, logger.js,
-           project-normalize.js, public/index.html, public/app.js, public/ws-client.js, public/message-dispatcher.js,
-           public/core/**, public/styles.css, public/apple/tokens.css, public/apple/base.css,
-           ws/diagnostics-messages.js, package.json, package-lock.json, jest.config.js, jest.integration.config.js,
-           playwright.config.js]
-    tests: ["test/**"]
-    journeys: all
-  auth:
-    code: [auth.js, routes/auth.js, trusted-network.js, ip-host-guard.js, enrollment-gate.js, enrollment-window.js,
-           passkey-sync.js, public/auth.js, public/auth.css, public/apple/auth.css]
-    tests: [test/unit/auth-*.test.js, test/unit/routes-auth.test.js, test/unit/trusted-network.test.js,
-            test/unit/ip-host-guard.test.js, test/unit/enrollment-*.test.js, test/unit/passkey-sync.test.js,
-            test/integration/eve-passkey-enrolment.test.js, test/integration/passkey-sync-switch.test.js,
-            test/integration/launch-identity.test.js, test/e2e/passkey-enrolment.spec.js]
-    journeys: [landing-view, passkey-first-enrol, passkey-sign-in, agent-sign-in-refused, agent-enrol-refused, add-browser-in-window]
-  home:
-    code: [public/home-screen.js, public/today/**, public/agent-board.js, public/core/session-activity.js, public/core/mode.js,
-           public/sidebar/mode-switch.js, public/core/front-door.js, public/dialogs/command-palette.js,
-           public/apple/home.css, public/apple/palette.css]
-    tests: [test/unit/command-palette.test.js, test/unit/session-recents.test.js, test/unit/session-activity.test.js,
-            test/unit/today-parts.test.js, test/unit/mode.test.js, test/e2e/app.spec.js, "test/e2e/goals/today-*.spec.js",
-            test/e2e/goals/home-screen.spec.js, test/e2e/goals/mode-presets.spec.js, test/e2e/goals/ask-elsewhere.spec.js]
-    journeys: [landing-view, world-projects-listed, open-existing-thread, today-ipad-portrait, today-phone, ask-about-file, routine-from-thread,
-               project-mode-new, brief-injection-refused, mode-presets, ask-in-other-mode, ask-pasted-url, today-custom-part, agent-board-states, agent-drop-in]
-  chief-of-staff:
-    code: [chief-of-staff.js, chief-of-staff-model.js, chief-of-staff-prompt.js, ws/chief-of-staff-messages.js,
-           public/chief-of-staff-page.js, public/panes/chief-of-staff-pane.js, public/apple/chief-of-staff.css]
-    tests: [test/unit/chief-of-staff*.test.js, test/unit/message-renderer-origin.test.js,
-            test/integration/chief-of-staff.test.js, test/integration/chief-of-staff-relay-config.test.js,
-            test/e2e/goals/chief-of-staff.spec.js]
-    journeys: [cos-asking-post, cos-tell-sends-marked, cos-reads-project, cos-start-card, cos-project-from-relay]
-  shell:
-    code: [public/tab-manager.js, public/panes/**, public/sidebar-renderer.js, public/modal-manager.js,
-           public/toast.js, public/dialogs/dialog-base.js, public/apple/shell.css, public/apple/panes.css,
-           public/apple/modals.css, public/apple/menus.css, public/apple/toast.css, public/apple/touch.css,
-           public/core/layout.js]
-    tests: [test/unit/tab-manager-logic.test.js, test/unit/pane-registry.test.js, test/e2e/tab-panes.spec.js,
-            "test/visual/**"]
-    journeys: [today-ipad-portrait, today-phone]
-  projects:
-    code: [public/dialogs/project-dialog.js, public/sidebar/activity-rail.js, public/sidebar/project-panel.js,
-           public/project-page.js, public/panes/project-pane.js, public/apple/project-page.css,
-           public/apple/sidebar-tree.css]
-    tests: [test/unit/project-normalize.test.js, test/integration/projects.test.js, test/e2e/goals/g12-projects.spec.js,
-            test/e2e/goals/mode-presets.spec.js]
-    journeys: [world-projects-listed, project-admin-in-relay, project-mode-new, mode-presets, voice-deep-link]
-  chat:
-    code: [ws/session-messages.js, slash-command-handler.js, public/dialogs/shell-launcher-dialog.js,
-           public/features/chat-form.js, public/features/permissions.js, public/features/file-attachments.js,
-           public/message-renderer.js, public/citations.js, public/mermaid-loader.js, public/input-history.js,
-           public/file-attachment-manager.js, public/url-chips.js, public/apple/chat.css, public/apple/chat-extras.css]
-    tests: [test/unit/chat-*.test.js, test/unit/slash-command-handler.test.js, test/unit/input-history.test.js,
-            test/unit/permission-*.test.js, test/unit/persist-session-label.test.js,
-            test/unit/file-attachment-manager-init.test.js, test/integration/sessions.test.js,
-            test/integration/session-*.test.js, test/integration/permissions.test.js, test/e2e/chat*.spec.js,
-            test/e2e/template-blank-model.spec.js, test/e2e/goals/ask-elsewhere.spec.js,
-            test/unit/sources.test.js, test/e2e/goals/research-citations.spec.js,
-            test/unit/source-urls.test.js, test/e2e/goals/pasted-url-chips.spec.js]
-    journeys: [chat-reply, open-existing-thread, today-phone, ask-about-file, routine-from-thread, ask-in-other-mode, research-citations, listen, ask-pasted-url, chat-pasted-url-source, chat-tool-search, agent-board-states]
-  terminal:
-    code: [ws/terminal-messages.js, terminal-paste.js, public/terminal-manager.js, public/terminal-keybar.js,
-           public/agent-board.js, public/core/terminal-text.js, public/apple/terminal.css, public/apple/agents.css]
-    tests: [test/unit/terminal-*.test.js, test/unit/message-dispatcher-terminal-request.test.js,
-            test/integration/terminals.test.js, test/e2e/terminal-reconnect.spec.js]
-    journeys: [terminal-on-request, agent-sign-in-refused, agent-enrol-refused, routine-touched, agent-drop-in]
-  tasks:
-    code: [public/dialogs/task-dialog.js, public/task-manager.js, public/task-viewer.js, public/routines-page.js,
-           public/panes/routines-pane.js, public/routine-panel.js, public/routine-history.js, public/routine-audit.js,
-           project-audit.js, public/core/routine-sentence.js, public/today/parts/routines-part.js,
-           notifier.js, routine-failure-watcher.js]
-    tests: [test/unit/task-*.test.js, test/integration/tasks.test.js, test/e2e/task-dialog-models.spec.js,
-            test/e2e/schedules-and-connection.spec.js, test/unit/notifier.test.js,
-            test/unit/routine-failure-watcher.test.js, test/integration/routine-failure-notify.test.js]
-    journeys: [task-created-listed, routine-from-thread, routine-touched, brief-injection-refused, routine-failed-notifies, today-custom-part]
-  files:
-    code: [ws/file-messages.js, file-handlers.js, file-service.js, file-watcher.js, dir-watcher.js, public/file-browser.js,
-           public/file-editor.js, public/html-preview-pane.js, public/viewers/**, public/sidebar/file-tree-node.js,
-           public/sidebar/file-icons.js, public/sidebar/project-tree.js, public/apple/editor.css,
-           public/apple/viewers.css]
-    tests: [test/unit/file-*.test.js, test/unit/files-route.test.js, test/unit/iframe-sandbox-guard.test.js,
-            test/unit/language-detect.test.js, test/unit/static-exposure.test.js, test/integration/file-ops.test.js,
-            test/integration/static-mounts.test.js, test/integration/binary-proxy.test.js]
-    journeys: [file-edit-save, ask-about-file]
-  git:
-    code: [ws/git-messages.js, git-service.js, public/sidebar/changes-panel.js, public/diff-viewer.js,
-           public/panes/diff-pane.js, public/core/unified-diff.js]
-    tests: [test/unit/*git*.test.js, test/unit/changes-panel.test.js, test/unit/diff-viewer.test.js,
-            test/integration/git-changes.test.js, test/e2e/changes-panel.spec.js]
-    journeys: [changes-diff]
-  search:
-    code: [ws/search-messages.js, search-service.js, search-summarizer.js, public/dialogs/search-dialog.js,
-           public/today/ask-about.js]
-    tests: [test/unit/search-*.test.js, test/integration/search*.test.js]
-    journeys: []
-  voice:
-    code: [ws/voice-messages.js, tts-service.js, tts-director.js, tts-chunker.js, stt-service.js,
-           public/voice-*.js, public/tts-*.js, public/stt-*.js, public/vad-manager.js,
-           public/native-audio-bridge.js, public/features/tts.js, public/features/stt.js, public/apple/voice.css]
-    tests: [test/unit/tts-*.test.js, test/integration/voice-ws.test.js, test/e2e/voice*.spec.js, test/e2e/goals/mode-presets.spec.js]
-    journeys: [voice-deep-link, listen]
-  hosts:
-    code: [ssh-command.js, ssh-host-pool.js, remote-file-service.js, remote-fs-agent.js, public/remote-sessions.js,
-           public/apple/hosts.css]
-    tests: [test/unit/ssh-*.test.js, test/unit/remote-*.test.js, test/unit/state-store-hosts.test.js,
-            test/unit/message-dispatcher-host-status.test.js, test/unit/persistent-sessions-proxy.test.js,
-            test/integration/host-projects.test.js]
-    journeys: []
-  settings:
-    code: [public/dialogs/settings-dialog.js, public/apple/dialogs.css, public/apple/controls.css]
-    tests: ["test/visual/**", test/e2e/goals/settings-sheet.spec.js, test/e2e/goals/mode-presets.spec.js]
-    journeys: [settings-sheet, mode-presets]
-  ui-control:
-    code: [mcp/**, ui-command-bus.js]
-    tests: [test/unit/ui-command-bus.test.js, test/integration/ui-command.test.js]
-    journeys: []
-  verify:
-    code: [devboxverify/**, scripts/browser-lock.js]
-    tests: [test/unit/devboxverify.test.js, test/unit/devboxverify-set.test.js,
-      test/unit/devboxverify-set-status.test.js, test/integration/browser-lock.test.js,
-      test/integration/devboxverify-set-lock.test.js]
-    journeys: all
-```
+The path-to-area map lives in [`areas.jsonc`](areas.jsonc), read by
+`devboxverify/areas.js`. Journeys name their areas in their own `areas` field.
 
 ## Notes
 
@@ -462,8 +334,8 @@ areas:
   operator's test credentials; relay's journeys cover relay's.
 - **Relation to README.** `README.md`'s "Feature map" section documents the
   journeys' locators and traps. This file is the goal-level map.
-- **Upkeep.** A change a user would notice in a file matched by an area's
-  `code` globs updates this map (feature row, journey, Areas block) in the
+- **Upkeep.** A change a user would notice in a file matched by a `code` glob
+  in [`areas.jsonc`](areas.jsonc) updates this map (feature row, journey) in the
   same PR.
 - **Retired ids (S5a).** The `sidebar-session-*`, `sidebar-terminal-*` and
   `sidebar-task-*` test ids went with the panel rows they named; the page uses
