@@ -1,5 +1,6 @@
 // Route test for image paste into a terminal pane. Starts a real Express app on
-// a loopback port, so it lives in the integration tier (the unit tier binds none).
+// a loopback port, so it lives in the integration tier with the other route
+// tests that start a server.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

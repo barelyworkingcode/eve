@@ -56,7 +56,7 @@ Ubuntu. Differences to know:
 test/
   setup.js       - Global afterEach: force-restores real timer globals
   unit/          - Pure logic / mocked deps. jest.config.js
-  integration/   - Real eve child process vs fake relay. jest.integration.config.js
+  integration/   - Real eve vs fake relay, plus real ports, sockets and processes. jest.integration.config.js
   e2e/           - Playwright drives a spawned eve in Chromium. playwright.config.js
                    (voice.spec.js is excluded from this config's testIgnore —
                    it needs live daemons, run it via `npm run test:voice`)
@@ -67,15 +67,17 @@ test/
 (`file-service`), watch/debounce (`file-watcher`), auth ceremony/origin, relay
 client/transport, ws dispatch, security
 headers, rate limiter, slash commands, project normalize, and more. Zero external
-deps; this is the pre-commit gate. A route test that starts a server, even an in-process Express app on a
-loopback port, lives in integration, not here. `collectCoverageFrom` enumerates the server-side
+deps; this is the pre-commit gate. A route test that starts a server, even an
+in-process Express app on a loopback port, lives in integration, not here.
+`collectCoverageFrom` enumerates the server-side
 surface explicitly so untested files count as 0% instead of vanishing.
 
 **Integration** (`jest.integration.config.js`) — `test/integration/harness.js` spawns
 the real `node server.js` on an ephemeral port with a throwaway data dir, pointed at
 `fake-relay.js`. Covers the relay contract, session forwarding, file ops, permissions,
-tasks, terminals, binary proxy, and search end-to-end. Not hermetic
-(processes + ports), so it stays out of the unit gate. Serial (`maxWorkers: 1`).
+tasks, terminals, binary proxy, and search end-to-end. It also holds module tests that need a real port,
+socket, child process or wait, such as route tests that start an in-process
+Express app. Not hermetic (processes + ports), so it stays out of the unit gate. Serial (`maxWorkers: 1`).
 
 **E2E** (`playwright.config.js`) — same spawned-eve + fake-relay harness, driven through
 headless Chromium (`test/e2e/fixtures.js`). Covers browser/DOM behavior unit tests
