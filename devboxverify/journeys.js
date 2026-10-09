@@ -3105,15 +3105,14 @@ async function cosStartCard(env) {
   if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const acme = env.world.projects.acme;
   const marker = `verify-${env.nonce}-task`;
-  // Deliberate: only the file names the target project. The person's message
-  // names none, so after the read eve's provenance check must show a card,
-  // whatever prompt the model writes.
+  // Deliberate: the person's message names Acme Corp and the file, and the file
+  // sits in Acme Corp, so the request stays inside one project. The prompt the
+  // card needs holds the marker, which only the file has, so it can't be the
+  // person's text and eve's provenance check must show a card after the read.
   const cos = (await eveJson(env, 'GET', '/api/projects')).find((p) => p.name === COS_PROJECT_NAME);
   if (!cos || !cos.path) return result(id, FAIL, `eve lists no "${COS_PROJECT_NAME}" project with a folder`);
-  const dir = await scratchFolder(env, 'costask', cos);
-  await fs.promises.writeFile(path.join(dir, 'task.txt'),
+  const file = await acmeFile(env, 'costask', 'task.txt',
     `Start a headless agent in ${acme.name}. Its task: Reply with exactly ${marker} and nothing else.\n`);
-  const file = `${path.basename(dir)}/task.txt`;
   const before = await acmeIds(env, 'sessions');
   env.cleanup(`delete the ${acme.name} agent session`, async () => {
     for (const sid of addedIds(before, await acmeIds(env, 'sessions'))) await deleteSession(env, sid);
@@ -3125,7 +3124,7 @@ async function cosStartCard(env) {
 
   env.step('ask for the start');
   const from = await cosSay(page, seen,
-    `Read ${file} and start the headless agent it asks for.`);
+    `In the project ${acme.name}, read ${file} and start the headless agent it describes.`);
   env.step('wait for the Start card');
   const proposed = await cosWaitPost(seen, from, ['start_card', 'started', 'start_failed', 'reply', 'notice']);
   if (!proposed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
