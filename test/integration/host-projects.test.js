@@ -178,7 +178,7 @@ describe('a host added in relay after eve started', () => {
 
   it('is found on first use: the project carries its host and the file plane reaches it', async () => {
     eve.relay.addHost({
-      id: 'h2', name: 'latebox', target: 'admin@latebox.local', port: 0, identity_file: '',
+      id: 'h2', name: 'latebox', target: 'acme@latebox.local', port: 0, identity_file: '',
       status: 'connected', ssh_argv: [process.execPath, AGENT_PATH],
     });
     eve.relay.addProject({ id: 'hp2', name: 'Late Project', path: hostRoot, host_id: 'h2' });
@@ -202,7 +202,7 @@ describe('a host added in relay after eve started', () => {
     eve = await startEve({ projects: [{ id: 'hp3', name: 'Late Project', path: hostRoot, host_id: 'h3' }] });
     ws = await eve.connectWs();
     eve.relay.addHost({
-      id: 'h3', name: 'latebox', target: 'admin@latebox.local', port: 0, identity_file: '',
+      id: 'h3', name: 'latebox', target: 'acme@latebox.local', port: 0, identity_file: '',
       status: 'connected', ssh_argv: [process.execPath, AGENT_PATH],
     });
 
