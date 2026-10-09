@@ -37,7 +37,7 @@ Full security model: [`authentication.md`](authentication.md).
 
 ## Path handling: strip leading slashes before `path.resolve()`
 
-`path.resolve('/Users/project', '/')` returns `/` (filesystem root), not the project dir — a leading `/` makes the second arg absolute. When accepting "relative" paths from clients, normalize first (`file-service.js`):
+`path.resolve('/Users/project', '/')` returns `/` (filesystem root), not the project dir — a leading `/` makes the second arg absolute. When accepting "relative" paths from clients, normalize first (relay now owns project-file paths; `ProjectFiles#validatePath` in `relay-file-client.js` keeps the lexical check):
 
 ```javascript
 const normalized = relativePath.replace(/^\/+/, '') || '.';

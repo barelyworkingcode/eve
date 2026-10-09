@@ -1,18 +1,13 @@
 // Frozen before the registry migration starts and must not be modified
 // afterwards — if it fails, the migration is wrong.
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
 const { startEve } = require('./harness');
 
 describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () => {
   let eve;
-  let projectDir;
   let ws;
 
   beforeAll(async () => {
-    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-dispatch-'));
-    eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
+    eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: '/work/acme' }] });
     ws = await eve.connectWs();
     await eve.waitForRelayOpen(ws); // eve drops relay sends on a not-yet-open socket
   });
@@ -20,7 +15,6 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
   afterAll(async () => {
     if (ws) await ws.close();
     if (eve) await eve.stop();
-    fs.rmSync(projectDir, { recursive: true, force: true });
   });
 
   // Pure relayClient.send field-picks, forwarded verbatim. `terminal_templates`
@@ -45,19 +39,18 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
   });
 
   it('delete_file removes the file and replies file_deleted', async () => {
-    const target = path.join(projectDir, 'to-delete.txt');
-    fs.writeFileSync(target, 'bye', 'utf8');
+    eve.relay.files.write('p1', 'to-delete.txt', 'bye', { emit: false });
     ws.send({ type: 'delete_file', projectId: 'p1', path: 'to-delete.txt' });
     const reply = await ws.waitFor((f) => f.type === 'file_deleted');
     expect(reply).toMatchObject({ projectId: 'p1', path: 'to-delete.txt' });
-    expect(fs.existsSync(target)).toBe(false);
+    expect(eve.relay.files.get('p1', 'to-delete.txt')).toBeNull();
   });
 
   it('create_directory makes the directory and replies directory_created', async () => {
     ws.send({ type: 'create_directory', projectId: 'p1', path: '/', name: 'new-dir' });
     const reply = await ws.waitFor((f) => f.type === 'directory_created' && f.name === 'new-dir');
     expect(reply).toMatchObject({ projectId: 'p1', name: 'new-dir' });
-    expect(fs.statSync(path.join(projectDir, 'new-dir')).isDirectory()).toBe(true);
+    expect(eve.relay.files.get('p1', 'new-dir')).toBe('dir');
   });
 
   // Today an unmatched cancel does nothing — no crash, no reply frame. A
@@ -82,17 +75,17 @@ describe('ws-dispatch: previously-uncovered arms the fake relay can reach', () =
  */
 describe('ws-dispatch: two-connection isolation (C1)', () => {
   let eve;
-  let projectDir;
   let wsA;
   let wsB;
 
   beforeAll(async () => {
-    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-isolation-'));
-    fs.writeFileSync(path.join(projectDir, 'secretA.txt'), 'AAA-ONLY-FOR-A', 'utf8');
-    fs.writeFileSync(path.join(projectDir, 'secretB.txt'), 'BBB-ONLY-FOR-B', 'utf8');
-    fs.writeFileSync(path.join(projectDir, 'needleA.txt'), 'ZEBRAALPHA marker', 'utf8');
-    fs.writeFileSync(path.join(projectDir, 'needleB.txt'), 'ZEBRABRAVO marker', 'utf8');
-    eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
+    eve = await startEve({
+      projects: [{ id: 'p1', name: 'T', path: '/work/acme' }],
+      files: { p1: {
+        'secretA.txt': 'AAA-ONLY-FOR-A', 'secretB.txt': 'BBB-ONLY-FOR-B',
+        'needleA.txt': 'ZEBRAALPHA marker', 'needleB.txt': 'ZEBRABRAVO marker',
+      } },
+    });
     wsA = await eve.connectWs();
     wsB = await eve.connectWs();
     // The terminal case below needs both of eve's upstreams open
@@ -110,7 +103,6 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     if (wsA) await wsA.close();
     if (wsB) await wsB.close();
     if (eve) await eve.stop();
-    fs.rmSync(projectDir, { recursive: true, force: true });
   });
 
   it('a file op on each connection replies only to the connection that asked', async () => {
@@ -159,8 +151,8 @@ describe('ws-dispatch: two-connection isolation (C1)', () => {
     const resultsA = await wsA.waitFor((f) => f.type === 'search_results' && f.requestId === 'search-A', 10000, fromA);
     const resultsB = await wsB.waitFor((f) => f.type === 'search_results' && f.requestId === 'search-B', 10000, fromB);
 
-    expect(resultsA.matches.some((m) => path.basename(m.file) === 'needleA.txt')).toBe(true);
-    expect(resultsB.matches.some((m) => path.basename(m.file) === 'needleB.txt')).toBe(true);
+    expect(resultsA.matches.some((m) => m.file === 'needleA.txt')).toBe(true);
+    expect(resultsB.matches.some((m) => m.file === 'needleB.txt')).toBe(true);
 
     expect(wsA.frames.slice(fromA).some((f) => f.requestId === 'search-B')).toBe(false);
     expect(wsB.frames.slice(fromB).some((f) => f.requestId === 'search-A')).toBe(false);

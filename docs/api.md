@@ -168,7 +168,7 @@ Chief of Staff actions. The `start_card` post carries `card:{state: pending|star
 
 UI: `ui_command` (LLM-initiated tab control via the eve-control MCP), `auth_success`, `auth_failed`, `relay_status` (`{connected}` — the upstream relayLLM leg, not the browser↔eve link `#connectionStatus` already tracks; see reconnect semantics above).
 
-SSH hosts: `host_status` (`{hostId, name, status:'connecting'|'connected'|'unreachable', error?}`) — Eve's own SSH-host file-agent connectivity (`ssh-host-pool.js`), distinct from relay's ssh `ControlMaster`/`hostView.status`. Sent on every pool status change, plus once per authenticated connection for every host the pool has already spawned an agent for (not necessarily every host relay knows about). See [ssh-hosts.md](../../relay/docs/ssh-hosts.md).
+SSH hosts: `host_status` (`{hostId, name, status:'connecting'|'connected'|'unreachable', error?}`) — the connectivity of relay's file agent on each SSH host, as relay reports it on `/ws/files` (`relay-file-client.js`), distinct from relay's ssh `ControlMaster`/`hostView.status`. Sent on every status change, plus once per authenticated connection with the latest status of each host relay holds an agent for (not necessarily every host relay knows about). See [ssh-hosts.md](../../relay/docs/ssh-hosts.md).
 
 ### Trace IDs
 

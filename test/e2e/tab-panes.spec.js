@@ -88,8 +88,11 @@ test.describe('tab-panes', () => {
   });
 
   test('3. opening a .png shows the file viewer and sends watch_file with binary:true', async ({ page, eve }) => {
-    eve.relay.files.write('p1', 'photo.png', TINY_PNG, { emit: false });
     await page.getByTestId('sidebar-project-p1').click();
+    // The tree is already listed: the file arrives as an outside change, once relay's watch is live.
+    await expect(page.getByTestId('file-tree-item-/README.md')).toBeVisible({ timeout: 15000 });
+    await eve.relay.files.watched('p1');
+    eve.relay.files.write('p1', 'photo.png', TINY_PNG);
     await expect(page.getByTestId('file-tree-item-/photo.png')).toBeVisible({ timeout: 15000 });
 
     const sent = await framesSentClicking(page, 'file-tree-item-/photo.png', 'watch_file',
@@ -275,12 +278,13 @@ test.describe('tab-panes', () => {
   });
 
   test('13. dropping an .html file as pane B renders the html preview, not the editor', async ({ page, eve }) => {
-    eve.relay.files.write('p1', 'page.html', '<!doctype html><html><body>hi</body></html>', { emit: false });
-
     await openChat(page);
     const sessionId = await page.evaluate(() => window.client.currentSessionId);
 
     await page.getByTestId('sidebar-project-p1').click();
+    await expect(page.getByTestId('file-tree-item-/README.md')).toBeVisible({ timeout: 15000 });
+    await eve.relay.files.watched('p1');
+    eve.relay.files.write('p1', 'page.html', '<!doctype html><html><body>hi</body></html>');
     await expect(page.getByTestId('file-tree-item-/page.html')).toBeVisible({ timeout: 15000 });
     await page.getByTestId('file-tree-item-/page.html').click();
     await expect(page.getByTestId('tab-p1:/page.html')).toBeVisible({ timeout: 10000 });
