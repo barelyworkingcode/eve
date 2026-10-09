@@ -208,6 +208,14 @@ describe('AgentBoard Drop in', () => {
   const flush = () => new Promise((r) => setImmediate(r));
   const dropBtn = (el, prefix, id) => byTestId(el, `${prefix}-drop-in-${id}`);
 
+  it.each(['today', 'project'])('a headless haiku row under Needs you shows %s-drop-in-<id>', (prefix) => {
+    const t = setup();
+    addRow(t, 's1', { model: 'haiku', headless: true });
+    const { el } = mountBoard(t, { testidPrefix: prefix });
+    expect(dropBtn(el, prefix, 's1')).not.toBeNull();
+    expect(dropBtn(el, prefix, 's1').textContent).toBe('Drop in');
+  });
+
   it.each([
     ['headless missing', { model: 'haiku' }],
     ['headless false', { model: 'haiku', headless: false }],

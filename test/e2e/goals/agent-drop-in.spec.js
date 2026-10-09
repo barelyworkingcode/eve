@@ -45,7 +45,8 @@ test.describe('drop in from the agent board', () => {
     // Output relay sends for that terminal id reaches the pane Drop in opened.
     eve.relay.emitToRelay(relayFrames.terminalOutput({ terminalId, data: 'DROPIN-OUTPUT-OK' }));
     await expect.poll(() => page.evaluate((id) => {
-      const buf = window.client.terminalManager.terminals.get(id).term.buffer.active;
+      const buf = window.client.terminalManager.terminals.get(id)?.term?.buffer.active;
+      if (!buf) return '';
       let out = '';
       for (let i = 0; i < buf.length; i++) out += buf.getLine(i)?.translateToString(true).trim() ?? '';
       return out;

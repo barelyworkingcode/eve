@@ -418,6 +418,25 @@ describe('DiffViewer mode (eve-diff-mode)', () => {
     expect(monaco.editor.createDiffEditor.mock.calls[0][1].renderSideBySide).toBe(false);
   });
 
+  it('toggling flips renderSideBySide in place and persists the choice', async () => {
+    const { bus, host, monaco } = setup();
+    bus.emit(EVT.GIT_OPEN_DIFF, spec());
+    bus.emit(EVT.GIT_FILE_VERSIONS, versions(spec()));
+    await flush();
+    const ed = monaco.editors[0];
+
+    byTestId(host, 'diff-mode-inline').click();
+    expect(ed.updateOptions).toHaveBeenLastCalledWith({ renderSideBySide: false });
+    expect(localStorage.getItem('eve-diff-mode')).toBe('inline');
+    expect(byTestId(host, 'diff-mode-inline').getAttribute('aria-pressed')).toBe('true');
+    expect(byTestId(host, 'diff-mode-inline').classList.contains('active')).toBe(true);
+
+    byTestId(host, 'diff-mode-side-by-side').click();
+    expect(ed.updateOptions).toHaveBeenLastCalledWith({ renderSideBySide: true });
+    expect(localStorage.getItem('eve-diff-mode')).toBe('side-by-side');
+    expect(monaco.editor.createDiffEditor).toHaveBeenCalledTimes(1);
+  });
+
   it('switching mode before any editor exists just persists it', () => {
     const { host } = setup();
     expect(() => byTestId(host, 'diff-mode-inline').click()).not.toThrow();
