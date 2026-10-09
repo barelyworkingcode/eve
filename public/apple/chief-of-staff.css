@@ -106,6 +106,7 @@
 }
 .cos-post p { margin: 0 0 var(--sp-4); }
 .cos-post__meta { color: var(--text-secondary); font-size: var(--text-subhead); margin-bottom: var(--sp-2); }
+.cos-post__summary { white-space: pre-line; }
 .cos-post__sent-text { color: var(--text-secondary); }
 .cos-ref {
   padding: 0;

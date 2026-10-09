@@ -2799,10 +2799,12 @@ const COS_SENT_WITHIN_MS = 60000;
 // The newest Chief of Staff status the page's socket carried (a snapshot's or a
 // cos_status frame's), and every cos_post frame, in arrival order.
 function cosFrames(page) {
-  const seen = { status: null, posts: [] };
+  // idleAt: how many posts had arrived at each cos_status frame with busy:false.
+  const seen = { status: null, posts: [], idleAt: [] };
   const take = (m) => {
     if (!m) return;
     if ((m.type === 'cos_snapshot' || m.type === 'cos_status') && m.status) seen.status = m.status;
+    if (m.type === 'cos_status' && m.status && m.status.busy === false) seen.idleAt.push(seen.posts.length);
     if (m.type === 'cos_post' && m.post) seen.posts.push(m.post);
   };
   page.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
@@ -3185,6 +3187,82 @@ async function cosStartCard(env) {
     + `the roster grew, relay audit holds an ok session_launch from chief-of-staff, and the agent replied ${marker}`);
 }
 
+const COS_FINISHED_WITHIN_MS = 240000;
+
+// The headless agent a person asks the Chief of Staff for in words, and the
+// finished post that follows when its turn ends (eve#273).
+async function cosErrandFinished(env) {
+  const id = 'cos-errand-finished';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const acme = env.world.projects.acme;
+  const marker = `verify-${env.nonce}-done`;
+  const before = await acmeIds(env, 'sessions');
+  env.cleanup(`delete the ${acme.name} agent session`, async () => {
+    for (const sid of addedIds(before, await acmeIds(env, 'sessions'))) await deleteSession(env, sid);
+  });
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  const calls = () => (seen.status && seen.status.calls !== undefined ? seen.status.calls : 'not reported');
+  const fail = (detail) => result(id, FAIL, `${detail}; status.calls ${calls()}`);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+
+  const logMark = await env.serviceLog.mark();
+  env.step('ask for the errand');
+  const from = await cosSay(page, seen,
+    `In the project ${acme.name}, start a headless agent with the prompt: Reply with exactly ${marker} and nothing else.`);
+  env.step('wait for the start');
+  let proposed = await cosWaitPost(seen, from, ['start_card', 'started', 'start_failed', 'reply', 'notice']);
+  if (!proposed) return fail(`no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  if (proposed.kind === 'start_card') {
+    env.step('tap Start');
+    await page.getByTestId(`cos-start-${proposed.id}`).click({ timeout: 5000 });
+    proposed = await cosWaitPost(seen, from, ['started', 'start_failed']);
+    if (!proposed) return fail(`no started post within ${COS_TURN_WITHIN_MS / 1000}s of Start`);
+  }
+  if (proposed.kind !== 'started') {
+    const said = String(proposed.body || proposed.text || proposed.error || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    return fail(`the request posted "${proposed.kind}", want started: "${said}"`);
+  }
+  const sid = proposed.sessionId;
+  const finishedFor = () => seen.posts.filter((p) => p.kind === 'finished' && p.sessionId === sid);
+
+  env.step('wait for the finished post');
+  const finished = await poll(async () => finishedFor()[0] || null, { timeoutMs: COS_FINISHED_WITHIN_MS, intervalMs: 500 });
+  if (!finished) return fail(`no finished post for session ${sid} within ${COS_FINISHED_WITHIN_MS / 1000}s of Started`);
+
+  const problems = [];
+  const label = String(finished.label || '').trim();
+  const post = page.getByTestId(`cos-post-${finished.id}`);
+  await need('the finished post is not on the page', expect(post).toBeVisible({ timeout: 10000 }));
+  if (!label) problems.push('the finished post has no label');
+  else if (!(await expect(post).toContainText(label, { timeout: 5000 }).then(() => true, () => false))) problems.push(`the post does not show the label "${label}"`);
+  if (!(await expect(post).toContainText(acme.name, { timeout: 5000 }).then(() => true, () => false))) problems.push(`the post does not show ${acme.name}`);
+  const lines = String(finished.summary || '').split('\n').map((l) => l.trim());
+  if (lines.length < 1 || lines.length > 2 || lines.some((l) => !l)) problems.push(`the summary is not one or two non-empty lines: ${JSON.stringify(String(finished.summary || '').slice(0, 200))}`);
+  if (finished.source !== 'model') problems.push(`the post source is "${finished.source}", not model`);
+
+  env.step('open the agent from the post');
+  await post.getByTestId(`cos-open-${finished.id}`).click({ timeout: 5000 }).catch(() => problems.push('Open could not be clicked'));
+  const opened = await poll(async () => page.url().includes(`#session/${sid}`) || null, { timeoutMs: 10000, intervalMs: 250 });
+  if (!opened) problems.push(`Open did not land on #session/${sid} (at ${page.url().split('#')[1] || 'no fragment'})`);
+
+  env.step('read eve-verify\'s log');
+  const want = `Chief of Staff finished post: session ${sid.slice(0, 8)} source model`;
+  if (!(await env.serviceLog.since(logMark)).includes(want)) problems.push(`eve-verify's log has no line "${want}"`);
+
+  // A duplicate would be posted by a later pump pass, so count only once the
+  // thread has reported busy:false after the finished frame.
+  const finishedAt = seen.posts.indexOf(finished) + 1;
+  const settled = await poll(async () => seen.idleAt.some((n) => n >= finishedAt) || null, { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 500 });
+  if (!settled) problems.push('no busy:false status arrived after the finished post');
+  const count = finishedFor().length;
+  if (count !== 1) problems.push(`${count} finished frames arrived for the session, want 1`);
+  if (problems.length) return fail(problems.join('; '));
+  return result(id, PASS, `a headless agent started in ${acme.name} through the thread ended its turn; one finished post named "${label}" with a `
+    + `${lines.length}-line model summary, Open landed on #session/${sid}, and eve-verify logged "${want}"`);
+}
+
 // — Chief of Staff project from relay (eve#249) -----------------------------------
 
 const COS_CALLS = 39; // not the settings.json value (40), so the log line proves relay's values
@@ -3439,6 +3517,7 @@ const journeys = [
   { id: 'cos-tell-sends-marked', timeoutMs: 150000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosTellSendsMarked },
   { id: 'cos-reads-project', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosReadsProject },
   { id: 'cos-start-card', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosStartCard },
+  { id: 'cos-errand-finished', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosErrandFinished },
   {
     id: 'cos-project-from-relay', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosProjectFromRelay,
