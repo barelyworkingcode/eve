@@ -46,7 +46,11 @@ function resolveInstanceConfig({ env, argv, cwd, appDir, homeDir }) {
   const dual = env.DUAL_LISTEN === 'true';
 
   const portValue = port('PORT', { min: 0, required: isolated });
-  const httpPortValue = port('HTTP_PORT', { min: 0, required: isolated && tls && dual });
+  // An unused HTTP_PORT must not change a production start, so outside
+  // isolated mode it is read only when the loopback listener will use it.
+  const httpPortValue = (isolated || (tls && dual))
+    ? port('HTTP_PORT', { min: 0, required: isolated && tls && dual })
+    : null;
   const ttsValue = port('TTS_PORT', { min: 1, required: isolated });
   const sttValue = port('STT_PORT', { min: 1, required: isolated });
 

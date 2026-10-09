@@ -244,14 +244,6 @@ applying — usually on-device encrypted DNS or a stale cache (see Step 2's
 Prerequisites) — it defeats the source-IP trust model. Use a NAT port-forward
 that preserves the client IP.
 
----
-
-## What's committed vs local
-
-- **Committed:** code, `scripts/`, `docs/`, `.env.example` (placeholders only).
-- **Local only (gitignored):** `.env` (your hostname + ranges + `EVE_INTERNAL_SECRET`),
-  `certs/` (your TLS cert/key), `data/` (passkey + sessions). Nothing
-  deployment-specific is ever committed.
 ## Running an isolated instance (tests, side by side)
 
 Setting `EVE_DATA_DIR` (non-empty) makes an instance isolated. Every path then
@@ -292,3 +284,12 @@ EVE_DATA_DIR=/tmp/eve-a PORT=0 TTS_PORT=19997 STT_PORT=19998 \
   RELAY_FRONTEND_SOCKET=/tmp/relay-frontend.sock node server.js
 cat /tmp/eve-a/eve-ready.json
 ```
+
+---
+
+## What's committed vs local
+
+- **Committed:** code, `scripts/`, `docs/`, `.env.example` (placeholders only).
+- **Local only (gitignored):** `.env` (your hostname + ranges + `EVE_INTERNAL_SECRET`),
+  `certs/` (your TLS cert/key), `data/` (passkey + sessions). Nothing
+  deployment-specific is ever committed.

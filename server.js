@@ -536,6 +536,8 @@ if (isPlaintext && !isLoopbackHost(bindHost)) {
 // tmp + rename so a reader never sees a partial file. `localhost` stands in
 // for a wildcard or loopback bind because WebAuthn refuses an IP as RP ID.
 function writeReadyFile() {
+  // A SIGTERM before the listen callback must not leave a ready file behind.
+  if (shuttingDown) return;
   const primary = server.address().port;
   const httpBound = httpServer ? httpServer.address().port : null;
   const wildcard = bindHost === '0.0.0.0' || bindHost === '::' || isLoopbackHost(bindHost);
@@ -617,8 +619,13 @@ function gracefulShutdown(signal) {
   shuttingDown = true;
   serverLog.info(`${signal} received, cleaning up...`);
 
-  // First, so a stopping server never looks ready.
-  fs.rmSync(config.readyFile, { force: true });
+  // First, so a stopping server never looks ready. A failure here must not
+  // stop the shutdown that follows.
+  try {
+    fs.rmSync(config.readyFile, { force: true });
+  } catch (err) {
+    serverLog.warn(`Cannot remove ready file ${config.readyFile}: ${err.message}`);
+  }
 
   clearInterval(wsHeartbeat);
 

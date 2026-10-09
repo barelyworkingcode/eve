@@ -2,6 +2,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// realpath of each plans dir, resolved once on first successful use.
+const realPlansDirs = new Map();
+async function realPlansDirOf(plansDir) {
+  let real = realPlansDirs.get(plansDir);
+  if (!real) {
+    real = await fs.promises.realpath(plansDir);
+    realPlansDirs.set(plansDir, real);
+  }
+  return real;
+}
+
 async function handleReadPlanFile(ws, filePath, plansDirPath) {
   try {
     if (!filePath || typeof filePath !== 'string') {
@@ -25,7 +36,7 @@ async function handleReadPlanFile(ws, filePath, plansDirPath) {
       const real = await fs.promises.realpath(resolved);
       // The plans dir itself may sit behind a symlink (a data dir under /tmp
       // on macOS); compare real paths on both sides.
-      const realPlansDir = await fs.promises.realpath(plansDir);
+      const realPlansDir = await realPlansDirOf(plansDir);
       if (!real.startsWith(realPlansDir + path.sep)) {
         ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
         return;
