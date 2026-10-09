@@ -166,6 +166,25 @@ describe('a turn that ends idle', () => {
   });
 });
 
+describe('a session first seen mid-turn', () => {
+  // relay emits turn_done before idle; the first list read does not name a session just created.
+  it('still gets a pending note and then a model note when running, turn_done and idle arrive before the list names it', async () => {
+    setup({ sessions: [row('s1', 'running')] });
+    await h.begin();
+    h.state('s9', 'running');
+    h.turnEnds('s9', 'Merged the branch.');
+    h.state('s9', 'idle');
+    h.list = [row('s1', 'running'), row('s9', 'idle')]; // the next list read names it
+    await h.tick(0); // the first refresh is immediate: it reads the list and replays the held frames
+    await eventually(() => h.cos.getStatus().watching === 2 && !h.cos.getStatus().busy); // the refresh read the list and replayed the frames
+    expect(h.noteOf('s9')).toMatchObject({ kind: 'summary', source: 'pending', text: 'Merged the branch.' });
+
+    await h.tick(5000);
+    await eventually(() => h.rowTurns().length === 1 && !h.cos.getStatus().busy);
+    expect(h.noteOf('s9')).toMatchObject({ kind: 'summary', source: 'model', text: 'Line for s9' });
+  });
+});
+
 describe('the quiet window', () => {
   // The contract's ROW_QUIET_MS 5000 and ROW_MAX_WAIT_MS 30000.
   it('waits 5s after the newest turn, so two turns 4s apart go in one batch', async () => {

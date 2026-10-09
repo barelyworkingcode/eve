@@ -775,6 +775,7 @@ class ChiefOfStaff {
     if (!this._unknown.has(frame.sessionId) && this._unknown.size >= PENDING_UNKNOWN_MAX) return;
     const slot = this._unknown.get(frame.sessionId) || {};
     if (frame.type === 'session_state') slot.state = frame; else slot.turn = frame;
+    slot.turnLast = frame.type !== 'session_state';
     this._unknown.set(frame.sessionId, slot);
     this._scheduleUnknownRefresh();
   }
@@ -804,8 +805,10 @@ class ChiefOfStaff {
     for (const [id, slot] of pending) {
       const row = this.roster.get(id);
       if (!row) continue;
+      // Arrival order: relay sends turn_done before idle.
+      if (slot.turn && !slot.turnLast) this._applyTurnDone(row, slot.turn);
       if (slot.state) this._applyState(row, slot.state, true);
-      if (slot.turn) this._applyTurnDone(row, slot.turn);
+      if (slot.turn && slot.turnLast) this._applyTurnDone(row, slot.turn);
     }
     if (this._unknown.size > 0) this._scheduleUnknownRefresh();
   }
