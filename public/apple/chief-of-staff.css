@@ -42,14 +42,23 @@
 
 /* Page */
 .cos-pane { height: 100%; }
+/* Wide: the agent rail (280px, own scroll) beside the thread. */
 .cos-page {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
   height: 100%;
-  max-width: 760px;
-  margin: 0 auto;
   font-family: var(--font-ui);
   color: var(--text-primary);
+}
+.cos-thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
 }
 .cos-top {
   display: flex;
@@ -267,4 +276,140 @@
   .cos-page { padding-bottom: var(--bottom-bar-h); }
   .cos-btn, .cos-composer__send { min-height: var(--hit); }
   .cos-composer__input { min-height: var(--hit); }
+}
+
+/* Agent rail, strip and sheet (eve#274). */
+.cos-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.cos-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--separator);
+  background: var(--bg-secondary);
+}
+.cos-rail__head, .cos-sheet__title {
+  margin: 0;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.07em;
+  color: var(--text-secondary);
+}
+.cos-rail__head { padding: var(--sp-5) var(--sp-5) var(--sp-3); }
+.cos-rail__body, .cos-sheet__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--sp-3) var(--sp-5);
+}
+.cos-strip-host { display: none; }
+.cos-need-you {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  cursor: pointer;
+}
+.cos-need-you:focus-visible, .cos-strip:focus-visible, .cos-sheet__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cos-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  width: 100%;
+  height: var(--hit);
+  padding: 0 var(--sp-6);
+  border: 0;
+  border-top: 1px solid var(--separator);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  /* The tap highlight is painted by the compositor above the top layer: after the tap that opens
+     the sheet it shows as a grey band over the sheet where the strip sits. */
+  -webkit-tap-highlight-color: transparent;
+}
+.cos-strip__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  color: #fff;
+  font-size: var(--text-subhead);
+  line-height: 22px;
+}
+.cos-strip__count[hidden] { display: none; }
+.cos-strip__count--red { background: var(--danger); }
+.cos-strip__count--amber { background: var(--warning); }
+.cos-strip__count--green { background: var(--success); }
+.cos-strip__label { margin-left: auto; }
+.cos-strip__chevron { color: var(--text-secondary); }
+
+.cos-sheet {
+  inset-inline: 0;
+  margin: auto 0 0;
+  width: 100%;
+  max-width: none;
+  height: 75vh;
+  height: 75dvh;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+.cos-sheet[open] { display: flex; }
+.cos-sheet::backdrop { background: rgba(0, 0, 0, 0.4); }
+.cos-sheet__panel { display: flex; flex-direction: column; width: 100%; min-height: 0; }
+.cos-sheet__grab { touch-action: none; cursor: grab; }
+.cos-sheet__handle {
+  width: 36px;
+  height: 5px;
+  margin: var(--sp-3) auto 0;
+  border-radius: var(--radius-pill);
+  background: var(--separator);
+}
+.cos-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-5);
+}
+.cos-sheet__close {
+  width: var(--hit);
+  height: var(--hit);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 24px;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .cos-page { grid-template-columns: minmax(0, 1fr); }
+  .cos-rail { display: none; }
+  .cos-strip-host { display: block; }
+}
+
+@media (pointer: coarse) {
+  .cos-rail .agent-row, .cos-sheet .agent-row, .cos-rail .agent-board__group-toggle,
+  .cos-sheet .agent-board__group-toggle, .cos-sheet__close, .cos-need-you {
+    min-height: var(--hit);
+  }
+  .cos-need-you { min-width: var(--hit); }
 }

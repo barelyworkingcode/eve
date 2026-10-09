@@ -1,0 +1,268 @@
+// Chief of Staff agent rail (eve#274): every agent as a row beside the thread
+// (wide), or a 44px strip that opens the same rows in a native <dialog> sheet
+// (900px and narrower). It is not a board: it hosts two AgentBoard mounts (prefix
+// `rail` always, prefix `sheet` while the sheet is open) and the strip's counts.
+// Row text is agent-derived and reaches the DOM through textContent only (the
+// board does that); this file adds only fixed labels and numbers.
+class CosAgentRail {
+  static NARROW = '(max-width: 900px)';
+  static CLOSE_DRAG_PX = 64;
+  static FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  static COUNT_KINDS = [
+    { key: 'needs', cls: 'red', words: 'need you' },
+    { key: 'working', cls: 'amber', words: 'working' },
+    { key: 'idle', cls: 'green', words: 'idle' },
+  ];
+
+  // note: (sessionId) => CosRowNote|null, read at render time.
+  constructor({ container, note }) {
+    this.container = container;
+    this.note = note;
+    this.railEl = null;
+    this.body = null;
+    this.strip = null;
+    this.board = null;
+    this.sheetBoard = null;
+    this.dialog = null;
+    this.panel = null;
+    this.sheetBody = null;
+    this._sheetOpen = false;
+    this._counts = null;
+    this._mq = null;
+    this._onMq = () => { if (!this.isNarrow() && this._sheetOpen) this.closeSheet({ returnFocus: false }); };
+  }
+
+  isNarrow() {
+    return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(CosAgentRail.NARROW).matches;
+  }
+
+  mount(railEl, stripHost) {
+    this.railEl = railEl;
+    railEl.textContent = '';
+    const head = document.createElement('h3');
+    head.className = 'cos-rail__head';
+    head.textContent = 'AGENTS';
+    this.body = document.createElement('div');
+    this.body.className = 'cos-rail__body';
+    this.body.dataset.testid = 'cos-agents-rail-body';
+    railEl.append(head, this.body);
+    this.board = this._board(this.body, 'rail', { onCounts: (c) => this._setCounts(c) });
+    this.board.mount(this.body);
+    this._buildStrip(stripHost);
+    if (window.matchMedia) {
+      this._mq = window.matchMedia(CosAgentRail.NARROW);
+      this._mq.addEventListener?.('change', this._onMq);
+    }
+  }
+
+  _board(el, prefix, extra) {
+    return new AgentBoard({
+      container: this.container,
+      testidPrefix: prefix,
+      showProject: false,
+      filter: () => true,
+      maxRows: Infinity,
+      layout: 'rail',
+      collapseDone: true,
+      note: (id) => this.note(id),
+      ...extra,
+    });
+  }
+
+  render() {
+    this.board?.render();
+    this.sheetBoard?.render();
+  }
+
+  // ---- strip ----
+
+  _buildStrip(host) {
+    const strip = document.createElement('button');
+    strip.type = 'button';
+    strip.className = 'cos-strip';
+    strip.dataset.testid = 'cos-agents-strip';
+    strip.setAttribute('aria-haspopup', 'dialog');
+    this._countEls = {};
+    for (const { key, cls } of CosAgentRail.COUNT_KINDS) {
+      const c = document.createElement('span');
+      c.className = `cos-strip__count cos-strip__count--${cls}`;
+      c.dataset.testid = `cos-agents-strip-${cls}`;
+      c.hidden = true;
+      const num = document.createElement('span');
+      const sr = document.createElement('span');
+      sr.className = 'cos-sr';
+      c.append(num, sr);
+      strip.appendChild(c);
+      this._countEls[key] = { c, num, sr };
+    }
+    const label = document.createElement('span');
+    label.className = 'cos-strip__label';
+    label.textContent = 'Agents';
+    const chev = document.createElement('span');
+    chev.className = 'cos-strip__chevron';
+    chev.setAttribute('aria-hidden', 'true');
+    chev.textContent = '⌃';
+    strip.append(label, chev);
+    strip.addEventListener('click', () => this.openSheet());
+    host.appendChild(strip);
+    this.strip = strip;
+    this._renderCounts();
+  }
+
+  // null: relay is unreachable or the list is loading, so no counts show.
+  _setCounts(counts) {
+    this._counts = counts;
+    this._renderCounts();
+  }
+
+  _renderCounts() {
+    if (!this._countEls) return;
+    for (const { key, words } of CosAgentRail.COUNT_KINDS) {
+      const n = this._counts ? this._counts[key] | 0 : 0;
+      const { c, num, sr } = this._countEls[key];
+      c.hidden = n === 0;
+      num.textContent = String(n);
+      sr.textContent = ` ${words}`;
+    }
+  }
+
+  // ---- needs ----
+
+  showNeeds() {
+    if (this.isNarrow()) this.openSheet();
+    const prefix = this.isNarrow() ? 'sheet' : 'rail';
+    const root = this.isNarrow() ? this.sheetBody : this.body;
+    const head = root?.querySelector(`[data-testid="${prefix}-agents-group-needs-head"]`);
+    if (!head) return;
+    head.scrollIntoView?.({ block: 'start' });
+    head.focus?.({ preventScroll: true });
+  }
+
+  // ---- sheet ----
+
+  _buildSheet() {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'cos-sheet';
+    dialog.dataset.testid = 'cos-agents-sheet';
+    dialog.setAttribute('aria-label', 'Agents');
+
+    const panel = document.createElement('div');
+    panel.className = 'cos-sheet__panel';
+    const grab = document.createElement('div');
+    grab.className = 'cos-sheet__grab';
+    const handle = document.createElement('div');
+    handle.className = 'cos-sheet__handle';
+    handle.dataset.testid = 'cos-agents-sheet-handle';
+    const head = document.createElement('div');
+    head.className = 'cos-sheet__head';
+    const title = document.createElement('h3');
+    title.className = 'cos-sheet__title';
+    title.textContent = 'AGENTS';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'cos-sheet__close';
+    close.dataset.testid = 'cos-agents-sheet-close';
+    close.setAttribute('aria-label', 'Close');
+    close.textContent = '×';
+    close.addEventListener('click', () => this.closeSheet());
+    head.append(title, close);
+    grab.append(handle, head);
+    this._dragOn(grab, panel, close);
+
+    const body = document.createElement('div');
+    body.className = 'cos-sheet__body';
+    panel.append(grab, body);
+    dialog.appendChild(panel);
+
+    // Backdrop: a click on the dialog itself, outside the panel's box.
+    dialog.addEventListener('click', (e) => {
+      if (e.target !== dialog) return;
+      const r = panel.getBoundingClientRect();
+      const outside = e.clientY < r.top || e.clientY > r.bottom || e.clientX < r.left || e.clientX > r.right;
+      if (outside) this.closeSheet();
+    });
+    // Escape arrives as the native close event.
+    dialog.addEventListener('close', () => this.closeSheet());
+    dialog.addEventListener('keydown', (e) => this._trapTab(e));
+    document.body.appendChild(dialog);
+    this.dialog = dialog;
+    this.panel = panel;
+    this.sheetBody = body;
+  }
+
+  // Pointer drag (mouse or touch) on the handle or header: down 64px or more closes.
+  _dragOn(grab, panel, close) {
+    let startY = null;
+    let dy = 0;
+    const end = (e, commit) => {
+      if (startY === null) return;
+      startY = null;
+      panel.style.transform = '';
+      panel.style.transition = '';
+      try { grab.releasePointerCapture?.(e.pointerId); } catch { /* not captured */ }
+      if (commit && dy >= CosAgentRail.CLOSE_DRAG_PX) this.closeSheet();
+    };
+    grab.addEventListener('pointerdown', (e) => {
+      if (e.target === close || e.button > 0) return;
+      startY = e.clientY;
+      dy = 0;
+      try { grab.setPointerCapture?.(e.pointerId); } catch { /* synthetic pointer */ }
+    });
+    grab.addEventListener('pointermove', (e) => {
+      if (startY === null) return;
+      dy = Math.max(0, e.clientY - startY);
+      panel.style.transition = 'none';
+      panel.style.transform = `translateY(${dy}px)`;
+    });
+    grab.addEventListener('pointerup', (e) => end(e, true));
+    grab.addEventListener('pointercancel', (e) => end(e, false));
+  }
+
+  _trapTab(e) {
+    if (e.key !== 'Tab' || !this.dialog) return;
+    const items = [...this.dialog.querySelectorAll(CosAgentRail.FOCUSABLE)].filter(el => !el.hidden && el.offsetParent !== null);
+    if (items.length === 0) { e.preventDefault(); return; }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || !this.dialog.contains(active))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (active === last || !this.dialog.contains(active))) { e.preventDefault(); first.focus(); }
+  }
+
+  openSheet() {
+    if (this._sheetOpen) return;
+    if (!this.dialog) this._buildSheet();
+    this._sheetOpen = true;
+    this.dialog.showModal();
+    this.sheetBoard = this._board(this.sheetBody, 'sheet', { onOpen: () => this.closeSheet({ returnFocus: false }) });
+    this.sheetBoard.mount(this.sheetBody);
+    this.dialog.querySelector('[data-testid="cos-agents-sheet-close"]')?.focus();
+    this.strip?.setAttribute('aria-expanded', 'true');
+  }
+
+  closeSheet({ returnFocus = true } = {}) {
+    if (!this._sheetOpen) return;
+    this._sheetOpen = false;
+    if (this.dialog.open) this.dialog.close();
+    this.sheetBoard?.destroy();
+    this.sheetBoard = null;
+    if (this.sheetBody) this.sheetBody.textContent = '';
+    if (this.panel) { this.panel.style.transform = ''; this.panel.style.transition = ''; }
+    this.strip?.setAttribute('aria-expanded', 'false');
+    if (returnFocus) this.strip?.focus();
+  }
+
+  destroy() {
+    this.closeSheet({ returnFocus: false });
+    this._mq?.removeEventListener?.('change', this._onMq);
+    this._mq = null;
+    this.board?.destroy();
+    this.board = null;
+    this.dialog?.remove();
+    this.dialog = null;
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = CosAgentRail;
+}

@@ -757,6 +757,31 @@ FAIL detail ends with the status's `calls` count.
 - Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The
   journey's cleanup deletes every new Acme Corp session.
 
+**cos-agent-rail.** The Chief of Staff page lists every agent beside the thread
+(eve#274). It starts a Haiku agent in Acme Corp the way a person does, over eve's
+own socket, so it is not an errand. From a page of its own it asks `Reply with
+exactly verify-<nonce>-row and nothing else.` Within 90 s the first `cos_row_note`
+for the session with a source other than `pending` must arrive. It must have
+source `model` and one non-empty line of at most 160 characters. The rail row
+must sit in `rail-agents-group-idle`, its `rail-agent-line-<sid>` must carry
+`data-source="model"` and the same text, and its dot must be `--success`. After
+the next `busy:false` status no `cos_post` may name the session (nor a card's
+`sessionId`), eve-verify's log must hold `Chief of Staff row summary: session
+<first 8 of sid> source model`, and the status model must be `claude-haiku-5-5`.
+The same page then asks for `echo verify-<nonce>-ask` with Bash and stays open. Within
+2 s of the `session_state` `asking` frame the row must be in
+`rail-agents-group-needs`, which is the rail's first group; its dot must be
+`asking` and `--danger`, and its meta line must contain "Waiting on you". On a
+phone (390x844, touch) `cos-agents-strip` must be at least 44 px high with a red
+count of 1 or more; a tap opens `cos-agents-sheet`, the session's row sits in
+`sheet-agents-group-needs`, and a tap on it closes the sheet, sets the address to
+`#session/<sid>` and shows the request in the thread.
+- Lives in: `chief-of-staff.js` (row turn); `public/cos-agent-rail.js`;
+  `public/agent-board.js`; `public/chief-of-staff-page.js`.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path (not a screen
+  journey). The journey's cleanup deletes every new Acme Corp session and closes
+  the asking page.
+
 **cos-host-agent.** The Chief of Staff starts a headless agent in a project on
 an SSH host (eve#293). Screen journey (`screen: true`, 420 s). Through eve's
 API it creates a loopback host `loopback-<nonce>-coseve` (target `localhost`,

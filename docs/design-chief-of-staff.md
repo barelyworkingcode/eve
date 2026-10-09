@@ -67,6 +67,21 @@ Finished entries wait in `_finished` (cap 50), never in the alert queue, and `_i
 
 Wake turns (alerts and finished) use `summaryModel` when the chosen project allows it; person turns keep `model`. If the project's allow-list excludes `summaryModel`, wake turns use `model` and eve warns once per project and model: `Chief of Staff summary model <m> is not allowed in <project name>; wake turns use <model>`.
 
+## Row notes
+The agent rail shows a one-line note under each agent. Eve sets it from the reader's frames and sends it as `cos_row_note` (and `rowNotes` in `cos_snapshot`); see docs/api.md. A note is `{sessionId, text, kind: summary|alert, source: pending|model|template, at}`: one line, 1 to 160 characters, memory only (cap 200, oldest evicted), removed on `session_ended` and when a roster seed or prune drops the session. A repeat of the same note sends nothing. A row note never posts to the thread: `_rowTurn` never calls `_addPost`, `_notice` or `_noteLimitOnce`.
+
+**Triggers.**
+- `turn_done` that `isQuestion`: the note is the template line (`source: template`), no model call; the question alert posts as before.
+- `turn_done` on a session that is not an errand: the roster row keeps `turnEnded` (last 500 characters). The next `idle` sets a `pending` note (the agent's last words, from `templateRow`) at once and queues the row in `_rowWaiting`. Any other state clears `turnEnded` and the waiting entry.
+- An errand that goes idle also gets a `pending` note; the finished turn then sets the note from the finished summary (`model` or `template`), so an errand never costs a second call.
+- Each alert in a wake turn sets an `alert` note from its headline (`model` or `template`). A `question` event sets no alert note.
+
+**Debounce.** `_rowWaiting` holds one entry per session (a newer turn replaces it; cap 50, oldest evicted, since its pending note already equals the template). A batch is ready at `min(newest + 5 s, oldest + 30 s)` and takes at most 10 entries, oldest first. The pump runs person turns, the ready alert batch, finished entries, then the ready row batch, so rows never delay an alert or a reply. `_isBusy()` ignores `_rowWaiting`; a row turn in flight counts through `_inFlight`. `_rowTurn` drops an entry whose session is gone or no longer `idle`; its pending note stays.
+
+**The row turn** runs on the wake session (`summaryModel`) with `Chief of Staff row (eve cos v1)`: per session `{sessionId, label, project, excerpt}` in one `<agent_data>` region, a reply of `{"rows":[{sessionId, line}]}` with each line at most 160 characters, parsed by `parseRow`. A session the reply leaves out, a reply that cannot be parsed, a turn that fails, and a day past either cap all end in the template line. The model runs only when the global daily limit is not reached and `rowCalls` is under the rail cap. `rowCalls` counts every row turn that reached the model (not `off` or `limit`) and is saved in `chief-of-staff-state.json`. eve.log gets `Chief of Staff row summary: session <first 8 of id> source <model|template>`, and once per local day `Chief of Staff row summaries reached today's cap of <n> model calls; rows show last words until tomorrow`. Neither line carries note or excerpt text.
+
+**Template line (`templateRow`).** The excerpt on one line; when longer than 160 characters, its last 160 from the first word break, prefixed `…`; `It finished without a reply.` when empty.
+
 ## Templates
 | state | headline | body |
 |---|---|---|
@@ -128,3 +143,17 @@ The person model can start an agent and send to one through the `eve-cos` MCP (`
 - **D11** The project, model and daily call cap come from relay's Chief of Staff setting (`GET /api/chief-of-staff/config`, unscoped). Eve reads it at start and before every model turn, so a change applies to the next turn with no restart. While relay answers `configured:false` (or 404, an older relay), the `chiefOfStaff` block in `data/settings.json` applies, then the defaults; eve reads that file and never writes it. When relay answers anything else, or not at all, eve keeps the settings it has and warns once per outage. `enabled` always comes from the file. Eve logs the source (`Chief of Staff config from relay|settings.json|defaults`) at the first read and on each change.
 - **D13** `summaryModel` (default `haiku`) is a file-only key in eve's `data/settings.json` `chiefOfStaff` block; relay's setting is unchanged and does not carry it. It moves the whole wake session, alerts included. A project allow-list that excludes it makes wake turns fall back to `model`, with the warning above.
 - **D14** Terminal starts and sessions the thread never started or sent to get no finished post, and errands are not persisted. "Last turns" means the final `turn_done` excerpt (last 500 characters); more history would need a new relay call.
+- **D15** Row notes never post. At the global daily limit they use the template line with no thread notice.
+- **D16** The rail spends at most half of the day's model calls (`max(1, floor(dailyModelCalls / 2))`), counted as `rowCalls`. Past that, rows show the agent's last words. This keeps the rest of the budget for alerts and the person.
+- **D17** Notes are memory only. An eve restart leaves line 3 empty until each agent's next turn.
+- **D18** A turn that ends on a question shows the question on line 3 with no model call.
+
+## Agent rail (eve#274)
+
+The thread has an agent rail: every agent session and terminal as a row, beside the thread. `public/cos-agent-rail.js` (`CosAgentRail`) is not a board. It hosts two mounts of the shared `AgentBoard` (layout `rail`, `filter: () => true`, no row cap, Done collapsed): prefix `rail`, always mounted, and prefix `sheet`, mounted while the phone sheet is open.
+
+- **Wide (over 900px).** `.cos-page` is a grid: `nav.cos-rail` (280px, own scroll) and `.cos-thread` (the existing top, feed and composer). Every existing testid stays.
+- **Narrow (900px and under).** The rail is hidden. A 44px strip (`cos-agents-strip`) sits between the feed and the composer, with red, amber and green counts read from the rail board's `onCounts`. A `null` count (relay unreachable or list loading) shows no counts. The strip opens a native `<dialog>` sheet, about 75% of the height. It closes by its button, Escape, a click outside the panel, or a pointer drag of 64px or more on the handle or header. Tab wraps inside it. Focus goes back to the strip, except after a row tap, which closes the sheet and opens the agent.
+- **Line 3.** The page keeps `rowNotes` (a Map capped at 200), replaced by each `cos_snapshot` and updated by each `cos_row_note`; the board reads it through `note(id)`. Notes are agent-derived and reach the DOM through `textContent` only.
+- **The subline.** "M need you" is a button (`cos-need-you`) that calls `showNeeds()`. Its count is the server roster's, sessions only, so it can differ from the rail's Needs you, which also counts terminals that exited non-zero.
+- **Chief of Staff off.** The rail still lists every row, with no notes.

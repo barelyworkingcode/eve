@@ -29,12 +29,15 @@ class ChiefOfStaffPage {
     this.state = container.get('state');
     this.posts = [];
     this.status = null;
+    this.rowNotes = new Map();
+    this.rail = null;
     this._built = false;
     this._subscribed = false;
     this.bus.on(EVT.COS_SNAPSHOT, (d) => this._onSnapshot(d));
     this.bus.on(EVT.COS_POST, (d) => this._onPost(d));
     this.bus.on(EVT.COS_POST_UPDATE, (d) => this._onPostUpdate(d));
     this.bus.on(EVT.COS_STATUS, (d) => this._onStatus(d));
+    this.bus.on(EVT.COS_ROW_NOTE, (d) => this._onRowNote(d));
     this.bus.on(EVT.CONNECTION_CHANGED, (c) => {
       if (c?.browser) this.subscribe();
       else this._subscribed = false;
@@ -67,8 +70,25 @@ class ChiefOfStaffPage {
   _onSnapshot(d) {
     this.posts = Array.isArray(d?.posts) ? d.posts.slice() : [];
     this.status = d?.status || null;
+    this.rowNotes = new Map();
+    for (const n of Array.isArray(d?.rowNotes) ? d.rowNotes : []) this._setNote(n);
     this._renderFeed();
     this._renderStatus();
+    this.rail?.render();
+  }
+
+  static ROW_NOTES_MAX = 200;
+
+  _setNote(n) {
+    if (!n || !n.sessionId) return;
+    this.rowNotes.delete(n.sessionId);
+    this.rowNotes.set(n.sessionId, n);
+    while (this.rowNotes.size > ChiefOfStaffPage.ROW_NOTES_MAX) this.rowNotes.delete(this.rowNotes.keys().next().value);
+  }
+
+  _onRowNote(d) {
+    this._setNote(d);
+    this.rail?.render();
   }
 
   _onPost(d) {
@@ -147,9 +167,20 @@ class ChiefOfStaffPage {
     form.append(this._input, send);
     form.addEventListener('submit', (e) => { e.preventDefault(); this._send(); });
 
-    page.append(top, this._feed, form);
+    const thread = this._div('cos-thread', 'cos-thread');
+    const stripHost = this._div('cos-strip-host');
+    thread.append(top, this._feed, stripHost, form);
+    const nav = document.createElement('nav');
+    nav.className = 'cos-rail';
+    nav.setAttribute('aria-label', 'Agents');
+    nav.dataset.testid = 'cos-agents-rail';
+    page.append(nav, thread);
     root.textContent = '';
     root.appendChild(page);
+    if (typeof CosAgentRail !== 'undefined') {
+      this.rail = new CosAgentRail({ container: this.container, note: (id) => this.rowNotes.get(id) || null });
+      this.rail.mount(nav, stripHost);
+    }
     this._renderFeed();
     this._renderStatus();
   }
@@ -179,7 +210,27 @@ class ChiefOfStaffPage {
     } else {
       const n = s.watching | 0;
       const m = s.needYou | 0;
-      this._subline.textContent = `Watching ${n} ${n === 1 ? 'agent' : 'agents'} · ${m} ${m === 1 ? 'needs' : 'need'} you`;
+      const watching = `Watching ${n} ${n === 1 ? 'agent' : 'agents'} · `;
+      const need = `${m} ${m === 1 ? 'needs' : 'need'} you`;
+      if (m > 0 && this.rail) {
+        // Keep the button across frames so keyboard focus survives; update its text.
+        if (!this._needBtn || !this._subline.contains(this._needBtn)) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'cos-need-you';
+          b.dataset.testid = 'cos-need-you';
+          b.addEventListener('click', () => this.rail.showNeeds());
+          this._needBtn = b;
+          this._subline.textContent = '';
+          this._needText = document.createTextNode('');
+          this._subline.append(this._needText, b);
+        }
+        this._needText.nodeValue = watching;
+        if (this._needBtn.textContent !== need) this._needBtn.textContent = need;
+      } else {
+        this._needBtn = null;
+        this._subline.textContent = watching + need;
+      }
     }
     const line = reason ? this._offLine(s.off) : '';
     this._off.hidden = !line;
