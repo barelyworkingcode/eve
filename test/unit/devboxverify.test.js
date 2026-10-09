@@ -2015,7 +2015,22 @@ describe('devboxverify run record (eve#269)', () => {
 });
 
 describe('devboxverify file-plane journeys (eve#296)', () => {
-  const { agentEditProblem, createdId } = require('../../devboxverify/journeys-files');
+  const { agentEditProblem, createdId, initModel } = require('../../devboxverify/journeys-files');
+
+  describe('initModel', () => {
+    it('names the model of the system/init event', () => {
+      const frames = [
+        { type: 'session_created' },
+        { type: 'llm_event', event: { type: 'assistant' } },
+        { type: 'llm_event', event: { type: 'system', subtype: 'init', model: 'claude-haiku-5-5' } },
+      ];
+      expect(initModel(frames)).toBe('claude-haiku-5-5');
+    });
+
+    it('is null when no init event arrived', () => {
+      expect(initModel([{ type: 'llm_event', event: { type: 'system', subtype: 'other', model: 'x' } }])).toBeNull();
+    });
+  });
 
   describe('agentEditProblem', () => {
     it('accepts a file holding the line as a whole line', () => {

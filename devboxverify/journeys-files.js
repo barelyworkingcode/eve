@@ -19,10 +19,18 @@ const CHANGES_WITHIN_MS = 15000;
 const CRED_TTL = '15m';
 const HOST_CONNECTED_WITHIN_MS = 30000;
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
+// Every live model in a journey is Haiku; system/init names the model that ran.
+const INIT_MODEL = 'claude-haiku-5-5';
 
 // Null when `text` holds `line` as a whole line; else why the journey is BLOCKED.
 function agentEditProblem(text, line, file) {
   return String(text).split(/\r?\n/).includes(line) ? null : `the agent did not edit ${file} (model output)`;
+}
+
+// The model the session's system/init event names, or null.
+function initModel(frames) {
+  const init = frames.find((f) => f.type === 'llm_event' && f.event?.type === 'system' && f.event?.subtype === 'init');
+  return init ? init.event.model || null : null;
 }
 
 // The id of a 201 create answer, or what went wrong. `what` names the call.
@@ -92,6 +100,8 @@ async function askAgentToAppend(env, id, { project, states, model, rel, line, li
   }, { timeoutMs: TURN_WITHIN_MS, intervalMs: 200 });
   if (!ended) return { problem: result(id, FAIL, `session ${sid}: turn did not end within ${TURN_WITHIN_MS / 1000}s`) };
   if (ended.state !== 'idle') return { problem: result(id, FAIL, `session ${sid}: the turn ended ${ended.state}, not idle`) };
+  const ran = initModel(sock.frames);
+  if (ran !== INIT_MODEL) return { problem: result(id, BLOCKED, `session ${sid}: system/init reported model ${ran || 'none'}, not ${INIT_MODEL}`) };
   return { problem: null };
 }
 
@@ -321,4 +331,4 @@ const journeys = {
   },
 };
 
-module.exports = { journeys, agentEditProblem, createdId };
+module.exports = { journeys, agentEditProblem, createdId, initModel };

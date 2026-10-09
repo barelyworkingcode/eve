@@ -820,9 +820,12 @@ reload (G6). A scratch git repo in Acme Corp holds a committed, clean
 `notes.md`. The page opens Acme Corp's Changes tab, which shows the repo and no
 row for notes.md, and stays open. The journey creates a `haiku` session
 (`permissionMode: acceptEdits`) over a socket of its own and asks it to append
-`agent edit <nonce>` to `<repo>/notes.md` with its Edit tool. The turn ends at
-a `session_state` `idle` frame (90 s; no frame, or `errored`, is FAIL). The
-file is read once after the turn: without the line it is BLOCKED "the agent did
+`agent edit <nonce>` to `<repo>/notes.md` with its Edit tool. Relay's hook
+still asks about `Read` under `acceptEdits`, so the journey answers each
+permission request for the session as a person would: allow for Read, Edit and
+Write, deny for anything else. The turn ends at a `session_state` `idle` frame
+(90 s; no frame, or `errored`, is FAIL). A `system/init` model other than
+`claude-haiku-5-5`, or none, is BLOCKED. The file is read once after the turn: without the line it is BLOCKED "the agent did
 not edit notes.md (model output)". PASS needs
 `changes-file-/<repo>:notes.md` within 15 s with status `M`.
 Waits: none possible: model output.
@@ -841,12 +844,14 @@ Screen journey (`screen: true`, 240 s). Through the presence helper it mints a
 second presence prompt naming it, a project `Verify Files Host <nonce>` on that
 host (template `claude-code`) whose folder is a `verify-<nonce>-host-*` git repo
 in the temp dir holding committed `notes.md` and `agent.md`. In eve it opens the
-project; the host bar must read connected within 30 s. In the Files tab it opens
-notes.md, types a line and presses the save chord; the tab's unsaved mark must
+project and its Files tab (eve starts the host's file agent on the first file
+call); the host bar must then read connected within 30 s, and a FAIL names what
+the bar showed. It opens notes.md, types a line and presses the save chord; the tab's unsaved mark must
 clear within 15 s, and the disk (the host is this machine) is read once and
 must hold the line. A file the harness writes into the folder must show in the
 open tree within 15 s. In the Changes tab, with no `agent.md` row, a `haiku`
-session (`acceptEdits`) is asked to append `agent edit <nonce>` to agent.md;
+session (`acceptEdits`, prompts answered and the model checked as in
+changes-agent-edit) is asked to append `agent edit <nonce>` to agent.md;
 after `idle` the file is read once (no line: BLOCKED "the agent did not edit
 agent.md (model output)") and `changes-file-/:agent.md` must show `M` within
 15 s. Waits: none possible: model output.
