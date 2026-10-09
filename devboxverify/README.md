@@ -768,7 +768,7 @@ must sit in `rail-agents-group-idle`, its `rail-agent-line-<sid>` must carry
 the next `busy:false` status no `cos_post` may name the session (nor a card's
 `sessionId`), eve-verify's log must hold `Chief of Staff row summary: session
 <first 8 of sid> source model`, and the status model must be `claude-haiku-5-5`.
-The same page then asks for `echo verify-<nonce>` with Bash and stays open. Within
+The same page then asks for `echo verify-<nonce>-ask` with Bash and stays open. Within
 2 s of the `session_state` `asking` frame the row must be in
 `rail-agents-group-needs`, which is the rail's first group; its dot must be
 `asking` and `--danger`, and its meta line must contain "Waiting on you". On a

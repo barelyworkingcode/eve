@@ -3577,9 +3577,10 @@ async function cosAgentRail(env) {
   if (problems.length) return result(id, FAIL, `session ${sid}: ${problems.join('; ')}`);
 
   env.step('ask for a command that needs approval');
+  const askMarker = `verify-${env.nonce}-ask`;
   const askedAt = Date.now();
   await sendInOpenSession(asker, env,
-    `Run this shell command with your Bash tool, then show me its output: echo verify-${env.nonce}`, env.nonce);
+    `Run this shell command with your Bash tool, then show me its output: echo ${askMarker}`, askMarker);
   const asking = await poll(async () => states.find((s) => s.sessionId === sid && s.state === 'asking' && s.at >= askedAt) || null,
     { timeoutMs: COS_POST_WITHIN_MS, intervalMs: 250 });
   if (!asking) return result(id, FAIL, `session ${sid}: no session_state asking frame within ${COS_POST_WITHIN_MS / 1000}s of the request`);
@@ -3624,7 +3625,7 @@ async function cosAgentRail(env) {
     const hash = `#session/${sid}`;
     const landed = await expect.poll(() => new URL(phone.url()).hash, { timeout: 10000 }).toBe(hash).then(() => true, () => false);
     if (!landed) problems.push(`the address is ${new URL(phone.url()).hash || 'empty'} after the row tap, not ${hash}`);
-    else if (!(await expect(phone.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: env.nonce }))
+    else if (!(await expect(phone.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: askMarker }))
       .toBeVisible({ timeout: 15000 }).then(() => true, () => false))) problems.push('the session opened but its thread does not show the request');
   }
 
