@@ -18,6 +18,7 @@ const TURN_WITHIN_MS = 90000;
 const CHANGES_WITHIN_MS = 15000;
 const CRED_TTL = '15m';
 const HOST_CONNECTED_WITHIN_MS = 30000;
+const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
 
 // Null when `text` holds `line` as a whole line; else why the journey is BLOCKED.
 function agentEditProblem(text, line, file) {
@@ -78,8 +79,17 @@ async function askAgentToAppend(env, id, { project, states, model, rel, line, li
     text: `Use your Edit tool to append the exact line "${line}" as a new last line of the file ${rel} `
       + '(the path is relative to the project folder). Change nothing else, then reply: done.',
   });
-  const ended = await poll(async () => states.find((f) => f.sessionId === sid && f.at >= sentAt && (f.state === 'idle' || f.state === 'errored')) || null,
-    { timeoutMs: TURN_WITHIN_MS, intervalMs: 200 });
+  // A person allows the file tools relay's hook asks about (acceptEdits still
+  // asks for Read); anything else is denied, so the edit stays the agent's own.
+  const answered = new Set();
+  const ended = await poll(async () => {
+    for (const f of sock.frames) {
+      if (f.type !== 'permission_request' || f.sessionId !== sid || answered.has(f.permissionId)) continue;
+      answered.add(f.permissionId);
+      sock.send({ type: 'permission_response', permissionId: f.permissionId, approved: FILE_TOOLS.has(f.toolName) });
+    }
+    return states.find((f) => f.sessionId === sid && f.at >= sentAt && (f.state === 'idle' || f.state === 'errored')) || null;
+  }, { timeoutMs: TURN_WITHIN_MS, intervalMs: 200 });
   if (!ended) return { problem: result(id, FAIL, `session ${sid}: turn did not end within ${TURN_WITHIN_MS / 1000}s`) };
   if (ended.state !== 'idle') return { problem: result(id, FAIL, `session ${sid}: the turn ended ${ended.state}, not idle`) };
   return { problem: null };
@@ -161,7 +171,8 @@ async function mintForHost(env, id) {
   await mintPresence.result;
   if (!state.credId) return { problem: result(id, FAIL, 'relay credential mint printed no id') };
 
-  const tmpRoot = os.tmpdir();
+  // Deliberate: the realpath, since the folder is kept as one (/var is a symlink on macOS).
+  const tmpRoot = await fs.promises.realpath(os.tmpdir());
   const prefix = `verify-${env.nonce}-host-`;
   // Registered as soon as an id exists, so it also runs on FAIL and on timeout.
   env.cleanup(`remove the host project, host and folder, and revoke credential ${state.credId}`, async () => {
@@ -217,7 +228,7 @@ async function filesOnHost(env) {
   state.hostId = host.id;
 
   env.step('make a repo for the host project');
-  state.dir = await fs.promises.realpath(await fs.promises.mkdtemp(path.join(tmpRoot, prefix)));
+  state.dir = await fs.promises.mkdtemp(path.join(tmpRoot, prefix));
   const dir = state.dir;
   await fs.promises.writeFile(path.join(dir, 'notes.md'), '# Notes\nfirst line\n');
   await fs.promises.writeFile(path.join(dir, 'agent.md'), '# Agent\nstart\n');
@@ -240,12 +251,14 @@ async function filesOnHost(env) {
   await openEve(page, env);
   await waitForModels(page, env);
   await openProject(page, env, project);
+  // eve starts the host's file agent on the first file call, so the Files
+  // tab opens before the host can read connected.
+  await page.getByTestId('panel-tab-files').click({ timeout: 10000 });
   env.step('wait for the host to read connected');
   await need(`the host did not show connected within ${HOST_CONNECTED_WITHIN_MS / 1000}s`,
     expect(page.locator('.panel-host-bar--connected')).toBeVisible({ timeout: HOST_CONNECTED_WITHIN_MS }));
 
   env.step('open notes.md');
-  await page.getByTestId('panel-tab-files').click({ timeout: 10000 });
   await page.getByTestId('file-tree-item-/notes.md').click({ timeout: 15000 });
   const text = page.locator('#monacoEditor .view-lines');
   await need('notes.md did not open with "first line" within 15s', expect(text).toContainText('first line', { timeout: 15000 }));
