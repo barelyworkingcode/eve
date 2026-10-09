@@ -31,6 +31,7 @@ const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
 const { RelayFileClient } = require('./relay-file-client');
 const { establishLaunchIdentity } = require('./launch-identity');
+const { resolveInstanceConfig, InstanceConfigError } = require('./instance-config');
 
 const log = Logger.fromEnv(process.env);
 const serverLog = log.child('Server');
@@ -49,6 +50,26 @@ try {
   launchHello = establishLaunchIdentity({ env: process.env });
 } catch (err) {
   refuseToStart(err);
+}
+
+// After the launch fd is spent, before anything reads a path or port. An
+// isolated instance (EVE_DATA_DIR set) refuses here rather than fall back to
+// a live default; see instance-config.js.
+let config;
+try {
+  config = resolveInstanceConfig({
+    env: process.env,
+    argv: process.argv,
+    cwd: process.cwd(),
+    appDir: __dirname,
+    homeDir: require('os').homedir(),
+  });
+} catch (err) {
+  if (err instanceof InstanceConfigError) {
+    serverLog.error(`Refusing to start: ${err.message}`);
+    process.exit(1);
+  }
+  throw err;
 }
 
 const passkeySyncConfig = passkeySyncMode(process.env);
@@ -151,19 +172,13 @@ function handleUpgrade(req, socket, head) {
 server.on('upgrade', handleUpgrade);
 if (httpServer) httpServer.on('upgrade', handleUpgrade);
 
-function parseDataDir() {
-  const idx = process.argv.indexOf('--data');
-  if (idx !== -1 && process.argv[idx + 1]) {
-    const arg = process.argv[idx + 1];
-    return path.isAbsolute(arg) ? arg : path.resolve(process.cwd(), arg);
-  }
-  return path.join(__dirname, 'data');
-}
-const DATA_DIR = parseDataDir();
+const DATA_DIR = config.dataDir;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
+// A crash leaves the ready file behind; a waiter must never read a stale one.
+fs.rmSync(config.readyFile, { force: true });
 
 // Operator-authored, read-only to Eve; only used for the terminal claude path.
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
@@ -420,8 +435,8 @@ app.use(express.json({ limit: '50mb' }));
 // Hard-pinned to loopback: a remote host+no-auth override was a footgun with
 // no known consumer. A real split-host deployment needs an explicit auth
 // layer, not a reopened loopback pin. See docs/security-review-auth-transport.md Section B.
-const ttsService = new TTSService('127.0.0.1', parseInt(process.env.TTS_PORT || '9997', 10));
-const sttService = new STTService('127.0.0.1', parseInt(process.env.STT_PORT || '9998', 10));
+const ttsService = new TTSService('127.0.0.1', config.ttsPort);
+const sttService = new STTService('127.0.0.1', config.sttPort);
 
 registerRoutes(app, {
   authService,
@@ -466,6 +481,7 @@ wss.on('connection', createWsHandler({
   sttService,
   chiefOfStaff,
   uiBus: uiCommandBus,
+  paths: { plansDir: config.plansDir, deviceLogPath: config.deviceLogPath },
   log: log.child('WsHandler')
 }));
 
@@ -485,9 +501,6 @@ const wsHeartbeat = setInterval(() => {
   }
 }, WS_HEARTBEAT_MS);
 wsHeartbeat.unref();
-
-const PORT = process.env.PORT || 3000;
-const HTTP_PORT = process.env.HTTP_PORT || 3000;
 
 // Traffic (including session tokens) must not leave the host unless the
 // operator explicitly opts in: with no TLS, bind loopback only. Set
@@ -519,14 +532,45 @@ if (isPlaintext && !isLoopbackHost(bindHost)) {
   );
 }
 
+// Written once every listener has bound (and so after the launch Hello), by
+// tmp + rename so a reader never sees a partial file. `localhost` stands in
+// for a wildcard or loopback bind because WebAuthn refuses an IP as RP ID.
+function writeReadyFile() {
+  const primary = server.address().port;
+  const httpBound = httpServer ? httpServer.address().port : null;
+  const wildcard = bindHost === '0.0.0.0' || bindHost === '::' || isLoopbackHost(bindHost);
+  const host = wildcard ? 'localhost' : (bindHost.includes(':') ? `[${bindHost}]` : bindHost);
+  const ready = {
+    pid: process.pid,
+    url: `${isPlaintext ? 'http' : 'https'}://${host}:${primary}`,
+    port: primary,
+    httpUrl: httpBound === null ? null : `http://localhost:${httpBound}`,
+    httpPort: httpBound,
+    dataDir: DATA_DIR,
+  };
+  const tmp = `${config.readyFile}.tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(ready), { mode: 0o600 });
+    fs.renameSync(tmp, config.readyFile);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    if (config.isolated) {
+      serverLog.error(`Cannot write ready file ${config.readyFile}: ${err.message}`);
+      process.exit(1);
+    }
+    serverLog.warn(`Cannot write ready file ${config.readyFile}: ${err.message}`);
+  }
+}
+
 function startServing() {
   refreshProjectCache();
   refreshHostCache();
 
-  server.listen(PORT, bindHost, () => {
+  server.listen(config.port, bindHost, () => {
+    const boundPort = server.address().port;
     const protocol = isPlaintext ? 'http' : 'https';
     const scope = bindHost === '0.0.0.0' ? '' : ` (bound ${bindHost})`;
-    serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${PORT}${scope}`);
+    serverLog.info(`${protocol.toUpperCase()} server listening on ${protocol}://localhost:${boundPort}${scope}`);
     if (authService.isEnrolled()) {
       serverLog.info('Authentication: enabled (passkey enrolled)');
     } else {
@@ -544,9 +588,12 @@ function startServing() {
     if (httpServer) {
       // Loopback-only so DUAL_LISTEN cannot accidentally expose plaintext Eve
       // traffic to the LAN; remote access must go through the HTTPS listener.
-      httpServer.listen(HTTP_PORT, '127.0.0.1', () => {
-        serverLog.info(`HTTP server listening on http://127.0.0.1:${HTTP_PORT} (loopback-only)`);
+      httpServer.listen(config.httpPort, '127.0.0.1', () => {
+        serverLog.info(`HTTP server listening on http://127.0.0.1:${httpServer.address().port} (loopback-only)`);
+        writeReadyFile();
       });
+    } else {
+      writeReadyFile();
     }
   });
 }
@@ -569,6 +616,9 @@ function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   serverLog.info(`${signal} received, cleaning up...`);
+
+  // First, so a stopping server never looks ready.
+  fs.rmSync(config.readyFile, { force: true });
 
   clearInterval(wsHeartbeat);
 
