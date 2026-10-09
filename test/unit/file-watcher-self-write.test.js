@@ -21,6 +21,8 @@ describe('FileWatcher self-write suppression by content', () => {
     fs.writeFileSync(file, 'original', 'utf8');
     fileService = new FileService();
     ws = createMockWs();
+    // The tests drive _pushFile directly; no real OS watch is needed.
+    jest.spyOn(fs, 'watch').mockImplementation(() => ({ on: jest.fn(), close: jest.fn() }));
     watcher = new FileWatcher(ws, () => fileService, (id) => (id === PROJECT_ID ? { id, path: tmpDir } : undefined));
     watcher.watch(PROJECT_ID, '/doc.txt');
     abs = fileService.validatePath(tmpDir, '/doc.txt');
