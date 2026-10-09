@@ -139,26 +139,19 @@ function validateStartFields({ prompt, folder, model, mode }, defaultModel) {
   return { value: { prompt: p.value, folder: f.value, model: m.value, mode: d.value } };
 }
 
-// project: exact id, or exact case-insensitive name among local projects.
+// project: exact id, or exact case-insensitive name among all projects, local or on a host.
 function resolveProjectArg(listProjects, ref) {
   const r = typeof ref === 'string' ? ref.trim() : '';
   if (!r) return invalid('project', 'is required');
   const all = [...listProjects()];
   const byId = all.find((p) => p.id === r);
-  if (byId) {
-    if (byId.hostId) return { error: { status: 403, code: 'project_on_host', message: `${byId.name} lives on a host; the Chief of Staff starts local agents only` } };
-    return { value: byId };
-  }
+  if (byId) return { value: byId };
   const named = all.filter((p) => typeof p.name === 'string' && p.name.trim().toLowerCase() === r.toLowerCase());
-  const local = named.filter((p) => !p.hostId);
-  if (local.length === 1) return { value: local[0] };
-  if (local.length > 1) {
+  if (named.length === 1) return { value: named[0] };
+  if (named.length > 1) {
     return { error: { status: 409, code: 'ambiguous_project', message: `More than one project is named "${r}"; use its id` } };
   }
-  if (named.length > 0) {
-    return { error: { status: 403, code: 'project_on_host', message: `${named[0].name} lives on a host; the Chief of Staff starts local agents only` } };
-  }
-  const names = all.filter((p) => !p.hostId && p.name).map((p) => p.name).slice(0, NAMES_MAX);
+  const names = all.filter((p) => p.name).map((p) => p.name).slice(0, NAMES_MAX);
   return { error: { status: 404, code: 'unknown_project', message: `No project "${r}". Projects: ${names.join(', ') || 'none'}` } };
 }
 
@@ -371,7 +364,7 @@ async function tapStart(cos, post, edits) {
   }, cos.settings.model);
   if (f.error) return cardFail(f.error.message);
   const project = cos.listProjects().find((p) => p.id === card.project.id);
-  if (!project || project.hostId) {
+  if (!project) {
     card.state = 'failed';
     card.error = 'That project is no longer available';
     cos._updatePost(post);

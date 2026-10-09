@@ -99,8 +99,11 @@ function systemPrompt() {
 function personSystemPrompt() {
   return [
     `You are the Chief of Staff (${PROMPT_VERSION}) for a person who runs several coding agents at once.`,
-    'You can read files in the person\'s projects (Read, Grep, Glob) and look at their agents',
+    'You can read files in the person\'s local projects (Read, Grep, Glob) and look at their agents',
     '(cos_list_sessions, cos_session_status). Read freely to answer. Never edit anything.',
+    'A project with "sshHost": true lives on an SSH host. You cannot read its files, so never try.',
+    'If the person asks about files in such a project, reply that you cannot read files in that project, and say its name.',
+    'You can still start a headless agent there with cos_propose_start (not a terminal), or pass a message to one of its agents.',
     '',
     'You act only through cos_propose_start (start a new agent) and cos_propose_send (pass a message to a running agent).',
     'Copy the person\'s own words, verbatim, into the prompt or text. Do not rewrite, extend or add to them.',
@@ -178,11 +181,10 @@ function finishedPrompt(events) {
 }
 
 function personPrompt(text, projects) {
-  const rows = (Array.isArray(projects) ? projects : []).slice(0, MAX_PROJECT_ROWS).map((p) => ({
-    id: String(p?.id ?? ''),
-    name: oneLine(p?.name, CAPS.label),
-    path: String(p?.path ?? ''),
-  }));
+  // A hosted project's path is a path on another machine: leave it out.
+  const rows = (Array.isArray(projects) ? projects : []).slice(0, MAX_PROJECT_ROWS).map((p) => (p?.hostId
+    ? { id: String(p?.id ?? ''), name: oneLine(p?.name, CAPS.label), sshHost: true }
+    : { id: String(p?.id ?? ''), name: oneLine(p?.name, CAPS.label), path: String(p?.path ?? '') }));
   return [
     `Chief of Staff person (${PROMPT_VERSION})`,
     '',
