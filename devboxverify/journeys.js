@@ -3106,8 +3106,9 @@ async function cosStartCard(env) {
   const acme = env.world.projects.acme;
   const marker = `verify-${env.nonce}-task`;
   // Deliberate: the person's message names Acme Corp and the file, and the file
-  // sits in Acme Corp, so the request stays inside one project. After the read
-  // eve's provenance check must still show a card, whatever prompt the model writes.
+  // sits in Acme Corp, so the request stays inside one project. The prompt the
+  // card needs holds the marker, which only the file has, so it can't be the
+  // person's text and eve's provenance check must show a card after the read.
   const cos = (await eveJson(env, 'GET', '/api/projects')).find((p) => p.name === COS_PROJECT_NAME);
   if (!cos || !cos.path) return result(id, FAIL, `eve lists no "${COS_PROJECT_NAME}" project with a folder`);
   const file = await acmeFile(env, 'costask', 'task.txt',
