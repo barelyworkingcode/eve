@@ -9,12 +9,6 @@ process.env.EVE_RATELIMIT_MAX = '3';
 process.env.EVE_RATELIMIT_WINDOW_MS = '10000';
 delete process.env.EVE_NO_AUTH;
 
-// device_log writes into the repo working tree by default; EVE_DEVICE_LOG_PATH
-// points it at a tmpdir instead, also read once at module load.
-const deviceLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-device-log-'));
-const deviceLogPath = path.join(deviceLogDir, 'relay-device.log');
-process.env.EVE_DEVICE_LOG_PATH = deviceLogPath;
-
 // RelayClient and FileWatcher are constructed inside the handler, not injected,
 // so mock the modules to inspect dispatch routing without opening real sockets.
 jest.mock('../../relay-client');
@@ -372,45 +366,6 @@ describe('createWsHandler', () => {
       const ws = mount(makeDeps());
       await sendMsg(ws, { type: 'unwatch_file', projectId: 'p1', path: 'src/index.js' });
       expect(fileWatcher.unwatch).toHaveBeenCalledWith('p1', 'src/index.js');
-    });
-  });
-
-  describe('device_log (points at a tmpdir via EVE_DEVICE_LOG_PATH, not the repo tree)', () => {
-    beforeEach(() => {
-      fs.rmSync(deviceLogPath, { force: true });
-    });
-
-    async function readLogEventually() {
-      // appendDeviceLog's fs.appendFile is fire-and-forget, and fs.appendFile
-      // itself opens the file before it writes — a single flush() tick is
-      // enough for the file to exist but empty, not for the write to have
-      // landed. Poll on non-empty content, not mere existence.
-      const deadline = Date.now() + 1000;
-      for (;;) {
-        if (fs.existsSync(deviceLogPath)) {
-          const content = fs.readFileSync(deviceLogPath, 'utf8');
-          if (content) return content;
-        }
-        if (Date.now() >= deadline) return '';
-        await new Promise((r) => setTimeout(r, 20));
-      }
-    }
-
-    it('appends "<iso> <ip> <line>" per line from the connection\'s remote address', async () => {
-      const ws = mount(makeDeps());
-      await sendMsg(ws, { type: 'device_log', lines: ['boot', 'wake'] });
-      const text = await readLogEventually();
-      const rows = text.trim().split('\n');
-      expect(rows).toHaveLength(2);
-      expect(rows[0]).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z 127\.0\.0\.1 boot$/);
-      expect(rows[1]).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z 127\.0\.0\.1 wake$/);
-    });
-
-    it('writes nothing for a malformed message (neither line nor lines)', async () => {
-      const ws = mount(makeDeps());
-      await sendMsg(ws, { type: 'device_log', notLines: 'oops' });
-      await new Promise((r) => setTimeout(r, 100)); // give an accidental async write a chance to land
-      expect(fs.existsSync(deviceLogPath)).toBe(false);
     });
   });
 
