@@ -592,9 +592,10 @@ function createFakeRelay({ token = null } = {}) {
         if (!auditEnabled) return coded(503, 'audit_unavailable', 'auditing is off; the Chief of Staff cannot start a session');
         const proj = projects.get(sb.projectId);
         if (!proj || proj.kind === 'remote') return coded(403, 'project_not_available', 'project is not available for a session launch');
-        if (proj.host_id) return coded(403, 'project_on_host', 'the Chief of Staff cannot start a session in a project on an SSH host');
-        const directory = path.join(proj.path || '/fake', folder);
-        if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) return coded(400, 'folder_not_found', 'folder does not exist in the project');
+        // A hosted project's path is on the host: the folder is joined as text, never stat'd.
+        const directory = proj.host_id ? path.posix.join(proj.path || '/fake', folder) : path.join(proj.path || '/fake', folder);
+        if (!proj.host_id && (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory())) return coded(400, 'folder_not_found', 'folder does not exist in the project');
+        if (mode === 'terminal' && proj.host_id) return coded(400, 'terminal_on_host', 'a terminal start is not available in a project on an SSH host; start a headless agent');
         const claude = ['haiku', 'sonnet', 'opus'].includes(sb.model);
         if (mode === 'terminal' && !claude) return coded(400, 'terminal_needs_claude', 'a terminal start needs a Claude model');
         cosStarts.push({ scope: scopeHeader ?? null, body: sb });
