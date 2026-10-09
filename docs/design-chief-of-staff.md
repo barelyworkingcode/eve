@@ -147,3 +147,13 @@ The person model can start an agent and send to one through the `eve-cos` MCP (`
 - **D16** The rail spends at most half of the day's model calls (`max(1, floor(dailyModelCalls / 2))`), counted as `rowCalls`. Past that, rows show the agent's last words. This keeps the rest of the budget for alerts and the person.
 - **D17** Notes are memory only. An eve restart leaves line 3 empty until each agent's next turn.
 - **D18** A turn that ends on a question shows the question on line 3 with no model call.
+
+## Agent rail (eve#274)
+
+The thread has an agent rail: every agent session and terminal as a row, beside the thread. `public/cos-agent-rail.js` (`CosAgentRail`) is not a board. It hosts two mounts of the shared `AgentBoard` (layout `rail`, `filter: () => true`, no row cap, Done collapsed): prefix `rail`, always mounted, and prefix `sheet`, mounted while the phone sheet is open.
+
+- **Wide (over 900px).** `.cos-page` is a grid: `nav.cos-rail` (280px, own scroll) and `.cos-thread` (the existing top, feed and composer). Every existing testid stays.
+- **Narrow (900px and under).** The rail is hidden. A 44px strip (`cos-agents-strip`) sits between the feed and the composer, with red, amber and green counts read from the rail board's `onCounts`. A `null` count (relay unreachable or list loading) shows no counts. The strip opens a native `<dialog>` sheet, about 75% of the height. It closes by its button, Escape, a click outside the panel, or a pointer drag of 64px or more on the handle or header. Tab wraps inside it. Focus goes back to the strip, except after a row tap, which closes the sheet and opens the agent.
+- **Line 3.** The page keeps `rowNotes` (a Map capped at 200), replaced by each `cos_snapshot` and updated by each `cos_row_note`; the board reads it through `note(id)`. Notes are agent-derived and reach the DOM through `textContent` only.
+- **The subline.** "M need you" is a button (`cos-need-you`) that calls `showNeeds()`. Its count is the server roster's, sessions only, so it can differ from the rail's Needs you, which also counts terminals that exited non-zero.
+- **Chief of Staff off.** The rail still lists every row, with no notes.

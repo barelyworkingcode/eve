@@ -87,6 +87,7 @@ const EVT = {
   COS_POST: 'cos:post',
   COS_POST_UPDATE: 'cos:post_update',
   COS_STATUS: 'cos:status',
+  COS_ROW_NOTE: 'cos:row_note',
 
   TASKS_LOADED: 'tasks:loaded',
   TASK_UPDATED: 'task:updated',

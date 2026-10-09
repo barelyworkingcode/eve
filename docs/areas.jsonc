@@ -24,7 +24,7 @@
       "public/core/front-door.js", "public/dialogs/command-palette.js", "public/apple/home.css", "public/apple/palette.css",
       "public/ask-elsewhere.js"] },
     "chief-of-staff": { "code": ["chief-of-staff*.js", "ws/chief-of-staff-messages.js", "mcp/cos.js",
-      "public/chief-of-staff-page.js", "public/panes/chief-of-staff-pane.js", "public/apple/chief-of-staff.css"] },
+      "public/chief-of-staff-page.js", "public/cos-agent-rail.js", "public/panes/chief-of-staff-pane.js", "public/apple/chief-of-staff.css"] },
     "shell": { "code": ["public/tab-manager.js", "public/panes/**", "public/sidebar-renderer.js", "public/modal-manager.js",
       "public/toast.js", "public/dialogs/dialog-base.js", "public/apple/shell.css", "public/apple/panes.css",
       "public/apple/modals.css", "public/apple/menus.css", "public/apple/toast.css", "public/apple/touch.css",
