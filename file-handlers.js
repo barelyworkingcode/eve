@@ -1,6 +1,3 @@
-const FileService = require('./file-service');
-const RemoteFileService = require('./remote-file-service');
-
 const GIT_SCOPES = new Set(['uncommitted', 'base']);
 // WebSocket CLOSING / CLOSED. A streamed git_changes can outlive the socket.
 const WS_CLOSING = 2;
@@ -10,35 +7,31 @@ function isNonEmptyString(v) {
 }
 
 class FileHandlers {
-  constructor({ resolveProject, searchService, hostPool } = {}) {
+  // files: the RelayFileClient (relay-file-client.js). Every project's files,
+  // console or SSH host, are reached through it.
+  constructor({ resolveProject, files } = {}) {
     this.resolveProject = resolveProject;
-    this.fileService = new FileService();
-    this.searchService = searchService;
-    this.hostPool = hostPool || null;
-    // hostId -> RemoteFileService. Cheap to rebuild, but the pool's HostAgent
-    // is the thing that actually holds the connection, so this is just an
-    // adapter cache keyed alongside it.
-    this._remoteFileServices = new Map();
+    this.files = files;
+    // requestId -> AbortController of a search in flight.
+    this._searches = new Map();
   }
 
   _resolveProject(projectId) {
     return this.resolveProject(projectId) || null;
   }
 
-  // Local for a console project, remote (SSH host agent-backed) for a host
-  // project — see ../relay/docs/ssh-hosts.md and remote-file-service.js.
   // Every WS file handler and routes/index.js's /api/files must go through
-  // this rather than touching this.fileService directly, or a host project's
-  // files would silently resolve against eve's own disk.
+  // this rather than reaching for the client directly.
   fileServiceFor(project) {
-    if (!project || !project.hostId) return this.fileService;
-    const agent = this.hostPool ? this.hostPool.get(project.hostId) : null;
-    let svc = this._remoteFileServices.get(project.hostId);
-    if (!svc || svc.hostAgent !== agent) {
-      svc = new RemoteFileService(agent);
-      this._remoteFileServices.set(project.hostId, svc);
-    }
-    return svc;
+    return this.files.forProject(project);
+  }
+
+  cancelSearch(requestId) {
+    const ctl = this._searches.get(requestId);
+    if (!ctl) return false;
+    this._searches.delete(requestId);
+    ctl.abort();
+    return true;
   }
 
   _sendError(ws, projectId, path, error) {
@@ -128,19 +121,10 @@ class FileHandlers {
       return;
     }
 
-    if (project.hostId) {
-      return this._searchRemoteProject(ws, { requestId, projectId, project, query, options });
-    }
-
-    if (!this.searchService) {
-      ws.send(JSON.stringify({ type: 'search_error', requestId, projectId, error: 'Search not available' }));
-      return;
-    }
-
+    const ctl = new AbortController();
+    if (requestId) this._searches.set(requestId, ctl);
     try {
-      // Anchors to the project root even if project.path itself is misconfigured.
-      const safeRoot = this.fileService.validatePath(project.path, '/');
-      const result = await this.searchService.run(safeRoot, query, { ...(options || {}), requestId });
+      const result = await this.fileServiceFor(project).search(project.path, query, options || {}, { signal: ctl.signal });
       ws.send(JSON.stringify({
         type: 'search_results',
         requestId,
@@ -150,55 +134,11 @@ class FileHandlers {
         durationMs: result.durationMs,
       }));
     } catch (err) {
+      // A cancelled search has nobody waiting for an answer.
+      if (err && err.name === 'AbortError') return;
       ws.send(JSON.stringify({ type: 'search_error', requestId, projectId, error: err.message }));
-    }
-  }
-
-  // Runs remote-fs-agent.js's `search` op instead of spawning ripgrep, then
-  // maps {path,line,col,text} matches into the same shape search-service.js
-  // returns today (file/lineNumber/lineText/submatches) so the browser's
-  // existing rendering path doesn't need to know the project is remote.
-  async _searchRemoteProject(ws, { requestId, projectId, project, query, options }) {
-    const agent = this.hostPool ? this.hostPool.get(project.hostId) : null;
-    if (!agent) {
-      ws.send(JSON.stringify({
-        type: 'search_error', requestId, projectId,
-        error: `Host "${project.host?.name || project.hostId}" is not connected`,
-      }));
-      return;
-    }
-
-    const start = Date.now();
-    try {
-      const opts = options || {};
-      const res = await agent.request('search', {
-        root: project.path,
-        path: '.',
-        query,
-        regex: !!opts.regex,
-        caseSensitive: !!opts.caseSensitive,
-        globs: opts.globs,
-        maxMatches: opts.maxMatches,
-      });
-      const matches = (res.matches || []).map((m) => {
-        const start0 = Math.max(0, (m.col || 1) - 1);
-        return {
-          file: m.path,
-          lineNumber: m.line,
-          lineText: m.text,
-          submatches: [{ start: start0, end: start0 + (m.len || 0) }],
-        };
-      });
-      ws.send(JSON.stringify({
-        type: 'search_results',
-        requestId,
-        projectId,
-        matches,
-        truncated: !!res.truncated,
-        durationMs: Date.now() - start,
-      }));
-    } catch (err) {
-      ws.send(JSON.stringify({ type: 'search_error', requestId, projectId, error: err.message }));
+    } finally {
+      if (requestId && this._searches.get(requestId) === ctl) this._searches.delete(requestId);
     }
   }
 

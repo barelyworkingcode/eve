@@ -8,7 +8,8 @@
  *
  * Console terminals get eve's own os.tmpdir(), not /tmp: relay's sandbox
  * grants the session TMPDIR read-write but denies reads under /tmp. Host
- * terminals get /tmp on the host, written by remote-fs-agent.js's `pastetmp`.
+ * terminals get /tmp on the host, written by relay's `pastetmp` route through
+ * RelayFileClient#pasteToHost.
  */
 
 const crypto = require('crypto');
@@ -40,7 +41,7 @@ function pasteFileName(mimeType, now = Date.now()) {
   return `eve-paste-${now}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
 }
 
-async function saveTerminalPaste({ buffer, mimeType, hostId }, { hostPool, localDir = os.tmpdir() } = {}) {
+async function saveTerminalPaste({ buffer, mimeType, hostId }, { files, localDir = os.tmpdir() } = {}) {
   const name = pasteFileName(mimeType);
   if (!buffer || buffer.length === 0) throw new PasteError('Empty image', 400);
   if (buffer.length > MAX_PASTE_BYTES) throw new PasteError('Image exceeds 10MB limit', 413);
@@ -51,12 +52,11 @@ async function saveTerminalPaste({ buffer, mimeType, hostId }, { hostPool, local
     return full;
   }
 
-  const agent = hostPool ? hostPool.get(hostId) : null;
-  if (!agent) throw new PasteError(`Unknown host: ${hostId}`, 404);
+  if (!files) throw new PasteError(`Unknown host: ${hostId}`, 404);
   try {
-    const res = await agent.request('pastetmp', { name, data: buffer.toString('base64') });
-    return res.path;
+    return await files.pasteToHost(hostId, name, buffer);
   } catch (err) {
+    if (err && err.code === 'HOST_NOT_FOUND') throw new PasteError(`Unknown host: ${hostId}`, 404);
     throw new PasteError(`Host write failed: ${err.message}`, 502);
   }
 }

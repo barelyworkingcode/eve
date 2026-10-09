@@ -49,8 +49,8 @@ module.exports = [
   {
     type: 'search_cancel',
     handle(ctx) {
-      if (ctx.deps.fileHandlers.searchService && ctx.message.requestId) {
-        ctx.deps.fileHandlers.searchService.cancel(ctx.message.requestId);
+      if (ctx.message.requestId) {
+        ctx.deps.fileHandlers.cancelSearch(ctx.message.requestId);
         ctx.inflightSearchIds.delete(ctx.message.requestId);
       }
     },

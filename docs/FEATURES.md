@@ -180,7 +180,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Uncommitted / vs base scope | UI: changes-panel scope toggle | Changes tab | Changes → the scope toggle | none | none yet — not written | git |
 | Diff pane (side-by-side / inline) | UI: `public/diff-viewer.js`, `panes/diff-pane.js`; WS `git_file_versions` | Click a changed file | Changes → a changed file | none | changes-diff | git |
 | Ask about this on a diff: the toolbar button `diff-ask` attaches a unified diff of that file in the pane's scope (3 lines of context; not for binary or too-large diffs, not for host projects); enabled once Monaco has computed the diff | UI: `public/diff-viewer.js`, `today/ask-about.js`, `core/unified-diff.js` | Diff pane toolbar | Diff pane → Ask about this | none | none yet — cloud spec `goals/workbench-ask-about`; journey `ask-about-file` covers the file door only | git, home |
-| Live `git_changed` refresh | `file-watcher.js` | Edit a file while Changes is open | n/a | n/a | none yet — not written | git, files |
+| Live `git_changed` refresh | `file-watcher.js` (fed by relay's `/ws/files`) | Edit a file while Changes is open | n/a | n/a | none yet — not written | git, files |
 | Remote sessions: view / reattach / kill | UI: `public/remote-sessions.js`; API: `/api/projects/:id/persistent-sessions` | Host project | Host project → its remote sessions | none | none yet — G13 | hosts, terminal |
 
 ### G7 · Read and edit project files
@@ -191,7 +191,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Open a file in the editor | UI: `public/file-editor.js` (Monaco); WS `read_file` | Click a file | Files → a file | none | file-edit-save | files |
 | Ask about this on a file: the tree context menu item (files only, not folders, not host projects) opens Today with Ask focused and a removable chip (`today-ask-attachment`); Return starts one thread in the file's project with the file text attached; over 256 KB gives "That's too large to attach (over 256 KB)."; a binary file says "That isn't a text file." | UI: `public/sidebar/file-tree-node.js`, `today/ask-about.js`, `today/parts/ask-part.js`; `app.sendUserText`; API: `api.getFileText` (`GET /api/files/:projectId/*`) | Tree context menu → Ask about this | Files → right-click a file → Ask about this | none | ask-about-file; cloud spec `goals/workbench-ask-about` | files, home, chat |
 | Save (⌘S / Save) | WS `write_file` | Edit, ⌘S | Editor → ⌘S or Save | none | file-edit-save | files |
-| Live file watching (tree refresh, `watch_error` toast when the watcher cannot start) | `file-watcher.js`; WS `dir_changed`, `watch_error` | Change a file on disk | n/a | n/a | none yet — not written | files |
+| Live file watching (tree refresh, `watch_error` toast when the watcher cannot start) | `file-watcher.js` (fed by relay's `/ws/files`); WS `dir_changed`, `watch_error` | Change a file on disk | n/a | n/a | none yet — not written | files |
 | External change banner (Reload / Keep) | UI: `file-editor.js`; WS `watch_file` | File changes on disk while open | Editor banner → Reload or Keep | none | file-edit-save (clean editor updates; dirty editor shows the banner, Reload) | files |
 | Markdown / HTML preview, Edit/Split/Preview | UI: `file-editor.js`, `html-preview-pane.js` (sandboxed iframe) | Open `.md`/`.html` | Editor → Edit, Split or Preview | none | none yet — not written | files |
 | Image / PDF / video / audio viewers | UI: `public/viewers/*`; API: `GET /api/files/:projectId/*` | Click such a file | Files → an image, PDF, video or audio file | none | none yet — not written | files |
@@ -227,7 +227,7 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 
 | Feature | Lives in | How reached | Simple door | Power door | Journey | Areas |
 |---|---|---|---|---|---|---|
-| Search in files (glob, regex, whole word) | UI: `public/dialogs/search-dialog.js`; WS `search_project`; `search-service.js` | ⌘⇧F, ⌘K Search | ⌘⇧F → Search | none | none yet — not written | search |
+| Search in files (glob, regex, whole word) | UI: `public/dialogs/search-dialog.js`; WS `search_project`; `relay-file-client.js` (relay's `search` op) | ⌘⇧F, ⌘K Search | ⌘⇧F → Search | none | none yet — not written | search |
 | Ask about this on search results: `search-dialog-ask` closes the dialog and attaches the shown matches (at most 200) as `path:line: text` lines; chip reads "N results for …" | UI: `public/dialogs/search-dialog.js`, `today/ask-about.js` | Search dialog | Search dialog → Ask about this | none | none yet — cloud spec `goals/workbench-ask-about` | search, home |
 | AI summary of results | WS `search_ai_summarize`; `search-summarizer.js` (hidden `__search:` session) | Search dialog checkbox | Search dialog → the summary checkbox | none | none yet — model-dependent | search, chat |
 | Command palette actions | UI: `command-palette.js` | ⌘K | ⌘K → an action | none | none yet — not written | home |
@@ -258,8 +258,8 @@ Columns: **Lives in** (UI surface / API / CLI / tray) · **How reached** ·
 | Feature | Lives in | How reached | Simple door | Power door | Journey | Areas |
 |---|---|---|---|---|---|---|
 | Add / probe / remove SSH host | relay; eve's Where only picks an existing host (`project-where-host-<id>`) | Relay | Relay on the Mac; eve's project dialog → Where picks one | relay `settings.json` `hosts`, `projects[].host_id` | none — relay-owned; project-admin-in-relay checks there is no Host… | — |
-| Host status (connecting / connected / unreachable) | WS `host_status`; `ssh-host-pool.js` | Rail, panel | Rail and panel → host status | none | files-on-host (panel bar reads connected) | hosts |
-| Files, search, Changes on the host | `remote-file-service.js`, `remote-fs-agent.js` | Host project Files / Changes | Host project → Files or Changes | none | files-on-host | hosts, files, git |
+| Host status (connecting / connected / unreachable) | WS `host_status`; `relay-file-client.js` (relay's `/ws/files`) | Rail, panel | Rail and panel → host status | none | files-on-host (panel bar reads connected) | hosts |
+| Files, search, Changes on the host | `relay-file-client.js` (relay's file routes, same as a console project) | Host project Files / Changes | Host project → Files or Changes | none | files-on-host | hosts, files, git |
 | Host terminals and persistent (tmux) sessions | API: `/api/projects/:id/persistent-sessions` | Host project launcher | Host project → launcher | none | none yet | hosts, terminal |
 
 ### G14 · Arrange my workspace

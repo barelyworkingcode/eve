@@ -8,7 +8,6 @@ const fs = require('fs');
 const { parse: parseJsonc } = require('jsonc-parser');
 const AuthService = require('./auth');
 const FileHandlers = require('./file-handlers');
-const SearchService = require('./search-service');
 const SearchSummarizer = require('./search-summarizer');
 const registerRoutes = require('./routes/index');
 const createWsHandler = require('./ws-handler');
@@ -30,7 +29,7 @@ const { Logger } = require('./logger');
 const { traceMiddleware } = require('./trace');
 const UiCommandBus = require('./ui-command-bus');
 const { normalizeProject } = require('./project-normalize');
-const { HostPool } = require('./ssh-host-pool');
+const { RelayFileClient } = require('./relay-file-client');
 const { establishLaunchIdentity } = require('./launch-identity');
 
 const log = Logger.fromEnv(process.env);
@@ -277,16 +276,13 @@ function resolveProject(id) {
   };
 }
 
-const hostPool = new HostPool({
-  resolveHost: (id) => hostCache.get(id),
-  log: log.child('HostPool'),
-});
-
-const searchService = new SearchService();
+// The file plane: every project file operation, console or SSH host, goes to
+// relay through this client (relay-file-client.js). Started with the other
+// relay watchers once the server is listening.
+const relayFileClient = new RelayFileClient({ relayTransport, log: log.child('RelayFiles') });
 const fileHandlers = new FileHandlers({
   resolveProject,
-  searchService,
-  hostPool,
+  files: relayFileClient,
 });
 const searchSummarizer = new SearchSummarizer({
   relayTransport,
@@ -300,7 +296,7 @@ async function refreshProjectCache(data, { replace = false } = {}) {
       // Partial upsert from a mutation response, not a full refresh — unless
       // `replace` says this array IS the full list (a list-GET), in which case
       // a project relay no longer reports must be evicted, or its files stay
-      // servable over WS (resolveProject/HostPool) after relay revoked it.
+      // servable over WS (resolveProject/RelayFileClient) after relay revoked it.
       if (replace) {
         const nextIds = new Set(data.map((p) => p.id));
         for (const id of projectCache.keys()) {
@@ -436,11 +432,10 @@ registerRoutes(app, {
   refreshProjectCache,
   removeFromProjectCache: (id) => projectCache.delete(id),
   resolveProject,
-  fileService: fileHandlers.fileService,
   fileServiceFor: (project) => fileHandlers.fileServiceFor(project),
+  files: relayFileClient,
   refreshHostCache,
   removeFromHostCache: (id) => hostCache.delete(id),
-  hostPool,
   ttsService,
   sttService,
   log,
@@ -463,10 +458,10 @@ wss.on('connection', createWsHandler({
   trustedNetwork,
   relayTransport,
   fileHandlers,
+  files: relayFileClient,
   searchSummarizer,
   resolveProject,
   ensureProjectHost: refreshHostsIfMissing,
-  hostPool,
   ttsService,
   sttService,
   chiefOfStaff,
@@ -543,6 +538,7 @@ function startServing() {
     // /api/eve/passkeys/revocations poll back.
     passkeySync.start();
     routineFailureWatcher.start();
+    relayFileClient.start();
     chiefOfStaff.start();
 
     if (httpServer) {
@@ -585,7 +581,7 @@ function gracefulShutdown(signal) {
   routineFailureWatcher.stop();
   // Resolves once its queued post and state writes are on disk.
   const cosFlushed = chiefOfStaff.stop();
-  hostPool.disconnectAll();
+  relayFileClient.close();
   server.closeAllConnections?.();
   httpServer?.closeAllConnections?.();
   server.close();

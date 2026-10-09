@@ -40,7 +40,8 @@ Eve is a relay proxy — it delegates all LLM concerns to relayLLM via HTTP/WS p
 
 ```
 Browser ──WS──►  Eve (ws-handler) ──WS──► relay ──► relay-sessions (sessions, messages, permissions, terminals)
-Browser ──WS──►  Eve (ws-handler) ──local─► FileService            (file ops)
+Browser ──WS──►  Eve (ws-handler) ──HTTP─► relay (file routes)      (file ops: console and SSH-host projects)
+Eve (relay-file-client.js) ◄──WS /ws/files── relay                  (change events, host status)
 Browser ──HTTP─► Eve (routes) ──HTTP─► relay ──► relayLLM           (models, sessions list, generated images)
 Browser ──HTTP─► Eve (routes) ──HTTP─► relay                        (projects, MCPs — served by relay)
 Browser ──HTTP─► Eve (routes) ──HTTP─► relay ──► relayScheduler     (tasks)
@@ -53,14 +54,16 @@ Voice does not appear in this diagram — see the Security section above.
 
 Design and cross-repo contract: [../relay/docs/ssh-hosts.md](../relay/docs/ssh-hosts.md) — read it first; this is a pointer, not a summary. A project either lives on the console or on one SSH host (`project.hostId`); `ssh_argv` (relay's ready-to-exec ssh prefix) is cached server-side only (`server.js`'s `hostCache`) and never crosses to the browser.
 
-- **`ssh-command.js`** — the one Node implementation of relay's `RemoteCommand`/launcher derivation (`remoteCommand`, `nodeLauncher`), pinned byte-for-byte against the doc's Fixtures.
-- **`remote-fs-agent.js`** — the file-plane agent that runs *on the host*, launched via `nodeLauncher`. Self-contained (Node core only, no `require` of any eve module) since it ships as raw source, not a module.
-- **`ssh-host-pool.js`** — `HostPool`/`HostAgent`: spawns and reconnects the agent over `ssh_argv`, JSON-lines request/response, ref-counted `watch`/`unwatch`, emits `status` (`connecting|connected|unreachable`) fanned out to browsers as the WS `host_status` frame.
-- **`remote-file-service.js`** — `RemoteFileService`, the same method surface as `FileService` but backed by a `HostAgent`. `FileHandlers#fileServiceFor(project)` picks local vs. remote; every file/search/watch call site goes through it.
+Relay owns the host connection and the file agent that runs on the host; eve never spawns ssh or an agent itself. Eve's whole file plane is one client:
+
+- **`relay-file-client.js`** — `RelayFileClient` and `ProjectFiles`. `ProjectFiles` has `FileService`'s old method surface and return shapes (list, read, write, rename, move, delete, upload, mkdir, stat, search, `openStream`, git) and sends each as a relay file route through `RelayTransport`, for console and host projects alike; relay picks the backend. `RelayFileClient` also holds the one `/ws/files` socket (capped 2–30 s reconnect, ref-counted `watch`/`unwatch`, latest `host_status` per host) and `pasteToHost`. Relay's error codes become the `file_error` texts in one table there. `FileHandlers#fileServiceFor(project)` is `files.forProject(project)`; every file/search/watch call site goes through it.
+- **`file-watcher.js`** — fed by the client's `fs_event`/`watch_ok`/`watch_error`: git-change check, ignore list, debounce, then `file_changed`/`dir_changed`/`git_changed`.
+
+Eve has no `fs`, `child_process`, ripgrep or trash call on a project file; `test/unit/file-plane-guard.test.js` fails if a module outside its allowlist requires one. Relay enforces containment (`..` refused, symlinks never followed), read-only projects and the `file_op` audit.
 
 ### Git changes (Changes tab + diff pane)
 
-Design and pinned contract: [docs/design-git-changes.md](docs/design-git-changes.md). **`git-service.js`** is the one implementation of repo/worktree discovery, porcelain parsing and file versions; only its injected `run` differs — `execFile('git')` locally, the agent's `git` op remotely. Read-only by design. Git runs with argv arrays only, `-c core.fsmonitor=false`, scrubbed `GIT_*` env; `repo`/`path` from the browser are untrusted and refs are always server-derived. `file-watcher.js` pushes debounced `git_changed` frames (it lets `.git/index`/`HEAD` through for this purpose only).
+Design and pinned contract: [docs/design-git-changes.md](docs/design-git-changes.md). **`git-service.js`** is the one implementation of repo/worktree discovery, porcelain parsing and file versions; its injected `run` is relay's read-only `git` op (`ProjectFiles#_gitRun`), so eve never runs git. Read-only by design. Relay runs git with argv arrays only, `-c core.fsmonitor=false`, scrubbed `GIT_*` env; `repo`/`path` from the browser are untrusted and refs are always server-derived. `file-watcher.js` pushes debounced `git_changed` frames (it lets `.git/index`/`HEAD` through for this purpose only).
 
 ### Hidden sessions and iframes
 
@@ -130,7 +133,7 @@ Rules that make an otherwise-correct patch wrong here.
 - **Reconnection.** A browser reconnect spawns a fresh `RelayClient`, with a fresh upstream connection — relayLLM's per-connection subscription state (joined sessions, etc.) starts empty either way. But the upstream leg of an *existing* `RelayClient` also self-heals on its own, with capped backoff (`relay-client.js#_scheduleUpstreamReconnect`), independent of the browser socket — relay's own pong timeout or a relayLLM restart behind it can drop and restore it without the browser ever seeing a close; see `relay_status` in docs/api.md. The secondary relayScheduler `/ws/tasks` connection (`relay-client.js#_connectScheduler`) self-heals the same way.
 - **Permission auto-approval** is governed by the session/project permission mode (`bypassPermissions` = all tools, `acceptEdits` = file writes) — there is no per-connection `alwaysAllow` flag.
 - **Chat defaults are client-side and per provider.** Every web/voice chat launch (form, template, a mode's voice preset) goes through `ShellLauncherDialog#_launchSession`, which applies `applyChatDefaults`: non-Claude models get `settings.useRelayTools` + `appendClaudeMd`, Claude and unknown models get neither. There is no per-chat or per-template toggle. Hidden sessions (search summarizer, module invoker) never pass through it.
-- **Relay disconnection** — file and terminal-UI ops keep working (local); session state lives in relay-sessions, so the sidebar persists across a relay drop.
+- **Relay disconnection** — every project file operation goes through relay, so file ops fail with "Relay is not reachable" while relay is down (the `/ws/files` socket reconnects by itself, re-sending `watch` for each watched project, with no catch-up for changes missed). Terminal-UI ops are local; session state lives in relay-sessions, so the sidebar persists across a relay drop.
 
 ## Ecosystem
 

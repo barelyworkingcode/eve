@@ -139,7 +139,9 @@ class RelayTransport {
     }
   }
 
-  async fetch(method, path, body, { traceId, scope } = {}) {
+  // `signal` aborts the request; the promise then rejects with an error whose
+  // name is 'AbortError'.
+  async fetch(method, path, body, { traceId, scope, signal } = {}) {
     const url = this._buildUrl(this._httpBase, path);
     const headers = { 'Content-Type': 'application/json' };
     applyScope(headers, scope);
@@ -157,8 +159,27 @@ class RelayTransport {
     if (body !== undefined) {
       opts.body = JSON.stringify(body);
     }
+    if (signal) opts.signal = signal;
 
     return this._nodeRequest(url, opts);
+  }
+
+  // Resolves as soon as the response headers arrive, with the body left
+  // unread: { status, headers, body: IncomingMessage }. The caller owns the
+  // body (pipe it, or drain it with res.resume()). Used for raw file bytes,
+  // where buffering the whole response (fetchRaw) would not do.
+  stream(method, path, { headers: extra, traceId, signal } = {}) {
+    const url = this._buildUrl(this._httpBase, path);
+    const headers = { ...(extra || {}) };
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    if (this.carriesTrace) headers[TRACE_HEADER] = acceptTraceId(traceId);
+    return new Promise((resolve, reject) => {
+      const req = this._requestLib.request(this._requestOptions(url, { method, headers, signal }), (res) => {
+        resolve({ status: res.statusCode || 0, headers: res.headers, body: res });
+      });
+      req.on('error', reject);
+      req.end();
+    });
   }
 
   createWebSocket(wsPath = '/ws', { traceId, scope } = {}) {
@@ -191,8 +212,8 @@ class RelayTransport {
     return `${base}${normalized}`;
   }
 
-  _nodeRequest(url, { method, headers, body }) {
-    return this._doRequest(url, { method, headers, body }).then(({ status, buffer }) => {
+  _nodeRequest(url, { method, headers, body, signal }) {
+    return this._doRequest(url, { method, headers, body, signal }).then(({ status, buffer }) => {
       const raw = buffer.toString('utf8');
       let data = null;
       if (raw) {
@@ -208,25 +229,31 @@ class RelayTransport {
     }));
   }
 
-  _doRequest(url, { method, headers, body }) {
+  _requestOptions(url, { method, headers, body, signal }) {
+    const baseLen = url.indexOf('/', url.indexOf('//') + 2);
+    const pathAndQuery = baseLen >= 0 ? url.slice(baseLen) : '/';
+    const opts = {
+      method,
+      hostname: this.parsedUrl.hostname,
+      port: this.parsedUrl.port || (this._isHttps ? 443 : 80),
+      path: pathAndQuery,
+      headers: { ...headers },
+      agent: this.agent,
+    };
+    if (this.mode === 'socket') {
+      opts.hostname = 'localhost';
+      opts.port = null;
+    }
+    if (body !== undefined) {
+      opts.headers['Content-Length'] = Buffer.byteLength(body);
+    }
+    if (signal) opts.signal = signal;
+    return opts;
+  }
+
+  _doRequest(url, { method, headers, body, signal }) {
     return new Promise((resolve, reject) => {
-      const baseLen = url.indexOf('/', url.indexOf('//') + 2);
-      const pathAndQuery = baseLen >= 0 ? url.slice(baseLen) : '/';
-      const opts = {
-        method,
-        hostname: this.parsedUrl.hostname,
-        port: this.parsedUrl.port || (this._isHttps ? 443 : 80),
-        path: pathAndQuery,
-        headers: { ...headers },
-        agent: this.agent,
-      };
-      if (this.mode === 'socket') {
-        opts.hostname = 'localhost';
-        opts.port = null;
-      }
-      if (body !== undefined) {
-        opts.headers['Content-Length'] = Buffer.byteLength(body);
-      }
+      const opts = this._requestOptions(url, { method, headers, body, signal });
 
       const req = this._requestLib.request(opts, (res) => {
         const chunks = [];

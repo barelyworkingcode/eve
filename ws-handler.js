@@ -7,10 +7,11 @@ const { acceptTraceId } = require('./trace');
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, searchSummarizer, resolveProject, ensureProjectHost, hostPool, ttsService, sttService, uiBus, chiefOfStaff, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, files, searchSummarizer, resolveProject, ensureProjectHost, ttsService, sttService, uiBus, chiefOfStaff, log }) {
   // Shared across every connection this factory serves (the factory itself
   // runs once, at server.js startup) — a host_status change must reach every
   // authenticated browser tab, not just the one that happened to trigger it.
+  // The statuses come from relay over /ws/files (relay-file-client.js).
   const authenticatedSockets = new Set();
 
   function sendHostStatus(ws, evt) {
@@ -19,7 +20,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     try { ws.send(JSON.stringify(frame)); } catch { /* socket closing */ }
   }
 
-  hostPool?.on('status', (evt) => {
+  files?.on('host_status', (evt) => {
     for (const client of authenticatedSockets) sendHostStatus(client, evt);
   });
 
@@ -30,12 +31,11 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     let isAuthenticated = !requiresAuth;
 
     // Sent once per newly-authenticated connection so a fresh browser tab is
-    // caught up on every host the pool has already observed a status for —
-    // it does not, itself, spawn a HostAgent for a host nobody has touched yet.
+    // caught up on the latest status relay has reported for every host.
     function onAuthenticated() {
       authenticatedSockets.add(ws);
-      if (!hostPool) return;
-      for (const s of hostPool.statuses()) sendHostStatus(ws, { hostId: s.hostId, name: s.name, status: s.status });
+      if (!files) return;
+      for (const s of files.hostStatuses()) sendHostStatus(ws, s);
     }
     if (isAuthenticated) onAuthenticated();
 
@@ -46,8 +46,8 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
     uiBus?.register(relayClient);
-    const fileWatcher = new FileWatcher(ws, (project) => fileHandlers.fileServiceFor(project), resolveProject);
-    // SearchService and SearchSummarizer track in-flight work by requestId
+    const fileWatcher = new FileWatcher(ws, files, resolveProject);
+    // File searches and SearchSummarizer track in-flight work by requestId
     // only, so this connection must track which IDs belong to it to cancel
     // cleanly on drop.
     const inflightSearchIds = new Set();
@@ -125,7 +125,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             inflightSearchIds,
             inflightAiIds,
             log,
-            deps: { relayTransport, fileHandlers, searchSummarizer, resolveProject, hostPool, ttsService, sttService, chiefOfStaff },
+            deps: { relayTransport, fileHandlers, searchSummarizer, resolveProject, ttsService, sttService, chiefOfStaff },
           });
         }
       } catch (err) {
@@ -134,10 +134,10 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     });
 
     ws.on('close', () => {
-      // ripgrep children and hidden relay sessions both stay alive until
+      // Searches in relay and hidden relay sessions both stay alive until
       // their own timeouts otherwise.
       for (const id of inflightSearchIds) {
-        fileHandlers.searchService?.cancel(id);
+        fileHandlers.cancelSearch(id);
       }
       inflightSearchIds.clear();
       for (const id of inflightAiIds) {

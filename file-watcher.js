@@ -1,17 +1,16 @@
 /**
- * One recursive directory watcher per project (not per-file `fs.watch`): a
- * per-file watch is bound to the file's inode and goes silent after an
- * atomic save (write-temp-then-rename), which is how most editors, CLI
- * tools, and git write. Watching the tree survives atomic replaces. Serves
- * both editor live-update (`file_changed`) and sidebar tree sync (`dir_changed`).
+ * Turns relay's change stream into the browser's tree and editor updates.
+ * Relay owns the watching (one recursive watcher per project, console or SSH
+ * host); this class is fed by the RelayFileClient's `fs_event`, `watch_ok` and
+ * `watch_error` and does what the old per-backend watchers did after the
+ * kernel event: debounce, filter, and push. There is one FileWatcher per
+ * browser connection; the client ref-counts the underlying watch across them.
+ * It serves both editor live-update (`file_changed`) and sidebar tree sync
+ * (`dir_changed`).
  *
- * Backend seam (../relay/docs/ssh-hosts.md): a console project watches with
- * a local recursive `fs.watch`; a host project instead asks its HostAgent
- * (ssh-host-pool.js) to watch, ref-counted across every browser connection
- * that's touched that host, and feeds the agent's `{event:"change"}` frames
- * into the same debounce/dedup path below. The agent doesn't distinguish
- * rename from in-place write, so a remote event is treated as both — an
- * extra, idempotent `dir_changed` is cheap; missing one is a stale tree.
+ * Relay forwards every event unfiltered with kind `change` (content) or
+ * `rename` (created, removed, renamed): only a `rename` can change a
+ * directory listing.
  *
  * The same stream drives the Changes panel's `git_changed` push
  * (docs/design-git-changes.md, "Refresh"). Attribution is a cheap path
@@ -23,9 +22,6 @@
  * a repo it doesn't know, so an imprecise guess is fine; a missed one isn't.
  */
 const crypto = require('crypto');
-const fs = require('fs');
-const fsp = require('fs').promises;
-const path = require('path');
 
 // Still received from the kernel; dropped here so installs / git ops don't
 // spam tree refreshes.
@@ -43,23 +39,28 @@ const SELF_WRITE_TTL_MS = 1000;
 const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
 class FileWatcher {
-  // fileServiceFor: (project) => FileService|RemoteFileService, mirroring
-  // FileHandlers#fileServiceFor — kept as an injected function (rather than a
-  // single instance) so this class never has to know which backend a given
-  // project uses.
-  constructor(ws, fileServiceFor, resolveProject) {
+  // files: the RelayFileClient. resolveProject: id -> project (or null).
+  constructor(ws, files, resolveProject) {
     this.ws = ws;
-    this.fileServiceFor = fileServiceFor;
+    this.files = files;
     this.resolveProject = resolveProject;
 
-    this.projectWatchers = new Map();
+    // Projects this connection holds a watch on (one ref each in the client).
+    this.heldProjects = new Set();
     this.watchedFiles = new Map();
     this.fileTimers = new Map();
     this.dirTimers = new Map();
     this.gitTimers = new Map();
     // absPath -> Map<sha256 hex of saved content, expiry timer>
     this.selfWrites = new Map();
-    this.reportedFailures = new Set(); // projectIds already told; cleared on a successful start
+    this.reportedFailures = new Set(); // projectIds already told; cleared on watch_ok
+
+    this._onFsEventFrame = (evt) => this._onRelayEvent(evt);
+    this._onWatchOk = (evt) => this.reportedFailures.delete(evt.projectId);
+    this._onWatchError = (evt) => this._onRelayWatchError(evt);
+    files.on('fs_event', this._onFsEventFrame);
+    files.on('watch_ok', this._onWatchOk);
+    files.on('watch_error', this._onWatchError);
   }
 
   // relativePath is echoed back verbatim (not canonicalized) so the client
@@ -127,9 +128,11 @@ class FileWatcher {
   }
 
   closeAll() {
-    for (const projectId of [...this.projectWatchers.keys()]) {
-      this._stopProjectWatcher(projectId);
-    }
+    this.files.removeListener('fs_event', this._onFsEventFrame);
+    this.files.removeListener('watch_ok', this._onWatchOk);
+    this.files.removeListener('watch_error', this._onWatchError);
+    for (const projectId of this.heldProjects) this.files.unwatch(projectId);
+    this.heldProjects.clear();
     this.watchedFiles.clear();
     for (const hashes of this.selfWrites.values()) {
       for (const t of hashes.values()) clearTimeout(t);
@@ -144,106 +147,44 @@ class FileWatcher {
   }
 
   _ensureProjectWatcher(projectId) {
-    if (this.projectWatchers.has(projectId)) return true;
-
-    const project = this.resolveProject(projectId);
-    if (!project) return false;
-
-    if (project.hostId) return this._ensureRemoteProjectWatcher(projectId, project);
-    return this._ensureLocalProjectWatcher(projectId, project);
-  }
-
-  _ensureLocalProjectWatcher(projectId, project) {
-    let root;
-    try {
-      root = this.fileServiceFor(project).validatePath(project.path, '/');
-    } catch {
-      return false;
-    }
-
-    const onEvent = (eventType, filename) => {
-      if (!filename) return; // some platforms omit the name on overflow
-      // Before the ignore check: a `.git/index` / `.git/HEAD` write is
-      // dropped for the tree but still means git status changed.
-      this._maybeScheduleGitChange(projectId, filename);
-      // Checked before canonicalizing: node_modules/.git churn is the
-      // highest-volume event source, so this keeps the hot path cheap.
-      if (this._isIgnored(filename)) return;
-      const canon = this._canonRel(filename);
-      if (!canon) return;
-      this._onFsEvent(projectId, root, eventType, canon);
-    };
-
-    let watcher;
-    try {
-      watcher = fs.watch(root, { recursive: true }, onEvent);
-      watcher.on('error', (err) => { this._stopProjectWatcher(projectId); this._reportFailure(projectId, err); });
-    } catch (err) {
-      // Root missing/inaccessible, watcher budget spent, or recursive watch
-      // unsupported: the tree and open files go stale, so say so.
-      this._reportFailure(projectId, err);
-      return false;
-    }
-    this.reportedFailures.delete(projectId);
-
-    this.projectWatchers.set(projectId, { remote: false, watcher, root });
+    if (this.heldProjects.has(projectId)) return true;
+    if (!this.resolveProject(projectId)) return false;
+    this.heldProjects.add(projectId);
+    this.files.watch(projectId);
     return true;
   }
 
-  // hostAgent.watch()/unwatch() are ref-counted per HostAgent across every
-  // browser connection that touches that host, so multiple FileWatcher
-  // instances (one per WS connection) sharing the same agent don't fight
-  // over a single underlying remote `fs.watch`.
-  _ensureRemoteProjectWatcher(projectId, project) {
-    const agent = this._hostAgentFor(project);
-    if (!agent) return false;
-
-    const root = project.path;
-    const onChange = (evt) => {
-      if (evt.root !== root) return; // this agent may serve other projects on the same host
-      // The agent forwards every event unfiltered, so apply the same
-      // git-then-ignore split as the local backend here.
-      this._maybeScheduleGitChange(projectId, evt.path);
-      if (this._isIgnored(evt.path)) return;
-      const canon = this._canonRel(evt.path);
-      // A remote event carries no rename/change distinction — treat every
-      // one as a potential rename so the directory listing refreshes too.
-      this._onFsEvent(projectId, root, 'rename', canon);
-    };
-    agent.on('change', onChange);
-    agent.watch(root).catch(() => { /* connectivity surfaces via host_status, not here */ });
-
-    this.projectWatchers.set(projectId, { remote: true, agent, root, onChange });
-    return true;
+  _onRelayEvent({ projectId, path: eventPath, kind }) {
+    if (!this.heldProjects.has(projectId)) return;
+    // Before the ignore check: a `.git/index` / `.git/HEAD` write is
+    // dropped for the tree but still means git status changed.
+    this._maybeScheduleGitChange(projectId, eventPath);
+    // Checked before canonicalizing: node_modules/.git churn is the
+    // highest-volume event source, so this keeps the hot path cheap.
+    if (this._isIgnored(eventPath)) return;
+    const canon = this._canonRel(eventPath);
+    if (!canon) return;
+    this._onFsEvent(projectId, kind, canon);
   }
 
-  _hostAgentFor(project) {
-    const fs = this.fileServiceFor(project);
-    return fs && fs.hostAgent ? fs.hostAgent : null;
+  // Relay holds no watch for the project after this. Let go of ours, so the
+  // next list_directory asks again, and tell the browser once.
+  _onRelayWatchError({ projectId, code }) {
+    if (!this.heldProjects.has(projectId)) return;
+    this.heldProjects.delete(projectId);
+    this.files.unwatch(projectId);
+    this._reportFailure(projectId, code);
   }
 
-  // Once per project until a later start succeeds: list_directory retries
-  // the start on every call and would otherwise repeat the frame.
-  _reportFailure(projectId, err) {
+  // Once per project until the next watch_ok: list_directory retries the
+  // watch on every call and would otherwise repeat the frame.
+  _reportFailure(projectId, code) {
     if (this.reportedFailures.has(projectId)) return;
     this.reportedFailures.add(projectId);
-    const reason = (err && err.code) || (err && err.name) || 'UNKNOWN';
-    this._send({ type: 'watch_error', projectId, reason });
+    this._send({ type: 'watch_error', projectId, reason: code || 'UNKNOWN' });
   }
 
-  _stopProjectWatcher(projectId) {
-    const entry = this.projectWatchers.get(projectId);
-    if (!entry) return;
-    if (entry.remote) {
-      entry.agent.removeListener('change', entry.onChange);
-      entry.agent.unwatch(entry.root).catch(() => { /* best-effort teardown */ });
-    } else {
-      try { entry.watcher.close(); } catch { /* already closed */ }
-    }
-    this.projectWatchers.delete(projectId);
-  }
-
-  _onFsEvent(projectId, root, eventType, canonRel) {
+  _onFsEvent(projectId, eventType, canonRel) {
     // Atomic saves arrive as 'rename', in-place writes as 'change' - handle both.
     if (this.watchedFiles.get(projectId)?.has(canonRel)) {
       this._scheduleFilePush(projectId, canonRel);
@@ -251,7 +192,7 @@ class FileWatcher {
 
     // Only 'rename' can change a directory listing; 'change' is content-only.
     if (eventType === 'rename') {
-      this._scheduleDirChange(projectId, root, this._parentCanon(canonRel));
+      this._scheduleDirChange(projectId, this._parentCanon(canonRel));
     }
   }
 
@@ -269,7 +210,7 @@ class FileWatcher {
 
     const project = this.resolveProject(projectId);
     if (!project) return;
-    const fileService = this.fileServiceFor(project);
+    const fileService = this.files.forProject(project);
 
     // Must match ws/file-messages.js's validatePath derivation exactly, or the
     // self-write key won't match and Eve's own write will echo back.
@@ -282,11 +223,7 @@ class FileWatcher {
     try {
       if (entry.binary) {
         // Viewer files: notify only; the client re-fetches via its cache-busted URL.
-        if (project.hostId) {
-          await fileService.readFile(project.path, entry.clientPath); // existence probe
-        } else {
-          await fsp.access(absPath); // skip if it vanished
-        }
+        await fileService.stat(project.path, entry.clientPath); // skip if it vanished
         this._send({ type: 'file_changed', projectId, path: entry.clientPath });
         return;
       }
@@ -303,7 +240,7 @@ class FileWatcher {
     }
   }
 
-  _scheduleDirChange(projectId, root, canonDir) {
+  _scheduleDirChange(projectId, canonDir) {
     const key = this._key(projectId, canonDir);
     clearTimeout(this.dirTimers.get(key));
     this.dirTimers.set(key, setTimeout(async () => {
@@ -313,16 +250,9 @@ class FileWatcher {
       // directory's own event is what actually drops it from the tree.
       const project = this.resolveProject(projectId);
       if (!project) return;
-      const fileService = this.fileServiceFor(project);
       try {
-        if (project.hostId) {
-          // No cheap remote "is it still a directory" probe beyond listing it.
-          await fileService.listDirectory(project.path, this._toClientDir(canonDir));
-        } else {
-          const absDir = canonDir === '' ? root : path.join(root, ...canonDir.split('/'));
-          const st = await fsp.stat(absDir);
-          if (!st.isDirectory()) return;
-        }
+        const st = await this.files.forProject(project).stat(project.path, this._toClientDir(canonDir));
+        if (st.type !== 'directory') return;
       } catch {
         return;
       }
@@ -347,8 +277,7 @@ class FileWatcher {
   }
 
   // Returns the repo guess for a changed path ('/<seg>', '/', or '*'), or
-  // null when the event can't affect git status. Accepts a raw fs.watch
-  // filename (path.sep) or a forward-slashed agent path.
+  // null when the event can't affect git status.
   _gitRepoFor(p) {
     const segs = String(p).split(/[\\/]/).filter(Boolean);
     if (segs.length === 0) return null;
@@ -374,7 +303,7 @@ class FileWatcher {
   }
 
   _canonRel(p) {
-    return String(p).split(path.sep).join('/').replace(/^\/+/, '').replace(/\/+$/, '');
+    return String(p).replace(/^\/+/, '').replace(/\/+$/, '');
   }
 
   _parentCanon(canonRel) {
@@ -387,8 +316,6 @@ class FileWatcher {
   }
 
   _isIgnored(p) {
-    // Matches both a raw fs.watch filename (path.sep) and an
-    // already-canonical forward-slashed path.
     return String(p).split(/[\\/]/).some((seg) => IGNORED_SEGMENTS.has(seg));
   }
 }
