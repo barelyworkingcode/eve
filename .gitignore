@@ -20,14 +20,7 @@ coverage/
 # Generated Kokoro voice packs for on-device TTS (run scripts/generate-voice-packs.py)
 public/kokoro-voices/*.bin
 plans/
-e2e/.test-env.json
 test-results/
-test/fixtures/*
-!test/fixtures/logging-schema.json
 playwright-report/
 .playwright-cli/
 relay-device.log
-
-# Visual-regression run output (only __baseline__ is source)
-test/visual/__current__/
-test/visual/__diff__/

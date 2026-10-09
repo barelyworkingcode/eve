@@ -59,7 +59,7 @@ Relay owns the host connection and the file agent that runs on the host; eve nev
 - **`relay-file-client.js`** — `RelayFileClient` and `ProjectFiles`. `ProjectFiles` has `FileService`'s old method surface and return shapes (list, read, write, rename, move, delete, upload, mkdir, stat, search, `openStream`, git) and sends each as a relay file route through `RelayTransport`, for console and host projects alike; relay picks the backend. `RelayFileClient` also holds the one `/ws/files` socket (capped 2–30 s reconnect, ref-counted `watch`/`unwatch`, latest `host_status` per host) and `pasteToHost`. Relay's error codes become the `file_error` texts in one table there. `FileHandlers#fileServiceFor(project)` is `files.forProject(project)`; every file/search/watch call site goes through it.
 - **`file-watcher.js`** — fed by the client's `fs_event`/`watch_ok`/`watch_error`: git-change check, ignore list, debounce, then `file_changed`/`dir_changed`/`git_changed`.
 
-Eve has no `fs`, `child_process`, ripgrep or trash call on a project file; `test/unit/file-plane-guard.test.js` fails if a module outside its allowlist requires one. Relay enforces containment (`..` refused, symlinks never followed), read-only projects and the `file_op` audit.
+Eve has no `fs`, `child_process`, ripgrep or trash call on a project file. Only modules that handle eve's own state (data dir, fd 3, CA file, OS temp dir, plans folder, device log) may require one; epic #310 restates this as a lint rule. Relay enforces containment (`..` refused, symlinks never followed), read-only projects and the `file_op` audit.
 
 ### Git changes (Changes tab + diff pane)
 
@@ -69,7 +69,7 @@ Design and pinned contract: [docs/design-git-changes.md](docs/design-git-changes
 
 The `__search:` prefix (`HIDDEN_SEARCH_PREFIX` in `search-summarizer.js`) is load-bearing: `routes/index.js` filters it out of `GET /api/sessions`. Any server path that creates a background relay session must use a filtered prefix. It must also call `relayClient.registerHiddenSession(sessionId, handler)` before `joinSession`, or its frames leak into the user's chat.
 
-Project-content iframes (`html-preview-pane.js`, `file-editor.js`) get `sandbox="allow-scripts"` only. Never add `allow-same-origin`. `test/unit/iframe-sandbox-guard.test.js` enforces this.
+Project-content iframes (`html-preview-pane.js`, `file-editor.js`) get `sandbox="allow-scripts"` only. Never add `allow-same-origin`; epic #310 restates this as a lint rule.
 
 ## Client architecture
 
@@ -86,44 +86,31 @@ Frontend is vanilla JS (no framework, no build step), mid-migration from a legac
 ## Testing
 
 ```bash
-node --check <file.js>    # THE build gate. There is no compiler.
-npm test                  # unit (hermetic, no external deps). Must stay green.
-npm run test:integration  # integration tier
-npm run test:e2e          # Playwright end-to-end. Must stay green.
+node --check <file.js>      # THE build gate. There is no compiler.
+npm run -s verify:devbox    # devbox world journeys, test machine only (devboxverify/README.md)
 ```
 
-**Where e2e runs.** The pull request check (`.github/workflows/ci.yml`, job `test`) runs `node --check`, unit and integration only. The Playwright e2e suite runs in the `e2e` job on every push to `main`, after the merge, and by hand (`workflow_dispatch`, Actions tab). For pushes that touch code the pre-push hook already ran e2e locally, and the hosted runner needs several minutes for it, so repeating it on every pull request costs time without adding a check. A red `e2e` run on `main` is reverted first, then fixed on a branch. A pull request also runs two jobs of its own: `lint-waits` refuses a line the PR adds that calls `waitForTimeout` in `test/e2e` (`scripts/lint-added-waits.js`; waits already on `main` pass), and `burn-in` runs each e2e spec the PR adds or changes five times with `--repeat-each=5 --retries=0` (`scripts/burn-in-specs.js`), skipping when none changed.
+**No hermetic suite yet.** The Jest unit, integration and visual suites, the Playwright specs and the JS fake relay were removed. Epic #310 replaces them with Playwright specs that each start their own `fakerelay` (relay's repo) and eve, and drive eve only through what a person sees. Until that harness lands, CI runs `node --check` and the PR guards. Devbox world (`devboxverify/`, the `devbox/verify` status check) is unchanged and is the only end-to-end proof.
 
-**Browser-test lock.** `test:e2e`, `test:visual` and `verify:devbox` share one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
-
-```
-test/
-  setup.js          - setupFilesAfterEach: force-restores real timers after every test
-                      (works around a Jest 30 + Node bug where useRealTimers() leaves
-                      setTimeout/clearTimeout undefined)
-  unit/             - pure logic, no external deps
-  integration/      - cross-module / transport
-  e2e/              - Playwright (browser)
-  visual/           - pixel-diff baselines (pre-push only, not in test:e2e)
-```
+**Browser-test lock.** `verify:devbox` holds one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
 
 **Local gates** (`.githooks/`, run by the machine's global hooks dispatcher; never set a repo-local `core.hooksPath`, which skips the push guard). `--no-verify` is for the operator in an emergency, never the agent.
 
-- **pre-commit** — on any commit staging `.js` / `jest.config.js` / `package.json`, runs `node --check` on staged JS then the unit suite.
-- **pre-push** — on any push whose range touches `.js` / `.css` / `.html` / test config, runs unit, integration, e2e and visual. The unit tier alone cannot see the frozen behavioural gates — the chat input row, the voice drawer, the pane characterisation suite, two-connection WebSocket isolation, the pixel baselines — which is the tier where regressions in this codebase actually surface. `test:voice` is excluded from both gates: it needs the live voice daemons, so it would fail whenever they are down.
+- **pre-commit**: on any commit staging `.js`, `.cjs` or `.mjs` files, runs `node --check` on them.
+- **pre-push**: on any push whose range touches `.js`, `.cjs` or `.mjs` files, runs `node --check` on them.
 
-When using `jest.useFakeTimers()`, you don't need to restore manually — `test/setup.js` does. Keep fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked timer can't hang a worker on teardown. Full testing guide: [docs/test.md](docs/test.md).
+Keep fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked timer can't hold the process open. Full testing guide: [docs/test.md](docs/test.md).
 
 ## Patch rules
 
 Rules that make an otherwise-correct patch wrong here.
 
-- **A new call to relay or relayScheduler needs a fake route and a pin in the same PR.** Add the route to `test/integration/fake-relay.js` with relay's real status and body, add its source text to `test/integration/relay-source-pins.test.js`, and cover it in `relay-fidelity.test.js`. The fake is the only relay a cloud session has; a call it does not know answers 404 and a spec that passes against it proves nothing. See [docs/test.md](docs/test.md) and [docs/baseline.md](docs/baseline.md).
+- **A new call to relay or relayScheduler needs relay's `fakerelay` to serve it.** Epic #310's specs run eve against `fakerelay`, built from the relay commit eve pins. Until that harness lands, the devbox world journeys are the only check that eve and relay agree.
 
 - **Script order in `index.html` is load-bearing** (globals, not modules). If you delete a `<script>` tag, make sure nothing later still references its class.
 - **Never weaken or skip a test to go green.** If a test covers code you removed, say so and tighten it rather than deleting the assertion.
 - **Don't reformat or restyle code you aren't otherwise changing.**
-- **Keep the feature map current.** A change a user would notice in a file matched by a `code` glob in `docs/areas.jsonc` updates the feature map `docs/FEATURES.md` (feature row, journey) in the same PR. Separately, a new tracked file must be added to an area or to `quiet` in `docs/areas.jsonc`, or `npm test` fails. Reviewers check it.
+- **Keep the feature map current.** A change a user would notice in a file matched by a `code` glob in `docs/areas.jsonc` updates the feature map `docs/FEATURES.md` (feature row, journey) in the same PR. Separately, a new tracked file must be added to an area or to `quiet` in `docs/areas.jsonc`; devboxverify runs every journey for a file in neither. Reviewers check it.
 - **CRLF files.** `package-lock.json` and five source files are committed with CRLF: `public/tab-manager.js`, `public/file-editor.js`, `public/sidebar-renderer.js`, `routes/index.js`, `ws-handler.js`. `npm install` rewrites the lockfile as LF, and a tool that rewrites a whole file (rather than patching in place) silently converts it to LF. Either one turns a small change into a whole-file diff. Check with `grep -c $'\r' <file>`, and restore with `perl -pi -e 's/\r?\n/\r\n/' <file>`.
 
 ## Gotchas

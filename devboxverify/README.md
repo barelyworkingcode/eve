@@ -193,9 +193,8 @@ normalised absolute path or is the live eve's own `data` dir.
 click creates an `AudioContext`, and the renderer would block or fail there.
 A timeout usually clears after restarting `coreaudiod`.
 
-`lock` takes the shared browser-test lock (`scripts/browser-lock.js`, the same
-one `npm run test:e2e` and `npm run test:visual` take) and holds it for the
-whole run. While another run holds it, the lock waits up to
+`lock` takes the shared browser-test lock (`scripts/browser-lock.js`) and holds
+it for the whole run. While another run holds it, the lock waits up to
 `EVE_BROWSER_LOCK_TIMEOUT` seconds (default 1800; the nightly plist sets 600),
 logging the holder's pid and command to stderr. `lock FAIL` means it gave up
 waiting, or could not take the lock at all (for example `perl` is not on

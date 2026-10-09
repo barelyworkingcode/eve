@@ -15,13 +15,6 @@
     "ssl": "HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem PORT=443 node server.js",
     "ssl:dual": "HTTPS_CERT=./certs/server.pem HTTPS_KEY=./certs/server-key.pem PORT=443 DUAL_LISTEN=true HTTP_PORT=3000 node server.js",
     "prune-css": "node scripts/prune-css.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:integration": "jest --config jest.integration.config.js",
-    "test:e2e": "node scripts/browser-lock.js playwright test",
-    "test:voice": "playwright test --config test/e2e/playwright.voice.config.js",
-    "test:visual:baseline": "VISUAL_MODE=baseline playwright test --config test/visual/playwright.visual.config.js test/visual/capture.spec.js",
-    "test:visual": "node scripts/browser-lock.js sh -c 'VISUAL_MODE=current playwright test --config test/visual/playwright.visual.config.js test/visual/capture.spec.js && node test/visual/diff.js'",
     "verify:devbox": "node devboxverify/main.js",
     "audit": "npm audit --omit=dev",
     "relay:restart": "/Applications/Relay.app/Contents/MacOS/relay service restart --id eve",
@@ -54,9 +47,6 @@
     "@playwright/test": "^1.60.0",
     "eslint": "^10.12.0",
     "eslint-plugin-playwright": "^2.12.1",
-    "jest": "^30.2.0",
-    "pixelmatch": "^7.2.0",
-    "pngjs": "^7.0.0",
     "postcss": "^8.5.28"
   }
 }
