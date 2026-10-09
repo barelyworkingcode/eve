@@ -1164,7 +1164,7 @@ describe('Chief of Staff scoped start (cmd/relay/session_chief_of_staff_start.go
     ['a folder that does not exist', { ...good, folder: 'nope' }, undefined, 400, 'folder_not_found'],
     ['an unknown project', { ...good, projectId: 'ghost' }, undefined, 403, 'project_not_available'],
     ['a remote project', { ...good, projectId: 'pr' }, undefined, 403, 'project_not_available'],
-    ['a project on an SSH host', { ...good, projectId: 'ph' }, undefined, 403, 'project_on_host'],
+    ['a terminal start in a project on an SSH host', { ...good, projectId: 'ph', mode: 'terminal' }, undefined, 400, 'terminal_on_host'],
     ['a terminal start with a non-Claude model', { ...good, mode: 'terminal', model: 'pi/x' }, undefined, 400, 'terminal_needs_claude'],
   ])('%s: relay\'s {error, message} body and nothing started', async (_what, body, raw, status, code) => {
     const res = await start(body, SCOPE, raw);
@@ -1201,6 +1201,13 @@ describe('Chief of Staff scoped start (cmd/relay/session_chief_of_staff_start.go
     const listed = (await (await fetch(`${base}/api/sessions`, { headers: SCOPE })).json()).sessions;
     expect(listed).toEqual([expect.objectContaining({ id: made.sessionId, headless: true, origin: 'chief-of-staff' })]);
     expect(relay.cosStarts).toEqual([{ scope: 'chief-of-staff', body: expect.objectContaining({ folder: 'src' }) }]);
+  });
+
+  it('a headless start in a host project is 201 with the folder joined as text, never stat\'d on this machine', async () => {
+    relay.addProject({ id: 'pz', name: 'Far', path: '/srv/acme', host_id: 'h1' });
+    const res = await start({ ...good, projectId: 'pz', folder: 'svc/api' });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ projectId: 'pz', directory: '/srv/acme/svc/api', mode: 'headless', origin: 'chief-of-staff' });
   });
 
   it('a terminal start is 201 kind pty, lists in /api/terminals with its origin and not in the session list', async () => {

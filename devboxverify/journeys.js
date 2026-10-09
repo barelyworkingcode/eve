@@ -3085,19 +3085,31 @@ async function cosReadsProject(env) {
   return result(id, PASS, `the Chief of Staff, on ${COS_MODEL_ID}, answered from ${file} in ${acme.name} with ${marker}`);
 }
 
-// The audit rows `relay audit` holds for one session_launch target.
-async function sessionLaunchRows(env, sessionId) {
-  const args = ['audit', '--event', 'session_launch', '--grep', sessionId, '--json', '--tail', '50'];
-  const { stdout } = await exec(env.relayBin, args, { timeout: 10000, maxBuffer: 32 << 20 });
+// The session_launch rows of `relay audit --json` output that name one session.
+function launchRowsFromJsonl(stdout, sessionId) {
   const rows = [];
-  for (const line of stdout.split('\n')) {
+  for (const line of String(stdout).split('\n')) {
     let o;
     try { o = JSON.parse(line); } catch { continue; }
     if (!o || o.event !== 'session_launch') continue;
     const a = o.args && typeof o.args === 'object' ? o.args : {};
-    if (a.session_id === sessionId) rows.push({ outcome: o.outcome, origin: a.origin });
+    if (a.session_id === sessionId) rows.push({ outcome: o.outcome, origin: a.origin, hostId: a.host_id });
   }
   return rows;
+}
+
+// The audit rows `relay audit` holds for one session_launch target.
+async function sessionLaunchRows(env, sessionId) {
+  const args = ['audit', '--event', 'session_launch', '--grep', sessionId, '--json', '--tail', '50'];
+  const { stdout } = await exec(env.relayBin, args, { timeout: 10000, maxBuffer: 32 << 20 });
+  return launchRowsFromJsonl(stdout, sessionId);
+}
+
+// Null when a row is ok, from the Chief of Staff, and names the host.
+function hostLaunchProblem(rows, hostId) {
+  if (rows.some((r) => r.origin === 'chief-of-staff' && r.outcome === 'ok' && r.hostId === hostId)) return null;
+  const seen = rows.map((r) => `${r.outcome}/${r.origin || 'none'}/${r.hostId || 'no host'}`).join(', ') || 'none';
+  return `relay audit holds no ok session_launch row with origin chief-of-staff and host_id ${hostId || '(none)'} (rows: ${seen})`;
 }
 
 async function cosStartCard(env) {
@@ -3184,6 +3196,124 @@ async function cosStartCard(env) {
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `reading ${file} made a Start card for ${acme.name} (headless, ${model}) with the prompt; Start posted Started with Open, `
     + `the roster grew, relay audit holds an ok session_launch from chief-of-staff, and the agent replied ${marker}`);
+}
+
+const HOST_PREFIX = 'loopback-';
+const HOST_TARGET = 'localhost';
+const HOST_STATE_DIR = 'grant-dropin-'; // swept by verify-fixtures-removed's grant-* rule
+
+// Like eveJson, with room for relay's host probe and a presence dialog.
+async function eveJsonSlow(env, method, urlPath, body) {
+  const res = await fetch(env.url.replace(/\/+$/, '') + urlPath, {
+    method, headers: { 'X-Session-Token': env.session.token, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(60000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${method} ${urlPath} answered ${res.status}`);
+  return text ? JSON.parse(text) : null;
+}
+
+// A headless agent started through the thread in a project on an SSH host
+// (the loopback host, setup P11) posts Started, and relay audits the host.
+async function cosHostAgent(env) {
+  const id = 'cos-host-agent';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const marker = `verify-${env.nonce}-host`;
+  const hostName = `${HOST_PREFIX}${env.nonce}-coseve`;
+  const projectName = `Drop-in Host coseve ${env.nonce}`;
+  const dir = path.join(os.homedir(), '.local', 'state', 'devboxverify', `${HOST_STATE_DIR}${env.nonce}-coseve`);
+  let hostId = '';
+  let projectId = '';
+  const sessionIds = new Set();
+  // One cleanup, in dependency order: sessions, then the project, then the host.
+  env.cleanup('delete the hosted sessions, project and host', async () => {
+    const failures = [];
+    const attempt = async (label, fn) => { try { await fn(); } catch (err) { failures.push(`${label}: ${firstLine(err)}`); } };
+    if (projectId) {
+      const listed = await eveJson(env, 'GET', '/api/sessions').catch(() => []);
+      for (const s of listed) if (s && s.projectId === projectId) sessionIds.add(s.id);
+    }
+    for (const sid of sessionIds) await attempt(`session ${sid}`, () => deleteSession(env, sid));
+    if (projectId) await attempt('project', () => eveJson(env, 'DELETE', `/api/projects/${projectId}`));
+    if (hostId) await attempt('host', () => eveJson(env, 'DELETE', `/api/hosts/${hostId}`));
+    await attempt('folder', () => fs.promises.rm(dir, { recursive: true, force: true }));
+    if (failures.length) throw new Error(failures.join('; '));
+  });
+
+  env.step('create the loopback host');
+  try {
+    const host = await eveJsonSlow(env, 'POST', '/api/hosts', { name: hostName, target: HOST_TARGET, tmux_path: '/usr/bin/tmux' });
+    hostId = host && host.id ? host.id : '';
+  } catch (err) {
+    return result(id, BLOCKED, `loopback host not set up (setup P11): ${firstLine(err)}`);
+  }
+  if (!hostId) return result(id, BLOCKED, 'loopback host not set up (setup P11): eve answered no host id');
+
+  env.step('create the hosted project');
+  await fs.promises.mkdir(dir, { recursive: true });
+  const folder = await fs.promises.realpath(dir).catch(() => dir);
+  // Relay gates every project create behind a presence dialog, so the POST
+  // answers only once the helper has answered it. It must be ready first.
+  const presence = env.screen.answerPresence({ expect: 'create the project' });
+  if (!(await presence.ready)) return result(id, BLOCKED, `presence dialog ${(await presence.result).state}`);
+  try {
+    const project = await eveJsonSlow(env, 'POST', '/api/projects', {
+      name: projectName, path: folder, host_id: hostId, allowed_templates: ['claude-code'],
+    });
+    projectId = project && project.id ? project.id : '';
+  } catch (err) {
+    const { state } = await presence.result;
+    return result(id, BLOCKED, `hosted project not created (setup P11; presence dialog ${state}): ${firstLine(err)}`);
+  }
+  if (!projectId) return result(id, BLOCKED, 'hosted project not created (setup P11): eve answered no project id');
+
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+
+  env.step('ask for the hosted start');
+  const from = await cosSay(page, seen,
+    `In the project ${projectName}, start a headless agent with this task: Reply with exactly ${marker}`);
+  env.step('wait for the started post');
+  let started = await cosWaitPost(seen, from, ['start_card', 'started', 'start_failed', 'reply', 'notice']);
+  if (!started) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  if (started.kind === 'start_card') {
+    env.step('tap Start');
+    await page.getByTestId(`cos-start-${started.id}`).click({ timeout: 5000 });
+    started = await cosWaitPost(seen, from, ['started', 'start_failed']);
+    if (!started) return result(id, FAIL, `no started post within ${COS_TURN_WITHIN_MS / 1000}s of Start`);
+  }
+  if (started.kind !== 'started') {
+    const said = String(started.body || started.text || started.error || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    return result(id, FAIL, `the request posted "${started.kind}", want started: "${said}"`);
+  }
+  const sid = started.sessionId;
+  sessionIds.add(sid);
+  const problems = [];
+  if (started.projectName !== projectName) problems.push(`the Started post names "${started.projectName}", not ${projectName}`);
+  if (started.mode !== 'headless') problems.push(`the Started post mode is "${started.mode}", not headless`);
+  const open = page.locator(`[data-testid="cos-post-${started.id}"]`).getByTestId(`cos-open-${started.id}`);
+  if (await open.count() !== 1) problems.push('the Started post has no Open');
+
+  env.step('read relay audit');
+  let rows = [];
+  await poll(async () => {
+    rows = await sessionLaunchRows(env, sid).catch(() => []);
+    return rows.length ? rows : null;
+  }, { timeoutMs: 10000, intervalMs: 500 });
+  const auditProblem = hostLaunchProblem(rows, hostId);
+  if (auditProblem) problems.push(auditProblem);
+
+  env.step('open the started agent\'s thread');
+  const other = await env.newPage();
+  await openEve(other, env, `#session/${sid}`);
+  const answered = await poll(async () => (await thread(other).catch(() => [])).some((m) => m.who === 'message-assistant' && m.text.includes(marker)),
+    { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 1000 });
+  if (!answered) problems.push(`the hosted agent's thread holds no assistant reply with ${marker} within ${COS_TURN_WITHIN_MS / 1000}s`);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `the Chief of Staff started a headless agent in ${projectName} on an SSH host; the Started post names the project with Open, `
+    + `relay audit holds an ok session_launch from chief-of-staff with the host, and the agent replied ${marker}`);
 }
 
 const COS_FINISHED_WITHIN_MS = 240000;
@@ -3518,6 +3648,10 @@ const journeys = [
   { id: 'cos-start-card', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosStartCard },
   { id: 'cos-errand-finished', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosErrandFinished },
   {
+    id: 'cos-host-agent', timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    run: cosHostAgent,
+  },
+  {
     id: 'cos-project-from-relay', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosProjectFromRelay,
   },
@@ -3536,4 +3670,5 @@ const journeys = [
 
 module.exports = {
   journeys, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
+  launchRowsFromJsonl, hostLaunchProblem,
 };

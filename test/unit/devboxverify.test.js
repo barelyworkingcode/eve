@@ -637,7 +637,7 @@ describe('devboxverify journey table', () => {
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
     'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part', 'chat-tool-search', 'agent-board-states',
     'agent-drop-in',
-    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay',
+    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -660,8 +660,8 @@ describe('devboxverify journey table', () => {
     expect(journeyless.sort()).toEqual(['core', 'hosts', 'search', 'ui-control']);
   });
 
-  it('marks only cos-project-from-relay (relay gates its mint), add-browser-in-window and project-mode-new (relay gates its create) as screen and only the two passkey journeys as fixtures', () => {
-    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['cos-project-from-relay', 'project-mode-new', 'add-browser-in-window']);
+  it('marks only cos-host-agent and cos-project-from-relay (relay gates their creates and mint), add-browser-in-window and project-mode-new (relay gates its create) as screen and only the two passkey journeys as fixtures', () => {
+    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['cos-host-agent', 'cos-project-from-relay', 'project-mode-new', 'add-browser-in-window']);
     expect(journeys.filter(j => j.fixture).map(j => j.id).sort()).toEqual(['passkey-first-enrol', 'passkey-sign-in']);
   });
 
@@ -679,7 +679,7 @@ describe('devboxverify journey table', () => {
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
         'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
         'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in',
-        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay'].map(id => [id, acme])),
+        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent'].map(id => [id, acme])),
     });
   });
 
@@ -702,7 +702,7 @@ describe('devboxverify journey table', () => {
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished',
       'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
-      'chat-pasted-url-source', 'chat-tool-search', 'cos-project-from-relay', 'project-mode-new',
+      'chat-pasted-url-source', 'chat-tool-search', 'cos-host-agent', 'cos-project-from-relay', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -731,6 +731,7 @@ describe('devboxverify journey table', () => {
     ['cos-start-card', 'devboxverify/README.md', ['chief-of-staff'], 330000],
     ['cos-errand-finished', 'devboxverify/README.md', ['chief-of-staff'], 330000],
     ['cos-project-from-relay', 'devboxverify/README.md', ['chief-of-staff'], 180000],
+    ['cos-host-agent', 'devboxverify/README.md', ['chief-of-staff'], 420000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -1680,7 +1681,7 @@ describe('devboxverify/main.js main', () => {
 describe('devboxverify Chief of Staff project from relay (eve#249)', () => {
   const { chiefOfStaffSourceProblem } = require('../../devboxverify/main');
   const {
-    cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
+    cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine, launchRowsFromJsonl, hostLaunchProblem,
   } = require('../../devboxverify/journeys');
   const TOKEN = 'f'.repeat(32) + '0123456789abcdef'.repeat(2);
 
@@ -1802,6 +1803,27 @@ describe('devboxverify Chief of Staff project from relay (eve#249)', () => {
     });
     it('ignores other events and unreadable lines', () => {
       expect(cosLaunchRows(`junk\n${row({ event: 'session_message' })}`)).toEqual([]);
+    });
+  });
+
+  describe('hosted session_launch audit verdict (cos-host-agent)', () => {
+    const line = (o) => JSON.stringify({ event: 'session_launch', outcome: 'ok', args: { session_id: 's1', origin: 'chief-of-staff', host_id: 'h1' }, ...o });
+    it('reads outcome, origin and host of the rows naming the session', () => {
+      const other = line({ args: { session_id: 's2', origin: 'chief-of-staff', host_id: 'h1' } });
+      expect(launchRowsFromJsonl(`junk\n${line({})}\n${other}\n${line({ event: 'session_message' })}`, 's1'))
+        .toEqual([{ outcome: 'ok', origin: 'chief-of-staff', hostId: 'h1' }]);
+    });
+    it('passes on an ok chief-of-staff row naming the host', () => {
+      expect(hostLaunchProblem(launchRowsFromJsonl(line({}), 's1'), 'h1')).toBeNull();
+    });
+    it.each([
+      ['no rows', ''],
+      ['a refused launch', line({ outcome: 'denied' })],
+      ['another origin', line({ args: { session_id: 's1', origin: 'user', host_id: 'h1' } })],
+      ['no host', line({ args: { session_id: 's1', origin: 'chief-of-staff' } })],
+      ['another host', line({ args: { session_id: 's1', origin: 'chief-of-staff', host_id: 'h2' } })],
+    ])('fails on %s', (_n, jsonl) => {
+      expect(hostLaunchProblem(launchRowsFromJsonl(jsonl, 's1'), 'h1')).toMatch(/^relay audit holds no ok session_launch row/);
     });
   });
 

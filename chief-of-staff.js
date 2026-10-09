@@ -1081,8 +1081,9 @@ class ChiefOfStaff {
       return;
     }
     this._emitStatus();
-    // Local projects only: the person session reads files on this machine.
-    const projects = [...this.listProjects()].filter((p) => !p.hostId).map((p) => ({ id: p.id, name: p.name, path: p.path }));
+    // Every project goes in. The prompt marks a hosted one and drops its path:
+    // the person session reads local files only, but may start an agent on a host.
+    const projects = [...this.listProjects()].map((p) => ({ id: p.id, name: p.name, path: p.path, hostId: p.hostId }));
     const res = await this._modelTurn('person', prompt.personPrompt(job.text, projects));
     if (res.error === 'off') {
       this._notice(offNotice(this.off || { reason: 'no_project' }));

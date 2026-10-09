@@ -127,16 +127,16 @@ describe('resolveProjectArg', () => {
     expect(error).toMatchObject({ status: 404, code: 'unknown_project' });
     expect(error.message).toContain('Acme');
     expect(error.message).not.toContain('Name19');
-    expect(error.message).not.toContain('Remote');
+    expect(error.message).toContain('Remote');
   });
 
   it('two projects with the same name in any case are 409 ambiguous', () => {
     expect(resolve('beta').error).toMatchObject({ status: 409, code: 'ambiguous_project' });
   });
 
-  it('a project on a host is 403, by id and by name', () => {
-    expect(resolve('h1').error).toMatchObject({ status: 403, code: 'project_on_host' });
-    expect(resolve('remote').error).toMatchObject({ status: 403, code: 'project_on_host' });
+  it('a project on a host resolves, by id and by name', () => {
+    expect(resolve('h1').value).toMatchObject({ id: 'h1', hostId: 'hx' });
+    expect(resolve('remote').value).toMatchObject({ id: 'h1', hostId: 'hx' });
   });
 });
 
@@ -150,13 +150,15 @@ describe('/internal/cos', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cos-act-'));
     dirs.push(dir);
     h = { dir, calls: [], toolUse: null, release: null, turnStarted: null };
-    const rows = [{ id: 's1', name: 'Agent s1', projectId: 'p1', model: 'haiku', headless: true, attention: { state: 'idle', since: '2026-10-05T10:00:00.000Z' } }];
+    const rows = [{ id: 's1', name: 'Agent s1', projectId: 'p1', model: 'haiku', headless: true, attention: { state: 'idle', since: '2026-10-05T10:00:00.000Z' } },
+      { id: 's2', name: 'Agent s2', projectId: 'h1', model: 'haiku', headless: true, attention: { state: 'idle', since: '2026-10-05T10:00:00.000Z' } }];
     const sockets = [];
     const transport = {
       fetch: jest.fn(async (method, p, body) => {
         h.calls.push({ method, path: p, body });
         if (method === 'GET' && p === '/api/sessions') return { status: 200, data: { sessions: rows } };
         if (method === 'POST' && p === '/api/chief-of-staff/sessions') return { status: 201, data: { sessionId: 'new1', name: body.prompt, mode: body.mode } };
+        if (method === 'POST' && p === '/api/chief-of-staff/messages') return { status: 202, data: { sessionId: body.sessionId } };
         return { status: 404, data: {} };
       }),
       createWebSocket: () => { const ws = new EventEmitter(); ws.close = () => {}; sockets.push(ws); return ws; },
@@ -251,7 +253,6 @@ describe('/internal/cos', () => {
     ['an empty prompt', { project: 'Acme', prompt: ' ' }, 400, 'invalid_args', /prompt/],
     ['a folder with ..', { project: 'Acme', prompt: 'go', folder: '../x' }, 400, 'invalid_args', /folder/],
     ['an unknown project', { project: 'Nope', prompt: 'go' }, 404, 'unknown_project', /Acme/],
-    ['a host project', { project: 'Remote', prompt: 'go' }, 403, 'project_on_host', /host/],
     ['a bad mode', { project: 'Acme', prompt: 'go', mode: 'gui' }, 400, 'invalid_args', /mode/],
   ])('cos_propose_start with %s is refused before anything starts', async (_what, args, status, code, msg) => {
     await setup();
@@ -261,6 +262,30 @@ describe('/internal/cos', () => {
     expect(out).toMatchObject({ status, body: { ok: false, error: code } });
     expect(out.body.message).toMatch(msg);
     expect(h.calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+  });
+
+  it('cos_propose_start in a host project posts the scoped start with that projectId', async () => {
+    await setup();
+    await beginTurn('hello');
+    const args = { project: 'Remote', prompt: 'go' };
+    h.fire(`${PREFIX}cos_propose_start`, args);
+    const out = await call('cos_propose_start', args);
+    expect(out).toMatchObject({ status: 200, body: { ok: true, result: { status: 'started' } } });
+    expect(h.calls.filter((c) => c.method === 'POST')).toEqual([
+      expect.objectContaining({ path: '/api/chief-of-staff/sessions', body: expect.objectContaining({ projectId: 'h1', prompt: 'go' }) }),
+    ]);
+  });
+
+  it('cos_propose_send to an agent in a host project posts the scoped message', async () => {
+    await setup();
+    await beginTurn('tell Agent s2 hi');
+    const args = { sessionId: 's2', text: 'hi' };
+    h.fire(`${PREFIX}cos_propose_send`, args);
+    const out = await call('cos_propose_send', args);
+    expect(out).toMatchObject({ status: 200, body: { ok: true, result: { status: 'sent', sessionId: 's2' } } });
+    expect(h.calls.filter((c) => c.method === 'POST')).toEqual([
+      expect.objectContaining({ path: '/api/chief-of-staff/messages', body: { sessionId: 's2', text: 'hi' } }),
+    ]);
   });
 
   it('cos_propose_send to a session outside the roster is 404 unknown_session', async () => {

@@ -457,7 +457,7 @@ describe('the person\'s turn', () => {
     expect([...h.cos.roster.keys()]).toEqual(['s1', 's2']);
   });
 
-  it('gives the model the local projects, and no sessions', async () => {
+  it('gives the model every project, a hosted one marked and without its path, and no sessions', async () => {
     const model = sayingText('ok');
     setup({
       sessions: [row('s1', 'running')],
@@ -467,7 +467,7 @@ describe('the person\'s turn', () => {
     await h.start();
     await person('hello');
     const prompt = model.turn.mock.calls[0][0];
-    expect(JSON.parse(/<agent_data>\n([\s\S]*)\n<\/agent_data>/.exec(prompt)[1])).toEqual([{ id: 'p1', name: 'Acme', path: '/tmp/acme' }]);
+    expect(JSON.parse(/<agent_data>\n([\s\S]*)\n<\/agent_data>/.exec(prompt)[1])).toEqual([{ id: 'p1', name: 'Acme', path: '/tmp/acme' }, { id: 'p2', name: 'Remote', sshHost: true }]);
     expect(prompt).not.toContain('Agent s1');
   });
 

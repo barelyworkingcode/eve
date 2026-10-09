@@ -54,6 +54,12 @@ describe('agent text reaches the model as quoted data', () => {
     expect(JSON.parse(region(P.personPrompt('hello', [])))).toEqual([]);
   });
 
+  it('person prompt lists a hosted project as {id, name, sshHost: true} with no path', () => {
+    const prompt = P.personPrompt('hello', [{ id: 'p1', name: 'Acme', path: '/tmp/acme' }, { id: 'p2', name: 'Far', path: '/srv/far', hostId: 'h1' }]);
+    expect(JSON.parse(region(prompt))).toEqual([{ id: 'p1', name: 'Acme', path: '/tmp/acme' }, { id: 'p2', name: 'Far', sshHost: true }]);
+    expect(prompt).not.toContain('/srv/far');
+  });
+
   it('bootstrap prompt carries no agent data', () => {
     expect(P.bootstrapPrompt()).not.toContain('<agent_data>');
   });
@@ -70,6 +76,16 @@ describe('personSystemPrompt', () => {
   ])('states: %s', (_name, a, b) => {
     expect(sp).toMatch(a);
     expect(sp).toMatch(b);
+  });
+
+  it('tells the model how to treat an SSH-host project', () => {
+    for (const line of [
+      'You can read files in the person\'s local projects (Read, Grep, Glob) and look at their agents',
+      '(cos_list_sessions, cos_session_status). Read freely to answer. Never edit anything.',
+      'A project with "sshHost": true lives on an SSH host. You cannot read its files, so never try.',
+      'If the person asks about files in such a project, reply that you cannot read files in that project, and say its name.',
+      'You can still start a headless agent there with cos_propose_start (not a terminal), or pass a message to one of its agents.',
+    ]) expect(sp).toContain(line);
   });
 
   it('is not the wake prompt: it does not claim the session has no tools', () => {
