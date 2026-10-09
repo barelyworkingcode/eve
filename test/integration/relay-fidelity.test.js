@@ -1364,7 +1364,7 @@ describe('fake relay file plane answers as relay does', () => {
       return { id, hostId };
     };
 
-    it('a host project: delete is permanent, stream ignores Range, rename and move onto an existing name are 409 EEXIST', async () => {
+    it('a host project: delete is permanent, stream ignores Range, rename, move and a create_only write onto an existing name are 409 EEXIST', async () => {
       const { id } = hosted();
       relay.files.seed(id, { 'a.txt': 'A', 'b.txt': 'B', 'big.txt': '0123456789', 'dir/': null, 'dir/a.txt': 'x' });
       const del = await post(id, 'delete', { path: 'a.txt' });
@@ -1380,6 +1380,10 @@ describe('fake relay file plane answers as relay does', () => {
       relay.files.seed(id, { 'b.txt': 'B2' });
       const clash = await post(id, 'move', { path: 'b.txt', dest_dir: 'dir' });
       expect([clash.status, code(clash)]).toEqual([409, 'EEXIST']);
+      // An upload is a create_only write: it refuses an existing host file too (owner decision 46).
+      const upload = await post(id, 'write', { path: 'b.txt', content: 'z', create_only: true });
+      expect([upload.status, code(upload)]).toEqual([409, 'EEXIST']);
+      expect(relay.files.get(id, 'b.txt').toString()).toBe('B2');
     });
 
     it('pastetmp: the host path comes back with a pastetmp audit row; an unknown host is 404 HOST_NOT_FOUND', async () => {

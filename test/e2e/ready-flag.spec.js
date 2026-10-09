@@ -1,8 +1,5 @@
 // <html data-ready="1"> marks a finished boot, and gotoEve/reloadEve wait on it.
 const base = require('@playwright/test');
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
 const { startEve } = require('../integration/harness');
 const { hermeticTest, gotoEve, reloadEve } = require('./fixtures');
 
@@ -11,12 +8,12 @@ const SID = 's-ready';
 
 const test = hermeticTest.extend({
   eve: async ({}, use) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-ready-'));
+    const dir = '/work/acme'; // a neutral path; no file is read in this spec
     const eve = await startEve({ projects: [{ id: 'p1', name: 'Acme', path: dir }] });
     eve.relay.seedSession({
       sessionId: SID, directory: dir, projectId: 'p1', model: 'chat-a', name: 'Ready Chat', createdAt: new Date().toISOString(),
     });
-    try { await use(eve); } finally { await eve.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+    try { await use(eve); } finally { await eve.stop(); }
   },
 
   // No pre-navigated page: each test drives the first navigation itself.

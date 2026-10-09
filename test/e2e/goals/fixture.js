@@ -4,12 +4,13 @@
 //
 //   test.use({ world: { projects: [...], seed: (eve) => {...} } })
 //
-// `seed` runs against the fake relay (and the project folders) before the page
-// opens, so restored state is there on first load.
+// `seed` runs against the fake relay (and its in-memory file plane, `relay.files`)
+// before the page opens, so restored state is there on first load. The project
+// folders are neutral paths that exist nowhere: eve reaches files only through
+// the fake relay, which holds FILES for alpha and BETA_FILES for beta.
+// A seed that needs something torn down afterwards (a real temp repo for git)
+// returns { cleanup }.
 const base = require('@playwright/test');
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
 const { startEve } = require('../../integration/harness');
 const { hermeticTest, gotoEve } = require('../fixtures');
 
@@ -19,35 +20,36 @@ const FILES = {
   'src/app.js': 'console.log("alpha");\n',
 };
 
-function makeFolder(files) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'eve-goal-')));
-  for (const [rel, content] of Object.entries(files)) {
-    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
-    fs.writeFileSync(path.join(dir, rel), content);
-  }
-  return dir;
-}
+const BETA_FILES = { 'BETA.md': '# Beta\n' };
 
 const test = hermeticTest.extend({
   world: [{}, { option: true }],
   eveEnv: [{}, { option: true }],
   eve: async ({ world, eveEnv }, use) => {
-    const alpha = makeFolder(FILES);
-    const beta = makeFolder({ 'BETA.md': '# Beta\n' });
+    const alpha = '/work/alpha';
+    const beta = '/work/beta';
     // `world.projects` may be a function of the fixture folders, for specs whose
     // projects need real files (e.g. a project with a mode and a README).
     const defs = (typeof world.projects === 'function' ? world.projects({ alpha, beta }) : world.projects) || [
       { id: 'alpha', name: 'Alpha Project', path: alpha },
       { id: 'beta', name: 'Beta Project', path: beta },
     ];
-    const eve = await startEve({ projects: defs, hosts: world.hosts || [], models: world.models, env: eveEnv });
+    // The fake relay holds each fixture folder's files; a project is matched by its path.
+    const files = {};
+    for (const def of defs) {
+      if (def.path === alpha) files[def.id] = FILES;
+      else if (def.path === beta) files[def.id] = BETA_FILES;
+    }
+    const eve = await startEve({ projects: defs, hosts: world.hosts || [], files, models: world.models, env: eveEnv });
     const folders = { alpha, beta };
+    let cleanup = null;
     try {
-      if (world.seed) await world.seed({ ...eve, folders });
+      const seeded = world.seed ? await world.seed({ ...eve, folders }) : null;
+      cleanup = seeded && typeof seeded.cleanup === 'function' ? seeded.cleanup : null;
       await use({ ...eve, folders });
     } finally {
       await eve.stop();
-      for (const dir of [alpha, beta]) fs.rmSync(dir, { recursive: true, force: true });
+      if (cleanup) await cleanup();
     }
   },
   page: async ({ page, eve }, use) => {

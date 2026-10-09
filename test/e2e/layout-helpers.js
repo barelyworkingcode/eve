@@ -26,7 +26,7 @@ const REPLY = 'Start with the release notes.';
 // image beside README.md, and a shell template for the terminal keybar.
 const WORLD = {
   seed: ({ relay, folders }) => {
-    require('fs').writeFileSync(require('path').join(folders.alpha, 'photo.png'), TINY_PNG);
+    relay.files.seed('alpha', { 'photo.png': TINY_PNG });
     relay.setModels(MODELS);
     relay.setTerminalTemplates([{ id: 'shell', name: 'Shell', description: 'Plain shell', sandbox: true }]);
     const iso = (h) => new Date(Date.now() - h * 3600000).toISOString();

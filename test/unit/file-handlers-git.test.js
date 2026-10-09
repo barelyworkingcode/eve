@@ -6,10 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 const FileHandlers = require('../../file-handlers');
-const RemoteFileService = require('../../remote-file-service');
 const gitMessages = require('../../ws/git-messages');
 const { GitError } = require('../../git-service');
-const { makeTmp, initRepo, write } = require('../helpers/git-fixture');
+const { makeTmp, initRepo, write, startDiskRelay } = require('../helpers/git-fixture');
 
 function makeWs() {
   const ws = { sent: [], send: jest.fn((data) => ws.sent.push(JSON.parse(data))) };
@@ -22,11 +21,12 @@ function meta(p) {
   return { path: p, name: p === '/' ? 'root' : p.slice(1), branch: 'main', head: 'abcdef0', detached: false, upstream: null, ahead: 0, behind: 0, defaultBranch: 'main' };
 }
 
-// FileHandlers whose fileServiceFor() returns `fakeFs` for project p1.
+// FileHandlers whose file client hands out `fakeFs` for project p1.
 function handlersWith(fakeFs, project = { id: 'p1', path: PROJECT_PATH }) {
-  const h = new FileHandlers({ resolveProject: (id) => (id === 'p1' ? project : null) });
-  h.fileServiceFor = jest.fn(() => fakeFs);
-  return h;
+  return new FileHandlers({
+    resolveProject: (id) => (id === 'p1' ? project : null),
+    files: { forProject: jest.fn(() => fakeFs) },
+  });
 }
 
 describe('FileHandlers#gitChanges', () => {
@@ -231,39 +231,17 @@ describe('FileHandlers#gitChanges', () => {
     expect(fakeFs.gitStatus).not.toHaveBeenCalled();
   });
 
-  it('routes a local project to the local FileService', async () => {
-    const h = new FileHandlers({ resolveProject: () => ({ id: 'p1', path: PROJECT_PATH }) });
-    const spy = jest.spyOn(h.fileService, 'gitRepos').mockResolvedValue([]);
+  it.each([
+    ['console', { id: 'p1', path: PROJECT_PATH }],
+    ['host', { id: 'p1', path: '/remote/proj', hostId: 'h1' }],
+  ])('asks the file client for a %s project and runs git against that project path', async (_label, project) => {
+    const pf = { gitRepos: jest.fn().mockResolvedValue([]) };
+    const files = { forProject: jest.fn(() => pf) };
+    const h = new FileHandlers({ resolveProject: () => project, files });
     await h.gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
-    expect(spy).toHaveBeenCalledWith(PROJECT_PATH);
+    expect(files.forProject).toHaveBeenCalledWith(project);
+    expect(pf.gitRepos).toHaveBeenCalledWith(project.path);
     expect(last()).toEqual({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted', repos: [] });
-  });
-
-  it('routes a host project through its RemoteFileService / agent, never the local disk', async () => {
-    const agent = {
-      calls: [],
-      async request(op, params) {
-        this.calls.push({ op, params });
-        if (op === 'list') return { ok: true, entries: [] };
-        if (op === 'git') return { ok: true, code: 128, stdout: '', stderr: 'not a repo' };
-        throw new Error(`unexpected ${op}`);
-      },
-    };
-    const hostPool = { get: jest.fn(() => agent) };
-    const h = new FileHandlers({ resolveProject: () => ({ id: 'p1', path: '/remote/proj', hostId: 'h1' }), hostPool });
-    const localSpy = jest.spyOn(h.fileService, 'gitRepos');
-    const remoteSpy = jest.spyOn(RemoteFileService.prototype, 'gitRepos');
-    // Assert before mockRestore(): Jest 30's restore also clears mock.calls.
-    try {
-      await h.gitChanges(ws, { projectId: 'p1', scope: 'uncommitted' });
-      expect(hostPool.get).toHaveBeenCalledWith('h1');
-      expect(localSpy).not.toHaveBeenCalled();
-      expect(remoteSpy).toHaveBeenCalledWith('/remote/proj');
-      expect(agent.calls.some((c) => c.op === 'git' && c.params.root === '/remote/proj')).toBe(true);
-      expect(last()).toEqual({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted', repos: [] });
-    } finally {
-      remoteSpy.mockRestore();
-    }
   });
 });
 
@@ -322,19 +300,27 @@ describe('FileHandlers git frames against a real repo', () => {
   let tmp, repo, handlers, ws;
   const last = () => ws.sent[ws.sent.length - 1];
 
-  beforeAll(() => {
+  let disk;
+
+  beforeAll(async () => {
     tmp = makeTmp('eve-fh-git-');
     repo = initRepo(path.join(tmp, 'proj'), { 'a.txt': 'one\n' });
     write(repo, 'a.txt', 'two\n');
     write(repo, 'new.txt', 'n\n');
+    disk = await startDiskRelay();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await disk.close();
+    expect(tmp).toBeTruthy();
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   beforeEach(() => {
-    handlers = new FileHandlers({ resolveProject: (id) => (id === 'p1' ? { id: 'p1', path: repo } : null) });
+    handlers = new FileHandlers({
+      resolveProject: (id) => (id === 'p1' ? { id: 'p1', path: repo } : null),
+      files: { forProject: () => disk.filesFor(repo) },
+    });
     ws = makeWs();
   });
 

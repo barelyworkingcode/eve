@@ -1,260 +1,241 @@
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
-const FileService = require('../../file-service');
-const FileWatcher = require('../../file-watcher');
+const { makeRig } = require('./helpers/file-watcher-rig');
 
+// FileWatcher turns relay's change stream into the browser's file_changed,
+// dir_changed, git_changed and watch_error frames. The client's events are
+// emitted synchronously and every wait is a jest fake timer, so nothing here
+// touches a socket or a disk.
 describe('FileWatcher', () => {
-  let tmpDir, fileService, mockWs, watcher;
-
   const PROJECT_ID = 'test-project';
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-  // A content push is a debounce timer plus a real file read, so a fixed
-  // wait before asserting it races a busy machine.
-  async function waitForSent(pred, timeoutMs = 2000) {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const found = mockWs.sent.find(pred);
-      if (found) return found;
-      if (Date.now() > deadline) throw new Error('waitForSent: timed out');
-      await delay(10);
-    }
-  }
-
-  function createMockWs() {
-    return {
-      sent: [],
-      send(data) { this.sent.push(JSON.parse(data)); }
-    };
-  }
-
-  function root() {
-    return fs.realpathSync(tmpDir);
-  }
+  const PROJECT = { id: PROJECT_ID, path: '/work/acme' };
+  let rig;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-fw-test-'));
-    fs.writeFileSync(path.join(tmpDir, 'test.js'), 'original', 'utf8');
-
-    fileService = new FileService();
-    mockWs = createMockWs();
-
-    const resolveProject = (id) => {
-      if (id === PROJECT_ID) return { id: PROJECT_ID, path: tmpDir };
-      return undefined;
-    };
-
-    watcher = new FileWatcher(mockWs, () => fileService, resolveProject);
+    jest.useFakeTimers();
+    rig = makeRig([PROJECT]);
+    rig.setFile(PROJECT_ID, 'test.js', 'original');
   });
 
   afterEach(() => {
-    watcher.closeAll();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rig.watcher.closeAll();
   });
 
-  describe('watch/unwatch registration', () => {
-    it('echoes the client path verbatim and records the binary flag', () => {
-      watcher.watch(PROJECT_ID, '/test.js', { binary: true });
-      const entry = watcher.watchedFiles.get(PROJECT_ID).get('test.js');
-      expect(entry).toMatchObject({ binary: true, clientPath: '/test.js' });
+  const advance = (ms) => jest.advanceTimersByTimeAsync(ms);
+
+  describe('holding a watch on relay', () => {
+    it('asks the client for one watch per project however many files are opened', () => {
+      rig.watcher.watch(PROJECT_ID, '/a.js');
+      rig.watcher.watch(PROJECT_ID, '/b.js');
+      rig.watcher.watchProject(PROJECT_ID);
+      expect(rig.client.watch.mock.calls).toEqual([[PROJECT_ID]]);
     });
 
-    it('does not duplicate the project watcher for repeated watches', () => {
-      watcher.watch(PROJECT_ID, '/a.js');
-      const first = watcher.projectWatchers.get(PROJECT_ID);
-      watcher.watch(PROJECT_ID, '/b.js');
-      expect(watcher.projectWatchers.get(PROJECT_ID)).toBe(first);
-      expect(watcher.watchedFiles.get(PROJECT_ID).size).toBe(2);
+    it('asks for no watch on an unknown project', () => {
+      rig.watcher.watch('nonexistent', '/test.js');
+      rig.watcher.watchProject('nonexistent');
+      expect(rig.client.watch).not.toHaveBeenCalled();
     });
 
-    it('ignores unknown project IDs (both watch and watchProject)', () => {
-      watcher.watch('nonexistent', '/test.js');
-      watcher.watchProject('nonexistent');
-      expect(watcher.projectWatchers.size).toBe(0);
+    it('keeps the project watch when a file is unwatched, for the tree', () => {
+      rig.watcher.watch(PROJECT_ID, '/test.js');
+      rig.watcher.unwatch(PROJECT_ID, '/test.js');
+      expect(rig.client.unwatch).not.toHaveBeenCalled();
     });
 
-    it('removes the file on unwatch but keeps the project watcher for the tree', () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      watcher.unwatch(PROJECT_ID, '/test.js');
-      expect(watcher.watchedFiles.has(PROJECT_ID)).toBe(false);
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
+    it('unwatch is safe for files that were never watched', () => {
+      expect(() => rig.watcher.unwatch(PROJECT_ID, '/nope.js')).not.toThrow();
     });
 
-    it('unwatch is safe for unwatched files', () => {
-      expect(() => watcher.unwatch(PROJECT_ID, '/nope.js')).not.toThrow();
+    it('closeAll lets go of the project watch and stops listening', async () => {
+      rig.watcher.watch(PROJECT_ID, '/test.js');
+      rig.watcher.closeAll();
+      expect(rig.client.unwatch.mock.calls).toEqual([[PROJECT_ID]]);
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      await advance(1000);
+      expect(rig.ws.sent).toEqual([]);
     });
-  });
 
-  describe('watchProject', () => {
-    it('starts a recursive watcher without any open file', () => {
-      watcher.watchProject(PROJECT_ID);
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
-      expect(watcher.watchedFiles.has(PROJECT_ID)).toBe(false);
+    it('closeAll is safe to call twice', () => {
+      rig.watcher.watch(PROJECT_ID, '/test.js');
+      rig.watcher.closeAll();
+      expect(() => rig.watcher.closeAll()).not.toThrow();
     });
-  });
 
-  describe('markSelfWrite', () => {
-    it('marks a path then auto-clears it after the TTL', () => {
-      jest.useFakeTimers();
-      const absPath = path.join(tmpDir, 'test.js');
-      watcher.markSelfWrite(absPath, 'x');
-      expect(watcher.selfWrites.has(absPath)).toBe(true);
-      jest.advanceTimersByTime(1000);
-      expect(watcher.selfWrites.has(absPath)).toBe(false);
-      jest.useRealTimers();
+    it('drops events for a project this connection does not watch', async () => {
+      rig.emitFs(PROJECT_ID, 'newfile.js', 'rename');
+      await advance(1000);
+      expect(rig.ws.sent).toEqual([]);
     });
   });
 
-  // _onFsEvent is driven directly here so the tests don't depend on fs.watch
-  // delivery timing, and open files are registered without a real watcher
-  // (which would replay FSEvents history and make assertions non-deterministic).
-  // test/integration/file-watcher-smoke.test.js confirms the wiring fires end to end.
-  describe('_onFsEvent', () => {
-    function registerOpenFile(clientPath, opts = {}) {
-      const canon = clientPath.replace(/^\/+/, '');
-      if (!watcher.watchedFiles.has(PROJECT_ID)) watcher.watchedFiles.set(PROJECT_ID, new Map());
-      watcher.watchedFiles.get(PROJECT_ID).set(canon, { binary: !!opts.binary, clientPath });
-    }
-
-    it('pushes file_changed with content for an open text file', async () => {
-      registerOpenFile('/test.js');
-      watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
-      expect(mockWs.sent.length).toBe(0); // debounced
-      await waitForSent((m) => m.type === 'file_changed');
-      expect(mockWs.sent).toContainEqual({
-        type: 'file_changed', projectId: PROJECT_ID, path: '/test.js', content: 'original', size: 8
-      });
+  describe('file_changed', () => {
+    it('pushes the content of an open text file 100 ms after the event', async () => {
+      rig.watcher.watch(PROJECT_ID, '/test.js');
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      await advance(99);
+      expect(rig.ws.sent).toEqual([]);
+      await advance(1);
+      expect(rig.ws.sent).toEqual([
+        { type: 'file_changed', projectId: PROJECT_ID, path: '/test.js', content: 'original', size: 8 },
+      ]);
     });
 
-    it('treats atomic-save renames of an open file as content changes', async () => {
-      registerOpenFile('/test.js');
-      watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'test.js');
-      await waitForSent((m) => m.type === 'file_changed');
-      const fileMsg = mockWs.sent.find((m) => m.type === 'file_changed');
-      expect(fileMsg).toMatchObject({ path: '/test.js', content: 'original' });
+    it('treats an atomic-save rename of an open file as a content change', async () => {
+      rig.watcher.watch(PROJECT_ID, '/test.js');
+      rig.emitFs(PROJECT_ID, 'test.js', 'rename');
+      await advance(100);
+      expect(rig.framesOf('file_changed')).toEqual([
+        expect.objectContaining({ path: '/test.js', content: 'original' }),
+      ]);
     });
 
-    it('coalesces multiple rapid events into one push', async () => {
-      registerOpenFile('/test.js');
-      watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
-      watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
-      watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
-      await waitForSent((m) => m.type === 'file_changed');
-      await delay(200); // room for a second push, if coalescing broke
-      expect(mockWs.sent.filter((m) => m.type === 'file_changed').length).toBe(1);
+    it('coalesces rapid events into one push', async () => {
+      rig.watcher.watch(PROJECT_ID, '/test.js');
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      await advance(60);
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      await advance(60);
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      await advance(100);
+      expect(rig.framesOf('file_changed')).toHaveLength(1);
     });
 
-    it('skips the echo for self-written files', async () => {
-      registerOpenFile('/test.js');
-      // Mark the path the same way the write path does (validatePath), matching
-      // how _pushFile derives the self-write key.
-      watcher.markSelfWrite(fileService.validatePath(tmpDir, '/test.js'), 'original');
-      watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
-      await delay(200);
-      expect(mockWs.sent.find((m) => m.type === 'file_changed')).toBeUndefined();
+    it('echoes the client path verbatim', async () => {
+      rig.setFile(PROJECT_ID, 'src/x.js', 'x');
+      rig.watcher.watch(PROJECT_ID, '/src/x.js');
+      rig.emitFs(PROJECT_ID, 'src/x.js', 'change');
+      await advance(100);
+      expect(rig.framesOf('file_changed')[0].path).toBe('/src/x.js');
     });
 
-    it('binary watches notify only, no content', async () => {
-      fs.writeFileSync(path.join(tmpDir, 'doc.pdf'), 'pretend-pdf-bytes');
-      registerOpenFile('/doc.pdf', { binary: true });
-      watcher._onFsEvent(PROJECT_ID, root(), 'change', 'doc.pdf');
-      await delay(200);
-      const msg = mockWs.sent.find((m) => m.type === 'file_changed');
-      expect(msg).toEqual({ type: 'file_changed', projectId: PROJECT_ID, path: '/doc.pdf' });
+    it('a binary watch notifies without content', async () => {
+      rig.setFile(PROJECT_ID, 'doc.pdf', 'pretend-pdf-bytes');
+      rig.watcher.watch(PROJECT_ID, '/doc.pdf', { binary: true });
+      rig.emitFs(PROJECT_ID, 'doc.pdf', 'change');
+      await advance(100);
+      expect(rig.framesOf('file_changed')).toEqual([{ type: 'file_changed', projectId: PROJECT_ID, path: '/doc.pdf' }]);
     });
 
-    it('emits dir_changed for the parent on a structural (rename) event', async () => {
-      fs.mkdirSync(path.join(tmpDir, 'branding'));
-      watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'newfile.js');
-      watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'branding/logo.svg');
-      await delay(300);
-      expect(mockWs.sent).toContainEqual({ type: 'dir_changed', projectId: PROJECT_ID, path: '/' });
-      expect(mockWs.sent).toContainEqual({ type: 'dir_changed', projectId: PROJECT_ID, path: '/branding' });
+    it('pushes nothing for a file that was not opened', async () => {
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      await advance(1000);
+      expect(rig.framesOf('file_changed')).toEqual([]);
     });
 
-    it('does not emit dir_changed for content-only changes', async () => {
-      watcher._onFsEvent(PROJECT_ID, root(), 'change', 'test.js');
-      await delay(300);
-      expect(mockWs.sent.find((m) => m.type === 'dir_changed')).toBeUndefined();
+    it('pushes nothing for a file that no longer reads', async () => {
+      rig.watcher.watch(PROJECT_ID, '/test.js');
+      rig.removeEntry(PROJECT_ID, 'test.js');
+      rig.emitFs(PROJECT_ID, 'test.js', 'rename');
+      await advance(1000);
+      expect(rig.framesOf('file_changed')).toEqual([]);
+    });
+  });
+
+  describe('dir_changed', () => {
+    it('is sent for the parent of a created or removed entry, 200 ms after the event', async () => {
+      rig.setDir(PROJECT_ID, 'branding');
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.emitFs(PROJECT_ID, 'newfile.js', 'rename');
+      rig.emitFs(PROJECT_ID, 'branding/logo.svg', 'rename');
+      await advance(199);
+      expect(rig.framesOf('dir_changed')).toEqual([]);
+      await advance(1);
+      expect(rig.framesOf('dir_changed')).toEqual(expect.arrayContaining([
+        { type: 'dir_changed', projectId: PROJECT_ID, path: '/' },
+        { type: 'dir_changed', projectId: PROJECT_ID, path: '/branding' },
+      ]));
+      expect(rig.framesOf('dir_changed')).toHaveLength(2);
     });
 
-    it('skips dir_changed for a directory that no longer exists', async () => {
-      // Simulates the child-removal events fired while deleting a whole dir:
-      // the parent path is already gone, so no refresh should be requested.
-      watcher._onFsEvent(PROJECT_ID, root(), 'rename', 'deleted-dir/child.js');
-      await delay(300);
-      expect(mockWs.sent.find((m) => m.type === 'dir_changed')).toBeUndefined();
+    it('coalesces a burst in one directory into one frame', async () => {
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.emitFs(PROJECT_ID, 'a.js', 'rename');
+      await advance(100);
+      rig.emitFs(PROJECT_ID, 'b.js', 'rename');
+      await advance(199);
+      expect(rig.framesOf('dir_changed')).toEqual([]);
+      await advance(1);
+      expect(rig.framesOf('dir_changed')).toEqual([{ type: 'dir_changed', projectId: PROJECT_ID, path: '/' }]);
+    });
+
+    it('is not sent for a content-only change', async () => {
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      await advance(1000);
+      expect(rig.framesOf('dir_changed')).toEqual([]);
+    });
+
+    it('is not sent for a directory that no longer exists', async () => {
+      // The child-removal events fired while deleting a whole directory.
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.emitFs(PROJECT_ID, 'deleted-dir/child.js', 'rename');
+      await advance(1000);
+      expect(rig.framesOf('dir_changed')).toEqual([]);
+    });
+
+    it('is not sent when the parent path is a file', async () => {
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.emitFs(PROJECT_ID, 'test.js/child', 'rename');
+      await advance(1000);
+      expect(rig.framesOf('dir_changed')).toEqual([]);
     });
   });
 
   describe('ignored paths', () => {
-    it('drops events inside .git / node_modules and .DS_Store', () => {
-      expect(watcher._isIgnored('.git/HEAD')).toBe(true);
-      expect(watcher._isIgnored('node_modules/foo/index.js')).toBe(true);
-      expect(watcher._isIgnored('.DS_Store')).toBe(true);
-      expect(watcher._isIgnored('src/app.js')).toBe(false);
+    it.each([
+      ['.git/HEAD'],
+      ['node_modules/foo/index.js'],
+      ['.DS_Store'],
+      ['src/node_modules/pkg/a.js'],
+    ])('%s reaches neither the tree nor an open file', async (p) => {
+      rig.setDir(PROJECT_ID, p.split('/').slice(0, -1).join('/'));
+      rig.setFile(PROJECT_ID, p, 'x');
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.watcher.watch(PROJECT_ID, `/${p}`);
+      rig.emitFs(PROJECT_ID, p, 'rename');
+      await advance(1000);
+      expect(rig.framesOf('dir_changed')).toEqual([]);
+      expect(rig.framesOf('file_changed')).toEqual([]);
     });
   });
 
-  describe('a watcher that cannot start or dies', () => {
-    afterEach(() => { jest.restoreAllMocks(); });
-
-    it('tells the browser once, with the errno code and no path', () => {
-      jest.spyOn(fs, 'watch').mockImplementation(() => {
-        throw Object.assign(new Error(`ENOSPC: System limit for number of file watchers reached, watch '${tmpDir}'`), { code: 'ENOSPC' });
-      });
-      expect(watcher.watchProject(PROJECT_ID)).toBeUndefined();
-      watcher.watchProject(PROJECT_ID); // list_directory retries on every call
-      const errors = mockWs.sent.filter((m) => m.type === 'watch_error');
-      expect(errors).toEqual([{ type: 'watch_error', projectId: PROJECT_ID, reason: 'ENOSPC' }]);
-      expect(JSON.stringify(errors)).not.toContain(tmpDir);
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(false);
+  describe('a watch relay cannot hold', () => {
+    it('tells the browser once, with relay\'s code and no path', async () => {
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.client.emit('watch_error', { projectId: PROJECT_ID, code: 'ENOENT', error: `no such folder ${PROJECT.path}` });
+      expect(rig.framesOf('watch_error')).toEqual([{ type: 'watch_error', projectId: PROJECT_ID, reason: 'ENOENT' }]);
+      expect(JSON.stringify(rig.ws.sent)).not.toContain(PROJECT.path);
     });
 
-    it('reports a watcher that errors after it started, then recovers on the next start', () => {
-      watcher.watchProject(PROJECT_ID);
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
-      const rootHandle = watcher.projectWatchers.get(PROJECT_ID).watcher;
-      rootHandle.emit('error', Object.assign(new Error('boom'), { code: 'EMFILE' }));
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(false);
-      expect(mockWs.sent.filter((m) => m.type === 'watch_error')).toEqual([
-        { type: 'watch_error', projectId: PROJECT_ID, reason: 'EMFILE' },
-      ]);
+    it('stays quiet on repeats until the next watch_ok, and asks relay again on the next list', () => {
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.client.emit('watch_error', { projectId: PROJECT_ID, code: 'ENOENT', error: 'x' });
+      rig.watcher.watchProject(PROJECT_ID); // list_directory retries on every call
+      rig.client.emit('watch_error', { projectId: PROJECT_ID, code: 'ENOENT', error: 'x' });
+      expect(rig.framesOf('watch_error')).toHaveLength(1);
+      expect(rig.client.watch).toHaveBeenCalledTimes(2);
 
-      jest.restoreAllMocks();
-      watcher.watchProject(PROJECT_ID);
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
-      expect(watcher.reportedFailures.has(PROJECT_ID)).toBe(false);
+      rig.client.emit('watch_ok', { projectId: PROJECT_ID });
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.client.emit('watch_error', { projectId: PROJECT_ID, code: 'HOST_UNREACHABLE', error: 'x' });
+      expect(rig.framesOf('watch_error').map((f) => f.reason)).toEqual(['ENOENT', 'HOST_UNREACHABLE']);
+    });
+
+    it('ignores a watch_error for a project this connection does not hold', () => {
+      rig.client.emit('watch_error', { projectId: 'other', code: 'ENOENT', error: 'x' });
+      expect(rig.ws.sent).toEqual([]);
     });
   });
 
-  describe('closeAll', () => {
-    it('closes watchers and clears all state', () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      watcher.markSelfWrite(path.join(tmpDir, 'test.js'), 'x');
-      expect(watcher.projectWatchers.size).toBe(1);
-
-      watcher.closeAll();
-
-      expect(watcher.projectWatchers.size).toBe(0);
-      expect(watcher.watchedFiles.size).toBe(0);
-      expect(watcher.selfWrites.size).toBe(0);
-    });
-
-    it('is safe to call multiple times', () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      watcher.closeAll();
-      expect(() => watcher.closeAll()).not.toThrow();
-    });
-  });
   // Changes panel refresh (docs/design-git-changes.md, "Refresh").
-  describe('git_changed attribution (_gitRepoFor)', () => {
+  describe('git_changed attribution', () => {
     it.each([
       ['a.js', '/'],
       ['README.md', '/'],
       ['feat-login/src/auth.js', '/feat-login'],
       ['feat-login/x', '/feat-login'],
-      ['feat-login\\src\\auth.js', '/feat-login'], // raw fs.watch name on Windows
+      ['feat-login\\src\\auth.js', '/feat-login'],
       ['/leading/slash.js', '/leading'],
       ['.git/index', '*'],
       ['.git/HEAD', '*'],
@@ -274,173 +255,64 @@ describe('FileWatcher', () => {
       ['src/node_modules/pkg/index', null],
       ['.DS_Store', null],
       ['src/.DS_Store', null],
-      ['', null],
-      ['/', null],
-    ])('%j -> %j', (p, expected) => {
-      expect(watcher._gitRepoFor(p)).toBe(expected);
+    ])('%j -> %j', async (p, expected) => {
+      rig.watcher.watchProject(PROJECT_ID);
+      rig.emitFs(PROJECT_ID, p, 'change');
+      await advance(500);
+      const repos = rig.framesOf('git_changed').map((f) => f.repo);
+      expect(repos).toEqual(expected === null ? [] : [expected]);
     });
   });
 
   describe('git_changed debounce', () => {
-    const gitFrames = () => mockWs.sent.filter((m) => m.type === 'git_changed');
+    beforeEach(() => rig.watcher.watchProject(PROJECT_ID));
 
-    it('coalesces a burst for one repo into one push, 500 ms after the last event', () => {
-      jest.useFakeTimers();
-      watcher._maybeScheduleGitChange(PROJECT_ID, 'src/a.js');
-      jest.advanceTimersByTime(300);
-      watcher._maybeScheduleGitChange(PROJECT_ID, 'src/b.js');
-      jest.advanceTimersByTime(499);
-      expect(gitFrames()).toEqual([]);
-      jest.advanceTimersByTime(1);
-      expect(gitFrames()).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '/src' }]);
-      expect(watcher.gitTimers.size).toBe(0);
+    it('coalesces a burst for one repo into one push, 500 ms after the last event', async () => {
+      rig.emitFs(PROJECT_ID, 'src/a.js', 'change');
+      await advance(300);
+      rig.emitFs(PROJECT_ID, 'src/b.js', 'change');
+      await advance(499);
+      expect(rig.framesOf('git_changed')).toEqual([]);
+      await advance(1);
+      expect(rig.framesOf('git_changed')).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '/src' }]);
     });
 
-    it('debounces each repo independently', () => {
-      jest.useFakeTimers();
-      watcher._maybeScheduleGitChange(PROJECT_ID, 'a/x.js');
-      watcher._maybeScheduleGitChange(PROJECT_ID, 'b/y.js');
-      watcher._maybeScheduleGitChange(PROJECT_ID, '.git/index');
-      jest.advanceTimersByTime(500);
-      expect(gitFrames().map((m) => m.repo).sort()).toEqual(['*', '/a', '/b']);
+    it('debounces each repo independently', async () => {
+      rig.emitFs(PROJECT_ID, 'a/x.js', 'change');
+      rig.emitFs(PROJECT_ID, 'b/y.js', 'change');
+      rig.emitFs(PROJECT_ID, '.git/index', 'change');
+      await advance(500);
+      expect(rig.framesOf('git_changed').map((m) => m.repo).sort()).toEqual(['*', '/a', '/b']);
     });
 
-    it('schedules nothing for paths that cannot change git status', () => {
-      jest.useFakeTimers();
-      watcher._maybeScheduleGitChange(PROJECT_ID, 'node_modules/x/y.js');
-      watcher._maybeScheduleGitChange(PROJECT_ID, '.git/objects/ab/cd');
-      watcher._maybeScheduleGitChange(PROJECT_ID, '.DS_Store');
-      expect(watcher.gitTimers.size).toBe(0);
-      jest.advanceTimersByTime(1000);
-      expect(gitFrames()).toEqual([]);
+    it("still fires for eve's own writes: an editor save changes git status", async () => {
+      rig.watcher.watch(PROJECT_ID, '/test.js');
+      rig.watcher.markSelfWrite(rig.selfKey(PROJECT_ID, '/test.js'), 'original');
+      rig.emitFs(PROJECT_ID, 'test.js', 'change');
+      await advance(500);
+      expect(rig.framesOf('git_changed')).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '/' }]);
     });
 
-    it("still emits for eve's own writes (an editor save changes git status)", () => {
-      jest.useFakeTimers();
-      watcher.markSelfWrite(fileService.validatePath(tmpDir, '/test.js'), 'x');
-      watcher._maybeScheduleGitChange(PROJECT_ID, 'test.js');
-      jest.advanceTimersByTime(500);
-      expect(gitFrames()).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '/' }]);
+    it('closeAll cancels a push still pending', async () => {
+      rig.emitFs(PROJECT_ID, 'src/a.js', 'change');
+      rig.emitFs(PROJECT_ID, '.git/HEAD', 'change');
+      rig.watcher.closeAll();
+      await advance(1000);
+      expect(rig.framesOf('git_changed')).toEqual([]);
     });
 
-    it('closeAll clears pending git timers', () => {
-      jest.useFakeTimers();
-      watcher._maybeScheduleGitChange(PROJECT_ID, 'src/a.js');
-      watcher._maybeScheduleGitChange(PROJECT_ID, '.git/HEAD');
-      expect(watcher.gitTimers.size).toBe(2);
-      watcher.closeAll();
-      expect(watcher.gitTimers.size).toBe(0);
-      jest.advanceTimersByTime(1000);
-      expect(gitFrames()).toEqual([]);
-    });
-
-    it("git timers are unref'd so a leak can't hold the worker open", () => {
-      watcher._maybeScheduleGitChange(PROJECT_ID, 'src/a.js');
-      const [timer] = watcher.gitTimers.values();
-      expect(timer.hasRef()).toBe(false);
-    });
-  });
-
-  describe('local fs.watch event filter', () => {
-    const { EventEmitter } = require('events');
-    let watchSpy, statSpy, onEvent;
-
-    beforeEach(() => {
-      const handle = Object.assign(new EventEmitter(), { close: jest.fn() });
-      watchSpy = jest.spyOn(fs, 'watch').mockImplementation((_root, _opts, cb) => {
-        onEvent = cb;
-        return handle;
+    it("keeps its timers unref'd so a leak can't hold the worker open", () => {
+      const real = global.setTimeout;
+      const made = [];
+      jest.spyOn(global, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
+        const t = real(fn, ms, ...rest);
+        if (ms === 500) made.push(t);
+        return t;
       });
-    });
-
-    afterEach(() => {
-      watchSpy.mockRestore();
-      if (statSpy) statSpy.mockRestore();
-    });
-
-    it('.git/index pushes one git_changed "*"; node_modules churn pushes nothing', async () => {
-      jest.useFakeTimers();
-      // Every directory "exists", so an unfiltered event would reach dir_changed.
-      statSpy = jest.spyOn(fs.promises, 'stat').mockResolvedValue({ isDirectory: () => true });
-      watcher.watchProject(PROJECT_ID);
-      expect(watchSpy).toHaveBeenCalledTimes(1);
-      onEvent('rename', '.git/index');
-      onEvent('rename', 'node_modules/pkg/index.js');
-      await jest.advanceTimersByTimeAsync(1000);
-      // dir_changed follows an awaited stat; let that microtask chain finish.
-      for (let i = 0; i < 5; i++) await Promise.resolve();
-      expect(mockWs.sent).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '*' }]);
-    });
-  });
-
-  describe('remote (host agent) change events', () => {
-    const { EventEmitter } = require('events');
-    let agent, remoteFs, remoteWs, rw;
-    const RP = 'remote-project';
-    const ROOT = '/srv/app';
-
-    beforeEach(() => {
-      agent = new EventEmitter();
-      agent.watch = jest.fn().mockResolvedValue();
-      agent.unwatch = jest.fn().mockResolvedValue();
-      remoteFs = {
-        hostAgent: agent,
-        listDirectory: jest.fn().mockResolvedValue([]),
-        readFile: jest.fn(),
-        validatePath: (root, rel) => path.posix.resolve(root, String(rel).replace(/^\/+/, '') || '.'),
-      };
-      remoteWs = createMockWs();
-      const project = { id: RP, path: ROOT, hostId: 'h1' };
-      rw = new FileWatcher(remoteWs, () => remoteFs, (id) => (id === RP ? project : undefined));
-      rw.watchProject(RP);
-    });
-
-    afterEach(() => {
-      rw.closeAll();
-    });
-
-    it('registers with the agent', () => {
-      expect(agent.watch).toHaveBeenCalledWith(ROOT);
-      expect(rw.projectWatchers.get(RP)).toMatchObject({ remote: true });
-    });
-
-    it('.git/index pushes git_changed "*" and no longer triggers dir_changed', async () => {
-      jest.useFakeTimers();
-      agent.emit('change', { root: ROOT, path: '.git/index' });
-      expect(rw.dirTimers.size).toBe(0);
-      expect(rw.gitTimers.size).toBe(1);
-      await jest.advanceTimersByTimeAsync(600);
-      expect(remoteWs.sent).toEqual([{ type: 'git_changed', projectId: RP, repo: '*' }]);
-      expect(remoteFs.listDirectory).not.toHaveBeenCalled();
-    });
-
-    it('node_modules / .DS_Store / other .git churn triggers nothing at all', async () => {
-      jest.useFakeTimers();
-      agent.emit('change', { root: ROOT, path: 'node_modules/pkg/index.js' });
-      agent.emit('change', { root: ROOT, path: 'web/node_modules/pkg/a.js' });
-      agent.emit('change', { root: ROOT, path: '.DS_Store' });
-      agent.emit('change', { root: ROOT, path: '.git/objects/ab/cd' });
-      expect(rw.dirTimers.size).toBe(0);
-      expect(rw.gitTimers.size).toBe(0);
-      await jest.advanceTimersByTimeAsync(1000);
-      expect(remoteWs.sent).toEqual([]);
-    });
-
-    it('a normal file change pushes both dir_changed and git_changed for its repo', async () => {
-      jest.useFakeTimers();
-      agent.emit('change', { root: ROOT, path: 'feat/src/app.js' });
-      await jest.advanceTimersByTimeAsync(600);
-      expect(remoteWs.sent).toEqual(expect.arrayContaining([
-        { type: 'dir_changed', projectId: RP, path: '/feat/src' },
-        { type: 'git_changed', projectId: RP, repo: '/feat' },
-      ]));
-    });
-
-    it('ignores events for another root served by the same agent', async () => {
-      jest.useFakeTimers();
-      agent.emit('change', { root: '/srv/other', path: 'a.js' });
-      await jest.advanceTimersByTimeAsync(1000);
-      expect(remoteWs.sent).toEqual([]);
+      rig.emitFs(PROJECT_ID, 'src/a.js', 'change');
+      expect(made.length).toBeGreaterThan(0);
+      for (const t of made) expect(t.hasRef()).toBe(false);
+      jest.restoreAllMocks();
     });
   });
 });

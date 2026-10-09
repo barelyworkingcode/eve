@@ -16,9 +16,6 @@
  * implements GET /api/terminals/:id/log, not terminal creation over WS.
  * This is a recorded gap, not covered ground.
  */
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const { test, hermeticTest, gotoEve, expect } = require('./fixtures');
 const { startEve } = require('../integration/harness');
 const { watchSocket, sentFrames, waitHandled } = require('./socket-watch');
@@ -91,7 +88,7 @@ test.describe('tab-panes', () => {
   });
 
   test('3. opening a .png shows the file viewer and sends watch_file with binary:true', async ({ page, eve }) => {
-    fs.writeFileSync(path.join(eve.projectDir, 'photo.png'), TINY_PNG);
+    eve.relay.files.write('p1', 'photo.png', TINY_PNG, { emit: false });
     await page.getByTestId('sidebar-project-p1').click();
     await expect(page.getByTestId('file-tree-item-/photo.png')).toBeVisible({ timeout: 15000 });
 
@@ -278,7 +275,7 @@ test.describe('tab-panes', () => {
   });
 
   test('13. dropping an .html file as pane B renders the html preview, not the editor', async ({ page, eve }) => {
-    fs.writeFileSync(path.join(eve.projectDir, 'page.html'), '<!doctype html><html><body>hi</body></html>', 'utf8');
+    eve.relay.files.write('p1', 'page.html', '<!doctype html><html><body>hi</body></html>', { emit: false });
 
     await openChat(page);
     const sessionId = await page.evaluate(() => window.client.currentSessionId);
@@ -310,23 +307,21 @@ test.describe('tab-panes', () => {
 // unrelated to tab-manager.js.
 const twoProjectTest = hermeticTest.extend({
   eve: async ({}, use) => {
-    const dir1 = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-proj1-'));
-    fs.writeFileSync(path.join(dir1, 'README.md'), '# Project One', 'utf8');
-    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-proj2-'));
-    fs.writeFileSync(path.join(dir2, 'NOTES.md'), '# Project Two', 'utf8');
+    // Neutral paths: the files live in the fake relay's memory.
+    const dir1 = '/work/proj1';
+    const dir2 = '/work/proj2';
 
     const eve = await startEve({
       projects: [
         { id: 'p1', name: 'E2E Project', path: dir1 },
         { id: 'p2', name: 'Second Project', path: dir2 },
       ],
+      files: { p1: { 'README.md': '# Project One' }, p2: { 'NOTES.md': '# Project Two' } },
     });
     try {
       await use({ ...eve, dir1, dir2 });
     } finally {
       await eve.stop();
-      fs.rmSync(dir1, { recursive: true, force: true });
-      fs.rmSync(dir2, { recursive: true, force: true });
     }
   },
   page: async ({ page, eve }, use) => {

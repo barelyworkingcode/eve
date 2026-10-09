@@ -4,7 +4,6 @@
 const http = require('http');
 const express = require('express');
 const registerRoutes = require('../../routes/index');
-const FileService = require('../../file-service');
 const terminalMessages = require('../../ws/terminal-messages');
 
 describe('persistent-sessions proxy routes', () => {
@@ -20,11 +19,9 @@ describe('persistent-sessions proxy routes', () => {
       refreshProjectCache: jest.fn(),
       removeFromProjectCache: jest.fn(),
       resolveProject: jest.fn(() => null),
-      fileService: new FileService(),
-      fileServiceFor: jest.fn(() => new FileService()),
+      fileServiceFor: jest.fn(),
       refreshHostCache: jest.fn(),
       removeFromHostCache: jest.fn(),
-      hostPool: { disconnect: jest.fn() },
       ttsService: {}, sttService: {},
       log: null,
     };

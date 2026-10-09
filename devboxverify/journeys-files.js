@@ -18,6 +18,7 @@ const TURN_WITHIN_MS = 90000;
 const CHANGES_WITHIN_MS = 15000;
 const CRED_TTL = '15m';
 const HOST_CONNECTED_WITHIN_MS = 30000;
+const FILE_OP_WITHIN_MS = 15000;
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
 // Every live model in a journey is Haiku; system/init names the model that ran.
 const INIT_MODEL = 'claude-haiku-5-5';
@@ -103,6 +104,45 @@ async function askAgentToAppend(env, id, { project, states, model, rel, line, li
   const ran = initModel(sock.frames);
   if (ran !== INIT_MODEL) return { problem: result(id, BLOCKED, `session ${sid}: system/init reported model ${ran || 'none'}, not ${INIT_MODEL}`) };
   return { problem: null };
+}
+
+// `relay audit --event file_op --json` lines for one project since a mark, oldest
+// first: the completed (outcome ok) mutations relay recorded, as
+// { tool, path } with the path root-relative and no leading slash. Reads are
+// never recorded, and an intent row (outcome pending) is not a finished write.
+function fileOpRows(jsonl, { projectId, sinceMs }) {
+  const rows = [];
+  for (const line of String(jsonl).split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    const ts = Date.parse(o && o.ts);
+    if (!o || o.event !== 'file_op' || (o.actor && o.actor.project_id) !== projectId || !(ts >= sinceMs) || o.outcome !== 'ok') continue;
+    rows.push({ ts, tool: o.tool || '', path: String((o.args && o.args.path) || '').replace(/^\/+/, '') });
+  }
+  return rows.sort((a, b) => a.ts - b.ts);
+}
+
+// The `wanted` ({ tool, path }) mutations that are not among `rows`.
+function missingFileOps(rows, wanted) {
+  return wanted.filter((w) => !rows.some((r) => r.tool === w.tool && r.path === w.path.replace(/^\/+/, '')));
+}
+
+// Looks for the journey's writes as file_op rows in relay's audit. Returns null
+// when every wanted write is there, else the sentence a FAIL carries.
+// Waits: none possible: relay writes the completion row after the response,
+// with no hook visible to the harness; a bounded poll on `relay audit --event file_op`.
+async function auditFileOps(env, project, sinceMs, wanted) {
+  let rows = [];
+  const found = await poll(async () => {
+    const { stdout } = await exec(env.relayBin, ['audit', '--event', 'file_op', '--project', project.id, '--json', '--tail', '200'],
+      { timeout: 10000, maxBuffer: 16 << 20 });
+    rows = fileOpRows(stdout, { projectId: project.id, sinceMs });
+    return missingFileOps(rows, wanted).length === 0;
+  }, { timeoutMs: FILE_OP_WITHIN_MS, intervalMs: 500 });
+  if (found) return null;
+  const missing = missingFileOps(rows, wanted).map((w) => `${w.tool} ${w.path}`).join(', ');
+  return `relay audit has no file_op ok row for ${missing} from ${project.name} within ${FILE_OP_WITHIN_MS / 1000}s of the save `
+    + `(it has ${rows.map((r) => `${r.tool} ${r.path}`).join(', ') || 'none'})`;
 }
 
 // The agent's edit reaches an open Changes tab with no reload.
@@ -279,6 +319,7 @@ async function filesOnHost(env) {
 
   env.step('edit and save');
   const saved = `saved ${env.nonce}`;
+  const savedAt = Date.now();
   const label = page.locator('.tab.active .tab-label');
   await endOfFile(page, text);
   await page.keyboard.type(saved);
@@ -289,6 +330,9 @@ async function filesOnHost(env) {
   if (!(await fs.promises.readFile(path.join(dir, 'notes.md'), 'utf8')).includes(saved)) {
     return result(id, FAIL, 'the saved line is not on the host\'s disk after the unsaved mark cleared');
   }
+  env.step('look for the save in relay\'s audit');
+  const unaudited = await auditFileOps(env, project, savedAt, [{ tool: 'write', path: 'notes.md' }]);
+  if (unaudited) return result(id, FAIL, unaudited);
 
   env.step('make a file outside eve');
   const outside = `outside-${env.nonce}.md`;
@@ -320,7 +364,7 @@ async function filesOnHost(env) {
     expect(row).toContainText('agent.md', { timeout: CHANGES_WITHIN_MS }));
   await need('agent.md is listed but not marked modified',
     expect(row.locator('.changes-panel__status')).toHaveText('M', { timeout: 5000 }));
-  return result(id, PASS, `the host read connected; notes.md saved to the host's disk; a file made outside eve showed in the open tree; `
+  return result(id, PASS, `the host read connected; notes.md saved to the host's disk and recorded as a file_op write in relay's audit; a file made outside eve showed in the open tree; `
     + `after the agent (${model}) edited agent.md the Changes tab listed it as M`);
 }
 
@@ -331,4 +375,4 @@ const journeys = {
   },
 };
 
-module.exports = { journeys, agentEditProblem, createdId, initModel };
+module.exports = { journeys, agentEditProblem, createdId, initModel, fileOpRows, missingFileOps, auditFileOps };

@@ -42,24 +42,23 @@ describe('saveTerminalPaste', () => {
       .rejects.toMatchObject({ status: 413 });
   });
 
-  it('sends a host paste to the agent as pastetmp and returns the host path', async () => {
-    const agent = { request: jest.fn().mockResolvedValue({ ok: true, path: '/tmp/eve-paste-x.png' }) };
-    const hostPool = { get: jest.fn(() => agent) };
-    const full = await saveTerminalPaste({ buffer: PNG, mimeType: 'image/png', hostId: 'h1' }, { hostPool, localDir: dir });
+  it('sends a host paste through the file client and returns the host path', async () => {
+    const files = { pasteToHost: jest.fn().mockResolvedValue('/tmp/eve-paste-x.png') };
+    const full = await saveTerminalPaste({ buffer: PNG, mimeType: 'image/png', hostId: 'h1' }, { files, localDir: dir });
     expect(full).toBe('/tmp/eve-paste-x.png');
-    expect(hostPool.get).toHaveBeenCalledWith('h1');
-    const [op, params] = agent.request.mock.calls[0];
-    expect(op).toBe('pastetmp');
-    expect(params.name).toMatch(/^eve-paste-\d+-[0-9a-f]+\.png$/);
-    expect(Buffer.from(params.data, 'base64')).toEqual(PNG);
+    const [hostId, name, buffer] = files.pasteToHost.mock.calls[0];
+    expect(hostId).toBe('h1');
+    expect(name).toMatch(/^eve-paste-\d+-[0-9a-f]+\.png$/);
+    expect(buffer).toEqual(PNG);
     expect(fs.readdirSync(dir)).toEqual([]);
   });
 
-  it('404s an unknown host and 502s an agent failure', async () => {
-    await expect(saveTerminalPaste({ buffer: PNG, mimeType: 'image/png', hostId: 'gone' }, { hostPool: { get: () => null } }))
+  it('404s an unknown host and 502s any other host failure', async () => {
+    const gone = { pasteToHost: jest.fn().mockRejectedValue(Object.assign(new Error('host not found'), { code: 'HOST_NOT_FOUND' })) };
+    await expect(saveTerminalPaste({ buffer: PNG, mimeType: 'image/png', hostId: 'gone' }, { files: gone }))
       .rejects.toMatchObject({ status: 404 });
-    const agent = { request: jest.fn().mockRejectedValue(new Error('host "h1" unreachable')) };
-    await expect(saveTerminalPaste({ buffer: PNG, mimeType: 'image/png', hostId: 'h1' }, { hostPool: { get: () => agent } }))
+    const down = { pasteToHost: jest.fn().mockRejectedValue(new Error('host "h1" unreachable')) };
+    await expect(saveTerminalPaste({ buffer: PNG, mimeType: 'image/png', hostId: 'h1' }, { files: down }))
       .rejects.toMatchObject({ status: 502 });
   });
 });

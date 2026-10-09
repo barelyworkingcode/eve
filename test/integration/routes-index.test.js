@@ -2,7 +2,6 @@
 const http = require('http');
 const express = require('express');
 const registerRoutes = require('../../routes/index');
-const FileService = require('../../file-service');
 
 describe('routes/index proxy + auth surface', () => {
   let server;
@@ -25,11 +24,9 @@ describe('routes/index proxy + auth surface', () => {
       refreshProjectCache: jest.fn(),
       removeFromProjectCache: jest.fn(),
       resolveProject: jest.fn((id) => (id === 'p1' ? { id: 'p1', path: '/tmp/p1', displayName: 'P1' } : null)),
-      fileService: new FileService(),
-      fileServiceFor: jest.fn(() => new FileService()),
+      fileServiceFor: jest.fn(),
       refreshHostCache: jest.fn(),
       removeFromHostCache: jest.fn(),
-      hostPool: { disconnect: jest.fn() },
       ttsService: { listVoices: jest.fn() },
       sttService: { isAvailable: jest.fn(), transcribe: jest.fn() },
       log: null,
@@ -221,31 +218,28 @@ describe('routes/index proxy + auth surface', () => {
       }
     });
 
-    it('POST /api/hosts/:id/disconnect strips ssh_argv and tears down the pool agent', async () => {
+    it('POST /api/hosts/:id/disconnect strips ssh_argv', async () => {
       deps.relayTransport.fetch.mockResolvedValue({ status: 200, data: hostViewWithSecret });
       const res = await fetch(`${baseUrl}/api/hosts/h1/disconnect`, { method: 'POST' });
       const body = await res.json();
       expect(res.status).toBe(200);
       expect(body).not.toHaveProperty('ssh_argv');
-      expect(deps.hostPool.disconnect).toHaveBeenCalledWith('h1');
     });
 
-    it('DELETE /api/hosts/:id removes it from the cache and disconnects the pool agent', async () => {
+    it('DELETE /api/hosts/:id removes it from the cache', async () => {
       deps.relayTransport.fetch.mockResolvedValue({ status: 204, data: null });
       const res = await fetch(`${baseUrl}/api/hosts/h1`, { method: 'DELETE' });
       expect(res.status).toBe(204);
       expect(deps.removeFromHostCache).toHaveBeenCalledWith('h1');
-      expect(deps.hostPool.disconnect).toHaveBeenCalledWith('h1');
     });
 
-    it('a 409 (host referenced by a project) does not touch the cache or pool', async () => {
+    it('a 409 (host referenced by a project) does not touch the cache', async () => {
       deps.relayTransport.fetch.mockResolvedValue({
         status: 409, data: { error: 'host in use', projects: ['relayfs'] },
       });
       const res = await fetch(`${baseUrl}/api/hosts/h1`, { method: 'DELETE' });
       expect(res.status).toBe(409);
       expect(deps.removeFromHostCache).not.toHaveBeenCalled();
-      expect(deps.hostPool.disconnect).not.toHaveBeenCalled();
     });
   });
 

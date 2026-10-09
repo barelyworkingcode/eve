@@ -84,9 +84,8 @@ describe('createWsHandler', () => {
         createWebSocket: jest.fn(),
       },
       fileHandlers: {
-        fileService: fileServiceMock,
         fileServiceFor: jest.fn(() => fileServiceMock),
-        searchService: { cancel: jest.fn() },
+        cancelSearch: jest.fn(),
         listDirectory: jest.fn(),
         readFile: jest.fn(),
         writeFile: jest.fn(),

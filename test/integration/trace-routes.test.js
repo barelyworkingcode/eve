@@ -8,7 +8,6 @@ jest.mock('../../relay-client');
 jest.mock('../../file-watcher');
 
 const registerRoutes = require('../../routes/index');
-const FileService = require('../../file-service');
 const { Logger } = require('../../logger');
 const { traceMiddleware } = require('../../trace');
 const RelayClientMock = require('../../relay-client');
@@ -66,11 +65,9 @@ describe('proxied route logging and trace carriage', () => {
       refreshProjectCache: jest.fn(),
       removeFromProjectCache: jest.fn(),
       resolveProject: jest.fn(() => null),
-      fileService: new FileService(),
-      fileServiceFor: jest.fn(() => new FileService()),
+      fileServiceFor: jest.fn(),
       refreshHostCache: jest.fn(),
       removeFromHostCache: jest.fn(),
-      hostPool: { disconnect: jest.fn() },
       ttsService: {},
       sttService: stt,
       log: new Logger('info', { stream: sink.stream, service: 'eve' }),
@@ -205,7 +202,7 @@ describe('ws user_input trace and chat.turn line', () => {
       authService: { isEnrolled: () => false, validateSession: () => true },
       trustedNetwork: { isTrusted: () => true },
       relayTransport: { fetch: jest.fn(), createWebSocket: jest.fn() },
-      fileHandlers: { fileServiceFor: jest.fn() },
+      fileHandlers: { fileServiceFor: jest.fn(), cancelSearch: jest.fn() },
       searchSummarizer: null,
       resolveProject: jest.fn(),
       ttsService: null,

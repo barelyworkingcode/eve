@@ -1,8 +1,5 @@
 // G12 · Set up and tune a project. A new project appears in the rail and on
 // Home; edits reach relay; relay's refusals are shown, not swallowed.
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const { test, expect, MODELS } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 
@@ -11,26 +8,22 @@ const isPost = (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/a
 
 test.describe('G12 projects', () => {
   test('Home\'s New project chip creates a project that then shows in the rail and on Home', async ({ page, eve }) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-goal-new-'));
-    try {
-      await page.getByTestId('home-new-project').click();
-      await page.getByTestId('project-name').fill('Gamma Project');
-      await page.getByTestId('project-path').fill(dir);
-      // SX-A12: a new project starts at Both and create always sends mode; SX-A10: no admin keys.
-      await expect(page.getByTestId('project-mode-both')).toHaveAttribute('aria-pressed', 'true');
-      const [request] = await Promise.all([
-        page.waitForRequest(isPost),
-        page.getByTestId('project-save').click(),
-      ]);
-      expect(request.postDataJSON()).toMatchObject({ name: 'Gamma Project', path: dir, mode: 'both' });
-      for (const key of ADMIN_KEYS) expect(request.postDataJSON()).not.toHaveProperty(key);
-      await expect(page.getByRole('navigation', { name: 'Projects' }).getByTitle('Gamma Project', { exact: true })).toBeVisible();
-      await expect(page.getByTestId(/home-project-/).filter({ hasText: 'Gamma Project' })).toBeVisible();
-      await expect(page.locator('.home__subtitle')).toContainText('3 projects');
-      expect(Object.values(eve.relay.listProjects()).map((p) => p.name)).toContain('Gamma Project');
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    const dir = '/work/gamma'; // relay's fake only checks that it is absolute
+    await page.getByTestId('home-new-project').click();
+    await page.getByTestId('project-name').fill('Gamma Project');
+    await page.getByTestId('project-path').fill(dir);
+    // SX-A12: a new project starts at Both and create always sends mode; SX-A10: no admin keys.
+    await expect(page.getByTestId('project-mode-both')).toHaveAttribute('aria-pressed', 'true');
+    const [request] = await Promise.all([
+      page.waitForRequest(isPost),
+      page.getByTestId('project-save').click(),
+    ]);
+    expect(request.postDataJSON()).toMatchObject({ name: 'Gamma Project', path: dir, mode: 'both' });
+    for (const key of ADMIN_KEYS) expect(request.postDataJSON()).not.toHaveProperty(key);
+    await expect(page.getByRole('navigation', { name: 'Projects' }).getByTitle('Gamma Project', { exact: true })).toBeVisible();
+    await expect(page.getByTestId(/home-project-/).filter({ hasText: 'Gamma Project' })).toBeVisible();
+    await expect(page.locator('.home__subtitle')).toContainText('3 projects');
+    expect(Object.values(eve.relay.listProjects()).map((p) => p.name)).toContain('Gamma Project');
   });
 
   test('a relative path is refused by relay and the dialog says why', async ({ page }) => {

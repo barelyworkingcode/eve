@@ -1,7 +1,5 @@
 // Settings is one short sheet: Display, Voice, Modes, Files, then a line that
 // points to Relay. Admin settings live in Relay, not here.
-const fs = require('fs');
-const path = require('path');
 const { test, expect } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
@@ -144,7 +142,7 @@ test.describe('settings sheet', () => {
   });
 
   test.describe('with a dotfile in Alpha', () => {
-    test.use({ world: { seed: ({ folders }) => fs.writeFileSync(path.join(folders.alpha, '.acme-env'), 'x=1\n') } });
+    test.use({ world: { seed: ({ relay }) => relay.files.seed('alpha', { '.acme-env': 'x=1\n' }) } });
 
     test('Show hidden files persists and the dotfile shows in the tree', async ({ page }) => {
       const openFiles = async () => {

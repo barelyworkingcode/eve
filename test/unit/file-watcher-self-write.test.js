@@ -1,84 +1,75 @@
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
-const { EventEmitter } = require('events');
-const FileService = require('../../file-service');
-const FileWatcher = require('../../file-watcher');
+const { makeRig } = require('./helpers/file-watcher-rig');
 
-// markSelfWrite(absPath, content) drops only the true echo of Eve's own save.
-// Each case drives _pushFile directly and awaits it, so "dropped" is asserted
-// after the push has finished, never after a fixed wait.
-describe('FileWatcher self-write suppression by content', () => {
-  const PROJECT_ID = 'p1';
-  let tmpDir, fileService, ws, watcher, file, abs;
-
-  const createMockWs = () => ({ sent: [], send(data) { this.sent.push(JSON.parse(data)); } });
-  const pushed = () => ws.sent.filter((m) => m.type === 'file_changed');
+// markSelfWrite(key, content) drops only the true echo of Eve's own save: the
+// file_changed whose content is exactly what Eve just saved. Everything runs
+// on jest fake timers and a client that emits synchronously, so "dropped" is
+// asserted after the debounced read has run, never after a fixed wait.
+describe.each([
+  ['console project', { id: 'p1', path: '/work/acme' }],
+  ['host project', { id: 'p1', path: '/srv/acme', hostId: 'h1' }],
+])('FileWatcher self-write suppression by content (%s)', (_label, project) => {
+  const PROJECT_ID = project.id;
+  let rig;
+  let key;
 
   beforeEach(() => {
-    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'eve-fw-selfwrite-')));
-    file = path.join(tmpDir, 'doc.txt');
-    fs.writeFileSync(file, 'original', 'utf8');
-    fileService = new FileService();
-    ws = createMockWs();
-    // The tests drive _pushFile directly; no real OS watch is needed.
-    jest.spyOn(fs, 'watch').mockImplementation(() => ({ on: jest.fn(), close: jest.fn() }));
-    watcher = new FileWatcher(ws, () => fileService, (id) => (id === PROJECT_ID ? { id, path: tmpDir } : undefined));
-    watcher.watch(PROJECT_ID, '/doc.txt');
-    abs = fileService.validatePath(tmpDir, '/doc.txt');
+    jest.useFakeTimers();
+    rig = makeRig([project]);
+    rig.setFile(PROJECT_ID, 'doc.txt', 'original');
+    rig.watcher.watch(PROJECT_ID, '/doc.txt');
+    key = rig.selfKey(PROJECT_ID, '/doc.txt');
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
-    watcher.closeAll();
-    expect(tmpDir).toBeTruthy();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rig.watcher.closeAll();
   });
 
-  const push = () => watcher._pushFile(PROJECT_ID, 'doc.txt');
+  const pushed = () => rig.framesOf('file_changed');
+  // One outside event: the file now reads `content`, relay reports a change.
+  async function change(content) {
+    rig.setFile(PROJECT_ID, 'doc.txt', content);
+    rig.emitFs(PROJECT_ID, 'doc.txt', 'change');
+    await jest.advanceTimersByTimeAsync(100);
+  }
 
   it('U1: an outside write right after a save is pushed', async () => {
-    watcher.markSelfWrite(abs, 'saved by eve');
-    fs.writeFileSync(file, 'written by someone else', 'utf8');
-    await push();
-    expect(pushed()).toHaveLength(1);
-    expect(pushed()[0].content).toBe('written by someone else');
+    rig.watcher.markSelfWrite(key, 'saved by eve');
+    await change('written by someone else');
+    expect(pushed().map((m) => m.content)).toEqual(['written by someone else']);
   });
 
-  it('U2: the true echo (disk equals the saved text) is dropped', async () => {
-    watcher.markSelfWrite(abs, 'saved by eve');
-    fs.writeFileSync(file, 'saved by eve', 'utf8');
-    await push();
+  it('U2: the true echo (the file equals the saved text) is dropped', async () => {
+    rig.watcher.markSelfWrite(key, 'saved by eve');
+    await change('saved by eve');
     expect(pushed()).toHaveLength(0);
   });
 
   it('U3: after two quick saves, the reads of both saved texts are dropped', async () => {
-    watcher.markSelfWrite(abs, 'save A');
-    watcher.markSelfWrite(abs, 'save B');
-    fs.writeFileSync(file, 'save A', 'utf8');
-    await push();
-    fs.writeFileSync(file, 'save B', 'utf8');
-    await push();
+    rig.watcher.markSelfWrite(key, 'save A');
+    rig.watcher.markSelfWrite(key, 'save B');
+    await change('save A');
+    await change('save B');
     expect(pushed()).toHaveLength(0);
   });
 
   it('U4: once a different text was pushed, a write back to the saved text is pushed too', async () => {
-    watcher.markSelfWrite(abs, 'saved by eve');
-    fs.writeFileSync(file, 'outside', 'utf8');
-    await push();
-    fs.writeFileSync(file, 'saved by eve', 'utf8');
-    await push();
+    rig.watcher.markSelfWrite(key, 'saved by eve');
+    await change('outside');
+    await change('saved by eve');
     expect(pushed().map((m) => m.content)).toEqual(['outside', 'saved by eve']);
   });
 
-  it('U5: the suppression expires 1000 ms after the save', () => {
-    jest.useFakeTimers();
-    watcher.markSelfWrite(abs, 'saved by eve');
-    expect(watcher.selfWrites.size).toBe(1);
-    jest.advanceTimersByTime(999);
-    expect(watcher.selfWrites.size).toBe(1);
-    jest.advanceTimersByTime(1);
-    expect(watcher.selfWrites.size).toBe(0);
+  it('U5: the suppression holds inside 1000 ms and expires at 1000 ms', async () => {
+    rig.watcher.markSelfWrite(key, 'saved by eve');
+    await jest.advanceTimersByTimeAsync(500);
+    await change('saved by eve'); // t = 600 ms: still an echo
+    expect(pushed()).toHaveLength(0);
+
+    rig.watcher.markSelfWrite(key, 'saved again');
+    await jest.advanceTimersByTimeAsync(1000);
+    await change('saved again'); // t > 1000 ms after the mark: an outside write that happens to match
+    expect(pushed().map((m) => m.content)).toEqual(['saved again']);
   });
 
   it('U6: the expiry timer does not keep the process alive', () => {
@@ -89,64 +80,24 @@ describe('FileWatcher self-write suppression by content', () => {
       if (ms === 1000) made.push(t);
       return t;
     });
-    watcher.markSelfWrite(abs, 'saved by eve');
+    rig.watcher.markSelfWrite(key, 'saved by eve');
     expect(made.length).toBeGreaterThan(0);
     for (const t of made) expect(t.hasRef()).toBe(false);
   });
 
-  it.each([[undefined], [null], [42], [Buffer.from('x')]])(
-    'U8: non-string content (%p) leaves no entry', (content) => {
-      watcher.markSelfWrite(abs, content);
-      expect(watcher.selfWrites.has(abs)).toBe(false);
-      expect(watcher.selfWrites.size).toBe(0);
+  it.each([[undefined], [null], [42], [Buffer.from('saved by eve')]])(
+    'U8: non-string content (%p) marks nothing, so a matching read is pushed', async (content) => {
+      rig.watcher.markSelfWrite(key, content);
+      await change('saved by eve');
+      expect(pushed()).toHaveLength(1);
     });
 
   it('U9: closeAll cancels the pending expiry timers', () => {
-    jest.useFakeTimers();
     const before = jest.getTimerCount();
-    watcher.markSelfWrite(abs, 'saved by eve');
-    watcher.markSelfWrite(abs, 'saved again');
+    rig.watcher.markSelfWrite(key, 'saved by eve');
+    rig.watcher.markSelfWrite(key, 'saved again');
     expect(jest.getTimerCount()).toBe(before + 2);
-    watcher.closeAll();
+    rig.watcher.closeAll();
     expect(jest.getTimerCount()).toBe(before);
-  });
-
-  describe('U7: host (remote) file service', () => {
-    const RP = 'rp1';
-    const ROOT = '/srv/app';
-    let remoteFs, remoteWs, rw, rabs, disk;
-
-    beforeEach(() => {
-      const agent = new EventEmitter();
-      agent.watch = jest.fn().mockResolvedValue();
-      agent.unwatch = jest.fn().mockResolvedValue();
-      remoteFs = {
-        hostAgent: agent,
-        listDirectory: jest.fn().mockResolvedValue([]),
-        readFile: jest.fn(async () => ({ content: disk, size: disk.length })),
-        validatePath: (root, rel) => path.posix.resolve(root, String(rel).replace(/^\/+/, '') || '.'),
-      };
-      remoteWs = createMockWs();
-      rw = new FileWatcher(remoteWs, () => remoteFs, (id) => (id === RP ? { id: RP, path: ROOT, hostId: 'h1' } : undefined));
-      rw.watch(RP, '/a.txt');
-      rabs = remoteFs.validatePath(ROOT, '/a.txt');
-    });
-
-    afterEach(() => rw.closeAll());
-
-    it('pushes an outside write right after a save', async () => {
-      rw.markSelfWrite(rabs, 'saved by eve');
-      disk = 'written by someone else';
-      await rw._pushFile(RP, 'a.txt');
-      expect(remoteWs.sent).toHaveLength(1);
-      expect(remoteWs.sent[0]).toMatchObject({ type: 'file_changed', content: 'written by someone else' });
-    });
-
-    it('drops the true echo', async () => {
-      rw.markSelfWrite(rabs, 'saved by eve');
-      disk = 'saved by eve';
-      await rw._pushFile(RP, 'a.txt');
-      expect(remoteWs.sent).toHaveLength(0);
-    });
   });
 });

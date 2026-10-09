@@ -9,8 +9,12 @@
  *   <root>/fix-timeouts/  worktree, branch fix/timeouts     — one M
  *
  * The commit on feat/login is what only the "vs base" scope shows. Real git
- * runs against a real temp dir; the eve under test is the usual spawned
- * server + fake relay (test/integration/harness.js).
+ * runs against a real temp dir through the fake relay's disk mode
+ * (relay.files.useDisk); the watch events stay fake-driven, so nothing waits on
+ * the real file system. Waits: a watch is live when relay.files.watched('p1')
+ * resolves; an outside change arrives as the DOM change.
+ * The eve under test is the usual spawned server + fake relay
+ * (test/integration/harness.js).
  */
 const fs = require('fs');
 const os = require('os');
@@ -85,6 +89,7 @@ const test = hermeticTest.extend({
     const eve = await startEve({
       projects: [{ id: 'p1', name: 'Worktrees', path: projectDir }],
     });
+    eve.relay.files.useDisk('p1', projectDir);
     try {
       await use({ ...eve, projectDir });
     } finally {
@@ -247,19 +252,14 @@ test.describe('changes panel', () => {
     await expect(page.getByTestId('diff-mode-file')).toBeDisabled();
   });
 
-  test('an edit on disk updates the list without a manual refresh', async ({ page, eve }) => {
+  test('an outside edit updates the list without a manual refresh', async ({ page, eve }) => {
     await openChanges(page);
-    const readme = path.join(eve.projectDir, 'main', 'README.md');
     const row = fileRow(page, '/main', 'README.md');
     await expect(row).toHaveCount(0);
 
-    // Re-touch each round: the recursive watcher can miss the very first
-    // event right after it starts.
-    let n = 0;
-    await expect(async () => {
-      fs.writeFileSync(readme, `# Worktree fixture\nedit ${++n}\n`, 'utf8');
-      await expect(row).toBeVisible({ timeout: 3000 });
-    }).toPass({ timeout: 30000 });
+    await eve.relay.files.watched('p1');
+    eve.relay.files.write('p1', 'main/README.md', '# Worktree fixture\nedit 1\n');
+    await expect(row).toBeVisible({ timeout: 10000 });
 
     await expect(repoHeader(page, '/main').locator('.changes-panel__count')).toHaveText('1');
     await expect(page.getByTestId('panel-tab-changes').locator('.panel-tab__count')).toHaveText('6');
@@ -268,11 +268,9 @@ test.describe('changes panel', () => {
   test('a new untracked file in a worktree appears without a manual refresh', async ({ page, eve }) => {
     await openChanges(page);
     const row = fileRow(page, '/fix-timeouts', 'lib/retry.js');
-    let n = 0;
-    await expect(async () => {
-      write(path.join(eve.projectDir, 'fix-timeouts'), 'lib/retry.js', `module.exports = ${++n};\n`);
-      await expect(row).toBeVisible({ timeout: 3000 });
-    }).toPass({ timeout: 30000 });
+    await eve.relay.files.watched('p1');
+    eve.relay.files.write('p1', 'fix-timeouts/lib/retry.js', 'module.exports = 1;\n');
+    await expect(row).toBeVisible({ timeout: 10000 });
     await expect(row.locator('.changes-panel__status')).toHaveText('?');
     await expect(repoHeader(page, '/fix-timeouts').locator('.changes-panel__count')).toHaveText('2');
   });

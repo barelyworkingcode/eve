@@ -70,6 +70,8 @@ describe('createWsHandler', () => {
 
   function makeDeps(overrides = {}) {
     const fileServiceMock = { validatePath: jest.fn(() => '/proj1/abs.txt') };
+    const { EventEmitter } = require('events');
+    const files = Object.assign(new EventEmitter(), { hostStatuses: jest.fn(() => []) });
     return {
       authService: { isEnrolled: jest.fn(() => false), validateSession: jest.fn(() => true) },
       trustedNetwork: { isTrusted: jest.fn(() => true) },
@@ -77,10 +79,10 @@ describe('createWsHandler', () => {
         fetch: jest.fn().mockResolvedValue({ status: 200, data: { sessionId: 'S1', directory: '/proj1', projectId: 'p1', model: 'gpt' } }),
         createWebSocket: jest.fn(),
       },
+      files,
       fileHandlers: {
-        fileService: fileServiceMock,
         fileServiceFor: jest.fn(() => fileServiceMock),
-        searchService: { cancel: jest.fn() },
+        cancelSearch: jest.fn(),
         listDirectory: jest.fn(),
         readFile: jest.fn(),
         writeFile: jest.fn(),
@@ -259,14 +261,14 @@ describe('createWsHandler', () => {
 
     it('write_file marks a self-write before delegating to writeFile', async () => {
       await sendMsg(ws, { type: 'write_file', projectId: 'p1', path: 'a.txt', content: 'x' });
-      expect(deps.fileHandlers.fileService.validatePath).toHaveBeenCalledWith('/proj1', 'a.txt');
+      expect(deps.fileHandlers.fileServiceFor().validatePath).toHaveBeenCalledWith('/proj1', 'a.txt');
       expect(fileWatcher.markSelfWrite).toHaveBeenCalledWith('/proj1/abs.txt', 'x');
       expect(deps.fileHandlers.writeFile).toHaveBeenCalled();
     });
 
     it('search_cancel cancels the search by requestId', async () => {
       await sendMsg(ws, { type: 'search_cancel', requestId: 'rc' });
-      expect(deps.fileHandlers.searchService.cancel).toHaveBeenCalledWith('rc');
+      expect(deps.fileHandlers.cancelSearch).toHaveBeenCalledWith('rc');
     });
 
     it('records the viewed project on the ui bus for any project-scoped message', async () => {
@@ -385,6 +387,12 @@ describe('createWsHandler', () => {
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', message: 'Cannot connect to relay service' }));
     });
 
+    it('builds each connection\'s watcher over the shared file client', () => {
+      const deps = makeDeps();
+      const ws = mount(deps);
+      expect(FileWatcher).toHaveBeenLastCalledWith(ws, deps.files, deps.resolveProject);
+    });
+
     it('cleans up relay, watcher, and ui bus on socket close', async () => {
       const deps = makeDeps();
       const ws = mount(deps);
@@ -396,16 +404,18 @@ describe('createWsHandler', () => {
   });
 
   describe('host_status broadcast (../relay/docs/ssh-hosts.md)', () => {
-    function fakeHostPool(initialStatuses = []) {
+    // The file client relay's host_status frames arrive on: it caches the
+    // latest status per host and emits 'host_status' on each change.
+    function fakeFiles(initialStatuses = []) {
       const { EventEmitter } = require('events');
-      const pool = new EventEmitter();
-      pool.statuses = jest.fn(() => initialStatuses);
-      return pool;
+      const files = new EventEmitter();
+      files.hostStatuses = jest.fn(() => initialStatuses);
+      return files;
     }
 
-    it('sends the pool\'s current statuses once a connection authenticates', async () => {
-      const hostPool = fakeHostPool([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
-      const deps = makeDeps({ hostPool });
+    it('sends the cached host statuses once a connection authenticates', async () => {
+      const files = fakeFiles([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
+      const deps = makeDeps({ files });
       const ws = mount(deps);
       await flush();
       const sent = ws.send.mock.calls.map((c) => JSON.parse(c[0]));
@@ -413,9 +423,9 @@ describe('createWsHandler', () => {
     });
 
     it('does not send host_status to an unauthenticated connection', async () => {
-      const hostPool = fakeHostPool([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
+      const files = fakeFiles([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
       const deps = makeDeps({
-        hostPool,
+        files,
         authService: { isEnrolled: () => true, validateSession: () => true },
         trustedNetwork: { isTrusted: () => false },
       });
@@ -426,9 +436,9 @@ describe('createWsHandler', () => {
     });
 
     it('sends the catch-up statuses only after a late auth succeeds', async () => {
-      const hostPool = fakeHostPool([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
+      const files = fakeFiles([{ hostId: 'h1', name: 'devbox', status: 'connected' }]);
       const deps = makeDeps({
-        hostPool,
+        files,
         authService: { isEnrolled: () => true, validateSession: () => true },
         trustedNetwork: { isTrusted: () => false },
       });
@@ -438,9 +448,9 @@ describe('createWsHandler', () => {
       expect(sent).toContainEqual({ type: 'host_status', hostId: 'h1', name: 'devbox', status: 'connected' });
     });
 
-    it('broadcasts a pool status change to every authenticated connection sharing the handler', async () => {
-      const hostPool = fakeHostPool([]);
-      const deps = makeDeps({ hostPool });
+    it('broadcasts a host status change to every authenticated connection sharing the handler', async () => {
+      const files = fakeFiles([]);
+      const deps = makeDeps({ files });
       const handler = createWsHandler(deps);
       const wsA = makeWs();
       const wsB = makeWs();
@@ -450,7 +460,7 @@ describe('createWsHandler', () => {
       wsA.send.mockClear();
       wsB.send.mockClear();
 
-      hostPool.emit('status', { hostId: 'h1', name: 'devbox', status: 'unreachable', error: 'timed out' });
+      files.emit('host_status', { hostId: 'h1', name: 'devbox', status: 'unreachable', error: 'timed out' });
 
       const expected = JSON.stringify({ type: 'host_status', hostId: 'h1', name: 'devbox', status: 'unreachable', error: 'timed out' });
       expect(wsA.send).toHaveBeenCalledWith(expected);
@@ -458,8 +468,8 @@ describe('createWsHandler', () => {
     });
 
     it('stops broadcasting to a connection after it closes', async () => {
-      const hostPool = fakeHostPool([]);
-      const deps = makeDeps({ hostPool });
+      const files = fakeFiles([]);
+      const deps = makeDeps({ files });
       const handler = createWsHandler(deps);
       const wsA = makeWs();
       handler(wsA, makeReq());
@@ -467,7 +477,7 @@ describe('createWsHandler', () => {
       wsA.emit('close');
       wsA.send.mockClear();
 
-      hostPool.emit('status', { hostId: 'h1', name: 'devbox', status: 'connected' });
+      files.emit('host_status', { hostId: 'h1', name: 'devbox', status: 'connected' });
 
       expect(wsA.send).not.toHaveBeenCalled();
     });

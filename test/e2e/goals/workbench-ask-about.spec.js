@@ -1,9 +1,10 @@
 // S5a-A4 "Ask about this": a file, a diff or search results go to Today's Ask as
 // a removable attachment, asked in the item's project. docs/design-workbench.md
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { test, expect, MODELS } = require('./fixture');
+const { test, expect, MODELS, FILES } = require('./fixture');
 const { reloadEve } = require('../fixtures');
 const { nav } = require('./today-helpers');
 
@@ -12,12 +13,14 @@ const chip = (page) => page.getByTestId('today-ask-attachment');
 const sent = (eve) => eve.relay.inbound.filter((m) => m.type === 'send_message');
 const TOO_LARGE = "That's too large to attach (over 256 KB).";
 
+const EXTRA = { 'big.txt': 'x'.repeat(256 * 1024 + 1), 'needles.txt': 'needle one\nhay\nneedle two\n' };
+
+// The files live in the fake relay's memory; nothing here touches a disk.
 const world = {
-  seed: ({ relay, folders }) => {
+  seed: ({ relay }) => {
     relay.setModels(MODELS);
     relay.setDefaultProject('work', 'beta');
-    fs.writeFileSync(path.join(folders.alpha, 'big.txt'), 'x'.repeat(256 * 1024 + 1));
-    fs.writeFileSync(path.join(folders.alpha, 'needles.txt'), 'needle one\nhay\nneedle two\n');
+    relay.files.seed('alpha', EXTRA);
   },
 };
 
@@ -145,15 +148,24 @@ test.describe('S5a-A4 Ask about the pick', () => {
 test.describe('S5a-A4 Ask about a diff', () => {
   test.use({
     world: {
+      // Git needs a real repo: the fake relay's disk mode runs relay's git op in this
+      // temp directory, while the project itself stays a neutral fake path.
       seed: ({ relay, folders }) => {
         world.seed({ relay, folders });
+        const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'eve-ask-diff-')));
+        for (const [rel, content] of Object.entries({ ...FILES, ...EXTRA })) {
+          fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+          fs.writeFileSync(path.join(dir, rel), content);
+        }
         const git = (...args) => execFileSync('git', ['-c', 'user.name=Acme', '-c', 'user.email=acme@example.invalid',
           '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
-        { cwd: folders.alpha, stdio: 'pipe', env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))) });
+        { cwd: dir, stdio: 'pipe', env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))) });
         git('init', '-q', '-b', 'main');
         git('add', '-A');
         git('commit', '-q', '-m', 'initial');
-        fs.writeFileSync(path.join(folders.alpha, 'notes.txt'), 'first line\nsecond line\n');
+        fs.writeFileSync(path.join(dir, 'notes.txt'), 'first line\nsecond line\n');
+        relay.files.useDisk('alpha', dir);
+        return { cleanup: () => { expect(dir).toBeTruthy(); fs.rmSync(dir, { recursive: true, force: true }); } };
       },
     },
   });
