@@ -8,7 +8,8 @@ Vanilla JS, **no bundler, no build step, no modules**: `public/index.html` loads
 
 Conventions the global rules name: the **feature map** is
 [`docs/FEATURES.md`](docs/FEATURES.md), and the **verify harness** is
-`devboxverify`. A PR that adds or changes a feature updates the feature map.
+`devboxverify`. A PR that adds or changes a feature updates that feature's row in the feature map in the same PR: its doors, proofs and refusals, and the spec the row names.
+A new feature gets a new row with the next free ID in its goal; IDs are never reused or renumbered. A PR that adds or changes a route or WebSocket frame the browser uses updates [docs/api.md](docs/api.md).
 
 ## Security (eve-specific rules)
 
