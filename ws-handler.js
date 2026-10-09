@@ -7,7 +7,7 @@ const { acceptTraceId } = require('./trace');
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, searchSummarizer, resolveProject, hostPool, ttsService, sttService, uiBus, chiefOfStaff, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, searchSummarizer, resolveProject, ensureProjectHost, hostPool, ttsService, sttService, uiBus, chiefOfStaff, log }) {
   // Shared across every connection this factory serves (the factory itself
   // runs once, at server.js startup) — a host_status change must reach every
   // authenticated browser tab, not just the one that happened to trigger it.
@@ -111,6 +111,9 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         // ws/relayClient/fileWatcher (per-connection objects), or later
         // connections leak into an earlier one's handler. Rebuilt fresh per message.
         if (descriptor) {
+          // A host added in relay after startup is not in eve's host cache yet.
+          const hostRefresh = message.projectId && ensureProjectHost ? ensureProjectHost(message.projectId) : null;
+          if (hostRefresh) await hostRefresh;
           const traceId = descriptor.chatTurn ? acceptTraceId(message.trace_id) : undefined;
           await descriptor.handle({
             ws,

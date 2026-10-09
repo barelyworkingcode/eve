@@ -637,7 +637,7 @@ describe('devboxverify journey table', () => {
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
     'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part', 'chat-tool-search', 'agent-board-states',
     'agent-drop-in',
-    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent',
+    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread',
     'changes-agent-edit', 'files-on-host',
   ];
 
@@ -661,8 +661,8 @@ describe('devboxverify journey table', () => {
     expect(journeyless.sort()).toEqual(['core', 'search', 'ui-control']);
   });
 
-  it('marks only cos-host-agent and cos-project-from-relay (relay gates their creates and mint), add-browser-in-window and project-mode-new (relay gates its create) as screen (with files-on-host, whose project create relay gates) and only the two passkey journeys as fixtures', () => {
-    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['cos-host-agent', 'cos-project-from-relay', 'files-on-host', 'project-mode-new', 'add-browser-in-window']);
+  it('marks only cos-host-agent, cos-host-noread and cos-project-from-relay (relay gates their creates and mint), add-browser-in-window and project-mode-new (relay gates its create) as screen (with files-on-host, whose project create relay gates) and only the two passkey journeys as fixtures', () => {
+    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['cos-host-agent', 'cos-host-noread', 'cos-project-from-relay', 'files-on-host', 'project-mode-new', 'add-browser-in-window']);
     expect(journeys.filter(j => j.fixture).map(j => j.id).sort()).toEqual(['passkey-first-enrol', 'passkey-sign-in']);
   });
 
@@ -680,7 +680,7 @@ describe('devboxverify journey table', () => {
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
         'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
         'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in',
-        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent', 'changes-agent-edit'].map(id => [id, acme])),
+        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread', 'changes-agent-edit'].map(id => [id, acme])),
     });
   });
 
@@ -703,7 +703,7 @@ describe('devboxverify journey table', () => {
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'changes-agent-edit',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished',
       'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
-      'chat-pasted-url-source', 'chat-tool-search', 'cos-host-agent', 'cos-project-from-relay', 'files-on-host', 'project-mode-new',
+      'chat-pasted-url-source', 'chat-tool-search', 'cos-host-agent', 'cos-host-noread', 'cos-project-from-relay', 'files-on-host', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -735,6 +735,7 @@ describe('devboxverify journey table', () => {
     ['changes-agent-edit', 'devboxverify/README.md', ['chat', 'git'], 150000],
     ['files-on-host', 'devboxverify/README.md', ['files', 'git', 'hosts'], 240000],
     ['cos-host-agent', 'devboxverify/README.md', ['chief-of-staff'], 420000],
+    ['cos-host-noread', 'devboxverify/README.md', ['chief-of-staff'], 300000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -1684,7 +1685,7 @@ describe('devboxverify/main.js main', () => {
 describe('devboxverify Chief of Staff project from relay (eve#249)', () => {
   const { chiefOfStaffSourceProblem } = require('../../devboxverify/main');
   const {
-    cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine, launchRowsFromJsonl, hostLaunchProblem,
+    cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine, launchRowsFromJsonl, hostLaunchProblem, noreadReplyProblem,
   } = require('../../devboxverify/journeys');
   const TOKEN = 'f'.repeat(32) + '0123456789abcdef'.repeat(2);
 
@@ -1827,6 +1828,60 @@ describe('devboxverify Chief of Staff project from relay (eve#249)', () => {
       ['another host', line({ args: { session_id: 's1', origin: 'chief-of-staff', host_id: 'h2' } })],
     ])('fails on %s', (_n, jsonl) => {
       expect(hostLaunchProblem(launchRowsFromJsonl(jsonl, 's1'), 'h1')).toMatch(/^relay audit holds no ok session_launch row/);
+    });
+  });
+
+  describe('cannot-read reply verdict (cos-host-noread)', () => {
+    const name = 'Drop-in Host noread n1';
+    const reply = (body) => ({ kind: 'reply', body });
+    const good = reply(`I can\u2019t read files in ${name}: it lives on an SSH host.`);
+    it.each([
+      ['cannot read', `I cannot read files in ${name}.`],
+      ["can't read", `I can't read files in ${name}.`],
+      ['unable to read', `I am unable to read files in ${name}.`],
+    ])('passes on a reply naming the project that says %s', (_n, body) => {
+      expect(noreadReplyProblem([reply(body)], name)).toBeNull();
+    });
+    it('passes on the curly apostrophe', () => {
+      expect(noreadReplyProblem([good], name)).toBeNull();
+    });
+    it('fails when the reply does not name the project', () => {
+      expect(noreadReplyProblem([reply('I cannot read files there.')], name)).toMatch(/does not name the project and says it cannot read/);
+    });
+    it('fails when the reply does not say it cannot read', () => {
+      expect(noreadReplyProblem([reply(`${name} has a README with a title.`)], name)).toMatch(/names the project and does not say it cannot read/);
+    });
+    it('fails when a started post follows the reply', () => {
+      expect(noreadReplyProblem([good, { kind: 'started' }], name)).toMatch(/^the question started an agent \(started\)/);
+    });
+    it('fails on a start_card', () => {
+      expect(noreadReplyProblem([{ kind: 'start_card', body: 'Start?' }], name)).toMatch(/^the question started an agent \(start_card\)/);
+    });
+    it('fails when the first post is not a reply', () => {
+      expect(noreadReplyProblem([{ kind: 'notice', body: `cannot read ${name}` }], name)).toMatch(/^the thread posted "notice", want reply/);
+    });
+    const person = { kind: 'person', text: 'What is in README.md?' };
+    it('skips the person\'s own question before the reply', () => {
+      expect(noreadReplyProblem([person, good], name)).toBeNull();
+    });
+    it('fails on a start_card after the person post', () => {
+      expect(noreadReplyProblem([person, { kind: 'start_card', body: 'Start?' }], name)).toMatch(/^the question started an agent \(start_card\)/);
+    });
+    it('ignores alert, finished, question and sent posts', () => {
+      const others = [{ kind: 'alert', body: 'x' }, { kind: 'finished' }, { kind: 'question' }, { kind: 'sent' }];
+      expect(noreadReplyProblem([person, ...others, good], name)).toBeNull();
+    });
+    it('fails when only the person post is there', () => {
+      expect(noreadReplyProblem([person], name)).toMatch(/posted nothing/);
+    });
+    it('matches the project name in any case', () => {
+      expect(noreadReplyProblem([reply(`I cannot read files in ${name.toUpperCase()}.`)], name)).toBeNull();
+    });
+    it('still needs the nonce to match', () => {
+      expect(noreadReplyProblem([reply('I cannot read files in drop-in host noread n2.')], name)).toMatch(/does not name the project/);
+    });
+    it('fails with no posts', () => {
+      expect(noreadReplyProblem([], name)).toMatch(/posted nothing/);
     });
   });
 

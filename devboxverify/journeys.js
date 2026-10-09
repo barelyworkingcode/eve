@@ -3322,6 +3322,101 @@ async function cosHostAgent(env) {
     + `relay audit holds an ok session_launch from chief-of-staff with the host, and the agent replied ${marker}`);
 }
 
+const NOREAD_PHRASE = /can't read|can\u2019t read|cannot read|can not read|unable to read/i;
+
+const NOREAD_ANSWER_KINDS = ['start_card', 'started', 'start_failed', 'reply', 'notice'];
+
+// Verdict on the posts after a "read a file in a hosted project" question:
+// null when the first answer is a reply naming the project (any case) and
+// saying it cannot read there and nothing started an agent, else the reason it
+// fails. Only the kinds the thread answers with count: the person's own
+// question is the first post, and unrelated alert, finished, question and sent
+// posts can arrive meanwhile; none of those is an answer.
+function noreadReplyProblem(posts, projectName) {
+  const list = (Array.isArray(posts) ? posts : []).filter((p) => p && NOREAD_ANSWER_KINDS.includes(p.kind));
+  const textOf = (p) => String((p && (p.body || p.text || p.error)) || '').replace(/\s+/g, ' ').trim();
+  if (!list.length) return 'the thread posted nothing';
+  const first = list[0];
+  const said = textOf(first).slice(0, 300);
+  const started = list.filter((p) => p.kind === 'started' || p.kind === 'start_card').map((p) => p.kind);
+  if (started.length) return `the question started an agent (${started.join(', ')}); first post "${first.kind}": ${said}`;
+  if (first.kind !== 'reply') return `the thread posted "${first.kind}", want reply: ${said}`;
+  const namesProject = textOf(first).toLowerCase().includes(String(projectName).toLowerCase());
+  const cannotRead = NOREAD_PHRASE.test(textOf(first));
+  if (!namesProject || !cannotRead) {
+    return `reply ${namesProject ? 'names' : 'does not name'} the project and ${cannotRead ? 'says' : 'does not say'} it cannot read: ${said}`;
+  }
+  return null;
+}
+
+// Asking to read a file in a project on an SSH host gets a reply that names
+// the project and says it cannot read there, and starts no agent.
+async function cosHostNoread(env) {
+  const id = 'cos-host-noread';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const hostName = `${HOST_PREFIX}${env.nonce}-noread`;
+  const projectName = `Drop-in Host noread ${env.nonce}`;
+  const dir = path.join(os.homedir(), '.local', 'state', 'devboxverify', `${HOST_STATE_DIR}${env.nonce}-noread`);
+  let hostId = '';
+  let projectId = '';
+  // Two uses of this setup and cleanup (cos-host-agent has the other); a third extracts them.
+  env.cleanup('delete the hosted sessions, project and host', async () => {
+    const failures = [];
+    const attempt = async (label, fn) => { try { await fn(); } catch (err) { failures.push(`${label}: ${firstLine(err)}`); } };
+    if (projectId) {
+      const listed = await eveJson(env, 'GET', '/api/sessions').catch(() => []);
+      for (const s of listed) if (s && s.projectId === projectId) await attempt(`session ${s.id}`, () => deleteSession(env, s.id));
+    }
+    if (projectId) await attempt('project', () => eveJson(env, 'DELETE', `/api/projects/${projectId}`));
+    if (hostId) await attempt('host', () => eveJson(env, 'DELETE', `/api/hosts/${hostId}`));
+    await attempt('folder', () => fs.promises.rm(dir, { recursive: true, force: true }));
+    if (failures.length) throw new Error(failures.join('; '));
+  });
+
+  env.step('create the loopback host');
+  try {
+    const host = await eveJsonSlow(env, 'POST', '/api/hosts', { name: hostName, target: HOST_TARGET, tmux_path: '/usr/bin/tmux' });
+    hostId = host && host.id ? host.id : '';
+  } catch (err) {
+    return result(id, BLOCKED, `loopback host not set up (setup P11): ${firstLine(err)}`);
+  }
+  if (!hostId) return result(id, BLOCKED, 'loopback host not set up (setup P11): eve answered no host id');
+
+  env.step('create the hosted project');
+  await fs.promises.mkdir(dir, { recursive: true });
+  const folder = await fs.promises.realpath(dir).catch(() => dir);
+  // Relay gates every project create behind a presence dialog, so the POST
+  // answers only once the helper has answered it. It must be ready first.
+  const presence = env.screen.answerPresence({ expect: 'create the project' });
+  if (!(await presence.ready)) return result(id, BLOCKED, `presence dialog ${(await presence.result).state}`);
+  try {
+    const project = await eveJsonSlow(env, 'POST', '/api/projects', {
+      name: projectName, path: folder, host_id: hostId, allowed_templates: ['claude-code'],
+    });
+    projectId = project && project.id ? project.id : '';
+  } catch (err) {
+    const { state } = await presence.result;
+    return result(id, BLOCKED, `hosted project not created (setup P11; presence dialog ${state}): ${firstLine(err)}`);
+  }
+  if (!projectId) return result(id, BLOCKED, 'hosted project not created (setup P11): eve answered no project id');
+
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+
+  env.step('ask to read a file in the hosted project');
+  const from = await cosSay(page, seen, `What's in README.md in the project ${projectName}?`);
+  env.step('wait for the reply post');
+  const first = await cosWaitPost(seen, from, NOREAD_ANSWER_KINDS);
+  if (!first) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  const modelProblem = await cosModelProblem(seen);
+  if (modelProblem) return result(id, FAIL, modelProblem);
+  const problem = noreadReplyProblem(seen.posts.slice(from), projectName);
+  if (problem) return result(id, FAIL, problem);
+  return result(id, PASS, `the Chief of Staff named ${projectName}, said it cannot read files there, and started no agent`);
+}
+
 const COS_FINISHED_WITHIN_MS = 240000;
 
 // The headless agent a person asks the Chief of Staff for in words, and the
@@ -3660,6 +3755,10 @@ const journeys = [
     run: cosHostAgent,
   },
   {
+    id: 'cos-host-noread', timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    run: cosHostNoread,
+  },
+  {
     id: 'cos-project-from-relay', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosProjectFromRelay,
   },
@@ -3679,5 +3778,5 @@ const journeys = [
 
 module.exports = {
   journeys, scratchFolder, commitOneFile, endOfFile, sessionStates, openEveSocket, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
-  launchRowsFromJsonl, hostLaunchProblem,
+  launchRowsFromJsonl, hostLaunchProblem, noreadReplyProblem,
 };

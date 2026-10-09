@@ -70,7 +70,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     try {
       const { status, data } = await relayTransport.fetch('GET', '/api/projects');
       if (data && Array.isArray(data)) {
-        refreshProjectCache(data, { replace: true });
+        await refreshProjectCache(data, { replace: true });
         const normalized = data.map(p => resolveProject(p.id)).filter(Boolean);
         res.status(status).json(normalized);
       } else {
@@ -86,7 +86,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     try {
       const { status, data } = await relayTransport.fetch('GET', `/api/projects/${req.params.id}`);
       if (data && data.id) {
-        refreshProjectCache([data]);
+        await refreshProjectCache([data]);
         res.status(status).json(resolveProject(data.id) || data);
       } else {
         res.status(status).json(data);
@@ -101,7 +101,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     try {
       const { status, data } = await relayTransport.fetch(method, relayPath, body);
       if (status >= 200 && status < 300 && data && data.id) {
-        refreshProjectCache([data]);
+        await refreshProjectCache([data]);
         res.status(status).json(resolveProject(data.id) || data);
       } else {
         res.status(status).json(data ?? {});
