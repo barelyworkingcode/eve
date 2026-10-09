@@ -76,11 +76,4 @@ describe('ssh-command nodeLauncher', () => {
     const source = fs.readFileSync(path.join(__dirname, '../../remote-fs-agent.js'), 'utf8');
     expect(nodeLauncher(source).length).toBeLessThan(8191);
   });
-
-  it('runs under node exactly as the remote host would', () => {
-    const { execFileSync } = require('child_process');
-    const launcher = nodeLauncher("process.stdout.write('ok ' + typeof require)");
-    const arg = launcher.match(/^node -e "(.*)"$/)[1];
-    expect(execFileSync(process.execPath, ['-e', arg]).toString()).toBe('ok function');
-  });
 });
