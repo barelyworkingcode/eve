@@ -638,6 +638,7 @@ describe('devboxverify journey table', () => {
     'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part', 'chat-tool-search', 'agent-board-states',
     'agent-drop-in',
     'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread',
+    'changes-agent-edit', 'files-on-host',
   ];
 
   it('holds exactly the contract journeys, each id once', () => {
@@ -657,11 +658,11 @@ describe('devboxverify journey table', () => {
     // core is shared plumbing; the rest have no journey yet. Tagging a journey
     // with one of these, or dropping the last tag of another, is a deliberate edit here.
     const journeyless = Object.keys(areas).filter(a => !journeys.some(j => j.areas.includes(a)));
-    expect(journeyless.sort()).toEqual(['core', 'hosts', 'search', 'ui-control']);
+    expect(journeyless.sort()).toEqual(['core', 'search', 'ui-control']);
   });
 
-  it('marks only cos-host-agent, cos-host-noread and cos-project-from-relay (relay gates their creates and mint), add-browser-in-window and project-mode-new (relay gates its create) as screen and only the two passkey journeys as fixtures', () => {
-    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['cos-host-agent', 'cos-host-noread', 'cos-project-from-relay', 'project-mode-new', 'add-browser-in-window']);
+  it('marks only cos-host-agent, cos-host-noread and cos-project-from-relay (relay gates their creates and mint), add-browser-in-window and project-mode-new (relay gates its create) as screen (with files-on-host, whose project create relay gates) and only the two passkey journeys as fixtures', () => {
+    expect(journeys.filter(j => j.screen).map(j => j.id)).toEqual(['cos-host-agent', 'cos-host-noread', 'cos-project-from-relay', 'files-on-host', 'project-mode-new', 'add-browser-in-window']);
     expect(journeys.filter(j => j.fixture).map(j => j.id).sort()).toEqual(['passkey-first-enrol', 'passkey-sign-in']);
   });
 
@@ -670,7 +671,7 @@ describe('devboxverify journey table', () => {
     const all = ['project:acme', 'project:globex', 'project:home'];
     expect(Object.fromEntries(journeys.map(j => [j.id, [...j.needs].sort()]))).toEqual({
       'passkey-first-enrol': [], 'landing-view': [], 'add-browser-in-window': [],
-      'settings-sheet': [], 'project-mode-new': [], 'project-admin-in-relay': acme,
+      'settings-sheet': [], 'project-mode-new': [], 'files-on-host': [], 'project-admin-in-relay': acme,
       'world-projects-listed': all, 'terminal-on-request': all, 'brief-injection-refused': ['project:home'],
       'ask-in-other-mode': ['project:acme', 'project:home'], 'research-citations': [], 'chat-pasted-url-source': [], 'chat-tool-search': [],
       'today-custom-part': ['project:acme', 'project:home'],
@@ -679,7 +680,7 @@ describe('devboxverify journey table', () => {
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
         'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
         'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in',
-        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread'].map(id => [id, acme])),
+        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread', 'changes-agent-edit'].map(id => [id, acme])),
     });
   });
 
@@ -699,10 +700,10 @@ describe('devboxverify journey table', () => {
     expect(orderJourneys(journeys, { screen: true }).run.map(j => j.id)).toEqual([
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'listen', 'terminal-on-request',
-      'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save',
+      'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'changes-agent-edit',
       'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished',
       'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
-      'chat-pasted-url-source', 'chat-tool-search', 'cos-host-agent', 'cos-host-noread', 'cos-project-from-relay', 'project-mode-new',
+      'chat-pasted-url-source', 'chat-tool-search', 'cos-host-agent', 'cos-host-noread', 'cos-project-from-relay', 'files-on-host', 'project-mode-new',
       'add-browser-in-window',
     ]);
   });
@@ -731,6 +732,8 @@ describe('devboxverify journey table', () => {
     ['cos-start-card', 'devboxverify/README.md', ['chief-of-staff'], 330000],
     ['cos-errand-finished', 'devboxverify/README.md', ['chief-of-staff'], 330000],
     ['cos-project-from-relay', 'devboxverify/README.md', ['chief-of-staff'], 180000],
+    ['changes-agent-edit', 'devboxverify/README.md', ['chat', 'git'], 150000],
+    ['files-on-host', 'devboxverify/README.md', ['files', 'git', 'hosts'], 240000],
     ['cos-host-agent', 'devboxverify/README.md', ['chief-of-staff'], 420000],
     ['cos-host-noread', 'devboxverify/README.md', ['chief-of-staff'], 300000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
@@ -2062,6 +2065,49 @@ describe('devboxverify run record (eve#269)', () => {
       }).not.toThrow();
       expect(writes).toHaveLength(1);
       expect(writes[0]).toMatch(/^run record: [^\n]*\n$/);
+    });
+  });
+});
+
+describe('devboxverify file-plane journeys (eve#296)', () => {
+  const { agentEditProblem, createdId, initModel } = require('../../devboxverify/journeys-files');
+
+  describe('initModel', () => {
+    it('names the model of the system/init event', () => {
+      const frames = [
+        { type: 'session_created' },
+        { type: 'llm_event', event: { type: 'assistant' } },
+        { type: 'llm_event', event: { type: 'system', subtype: 'init', model: 'claude-haiku-5-5' } },
+      ];
+      expect(initModel(frames)).toBe('claude-haiku-5-5');
+    });
+
+    it('is null when no init event arrived', () => {
+      expect(initModel([{ type: 'llm_event', event: { type: 'system', subtype: 'other', model: 'x' } }])).toBeNull();
+    });
+  });
+
+  describe('agentEditProblem', () => {
+    it('accepts a file holding the line as a whole line', () => {
+      expect(agentEditProblem('# Notes\nagent edit abc\n', 'agent edit abc', 'notes.md')).toBeNull();
+      expect(agentEditProblem('a\r\nagent edit abc', 'agent edit abc', 'notes.md')).toBeNull();
+    });
+
+    it('names the file when the line is missing or only part of a line', () => {
+      expect(agentEditProblem('# Notes\n', 'agent edit abc', 'notes.md')).toBe('the agent did not edit notes.md (model output)');
+      expect(agentEditProblem('agent edit abcdef\n', 'agent edit abc', 'agent.md')).toBe('the agent did not edit agent.md (model output)');
+    });
+  });
+
+  describe('createdId', () => {
+    it('returns the id of a 201 answer', () => {
+      expect(createdId('POST /api/hosts', { status: 201, json: { id: 'h-1' } })).toEqual({ id: 'h-1', problem: '' });
+    });
+
+    it('reports another status, a missing id and no answer, naming the call', () => {
+      expect(createdId('POST /api/hosts', { status: 403, json: { error: 'no' } }).problem).toBe('POST /api/hosts answered 403');
+      expect(createdId('POST /api/projects', { status: 201, json: {} }).problem).toBe('POST /api/projects answered 201 without an id');
+      expect(createdId('POST /api/projects', null).problem).toBe('POST /api/projects: no answer');
     });
   });
 });

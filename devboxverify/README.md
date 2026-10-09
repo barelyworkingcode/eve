@@ -45,7 +45,7 @@ data dir `settings.json` before its restart, keeping every other key (the file
 is read as JSONC and rewritten as plain JSON, so comments go; a file that does
 not parse stops the reset). The id comes from `relay grant --json`,
 which also gives setup V-COS its check (below); unless exactly one `Verify Chief of Staff` project exists, the merge is skipped and the preflight line says "Chief of Staff settings not written". Its other writes are the owner reset below (which also removes `chief-of-staff-state.json` and `chief-of-staff.jsonl` from the pinned data dir, so the daily limit starts unused), the `verify-<nonce>-*` folders journeys
-make in Acme Corp, the Verify Chief of Staff folder or the temp dir and remove, project-admin-in-relay's Save
+make in Acme Corp, changes-agent-edit's Acme Corp session (deleted), files-on-host's loopback host `loopback-<nonce>`, its project `Verify Files Host <nonce>`, its `verify-<nonce>-host-*` folder in the temp dir and its `devbox-verify-files-host-<nonce>` credential (all removed by its cleanup, which revokes the credential last), the Verify Chief of Staff folder or the temp dir and remove, project-admin-in-relay's Save
 of Acme Corp as it stands, project-mode-new's `verify-<nonce>` project,
 which it deletes, mode-presets' `verify-<nonce> ask` template in Acme Corp,
 which it removes (and it gives Work's Ask preset back to the template that held it, if any), and voice-deep-link's mark on `World voice` as Work's voice
@@ -828,6 +828,67 @@ from relay: project <id>, model haiku, 39 calls a day`. PASS needs all of these.
   `configured:false`, then revokes the credential through a second presence
   prompt (`"<id>"`); a failed revoke is FAIL and names the id to revoke by
   hand. A run killed outright leaves a credential that expires in 15 minutes.
+
+**file-edit-save (outside file).** After notes.md opens, the harness writes
+`outside-<nonce>.md` into the scratch folder from outside eve; its tree item
+must show in the open Files tab within 10 s, with no reload. FAIL "a file made
+outside eve did not show in the open tree within 10s". The save and
+outside-change steps after it are unchanged.
+- Lives in: `file-watcher.js`, `public/sidebar/file-tree-node.js`.
+- Traps: the folder row must be expanded first, which opening notes.md does.
+
+**changes-agent-edit.** The Changes tab lists a file an agent edited, with no
+reload (G6). A scratch git repo in Acme Corp holds a committed, clean
+`notes.md`. The page opens Acme Corp's Changes tab, which shows the repo and no
+row for notes.md, and stays open. The journey creates a `haiku` session
+(`permissionMode: acceptEdits`) over a socket of its own and asks it to append
+`agent edit <nonce>` to `<repo>/notes.md` with its Edit tool. Relay's hook
+still asks about `Read` under `acceptEdits`, so the journey answers each
+permission request for the session as a person would: allow for Read, Edit and
+Write, deny for anything else. The turn ends at a `session_state` `idle` frame
+(90 s; no frame, or `errored`, is FAIL). A `system/init` model other than
+`claude-haiku-5-5`, or none, is BLOCKED. The file is read once after the turn: without the line it is BLOCKED "the agent did
+not edit notes.md (model output)". PASS needs
+`changes-file-/<repo>:notes.md` within 15 s with status `M`.
+Waits: none possible: model output.
+- Lives in: `git-service.js`, `file-watcher.js` (`git_changed`),
+  `public/sidebar/changes-panel.js`.
+- Traps: BLOCKED when `haiku` is not offered for Acme Corp. The cleanup closes
+  the socket and deletes every Acme Corp session the journey added, whatever the
+  verdict. Nothing reloads after the Changes tab opens, so only `git_changed`
+  can show the row.
+
+**files-on-host.** A project on an SSH host works like a local one (G13).
+Screen journey (`screen: true`, 240 s). Through the presence helper it mints a
+15-minute `configure` credential named `devbox-verify-files-host-<nonce>`
+(one prompt), then over relay's frontend socket makes a host
+`loopback-<nonce>` (target `localhost`, tmux `/usr/bin/tmux`) and, under a
+second presence prompt naming it, a project `Verify Files Host <nonce>` on that
+host (template `claude-code`) whose folder is a `verify-<nonce>-host-*` git repo
+in the temp dir holding committed `notes.md` and `agent.md`. In eve it opens the
+project and its Files tab (eve starts the host's file agent on the first file
+call); the host bar must then read connected within 30 s, and a FAIL names what
+the bar showed. It opens notes.md, types a line and presses the save chord; the tab's unsaved mark must
+clear within 15 s, and the disk (the host is this machine) is read once and
+must hold the line. A file the harness writes into the folder must show in the
+open tree within 15 s. In the Changes tab, with no `agent.md` row, a `haiku`
+session (`acceptEdits`, prompts answered and the model checked as in
+changes-agent-edit) is asked to append `agent edit <nonce>` to agent.md;
+after `idle` the file is read once (no line: BLOCKED "the agent did not edit
+agent.md (model output)") and `changes-file-/:agent.md` must show `M` within
+15 s. Waits: none possible: model output.
+- Lives in: `ssh-host-pool.js`, `remote-file-service.js`,
+  `remote-fs-agent.js`, `public/sidebar/project-panel.js` (host bar),
+  `public/sidebar/changes-panel.js`; relay's `/api/hosts`, `/api/projects`.
+- Traps: BLOCKED when the presence dialog is not answered. The repo is the
+  project root, so its Changes path is `/`. agent.md is the agent's file
+  because the save already makes notes.md `M`. One cleanup, which also runs on
+  FAIL and on timeout, closes the socket, deletes the session, the project and
+  the host (204 or 404 is fine), removes the folder after a prefix check, and
+  revokes the credential last through a presence prompt (`"<id>"`); a failed
+  revoke is FAIL and names the id. The token lives in one variable and goes only
+  into the `Authorization` header. A run killed outright leaves a credential that
+  expires in 15 minutes, and a host, project and folder named with the nonce.
 
 **routine-failed-notifies.** A failed routine run notifies with no browser
 open (S6-A1, A2). Through `POST /api/tasks` the journey creates

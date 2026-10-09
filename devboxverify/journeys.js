@@ -879,6 +879,12 @@ async function fileEditSave(env) {
   const text = page.locator('#monacoEditor .view-lines');
   await need('notes.md did not open with "first line" within 15s', expect(text).toContainText('first line', { timeout: 15000 }));
 
+  env.step('make a file outside eve');
+  const outsideName = `outside-${env.nonce}.md`;
+  await fs.promises.writeFile(path.join(dir, outsideName), '# Outside\n');
+  await need('a file made outside eve did not show in the open tree within 10s',
+    expect(page.getByTestId(`file-tree-item-${folder}/${outsideName}`)).toBeVisible({ timeout: 10000 }));
+
   env.step('edit and save');
   const saved = `saved ${env.nonce}`;
   await endOfFile(page, text);
@@ -905,7 +911,7 @@ async function fileEditSave(env) {
   await page.locator('.external-change-bar').getByRole('button', { name: 'Reload' }).click({ timeout: 5000 });
   await need('Reload did not bring in the outside change', expect(text).toContainText(outside2, { timeout: 10000 }));
   await need('the banner is still showing after Reload', expect(banner).toBeHidden({ timeout: 5000 }));
-  return result(id, PASS, 'saved to disk; a clean editor took an outside change; a dirty one asked and reloaded');
+  return result(id, PASS, 'a file made outside eve showed in the open tree; saved to disk; a clean editor took an outside change; a dirty one asked and reloaded');
 }
 
 async function askAboutFile(env) {
@@ -3697,6 +3703,7 @@ async function cosProjectFromRelay(env) {
 
 const auth = require('./journeys-auth').journeys;
 const toolSearch = require('./journeys-tool-search').journeys;
+const files = require('./journeys-files').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
 // that could open relay's one enrolment window; add-browser-in-window runs
@@ -3727,6 +3734,7 @@ const journeys = [
     id: 'file-edit-save', timeoutMs: 75000, areas: ['files'],
     needs: ['project:acme', ...FILE_EDIT_SHOWN.map((rel) => `file:acme/${rel}`)], run: fileEditSave,
   },
+  files.changesAgentEdit,
   auth.agentSignInRefused,
   // After agent-sign-in-refused so a slow night spends its budget on these,
   // not on it. add-browser-in-window is a screen journey, so orderJourneys
@@ -3763,11 +3771,12 @@ const journeys = [
   { id: 'research-citations', timeoutMs: 180000, areas: ['chat'], needs: [], run: researchCitations },
   { id: 'chat-pasted-url-source', timeoutMs: 180000, areas: ['chat'], needs: [], run: chatPastedUrlSource },
   toolSearch.chatToolSearch,
+  files.filesOnHost,
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
 ];
 
 module.exports = {
-  journeys, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
+  journeys, scratchFolder, commitOneFile, endOfFile, sessionStates, openEveSocket, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
   launchRowsFromJsonl, hostLaunchProblem, noreadReplyProblem,
 };
