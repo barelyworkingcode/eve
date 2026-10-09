@@ -90,7 +90,7 @@ describe('row notes', () => {
     expect(note).toMatchObject({ sessionId: 's1', kind: 'summary', text: 'Row line for s1.' });
     expect(typeof note.at).toBe('string');
 
-    await quietAfter(ws.mark());
+    await quietAfter(ws.frames.indexOf(note));
     expect(ws.frames.filter((f) => f.type === 'cos_post')).toHaveLength(0);
 
     // A hostile excerpt travels only inside the one data region.
@@ -124,7 +124,7 @@ describe('row notes', () => {
     finishTurn('s1', 'Merged the branch\nand tagged it.');
     const note = await ws.waitFor(noteFrame('s1', (f) => f.source !== 'pending'), WAIT);
     expect(note).toMatchObject({ kind: 'summary', source: 'template', text: 'Merged the branch and tagged it.' });
-    await quietAfter(ws.mark());
+    await quietAfter(ws.frames.indexOf(note));
     expect(rowTurns()).toHaveLength(0);
     expect(ws.frames.filter((f) => f.type === 'cos_post')).toHaveLength(0);
     expect(eve.stderr()).toContain('Chief of Staff row summary: session s1 source template');
