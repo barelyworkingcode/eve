@@ -244,6 +244,8 @@ applying — usually on-device encrypted DNS or a stale cache (see Step 2's
 Prerequisites) — it defeats the source-IP trust model. Use a NAT port-forward
 that preserves the client IP.
 
+---
+
 ## Running an isolated instance (tests, side by side)
 
 Setting `EVE_DATA_DIR` (non-empty) makes an instance isolated. Every path then
