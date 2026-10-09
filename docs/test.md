@@ -65,11 +65,10 @@ test/
 
 **Unit** (`jest.config.js`) — pure logic and lightly-mocked modules: path security
 (`file-service`), watch/debounce (`file-watcher`), auth ceremony/origin, relay
-client/transport, ws dispatch, route handlers, security
+client/transport, ws dispatch, security
 headers, rate limiter, slash commands, project normalize, and more. Zero external
-deps; this is the pre-commit gate. The unit tier binds no ports or real sockets;
-a test that starts a server, even an in-process Express app on a loopback port, lives
-in integration. `collectCoverageFrom` enumerates the server-side
+deps; this is the pre-commit gate. A route test that starts a server, even an in-process Express app on a
+loopback port, lives in integration, not here. `collectCoverageFrom` enumerates the server-side
 surface explicitly so untested files count as 0% instead of vanishing.
 
 **Integration** (`jest.integration.config.js`) — `test/integration/harness.js` spawns
