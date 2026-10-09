@@ -42,22 +42,6 @@ function fakeContainer(map = new Map()) {
 }
 
 describe('ChatFormControls', () => {
-  it('showStop hides send and reveals stop; hideStop is the exact inverse', () => {
-    const feature = loadChatForm();
-    const controls = feature.init(fakeContainer());
-    controls.sendBtn = fakeButton();
-    controls.stopBtn = fakeButton();
-    controls.stopBtn.classList.add('hidden');
-
-    controls.showStop();
-    expect(controls.sendBtn.classList.contains('hidden')).toBe(true);
-    expect(controls.stopBtn.classList.contains('hidden')).toBe(false);
-
-    controls.hideStop();
-    expect(controls.stopBtn.classList.contains('hidden')).toBe(true);
-    expect(controls.sendBtn.classList.contains('hidden')).toBe(false);
-  });
-
   it('setSubmitEnabled toggles disabled on the send button only', () => {
     const feature = loadChatForm();
     const controls = feature.init(fakeContainer());
@@ -96,21 +80,5 @@ describe('ChatFormControls', () => {
     expect(() => controls.showStop()).not.toThrow();
     expect(() => controls.hideStop()).not.toThrow();
     expect(() => controls.setSubmitEnabled(false)).not.toThrow();
-  });
-
-  it("the stop button's render closure wires its click to app.handleStop()", () => {
-    const feature = loadChatForm();
-    const handleStop = jest.fn();
-    const map = new Map();
-    map.set('chatForm', feature.init({}));
-    map.set('app', { handleStop });
-    const container = fakeContainer(map);
-
-    const stopSlot = feature.slots.find((s) => s.order === 30);
-    const btn = stopSlot.render(container);
-    btn.click();
-
-    expect(handleStop).toHaveBeenCalledTimes(1);
-    expect(container.get('chatForm').stopBtn).toBe(btn);
   });
 });

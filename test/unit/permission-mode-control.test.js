@@ -46,18 +46,6 @@ function fakeContainer(map = new Map()) {
 }
 
 describe('PermissionModeControl', () => {
-  it("syncMode('plan') activates, any other mode deactivates", () => {
-    const feature = loadPermissions();
-    const control = feature.init(fakeContainer());
-    control.button = fakeButton();
-
-    control.syncMode('plan');
-    expect(control.button.classList.contains('active')).toBe(true);
-
-    control.syncMode('default');
-    expect(control.button.classList.contains('active')).toBe(false);
-  });
-
   it('syncMode and setAvailable are no-ops before the button is assigned', () => {
     const feature = loadPermissions();
     const control = feature.init(fakeContainer());

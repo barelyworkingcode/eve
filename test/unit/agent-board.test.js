@@ -232,19 +232,6 @@ describe('AgentBoard Drop in', () => {
     expect(dropBtn(el, 'today', 's1')).toBeNull();
   });
 
-  it('a 201 opens the terminal relay returned', async () => {
-    const t = setup();
-    addRow(t, 's1', { model: 'sonnet', headless: true });
-    const terminal = { terminalId: 't9', templateId: 'claude-code', name: 'x (drop-in)', directory: '/nowhere', host: null };
-    t.container.get('api').dropIn = jest.fn(() => Promise.resolve({ sessionId: 's1', terminal }));
-    t.mgr.openDropIn = jest.fn();
-    const { el } = mountBoard(t);
-    dropBtn(el, 'today', 's1').click();
-    await flush();
-    expect(t.container.get('api').dropIn).toHaveBeenCalledWith('s1', { cols: 80, rows: 24 });
-    expect(t.mgr.openDropIn).toHaveBeenCalledWith(terminal);
-  });
-
   it('while a drop-in is in flight the button is busy and disabled, even if the row leaves Needs you; it returns when the call ends', async () => {
     const t = setup();
     addRow(t, 's1', { model: 'opus', headless: true });

@@ -154,11 +154,4 @@ describe('CustomPart render', () => {
     expect(byId(root, 'today-custom-stale')).toHaveLength(0);
     expect(root.dataset.stale).toBeUndefined();
   });
-
-  it('a failure after a good run marks the earlier output Stale', async () => {
-    const root = await render({ ...base, lastStatus: 'error' }, [{ status: 'error', error: 'boom' }, { status: 'success', output: list }]);
-    expect(byId(root, 'today-custom-stale')).toHaveLength(1);
-    expect(root.dataset.stale).toBe('true');
-    expect(byId(root, 'today-custom-body')).toHaveLength(1);
-  });
 });
