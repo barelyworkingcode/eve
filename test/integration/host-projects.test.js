@@ -159,3 +159,50 @@ describe('host projects (../relay/docs/ssh-hosts.md)', () => {
     expect(frame.content).toBe('written by someone else');
   });
 });
+
+describe('a host added in relay after eve started', () => {
+  let eve, hostRoot, ws;
+
+  beforeEach(async () => {
+    hostRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'eve-it-late-host-')));
+    fs.writeFileSync(path.join(hostRoot, 'late.txt'), 'added later', 'utf8');
+    eve = await startEve({});
+    ws = await eve.connectWs();
+  });
+
+  afterEach(async () => {
+    if (ws) await ws.close();
+    if (eve) await eve.stop();
+    fs.rmSync(hostRoot, { recursive: true, force: true });
+  });
+
+  it('is found on first use: the project carries its host and the file plane reaches it', async () => {
+    eve.relay.addHost({
+      id: 'h2', name: 'latebox', target: 'admin@latebox.local', port: 0, identity_file: '',
+      status: 'connected', ssh_argv: [process.execPath, AGENT_PATH],
+    });
+    eve.relay.addProject({ id: 'hp2', name: 'Late Project', path: hostRoot, host_id: 'h2' });
+
+    const projects = await (await eve.get('/api/projects')).json();
+    const hp = projects.find((p) => p.id === 'hp2');
+    expect(hp.host).toEqual({ id: 'h2', name: 'latebox', status: 'connected' });
+
+    ws.send({ type: 'list_directory', projectId: 'hp2', path: '/' });
+    const frame = await ws.waitFor((f) => f.type === 'directory_listing');
+    expect(frame.entries.map((e) => e.name)).toEqual(['late.txt']);
+  });
+
+  it('reaches the host over WS even when the project list was never fetched through the browser route', async () => {
+    eve.relay.addHost({
+      id: 'h3', name: 'latebox', target: 'admin@latebox.local', port: 0, identity_file: '',
+      status: 'connected', ssh_argv: [process.execPath, AGENT_PATH],
+    });
+    eve.relay.addProject({ id: 'hp3', name: 'Late Project', path: hostRoot, host_id: 'h3' });
+    // Prime only the project cache, as relay's live project fan-out does.
+    await eve.get('/api/projects/hp3');
+
+    ws.send({ type: 'list_directory', projectId: 'hp3', path: '/' });
+    const frame = await ws.waitFor((f) => f.type === 'directory_listing');
+    expect(frame.entries.map((e) => e.name)).toEqual(['late.txt']);
+  });
+});

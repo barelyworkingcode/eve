@@ -311,6 +311,7 @@ async function refreshProjectCache(data, { replace = false } = {}) {
         const normalized = normalizeProject(p);
         projectCache.set(normalized.id, normalized);
       }
+      await refreshHostsIfMissing();
       return;
     }
     const { status, data: fetched } = await relayTransport.fetch('GET', '/api/projects');
@@ -321,9 +322,27 @@ async function refreshProjectCache(data, { replace = false } = {}) {
       const normalized = normalizeProject(p);
       projectCache.set(normalized.id, normalized);
     }
+    await refreshHostsIfMissing();
   } catch (err) {
     log.child('ProjectCache').error('Refresh failed:', err.message);
   }
+}
+
+// Relay pushes project changes to eve live but not host changes, so a host
+// added after startup is absent from hostCache. Refresh once when a cached
+// project names a host the cache lacks; concurrent misses share one fetch.
+let hostRefreshInFlight = null;
+async function refreshHostsIfMissing(projectId) {
+  const projects = projectId ? [projectCache.get(projectId)] : projectCache.values();
+  let missing = false;
+  for (const p of projects) {
+    if (p && p.hostId && !hostCache.has(p.hostId)) { missing = true; break; }
+  }
+  if (!missing) return;
+  if (!hostRefreshInFlight) {
+    hostRefreshInFlight = refreshHostCache().finally(() => { hostRefreshInFlight = null; });
+  }
+  await hostRefreshInFlight;
 }
 
 async function refreshHostCache(data, { replace = false } = {}) {
@@ -446,6 +465,7 @@ wss.on('connection', createWsHandler({
   fileHandlers,
   searchSummarizer,
   resolveProject,
+  ensureProjectHost: refreshHostsIfMissing,
   hostPool,
   ttsService,
   sttService,
