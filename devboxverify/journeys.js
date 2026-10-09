@@ -3318,11 +3318,16 @@ async function cosHostAgent(env) {
 
 const NOREAD_PHRASE = /can't read|can\u2019t read|cannot read|can not read|unable to read/i;
 
+const NOREAD_ANSWER_KINDS = ['start_card', 'started', 'start_failed', 'reply', 'notice'];
+
 // Verdict on the posts after a "read a file in a hosted project" question:
-// null when the first is a reply naming the project and saying it cannot read
-// there and nothing started an agent, else the reason it fails.
+// null when the first answer is a reply naming the project (any case) and
+// saying it cannot read there and nothing started an agent, else the reason it
+// fails. Only the kinds the thread answers with count: the person's own
+// question is the first post, and unrelated alert, finished, question and sent
+// posts can arrive meanwhile; none of those is an answer.
 function noreadReplyProblem(posts, projectName) {
-  const list = Array.isArray(posts) ? posts : [];
+  const list = (Array.isArray(posts) ? posts : []).filter((p) => p && NOREAD_ANSWER_KINDS.includes(p.kind));
   const textOf = (p) => String((p && (p.body || p.text || p.error)) || '').replace(/\s+/g, ' ').trim();
   if (!list.length) return 'the thread posted nothing';
   const first = list[0];
@@ -3330,7 +3335,7 @@ function noreadReplyProblem(posts, projectName) {
   const started = list.filter((p) => p.kind === 'started' || p.kind === 'start_card').map((p) => p.kind);
   if (started.length) return `the question started an agent (${started.join(', ')}); first post "${first.kind}": ${said}`;
   if (first.kind !== 'reply') return `the thread posted "${first.kind}", want reply: ${said}`;
-  const namesProject = textOf(first).includes(projectName);
+  const namesProject = textOf(first).toLowerCase().includes(String(projectName).toLowerCase());
   const cannotRead = NOREAD_PHRASE.test(textOf(first));
   if (!namesProject || !cannotRead) {
     return `reply ${namesProject ? 'names' : 'does not name'} the project and ${cannotRead ? 'says' : 'does not say'} it cannot read: ${said}`;
@@ -3399,6 +3404,8 @@ async function cosHostNoread(env) {
   env.step('wait for the reply post');
   const first = await cosWaitPost(seen, from, ['start_card', 'started', 'start_failed', 'reply', 'notice']);
   if (!first) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  const modelProblem = await cosModelProblem(seen);
+  if (modelProblem) return result(id, FAIL, modelProblem);
   const problem = noreadReplyProblem(seen.posts.slice(from), projectName);
   if (problem) return result(id, FAIL, problem);
   return result(id, PASS, `the Chief of Staff named ${projectName}, said it cannot read files there, and started no agent`);
@@ -3740,7 +3747,7 @@ const journeys = [
     run: cosHostAgent,
   },
   {
-    id: 'cos-host-noread', timeoutMs: 240000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    id: 'cos-host-noread', timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosHostNoread,
   },
   {

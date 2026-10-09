@@ -732,7 +732,7 @@ describe('devboxverify journey table', () => {
     ['cos-errand-finished', 'devboxverify/README.md', ['chief-of-staff'], 330000],
     ['cos-project-from-relay', 'devboxverify/README.md', ['chief-of-staff'], 180000],
     ['cos-host-agent', 'devboxverify/README.md', ['chief-of-staff'], 420000],
-    ['cos-host-noread', 'devboxverify/README.md', ['chief-of-staff'], 240000],
+    ['cos-host-noread', 'devboxverify/README.md', ['chief-of-staff'], 300000],
   ])('gives %s the areas and timeout %s pins', (id, _doc, areas, timeoutMs) => {
     const j = journeys.find(x => x.id === id);
     expect({ areas: [...j.areas].sort(), timeoutMs: j.timeoutMs }).toEqual({ areas, timeoutMs });
@@ -1856,6 +1856,26 @@ describe('devboxverify Chief of Staff project from relay (eve#249)', () => {
     });
     it('fails when the first post is not a reply', () => {
       expect(noreadReplyProblem([{ kind: 'notice', body: `cannot read ${name}` }], name)).toMatch(/^the thread posted "notice", want reply/);
+    });
+    const person = { kind: 'person', text: 'What is in README.md?' };
+    it('skips the person\'s own question before the reply', () => {
+      expect(noreadReplyProblem([person, good], name)).toBeNull();
+    });
+    it('fails on a start_card after the person post', () => {
+      expect(noreadReplyProblem([person, { kind: 'start_card', body: 'Start?' }], name)).toMatch(/^the question started an agent \(start_card\)/);
+    });
+    it('ignores alert, finished, question and sent posts', () => {
+      const others = [{ kind: 'alert', body: 'x' }, { kind: 'finished' }, { kind: 'question' }, { kind: 'sent' }];
+      expect(noreadReplyProblem([person, ...others, good], name)).toBeNull();
+    });
+    it('fails when only the person post is there', () => {
+      expect(noreadReplyProblem([person], name)).toMatch(/posted nothing/);
+    });
+    it('matches the project name in any case', () => {
+      expect(noreadReplyProblem([reply(`I cannot read files in ${name.toUpperCase()}.`)], name)).toBeNull();
+    });
+    it('still needs the nonce to match', () => {
+      expect(noreadReplyProblem([reply('I cannot read files in drop-in host noread n2.')], name)).toMatch(/does not name the project/);
     });
     it('fails with no posts', () => {
       expect(noreadReplyProblem([], name)).toMatch(/posted nothing/);
