@@ -1,4 +1,4 @@
-/* Agent board (S5a-A3): Today's Agents part and the project page's Agents section. */
+/* Agent board (S5a-A3): Today's Agents part, the project page's Agents section and the Chief of Staff rail (eve#274). */
 .agent-board__list {
   display: flex;
   flex-direction: column;
@@ -79,7 +79,8 @@
   border-radius: 50%;
   background: var(--c);
 }
-.agent-row__dot[data-state="running"] { --c: var(--success); }
+/* One meaning per colour: red needs me, amber is working, green is idle, grey is done. */
+.agent-row__dot[data-state="running"] { --c: var(--warning); }
 .agent-row__dot[data-state="running"]::after {
   content: "";
   position: absolute;
@@ -88,10 +89,12 @@
   background: var(--c);
   animation: agent-dot-ring 1.6s ease-out infinite;
 }
-.agent-row__dot[data-state="idle"] { --c: var(--accent); }
-.agent-row__dot[data-state="asking"] { --c: var(--warning); animation: agent-dot-blink 1.4s ease-in-out infinite; }
+.agent-row__dot[data-state="starting"] { --c: var(--warning); }
+.agent-row__dot[data-state="idle"] { --c: var(--success); }
+.agent-row__dot[data-state="asking"] { --c: var(--danger); animation: agent-dot-blink 1.4s ease-in-out infinite; }
 .agent-row__dot[data-state="errored"] { --c: var(--danger); }
-.agent-row__dot[data-state="stalled"] { --c: transparent; box-shadow: inset 0 0 0 2px var(--warning); }
+.agent-row__dot[data-state="stalled"] { --c: transparent; box-shadow: inset 0 0 0 2px var(--danger); }
+.agent-row__dot[data-state="ended"] { --c: var(--text-muted); }
 @keyframes agent-dot-ring { from { transform: scale(1); opacity: 0.55; } to { transform: scale(2.6); opacity: 0; } }
 @keyframes agent-dot-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 /* base.css only shortens animations under reduced motion; these must not run at all. */
@@ -129,6 +132,65 @@
   text-overflow: ellipsis;
 }
 
+/* Rail layout: line 1 dot, label, age; line 2 project and state words; line 3 last words. */
+.agent-row--rail .agent-row__head { width: 100%; }
+.agent-row__age {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--text-footnote);
+  color: var(--text-muted);
+}
+.agent-row__meta {
+  padding-left: 18px;
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-row--rail .agent-row__last,
+.agent-row__line { padding-left: 18px; font-size: var(--text-footnote); color: var(--text-secondary); }
+.agent-row__line--prose {
+  font-family: var(--font-ui);
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+.agent-row__line--mono {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+/* The Done header is a toggle when the board collapses it. */
+.agent-board__group-head:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm, 6px); }
+.agent-board__group-toggle {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.agent-board__group-toggle::before { content: "\25B8"; margin-right: 6px; }
+.agent-board__group-toggle[aria-expanded="true"]::before { content: "\25BE"; }
+.agent-board__group-toggle > :first-child { margin-right: auto; }
+.agent-board__group-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm, 6px); }
+@media (pointer: coarse) {
+  .agent-row--rail, .agent-board__group-toggle { min-height: 44px; }
+}
+
 /* Phone bottom bar: the Needs-you count on Today. */
 .bottom-bar .bottom-bar__btn { position: relative; }
 .bottom-bar__badge {
@@ -140,7 +202,7 @@
   padding: 0 4px;
   box-sizing: border-box;
   border-radius: 8px;
-  background: var(--warning);
+  background: var(--danger);
   color: #fff;
   font-size: 11px;
   font-weight: var(--weight-medium);

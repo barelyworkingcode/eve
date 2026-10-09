@@ -222,3 +222,25 @@ A headless Claude session under Needs you gets a Drop in action under its row, o
 - **Wire.** `POST /api/sessions/:id/drop-in` with `{cols:80, rows:24}` through `proxy()`. On 201 the board hands relay's `terminal` to `TerminalManager.openDropIn`, which does what the WS create path does: `onTerminalCreated`, then `join_terminal`. A refusal shows relay's `message` as a toast. There is no client timeout.
 - **Closing.** Closing the tab uses the existing `terminal_close`; relay hands the conversation back.
 - **Markup.** A row with the action sits in `.agent-row-wrap` beside its own button; other rows are unchanged.
+
+## Amended by eve#274
+
+The board becomes the shared component for a third mount, the Chief of Staff rail and its phone sheet. Today and the project page keep their calls and defaults; the new groups and colours reach them without an edit to their parts.
+
+- **Groups.** Four, in this order; an empty group shows no header.
+  - Needs you: `asking`, `errored`, `stalled`.
+  - Working: `running`, `starting`.
+  - Idle: `idle` (it was inside Working).
+  - Done: `ended`.
+- **Colours.** One meaning each. Red (`--danger`): `asking` (blinks), `errored`, and `stalled` (a 2px ring on a transparent fill). Amber (`--warning`): `running` (ring pulse) and `starting` (it was grey). Green (`--success`): `idle`. Grey (`--text-muted`): `ended`. The phone badge on Today turns `--danger`. Reduced motion stops every animation.
+- **State words.** `AgentBoard.STATE_WORDS` maps a state to its plain words (for example `asking` to "Waiting on you"). `AgentBoard.ago(sinceIso, nowMs)` gives '' for an invalid time, then `now`, `4m`, `2h`, `3d`.
+- **Rows.** A row gains `since`, the ISO time of the session's last state change ('' for a terminal).
+- **Options.** All default to the old behaviour.
+  - `maxRows` (default 20): `Infinity` means no cap and no "+N more".
+  - `layout` (default `board`): `rail` is three lines. Line 1 has the dot, label and age (`{p}-agent-age-{id}`, sessions only). Line 2 has `{p}-agent-meta-{id}`, "project · words" (terminals keep `open` / `exited N`). Line 3 is `{p}-agent-line-{id}` with `data-kind` and `data-source`: a terminal's live last line in mono; for a session, an alert note under Needs you, or a summary note under Idle and Done (prose for `model`, mono for `pending` and `template`). Working sessions have no line 3. Agent text goes in with `textContent`.
+  - `collapseDone` (default off): the Done header is a toggle button (`{p}-agents-group-done-toggle`, `aria-expanded`) and the list stays out of the DOM until opened. The state is per board instance.
+  - `note(sessionId)`: the line-3 source.
+  - `onCounts({needs, working, idle, done})`: called on each render, with zeros when empty and `null` when relay is unreachable or the list is loading.
+  - `onOpen(row)`: called after a row tap or Drop in.
+- **Rail headers.** In the rail layout each group header has `tabindex="-1"` and the test id `{p}-agents-group-{key}-head`, so "N need you" can scroll to it and focus it.
+- **Touch.** Rail rows and the Done toggle are at least 44px high under `(pointer: coarse)`.

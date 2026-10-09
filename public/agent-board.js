@@ -107,9 +107,25 @@ class AgentBoard {
   static MAX_ROWS = 20;
   static GROUPS = [
     { key: 'needs', title: 'Needs you', states: ['asking', 'errored', 'stalled'] },
-    { key: 'working', title: 'Working', states: ['running', 'idle', 'starting'] },
+    { key: 'working', title: 'Working', states: ['running', 'starting'] },
+    { key: 'idle', title: 'Idle', states: ['idle'] },
     { key: 'done', title: 'Done', states: ['ended'] },
   ];
+  static STATE_WORDS = {
+    asking: 'Waiting on you', errored: 'Stopped with an error', stalled: 'Gone quiet',
+    running: 'Working', starting: 'Starting', idle: 'Idle', ended: 'Done',
+  };
+
+  // Age of a state change: '' when the time is not valid, then 'now', '4m', '2h', '3d'.
+  static ago(sinceIso, nowMs = Date.now()) {
+    const t = Date.parse(sinceIso);
+    if (!sinceIso || Number.isNaN(t)) return '';
+    const s = Math.max(0, (nowMs - t) / 1000);
+    if (s < 60) return 'now';
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`;
+    return `${Math.floor(s / 86400)}d`;
+  }
   static FETCH_EVERY_MS = 15000;
   static TAIL_BYTES = 8192;
   // Shared by every board so Today and a project page never double-fetch.
@@ -122,12 +138,26 @@ class AgentBoard {
   // Session ids with a drop-in in flight, shared by every board.
   static dropping = new Set();
 
-  constructor({ container, testidPrefix, showProject, filter, onCount }) {
+  // Rail and sheet options (eve#274): `maxRows` (Infinity: no cap), `layout` ('board' or
+  // 'rail'), `collapseDone`, `note(sessionId)` for a row's third line, `onCounts` (group
+  // counts, or null while offline or loading) and `onOpen(row)` after a tap or Drop in.
+  constructor({
+    container, testidPrefix, showProject, filter, onCount,
+    maxRows = AgentBoard.MAX_ROWS, layout = 'board', collapseDone = false,
+    note = null, onCounts = null, onOpen = null,
+  }) {
     this.container = container;
     this.prefix = testidPrefix;
     this.showProject = !!showProject;
     this.filter = filter;
     this.onCount = onCount;
+    this.maxRows = maxRows;
+    this.layout = layout;
+    this.collapseDone = !!collapseDone;
+    this.note = note;
+    this.onCounts = onCounts;
+    this.onOpen = onOpen;
+    this._doneOpen = false;
     this.state = container.get('state');
     this.bus = container.get('bus');
     this.el = null;
@@ -177,6 +207,11 @@ class AgentBoard {
     }
     el.dataset.state = kind;
     this.onCount?.(rows.length);
+    if (this.onCounts) {
+      const counts = { needs: 0, working: 0, idle: 0, done: 0 };
+      for (const r of rows) counts[r.group] += 1;
+      this.onCounts(kind === 'ready' || kind === 'empty' ? counts : null);
+    }
 
     if (kind !== 'ready') {
       const msg = document.createElement('p');
@@ -187,7 +222,7 @@ class AgentBoard {
       return;
     }
     // The cap fills Needs-you first: rows arrive in group order.
-    const shown = rows.slice(0, AgentBoard.MAX_ROWS);
+    const shown = rows.slice(0, this.maxRows);
     for (const { key } of AgentBoard.GROUPS) {
       if (shown.some(r => r.group === key)) el.appendChild(this._group(key, rows, shown, mgr, fetch));
     }
@@ -267,8 +302,8 @@ class AgentBoard {
     const state = container.get('state');
     const mgr = AgentBoard._termMgr(container);
     const rows = [];
-    const add = (kind, item, id, st, label, project) => {
-      if (filter(item, project)) rows.push({ kind, id, state: st, group: AgentBoard.groupOf(st), label, project, item });
+    const add = (kind, item, id, st, label, project, since = '') => {
+      if (filter(item, project)) rows.push({ kind, id, state: st, group: AgentBoard.groupOf(st), label, project, since, item });
     };
     for (const t of mgr ? mgr.allTerminals.values() : []) {
       if (state.isTaskRun(t.id)) continue;
@@ -279,7 +314,8 @@ class AgentBoard {
     for (const id of attention ? attention.listedIds() : []) {
       const session = state.getSession(id);
       const project = (session.projectId && state.projects.get(session.projectId)) || null;
-      add('session', session, id, attention.get(id).state, sessionDisplayName(session, project), project);
+      const att = attention.get(id);
+      add('session', session, id, att.state, sessionDisplayName(session, project), project, att.since || '');
     }
     const order = (r) => AgentBoard.GROUPS.findIndex(g => g.key === r.group);
     rows.sort((a, b) => order(a) - order(b)
@@ -330,6 +366,7 @@ class AgentBoard {
     row.dataset.kind = kind;
     row.dataset.state = state;
 
+    if (this.layout === 'rail') row.classList.add('agent-row--rail');
     const head = document.createElement('span');
     head.className = 'agent-row__head';
     const dot = document.createElement('span');
@@ -340,6 +377,20 @@ class AgentBoard {
     title.className = 'agent-row__title';
     title.textContent = label;
     head.appendChild(title);
+    if (this.layout === 'rail') {
+      const age = r.kind === 'session' ? AgentBoard.ago(r.since) : '';
+      if (age) {
+        const a = document.createElement('span');
+        a.className = 'agent-row__age';
+        a.dataset.testid = `${this.prefix}-agent-age-${id}`;
+        a.textContent = age;
+        head.appendChild(a);
+      }
+      row.appendChild(head);
+      this._railLines(row, r, held);
+      row.addEventListener('click', () => this._open(r));
+      return this._withDropIn(row, r);
+    }
     if (this.showProject) {
       const p = document.createElement('span');
       p.className = 'agent-row__project';
@@ -362,7 +413,58 @@ class AgentBoard {
         row.appendChild(last);
       }
     }
-    row.addEventListener('click', () => (kind === 'session' ? this.container.get('app').joinSession(id) : this._attach(id)));
+    row.addEventListener('click', () => this._open(r));
+    return this._withDropIn(row, r);
+  }
+
+  _open(r) {
+    if (r.kind === 'session') this.container.get('app').joinSession(r.id);
+    else this._attach(r.id);
+    this.onOpen?.(r);
+  }
+
+  // Rail lines 2 and 3: project and state words, then the live last line or the note.
+  _railLines(row, r, held) {
+    const { kind, id, state, project, item: t } = r;
+    const words = kind === 'session' ? AgentBoard.STATE_WORDS[state] || state
+      : t.state !== 'stopped' ? 'open' : `exited${t.exitCode != null ? ` ${t.exitCode}` : ''}`;
+    const meta = document.createElement('span');
+    meta.className = 'agent-row__meta';
+    meta.dataset.testid = `${this.prefix}-agent-meta-${id}`;
+    meta.textContent = project?.name ? `${project.name} \u00b7 ${words}` : words;
+    row.appendChild(meta);
+
+    let text = '';
+    let lineKind = '';
+    let source = '';
+    let mono = true;
+    if (kind === 'terminal') {
+      text = held != null ? held : (AgentBoard.lines.get(id)?.line || '');
+      lineKind = 'last';
+      source = 'terminal';
+    } else {
+      const n = this.note ? this.note(id) : null;
+      const wanted = r.group === 'needs' ? 'alert' : (r.group === 'idle' || r.group === 'done') ? 'summary' : '';
+      if (n && n.text && wanted && n.kind === wanted) {
+        text = n.text;
+        lineKind = n.kind;
+        source = n.source;
+        mono = n.source !== 'model';
+      }
+    }
+    if (!text) return;
+    const line = document.createElement('span');
+    line.className = kind === 'terminal' ? 'agent-row__last' : 'agent-row__line';
+    line.classList.add(mono ? 'agent-row__line--mono' : 'agent-row__line--prose');
+    line.dataset.testid = `${this.prefix}-agent-line-${id}`;
+    line.dataset.kind = lineKind;
+    line.dataset.source = source;
+    line.textContent = text;
+    row.appendChild(line);
+  }
+
+  _withDropIn(row, r) {
+    const { id, label } = r;
     if (!AgentBoard.showsDropIn(r)) return row;
     // The action is a sibling of the row button: a button cannot hold a button.
     const wrap = document.createElement('div');
@@ -378,7 +480,10 @@ class AgentBoard {
       act.textContent = 'Dropping in…';
     } else {
       act.textContent = 'Drop in';
-      act.addEventListener('click', () => AgentBoard.dropIn(this.container, id));
+      act.addEventListener('click', () => {
+        AgentBoard.dropIn(this.container, id);
+        this.onOpen?.(r);
+      });
     }
     wrap.append(row, act);
     return wrap;
@@ -396,8 +501,29 @@ class AgentBoard {
     const count = document.createElement('span');
     count.dataset.testid = `${this.prefix}-agents-group-${key}-count`;
     count.textContent = String(rows.filter(r => r.group === key).length);
-    head.append(title, count);
+    const collapsed = this.collapseDone && key === 'done' && !this._doneOpen;
+    if (this.layout === 'rail') {
+      head.tabIndex = -1;
+      head.dataset.testid = `${this.prefix}-agents-group-${key}-head`;
+    }
+    if (this.collapseDone && key === 'done') {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'agent-board__group-toggle';
+      toggle.dataset.testid = `${this.prefix}-agents-group-done-toggle`;
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+      toggle.append(title, count);
+      toggle.addEventListener('click', () => {
+        this._doneOpen = !this._doneOpen;
+        this.render();
+        this.el?.querySelector(`[data-testid="${this.prefix}-agents-group-done-toggle"]`)?.focus();
+      });
+      head.appendChild(toggle);
+    } else {
+      head.append(title, count);
+    }
     sec.appendChild(head);
+    if (collapsed) return sec;
     const list = document.createElement('div');
     list.className = 'agent-board__list';
     for (const r of shown.filter(x => x.group === key)) {
