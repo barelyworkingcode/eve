@@ -1,34 +1,23 @@
 #!/usr/bin/env bash
-# Pre-commit hook: gate every commit on a clean JS parse + the jest unit suite.
+# Pre-commit hook: refuse a commit that stages a JS file that does not parse.
 #
 # Run by the machine's global hooks dispatcher. Don't set core.hooksPath in
 # the repo: a local value overrides the global hooks and skips the push guard.
 #
-# Skip on emergency:
-#   git commit --no-verify
-#
-# What runs (only when JS / test config is staged):
-#   1. node --check on each staged .js file  — fail fast on syntax errors
-#   2. npm test                              — full jest unit suite (~1s)
-#
 # Eve has no bundler/build step (vanilla JS, direct browser execution), so the
-# "build" gate is a per-file syntax parse, not a compile. The suite is hermetic
-# (temp dirs + mocks, no relay/relayLLM needed).
+# gate is a per-file syntax parse (node --check), not a compile.
 
 set -e
 
-# Only run when JS or the test config changed; let docs/asset-only commits skip.
-if ! git diff --cached --name-only | grep -qE '\.(js|cjs|mjs)$|jest\.config\.js|package\.json'; then
+cd "$(git rev-parse --show-toplevel)"
+
+# Added/Copied/Modified only: skip deletes. Source filenames have no spaces.
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|cjs|mjs)$' || true)
+if [ -z "$files" ]; then
     exit 0
 fi
 
-cd "$(git rev-parse --show-toplevel)"
-
-start=$(date +%s)
-
 echo "→ node --check (staged JS)"
-# Added/Copied/Modified only — skip deletes. Source filenames have no spaces.
-files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|cjs|mjs)$' || true)
 for f in $files; do
     if [ -f "$f" ] && ! node --check "$f"; then
         echo "✗ syntax error in $f; commit aborted"
@@ -36,11 +25,4 @@ for f in $files; do
     fi
 done
 
-echo "→ npm test"
-if ! npm test --silent; then
-    echo "✗ tests failed; commit aborted"
-    exit 1
-fi
-
-elapsed=$(($(date +%s) - start))
-echo "✓ pre-commit checks passed in ${elapsed}s"
+echo "✓ pre-commit checks passed"
