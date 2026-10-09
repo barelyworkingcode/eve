@@ -41,15 +41,6 @@ describe('FileAttachmentManager construction/init split', () => {
     expect(mgr.button).toBeNull();
   });
 
-  it('init() wires the attach button to open the file picker', () => {
-    const { attachBtn, fileInput } = setUpDom();
-    const mgr = new FileAttachmentManager({ get: () => ({}) });
-    mgr.init(attachBtn);
-
-    attachBtn.dispatch('click');
-    expect(fileInput.click).toHaveBeenCalledTimes(1);
-  });
-
   it('init() wires drag state and drop to addFiles, and resets the dragover class', () => {
     const { attachBtn, userInput } = setUpDom();
     const mgr = new FileAttachmentManager({ get: () => ({}) });

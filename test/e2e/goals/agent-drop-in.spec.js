@@ -4,6 +4,7 @@
 // docs/design-workbench.md
 const { test, expect } = require('./fixture');
 const { nav } = require('./today-helpers');
+const { relayFrames } = require('../../integration/protocol');
 
 const T0 = '2026-10-05T10:00:00.000Z';
 const WITHIN_2S = { timeout: 2000 };
@@ -40,6 +41,15 @@ test.describe('drop in from the agent board', () => {
     expect(eve.relay.dropIns).toEqual([{ sessionId: 's-claude', body: { cols: 80, rows: 24 } }]);
     const [{ terminalId }] = eve.relay.listTerminals();
     await eve.relay.waitForInbound((m) => m.type === 'join_terminal' && m.terminalId === terminalId);
+
+    // Output relay sends for that terminal id reaches the pane Drop in opened.
+    eve.relay.emitToRelay(relayFrames.terminalOutput({ terminalId, data: 'DROPIN-OUTPUT-OK' }));
+    await expect.poll(() => page.evaluate((id) => {
+      const buf = window.client.terminalManager.terminals.get(id).term.buffer.active;
+      let out = '';
+      for (let i = 0; i < buf.length; i++) out += buf.getLine(i)?.translateToString(true).trim() ?? '';
+      return out;
+    }, terminalId)).toContain('DROPIN-OUTPUT-OK');
 
     await dropTab(page).locator('.tab-close').click();
     const close = await eve.relay.waitForInbound((m) => m.type === 'terminal_close');

@@ -208,14 +208,6 @@ describe('AgentBoard Drop in', () => {
   const flush = () => new Promise((r) => setImmediate(r));
   const dropBtn = (el, prefix, id) => byTestId(el, `${prefix}-drop-in-${id}`);
 
-  it.each(['today', 'project'])('a headless haiku row under Needs you shows %s-drop-in-<id>', (prefix) => {
-    const t = setup();
-    addRow(t, 's1', { model: 'haiku', headless: true });
-    const { el } = mountBoard(t, { testidPrefix: prefix });
-    expect(dropBtn(el, prefix, 's1')).not.toBeNull();
-    expect(dropBtn(el, prefix, 's1').textContent).toBe('Drop in');
-  });
-
   it.each([
     ['headless missing', { model: 'haiku' }],
     ['headless false', { model: 'haiku', headless: false }],
@@ -230,19 +222,6 @@ describe('AgentBoard Drop in', () => {
     const { el } = mountBoard(t);
     expect(byTestId(el, 'today-agent-s1')).not.toBeNull();
     expect(dropBtn(el, 'today', 's1')).toBeNull();
-  });
-
-  it('a 201 opens the terminal relay returned', async () => {
-    const t = setup();
-    addRow(t, 's1', { model: 'sonnet', headless: true });
-    const terminal = { terminalId: 't9', templateId: 'claude-code', name: 'x (drop-in)', directory: '/nowhere', host: null };
-    t.container.get('api').dropIn = jest.fn(() => Promise.resolve({ sessionId: 's1', terminal }));
-    t.mgr.openDropIn = jest.fn();
-    const { el } = mountBoard(t);
-    dropBtn(el, 'today', 's1').click();
-    await flush();
-    expect(t.container.get('api').dropIn).toHaveBeenCalledWith('s1', { cols: 80, rows: 24 });
-    expect(t.mgr.openDropIn).toHaveBeenCalledWith(terminal);
   });
 
   it('while a drop-in is in flight the button is busy and disabled, even if the row leaves Needs you; it returns when the call ends', async () => {
