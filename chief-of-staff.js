@@ -44,6 +44,10 @@ const LABEL_MAX = 80;
 const EXCERPT_MAX = 500;
 const ERRANDS_MAX = 50;
 const FINISHED_MAX = 50;
+const ROW_QUIET_MS = 5000;
+const ROW_MAX_WAIT_MS = 30000;
+const ROW_WAITING_MAX = 50;
+const ROW_NOTES_MAX = 200;
 
 // Model failures that mean "this model must not run": keep posting templates.
 const FATAL_MODEL_CODES = new Set(['launch_failed', 'tools_present', 'tools_unverified', 'tools_missing', 'authentication_failed']);
@@ -191,7 +195,7 @@ class ChiefOfStaff {
 
     this.posts = [];
     // modelSessionId is the wake model's; personSessionId the person model's.
-    this.state = { day: localDay(new Date(now())), calls: 0, modelSessionId: null, personSessionId: null, limitNoticeDay: null };
+    this.state = { day: localDay(new Date(now())), calls: 0, rowCalls: 0, modelSessionId: null, personSessionId: null, limitNoticeDay: null };
     this._writeChain = Promise.resolve();
 
     this.roster = new Map();      // id -> row
@@ -202,6 +206,11 @@ class ChiefOfStaff {
     // mid-errand posts nothing. `ended` is set by the turn's turn_done.
     this._errands = new Map();
     this._finished = new Map();   // sessionId -> finished entry, waiting for a turn
+    // Row notes for the agent rail: memory only. `_rowWaiting` holds at most one
+    // entry per session (a newer turn replaces it); it never makes the thread busy.
+    this._rowNotes = new Map();   // sessionId -> CosRowNote
+    this._rowWaiting = new Map(); // sessionId -> {sessionId, label, projectId, excerpt, at}
+    this._rowCapLoggedDay = null;
     this._summaryWarned = new Set();
     this._inFlight = null;
     // The person turn in flight (a CosTurn), and whether the person model
@@ -301,6 +310,7 @@ class ChiefOfStaff {
       if (s && typeof s === 'object') {
         if (typeof s.day === 'string') this.state.day = s.day;
         if (Number.isInteger(s.calls) && s.calls >= 0) this.state.calls = s.calls;
+        if (Number.isInteger(s.rowCalls) && s.rowCalls >= 0) this.state.rowCalls = s.rowCalls;
         if (typeof s.modelSessionId === 'string') this.state.modelSessionId = s.modelSessionId;
         if (typeof s.personSessionId === 'string') this.state.personSessionId = s.personSessionId;
         if (typeof s.limitNoticeDay === 'string') this.state.limitNoticeDay = s.limitNoticeDay;
@@ -318,6 +328,7 @@ class ChiefOfStaff {
     if (this.state.day !== today) {
       this.state.day = today;
       this.state.calls = 0;
+      this.state.rowCalls = 0;
       this._persistState();
     }
   }
@@ -337,10 +348,15 @@ class ChiefOfStaff {
     return this.state.calls >= this.settings.dailyModelCalls;
   }
 
+  // The rail may spend half the day's model calls; the rest is for alerts and the person.
+  _rowCap() {
+    return Math.max(1, Math.floor(this.settings.dailyModelCalls / 2));
+  }
+
   _setModelSession(kind, id) {
     const own = typeof id === 'string' && id ? id : null;
     this._ownIds[kind] = own;
-    if (own) this.roster.delete(own);
+    if (own) { this.roster.delete(own); this._forgetRow(own); }
     if (kind === 'person') {
       this.state.personSessionId = own;
       if (own !== this._readState.sessionId) this._readState = { sessionId: own, read: false };
@@ -414,7 +430,30 @@ class ChiefOfStaff {
   }
 
   getSnapshot() {
-    return { posts: this.posts.slice(), status: this.getStatus() };
+    return { posts: this.posts.slice(), status: this.getStatus(), rowNotes: this.getRowNotes() };
+  }
+
+  getRowNotes() {
+    return [...this._rowNotes.values()].map((n) => ({ ...n }));
+  }
+
+  // Sets line 3 for a session and tells every browser. A repeat of the same
+  // note is silent. Text is one line of agent-derived data; browsers use textContent.
+  _setRowNote(sessionId, { text, kind, source }) {
+    const line = prompt.oneLine(text, prompt.CAPS.row);
+    if (!sessionId || !line) return;
+    const known = this._rowNotes.get(sessionId);
+    if (known && known.text === line && known.kind === kind && known.source === source) return;
+    const note = { sessionId, text: line, kind, source, at: new Date(this.now()).toISOString() };
+    this._rowNotes.delete(sessionId);
+    this._rowNotes.set(sessionId, note);
+    while (this._rowNotes.size > ROW_NOTES_MAX) this._rowNotes.delete(this._rowNotes.keys().next().value);
+    this._fanOut({ type: 'cos_row_note', ...note });
+  }
+
+  _forgetRow(sessionId) {
+    this._rowNotes.delete(sessionId);
+    this._rowWaiting.delete(sessionId);
   }
 
   subscribe(ws) {
@@ -520,7 +559,7 @@ class ChiefOfStaff {
     }
     if (seed || prune) {
       for (const id of [...this.roster.keys()]) {
-        if (!seen.has(id)) { this.roster.delete(id); this._waiting.delete(id); this._errands.delete(id); this._finished.delete(id); }
+        if (!seen.has(id)) { this.roster.delete(id); this._waiting.delete(id); this._errands.delete(id); this._finished.delete(id); this._forgetRow(id); }
       }
     }
   }
@@ -622,6 +661,7 @@ class ChiefOfStaff {
       this._waiting.delete(id);
       this._errands.delete(id);
       this._finished.delete(id);
+      this._forgetRow(id);
       this._unknown.delete(id);
       this._emitStatus();
       return;
@@ -639,6 +679,7 @@ class ChiefOfStaff {
     row.state = next;
     row.since = typeof frame.since === 'string' ? frame.since : row.since;
     this._settleErrand(row, next);
+    this._settleRowTurn(row, next);
     if (TRIGGER_STATES.has(next) && next !== prev) {
       this._enqueue(row.id, { kind: 'state', state: next, since: row.since, excerpt: '' });
     } else {
@@ -657,6 +698,13 @@ class ChiefOfStaff {
       // A question gets the alert and no finished post; otherwise wait for idle.
       if (prompt.isQuestion(excerpt)) this._errands.delete(row.id);
       else errand.ended = { excerpt: excerpt.slice(-EXCERPT_MAX), at: this.now() };
+    }
+    if (prompt.isQuestion(excerpt)) {
+      // The question is its own line 3; no model call.
+      this._setRowNote(row.id, { kind: 'summary', source: 'template', text: prompt.templateRow({ excerpt }).text });
+      row.turnEnded = null;
+    } else if (!errand) {
+      row.turnEnded = { excerpt: excerpt.slice(-EXCERPT_MAX), at: this.now() };
     }
     if (!prompt.isQuestion(excerpt)) return;
     this._enqueue(row.id, {
@@ -685,7 +733,34 @@ class ChiefOfStaff {
     }
   }
 
+  // A turn that ended and then went idle gets a pending note (the agent's last
+  // words) at once and a row summary after the quiet window. Any other state
+  // means the turn is not over: nothing is owed.
+  _settleRowTurn(row, next) {
+    if (next === 'idle') {
+      const ended = row.turnEnded;
+      if (!ended) return;
+      row.turnEnded = null;
+      this._setRowNote(row.id, { kind: 'summary', source: 'pending', text: prompt.templateRow(ended).text });
+      this._enqueueRow(row, ended);
+      return;
+    }
+    row.turnEnded = null;
+    this._rowWaiting.delete(row.id);
+  }
+
+  _enqueueRow(row, ended) {
+    this._rowWaiting.delete(row.id);
+    this._rowWaiting.set(row.id, {
+      sessionId: row.id, label: this._labelOf(row, row.id), projectId: row.projectId || '',
+      excerpt: ended.excerpt, at: this.now(),
+    });
+    while (this._rowWaiting.size > ROW_WAITING_MAX) this._rowWaiting.delete(this._rowWaiting.keys().next().value);
+    this._pump();
+  }
+
   _enqueueFinished(row, errand) {
+    this._setRowNote(row.id, { kind: 'summary', source: 'pending', text: prompt.templateRow(errand.ended).text });
     this._finished.delete(row.id);
     this._finished.set(row.id, {
       kind: 'finished', sessionId: row.id, label: errand.label, projectId: errand.projectId || row.projectId || '',
@@ -753,6 +828,16 @@ class ChiefOfStaff {
     return Math.min(newest + BATCH_QUIET_MS, oldest + BATCH_MAX_WAIT_MS);
   }
 
+  _rowReadyAt() {
+    let oldest = Infinity;
+    let newest = 0;
+    for (const e of this._rowWaiting.values()) {
+      oldest = Math.min(oldest, e.at);
+      newest = Math.max(newest, e.at);
+    }
+    return Math.min(newest + ROW_QUIET_MS, oldest + ROW_MAX_WAIT_MS);
+  }
+
   _pump() {
     if (this._inFlight || this._stopped) { this._emitStatus(); return; }
     clearTimeout(this._batchTimer);
@@ -778,6 +863,16 @@ class ChiefOfStaff {
       for (const e of batch) this._finished.delete(e.sessionId);
       this._runTurn(() => this._finishedTurn(batch));
       return;
+    }
+    if (this._rowWaiting.size > 0) {
+      const rowWait = this._rowReadyAt() - this.now();
+      if (rowWait <= 0) {
+        const batch = [...this._rowWaiting.values()].sort((a, b) => a.at - b.at).slice(0, BATCH_SIZE);
+        for (const e of batch) this._rowWaiting.delete(e.sessionId);
+        this._runTurn(() => this._rowTurn(batch));
+        return;
+      }
+      wait = wait === null ? rowWait : Math.min(wait, rowWait);
     }
     if (wait !== null) {
       this._batchTimer = setTimeout(() => { this._batchTimer = null; this._pump(); }, wait);
@@ -992,6 +1087,9 @@ class ChiefOfStaff {
     for (const event of events) {
       const written = modelPosts.get(event.sessionId);
       const text = written || prompt.templatePost(event);
+      if (TRIGGER_STATES.has(event.state)) {
+        this._setRowNote(event.sessionId, { kind: 'alert', source: written ? 'model' : 'template', text: prompt.oneLine(text.headline, prompt.CAPS.row) });
+      }
       this._addPost({
         kind: 'alert', headline: text.headline, body: text.body,
         card: this._cardFor(event), byModel: Boolean(written),
@@ -1026,11 +1124,57 @@ class ChiefOfStaff {
       const summary = (written || prompt.templateFinished(event)).summary;
       // Ids only: the summary and excerpt can quote agent data.
       this.log.info(`Chief of Staff finished post: session ${event.sessionId.slice(0, 8)} source ${source}`);
+      this._setRowNote(event.sessionId, { kind: 'summary', source, text: prompt.oneLine(summary, prompt.CAPS.row) });
       const entry = batch.find((e) => e.sessionId === event.sessionId);
       this._addPost({
         kind: 'finished', sessionId: event.sessionId, label: cut(event.label, LABEL_MAX),
         projectId: entry.projectId, projectName: event.project, summary, source, byModel: Boolean(written),
       });
+    }
+  }
+
+  // Row summaries for the rail. Never posts and never says anything in the
+  // thread: at a limit or past the rail's share the pending note (the agent's
+  // last words) stays as the line.
+  async _rowTurn(batch) {
+    // A session that left idle or the roster is stale; its pending note stays.
+    const events = batch.filter((e) => {
+      const row = this.roster.get(e.sessionId);
+      return row && row.state === 'idle';
+    }).map((e) => ({
+      sessionId: e.sessionId, label: e.label, project: this._projectName(e.projectId), excerpt: e.excerpt,
+    }));
+    if (events.length === 0) return;
+
+    const rowLines = new Map();
+    if (!this._atLimit()) {
+      if (this.state.rowCalls >= this._rowCap()) {
+        if (this._rowCapLoggedDay !== this.state.day) {
+          this._rowCapLoggedDay = this.state.day;
+          this.log.info(`Chief of Staff row summaries reached today's cap of ${this._rowCap()} model calls; rows show last words until tomorrow`);
+        }
+      } else {
+        const res = await this._modelTurn('wake', prompt.rowPrompt(events));
+        if (res.error !== 'off' && res.error !== 'limit') {
+          this.state.rowCalls += 1;
+          this._persistState();
+        }
+        if (res.text !== undefined) {
+          const parsed = prompt.parseRow(res.text, events.map((e) => e.sessionId));
+          if (parsed.reason) this._warnUnparsed('row', parsed.reason, res);
+          for (const r of parsed.rows || []) {
+            if (!rowLines.has(r.sessionId)) rowLines.set(r.sessionId, r.text);
+          }
+        }
+      }
+    }
+    for (const event of events) {
+      if (!this.roster.has(event.sessionId)) continue;
+      const line = rowLines.get(event.sessionId);
+      const source = line ? 'model' : 'template';
+      // Ids only: the line and excerpt can quote agent data.
+      this.log.info(`Chief of Staff row summary: session ${event.sessionId.slice(0, 8)} source ${source}`);
+      this._setRowNote(event.sessionId, { kind: 'summary', source, text: line || prompt.templateRow(event).text });
     }
   }
 
