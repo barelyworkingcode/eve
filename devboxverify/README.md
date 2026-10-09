@@ -778,6 +778,28 @@ within 120 s. PASS needs all of these.
   timeout, deletes the sessions, the project, the host and its folder, in that
   order. Run it alone: `node devboxverify/main.js --screen --only cos-host-agent`.
 
+**cos-host-noread.** The Chief of Staff says it cannot read files in a project
+on an SSH host, and starts nothing (eve#300). Screen journey (`screen: true`,
+300 s). It creates the same loopback host (`loopback-<nonce>-noread`) and a
+project `Drop-in Host noread <nonce>` as cos-host-agent, with the same presence
+dialog. In the Chief of Staff thread it types `What's in README.md in the project
+Drop-in Host noread <nonce>?` and waits for the first answer within 120 s. The
+person's own post, and alert, finished, question and sent posts, are not answers
+and are skipped. PASS needs: the Chief of Staff model is the pinned Haiku; the
+first answer is a `reply`; it names the project (any case); it says it cannot read
+(can't, can’t, cannot, can not or unable to read); and no `started` or
+`start_card` post follows the question. A FAIL detail holds the reason and the
+first 300 characters of the reply.
+- Lives in: `chief-of-staff.js` (read-only, local projects only);
+  `mcp/cos.js`.
+- Traps: BLOCKED setup V-COS when its check fails, BLOCKED relay's setup P11 when
+  the host or its project cannot be created, and BLOCKED when the presence dialog
+  is not answered; no NOTRUN path. One cleanup, which also runs on FAIL and on
+  timeout, deletes the sessions, the project, the host and its folder, in that
+  order. The reply is model prose, so the phrase match is the one soft spot: a
+  new wording is a FAIL to read, not a fault. Run it alone:
+  `node devboxverify/main.js --screen --only cos-host-noread`.
+
 **cos-project-from-relay.** A project chosen in relay's Settings is the one the
 Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
 needs setup V-COS-B and relay's Chief of Staff setting at Not set; with the
