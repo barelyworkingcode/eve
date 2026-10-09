@@ -757,6 +757,27 @@ FAIL detail ends with the status's `calls` count.
 - Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The
   journey's cleanup deletes every new Acme Corp session.
 
+**cos-host-agent.** The Chief of Staff starts a headless agent in a project on
+an SSH host (eve#293). Screen journey (`screen: true`, 420 s). Through eve's
+API it creates a loopback host `loopback-<nonce>-coseve` (target `localhost`,
+setup P11) and a project `Hosted Verify <nonce>` on it; relay gates the project
+create behind a presence dialog, answered through the presence helper. In the
+Chief of Staff thread it types `In the project Hosted Verify <nonce>, start a
+headless agent with this task: Reply with exactly verify-<nonce>-host`. It waits
+for a `started` post (or a `start_card`, then taps `cos-start-<id>`) within
+120 s; the post must name the hosted project, be headless and carry
+`cos-open-<id>`. `relay audit --event session_launch` (read back for up to 10 s)
+must hold an `ok` row for the session with origin `chief-of-staff` and `host_id`
+of the host. The agent's thread must hold an assistant reply with the marker
+within 120 s. PASS needs all of these.
+- Lives in: `chief-of-staff-actions.js` (start in a hosted project);
+  relay's session start on a host.
+- Traps: BLOCKED setup V-COS when its check fails, BLOCKED setup P11 when the
+  host or its project cannot be created, and BLOCKED when the presence dialog is
+  not answered; no NOTRUN path. One cleanup, which also runs on FAIL and on
+  timeout, deletes the sessions, the project, the host and its folder, in that
+  order. Run it alone: `node devboxverify/main.js --screen --only cos-host-agent`.
+
 **cos-project-from-relay.** A project chosen in relay's Settings is the one the
 Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
 needs setup V-COS-B and relay's Chief of Staff setting at Not set; with the
