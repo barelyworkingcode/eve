@@ -108,7 +108,7 @@ describe('FileWatcher', () => {
   // _onFsEvent is driven directly here so the tests don't depend on fs.watch
   // delivery timing, and open files are registered without a real watcher
   // (which would replay FSEvents history and make assertions non-deterministic).
-  // A real-fs integration test below confirms the wiring fires end to end.
+  // test/integration/file-watcher-smoke.test.js confirms the wiring fires end to end.
   describe('_onFsEvent', () => {
     function registerOpenFile(clientPath, opts = {}) {
       const canon = clientPath.replace(/^\/+/, '');
@@ -338,6 +338,38 @@ describe('FileWatcher', () => {
       watcher._maybeScheduleGitChange(PROJECT_ID, 'src/a.js');
       const [timer] = watcher.gitTimers.values();
       expect(timer.hasRef()).toBe(false);
+    });
+  });
+
+  describe('local fs.watch event filter', () => {
+    const { EventEmitter } = require('events');
+    let watchSpy, statSpy, onEvent;
+
+    beforeEach(() => {
+      const handle = Object.assign(new EventEmitter(), { close: jest.fn() });
+      watchSpy = jest.spyOn(fs, 'watch').mockImplementation((_root, _opts, cb) => {
+        onEvent = cb;
+        return handle;
+      });
+    });
+
+    afterEach(() => {
+      watchSpy.mockRestore();
+      if (statSpy) statSpy.mockRestore();
+    });
+
+    it('.git/index pushes one git_changed "*"; node_modules churn pushes nothing', async () => {
+      jest.useFakeTimers();
+      // Every directory "exists", so an unfiltered event would reach dir_changed.
+      statSpy = jest.spyOn(fs.promises, 'stat').mockResolvedValue({ isDirectory: () => true });
+      watcher.watchProject(PROJECT_ID);
+      expect(watchSpy).toHaveBeenCalledTimes(1);
+      onEvent('rename', '.git/index');
+      onEvent('rename', 'node_modules/pkg/index.js');
+      await jest.advanceTimersByTimeAsync(1000);
+      // dir_changed follows an awaited stat; let that microtask chain finish.
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      expect(mockWs.sent).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '*' }]);
     });
   });
 
