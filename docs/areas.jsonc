@@ -46,7 +46,7 @@
       "public/routines-page.js", "public/panes/routines-pane.js", "public/routine-panel.js", "public/routine-history.js",
       "public/routine-audit.js", "project-audit.js", "public/core/routine-sentence.js", "public/core/task-schedule.js",
       "public/today/parts/routines-part.js", "public/apple/routines.css", "notifier.js", "routine-failure-watcher.js"] },
-    "files": { "code": ["ws/file-messages.js", "file-handlers.js", "file-service.js", "file-watcher.js", "dir-watcher.js",
+    "files": { "code": ["ws/file-messages.js", "file-handlers.js", "file-service.js", "file-watcher.js",
       "public/file-browser.js", "public/file-editor.js", "public/html-preview-pane.js", "public/viewers/**",
       "public/sidebar/file-tree-node.js", "public/sidebar/file-icons.js", "public/sidebar/project-tree.js",
       "public/apple/editor.css", "public/apple/viewers.css", "public/core/language-detect.js"] },
