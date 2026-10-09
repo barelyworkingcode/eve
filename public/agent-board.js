@@ -194,6 +194,17 @@ class AgentBoard {
   render({ fetch = false } = {}) {
     const el = this.el;
     if (!el) return;
+    // Rebuilding the list drops focus; put it back on the same testid afterwards.
+    const focusedId = el.contains(document.activeElement) ? document.activeElement.dataset?.testid : null;
+    try { this._render(el, fetch); } finally {
+      if (focusedId) {
+        const again = [...el.querySelectorAll('[data-testid]')].find(n => n.dataset.testid === focusedId);
+        if (again && document.activeElement !== again) again.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  _render(el, fetch) {
     el.textContent = '';
     const mgr = this._termMgr();
     const relayDown = this.state.connection?.relay === false;
@@ -418,9 +429,10 @@ class AgentBoard {
   }
 
   _open(r) {
+    // onOpen first: a sheet closes (no focus return) before the pane switch hides its opener.
+    this.onOpen?.(r);
     if (r.kind === 'session') this.container.get('app').joinSession(r.id);
     else this._attach(r.id);
-    this.onOpen?.(r);
   }
 
   // Rail lines 2 and 3: project and state words, then the live last line or the note.
@@ -481,8 +493,8 @@ class AgentBoard {
     } else {
       act.textContent = 'Drop in';
       act.addEventListener('click', () => {
-        AgentBoard.dropIn(this.container, id);
         this.onOpen?.(r);
+        AgentBoard.dropIn(this.container, id);
       });
     }
     wrap.append(row, act);

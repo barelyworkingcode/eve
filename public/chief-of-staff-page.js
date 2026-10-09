@@ -212,16 +212,23 @@ class ChiefOfStaffPage {
       const m = s.needYou | 0;
       const watching = `Watching ${n} ${n === 1 ? 'agent' : 'agents'} · `;
       const need = `${m} ${m === 1 ? 'needs' : 'need'} you`;
-      this._subline.textContent = '';
       if (m > 0 && this.rail) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'cos-need-you';
-        b.dataset.testid = 'cos-need-you';
-        b.textContent = need;
-        b.addEventListener('click', () => this.rail.showNeeds());
-        this._subline.append(watching, b);
+        // Keep the button across frames so keyboard focus survives; update its text.
+        if (!this._needBtn || !this._subline.contains(this._needBtn)) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'cos-need-you';
+          b.dataset.testid = 'cos-need-you';
+          b.addEventListener('click', () => this.rail.showNeeds());
+          this._needBtn = b;
+          this._subline.textContent = '';
+          this._needText = document.createTextNode('');
+          this._subline.append(this._needText, b);
+        }
+        this._needText.nodeValue = watching;
+        if (this._needBtn.textContent !== need) this._needBtn.textContent = need;
       } else {
+        this._needBtn = null;
         this._subline.textContent = watching + need;
       }
     }
