@@ -60,10 +60,10 @@ async function boot({ state } = {}) {
   ws = await eve.connectWs();
   ws.send({ type: 'cos_subscribe' });
   await ws.waitFor((f) => f.type === 'cos_snapshot');
-  // A frame for an unknown session makes the server re-read relay's list; the roster has the
-  // session once the status counts it.
+  // The roster may already hold the session (the snapshot counts it) or learn it from this frame:
+  // an unknown id makes the server re-read relay's list, and the status then counts it.
   eve.relay.emitToRelay(relayFrames.sessionState({ sessionId: 's1', state: 'running' }));
-  await ws.waitFor((f) => f.type === 'cos_status' && f.status.watching === 1, WAIT);
+  await ws.waitFor((f) => (f.type === 'cos_snapshot' || f.type === 'cos_status') && f.status.watching === 1, WAIT);
 }
 
 const finishTurn = (id, excerpt) => {
