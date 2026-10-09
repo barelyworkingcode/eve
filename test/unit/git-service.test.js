@@ -76,7 +76,7 @@ describe('GitService', () => {
 
   afterAll(async () => {
     await disk.close();
-    expect(tmp).toBeTruthy();
+    expect(typeof tmp === 'string' && tmp.length > 1 && fs.existsSync(tmp)).toBe(true);
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

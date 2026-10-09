@@ -49,6 +49,7 @@ describe('FileWatcher', () => {
       rig.watcher.watch(PROJECT_ID, '/test.js');
       rig.watcher.closeAll();
       expect(rig.client.unwatch.mock.calls).toEqual([[PROJECT_ID]]);
+      for (const e of ['fs_event', 'watch_ok', 'watch_error']) expect(rig.client.listenerCount(e)).toBe(0);
       rig.emitFs(PROJECT_ID, 'test.js', 'change');
       await advance(1000);
       expect(rig.ws.sent).toEqual([]);

@@ -189,9 +189,17 @@ describe('RelayFileClient: project file ops over relay routes', () => {
       ['createDirectory name with a slash', (f) => f.createDirectory(CONSOLE.path, '/', 'a/b'), 'Name cannot contain path separators'],
       ['uploadFile name with a slash', (f) => f.uploadFile(CONSOLE.path, '/', 'a/b.txt', 'x', 'utf8'), 'File name cannot contain path separators'],
       ['readFile of a type the editor does not open', (f) => f.readFile(CONSOLE.path, 'logo.png'), 'File type not allowed for editing'],
+      ['moveFile of a directory into itself', (f) => f.moveFile(CONSOLE.path, 'src', 'src'), 'Cannot move a directory into itself'],
+      ['moveFile of a directory into its own subfolder', (f) => f.moveFile(CONSOLE.path, 'src', 'src/deep'), 'Cannot move a directory into itself'],
     ])('%s is refused without a request', async (_label, run, message) => {
       await expect(run(files(CONSOLE))).rejects.toThrow(message);
       expect(transport.calls).toHaveLength(0);
+    });
+
+    it('renaming a console file to a type the editor does not open is refused, and rename is never sent', async () => {
+      transport.reply = () => ({ status: 200, data: { type: 'file', size: 1, mtime_ms: 1 } }); // the pre-check stat
+      await expect(files(CONSOLE).renameFile(CONSOLE.path, 'notes.md', 'notes.exe')).rejects.toThrow('File type not allowed');
+      expect(transport.calls.filter((c) => c.op === 'rename')).toHaveLength(0);
     });
 
     it('the editor extension list applies to console projects only', async () => {
@@ -260,13 +268,23 @@ describe('RelayFileClient: project file ops over relay routes', () => {
       expect(transport.calls.some((c) => c.op === 'git')).toBe(true);
     });
 
-    it('sends argv from the subcommand on and decodes stdout', async () => {
-      transport.reply = () => ({ status: 200, data: { exit_code: 0, stdout_b64: Buffer.from('/work/acme\n').toString('base64'), stderr: '' } });
-      await files(CONSOLE).gitStatus(CONSOLE.path, '/', 'uncommitted').catch(() => {});
+    it('sends argv from the subcommand on and decodes stdout (a worktree list names the repo)', async () => {
+      const b64 = (t) => Buffer.from(t).toString('base64');
+      transport.reply = (op, body) => {
+        if (op !== 'git') return { status: 200, data: {} };
+        const out = body.args[0] === 'worktree'
+          ? 'worktree /work/acme\nHEAD 0123456789abcdef0123456789abcdef01234567\nbranch refs/heads/decoded-branch\n'
+          : '';
+        return { status: 200, data: { exit_code: body.args[0] === 'worktree' ? 0 : 1, stdout_b64: b64(out), stderr: '' } };
+      };
+      const repos = await files(CONSOLE).gitRepos(CONSOLE.path);
       const first = transport.calls.find((c) => c.op === 'git');
       expect(first.path).toBe('/api/projects/p1/files/git');
-      expect(first.body.args[0]).toMatch(/^[a-z-]+$/);
-      expect(first.body.args).not.toContain('-c');
+      for (const c of transport.calls.filter((x) => x.op === 'git')) {
+        expect(c.body.args[0]).toMatch(/^[a-z-]+$/);
+        expect(c.body.args).not.toContain('-c');
+      }
+      expect(repos.map((r) => r.branch)).toContain('decoded-branch');
     });
   });
 
@@ -285,9 +303,10 @@ describe('RelayFileClient: project file ops over relay routes', () => {
       expect(transport.calls[0].opts.signal).toBe(ctl.signal);
     });
 
-    it('refuses an empty query with the existing message', async () => {
-      transport.reply = () => fail(400, 'INVALID', 'Search query is empty');
+    it('refuses an empty query with the existing message, without asking relay', async () => {
+      transport.reply = () => fail(400, 'INVALID', 'relay says something else');
       await expect(files(CONSOLE).search(CONSOLE.path, '', {})).rejects.toThrow('Search query is empty');
+      expect(transport.calls).toHaveLength(0);
     });
   });
 });
@@ -386,6 +405,22 @@ describe('RelayFileClient: the /ws/files socket', () => {
         await jest.advanceTimersByTimeAsync(30000);
         expect(transport.sockets).toHaveLength(i + 1);
       }
+    });
+
+    it('a drop after a successful reconnect waits 2 s again, not the grown delay', async () => {
+      await started();
+      transport.sockets[0].drop();
+      await jest.advanceTimersByTimeAsync(2000);
+      transport.sockets[1].drop(); // a failed attempt: the delay grows
+      await jest.advanceTimersByTimeAsync(30000);
+      expect(transport.sockets).toHaveLength(3);
+      transport.sockets[2].open(); // success resets it
+      await flush();
+      transport.sockets[2].drop();
+      await jest.advanceTimersByTimeAsync(1999);
+      expect(transport.sockets).toHaveLength(3);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(transport.sockets).toHaveLength(4);
     });
 
     it('does not reconnect after close()', async () => {
