@@ -346,12 +346,20 @@ function createFakeFiles({ projects, hosts }) {
   }
 
   // A hosted project whose host is gone or down is unreachable, never a console path.
+  function hostPresent(proj) {
+    if (proj.host_id && !hosts.has(proj.host_id)) throw ferr('HOST_UNREACHABLE', 'host is not connected');
+  }
+
+  // relay's unreachableErr: the agent's error text, else the host record's name.
+  function hostUp(hostId) {
+    const st = hostStatuses.get(hostId);
+    if (st && st.status === 'unreachable') throw ferr('HOST_UNREACHABLE', st.error || `host "${hosts.get(hostId).name}" unreachable`);
+  }
+
   function checkHost(proj) {
     if (!proj.host_id) return;
-    const host = hosts.get(proj.host_id);
-    if (!host) throw ferr('HOST_UNREACHABLE', 'host is not connected');
-    const st = hostStatuses.get(proj.host_id);
-    if (st && st.status === 'unreachable') throw ferr('HOST_UNREACHABLE', st.error || `host "${st.name || host.name}" unreachable`);
+    hostPresent(proj);
+    hostUp(proj.host_id);
   }
 
   function onWsMessage(c, raw) {
@@ -395,7 +403,7 @@ function createFakeFiles({ projects, hosts }) {
   // refuse records one denied row for a boundary refusal and returns the error.
   function refuse(proj, tool, args, err) {
     if (DENIED.has(err.fileCode)) {
-      record({ id: `a${++auditSeq}`, tool, project_id: proj && proj.id, path: args.path, outcome: 'denied', error: err.fileCode });
+      record({ event: 'file_op', id: `a${++auditSeq}`, tool, project_id: proj && proj.id, path: args.path, outcome: 'denied', error: err.fileCode });
     }
     return err;
   }
@@ -403,13 +411,13 @@ function createFakeFiles({ projects, hosts }) {
   // Intent row, the op, then the completion row with the same id.
   async function audited(row, fn) {
     const id = `a${++auditSeq}`;
-    record({ id, phase: 'intent', ...row, outcome: 'pending' });
+    record({ event: 'file_op', id, phase: 'intent', ...row, outcome: 'pending' });
     try {
       const out = await fn();
-      record({ id, phase: 'completion', ...row, outcome: 'ok' });
+      record({ event: 'file_op', id, phase: 'completion', ...row, outcome: 'ok' });
       return out;
     } catch (e) {
-      record({ id, phase: 'completion', ...row, outcome: 'error', error: e.fileCode || 'ERROR' });
+      record({ event: 'file_op', id, phase: 'completion', ...row, outcome: 'error', error: e.fileCode || 'ERROR' });
       throw e;
     }
   }
@@ -418,11 +426,15 @@ function createFakeFiles({ projects, hosts }) {
   // then the intent row (file_ops.go gate).
   async function gate(ctx, tool, args, probes, fn) {
     if (ctx.proj.files_read_only) throw refuse(ctx.proj, tool, args, ferr('READ_ONLY', 'This project is read-only'));
-    checkHost(ctx.proj);
+    hostPresent(ctx.proj);
     for (const p of probes) {
       try { lstatPath(ctx.store, p); } catch (e) { if (e.fileCode === 'SYMLINK') throw refuse(ctx.proj, tool, args, e); }
     }
-    return audited({ tool, project_id: ctx.proj.id, path: args.path }, fn);
+    // The status check sits inside the audited call: relay writes the intent row, then the backend fails.
+    return audited({ tool, project_id: ctx.proj.id, path: args.path }, () => {
+      if (ctx.proj.host_id) hostUp(ctx.proj.host_id);
+      return fn();
+    });
   }
 
   const reader = (ctx, rawPath) => {
@@ -589,8 +601,7 @@ function createFakeFiles({ projects, hosts }) {
     const data = Buffer.from(b64, 'base64');
     if (data.length > MAX_PASTE) throw ferr('TOO_LARGE', 'File too large', data.length);
     await audited({ tool: 'pastetmp', host_id: hostId }, () => {
-      const st = hostStatuses.get(hostId);
-      if (st && st.status === 'unreachable') throw ferr('HOST_UNREACHABLE', st.error || `host "${st.name}" unreachable`);
+      hostUp(hostId);
     });
     return { out: { path: `/tmp/${name}` } };
   }

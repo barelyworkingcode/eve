@@ -235,8 +235,7 @@ PINS.push(
   ['/ws/files frame host_status', 'cmd/relay/file_ws.go', 'Type: "host_status"', "type: 'host_status'"],
   ['/ws/files frame watch (in)', 'cmd/relay/file_ws.go', 'case "watch":', "msg.type !== 'watch'"],
   ['/ws/files frame unwatch (in)', 'cmd/relay/file_ws.go', 'case "unwatch":', "msg.type === 'unwatch'"],
-  // The fake's audit rows carry no `event` field; the carrier is the fidelity test that names the row kind.
-  ['the file plane audit event', 'internal/audit/audit.go', 'AuditEventFileOp = "file_op"', "'file_op'", 'relay', 'integration/relay-fidelity.test.js'],
+  ['the file plane audit event', 'internal/audit/audit.go', 'AuditEventFileOp = "file_op"', "event: 'file_op'", 'relay', 'integration/fake-relay-files.js'],
 );
 const carrier = (p) => (p[5] ? fs.readFileSync(path.join(__dirname, '..', p[5]), 'utf8') : FAKE);
 

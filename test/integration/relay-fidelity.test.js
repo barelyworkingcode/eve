@@ -1350,9 +1350,89 @@ describe('fake relay file plane answers as relay does', () => {
     });
   });
 
+  // Fake-only rows: relay's host backend and refusals, which the live run (console project) cannot reach.
+  describe('host projects, NOT_AVAILABLE and an unreachable host (file_ops.go, projectfs/agent.go)', () => {
+    const request = (...args) => makeRequester({ baseUrl: base })(...args);
+    const post = (id, op, body) => request('POST', `/api/projects/${id}/files/${op}`, { json: body });
+    const code = (r) => JSON.parse(r.body.toString()).code;
+    let hseq = 0;
+    const hosted = () => {
+      const hostId = `fh${++hseq}`;
+      const id = `fhp${hseq}`;
+      relay.addHost({ id: hostId, name: 'Acme box' });
+      relay.addProject({ id, name: 'Acme host', path: '/srv/acme', host_id: hostId });
+      return { id, hostId };
+    };
+
+    it('a host project: delete is permanent, stream ignores Range, rename and move onto an existing name are 409 EEXIST', async () => {
+      const { id } = hosted();
+      relay.files.seed(id, { 'a.txt': 'A', 'b.txt': 'B', 'big.txt': '0123456789', 'dir/': null, 'dir/a.txt': 'x' });
+      const del = await post(id, 'delete', { path: 'a.txt' });
+      expect([del.status, JSON.parse(del.body.toString())]).toEqual([200, { trashed: false }]);
+      const stream = await request('GET', `/api/projects/${id}/files/stream?path=big.txt`, { headers: { Range: 'bytes=2-4' } });
+      expect(stream.status).toBe(200);
+      expect(stream.headers['accept-ranges']).toBeUndefined();
+      expect(stream.body.toString()).toBe('0123456789');
+      const ren = await post(id, 'rename', { path: 'big.txt', new_name: 'b.txt' });
+      expect([ren.status, code(ren)]).toEqual([409, 'EEXIST']);
+      const mv = await post(id, 'move', { path: 'b.txt', dest_dir: 'dir' }); // dir/b.txt is free
+      expect(mv.status).toBe(200);
+      relay.files.seed(id, { 'b.txt': 'B2' });
+      const clash = await post(id, 'move', { path: 'b.txt', dest_dir: 'dir' });
+      expect([clash.status, code(clash)]).toEqual([409, 'EEXIST']);
+    });
+
+    it('pastetmp: the host path comes back with a pastetmp audit row; an unknown host is 404 HOST_NOT_FOUND', async () => {
+      const { hostId } = hosted();
+      const name = 'eve-paste-1789000000000-0a1b2c3d.png';
+      const ok = await request('POST', `/api/hosts/${hostId}/pastetmp`, { json: { name, data_b64: Buffer.from('png').toString('base64') } });
+      expect([ok.status, JSON.parse(ok.body.toString())]).toEqual([200, { path: `/tmp/${name}` }]);
+      expect(relay.files.audit.filter((r) => r.host_id === hostId).map((r) => [r.event, r.tool, r.phase, r.outcome]))
+        .toEqual([[FILE_OP_EVENT, 'pastetmp', 'intent', 'pending'], [FILE_OP_EVENT, 'pastetmp', 'completion', 'ok']]);
+      const missing = await request('POST', '/api/hosts/ghost/pastetmp', { json: { name, data_b64: '' } });
+      expect([missing.status, code(missing)]).toEqual([404, 'HOST_NOT_FOUND']);
+    });
+
+    it.each([
+      ['a remote-kind project', { kind: 'remote', path: '/srv/acme' }],
+      ['a project with no path', {}],
+    ])('%s is 403 NOT_AVAILABLE', async (_what, extra) => {
+      const id = `na${++seq}`;
+      relay.addProject({ id, name: 'Acme', ...extra });
+      const res = await post(id, 'list', { path: '' });
+      expect([res.status, code(res)]).toEqual([403, 'NOT_AVAILABLE']);
+    });
+
+    it('an unreachable host: ops answer 503 with relay\'s message, a mutation leaves intent and error rows, a watch gets watch_error', async () => {
+      const { id, hostId } = hosted();
+      relay.files.seed(id, { 'a.txt': 'A' });
+      relay.files.setHostStatus(hostId, { name: 'ignored status name', status: 'unreachable' });
+      const read = await post(id, 'read', { path: 'a.txt' });
+      expect([read.status, JSON.parse(read.body.toString())]).toEqual([503, { error: 'host "Acme box" unreachable', code: 'HOST_UNREACHABLE' }]);
+      const del = await post(id, 'delete', { path: 'a.txt' });
+      expect([del.status, code(del)]).toEqual([503, 'HOST_UNREACHABLE']);
+      expect(relay.files.audit.filter((r) => r.project_id === id).map((r) => [r.event, r.phase, r.outcome, r.error]))
+        .toEqual([[FILE_OP_EVENT, 'intent', 'pending', undefined], [FILE_OP_EVENT, 'completion', 'error', 'HOST_UNREACHABLE']]);
+      const c = await openFilesWs();
+      try {
+        c.send({ type: 'watch', project_id: id });
+        expect(await c.waitFor((f) => f.type === 'watch_error')).toMatchObject({ project_id: id, code: 'HOST_UNREACHABLE' });
+      } finally { c.ws.close(); }
+    });
+  });
+
+  it('a body of non-ASCII text over 200 KB survives the write route byte for byte', async () => {
+    const id = fresh();
+    const text = 'héllo wörld \u2603 \u{1F600} '.repeat(10000);
+    expect(Buffer.byteLength(text)).toBeGreaterThan(200 * 1024);
+    const req = makeRequester({ baseUrl: base });
+    expect((await req('POST', `/api/projects/${id}/files/write`, { json: { path: 'u.txt', content: text } })).status).toBe(200);
+    const back = await req('POST', `/api/projects/${id}/files/read`, { json: { path: 'u.txt' } });
+    expect(JSON.parse(back.body.toString()).content).toBe(text);
+  });
+
   it('git on a useDisk project runs real git, whatever GIT_* the test process carries', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-files-git-'));
-    expect(dir).toContain('eve-files-git-');
     const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
     const saved = process.env.GIT_DIR;
     try {
@@ -1365,6 +1445,7 @@ describe('fake relay file plane answers as relay does', () => {
         { json: { cwd: '', args: ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'] } });
       const out = JSON.parse(res.body.toString());
       expect(out.exit_code).toBe(0);
+      expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
       const stdout = Buffer.from(out.stdout_b64, 'base64').toString();
       expect(stdout).toContain('# branch.head main');
       expect(stdout).toContain('? untracked.txt');

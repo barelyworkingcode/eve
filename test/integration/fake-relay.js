@@ -439,9 +439,10 @@ function createFakeRelay({ token = null } = {}) {
       res.end(`${text}\n`);
     };
 
-    let body = '';
-    req.on('data', (c) => { body += c; });
+    const chunks = [];
+    req.on('data', (c) => { chunks.push(c); });
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
       requests.push({ method: req.method, path: p });
       scopeLog.push({ method: req.method, path: p, scope: req.headers['x-relay-scope'] ?? null });
       if (requiredToken !== null && req.headers.authorization !== `Bearer ${requiredToken}`) {
