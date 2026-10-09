@@ -1246,7 +1246,7 @@ describe('fake relay file plane answers as relay does', () => {
     return current;
   };
 
-  // One shared table, the same rows file-plane-live.test.js runs against relay.
+  // One shared table, the same rows file-plane-live.spec-live.js runs against relay.
   defineFilePlaneConformance({
     request: (...args) => makeRequester({ baseUrl: base })(...args),
     get projectId() { return current; },

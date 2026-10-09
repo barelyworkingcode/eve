@@ -1,32 +1,16 @@
 /**
  * The file-plane conformance table against a real relay (console project only;
- * host projects wait on relay#275). Skipped unless EVE_RELAY_FILES_LIVE=1.
- *
- * How it reaches the routes. Every file route is execute-class and lives on
- * relay's frontend socket only. Eve's own access is a launch identity, which a
- * test process cannot hold. The legitimate door is a control-plane credential
- * (docs/tokens.md in relay), minted at the console, where a presence prompt asks
- * the person there to approve it:
- *
- *   relay credential mint --name eve-files-live --class read --class configure --class execute --ttl 1h
- *   EVE_RELAY_FILES_LIVE=1 EVE_RELAY_FRONTEND_SOCKET=<relay config dir>/frontend.sock \
- *     EVE_RELAY_FILES_TOKEN=<printed token> npx jest -c jest.integration.config.js test/integration/file-plane-live
- *
- * The test registers its own project over POST /api/projects on a temp folder
- * (relay raises a presence prompt for that too, so run it with someone at the
- * console), and removes the project afterwards. Revoke the credential with
- * `relay credential revoke --id <id>`. Nothing in relay's config or gates is
- * changed. `delete` moves the test files into the Trash.
+ * host projects wait on relay#275). Not collected by any jest config: run it with
+ * `node test/integration/file-plane-live.js`, which explains the setup.
  */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { defineFilePlaneConformance, makeRequester } = require('./file-plane-conformance');
 
-const LIVE = process.env.EVE_RELAY_FILES_LIVE === '1';
 const PROMPT_WAIT_MS = 150000; // relay's presence prompt expires after 120 s
 
-(LIVE ? describe : describe.skip)('real relay serves the file-plane conformance table', () => {
+describe('real relay serves the file-plane conformance table', () => {
   let request;
   let projectId;
   let dir;
@@ -35,7 +19,7 @@ const PROMPT_WAIT_MS = 150000; // relay's presence prompt expires after 120 s
   beforeAll(async () => {
     const socketPath = process.env.EVE_RELAY_FRONTEND_SOCKET;
     const token = process.env.EVE_RELAY_FILES_TOKEN;
-    if (!socketPath || !token) throw new Error('EVE_RELAY_FRONTEND_SOCKET and EVE_RELAY_FILES_TOKEN are required (see the header of this file)');
+    if (!socketPath || !token) throw new Error('EVE_RELAY_FRONTEND_SOCKET and EVE_RELAY_FILES_TOKEN are required (see `node test/integration/file-plane-live.js`)');
     request = makeRequester({ socketPath, token });
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'eve-files-live-')));
     const res = await request('POST', '/api/projects', { json: { name: `Acme files live ${path.basename(dir)}`, path: dir } });

@@ -1,7 +1,7 @@
 /**
  * The file-plane conformance table: relay's file routes as eve relies on them,
  * written once and run against any backend that serves them (the fake relay in
- * relay-fidelity.test.js, a real relay in file-plane-live.test.js). Expectations
+ * relay-fidelity.test.js, a real relay in file-plane-live.spec-live.js). Expectations
  * come from relay's projectfs.go / file_routes.go / file_ops.go, not from the fake.
  *
  * driver:
@@ -40,6 +40,7 @@ const text = (r) => r.body.toString('utf8');
 const parse = (r) => JSON.parse(text(r));
 
 function defineFilePlaneConformance(driver) {
+  if (typeof driver.setReadOnly !== 'function') throw new Error('file-plane conformance: the driver must implement setReadOnly(on)');
   const call = (op, json, id = driver.projectId) => driver.request('POST', `/api/projects/${encodeURIComponent(id)}/files/${op}`, { json });
   const stream = (rel, headers) => driver.request('GET', `/api/projects/${driver.projectId}/files/stream?path=${encodeURIComponent(rel)}`, { headers });
   const ok = async (op, json) => { const r = await call(op, json); expect({ op, status: r.status, body: text(r) }).toMatchObject({ status: 200 }); return parse(r); };
@@ -199,8 +200,7 @@ function defineFilePlaneConformance(driver) {
       ['move', { path: 'a.txt', dest_dir: 'sub' }],
       ['delete', { path: 'a.txt' }],
     ];
-    // A driver without setReadOnly skips these rows visibly rather than passing them.
-    (driver.setReadOnly ? it.each : it.skip.each)(mutations)('READ_ONLY: %s is refused and reads still work', async (op, body) => {
+    it.each(mutations)('READ_ONLY: %s is refused and reads still work', async (op, body) => {
       await driver.seed({ 'a.txt': 'A', 'sub/': null });
       await driver.setReadOnly(true);
       try {
