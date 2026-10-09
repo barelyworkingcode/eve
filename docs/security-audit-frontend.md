@@ -44,8 +44,8 @@ sibling directory that merely shares a prefix (`/home/u/proj` matches
 `/home/u/proj-secrets`) — `path.resolve` will happily hand back a path
 outside the project that still starts with the right string. Any new
 path-validation code must use the existing separator-aware helper —
-`file-service.js`'s `isPathWithin()` (also reachable as its alias
-`_isWithin`; `routes/index.js` calls it as `fileService.isPathWithin()`) —
+`ProjectFiles#isPathWithin()` in `relay-file-client.js` (`routes/index.js`
+reaches it through `fileServiceFor(project)`; relay enforces containment itself) —
 rather than a bare `startsWith`.
 
 ## M1 — WebAuthn origin pinning and RP-ID pinning are not the same risk

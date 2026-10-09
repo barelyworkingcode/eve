@@ -887,11 +887,15 @@ async function fileEditSave(env) {
 
   env.step('edit and save');
   const saved = `saved ${env.nonce}`;
+  const savedAt = Date.now();
   await endOfFile(page, text);
   await page.keyboard.type(saved);
   await page.keyboard.press('ControlOrMeta+s');
   const onDisk = await poll(async () => (await fs.promises.readFile(file, 'utf8')).includes(saved), { timeoutMs: 5000, intervalMs: 250 });
   if (!onDisk) return result(id, FAIL, 'the saved line is not on disk 5s after ⌘S');
+  env.step('look for the save in relay\'s audit');
+  const unaudited = await require('./journeys-files').auditFileOps(env, acme, savedAt, [{ tool: 'write', path: `${path.basename(dir)}/notes.md` }]);
+  if (unaudited) return result(id, FAIL, unaudited);
 
   env.step('change the file outside the editor');
   const banner = page.getByText(EXTERNAL_BANNER);
@@ -911,7 +915,7 @@ async function fileEditSave(env) {
   await page.locator('.external-change-bar').getByRole('button', { name: 'Reload' }).click({ timeout: 5000 });
   await need('Reload did not bring in the outside change', expect(text).toContainText(outside2, { timeout: 10000 }));
   await need('the banner is still showing after Reload', expect(banner).toBeHidden({ timeout: 5000 }));
-  return result(id, PASS, 'a file made outside eve showed in the open tree; saved to disk; a clean editor took an outside change; a dirty one asked and reloaded');
+  return result(id, PASS, 'a file made outside eve showed in the open tree; saved to disk and recorded as a file_op write in relay\'s audit; a clean editor took an outside change; a dirty one asked and reloaded');
 }
 
 async function askAboutFile(env) {

@@ -5,6 +5,8 @@
  * Usage:
  *   const eve = await startEve({ projects: [{ id, name, path }] });
  *   (optional `models`: the GET /api/models body, relay's `{ models, providerSettings }`)
+ *   (optional `files`: { [projectId]: tree } seeds the fake relay's file plane,
+ *    e.g. { p1: { 'README.md': '# Hi', 'src/': null } }; see relay.files.seed)
  *   ...drive eve.baseUrl over HTTP, or eve.connectWs() over WebSocket...
  *   await eve.stop();
  */
@@ -89,12 +91,13 @@ function makeWsClient(wsUrl) {
 // relayToken: the bearer the fake demands (null = no auth). The harness hands
 // eve RELAY_FRONTEND_TOKEN=test-token, so 'test-token' is the matching value and
 // anything else (or an env override) makes eve's calls 401, as at a real relay.
-async function startEve({ projects = [], hosts = [], models, env: envOverride = {}, seedDataDir, relayToken = null } = {}) {
+async function startEve({ projects = [], hosts = [], files = {}, models, env: envOverride = {}, seedDataDir, relayToken = null } = {}) {
   const relay = createFakeRelay({ token: relayToken });
   const relayPort = await relay.listen();
   if (models !== undefined) relay.setModels(models);
   for (const h of hosts) relay.addHost(h);
   for (const p of projects) relay.addProject(p);
+  for (const [projectId, tree] of Object.entries(files)) relay.files.seed(projectId, tree);
 
   const port = await freePort();
   // Pinning TTS_PORT/STT_PORT to a freshly-allocated, momentarily-free port
@@ -173,9 +176,10 @@ async function startEve({ projects = [], hosts = [], models, env: envOverride = 
     // A fresh fake on the port eve was spawned against, after relay.close(): the
     // way a spec brings relay back for a Retry. It has none of the old state, so
     // the caller re-seeds. stop() closes it too.
-    reviveRelay: async ({ projects: revivedProjects = [] } = {}) => {
+    reviveRelay: async ({ projects: revivedProjects = [], files: revivedFiles = {} } = {}) => {
       const revived = createFakeRelay({ token: relayToken });
       for (const p of revivedProjects) revived.addProject(p);
+      for (const [projectId, tree] of Object.entries(revivedFiles)) revived.files.seed(projectId, tree);
       await revived.listen(relayPort);
       revived_.push(revived);
       return revived;

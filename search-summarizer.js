@@ -1,5 +1,5 @@
 /**
- * SearchSummarizer - one-shot LLM call that turns ripgrep matches into a
+ * SearchSummarizer - one-shot LLM call that turns search matches into a
  * short natural-language summary.
  *
  * Lifecycle:
@@ -17,7 +17,7 @@ const RELAY_TIMEOUT_MS = 60 * 1000;
 
 // Cost-control limits enforced server-side. The client passes a match list
 // but we never trust it — it could omit or exceed these.
-// Distinct from SearchService.MAX_MATCHES (the ripgrep result cap of 500) — this
+// Distinct from relay's search cap (500 matches) — this
 // one caps how many of those matches get sent to the LLM.
 const MAX_SUMMARY_MATCHES = 50;
 const MAX_SNIPPET_LEN = 120;

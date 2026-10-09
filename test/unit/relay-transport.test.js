@@ -167,3 +167,63 @@ describe('URL / agent wiring', () => {
     expect(t.agent.options.rejectUnauthorized).toBe(true);
   });
 });
+
+// fetch(…, { signal }) and stream(): the file plane's two additions. A real
+// loopback http server stands in for relay's frontend.
+describe('abortable fetch and streamed responses', () => {
+  const http = require('http');
+  let server;
+  let transport;
+  let hold;
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      if (req.url === '/slow') { hold = res; return; } // never answered until the test ends it
+      if (req.url === '/bytes') {
+        res.writeHead(206, { 'Content-Type': 'application/octet-stream', 'Content-Range': 'bytes 0-3/10', 'X-Seen-Range': String(req.headers.range) });
+        res.write('abcd');
+        return res.end();
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"ok":true}');
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    transport = RelayTransport.fromEnv({
+      env: { RELAY_FRONTEND_URL: `http://127.0.0.1:${server.address().port}`, RELAY_FRONTEND_TOKEN: 't' },
+      log: mkLog(),
+    });
+  });
+
+  afterAll(async () => {
+    if (hold) hold.end();
+    server.closeAllConnections();
+    await new Promise((r) => server.close(r));
+  });
+
+  test('fetch still answers { status, data } without a signal', async () => {
+    await expect(transport.fetch('GET', '/ok')).resolves.toEqual({ status: 200, data: { ok: true } });
+  });
+
+  test('an aborted fetch rejects with name AbortError', async () => {
+    const ctl = new AbortController();
+    const pending = transport.fetch('POST', '/slow', {}, { signal: ctl.signal });
+    ctl.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  test('a fetch whose signal is already aborted rejects with name AbortError', async () => {
+    const ctl = new AbortController();
+    ctl.abort();
+    await expect(transport.fetch('POST', '/slow', {}, { signal: ctl.signal })).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  test('stream resolves with status, headers and an unread body, sending the given headers', async () => {
+    const res = await transport.stream('GET', '/bytes', { headers: { Range: 'bytes=0-3' } });
+    expect(res.status).toBe(206);
+    expect(res.headers['content-range']).toBe('bytes 0-3/10');
+    expect(res.headers['x-seen-range']).toBe('bytes=0-3');
+    const chunks = [];
+    for await (const c of res.body) chunks.push(c);
+    expect(Buffer.concat(chunks).toString()).toBe('abcd');
+  });
+});

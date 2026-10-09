@@ -97,7 +97,7 @@ Eve is a relay proxy: it owns no LLM providers, sessions, or projects. Every bro
 
 ```
 Browser ──WS──►  Eve ──WS──► relay ──► relayLLM        (sessions, messages, permissions, terminals)
-Browser ──WS──►  Eve ──local─► FileService             (file ops)
+Browser ──WS──►  Eve ──HTTP─► relay                     (file ops, console and SSH-host projects)
 Browser ──HTTP─► Eve ──HTTP─► relay ──► relayLLM        (models, sessions list)
 Browser ──HTTP─► Eve ──HTTP─► relay                     (projects, MCPs — served by relay)
 Browser ──HTTP─► Eve ──HTTP─► relay ──► relayScheduler  (tasks)

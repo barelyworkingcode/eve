@@ -4,9 +4,9 @@
  * Read-only git view of a project for the Changes panel — discovery of the
  * repos/worktrees under a project root, per-repo file status, and the two
  * sides of a single file's diff. Contract: docs/design-git-changes.md
- * ("Contract"). One implementation serves local and SSH-host projects; only
- * the injected `run` differs (createLocalRunner below vs. the remote agent's
- * `git` op wrapped by RemoteFileService).
+ * ("Contract"). One implementation serves every project; `run` is injected
+ * (relay-file-client.js wires it to relay's read-only `git` op, which adds the
+ * fixed `-c` prefix and the scrubbed environment).
  *
  * Every path handed to `run`/`listDirectory`/`readFile` is root-relative and
  * POSIX. Callers' repoPath/filePath are untrusted: a repoPath must be a git
@@ -14,8 +14,6 @@
  * are always derived here (HEAD or the merge-base), never taken from input.
  */
 
-const { execFile } = require('child_process');
-const fs = require('fs');
 const path = require('path').posix;
 
 const SCOPES = new Set(['uncommitted', 'base']);
@@ -24,13 +22,7 @@ const FILE_MAX_BYTES = 2 * 1024 * 1024;
 const SMALL_MAX_BYTES = 64 * 1024;
 const MAX_FILES = 5000;
 const BINARY_SNIFF_BYTES = 8000;
-const RUN_TIMEOUT_MS = 10000;
 const DEFAULT_CONCURRENCY = 6;
-
-// Prepended to every git invocation. quotepath=off keeps non-ASCII paths
-// verbatim; fsmonitor=false stops a repo's own config from making a status
-// poll spawn an arbitrary fsmonitor hook command.
-const GIT_PREFIX = ['-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false'];
 
 class GitError extends Error {
   constructor(code, message) {
@@ -38,68 +30,6 @@ class GitError extends Error {
     this.name = 'GitError';
     this.code = code; // NOT_A_REPO | GIT_MISSING | TOO_LARGE | TIMEOUT | FAILED
   }
-}
-
-/**
- * Local `run` for GitService: execFile (never a shell) with cwd confined to
- * root by the same lexical + realpath check FileService uses. `validatePath`
- * defaults to a FileService instance's (lazy require — file-service.js
- * requires this module).
- */
-function createLocalRunner({ validatePath } = {}) {
-  let resolve = validatePath;
-  if (!resolve) {
-    const FileService = require('./file-service');
-    const fsvc = new FileService();
-    resolve = (root, rel) => fsvc.validatePath(root, rel);
-  }
-
-  // Inherit PATH/HOME etc. but drop any GIT_* that would redirect git at a
-  // different repo/index (e.g. eve launched from inside a git hook).
-  const baseEnv = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (!k.startsWith('GIT_')) baseEnv[k] = v;
-  }
-  const env = { ...baseEnv, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' };
-
-  return async function run(root, cwdRel, args, { maxBytes = STATUS_MAX_BYTES } = {}) {
-    let cwd;
-    try {
-      cwd = resolve(root, cwdRel || '/');
-    } catch (err) {
-      throw new GitError('NOT_A_REPO', err.message);
-    }
-    // execFile reports a missing cwd as ENOENT, indistinguishable from a
-    // missing git binary — check it first.
-    try {
-      if (!fs.statSync(cwd).isDirectory()) throw new Error('not a directory');
-    } catch (_) {
-      throw new GitError('NOT_A_REPO', 'Directory not found');
-    }
-
-    return new Promise((resolveRun, reject) => {
-      execFile('git', args, {
-        cwd,
-        env,
-        encoding: 'buffer',
-        timeout: RUN_TIMEOUT_MS,
-        maxBuffer: maxBytes,
-        windowsHide: true,
-      }, (err, stdout, stderr) => {
-        const stderrText = stderr ? stderr.toString('utf8') : '';
-        if (!err) return resolveRun({ code: 0, stdout, stderr: stderrText });
-        if (err.code === 'ENOENT') return reject(new GitError('GIT_MISSING', 'git is not installed'));
-        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
-          return reject(new GitError('TOO_LARGE', 'git output too large'));
-        }
-        if (err.killed) return reject(new GitError('TIMEOUT', 'git timed out'));
-        if (typeof err.code === 'number') {
-          return resolveRun({ code: err.code, stdout: stdout || Buffer.alloc(0), stderr: stderrText });
-        }
-        reject(new GitError('FAILED', err.message));
-      });
-    });
-  };
 }
 
 // '/', '', undefined -> '/'; 'a/b/' -> '/a/b'. A path that climbs above the
@@ -331,7 +261,7 @@ class GitService {
   }
 
   _run(root, cwdRel, args, maxBytes = SMALL_MAX_BYTES) {
-    return this._runRaw(root, cwdRel, [...GIT_PREFIX, ...args], { maxBytes });
+    return this._runRaw(root, cwdRel, args, { maxBytes });
   }
 
   async _text(root, cwdRel, args) {
@@ -695,4 +625,4 @@ class GitService {
 
 GitService.FILE_MAX_BYTES = FILE_MAX_BYTES;
 
-module.exports = { GitService, GitError, createLocalRunner };
+module.exports = { GitService, GitError };

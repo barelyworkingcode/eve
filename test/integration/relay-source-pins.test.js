@@ -236,6 +236,11 @@ PINS.push(
   ['/ws/files frame watch (in)', 'cmd/relay/file_ws.go', 'case "watch":', "msg.type !== 'watch'"],
   ['/ws/files frame unwatch (in)', 'cmd/relay/file_ws.go', 'case "unwatch":', "msg.type === 'unwatch'"],
   ['the file plane audit event', 'internal/audit/audit.go', 'AuditEventFileOp = "file_op"', "event: 'file_op'", 'relay', 'integration/fake-relay-files.js'],
+  // eve#297 / owner decision 46: a host project refuses an existing destination as a console project does.
+  ['the host agent refuses a taken name on rename and move', 'internal/projectfs/fsagent.js', "if (!caseOnly) throw fail('EEXIST');", "if (dst && !caseOnly) throw ferr('EEXIST', 'Already exists');"],
+  ['the host agent rename goes through the no-replace rename', 'internal/projectfs/fsagent.js', 'await renameNoReplace(w.full, path.join(path.dirname(w.full), newName));', 'moveNoReplace(ctx.store, rel, to);'],
+  ['the host agent move goes through the no-replace rename', 'internal/projectfs/fsagent.js', 'await renameNoReplace(src.full, path.join(dest.full, base));', 'moveNoReplace(ctx.store, rel, to);'],
+  ['the host agent write honours create_only with O_EXCL', 'internal/projectfs/fsagent.js', '(msg.create_only ? fs.constants.O_EXCL : fs.constants.O_TRUNC)', "if (info && body.create_only) throw ferr('EEXIST', 'Already exists');"],
 );
 const carrier = (p) => (p[5] ? fs.readFileSync(path.join(__dirname, '..', p[5]), 'utf8') : FAKE);
 

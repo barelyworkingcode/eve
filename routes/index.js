@@ -11,7 +11,7 @@ function isHiddenSession(name) {
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileService, fileServiceFor, refreshHostCache, removeFromHostCache, hostPool, ttsService, sttService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileServiceFor, files, refreshHostCache, removeFromHostCache, ttsService, sttService, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
@@ -180,9 +180,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       const { status, data } = await relayTransport.fetch('DELETE', `/api/hosts/${req.params.id}`);
       if (status >= 200 && status < 300) {
         removeFromHostCache(req.params.id);
-        // Deleting a host referenced by a project is refused by relay
-        // (409) before this ever runs; a live agent for it is stale either way.
-        hostPool?.disconnect(req.params.id);
       }
       res.status(status).json(data || {});
     } catch (err) {
@@ -200,10 +197,6 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       if (status >= 200 && status < 300 && data && data.id) {
         refreshHostCache([data]);
       }
-      // Tears down eve's own file-agent connection too — the operator's
-      // "disconnect" means "stop talking to this host", not just relay's
-      // ssh ControlMaster.
-      hostPool?.disconnect(req.params.id);
       res.status(status).json(stripSshArgv(data) ?? {});
     } catch (err) {
       routeLog.withTrace(req.traceId).error(`POST /api/hosts/${req.params.id}/disconnect failed:`, err.message);
@@ -363,7 +356,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       try {
         const filePath = await saveTerminalPaste(
           { buffer: Buffer.isBuffer(req.body) ? req.body : null, mimeType: (req.get('content-type') || '').split(';')[0].trim(), hostId },
-          { hostPool });
+          { files });
         res.json({ path: filePath });
       } catch (err) {
         routeLog.withTrace(req.traceId).error(`POST /api/terminal/paste-image failed (host=${hostId || 'console'}):`, err.message);
@@ -431,9 +424,8 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   const ACTIVE_CONTENT_EXTS = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml']);
   const HTML_PREVIEW_EXTS = new Set(['.html', '.htm']);
 
-  // `send` (what res.sendFile uses locally) infers this from mime-db; a host
-  // file arrives as raw bytes over the agent's stream op instead, so this is
-  // the same idea scaled down to what a project actually contains.
+  // A file arrives as raw bytes from relay with no type of its own, so this
+  // maps what a project actually contains.
   const EXT_MIME = {
     '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
@@ -462,38 +454,47 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     }
   }
 
-  // Streams a host project's file through remote-fs-agent.js's `stream` op
-  // (64 KiB base64 chunks, decoded by HostAgent) instead of res.sendFile —
-  // there is no local path to hand Express. Chunked transfer-encoding
-  // applies automatically since Content-Length is never set.
-  async function serveHostFile(req, res, project, relativePath) {
-    const remoteFs = fileServiceFor(project);
+  // Streams the file from relay (RelayFileClient#openStream) instead of
+  // res.sendFile: eve has no local path to hand Express. A console project
+  // answers Range with 206 and the requested bytes; a host project always
+  // answers 200 with the whole file, chunked. Neither is buffered here.
+  const FILE_ERROR_STATUS = {
+    ENOENT: 404, TRAVERSAL: 403, SYMLINK: 403, EACCES: 403, EISDIR: 400, ENOTDIR: 400,
+  };
+
+  async function serveProjectFile(req, res, project, relativePath) {
+    const files = fileServiceFor(project);
     let full;
     try {
-      full = remoteFs.validatePath(project.path, relativePath);
+      full = files.validatePath(project.path, relativePath);
     } catch {
       return res.status(403).json({ error: 'Path traversal not allowed' });
     }
 
+    let upstream;
+    try {
+      upstream = await files.openStream(project.path, relativePath, { range: req.headers.range });
+    } catch (err) {
+      return res.status(FILE_ERROR_STATUS[err.code] || 503).json({ error: err.message || 'File not found' });
+    }
+
+    if (upstream.status === 416) {
+      upstream.body.resume();
+      res.status(416);
+      if (upstream.headers['content-range']) res.set('Content-Range', upstream.headers['content-range']);
+      return res.end();
+    }
+
     const ext = path.posix.extname(full).toLowerCase();
     setFileResponseHeaders(res, req, ext, path.posix.basename(full));
-
-    let headerSent = false;
-    try {
-      await remoteFs.stream(project.path, relativePath, (chunk) => {
-        if (!headerSent) {
-          headerSent = true;
-          res.set('Content-Type', mimeForExt(ext));
-        }
-        res.write(chunk);
-      });
-      if (!headerSent) res.set('Content-Type', mimeForExt(ext)); // zero-byte file
-      res.end();
-    } catch (err) {
-      if (res.headersSent) { res.destroy(); return; }
-      const status = err.code === 'ENOENT' ? 404 : err.code === 'TRAVERSAL' ? 403 : 503;
-      res.status(status).json({ error: err.message || 'File not found' });
+    res.status(upstream.status === 206 ? 206 : 200);
+    res.set('Content-Type', mimeForExt(ext));
+    for (const h of ['accept-ranges', 'content-length', 'content-range']) {
+      if (upstream.headers[h] !== undefined) res.set(h, upstream.headers[h]);
     }
+    res.on('close', () => upstream.body.destroy());
+    upstream.body.on('error', () => res.destroy());
+    upstream.body.pipe(res);
   }
 
   app.get('/api/files/:projectId/*', requireAuth, (req, res) => {
@@ -504,31 +505,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     if (!relativePath) return res.status(400).json({ error: 'Path required' });
 
     res.set('X-Content-Type-Options', 'nosniff');
-
-    if (project.hostId) {
-      return serveHostFile(req, res, project, relativePath);
-    }
-
-    const base = path.resolve(project.path);
-    let resolved;
-    try {
-      resolved = fileService.validatePath(base, relativePath);
-    } catch (err) {
-      return res.status(403).json({ error: 'Path traversal not allowed' });
-    }
-
-    const ext = path.extname(resolved).toLowerCase();
-    // dot-directories (e.g. .playwright-cli, .claude) hold legitimate,
-    // already-listed project files; 'deny' would 403 every file under one.
-    const options = { dotfiles: 'allow' };
-    setFileResponseHeaders(res, req, ext, path.basename(resolved));
-
-    res.sendFile(resolved, options, (err) => {
-      if (err && !res.headersSent) {
-        const status = err.code === 'ENOENT' ? 404 : 500;
-        res.status(status).json({ error: 'File not found' });
-      }
-    });
+    return serveProjectFile(req, res, project, relativePath);
   });
 }
 

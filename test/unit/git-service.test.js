@@ -7,24 +7,32 @@
  */
 const fs = require('fs');
 const path = require('path');
-const FileService = require('../../file-service');
-const { GitService, GitError, createLocalRunner } = require('../../git-service');
-const { git, write, makeTmp, initRepo, commitAll, headSha } = require('../helpers/git-fixture');
+const { GitService, GitError } = require('../../git-service');
+const { git, write, makeTmp, initRepo, commitAll, headSha, startDiskRelay } = require('../helpers/git-fixture');
 
 const MB2 = 2 * 1024 * 1024;
 
-// A GitService wired exactly like FileService#_git, optionally recording
-// every argv handed to `run`.
+// Real git behind relay's `git` op: the fake relay in disk mode runs git in the
+// real directory. `localService` is the project's file surface over that
+// relay, with GitService's repos/status/fileVersions; `calls` collects the
+// argv eve sent for the requests that call made.
+let disk;
+
 function localService({ calls } = {}) {
-  const fsvc = new FileService();
-  const run = createLocalRunner({ validatePath: (root, rel) => fsvc.validatePath(root, rel) });
-  return new GitService({
-    run: calls
-      ? (root, cwdRel, args, opts) => { calls.push({ cwdRel, args, opts }); return run(root, cwdRel, args, opts); }
-      : run,
-    listDirectory: (root, rel, opts) => fsvc.listDirectory(root, rel, opts),
-    readFile: (root, rel) => fsvc._readFileForGit(root, rel),
-  });
+  const viaRelay = (fn) => async (root, ...rest) => {
+    const pf = disk.filesFor(root);
+    const before = disk.gitRequests().length;
+    try {
+      return await fn(pf, root, ...rest);
+    } finally {
+      if (calls) calls.push(...disk.gitRequests().slice(before).map(({ cwdRel, args }) => ({ cwdRel, args })));
+    }
+  };
+  return {
+    repos: viaRelay((pf, root) => pf.gitRepos(root)),
+    status: viaRelay((pf, root, repo, scope) => pf.gitStatus(root, repo, scope)),
+    fileVersions: viaRelay((pf, root, repo, file, scope) => pf.gitFileVersions(root, repo, file, scope)),
+  };
 }
 
 const byPath = (a, b) => a.path.localeCompare(b.path);
@@ -61,11 +69,14 @@ function fakeRepoRun(onStatus) {
 describe('GitService', () => {
   let tmp;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     tmp = makeTmp('eve-git-svc-');
+    disk = await startDiskRelay();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await disk.close();
+    expect(typeof tmp === 'string' && tmp.length > 1 && fs.existsSync(tmp)).toBe(true);
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -737,7 +748,7 @@ describe('GitService', () => {
   });
 
   describe('hardening', () => {
-    it('every git call carries -c core.fsmonitor=false', async () => {
+    it('sends relay only argv from the subcommand on: relay adds its own -c prefix', async () => {
       const r = initRepo(path.join(tmp, 'prefix'), { 'a.txt': 'a\n' });
       write(r, 'a.txt', 'b\n');
       const calls = [];
@@ -746,12 +757,10 @@ describe('GitService', () => {
       await svc.status(r, '/', 'base');
       await svc.fileVersions(r, '/', 'a.txt', 'uncommitted');
       expect(calls.length).toBeGreaterThan(5);
+      const allowed = ['rev-parse', 'worktree', 'symbolic-ref', 'for-each-ref', 'merge-base', 'status', 'rev-list', 'diff', 'ls-files', 'cat-file'];
       for (const { args } of calls) {
-        const i = args.indexOf('core.fsmonitor=false');
-        expect(i).toBeGreaterThan(0);
-        expect(args[i - 1]).toBe('-c');
-        // Before the subcommand, where git honours -c.
-        expect(stripPrefix(args).includes('core.fsmonitor=false')).toBe(false);
+        expect(allowed).toContain(args[0]);
+        expect(args).not.toContain('-c');
       }
     });
 
@@ -769,24 +778,6 @@ describe('GitService', () => {
       await localService().status(r, '/', 'uncommitted');
       await localService().repos(r);
       expect(fs.existsSync(marker)).toBe(false);
-    });
-
-    it('the local runner ignores inherited GIT_* env (GIT_DIR / GIT_WORK_TREE)', async () => {
-      const r = initRepo(path.join(tmp, 'envscrub'), { 'a.txt': 'a\n' });
-      const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
-      process.env.GIT_DIR = path.join(tmp, 'no-such-dir', '.git');
-      process.env.GIT_WORK_TREE = path.join(tmp, 'no-such-dir');
-      let run;
-      try {
-        run = createLocalRunner();
-      } finally {
-        for (const [k, v] of Object.entries(saved)) {
-          if (v === undefined) delete process.env[k]; else process.env[k] = v;
-        }
-      }
-      const res = await run(r, '/', ['rev-parse', '--show-toplevel']);
-      expect(res.code).toBe(0);
-      expect(res.stdout.toString().trim()).toBe(fs.realpathSync(r));
     });
   });
 });
@@ -1022,108 +1013,5 @@ describe('GitService concurrency limiter', () => {
     });
     await expect(svc.status('/p', '/', 'uncommitted')).rejects.toMatchObject({ code: 'TIMEOUT' });
     await expect(svc.status('/p', '/', 'uncommitted')).resolves.toMatchObject({ repo: '/' });
-  });
-});
-
-describe('createLocalRunner', () => {
-  let tmp;
-
-  beforeAll(() => {
-    tmp = makeTmp('eve-git-runner-');
-  });
-
-  afterAll(() => {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  const identity = (root, rel) => path.resolve(root, String(rel).replace(/^\/+/, '') || '.');
-
-  it('resolves (never rejects) on a non-zero exit, with code and stderr', async () => {
-    const run = createLocalRunner({ validatePath: identity });
-    const res = await run(tmp, '/', ['rev-parse', '--show-toplevel']);
-    expect(res.code).not.toBe(0);
-    expect(Buffer.isBuffer(res.stdout)).toBe(true);
-    expect(res.stderr).toMatch(/not a git repository/i);
-  });
-
-  it('TOO_LARGE when stdout exceeds maxBytes', async () => {
-    const run = createLocalRunner({ validatePath: identity });
-    await expect(run(tmp, '/', ['--version'], { maxBytes: 3 })).rejects.toMatchObject({ code: 'TOO_LARGE' });
-  });
-
-  it('NOT_A_REPO for a missing cwd (not GIT_MISSING)', async () => {
-    const run = createLocalRunner({ validatePath: identity });
-    await expect(run(tmp, '/missing', ['status'])).rejects.toMatchObject({ code: 'NOT_A_REPO' });
-  });
-
-  it('NOT_A_REPO when path validation throws (traversal)', async () => {
-    const run = createLocalRunner({ validatePath: () => { throw new Error('Path traversal not allowed'); } });
-    await expect(run(tmp, '/../..', ['status'])).rejects.toMatchObject({ code: 'NOT_A_REPO' });
-  });
-
-  it('GIT_MISSING when git is not on PATH', async () => {
-    const emptyBin = fs.mkdtempSync(path.join(tmp, 'bin-'));
-    const savedPath = process.env.PATH;
-    let run;
-    process.env.PATH = emptyBin;
-    try {
-      run = createLocalRunner({ validatePath: identity });
-    } finally {
-      process.env.PATH = savedPath;
-    }
-    await expect(run(tmp, '/', ['--version'])).rejects.toMatchObject({ code: 'GIT_MISSING' });
-  });
-
-  describe('with a stubbed execFile', () => {
-    function loadWithExecFile(impl) {
-      let mod;
-      jest.isolateModules(() => {
-        jest.doMock('child_process', () => ({ ...jest.requireActual('child_process'), execFile: impl }));
-        mod = require('../../git-service');
-      });
-      jest.dontMock('child_process');
-      return mod;
-    }
-
-    it('TIMEOUT when the child is killed by the 10 s timeout', async () => {
-      const { createLocalRunner: create } = loadWithExecFile((cmd, args, opts, cb) => {
-        cb(Object.assign(new Error('killed'), { killed: true, code: null, signal: 'SIGTERM' }), Buffer.alloc(0), Buffer.alloc(0));
-      });
-      const run = create({ validatePath: identity });
-      await expect(run(tmp, '/', ['status'])).rejects.toMatchObject({ code: 'TIMEOUT' });
-    });
-
-    it('FAILED for any other spawn error', async () => {
-      const { createLocalRunner: create } = loadWithExecFile((cmd, args, opts, cb) => {
-        cb(Object.assign(new Error('EACCES'), { code: 'EACCES' }), Buffer.alloc(0), Buffer.alloc(0));
-      });
-      const run = create({ validatePath: identity });
-      await expect(run(tmp, '/', ['status'])).rejects.toMatchObject({ code: 'FAILED' });
-    });
-
-    it('execs git with an argv array, timeout, maxBuffer, and a GIT_*-free env', async () => {
-      const seen = [];
-      const { createLocalRunner: create } = loadWithExecFile((cmd, args, opts, cb) => {
-        seen.push({ cmd, args, opts });
-        cb(null, Buffer.from('ok'), Buffer.alloc(0));
-      });
-      const saved = process.env.GIT_INDEX_FILE;
-      process.env.GIT_INDEX_FILE = '/elsewhere/index';
-      let run;
-      try {
-        run = create({ validatePath: identity });
-      } finally {
-        if (saved === undefined) delete process.env.GIT_INDEX_FILE; else process.env.GIT_INDEX_FILE = saved;
-      }
-      const res = await run(tmp, '/', ['status', '--porcelain'], { maxBytes: 1234 });
-      expect(res).toEqual({ code: 0, stdout: Buffer.from('ok'), stderr: '' });
-      const [{ cmd, args, opts }] = seen;
-      expect(cmd).toBe('git');
-      expect(args).toEqual(['status', '--porcelain']);
-      expect(opts).toMatchObject({ cwd: tmp, timeout: 10000, maxBuffer: 1234 });
-      expect(opts.shell).toBeFalsy();
-      expect(opts.env.GIT_INDEX_FILE).toBeUndefined();
-      expect(opts.env).toMatchObject({ GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' });
-    });
   });
 });

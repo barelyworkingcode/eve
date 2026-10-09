@@ -32,7 +32,6 @@
   "dependencies": {
     "@ricky0123/vad-web": "^0.0.30",
     "@simplewebauthn/server": "^13.2.2",
-    "@vscode/ripgrep": "^1.18.0",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
@@ -45,7 +44,6 @@
     "mermaid": "^11.13.0",
     "monaco-editor": "^0.45.0",
     "three": "0.184.0",
-    "trash": "^10.1.0",
     "ws": "^8.16.0"
   },
   "overrides": {

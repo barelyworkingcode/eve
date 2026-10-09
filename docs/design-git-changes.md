@@ -122,9 +122,11 @@ modified side from disk.
 
 ### Safety
 
-- `execFile('git', argv)` only — never a shell string. Same on the remote
-  agent (Node core `child_process`, keeping `remote-fs-agent.js`
-  self-contained).
+- Eve never runs git. Every call is relay's read-only `git` op
+  (`POST /api/projects/{id}/files/git`), which runs `execFile('git', argv)`
+  only — never a shell string — on the console or on the SSH host. Relay
+  refuses any subcommand outside the read-only list and any argument that
+  could redirect git (`-c`, `--git-dir`, `--output` and the like).
 - `repo` and `path` are resolved and checked to lie inside the project root
   before any exec; `path` is passed after `--`.
 - Refs are never taken from the client: the server derives `HEAD` or the
@@ -134,9 +136,10 @@ modified side from disk.
   "File too large to diff".
 - `GIT_OPTIONAL_LOCKS=0` so a status poll never contends with an agent's
   running git command.
-- Every call runs with `-c core.fsmonitor=false`, so a repo's own config
-  can't make a status poll spawn a hook command. Both runners also drop
-  inherited `GIT_*` env vars that would redirect git elsewhere.
+- Relay prepends `-c core.fsmonitor=false` (and `core.quotepath=off`,
+  `core.hooksPath=/dev/null`) to every call, so a repo's own config can't make
+  a status poll spawn a hook command. It also drops inherited `GIT_*` env vars
+  that would redirect git elsewhere.
 - `git_changes` is registered `expensive`, so it shares the WS rate limit.
 
 ### Refresh
@@ -144,16 +147,17 @@ modified side from disk.
 Piggy-back on the existing `watch` stream. Any change event under a repo
 schedules a debounced (500 ms) `gitStatus` for that repo only. Events inside
 `.git/` are ignored except `index`, `HEAD`, `ORIG_HEAD` and `MERGE_HEAD`,
-which cover commits, staging, branch switches and merges. Remote watch events
-pass through the same ignore filter as local ones, so `.git` and
-`node_modules` churn never triggers a tree refresh.
+which cover commits, staging, branch switches and merges. Relay forwards every
+watch event unfiltered over `/ws/files`; `file-watcher.js` applies the ignore
+filter, so `.git` and `node_modules` churn never triggers a tree refresh.
 
 ## Contract (pinned — every task builds against this)
 
 ### Server: `GitService` (`git-service.js`)
 
-One implementation for local and remote. Discovery, porcelain parsing,
-merge-base, and binary detection live here once; only the runner differs.
+One implementation for every project. Discovery, porcelain parsing,
+merge-base, and binary detection live here once; `run` is relay's `git` op,
+wired by `relay-file-client.js` (`ProjectFiles#_gitRun`).
 
 ```js
 new GitService({
@@ -161,16 +165,15 @@ new GitService({
   // non-zero exit. stdout is a Buffer. Enforces timeout + maxBytes and
   // rejects with GitError('TIMEOUT'|'TOO_LARGE'|'GIT_MISSING').
   run: (root, cwdRel, args, { maxBytes }) => Promise<{ code, stdout: Buffer, stderr: string }>,
-  // Existing FileService/RemoteFileService.listDirectory (showHidden: true).
+  // ProjectFiles#listDirectory (showHidden: true).
   listDirectory: (root, rel, opts) => Promise<[{ name, type }]>,
   // readFile -> { content, size }, minus the extension allowlist and capped
-  // at 2 MB (GitError('TOO_LARGE') with .size). Local: FileService
-  // #_readFileForGit; remote: the agent's `read` with maxBytes, plus a
-  // `stat` for the size on overflow.
+  // at 2 MB (GitError('TOO_LARGE') with .size). ProjectFiles
+  // #_readFileForGit: relay's `read` with max_bytes; relay's TOO_LARGE reply
+  // carries the size.
   readFile: (root, rel) => Promise<{ content, size }>,
   // Max concurrent runner calls (run + listDirectory + readFile) for this
-  // instance — FIFO queue. Local: one instance, so a global cap. Remote:
-  // one instance per host, so a per-host cap.
+  // instance — FIFO queue. One instance per project, so a per-project cap.
   concurrency: 6,
 })
 ```
@@ -178,7 +181,7 @@ new GitService({
 `GitError extends Error` with `.code` in
 `NOT_A_REPO | GIT_MISSING | TOO_LARGE | TIMEOUT | FAILED`.
 
-Methods (also exposed 1:1 on `FileService` and `RemoteFileService` as
+Methods (also exposed 1:1 on `ProjectFiles` as
 `gitRepos` / `gitStatus` / `gitFileVersions`, each taking `projectPath` first):
 
 - `repos(projectPath)` →
@@ -204,16 +207,16 @@ Methods (also exposed 1:1 on `FileService` and `RemoteFileService` as
     the file didn't exist there. `modified`: working-tree text, `null` when
     deleted. Both `null` when `binary` or `tooLarge`.
 
-### Remote agent op
+### Relay `git` op
 
-`remote-fs-agent.js` gains one op, `git`:
-`{ op: 'git', root, cwd, args, maxBytes }` → `{ ok, code, stdout (base64), stderr }`.
-`cwd` is confined to `root` with the agent's existing `resolveInRoot`; a
-missing or non-directory `cwd` fails with `NO_DIR`, which
-`RemoteFileService` maps to `NOT_A_REPO` (matching the local runner). Eve
-already holds full read/write authority over the agent, so a generic git op
-grants nothing new; the browser never supplies `args`.
-`RemoteFileService` wraps it as the `run` for its `GitService`.
+`{ cwd, args, max_bytes }` → `{ exit_code, stdout_b64, stderr }`; a non-zero
+exit is still a 200. `cwd` is root-relative and confined to the project root
+by relay. Errors map to `GitError` codes in `ProjectFiles#_gitError`:
+`ENOENT`, `ENOTDIR`, `TRAVERSAL` and `SYMLINK` become `NOT_A_REPO` (a
+missing or escaping repo path); `INVALID` becomes `FAILED`; `GIT_MISSING`,
+`TOO_LARGE` and `TIMEOUT` keep their code. Eve sends the subcommand and
+arguments only; the browser never supplies `args`. While relay is down every
+call fails with "Relay is not reachable".
 
 ### WebSocket frames (`ws/git-messages.js`)
 

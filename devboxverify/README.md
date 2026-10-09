@@ -858,7 +858,11 @@ from relay: project <id>, model haiku, 39 calls a day`. PASS needs all of these.
 `outside-<nonce>.md` into the scratch folder from outside eve; its tree item
 must show in the open Files tab within 10 s, with no reload. FAIL "a file made
 outside eve did not show in the open tree within 10s". The save and
-outside-change steps after it are unchanged.
+outside-change steps after it are unchanged. After the save, relay's audit
+(`relay audit --event file_op --project <id> --json`) must hold a `write` row
+for notes.md within 15 s; FAIL names what is missing. Waits: none possible:
+relay writes the completion row after the response, with no hook visible to
+the harness.
 - Lives in: `file-watcher.js`, `public/sidebar/file-tree-node.js`.
 - Traps: the folder row must be expanded first, which opening notes.md does.
 
@@ -891,19 +895,20 @@ Screen journey (`screen: true`, 240 s). Through the presence helper it mints a
 second presence prompt naming it, a project `Verify Files Host <nonce>` on that
 host (template `claude-code`) whose folder is a `verify-<nonce>-host-*` git repo
 in the temp dir holding committed `notes.md` and `agent.md`. In eve it opens the
-project and its Files tab (eve starts the host's file agent on the first file
-call); the host bar must then read connected within 30 s, and a FAIL names what
+project and its Files tab (relay starts the host's file agent on the first
+file call); the host bar must then read connected within 30 s, and a FAIL names what
 the bar showed. It opens notes.md, types a line and presses the save chord; the tab's unsaved mark must
 clear within 15 s, and the disk (the host is this machine) is read once and
-must hold the line. A file the harness writes into the folder must show in the
+must hold the line, and relay's audit must hold a `write` `file_op` row for
+notes.md within 15 s (Waits as in file-edit-save). A file the harness writes into the folder must show in the
 open tree within 15 s. In the Changes tab, with no `agent.md` row, a `haiku`
 session (`acceptEdits`, prompts answered and the model checked as in
 changes-agent-edit) is asked to append `agent edit <nonce>` to agent.md;
 after `idle` the file is read once (no line: BLOCKED "the agent did not edit
 agent.md (model output)") and `changes-file-/:agent.md` must show `M` within
 15 s. Waits: none possible: model output.
-- Lives in: `ssh-host-pool.js`, `remote-file-service.js`,
-  `remote-fs-agent.js`, `public/sidebar/project-panel.js` (host bar),
+- Lives in: `relay-file-client.js`, relay's host file agent,
+  `public/sidebar/project-panel.js` (host bar),
   `public/sidebar/changes-panel.js`; relay's `/api/hosts`, `/api/projects`.
 - Traps: BLOCKED when the presence dialog is not answered. The repo is the
   project root, so its Changes path is `/`. agent.md is the agent's file

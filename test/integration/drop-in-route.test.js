@@ -3,7 +3,6 @@
 const http = require('http');
 const express = require('express');
 const registerRoutes = require('../../routes/index');
-const FileService = require('../../file-service');
 
 describe('POST /api/sessions/:id/drop-in', () => {
   let server;
@@ -22,11 +21,9 @@ describe('POST /api/sessions/:id/drop-in', () => {
       refreshProjectCache: jest.fn(),
       removeFromProjectCache: jest.fn(),
       resolveProject: jest.fn(),
-      fileService: new FileService(),
-      fileServiceFor: jest.fn(() => new FileService()),
+      fileServiceFor: jest.fn(),
       refreshHostCache: jest.fn(),
       removeFromHostCache: jest.fn(),
-      hostPool: { disconnect: jest.fn() },
       ttsService: { listVoices: jest.fn() },
       sttService: { isAvailable: jest.fn(), transcribe: jest.fn() },
       log: null,

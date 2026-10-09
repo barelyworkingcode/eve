@@ -64,7 +64,7 @@ test/
 ```
 
 **Unit** (`jest.config.js`) — pure logic and lightly-mocked modules: path security
-(`file-service`), watch/debounce (`file-watcher`), auth ceremony/origin, relay
+(`relay-file-client`, `file-plane-guard`), watch/debounce (`file-watcher`), auth ceremony/origin, relay
 client/transport, ws dispatch, security
 headers, rate limiter, slash commands, project normalize, and more. Zero external
 deps; this is the pre-commit gate. A route test that starts a server, even an
@@ -163,8 +163,7 @@ with `git push --no-verify`.
 
 ## Adding Tests
 
-- **Unit**: `test/unit/<module>.test.js`. Use temp dirs for file I/O (see
-  `file-service.test.js`). Run one file with `npx jest test/unit/my-test.test.js`.
+- **Unit**: `test/unit/<module>.test.js`. Project files go through the fake relay (`relay.files`), never the real disk. Run one file with `npx jest test/unit/my-test.test.js`.
 - **Integration**: `test/integration/<feature>.test.js`. Boot eve via
   `startEve()` from `harness.js`; drive it over HTTP/WS; `await eve.stop()`.
 - **E2E**: `test/e2e/<feature>.spec.js`. Use the `eve` fixture from `fixtures.js`.

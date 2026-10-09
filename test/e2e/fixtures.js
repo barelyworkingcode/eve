@@ -1,7 +1,5 @@
 // Loopback is trusted, so the app loads straight into the workspace with no passkey.
 const base = require('@playwright/test');
-const os = require('os');
-const fs = require('fs');
 const path = require('path');
 const { startEve } = require('../integration/harness');
 
@@ -37,20 +35,19 @@ const test = hermeticTest.extend({
   // the harness's free, daemon-less ports.
   eveEnv: [{}, { option: true }],
   eve: async ({ eveEnv }, use) => {
-    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-e2e-proj-'));
-    fs.mkdirSync(path.join(projectDir, 'src'));
-    fs.writeFileSync(path.join(projectDir, 'README.md'), '# Hello E2E', 'utf8');
-    fs.writeFileSync(path.join(projectDir, 'src', 'index.js'), 'console.log("e2e");', 'utf8');
+    // A neutral path that exists nowhere: eve reaches the project's files only
+    // through the fake relay, which holds this tree in memory (`eve.relay.files`).
+    const projectDir = '/work/e2e';
 
     const eve = await startEve({
       projects: [{ id: 'p1', name: 'E2E Project', path: projectDir }],
+      files: { p1: { 'README.md': '# Hello E2E', 'src/index.js': 'console.log("e2e");' } },
       env: eveEnv,
     });
     try {
       await use({ ...eve, projectDir });
     } finally {
       await eve.stop();
-      fs.rmSync(projectDir, { recursive: true, force: true });
     }
   },
 

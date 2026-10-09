@@ -4,6 +4,11 @@
  * real git repo, the git_changed push once a Changes tab has asked, and the
  * two-connection isolation guarantee (C1, docs/decisions/003-ws-message-registry.md)
  * for the git arms. Kept out of ws-dispatch.test.js, which is frozen.
+ *
+ * Git runs for real in a temp repo: the fake relay's disk mode backs the project
+ * with that directory, so relay's `git` op is real git while the watch events
+ * stay fake-driven. Waits: a watch is live when relay.files.watched('p1')
+ * resolves; the push arrives as the git_changed frame (ws.waitFor).
  */
 const fs = require('fs');
 const path = require('path');
@@ -23,6 +28,7 @@ describe('git changes over WS', () => {
     write(projectDir, 'b.txt', 'BBB-NEW\n');
     write(projectDir, 'untracked.txt', 'u\n');
     eve = await startEve({ projects: [{ id: 'p1', name: 'T', path: projectDir }] });
+    eve.relay.files.useDisk('p1', projectDir);
     wsA = await eve.connectWs();
     wsB = await eve.connectWs();
   });
@@ -119,9 +125,8 @@ describe('git changes over WS', () => {
     const from = wsA.mark();
     wsA.send({ type: 'git_changes', projectId: 'p1', scope: 'uncommitted' });
     await wsA.waitFor((f) => f.type === 'git_changes', 10000, from);
-    // Let the recursive watcher settle before generating the event.
-    await new Promise((r) => setTimeout(r, 200));
-    fs.writeFileSync(path.join(projectDir, 'pushed.txt'), 'p\n', 'utf8');
+    await eve.relay.files.watched('p1');
+    eve.relay.files.write('p1', 'pushed.txt', 'p\n');
     const pushed = await wsA.waitFor((f) => f.type === 'git_changed' && f.repo === '/', 5000, from);
     expect(pushed).toEqual({ type: 'git_changed', projectId: 'p1', repo: '/' });
   });

@@ -1,6 +1,6 @@
 /**
- * Throwaway git repos for the Changes-panel tests (git-service, file-service,
- * remote-file-service parity, file-handlers, integration). Every fixture git
+ * Throwaway git repos for the Changes-panel tests (git-service, file-handlers,
+ * integration). Every fixture git
  * call pins identity/branch/hook config on the command line and drops
  * inherited GIT_* env, so the developer's global config (default branch,
  * signing, hooks) can't change what a fixture looks like.
@@ -78,4 +78,35 @@ function headSha(dir) {
   return git(dir, ['rev-parse', 'HEAD']);
 }
 
-module.exports = { git, write, makeTmp, initRepo, commitAll, headSha };
+// A RelayFileClient talking to the fake relay over HTTP, for tests that need
+// real git behind the relay `git` op. filesFor(dir) registers a project whose
+// files are the real directory `dir` (the fake's disk mode) and returns its
+// ProjectFiles; gitRequests() lists the git ops relay saw, in order. The
+// require()s are lazy so a test that never calls this loads none of it.
+async function startDiskRelay() {
+  const { createFakeRelay } = require('../integration/fake-relay');
+  const { RelayTransport } = require('../../relay-transport');
+  const { NullLogger } = require('../../logger');
+  const mod = require('../../relay-file-client');
+  const RelayFileClient = mod.RelayFileClient || mod;
+  const relay = createFakeRelay({ token: null });
+  const port = await relay.listen();
+  const log = new NullLogger();
+  const relayTransport = RelayTransport.fromEnv({ env: { RELAY_FRONTEND_URL: `http://127.0.0.1:${port}`, RELAY_FRONTEND_TOKEN: 'test-token' }, log });
+  const client = new RelayFileClient({ relayTransport, log });
+  let n = 0;
+  return {
+    relay,
+    client,
+    filesFor(dir) {
+      const id = `disk${++n}`;
+      relay.addProject({ id, name: id, path: dir });
+      relay.files.useDisk(id, dir);
+      return client.forProject({ id, name: id, path: dir });
+    },
+    gitRequests: () => relay.files.requests.filter((r) => r.op === 'git').map((r) => ({ projectId: r.projectId, cwdRel: r.body.cwd, args: r.body.args })),
+    close: async () => { client.close(); await relay.close(); },
+  };
+}
+
+module.exports = { git, write, makeTmp, initRepo, commitAll, headSha, startDiskRelay };

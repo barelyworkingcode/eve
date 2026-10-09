@@ -2071,7 +2071,7 @@ describe('devboxverify run record (eve#269)', () => {
 });
 
 describe('devboxverify file-plane journeys (eve#296)', () => {
-  const { agentEditProblem, createdId, initModel } = require('../../devboxverify/journeys-files');
+  const { agentEditProblem, createdId, initModel, fileOpRows, missingFileOps } = require('../../devboxverify/journeys-files');
 
   describe('initModel', () => {
     it('names the model of the system/init event', () => {
@@ -2097,6 +2097,32 @@ describe('devboxverify file-plane journeys (eve#296)', () => {
     it('names the file when the line is missing or only part of a line', () => {
       expect(agentEditProblem('# Notes\n', 'agent edit abc', 'notes.md')).toBe('the agent did not edit notes.md (model output)');
       expect(agentEditProblem('agent edit abcdef\n', 'agent edit abc', 'agent.md')).toBe('the agent did not edit agent.md (model output)');
+    });
+  });
+
+  describe('file_op audit rows', () => {
+    const row = (o) => JSON.stringify({ event: 'file_op', ts: '2026-10-09T10:00:05Z', tool: 'write', outcome: 'ok', actor: { project_id: 'p_acme' }, args: { path: 'scratch/notes.md' }, ...o });
+    const since = Date.parse('2026-10-09T10:00:00Z');
+
+    it('keeps the finished writes of the project since the mark, with root-relative paths', () => {
+      const jsonl = [
+        row({}),
+        row({ args: { path: '/lead/slash.md' } }),
+        row({ outcome: 'pending' }),                         // an intent row is not a finished write
+        row({ ts: '2026-10-09T09:59:59Z' }),                 // before the mark
+        row({ actor: { project_id: 'p_other' } }),
+        row({ event: 'call_tool' }),
+        'not json',
+      ].join('\n');
+      expect(fileOpRows(jsonl, { projectId: 'p_acme', sinceMs: since }).map((r) => `${r.tool} ${r.path}`))
+        .toEqual(['write scratch/notes.md', 'write lead/slash.md']);
+    });
+
+    it('names the wanted writes that are not there', () => {
+      const rows = [{ tool: 'write', path: 'scratch/notes.md' }];
+      expect(missingFileOps(rows, [{ tool: 'write', path: 'scratch/notes.md' }])).toEqual([]);
+      expect(missingFileOps(rows, [{ tool: 'write', path: '/scratch/notes.md' }])).toEqual([]);
+      expect(missingFileOps(rows, [{ tool: 'delete', path: 'scratch/notes.md' }, { tool: 'write', path: 'other.md' }])).toHaveLength(2);
     });
   });
 
