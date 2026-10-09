@@ -3402,7 +3402,7 @@ async function cosHostNoread(env) {
   env.step('ask to read a file in the hosted project');
   const from = await cosSay(page, seen, `What's in README.md in the project ${projectName}?`);
   env.step('wait for the reply post');
-  const first = await cosWaitPost(seen, from, ['start_card', 'started', 'start_failed', 'reply', 'notice']);
+  const first = await cosWaitPost(seen, from, NOREAD_ANSWER_KINDS);
   if (!first) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
   const modelProblem = await cosModelProblem(seen);
   if (modelProblem) return result(id, FAIL, modelProblem);
