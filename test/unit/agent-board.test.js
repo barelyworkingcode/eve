@@ -62,7 +62,8 @@ describe('AgentBoard states and groups', () => {
 
   it.each([
     ['asking', 'needs'], ['errored', 'needs'], ['stalled', 'needs'],
-    ['running', 'working'], ['idle', 'working'], ['starting', 'working'],
+    ['running', 'working'], ['starting', 'working'],
+    ['idle', 'idle'],
     ['ended', 'done'],
   ])('%s belongs to %s', (st, group) => {
     const { g } = setup();

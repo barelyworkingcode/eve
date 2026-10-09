@@ -2806,9 +2806,11 @@ const COS_SENT_WITHIN_MS = 60000;
 // cos_status frame's), and every cos_post frame, in arrival order.
 function cosFrames(page) {
   // idleAt: how many posts had arrived at each cos_status frame with busy:false.
-  const seen = { status: null, posts: [], idleAt: [] };
+  // rowNotes: every cos_row_note frame, with how many busy:false statuses had arrived before it.
+  const seen = { status: null, posts: [], idleAt: [], rowNotes: [] };
   const take = (m) => {
     if (!m) return;
+    if (m.type === 'cos_row_note') seen.rowNotes.push({ ...m, idleBefore: seen.idleAt.length });
     if ((m.type === 'cos_snapshot' || m.type === 'cos_status') && m.status) seen.status = m.status;
     if (m.type === 'cos_status' && m.status && m.status.busy === false) seen.idleAt.push(seen.posts.length);
     if (m.type === 'cos_post' && m.post) seen.posts.push(m.post);
@@ -3493,6 +3495,144 @@ async function cosErrandFinished(env) {
     + `${lines.length}-line model summary, Open landed on #session/${sid}, and eve-verify logged "${want}"`);
 }
 
+// — Chief of Staff agent rail (eve#274) ---------------------------------------------
+
+const COS_ROW_NOTE_WITHIN_MS = 90000;
+const COS_RAIL_ASKING_WITHIN_MS = 2000;
+
+// The colour a CSS custom property resolves to, as the page computes a background.
+const tokenColor = (page, name) => page.evaluate((t) => {
+  const probe = document.createElement('span');
+  probe.style.backgroundColor = `var(${t})`;
+  document.body.appendChild(probe);
+  const c = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  return c;
+}, name);
+
+// Types into the composer of the session already open on this page and sends.
+async function sendInOpenSession(page, env, text, marker) {
+  const input = page.getByTestId('chat-input');
+  await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
+  await input.fill(text, { timeout: 5000 });
+  await page.getByTestId('chat-submit').click({ timeout: 5000 });
+  await need('the message is not shown as the user message', expect(
+    page.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: marker }),
+  ).toBeVisible({ timeout: 10000 }));
+}
+
+// An agent the person started outside the Chief of Staff (so it is not an errand) shows on the
+// rail: an idle turn gets a model line and no post; an asking turn is red under Needs you; on a
+// phone the strip count opens the sheet and a row opens the session.
+async function cosAgentRail(env) {
+  const id = 'cos-agent-rail';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  const states = sessionStates(page);
+  const made = await startCosAgent(env, `verify-${env.nonce} rail`);
+  if (!made.id) return result(id, FAIL, `${made.count || 'no'} new sessions within 30s of create_session, expected 1`);
+  const sid = made.id;
+  const problems = [];
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const logMark = await env.serviceLog.mark();
+
+  // The request goes from a page of its own, which stays open to the end: relay may settle a
+  // permission request once no browser holds the session.
+  const asker = await env.newPage();
+  env.cleanup('close the asking page', () => asker.close());
+  const rowMarker = `verify-${env.nonce}-row`;
+  env.step('ask for the one-line reply');
+  await sayToAgent(asker, env, sid, `Reply with exactly ${rowMarker} and nothing else.`, rowMarker);
+
+  env.step('wait for the row note');
+  const note = await poll(async () => seen.rowNotes.find((n) => n.sessionId === sid && n.source !== 'pending') || null,
+    { timeoutMs: COS_ROW_NOTE_WITHIN_MS, intervalMs: 500 });
+  if (!note) return result(id, FAIL, `no cos_row_note with a source other than pending for session ${sid} within ${COS_ROW_NOTE_WITHIN_MS / 1000}s of the reply`);
+  if (note.source !== 'model') problems.push(`the row note source is "${note.source}", not model (template means no model line arrived)`);
+  const text = String(note.text || '');
+  if (!text.trim() || /[\r\n]/.test(text) || text.length > 160) problems.push(`the row note is not one non-empty line of 160 characters or fewer: ${JSON.stringify(text.slice(0, 200))}`);
+
+  env.step('look at the rail row');
+  const row = page.getByTestId('rail-agents-group-idle').getByTestId(`rail-agent-${sid}`);
+  if (!(await expect(row).toBeVisible({ timeout: 10000 }).then(() => true, () => false))) problems.push('the rail has no row for the session in the Idle group');
+  const line = page.getByTestId(`rail-agent-line-${sid}`);
+  if (!(await expect(line).toHaveAttribute('data-source', 'model', { timeout: 10000 }).then(() => true, () => false))) problems.push('line 3 of the row does not have data-source model');
+  if (!(await expect(line).toHaveText(text, { timeout: 5000 }).then(() => true, () => false))) problems.push('line 3 of the row does not show the note text');
+  const green = await tokenColor(page, '--success');
+  const dotBg = await row.locator('.agent-row__dot').evaluate((el) => getComputedStyle(el).backgroundColor, null, { timeout: 2000 }).catch(() => '');
+  if (dotBg !== green) problems.push(`the idle dot is ${dotBg || 'missing'}, not --success (${green})`);
+
+  env.step('wait for the thread to go quiet');
+  const quiet = await poll(async () => seen.idleAt.length > note.idleBefore || null, { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 500 });
+  if (!quiet) problems.push('no busy:false status arrived after the row note');
+  const named = seen.posts.filter((p) => p.sessionId === sid || (p.card && p.card.sessionId === sid));
+  if (named.length) problems.push(`${named.length} thread post(s) name the session after a row summary (kinds ${named.map((p) => p.kind).join(', ')}), want none`);
+  const want = `Chief of Staff row summary: session ${sid.slice(0, 8)} source model`;
+  if (!(await env.serviceLog.since(logMark)).includes(want)) problems.push(`eve-verify's log has no line "${want}"`);
+  await poll(async () => seen.status && seen.status.model, { timeoutMs: 5000, intervalMs: 250 });
+  const model = seen.status && seen.status.model;
+  if (model !== COS_MODEL_ID) problems.push(`the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`);
+  if (problems.length) return result(id, FAIL, `session ${sid}: ${problems.join('; ')}`);
+
+  env.step('ask for a command that needs approval');
+  const askedAt = Date.now();
+  await sendInOpenSession(asker, env,
+    `Run this shell command with your Bash tool, then show me its output: echo verify-${env.nonce}`, env.nonce);
+  const asking = await poll(async () => states.find((s) => s.sessionId === sid && s.state === 'asking' && s.at >= askedAt) || null,
+    { timeoutMs: COS_POST_WITHIN_MS, intervalMs: 250 });
+  if (!asking) return result(id, FAIL, `session ${sid}: no session_state asking frame within ${COS_POST_WITHIN_MS / 1000}s of the request`);
+
+  env.step('look at the Needs you row');
+  const deadline = asking.at + COS_RAIL_ASKING_WITHIN_MS;
+  const needsRow = page.getByTestId('rail-agents-group-needs').getByTestId(`rail-agent-${sid}`);
+  const inNeeds = await poll(async () => (await needsRow.count()) > 0 || null, { timeoutMs: Math.max(100, deadline - Date.now()), intervalMs: 100 });
+  if (!inNeeds) problems.push(`the row is not under Needs you ${COS_RAIL_ASKING_WITHIN_MS / 1000}s after the asking frame`);
+  const firstGroup = await page.getByTestId('cos-agents-rail').locator('section').first().getAttribute('data-testid', { timeout: 2000 }).catch(() => '');
+  if (firstGroup !== 'rail-agents-group-needs') problems.push(`the rail's first group is "${firstGroup || 'none'}", not Needs you`);
+  const dot = needsRow.locator('.agent-row__dot');
+  const dotState = await dot.getAttribute('data-state', { timeout: 2000 }).catch(() => '');
+  if (dotState !== 'asking') problems.push(`the dot's state is "${dotState || 'missing'}", not asking`);
+  const red = await tokenColor(page, '--danger');
+  const askBg = await dot.evaluate((el) => getComputedStyle(el).backgroundColor, null, { timeout: 2000 }).catch(() => '');
+  if (askBg !== red) problems.push(`the asking dot is ${askBg || 'missing'}, not --danger (${red})`);
+  const meta = await page.getByTestId(`rail-agent-meta-${sid}`).innerText({ timeout: 2000 }).catch(() => '');
+  if (!meta.includes('Waiting on you')) problems.push(`the meta line is "${meta}", want it to contain "Waiting on you"`);
+
+  env.step('open the strip on a phone');
+  const phone = await env.newPage({ device: DEVICES.phone });
+  await openEve(phone, env);
+  await need('the Chief of Staff button is missing on the phone', expect(phone.getByTestId('nav-chief-of-staff')).toBeVisible({ timeout: 10000 }));
+  await phone.getByTestId('nav-chief-of-staff').tap({ timeout: 5000 });
+  await need('the Chief of Staff thread did not open on the phone', expect(phone.getByTestId('cos-page')).toBeVisible({ timeout: 10000 }));
+  const strip = phone.getByTestId('cos-agents-strip');
+  await need('the agents strip is not shown on the phone', expect(strip).toBeVisible({ timeout: 10000 }));
+  const height = (await strip.boundingBox({ timeout: 2000 }))?.height || 0;
+  if (height < 44) problems.push(`the strip is ${Math.round(height)}px high, want at least 44`);
+  const redCount = parseInt((await phone.getByTestId('cos-agents-strip-red').innerText({ timeout: 10000 }).catch(() => '0')).trim(), 10) || 0;
+  if (redCount < 1) problems.push('the strip shows no red count');
+  await strip.tap({ timeout: 5000 });
+  const sheetOpen = await expect(phone.getByTestId('cos-agents-sheet')).toHaveAttribute('open', '', { timeout: 5000 }).then(() => true, () => false);
+  if (!sheetOpen) return result(id, FAIL, `session ${sid}: ${[...problems, 'a tap on the strip did not open the sheet'].join('; ')}`);
+  const sheetRow = phone.getByTestId('sheet-agents-group-needs').getByTestId(`sheet-agent-${sid}`);
+  if (!(await expect(sheetRow).toBeVisible({ timeout: 5000 }).then(() => true, () => false))) problems.push('the sheet has no row for the session under Needs you');
+  else {
+    env.step('tap the row');
+    await sheetRow.tap({ timeout: 5000 });
+    if (!(await expect(phone.getByTestId('cos-agents-sheet')).not.toHaveAttribute('open', '', { timeout: 5000 }).then(() => true, () => false))) problems.push('the sheet stayed open after a row tap');
+    const hash = `#session/${sid}`;
+    const landed = await expect.poll(() => new URL(phone.url()).hash, { timeout: 10000 }).toBe(hash).then(() => true, () => false);
+    if (!landed) problems.push(`the address is ${new URL(phone.url()).hash || 'empty'} after the row tap, not ${hash}`);
+    else if (!(await expect(phone.getByTestId('messages-container').getByTestId('message-user').filter({ hasText: env.nonce }))
+      .toBeVisible({ timeout: 15000 }).then(() => true, () => false))) problems.push('the session opened but its thread does not show the request');
+  }
+
+  if (problems.length) return result(id, FAIL, `session ${sid}: ${problems.join('; ')}`);
+  return result(id, PASS, `an idle turn got one model row note with no thread post and a log line; the asking agent showed red under Needs you `
+    + `within ${COS_RAIL_ASKING_WITHIN_MS / 1000}s; on a phone the strip count opened the sheet and the row opened #session/${sid}; the Chief of Staff ran on ${model}`);
+}
+
 // — Chief of Staff project from relay (eve#249) -----------------------------------
 
 const COS_CALLS = 39; // not the settings.json value (40), so the log line proves relay's values
@@ -3750,6 +3890,7 @@ const journeys = [
   { id: 'cos-reads-project', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosReadsProject },
   { id: 'cos-start-card', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosStartCard },
   { id: 'cos-errand-finished', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosErrandFinished },
+  { id: 'cos-agent-rail', timeoutMs: 300000, areas: ['chief-of-staff', 'home'], needs: ['project:acme'], run: cosAgentRail },
   {
     id: 'cos-host-agent', timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosHostAgent,

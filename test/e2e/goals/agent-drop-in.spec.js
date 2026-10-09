@@ -55,7 +55,7 @@ test.describe('drop in from the agent board', () => {
     await dropTab(page).locator('.tab-close').click();
     const close = await eve.relay.waitForInbound((m) => m.type === 'terminal_close');
     expect(close.terminalId).toBe(terminalId);
-    await expect(group(page, 'today', 'working').getByTestId('today-agent-s-claude')).toBeVisible(WITHIN_2S);
+    await expect(group(page, 'today', 'idle').getByTestId('today-agent-s-claude')).toBeVisible(WITHIN_2S);
     await expect(group(page, 'today', 'needs').getByTestId('today-agent-s-claude')).toHaveCount(0);
   });
 

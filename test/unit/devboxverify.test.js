@@ -637,7 +637,7 @@ describe('devboxverify journey table', () => {
     'mode-presets', 'ask-in-other-mode', 'research-citations', 'routine-failed-notifies', 'listen',
     'ask-pasted-url', 'chat-pasted-url-source', 'today-custom-part', 'chat-tool-search', 'agent-board-states',
     'agent-drop-in',
-    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread',
+    'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-agent-rail', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread',
     'changes-agent-edit', 'files-on-host',
   ];
 
@@ -680,7 +680,7 @@ describe('devboxverify journey table', () => {
         'open-existing-thread', 'task-created-listed', 'voice-deep-link', 'changes-diff',
         'today-ipad-portrait', 'today-phone', 'ask-about-file', 'routine-from-thread', 'routine-touched',
         'mode-presets', 'routine-failed-notifies', 'listen', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in',
-        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread', 'changes-agent-edit'].map(id => [id, acme])),
+        'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-agent-rail', 'cos-project-from-relay', 'cos-host-agent', 'cos-host-noread', 'changes-agent-edit'].map(id => [id, acme])),
     });
   });
 
@@ -701,7 +701,7 @@ describe('devboxverify journey table', () => {
       'passkey-first-enrol', 'passkey-sign-in', 'agent-enrol-refused',
       'landing-view', 'world-projects-listed', 'chat-reply', 'open-existing-thread', 'listen', 'terminal-on-request',
       'task-created-listed', 'routine-from-thread', 'routine-touched', 'routine-failed-notifies', 'voice-deep-link', 'changes-diff', 'file-edit-save', 'changes-agent-edit',
-      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished',
+      'agent-sign-in-refused', 'today-ipad-portrait', 'today-phone', 'ask-about-file', 'ask-pasted-url', 'agent-board-states', 'agent-drop-in', 'cos-asking-post', 'cos-tell-sends-marked', 'cos-reads-project', 'cos-start-card', 'cos-errand-finished', 'cos-agent-rail',
       'settings-sheet', 'project-admin-in-relay', 'mode-presets', 'brief-injection-refused', 'today-custom-part', 'ask-in-other-mode', 'research-citations',
       'chat-pasted-url-source', 'chat-tool-search', 'cos-host-agent', 'cos-host-noread', 'cos-project-from-relay', 'files-on-host', 'project-mode-new',
       'add-browser-in-window',
@@ -731,6 +731,7 @@ describe('devboxverify journey table', () => {
     ['cos-reads-project', 'devboxverify/README.md', ['chief-of-staff'], 180000],
     ['cos-start-card', 'devboxverify/README.md', ['chief-of-staff'], 330000],
     ['cos-errand-finished', 'devboxverify/README.md', ['chief-of-staff'], 330000],
+    ['cos-agent-rail', 'devboxverify/README.md', ['chief-of-staff', 'home'], 300000],
     ['cos-project-from-relay', 'devboxverify/README.md', ['chief-of-staff'], 180000],
     ['changes-agent-edit', 'devboxverify/README.md', ['chat', 'git'], 150000],
     ['files-on-host', 'devboxverify/README.md', ['files', 'git', 'hosts'], 240000],

@@ -1,6 +1,6 @@
 // eve#195: the agent board says which agents need me. Sessions arrive from relay's
 // `attention` on the list and its `session_state` frames; the board groups them
-// Needs you / Working / Done on Today and on the project page, with one state
+// Needs you / Working / Idle / Done on Today and on the project page, with one state
 // dot per row, and the phone's Today button counts the Needs-you rows.
 // docs/design-workbench.md
 const { test, expect } = require('./fixture');
@@ -46,7 +46,7 @@ test.describe('agent board states', () => {
       await frame(eve.relay, 's-run', state);
       await expect(rowIn(page, 'today', 'needs', 's-run')).toBeVisible(WITHIN_2S);
       await expect(group(page, 'today', 'working').getByTestId('today-agent-s-run')).toHaveCount(0);
-      await expect(rowIn(page, 'today', 'working', 's-idle')).toBeVisible();
+      await expect(rowIn(page, 'today', 'idle', 's-idle')).toBeVisible();
 
       await openAlphaPage(page);
       await frame(eve.relay, 's-run', 'running');
@@ -57,12 +57,12 @@ test.describe('agent board states', () => {
     });
   }
 
-  test('running, idle and starting frames put a session in Working', async ({ page, eve }) => {
+  test('running and starting frames put a session in Working; an idle frame puts it in Idle', async ({ page, eve }) => {
     await frame(eve.relay, 's-idle', 'asking');
     await expect(rowIn(page, 'today', 'needs', 's-idle')).toBeVisible(WITHIN_2S);
-    for (const state of ['running', 'idle', 'starting']) {
+    for (const [state, key] of [['running', 'working'], ['idle', 'idle'], ['starting', 'working']]) {
       await frame(eve.relay, 's-idle', state);
-      await expect(rowIn(page, 'today', 'working', 's-idle')).toHaveAttribute('data-state', state, WITHIN_2S);
+      await expect(rowIn(page, 'today', key, 's-idle')).toHaveAttribute('data-state', state, WITHIN_2S);
     }
   });
 
@@ -76,7 +76,7 @@ test.describe('agent board states', () => {
 
     eve.relay.seedSession(session('s-run', 'Runner', { live: false }));
     await reloadEve(page);
-    await expect(rowIn(page, 'today', 'working', 's-idle')).toBeVisible();
+    await expect(rowIn(page, 'today', 'idle', 's-idle')).toBeVisible();
     await expect(page.getByTestId('today-agent-s-run')).toHaveCount(0);
     await expect(page.getByTestId('today-agent-s-old')).toHaveCount(0);
     await expect(group(page, 'today', 'done')).toHaveCount(0);
@@ -122,7 +122,7 @@ test.describe('agent board states', () => {
 });
 
 const STATES = ['running', 'asking', 'stalled', 'errored', 'idle', 'ended', 'starting'];
-const TOKEN = { running: '--success', asking: '--warning', errored: '--danger', idle: '--accent', ended: '--text-muted', starting: '--text-muted' };
+const TOKEN = { running: '--warning', asking: '--danger', errored: '--danger', idle: '--success', ended: '--text-muted', starting: '--warning' };
 
 test.describe('agent dots', () => {
   test.use({
@@ -151,13 +151,13 @@ test.describe('agent dots', () => {
     return c;
   }, name);
 
-  test('each state has one dot in its colour; stalled is hollow with a warning ring', async ({ page }) => {
+  test('each state has one dot in its colour; stalled is hollow with a danger ring', async ({ page }) => {
     await expect(page.getByTestId('today-agent-d-ended')).toBeVisible();
     const dots = await read(page);
     for (const s of STATES) expect(dots[s].n).toBe(1);
     for (const [s, t] of Object.entries(TOKEN)) expect(dots[s].bg).toBe(await token(page, t));
     expect(dots.stalled.bg).toBe('rgba(0, 0, 0, 0)');
-    expect(dots.stalled.shadow).toContain(await token(page, '--warning'));
+    expect(dots.stalled.shadow).toContain(await token(page, '--danger'));
   });
 
   test('only asking and running animate', async ({ page }) => {

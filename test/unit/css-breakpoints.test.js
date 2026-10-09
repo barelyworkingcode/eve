@@ -10,6 +10,7 @@ const ALLOWED = new Set([
   '(max-width: 599.98px)',
   '(max-width: 380px)',
   '(max-width: 540px)',
+  '(max-width: 900px)',
 ]);
 
 function cssFiles(dir) {
