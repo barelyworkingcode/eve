@@ -255,8 +255,12 @@ async function filesOnHost(env) {
   // tab opens before the host can read connected.
   await page.getByTestId('panel-tab-files').click({ timeout: 10000 });
   env.step('wait for the host to read connected');
-  await need(`the host did not show connected within ${HOST_CONNECTED_WITHIN_MS / 1000}s`,
-    expect(page.locator('.panel-host-bar--connected')).toBeVisible({ timeout: HOST_CONNECTED_WITHIN_MS }));
+  const bar = page.locator('#panelHostBar');
+  const connected = await expect(bar).toHaveClass(/panel-host-bar--connected/, { timeout: HOST_CONNECTED_WITHIN_MS }).then(() => true, () => false);
+  if (!connected) {
+    const shown = await bar.evaluate((el) => `${el.className} "${el.textContent.trim()}" ${el.hidden ? 'hidden' : 'shown'}`).catch(() => 'no host bar');
+    return result(id, FAIL, `the host did not show connected within ${HOST_CONNECTED_WITHIN_MS / 1000}s (host bar: ${shown})`);
+  }
 
   env.step('open notes.md');
   await page.getByTestId('file-tree-item-/notes.md').click({ timeout: 15000 });
