@@ -32,10 +32,10 @@ Ubuntu. Differences to know:
   works. Do not run `playwright install` in the cloud image.
 - **`test:visual` is macOS-only.** The baselines are rendered on macOS; on Linux every screenshot
   differs by font rasterisation (0.3–8 %). Do not re-baseline from Linux.
-- **File watching.** Linux uses the pruned `dir-watcher.js` backend, macOS the native recursive
-  watch. The watcher tests run both backends on whatever platform runs them
-  (`EVE_WATCH_BACKEND=native|pruned`). The removed-directory case runs on Linux only: macOS FSEvents can drop events
-  when a handle closes, and the pruned backend ships on Linux only.
+- **File watching.** Eve runs on macOS only, so the one backend is the native recursive `fs.watch`.
+  The watcher logic is tested with injected events and a mocked `fs.watch` (`test/unit/file-watcher.test.js`).
+  One integration smoke test (`test/integration/file-watcher-smoke.test.js`) saves a file on a real
+  temp dir and waits for the `file_changed` frame.
 - **Root.** Sessions run as root, which ignores file modes. A test that needs an unreadable file
   must fail the open itself (see the `readMarker` unreadable-file row) rather than `chmod 000`.
 - **The relay is a fake, pinned to relay's source.** The real relay is macOS-only;

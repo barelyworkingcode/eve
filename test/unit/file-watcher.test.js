@@ -108,7 +108,7 @@ describe('FileWatcher', () => {
   // _onFsEvent is driven directly here so the tests don't depend on fs.watch
   // delivery timing, and open files are registered without a real watcher
   // (which would replay FSEvents history and make assertions non-deterministic).
-  // A real-fs integration test below confirms the wiring fires end to end.
+  // test/integration/file-watcher-smoke.test.js confirms the wiring fires end to end.
   describe('_onFsEvent', () => {
     function registerOpenFile(clientPath, opts = {}) {
       const canon = clientPath.replace(/^\/+/, '');
@@ -196,53 +196,8 @@ describe('FileWatcher', () => {
     });
   });
 
-  // Both backends run on every platform: native recursive watch is FSEvents on
-  // macOS and an inotify emulation on Linux; the pruned one is what Linux uses.
-  describe.each(['native', 'pruned'])('end-to-end (real fs.watch, %s backend)', (backend) => {
-    beforeEach(() => { process.env.EVE_WATCH_BACKEND = backend; });
-    afterEach(() => { delete process.env.EVE_WATCH_BACKEND; });
-
-    it('pushes content when an open file changes on disk', async () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
-      await delay(150);
-      fs.writeFileSync(path.join(tmpDir, 'test.js'), 'changed-on-disk', 'utf8');
-      // FSEvents may replay the recent create first, so wait for *some*
-      // push to carry the new content rather than relying on ordering.
-      await waitForSent((m) => m.type === 'file_changed' && m.path === '/test.js' && m.content === 'changed-on-disk', 3000);
-    });
-
-    it('pushes content after an atomic save (write temp, rename over)', async () => {
-      watcher.watch(PROJECT_ID, '/test.js');
-      await delay(150);
-      fs.writeFileSync(path.join(tmpDir, 'test.js.tmp'), 'atomic', 'utf8');
-      fs.renameSync(path.join(tmpDir, 'test.js.tmp'), path.join(tmpDir, 'test.js'));
-      await waitForSent((m) => m.type === 'file_changed' && m.content === 'atomic', 3000);
-    });
-
-    it('refreshes the tree for a new file and a new nested directory', async () => {
-      watcher.watchProject(PROJECT_ID);
-      await delay(150);
-      fs.mkdirSync(path.join(tmpDir, 'pkg', 'lib'), { recursive: true });
-      fs.writeFileSync(path.join(tmpDir, 'pkg', 'lib', 'mod.js'), 'x');
-      await waitForSent((m) => m.type === 'dir_changed' && m.path === '/pkg/lib');
-      await waitForSent((m) => m.type === 'dir_changed' && m.path === '/');
-    });
-
-    it('stays quiet about churn inside node_modules', async () => {
-      fs.mkdirSync(path.join(tmpDir, 'node_modules', 'pkg'), { recursive: true });
-      watcher.watchProject(PROJECT_ID);
-      await delay(150);
-      fs.writeFileSync(path.join(tmpDir, 'node_modules', 'pkg', 'index.js'), 'x');
-      fs.writeFileSync(path.join(tmpDir, 'marker.txt'), 'x');
-      await waitForSent((m) => m.type === 'dir_changed' && m.path === '/');
-      expect(mockWs.sent.some((m) => JSON.stringify(m).includes('node_modules'))).toBe(false);
-    });
-  });
-
-  describe.each(['native', 'pruned'])('a watcher that cannot start or dies (%s backend)', (backend) => {
-    beforeEach(() => { process.env.EVE_WATCH_BACKEND = backend; });
-    afterEach(() => { delete process.env.EVE_WATCH_BACKEND; jest.restoreAllMocks(); });
+  describe('a watcher that cannot start or dies', () => {
+    afterEach(() => { jest.restoreAllMocks(); });
 
     it('tells the browser once, with the errno code and no path', () => {
       jest.spyOn(fs, 'watch').mockImplementation(() => {
@@ -257,18 +212,9 @@ describe('FileWatcher', () => {
     });
 
     it('reports a watcher that errors after it started, then recovers on the next start', () => {
-      // Native recursive watch on Linux calls fs.watch internally per directory, so
-      // take the native handle from the entry and the pruned root from the first call.
-      const real = fs.watch;
-      const handles = [];
-      jest.spyOn(fs, 'watch').mockImplementation((...args) => {
-        const h = real(...args);
-        handles.push(h);
-        return h;
-      });
       watcher.watchProject(PROJECT_ID);
       expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
-      const rootHandle = backend === 'native' ? watcher.projectWatchers.get(PROJECT_ID).watcher : handles[0];
+      const rootHandle = watcher.projectWatchers.get(PROJECT_ID).watcher;
       rootHandle.emit('error', Object.assign(new Error('boom'), { code: 'EMFILE' }));
       expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(false);
       expect(mockWs.sent.filter((m) => m.type === 'watch_error')).toEqual([
@@ -395,21 +341,35 @@ describe('FileWatcher', () => {
     });
   });
 
-  describe.each(['native', 'pruned'])('git_changed end-to-end (real fs.watch, %s backend)', (backend) => {
-    beforeEach(() => { process.env.EVE_WATCH_BACKEND = backend; });
-    afterEach(() => { delete process.env.EVE_WATCH_BACKEND; });
+  describe('local fs.watch event filter', () => {
+    const { EventEmitter } = require('events');
+    let watchSpy, statSpy, onEvent;
 
-    it('a write in the tree and a .git/index write both push git_changed', async () => {
-      fs.mkdirSync(path.join(tmpDir, '.git'));
+    beforeEach(() => {
+      const handle = Object.assign(new EventEmitter(), { close: jest.fn() });
+      watchSpy = jest.spyOn(fs, 'watch').mockImplementation((_root, _opts, cb) => {
+        onEvent = cb;
+        return handle;
+      });
+    });
+
+    afterEach(() => {
+      watchSpy.mockRestore();
+      if (statSpy) statSpy.mockRestore();
+    });
+
+    it('.git/index pushes one git_changed "*"; node_modules churn pushes nothing', async () => {
+      jest.useFakeTimers();
+      // Every directory "exists", so an unfiltered event would reach dir_changed.
+      statSpy = jest.spyOn(fs.promises, 'stat').mockResolvedValue({ isDirectory: () => true });
       watcher.watchProject(PROJECT_ID);
-      expect(watcher.projectWatchers.has(PROJECT_ID)).toBe(true);
-      await delay(150);
-      fs.writeFileSync(path.join(tmpDir, 'fresh.txt'), 'hi', 'utf8');
-      fs.writeFileSync(path.join(tmpDir, '.git', 'index'), 'idx', 'utf8');
-      await waitForSent((m) => m.type === 'git_changed' && m.repo === '*', 3000);
-      await waitForSent((m) => m.type === 'git_changed' && m.repo === '/', 3000);
-      // .git churn still never asks the tree to refresh.
-      expect(mockWs.sent.some((m) => m.type === 'dir_changed' && m.path.startsWith('/.git'))).toBe(false);
+      expect(watchSpy).toHaveBeenCalledTimes(1);
+      onEvent('rename', '.git/index');
+      onEvent('rename', 'node_modules/pkg/index.js');
+      await jest.advanceTimersByTimeAsync(1000);
+      // dir_changed follows an awaited stat; let that microtask chain finish.
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      expect(mockWs.sent).toEqual([{ type: 'git_changed', projectId: PROJECT_ID, repo: '*' }]);
     });
   });
 
