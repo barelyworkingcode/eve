@@ -335,6 +335,9 @@
   font: inherit;
   font-weight: var(--weight-semibold);
   cursor: pointer;
+  /* The tap highlight is painted by the compositor above the top layer: after the tap that opens
+     the sheet it shows as a grey band over the sheet where the strip sits. */
+  -webkit-tap-highlight-color: transparent;
 }
 .cos-strip__count {
   display: inline-flex;
