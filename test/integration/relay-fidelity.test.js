@@ -1226,3 +1226,151 @@ describe('Chief of Staff scoped start (cmd/relay/session_chief_of_staff_start.go
     expect(made.name.startsWith('word word word')).toBe(true);
   });
 });
+
+describe('fake relay file plane answers as relay does', () => {
+  const { execFileSync } = require('child_process');
+  const { defineFilePlaneConformance, makeRequester } = require('./file-plane-conformance');
+  let relay;
+  let base;
+  let seq = 0;
+  let current;
+  beforeAll(async () => {
+    relay = createFakeRelay();
+    base = `http://127.0.0.1:${await relay.listen()}`;
+  });
+  afterAll(async () => { await relay.close(); });
+
+  const fresh = () => {
+    current = `fp${++seq}`;
+    relay.addProject({ id: current, name: 'Acme', path: '/srv/acme' });
+    return current;
+  };
+
+  // One shared table, the same rows file-plane-live.test.js runs against relay.
+  defineFilePlaneConformance({
+    request: (...args) => makeRequester({ baseUrl: base })(...args),
+    get projectId() { return current; },
+    async seed(tree) { relay.files.seed(fresh(), tree); },
+    async symlink(rel, target) { relay.files.symlink(current, rel, target); },
+    async setReadOnly(on) { relay.files.setReadOnly(current, on); },
+  });
+
+  // A /ws/files client whose frames are consumed by waitFor, never by delay.
+  async function openFilesWs() {
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws/files`);
+    const frames = [];
+    const waiting = [];
+    ws.on('message', (raw) => {
+      frames.push(JSON.parse(raw.toString()));
+      waiting.splice(0).forEach((w) => w());
+    });
+    await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+    const waitFor = async (pred) => {
+      for (;;) {
+        const i = frames.findIndex(pred);
+        if (i >= 0) return frames.splice(i, 1)[0];
+        await new Promise((resolve) => waiting.push(resolve));
+      }
+    };
+    return { ws, waitFor, send: (f) => ws.send(JSON.stringify(f)) };
+  }
+
+  it('watch: watch_ok arrives, files.watched resolves, and emit and write become fs_event frames', async () => {
+    const id = fresh();
+    relay.files.seed(id, { 'src/a.js': 'a' });
+    const c = await openFilesWs();
+    try {
+      c.send({ type: 'watch', project_id: id });
+      await c.waitFor((f) => f.type === 'watch_ok' && f.project_id === id);
+      await relay.files.watched(id);
+      expect(relay.files.watchers(id)).toBe(1);
+      relay.files.emit(id, 'src/a.js', 'change');
+      expect(await c.waitFor((f) => f.type === 'fs_event')).toEqual({ type: 'fs_event', project_id: id, path: 'src/a.js', kind: 'change' });
+      relay.files.write(id, 'new.txt', 'n');
+      expect(await c.waitFor((f) => f.type === 'fs_event')).toEqual({ type: 'fs_event', project_id: id, path: 'new.txt', kind: 'rename' });
+      relay.files.write(id, 'new.txt', 'm');
+      expect(await c.waitFor((f) => f.type === 'fs_event')).toEqual({ type: 'fs_event', project_id: id, path: 'new.txt', kind: 'change' });
+    } finally { c.ws.close(); }
+  });
+
+  it('watch of an unknown project answers watch_error PROJECT_NOT_FOUND (file_ws.go)', async () => {
+    const c = await openFilesWs();
+    try {
+      c.send({ type: 'watch', project_id: 'ghost' });
+      expect(await c.waitFor((f) => f.type === 'watch_error')).toMatchObject({ project_id: 'ghost', code: 'PROJECT_NOT_FOUND' });
+    } finally { c.ws.close(); }
+  });
+
+  it('setHostStatus: a connected client gets a host_status frame, and a late client gets the latest', async () => {
+    const c = await openFilesWs();
+    try {
+      relay.files.setHostStatus('h1', { name: 'box', status: 'unreachable', error: 'connection timed out' });
+      expect(await c.waitFor((f) => f.type === 'host_status')).toEqual({ type: 'host_status', host_id: 'h1', name: 'box', status: 'unreachable', error: 'connection timed out' });
+      const late = await openFilesWs();
+      try {
+        expect(await late.waitFor((f) => f.type === 'host_status' && f.host_id === 'h1')).toMatchObject({ status: 'unreachable' });
+      } finally { late.ws.close(); }
+    } finally { c.ws.close(); }
+  });
+
+  // The fake's rows are the file_op rows of audit_file.go: `relay audit --event file_op`.
+  const FILE_OP_EVENT = 'file_op';
+  describe(`audit: ${FILE_OP_EVENT} rows`, () => {
+    const rowsFor = (id) => relay.files.audit.filter((r) => r.project_id === id);
+    const post = (id, op, body) => makeRequester({ baseUrl: base })('POST', `/api/projects/${id}/files/${op}`, { json: body });
+
+    it('a mutation writes an intent row (pending) then a completion row (ok) with the same id', async () => {
+      const id = fresh();
+      relay.files.seed(id, { 'a.txt': 'A' });
+      expect((await post(id, 'write', { path: 'n.txt', content: 'x' })).status).toBe(200);
+      const [intent, done, ...rest] = rowsFor(id);
+      expect(rest).toEqual([]);
+      expect(intent).toMatchObject({ phase: 'intent', tool: 'write', path: 'n.txt', outcome: 'pending' });
+      expect(done).toMatchObject({ phase: 'completion', tool: 'write', path: 'n.txt', outcome: 'ok' });
+      expect(done.id).toBe(intent.id);
+    });
+
+    it('a mutation that fails closes with outcome error and the code', async () => {
+      const id = fresh();
+      relay.files.seed(id, { 'a.txt': 'A' });
+      expect((await post(id, 'write', { path: 'a.txt', content: 'x', create_only: true })).status).toBe(409);
+      expect(rowsFor(id).map((r) => [r.phase, r.outcome, r.error])).toEqual([['intent', 'pending', undefined], ['completion', 'error', 'EEXIST']]);
+    });
+
+    it('a refused mutation writes one denied row with the code and no phase; reads write none', async () => {
+      const id = fresh();
+      relay.files.seed(id, { 'a.txt': 'A' });
+      relay.files.setReadOnly(id, true);
+      expect((await post(id, 'delete', { path: 'a.txt' })).status).toBe(403);
+      expect((await post(id, 'read', { path: 'a.txt' })).status).toBe(200);
+      const rows = rowsFor(id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ tool: 'delete', path: 'a.txt', outcome: 'denied', error: 'READ_ONLY' });
+      expect(rows[0].phase).toBeUndefined();
+    });
+  });
+
+  it('git on a useDisk project runs real git, whatever GIT_* the test process carries', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-files-git-'));
+    expect(dir).toContain('eve-files-git-');
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+    const saved = process.env.GIT_DIR;
+    try {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir, env });
+      fs.writeFileSync(path.join(dir, 'untracked.txt'), 'u');
+      const id = fresh();
+      relay.files.useDisk(id, dir);
+      process.env.GIT_DIR = path.join(dir, 'not-a-git-dir');
+      const res = await makeRequester({ baseUrl: base })('POST', `/api/projects/${id}/files/git`,
+        { json: { cwd: '', args: ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'] } });
+      const out = JSON.parse(res.body.toString());
+      expect(out.exit_code).toBe(0);
+      const stdout = Buffer.from(out.stdout_b64, 'base64').toString();
+      expect(stdout).toContain('# branch.head main');
+      expect(stdout).toContain('? untracked.txt');
+    } finally {
+      if (saved === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = saved;
+      if (dir && dir.includes('eve-files-git-')) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

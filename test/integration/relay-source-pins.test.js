@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 
 const FAKE = fs.readFileSync(path.join(__dirname, 'fake-relay.js'), 'utf8')
+  + fs.readFileSync(path.join(__dirname, 'fake-relay-files.js'), 'utf8')
   + fs.readFileSync(path.join(__dirname, 'protocol.js'), 'utf8');
 
 function firstExisting(candidates, marker) {
@@ -198,6 +199,45 @@ const PINS = [
   ['a chat tool result is cut at 8,192 bytes', 'internal/sessions/provider/chat_base.go', 'const maxToolResultLen = 8192', 'const MAX = 8192;', 'relay', 'unit/sources.test.js'],
   ['the cut ends with the truncation marker', 'internal/sessions/provider/chat_base.go', 'toolResult[:maxToolResultLen] + "\\n...(truncated)"', ".subarray(0, MAX).toString() + '\\n...(truncated)'", 'relay', 'unit/sources.test.js'],
 ];
+// eve#295: the file plane (fake-relay-files.js), read from relay's file_routes.go, projectfs.go, file_ws.go and audit.
+const FILE_ROUTES = [
+  ['list', 'POST /api/projects/{id}/files/list', "list: { path: 'string', show_hidden"],
+  ['stat', 'POST /api/projects/{id}/files/stat', "stat: { path: 'string' }"],
+  ['read', 'POST /api/projects/{id}/files/read', "read: { path: 'string', max_bytes"],
+  ['stream', 'GET /api/projects/{id}/files/stream', "op === 'stream'"],
+  ['write', 'POST /api/projects/{id}/files/write', "write: { path: 'string', content"],
+  ['mkdir', 'POST /api/projects/{id}/files/mkdir', "mkdir: { parent: 'string'"],
+  ['rename', 'POST /api/projects/{id}/files/rename', "rename: { path: 'string', new_name"],
+  ['move', 'POST /api/projects/{id}/files/move', "move: { path: 'string', dest_dir"],
+  ['delete', 'POST /api/projects/{id}/files/delete', "delete: { path: 'string' }"],
+  ['search', 'POST /api/projects/{id}/files/search', "search: { query: 'string'"],
+  ['git', 'POST /api/projects/{id}/files/git', "git: { cwd: 'string'"],
+  ['pastetmp', 'POST /api/hosts/{id}/pastetmp', "pastetmp: { name: 'string'"],
+  ['/ws/files', 'GET /ws/files', "'/ws/files'"],
+];
+// Codes the fake does not carry (UNSUPPORTED, PROJECT_CHANGED) are left out: they arrive only on watch_error from a real watcher.
+const FILE_CODES = ['PROJECT_NOT_FOUND', 'HOST_NOT_FOUND', 'NOT_AVAILABLE', 'INVALID', 'TRAVERSAL', 'SYMLINK', 'READ_ONLY', 'EACCES', 'ENOENT',
+  'EISDIR', 'ENOTDIR', 'EEXIST', 'TOO_LARGE', 'GIT_MISSING', 'ERROR', 'HOST_UNREACHABLE', 'AUDIT_UNAVAILABLE', 'TIMEOUT'];
+const FILE_KEYS = [
+  ['show_hidden', 'cmd/relay/file_routes.go'], ['max_bytes', 'cmd/relay/file_routes.go'], ['create_only', 'cmd/relay/file_routes.go'],
+  ['new_name', 'cmd/relay/file_routes.go'], ['dest_dir', 'cmd/relay/file_routes.go'], ['data_b64', 'cmd/relay/file_routes.go'],
+  ['mtime_ms', 'internal/projectfs/projectfs.go'], ['files_read_only', 'internal/config/models.go'],
+];
+PINS.push(
+  ...FILE_ROUTES.map(([op, route, fake]) => [`file route ${op}`, 'cmd/relay/file_routes.go', `rr.Handle(control.ClassExecute, "${route}"`, fake]),
+  ...FILE_CODES.map((c) => [`file code ${c}`, 'internal/projectfs/projectfs.go', `= "${c}"`, c === 'ERROR' ? "'ERROR'" : c]),
+  ...FILE_KEYS.map(([k, file]) => [`file JSON key ${k}`, file, `json:"${k}`, k]),
+  ['file JSON key exit_code', 'cmd/relay/file_routes.go', '"exit_code":', 'exit_code'],
+  ['file JSON key stdout_b64', 'cmd/relay/file_routes.go', '"stdout_b64":', 'stdout_b64'],
+  ['/ws/files frame fs_event', 'cmd/relay/file_ws.go', 'Type: "fs_event"', "type: 'fs_event'"],
+  ['/ws/files frame watch_ok', 'cmd/relay/file_ws.go', 'Type: "watch_ok"', "type: 'watch_ok'"],
+  ['/ws/files frame watch_error', 'cmd/relay/file_ws.go', 'Type: "watch_error"', "type: 'watch_error'"],
+  ['/ws/files frame host_status', 'cmd/relay/file_ws.go', 'Type: "host_status"', "type: 'host_status'"],
+  ['/ws/files frame watch (in)', 'cmd/relay/file_ws.go', 'case "watch":', "msg.type !== 'watch'"],
+  ['/ws/files frame unwatch (in)', 'cmd/relay/file_ws.go', 'case "unwatch":', "msg.type === 'unwatch'"],
+  // The fake's audit rows carry no `event` field; the carrier is the fidelity test that names the row kind.
+  ['the file plane audit event', 'internal/audit/audit.go', 'AuditEventFileOp = "file_op"', "'file_op'", 'relay', 'integration/relay-fidelity.test.js'],
+);
 const carrier = (p) => (p[5] ? fs.readFileSync(path.join(__dirname, '..', p[5]), 'utf8') : FAKE);
 
 describe('fake relay carries what the pins say (no relay checkout needed)', () => {
