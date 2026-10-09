@@ -192,14 +192,19 @@ describe('a host added in relay after eve started', () => {
     expect(frame.entries.map((e) => e.name)).toEqual(['late.txt']);
   });
 
-  it('reaches the host over WS even when the project list was never fetched through the browser route', async () => {
+  it('reaches the host over WS when only the startup project cache knew the project', async () => {
+    // Own eve: relay already holds the project at startup (so the startup
+    // refresh caches it), but not its host. No HTTP call follows, so only the
+    // WS path can bring the host in.
+    await ws.close();
+    await eve.stop();
+    ws = null;
+    eve = await startEve({ projects: [{ id: 'hp3', name: 'Late Project', path: hostRoot, host_id: 'h3' }] });
+    ws = await eve.connectWs();
     eve.relay.addHost({
       id: 'h3', name: 'latebox', target: 'admin@latebox.local', port: 0, identity_file: '',
       status: 'connected', ssh_argv: [process.execPath, AGENT_PATH],
     });
-    eve.relay.addProject({ id: 'hp3', name: 'Late Project', path: hostRoot, host_id: 'h3' });
-    // Prime only the project cache, as relay's live project fan-out does.
-    await eve.get('/api/projects/hp3');
 
     ws.send({ type: 'list_directory', projectId: 'hp3', path: '/' });
     const frame = await ws.waitFor((f) => f.type === 'directory_listing');

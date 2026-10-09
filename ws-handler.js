@@ -112,7 +112,8 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         // connections leak into an earlier one's handler. Rebuilt fresh per message.
         if (descriptor) {
           // A host added in relay after startup is not in eve's host cache yet.
-          if (message.projectId && ensureProjectHost) await ensureProjectHost(message.projectId);
+          const hostRefresh = message.projectId && ensureProjectHost ? ensureProjectHost(message.projectId) : null;
+          if (hostRefresh) await hostRefresh;
           const traceId = descriptor.chatTurn ? acceptTraceId(message.trace_id) : undefined;
           await descriptor.handle({
             ws,

@@ -332,17 +332,17 @@ async function refreshProjectCache(data, { replace = false } = {}) {
 // added after startup is absent from hostCache. Refresh once when a cached
 // project names a host the cache lacks; concurrent misses share one fetch.
 let hostRefreshInFlight = null;
-async function refreshHostsIfMissing(projectId) {
+function refreshHostsIfMissing(projectId) {
   const projects = projectId ? [projectCache.get(projectId)] : projectCache.values();
   let missing = false;
   for (const p of projects) {
     if (p && p.hostId && !hostCache.has(p.hostId)) { missing = true; break; }
   }
-  if (!missing) return;
+  if (!missing) return null; // sync: callers skip the await on a cache hit
   if (!hostRefreshInFlight) {
     hostRefreshInFlight = refreshHostCache().finally(() => { hostRefreshInFlight = null; });
   }
-  await hostRefreshInFlight;
+  return hostRefreshInFlight;
 }
 
 async function refreshHostCache(data, { replace = false } = {}) {
