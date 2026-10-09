@@ -760,9 +760,9 @@ FAIL detail ends with the status's `calls` count.
 **cos-host-agent.** The Chief of Staff starts a headless agent in a project on
 an SSH host (eve#293). Screen journey (`screen: true`, 420 s). Through eve's
 API it creates a loopback host `loopback-<nonce>-coseve` (target `localhost`,
-setup P11) and a project `Hosted Verify <nonce>` on it; relay gates the project
+relay's setup P11, loopback ssh to localhost) and a project `Drop-in Host coseve <nonce>` (relay's sweep prefix) on it; relay gates the project
 create behind a presence dialog, answered through the presence helper. In the
-Chief of Staff thread it types `In the project Hosted Verify <nonce>, start a
+Chief of Staff thread it types `In the project Drop-in Host coseve <nonce>, start a
 headless agent with this task: Reply with exactly verify-<nonce>-host`. It waits
 for a `started` post (or a `start_card`, then taps `cos-start-<id>`) within
 120 s; the post must name the hosted project, be headless and carry
@@ -772,7 +772,7 @@ of the host. The agent's thread must hold an assistant reply with the marker
 within 120 s. PASS needs all of these.
 - Lives in: `chief-of-staff-actions.js` (start in a hosted project);
   relay's session start on a host.
-- Traps: BLOCKED setup V-COS when its check fails, BLOCKED setup P11 when the
+- Traps: BLOCKED setup V-COS when its check fails, BLOCKED relay's setup P11 when the
   host or its project cannot be created, and BLOCKED when the presence dialog is
   not answered; no NOTRUN path. One cleanup, which also runs on FAIL and on
   timeout, deletes the sessions, the project, the host and its folder, in that

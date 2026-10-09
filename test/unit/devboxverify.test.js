@@ -1818,7 +1818,7 @@ describe('devboxverify Chief of Staff project from relay (eve#249)', () => {
     });
     it.each([
       ['no rows', ''],
-      ['a refused launch', line({ outcome: 'refused' })],
+      ['a refused launch', line({ outcome: 'denied' })],
       ['another origin', line({ args: { session_id: 's1', origin: 'user', host_id: 'h1' } })],
       ['no host', line({ args: { session_id: 's1', origin: 'chief-of-staff' } })],
       ['another host', line({ args: { session_id: 's1', origin: 'chief-of-staff', host_id: 'h2' } })],

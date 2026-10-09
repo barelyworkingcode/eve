@@ -3220,7 +3220,7 @@ async function cosHostAgent(env) {
   if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const marker = `verify-${env.nonce}-host`;
   const hostName = `${HOST_PREFIX}${env.nonce}-coseve`;
-  const projectName = `Hosted Verify ${env.nonce}`;
+  const projectName = `Drop-in Host coseve ${env.nonce}`;
   const dir = path.join(os.homedir(), '.local', 'state', 'devboxverify', `${HOST_STATE_DIR}${env.nonce}-coseve`);
   let hostId = '';
   let projectId = '';
