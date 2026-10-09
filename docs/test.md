@@ -119,6 +119,17 @@ changes that Playwright's default testMatch runs (`*.spec|test.[cm][jt]s[x]`; no
 `burn-in: no e2e spec added or changed; skipped`. Both take the diff against the merge base.
 Run either by hand with `origin/main HEAD`.
 
+**File-plane hooks (fake relay)** — `relay.files` (from `test/integration/fake-relay-files.js`) serves relay's file routes and `/ws/files` from memory, with relay's statuses, codes and messages. Seed a project with `files.seed(id, {'README.md': '# Hi', 'src/': null, 'logo.png': Buffer})`; read state back with `files.get(id, path)` (`Buffer`, `'dir'`, `{symlink}` or `null`). Hooks:
+
+- `write` / `remove` / `mkdir` change the tree and emit an `fs_event` unless `{emit:false}`; `emit(id, path, kind)` sends one by hand. Route mutations emit after the response while `autoEmit(true)` (default).
+- `watched(id)` resolves once `watch_ok` has gone out; `watchers(id)` counts live watches. Wait on these, never a delay.
+- `symlink`, `setReadOnly`, `setHostStatus` set up refusals and `host_status` frames. A host project (`host_id`) deletes permanently and answers `HOST_UNREACHABLE` while its status is `unreachable`.
+- `failNext(op, {status, code, error})` makes the next request for `op` fail; `holdNext(op)` returns `{arrived, release}` to park it.
+- `useDisk(id, dir)` backs a project with a real folder so `git` runs real git (relay's fixed `-c` prefix, `GIT_*` removed). Watch events stay hook-driven. An in-memory project answers `git` with exit 128.
+- `requests` and `audit` record what relay saw: intent and completion rows per mutation (an op on an unreachable host gets both, the completion with error `HOST_UNREACHABLE`), one `denied` row for a refused one. Each row carries `event: 'file_op'`, as in `relay audit --event file_op`.
+- Search walks the tree (hidden, `.git`, `node_modules` and symlinks skipped); it does not use `git ls-files`, even in disk mode.
+- The same conformance table runs against a real relay with `node test/integration/file-plane-live.js` (not part of `npm run test:integration`; it needs a minted credential and someone at the console; the runner's header has the steps).
+
 **Timer globals** — Under Jest 30 + Node 26, `jest.useRealTimers()` can leave
 `setTimeout`/`clearTimeout` undefined. `test/setup.js` snapshots the real timer
 functions and force-restores them after every test, so a fake-timer test can't break

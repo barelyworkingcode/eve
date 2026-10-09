@@ -24,12 +24,23 @@
  *   cmd/relay/session_chief_of_staff_start.go  POST /api/chief-of-staff/sessions
  *   internal/sessions/events/events.go     AssistantBlockStopEvent (a tool_use the person model made)
  *   cmd/relay/frontend_dispatcher.go       the scoped /ws is read-only (close 1008)
+ *
+ * The file plane (routes under /api/projects/{id}/files/*, pastetmp, /ws/files)
+ * lives in fake-relay-files.js and is exposed here as `relay.files`. Its files:
+ *   internal/projectfs/projectfs.go        codes, CleanRel, ValidateName, ValidateGitArgs
+ *   internal/projectfs/local.go            console backend messages
+ *   internal/projectfs/search.go           search validation and scan
+ *   cmd/relay/file_routes.go               routes, body limits, error body
+ *   cmd/relay/file_ops.go                  check order, read-only, audit gate
+ *   cmd/relay/audit_file.go                file_op intent / completion / denied rows
+ *   cmd/relay/file_ws.go                   /ws/files frames
  */
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { relayFrames, EVENT_PROTOCOL_VERSION } = require('./protocol');
+const { createFakeFiles } = require('./fake-relay-files');
 
 // Built from the protocol contract so the fake can't silently diverge from it.
 // openai.go (message building): every attached file becomes an `image_url`
@@ -85,6 +96,7 @@ function createFakeRelay({ token = null } = {}) {
   let requiredToken = token;
   const projects = new Map();
   const hosts = new Map();
+  const files = createFakeFiles({ projects, hosts });
   const sessions = new Map();
   const sessionScripts = new Map();
   const requests = [];
@@ -427,9 +439,10 @@ function createFakeRelay({ token = null } = {}) {
       res.end(`${text}\n`);
     };
 
-    let body = '';
-    req.on('data', (c) => { body += c; });
+    const chunks = [];
+    req.on('data', (c) => { chunks.push(c); });
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
       requests.push({ method: req.method, path: p });
       scopeLog.push({ method: req.method, path: p, scope: req.headers['x-relay-scope'] ?? null });
       if (requiredToken !== null && req.headers.authorization !== `Bearer ${requiredToken}`) {
@@ -455,6 +468,8 @@ function createFakeRelay({ token = null } = {}) {
         if (cosConfig === 'absent') return sendText(404, '404 page not found');
         return send(200, cosConfig);
       }
+      const fileRoute = files.match(req.method, p);
+      if (fileRoute) return files.handle(req, res, fileRoute, body, url);
       if (p === '/api/projects' && req.method === 'GET') return send(200, [...projects.values()].map(projectView));
       if (p === '/api/projects' && req.method === 'POST') {
         if (!isAbsPath(parsed.path)) return absPathError(parsed.path);
@@ -977,6 +992,7 @@ function createFakeRelay({ token = null } = {}) {
       ws.on('error', () => {});
       return;
     }
+    if (new URL(req.url, 'http://relay.local').pathname === '/ws/files') return files.serveWs(ws);
     const isScheduler = (req.url || '').startsWith('/ws/tasks');
     (isScheduler ? schedulerWs : relayWs).add(ws);
     if (!isScheduler) relaySocketIds.set(ws, ++relaySocketSeq);
@@ -1129,6 +1145,8 @@ function createFakeRelay({ token = null } = {}) {
     seedSession: (session) => { sessions.set(session.sessionId, session); },
     // An id a strictJoin() test may join although no POST created it.
     allowJoin: (sessionId) => { seededJoinable.add(sessionId); },
+    // The file plane: seed / emit / watch hooks and what relay saw (see docs/test.md).
+    files: files.hooks,
     getProject: (id) => projects.get(id),
     listProjects: () => Object.fromEntries(projects),
     listSessions: () => [...sessions.values()],
@@ -1277,6 +1295,7 @@ function createFakeRelay({ token = null } = {}) {
       if (closed) return resolve(); // a resilience test may close the relay before the harness does
       closed = true;
       for (const ws of [...relayWs, ...schedulerWs, ...scopedWs]) { try { ws.terminate(); } catch {} }
+      files.closeAll();
       wss.close(() => server.close(() => resolve()));
       // A closing relay drops its sockets; server.close() alone waits for
       // eve's keep-alive connections to drain, which can outlast a test.
