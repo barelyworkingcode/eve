@@ -140,3 +140,17 @@ A test names its row in its title: `test('greeting and summary line @G1.3', …)
 - `guards.yml` (tests-only, skip-focus, hygiene) is unchanged.
 
 The local hooks are under "Local hooks" above.
+
+## The eve-test-writer agent
+
+`.claude/agents/eve-test-writer.md` writes the feature specs. It works from `docs/FEATURES.md` rows, `docs/api.md`, `docs/fakerelay.md` and this guide, and reads no eve code, so a spec says only what a person sees. Its tools are Read, Write, Edit, Bash, Glob and Grep, on Sonnet.
+
+The rule is enforced, not requested. A `PreToolUse` hook in `.claude/settings.json` runs `.claude/hooks/eve-test-writer-guard.js` for each tool call. A `hooks:` block in the agent's own frontmatter does not fire on the Claude Code version we tested (2.1.296), so the project settings carry the hook. The hook input names the calling agent in `agent_type`; the guard exits 0 at once for any other agent or none, so other work in this repo is unaffected. The name is set both for the subagent and for `claude --agent eve-test-writer`, so the guard holds in both forms. For this agent, unparseable input is refused.
+
+| Tool | Allowed | Refusal |
+|---|---|---|
+| Read, Glob, Grep | a path under `docs/`, `test/e2e/` or `test-results/`, or `CLAUDE.md`, `package.json`, `devboxverify/README.md`. No path means the repo root, which is refused. | `eve-test-writer reads docs, specs and screens, not eve code: <path>` |
+| Write, Edit, MultiEdit | `test/e2e/*.spec.js`, `docs/FEATURES.md`, `test/e2e/coverage-pending.txt` | `eve-test-writer edits only ...: <path>` |
+| Bash | starts with `npx playwright test`, `npm run -s lint`, `npm run -s check:coverage` or `node --check test/e2e/`; no `;`, `&`, `|`, `$(`, backtick, `>`, `<` or newline; no argument under a refused path | the read refusal for a path, else `eve-test-writer runs only ...` |
+
+Paths resolve against the repo root, `..` is normalised and symlinks are followed before matching. `node .claude/hooks/eve-test-writer-guard.js --self-test` runs the allow and deny table; `npm run check:static` (S10) calls it.
