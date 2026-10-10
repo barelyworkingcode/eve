@@ -402,7 +402,30 @@ class MessageRenderer {
     return firstLine.length === 80 ? firstLine + '…' : firstLine;
   }
 
-  appendUserMessage(text, files = [], urls = [], { origin } = {}) {
+  // The words a person is saying right now, in a pending bubble at the end of
+  // the chat. Not history: clearLiveUserTurn() removes it when the hold ends.
+  showLiveUserTurn(text) {
+    let el = this._liveUserEl;
+    if (!el || !el.isConnected) {
+      el = document.createElement('div');
+      el.className = 'message user message-live';
+      el.dataset.testid = 'message-user-live';
+      const content = document.createElement('div');
+      content.className = 'message-content';
+      el.appendChild(content);
+      this.messagesEl.appendChild(el);
+      this._liveUserEl = el;
+    }
+    el.firstChild.textContent = text;
+    this.scrollToBottom(true);
+  }
+
+  clearLiveUserTurn() {
+    this._liveUserEl?.remove();
+    this._liveUserEl = null;
+  }
+
+  appendUserMessage(text, files = [], urls = [], { origin, dictated = false } = {}) {
     this.citations.resetTurn();
     const messageEl = document.createElement('div');
     messageEl.className = 'message user';
@@ -418,6 +441,17 @@ class MessageRenderer {
 
     const content = document.createElement('div');
     content.className = 'message-content';
+    // A spoken turn: sent as one, or a replayed one whose text still carries
+    // the server's [DICTATED] notice (a [VOICE MODE] line may sit before it).
+    if (dictated || /^(\[VOICE MODE\][^\n]*\n\n)?\[DICTATED\]/.test(inlinedUrls.text)) {
+      const mark = document.createElement('span');
+      mark.className = 'message-spoken';
+      mark.dataset.testid = 'message-spoken';
+      mark.setAttribute('role', 'img');
+      mark.setAttribute('aria-label', 'Spoken');
+      mark.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>';
+      content.appendChild(mark);
+    }
     // Only relay's marker, set by the server for a send the Chief of Staff made.
     if (origin === 'chief-of-staff') {
       const chip = document.createElement('span');
@@ -452,7 +486,7 @@ class MessageRenderer {
 
     if (this.app.state.currentSessionId && !this.isRenderingHistory) {
       const history = this.app.state.sessionHistories.get(this.app.state.currentSessionId) || [];
-      history.push({ role: 'user', content: text, files, urls, ...(origin ? { origin } : {}) });
+      history.push({ role: 'user', content: text, files, urls, ...(origin ? { origin } : {}), ...(dictated ? { dictated: true } : {}) });
       this.app.state.sessionHistories.set(this.app.state.currentSessionId, history);
     }
   }
@@ -515,7 +549,7 @@ class MessageRenderer {
 
     for (const msg of messages) {
       if (msg.role === 'user') {
-        this.appendUserMessage(msg.content, msg.files || [], msg.urls || [], { origin: msg.origin });
+        this.appendUserMessage(msg.content, msg.files || [], msg.urls || [], { origin: msg.origin, dictated: !!msg.dictated });
       } else if (msg.role === 'assistant') {
         // Tool calls live inside content as tool_use blocks — there is no
         // separate toolCalls field.

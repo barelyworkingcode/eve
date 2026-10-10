@@ -26,6 +26,7 @@ panes.registerView({
     } else {
       app.hideStopButton();
     }
+    app.voiceModes?.onChatShown(sessionId);
   },
 });
 

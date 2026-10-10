@@ -361,3 +361,88 @@
     max-height: 120px;
   }
 }
+
+/* ============================================================================
+   Voice in the chat (voice-modes.js): the Text / Talk / Hands-free control,
+   the hold-to-talk button and the "Speak replies" header button. One set of
+   rules for every width; no media query.
+   ============================================================================ */
+
+.voice-modes {
+  display: flex;
+  margin-bottom: var(--sp-4);
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+.voice-modes__radio {
+  flex: 1;
+  min-height: 32px;
+  padding: var(--sp-3) 0;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-callout);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.voice-modes__radio[aria-checked="true"] {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-1);
+}
+.voice-modes__radio:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Talk: the hold button takes the textarea's place; attach stays beside it. */
+.btn-talk {
+  flex: 1;
+  min-height: 52px;
+  border: 0;
+  border-radius: 26px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-title3);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+}
+.btn-talk[hidden] { display: none; }
+.btn-talk--recording { background: var(--accent); color: #fff; }
+.btn-talk:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.input-form[data-voice-mode="talk"] textarea,
+.input-form[data-voice-mode="talk"] #sendBtn,
+.input-form[data-voice-mode="talk"] #micBtn { display: none; }
+
+/* Speak replies: a ghost circle in the chat header; lit while on. */
+.btn-speaker {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.btn-speaker:hover { background: var(--bg-hover); color: var(--accent); }
+.btn-speaker--on,
+.btn-speaker--on:hover { background: var(--accent-soft); color: var(--accent); }
+
+/* The microphone mark on a spoken turn, and the pending bubble while held. */
+.message-spoken {
+  display: inline-flex;
+  vertical-align: -1px;
+  margin-right: var(--sp-3);
+  opacity: 0.75;
+}
+.message-live .message-content { opacity: 0.85; outline: 1.5px solid var(--warning); }

@@ -490,7 +490,7 @@ Code: public/modal-manager.js, public/index.html, public/features/permissions.js
 
 ### G9 · Talk hands-free
 
-Code: public/voice-chat-manager.js, public/voice-orb-settings.js, public/voice-orb-3d.js, public/voice-crash-guard.js, public/voice-init-coordinator.js, public/stt-manager.js, public/stt-server-backend.js, public/stt-native-backend.js, public/vad-manager.js, public/tts-manager.js, public/tts-server-backend.js, public/tts-native-backend.js, public/native-audio-bridge.js, public/features/tts.js, public/features/stt.js, public/core/mode-presets.js, public/today/parts/start-part.js, public/app.js, stt-service.js, tts-service.js, tts-chunker.js, tts-director.js, ws/voice-messages.js
+Code: public/voice-chat-manager.js, public/voice-modes.js, public/voice-orb-settings.js, public/voice-orb-3d.js, public/voice-crash-guard.js, public/voice-init-coordinator.js, public/stt-manager.js, public/stt-server-backend.js, public/stt-native-backend.js, public/vad-manager.js, public/tts-manager.js, public/tts-server-backend.js, public/tts-native-backend.js, public/native-audio-bridge.js, public/features/tts.js, public/features/stt.js, public/core/mode-presets.js, public/today/parts/start-part.js, public/app.js, stt-service.js, tts-service.js, tts-chunker.js, tts-director.js, ws/voice-messages.js
 
 | ID | Action | Simple door | Power door | Screen proof | Relay proof | Refusals | Journey | Spec |
 |---|---|---|---|---|---|---|---|---|
@@ -519,18 +519,21 @@ Code: public/voice-chat-manager.js, public/voice-orb-settings.js, public/voice-o
 | G9.23 | Stream the phone's audio log to the server | iOS app > Voice view > checkbox "Stream device logs" | none | The box is ticked or cleared; the row shows only in the native app | none | none | none yet | none yet |
 | G9.24 | See which speech engines are in use | Voice view | none | A line reads "TTS: server  ·  STT: server" (or "on-device" for either engine) above the orb | none | none | none yet | none yet |
 | G9.25 | Fall back to the server engines after a voice model crash | n/a: background | n/a: background | After a relaunch the speech engine is "server" again, as the line "TTS: server  ·  STT: server" shows | none | none | none yet | none yet |
-| G9.26 | Open the voice controls drawer in a text chat | Thread > button "Voice controls" | none | A strip opens with a voice picker, a speed picker, button "Voice mode (TTS)" and button "Switch to Voice UI" | none | none | none yet | none yet |
+| G9.26 | Open the voice controls drawer in a text chat | Thread > button "Voice controls" | none | A strip opens with a voice picker, a speed picker and button "Switch to Voice UI" | none | none | none yet | none yet |
 | G9.27 | Open the voice controls drawer in the voice view | Voice view > button "Voice controls" | none | A strip opens with a voice picker, a speed picker and button "Switch to text chat" | none | none | none yet | none yet |
 | G9.28 | Pick the voice that reads replies aloud | Thread > button "Voice controls" > combobox "Voice" | none | The picker shows the chosen voice; later replies are read in it; the voice view picker follows | none | none | none yet | none yet |
 | G9.29 | Pick the speed at which replies are read | Thread > button "Voice controls" > combobox "Playback speed" | none | The picker shows the chosen speed from "0.75×" to "1.5×"; the voice view picker follows | none | none | none yet | g9-voice-speed.spec.js |
 | G9.30 | Pick the voice in the voice view drawer | Voice view > button "Voice controls" > combobox "Voice" | none | The picker shows the chosen voice; spoken replies use it | none | none | none yet | none yet |
 | G9.31 | Pick the speed in the voice view drawer | Voice view > button "Voice controls" > combobox "Playback speed" | none | The picker shows the chosen speed; spoken replies use it | none | none | none yet | none yet |
-| G9.32 | Turn spoken replies on or off in a text chat | Thread > button "Voice controls" > button "Voice mode (TTS)" | none | The button shows as on or off; with it on, each new reply is read aloud | none | none | none yet | none yet |
 | G9.33 | Switch a text chat to the voice view with the drawer button | Thread > button "Voice controls" > button "Switch to Voice UI" | none | Voice view opens on the same conversation | none | none | none yet | none yet |
-| G9.34 | Switch a text chat to the voice view by holding the voice mode button | Thread > button "Voice controls" > button "Voice mode (TTS)" > hold for half a second | none | Voice view opens on the same conversation with spoken replies on | none | none | none yet | none yet |
 | G9.35 | Have one reply read aloud | Thread > button "Read aloud" | none | The button's name turns to "Stop speaking" while the reply plays; on a touch device the button shows on every reply | none | r1: speech engine down: caption "Speech failed: <reason>" | listen | g9-read-aloud.spec.js |
 | G9.36 | Stop a reply that is being read aloud | Thread > button "Stop speaking" | none | The audio stops and the button's name returns to "Read aloud" | none | none | listen | g9-read-aloud.spec.js |
 | G9.37 | Dictate a message into the composer | Thread > button "Dictate (Speech-to-Text)" | none | The button reads "Stop recording" and shows the time; pressing it again puts your words into the composer | none | r1: mic blocked: text "Microphone access denied. Check browser permissions."; r2: text "Transcription failed. Please try again." | none yet | g9-dictate.spec.js |
+| G9.38 | Change how I talk to a thread | Thread > radiogroup "Voice mode" > radio "Text", "Talk" or "Hands-free" | none | One tap checks the radio; the same control shows on a phone and on a desktop; "Hands-free" opens the voice view on the same conversation | none | none | none yet | g9-voice-modes.spec.js |
+| G9.39 | Talk to a thread by holding a button and see my words as I speak | Thread > radio "Talk" > button "Hold to talk" (hold) | none | Holding turns the button into "Release to send" and my words show in a pending bubble; letting go sends them as one turn marked "Spoken" and the textarea, Send and Dictate are hidden in Talk | none | r1: mic blocked: text "Microphone access denied. Check browser permissions."; r2: held under a third of a second: text "Recording too short. Hold the button longer to record." | none yet | g9-voice-modes.spec.js |
+| G9.40 | Have replies spoken in Text and Talk | Thread > button "Speak replies" | none | The button shows as pressed; each new reply is read aloud; the setting stays after a reload and is off on a device that never set it; the button is hidden in Hands-free and on other tabs | none | none | none yet | g9-voice-modes.spec.js |
+| G9.41 | See which turns I spoke | Thread > turn in the chat | none | A turn sent from Talk, or one that was spoken in an earlier session, shows the image "Spoken"; a dictated message sent from the composer shows none | none | none | none yet | g9-voice-modes.spec.js |
+| G9.42 | Attach an image before I talk | Thread > radio "Talk" > button "Attach files" | none | The attach button stays beside "Hold to talk"; the image goes with the next spoken turn | none | none | none yet | g9-voice-modes.spec.js |
 
 ### G10 · Find something in my project
 
@@ -754,6 +757,8 @@ A row that repeated another goal's row, or a row relay's own feature map owns. T
 - G1.26: Start a voice chat from the Voice tile. See G9.1.
 - G1.35: Open a Project page from a link. See G3.2.
 - G1.42: Be refused from a public address before any passkey exists. See G16.1.
+- G9.32: Turn spoken replies on or off in a text chat. See G9.40.
+- G9.34: Switch a text chat to the voice view by holding the voice mode button. See G9.38.
 - G12.35: Regenerate a project's Skills. See relay's feature map G2.12.
 - G12.36: Rotate a project token. See relay's feature map G2.10.
 

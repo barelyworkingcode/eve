@@ -25,8 +25,11 @@ class SttServerBackend {
     return null;
   }
 
-  /** Returns null — result arrives via WS dispatcher. */
-  async transcribeBlob(blob) {
+  /**
+   * Returns null — result arrives via WS dispatcher. `partial` and
+   * `utteranceId` mark a live-words request; the answer echoes them.
+   */
+  async transcribeBlob(blob, { partial = false, utteranceId } = {}) {
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -36,7 +39,12 @@ class SttServerBackend {
       reader.onerror = () => reject(new Error('Failed to process audio recording'));
       reader.readAsDataURL(blob);
     });
-    this._wsClient.send({ type: 'transcribe_audio', audio: base64 });
+    const frame = { type: 'transcribe_audio', audio: base64 };
+    if (partial) {
+      frame.partial = true;
+      if (utteranceId) frame.utteranceId = utteranceId;
+    }
+    this._wsClient?.send(frame);
     return null;
   }
 

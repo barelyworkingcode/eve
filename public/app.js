@@ -129,6 +129,8 @@ class EveWorkspaceClient {
     this.chatForm = this.container.get('chatForm');
     this.voiceChatManager = new VoiceChatManager(this.container);
     this.container.register('voiceChatManager', this.voiceChatManager);
+    this.voiceModes = new VoiceModes(this.container);
+    this.container.register('voiceModes', this.voiceModes);
     this.toastManager = new ToastManager(this.container);
     this.container.register('toastManager', this.toastManager);
     this._notifyVoiceCrashRecovery(voiceCrashRecovery);
@@ -463,6 +465,8 @@ class EveWorkspaceClient {
     this.sttManager.init();
 
     this.voiceChatManager.init();
+
+    this.voiceModes.init();
 
     this.voiceInitCoordinator.init();
 
@@ -1220,6 +1224,28 @@ class EveWorkspaceClient {
     this.showStopButton();
   }
 
+  // Sends a turn the person spoke (Talk), with any files they attached first.
+  sendSpokenTurn(text) {
+    text = (text || '').trim();
+    if (!text || !this.currentSessionId || !this.state.isOnline()) return;
+
+    if (this.ttsManager.isPlaying) this.ttsManager.stop();
+    if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
+
+    const files = this.fileAttachmentManager.consumeFiles();
+    const urls = this.urlChips.consume();
+    this.messageRenderer.appendUserMessage(text, files, urls, { dictated: true });
+    this.messageDispatcher.markLocalSubmit(this.currentSessionId);
+    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, true), files, urls, sessionId: this.currentSessionId, dictated: true });
+
+    this.modalManager.hideInputPrompt();
+    this.modalManager.hidePlanApproval();
+    document.querySelectorAll('.question-options').forEach(el => el.remove());
+    this.messageRenderer.finishAssistantMessage();
+    this.messageRenderer.showThinkingIndicator();
+    this.showStopButton();
+  }
+
   // Sends `text` as the next turn of a thread that was just created (Today's Ask).
   // Mirrors handleSubmit without the chat input: the text came from Ask.
   sendUserText(sessionId, text, files = [], urls = []) {
@@ -1447,15 +1473,6 @@ class EveWorkspaceClient {
     this.ttsManager.unlockAudio(); // iOS: unlock audio within the triggering gesture
     if (voice) this.ttsManager.setVoice(voice);
     this.ttsManager.setEnabled(true);
-    this.ttsManager.syncButtonState();
-    this.ttsManager.syncVoiceMode(this.wsClient);
-    this._updateVoiceUIBtnVisibility();
-  }
-
-  toggleVoiceMode() {
-    const enabling = !this.ttsManager.enabled;
-    if (enabling) this.ttsManager.unlockAudio(); // iOS: unlock audio within the triggering gesture
-    this.ttsManager.setEnabled(enabling);
     this.ttsManager.syncButtonState();
     this.ttsManager.syncVoiceMode(this.wsClient);
     this._updateVoiceUIBtnVisibility();

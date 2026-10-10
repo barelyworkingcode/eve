@@ -126,6 +126,8 @@ const EVT = {
   SETTINGS_CHANGED: 'settings:changed',
 
   VOICE_BACKEND_CHANGED: 'voice:backendChanged',
+  // VOICE_MODE_CHANGED { mode: 'text'|'talk'|'handsfree', sessionId } (voice-modes.js)
+  VOICE_MODE_CHANGED: 'voice:modeChanged',
   TTS_PLAYBACK_ENDED: 'tts:playbackEnded',
 
   TOAST_SHOW:    'toast:show',
