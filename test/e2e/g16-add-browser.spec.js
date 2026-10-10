@@ -129,15 +129,27 @@ test('too many tries to add this browser are refused @G16.4.r2', async ({ eve, p
   await passkey.setPresence(false);
   await eve.reload(SIGN_IN);
   await expect(page.getByRole('button', { name: 'Add this browser' })).toBeVisible();
-  // With no presence the ceremony never ends, so each attempt starts from a
-  // fresh load of the Sign-in screen.
-  for (let attempt = 0; attempt < 11; attempt += 1) {
-    await page.getByRole('button', { name: 'Add this browser' }).click();
+  // Ten requests are allowed in fifteen minutes, and claiming eve spent two
+  // (enroll start and finish). With no presence the ceremony never ends, so
+  // each attempt starts from a fresh load of the Sign-in screen. Each click
+  // waits for the server's answer: a refused start re-enables the button at
+  // once, so the button state alone cannot tell an allowed attempt from a
+  // refused one.
+  const enrollStart = (status) => (r) => r.url().endsWith('/api/auth/enroll/start') && r.status() === status;
+  const allowedStarts = 10 - 2;
+  for (let attempt = 0; attempt < allowedStarts; attempt += 1) {
+    await Promise.all([
+      page.waitForResponse(enrollStart(200)),
+      page.getByRole('button', { name: 'Add this browser' }).click(),
+    ]);
     await expect(page.getByRole('button', { name: 'Add this browser' })).toBeDisabled();
     await eve.reload(SIGN_IN);
     await expect(page.getByRole('button', { name: 'Add this browser' })).toBeVisible();
   }
-  await page.getByRole('button', { name: 'Add this browser' }).click();
+  await Promise.all([
+    page.waitForResponse(enrollStart(429)),
+    page.getByRole('button', { name: 'Add this browser' }).click(),
+  ]);
   await expect(page.getByText('Too many attempts. Try again later.')).toBeVisible();
 });
 
