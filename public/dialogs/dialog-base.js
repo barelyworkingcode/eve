@@ -23,6 +23,8 @@ class DialogBase {
 
     this._panel = document.createElement('div');
     this._panel.className = 'dialog__panel';
+    this._panel.setAttribute('role', 'dialog');
+    this._panel.setAttribute('aria-modal', 'true');
 
     this.el.appendChild(backdrop);
     this.el.appendChild(this._panel);
@@ -37,7 +39,23 @@ class DialogBase {
     return this._panel;
   }
 
+  // Name the panel once its content exists. A title bar from _createTitleBar
+  // names it already; a subclass with its own heading or none falls back here.
+  _ensurePanelName() {
+    const labelled = this._panel.getAttribute('aria-labelledby');
+    if (labelled && this._panel.querySelector(`[id="${labelled}"]`)) return;
+    const title = this._panel.querySelector('.dialog__title');
+    if (title) {
+      if (!title.id) title.id = `${this.dialogId}-title`;
+      this._panel.setAttribute('aria-labelledby', title.id);
+      return;
+    }
+    const input = this._panel.querySelector('input[placeholder]');
+    if (input) this._panel.setAttribute('aria-label', input.getAttribute('placeholder'));
+  }
+
   show() {
+    this._ensurePanelName();
     this.el.classList.remove('hidden');
     document.addEventListener('keydown', this._boundEscape);
     requestAnimationFrame(() => {
@@ -73,6 +91,8 @@ class DialogBase {
     const title = document.createElement('h3');
     title.className = 'dialog__title';
     title.textContent = titleText;
+    title.id = `${this.dialogId}-title`;
+    this._panel.setAttribute('aria-labelledby', title.id);
 
     const badge = document.createElement('span');
     badge.className = 'dialog__badge';
