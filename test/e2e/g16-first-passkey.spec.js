@@ -30,14 +30,24 @@ test('too many tries are refused @G16.1.r2', async ({ eve, page, passkey }) => {
   await passkey.setPresence(false);
   await eve.open('/', { preReady: 'the Sign-in screen shows before the app is ready' });
   await expect(page.getByRole('heading', { name: 'Set Up Passkey' })).toBeVisible();
-  // Ten attempts are allowed in fifteen minutes. With no presence the ceremony
+  // Ten requests are allowed in fifteen minutes. With no presence the ceremony
   // never ends, so each attempt starts from a fresh load of the Sign-in screen.
-  for (let attempt = 0; attempt < 11; attempt += 1) {
-    await page.getByRole('button', { name: 'Create Passkey' }).click();
+  // Each click waits for the server's answer: a refused start re-enables the
+  // button at once, so the button state alone cannot tell an allowed attempt
+  // from a refused one.
+  const enrollStart = (status) => (r) => r.url().endsWith('/api/auth/enroll/start') && r.status() === status;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await Promise.all([
+      page.waitForResponse(enrollStart(200)),
+      page.getByRole('button', { name: 'Create Passkey' }).click(),
+    ]);
     await expect(page.getByRole('button', { name: 'Create Passkey' })).toBeDisabled();
     await eve.reload({ preReady: 'the Sign-in screen shows before the app is ready' });
     await expect(page.getByRole('heading', { name: 'Set Up Passkey' })).toBeVisible();
   }
-  await page.getByRole('button', { name: 'Create Passkey' }).click();
+  await Promise.all([
+    page.waitForResponse(enrollStart(429)),
+    page.getByRole('button', { name: 'Create Passkey' }).click(),
+  ]);
   await expect(page.getByText('Too many attempts. Try again later.')).toBeVisible();
 });
