@@ -59,7 +59,123 @@ test('the last passkey cannot be revoked @G16.6.r1', async ({ eve, page, relay, 
   expect(listed.stdout).not.toContain('revocation pending');
 });
 
-test('report the passkey list to relay after enrolment @G16.9', async ({ eve, page, relay, passkey }) => {
+const SIGN_IN = { preReady: 'the Sign-in screen shows before the app is ready' };
+
+function b64url(id) {
+  return id.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Claim eve, leave as a signed-out browser, and swap to a fresh authenticator,
+// so the page is a new browser. Returns the first browser's credentials.
+async function becomeNewBrowser(eve, passkey) {
+  await eve.signOut();
+  return passkey.replace();
+}
+
+async function openWindow(relay) {
+  await relay.ctl('presence', 'eve.enrolment.open=approve');
+  const opened = await relay.cli('eve', 'enrol');
+  expect(opened.code).toBe(0);
+}
+
+// The page ends signed in with its own, second passkey.
+async function addThisBrowser(eve, page, relay, passkey) {
+  await claimEve(eve, page, relay, passkey);
+  const first = await becomeNewBrowser(eve, passkey);
+  await openWindow(relay);
+  await eve.reload(SIGN_IN);
+  await page.getByRole('button', { name: 'Add this browser' }).click();
+  await eve.ready();
+  return first;
+}
+
+test('the Add this browser button shows once the window is open @G16.3', async ({ eve, page, relay, passkey }) => {
+  await claimEve(eve, page, relay, passkey);
+  await becomeNewBrowser(eve, passkey);
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+  await openWindow(relay);
+  await eve.reload(SIGN_IN);
+  await expect(page.getByRole('button', { name: 'Add this browser' })).toBeVisible();
+  await expect(page.getByText('Enrolment is open for a few minutes.')).toBeVisible();
+});
+
+test('no button while the window is closed @G16.3.r1', async ({ eve, page, relay, passkey }) => {
+  await claimEve(eve, page, relay, passkey);
+  await becomeNewBrowser(eve, passkey);
+  await eve.reload(SIGN_IN);
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add this browser' })).toBeHidden();
+  await expect(page.getByText('Enrolment is open for a few minutes.')).toBeHidden();
+});
+
+test('add this browser as another passkey @G16.4', async ({ eve, page, relay, passkey }) => {
+  await addThisBrowser(eve, page, relay, passkey);
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeHidden();
+  await expect(
+    page.getByRole('heading', { level: 1, name: /^(Good morning|Good afternoon|Good evening|Working late)\.$/ }),
+  ).toBeVisible();
+  const consumed = await relay.waitForEvent('eve.enrolment.consume', { match: (l) => l.status === 'ok' });
+  expect(consumed.status).toBe('ok');
+  const listed = await relay.cli('eve', 'list');
+  expect(listed.code).toBe(0);
+  expect(listed.stdout.trim().split('\n')).toHaveLength(3);
+});
+
+test('too many tries to add this browser are refused @G16.4.r2', async ({ eve, page, relay, passkey }) => {
+  await claimEve(eve, page, relay, passkey);
+  await becomeNewBrowser(eve, passkey);
+  await openWindow(relay);
+  await passkey.setPresence(false);
+  await eve.reload(SIGN_IN);
+  await expect(page.getByRole('button', { name: 'Add this browser' })).toBeVisible();
+  // With no presence the ceremony never ends, so each attempt starts from a
+  // fresh load of the Sign-in screen.
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    await page.getByRole('button', { name: 'Add this browser' }).click();
+    await expect(page.getByRole('button', { name: 'Add this browser' })).toBeDisabled();
+    await eve.reload(SIGN_IN);
+    await expect(page.getByRole('button', { name: 'Add this browser' })).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'Add this browser' }).click();
+  await expect(page.getByText('Too many attempts. Try again later.')).toBeVisible();
+});
+
+test('revoke a lost browser and eve drops it @G16.6', async ({ eve, page, relay, passkey }) => {
+  // eve reports its passkeys every 30 s; this test waits for one report.
+  test.slow();
+  const first = await addThisBrowser(eve, page, relay, passkey);
+  await relay.ctl('presence', 'eve.passkey.revoke=approve');
+  const since = relay.mark();
+  const revoked = await relay.cli('eve', 'revoke', '--id', b64url(first[0].credentialId));
+  expect(revoked.code).toBe(0);
+  expect(revoked.stdout).toContain('revocation pending');
+  const pending = await relay.cli('eve', 'list');
+  expect(pending.stdout).toContain('revocation pending');
+
+  // The page stays signed in with its own passkey until eve reports again.
+  await relay.waitForEvent('eve.passkey.report', {
+    since,
+    match: (l) => l.status === 'ok' && l.count === 1,
+  });
+  const after = await relay.cli('eve', 'list');
+  expect(after.stdout).not.toContain('revocation pending');
+  expect(after.stdout.trim().split('\n')).toHaveLength(2);
+});
+
+test('a revoked passkey is refused at sign-in @G16.7', async ({ eve, page, relay, passkey }) => {
+  await addThisBrowser(eve, page, relay, passkey);
+  const own = await passkey.credentials();
+  await relay.ctl('presence', 'eve.passkey.revoke=approve');
+  const revoked = await relay.cli('eve', 'revoke', '--id', b64url(own[0].credentialId));
+  expect(revoked.code).toBe(0);
+  await eve.signOut();
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign In' }).click();
+  await expect(page.getByText('This passkey has been revoked.')).toBeVisible();
+});
+
+test('report the passkey list to relay after enrolment @G16.9',async ({ eve, page, relay, passkey }) => {
   await claimEve(eve, page, relay, passkey);
   const report = await relay.waitForEvent('eve.passkey.report', { match: (l) => l.status === 'ok' && l.count === 1 });
   expect(report.status).toBe('ok');
