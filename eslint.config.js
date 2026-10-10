@@ -1,7 +1,7 @@
 'use strict';
 
-// Scoped to the e2e specs on purpose: scripts/lint-added-waits.js uses it as a
-// CI gate that refuses a newly added fixed wait. No other rules belong here.
+// Scoped to test/e2e on purpose; nothing runs it until the new suite's harness
+// adds the static-guard rules here.
 const playwright = require('eslint-plugin-playwright');
 
 module.exports = [
