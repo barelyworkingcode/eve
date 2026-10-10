@@ -2,7 +2,6 @@
 # The list only shrinks: each child removes its own goals when it lands.
 G1 #316
 G7 #316
-G10 #316
 G12 #316
 G16 #316
 G2 #317
