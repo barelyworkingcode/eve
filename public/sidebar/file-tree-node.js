@@ -330,25 +330,35 @@ class FileTreeNode {
     this.ws.send({ type: 'move_file', projectId, sourcePath, destDirectory });
   }
 
+  // One file at a time, in drop order: the next read starts after the previous upload
+  // was sent (or failed), so a large file cannot let a later one overtake it.
   _handleExternalDrop(projectId, destDirectory, fileList) {
     const maxSize = 10 * 1024 * 1024;
-    for (const file of fileList) {
-      if (file.size > maxSize) continue;
+    const files = Array.from(fileList).filter((file) => file.size <= maxSize);
+    const next = (i) => {
+      if (i >= files.length) return;
+      const file = files[i];
       const reader = new FileReader();
-      reader.onerror = () => this.log.error(`Failed to read "${file.name}" for upload`);
+      reader.onerror = () => {
+        this.log.error(`Failed to read "${file.name}" for upload`);
+        next(i + 1);
+      };
       const isText = file.type.startsWith('text/') || /\.(txt|md|json|js|ts|css|html|py|go|rs|rb|sh|yaml|yml|toml|xml|sql|ini|conf|env|log)$/i.test(file.name);
       if (isText) {
         reader.onload = () => {
           this.ws.send({ type: 'upload_file', projectId, destDirectory, fileName: file.name, content: reader.result, encoding: 'utf8' });
+          next(i + 1);
         };
         reader.readAsText(file);
       } else {
         reader.onload = () => {
           this.ws.send({ type: 'upload_file', projectId, destDirectory, fileName: file.name, content: reader.result.split(',')[1], encoding: 'base64' });
+          next(i + 1);
         };
         reader.readAsDataURL(file);
       }
-    }
+    };
+    next(0);
   }
 
   _showContextMenu(x, y, projectId, path, isDir) {
