@@ -80,6 +80,8 @@ test.describe('with a microphone that hears speech', () => {
     await expect(firstTurn).toBeInViewport();
     await expect(status(page).getByText('Speaking…')).toBeVisible();
     await expect(status(page).getByRole('button', { name: 'Stop reply' })).toBeVisible();
+    // Still the first reply: a stop would let the looping mic start a second turn.
+    await expect(page.getByRole('img', { name: 'Spoken' })).toHaveCount(1);
   });
 
   // Waits: the popup event from the click; the link opens in a new tab.
@@ -92,6 +94,8 @@ test.describe('with a microphone that hears speech', () => {
     await popup.close();
     await expect(status(page).getByText('Speaking…')).toBeVisible();
     await expect(status(page).getByRole('button', { name: 'Stop reply' })).toBeVisible();
+    // Still the first reply: a stop would let the looping mic start a second turn.
+    await expect(page.getByRole('img', { name: 'Spoken' })).toHaveCount(1);
   });
 
   // No engine-controlled playback or microphone signal reaches a spec (E5 forbids reading the
