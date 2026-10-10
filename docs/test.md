@@ -65,7 +65,7 @@ Fixtures, one set per test:
 
 | Fixture | Members |
 |---|---|
-| `eve` | `url`; `open(path = '/', { preReady })`, which returns once `<html data-ready="1">` is set; `reload({ preReady })`. `preReady` (a non-empty reason string) returns at `domcontentloaded`, for rows that act before eve is ready. |
+| `eve` | `url`; `open(path = '/', { preReady })`, which returns once `<html data-ready="1">` is set; `reload({ preReady })`; `ready()`, which waits for `<html data-ready="1">`. `preReady` (a non-empty reason string) returns at `domcontentloaded`, for rows that act before eve is ready. |
 | `relay` | `dir`; `cli(...argv)` (relay verbs as the feature map writes them: `cli('eve', 'list')`) and `ctl(...argv)` (presence, faults, host status, fs events, clock), both `{ code, stdout, stderr }`; `json(...argv)`; `mark()` (now, for `since`); `logs({ event, since })`; `waitForEvent(event, { since, match })`. |
 | `passkey` | `enable()` (Chromium virtual authenticator: ctap2, internal, resident key, user verification); `credentials()`; `setPresence(ok)` (false: the next ceremony gets no presence or verification). |
 | `voice` | `tts` and `stt`, each with `requests` (live), `waitForRequest(match)` and `reply(...)`. |

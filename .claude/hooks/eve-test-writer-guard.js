@@ -21,7 +21,7 @@ const BASH_PREFIXES = [
 ];
 const BASH_FORBIDDEN = /[;&|<>`\n\r]|\$\(/;
 // Options that point playwright or eslint at another config or reporter.
-const BASH_FORBIDDEN_ARGS = /^(-c|--config|--reporter|-f|--format)(=|$)/;
+const BASH_FORBIDDEN_ARGS = /^(-c|-f)|^(--config|--reporter|--format)(=|$)/;
 // Options whose next word is a pattern, not a path.
 const PATTERN_OPTIONS = new Set(['--grep', '-g', '--grep-invert']);
 
@@ -188,6 +188,10 @@ function selfTest() {
     ['grep-invert', A('Bash', { command: 'npx playwright test --grep-invert @G1.3' }), false],
     ['grep then path', A('Bash', { command: 'npx playwright test --grep @G1.3 server.js' }), true],
     ['pw -c', A('Bash', { command: 'npx playwright test -c other.config.js' }), true],
+    ['pw -cx', A('Bash', { command: 'npx playwright test -cx' }), true],
+    ['pw -fx', A('Bash', { command: 'npx playwright test -fx' }), true],
+    ['lint -cx', A('Bash', { command: 'npm run -s lint -- -cx' }), true],
+    ['lint -fx', A('Bash', { command: 'npm run -s lint -- -fx' }), true],
     ['pw --config', A('Bash', { command: 'npx playwright test --config x' }), true],
     ['pw --config=', A('Bash', { command: 'npx playwright test --config=x' }), true],
     ['pw --reporter', A('Bash', { command: 'npx playwright test --reporter=line' }), true],

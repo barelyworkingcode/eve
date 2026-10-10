@@ -32,8 +32,8 @@ const E1 = [
     message: 'E1: eve reaches project files through relay, not fs, child_process, ripgrep or trash. A file that must keep one goes in the allowlist in eslint.config.js with its reason.',
   },
   {
-    selector: "ImportExpression[source.value='trash']",
-    message: 'E1: eve reaches project files through relay, not a trash library.',
+    selector: `ImportExpression[source.value=/${quote(BANNED_MODULES)}/]`,
+    message: 'E1: eve reaches project files through relay, not fs, child_process, ripgrep or trash.',
   },
   {
     // A template literal could build a banned module name the selectors above cannot read.
@@ -99,6 +99,19 @@ const E5_SYNTAX = [
   {
     selector: `CallExpression[callee.type='MemberExpression'][callee.object.name='page'][callee.property.name=/^(${PAGE_SELECTOR_METHODS.join('|')})$/]`,
     message: `${E5_MESSAGE} page.<action>(selector) is not allowed; use a role, label or text locator.`,
+  },
+  {
+    // Renaming the page fixture would dodge the page-level selector ban.
+    selector: ':function > ObjectPattern.params > Property[key.name="page"][value.type!="Identifier"], :function > ObjectPattern.params > Property[key.name="page"][value.name!="page"]',
+    message: 'E5: take the page fixture as `page`, not under another name.',
+  },
+  {
+    selector: ':function > ObjectPattern.params > Property[key.name=/^(context|browser)$/]',
+    message: 'E5: a spec does not take the context or browser fixture; drive eve through the page.',
+  },
+  {
+    selector: "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(page|pages)$/]",
+    message: 'E5: no .page() or .pages(); use the page fixture.',
   },
   {
     selector: ':function > ObjectPattern.params > Property[key.name="request"]',
