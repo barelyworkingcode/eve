@@ -62,7 +62,7 @@ Options, set with `test.use`:
 | `trustedSubnets` | `null` | Sets `EVE_TRUSTED_SUBNETS`, e.g. `'192.0.2.0/24'`, replacing the default trusted set. |
 | `plansDir` | `'agent'` | `'agent'` sets `EVE_PLANS_DIR` to fakerelay's plans dir (`<relay dir>/home/.claude/plans`), where `plan` replies write. `'eve'` leaves it unset, so eve uses its own default (a plan written on another machine). |
 | `eveSettings` | `null` | An object written as eve's `data/settings.json` before eve starts, e.g. `{ voice: { handsFreeReminderSeconds: 5 } }`. `null` writes no file. |
-| `mic` | `'beep'` | What the page hears when it opens the microphone. `'beep'` is Chromium's own fake device. `'silence'` and `'speech'` replace the audio of `getUserMedia` with a looping WAV from `test/e2e/support/audio/`: one second of silence, or a spoken sentence ("Hello, can you tell me what time it is") followed by five seconds of silence, repeating. |
+| `mic` | `'beep'` | What the page hears when it opens the microphone. `'beep'` is Chromium's own fake device. `'silence'` and `'speech'` replace the audio of `getUserMedia` with a looping WAV generated in code (`test/e2e/support/mic-audio.js`, no audio file in the repo): one second of silence, or 2.5 s of synthetic speech-like audio (a pulse train through moving vowel formants) followed by five seconds of silence, repeating. |
 
 `worlds.media.webm()` and `worlds.media.wav()` return `{ base64 }`, a world file value of about 1 s that plays in Playwright's Chromium: `files: { 'clip.webm': worlds.media.webm() }`.
 

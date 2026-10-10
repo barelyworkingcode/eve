@@ -3,12 +3,11 @@
 // The one import a spec needs. Per test: its own fakerelay, eve, relayScheduler,
 // fake TTS and STT, data directories and browser context. See docs/test.md.
 
-const fs = require('fs');
-const path = require('path');
 const base = require('@playwright/test');
 const { devices } = base;
 const { Stack } = require('./stack');
 const worlds = require('./worlds');
+const { micWav } = require('./mic-audio');
 
 // `defaultBrowserType` can't be set inside a describe, and the one project is Chromium anyway.
 function profile(name) {
@@ -23,9 +22,9 @@ const BARE_IP = '192.0.2.10';
 
 // What the page hears when it opens the microphone. 'beep' is Chromium's own
 // fake device (the launch flags in playwright.config.js). The other two replace
-// getUserMedia's audio with a looping WAV from support/audio/: 'silence', or
-// 'speech' (a short spoken sentence, then a pause, repeating).
-const MIC_FILES = { silence: 'silence.wav', speech: 'speech.wav' };
+// getUserMedia's audio with a looping WAV generated in code (mic-audio.js):
+// 'silence', or 'speech' (synthetic speech-like audio, then a pause, repeating).
+const MIC_KINDS = ['silence', 'speech'];
 
 // Runs in the page, before any script. The stream is a real MediaStream, so
 // the VAD, MediaRecorder and level meters consume it as they would a mic.
@@ -133,13 +132,13 @@ const test = base.test.extend({
   plansDir: ['agent', { option: true }],
   // Contents of eve's data/settings.json, written before eve starts. null = no file.
   eveSettings: [null, { option: true }],
-  // 'beep' | 'silence' | 'speech': what getUserMedia delivers (see MIC_FILES).
+  // 'beep' | 'silence' | 'speech': what getUserMedia delivers (see MIC_KINDS).
   mic: ['beep', { option: true }],
 
   _fakeMic: [async ({ page, mic }, use) => {
     if (mic !== 'beep') {
-      if (!MIC_FILES[mic]) throw new Error(`mic must be 'beep', 'silence' or 'speech', got ${mic}`);
-      const wav = fs.readFileSync(path.join(__dirname, 'audio', MIC_FILES[mic]));
+      if (!MIC_KINDS.includes(mic)) throw new Error(`mic must be 'beep', 'silence' or 'speech', got ${mic}`);
+      const wav = micWav(mic);
       await page.addInitScript(installFakeMic, wav.toString('base64'));
     }
     await use();
