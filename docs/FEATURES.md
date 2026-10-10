@@ -102,7 +102,8 @@ The first step of every Simple door is one of these names. Relay and the iOS app
 - **Simple door**: the steps an everyday person takes, joined by `>`. A control is written `role "name"`. Roles are ARIA roles as Playwright's `getByRole` takes them: number inputs are spinbutton and range inputs are slider. `(a11y: #314)` after a control means its accessible name today is not the one written; #314 fixes that.
 - **Power door**: the config key or relay CLI verb a power user uses, or `none`.
 - **Screen proof** and **Relay proof**: what the person sees, and what relay changes or records. **Refusals** are numbered `r1`, `r2`, so `G7.2.r1` names one.
-- **Journey** is the devbox journey that covers the row; **Spec** is the automated test, `none yet` until one names the row.
+- **Journey** is the devbox journey that covers the row.
+- **Spec** is the automated test that proves the row. It is `none yet` (optionally `none yet: <reason>`), a spec file in `test/e2e/` such as `g1-today.spec.js`, or `devbox: <journey-id>` for a row no hermetic spec can prove. Several items are separated by `, `. A test names its row in its title: `test('greeting and summary line @G1.3', …)`; a refusal is `@G1.3.r1`. `npm run check:coverage` holds the two sides together. A row may read `none yet` only while its goal is in `test/e2e/coverage-pending.txt`.
 
 Example (shape only):
 
@@ -792,8 +793,9 @@ The path-to-area map lives in [`areas.jsonc`](areas.jsonc), read by
   journeys' locators and traps. This file is the goal-level map.
 - **Upkeep.** A change a user would notice in a file matched by a `code` glob
   in [`areas.jsonc`](areas.jsonc) updates this map (the feature's row, its
-  journey and its spec) in the same PR. A new feature takes the next free ID in
-  its goal.
+  journey and its spec) in the same PR, and tags the proving test with the row
+  ID. A new feature takes the next free ID in its goal. `npm run check:coverage`
+  fails on a row with no spec and on a test that names no row.
 - **Retired ids (S5a).** The `sidebar-session-*`, `sidebar-terminal-*` and
   `sidebar-task-*` test ids went with the panel rows they named; the page uses
   `project-thread-*`, `project-task-*` and `project-agent-*`, the board on

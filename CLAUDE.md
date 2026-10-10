@@ -98,8 +98,8 @@ npm run -s verify:devbox    # devbox world journeys, test machine only (devboxve
 
 **Local gates** (`.githooks/`, run by the machine's global hooks dispatcher; never set a repo-local `core.hooksPath`, which skips the push guard). `--no-verify` is for the operator in an emergency, never the agent.
 
-- **pre-commit**: on any commit staging `.js`, `.cjs` or `.mjs` files, runs `node --check` on them.
-- **pre-push**: on any push whose range touches `.js`, `.cjs` or `.mjs` files, runs `node --check` on them.
+- **pre-commit**: on any commit staging `.js`, `.cjs` or `.mjs` files, runs `node --check` on them, then `eslint` on them.
+- **pre-push**: on any push whose range touches `.js`, `.cjs` or `.mjs` files, runs `node --check` and `eslint` on them. On any push that is not a branch delete, it also runs `npm run -s check:static` and `npm run -s check:coverage`. Neither hook runs the browser suite.
 
 Keep fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked timer can't hold the process open. Full testing guide: [docs/test.md](docs/test.md).
 

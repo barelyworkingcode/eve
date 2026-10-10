@@ -7,17 +7,20 @@ Eve's hermetic suite is Playwright. Each test starts its own `fakerelay` (relay'
 | Check | Where it runs | What it shows |
 |---|---|---|
 | `node --check` | CI job `check`; pre-commit on staged JS; pre-push on pushed JS | every JS file parses (eve has no build step) |
+| `npm run -s lint` | CI job `check`; pre-commit and pre-push (on the touched files) | the ESLint rules below |
+| `npm run -s check:static` | CI job `check`; pre-push | the static guards ESLint cannot express |
+| `npm run -s check:coverage` | CI job `check`; pre-push | every feature-map row names its proof, every spec test names its row |
 | `npm ci` | CI job `check` | the lockfile installs |
 | PR guards | CI workflow `guards` (`scripts/ci-guards.sh`) | tests-only, skip-focus and hygiene |
-| `npx playwright test` | the hermetic suite (this guide) | eve against fakerelay, one stack per test |
+| `npx playwright test` | CI job `e2e` (every PR and every push to `main`); the hermetic suite (this guide) | eve against fakerelay, one stack per test |
 | Devbox world | `npm run -s verify:devbox`; the `devbox/verify` status check on PRs | journeys against the installed stack on the test machine; unchanged, see `devboxverify/README.md` |
 
 ## Local hooks
 
 The machine's global hooks dispatcher runs `.githooks/`. Never set a repo-local `core.hooksPath`: it skips the push guard.
 
-- **pre-commit**: when a commit stages `.js`, `.cjs` or `.mjs` files, runs `node --check` on each.
-- **pre-push**: when a push's range touches `.js`, `.cjs` or `.mjs` files, runs `node --check` on each one still in the tree.
+- **pre-commit**: when a commit stages `.js`, `.cjs` or `.mjs` files, runs `node --check` on each, then `npx eslint --no-warn-ignored` on them.
+- **pre-push**: when a push's range touches `.js`, `.cjs` or `.mjs` files, runs `node --check` and `eslint` on each one still in the tree. Then, on any push that is not a branch delete, `npm run -s check:static` and `npm run -s check:coverage`. The hooks never run the browser suite.
 
 ## Browser-test lock
 
@@ -83,3 +86,57 @@ Readiness is signalled, never slept on: fakerelay's ready line, `eve-ready.json`
 A failed test attaches `eve.log`, `fakerelay.log`, `relaysessions.log`, `relayscheduler.log` (when on) and `fakerelay.stderr`; the trace is kept (`retain-on-failure`). Worlds use neutral names only (Acme, testbox): CI uploads these as public artifacts.
 
 A setup failure throws a named error: `fakerelay exited <code> before ready: <stderr tail>`, `eve exited <code> before eve-ready.json; see eve.log`, or `relayScheduler exited <code> before its manifest was registered; see relayscheduler.log`.
+
+## Lint rules and checks
+
+`npm run lint` is `eslint .`. `eslint.config.js` sets `noInlineConfig` (an `eslint-disable` comment has no effect) and `reportUnusedDisableDirectives`. Server code and tests parse as CommonJS, `public/**/*.js` as script.
+
+| Rule | Files | Forbids |
+|---|---|---|
+| E1 file plane | root `*.js`, `ws/`, `routes/`, `mcp/`, except the allowlist | `require` of `fs`, `fs/promises`, `child_process` (also with `node:`), `@vscode/ripgrep`, `trash`; `import('trash')`. The allowlist is the config object named "E1 allowlist", each file with its reason as a comment. |
+| E2 iframe sandbox | `public/**/*.js` | a string or template text containing `allow-same-origin` |
+| E3 no fixed waits | `test/e2e/**` | `waitForTimeout` on any receiver |
+| E4 raw relay egress | the E1 files, except `relay-transport.js` | bare `fetch()`, `new WebSocket()`, `http`/`https` `.request()` or `.get()`, `require('undici')`. Voice's `net.Socket` stays allowed. |
+| E5 screen only | `test/e2e/*.spec.js` | `locator`, `frameLocator`, `getByTestId`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `$`, `$$`, `$eval`, `$$eval`, `waitForSelector`, `evaluate`, `evaluateAll`, `evaluateHandle`, `waitForFunction`, `addInitScript`, `addScriptTag`, `exposeFunction`, `exposeBinding`, `route`, `routeWebSocket`, `unroute`, `request`, `goto`, `newCDPSession` on any receiver; `reload` on any receiver but `eve`; destructuring any of them; a `request` fixture parameter |
+| E6 spec imports | `test/e2e/*.spec.js` | any `require` but `./support/fixtures` and `./support/worlds`, and any `import` |
+
+Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`last`/`nth`, `page.keyboard`, `page.mouse`, `page.touchscreen`, `setInputFiles`, `expect`, and the fixtures (`eve.open`, `eve.reload`, `relay`, `passkey`, `voice`).
+
+`npm run check:static` (`scripts/check-static.js`, plain Node) holds the rest. One finding per line, `<check>: <file>[:<line>]: <what>`; exit 0 clean, 1 findings, 2 usage or an unreadable input. The frozen sets are in `test/static/frozen.json` (`wsTypes`, `expensiveTypes`, `asyncHandlers`, `breakpoints`, `journeys`), so a deliberate change shows in the diff.
+
+| Check | Holds |
+|---|---|
+| S1 | the E1 allowlist names only files that exist; the removed local file-plane modules stay absent |
+| S2 | no `public/**/*.html` iframe `sandbox` contains `allow-same-origin`; the preview pane and editor iframes are exactly `allow-scripts`; the PDF viewer's unsandboxed iframe is the one exclusion |
+| S3 | `public/` holds no `auth.json`, `sessions.json`, `settings.json`, `.env`, `*.pem`, `*.key`, `*.crt`, `*.p12`, `*.pfx`, and no `data/` or `certs/` |
+| S4 | every width media query in `public/**/*.css` is in `frozen.breakpoints` |
+| S5 | the client message types equal `frozen.wsTypes`, and each is named in `docs/api.md` |
+| S6 | the expensive types equal `frozen.expensiveTypes`; the async handlers equal `frozen.asyncHandlers` |
+| S7 | every tracked file is in an area or `quiet` in `docs/areas.jsonc`; every journey area exists; the smoke set stays plain journeys, and `chat-reply` runs before `open-existing-thread` and `listen` |
+| S8 | the devbox journey set (ids, needs, areas, timeout, screen and fixture flags, run order) equals `frozen.journeys` |
+| S9 | no journey function body in `devboxverify/journeys.js`, `journeys-auth.js` or `journey-kit.js` names a world fixture directly |
+| S10 | `node .claude/hooks/eve-test-writer-guard.js --self-test` exits 0 |
+
+Guards 9 (burn-in), 7, 8 and 12 are the CI burn-in step and E5, E3 and E4. A deliberate change to a frozen set edits `test/static/frozen.json` in the same PR.
+
+## Coverage
+
+`npm run check:coverage` (`scripts/check-coverage.js`) ties `docs/FEATURES.md` to the specs. It reads the row tables, "Retired IDs", `test/e2e/coverage-pending.txt`, the tests from `npx playwright test --list --reporter=json` (no global setup, no browser) and the journey ids in `frozen.json`. One finding per line, `<ID or file>: <what>`; exit 0, 1 or 2 as above.
+
+A test names its row in its title: `test('greeting and summary line @G1.3', …)`. A refusal is `@G1.3.r1`. The Spec cell grammar is in `docs/FEATURES.md`, "How to read a row".
+
+- A row ID is `G<n>.<n>`, unique, and not retired.
+- A `none yet` row passes only while its goal is in `test/e2e/coverage-pending.txt` (`G<n> #<issue>`). The list only shrinks: a child removes its own goals when it lands, and a listed goal whose rows all name a proof is a finding. At the end of epic #310 the file is empty.
+- A `<name>.spec.js` item is a file in `test/e2e/` with a test tagged for that row. A `devbox: <id>` item names a journey in `frozen.journeys`.
+- Every test carries at least one row tag, every tag names a live row (and an `r<k>` that row has), and that row's Spec cell names the test's file.
+- Once a goal is off the pending list, every refusal `r<k>` of its rows is tagged by a test in a named file, unless the cell has a `devbox:` item.
+
+## CI and hooks
+
+`.github/workflows/ci.yml`:
+
+- `check`: `npm ci`, `node --check` on every tracked JS file, `npm run -s lint`, `npm run -s check:static`, `npm run -s check:coverage`.
+- `e2e` (every PR and every push to `main`; Ubuntu, 30 minutes): builds the fakes from the pin, installs Chromium, runs `npx playwright test`. On a PR it then runs the burn-in: `node scripts/burn-in-specs.js "$BASE_SHA" "$HEAD_SHA"` lists the specs the PR adds or changes (top-level `test/e2e/*.spec.js` only), and `npx playwright test --repeat-each=5 --retries=0 <specs>` runs them. A change to `test/e2e/support/` or `playwright.config.js` lists none. On failure the job uploads `playwright-report/` and `test-results/` (7 days). CI skips the browser lock.
+- `guards.yml` (tests-only, skip-focus, hygiene) is unchanged.
+
+The local hooks are under "Local hooks" above.
