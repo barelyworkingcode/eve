@@ -25,6 +25,18 @@ test('create the first passkey on a new eve @G16.1', async ({ eve, page, relay, 
   expect(listed.stdout).toContain(id.slice(0, 8));
 });
 
+test.describe('an address outside the trusted subnets', () => {
+  // Loopback is outside 192.0.2.0/24, so eve sees this browser as an outside address.
+  test.use({ network: 'trusted', trustedSubnets: '192.0.2.0/24' });
+
+  test('an outside address gets plain Not found before any passkey exists @G16.1.r1', async ({ eve, page }) => {
+    await eve.open('/', { preReady: 'eve answers the page with plain text, so the app never starts' });
+    await expect(page.getByText('Not found', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Set Up Passkey' })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Create Passkey' })).toBeHidden();
+  });
+});
+
 test('too many tries are refused @G16.1.r2', async ({ eve, page, passkey }) => {
   await passkey.enable();
   await passkey.setPresence(false);
