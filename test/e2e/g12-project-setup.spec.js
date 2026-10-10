@@ -27,6 +27,15 @@ function withTemplates() {
   return w;
 }
 
+function withNoModelTemplate() {
+  const w = approving();
+  w.projects[0].chat_templates = [
+    { id: 't_plain', name: 'Plain', model: '' },
+    { id: 't_other', name: 'Other', model: 'sonnet' },
+  ];
+  return w;
+}
+
 function withBothModeTemplates() {
   const w = withTemplates();
   delete w.projects[0].mode;
@@ -199,6 +208,14 @@ test.describe('a project on a host', () => {
     await expect(mac).toHaveAttribute('aria-pressed', 'false');
   });
 
+  test('list the host choices from Today @G12.33', async ({ eve, page }) => {
+    await eve.open('/');
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'New Project' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'This Mac' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /testbox/ })).toBeVisible();
+  });
+
   test('keep the project on this Mac @G12.6', async ({ eve, page }) => {
     await openNew(eve, page);
     const mac = page.getByRole('button', { name: 'This Mac' });
@@ -353,6 +370,49 @@ test.describe('deleting a project', () => {
     await relay.waitForEvent('fakerelay.fault', { match: (l) => l.action === 'applied' });
     await expect(page.getByRole('dialog', { name: 'Confirm Deletion' })).toBeHidden();
     await expect(rail(page).getByRole('button', { name: 'Beta' })).toBeVisible();
+  });
+});
+
+test.describe('a template with no model', () => {
+  test.use({ world: withNoModelTemplate() });
+
+  const NO_MODEL = 'Template "Plain" has no model. Pick one before saving.';
+
+  async function changeTemplates(eve, page) {
+    await openEdit(eve, page);
+    await page.getByRole('button', { name: 'Templates' }).click();
+    await page.getByRole('button', { name: 'Delete Other' }).click();
+    await expect(page.getByRole('button', { name: 'Edit Other' })).toBeHidden();
+  }
+
+  test('Save on General refuses a template with no model @G12.5.r2', async ({ eve, page }) => {
+    await changeTemplates(eve, page);
+    await page.getByRole('button', { name: 'General' }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByText(NO_MODEL)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Edit Project' })).toBeVisible();
+  });
+
+  test('Save on Templates refuses a template with no model @G12.29.r1', async ({ eve, page }) => {
+    await changeTemplates(eve, page);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByText(NO_MODEL)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Edit Project' })).toBeVisible();
+  });
+});
+
+test.describe('no model list', () => {
+  test.use({ world: withTemplates() });
+
+  test('a template cannot be saved without a model list @G12.18.r1 @G12.25.r2', async ({ eve, relay, page }) => {
+    await relay.ctl('fault', 'add', '--route', 'GET /api/models', '--mode', 'down');
+    await openEdit(eve, page);
+    await page.getByRole('button', { name: 'Templates' }).click();
+    await page.getByRole('button', { name: '+ Add Template' }).click();
+    await page.getByRole('textbox', { name: 'Template Name' }).fill('Triage');
+    await page.getByRole('button', { name: 'Save Template' }).click();
+    await expect(page.getByText('Pick a model for this template.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save Template' })).toBeVisible();
   });
 });
 
