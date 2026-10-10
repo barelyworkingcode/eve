@@ -119,7 +119,8 @@ class Stack {
   }
 
   async start() {
-    this.root = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-'));
+    // Real path: on macOS os.tmpdir() is under the /var symlink, and eve compares plan paths textually before its realpath check.
+    this.root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ev-')));
     for (const d of ['r', 'eve', 'sched', 'home', 'tmp']) fs.mkdirSync(path.join(this.root, d));
     this.checkSocketPaths();
 
