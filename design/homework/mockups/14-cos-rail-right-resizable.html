@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chief of Staff Zones</title>
+<style>
+/* Three desktop artboards of the Chief of Staff page: the agent rail on the right at its default
+   width, dragged wider, and dragged shut into the strip. Tokens follow eve's apple/tokens.css. */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --page: #e6e6eb;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f7;
+  --bg-tertiary: #ececf1;
+  --text-primary: #1d1d1f;
+  --text-secondary: rgba(60,60,67,.6);
+  --text-muted: rgba(60,60,67,.32);
+  --separator: rgba(60,60,67,.12);
+  --border: rgba(60,60,67,.16);
+  --accent: #007aff;
+  --accent-soft: rgba(0,122,255,.12);
+  --success: #34c759;
+  --warning: #ff9500;
+  --danger: #ff3b30;
+  --bar: rgba(245,245,247,.82);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #0e0e10; --bg-primary: #1c1c1e; --bg-secondary: #232325; --bg-tertiary: #2c2c2e;
+  --text-primary: #f5f5f7; --text-secondary: rgba(235,235,245,.6); --text-muted: rgba(235,235,245,.32);
+  --separator: rgba(255,255,255,.08); --border: rgba(255,255,255,.10);
+  --accent: #0a84ff; --accent-soft: rgba(10,132,255,.18); --success: #30d158; --warning: #ff9f0a; --danger: #ff453a;
+  --bar: rgba(44,44,46,.82); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --page: #0e0e10; --bg-primary: #1c1c1e; --bg-secondary: #232325; --bg-tertiary: #2c2c2e;
+  --text-primary: #f5f5f7; --text-secondary: rgba(235,235,245,.6); --text-muted: rgba(235,235,245,.32);
+  --separator: rgba(255,255,255,.08); --border: rgba(255,255,255,.10);
+  --accent: #0a84ff; --accent-soft: rgba(10,132,255,.18); --success: #30d158; --warning: #ff9f0a; --danger: #ff453a;
+  --bar: rgba(44,44,46,.82); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--text-primary); font: 14px/1.5 var(--font-ui); margin: 0; padding: 32px 16px 48px; }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 36px; }
+header.page h1 { font-size: 28px; font-weight: 700; margin: 0 0 4px; letter-spacing: -.01em; }
+header.page p { margin: 0; color: var(--text-secondary); max-width: 72ch; }
+.label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); margin: 0 0 10px; }
+.label b { color: var(--text-primary); }
+
+.dot { --c: var(--text-muted); display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
+.dot[data-s="asking"], .dot[data-s="errored"] { --c: var(--danger); }
+.dot[data-s="running"] { --c: transparent; box-shadow: inset 0 0 0 2px var(--warning); }
+.dot[data-s="idle"] { --c: var(--success); }
+.cos { position: relative; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-tertiary); flex-shrink: 0; }
+.cos i { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); }
+
+/* ---------- desktop frame: sidebar | sidebar resizer | thread | rail divider | rail ---------- */
+.desk { --rail: 280px; position: relative; border-radius: 13px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-primary); box-shadow: 0 20px 50px rgba(0,0,0,.18); display: grid; grid-template-columns: 220px 6px minmax(0, 1fr) 6px var(--rail); height: 560px; }
+.desk.wide { --rail: 420px; }
+.desk.shut { --rail: 0px; }
+.side { background: var(--bg-secondary); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; overflow: hidden; }
+.side .it { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; color: var(--text-secondary); white-space: nowrap; }
+.side .it.on { background: var(--accent-soft); color: var(--text-primary); font-weight: 600; }
+.side h4 { margin: 12px 8px 4px; font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; }
+.side .cos { width: 20px; height: 20px; } .side .cos i { width: 8px; height: 8px; }
+
+.divider { position: relative; background: transparent; border-left: 1px solid var(--separator); cursor: col-resize; }
+.divider.hot { background: var(--accent); border-left-color: var(--accent); }
+.divider .grip { position: absolute; top: 50%; left: 50%; width: 4px; height: 36px; margin: -18px 0 0 -2px; border-radius: 2px; background: var(--text-muted); }
+.divider.hot .grip { background: #fff; }
+
+.thread { display: flex; flex-direction: column; min-width: 0; }
+.top { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--separator); }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--bg-tertiary); font-weight: 600; font-size: 13px; }
+.pill .cos { width: 28px; height: 28px; } .pill .cos i { width: 11px; height: 11px; }
+.sub { font-size: 12px; color: var(--text-secondary); }
+.sub b { color: var(--danger); font-weight: 400; }
+.feed { flex: 1; overflow: hidden; padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+.post { display: grid; grid-template-columns: 36px 1fr; gap: 12px; max-width: 640px; }
+.post h3 { margin: 0 0 4px; font-size: 16px; line-height: 1.3; }
+.post p { margin: 0 0 8px; }
+.post p.meta { color: var(--text-secondary); font-size: 12px; margin: 0 0 4px; }
+.card { border: 1px solid var(--border); border-radius: 13px; overflow: hidden; }
+.card .hd { padding: 8px 14px; background: var(--bg-secondary); border-bottom: 1px solid var(--separator); }
+.card .hd small { display: block; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--text-secondary); }
+.quote { margin: 0; padding: 8px 14px; border-left: 3px solid var(--warning); background: var(--bg-secondary); }
+.acts { display: flex; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--separator); }
+.btn { font-size: 13px; font-weight: 600; border-radius: 999px; padding: 5px 14px; background: var(--bg-tertiary); }
+.btn.primary { background: var(--accent); color: #fff; }
+.me { align-self: flex-end; max-width: 70%; background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 19px 19px 5px 19px; }
+
+.strip { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 24px; border-top: 1px solid var(--separator); background: var(--bg-secondary); font-weight: 600; }
+.count { min-width: 22px; padding: 0 7px; border-radius: 999px; color: #fff; font-size: 12px; line-height: 22px; text-align: center; }
+.count.r { background: var(--danger); } .count.a { background: var(--warning); } .count.g { background: var(--success); }
+.strip .lbl { margin-left: auto; }
+.strip .chev { color: var(--text-secondary); }
+.composer { display: flex; align-items: center; gap: 8px; margin: 12px 24px 18px; border: 1px solid var(--border); border-radius: 999px; padding: 6px 6px 6px 16px; color: var(--text-secondary); background: var(--bar); }
+.composer span:first-child { flex: 1; }
+
+.rail { background: var(--bg-secondary); overflow: hidden; padding: 14px 0; min-width: 0; }
+.rail h4 { margin: 0 16px 8px; font-size: 11px; color: var(--text-secondary); letter-spacing: .07em; }
+.grp { margin: 10px 16px 4px; font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; }
+.row { display: grid; grid-template-columns: 10px 1fr auto; gap: 10px; padding: 7px 16px; }
+.row .dot { margin-top: 6px; }
+.row b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row span { display: block; color: var(--text-secondary); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row time { color: var(--text-secondary); font-size: 12px; }
+
+.callout { position: absolute; z-index: 2; padding: 4px 10px; border-radius: 999px; background: var(--text-primary); color: var(--bg-primary); font-size: 12px; font-weight: 600; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.callout::before { content: ""; position: absolute; width: 8px; height: 8px; background: inherit; transform: rotate(45deg); }
+.callout.l::before { right: -4px; top: calc(50% - 4px); }
+.callout.r::before { left: -4px; top: calc(50% - 4px); }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 32px; }
+.notes p { margin: 0; color: var(--text-secondary); max-width: 60ch; }
+.notes p b { color: var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <h1>Chief of Staff · agents on the right, every zone resizable</h1>
+    <p>The agent rail moves to the right edge. The sidebar, the thread and the rail are separated by dividers you can drag. Drag the rail past its minimum and it folds into the strip the phone layout already uses; drag the divider back, or click the strip, and it opens at its last width.</p>
+  </header>
+
+  <!-- A: default -->
+  <section>
+    <p class="label"><b>A · Default</b> — rail on the right at 280px; dividers show a grip on hover</p>
+    <div class="desk">
+      <aside class="side">
+        <div class="it"><span>⌂</span>Today</div>
+        <div class="it on"><span class="cos"><i></i></span>Chief of Staff</div>
+        <h4>Projects</h4>
+        <div class="it">Acme</div><div class="it">Garden</div><div class="it">Remote Box</div>
+      </aside>
+      <div class="divider" title="Sidebar (already resizable)"></div>
+      <main class="thread">
+        <div class="top"><span class="pill"><span class="cos"><i></i></span>Chief of Staff</span><span class="sub">Watching 6 agents · <b>2 need you</b></span></div>
+        <div class="feed">
+          <article class="post"><span class="cos"><i></i></span><div>
+            <p class="meta">10:42 · Acme</p>
+            <h3>The reducer agent is asking you something</h3>
+            <div class="card"><div class="hd"><small>Waiting on you · 4 min</small><b>Asker</b></div>
+              <blockquote class="quote">Should a stalled session flip back to running on any event?</blockquote>
+              <div class="acts"><span class="btn primary">Answer</span><span class="btn">Drop in</span><span class="btn">Open</span></div></div>
+          </div></article>
+          <div class="me">Tell Runner to merge after CI.</div>
+        </div>
+        <div class="composer"><span>Tell an agent…</span><span class="btn primary">Send</span></div>
+      </main>
+      <div class="divider hot" title="Resize agents"><span class="grip"></span></div>
+      <nav class="rail">
+        <h4>AGENTS</h4>
+        <div class="grp">Needs you · 2</div>
+        <div class="row"><span class="dot" data-s="asking"></span><div><b>Asker</b><span>Acme · Waiting on you</span></div><time>4m</time></div>
+        <div class="row"><span class="dot" data-s="errored"></span><div><b>Failer</b><span>Remote Box · Stopped with an error</span></div><time>9m</time></div>
+        <div class="grp">Working · 2</div>
+        <div class="row"><span class="dot" data-s="running"></span><div><b>Runner</b><span>Acme · Working</span></div><time>1m</time></div>
+        <div class="row"><span class="dot" data-s="running"></span><div><b>Starter</b><span>Acme · Starting</span></div><time>now</time></div>
+        <div class="grp">Idle · 1</div>
+        <div class="row"><span class="dot" data-s="idle"></span><div><b>Idler</b><span>Garden · Idle</span></div><time>2h</time></div>
+        <div class="grp">Done · 1 ›</div>
+      </nav>
+      <span class="callout l" style="right: 296px; top: 250px;">Drag ↔ · ←/→ keys · double-click resets</span>
+    </div>
+  </section>
+
+  <!-- B: dragged wider -->
+  <section>
+    <p class="label"><b>B · Dragged wider</b> — rail at 420px; the thread gives up the space and keeps a 360px minimum</p>
+    <div class="desk wide">
+      <aside class="side">
+        <div class="it"><span>⌂</span>Today</div>
+        <div class="it on"><span class="cos"><i></i></span>Chief of Staff</div>
+        <h4>Projects</h4>
+        <div class="it">Acme</div><div class="it">Garden</div><div class="it">Remote Box</div>
+      </aside>
+      <div class="divider"></div>
+      <main class="thread">
+        <div class="top"><span class="pill"><span class="cos"><i></i></span>Chief of Staff</span><span class="sub">Watching 6 agents · <b>2 need you</b></span></div>
+        <div class="feed">
+          <article class="post"><span class="cos"><i></i></span><div>
+            <p class="meta">10:42 · Acme</p>
+            <h3>The reducer agent is asking you something</h3>
+            <div class="card"><div class="hd"><small>Waiting on you · 4 min</small><b>Asker</b></div>
+              <blockquote class="quote">Should a stalled session flip back to running on any event?</blockquote>
+              <div class="acts"><span class="btn primary">Answer</span><span class="btn">Drop in</span><span class="btn">Open</span></div></div>
+          </div></article>
+        </div>
+        <div class="composer"><span>Tell an agent…</span><span class="btn primary">Send</span></div>
+      </main>
+      <div class="divider hot"><span class="grip"></span></div>
+      <nav class="rail">
+        <h4>AGENTS</h4>
+        <div class="grp">Needs you · 2</div>
+        <div class="row"><span class="dot" data-s="asking"></span><div><b>Asker</b><span>Acme · Waiting on you</span><span>Should a stalled session flip back to running on any event?</span></div><time>4m</time></div>
+        <div class="row"><span class="dot" data-s="errored"></span><div><b>Failer</b><span>Remote Box · Stopped with an error</span><span>testbox refused the key</span></div><time>9m</time></div>
+        <div class="grp">Working · 2</div>
+        <div class="row"><span class="dot" data-s="running"></span><div><b>Runner</b><span>Acme · Working</span><span>Running npm test in packages/board</span></div><time>1m</time></div>
+        <div class="row"><span class="dot" data-s="running"></span><div><b>Starter</b><span>Acme · Starting</span></div><time>now</time></div>
+        <div class="grp">Idle · 1</div>
+        <div class="row"><span class="dot" data-s="idle"></span><div><b>Idler</b><span>Garden · Idle</span><span>Planted the spring list; nothing pending.</span></div><time>2h</time></div>
+      </nav>
+      <span class="callout l" style="right: 436px; top: 250px;">420px · remembered on this device</span>
+    </div>
+  </section>
+
+  <!-- C: collapsed -->
+  <section>
+    <p class="label"><b>C · Dragged shut</b> — below 160px the rail folds; the divider stays on the right edge and the strip shows the counts</p>
+    <div class="desk shut">
+      <aside class="side">
+        <div class="it"><span>⌂</span>Today</div>
+        <div class="it on"><span class="cos"><i></i></span>Chief of Staff</div>
+        <h4>Projects</h4>
+        <div class="it">Acme</div><div class="it">Garden</div><div class="it">Remote Box</div>
+      </aside>
+      <div class="divider"></div>
+      <main class="thread">
+        <div class="top"><span class="pill"><span class="cos"><i></i></span>Chief of Staff</span><span class="sub">Watching 6 agents · <b>2 need you</b></span></div>
+        <div class="feed">
+          <article class="post"><span class="cos"><i></i></span><div>
+            <p class="meta">10:42 · Acme</p>
+            <h3>The reducer agent is asking you something</h3>
+            <div class="card"><div class="hd"><small>Waiting on you · 4 min</small><b>Asker</b></div>
+              <blockquote class="quote">Should a stalled session flip back to running on any event?</blockquote>
+              <div class="acts"><span class="btn primary">Answer</span><span class="btn">Drop in</span><span class="btn">Open</span></div></div>
+          </div></article>
+          <div class="me">Tell Runner to merge after CI.</div>
+        </div>
+        <div class="strip"><span class="count r">2</span><span class="count a">2</span><span class="count g">1</span><span class="lbl">Agents</span><span class="chev">›</span></div>
+        <div class="composer"><span>Tell an agent…</span><span class="btn primary">Send</span></div>
+      </main>
+      <div class="divider hot"><span class="grip"></span></div>
+      <nav class="rail" hidden></nav>
+      <span class="callout l" style="right: 18px; top: 250px;">Drag out, Enter, or click the strip to reopen</span>
+    </div>
+  </section>
+
+  <div class="notes">
+    <p><b>Phone and narrow (900px and under)</b> are unchanged: no divider, the strip opens the sheet.</p>
+    <p><b>Keyboard.</b> The divider is a focusable separator: ←/→ move it 16px, Home/End jump to min/max, Enter folds or unfolds the rail.</p>
+    <p><b>Remembered.</b> Width and folded state live in <code>eve-cos-rail</code> on this device; a reload opens the rail as you left it.</p>
+  </div>
+</div>
+</body>
+</html>
