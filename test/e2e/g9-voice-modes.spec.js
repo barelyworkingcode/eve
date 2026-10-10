@@ -13,6 +13,8 @@ async function openThread(eve, page) {
   await ask.fill('open a thread from testbox');
   await ask.press('Enter');
   await expect(page.getByRole('textbox', { name: 'Type your message...' })).toBeVisible();
+  // The Ask turn's reply has rendered, so later turns count from one.
+  await expect(page.getByRole('button', { name: 'Read aloud' })).toHaveCount(1);
 }
 
 function modes(page) {
@@ -78,7 +80,7 @@ test('hold to talk records only while held and sends a spoken turn @G9.39 @G9.41
   await expect(page.getByRole('img', { name: 'Spoken' })).toBeVisible();
   await expect(page.getByText(HEARD).first()).toBeVisible();
   // The reply arrives as text too.
-  await expect(page.getByRole('button', { name: 'Read aloud' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Read aloud' })).toHaveCount(2);
   await expect(page.getByText(HEARD)).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Hold to talk' })).toHaveAttribute('aria-pressed', 'false');
 });
@@ -112,7 +114,8 @@ async function sendText(page, text) {
   const composer = page.getByRole('textbox', { name: 'Type your message...' });
   await composer.fill(text);
   await composer.press('Enter');
-  await expect(page.getByRole('button', { name: 'Read aloud' })).toBeVisible();
+  // A spoken reply renames its button, so wait on the reply, which echoes the turn.
+  await expect(page.getByText(text)).toHaveCount(2);
 }
 
 test('with the speaker on, a reply is spoken @G9.40', async ({ eve, page, voice }) => {
@@ -131,7 +134,7 @@ test('with the speaker off, a reply is not spoken @G9.40', async ({ eve, page, v
 
   await sendText(page, 'stay quiet from testbox');
   // Read aloud is the positive marker that the reply finished rendering.
-  await expect(page.getByRole('button', { name: 'Read aloud' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Read aloud' })).toHaveCount(2);
   expect(voice.tts.requests.filter((r) => r.action !== 'list_voices')).toHaveLength(0);
 });
 
