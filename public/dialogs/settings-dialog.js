@@ -144,7 +144,10 @@ class SettingsDialog extends DialogBase {
 
     const voice = this._createVoiceSelect();
     voice.dataset.testid = 'settings-voice';
-    voice.addEventListener('change', () => tts.setVoice(voice.value));
+    voice.addEventListener('change', () => {
+      tts.setVoice(voice.value);
+      this._syncVoiceMode(tts);
+    });
     group.appendChild(this._row('Voice', voice));
 
     const speed = document.createElement('select');
@@ -157,7 +160,10 @@ class SettingsDialog extends DialogBase {
       speed.appendChild(opt);
     }
     speed.value = String(tts.speed);
-    speed.addEventListener('change', () => tts.setSpeed(speed.value));
+    speed.addEventListener('change', () => {
+      tts.setSpeed(speed.value);
+      this._syncVoiceMode(tts);
+    });
     group.appendChild(this._row('Speed', speed));
 
     if (tts.isNativeApp) {
@@ -168,6 +174,13 @@ class SettingsDialog extends DialogBase {
       }
     }
     return group;
+  }
+
+  // The server speaks replies with the voice/speed of the last voice_mode
+  // frame, so a pick here must be pushed, not just stored.
+  _syncVoiceMode(tts) {
+    const app = this.container.has('app') ? this.container.get('app') : null;
+    if (app && app.wsClient) tts.syncVoiceMode(app.wsClient);
   }
 
   _engineSelect(testid, manager) {
