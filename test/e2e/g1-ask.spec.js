@@ -65,14 +65,22 @@ test.describe('modes with no default project', () => {
   });
 });
 
-test('Return before eve is ready sends itself once it is @G1.6', async ({ eve, page }) => {
+test('Return before eve is ready sends itself once it is @G1.6', async ({ eve, page, relay }) => {
   await eve.open('/');
+  const hold = await relay.ctl('fault', 'add', '--route', 'GET /api/sessions', '--mode', 'slow', '--times', '1');
+  expect(hold.code).toBe(0);
+  const since = relay.mark();
   await eve.reload({ preReady: 'acting before eve is ready is the row' });
+  await relay.waitForEvent('fakerelay.fault', { since, match: (l) => l.action === 'held' });
   const ask = page.getByRole('textbox', { name: 'Ask' });
   await ask.fill('hello from testbox');
   await ask.press('Enter');
+  await expect(page.getByRole('status').filter({ hasText: 'Sending when eve is ready…' })).toBeVisible();
+  expect((await relay.ctl('fault', 'release', '--id', JSON.parse(hold.stdout).id)).code).toBe(0);
   await eve.ready();
   await expect(page.getByRole('textbox', { name: 'Type your message...' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Acme - hello from testbox' })).toBeVisible();
+  await relay.waitForEvent('session.launch', { since, match: (l) => l.status === 'ok' });
 });
 
 test('start a thread by typing in Ask and pressing Return @G1.4', async ({ eve, page, relay }) => {

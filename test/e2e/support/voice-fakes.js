@@ -104,7 +104,10 @@ function createFake(answer) {
 function createTts() {
   return createFake((request, state) => {
     if (request.action === 'list_voices') {
-      return { success: true, voices: [{ id: 'af_heart', name: 'Heart', lang: 'American English', gender: 'F' }] };
+      return { success: true, voices: [
+        { id: 'af_heart', name: 'Heart', lang: 'American English', gender: 'F' },
+        { id: 'bm_george', name: 'George', lang: 'British English', gender: 'M' },
+      ] };
     }
     const r = state.reply || { seconds: 30 };
     if (r.error) return { success: false, error: r.error };

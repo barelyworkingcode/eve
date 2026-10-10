@@ -242,5 +242,14 @@ test.describe('two local models', () => {
     await model.selectOption({ label: 'Local local-b' });
     await page.getByRole('button', { name: 'Set up', exact: true }).click();
     await expect(page.getByText('No brief yet.')).toBeVisible();
+    await page.keyboard.press('Control+K');
+    await page.getByRole('textbox', { name: 'Jump to a session, project, file or action…' }).fill('Routines');
+    await page.getByRole('option', { name: /^Routines/ }).first().click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Routines' })).toBeVisible();
+    await page.getByRole('button', { name: 'Morning brief', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Edit', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Routines' });
+    await expect(dialog.getByRole('textbox', { name: 'Routine name' })).toHaveValue('Morning brief');
+    await expect(dialog.getByRole('combobox', { name: 'Model' })).toHaveValue('local-b');
   });
 });

@@ -51,7 +51,7 @@ test('create a new file inside a folder @G7.21', async ({ eve, page, relay }) =>
 
 test('a file type that is not editable is refused on create @G7.21.r2', async ({ eve, page }) => {
   await eve.open('/');
-  const tree = await openFiles(page);
+  await openFiles(page);
   await answerPrompt(page, 'fresh.bin');
   await menuOn(page,'docs', 'New File');
   await expect(treeError(page, 'File type not allowed for editing')).toBeVisible();
@@ -128,7 +128,7 @@ test('rename a file and its open tab @G7.26', async ({ eve, page, relay }) => {
 
 test('a taken name is refused on rename @G7.26.r1', async ({ eve, page }) => {
   await eve.open('/');
-  const tree = await openFiles(page);
+  await openFiles(page);
   await answerPrompt(page, 'README.md');
   await menuOn(page,'notes.txt', 'Rename');
   await expect(treeError(page, 'A file or directory with that name already exists')).toBeVisible();
@@ -186,12 +186,16 @@ test('dropping a folder on itself does nothing @G7.28.r2', async ({ eve, page, r
   await expect(tree.getByText(/already exists|not reachable|failed/i)).toHaveCount(0);
 });
 
-test('ask about a file opens Today with the file attached @G7.30', async ({ eve, page }) => {
+test('ask about a file opens Today with the file attached @G7.30', async ({ eve, page, relay }) => {
   await eve.open('/');
-  const tree = await openFiles(page);
-  await menuOn(page,'notes.txt', 'Ask about this');
-  await expect(page.getByRole('textbox', { name: 'Ask' })).toBeVisible();
-  await expect(page.getByText('notes.txt').first()).toBeVisible();
+  await openFiles(page);
+  const since = relay.mark();
+  await menuOn(page, 'notes.txt', 'Ask about this');
+  await expect(page.getByRole('textbox', { name: 'Ask' })).toBeFocused();
+  await relay.waitForEvent('file.stream', { since, match: (l) => l.status === 'ok' });
+  const today = page.getByRole('main');
+  await expect(today.getByText('notes.txt', { exact: true })).toBeVisible();
+  await expect(today.getByRole('button', { name: 'Remove attachment', exact: true })).toBeVisible();
 });
 
 test('a file over 256 KB is refused for Ask about this @G7.30.r1', async ({ eve, page }) => {
@@ -204,7 +208,7 @@ test('a file over 256 KB is refused for Ask about this @G7.30.r1', async ({ eve,
 
 test('a binary file is refused for Ask about this @G7.30.r2', async ({ eve, page }) => {
   await eve.open('/');
-  const tree = await openFiles(page);
+  await openFiles(page);
   await menuOn(page,'blob.txt', 'Ask about this');
   await expect(page.getByText("That isn't a text file.")).toBeVisible();
 });
@@ -244,7 +248,7 @@ test.describe('read-only project', () => {
 
   test('a new file is refused @G7.21.r1', async ({ eve, page }) => {
     await eve.open('/');
-    const tree = await openFiles(page);
+    await openFiles(page);
     await answerPrompt(page, 'fresh.txt');
     await menuOn(page,'docs', 'New File');
     await expect(treeError(page, 'This project is read-only')).toBeVisible();
@@ -252,7 +256,7 @@ test.describe('read-only project', () => {
 
   test('a new folder inside a folder is refused @G7.22.r2', async ({ eve, page }) => {
     await eve.open('/');
-    const tree = await openFiles(page);
+    await openFiles(page);
     await answerPrompt(page, 'sub');
     await menuOn(page,'docs', 'New Folder');
     await expect(treeError(page, 'This project is read-only')).toBeVisible();
@@ -268,7 +272,7 @@ test.describe('read-only project', () => {
 
   test('a rename is refused @G7.26.r2', async ({ eve, page }) => {
     await eve.open('/');
-    const tree = await openFiles(page);
+    await openFiles(page);
     await answerPrompt(page, 'renamed.txt');
     await menuOn(page,'notes.txt', 'Rename');
     await expect(treeError(page, 'This project is read-only')).toBeVisible();

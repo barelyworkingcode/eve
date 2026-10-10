@@ -88,7 +88,7 @@ test.describe('creating a project', () => {
     await page.getByRole('button', { name: 'Create Project' }).click();
     await expect(page.getByRole('heading', { name: 'New Project' })).toBeHidden();
     await expect(rail(page).getByRole('button', { name: 'Orchard' })).toBeVisible();
-    await relay.waitForEvent('project.create');
+    await relay.waitForEvent('project.create', { match: (l) => l.status === 'ok' });
   });
 
   test('a name or path left empty keeps the dialog open @G12.4.r1', async ({ eve, page }) => {
@@ -120,7 +120,7 @@ test.describe('editing a project', () => {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Edit Project' })).toBeHidden();
     await expect(rail(page).getByRole('button', { name: 'Acme Two' })).toBeVisible();
-    await relay.waitForEvent('project.update');
+    await relay.waitForEvent('project.update', { match: (l) => l.status === 'ok' });
   });
 
   test('relay refuses the save @G12.5.r1', async ({ eve, relay, page }) => {
@@ -164,7 +164,7 @@ test.describe('editing a project', () => {
     await page.getByRole('button', { name: 'Home', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Home', exact: true, pressed: true })).toBeVisible();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await relay.waitForEvent('project.update');
+    await relay.waitForEvent('project.update', { match: (l) => l.status === 'ok' });
     await expect(rail(page).getByRole('button', { name: 'Acme' })).toBeHidden();
   });
 });
@@ -177,7 +177,7 @@ test.describe('changing the mode', () => {
     await page.getByRole('button', { name: 'Work', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Work', exact: true, pressed: true })).toBeVisible();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await relay.waitForEvent('project.update');
+    await relay.waitForEvent('project.update', { match: (l) => l.status === 'ok' });
     await page.getByRole('radio', { name: 'Home' }).check();
     await expect(rail(page).getByRole('button', { name: 'Acme' })).toBeHidden();
   });
@@ -187,7 +187,7 @@ test.describe('changing the mode', () => {
     await page.getByRole('button', { name: 'Both', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Both', exact: true, pressed: true })).toBeVisible();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await relay.waitForEvent('project.update');
+    await relay.waitForEvent('project.update', { match: (l) => l.status === 'ok' });
     await page.getByRole('radio', { name: 'Home' }).check();
     await expect(rail(page).getByRole('button', { name: 'Acme' })).toBeVisible();
   });
@@ -257,7 +257,7 @@ test.describe('chat templates', () => {
     await page.getByRole('button', { name: 'Save Template' }).click();
     await expect(page.getByRole('button', { name: 'Edit Triage' })).toBeVisible();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await relay.waitForEvent('project.update');
+    await relay.waitForEvent('project.update', { match: (l) => l.status === 'ok' });
     await expect(page.getByRole('heading', { name: 'Edit Project' })).toBeHidden();
   });
 
@@ -299,17 +299,17 @@ test.describe('chat templates', () => {
   test.describe('in both modes', () => {
     test.use({ world: withBothModeTemplates() });
 
-  test('make the template the Home Ask preset @G12.22', async ({ eve, relay, page }) => {
-    await openEdit(eve, page);
-    await page.getByRole('button', { name: 'Templates' }).click();
-    await page.getByRole('button', { name: 'Edit Review' }).click();
-    await page.getByRole('button', { name: 'Home', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Home', exact: true, pressed: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Save Template' }).click();
-    await expect(page.getByText('Home Ask')).toBeVisible();
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await relay.waitForEvent('project.update');
-  });
+    test('make the template the Home Ask preset @G12.22', async ({ eve, relay, page }) => {
+      await openEdit(eve, page);
+      await page.getByRole('button', { name: 'Templates' }).click();
+      await page.getByRole('button', { name: 'Edit Review' }).click();
+      await page.getByRole('button', { name: 'Home', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Home', exact: true, pressed: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Save Template' }).click();
+      await expect(page.getByText('Home Ask')).toBeVisible();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await relay.waitForEvent('project.update', { match: (l) => l.status === 'ok' });
+    });
   });
 
   test('make the template the Work Ask preset @G12.23', async ({ eve, relay, page }) => {
@@ -321,18 +321,32 @@ test.describe('chat templates', () => {
     await page.getByRole('button', { name: 'Save Template' }).click();
     await expect(page.getByText('Work Ask')).toBeVisible();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await relay.waitForEvent('project.update');
+    await relay.waitForEvent('project.update', { match: (l) => l.status === 'ok' });
   });
 
-  test('make the template a voice chat @G12.20 @G12.21', async ({ eve, voice, page }) => {
+  test('make the template a voice chat @G12.20', async ({ eve, voice, page }) => {
+    void voice;
+    await openEdit(eve, page);
+    await page.getByRole('button', { name: 'Templates' }).click();
+    await page.getByRole('button', { name: 'Edit Review' }).click();
+    await expect(page.getByRole('radio', { name: 'Text' })).toBeChecked();
+    await expect(page.getByRole('combobox', { name: 'Default Voice' })).toBeHidden();
+    await page.getByRole('radio', { name: 'Voice' }).check();
+    await expect(page.getByRole('radio', { name: 'Voice' })).toBeChecked();
+    await expect(page.getByRole('combobox', { name: 'Default Voice' })).toBeVisible();
+    await expect(page.getByText('Voice preset in')).toBeVisible();
+  });
+
+  test('choose the voice a voice template starts with @G12.21', async ({ eve, voice, page }) => {
     void voice;
     await openEdit(eve, page);
     await page.getByRole('button', { name: 'Templates' }).click();
     await page.getByRole('button', { name: 'Edit Review' }).click();
     await page.getByRole('radio', { name: 'Voice' }).check();
-    await expect(page.getByRole('radio', { name: 'Voice' })).toBeChecked();
-    await expect(page.getByRole('combobox', { name: 'Default Voice' })).toBeVisible();
-    await expect(page.getByText('Voice preset in')).toBeVisible();
+    const picker = page.getByRole('combobox', { name: 'Default Voice' });
+    await expect(picker).toBeVisible();
+    await picker.selectOption({ label: 'George' });
+    await expect(picker).toHaveValue('bm_george');
   });
 });
 
@@ -353,7 +367,7 @@ test.describe('deleting a project', () => {
     await expect(page.getByText(/Delete 'Beta'\?/)).toBeVisible();
     await page.getByRole('dialog', { name: 'Confirm Deletion' }).getByRole('button', { name: 'Delete' }).click();
     await expect(rail(page).getByRole('button', { name: 'Beta' })).toBeHidden();
-    await relay.waitForEvent('project.remove');
+    await relay.waitForEvent('project.remove', { match: (l) => l.status === 'ok' });
   });
 
   test('keep a project at the delete question @G12.31', async ({ eve, page }) => {

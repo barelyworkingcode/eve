@@ -33,8 +33,11 @@ test.describe('two work projects', () => {
   test('pick a project from the chips @G1.27', async ({ eve, page }) => {
     await eve.open('/');
     await today(page);
-    await page.getByRole('button', { name: /Beta/ }).last().click();
-    await expect(page.getByText('Beta', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('treeitem', { name: 'README.md' })).toBeVisible();
+    await page.getByRole('main').getByRole('button', { name: 'Beta', exact: true }).click();
+    await expect(page.getByRole('treeitem', { name: 'NOTES.md' })).toBeVisible();
+    await expect(page.getByRole('treeitem', { name: 'README.md' })).toBeHidden();
+    await expect(page.getByRole('complementary').getByText('Beta', { exact: true })).toBeVisible();
   });
 
   test('pick a project in the Rail @G1.33', async ({ eve, page }) => {

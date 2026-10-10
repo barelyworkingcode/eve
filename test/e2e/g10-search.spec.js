@@ -40,7 +40,7 @@ test('search file contents for a word @G10.3', async ({ eve, page, relay }) => {
   await box.fill('cat');
   await expect(page.getByText(/^3 matches in 3 files/)).toBeVisible();
   await expect(page.getByRole('button', { name: /^1 a tame cat sat here/ })).toBeVisible();
-  await relay.waitForEvent('file.search', { since });
+  await relay.waitForEvent('file.search', { since, match: (l) => l.status === 'ok' });
 });
 
 test('no hits says No matches @G10.3.r1', async ({ eve, page }) => {
@@ -114,12 +114,17 @@ test('arrow keys move the selection, Return opens @G10.8 @G10.9', async ({ eve, 
   const box = await openSearch(eve, page);
   await box.fill('cat');
   await expect(page.getByText(/^3 matches in 3 files/)).toBeVisible();
+  // The matches carry no selected state a person's screen reader hears, so the
+  // move shows in which match Return opens: down to the last, then up one.
   await box.press('ArrowDown');
   await box.press('ArrowDown');
+  await box.press('ArrowDown');
+  await box.press('ArrowUp');
   await box.press('Enter');
   await expect(page.getByRole('heading', { name: 'Search', exact: true })).toBeHidden();
+  await expect(page.getByRole('tab', { name: 'b.txt', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
-  await relay.waitForEvent('file.read', { since });
+  await relay.waitForEvent('file.read', { since, match: (l) => l.status === 'ok' });
 });
 
 test('close with the close button @G10.14', async ({ eve, page }) => {
@@ -153,6 +158,6 @@ test('AI summary shows the model text @G10.11 @G10.12', async ({ eve, page, rela
   await page.getByRole('checkbox', { name: 'AI enhanced' }).check();
   await expect(page.getByText('AI summary', { exact: true })).toBeVisible();
   await expect(page.getByText(/echo:/)).toBeVisible();
-  await relay.waitForEvent('chat.turn', { since });
+  await relay.waitForEvent('chat.turn', { since, match: (l) => l.status === 'ok' });
   await expect(page.getByRole('combobox', { name: 'Model' })).toBeEnabled();
 });

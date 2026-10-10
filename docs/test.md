@@ -107,7 +107,7 @@ A row that needs a signed-out browser with a passkey enrols first, then calls `a
 - Dictation: eve discards a recording shorter than 300 ms ("Recording too short"), and nothing reaches the fake STT. The button is named "Stop recording" at once and renames itself to `Recording... 0:01` on the one-second timer tick, so wait for `getByRole('button', { name: /^Recording\.\.\./ })` before pressing it. A button press right after "Stop recording" shows sends no audio.
 - The fake STT's `requests` list shows what reached it; `waitForRequest` waits on that, not on a duration.
 
-Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and `stt-service.js`, on `127.0.0.1` with a free port. TTS answers every synth with a silent 30 s WAV and `list_voices` with one voice. STT answers `ping` with ok and every transcription with `hello from the test microphone`. `reply({ seconds })`, `reply({ text })` or `reply({ error })` changes the answer for later requests.
+Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and `stt-service.js`, on `127.0.0.1` with a free port. TTS answers every synth with a silent 30 s WAV and `list_voices` with two voices, "Heart" and "George". STT answers `ping` with ok and every transcription with `hello from the test microphone`. `reply({ seconds })`, `reply({ text })` or `reply({ error })` changes the answer for later requests.
 
 #### Network rows
 
