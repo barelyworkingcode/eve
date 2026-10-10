@@ -44,14 +44,17 @@ test('drag the divider to resize the editor and preview @G7.11', async ({ eve, p
 test('neither pane goes under 200 pixels @G7.11', async ({ eve, page }) => {
   await eve.open('/');
   const divider = await openSplit(page);
+  const before = await paneWidths(page);
 
   await dragDividerTo(page, divider, 0);
   const farLeft = await paneWidths(page);
+  expect(farLeft.editor).toBeLessThan(before.editor);
   expect(farLeft.editor).toBeGreaterThanOrEqual(200);
   expect(farLeft.preview).toBeGreaterThanOrEqual(200);
 
   await dragDividerTo(page, divider, 1279);
   const farRight = await paneWidths(page);
+  expect(farRight.editor).toBeGreaterThan(farLeft.editor);
   expect(farRight.editor).toBeGreaterThanOrEqual(200);
   expect(farRight.preview).toBeGreaterThanOrEqual(200);
 });

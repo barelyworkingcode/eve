@@ -68,9 +68,11 @@ test('a file over 10 MB is skipped @G7.29.r2', async ({ eve, page, relay, deskto
     { name: 'huge.bin', size: 11 * 1024 * 1024, type: 'application/octet-stream' },
     { name: 'small.txt', text: 'small\n' },
   ]);
-  // The small one is the marker: once it is written the big one has had its turn.
   await relay.waitForEvent('file.write', { since, match: (l) => l.status === 'ok' });
   await expect(tree.getByRole('treeitem', { name: 'small.txt', exact: true })).toBeVisible();
   await expect(tree.getByRole('treeitem', { name: 'huge.bin', exact: true })).toHaveCount(0);
   expect(await writes(relay, since)).toBe(1);
+  // Files are read one at a time in drop order, so eve would have refused
+  // huge.bin before small.txt was written.
+  await expect(page.getByText(/too large/i)).toHaveCount(0);
 });

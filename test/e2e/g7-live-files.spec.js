@@ -49,11 +49,17 @@ test('a clean open file updates when it changes on disk @G7.12', async ({ eve, p
   await eve.open('/');
   await openFile(page, 'notes.txt');
   await expect(page.getByText('first line')).toBeVisible();
+  // Put the cursor after the fifth character; the disk update must leave it there.
+  await page.getByText('first line').click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
   await watched(relay);
   await writeOnDisk(relay, 'notes.txt', 'second line from disk\n');
   await expect(page.getByText('second line from disk')).toBeVisible();
   await expect(page.getByText(BANNER)).toBeHidden();
   await expect(dirtyTab(page)).toHaveCount(0);
+  await page.keyboard.type('X');
+  await expect(page.getByText('seconXd line from disk')).toBeVisible();
 });
 
 test('an unsaved file that changes on disk is flagged @G7.13', async ({ eve, page, relay }) => {

@@ -39,10 +39,12 @@ test.describe('a run that is held', () => {
     await startRoutine(page);
     await relay.waitForEvent('session.launch', { match: (l) => l.status === 'ok' });
     await page.getByRole('button', { name: /^Close Testbox sweep/ }).click();
+    await expect(page.getByRole('tab', { name: /Testbox sweep/ })).toHaveCount(0);
     await expect(page.getByText('Acme · routine')).toBeVisible();
     await eve.reload();
     const row = page.getByRole('button').filter({ hasText: 'Acme · routine' });
     await expect(row).toBeVisible();
+    await expect(row).toContainText('Testbox sweep');
     await row.click();
     await expect(page.getByRole('tab', { name: /Testbox sweep/ })).toBeVisible();
   });
@@ -52,6 +54,7 @@ test.describe('a run that is held', () => {
     await startRoutine(page);
     await relay.waitForEvent('session.launch', { match: (l) => l.status === 'ok' });
     await page.getByRole('button', { name: /^Close Testbox sweep/ }).click();
+    await expect(page.getByRole('tab', { name: /Testbox sweep/ })).toHaveCount(0);
     await expect(page.getByText('Acme · routine')).toBeVisible();
     const down = await relay.ctl('fault', 'add', '--route', 'GET /ws', '--mode', 'down');
     expect(down.code).toBe(0);
@@ -60,6 +63,7 @@ test.describe('a run that is held', () => {
     await expect(page.getByText('Reconnected to relay.')).toBeVisible();
     const row = page.getByRole('button').filter({ hasText: 'routine failed' });
     await expect(row).toBeVisible();
+    await expect(row).toContainText('Testbox sweep');
     await row.click();
     await expect(page.getByRole('tab', { name: /Testbox sweep/ })).toBeVisible();
   });

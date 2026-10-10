@@ -85,7 +85,11 @@ test('open an audio file @G7.19', async ({ eve, page, relay }) => {
   const player = page.getByLabel('Audio tune.wav', { exact: true });
   await expect(player).toBeVisible();
   await expect(player).toHaveJSProperty('controls', true);
-  await expect(page.getByText('tune.wav', { exact: true }).last()).toBeVisible();
+  // The main area shows tune.wav twice: the tab and the viewer's own name line.
+  // Without the viewer's line only the tab is left, so the count drops to 1.
+  await expect(
+    page.getByRole('main').getByText('tune.wav', { exact: true }).filter({ visible: true }),
+  ).toHaveCount(2);
   await relay.waitForEvent('file.stream', { since, match: (l) => l.status === 'ok' });
   await expect(player).toHaveJSProperty('duration', 1);
 });
