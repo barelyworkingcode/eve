@@ -1,5 +1,4 @@
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 // realpath of each plans dir, resolved once on first successful use.
@@ -21,9 +20,7 @@ async function handleReadPlanFile(ws, filePath, plansDirPath) {
     }
 
     const resolved = path.resolve(filePath);
-    // server.js always passes the configured dir; the home default only serves a
-    // handler built without `paths`.
-    const plansDir = path.resolve(plansDirPath || path.join(os.homedir(), '.claude', 'plans'));
+    const plansDir = path.resolve(plansDirPath);
 
     if (!resolved.startsWith(plansDir + path.sep) || !resolved.endsWith('.md')) {
       ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
@@ -138,7 +135,7 @@ module.exports = [
   {
     type: 'read_plan_file',
     handle(ctx) {
-      handleReadPlanFile(ctx.ws, ctx.message.path, ctx.deps.paths?.plansDir);
+      handleReadPlanFile(ctx.ws, ctx.message.path, ctx.deps.paths.plansDir);
     },
   },
 ];
