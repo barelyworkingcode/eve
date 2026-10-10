@@ -98,7 +98,7 @@ A fault is `--route` (required), `--mode` and these optional flags: `--times N` 
 
 #### Sign-in rows
 
-`<html data-ready="1">` is set by the app once its WebSocket is up and the projects and sessions have loaded. The WebSocket only opens after sign-in, so on the Sign-in and Set Up Passkey screens (`network: 'untrusted'`) the flag is never set, and `eve.open('/')` would wait out the test. A row that starts on those screens opens with `eve.open('/', { preReady: '<reason>' })` and asserts on the screen by role. Once the row signs in, wait for the app with `await expect(page.locator('html')).toHaveAttribute('data-ready', '1')` before acting on anything that needs the loaded app. A row that does not start on a sign-in screen never uses `preReady`.
+`<html data-ready="1">` is set by the app once its WebSocket is up and the projects and sessions have loaded. The WebSocket only opens after sign-in, so on the Sign-in and Set Up Passkey screens (`network: 'untrusted'`) the flag is never set, and `eve.open('/')` would wait out the test. A row that starts on those screens opens with `eve.open('/', { preReady: '<reason>' })` and asserts on the screen by role. Once the row signs in, wait for the app with `await eve.ready()` before acting on anything that needs the loaded app. A row that does not start on a sign-in screen never uses `preReady`.
 
 #### Voice rows
 

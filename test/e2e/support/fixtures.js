@@ -84,15 +84,18 @@ const test = base.test.extend({
   },
 
   eve: async ({ stack, page }, use) => {
+    const ready = () => page.locator('html[data-ready="1"]').waitFor({ state: 'attached' });
     const toReady = async (action, opts) => {
       if (opts && 'preReady' in opts && !(typeof opts.preReady === 'string' && opts.preReady.trim())) {
         throw new Error('preReady needs a non-empty reason');
       }
       await action(opts && opts.preReady ? 'domcontentloaded' : 'load');
-      if (!(opts && opts.preReady)) await page.locator('html[data-ready="1"]').waitFor({ state: 'attached' });
+      if (!(opts && opts.preReady)) await ready();
     };
     await use({
       url: stack.url,
+      // Resolves once the app is ready, the signal eve.open waits on. For a row that signs in after opening with preReady.
+      ready,
       open: (urlPath = '/', opts) => toReady((waitUntil) => page.goto(stack.url + urlPath, { waitUntil }), opts),
       reload: (opts) => toReady((waitUntil) => page.reload({ waitUntil }), opts),
     });

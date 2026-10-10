@@ -35,6 +35,11 @@ const E1 = [
     selector: "ImportExpression[source.value='trash']",
     message: 'E1: eve reaches project files through relay, not a trash library.',
   },
+  {
+    // A template literal could build a banned module name the selectors above cannot read.
+    selector: "CallExpression[callee.name='require'][arguments.0.type='TemplateLiteral'], ImportExpression[source.type='TemplateLiteral']",
+    message: 'E1: require() and import() take a plain string, so the banned-module check can read it.',
+  },
 ];
 
 // E4: all egress to relay goes through relay-transport.js. Voice's net.Socket
@@ -64,6 +69,16 @@ const SCREEN_ONLY_BANNED = [
   'evaluate', 'evaluateAll', 'evaluateHandle', 'waitForFunction',
   'addInitScript', 'addScriptTag', 'exposeFunction', 'exposeBinding',
   'route', 'routeWebSocket', 'unroute', 'request', 'goto', 'newCDPSession',
+  'mainFrame', 'frames', 'frame',
+];
+// Selector-taking actions and reads on `page` itself. The same names on a
+// locator (getByLabel(..).fill(..)) are fine. page.keyboard, page.mouse and
+// page.touchscreen are properties, not these calls.
+const PAGE_SELECTOR_METHODS = [
+  'click', 'dblclick', 'fill', 'type', 'press', 'check', 'uncheck', 'setChecked', 'hover', 'tap',
+  'focus', 'selectOption', 'setInputFiles', 'dragAndDrop', 'dispatchEvent', 'textContent',
+  'innerText', 'innerHTML', 'inputValue', 'getAttribute', 'isVisible', 'isHidden', 'isEnabled',
+  'isDisabled', 'isEditable', 'isChecked', 'content', 'setContent',
 ];
 const E3_MESSAGE = 'E3: wait on a signal (data-ready, an event, an expect), not a duration.';
 const E5_MESSAGE = 'E5: a spec uses role, label and text locators and the fixtures only. Drive eve through the screen.';
@@ -82,8 +97,20 @@ const E5_SYNTAX = [
     message: `${E5_MESSAGE} Do not destructure the banned members out of page or a locator.`,
   },
   {
+    selector: `CallExpression[callee.type='MemberExpression'][callee.object.name='page'][callee.property.name=/^(${PAGE_SELECTOR_METHODS.join('|')})$/]`,
+    message: `${E5_MESSAGE} page.<action>(selector) is not allowed; use a role, label or text locator.`,
+  },
+  {
     selector: ':function > ObjectPattern.params > Property[key.name="request"]',
     message: 'E5: a spec does not take the request fixture; drive eve through the screen.',
+  },
+  {
+    selector: ':function > ObjectPattern.params > Property[key.name="stack"]',
+    message: 'E5: a spec does not take the stack fixture; use eve, relay, passkey and voice.',
+  },
+  {
+    selector: "CallExpression[callee.name=/^(setTimeout|setInterval)$/], CallExpression[callee.type='MemberExpression'][callee.property.name=/^(setTimeout|setInterval)$/]",
+    message: E3_MESSAGE,
   },
 ];
 

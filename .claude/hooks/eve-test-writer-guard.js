@@ -20,9 +20,14 @@ const BASH_PREFIXES = [
   'npx playwright test', 'npm run -s lint', 'npm run -s check:coverage', 'node --check test/e2e/',
 ];
 const BASH_FORBIDDEN = /[;&|<>`\n\r]|\$\(/;
+// Options that point playwright or eslint at another config or reporter.
+const BASH_FORBIDDEN_ARGS = /^(-c|--config|--reporter|-f|--format)(=|$)/;
+// Options whose next word is a pattern, not a path.
+const PATTERN_OPTIONS = new Set(['--grep', '-g', '--grep-invert']);
 
 const readRefusal = (p) => `eve-test-writer reads docs, specs and screens, not eve code: ${p}`;
 const writeRefusal = (p) => `eve-test-writer edits only test/e2e specs, docs/FEATURES.md and the coverage pending list: ${p}`;
+const specContentRefusal = (why) => `eve-test-writer specs require only ./support/fixtures and ./support/worlds, and use no import, process or child_process: ${why}`;
 const bashRefusal = (c) => `eve-test-writer runs only playwright, lint, check:coverage and node --check on specs: ${c}`;
 
 // Resolve against the repo root (or the session cwd), normalise `..`, then
@@ -71,12 +76,36 @@ function checkBash(command, cwd) {
   // Words of the allowed prefix are not paths; `node --check test/e2e/` keeps its directory.
   const skip = prefix && !prefix.endsWith('/') ? prefix.split(' ').length : 1;
   const tokens = cmd.split(/\s+/).map((t) => t.replace(/^['"]+|['"]+$/g, ''));
+  const guarded = prefix && /^(npx playwright test|npm run -s lint)$/.test(prefix);
+  let patternNext = false;
   for (const t of tokens.slice(skip)) {
+    if (guarded && BASH_FORBIDDEN_ARGS.test(t)) return bashRefusal(cmd);
+    if (patternNext) { patternNext = false; continue; }
+    const opt = t.split('=')[0];
+    if (PATTERN_OPTIONS.has(opt)) { patternNext = !t.includes('='); continue; }
     if (t.startsWith('-') && !t.includes('/')) continue;
     const looksLikePath = /[\\/]/.test(t) || t.includes('..') || /\.[A-Za-z]\w*$/.test(t) || fs.existsSync(path.resolve(cwd || ROOT, t));
     if (looksLikePath && !readAllowed(t, cwd)) return readRefusal(t);
   }
   if (!prefix || BASH_FORBIDDEN.test(String(command))) return bashRefusal(cmd);
+  return null;
+}
+
+// The text a Write, Edit or MultiEdit would put into a spec.
+function writtenText(ti) {
+  const parts = [ti.content, ti.new_string];
+  if (Array.isArray(ti.edits)) for (const e of ti.edits) parts.push(e && e.new_string);
+  return parts.filter((x) => typeof x === 'string').join('\n');
+}
+
+function specContentRefusalFor(text) {
+  const re = /\brequire\s*\(\s*(?:(['"`])([^'"`]*)\1)?/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m[2] === undefined || !/^\.\/support\/(fixtures|worlds)$/.test(m[2])) return specContentRefusal(`require(${m[2] === undefined ? '...' : m[2]})`);
+  }
+  if (/\bimport\b/.test(text)) return specContentRefusal('import');
+  if (/\bprocess\./.test(text)) return specContentRefusal('process.');
+  if (/child_process/.test(text)) return specContentRefusal('child_process');
   return null;
 }
 
@@ -98,7 +127,8 @@ function decide(input) {
     case 'Write':
     case 'Edit':
     case 'MultiEdit':
-      return writeAllowed(ti.file_path, cwd) ? null : writeRefusal(ti.file_path);
+      if (!writeAllowed(ti.file_path, cwd)) return writeRefusal(ti.file_path);
+      return /^test\/e2e\/[^/]+\.spec\.js$/.test(relToRoot(ti.file_path, cwd)) ? specContentRefusalFor(writtenText(ti)) : null;
     case 'NotebookEdit':
       return writeRefusal(ti.notebook_path);
     case 'Bash':
@@ -151,6 +181,30 @@ function selfTest() {
     ['Write dotdot', A('Write', { file_path: 'test/e2e/../../server.js' }), true],
     ['Write test.md', A('Write', { file_path: 'docs/test.md' }), true],
     ['Notebook', A('NotebookEdit', { notebook_path: 'docs/x.ipynb' }), true],
+    ['grep dotted', A('Bash', { command: 'npx playwright test --grep "@G1\\.3\\b"' }), false],
+    ['grep tag', A('Bash', { command: 'npx playwright test --grep @G1.3.r1' }), false],
+    ['-g tag', A('Bash', { command: 'npx playwright test -g @G1.3.r1' }), false],
+    ['grep=', A('Bash', { command: 'npx playwright test --grep=@G1.3.r1' }), false],
+    ['grep-invert', A('Bash', { command: 'npx playwright test --grep-invert @G1.3' }), false],
+    ['grep then path', A('Bash', { command: 'npx playwright test --grep @G1.3 server.js' }), true],
+    ['pw -c', A('Bash', { command: 'npx playwright test -c other.config.js' }), true],
+    ['pw --config', A('Bash', { command: 'npx playwright test --config x' }), true],
+    ['pw --config=', A('Bash', { command: 'npx playwright test --config=x' }), true],
+    ['pw --reporter', A('Bash', { command: 'npx playwright test --reporter=line' }), true],
+    ['pw -f', A('Bash', { command: 'npx playwright test -f' }), true],
+    ['lint --format', A('Bash', { command: 'npm run -s lint --format json' }), true],
+    ['lint -c', A('Bash', { command: 'npm run -s lint -- -c x' }), true],
+    ['Write ok spec', A('Write', { file_path: 'test/e2e/g1-today.spec.js', content: "const { test } = require('./support/fixtures');\nconst w = require('./support/worlds');" }), false],
+    ['Write require fs', A('Write', { file_path: 'test/e2e/g1-today.spec.js', content: "require('fs')" }), true],
+    ['Write require dyn', A('Write', { file_path: 'test/e2e/g1-today.spec.js', content: 'require(x)' }), true],
+    ['Write require stack', A('Write', { file_path: 'test/e2e/g1-today.spec.js', content: "require('./support/stack')" }), true],
+    ['Write import', A('Write', { file_path: 'test/e2e/g1-today.spec.js', content: "import x from 'y'" }), true],
+    ['Write process', A('Write', { file_path: 'test/e2e/g1-today.spec.js', content: 'process.env.X' }), true],
+    ['Write child_process', A('Write', { file_path: 'test/e2e/g1-today.spec.js', content: 'child_process' }), true],
+    ['Edit process', A('Edit', { file_path: 'test/e2e/g1-today.spec.js', new_string: 'process.exit()' }), true],
+    ['MultiEdit process', A('MultiEdit', { file_path: 'test/e2e/g1-today.spec.js', edits: [{ new_string: 'ok' }, { new_string: 'process.exit()' }] }), true],
+    ['Write pending text', A('Write', { file_path: 'test/e2e/coverage-pending.txt', content: 'import process.' }), false],
+    ['non-string command', { agent_type: AGENT, tool_name: 'Bash', tool_input: { command: 5 } }, true],
     ['no input', { agent_type: AGENT, tool_name: 'Read' }, true],
   ];
   let bad = 0;
@@ -159,6 +213,12 @@ function selfTest() {
     if (Boolean(got) !== refuse) { bad++; console.error(`FAIL ${label}: expected ${refuse ? 'refuse' : 'allow'}, got ${got || 'allow'}`); }
   }
   if (decide(A('Read', { file_path: 'public/app.js' })) !== readRefusal('public/app.js')) { bad++; console.error('FAIL refusal text'); }
+  // An exception inside decide must exit 2 for this agent and 0 for any other.
+  const run = (agent) => require('child_process').spawnSync(process.execPath, [__filename], {
+    input: JSON.stringify({ agent_type: agent, tool_name: 'Read', tool_input: { file_path: { x: 1 } } }), encoding: 'utf8',
+  });
+  if (run(AGENT).status !== 2) { bad++; console.error('FAIL exception exits 2 for the agent'); }
+  if (run('dev').status !== 0) { bad++; console.error('FAIL exception passes other agents'); }
   console.log(bad ? `${bad} self-test failures` : `self-test ok (${cases.length + 1} cases)`);
   return bad ? 1 : 0;
 }
@@ -173,7 +233,12 @@ function main() {
     if (raw.includes(AGENT)) { console.error('eve-test-writer: hook input could not be parsed'); process.exit(2); }
     process.exit(0);
   }
-  const refusal = decide(input);
+  let refusal;
+  try { refusal = decide(input); } catch (err) {
+    // A bug in the guard must not let the test writer through.
+    if (input && input.agent_type === AGENT) { console.error(`eve-test-writer: the guard failed on this call (${err.message})`); process.exit(2); }
+    process.exit(0);
+  }
   if (refusal) { console.error(refusal); process.exit(2); }
   process.exit(0);
 }
