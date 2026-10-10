@@ -7,10 +7,12 @@ class SettingsDialog extends DialogBase {
   constructor(container) {
     super(container, 'settings-dialog');
     this.settings = container.get('settings');
+    this._section = null; // 'voice' renders only the Voice group
   }
 
   init() {
-    this.bus.on(EVT.DIALOG_SETTINGS, () => {
+    this.bus.on(EVT.DIALOG_SETTINGS, (data) => {
+      this._section = data && data.section === 'voice' ? 'voice' : null;
       this.render();
       this.show();
     });
@@ -50,12 +52,14 @@ class SettingsDialog extends DialogBase {
 
     const body = document.createElement('div');
     body.className = 'settings-sheet__body';
-    body.appendChild(this._buildDisplay());
+    if (this._section !== 'voice') body.appendChild(this._buildDisplay());
     const voice = this._buildVoice();
     if (voice) body.appendChild(voice);
-    body.appendChild(this._buildModes());
-    body.appendChild(this._buildFiles());
-    body.appendChild(this._buildRelayRow());
+    if (this._section !== 'voice') {
+      body.appendChild(this._buildModes());
+      body.appendChild(this._buildFiles());
+      body.appendChild(this._buildRelayRow());
+    }
     this._panel.appendChild(body);
   }
 

@@ -128,6 +128,9 @@ const EVT = {
   VOICE_BACKEND_CHANGED: 'voice:backendChanged',
   // VOICE_MODE_CHANGED { mode: 'text'|'talk'|'handsfree', sessionId } (voice-modes.js)
   VOICE_MODE_CHANGED: 'voice:modeChanged',
+  // VOICE_STATE { state: 'listening'|'hearing'|'thinking'|'speaking'|'idle', sessionId } (voice-chat-manager.js,
+  // while Hands-free runs in the chat; 'idle' only when it ends)
+  VOICE_STATE: 'voice:state',
   TTS_PLAYBACK_ENDED: 'tts:playbackEnded',
 
   TOAST_SHOW:    'toast:show',

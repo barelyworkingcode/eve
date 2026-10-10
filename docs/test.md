@@ -61,6 +61,8 @@ Options, set with `test.use`:
 | `publicOrigin` | `null` | Sets `EVE_PUBLIC_ORIGIN`, e.g. `'https://eve.acme.test'`. The app never reaches `data-ready` under it (the WebSocket needs that origin), so open with `eve.openByIp` or `preReady`. |
 | `trustedSubnets` | `null` | Sets `EVE_TRUSTED_SUBNETS`, e.g. `'192.0.2.0/24'`, replacing the default trusted set. |
 | `plansDir` | `'agent'` | `'agent'` sets `EVE_PLANS_DIR` to fakerelay's plans dir (`<relay dir>/home/.claude/plans`), where `plan` replies write. `'eve'` leaves it unset, so eve uses its own default (a plan written on another machine). |
+| `eveSettings` | `null` | An object written as eve's `data/settings.json` before eve starts, e.g. `{ voice: { handsFreeReminderSeconds: 5 } }`. `null` writes no file. |
+| `mic` | `'beep'` | What the page hears when it opens the microphone. `'beep'` is Chromium's own fake device. `'silence'` and `'speech'` replace the audio of `getUserMedia` with a looping WAV from `test/e2e/support/audio/`: one second of silence, or a spoken sentence ("Hello, can you tell me what time it is") followed by five seconds of silence, repeating. |
 
 `worlds.media.webm()` and `worlds.media.wav()` return `{ base64 }`, a world file value of about 1 s that plays in Playwright's Chromium: `files: { 'clip.webm': worlds.media.webm() }`.
 
@@ -112,6 +114,7 @@ A row that needs a signed-out browser with a passkey enrols first, then calls `a
 
 - Dictation: eve discards a recording shorter than 300 ms ("Recording too short"), and nothing reaches the fake STT. The button is named "Stop recording" at once and renames itself to `Recording... 0:01` on the one-second timer tick, so wait for `getByRole('button', { name: /^Recording\.\.\./ })` before pressing it. A button press right after "Stop recording" shows sends no audio.
 - The fake STT's `requests` list shows what reached it; `waitForRequest` waits on that, not on a duration.
+- Hands-free (`getByRole('radio', { name: 'Hands-free' })`): the status region "Voice status" holds the orb (button "Voice orb"), the text "Listening…" / "Thinking…" / "Speaking…" and, only while speaking, the button "Stop reply". "Listening…" appears when listening has started. With `mic: 'speech'` the VAD hears the sentence; the signal is the fake STT's `waitForRequest` and then the spoken turn with its "Spoken" mark. With `mic: 'silence'` the VAD hears nothing, so a spec of the silence reminder sets `eveSettings: { voice: { handsFreeReminderSeconds: 5 } }` and waits on `voice.tts.waitForRequest` for the text "I'm still here.". The fake TTS reply is 30 s of silence, so "Speaking…" lasts until Stop or its end.
 
 Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and `stt-service.js`, on `127.0.0.1` with a free port. TTS answers every synth with a silent 30 s WAV and `list_voices` with two voices, "Heart" and "George". STT answers `ping` with ok and every transcription with `hello from the test microphone`. `reply({ seconds })`, `reply({ text })` or `reply({ error })` changes the answer for later requests.
 

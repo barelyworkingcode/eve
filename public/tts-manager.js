@@ -62,7 +62,6 @@ class TTSManager {
 
   init() {
     this._initBackend();
-    this._updateVoiceSelectVisibility();
     this.loadVoices();
     this.log.info(`Init — enabled: ${this.enabled}, voice: ${this.voice || 'default'}, backend: ${this.backend}`);
 
@@ -132,14 +131,12 @@ class TTSManager {
   setEnabled(enabled) {
     this.enabled = enabled;
     if (!enabled) this.stop();
-    this._updateVoiceSelectVisibility();
     this.log.info(enabled ? `Active — voice: ${this.voice || 'default'}, backend: ${this.backend}` : 'Disabled');
   }
 
   setVoice(voiceId) {
     this.voice = voiceId;
     localStorage.setItem('eve-voice-preset', voiceId);
-    this._syncSelects(['voiceSelect'], voiceId);
     if (this.enabled) this.log.info(`Voice changed → ${voiceId}`);
   }
 
@@ -147,11 +144,11 @@ class TTSManager {
     const s = Math.min(2.0, Math.max(0.5, parseFloat(speed) || 1.0));
     this.speed = s;
     localStorage.setItem('eve-voice-speed', String(s));
-    this._syncSelects(['voiceSpeedSelect', 'voiceChatSpeedSelect'], String(s));
+    this._syncSelects(['voiceChatSpeedSelect'], String(s));
     this.log.info(`Playback speed → ${s}×`);
   }
 
-  // Keep the composer's selects in step when a change comes from elsewhere
+  // Keep the orb view's selects in step when a change comes from elsewhere
   // (the settings sheet). Setting .value fires no change event.
   _syncSelects(ids, value) {
     for (const id of ids) {
@@ -180,7 +177,6 @@ class TTSManager {
         this.voices = KOKORO_VOICES;
       }
     }
-    this._populateVoiceSelect();
   }
 
   async speakText(text) {
@@ -390,43 +386,5 @@ class TTSManager {
 
   syncButtonState() {
     this.button?.classList.toggle('btn-voice-mode--active', this.enabled);
-  }
-
-  _populateVoiceSelect() {
-    const select = this.app.elements.voiceSelect;
-    if (!select) return;
-
-    select.innerHTML = '';
-
-    if (this.voices.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = this.voice;
-      opt.textContent = this.voice;
-      select.appendChild(opt);
-      return;
-    }
-
-    const groups = {};
-    for (const v of this.voices) {
-      if (!groups[v.lang]) groups[v.lang] = [];
-      groups[v.lang].push(v);
-    }
-
-    for (const [lang, voices] of Object.entries(groups)) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = lang;
-      for (const v of voices) {
-        const opt = document.createElement('option');
-        opt.value = v.id;
-        opt.textContent = `${v.name} (${v.gender})`;
-        if (v.id === this.voice) opt.selected = true;
-        optgroup.appendChild(opt);
-      }
-      select.appendChild(optgroup);
-    }
-  }
-
-  _updateVoiceSelectVisibility() {
-    // Voice select lives in the pull-down drawer and is always visible there.
   }
 }

@@ -11,7 +11,7 @@ function isHiddenSession(name) {
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileServiceFor, files, refreshHostCache, removeFromHostCache, ttsService, sttService, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileServiceFor, files, refreshHostCache, removeFromHostCache, ttsService, sttService, voiceSettings, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
@@ -382,6 +382,11 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   app.get('/api/stt/status', requireAuth, async (req, res) => {
     const available = await sttService.isAvailable();
     res.json({ available });
+  });
+
+  // Eve-local, read from the operator's data/settings.json at startup.
+  app.get('/api/voice/config', requireAuth, (req, res) => {
+    res.json({ handsFreeReminderSeconds: voiceSettings.handsFreeReminderSeconds });
   });
 
   app.post('/api/transcribe', requireAuth, async (req, res) => {

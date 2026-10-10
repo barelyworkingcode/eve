@@ -34,7 +34,7 @@ function runToEnd(file, args, env) {
 }
 
 class Stack {
-  constructor({ fakerelay, relayscheduler, world, network, scheduler, publicOrigin = null, trustedSubnets = null, plansDir = 'agent' }) {
+  constructor({ fakerelay, relayscheduler, world, network, scheduler, publicOrigin = null, trustedSubnets = null, plansDir = 'agent', eveSettings = null }) {
     this.bins = { fakerelay, relayscheduler };
     this.world = world;
     this.network = network;
@@ -42,6 +42,7 @@ class Stack {
     this.publicOrigin = publicOrigin;
     this.trustedSubnets = trustedSubnets;
     this.plansMode = plansDir;
+    this.eveSettings = eveSettings;
     this.watchers = new Set();
     this.exited = null;
     this.child = null;
@@ -123,6 +124,8 @@ class Stack {
     this.root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ev-')));
     for (const d of ['r', 'eve', 'sched', 'home', 'tmp']) fs.mkdirSync(path.join(this.root, d));
     this.checkSocketPaths();
+    // Operator-authored in real life; eve only reads it. Written before eve starts.
+    if (this.eveSettings) fs.writeFileSync(path.join(this.root, 'eve', 'settings.json'), JSON.stringify(this.eveSettings));
 
     this.voiceFakes = await startVoiceFakes();
     this.voice = this.voiceFakes.voice;
