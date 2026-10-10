@@ -30,6 +30,7 @@ class ProjectsPart extends TodayPart {
       chip.type = 'button';
       chip.className = `home__chip${p.id === activeId ? ' home__chip--active' : ''}`;
       chip.dataset.testid = `home-project-${p.id}`;
+      chip.setAttribute('aria-label', p.name);
       const running = state.getSessionsForProject(p.id)
         .filter(s => !state.isTaskRun(s.id) && this.ctx.activity.statusOf(s.id) === 'running').length;
       chip.innerHTML = `

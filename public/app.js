@@ -1102,7 +1102,7 @@ class EveWorkspaceClient {
   }
 
   async renameSessionFolder(projectId, oldName) {
-    const newName = await showPromptDialog('Rename folder', oldName, { confirmLabel: 'Rename' });
+    const newName = await showPromptDialog('Rename folder', oldName, { confirmLabel: 'Rename', label: 'Folder name' });
     if (!newName || newName === oldName) return;
     const folders = [...new Set(this._projectFolders(projectId).map(f => (f === oldName ? newName : f)))];
     await this._saveProjectSessionFolders(projectId, folders);

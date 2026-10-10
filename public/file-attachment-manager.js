@@ -123,6 +123,8 @@ class FileAttachmentManager {
     }).join('');
 
     container.querySelectorAll('.file-remove').forEach(btn => {
+      // Set with setAttribute, not interpolated into the markup: escapeHtml leaves " unescaped, so a file name could break out of an attribute.
+      btn.setAttribute('aria-label', `Remove ${this.files[parseInt(btn.dataset.index)].name}`);
       btn.addEventListener('click', (e) => {
         const index = parseInt(e.target.dataset.index);
         this.files.splice(index, 1);

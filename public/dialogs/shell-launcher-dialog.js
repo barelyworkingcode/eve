@@ -176,6 +176,7 @@ class ShellLauncherDialog extends DialogBase {
     const card = document.createElement('button');
     card.className = `shell-launcher__card${className ? ' ' + className : ''}`;
     if (testid) card.dataset.testid = testid;
+    card.setAttribute('aria-label', name);
     card.addEventListener('click', onClick);
 
     const icon = document.createElement('span');
@@ -224,6 +225,7 @@ class ShellLauncherDialog extends DialogBase {
     modelLabel.textContent = 'Model';
     const modelSelect = document.createElement('select');
     modelSelect.dataset.testid = 'launcher-model-select';
+    modelSelect.setAttribute('aria-label', 'Model');
     // pi runs as a process in the project directory and can't be launched on a
     // host, so it isn't offered there.
     const onHost = !!this.state.getProject(this.projectId)?.host;
@@ -236,6 +238,7 @@ class ShellLauncherDialog extends DialogBase {
     let voiceSelect = null;
     if (showVoice) {
       voiceSelect = this._createVoiceSelect();
+      voiceSelect.setAttribute('aria-label', 'Voice');
       const voiceLabel = document.createElement('label');
       voiceLabel.className = 'dialog__label';
       voiceLabel.textContent = 'Voice';
@@ -340,6 +343,7 @@ class ShellLauncherDialog extends DialogBase {
 
         const resumeBtn = document.createElement('button');
         resumeBtn.className = 'shell-launcher__resume-btn';
+        resumeBtn.setAttribute('aria-label', session.name || 'Unnamed');
 
         const name = document.createElement('span');
         name.className = 'shell-launcher__resume-name';
@@ -359,6 +363,7 @@ class ShellLauncherDialog extends DialogBase {
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'shell-launcher__resume-delete';
         deleteBtn.title = 'Delete session';
+        deleteBtn.setAttribute('aria-label', `Delete session ${session.name || 'Unnamed'}`);
         deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
         deleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();

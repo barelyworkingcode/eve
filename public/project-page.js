@@ -279,6 +279,8 @@ class ProjectPage {
 
     const nameEl = document.createElement('span');
     nameEl.className = 'project-tree__folder-name';
+    nameEl.setAttribute('role', 'button');
+    nameEl.setAttribute('aria-expanded', String(!collapsed));
     nameEl.textContent = isUngrouped ? 'Ungrouped' : name;
     header.appendChild(nameEl);
 
@@ -318,6 +320,8 @@ class ProjectPage {
     const deleteAction = document.createElement('div');
     deleteAction.className = 'project-tree__session-delete';
     deleteAction.textContent = 'Delete';
+    deleteAction.setAttribute('role', 'button');
+    deleteAction.setAttribute('aria-label', `Delete ${sessionDisplayName(session, project) || session.id}`);
     deleteAction.addEventListener('click', (e) => {
       e.stopPropagation();
       this.container.get('app').deleteSession(session.id);
@@ -327,6 +331,8 @@ class ProjectPage {
     const isActive = session.id === this.state.currentSessionId;
     item.className = `project-tree__session-item${isActive ? ' project-tree__session-item--active' : ''}`;
     item.dataset.testid = `project-thread-${session.id}`;
+    item.setAttribute('role', 'button');
+    item.setAttribute('aria-label', sessionDisplayName(session, project) || session.id);
 
     const nameEl = document.createElement('span');
     nameEl.className = 'project-tree__session-name';
@@ -576,6 +582,8 @@ class ProjectPage {
 
       const nameEl = document.createElement('span');
       nameEl.className = 'project-tree__task-name';
+      nameEl.setAttribute('role', 'button');
+      if (!hasLastRun) nameEl.setAttribute('aria-disabled', 'true');
       nameEl.textContent = task.name;
       item.appendChild(nameEl);
 
@@ -597,6 +605,7 @@ class ProjectPage {
       const runBtn = document.createElement('button');
       runBtn.className = 'project-tree__task-btn';
       runBtn.title = 'Run Now';
+      runBtn.setAttribute('aria-label', `Run Now ${task.name}`);
       runBtn.innerHTML = UI_ICONS.shell(12);
       runBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -607,6 +616,7 @@ class ProjectPage {
       const editBtn = document.createElement('button');
       editBtn.className = 'project-tree__task-btn';
       editBtn.title = 'Edit';
+      editBtn.setAttribute('aria-label', `Edit ${task.name}`);
       editBtn.innerHTML = UI_ICONS.more(12);
       editBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -628,6 +638,7 @@ class ProjectPage {
     newItem.dataset.testid = `project-task-new-${this.projectId}`;
     const label = document.createElement('span');
     label.className = 'project-tree__task-name';
+    label.setAttribute('role', 'button');
     label.textContent = '+ New routine';
     newItem.appendChild(label);
     newItem.addEventListener('click', (e) => {

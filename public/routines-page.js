@@ -122,6 +122,7 @@ class RoutinesPage {
     row.type = 'button';
     row.className = 'routine-row';
     row.dataset.testid = `routine-${task.id}`;
+    row.setAttribute('aria-label', task.name);
 
     const sentence = this._div('routine-row__sentence');
     sentence.textContent = RoutineSentence.sentence(task.schedule);

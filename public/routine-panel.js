@@ -180,6 +180,7 @@ class RoutinePanel {
 
     this.dayRow = this._mk('div', 'routine-panel__row');
     this.daySelect = this._mk('select', 'dialog__select routine-panel__input', 'routine-panel-day');
+    this.daySelect.setAttribute('aria-label', 'Day');
     for (const d of TaskSchedule.WEEKDAYS) {
       const opt = document.createElement('option');
       opt.value = d;

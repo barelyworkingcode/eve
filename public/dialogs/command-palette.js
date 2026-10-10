@@ -439,6 +439,7 @@ class CommandPalette extends DialogBase {
       const row = document.createElement('div');
       row.className = 'palette__item';
       row.setAttribute('role', 'option');
+      row.setAttribute('aria-label', item.label);
       row.dataset.testid = 'palette-item';
       row.setAttribute('aria-selected', idx === this._selectedIndex ? 'true' : 'false');
 

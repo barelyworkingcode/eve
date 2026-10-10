@@ -189,7 +189,7 @@
         <header class="panel-header">
           <span class="panel-header__title" id="panelTitle"></span>
           <div class="panel-header__actions" id="panelHeaderActions"></div>
-          <button id="closeSidebar" class="menu-toggle panel-header__close" title="Close menu" data-testid="sidebar-close">&#x2715;</button>
+          <button id="closeSidebar" aria-label="Close menu" class="menu-toggle panel-header__close" title="Close menu" data-testid="sidebar-close">&#x2715;</button>
         </header>
         <div class="panel-host-bar" id="panelHostBar" hidden></div>
         <div class="panel-tabs" id="panelTabs"></div>
@@ -203,7 +203,7 @@
     <main class="main">
       <div id="welcomeScreen" class="welcome-screen">
         <div data-wordmark-slot="today"></div>
-        <button id="welcomeOpenSidebar" class="menu-toggle welcome-menu-toggle" title="Open menu" data-testid="welcome-sidebar-open">&#9776;</button>
+        <button id="welcomeOpenSidebar" aria-label="Open menu" class="menu-toggle welcome-menu-toggle" title="Open menu" data-testid="welcome-sidebar-open">&#9776;</button>
         <div class="welcome-content home" id="homeContent" data-testid="home-screen"></div>
       </div>
 
@@ -211,7 +211,7 @@
         <header class="chat-header">
           <button id="navBack" class="nav-back" data-testid="nav-back" aria-label="Back" type="button">&#x2039;</button>
           <span id="navTitle" class="nav-title" data-testid="nav-title"></span>
-          <button id="openSidebar" class="menu-toggle" title="Open menu" data-testid="sidebar-open">&#9776;</button>
+          <button id="openSidebar" aria-label="Open menu" class="menu-toggle" title="Open menu" data-testid="sidebar-open">&#9776;</button>
           <div id="tabBar" class="tab-bar" data-testid="tab-bar"></div>
           <div class="session-stats" id="sessionStats">
             <span class="stat-item" id="costStat" title="Session cost">$0.00</span>
@@ -235,7 +235,7 @@
               </svg>
             </button>
             <div class="voice-drawer__panel hidden" id="voiceDrawerPanel">
-              <select id="voiceSelect" class="voice-drawer__select" title="Select voice"></select>
+              <select id="voiceSelect" aria-label="Voice" class="voice-drawer__select" title="Select voice"></select>
               <select id="voiceSpeedSelect" class="voice-drawer__select" title="Playback speed">
                 <option value="0.75">0.75&times;</option>
                 <option value="0.9">0.9&times;</option>
@@ -326,7 +326,7 @@
               </svg>
             </button>
             <div class="voice-drawer__panel hidden" id="voiceChatDrawerPanel">
-              <select id="voiceChatVoiceSelect" class="voice-drawer__select"></select>
+              <select id="voiceChatVoiceSelect" aria-label="Voice" class="voice-drawer__select"></select>
               <select id="voiceChatSpeedSelect" class="voice-drawer__select" title="Playback speed">
                 <option value="0.75">0.75&times;</option>
                 <option value="0.9">0.9&times;</option>
@@ -358,13 +358,13 @@
                 </svg>
               </button>
             </div>
-            <label class="voice-orb-settings__row"><span>Inner orb size</span><input type="range" id="orbInnerSize" min="0" max="2.5" step="0.05"><span class="voice-orb-settings__val" id="orbInnerSizeVal"></span></label>
-            <label class="voice-orb-settings__row"><span>Outer orb size</span><input type="range" id="orbOuterSize" min="0.4" max="1.4" step="0.05"><span class="voice-orb-settings__val" id="orbOuterSizeVal"></span></label>
-            <label class="voice-orb-settings__row"><span>Spin rate</span><input type="range" id="orbSpinRate" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbSpinRateVal"></span></label>
-            <label class="voice-orb-settings__row"><span>Idle jitter</span><input type="range" id="orbIdleJitter" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbIdleJitterVal"></span></label>
-            <label class="voice-orb-settings__row"><span>Speech jitter</span><input type="range" id="orbSpeechJitter" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbSpeechJitterVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Inner orb size</span><input type="range" aria-label="Inner orb size" id="orbInnerSize" min="0" max="2.5" step="0.05"><span class="voice-orb-settings__val" id="orbInnerSizeVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Outer orb size</span><input type="range" aria-label="Outer orb size" id="orbOuterSize" min="0.4" max="1.4" step="0.05"><span class="voice-orb-settings__val" id="orbOuterSizeVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Spin rate</span><input type="range" aria-label="Spin rate" id="orbSpinRate" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbSpinRateVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Idle jitter</span><input type="range" aria-label="Idle jitter" id="orbIdleJitter" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbIdleJitterVal"></span></label>
+            <label class="voice-orb-settings__row"><span>Speech jitter</span><input type="range" aria-label="Speech jitter" id="orbSpeechJitter" min="0" max="4" step="0.1"><span class="voice-orb-settings__val" id="orbSpeechJitterVal"></span></label>
             <button id="voiceOrbSettingsReset" class="voice-orb-settings__reset" type="button">Reset to defaults</button>
-            <label class="voice-orb-settings__row" id="riverVolRow" title="Ambient river bed volume (native audio); ducks under speech and cues"><span>River volume</span><input type="range" id="riverVolSlider" min="0" max="0.6" step="0.01"><span class="voice-orb-settings__val" id="riverVolVal"></span></label>
+            <label class="voice-orb-settings__row" id="riverVolRow" title="Ambient river bed volume (native audio); ducks under speech and cues"><span>River volume</span><input type="range" aria-label="River volume" id="riverVolSlider" min="0" max="0.6" step="0.01"><span class="voice-orb-settings__val" id="riverVolVal"></span></label>
             <label class="voice-orb-settings__row" id="diagLogRow" title="Stream the native audio trace to eve/relay-device.log (persists across restarts)"><span>Stream device logs</span><input type="checkbox" id="diagLogToggle"></label>
           </div>
           <div class="voice-chat__captions" id="voiceCaptions"></div>
@@ -444,10 +444,10 @@
   </div>
 
   <!-- Delete Confirmation Modal -->
-  <div id="confirmModal" class="modal hidden">
+  <div id="confirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
-      <h3>Confirm Deletion</h3>
+      <h3 id="confirmModalTitle">Confirm Deletion</h3>
       <p id="confirmMessage" class="confirm-message"></p>
       <div class="modal-actions">
         <button type="button" id="cancelConfirm" class="btn-secondary" data-testid="modal-cancel-confirm">Cancel</button>

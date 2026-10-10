@@ -374,6 +374,7 @@ class AgentBoard {
     row.type = 'button';
     row.className = 'agent-row';
     row.dataset.testid = `${this.prefix}-agent-${id}`;
+    row.setAttribute('aria-label', label);
     row.dataset.kind = kind;
     row.dataset.state = state;
 

@@ -36,6 +36,7 @@ function todayTile({ tone, icon, name, desc, onClick, testid }) {
   btn.type = 'button';
   btn.className = `home__tile home__tile--${tone}`;
   btn.dataset.testid = testid;
+  btn.setAttribute('aria-label', name);
   btn.innerHTML = `
     <span class="home__tile-icon">${icon}</span>
     <span class="home__tile-name">${escapeHtml(name)}</span>
@@ -56,6 +57,7 @@ function todayRow(state, { testid, project, projectId, title, sub, status, kind,
   row.type = 'button';
   row.className = 'home__row';
   row.dataset.testid = testid;
+  row.setAttribute('aria-label', title);
   if (kind) row.dataset.kind = kind;
 
   const mono = document.createElement('span');

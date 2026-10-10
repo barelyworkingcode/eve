@@ -698,6 +698,8 @@ class TabManager {
 
   render() {
     this.tabBar.innerHTML = '';
+    this.tabBar.setAttribute('role', 'tablist');
+    this.tabBar.setAttribute('aria-label', 'Open tabs');
 
     for (const tab of this.tabs) {
       if (tab._nestedIn) continue;
@@ -717,6 +719,9 @@ class TabManager {
 
       const labelEl = document.createElement('span');
       labelEl.className = 'tab-label';
+      labelEl.setAttribute('role', 'tab');
+      labelEl.setAttribute('aria-label', tab.label);
+      labelEl.setAttribute('aria-selected', String(tab.id === this.activeTabId));
       labelEl.textContent = tab.label;
       if (tab.modified) {
         labelEl.textContent += ' ●';
@@ -728,6 +733,7 @@ class TabManager {
 
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
+      closeBtn.setAttribute('aria-label', `Close ${tab.label}`);
       closeBtn.dataset.testid = `tab-close-${tab.id}`;
       closeBtn.textContent = '×';
       let closeLongPress = null;
