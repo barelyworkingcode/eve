@@ -47,6 +47,7 @@ features.register({
         btn.className = 'btn-send';
         btn.type = 'submit';
         btn.dataset.testid = 'chat-submit';
+        btn.setAttribute('aria-label', 'Send');
         btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
   <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
 </svg>`;
@@ -63,6 +64,7 @@ features.register({
         btn.className = 'btn-stop hidden';
         btn.type = 'button';
         btn.dataset.testid = 'chat-stop';
+        btn.setAttribute('aria-label', 'Stop');
         btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
   <rect x="6" y="6" width="12" height="12" rx="2"/>
 </svg>`;

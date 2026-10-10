@@ -165,6 +165,7 @@ class SearchDialog extends DialogBase {
     this._modelSelect = document.createElement('select');
     this._modelSelect.className = 'dialog__select search-dialog__model-select';
     this._modelSelect.dataset.testid = 'search-dialog-model';
+    this._modelSelect.setAttribute('aria-label', 'Model');
     const remembered = this.settings?.getLastSearchModel?.(this.projectId);
     renderModelSelect(this._modelSelect, this.state.modelsForProject(this.projectId), {
       selectedValue: remembered || undefined,

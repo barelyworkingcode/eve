@@ -80,6 +80,7 @@ class DialogBase {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'dialog__close';
+    closeBtn.setAttribute('aria-label', 'Close');
     closeBtn.dataset.testid = `dialog-close-${this.dialogId}`;
     closeBtn.innerHTML = '&times;';
     closeBtn.addEventListener('click', () => this.hide());
@@ -182,12 +183,14 @@ class DialogBase {
           const input = document.createElement('input');
           input.type = 'checkbox';
           input.name = field.key;
+          input.setAttribute('aria-label', field.label || field.name);
           input.checked = !!field.default;
           row.insertBefore(input, lbl);
         } else if (field.type === 'number') {
           const input = document.createElement('input');
           input.type = 'number';
           input.name = field.key;
+          input.setAttribute('aria-label', field.label || field.name);
           input.value = '';
           if (field.min !== undefined) input.min = field.min;
           if (field.max !== undefined) input.max = field.max;
@@ -199,6 +202,7 @@ class DialogBase {
           const input = document.createElement('input');
           input.type = 'text';
           input.name = field.key;
+          input.setAttribute('aria-label', field.label || field.name);
           input.dataset.settingType = field.type;
           input.value = field.default ?? '';
           if (field.placeholder) input.placeholder = field.placeholder;

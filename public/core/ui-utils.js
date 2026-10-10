@@ -69,6 +69,7 @@ function showContextMenu(x, y, items) {
 
   const menu = document.createElement('div');
   menu.className = 'file-tree__context-menu';
+  menu.setAttribute('role', 'menu');
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
 
@@ -81,6 +82,7 @@ function showContextMenu(x, y, items) {
     }
     const btn = document.createElement('button');
     btn.className = `file-tree__context-item${item.danger ? ' file-tree__context-item--danger' : ''}`;
+    btn.setAttribute('role', 'menuitem');
     btn.textContent = item.label;
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -133,6 +135,7 @@ function showPromptDialog(title, defaultValue = '', opts = {}) {
     input.value = defaultValue || '';
     input.maxLength = opts.maxLength || 100;
     if (opts.placeholder) input.placeholder = opts.placeholder;
+    input.setAttribute('aria-label', opts.label || opts.placeholder || title);
 
     const actions = document.createElement('div');
     actions.className = 'prompt-dialog__actions';

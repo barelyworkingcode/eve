@@ -216,6 +216,7 @@ class TaskDialog extends DialogBase {
     const typeSelect = document.createElement('select');
     typeSelect.className = 'dialog__select';
     typeSelect.name = 'taskType';
+    typeSelect.setAttribute('aria-label', 'Type');
     for (const [value, label] of [['headless', 'Chat (LLM)'], ['pty', 'Terminal (shell)']]) {
       const opt = document.createElement('option');
       opt.value = value;
@@ -235,6 +236,7 @@ class TaskDialog extends DialogBase {
     const promptInput = document.createElement('textarea');
     promptInput.className = 'dialog__textarea';
     promptInput.name = 'taskPrompt';
+    promptInput.setAttribute('aria-label', 'Prompt');
     promptInput.rows = 3;
     promptInput.placeholder = 'Summarize today\'s activity...';
     promptInput.value = editTask?.prompt || '';
@@ -245,6 +247,7 @@ class TaskDialog extends DialogBase {
     modelLabel.textContent = 'Model';
     chatFields.appendChild(modelLabel);
     const modelSelect = document.createElement('select');
+    modelSelect.setAttribute('aria-label', 'Model');
     this._fillModelSelect(modelSelect, editTask?.model);
     chatFields.appendChild(modelSelect);
     form.appendChild(chatFields);
@@ -259,6 +262,7 @@ class TaskDialog extends DialogBase {
     const tplSelect = document.createElement('select');
     tplSelect.className = 'dialog__select';
     tplSelect.name = 'taskTemplateId';
+    tplSelect.setAttribute('aria-label', 'Template');
     const populateTemplates = () => {
       tplSelect.innerHTML = '';
       const templates = this.state.terminalTemplatesProjectId === this.projectId ? this.state.terminalTemplates || [] : [];
@@ -339,6 +343,7 @@ class TaskDialog extends DialogBase {
     schedLabel.textContent = 'Schedule';
     form.appendChild(schedLabel);
     const schedSelect = document.createElement('select');
+    schedSelect.setAttribute('aria-label', 'Schedule');
     schedSelect.className = 'dialog__select';
     schedSelect.name = 'scheduleType';
     for (const s of ['daily', 'hourly', 'interval', 'weekly', 'cron', 'once', 'on_demand']) {
@@ -366,6 +371,7 @@ class TaskDialog extends DialogBase {
         const timeInput = document.createElement('input');
         timeInput.type = 'time';
         timeInput.name = 'schedTime';
+        timeInput.setAttribute('aria-label', 'Time');
         timeInput.value = sched.time || '09:00';
         timeInput.className = 'dialog__input';
         schedConfig.appendChild(timeLbl);
@@ -378,6 +384,7 @@ class TaskDialog extends DialogBase {
         dayLbl.textContent = 'Day';
         const daySelect = document.createElement('select');
         daySelect.name = 'schedDay';
+        daySelect.setAttribute('aria-label', 'Day');
         daySelect.className = 'dialog__select';
         const selectedDay = TaskSchedule.normalizeDay(sched.day) || 'monday';
         for (const d of TaskSchedule.WEEKDAYS) {
@@ -398,6 +405,7 @@ class TaskDialog extends DialogBase {
         const minInput = document.createElement('input');
         minInput.type = 'number';
         minInput.name = 'schedMinute';
+        minInput.setAttribute('aria-label', 'Minute');
         minInput.min = '0';
         minInput.max = '59';
         minInput.value = sched.minute || '0';
@@ -413,6 +421,7 @@ class TaskDialog extends DialogBase {
         const intInput = document.createElement('input');
         intInput.type = 'number';
         intInput.name = 'schedMinutes';
+        intInput.setAttribute('aria-label', 'Interval (minutes)');
         intInput.min = '1';
         intInput.value = sched.minutes || '60';
         intInput.className = 'dialog__input';
@@ -427,6 +436,7 @@ class TaskDialog extends DialogBase {
         const cronInput = document.createElement('input');
         cronInput.type = 'text';
         cronInput.name = 'schedExpression';
+        cronInput.setAttribute('aria-label', 'Cron Expression');
         cronInput.value = sched.expression || '';
         cronInput.placeholder = '0 9 * * *';
         cronInput.className = 'dialog__input';
@@ -441,6 +451,7 @@ class TaskDialog extends DialogBase {
         const dtInput = document.createElement('input');
         dtInput.type = 'datetime-local';
         dtInput.name = 'schedDatetime';
+        dtInput.setAttribute('aria-label', 'Date & Time');
         dtInput.value = TaskSchedule.toLocalInput(sched);
         dtInput.className = 'dialog__input';
         schedConfig.appendChild(dtLbl);
@@ -550,6 +561,7 @@ class TaskDialog extends DialogBase {
     input.type = type;
     input.name = name;
     input.value = value;
+    input.setAttribute('aria-label', label);
     input.placeholder = placeholder || '';
     input.className = 'dialog__input';
     wrapper.appendChild(lbl);

@@ -76,6 +76,7 @@ class SettingsDialog extends DialogBase {
     const label = document.createElement('span');
     label.className = 'settings-sheet__label';
     label.textContent = labelText;
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(control.tagName)) control.setAttribute('aria-label', labelText);
     row.appendChild(label);
     row.appendChild(control);
     return row;
@@ -112,6 +113,7 @@ class SettingsDialog extends DialogBase {
     size.type = 'range';
     size.className = 'settings-sheet__range';
     size.dataset.testid = 'settings-text-size';
+    size.setAttribute('aria-label', 'Text size');
     size.min = '10';
     size.max = '20';
     size.step = '1';
