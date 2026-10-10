@@ -34,11 +34,14 @@ function runToEnd(file, args, env) {
 }
 
 class Stack {
-  constructor({ fakerelay, relayscheduler, world, network, scheduler }) {
+  constructor({ fakerelay, relayscheduler, world, network, scheduler, publicOrigin = null, trustedSubnets = null, plansDir = 'agent' }) {
     this.bins = { fakerelay, relayscheduler };
     this.world = world;
     this.network = network;
     this.scheduler = scheduler;
+    this.publicOrigin = publicOrigin;
+    this.trustedSubnets = trustedSubnets;
+    this.plansMode = plansDir;
     this.watchers = new Set();
     this.exited = null;
     this.child = null;
@@ -47,6 +50,21 @@ class Stack {
   }
 
   get relayDir() { return path.join(this.root, 'r'); }
+
+  // Where fakerelay writes the plan files of `plan` replies.
+  get plansDir() { return path.join(this.relayDir, 'home', '.claude', 'plans'); }
+
+  // Fault injection: deletes every *.md in the plans dir. Resolves after the unlinks, with the count.
+  async removePlanFiles() {
+    let names;
+    try { names = await fs.promises.readdir(this.plansDir); } catch (err) {
+      if (err.code === 'ENOENT') return 0;
+      throw err;
+    }
+    const plans = names.filter((n) => n.endsWith('.md'));
+    await Promise.all(plans.map((n) => fs.promises.unlink(path.join(this.plansDir, n))));
+    return plans.length;
+  }
 
   childEnv() {
     return { PATH: process.env.PATH, HOME: path.join(this.root, 'home'), TMPDIR: path.join(this.root, 'tmp'), TZ: 'UTC' };
@@ -67,6 +85,10 @@ class Stack {
       STT_PORT: String(this.voiceFakes.sttPort),
     };
     if (this.network === 'untrusted') eveEnv.EVE_DISABLE_SUBNET_BYPASS = '1';
+    if (this.publicOrigin) eveEnv.EVE_PUBLIC_ORIGIN = this.publicOrigin;
+    if (this.trustedSubnets) eveEnv.EVE_TRUSTED_SUBNETS = this.trustedSubnets;
+    if (this.plansMode === 'agent') eveEnv.EVE_PLANS_DIR = this.plansDir;
+    else if (this.plansMode !== 'eve') throw new Error(`plansDir must be 'agent' or 'eve', got ${this.plansMode}`);
     world.services = [];
     if (this.scheduler) {
       const dir = path.join(this.root, 'sched');
@@ -97,7 +119,8 @@ class Stack {
   }
 
   async start() {
-    this.root = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-'));
+    // Real path: on macOS os.tmpdir() is under the /var symlink, and eve compares plan paths textually before its realpath check.
+    this.root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ev-')));
     for (const d of ['r', 'eve', 'sched', 'home', 'tmp']) fs.mkdirSync(path.join(this.root, d));
     this.checkSocketPaths();
 

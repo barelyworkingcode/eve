@@ -14,6 +14,8 @@ function viewersWorld() {
     'manual.pdf': '%PDF-1.4\n%%EOF\n',
     'clip.mp4': 'this is not a video\n',
     'tune.mp3': 'this is not audio\n',
+    'clip.webm': worlds.media.webm(),
+    'tune.wav': worlds.media.wav(),
   };
   return w;
 }
@@ -54,11 +56,42 @@ test('open a PDF file @G7.17', async ({ eve, page, relay }) => {
   await relay.waitForEvent('file.stream', { since, match: (l) => l.status === 'ok' });
 });
 
+test('open a video file @G7.18', async ({ eve, page, relay }) => {
+  await eve.open('/');
+  const tree = await openFiles(page);
+  const since = relay.mark();
+  await tree.getByRole('treeitem', { name: 'clip.webm', exact: true }).click();
+  const player = page.getByLabel('Video clip.webm', { exact: true });
+  await expect(player).toBeVisible();
+  await expect(player).toHaveJSProperty('controls', true);
+  await expect(page.getByText('/clip.webm')).toBeVisible();
+  await relay.waitForEvent('file.stream', { since, match: (l) => l.status === 'ok' });
+  // The length is the time the native controls show; decoding has no app hook, so the expect bound is the wait.
+  await expect(player).toHaveJSProperty('duration', 1.008);
+});
+
 test('a video that will not play says so @G7.18.r1', async ({ eve, page }) => {
   await eve.open('/');
   const tree = await openFiles(page);
   await tree.getByRole('treeitem', { name: 'clip.mp4', exact: true }).click();
   await expect(page.getByText('Failed to load video')).toBeVisible();
+});
+
+test('open an audio file @G7.19', async ({ eve, page, relay }) => {
+  await eve.open('/');
+  const tree = await openFiles(page);
+  const since = relay.mark();
+  await tree.getByRole('treeitem', { name: 'tune.wav', exact: true }).click();
+  const player = page.getByLabel('Audio tune.wav', { exact: true });
+  await expect(player).toBeVisible();
+  await expect(player).toHaveJSProperty('controls', true);
+  // The main area shows tune.wav twice: the tab and the viewer's own name line.
+  // Without the viewer's line only the tab is left, so the count drops to 1.
+  await expect(
+    page.getByRole('main').getByText('tune.wav', { exact: true }).filter({ visible: true }),
+  ).toHaveCount(2);
+  await relay.waitForEvent('file.stream', { since, match: (l) => l.status === 'ok' });
+  await expect(player).toHaveJSProperty('duration', 1);
 });
 
 test('an audio file that will not play says so @G7.19.r1', async ({ eve, page }) => {

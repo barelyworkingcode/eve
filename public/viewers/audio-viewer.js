@@ -29,6 +29,7 @@ class AudioViewer {
     audio.src = url;
     audio.controls = true;
     audio.preload = 'metadata';
+    audio.setAttribute('aria-label', `Audio ${filename}`);
 
     audio.addEventListener('error', () => {
       wrapper.innerHTML = '';

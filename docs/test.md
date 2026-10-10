@@ -58,6 +58,11 @@ Options, set with `test.use`:
 | `world` | `worlds.base()` | fakerelay world, schema 1 (`docs/fakerelay.md` in the relay repo). Setting `services` throws: the fixture owns them. `listeners.api` is off unless the world sets it. |
 | `network` | `'trusted'` | `'untrusted'` sets `EVE_DISABLE_SUBNET_BYPASS=1`, so the Sign-in screen shows. |
 | `scheduler` | `true` | `false` leaves relayScheduler out, for "scheduler down" refusals. |
+| `publicOrigin` | `null` | Sets `EVE_PUBLIC_ORIGIN`, e.g. `'https://eve.acme.test'`. The app never reaches `data-ready` under it (the WebSocket needs that origin), so open with `eve.openByIp` or `preReady`. |
+| `trustedSubnets` | `null` | Sets `EVE_TRUSTED_SUBNETS`, e.g. `'192.0.2.0/24'`, replacing the default trusted set. |
+| `plansDir` | `'agent'` | `'agent'` sets `EVE_PLANS_DIR` to fakerelay's plans dir (`<relay dir>/home/.claude/plans`), where `plan` replies write. `'eve'` leaves it unset, so eve uses its own default (a plan written on another machine). |
+
+`worlds.media.webm()` and `worlds.media.wav()` return `{ base64 }`, a world file value of about 1 s that plays in Playwright's Chromium: `files: { 'clip.webm': worlds.media.webm() }`.
 
 `worlds.base()` is one project `Acme` (id `p_acme`, work mode, a `README.md`) as the work default, with relay's fixed `haiku`, `sonnet` and `opus` models and the echo reply.
 
@@ -65,8 +70,9 @@ Fixtures, one set per test:
 
 | Fixture | Members |
 |---|---|
-| `eve` | `url`; `open(path = '/', { preReady, weakConnection })`, which returns once `<html data-ready="1">` is set; `reload({ preReady })`; `ready()`, which waits for `<html data-ready="1">`; `signOut()`; `setOffline(offline)`. `preReady` (a non-empty reason string) returns at `domcontentloaded`, for rows that act before eve is ready. |
-| `relay` | `dir`; `cli(...argv)` (relay verbs as the feature map writes them: `cli('eve', 'list')`) and `ctl(...argv)` (presence, faults, host status, fs events, clock), both `{ code, stdout, stderr }`; `json(...argv)`; `mark()` (now, for `since`); `logs({ event, since })`; `waitForEvent(event, { since, match })`. |
+| `eve` | `url`; `openByIp(path = '/')` (opens `http://192.0.2.10:<eve port><path>`; support forwards the browser's requests to eve's real listener with `Host: 192.0.2.10:<port>`, so eve sees a bare-IP visit; resolves at `domcontentloaded`); `open(path = '/', { preReady, weakConnection })`, which returns once `<html data-ready="1">` is set; `reload({ preReady })`; `ready()`, which waits for `<html data-ready="1">`; `signOut()`; `setOffline(offline)`. `preReady` (a non-empty reason string) returns at `domcontentloaded`, for rows that act before eve is ready. |
+| `relay` | `dir`; `cli(...argv)` (relay verbs as the feature map writes them: `cli('eve', 'list')`) and `ctl(...argv)` (presence, faults, host status, fs events, clock), both `{ code, stdout, stderr }`; `json(...argv)`; `mark()` (now, for `since`); `logs({ event, since })`; `waitForEvent(event, { since, match })`; `removePlanFiles()` (fault injection: deletes every `*.md` in fakerelay's plans dir, resolves after the unlinks with the count). |
+| `desktop` | `dropFiles(target, files)`: one `DataTransfer` holding every `{ name, text?, size?, type? }` file (`size` fills zero bytes), then `dragenter`, `dragover` and `drop` on the `target` locator. Returns once `drop` is dispatched; wait on the effect (for example `file.write`). |
 | `passkey` | `enable()` (Chromium virtual authenticator: ctap2, internal, resident key, user verification); `credentials()`; `setPresence(ok)` (false: the next ceremony gets no presence or verification); `replace()` (a fresh, empty authenticator; returns the old one's credentials). |
 | `voice` | `tts` and `stt`, each with `requests` (live), `waitForRequest(match)` and `reply(...)`. |
 | `profiles` | `phone` (Pixel 7) and `tablet` (Galaxy Tab S4), for `test.use(profiles.phone)`. |
@@ -148,7 +154,7 @@ A setup failure throws a named error: `fakerelay exited <code> before ready: <st
 | E5 screen only | `test/e2e/*.spec.js` | `locator`, `frameLocator`, `getByTestId`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `$`, `$$`, `$eval`, `$$eval`, `waitForSelector`, `evaluate`, `evaluateAll`, `evaluateHandle`, `waitForFunction`, `addInitScript`, `addScriptTag`, `exposeFunction`, `exposeBinding`, `route`, `routeWebSocket`, `unroute`, `request`, `goto`, `newCDPSession` on any receiver; `reload` on any receiver but `eve`; destructuring any of them; a `request` fixture parameter |
 | E6 spec imports | `test/e2e/*.spec.js` | any `require` but `./support/fixtures` and `./support/worlds`, and any `import` |
 
-Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`last`/`nth`, `page.keyboard`, `page.mouse`, `page.touchscreen`, `setInputFiles`, `expect`, and the fixtures (`eve.open`, `eve.reload`, `eve.ready`, `eve.signOut`, `eve.setOffline`, `relay`, `passkey`, `voice`).
+Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`last`/`nth`, `page.keyboard`, `page.mouse`, `page.touchscreen`, `setInputFiles`, `boundingBox` (geometry rows), `toHaveJSProperty('duration', ...)` on a media element found by label, `expect`, and the fixtures (`eve.open`, `eve.reload`, `eve.ready`, `eve.signOut`, `eve.setOffline`, `eve.openByIp`, `relay`, `desktop`, `passkey`, `voice`).
 
 `npm run check:static` (`scripts/check-static.js`, plain Node) holds the rest. One finding per line, `<check>: <file>[:<line>]: <what>`; exit 0 clean, 1 findings, 2 usage or an unreadable input. The frozen sets are in `test/static/frozen.json` (`wsTypes`, `expensiveTypes`, `asyncHandlers`, `breakpoints`, `journeys`), so a deliberate change shows in the diff.
 

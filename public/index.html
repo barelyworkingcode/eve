@@ -287,9 +287,9 @@
         <!-- Editor content area -->
         <div id="editor" class="editor-content hidden">
           <div class="editor-panes">
-            <div id="monacoEditor" class="monaco-editor"></div>
-            <div class="editor-split-divider"></div>
-            <div id="markdownPreview" class="markdown-preview"></div>
+            <div id="monacoEditor" class="monaco-editor" role="region" aria-label="Editor pane"></div>
+            <div class="editor-split-divider" role="separator" aria-orientation="vertical" aria-label="Resize editor and preview"></div>
+            <div id="markdownPreview" class="markdown-preview" role="region" aria-label="Preview pane"></div>
           </div>
           <div class="editor-status">
             <span id="editorPath" class="editor-path"></span>

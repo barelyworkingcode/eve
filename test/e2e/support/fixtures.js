@@ -16,6 +16,9 @@ function profile(name) {
 }
 const profiles = { phone: profile('Pixel 7'), tablet: profile('Galaxy Tab S4') };
 
+// TEST-NET-1: never routable, so only the forward below can answer it.
+const BARE_IP = '192.0.2.10';
+
 const AUTHENTICATOR_OPTIONS = {
   protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
   isUserVerified: true, automaticPresenceSimulation: true,
@@ -61,13 +64,16 @@ const test = base.test.extend({
   world: [worlds.base(), { option: true }],
   network: ['trusted', { option: true }],
   scheduler: [true, { option: true }],
+  publicOrigin: [null, { option: true }],
+  trustedSubnets: [null, { option: true }],
+  plansDir: ['agent', { option: true }],
 
   // The running stack. Not for specs: they use eve, relay, passkey and voice.
-  stack: async ({ world, network, scheduler }, use, testInfo) => {
+  stack: async ({ world, network, scheduler, publicOrigin, trustedSubnets, plansDir }, use, testInfo) => {
     const stack = new Stack({
       fakerelay: process.env.EVE_E2E_FAKERELAY,
       relayscheduler: process.env.EVE_E2E_RELAYSCHEDULER,
-      world, network, scheduler,
+      world, network, scheduler, publicOrigin, trustedSubnets, plansDir,
     });
     let setupError = null;
     try {
@@ -121,6 +127,23 @@ const test = base.test.extend({
         await page.reload({ waitUntil: 'domcontentloaded' });
       },
       setOffline: (offline) => context.setOffline(offline),
+      // Opens http://192.0.2.10:<eve port><path>. The browser's requests to that address are
+      // forwarded to eve's real listener with Host 192.0.2.10:<port>, so eve sees a bare-IP visit.
+      // Resolves at domcontentloaded: under publicOrigin the app never reaches data-ready.
+      async openByIp(urlPath = '/') {
+        const port = new URL(stack.url).port;
+        const host = `${BARE_IP}:${port}`;
+        await context.route(`http://${host}/**`, async (route) => {
+          const req = route.request();
+          const res = await route.fetch({
+            url: stack.url + new URL(req.url()).pathname + new URL(req.url()).search,
+            headers: { ...req.headers(), host },
+            maxRedirects: 0,
+          });
+          await route.fulfill({ response: res });
+        });
+        await page.goto(`http://${host}${urlPath}`, { waitUntil: 'domcontentloaded' });
+      },
     });
   },
 
@@ -133,11 +156,31 @@ const test = base.test.extend({
       mark: () => new Date().toISOString(),
       logs: (opts) => stack.logs(opts),
       waitForEvent: (event, opts) => stack.waitForEvent(event, opts),
+      removePlanFiles: () => stack.removePlanFiles(),
     });
   },
 
   passkey: async ({ page, context }, use) => {
     await use(passkeyFor(page, context));
+  },
+
+  desktop: async ({ page }, use) => {
+    await use({
+      // One DataTransfer holding every file; dragenter, dragover, then drop on the target.
+      // `size` fills that many zero bytes. Returns once drop is dispatched.
+      async dropFiles(target, files) {
+        await target.evaluate((el, specs) => {
+          const dt = new DataTransfer();
+          for (const f of specs) {
+            const body = f.size !== undefined ? new Uint8Array(f.size) : (f.text ?? '');
+            dt.items.add(new File([body], f.name, { type: f.type ?? '' }));
+          }
+          for (const type of ['dragenter', 'dragover', 'drop']) {
+            el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
+          }
+        }, files);
+      },
+    });
   },
 
   voice: async ({ stack }, use) => {
