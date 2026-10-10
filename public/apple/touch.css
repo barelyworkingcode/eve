@@ -13,8 +13,8 @@
      so they are excluded here to keep the layout unchanged. */
   /* Generic: every control is at least 44x44. `:root` lifts these above the
      single-class rules (a smaller min-height set per component) without !important. */
-  :root :is(button, a[href], select, summary, textarea, [role="button"]:not(.project-tree__folder-name, .project-tree__task-name),
-      [role="tab"]:not(.tab-label), [role="radio"], [role="menuitem"], [role="option"]),
+  :root :is(button, a[href], select, summary, textarea, [role="button"]:not(:where(.project-tree__folder-name, .project-tree__task-name)),
+      [role="tab"]:not(:where(.tab-label)), [role="radio"], [role="menuitem"], [role="option"]),
   [tabindex]:not([tabindex="-1"]),
   :root input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
     min-width: 44px;

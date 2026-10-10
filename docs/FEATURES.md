@@ -99,7 +99,7 @@ The first step of every Simple door is one of these names. Relay and the iOS app
 ## How to read a row
 
 - **ID**: `G7.5` is goal G7, row 5. IDs never change and are never reused; a removed row moves to Retired IDs.
-- **Simple door**: the steps an everyday person takes, joined by `>`. A control is written `role "name"`. Roles are ARIA roles as Playwright's `getByRole` takes them: number inputs are spinbutton and range inputs are slider. Each written name is the control's accessible name, and the journeys find it with `getByRole(role, { name, exact: true })`. A pop-up menu is a `menu` and its entries are `menuitem`s; a dialog is a `dialog` named by its title.
+- **Simple door**: the steps an everyday person takes, joined by `>`. A control is written `role "name"`. Roles are ARIA roles as Playwright's `getByRole` takes them: number inputs are spinbutton and range inputs are slider. Each written name is the control's accessible name. The feature specs and proofs find a control with `getByRole(role, { name, exact: true })`; the devbox journeys find controls by `title` and testid, not `getByRole`. A pop-up menu is a `menu` and its entries are `menuitem`s; a dialog is a `dialog` named by its title, or by its input's placeholder when it has no title (the command palette).
 - **Power door**: the config key or relay CLI verb a power user uses, or `none`.
 - **Screen proof** and **Relay proof**: what the person sees, and what relay changes or records. **Refusals** are numbered `r1`, `r2`, so `G7.2.r1` names one.
 - **Journey** is the devbox journey that covers the row; **Spec** is the automated test, `none yet` until one names the row.
