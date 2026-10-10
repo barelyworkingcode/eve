@@ -162,8 +162,15 @@ function checkAreaMap(frozen, add) {
   const { parseMap, unmapped, fixedTrigger, SMOKE } = require(abs('devboxverify/areas'));
   const { journeys } = require(abs('devboxverify/journeys'));
   const map = parseMap(read('docs/areas.jsonc'));
-  for (const f of unmapped(map, trackedFiles().filter((t) => !fixedTrigger(t)))) {
+  const tracked = trackedFiles();
+  for (const f of unmapped(map, tracked.filter((t) => !fixedTrigger(t)))) {
     add('S7', f, 'in no area and not quiet; add it to docs/areas.jsonc');
+  }
+  // M4: an app file must reach an area, not only `quiet`.
+  const { mapFindings } = require(abs('scripts/spec-map'));
+  for (const f of mapFindings({ areaMap: map, featureMap: null, trackedFiles: tracked, pendingGoals: new Set() }, ['M4'])) {
+    const cut = f.indexOf(': ');
+    add('S7', f.slice(0, cut), f.slice(cut + 2));
   }
   const known = new Set(Object.keys(map.areas));
   for (const j of journeys) for (const a of j.areas) if (!known.has(a)) add('S7', 'devboxverify/journeys.js', `journey ${j.id} names area "${a}", which docs/areas.jsonc lacks`);
@@ -231,9 +238,22 @@ function checkWriterGuard(frozen, add) {
   }
 }
 
+// ---- S11 self-tests ----
+// Every test/static/*-selftest.js runs as a child process and must exit 0.
+function checkSelfTests(frozen, add) {
+  const dir = 'test/static';
+  for (const name of fs.readdirSync(abs(dir)).filter((n) => n.endsWith('-selftest.js')).sort()) {
+    const r = spawnSync(process.execPath, [abs(`${dir}/${name}`)], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    if (r.error || r.status !== 0) {
+      const why = r.error ? r.error.message : `exit ${r.status}: ${(r.stderr || r.stdout || '').trim().split('\n')[0]}`;
+      add('S11', `${dir}/${name}`, `self-test failed (${why})`);
+    }
+  }
+}
+
 const CHECKS = [
   checkFilePlane, checkIframeSandbox, checkPublicExposure, checkBreakpoints, checkWsSurface,
-  checkWsRegistry, checkAreaMap, checkJourneySet, checkJourneyBodies, checkWriterGuard,
+  checkWsRegistry, checkAreaMap, checkJourneySet, checkJourneyBodies, checkWriterGuard, checkSelfTests,
 ];
 
 function main(argv, { out = console.log, err = console.error } = {}) {

@@ -166,10 +166,11 @@ Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`las
 | S4 | every width media query in `public/**/*.css` is in `frozen.breakpoints` |
 | S5 | the client message types equal `frozen.wsTypes`, and each is named in `docs/api.md` |
 | S6 | the expensive types equal `frozen.expensiveTypes`; the async handlers equal `frozen.asyncHandlers` |
-| S7 | every tracked file is in an area or `quiet` in `docs/areas.jsonc`; every journey area exists; the smoke set stays plain journeys, and `chat-reply` runs before `open-existing-thread` and `listen` |
+| S7 | every tracked file is in an area or `quiet` in `docs/areas.jsonc`; every app file (under `public/`, `routes/`, `ws/`, `mcp/`, or a root `*.js` that is not `*.config.js`; never `*.md`) is in an area, not only `quiet` (rule M4); every journey area exists; the smoke set stays plain journeys, and `chat-reply` runs before `open-existing-thread` and `listen` |
 | S8 | the devbox journey set (ids, needs, areas, timeout, screen and fixture flags, run order) equals `frozen.journeys` |
 | S9 | no journey function body in `devboxverify/journeys.js`, `journeys-auth.js` or `journey-kit.js` names a world fixture directly |
 | S10 | `node .claude/hooks/eve-test-writer-guard.js --self-test` exits 0 |
+| S11 | every `test/static/*-selftest.js` exits 0 |
 
 Guards 9 (burn-in), 7, 8 and 12 are the CI burn-in step and E5, E3 and E4. A deliberate change to a frozen set edits `test/static/frozen.json` in the same PR.
 
@@ -185,12 +186,34 @@ A test names its row in its title: `test('greeting and summary line @G1.3', …)
 - Every test carries at least one row tag, every tag names a live row (and an `r<k>` that row has), and that row's Spec cell names the test's file.
 - Once a goal is off the pending list, every refusal `r<k>` of its rows is tagged by a test in a named file, unless the cell has a `devbox:` item.
 
+The same command holds the map rules (`scripts/spec-map.js`; M4 is S7 above). A spec's areas are the `Areas` cells in the Goals table of the goals whose rows name it.
+
+| Rule | Holds |
+|---|---|
+| M2 | every spec named by a row resolves to at least one area defined in `docs/areas.jsonc`; no tracked `*.spec.js` lies outside the top level of `test/e2e/` |
+| M3 | every area that is not `full` and not journey-only is listed by a goal and selects at least one spec; an area waits while any goal listing it is in `coverage-pending.txt` |
+| syntax | every area in the Goals table is defined in `docs/areas.jsonc`; "## Areas" in `docs/FEATURES.md` has one `Journey-only:` line, `none` or a comma-separated list of defined areas |
+
+### Test selection
+
+`node scripts/select-specs.js (--base REV [--head REV] | --full) [--labels-json JSON] [--env FILE] [--summary FILE]` picks the specs a PR's e2e job runs. It prints `AREAS`, `SPECS <n>/<N>`, `UNMAPPED <path>`, `NARROWED <path> <spec,...>` and, on success, `RUN all|none|<paths>`. Exit 0 selected; 1 a map finding, an unmapped path or narrowing without the label; 2 usage or a git error, such as a shallow clone. No error path runs the whole suite. `--env` appends `SELECT_MODE` and `SELECT_SPECS`; `--summary` appends the job summary.
+
+Per changed path (`git diff --no-renames --name-only -z base...head`):
+
+1. A spec at head runs itself.
+2. A spec-harness file (`test/e2e/support/**`, `test/e2e/relay-pin.json`, `playwright.config.js`) runs every spec.
+3. Any other path takes the areas of the base map plus the head map. In no area and not `quiet` in either: `UNMAPPED`. A `full` area runs every spec. `quiet` only runs nothing. Otherwise it runs every spec present at head that the rows of a goal listing the area name, in either map.
+4. Narrowing is read at the merge base and at head. For each tracked file at head, a spec the merge-base map selects and the head map does not is `NARROWED`, and so is an area added to `Journey-only:`. The PR label `map-narrowing-approved`, applied only by the owner, allows it.
+
+A push to `main` runs every spec (`--full`). The M2 to M4 checks run in the `check` job, so a gap in the map fails there as well.
+
 ## CI and hooks
 
 `.github/workflows/ci.yml`:
 
 - `check`: `npm ci`, `node --check` on every tracked JS file, `npm run -s lint`, `npm run -s check:static`, `npm run -s check:coverage`.
-- `e2e` (every PR and every push to `main`; Ubuntu, 30 minutes): builds the fakes from the pin, installs Chromium, runs `npx playwright test`. On a PR it then runs the burn-in: `node scripts/burn-in-specs.js "$BASE_SHA" "$HEAD_SHA"` lists the specs the PR adds or changes (top-level `test/e2e/*.spec.js` only), and `npx playwright test --repeat-each=5 --retries=0 <specs>` runs them. A change to `test/e2e/support/` or `playwright.config.js` lists none. On failure the job uploads `playwright-report/` and `test-results/` (7 days). CI skips the browser lock.
+- `e2e` (every PR and every push to `main`; Ubuntu, 30 minutes): first `select specs` (`--base`/`--head` on a PR, `--full` otherwise; see "Test selection"), which fails the job on an unmapped path or unapproved narrowing before any spec runs. Unless the mode is `none`, it builds the fakes from the pin, installs Chromium and runs `npx playwright test` (mode `all`) or `npx playwright test $SELECT_SPECS`. The job summary lists the areas, the specs run and the count not run. On a PR it then runs the burn-in: `node scripts/burn-in-specs.js "$BASE_SHA" "$HEAD_SHA"` lists the specs the PR adds or changes (top-level `test/e2e/*.spec.js` only), and `npx playwright test --repeat-each=5 --retries=0 <specs>` runs them. A change to `test/e2e/support/` or `playwright.config.js` lists none. On failure the job uploads `playwright-report/` and `test-results/` (7 days). CI skips the browser lock.
+- Both workflows also run on `labeled` and `unlabeled`, so adding or removing a PR label reruns every job.
 - `guards.yml` (tests-only, skip-focus, hygiene) is unchanged.
 
 The local hooks are under "Local hooks" above.

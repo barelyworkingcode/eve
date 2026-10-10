@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
   workflow_dispatch:
@@ -54,11 +55,35 @@ jobs:
           go-version: 1.25.x
           cache: false
       - run: npm ci
+      # Fails the job on an unmapped path or unapproved narrowing, and never
+      # falls back to the whole suite. A push runs every spec.
+      - name: select specs
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            node scripts/select-specs.js --base "$BASE_SHA" --head "$HEAD_SHA" \
+              --labels-json "$LABELS_JSON" --env "$GITHUB_ENV" --summary "$GITHUB_STEP_SUMMARY"
+          else
+            node scripts/select-specs.js --full --env "$GITHUB_ENV" --summary "$GITHUB_STEP_SUMMARY"
+          fi
       - name: build fakerelay and relayScheduler from the pin
+        if: env.SELECT_MODE != 'none'
         run: node test/e2e/support/build-fakes.js
-      - run: npx playwright install --with-deps chromium
+      - if: env.SELECT_MODE != 'none'
+        run: npx playwright install --with-deps chromium
       - name: playwright test
-        run: npx playwright test
+        if: env.SELECT_MODE != 'none'
+        run: |
+          if [ "$SELECT_MODE" = all ]; then
+            npx playwright test
+          else
+            # Word splitting is the point: one argument per spec path.
+            npx playwright test $SELECT_SPECS
+          fi
       # Each spec a PR adds or changes runs five times with retries off, so a
       # flake shows before merge. Specs only; see scripts/burn-in-specs.js.
       - name: burn-in
