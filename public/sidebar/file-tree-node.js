@@ -130,6 +130,8 @@ class FileTreeNode {
 
   renderTree(projectId, containerEl) {
     containerEl.innerHTML = '';
+    containerEl.setAttribute('role', 'tree');
+    containerEl.setAttribute('aria-label', 'Files');
     const entries = this._getCachedDir(projectId, '/');
     if (!entries) {
       this._loadDirectory(projectId, '/');
@@ -166,6 +168,10 @@ class FileTreeNode {
       // be scrolled on mobile. Leave rows undraggable there.
       item.draggable = !IS_TOUCH;
       item.dataset.testid = `file-tree-item-${entryPath}`;
+      item.setAttribute('role', 'treeitem');
+      item.setAttribute('aria-label', entry.name);
+      item.setAttribute('aria-level', String(depth + 1));
+      if (isDir) item.setAttribute('aria-expanded', String(isExpanded));
 
       if (isDir) {
         const chevron = document.createElement('span');
