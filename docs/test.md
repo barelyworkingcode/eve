@@ -107,6 +107,16 @@ A fault is `--route` (required), `--mode` and these optional flags: `--times N` 
 
 Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and `stt-service.js`, on `127.0.0.1` with a free port. TTS answers every synth with a silent 30 s WAV and `list_voices` with one voice. STT answers `ping` with ok and every transcription with `hello from the test microphone`. `reply({ seconds })`, `reply({ text })` or `reply({ error })` changes the answer for later requests.
 
+#### Request shapes a spec can match on
+
+Each entry in `voice.tts.requests` and `voice.stt.requests` is the parsed JSON object eve sent, with eve's field names. `ping` requests are not recorded.
+
+- TTS synth: `{ text, voice, speed }`, plus `trace_id` when eve has one, `instruct` when set, and `gain` when it is not 1.0. It has no `action` field. `voice` defaults to `af_heart` and `speed` to `1.0`. Match with `waitForRequest((r) => r.text === '...')` or on `r.speed`.
+- TTS voice list: `{ action: 'list_voices' }`.
+- STT transcription: `{ audio_base64 }`, plus `trace_id`, plus `language` when one is chosen. It has no `action` field. `audio_base64` is the recording in whatever format the browser recorded (any format ffmpeg decodes), not a WAV; match on its presence or length, not its bytes.
+- STT availability check: `{ action: 'ping' }`. The fake answers it but does not record it.
+- Replies: TTS `{ success, audio_base64, sample_rate, duration }`; STT `{ success, text, language, duration }`; an error reply is `{ success: false, error }`.
+
 Specs never touch `context.newCDPSession`, child processes or the file system; those live in `test/e2e/support/`.
 
 ### What each test gets
