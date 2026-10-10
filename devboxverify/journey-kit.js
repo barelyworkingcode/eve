@@ -90,7 +90,8 @@ async function openProjectPage(page, env, project) {
 async function openEditProject(page, env, project) {
   env.step(`edit ${project.name}`);
   await page.getByTestId(`sidebar-project-more-${project.id}`).click({ timeout: 10000 });
-  await page.locator('.file-tree__context-menu').getByRole('button', { name: 'Edit Project', exact: true }).click({ timeout: 5000 });
+  const menu = page.locator('.file-tree__context-menu');
+  await menu.getByRole('menuitem', { name: 'Edit Project', exact: true }).or(menu.getByRole('button', { name: 'Edit Project', exact: true })).click({ timeout: 5000 });
   const dialog = page.getByTestId('dialog-project-dialog');
   await need('Edit Project did not open', expect(dialog).toBeVisible({ timeout: 10000 }));
   return dialog;
