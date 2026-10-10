@@ -6,7 +6,7 @@
 {
   "quiet": ["**/*.md", "docs/**", "design/**", "test/**", ".claude/**", ".github/**", ".githooks/**",
     "LICENSE", ".gitignore", ".env.example", "eslint.config.js", "jest.config.js", "jest.integration.config.js",
-    "playwright.config.js", "scripts/burn-in-specs.js", "scripts/check-static.js", "scripts/check-coverage.js", "scripts/ci-guards.sh", "scripts/lint-added-waits.js",
+    "playwright.config.js", "scripts/burn-in-specs.js", "scripts/check-static.js", "scripts/check-coverage.js", "scripts/spec-map.js", "scripts/select-specs.js", "scripts/map-proof.js", "scripts/ci-guards.sh", "scripts/lint-added-waits.js",
     "scripts/prune-css.js", "scripts/gen-cert.sh", "scripts/make-ios-ca-profile.sh"],
   "areas": {
     // Shared plumbing: a change here runs every journey.
