@@ -12,6 +12,7 @@ class TTSManager {
     this.audioContext = null;
     this.queue = [];
     this.isPlaying = false;
+    this._pendingDecodes = 0;
     this.currentSource = null;
     this.button = null;
     this.isNativeApp = IS_NATIVE_APP;
@@ -286,6 +287,9 @@ class TTSManager {
   }
 
   async _enqueueArrayBuffer(arrayBuffer) {
+    // tts_done can arrive while decodeAudioData is still running; the counter
+    // keeps markTTSDone() from ending playback before the chunk is queued.
+    this._pendingDecodes++;
     try {
       await this._ensureAudioContext();
       if (this.audioContext.state !== 'running') {
@@ -302,6 +306,11 @@ class TTSManager {
     } catch (err) {
       this.log.error('Failed to enqueue audio:', err, 'audioContext state:', this.audioContext?.state);
       this.app.voiceChatManager?.handleError('Audio playback failed');
+    } finally {
+      this._pendingDecodes--;
+      if (this._pendingDecodes === 0 && this._ttsDoneReceived && !this.isPlaying && this.queue.length === 0) {
+        this._finishPlayback();
+      }
     }
   }
 
@@ -353,7 +362,7 @@ class TTSManager {
       this.app.voiceChatManager.nativeAudio.endTTSTurn();
       return;
     }
-    if (!this.isPlaying && this.queue.length === 0) {
+    if (!this.isPlaying && this.queue.length === 0 && this._pendingDecodes === 0) {
       this._finishPlayback();
     }
   }
