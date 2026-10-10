@@ -2,12 +2,13 @@
  * VoiceModes — the chat's voice UI: the Text / Talk / Hands-free control above
  * the composer, the hold-to-talk button, and the "Speak replies" header button.
  *
- * VoiceChatManager stays the audio engine (orb view, VAD, native audio);
+ * VoiceChatManager stays the audio engine (VAD, native audio, Hands-free);
  * STTManager records and returns words; TTSManager plays replies. This class
  * only decides what the chat shows and wires those three together.
  *
  * Mode is per page load (not stored). The speaker is per device: localStorage
- * `eve-speaker` 'on' | 'off', absent = off.
+ * `eve-speaker` 'on' | 'off', absent = off. Hands-free always speaks and never
+ * writes the speaker setting; leaving it puts the stored setting back.
  */
 class VoiceModes {
   static MODES = [
@@ -18,6 +19,15 @@ class VoiceModes {
   static SPEAKER_KEY = 'eve-speaker';
   static HOLD_LABEL = 'Hold to talk';
   static RELEASE_LABEL = 'Release to send';
+  static REMINDER_TEXT = "I'm still here.";
+  static REMINDER_DEFAULT_SECONDS = 300;
+  static STATE_TEXT = {
+    starting: 'Starting…',
+    listening: 'Listening…',
+    hearing: 'Listening…',
+    thinking: 'Thinking…',
+    speaking: 'Speaking…',
+  };
 
   constructor(container) {
     this.container = container;
@@ -30,9 +40,17 @@ class VoiceModes {
     this._starting = false;     // recorder is being opened
     this._awaitingFinal = false; // released; the words are still coming back
     this._talkSessionId = null;
+    this._state = null;          // Hands-free: starting | listening | hearing | thinking | speaking
+    this._entry = 0;             // bumps on every Hands-free start and end
+    this._hfStarting = false;
+    this._stopped = null;        // settles when a Hands-free native session is down
+    this._reminderSeconds = null;
+    this._reminderTimer = null;
     this.radios = new Map();
     this.speakerBtn = null;
+    this.settingsBtn = null;
     this.talkBtn = null;
+    this.statusEl = null;
   }
 
   get mode() { return this._mode; }
@@ -43,7 +61,11 @@ class VoiceModes {
     if (!this.form) return;
     this._buildModeControl();
     this._buildTalkButton();
+    this._buildHandsFreeNote();
+    this._buildStatus();
     this._buildSpeakerButton();
+    this._buildSettingsButton();
+    this.bus.on(EVT.VOICE_STATE, (e) => this._onVoiceState(e));
 
     // Boot: the stored setting decides whether replies are spoken.
     this.app.ttsManager.setEnabled(this._speakerOn);
@@ -66,11 +88,13 @@ class VoiceModes {
     if (!VoiceModes.MODES.some(m => m.id === mode) || mode === this._mode) return;
     if (mode === 'handsfree' && !this.app.currentSessionId) return;
     if (this._holding || this._starting) this._cancelTalk();
+    const leaving = this._mode === 'handsfree';
     this._mode = mode;
+    if (leaving) this._endHandsFree(); // inside the tap: listening and speech stop now
+    if (mode === 'handsfree') this.app.ttsManager.unlockAudio(); // iOS: inside the tap
     this._render();
     this.bus.emit(EVT.VOICE_MODE_CHANGED, { mode, sessionId: this.app.currentSessionId });
-    // In this batch Hands-free is today's orb view, so there is no dead control.
-    if (mode === 'handsfree') this.app.voiceChatManager.convertToVoiceChat();
+    if (mode === 'handsfree') this._enterHandsFree();
   }
 
   setSpeaker(on) {
@@ -89,11 +113,181 @@ class VoiceModes {
   onChatShown(sessionId) {
     if (this._holding || this._starting) this._cancelTalk();
     if (this._mode === 'handsfree') {
+      // The view's show already stopped the engine.
       this._mode = 'text';
+      this._endHandsFree();
       this.bus.emit(EVT.VOICE_MODE_CHANGED, { mode: 'text', sessionId });
     }
     if (this.app.ttsManager.enabled !== this._speakerOn) this._applySpeaker();
     this._render();
+  }
+
+  // — Hands-free ------------------------------------------------------------
+
+  async _enterHandsFree() {
+    const engine = this.app.voiceChatManager;
+    const entry = ++this._entry;
+    this._hfStarting = true;
+    this._setState('starting');
+    try {
+      await this._loadConfig();
+      // Talk's native session may still be coming down; the mic is not shared.
+      if (this._stopped) await this._stopped;
+      if (entry !== this._entry) return;
+      await engine.startHandsFree(this.app.currentSessionId);
+    } catch (err) {
+      if (entry !== this._entry) return;
+      this._hfStarting = false;
+      if (!err.cancelled) {
+        this.log.warn('Hands-free could not start:', err);
+        this.app.messageRenderer.appendSystemMessage(`Hands-free could not start: ${err.message || err}`, 'warning');
+      }
+      this._fallBackToText();
+      return;
+    }
+    if (entry !== this._entry) return;
+    this._hfStarting = false;
+    if (this._state === 'starting') this._setState('listening');
+  }
+
+  // Stops the engine and puts the stored speaker setting back. Safe to repeat.
+  _endHandsFree() {
+    this._entry++;
+    this._hfStarting = false;
+    this._state = null;
+    this._clearReminder();
+    this._stopped = this.app.voiceChatManager.stopHandsFree();
+    this._applySpeaker();
+  }
+
+  // The engine went down on its own (a failed start, a tab change).
+  _fallBackToText() {
+    if (this._mode !== 'handsfree') return;
+    this._mode = 'text';
+    this._endHandsFree();
+    this._render();
+    this.bus.emit(EVT.VOICE_MODE_CHANGED, { mode: 'text', sessionId: this.app.currentSessionId });
+  }
+
+  _onVoiceState({ state }) {
+    if (this._mode !== 'handsfree') return;
+    if (state === 'idle') {
+      if (!this._hfStarting) this._fallBackToText();
+      return;
+    }
+    this._setState(state);
+  }
+
+  _setState(state) {
+    this._state = state;
+    // The note stays until the person speaks again or a reply is being made.
+    if (state === 'hearing' || state === 'thinking') this._setNote('');
+    this._syncReminder();
+    this._renderStatus();
+  }
+
+  _stopReply() {
+    if (this._mode === 'handsfree' && this._state === 'speaking') this.app.voiceChatManager.stopSpeaking();
+  }
+
+  // The reminder counts only while eve listens in silence. Hearing, thinking
+  // and speaking all end that stretch.
+  _syncReminder() {
+    clearTimeout(this._reminderTimer);
+    this._reminderTimer = null;
+    if (this._mode !== 'handsfree' || this._state !== 'listening') return;
+    const seconds = this._reminderSeconds || VoiceModes.REMINDER_DEFAULT_SECONDS;
+    this._reminderTimer = setTimeout(() => this._remind(), seconds * 1000);
+  }
+
+  _clearReminder() {
+    clearTimeout(this._reminderTimer);
+    this._reminderTimer = null;
+    this._setNote('');
+  }
+
+  // Spoken through the voice daemon and shown as a status line. It is not a
+  // turn: nothing goes to the model and nothing is saved.
+  _remind() {
+    this._reminderTimer = null;
+    if (this._mode !== 'handsfree' || this._state !== 'listening') return;
+    this._setNote(VoiceModes.REMINDER_TEXT);
+    this.app.voiceChatManager.speakReminder(VoiceModes.REMINDER_TEXT);
+    this._syncReminder(); // counts again if the speech never starts
+  }
+
+  _setNote(text) {
+    if (this.noteEl) this.noteEl.textContent = text;
+  }
+
+  // Eve-local config; the default stands when the call fails.
+  async _loadConfig() {
+    if (this._reminderSeconds) return;
+    try {
+      const token = localStorage.getItem('eve_session');
+      const res = await fetch('/api/voice/config', { headers: token ? { 'X-Session-Token': token } : {} });
+      if (!res.ok) return;
+      const n = (await res.json()).handsFreeReminderSeconds;
+      if (Number.isInteger(n) && n >= 5 && n <= 3600) this._reminderSeconds = n;
+    } catch (err) {
+      this.log.warn('Voice config unavailable; using the default reminder period:', err);
+    }
+  }
+
+  _buildStatus() {
+    const el = document.createElement('div');
+    el.className = 'voice-status';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-label', 'Voice status');
+    el.dataset.testid = 'voice-status';
+    el.hidden = true;
+
+    const orb = document.createElement('button');
+    orb.type = 'button';
+    orb.className = 'voice-status__orb';
+    orb.setAttribute('aria-label', 'Voice orb');
+    orb.addEventListener('click', () => this._stopReply());
+
+    const text = document.createElement('span');
+    text.className = 'voice-status__text';
+
+    const stop = document.createElement('button');
+    stop.type = 'button';
+    stop.className = 'voice-status__stop';
+    stop.textContent = 'Stop reply';
+    stop.hidden = true;
+    stop.addEventListener('click', () => this._stopReply());
+
+    const note = document.createElement('span');
+    note.className = 'voice-status__note';
+
+    el.append(orb, text, stop, note);
+    const messages = document.getElementById('messages');
+    messages.parentNode.insertBefore(el, messages);
+    this.statusEl = el;
+    this.orbEl = orb;
+    this.stateEl = text;
+    this.stopEl = stop;
+    this.noteEl = note;
+  }
+
+  _renderStatus() {
+    const on = this._mode === 'handsfree';
+    this.statusEl.hidden = !on;
+    if (!on) return;
+    const state = this._state || 'starting';
+    this.orbEl.dataset.state = state;
+    this.stateEl.textContent = VoiceModes.STATE_TEXT[state] || '';
+    this.stopEl.hidden = state !== 'speaking';
+  }
+
+  // The composer has no textarea in Hands-free; say why, and keep attach.
+  _buildHandsFreeNote() {
+    const note = document.createElement('div');
+    note.className = 'voice-handsfree-note';
+    note.textContent = 'Just talk. Eve answers aloud.';
+    const textarea = document.getElementById('userInput');
+    this.form.insertBefore(note, textarea ? textarea.nextSibling : null);
   }
 
   _applySpeaker() {
@@ -189,6 +383,9 @@ class VoiceModes {
     this._starting = true;
     this._talkSessionId = app.currentSessionId;
 
+    // Leaving Hands-free: its native session must be down before the mic opens.
+    if (this._stopped) { await this._stopped; this._stopped = null; }
+
     // Speaking over a reply ends the reply first.
     if (app.ttsManager.isPlaying || app.ttsManager.enabled) app.ttsManager.stop();
 
@@ -265,7 +462,24 @@ class VoiceModes {
     this.speakerBtn = btn;
   }
 
-  // The button belongs to chat tabs; the same test RoutinePanel uses.
+  _buildSettingsButton() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'voiceSettingsBtn';
+    btn.className = 'btn-speaker hidden';
+    btn.dataset.testid = 'thread-voice-settings';
+    btn.setAttribute('aria-label', 'Voice settings');
+    btn.title = 'Voice settings';
+    btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+  <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="17" x2="20" y2="17"/>
+  <circle cx="9" cy="7" r="2.5" fill="var(--bg-primary)"/><circle cx="15" cy="17" r="2.5" fill="var(--bg-primary)"/>
+</svg>`;
+    btn.addEventListener('click', () => this.bus.emit(EVT.DIALOG_SETTINGS, { section: 'voice' }));
+    this.speakerBtn.after(btn);
+    this.settingsBtn = btn;
+  }
+
+  // The buttons belong to chat tabs; the same test RoutinePanel uses.
   _onChatTab() {
     if (!this.container.has('tabManager')) return false;
     const tm = this.container.get('tabManager');
@@ -276,7 +490,9 @@ class VoiceModes {
   }
 
   _syncSpeakerVisibility() {
-    this.speakerBtn?.classList.toggle('hidden', !(this._onChatTab() && this._mode !== 'handsfree'));
+    const onChat = this._onChatTab();
+    this.speakerBtn?.classList.toggle('hidden', !(onChat && this._mode !== 'handsfree'));
+    this.settingsBtn?.classList.toggle('hidden', !onChat);
   }
 
   _renderSpeaker() {
@@ -295,6 +511,7 @@ class VoiceModes {
     this.form.dataset.voiceMode = this._mode;
     this._renderTalk();
     this._renderSpeaker();
+    this._renderStatus();
     this._syncSpeakerVisibility();
   }
 

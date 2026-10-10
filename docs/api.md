@@ -131,6 +131,7 @@ Every task route returns relay's status and body unchanged (relayScheduler's tas
 |--------|------|-------------|
 | GET | `/api/tts/voices` | Available voices: 200 the array relayTTS lists (5-min cache; a stale cache is served if the daemon errors). 503 `{"error":"TTS service unavailable"}` when it errors and nothing is cached. |
 | GET | `/api/stt/status` | 200 `{ available }` (boolean; false when the relaySTT daemon does not answer). |
+| GET | `/api/voice/config` | 200 `{ handsFreeReminderSeconds }`: how many seconds Hands-free listens in silence before eve says "I'm still here." Integer 5 to 3600, default 300; the operator sets `voice.handsFreeReminderSeconds` in `data/settings.json`. A value out of range logs a warning and the default applies. Read once at startup. |
 | POST | `/api/transcribe` | Body `{ audio, language? }` (`audio` base64) gives 200 `{ text, language }`. 400 `{"error":"No audio data provided"}` when `audio` is empty. 503 `{"error":"STT service unavailable"}` for any failure. |
 
 ### Files & images (local serving)

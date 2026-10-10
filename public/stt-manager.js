@@ -327,7 +327,11 @@ class STTManager {
       this._finishTalk(cleaned);
       return;
     }
-    if (!cleaned) return;
+    if (!cleaned) {
+      // Hands-free waits for this transcript; a filtered one must end that wait.
+      this.app.voiceChatManager?.handleNoSpeech?.();
+      return;
+    }
     this._deliverTranscript(cleaned);
   }
 

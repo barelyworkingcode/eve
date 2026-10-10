@@ -7,6 +7,7 @@ const base = require('@playwright/test');
 const { devices } = base;
 const { Stack } = require('./stack');
 const worlds = require('./worlds');
+const { micWav } = require('./mic-audio');
 
 // `defaultBrowserType` can't be set inside a describe, and the one project is Chromium anyway.
 function profile(name) {
@@ -18,6 +19,68 @@ const profiles = { phone: profile('Pixel 7'), tablet: profile('Galaxy Tab S4') }
 
 // TEST-NET-1: never routable, so only the forward below can answer it.
 const BARE_IP = '192.0.2.10';
+
+// What the page hears when it opens the microphone. 'beep' is Chromium's own
+// fake device (the launch flags in playwright.config.js). The other two replace
+// getUserMedia's audio with a looping WAV generated in code (mic-audio.js):
+// 'silence', or 'speech' (synthetic speech-like audio, then a pause, repeating).
+const MIC_KINDS = ['silence', 'speech'];
+
+// Runs in the page, before any script. The stream is a real MediaStream, so
+// the VAD, MediaRecorder and level meters consume it as they would a mic.
+function installFakeMic(wavBase64) {
+  const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (constraints) => {
+    if (!constraints || !constraints.audio) return real(constraints);
+    const raw = atob(wavBase64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const ctx = new AudioContext();
+    const buffer = await ctx.decodeAudioData(bytes.buffer);
+    const out = ctx.createMediaStreamDestination();
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(out);
+    source.start();
+    if (ctx.state === 'suspended') await ctx.resume();
+    const track = out.stream.getAudioTracks()[0];
+    const stop = track.stop.bind(track);
+    track.stop = () => {
+      stop();
+      if (window.__e2eAudioStop) window.__e2eAudioStop('mic');
+      try { source.stop(); } catch { /* already stopped */ }
+      ctx.close().catch(() => {});
+    };
+    return out.stream;
+  };
+}
+
+// Runs in the page, before any script. Reports each stop of a playing sound to the
+// test side. Looping sources are the fake microphone's own, so only one-shot sources
+// (eve's speech) count as 'speech'.
+function installSpeechStopSignal() {
+  const stop = AudioBufferSourceNode.prototype.stop;
+  AudioBufferSourceNode.prototype.stop = function patchedStop(...args) {
+    if (!this.loop && window.__e2eAudioStop) window.__e2eAudioStop('speech');
+    return stop.apply(this, args);
+  };
+}
+
+// Counts, in the test process, how often the page stopped the fake microphone track
+// ('mic', fake mics only) and a spoken reply ('speech'). Counts never reset, so a
+// wait given the count taken before the action cannot miss an event.
+function audioStopSignal() {
+  const counts = { mic: 0, speech: 0 };
+  const side = (kind) => ({
+    get stops() { return counts[kind]; },
+    // Resolves once more stops than `after` have happened (default: any stop at all).
+    async waitForStop(after = 0) {
+      await base.expect.poll(() => counts[kind], { message: `no ${kind} stop after ${after}` }).toBeGreaterThan(after);
+    },
+  });
+  return { counts, mic: side('mic'), speech: side('speech') };
+}
 
 const AUTHENTICATOR_OPTIONS = {
   protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
@@ -67,13 +130,33 @@ const test = base.test.extend({
   publicOrigin: [null, { option: true }],
   trustedSubnets: [null, { option: true }],
   plansDir: ['agent', { option: true }],
+  // Contents of eve's data/settings.json, written before eve starts. null = no file.
+  eveSettings: [null, { option: true }],
+  // 'beep' | 'silence' | 'speech': what getUserMedia delivers (see MIC_KINDS).
+  mic: ['beep', { option: true }],
+
+  _fakeMic: [async ({ page, mic }, use) => {
+    if (mic !== 'beep') {
+      if (!MIC_KINDS.includes(mic)) throw new Error(`mic must be 'beep', 'silence' or 'speech', got ${mic}`);
+      const wav = micWav(mic);
+      await page.addInitScript(installFakeMic, wav.toString('base64'));
+    }
+    await use();
+  }, { auto: true }],
+
+  _audioStops: [async ({ page }, use) => {
+    const signal = audioStopSignal();
+    await page.exposeFunction('__e2eAudioStop', (kind) => { signal.counts[kind]++; });
+    await page.addInitScript(installSpeechStopSignal);
+    await use(signal);
+  }, { auto: true }],
 
   // The running stack. Not for specs: they use eve, relay, passkey and voice.
-  stack: async ({ world, network, scheduler, publicOrigin, trustedSubnets, plansDir }, use, testInfo) => {
+  stack: async ({ world, network, scheduler, publicOrigin, trustedSubnets, plansDir, eveSettings }, use, testInfo) => {
     const stack = new Stack({
       fakerelay: process.env.EVE_E2E_FAKERELAY,
       relayscheduler: process.env.EVE_E2E_RELAYSCHEDULER,
-      world, network, scheduler, publicOrigin, trustedSubnets, plansDir,
+      world, network, scheduler, publicOrigin, trustedSubnets, plansDir, eveSettings,
     });
     let setupError = null;
     try {
@@ -183,8 +266,8 @@ const test = base.test.extend({
     });
   },
 
-  voice: async ({ stack }, use) => {
-    await use(stack.voice);
+  voice: async ({ stack, _audioStops }, use) => {
+    await use(Object.assign(Object.create(stack.voice), { mic: _audioStops.mic, speech: _audioStops.speech }));
   },
 });
 

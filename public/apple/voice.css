@@ -446,3 +446,86 @@
   opacity: 0.75;
 }
 .message-live .message-content { opacity: 0.85; outline: 1.5px solid var(--warning); }
+
+/* Hands-free in the chat: a small orb bar above the messages. Blue while eve
+   listens, orange while it speaks. Hidden outside Hands-free. */
+.voice-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-6);
+  border-bottom: 0.5px solid var(--separator);
+  background: var(--bg-secondary);
+}
+.voice-status[hidden] { display: none; }
+.voice-status__orb {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 45%, #fff), var(--accent) 60%);
+  box-shadow: 0 0 14px 3px color-mix(in srgb, var(--accent) 45%, transparent);
+  transition: transform var(--dur-2, 200ms) ease, box-shadow var(--dur-2, 200ms) ease;
+}
+.voice-status__orb:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.voice-status__orb[data-state="starting"],
+.voice-status__orb[data-state="thinking"] { opacity: 0.55; cursor: default; }
+.voice-status__orb[data-state="hearing"] { transform: scale(1.18); }
+.voice-status__orb[data-state="speaking"] {
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--warning) 45%, #fff), var(--warning) 60%);
+  box-shadow: 0 0 14px 3px color-mix(in srgb, var(--warning) 45%, transparent);
+}
+.voice-status__text {
+  font-size: var(--text-callout);
+  color: var(--text-secondary);
+}
+.voice-status__stop {
+  min-height: 28px;
+  padding: 0 var(--sp-5);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-callout);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+.voice-status__stop[hidden] { display: none; }
+.voice-status__stop:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* The reminder line: faint, never a message. */
+.voice-status__note {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: var(--text-footnote);
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+.voice-status__note:empty { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .voice-status__orb { transition: none; }
+  .voice-status__orb[data-state="hearing"] { transform: none; }
+}
+
+/* Hands-free: the textarea and Send give way to a short note; attach stays. */
+.voice-handsfree-note {
+  display: none;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  border: 1px dashed var(--separator);
+  border-radius: 26px;
+  font-size: var(--text-callout);
+  color: var(--text-secondary);
+}
+.input-form[data-voice-mode="handsfree"] .voice-handsfree-note { display: flex; }
+.input-form[data-voice-mode="handsfree"] textarea,
+.input-form[data-voice-mode="handsfree"] #sendBtn,
+.input-form[data-voice-mode="handsfree"] #micBtn { display: none; }

@@ -12,10 +12,13 @@ test('pick the speed at which replies are read @G9.29', async ({ eve, page, voic
   const read = page.getByRole('button', { name: 'Read aloud' });
   await expect(read.first()).toBeVisible();
 
-  await page.getByRole('button', { name: 'Voice controls' }).click();
-  const speed = page.getByRole('combobox', { name: 'Playback speed' });
+  await page.getByRole('button', { name: 'Voice settings' }).click();
+  const speed = page.getByRole('combobox', { name: 'Speed', exact: true });
   await speed.selectOption({ label: '1.5×' });
   await expect(speed.getByRole('option', { name: '1.5×', selected: true })).toBeAttached();
+  const sheet = page.getByRole('dialog', { name: 'Settings' });
+  await sheet.getByRole('button', { name: 'Done' }).click();
+  await expect(sheet).toBeHidden();
 
   await read.last().click();
   const request = await voice.tts.waitForRequest((r) => r.action !== 'list_voices' && r.speed === 1.5);

@@ -61,6 +61,8 @@ Options, set with `test.use`:
 | `publicOrigin` | `null` | Sets `EVE_PUBLIC_ORIGIN`, e.g. `'https://eve.acme.test'`. The app never reaches `data-ready` under it (the WebSocket needs that origin), so open with `eve.openByIp` or `preReady`. |
 | `trustedSubnets` | `null` | Sets `EVE_TRUSTED_SUBNETS`, e.g. `'192.0.2.0/24'`, replacing the default trusted set. |
 | `plansDir` | `'agent'` | `'agent'` sets `EVE_PLANS_DIR` to fakerelay's plans dir (`<relay dir>/home/.claude/plans`), where `plan` replies write. `'eve'` leaves it unset, so eve uses its own default (a plan written on another machine). |
+| `eveSettings` | `null` | An object written as eve's `data/settings.json` before eve starts, e.g. `{ voice: { handsFreeReminderSeconds: 5 } }`. `null` writes no file. |
+| `mic` | `'beep'` | What the page hears when it opens the microphone. `'beep'` is Chromium's own fake device. `'silence'` and `'speech'` replace the audio of `getUserMedia` with a looping WAV generated in code (`test/e2e/support/mic-audio.js`, no audio file in the repo): one second of silence, or 2.5 s of synthetic speech-like audio (a pulse train through moving vowel formants) followed by five seconds of silence, repeating. |
 
 `worlds.media.webm()` and `worlds.media.wav()` return `{ base64 }`, a world file value of about 1 s that plays in Playwright's Chromium: `files: { 'clip.webm': worlds.media.webm() }`.
 
@@ -74,7 +76,7 @@ Fixtures, one set per test:
 | `relay` | `dir`; `cli(...argv)` (relay verbs as the feature map writes them: `cli('eve', 'list')`) and `ctl(...argv)` (presence, faults, host status, fs events, clock), both `{ code, stdout, stderr }`; `json(...argv)`; `mark()` (now, for `since`); `logs({ event, since })`; `waitForEvent(event, { since, match })`; `removePlanFiles()` (fault injection: deletes every `*.md` in fakerelay's plans dir, resolves after the unlinks with the count). |
 | `desktop` | `dropFiles(target, files)`: one `DataTransfer` holding every `{ name, text?, size?, type? }` file (`size` fills zero bytes), then `dragenter`, `dragover` and `drop` on the `target` locator. Returns once `drop` is dispatched; wait on the effect (for example `file.write`). |
 | `passkey` | `enable()` (Chromium virtual authenticator: ctap2, internal, resident key, user verification); `credentials()`; `setPresence(ok)` (false: the next ceremony gets no presence or verification); `replace()` (a fresh, empty authenticator; returns the old one's credentials). |
-| `voice` | `tts` and `stt`, each with `requests` (live), `waitForRequest(match)` and `reply(...)`. |
+| `voice` | `tts` and `stt`, each with `requests` (live), `waitForRequest(match)` and `reply(...)`; `mic` and `speech`, each with `stops` (live count) and `waitForStop(after = 0)`. |
 | `profiles` | `phone` (Pixel 7) and `tablet` (Galaxy Tab S4), for `test.use(profiles.phone)`. |
 
 `waitForEvent` resolves on the first fakerelay event line of that kind that `match` accepts (any line when there is no `match`). Lines already written count. The bound is the test's timeout. `EventLine` is `{ ts, level, msg, op, event, status, error?, trace_id, ...fields }`.
@@ -112,6 +114,9 @@ A row that needs a signed-out browser with a passkey enrols first, then calls `a
 
 - Dictation: eve discards a recording shorter than 300 ms ("Recording too short"), and nothing reaches the fake STT. The button is named "Stop recording" at once and renames itself to `Recording... 0:01` on the one-second timer tick, so wait for `getByRole('button', { name: /^Recording\.\.\./ })` before pressing it. A button press right after "Stop recording" shows sends no audio.
 - The fake STT's `requests` list shows what reached it; `waitForRequest` waits on that, not on a duration.
+- Hands-free (`getByRole('radio', { name: 'Hands-free' })`): the status region "Voice status" holds the orb (button "Voice orb"), the text "Listening…" / "Thinking…" / "Speaking…" and, only while speaking, the button "Stop reply". "Listening…" appears when listening has started. With `mic: 'speech'` the VAD hears the sentence; the signal is the fake STT's `waitForRequest` and then the spoken turn with its "Spoken" mark. With `mic: 'silence'` the VAD hears nothing, so a spec of the silence reminder sets `eveSettings: { voice: { handsFreeReminderSeconds: 5 } }` and waits on `voice.tts.waitForRequest` for the text "I'm still here.". The fake TTS reply is 30 s of silence, so "Speaking…" lasts until Stop or its end.
+
+`voice.mic` counts the page stopping the fake microphone track (only with `mic: 'speech'` or `'silence'`; Chromium's own `'beep'` device is not wrapped). `voice.speech` counts the page stopping a spoken reply (a non-looping `AudioBufferSourceNode.stop`). Counts only grow, so read `stops` before the action and pass it: `waitForStop(before)` resolves once a later stop has happened and cannot miss one that came early. Both are no-ops for specs that never read them.
 
 Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and `stt-service.js`, on `127.0.0.1` with a free port. TTS answers every synth with a silent 30 s WAV and `list_voices` with two voices, "Heart" and "George". STT answers `ping` with ok and every transcription with `hello from the test microphone`. `reply({ seconds })`, `reply({ text })` or `reply({ error })` changes the answer for later requests.
 

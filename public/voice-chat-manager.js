@@ -27,6 +27,15 @@ class VoiceChatManager {
     this._assistantSpeaking = false;
     this._suppressTTSFrames = false;
     this._pendingInterruptNote = false;
+
+    // Hands-free inside the chat (voice-modes.js): the same engine without the
+    // full-screen view. _hfToken lets a start that was torn down mid-way notice.
+    this._chatHandsFree = false;
+    this._hfSessionId = null;
+    this._hfToken = 0;
+    this._publishedState = null;
+    this._transcribeTimer = null;
+    this._nativeStop = null;
   }
 
   init() {
@@ -135,13 +144,13 @@ class VoiceChatManager {
     if (!this.useNativeAudio) return;
     this.nativeAudio.init({
       onListening:   () => { if (this.isVoiceSession) { this._setOrbState('listening', 'native listening'); this._setPrompt('Listening...'); } },
-      onSpeechStart: () => { if (this.isVoiceSession) { this._setOrbState('listening', 'native speech'); this._setPrompt('Listening...'); } },
+      onSpeechStart: () => { if (this.isVoiceSession) { this._setOrbState('listening', 'native speech'); this._publishState('hearing'); this._setPrompt('Listening...'); } },
       onSpeechEnd:   () => { if (this.isVoiceSession) { this._setOrbState('processing', 'native speech ended'); this._setPrompt('Transcribing...'); } },
       onUtterance:   (d) => this._onNativeUtterance(d.audio),
       onSpeaking:    () => this.handleTTSStart(),
       onPlaybackEnded: (d) => { if (d && d.bargeIn) this._interruptGeneration('voice'); this.handleTTSEnd(); },
       onLevel:       (d) => { this._nativeLevel = d.rms || 0; },
-      onVADMisfire:  () => { this._pendingInterruptNote = false; this._suppressTTSFrames = false; if (this.isVoiceSession && this.inputMode === 'conversation') { this._setOrbState('listening', 'native misfire'); this._setPrompt('Listening...'); } },
+      onVADMisfire:  () => { this._pendingInterruptNote = false; this._suppressTTSFrames = false; if (this.isVoiceSession && this._conversational()) { this._setOrbState('listening', 'native misfire'); this._setPrompt('Listening...'); } },
       onInterruption: (d) => { if (this.isVoiceSession) this._setPrompt(d.state === 'began' ? 'Paused…' : 'Listening...'); },
       onRouteChange: () => {},
       onError:       (d) => this.handleError(d.message || 'Audio error'),
@@ -189,6 +198,117 @@ class VoiceChatManager {
     if (state === 'listening') return this._nativeLevel;
     if (state === 'speaking') return 0.5; // no native playback meter; steady mid-level
     return 0;
+  }
+
+  // Hands-free in the chat always listens continuously; the orb view follows
+  // its own saved input mode.
+  _conversational() {
+    return this._chatHandsFree || this.inputMode === 'conversation';
+  }
+
+  /**
+   * Hands-free in the chat. Resolves once VAD listens (browser) or the native
+   * session has started (iOS app); rejects with the reason it could not, or
+   * with `cancelled` when deactivate() ran first.
+   */
+  async startHandsFree(sessionId) {
+    if (this.isVoiceSession) this.deactivate();
+    const token = ++this._hfToken;
+    const cancelled = () => Object.assign(new Error('Hands-free was stopped before it started'), { cancelled: true });
+
+    this.isVoiceSession = true;
+    this._chatHandsFree = true;
+    this._hfSessionId = sessionId;
+    this._publishedState = null;
+    this.assistantAccum = '';
+    this._suppressTTSFrames = false;
+
+    // Replies are always spoken here, without touching the saved speaker setting.
+    const tts = this.app.ttsManager;
+    tts.unlockAudio(); // iOS: inside the tap that started this
+    tts.setEnabled(true);
+    tts.syncButtonState();
+    tts.syncVoiceMode(this.app.wsClient);
+
+    try {
+      if (this.useNativeAudio) {
+        this.usingNativeSession = true;
+        try {
+          await this.nativeAudio.startSession('handsfree');
+        } catch (err) {
+          this.usingNativeSession = false;
+          throw err;
+        }
+      } else {
+        let failure = null;
+        await this.vadManager.start({
+          onSpeechStart: () => this._onVADSpeechStart(),
+          onSpeechEnd: (audio) => this._onVADSpeechEnd(audio),
+          onVADMisfire: () => this._onVADMisfire(),
+          onError: (err) => { failure = err; },
+        });
+        if (token !== this._hfToken) { this.vadManager.destroy(); throw cancelled(); }
+        if (failure || !this.vadManager.isListening) {
+          this.vadManager.destroy();
+          throw failure || new Error('Voice detection did not start');
+        }
+      }
+    } catch (err) {
+      if (token === this._hfToken) this.deactivate();
+      throw err;
+    }
+    if (token !== this._hfToken) throw cancelled();
+    this._setOrbState('listening', 'hands-free ready');
+  }
+
+  // Ends Hands-free inside the tap that leaves it. The promise settles once the
+  // native session is down, so a following getUserMedia (Talk) can wait on it.
+  stopHandsFree() {
+    this.deactivate();
+    const pending = this._nativeStop;
+    this._nativeStop = null;
+    return Promise.resolve(pending).catch(() => {});
+  }
+
+  // Halts the spoken reply only. The text keeps streaming; its later audio is
+  // dropped until the next turn (see _suppressTTSFrames).
+  stopSpeaking() {
+    if (!this.isVoiceSession) return;
+    this._suppressTTSFrames = true;
+    this.app.ttsManager.stop();
+  }
+
+  // The fixed reminder goes through the local voice daemon, never to the model.
+  speakReminder(text) {
+    if (!this.isVoiceSession) return;
+    this._suppressTTSFrames = false;
+    return this.app.ttsManager.speakText(text);
+  }
+
+  // A transcript that was filtered out as not speech ends the wait for it.
+  handleNoSpeech() {
+    if (!this._chatHandsFree) return;
+    this._clearTranscribeWatchdog();
+    this._vadTranscribing = false;
+    if (!this._assistantSpeaking && !this.app.ttsManager.isPlaying) this._setOrbState('listening', 'no speech');
+  }
+
+  _publishState(state) {
+    if (!this._chatHandsFree || state === this._publishedState) return;
+    this._publishedState = state;
+    this.bus.emit(EVT.VOICE_STATE, { state, sessionId: this._hfSessionId });
+  }
+
+  // Whisper filtering can swallow a result without telling us; never stay deaf.
+  _armTranscribeWatchdog() {
+    this._clearTranscribeWatchdog();
+    if (!this._chatHandsFree) return;
+    this._transcribeTimer = setTimeout(() => this.handleNoSpeech(), 15000);
+  }
+
+  _clearTranscribeWatchdog() {
+    if (this._transcribeTimer) clearTimeout(this._transcribeTimer);
+    this._transcribeTimer = null;
   }
 
   activateForSession(sessionId) {
@@ -254,6 +374,9 @@ class VoiceChatManager {
     // deactivate() also runs on plain tab switches with read-aloud TTS on but
     // no voice session active — let that message finish rather than cut it off.
     const wasVoiceSession = this.isVoiceSession;
+    const wasChatHandsFree = this._chatHandsFree;
+    this._hfToken++;
+    this._clearTranscribeWatchdog();
     this.isVoiceSession = false;
     this.isRecording = false;
     this._vadTranscribing = false;
@@ -262,7 +385,7 @@ class VoiceChatManager {
     this._pendingInterruptNote = false;
     if (this.useNativeAudio && this.usingNativeSession) {
       this.usingNativeSession = false;
-      this.nativeAudio.stopSession();
+      this._nativeStop = this.nativeAudio.stopSession();
     }
     this.app.sttManager.stopRecording();
     if (wasVoiceSession) this.app.ttsManager.stop();
@@ -274,6 +397,13 @@ class VoiceChatManager {
     // chat being switched to, and the server needs voice_mode on to keep
     // emitting tts_audio.
     this.app.ttsManager.syncVoiceMode(this.app.wsClient);
+
+    if (wasChatHandsFree) {
+      this._publishState('idle');
+      this._chatHandsFree = false;
+      this._hfSessionId = null;
+      this._publishedState = null;
+    }
   }
 
   _toggleInputMode() {
@@ -352,6 +482,7 @@ class VoiceChatManager {
     this._bargeIn('vad');
 
     this._setOrbState('listening', 'speech detected');
+    this._publishState('hearing');
     this._setPrompt('Listening...');
   }
 
@@ -365,6 +496,7 @@ class VoiceChatManager {
     this._setOrbState('processing', 'speech ended');
     this._setPrompt('Transcribing...');
     this._vadTranscribing = true;
+    this._armTranscribeWatchdog();
 
     this.app.sttManager.transcribeFloat32(audio);
   }
@@ -391,7 +523,7 @@ class VoiceChatManager {
   }
 
   _onKeyDown(e) {
-    if (!this.isVoiceSession) return;
+    if (!this.isVoiceSession || this._chatHandsFree) return;
     if (e.code !== 'Space') return;
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
@@ -416,7 +548,7 @@ class VoiceChatManager {
   }
 
   _onKeyUp(e) {
-    if (!this.isVoiceSession) return;
+    if (!this.isVoiceSession || this._chatHandsFree) return;
     if (e.code !== 'Space') return;
     if (!this._spacebarDown) return;
 
@@ -470,11 +602,25 @@ class VoiceChatManager {
 
   handleTranscription(text) {
     this._vadTranscribing = false;
+    this._clearTranscribeWatchdog();
 
     const interrupted = this._pendingInterruptNote;
     this._pendingInterruptNote = false;
     this._suppressTTSFrames = false;
     const sendText = interrupted ? `[interrupted your previous reply] ${text}` : text;
+
+    if (this._chatHandsFree) {
+      // The turn shows in the chat like any spoken turn; the note rides along unseen.
+      const sent = this.app.sendSpokenTurn(text, { prefix: interrupted ? '[interrupted your previous reply] ' : '' });
+      if (!sent) {
+        this._setOrbState('listening', 'turn not sent');
+        return;
+      }
+      this.assistantAccum = '';
+      this._setOrbState('processing', 'transcription sent');
+      if (this.useNativeAudio) this.nativeAudio.startThinkingCue();
+      return;
+    }
 
     this._addCaption('user', text);
 
@@ -514,7 +660,7 @@ class VoiceChatManager {
     // enough speaker audio to trigger false barge-in and duplicate messages.
     // Native audio needs no pause: it barge-ins via a stricter energy gate
     // with AEC active, or half-duplex without it.
-    if (this.inputMode === 'conversation' && !this.useNativeAudio) {
+    if (this._conversational() && !this.useNativeAudio) {
       this.vadManager.pause();
       this.micBtn?.classList.add('voice-chat__btn--muted');
     }
@@ -527,7 +673,7 @@ class VoiceChatManager {
     this._assistantSpeaking = false;
 
     if (this.useNativeAudio) {
-      if (this.inputMode === 'conversation') {
+      if (this._conversational()) {
         this._setOrbState('listening', 'TTS ended');
         this._setPrompt('Listening...');
       } else {
@@ -537,7 +683,7 @@ class VoiceChatManager {
       return;
     }
 
-    if (this.inputMode === 'conversation') {
+    if (this._conversational()) {
       this.vadManager.resume();
       this.micBtn?.classList.remove('voice-chat__btn--muted');
       this._setOrbState('listening', 'TTS ended');
@@ -551,13 +697,14 @@ class VoiceChatManager {
   handleError(message) {
     if (!this.isVoiceSession) return;
     this._vadTranscribing = false;
+    this._clearTranscribeWatchdog();
     this._pendingInterruptNote = false;
     this._suppressTTSFrames = false;
     this._addCaption('error', message);
     if (this.useNativeAudio) {
       this.nativeAudio.stopThinkingCue();
       this.nativeAudio.playEarcon('error');
-      if (this.inputMode === 'conversation') {
+      if (this._conversational()) {
         this._setOrbState('listening', 'error recovery');
         this._setPrompt('Listening...');
       } else {
@@ -580,7 +727,7 @@ class VoiceChatManager {
     if (this.useNativeAudio) this.nativeAudio.stopThinkingCue(); // covers text-only replies, which have no TTS start/end to stop the cue
 
     const backend = this.app.ttsManager.backend;
-    if (this.app.ttsManager.activeBackend.onDevice && this.assistantAccum.trim()) {
+    if (this.app.ttsManager.activeBackend.onDevice && this.assistantAccum.trim() && !this._suppressTTSFrames) {
       this.app.ttsManager.speakText(this.assistantAccum);
     }
 
@@ -683,6 +830,8 @@ class VoiceChatManager {
   _setOrbState(state, reason) {
     this.log.debug(`Orb: ${state}` + (reason ? ` (${reason})` : ''));
     this.orbRenderer?.setState(state);
+    const published = { listening: 'listening', processing: 'thinking', speaking: 'speaking' }[state];
+    if (published) this._publishState(published);
   }
 
   /**

@@ -202,6 +202,7 @@ function loadSettings() {
         };
       }
       if (data && data.chiefOfStaff !== undefined) settings.chiefOfStaff = data.chiefOfStaff;
+      if (data && data.voice !== undefined) settings.voice = data.voice;
       serverLog.info('Loaded settings');
     }
   } catch (err) {
@@ -209,6 +210,25 @@ function loadSettings() {
   }
 }
 loadSettings();
+
+// `voice.handsFreeReminderSeconds` in settings.json: how long Hands-free
+// listens in silence before eve says "I'm still here." Integer 5-3600.
+const HANDS_FREE_REMINDER_DEFAULT = 300;
+function parseVoiceSettings(raw, log) {
+  const out = { handsFreeReminderSeconds: HANDS_FREE_REMINDER_DEFAULT };
+  if (raw === undefined) return out;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    log.warn('settings.json: voice must be an object; using defaults');
+    return out;
+  }
+  const n = raw.handsFreeReminderSeconds;
+  if (n !== undefined) {
+    if (Number.isInteger(n) && n >= 5 && n <= 3600) out.handsFreeReminderSeconds = n;
+    else log.warn(`settings.json: voice.handsFreeReminderSeconds must be an integer from 5 to 3600; using ${HANDS_FREE_REMINDER_DEFAULT}`);
+  }
+  return out;
+}
+const voiceSettings = parseVoiceSettings(settings.voice, serverLog);
 
 const projectCache = new Map();
 // id -> relay's hostView (../relay/docs/ssh-hosts.md), INCLUDING ssh_argv —
@@ -453,6 +473,7 @@ registerRoutes(app, {
   removeFromHostCache: (id) => hostCache.delete(id),
   ttsService,
   sttService,
+  voiceSettings,
   log,
 });
 

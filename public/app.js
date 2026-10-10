@@ -182,6 +182,8 @@ class EveWorkspaceClient {
   }
 
   _showTodayAfterAway() {
+    // A Hands-free conversation is activity even with no touch for an hour.
+    if (this.voiceChatManager?.isVoiceSession) return;
     const tabs = this.tabManager;
     if (!tabs) return;
     tabs.showToday();
@@ -291,8 +293,6 @@ class EveWorkspaceClient {
       voiceDrawer: document.getElementById('voiceDrawer'),
       voiceDrawerToggle: document.getElementById('voiceDrawerToggle'),
       voiceDrawerPanel: document.getElementById('voiceDrawerPanel'),
-      voiceSelect: document.getElementById('voiceSelect'),
-      voiceSpeedSelect: document.getElementById('voiceSpeedSelect'),
       taskModal: document.getElementById('taskModal'),
       taskModalTitle: document.getElementById('taskModalTitle'),
       taskForm: document.getElementById('taskForm'),
@@ -431,21 +431,6 @@ class EveWorkspaceClient {
     });
 
     this.ttsManager.init();
-
-    if (this.elements.voiceSelect) {
-      this.elements.voiceSelect.addEventListener('change', (e) => {
-        this.ttsManager.setVoice(e.target.value);
-        this.ttsManager.syncVoiceMode(this.wsClient);
-      });
-    }
-
-    if (this.elements.voiceSpeedSelect) {
-      this.elements.voiceSpeedSelect.value = String(this.ttsManager.speed);
-      this.elements.voiceSpeedSelect.addEventListener('change', (e) => {
-        this.ttsManager.setSpeed(e.target.value);
-        this.ttsManager.syncVoiceMode(this.wsClient);
-      });
-    }
 
     if (this.elements.voiceUIBtn) {
       this.elements.voiceUIBtn.addEventListener('click', () => {
@@ -1224,10 +1209,12 @@ class EveWorkspaceClient {
     this.showStopButton();
   }
 
-  // Sends a turn the person spoke (Talk), with any files they attached first.
-  sendSpokenTurn(text) {
+  // Sends a turn the person spoke (Talk, Hands-free), with any files they
+  // attached first. `prefix` rides to the model only; the chat shows `text`.
+  // Returns whether a turn was sent.
+  sendSpokenTurn(text, { prefix = '' } = {}) {
     text = (text || '').trim();
-    if (!text || !this.currentSessionId || !this.state.isOnline()) return;
+    if (!text || !this.currentSessionId || !this.state.isOnline()) return false;
 
     if (this.ttsManager.isPlaying) this.ttsManager.stop();
     if (this.ttsManager.enabled) this.ttsManager.unlockAudio();
@@ -1236,7 +1223,7 @@ class EveWorkspaceClient {
     const urls = this.urlChips.consume();
     this.messageRenderer.appendUserMessage(text, files, urls, { dictated: true });
     this.messageDispatcher.markLocalSubmit(this.currentSessionId);
-    this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, true), files, urls, sessionId: this.currentSessionId, dictated: true });
+    this.wsClient.send({ type: 'user_input', text: this._buildSendText(prefix + text, true), files, urls, sessionId: this.currentSessionId, dictated: true });
 
     this.modalManager.hideInputPrompt();
     this.modalManager.hidePlanApproval();
@@ -1244,6 +1231,7 @@ class EveWorkspaceClient {
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
     this.showStopButton();
+    return true;
   }
 
   // Sends `text` as the next turn of a thread that was just created (Today's Ask).
