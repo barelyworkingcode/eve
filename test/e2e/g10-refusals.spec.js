@@ -149,7 +149,7 @@ test.describe('a summary that fails', () => {
   test('a model with no text says so @G10.11.r1', async ({ eve, page }) => {
     await eve.open('/');
     await summaryOn(page);
-    await page.getByRole('combobox', { name: 'Model' }).selectOption({ label: 'Quiet' });
+    await page.getByRole('dialog').getByRole('combobox', { name: 'Model', exact: true }).selectOption({ label: 'Quiet' });
     await expect(page.getByText('AI summary error', { exact: true })).toBeVisible();
     await expect(page.getByText('Model returned no text.')).toBeVisible();
   });
@@ -157,7 +157,7 @@ test.describe('a summary that fails', () => {
   test('Retry runs the summary again and it can fail again @G10.13 @G10.13.r1', async ({ eve, page, relay }) => {
     await eve.open('/');
     await summaryOn(page);
-    await page.getByRole('combobox', { name: 'Model' }).selectOption({ label: 'Failing' });
+    await page.getByRole('dialog').getByRole('combobox', { name: 'Model', exact: true }).selectOption({ label: 'Failing' });
     await expect(page.getByText('AI summary error', { exact: true })).toBeVisible();
     const since = relay.mark();
     const r = await relay.ctl('fault', 'add', '--route', 'POST /api/sessions', '--mode', 'slow');

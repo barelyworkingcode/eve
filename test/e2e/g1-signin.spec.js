@@ -77,15 +77,26 @@ test.describe('off the trusted network', () => {
     await eve.signOut();
     await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
     await passkey.setPresence(false);
-    // Ten attempts are allowed in fifteen minutes. With no presence the
-    // ceremony never ends, so each attempt starts from a fresh load.
-    for (let attempt = 0; attempt < 11; attempt += 1) {
-      await page.getByRole('button', { name: 'Sign In' }).click();
+    // Ten requests are allowed in fifteen minutes, and claiming eve spent two
+    // (enroll start and finish). With no presence the ceremony never ends, so
+    // each attempt starts from a fresh load. Each click waits for the server's
+    // answer: a refused start re-enables the button at once, so the button
+    // state alone cannot tell an allowed attempt from a refused one.
+    const loginStart = (status) => (r) => r.url().endsWith('/api/auth/login/start') && r.status() === status;
+    const allowedLogins = 10 - 2;
+    for (let attempt = 0; attempt < allowedLogins; attempt += 1) {
+      await Promise.all([
+        page.waitForResponse(loginStart(200)),
+        page.getByRole('button', { name: 'Sign In' }).click(),
+      ]);
       await expect(page.getByRole('button', { name: 'Sign In' })).toBeDisabled();
       await eve.reload(SIGN_IN);
       await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible();
     }
-    await page.getByRole('button', { name: 'Sign In' }).click();
+    await Promise.all([
+      page.waitForResponse(loginStart(429)),
+      page.getByRole('button', { name: 'Sign In' }).click(),
+    ]);
     await expect(page.getByText('Too many attempts. Try again later.')).toBeVisible();
   });
 });
