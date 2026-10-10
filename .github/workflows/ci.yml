@@ -28,3 +28,61 @@ jobs:
       # No bundler, so a parse of every source file is the build.
       - name: node --check
         run: git ls-files '*.js' '*.cjs' '*.mjs' | xargs -n1 node --check
+      - name: lint
+        run: npm run -s lint
+      - name: static checks
+        run: npm run -s check:static
+      - name: coverage check
+        run: npm run -s check:coverage
+
+  # The hermetic suite: each test starts its own fakerelay and eve (docs/test.md).
+  # No browser lock in CI; the lock is for the shared test machine.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The burn-in diffs the PR's base against its head.
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.25.x
+          cache: false
+      - run: npm ci
+      - name: build fakerelay and relayScheduler from the pin
+        run: node test/e2e/support/build-fakes.js
+      - run: npx playwright install --with-deps chromium
+      - name: playwright test
+        run: npx playwright test
+      # Each spec a PR adds or changes runs five times with retries off, so a
+      # flake shows before merge. Specs only; see scripts/burn-in-specs.js.
+      - name: burn-in
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          specs=$(node scripts/burn-in-specs.js "$BASE_SHA" "$HEAD_SHA")
+          if [ -z "$specs" ]; then
+            echo "no spec added or changed; nothing to burn in"
+            exit 0
+          fi
+          echo "burn-in x5:"
+          echo "$specs"
+          # Word splitting is the point: one argument per spec path.
+          npx playwright test --repeat-each=5 --retries=0 $specs
+      - name: upload the report and traces
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

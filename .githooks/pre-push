@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
-# Pre-push hook: refuse a push whose range holds a JS file that does not parse.
+# Pre-push hook: refuse a push whose range holds a JS file that does not parse
+# or breaks a lint rule, or that leaves the static or coverage checks red.
 #
 # Run by the machine's global hooks dispatcher. Don't set core.hooksPath in
 # the repo: a local value overrides the global hooks and skips the push guard.
 #
-# Runs node --check on each .js, .cjs or .mjs file the pushed range touches
-# that is still in the tree. Eve has no build step, so this is the gate.
+# Runs node --check and eslint on each .js, .cjs or .mjs file the pushed range
+# touches that is still in the tree. Eve has no build step, so this is the
+# gate. Any push that is not a branch delete also runs `npm run check:static`
+# and `npm run check:coverage`. The hook never runs the browser suite.
 
 set -e
 
 remote_ref_zero='^0\{40\}$'
+
+# git hands the refs on stdin once; keep them.
+refs=$(cat)
+
 range_files() {
     while read -r _local_ref local_sha _remote_ref remote_sha; do
         # Deleting a ref pushes a zero local sha; nothing to check.
@@ -25,20 +32,51 @@ range_files() {
     done
 }
 
-files=$(range_files | sort -u | grep -E '\.(js|cjs|mjs)$' || true)
+# Non-empty push: at least one ref that is not a delete.
+pushes_something=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+    [ -z "$local_sha" ] && continue
+    echo "$local_sha" | grep -q "$remote_ref_zero" || pushes_something=1
+done <<< "$refs"
 
-if [ -z "$files" ]; then
+if [ "$pushes_something" = 0 ]; then
     exit 0
 fi
 
 cd "$(git rev-parse --show-toplevel)"
 
-echo "→ node --check (pushed JS)"
-for f in $files; do
-    if [ -f "$f" ] && ! node --check "$f"; then
-        echo "✗ syntax error in $f; push aborted"
+files=$(range_files <<< "$refs" | sort -u | grep -E '\.(js|cjs|mjs)$' || true)
+
+if [ -n "$files" ]; then
+    echo "→ node --check (pushed JS)"
+    existing=""
+    for f in $files; do
+        if [ -f "$f" ]; then
+            if ! node --check "$f"; then
+                echo "✗ syntax error in $f; push aborted"
+                exit 1
+            fi
+            existing="$existing $f"
+        fi
+    done
+
+    echo "→ eslint (pushed JS)"
+    if [ -n "$existing" ] && ! npx --no-install eslint --no-warn-ignored $existing; then
+        echo "✗ lint failed; push aborted"
         exit 1
     fi
-done
+fi
+
+echo "→ check:static"
+if ! npm run -s check:static; then
+    echo "✗ static checks failed; push aborted"
+    exit 1
+fi
+
+echo "→ check:coverage"
+if ! npm run -s check:coverage; then
+    echo "✗ coverage check failed; push aborted"
+    exit 1
+fi
 
 echo "✓ pre-push checks passed"
