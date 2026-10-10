@@ -23,8 +23,8 @@ const AREA_NAME = /^[a-z][a-z-]*$/;
 const APPROVED_LABEL = 'map-narrowing-approved';
 
 // Fixed in code, not in the map: the map is read from the head, so a PR could
-// otherwise narrow its own run.
-const SPEC_HARNESS = ['test/e2e/support/**', 'test/e2e/relay-pin.json', 'playwright.config.js'];
+// otherwise narrow its own run. browser-lock.js is loaded by the global setup.
+const SPEC_HARNESS = ['test/e2e/support/**', 'test/e2e/relay-pin.json', 'playwright.config.js', 'scripts/browser-lock.js'];
 const HARNESS_RES = SPEC_HARNESS.map(globToRegExp);
 
 const RULES = ['M2', 'M3', 'M4', 'syntax'];
@@ -250,6 +250,8 @@ function select({ root = ROOT, base, head, mergeBase, changed, specsAtHead, trac
   for (const p of changed) {
     if (atHead.has(p)) { specs.add(p); continue; }
     if (matches(HARNESS_RES, p)) { all = all || `spec harness: ${p}`; continue; }
+    // Playwright never loads the devbox harness; check 9 and the devbox run grade it.
+    if (p.startsWith('devboxverify/') && !p.endsWith('.md')) continue;
     const names = [...new Set([...baseMap.areasOf(p), ...headMap.areasOf(p)])].sort();
     if (names.length === 0) {
       if (!baseMap.quiet(p) && !headMap.quiet(p)) unmapped.add(p);

@@ -41,7 +41,7 @@ function areasJsonc({ beta = ['public/beta.js', 'public/shared.js'], gamma = ['p
 }
 
 const BASE_FILES = {
-  '.gitignore': 'node_modules\nscripts\ndevboxverify\n',
+  '.gitignore': 'node_modules\nscripts/spec-map.js\nscripts/select-specs.js\nscripts/check-coverage.js\ndevboxverify/areas.js\n',
   'docs/areas.jsonc': areasJsonc(),
   'docs/FEATURES.md': featuresMd({ goals: BASE_GOALS, rows: BASE_ROWS }),
   'server.js': '// core\n',
@@ -138,7 +138,7 @@ it('an added spec and a changed spec each run themselves', () => {
   assert.deepStrictEqual(runLine(r.out).split(' '), ['test/e2e/b.spec.js', 'test/e2e/d.spec.js']);
 });
 
-for (const file of ['test/e2e/support/fixtures.js', 'playwright.config.js']) {
+for (const file of ['test/e2e/support/fixtures.js', 'playwright.config.js', 'scripts/browser-lock.js']) {
   it(`spec-harness change (${file}) runs all`, () => {
     const repo = pr({ [file]: '// changed\n' });
     const r = repo.run(['--base', 'main']);
@@ -147,6 +147,13 @@ for (const file of ['test/e2e/support/fixtures.js', 'playwright.config.js']) {
     assert.match(r.out, /^SPECS 3\/3$/m);
   });
 }
+
+it('a devboxverify code change (not .md) runs no spec and is not UNMAPPED', () => {
+  const r = pr({ 'devboxverify/journeys.js': '// changed\n' }).run(['--base', 'main']);
+  assert.strictEqual(r.status, 0, r.out + r.err);
+  assert.strictEqual(runLine(r.out), 'none');
+  assert.doesNotMatch(r.out, /UNMAPPED/);
+});
 
 it('a change in a full area runs all', () => {
   const r = pr({ 'server.js': '// core 2\n' }).run(['--base', 'main']);
@@ -255,6 +262,19 @@ it('the summary lists the areas, the specs run and the count not run', () => {
   assert.match(text, /test\/e2e\/a\.spec\.js/);
   assert.doesNotMatch(text, /b\.spec\.js/);
   assert.match(text, /2[^\n]*not run|not run[^\n]*2/i);
+});
+
+// ---- check-coverage wiring: the real script, run against a fixture root ----
+
+it('check-coverage.js reports an M2 finding from a fixture', () => {
+  const repo = fixture();
+  repo.write('docs/FEATURES.md', featuresMd({ goals: BASE_GOALS, rows: [...BASE_ROWS, ['G9.1', 'z.spec.js']] }));
+  repo.write('test/e2e/z.spec.js', '// z\n');
+  repo.write('test/e2e/coverage-pending.txt', '');
+  repo.write('test/static/frozen.json', JSON.stringify({ journeys: [] }));
+  repo.commit();
+  const r = spawnSync(process.execPath, [path.join(repo.dir, 'scripts/check-coverage.js')], { cwd: repo.dir, env: cleanEnv(), encoding: 'utf8' });
+  assert.match(r.stdout, /z\.spec\.js: rows G9\.1 resolve to no area/, r.stdout + r.stderr);
 });
 
 // ---- map rules, in process ----
