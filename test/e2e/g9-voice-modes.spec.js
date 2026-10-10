@@ -71,6 +71,8 @@ test('hold to talk records only while held and sends a spoken turn @G9.39 @G9.41
   expect(voice.stt.requests).toHaveLength(0);
 
   await holdToTalk(page);
+  // Keep holding while speaking, until eve has sent the first chunk.
+  await voice.stt.waitForRequest();
   await release(page);
 
   await expect(page.getByRole('img', { name: 'Spoken' })).toBeVisible();
@@ -133,7 +135,7 @@ test('with the speaker off, a reply is not spoken @G9.40', async ({ eve, page, v
   expect(voice.tts.requests.filter((r) => r.action !== 'list_voices')).toHaveLength(0);
 });
 
-test('an image attached in Talk goes with the next spoken turn @G9.42', async ({ eve, page }) => {
+test('an image attached in Talk goes with the next spoken turn @G9.42', async ({ eve, page, voice }) => {
   await openThread(eve, page);
   await chooseTalk(page);
 
@@ -145,6 +147,8 @@ test('an image attached in Talk goes with the next spoken turn @G9.42', async ({
   await expect(page.getByText('photo.png')).toBeVisible();
 
   await holdToTalk(page);
+  // Keep holding while speaking, until eve has sent the first chunk.
+  await voice.stt.waitForRequest();
   await release(page);
   await expect(page.getByRole('img', { name: 'Spoken' })).toBeVisible();
   // The turn consumed the attachment: it now shows once, in the sent message.
