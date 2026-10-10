@@ -201,7 +201,7 @@ The same command holds the map rules (`scripts/spec-map.js`; M4 is S7 above). A 
 Per changed path (`git diff --no-renames --name-only -z base...head`):
 
 1. A spec at head runs itself.
-2. A spec-harness file (`test/e2e/support/**`, `test/e2e/relay-pin.json`, `playwright.config.js`) runs every spec.
+2. A spec-harness file (`test/e2e/support/**`, `test/e2e/relay-pin.json`, `playwright.config.js`, `scripts/browser-lock.js`) runs every spec. A `devboxverify/` file other than `*.md` runs none: Playwright never loads it, and the devbox run grades it.
 3. Any other path takes the areas of the base map plus the head map. In no area and not `quiet` in either: `UNMAPPED`. A `full` area runs every spec. `quiet` only runs nothing. Otherwise it runs every spec present at head that the rows of a goal listing the area name, in either map.
 4. Narrowing is read at the merge base and at head. For each tracked file at head, a spec the merge-base map selects and the head map does not is `NARROWED`, and so is an area added to `Journey-only:`. The PR label `map-narrowing-approved`, applied only by the owner, allows it.
 
