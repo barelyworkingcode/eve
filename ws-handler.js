@@ -13,6 +13,20 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
   // authenticated browser tab, not just the one that happened to trigger it.
   // The statuses come from relay over /ws/files (relay-file-client.js).
   const authenticatedSockets = new Set();
+  // token -> sockets authenticated with it, so revoking a token can end them.
+  const socketsByToken = new Map();
+
+  authService.onSessionsRevoked?.((tokens) => {
+    for (const token of tokens) {
+      const sockets = socketsByToken.get(token);
+      if (!sockets) continue;
+      socketsByToken.delete(token);
+      for (const sock of sockets) {
+        try { sock.send(JSON.stringify({ type: 'auth_failed', message: 'Session revoked' })); } catch { /* closing */ }
+        sock.close(4001, 'Unauthorized');
+      }
+    }
+  });
 
   function sendHostStatus(ws, evt) {
     const frame = { type: 'host_status', hostId: evt.hostId, name: evt.name, status: evt.status };
@@ -29,6 +43,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     // attacker-controllable. See docs/security-review-auth-transport.md Section A.
     const requiresAuth = authService.isEnrolled() && process.env.EVE_NO_AUTH !== '1' && !trustedNetwork.isTrusted(req);
     let isAuthenticated = !requiresAuth;
+    let socketToken = null;
 
     // Sent once per newly-authenticated connection so a fresh browser tab is
     // caught up on the latest status relay has reported for every host.
@@ -70,6 +85,9 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
           }
           if (authService.validateSession(message.token)) {
             isAuthenticated = true;
+            socketToken = message.token;
+            if (!socketsByToken.has(socketToken)) socketsByToken.set(socketToken, new Set());
+            socketsByToken.get(socketToken).add(ws);
             onAuthenticated();
             ws.send(JSON.stringify({ type: 'auth_success' }));
           } else {
@@ -148,6 +166,11 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
       fileWatcher.closeAll();
       uiBus?.unregister(relayClient);
       authenticatedSockets.delete(ws);
+      const tokenSockets = socketsByToken.get(socketToken);
+      if (tokenSockets) {
+        tokenSockets.delete(ws);
+        if (tokenSockets.size === 0) socketsByToken.delete(socketToken);
+      }
     });
   };
 }

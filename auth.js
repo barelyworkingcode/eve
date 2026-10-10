@@ -166,6 +166,11 @@ class AuthService {
     return this.sessionStore.create(credentialId);
   }
 
+  // fn(tokens): sessions just ended because their passkey was removed.
+  onSessionsRevoked(fn) {
+    this.sessionStore.onRevoked(fn);
+  }
+
   validateSession(token) {
     return this.sessionStore.validate(token);
   }
