@@ -27,12 +27,12 @@ async function chooseHandsFree(page) {
 }
 
 // Hands-free with the speech mic: heard, answered, and the reply is being spoken.
-async function speakingHandsFree(eve, page, voice) {
+async function speakingHandsFree(eve, page, voice, heard = HEARD) {
   await openThread(eve, page);
   await chooseHandsFree(page);
   await voice.stt.waitForRequest();
   await expect(page.getByRole('img', { name: 'Spoken' })).toBeVisible();
-  await voice.tts.waitForRequest((r) => r.text && r.text.includes(HEARD));
+  await voice.tts.waitForRequest((r) => r.text && r.text.includes(heard));
   await expect(status(page).getByText('Speaking…')).toBeVisible();
 }
 
@@ -70,20 +70,49 @@ test.describe('with a microphone that hears speech', () => {
   });
 
   test('scrolling the chat does not stop the reply @G9.45', async ({ eve, page, voice }) => {
+    // A short window so the two turns overflow and the chat really scrolls.
+    await page.setViewportSize({ width: 1280, height: 380 });
     await speakingHandsFree(eve, page, voice);
+    const firstTurn = page.getByText('echo: open a thread from testbox');
+    await expect(firstTurn).not.toBeInViewport();
     await page.getByRole('img', { name: 'Spoken' }).hover();
-    await page.mouse.wheel(0, -600);
-    await page.mouse.wheel(0, 600);
+    await page.mouse.wheel(0, -2000);
+    await expect(firstTurn).toBeInViewport();
     await expect(status(page).getByText('Speaking…')).toBeVisible();
     await expect(status(page).getByRole('button', { name: 'Stop reply' })).toBeVisible();
   });
 
+  // Waits: the popup event from the click; the link opens in a new tab.
+  test('tapping a link in a reply does not stop the speech @G9.45', async ({ eve, page, voice }) => {
+    voice.stt.reply({ text: 'see https://example.test/page' });
+    await speakingHandsFree(eve, page, voice, 'see');
+    const link = page.getByRole('link', { name: /example\.test/ }).first();
+    await expect(link).toBeVisible();
+    const [popup] = await Promise.all([page.waitForEvent('popup'), link.click()]);
+    await popup.close();
+    await expect(status(page).getByText('Speaking…')).toBeVisible();
+    await expect(status(page).getByRole('button', { name: 'Stop reply' })).toBeVisible();
+  });
+
+  // No engine-controlled playback or microphone signal reaches a spec (E5 forbids reading the
+  // audio context or the tracks, and the speaking mark on "Read aloud" follows only a tap on
+  // it). The reachable proof: once a typed turn has completed, the looping microphone has sent
+  // nothing more to the speech service and no second spoken turn exists.
+  // Waits: the typed turn's reply (a third "Read aloud") closes the window.
   test('switching to Text stops listening and speech on the same tap @G9.46', async ({ eve, page, voice }) => {
     await speakingHandsFree(eve, page, voice);
+    const heardBefore = voice.stt.requests.length;
     await radio(page, 'Text').click();
     await expect(radio(page, 'Text')).toHaveAttribute('aria-checked', 'true');
     await expect(status(page)).toHaveCount(0);
-    await expect(page.getByRole('textbox', { name: 'Type your message...' })).toBeVisible();
+    const composer = page.getByRole('textbox', { name: 'Type your message...' });
+    await expect(composer).toBeVisible();
+    await composer.fill('typed after leaving');
+    await composer.press('Enter');
+    await expect(page.getByRole('button', { name: 'Read aloud' })).toHaveCount(3);
+    expect(voice.stt.requests).toHaveLength(heardBefore);
+    await expect(page.getByRole('img', { name: 'Spoken' })).toHaveCount(1);
+    await expect(status(page)).toHaveCount(0);
   });
 
   test('Hands-free hides the textarea and Send and keeps attach @G9.43', async ({ eve, page }) => {
@@ -111,6 +140,7 @@ test.describe('with a silent microphone and a 5 second reminder', () => {
     await expect(page.getByRole('img', { name: 'Spoken' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Read aloud' })).toHaveCount(1);
     expect(voice.stt.requests).toHaveLength(0);
+    await expect(page.getByText(REMINDER)).toHaveCount(1); // the status line only, never a chat turn
   });
 });
 
@@ -122,7 +152,42 @@ test('Voice settings opens only the voice and speed controls in every mode @G9.4
     await page.getByRole('button', { name: 'Voice settings' }).click();
     await expect(page.getByRole('combobox', { name: 'Voice' })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Speed' })).toBeVisible();
+    // Only the Voice group: no control from the Display, Modes or Files groups.
+    const sheet = page.getByRole('dialog', { name: 'Settings' });
+    await expect(sheet.getByRole('heading', { name: 'Display' })).toHaveCount(0);
+    await expect(sheet.getByRole('heading', { name: 'Modes' })).toHaveCount(0);
+    await expect(sheet.getByRole('slider', { name: 'Text size' })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(page.getByRole('combobox', { name: 'Speed' })).toBeHidden();
   }
+});
+
+// The same locators find those controls in the full Settings sheet, so the zero counts above mean "absent".
+test('the full Settings sheet holds the groups the Voice settings sheet leaves out @G9.48', async ({ eve, page }) => {
+  await openThread(eve, page);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: 'Settings' });
+  await expect(sheet.getByRole('heading', { name: 'Display' })).toBeVisible();
+  await expect(sheet.getByRole('heading', { name: 'Modes' })).toBeVisible();
+  await expect(sheet.getByRole('slider', { name: 'Text size' })).toBeVisible();
+});
+
+// Waits: the TTS request for the second turn's reply, matched on its text.
+test('a speed picked in Voice settings reaches the next spoken reply @G9.48 @G9.28', async ({ eve, page, voice }) => {
+  await openThread(eve, page);
+  const speaker = page.getByRole('button', { name: 'Speak replies' });
+  await speaker.click();
+  await expect(speaker).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Voice settings' }).click();
+  await page.getByRole('combobox', { name: 'Speed', exact: true }).selectOption({ label: '1.5×' });
+  const sheet = page.getByRole('dialog', { name: 'Settings' });
+  await sheet.getByRole('button', { name: 'Done' }).click();
+  await expect(sheet).toBeHidden();
+
+  const composer = page.getByRole('textbox', { name: 'Type your message...' });
+  await composer.fill('second bravo');
+  await composer.press('Enter');
+  const spoken = await voice.tts.waitForRequest((r) => r.text && r.text.includes('second bravo'));
+  expect(spoken.speed).toBe(1.5);
 });
