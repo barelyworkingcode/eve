@@ -174,12 +174,14 @@ class ChiefOfStaffPage {
     nav.className = 'cos-rail';
     nav.setAttribute('aria-label', 'Agents');
     nav.dataset.testid = 'cos-agents-rail';
-    page.append(nav, thread);
+    // Thread, divider, rail: the rail is the right-hand zone (eve#321).
+    const divider = this._div('cos-rail-divider', 'cos-rail-divider');
+    page.append(thread, divider, nav);
     root.textContent = '';
     root.appendChild(page);
     if (typeof CosAgentRail !== 'undefined') {
       this.rail = new CosAgentRail({ container: this.container, note: (id) => this.rowNotes.get(id) || null });
-      this.rail.mount(nav, stripHost);
+      this.rail.mount(nav, stripHost, { page, divider });
     }
     this._renderFeed();
     this._renderStatus();

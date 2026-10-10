@@ -113,14 +113,16 @@ async function teach(page, eve, id, count) {
 test.describe('the rail', () => {
   test.use({ world: { sessions: MIXED } });
 
-  test('is a nav named Agents beside the thread', async ({ page }) => {
+  test('is a nav named Agents to the right of the thread', async ({ page }) => {
     await openThread(page);
     await expect(rail(page)).toBeVisible();
     await expect(page.getByTestId('cos-agents-rail')).toBeVisible();
     const r = await rail(page).boundingBox();
     const t = await page.getByTestId('cos-thread').boundingBox();
-    expect(r.x + r.width).toBeLessThanOrEqual(t.x + 1);
-    expect(r.width).toBeGreaterThanOrEqual(270);
+    const d = await page.getByTestId('cos-rail-divider').boundingBox();
+    expect(t.x + t.width).toBeLessThanOrEqual(d.x + 1);
+    expect(d.x + d.width).toBeLessThanOrEqual(r.x + 1);
+    expect(r.width).toBe(280);
     await expect(page.getByTestId('cos-agents-strip')).toBeHidden();
   });
 
@@ -195,6 +197,110 @@ test.describe('the viewport switch', () => {
     await page.setViewportSize({ width: 900, height: 800 });
     await expect(page.getByTestId('cos-agents-strip')).toBeVisible();
     await expect(rail(page)).toBeHidden();
+  });
+});
+
+// eve#321: the divider between thread and rail resizes the rail and folds it into the strip.
+test.describe('the rail divider', () => {
+  test.use({ world: { sessions: MIXED } });
+  const divider = (page) => page.getByTestId('cos-rail-divider');
+  const railWidth = async (page) => (await rail(page).boundingBox()).width;
+  async function dragTo(page, x) {
+    const d = await divider(page).boundingBox();
+    const y = d.y + d.height / 2;
+    await page.mouse.move(d.x + d.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y, { steps: 5 });
+    await page.mouse.up();
+  }
+  const pageRight = async (page) => {
+    const b = await page.getByTestId('cos-page').boundingBox();
+    return b.x + b.width;
+  };
+
+  test('a drag resizes the rail and the thread, within 220-480px, and a reload keeps the width', async ({ page }) => {
+    await openThread(page);
+    const threadBefore = (await page.getByTestId('cos-thread').boundingBox()).width;
+    const right = await pageRight(page);
+    await dragTo(page, right - 400);
+    expect(Math.abs(await railWidth(page) - 400)).toBeLessThanOrEqual(4);
+    expect((await page.getByTestId('cos-thread').boundingBox()).width).toBeLessThan(threadBefore);
+    await dragTo(page, right - 900);
+    expect(await railWidth(page)).toBe(480);
+    await dragTo(page, right - 190);
+    expect(await railWidth(page)).toBe(220);
+    await expect(divider(page)).toHaveAttribute('aria-valuenow', '220');
+    await reloadEve(page);
+    await openThread(page);
+    expect(await railWidth(page)).toBe(220);
+  });
+
+  test('is a focusable separator: arrows step 16px, Home and End jump, a double-click resets to 280px', async ({ page }) => {
+    await openThread(page);
+    const d = divider(page);
+    await expect(d).toHaveAttribute('role', 'separator');
+    await expect(d).toHaveAttribute('aria-label', 'Resize agents');
+    await d.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(d).toHaveAttribute('aria-valuenow', '296');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(d).toHaveAttribute('aria-valuenow', '264');
+    await page.keyboard.press('End');
+    await expect(d).toHaveAttribute('aria-valuenow', '480');
+    expect(await railWidth(page)).toBe(480);
+    await page.keyboard.press('Home');
+    await expect(d).toHaveAttribute('aria-valuenow', '220');
+    await d.dblclick();
+    expect(await railWidth(page)).toBe(280);
+  });
+
+  test('a drag under 160px folds the rail into the strip; the strip and Enter unfold it at its last width', async ({ page }) => {
+    await openThread(page);
+    const right = await pageRight(page);
+    await dragTo(page, right - 360);
+    await dragTo(page, right - 60);
+    await expect(rail(page)).toBeHidden();
+    await expect(page.getByTestId('cos-agents-strip')).toBeVisible();
+    await expect(divider(page)).toBeVisible();
+    await expect(divider(page)).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('cos-agents-strip-red')).toHaveText(/3/);
+
+    await reloadEve(page);
+    await openThread(page);
+    await expect(rail(page)).toBeHidden();
+    await page.getByTestId('cos-agents-strip').click();
+    await expect(page.getByTestId('cos-agents-sheet')).toBeHidden();
+    await expect(rail(page)).toBeVisible();
+    expect(Math.abs(await railWidth(page) - 360)).toBeLessThanOrEqual(4);
+    await expect(page.getByTestId('cos-agents-strip')).toBeHidden();
+    await expect(divider(page)).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    await expect(rail(page)).toBeHidden();
+    await page.keyboard.press('Enter');
+    await expect(rail(page)).toBeVisible();
+  });
+
+  test('folded, "need you" unfolds the rail at its Needs you rows', async ({ page, eve }) => {
+    await openThread(page);
+    await divider(page).focus();
+    await page.keyboard.press('Enter');
+    await expect(rail(page)).toBeHidden();
+    eve.relay.emitToRelay(relayFrames.sessionState({ sessionId: 's-ask', state: 'asking' }));
+    await page.getByTestId('cos-need-you').click(WAIT);
+    await expect(rail(page)).toBeVisible();
+    await expect(page.getByTestId('rail-agents-group-needs-head')).toBeFocused();
+  });
+
+  test('at 900px and under there is no divider, and a folded rail still opens the sheet from the strip', async ({ page }) => {
+    await openThread(page);
+    await divider(page).focus();
+    await page.keyboard.press('Enter');
+    await page.setViewportSize({ width: 900, height: 800 });
+    await expect(divider(page)).toBeHidden();
+    await page.getByTestId('cos-agents-strip').click();
+    await expect(page.getByTestId('cos-agents-sheet')).toBeVisible();
   });
 });
 
