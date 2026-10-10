@@ -726,10 +726,11 @@ async function routineTouched(env) {
 
 const VOICE_VIEW_MS = 30000;
 
-// The voice chat view, judged as a person sees it: "End session" and no text composer.
+// The voice chat view, judged as a person sees it: text starting "Listening" and no text
+// composer. Both the full-screen voice view and Hands-free in the chat show that text.
 async function voiceView(page) {
-  await need(`the voice chat view did not show within ${VOICE_VIEW_MS / 1000}s`, expect(
-    page.getByRole('button', { name: 'End session' })).toBeVisible({ timeout: VOICE_VIEW_MS }));
+  await need(`the voice chat view did not show "Listening" within ${VOICE_VIEW_MS / 1000}s`, expect(
+    page.getByText(/^Listening/).filter({ visible: true }).first()).toBeVisible({ timeout: VOICE_VIEW_MS }));
   await need('the text composer is still showing', expect(page.getByTestId('chat-input')).toBeHidden({ timeout: 5000 }));
 }
 
