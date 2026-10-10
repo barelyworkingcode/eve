@@ -1,9 +1,8 @@
 # Goals whose rows may still read `none yet`, with the child that covers them.
 # The list only shrinks: each child removes its own goals when it lands.
-G1 #316
-G7 #316
-G12 #316
-G16 #316
+G1 #351
+G7 #351
+G16 #349
 G2 #317
 G3 #317
 G6 #317
