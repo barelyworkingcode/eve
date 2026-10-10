@@ -35,7 +35,7 @@ audited). Never an API or flag that skips it. See [Owner gates](#owner-gates).
 | G5 | Hand a task off and come back later | Give an agent a job, on demand or on a schedule | The task is saved, runs when told, and its last run is readable afterwards | tasks | **must-have** | task-created-listed (with Run Now and history), routine-from-thread |
 | G6 | Check what my agents did | Come back and see what ran and what changed | A task's run is readable afterwards; the Changes tab lists edited files and the diff opens; the agent board puts agents that need me first; the Chief of Staff thread shows every agent on a rail (a strip and sheet on a phone) and posts when an agent needs me and sends my words to an agent, marked | tasks, git, home, chief-of-staff | **must-have** | task-created-listed (run and history), routine-touched, changes-diff, changes-agent-edit, agent-board-states, agent-drop-in, cos-asking-post, cos-tell-sends-marked, cos-reads-project, cos-start-card, cos-errand-finished, cos-host-agent, cos-host-noread, cos-agent-rail |
 | G7 | Read and edit project files | Browse, open, change and save a file | The tree lists the project, a file opens in the editor, Save persists it, an outside edit is flagged | files | **must-have** | file-edit-save, files-on-host |
-| G8 | Let an agent act, under my control | Agents use tools only as the project's policy and my answers allow | Mode banner is right; a tool call in a gated mode raises the prompt; plan mode waits for Approve | chat, projects | should | none yet: answering the prompt is relay's owner gate; the prompt appearing is journey-checkable |
+| G8 | Let an agent act, under my control | Agents use tools only as the project's policy and my answers allow | Mode banner is right; a tool call in a gated mode raises the prompt; plan mode waits for Approve | chat, projects, ui-control | should | none yet: answering the prompt is relay's owner gate; the prompt appearing is journey-checkable |
 | G9 | Talk hands-free | Start a voice chat and converse | The voice view opens (incl. the `#/voice-chat` deep link), speech is transcribed, replies are spoken | voice | should | voice-deep-link (view opens, one session; no audio) |
 | G10 | Find something in my project | Locate text or a thing I did before | Search returns matches and opens them; ⌘K finds sessions, projects, files | search, home | should | none yet: not written |
 | G11 | Share files and images with the model | Give the model a file, see images it makes | Attached/pasted/dropped files reach the turn; images render and open fullscreen | chat, files | should | none yet: not written |
@@ -761,6 +761,18 @@ A row that repeated another goal's row, or a row relay's own feature map owns. T
 
 The path-to-area map lives in [`areas.jsonc`](areas.jsonc), read by
 `devboxverify/areas.js`. Journeys name their areas in their own `areas` field.
+
+A spec's areas are the `Areas` cells, in the Goals table, of the goals whose
+rows name that spec in their Spec cell. A PR's e2e job runs the specs of the
+areas its changed code reaches (`scripts/select-specs.js`; rules in
+[`test.md`](test.md#test-selection)). A `full` area runs every spec.
+
+An area that no spec can reach is journey-only: only a devbox journey proves
+it. The line below lists such areas, as `none` or a comma-separated list. Adding
+an area to it narrows selection, so a PR that does needs the
+`map-narrowing-approved` label.
+
+Journey-only: none
 
 ## Notes
 - **Nightly budget.** The journey phase has a 480 s budget; a journey that

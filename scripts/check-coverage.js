@@ -9,6 +9,7 @@
 //
 // Usage: node scripts/check-coverage.js
 // Output: one finding per line, `<ID or file>: <what>`.
+// Also the map rules M2, M3 and the syntax rule (scripts/spec-map.js); M4 is S7 in check-static.
 // Exit: 0 clean, 1 findings, 2 parse or usage error.
 // Docs: docs/test.md, "Coverage"; the Spec grammar is in docs/FEATURES.md, "How to read a row".
 
@@ -181,7 +182,15 @@ function main(argv, { out = console.log, err = console.error } = {}) {
     const pending = parsePending(read('test/e2e/coverage-pending.txt'), pendingFindings);
     const frozen = JSON.parse(read('test/static/frozen.json'));
     const specFiles = new Set(fs.readdirSync(path.join(ROOT, 'test/e2e')).filter((f) => SPEC_FILE.test(f)));
-    findings = [...pendingFindings, ...check({
+    const { parseMap } = require('../devboxverify/areas');
+    const specMap = require('./spec-map');
+    const featureMap = specMap.parseFeatureMap(text);
+    findings = [...pendingFindings, ...featureMap.findings, ...specMap.mapFindings({
+      areaMap: parseMap(read('docs/areas.jsonc')),
+      featureMap: featureMap.map,
+      trackedFiles: specMap.trackedFiles(ROOT),
+      pendingGoals: pending,
+    }, ['M2', 'M3', 'syntax']), ...check({
       features: parseFeatures(text),
       retired: parseRetired(text),
       pending,
@@ -198,6 +207,7 @@ function main(argv, { out = console.log, err = console.error } = {}) {
   return findings.length ? 1 : 0;
 }
 
-if (require.main === module) process.exitCode = main(process.argv.slice(2));
-
+// Assigned before main runs: spec-map requires this module back.
 module.exports = { main, check, parseFeatures, parseRetired, parseSpec, parsePending, splitRow };
+
+if (require.main === module) process.exitCode = main(process.argv.slice(2));
