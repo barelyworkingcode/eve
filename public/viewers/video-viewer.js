@@ -18,6 +18,7 @@ class VideoViewer {
     video.controls = true;
     video.preload = 'metadata';
     video.title = filename;
+    video.setAttribute('aria-label', `Video ${filename}`);
 
     video.addEventListener('error', () => {
       wrapper.innerHTML = '';
