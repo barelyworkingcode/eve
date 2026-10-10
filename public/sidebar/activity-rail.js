@@ -29,6 +29,7 @@ class ActivityRail {
       item.type = 'button';
       item.className = `rail__item${project.id === this.activeProjectId ? ' rail__item--active' : ''}`;
       item.title = project.name;
+      item.setAttribute('aria-label', project.name);
       item.dataset.testid = `sidebar-project-${project.id}`;
 
       const avatar = document.createElement('span');
