@@ -61,6 +61,7 @@ test.describe('creating a project', () => {
     await openNew(eve, page);
     await expect(page.getByRole('button', { name: 'General' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Templates' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Project Name' })).toBeFocused();
   });
 
   test('name the project and point it at a folder @G12.2 @G12.3', async ({ eve, page }) => {
