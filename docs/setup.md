@@ -216,6 +216,7 @@ headers, per-connection rate limiting.
 
 **Restart / apply config:** `relay service restart --id eve` (loads `.env` + the
 current code). Logs: `relay service list`, or the Relay app.
+After a restart, `data/eve-ready.json` shows the new pid and URL.
 
 **Cert renewal / new name:** re-run `scripts/gen-cert.sh <names...>`, then
 restart. (No device re-trust needed — same root. If the mkcert *root* ever
@@ -242,6 +243,49 @@ applying — usually on-device encrypted DNS or a stale cache (see Step 2's
 **Don't** put a loopback-terminating reverse proxy/tunnel in front of Eve (see
 Prerequisites) — it defeats the source-IP trust model. Use a NAT port-forward
 that preserves the client IP.
+
+---
+
+## Running an isolated instance (tests, side by side)
+
+Setting `EVE_DATA_DIR` (non-empty) makes an instance isolated. Every path then
+derives from it or from its own env name, and every port must be set. Eve never
+falls back to a live default. `--data` keeps the old defaults and does not
+isolate.
+
+| Resource | Isolated rule |
+|---|---|
+| Data dir | `EVE_DATA_DIR`. A relative value resolves against the working directory. A different `--data` is refused. |
+| Device log | `EVE_DEVICE_LOG_PATH`, else `<data dir>/relay-device.log` |
+| Plans dir | `EVE_PLANS_DIR`, else `<data dir>/.claude/plans` |
+| Primary port | `PORT` required. `0` binds a free port. |
+| Loopback HTTP port | `HTTP_PORT` required only with TLS and `DUAL_LISTEN=true`. `0` allowed. |
+| Voice daemons | `TTS_PORT` and `STT_PORT` required (host stays 127.0.0.1) |
+| Relay | `RELAY_FRONTEND_SOCKET` or `RELAY_FRONTEND_URL` required |
+| Terminal paste temp | `TMPDIR` (unchanged) |
+
+A missing or invalid value makes eve log `Refusing to start: EVE_DATA_DIR is
+set, so <names> must be set too` (or `<NAME> is not a port number`) and exit 1.
+This happens before eve creates the data dir or opens a listener.
+
+Once every listener is bound, and after the relay launch Hello, eve writes
+`<data dir>/eve-ready.json` (mode 0600) by tmp file and rename:
+
+```json
+{ "pid": 4242, "url": "http://localhost:52011", "port": 52011,
+  "httpUrl": null, "httpPort": null, "dataDir": "/path/to/data" }
+```
+
+`url` uses `https` when TLS is set. `httpUrl` and `httpPort` describe the
+loopback listener under `DUAL_LISTEN`, else `null`. Eve removes the file first
+thing on a clean exit and at the next start; a crash leaves it behind, so check
+`pid`. Wait on the file, never on a port poll.
+
+```bash
+EVE_DATA_DIR=/tmp/eve-a PORT=0 TTS_PORT=19997 STT_PORT=19998 \
+  RELAY_FRONTEND_SOCKET=/tmp/relay-frontend.sock node server.js
+cat /tmp/eve-a/eve-ready.json
+```
 
 ---
 

@@ -11,7 +11,7 @@
   "areas": {
     // Shared plumbing: a change here runs every journey.
     "core": { "full": true, "code": ["server.js", "ws-handler.js", "ws/message-registry.js", "ws/diagnostics-messages.js",
-      "ws-origin.js", "relay-client.js", "relay-transport.js", "launch-identity.js", "routes/index.js", "security-headers.js",
+      "ws-origin.js", "relay-client.js", "relay-transport.js", "launch-identity.js", "instance-config.js", "routes/index.js", "security-headers.js",
       "rate-limiter.js", "session-store.js", "logger.js", "trace.js", "project-normalize.js", "package.json",
       "package-lock.json", "public/index.html", "public/app.js", "public/ws-client.js", "public/message-dispatcher.js",
       "public/styles.css", "public/apple/tokens.css", "public/apple/base.css", "public/core/api-client.js",
