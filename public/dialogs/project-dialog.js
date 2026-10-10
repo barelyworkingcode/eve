@@ -161,6 +161,11 @@ class ProjectDialog extends DialogBase {
     nameInput.focus();
   }
 
+  // DialogBase focuses this after show(); without it the close button wins.
+  _initialFocusTarget() {
+    return this._nameInput?.isConnected ? this._nameInput : super._initialFocusTarget();
+  }
+
   _captureDraft() {
     if (this._nameInput?.isConnected) this._draft.name = this._nameInput.value;
     if (this._pathInput?.isConnected) this._draft.path = this._pathInput.value;

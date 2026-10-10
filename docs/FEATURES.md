@@ -594,7 +594,7 @@ Code: public/dialogs/project-dialog.js, public/sidebar/project-panel.js, public/
 
 | ID | Action | Simple door | Power door | Screen proof | Relay proof | Refusals | Journey | Spec |
 |---|---|---|---|---|---|---|---|---|
-| G12.1 | Open the New Project dialog from the Rail | Rail > button "New Project" > Project dialog | relay CLI `relay project create --name <name> --path <dir>` | Project dialog opens headed "New Project" with tabs "General" and "Templates"; textbox "Project Name" is focused | none | none | project-mode-new | none yet |
+| G12.1 | Open the New Project dialog from the Rail | Rail > button "New Project" > Project dialog | relay CLI `relay project create --name <name> --path <dir>` | Project dialog opens headed "New Project" with tabs "General" and "Templates"; textbox "Project Name" is focused | none | none | project-mode-new | g12-project-setup.spec.js |
 | G12.2 | Name the project | Project dialog > textbox "Project Name" > type a name | none | The text shows in the box | none | none | project-mode-new | none yet |
 | G12.3 | Point the project at a folder | Project dialog > textbox "Directory Path" > type a path | relay `settings.json` `projects[].path` | The text shows in the box; on a host project the label reads "Path on <host name>" | none | none | project-mode-new | none yet |
 | G12.4 | Create the project | Project dialog > button "Create Project" | relay CLI `relay project create --name <name> --path <dir>` | Dialog closes; button "<project name>" shows in navigation "Projects" if the project's mode fits the current mode | `relay logs --event project.create` ok | r1: name or path empty: dialog stays and nothing shows; r2: relay says no: text "Failed to save project: <reason>" | project-mode-new | none yet |
