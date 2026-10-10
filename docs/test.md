@@ -73,6 +73,38 @@ Fixtures, one set per test:
 
 `waitForEvent` resolves on the first fakerelay event line of that kind that `match` accepts (any line when there is no `match`). Lines already written count. The bound is the test's timeout. `EventLine` is `{ ts, level, msg, op, event, status, error?, trace_id, ...fields }`.
 
+#### `relay.ctl` and faults
+
+`ctl` reaches fakerelay's control socket. Each call resolves to `{ code, stdout, stderr }`; `code` 0 is success. Arguments are the argv of `fakerelay ctl`, one string each:
+
+| Call | Effect |
+|---|---|
+| `ctl('fault', 'add', '--route', R, '--mode', M, ...)` | adds a fault; `stdout` is `{"id":"f1"}` |
+| `ctl('fault', 'clear')` / `ctl('fault', 'clear', '--id', ID)` | removes all faults / one |
+| `ctl('fault', 'release', '--id', ID)` | lets a held (`slow`) request go |
+| `ctl('presence', 'project.grant=approve')` | sets the outcome per gated op (`approve`, `deny` or `timeout`; `project.grant`, `eve.enrolment.open`, `eve.passkey.revoke`); replaces the whole map; an absent op is `deny` |
+| `ctl('host', 'status', '--id', H, '--status', S, '--error', TEXT)` | sets an SSH host's status; answers after the frame went to every `/ws/files` connection |
+| `ctl('fs-event', '--project', P, '--path', PATH, '--kind', K)` | sends a file-change event; stdout is `{"delivered":N}` |
+| `ctl('clock', 'show')`, `('clock', 'set', RFC3339)`, `('clock', 'advance', MS)` | moves fakerelay's clock (enrolment windows, credential expiry) |
+| `ctl('state', '--json')` | the live state |
+
+A fault is `--route` (required), `--mode` and these optional flags: `--times N` (applications; absent or 0 means until cleared), `--delay-ms N`, `--status N` with `--body JSON`, or `--name NAME`.
+
+- `--route` is a registered pattern such as `GET /api/projects`, `*` (every frontend route), `BRIDGE <Type>` or `PROXY <manifest prefix>`. A route ending in `/` matches by prefix; any other matches exactly.
+- `--mode down` closes the connection with no answer. `--mode error` answers `--status` and `--body`, or a `--name`: `HOST_UNREACHABLE` (503), `TIMEOUT` (504), `AUDIT_UNAVAILABLE` (503), `ERROR` (500), `unavailable` (503), `bad_gateway` (502), `presence_refused` (403), `not_found` (404). `--mode slow` holds the request until `release`, or for `--delay-ms` when given.
+- Example: `await relay.ctl('fault', 'add', '--route', 'GET /api/projects', '--mode', 'down')`. Clear it with `ctl('fault', 'clear')`.
+- Wait for a hold, never sleep: `await relay.waitForEvent('fakerelay.fault', { match: (l) => l.action === 'held' })`. Every application also writes a `fakerelay.fault` line with `fault_id`, `route`, `mode` and `action` (`applied`, `held` or `released`).
+- A fault applies from the next request. Add it before the action that makes the request, and the fault lasts for the test (each test has its own fakerelay).
+
+#### Sign-in rows
+
+`<html data-ready="1">` is set by the app once its WebSocket is up and the projects and sessions have loaded. The WebSocket only opens after sign-in, so on the Sign-in and Set Up Passkey screens (`network: 'untrusted'`) the flag is never set, and `eve.open('/')` would wait out the test. A row that starts on those screens opens with `eve.open('/', { preReady: '<reason>' })` and asserts on the screen by role. Once the row signs in, wait for the app with `await expect(page.locator('html')).toHaveAttribute('data-ready', '1')` before acting on anything that needs the loaded app. A row that does not start on a sign-in screen never uses `preReady`.
+
+#### Voice rows
+
+- Dictation: eve discards a recording shorter than 300 ms ("Recording too short"), and nothing reaches the fake STT. The button is named "Stop recording" at once and renames itself to `Recording... 0:01` on the one-second timer tick, so wait for `getByRole('button', { name: /^Recording\.\.\./ })` before pressing it. A button press right after "Stop recording" shows sends no audio.
+- The fake STT's `requests` list shows what reached it; `waitForRequest` waits on that, not on a duration.
+
 Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and `stt-service.js`, on `127.0.0.1` with a free port. TTS answers every synth with a silent 30 s WAV and `list_voices` with one voice. STT answers `ping` with ok and every transcription with `hello from the test microphone`. `reply({ seconds })`, `reply({ text })` or `reply({ error })` changes the answer for later requests.
 
 Specs never touch `context.newCDPSession`, child processes or the file system; those live in `test/e2e/support/`.
