@@ -950,8 +950,7 @@ async function askAboutFile(env) {
 
   env.step('Ask about this');
   await item.click({ button: 'right', timeout: 5000 });
-  const menu = page.locator('.file-tree__context-menu');
-  await menu.getByRole('menuitem', { name: 'Ask about this', exact: true }).or(menu.getByRole('button', { name: 'Ask about this', exact: true })).click({ timeout: 5000 });
+  await page.locator('.file-tree__context-menu').getByRole('menuitem', { name: 'Ask about this', exact: true }).click({ timeout: 5000 });
   await need('Ask about this did not show Today within 10s', expect(home).toBeVisible({ timeout: 10000 }));
   await need('the Ask chip does not name the file', expect(page.getByTestId('today-ask-attachment')).toContainText(fileName, { timeout: 10000 }));
   await need('Ask does not have focus', expect(page.getByTestId('today-ask-input')).toBeFocused({ timeout: 5000 }));
