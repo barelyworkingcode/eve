@@ -16,6 +16,11 @@ function profile(name) {
 }
 const profiles = { phone: profile('Pixel 7'), tablet: profile('Galaxy Tab S4') };
 
+const AUTHENTICATOR_OPTIONS = {
+  protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
+  isUserVerified: true, automaticPresenceSimulation: true,
+};
+
 function passkeyFor(page, context) {
   let cdp = null;
   let authenticatorId = null;
@@ -28,13 +33,17 @@ function passkeyFor(page, context) {
     async enable() {
       cdp = await context.newCDPSession(page);
       await cdp.send('WebAuthn.enable');
-      const res = await cdp.send('WebAuthn.addVirtualAuthenticator', {
-        options: {
-          protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
-          isUserVerified: true, automaticPresenceSimulation: true,
-        },
-      });
+      const res = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: AUTHENTICATOR_OPTIONS });
       authenticatorId = res.authenticatorId;
+    },
+    // A fresh, empty authenticator with the same options (presence and verification back on).
+    // Returns the old one's credentials, so a row can show a second browser is not the first.
+    async replace() {
+      const old = await this.credentials();
+      await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId });
+      const res = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: AUTHENTICATOR_OPTIONS });
+      authenticatorId = res.authenticatorId;
+      return old;
     },
     async credentials() {
       const res = await need().send('WebAuthn.getCredentials', { authenticatorId });
@@ -83,9 +92,15 @@ const test = base.test.extend({
     }
   },
 
-  eve: async ({ stack, page }, use) => {
+  eve: async ({ stack, page, context, network }, use) => {
     const ready = () => page.locator('html[data-ready="1"]').waitFor({ state: 'attached' });
     const toReady = async (action, opts) => {
+      if (opts && opts.weakConnection) {
+        // The first fetch of one core script fails; later loads (the person's Reload) succeed.
+        await page.route((u) => u.pathname === '/app.js', (route) => route.abort('internetdisconnected'), { times: 1 });
+        await action('domcontentloaded');
+        return;
+      }
       if (opts && 'preReady' in opts && !(typeof opts.preReady === 'string' && opts.preReady.trim())) {
         throw new Error('preReady needs a non-empty reason');
       }
@@ -98,6 +113,14 @@ const test = base.test.extend({
       ready,
       open: (urlPath = '/', opts) => toReady((waitUntil) => page.goto(stack.url + urlPath, { waitUntil }), opts),
       reload: (opts) => toReady((waitUntil) => page.reload({ waitUntil }), opts),
+      // Clears this page's site data, as a person would. The token stays valid in eve and the
+      // authenticator keeps its credentials. Returns with the Sign-in screen loading.
+      async signOut() {
+        if (network === 'trusted') throw new Error("signOut needs network: 'untrusted'");
+        await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+        await page.reload({ waitUntil: 'domcontentloaded' });
+      },
+      setOffline: (offline) => context.setOffline(offline),
     });
   },
 

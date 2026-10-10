@@ -65,9 +65,9 @@ Fixtures, one set per test:
 
 | Fixture | Members |
 |---|---|
-| `eve` | `url`; `open(path = '/', { preReady })`, which returns once `<html data-ready="1">` is set; `reload({ preReady })`; `ready()`, which waits for `<html data-ready="1">`. `preReady` (a non-empty reason string) returns at `domcontentloaded`, for rows that act before eve is ready. |
+| `eve` | `url`; `open(path = '/', { preReady, weakConnection })`, which returns once `<html data-ready="1">` is set; `reload({ preReady })`; `ready()`, which waits for `<html data-ready="1">`; `signOut()`; `setOffline(offline)`. `preReady` (a non-empty reason string) returns at `domcontentloaded`, for rows that act before eve is ready. |
 | `relay` | `dir`; `cli(...argv)` (relay verbs as the feature map writes them: `cli('eve', 'list')`) and `ctl(...argv)` (presence, faults, host status, fs events, clock), both `{ code, stdout, stderr }`; `json(...argv)`; `mark()` (now, for `since`); `logs({ event, since })`; `waitForEvent(event, { since, match })`. |
-| `passkey` | `enable()` (Chromium virtual authenticator: ctap2, internal, resident key, user verification); `credentials()`; `setPresence(ok)` (false: the next ceremony gets no presence or verification). |
+| `passkey` | `enable()` (Chromium virtual authenticator: ctap2, internal, resident key, user verification); `credentials()`; `setPresence(ok)` (false: the next ceremony gets no presence or verification); `replace()` (a fresh, empty authenticator; returns the old one's credentials). |
 | `voice` | `tts` and `stt`, each with `requests` (live), `waitForRequest(match)` and `reply(...)`. |
 | `profiles` | `phone` (Pixel 7) and `tablet` (Galaxy Tab S4), for `test.use(profiles.phone)`. |
 
@@ -100,12 +100,18 @@ A fault is `--route` (required), `--mode` and these optional flags: `--times N` 
 
 `<html data-ready="1">` is set by the app once its WebSocket is up and the projects and sessions have loaded. The WebSocket only opens after sign-in, so on the Sign-in and Set Up Passkey screens (`network: 'untrusted'`) the flag is never set, and `eve.open('/')` would wait out the test. A row that starts on those screens opens with `eve.open('/', { preReady: '<reason>' })` and asserts on the screen by role. Once the row signs in, wait for the app with `await eve.ready()` before acting on anything that needs the loaded app. A row that does not start on a sign-in screen never uses `preReady`.
 
+A row that needs a signed-out browser with a passkey enrols first, then calls `await eve.signOut()`. It throws under `network: 'trusted'`. The Sign-in screen loads with heading "Sign In", and the authenticator still holds its passkey. A row about a second browser ("Add this browser", revoking another browser's passkey) uses the same page: `eve.signOut()`, then `passkey.replace()`, which returns the first browser's credentials. To eve, that page is a new browser.
+
 #### Voice rows
 
 - Dictation: eve discards a recording shorter than 300 ms ("Recording too short"), and nothing reaches the fake STT. The button is named "Stop recording" at once and renames itself to `Recording... 0:01` on the one-second timer tick, so wait for `getByRole('button', { name: /^Recording\.\.\./ })` before pressing it. A button press right after "Stop recording" shows sends no audio.
 - The fake STT's `requests` list shows what reached it; `waitForRequest` waits on that, not on a duration.
 
-Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and `stt-service.js`, on `127.0.0.1` with a free port. TTS answers every synth with a silent 30 s WAV and `list_voices` with one voice. STT answers `ping` with ok and every transcription with `hello from the test microphone`. `reply({ seconds })`, `reply({ text })` or `reply({ error })` changes the answer for later requests.
+Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and `stt-service.js`, on `127.0.0.1` with a free port. TTS answers every synth with a silent 30 s WAV and `list_voices` with two voices, "Heart" and "George". STT answers `ping` with ok and every transcription with `hello from the test microphone`. `reply({ seconds })`, `reply({ text })` or `reply({ error })` changes the answer for later requests.
+
+#### Network rows
+
+`await eve.setOffline(true)` takes the browser off the network, as a person losing signal. `setOffline(false)` brings it back. Assert on the screen with `expect`, never a duration. `eve.open('/', { weakConnection: true })` fails the first load of one core script, so the page never becomes ready. After the person presses Reload, wait with `await eve.ready()`.
 
 #### Request shapes a spec can match on
 
@@ -142,7 +148,7 @@ A setup failure throws a named error: `fakerelay exited <code> before ready: <st
 | E5 screen only | `test/e2e/*.spec.js` | `locator`, `frameLocator`, `getByTestId`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `$`, `$$`, `$eval`, `$$eval`, `waitForSelector`, `evaluate`, `evaluateAll`, `evaluateHandle`, `waitForFunction`, `addInitScript`, `addScriptTag`, `exposeFunction`, `exposeBinding`, `route`, `routeWebSocket`, `unroute`, `request`, `goto`, `newCDPSession` on any receiver; `reload` on any receiver but `eve`; destructuring any of them; a `request` fixture parameter |
 | E6 spec imports | `test/e2e/*.spec.js` | any `require` but `./support/fixtures` and `./support/worlds`, and any `import` |
 
-Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`last`/`nth`, `page.keyboard`, `page.mouse`, `page.touchscreen`, `setInputFiles`, `expect`, and the fixtures (`eve.open`, `eve.reload`, `relay`, `passkey`, `voice`).
+Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`last`/`nth`, `page.keyboard`, `page.mouse`, `page.touchscreen`, `setInputFiles`, `expect`, and the fixtures (`eve.open`, `eve.reload`, `eve.ready`, `eve.signOut`, `eve.setOffline`, `relay`, `passkey`, `voice`).
 
 `npm run check:static` (`scripts/check-static.js`, plain Node) holds the rest. One finding per line, `<check>: <file>[:<line>]: <what>`; exit 0 clean, 1 findings, 2 usage or an unreadable input. The frozen sets are in `test/static/frozen.json` (`wsTypes`, `expensiveTypes`, `asyncHandlers`, `breakpoints`, `journeys`), so a deliberate change shows in the diff.
 
