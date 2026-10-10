@@ -1,8 +1,18 @@
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
-async function handleReadPlanFile(ws, filePath) {
+// realpath of each plans dir, resolved once on first successful use.
+const realPlansDirs = new Map();
+async function realPlansDirOf(plansDir) {
+  let real = realPlansDirs.get(plansDir);
+  if (!real) {
+    real = await fs.promises.realpath(plansDir);
+    realPlansDirs.set(plansDir, real);
+  }
+  return real;
+}
+
+async function handleReadPlanFile(ws, filePath, plansDirPath) {
   try {
     if (!filePath || typeof filePath !== 'string') {
       ws.send(JSON.stringify({ type: 'error', message: 'Invalid plan file path' }));
@@ -10,7 +20,7 @@ async function handleReadPlanFile(ws, filePath) {
     }
 
     const resolved = path.resolve(filePath);
-    const plansDir = path.resolve(os.homedir(), '.claude', 'plans');
+    const plansDir = path.resolve(plansDirPath);
 
     if (!resolved.startsWith(plansDir + path.sep) || !resolved.endsWith('.md')) {
       ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
@@ -21,7 +31,10 @@ async function handleReadPlanFile(ws, filePath) {
     // realpath. ENOENT falls through to the readFile error below.
     try {
       const real = await fs.promises.realpath(resolved);
-      if (!real.startsWith(plansDir + path.sep)) {
+      // The plans dir itself may sit behind a symlink (a data dir under /tmp
+      // on macOS); compare real paths on both sides.
+      const realPlansDir = await realPlansDirOf(plansDir);
+      if (!real.startsWith(realPlansDir + path.sep)) {
         ws.send(JSON.stringify({ type: 'error', message: 'Plan file path not allowed' }));
         return;
       }
@@ -122,7 +135,7 @@ module.exports = [
   {
     type: 'read_plan_file',
     handle(ctx) {
-      handleReadPlanFile(ctx.ws, ctx.message.path);
+      handleReadPlanFile(ctx.ws, ctx.message.path, ctx.deps.paths.plansDir);
     },
   },
 ];

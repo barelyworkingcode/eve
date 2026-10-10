@@ -1,9 +1,6 @@
 const fs = require('fs');
-const path = require('path');
 
-const DEVICE_LOG_PATH = process.env.EVE_DEVICE_LOG_PATH || path.join(__dirname, '..', 'relay-device.log');
-
-function appendDeviceLog(message, req) {
+function appendDeviceLog(message, req, deviceLogPath) {
   try {
     const lines = Array.isArray(message.lines)
       ? message.lines
@@ -14,7 +11,7 @@ function appendDeviceLog(message, req) {
     const text = lines
       .map((l) => `${recv} ${src} ${typeof l === 'string' ? l : JSON.stringify(l)}`)
       .join('\n') + '\n';
-    fs.appendFile(DEVICE_LOG_PATH, text, () => {});
+    fs.appendFile(deviceLogPath, text, () => {});
   } catch (_) { /* diagnostics must never break the socket */ }
 }
 
@@ -22,7 +19,7 @@ module.exports = [
   {
     type: 'device_log',
     handle(ctx) {
-      appendDeviceLog(ctx.message, ctx.req);
+      appendDeviceLog(ctx.message, ctx.req, ctx.deps.paths.deviceLogPath);
     },
   },
 ];
