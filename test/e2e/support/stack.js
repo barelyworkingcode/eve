@@ -50,6 +50,9 @@ class Stack {
     this.voiceFakes = null;
   }
 
+  // Scratch directory for files a spec's person would pick (see desktop.unreadableFile).
+  get tmpDir() { return path.join(this.root, 'tmp'); }
+
   get relayDir() { return path.join(this.root, 'r'); }
 
   // Where fakerelay writes the plan files of `plan` replies.

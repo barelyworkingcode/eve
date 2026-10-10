@@ -61,7 +61,7 @@ Options, set with `test.use`:
 | `publicOrigin` | `null` | Sets `EVE_PUBLIC_ORIGIN`, e.g. `'https://eve.acme.test'`. The app never reaches `data-ready` under it (the WebSocket needs that origin), so open with `eve.openByIp` or `preReady`. |
 | `trustedSubnets` | `null` | Sets `EVE_TRUSTED_SUBNETS`, e.g. `'192.0.2.0/24'`, replacing the default trusted set. |
 | `plansDir` | `'agent'` | `'agent'` sets `EVE_PLANS_DIR` to fakerelay's plans dir (`<relay dir>/home/.claude/plans`), where `plan` replies write. `'eve'` leaves it unset, so eve uses its own default (a plan written on another machine). |
-| `eveSettings` | `null` | An object written as eve's `data/settings.json` before eve starts, e.g. `{ voice: { handsFreeReminderSeconds: 5 } }`. `null` writes no file. |
+| `eveSettings` | `null` | An object written as eve's `data/settings.json` before eve starts, e.g. `{ voice: { handsFreeReminderSeconds: 5 } }` or `{ chiefOfStaff: {...} }`. `null` writes no file. |
 | `mic` | `'beep'` | What the page hears when it opens the microphone. `'beep'` is Chromium's own fake device. `'silence'` and `'speech'` replace the audio of `getUserMedia` with a looping WAV generated in code (`test/e2e/support/mic-audio.js`, no audio file in the repo): one second of silence, or 2.5 s of synthetic speech-like audio (a pulse train through moving vowel formants) followed by five seconds of silence, repeating. |
 
 `worlds.media.webm()` and `worlds.media.wav()` return `{ base64 }`, a world file value of about 1 s that plays in Playwright's Chromium: `files: { 'clip.webm': worlds.media.webm() }`.
@@ -72,14 +72,53 @@ Fixtures, one set per test:
 
 | Fixture | Members |
 |---|---|
-| `eve` | `url`; `openByIp(path = '/')` (opens `http://192.0.2.10:<eve port><path>`; support forwards the browser's requests to eve's real listener with `Host: 192.0.2.10:<port>`, so eve sees a bare-IP visit; resolves at `domcontentloaded`); `open(path = '/', { preReady, weakConnection })`, which returns once `<html data-ready="1">` is set; `reload({ preReady })`; `ready()`, which waits for `<html data-ready="1">`; `signOut()`; `setOffline(offline)`. `preReady` (a non-empty reason string) returns at `domcontentloaded`, for rows that act before eve is ready. |
+| `eve` | `url`; `openByIp(path = '/')` (opens `http://192.0.2.10:<eve port><path>`; support forwards the browser's requests to eve's real listener with `Host: 192.0.2.10:<port>`, so eve sees a bare-IP visit; resolves at `domcontentloaded`); `open(path = '/', { preReady, weakConnection })`, which returns once `<html data-ready="1">` is set; `reload({ preReady })`; `ready()`, which waits for `<html data-ready="1">`; `signOut()`; `setOffline(offline)`; `openAnother(path = '/')`, a second page in a new browser context with this test's context options (profile, locale, permissions) and its own storage, which returns once that page has `<html data-ready="1">` and is closed at teardown. `preReady` (a non-empty reason string) returns at `domcontentloaded`, for rows that act before eve is ready. |
 | `relay` | `dir`; `cli(...argv)` (relay verbs as the feature map writes them: `cli('eve', 'list')`) and `ctl(...argv)` (presence, faults, host status, fs events, clock), both `{ code, stdout, stderr }`; `json(...argv)`; `mark()` (now, for `since`); `logs({ event, since })`; `waitForEvent(event, { since, match })`; `removePlanFiles()` (fault injection: deletes every `*.md` in fakerelay's plans dir, resolves after the unlinks with the count). |
-| `desktop` | `dropFiles(target, files)`: one `DataTransfer` holding every `{ name, text?, size?, type? }` file (`size` fills zero bytes), then `dragenter`, `dragover` and `drop` on the `target` locator. Returns once `drop` is dispatched; wait on the effect (for example `file.write`). |
+| `desktop` | `dropFiles(target, files)`: one `DataTransfer` holding every `{ name, text?, size?, type? }` file (`size` fills zero bytes), then `dragenter`, `dragover` and `drop` on the `target` locator. Returns once `drop` is dispatched; wait on the effect (for example `file.write`). `paste(target, items)`: one `ClipboardEvent('paste')` on the `target` locator carrying one `DataTransfer`; each item is a string (`text/plain`) or a file `{ name, type?, base64 }`. Returns once dispatched; wait on the effect (the chip). `unreadableFile(name)`: writes a file with mode 0 in the test's scratch directory and returns its path. Hand it to `setInputFiles`: Chromium accepts the path, and the page's read of it fails with `NotReadableError`, as for a real file the person cannot read. Probed on this box; as root the mode would not block the read. |
+| `touch` | Real touches through CDP `Input.dispatchTouchEvent`, for gestures `page.touchscreen` cannot make. `swipe(target, { dx, dy })`: touch down at the centre of the `target` locator, move by `(dx, dy)` in eight steps, lift; resolves after the lift. `hold(target, { until })`: touch down at the centre and keep the finger there until the `until` locator is visible, then lift (also if the wait fails); waits on that locator, never a duration. Use with `test.use(profiles.phone)`. |
 | `passkey` | `enable()` (Chromium virtual authenticator: ctap2, internal, resident key, user verification); `credentials()`; `setPresence(ok)` (false: the next ceremony gets no presence or verification); `replace()` (a fresh, empty authenticator; returns the old one's credentials). |
 | `voice` | `tts` and `stt`, each with `requests` (live), `waitForRequest(match)` and `reply(...)`; `mic` and `speech`, each with `stops` (live count) and `waitForStop(after = 0)`. |
 | `profiles` | `phone` (Pixel 7) and `tablet` (Galaxy Tab S4), for `test.use(profiles.phone)`. |
 
 `waitForEvent` resolves on the first fakerelay event line of that kind that `match` accepts (any line when there is no `match`). Lines already written count. The bound is the test's timeout. `EventLine` is `{ ts, level, msg, op, event, status, error?, trace_id, ...fields }`.
+
+#### Time rows
+
+A row about time away (idle for an hour, a 24-hour expiry, "now" versus "yesterday") installs the browser clock first, then moves it: `await page.clock.install()` before `eve.open`, `await page.clock.fastForward('01:00:00')` (or `'24:00:00'`) after, then `await eve.reload()` so eve starts again at the new time. Eve's server side does not move; `relay.ctl('clock', 'advance', MS)` moves fakerelay's clock for rows about its own time (enrolment windows, credential expiry). Never wait out real time.
+
+#### World keys the specs use
+
+From `docs/fakerelay.md` in the relay repo at the pinned commit (`test/e2e/relay-pin.json`); a key not listed here needs that file read first. Names are snake_case in the world and camelCase on eve's own wire.
+
+| Key | Shape |
+|---|---|
+| `projects[]` | `id, name, path, kind, host_id, mode, files_read_only, allowed_mcp_ids, allowed_models, allowed_templates, chat_templates, permission_policy`, plus `files` (`{rel: string \| null (dir) \| {base64} \| {symlink}}`) and `repos` |
+| `projects[].repos[]` | `{ dir, branch, commits: [{ message, files }] }`: real `git init`, `add`, `commit`; `files` is written after `repos`, so it sets the worktree state (the Changes tab) |
+| `projects[].chat_templates[]` | `{ id, name, model, mode, voice, system_prompt[, preset_for] }` (`docs/api.md`); `preset_for` lists `home` or `work`; one Ask and one voice preset per mode |
+| `projects[].permission_policy` | relay's per-project policy record, read back as is |
+| `models[]` | `{ value, label, group, provider, reply }`; `reply` is `{ kind }` and defaults to `echo`. `haiku`, `sonnet` and `opus` are fixed in relay and always listed |
+| `models[].reply.kind` | `echo` (answers `echo: <text>`); `text` (`{ text }`, a fixed answer); `permission` (`{ tool }`: raises a `permission_request` for that tool, echoes on approve); `plan` (`{ text? }`: writes `<relay dir>/home/.claude/plans/<sessionId>.md`, then a `Write` tool use and an `ExitPlanMode` tool use whose `input.plan` is `text`; no text block); `fail` (`message_complete` with `isError: true`) |
+| `sessions[]` | `{ id, project_id, name, model, state: 'idle' \| 'dormant', messages: [{ role, text }] }` |
+| `terminal_templates[]` | relay's terminal template, `{ id, name, ... }` |
+| `audit[]` | verbatim audit rows appended at start: `id, ts, event, actor { kind, auth, ... }, outcome, scope` plus the optional keys of the row shape |
+| `chief_of_staff` | `{ project_id, model, daily_model_calls }` |
+| `default_project` | `{ home, work }` |
+| `mcps[]` | `{ id, name, transport, catalogue }` (never started) |
+| `hosts[]`, `eve`, `presence`, `faults[]`, `credentials[]` | see fakerelay.md; presence and faults are also set live with `relay.ctl` |
+
+#### Relay proof stand-ins
+
+The feature map names relay's own commands. fakerelay serves some of them, and these are the reads a spec uses instead. Only what the world seeded or the test caused is there; there is no host-wide view.
+
+| Real relay | In a spec | Notes |
+|---|---|---|
+| `relay session list` | `(await relay.json('ctl', 'state', '--json')).sessions` | array of the sessions fakerelay holds, seeded and created |
+| `relay terminal list` | `(await relay.json('ctl', 'state', '--json')).terminals` | array; `[]` when none is open |
+| `relay model list` | `await relay.logs({ event: 'model.list' })` | one line per `GET /api/models`, so it shows eve asked; the fixed `haiku`, `sonnet`, `opus` are not in the state. `state.models` holds only the models the world added (`null` when none) |
+| `relay audit` | `await relay.cli('audit', '--json', ...)` | `{ code, stdout, stderr }`; `stdout` is one JSON row per line. Reads only the rows the world seeded plus the `file_op` and `control_decision` rows fakerelay writes. Flags: `--tail N`, `--project ID`, `--event E`, `--outcome O` |
+| `relay project create` / `edit` | `relay.cli('project', 'create' \| 'edit', ...)` | `--file F` reads the body; a widening edit asks `project.grant` presence |
+| `relay mcp list` | `relay.cli('mcp', 'list')` | |
+| `relay eve list` / `revoke` | `relay.cli('eve', 'list')` | |
 
 #### `relay.ctl` and faults
 
