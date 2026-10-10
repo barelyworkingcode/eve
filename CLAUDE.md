@@ -88,17 +88,18 @@ Frontend is vanilla JS (no framework, no build step), mid-migration from a legac
 
 ```bash
 node --check <file.js>      # THE build gate. There is no compiler.
+npx playwright test         # hermetic suite: fakerelay + eve per test (docs/test.md)
 npm run -s verify:devbox    # devbox world journeys, test machine only (devboxverify/README.md)
 ```
 
-**No hermetic suite yet.** The Jest unit, integration and visual suites, the Playwright specs and the JS fake relay were removed. Epic #310 replaces them with Playwright specs that each start their own `fakerelay` (relay's repo) and eve, and drive eve only through what a person sees. Until that harness lands, CI runs `node --check` and the PR guards. Devbox world (`devboxverify/`, the `devbox/verify` status check) is unchanged and is the only end-to-end proof.
+**Hermetic suite.** `npx playwright test` (or `npm run test:e2e`): every test starts its own `fakerelay` (relay's repo), relayScheduler and eve, and drives eve only through what a person sees (role, label and text locators). The harness is `playwright.config.js` and `test/e2e/support/`; the fixture API is in [docs/test.md](docs/test.md). The first run builds fakerelay and relayScheduler from the commits in `test/e2e/relay-pin.json`. Devbox world (`devboxverify/`, the `devbox/verify` status check) stays the proof for what no hermetic spec can reach (real Safari, the iOS app, the installed stack).
 
-**Browser-test lock.** `verify:devbox` holds one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
+**Browser-test lock.** `verify:devbox` and (outside CI) `npx playwright test` hold one machine-wide lock (`scripts/browser-lock.js`); a second run waits for it. Don't check for other runs with `pgrep`.
 
 **Local gates** (`.githooks/`, run by the machine's global hooks dispatcher; never set a repo-local `core.hooksPath`, which skips the push guard). `--no-verify` is for the operator in an emergency, never the agent.
 
-- **pre-commit**: on any commit staging `.js`, `.cjs` or `.mjs` files, runs `node --check` on them.
-- **pre-push**: on any push whose range touches `.js`, `.cjs` or `.mjs` files, runs `node --check` on them.
+- **pre-commit**: on any commit staging `.js`, `.cjs` or `.mjs` files, runs `node --check` on them, then `eslint` on them.
+- **pre-push**: on any push whose range touches `.js`, `.cjs` or `.mjs` files, runs `node --check` and `eslint` on them. On any push that is not a branch delete, it also runs `npm run -s check:static` and `npm run -s check:coverage`. Neither hook runs the browser suite.
 
 Keep fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked timer can't hold the process open. Full testing guide: [docs/test.md](docs/test.md).
 
@@ -106,7 +107,7 @@ Keep fire-and-forget timers `.unref()`'d (see `file-watcher.js`) so a leaked tim
 
 Rules that make an otherwise-correct patch wrong here.
 
-- **A new call to relay or relayScheduler needs relay's `fakerelay` to serve it.** Epic #310's specs run eve against `fakerelay`, built from the relay commit eve pins. Until that harness lands, the devbox world journeys are the only check that eve and relay agree.
+- **A new call to relay or relayScheduler needs relay's `fakerelay` to serve it.** Specs run eve against `fakerelay`, built from the relay commit in `test/e2e/relay-pin.json`. A call the pinned fakerelay doesn't serve fails in the specs: bump the pin (a deliberate PR that edits only that file) once relay serves it. The devbox world journeys remain the check that eve and the real relay agree.
 
 - **Script order in `index.html` is load-bearing** (globals, not modules). If you delete a `<script>` tag, make sure nothing later still references its class.
 - **Never weaken or skip a test to go green.** If a test covers code you removed, say so and tighten it rather than deleting the assertion.

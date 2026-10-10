@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Pre-commit hook: refuse a commit that stages a JS file that does not parse.
+# Pre-commit hook: refuse a commit that stages a JS file that does not parse
+# or breaks a lint rule.
 #
 # Run by the machine's global hooks dispatcher. Don't set core.hooksPath in
 # the repo: a local value overrides the global hooks and skips the push guard.
 #
 # Eve has no bundler/build step (vanilla JS, direct browser execution), so the
-# gate is a per-file syntax parse (node --check), not a compile.
+# gate is a per-file syntax parse (node --check), not a compile. ESLint then
+# holds the static guards (eslint.config.js). The browser suite never runs here.
 
 set -e
 
@@ -24,5 +26,15 @@ for f in $files; do
         exit 1
     fi
 done
+
+echo "→ eslint (staged JS)"
+existing=""
+for f in $files; do
+    [ -f "$f" ] && existing="$existing $f"
+done
+if [ -n "$existing" ] && ! npx --no-install eslint --no-warn-ignored $existing; then
+    echo "✗ lint failed; commit aborted"
+    exit 1
+fi
 
 echo "✓ pre-commit checks passed"
