@@ -17,6 +17,13 @@ class SessionStore {
     this.log = log || new NullLogger();
     this.sessionsFile = path.join(dataDir, 'sessions.json');
     this.sessions = this._load();
+    this.revokeListeners = [];
+  }
+
+  // fn(tokens) runs after revokeByCredential() drops tokens, so a holder of an
+  // already-authenticated connection (ws-handler.js) can end it.
+  onRevoked(fn) {
+    this.revokeListeners.push(fn);
   }
 
   _load() {
@@ -58,15 +65,20 @@ class SessionStore {
   // Deletes every token minted by credentialId. A session with no
   // credentialId (minted before this field existed) is never touched.
   revokeByCredential(credentialId) {
-    let count = 0;
+    const revoked = [];
     for (const [token, session] of this.sessions) {
       if (session.credentialId === credentialId) {
         this.sessions.delete(token);
-        count++;
+        revoked.push(token);
       }
     }
-    if (count > 0) this._save();
-    return count;
+    if (revoked.length > 0) {
+      this._save();
+      for (const fn of this.revokeListeners) {
+        try { fn(revoked); } catch (err) { this.log.error('Revoke listener failed:', err.message); }
+      }
+    }
+    return revoked.length;
   }
 
   validate(token) {

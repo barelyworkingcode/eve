@@ -175,6 +175,26 @@ test('revoke a lost browser and eve drops it @G16.6', async ({ eve, page, relay,
   expect(after.stdout.trim().split('\n')).toHaveLength(2);
 });
 
+test('@G16.8 @G1.41 an open page signs out after its passkey is revoked', async ({ eve, page, relay, passkey }) => {
+  // eve reports its passkeys every 30 s; this test waits for one report.
+  test.slow();
+  await addThisBrowser(eve, page, relay, passkey);
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeHidden();
+  const own = await passkey.credentials();
+  await relay.ctl('presence', 'eve.passkey.revoke=approve');
+  const since = relay.mark();
+  const revoked = await relay.cli('eve', 'revoke', '--id', b64url(own[0].credentialId));
+  expect(revoked.code).toBe(0);
+  expect(revoked.stdout).toContain('revocation pending');
+
+  await relay.waitForEvent('eve.passkey.report', {
+    since,
+    match: (l) => l.status === 'ok' && l.count === 1,
+  });
+  // No reload or other action: the open page must fall back to Sign In.
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+});
+
 test('a revoked passkey is refused at sign-in @G16.7', async ({ eve, page, relay, passkey }) => {
   await addThisBrowser(eve, page, relay, passkey);
   const own = await passkey.credentials();
