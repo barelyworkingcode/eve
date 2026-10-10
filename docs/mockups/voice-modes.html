@@ -1,0 +1,124 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--bg-canvas:#000;--bg-primary:#1c1c1e;--bg-secondary:#232325;--bg-tertiary:#2c2c2e;--text:#f5f5f7;--text2:rgba(235,235,245,.6);--muted:rgba(235,235,245,.32);--sep:rgba(255,255,255,.08);--accent:#0a84ff;--soft:rgba(10,132,255,.18)}
+*{box-sizing:border-box;margin:0}
+body{background:#111;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color:var(--text);padding:28px 32px;display:flex;flex-direction:column;gap:18px}
+h1{font-size:20px;font-weight:600;color:#ddd}
+.row{display:flex;gap:30px}
+.col{display:flex;flex-direction:column;align-items:center;gap:12px}
+.cap{font-size:15px;color:#ccc;font-weight:600}
+.sub{font-size:12px;color:#888;max-width:340px;text-align:center;line-height:1.4}
+.phone{width:340px;height:700px;border-radius:44px;background:var(--bg-primary);border:10px solid #2a2a2c;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.status{height:34px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font-size:13px;font-weight:600}
+.hdr{display:flex;align-items:center;gap:10px;padding:6px 12px 10px;border-bottom:1px solid var(--sep);background:var(--bg-secondary)}
+.hdr .back{color:var(--accent);font-size:24px;line-height:1}
+.hdr .title{flex:1;font-size:15px;font-weight:600}
+.ic{width:34px;height:34px;border-radius:17px;display:grid;place-items:center;font-size:17px;color:var(--text2)}
+.ic.on{color:var(--accent);background:var(--soft)}
+.orbbar{display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--sep);background:var(--bg-secondary)}
+.orb{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#9fd0ff,#0a84ff 55%,#0040a0);box-shadow:0 0 18px 4px rgba(10,132,255,.55)}
+.orb.speak{background:radial-gradient(circle at 35% 30%,#ffd3a8,#ff9f0a 55%,#a05a00);box-shadow:0 0 18px 4px rgba(255,159,10,.5)}
+.orbbar span{font-size:13px;color:var(--text2)}
+.chat{flex:1;padding:14px 12px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.b{max-width:80%;padding:9px 13px;border-radius:19px;font-size:14px;line-height:1.38}
+.u{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:6px}
+.e{align-self:flex-start;background:var(--bg-tertiary);border-bottom-left-radius:6px}
+.mic{font-size:11px;opacity:.75;margin-right:4px}
+.play{display:inline-block;margin-top:6px;font-size:12px;color:var(--accent)}
+.live{border:1.5px solid rgba(255,159,10,.7)}
+.cursor{display:inline-block;width:7px;height:14px;background:var(--text2);vertical-align:-2px;margin-left:2px}
+.hint{align-self:center;font-size:12px;color:var(--muted);padding:4px 10px;border-radius:10px;background:rgba(255,255,255,.05)}
+.foot{border-top:1px solid var(--sep);background:var(--bg-secondary);padding:10px 12px 22px;display:flex;flex-direction:column;gap:10px}
+.seg{display:flex;background:var(--bg-tertiary);border-radius:10px;padding:2px}
+.seg div{flex:1;text-align:center;font-size:13px;padding:7px 0;border-radius:8px;color:var(--text2);font-weight:500}
+.seg div.sel{background:#48484a;color:var(--text);font-weight:600}
+.composer{display:flex;align-items:center;gap:8px}
+.input{flex:1;height:38px;border-radius:19px;border:1px solid var(--sep);background:var(--bg-primary);padding:0 14px;display:flex;align-items:center;font-size:14px;color:var(--muted)}
+.att{width:34px;height:34px;border-radius:17px;background:var(--bg-tertiary);display:grid;place-items:center;color:var(--text2);font-size:20px;flex:none}
+.att.big{width:60px;height:60px;border-radius:30px;font-size:24px}
+.thumb{align-self:flex-end;width:120px;height:86px;border-radius:14px;background:linear-gradient(135deg,#3a6b8c,#c9a26b 70%,#e8d7b0);position:relative}
+.thumb:after{content:"photo.jpg";position:absolute;bottom:6px;left:8px;font-size:10px;color:#fff;opacity:.85}
+.send{width:34px;height:34px;border-radius:17px;background:var(--accent);display:grid;place-items:center;color:#fff;font-size:17px}
+.hold{height:60px;border-radius:30px;background:var(--accent);display:flex;align-items:center;justify-content:center;gap:10px;font-size:16px;font-weight:600;color:#fff}
+.hold.idle{background:var(--bg-tertiary);color:var(--text)}
+.handsfree{height:60px;border-radius:30px;border:1px dashed var(--sep);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--text2)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#2c2c2e;border-radius:18px 18px 0 0;padding:10px 16px 26px;box-shadow:0 -10px 30px rgba(0,0,0,.6)}
+.grab{width:36px;height:5px;border-radius:3px;background:#555;margin:0 auto 12px}
+.sheet h3{font-size:15px;margin-bottom:12px}
+.f{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-top:1px solid var(--sep);font-size:14px}
+.f span:last-child{color:var(--text2)}
+.slider{height:4px;border-radius:2px;background:#555;position:relative;width:150px}
+.slider:before{content:"";position:absolute;left:0;top:0;bottom:0;width:45%;background:var(--accent);border-radius:2px}
+.slider:after{content:"";position:absolute;left:calc(45% - 10px);top:-8px;width:20px;height:20px;border-radius:10px;background:#fff}
+.dim{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+</style></head><body>
+<h1>Voice in the chat — mockup for review (phone, dark)</h1>
+<div class="row">
+
+<div class="col"><div class="cap">1 · Text</div>
+<div class="phone">
+ <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="hdr"><span class="back">‹</span><span class="title">Trip planning</span><span class="ic on">🔊</span><span class="ic">⚙︎</span></div>
+ <div class="chat">
+  <div class="b u">What's the weather in Lisbon this weekend?</div>
+  <div class="b e">Sunny both days, highs around 24 °C, light wind from the north. Saturday evening drops to 17 °C, so bring a layer.<br><span class="play">▶ Read aloud</span></div>
+  <div class="b u">Any good day trips by train?</div>
+  <div class="b e">Sintra is 40 minutes from Rossio station, trains every 20 minutes. Cascais is 35 minutes from Cais do Sodré, along the coast.<br><span class="play">▶ Read aloud</span></div>
+ </div>
+ <div class="foot">
+  <div class="seg"><div class="sel">Text</div><div>Talk</div><div>Hands-free</div></div>
+  <div class="composer"><div class="att">+</div><div class="input">Message…</div><div class="send">↑</div></div>
+ </div>
+</div>
+<div class="sub">The normal chat. + attaches an image, as today. 🔊 is lit here because you turned it on; it starts off. The device remembers.</div></div>
+
+<div class="col"><div class="cap">2 · Talk (push-to-talk)</div>
+<div class="phone">
+ <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="hdr"><span class="back">‹</span><span class="title">Trip planning</span><span class="ic">🔇</span><span class="ic">⚙︎</span></div>
+ <div class="chat">
+  <div class="thumb"></div><div class="b u"><span class="mic">🎙</span>Any good day trips from here by train?</div>
+  <div class="b e">Sintra is 40 minutes from Rossio station, trains every 20 minutes. Cascais is 35 minutes from Cais do Sodré, along the coast.<br><span class="play">▶ Read aloud</span></div>
+  <div class="b u"><span class="mic">🎙</span>Which one is better with kids<span class="cursor"></span></div>
+ </div>
+ <div class="foot">
+  <div class="seg"><div>Text</div><div class="sel">Talk</div><div>Hands-free</div></div>
+  <div class="composer"><div class="att big">+</div><div class="hold" style="flex:1">● Release to send</div></div>
+ </div>
+</div>
+<div class="sub">For loud places. Hold the big button to speak; your words appear live. + attaches a photo first, then you talk about it. Here 🔊 is off, so replies are text only.</div></div>
+
+<div class="col"><div class="cap">3 · Hands-free (two-way)</div>
+<div class="phone">
+ <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="hdr"><span class="back">‹</span><span class="title">Trip planning</span><span class="ic">⚙︎</span></div>
+ <div class="orbbar"><div class="orb speak"></div><span>Speaking…</span><span style="margin-left:6px;padding:4px 12px;border-radius:14px;background:var(--bg-tertiary);color:var(--text);font-weight:600">■ Stop</span></div>
+ <div class="chat">
+  <div class="b u"><span class="mic">🎙</span>Which one is better with kids?</div>
+  <div class="b e live">Cascais. The beach is a short walk from the station, and the trip is flat and easy. Sintra has steep climbs to the palaces<span class="cursor"></span></div>
+  
+ </div>
+ <div class="foot">
+  <div class="seg"><div>Text</div><div>Talk</div><div class="sel">Hands-free</div></div>
+  <div class="composer"><div class="att big">+</div><div class="handsfree" style="flex:1">Listening resumes when eve finishes</div></div>
+ </div>
+</div>
+<div class="sub">Small orb at the top: blue = listening, orange = speaking. The reply streams in as text while it's spoken. Tap the orb or Stop to stop it; scrolling and tapping links never stop it. After a few silent minutes it drops back to Talk.</div></div>
+
+<div class="col"><div class="cap">4 · ⚙︎ Voice settings</div>
+<div class="phone">
+ <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+ <div class="hdr"><span class="back">‹</span><span class="title">Trip planning</span><span class="ic">⚙︎</span></div>
+ <div class="orbbar"><div class="orb"></div><span>Listening…</span></div>
+ <div class="chat">
+  <div class="b u"><span class="mic">🎙</span>Which one is better with kids?</div>
+  <div class="b e">Cascais. The beach is a short walk from the station…</div>
+ </div>
+ <div class="dim"></div>
+ <div class="sheet"><div class="grab"></div><h3>Voice</h3>
+  <div class="f"><span>Voice</span><span>Ava ›</span></div>
+  <div class="f"><span>Speed</span><div class="slider"></div></div>
+ </div>
+</div>
+<div class="sub">The same voice and speed controls as Settings → Voice, one tap away.</div></div>
+
+</div></body></html>

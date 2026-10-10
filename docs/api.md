@@ -219,7 +219,7 @@ Each row lists the fields Eve reads. `projectId` is a relay project id. A reply 
 | `voice_mode` | `{enabled, voice?, speed?}` | Turns server-side speech of chat replies on or off for this connection. No reply. |
 | `tts_speak` | `{text, voice?, speed?, trace_id?}` (`text` at most 10,000 characters) | Expensive. Binary audio frames, then `tts_done`; or `tts_error`. A newer `tts_speak` or a `tts_speak_cancel` stops the one in flight. |
 | `tts_speak_cancel` | no fields | Stops the speech in flight. No reply. |
-| `transcribe_audio` | `{audio, language?, trace_id?}` (`audio` base64) | Expensive. `transcription_result`, or `transcription_error`. |
+| `transcribe_audio` | `{audio, language?, trace_id?, partial?, utteranceId?}` (`audio` base64) | Expensive. `transcription_result`, or `transcription_error`. `partial: true` marks a live-words request for audio still being recorded; the browser sends at most one at a time, each carrying the whole recording so far, and tags them with one `utteranceId` per recording. |
 | `device_log` | `{lines: [...]}` or `{line}` | Appended to a server-side log with timestamp and source IP. No reply frame. |
 | `cos_subscribe` | no fields | Chief of Staff (server-wide thread, all projects; authenticated sockets only). Answered with `cos_snapshot`; the socket then receives `cos_post` and `cos_status`. `error` `Chief of Staff is not available` when it is off. |
 | `cos_message` | `{text}` (1 to 2000 characters after trim) | Expensive. No reply on success; the post arrives as `cos_post`. Otherwise `error` `Message must be 1 to 2000 characters`. |
@@ -291,8 +291,8 @@ Every frame is JSON with a `type`, except TTS audio, which is a binary frame (th
 | `task_status` | (relayScheduler) `{running: [{taskId, projectId, taskName, view}]}`. Sent when the task socket connects. |
 | `tts_done` | no fields from a `tts_speak`. After a spoken chat reply (voice mode) it carries `{sessionId}`. |
 | `tts_error` | `{message}`. `TTS unavailable`, `Text too long (max 10000 characters)` or `Speech synthesis failed`. |
-| `transcription_result` | `{text, language, duration}`. |
-| `transcription_error` | `{error}`. `No audio data`, `Audio recording too short`, `Failed to process audio. The recording may be too short or corrupted.`, or the STT service's own message. |
+| `transcription_result` | `{text, language, duration, partial?, utteranceId?}`. `partial` and `utteranceId` echo the request's own, and only when valid: `partial` is `true`, `utteranceId` matches `^[A-Za-z0-9_-]{1,64}$`. |
+| `transcription_error` | `{error, partial?, utteranceId?}` (the last two echo the request, as on `transcription_result`; the browser ignores a partial one). `No audio data`, `Audio recording too short`, `Failed to process audio. The recording may be too short or corrupted.`, or the STT service's own message. |
 | `ui_command` | `{command, actor:'llm', projectId}`. `command` is `{action:'open_tab', tab_kind, tab_ref, image_url, title}`, `{action:'refresh_tab', tab_kind, tab_ref, image_url}` or `{action:'close_tab', tab_ref}`. LLM-initiated tab control via the eve-control MCP (`POST /internal/ui-command`); the browser trims it to tabs the LLM opened. |
 | `cos_snapshot` | `{posts, status, rowNotes}`. Details in the Chief of Staff paragraph below. |
 | `cos_post` | `{post}`. |
