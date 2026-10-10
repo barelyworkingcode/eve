@@ -98,14 +98,7 @@ test.describe('with a microphone that hears speech', () => {
     await expect(page.getByRole('img', { name: 'Spoken' })).toHaveCount(1);
   });
 
-  // No engine-controlled playback or microphone signal reaches a spec (E5 forbids reading the
-  // audio context or the tracks, and the speaking mark on "Read aloud" follows only a tap on
-  // it). The reachable proof: once a typed turn has completed, the looping microphone has sent
-  // nothing more to the speech service and no second spoken turn exists.
-  // Waits: the typed turn's reply (a third "Read aloud") closes the window.
-  test('switching to Text stops listening and speech on the same tap @G9.46', async ({ eve, page, voice }) => {
-    await speakingHandsFree(eve, page, voice);
-    const heardBefore = voice.stt.requests.length;
+  async function switchToTextAndType(page) {
     await radio(page, 'Text').click();
     await expect(radio(page, 'Text')).toHaveAttribute('aria-checked', 'true');
     await expect(status(page)).toHaveCount(0);
@@ -114,6 +107,17 @@ test.describe('with a microphone that hears speech', () => {
     await composer.fill('typed after leaving');
     await composer.press('Enter');
     await expect(page.getByRole('button', { name: 'Read aloud' })).toHaveCount(3);
+  }
+
+  // Waits: voice.speech.waitForStop, the page stopping the spoken reply; the typed turn's
+  // reply (a third "Read aloud") closes the window for the no-new-turn checks.
+  test('switching to Text while speaking stops the speech and starts no new turn @G9.46', async ({ eve, page, voice }) => {
+    await speakingHandsFree(eve, page, voice);
+    const heardBefore = voice.stt.requests.length;
+    const stopsBefore = voice.speech.stops;
+    await radio(page, 'Text').click();
+    await voice.speech.waitForStop(stopsBefore);
+    await switchToTextAndType(page);
     expect(voice.stt.requests).toHaveLength(heardBefore);
     await expect(page.getByRole('img', { name: 'Spoken' })).toHaveCount(1);
     await expect(status(page)).toHaveCount(0);
@@ -125,6 +129,21 @@ test.describe('with a microphone that hears speech', () => {
     await expect(page.getByRole('textbox', { name: 'Type your message...' })).toBeHidden();
     await expect(page.getByRole('button', { name: 'Send' })).toBeHidden();
     await expect(page.getByRole('button', { name: 'Attach files' })).toBeVisible();
+  });
+});
+
+test.describe('with a silent microphone, listening and nothing heard', () => {
+  test.use({ mic: 'silence' });
+
+  // Waits: voice.mic.waitForStop, the page stopping the fake microphone track.
+  test('switching to Text while listening stops the microphone @G9.46', async ({ eve, page, voice }) => {
+    await openThread(eve, page);
+    await chooseHandsFree(page);
+    await expect(status(page).getByText('Listening…')).toBeVisible();
+    const stopsBefore = voice.mic.stops;
+    await radio(page, 'Text').click();
+    await voice.mic.waitForStop(stopsBefore);
+    await expect(status(page)).toHaveCount(0);
   });
 });
 

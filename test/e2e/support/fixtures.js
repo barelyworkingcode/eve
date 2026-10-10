@@ -47,9 +47,40 @@ function installFakeMic(wavBase64) {
     if (ctx.state === 'suspended') await ctx.resume();
     const track = out.stream.getAudioTracks()[0];
     const stop = track.stop.bind(track);
-    track.stop = () => { stop(); try { source.stop(); } catch { /* already stopped */ } ctx.close().catch(() => {}); };
+    track.stop = () => {
+      stop();
+      if (window.__e2eAudioStop) window.__e2eAudioStop('mic');
+      try { source.stop(); } catch { /* already stopped */ }
+      ctx.close().catch(() => {});
+    };
     return out.stream;
   };
+}
+
+// Runs in the page, before any script. Reports each stop of a playing sound to the
+// test side. Looping sources are the fake microphone's own, so only one-shot sources
+// (eve's speech) count as 'speech'.
+function installSpeechStopSignal() {
+  const stop = AudioBufferSourceNode.prototype.stop;
+  AudioBufferSourceNode.prototype.stop = function patchedStop(...args) {
+    if (!this.loop && window.__e2eAudioStop) window.__e2eAudioStop('speech');
+    return stop.apply(this, args);
+  };
+}
+
+// Counts, in the test process, how often the page stopped the fake microphone track
+// ('mic', fake mics only) and a spoken reply ('speech'). Counts never reset, so a
+// wait given the count taken before the action cannot miss an event.
+function audioStopSignal() {
+  const counts = { mic: 0, speech: 0 };
+  const side = (kind) => ({
+    get stops() { return counts[kind]; },
+    // Resolves once more stops than `after` have happened (default: any stop at all).
+    async waitForStop(after = 0) {
+      await base.expect.poll(() => counts[kind], { message: `no ${kind} stop after ${after}` }).toBeGreaterThan(after);
+    },
+  });
+  return { counts, mic: side('mic'), speech: side('speech') };
 }
 
 const AUTHENTICATOR_OPTIONS = {
@@ -112,6 +143,13 @@ const test = base.test.extend({
       await page.addInitScript(installFakeMic, wav.toString('base64'));
     }
     await use();
+  }, { auto: true }],
+
+  _audioStops: [async ({ page }, use) => {
+    const signal = audioStopSignal();
+    await page.exposeFunction('__e2eAudioStop', (kind) => { signal.counts[kind]++; });
+    await page.addInitScript(installSpeechStopSignal);
+    await use(signal);
   }, { auto: true }],
 
   // The running stack. Not for specs: they use eve, relay, passkey and voice.
@@ -229,8 +267,8 @@ const test = base.test.extend({
     });
   },
 
-  voice: async ({ stack }, use) => {
-    await use(stack.voice);
+  voice: async ({ stack, _audioStops }, use) => {
+    await use(Object.assign(Object.create(stack.voice), { mic: _audioStops.mic, speech: _audioStops.speech }));
   },
 });
 
