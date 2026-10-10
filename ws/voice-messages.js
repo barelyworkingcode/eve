@@ -6,17 +6,32 @@ const { splitIntoChunks, cleanChunkText } = require('../tts-chunker');
 const { Director } = require('../tts-director');
 const { acceptTraceId } = require('../trace');
 
+// A streaming caller marks a request `partial` and tags it with an
+// `utteranceId`; both are echoed on the answer so the caller can match it.
+// Echoed only when well-formed: the id comes from the browser.
+const UTTERANCE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+function partialEcho(message) {
+  const echo = {};
+  if (message.partial === true) echo.partial = true;
+  if (typeof message.utteranceId === 'string' && UTTERANCE_ID.test(message.utteranceId)) {
+    echo.utteranceId = message.utteranceId;
+  }
+  return echo;
+}
+
 async function handleTranscribeAudio(ws, sttService, message, log) {
+  const echo = partialEcho(message);
   try {
     const { audio, language } = message;
     if (!audio) {
-      ws.send(JSON.stringify({ type: 'transcription_error', error: 'No audio data' }));
+      ws.send(JSON.stringify({ type: 'transcription_error', error: 'No audio data', ...echo }));
       return;
     }
     const audioBytes = Math.round(audio.length * 3 / 4); // approximate decoded size
     log?.debug(`Transcribing audio: ~${audioBytes} bytes, language=${language || 'auto'}`);
     if (audioBytes < 100) {
-      ws.send(JSON.stringify({ type: 'transcription_error', error: 'Audio recording too short' }));
+      ws.send(JSON.stringify({ type: 'transcription_error', error: 'Audio recording too short', ...echo }));
       return;
     }
     const result = await sttService.transcribe(audio, language || null, { traceId: acceptTraceId(message.trace_id) });
@@ -24,7 +39,8 @@ async function handleTranscribeAudio(ws, sttService, message, log) {
       type: 'transcription_result',
       text: result.text,
       language: result.language,
-      duration: result.duration
+      duration: result.duration,
+      ...echo
     }));
   } catch (err) {
     log?.error('Transcription failed:', err.message);
@@ -32,7 +48,7 @@ async function handleTranscribeAudio(ws, sttService, message, log) {
     if (errorMsg.includes('ffmpeg') || errorMsg.includes('EBML') || errorMsg.includes('End of file')) {
       errorMsg = 'Failed to process audio. The recording may be too short or corrupted.';
     }
-    ws.send(JSON.stringify({ type: 'transcription_error', error: errorMsg }));
+    ws.send(JSON.stringify({ type: 'transcription_error', error: errorMsg, ...echo }));
   }
 }
 

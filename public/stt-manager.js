@@ -104,7 +104,25 @@ class STTManager {
     }
   }
 
-  async startRecording() {
+  /**
+   * `onFinal` takes over the result: it skips the textarea and is called once
+   * with the cleaned text, or null when there is nothing to send (too short,
+   * filtered, failed). `onPartial` gets the words heard so far while recording
+   * (server backend only). Both are optional; with neither, the result goes to
+   * the textarea as dictation.
+   */
+  async startRecording({ onPartial, onFinal } = {}) {
+    this._finishTalk(null); // a holder from before gets its answer: nothing
+    if (onFinal) {
+      this._talk = {
+        onPartial, onFinal,
+        utteranceId: `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+        partialSentAt: 0, // 0 = no partial in flight
+        stopped: false,
+        finalPending: false,
+        finalTimer: null,
+      };
+    }
     if (this.activeBackend.startRecording) {
       try {
         await this.activeBackend.startRecording((text) => this.handleTranscriptionResult(text));
@@ -115,6 +133,7 @@ class STTManager {
       } catch (err) {
         this.log.error('Native recording failed:', err);
         this.app.messageRenderer.appendSystemMessage('Native STT failed: ' + err.message, 'error');
+        this._finishTalk(null);
       }
       return;
     }
@@ -144,13 +163,17 @@ class STTManager {
 
       this.mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) this.audioChunks.push(e.data);
+        this._sendPartial();
       };
 
       this.mediaRecorder.onstop = () => {
         this._processRecording();
       };
 
-      this.mediaRecorder.start();
+      // A 1 s timeslice makes the recorder hand over chunks while it records,
+      // which is what live words are built from.
+      if (this._talk?.onPartial) this.mediaRecorder.start(1000);
+      else this.mediaRecorder.start();
       this.isRecording = true;
       this.recordingStartTime = Date.now();
       this._startTimer();
@@ -161,13 +184,46 @@ class STTManager {
       this.app.messageRenderer.appendSystemMessage(
         'Microphone access denied. Check browser permissions.', 'error'
       );
+      this._finishTalk(null);
     }
+  }
+
+  // Sends the recording so far for live words, unless one is still out. The
+  // answer (or an error, or the 8 s allowance running out) frees the slot.
+  _sendPartial() {
+    const talk = this._talk;
+    if (!talk?.onPartial || talk.stopped || talk.finalPending) return;
+    if (talk.partialSentAt && Date.now() - talk.partialSentAt < 8000) return;
+    if (!this.mediaRecorder || this.mediaRecorder.state !== 'recording') return;
+    const blob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType || 'audio/webm' });
+    if (blob.size < 100) return;
+    talk.partialSentAt = Date.now();
+    Promise.resolve(this.activeBackend.transcribeBlob(blob, { partial: true, utteranceId: talk.utteranceId }))
+      .catch((err) => {
+        this.log.debug('Partial transcription not sent:', err.message);
+        talk.partialSentAt = 0;
+      });
+  }
+
+  _endTalk() {
+    if (this._talk?.finalTimer) clearTimeout(this._talk.finalTimer);
+    this._talk = null;
+  }
+
+  // Hands the final text (or null) to the holder's onFinal, once.
+  _finishTalk(text) {
+    const talk = this._talk;
+    if (!talk) return;
+    this._endTalk();
+    try { talk.onFinal(text); } catch (err) { this.log.error('onFinal failed:', err); }
   }
 
   stopRecording() {
     this.log.info('Recording stopped');
+    if (this._talk) this._talk.stopped = true;
     if (this.activeBackend.stopRecording) {
       this.activeBackend.stopRecording();
+      if (this._talk) this._awaitFinal();
       this.isRecording = false;
       this._stopTimer();
       this._updateUI();
@@ -216,6 +272,7 @@ class STTManager {
     if (blob.size < 100) {
       this.log.warn(`Empty recording (${blob.size} bytes), skipping`);
       this.app.voiceChatManager?.handleError('No audio captured');
+      this._finishTalk(null);
       return;
     }
     if (duration < 300) {
@@ -224,10 +281,12 @@ class STTManager {
       if (!this.app.voiceChatManager?.isVoiceSession) {
         this.app.messageRenderer.appendSystemMessage('Recording too short. Hold the button longer to record.', 'warning');
       }
+      this._finishTalk(null);
       return;
     }
 
     try {
+      if (this._talk) this._awaitFinal();
       this._showTranscribingIndicator();
       const result = await this.activeBackend.transcribeBlob(blob);
       if (result?.text) {
@@ -241,26 +300,64 @@ class STTManager {
       if (!this.app.voiceChatManager?.isVoiceSession) {
         this.app.messageRenderer.appendSystemMessage('Transcription failed. Please try again.', 'error');
       }
+      this._finishTalk(null);
     }
   }
 
-  handleTranscriptionResult(text) {
+  // The final answer must arrive; if it never does, the holder is released.
+  _awaitFinal() {
+    const talk = this._talk;
+    talk.finalPending = true;
+    talk.finalTimer = setTimeout(() => {
+      if (this._talk !== talk) return;
+      this.log.warn('Final transcription never arrived');
+      this._finishTalk(null);
+    }, 30000);
+  }
+
+  handleTranscriptionResult(text, meta = {}) {
+    if (meta.partial) {
+      this._handlePartial(text, meta);
+      return;
+    }
     this._hideTranscribingIndicator();
 
-    if (!text || !text.trim()) return;
+    const cleaned = this._cleanTranscript(text);
+    if (this._talk && (this._talk.finalPending || this.activeBackend.startRecording)) {
+      this._finishTalk(cleaned);
+      return;
+    }
+    if (!cleaned) return;
+    this._deliverTranscript(cleaned);
+  }
+
+  // A partial is live words only: dropped unless it answers the current
+  // recording, and dropped once its final has been handed over.
+  _handlePartial(text, meta) {
+    const talk = this._talk;
+    if (!talk?.onPartial || meta.utteranceId !== talk.utteranceId) return;
+    talk.partialSentAt = 0;
+    const cleaned = this._cleanTranscript(text, { quiet: true });
+    if (cleaned) talk.onPartial(cleaned);
+  }
+
+  // Returns the text to use, or null when it is empty or not speech.
+  _cleanTranscript(text, { quiet = false } = {}) {
+    if (!text || !text.trim()) return null;
+    const warn = quiet ? () => {} : (...a) => this.log.warn(...a);
 
     // Filter non-speech annotations the daemon emits, like [BLANK_AUDIO], [Crickets chirping], (silence).
     const cleaned = text.trim();
-    this.log.debug('STT result:', cleaned);
+    if (!quiet) this.log.debug('STT result:', cleaned);
     if (/^\[.*\]$/.test(cleaned) || /^\(.*\)$/.test(cleaned)) {
-      this.log.warn('Filtered Whisper artifact:', cleaned);
-      return;
+      warn('Filtered Whisper artifact:', cleaned);
+      return null;
     }
 
     // Drop results with no letters at all (music notes ♪, punctuation, "...").
     if (!/[a-z]/i.test(cleaned)) {
-      this.log.warn('Filtered non-speech result:', cleaned);
-      return;
+      warn('Filtered non-speech result:', cleaned);
+      return null;
     }
 
     // Filter hallucinated output the daemon emits on non-speech background
@@ -277,10 +374,13 @@ class STTManager {
       'subscribe', 'like and subscribe', 'please subscribe',
     ]);
     if (HALLUCINATIONS.has(norm) || norm.replace(/\./g, '').trim().length < 2) {
-      this.log.warn('Filtered likely hallucination:', cleaned);
-      return;
+      warn('Filtered likely hallucination:', cleaned);
+      return null;
     }
+    return cleaned;
+  }
 
+  _deliverTranscript(cleaned) {
     if (this.app.voiceChatManager?.isVoiceSession) {
       this.app.voiceChatManager.handleTranscription(cleaned);
       return;
@@ -293,17 +393,13 @@ class STTManager {
     textarea.value = existing + separator + cleaned;
     this.app.autoResizeTextarea();
     textarea.focus();
-
-    if (this.app.ttsManager.enabled && this.app.currentSessionId) {
-      setTimeout(() => {
-        this.app.handleSubmit(new Event('submit'));
-      }, 300);
-    }
   }
 
-  handleTranscriptionError(error) {
+  handleTranscriptionError(error, meta = {}) {
+    if (meta.partial) return; // live words are best effort
     this._hideTranscribingIndicator();
     this.log.error('Transcription error:', error);
+    if (this._talk?.finalPending) this._finishTalk(null);
     this.app.messageRenderer.appendSystemMessage(
       `Transcription failed: ${error}`, 'error'
     );
