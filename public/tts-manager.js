@@ -13,6 +13,8 @@ class TTSManager {
     this.queue = [];
     this.isPlaying = false;
     this._pendingDecodes = 0;
+    // Bumped by stop(): a chunk still decoding when the reply is stopped is dropped.
+    this._playGeneration = 0;
     this.currentSource = null;
     this.button = null;
     this.isNativeApp = IS_NATIVE_APP;
@@ -286,6 +288,7 @@ class TTSManager {
     // tts_done can arrive while decodeAudioData is still running; the counter
     // keeps markTTSDone() from ending playback before the chunk is queued.
     this._pendingDecodes++;
+    const generation = this._playGeneration;
     try {
       await this._ensureAudioContext();
       if (this.audioContext.state !== 'running') {
@@ -293,6 +296,7 @@ class TTSManager {
         return;
       }
       const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+      if (generation !== this._playGeneration) return;
 
       this.queue.push(audioBuffer);
 
@@ -338,6 +342,7 @@ class TTSManager {
   stop() {
     // Without this, the daemon keeps synthesizing sentences after the user hits stop.
     this.activeBackend.cancelSpeak?.(this.app.wsClient);
+    this._playGeneration++;
     if (this._nativeAudioActive) this.app.voiceChatManager.nativeAudio.stopPlayback();
     this.queue = [];
     this._ttsDoneReceived = true;
