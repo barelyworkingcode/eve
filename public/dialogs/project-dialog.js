@@ -187,6 +187,7 @@ class ProjectDialog extends DialogBase {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = `where-control__seg${active ? ' where-control__seg--active' : ''}`;
+      btn.setAttribute('aria-pressed', String(!!active));
       if (hostStatus) btn.classList.add(`where-control__seg--${hostStatus}`);
       if (testid) btn.dataset.testid = testid;
       if (hostStatus) {

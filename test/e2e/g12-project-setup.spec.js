@@ -189,17 +189,27 @@ test.describe('a project on a host', () => {
 
   test('put the project on an SSH host @G12.7', async ({ eve, page }) => {
     await openNew(eve, page);
-    await page.getByRole('button', { name: /testbox/ }).click();
+    const mac = page.getByRole('button', { name: 'This Mac' });
+    const host = page.getByRole('button', { name: /testbox/ });
+    await expect(mac).toHaveAttribute('aria-pressed', 'true');
+    await expect(host).toHaveAttribute('aria-pressed', 'false');
+    await host.click();
     await expect(page.getByRole('textbox', { name: 'Path on testbox' })).toBeVisible();
+    await expect(host).toHaveAttribute('aria-pressed', 'true');
+    await expect(mac).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('keep the project on this Mac @G12.6', async ({ eve, page }) => {
     await openNew(eve, page);
-    await page.getByRole('button', { name: /testbox/ }).click();
+    const mac = page.getByRole('button', { name: 'This Mac' });
+    const host = page.getByRole('button', { name: /testbox/ });
+    await host.click();
     await expect(page.getByRole('textbox', { name: 'Path on testbox' })).toBeVisible();
-    await page.getByRole('button', { name: 'This Mac' }).click();
+    await mac.click();
     await expect(page.getByRole('textbox', { name: 'Directory Path' })).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Path on testbox' })).toBeHidden();
+    await expect(mac).toHaveAttribute('aria-pressed', 'true');
+    await expect(host).toHaveAttribute('aria-pressed', 'false');
   });
 });
 
