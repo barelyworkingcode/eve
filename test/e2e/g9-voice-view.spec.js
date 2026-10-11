@@ -121,7 +121,7 @@ test.describe('with a microphone that hears speech', () => {
     // The echo reply caption also contains the words, so the user's own caption is matched exactly.
     await expectHeardCaption(page);
     await relay.waitForEvent('chat.turn', { since });
-    await voice.tts.waitForRequest();
+    await voice.tts.waitForRequest((r) => typeof r.text === 'string');
     await expect(page.getByText('Thinking...')).toBeVisible();
     voice.tts.release();
     // Sentences go out one at a time, so the one holding the words is sent only after the first is answered.
