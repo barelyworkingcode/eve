@@ -41,7 +41,14 @@ class ProjectsPart extends TodayPart {
       const hostTag = p.host && typeof hostChip === 'function'
         ? hostChip(p.host, { size: 'sm', status: state.hostStatus?.(p.host.id) })
         : null;
-      if (hostTag) chip.appendChild(hostTag);
+      if (hostTag) {
+        // Describe the button by "<host name> <status word>"; the name stays the project.
+        const idBase = `home-project-${String(p.id).replace(/[^A-Za-z0-9_-]/g, '_')}-host`;
+        hostTag.querySelector('.host-chip__name').id = `${idBase}-name`;
+        hostTag.querySelector('.host-chip__dot').id = `${idBase}-dot`;
+        chip.setAttribute('aria-describedby', `${idBase}-name ${idBase}-dot`);
+        chip.appendChild(hostTag);
+      }
       // ProjectTree.setActive moves the rail, the panel and the highlight; the
       // bare PROJECT_ACTIVATED event only reaches TabManager.
       chip.addEventListener('click', () => {
