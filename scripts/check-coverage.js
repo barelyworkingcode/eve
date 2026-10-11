@@ -9,6 +9,7 @@
 //
 // Usage: node scripts/check-coverage.js
 // Output: one finding per line, `<ID or file>: <what>`.
+// docs/FEATURES-iOS.md is out of scope: its rows are never counted, only held to the door rule (C8).
 // Also the map rules M2, M3 and the syntax rule (scripts/spec-map.js); M4 is S7 in check-static.
 // Exit: 0 clean, 1 findings, 2 parse or usage error.
 // Docs: docs/test.md, "Coverage"; the Spec grammar is in docs/FEATURES.md, "How to read a row".
@@ -28,6 +29,11 @@ const SPEC_FILE = /^[\w.-]+\.spec\.js$/;
 const COLUMNS = 11;
 const REFUSALS = 7;
 const SPEC = 9;
+const SIMPLE_DOOR = 3;
+const POWER_DOOR = 4;
+const IOS_FILE = 'docs/FEATURES-iOS.md';
+// A row in the iOS file must have no web door: a native-app door, or no door at all.
+const IOS_DOOR = /^(iOS app\b|n\/a: background$)/;
 
 class ParseError extends Error {}
 
@@ -55,6 +61,39 @@ function parseFeatures(text) {
   }
   if (rows.length === 0) throw new ParseError('docs/FEATURES.md: no feature rows found');
   return rows;
+}
+
+// Rows of docs/FEATURES-iOS.md, unparsed beyond the cells C8 reads.
+function parseIosRows(text) {
+  const rows = [];
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('|')) continue;
+    const cells = splitRow(line);
+    if (cells[1] === 'ID' || /^-+$/.test(cells[1])) continue;
+    if (cells.length !== COLUMNS) throw new ParseError(`${IOS_FILE}: row "${cells[1]}" has ${cells.length - 2} cells, want ${COLUMNS - 2}`);
+    rows.push({ id: cells[1], door: cells[SIMPLE_DOOR], power: cells[POWER_DOOR], spec: cells[SPEC] });
+  }
+  return rows;
+}
+
+// C8: the iOS file holds only rows with no web door, no live twin in FEATURES.md and no spec.
+// `liveIds` are the row IDs of docs/FEATURES.md; a refusal entry G<n>.<n>.r<k> names a live parent.
+function checkIos(rows, liveIds = new Set()) {
+  const findings = [];
+  const seen = new Set();
+  for (const r of rows) {
+    const why = (msg) => findings.push(`${r.id}: ${IOS_FILE} holds only rows with no web door; ${msg}`);
+    const m = /^(G\d+\.\d+)(\.r\d+)?$/.exec(r.id);
+    if (!m) why('the ID is not of the form G<n>.<n> or G<n>.<n>.r<n>');
+    else if (!m[2] && liveIds.has(r.id)) why('this ID is live in docs/FEATURES.md; keep it in one file');
+    else if (m[2] && !liveIds.has(m[1])) why(`the parent ${m[1]} is not a live row in docs/FEATURES.md`);
+    if (seen.has(r.id)) why('listed twice');
+    seen.add(r.id);
+    if (!IOS_DOOR.test(r.door)) why(`Simple door "${r.door}" must start with "iOS app" or be "n/a: background"; keep the row in docs/FEATURES.md`);
+    if (!/^(none$|n\/a)/.test(r.power)) why(`Power door "${r.power}" must be none or n/a`);
+    if (!/^none yet(:|$)/.test(r.spec)) why(`Spec "${r.spec}" must start with "none yet"`);
+  }
+  return findings;
 }
 
 function parseRetired(text) {
@@ -185,19 +224,20 @@ function main(argv, { out = console.log, err = console.error } = {}) {
     const { parseMap } = require('../devboxverify/areas');
     const specMap = require('./spec-map');
     const featureMap = specMap.parseFeatureMap(text);
+    const features = parseFeatures(text);
     findings = [...pendingFindings, ...featureMap.findings, ...specMap.mapFindings({
       areaMap: parseMap(read('docs/areas.jsonc')),
       featureMap: featureMap.map,
       trackedFiles: specMap.trackedFiles(ROOT),
       pendingGoals: pending,
     }, ['M2', 'M3', 'syntax']), ...check({
-      features: parseFeatures(text),
+      features,
       retired: parseRetired(text),
       pending,
       tests: listTests(),
       journeyIds: new Set(frozen.journeys.map((j) => j.id)),
       specFiles,
-    })];
+    }), ...checkIos(parseIosRows(read(IOS_FILE)), new Set(features.map((r) => r.id)))];
   } catch (e) {
     err(`check-coverage: ${e instanceof ParseError ? '' : 'unexpected: '}${e.message}`);
     return 2;
@@ -208,6 +248,6 @@ function main(argv, { out = console.log, err = console.error } = {}) {
 }
 
 // Assigned before main runs: spec-map requires this module back.
-module.exports = { main, check, parseFeatures, parseRetired, parseSpec, parsePending, splitRow };
+module.exports = { main, check, checkIos, parseIosRows, parseFeatures, parseRetired, parseSpec, parsePending, splitRow };
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
