@@ -1,0 +1,16 @@
+[
+  {"area":"auth","file":"passkey-sync.js","find":"return data.revocations.includes(credentialId);","replace":"return false;","why":"checkRevoked never reports a revoked passkey, so a revoked passkey can sign in"},
+  {"area":"home","file":"public/dialogs/command-palette.js","find":"if (qi < q.length) return null;","replace":"if (false) return null;","why":"the palette fuzzy match accepts every row, so typing no longer narrows the list"},
+  {"area":"projects","file":"public/dialogs/project-dialog.js","find":"if (!name || !path) return;","replace":"if (name || !path) return;","why":"Create Project and Save return before calling relay, so the dialog stays open"},
+  {"area":"search","file":"ws/search-messages.js","find":"ctx.deps.fileHandlers.searchProject(ctx.ws, ctx.message)","replace":"Promise.resolve(ctx.message)","why":"search_project never runs a search, so no match comes back"},
+  {"area":"tasks","file":"public/routines-page.js","find":"await this.container.get('api').runTask(task.id);","replace":"void task.id;","why":"Run Now on a routine's sheet never asks relay to run it"},
+  {"area":"chat","file":"ws/session-messages.js","find":"relayClient.sendMessage(finalText, files, message.sessionId, { traceId: ctx.traceId });","replace":"void finalText;","why":"user_input never reaches relay, so no turn runs and no reply comes"},
+  {"area":"terminal","file":"ws/terminal-messages.js","find":"data: ctx.message.data","replace":"data: ''","why":"terminal_input forwards empty data, so typed commands never reach the terminal"},
+  {"area":"files","file":"file-handlers.js","find":"await fs.writeFile(project.path, relativePath, content);","replace":"void content;","why":"Save reports success but never writes the file through relay"},
+  {"area":"git","file":"git-service.js","find":"files.push({ path: rec.slice(2), status: '?', staged: false });","replace":"files.push({ path: rec.slice(2), status: 'M', staged: false });","why":"porcelain parsing marks untracked files as modified in Uncommitted"},
+  {"area":"chief-of-staff","file":"ws/chief-of-staff-messages.js","find":"cos.submitPerson(text);","replace":"void text;","why":"cos_message is accepted but never handed to the Chief of Staff"},
+  {"area":"voice","file":"ws/voice-messages.js","find":"text: result.text,","replace":"text: '',","why":"transcription_result drops the transcript, so dictation fills nothing"},
+  {"area":"hosts","file":"public/remote-sessions.js","find":"() => this.onReattach(s)","replace":"() => void s","why":"Reattach on a remote session does nothing"},
+  {"area":"shell","file":"public/core/split-resize.js","find":"onResize(frac);","replace":"void frac;","why":"dragging the split divider never resizes the panes"},
+  {"area":"settings","file":"public/dialogs/settings-dialog.js","find":"this.settings.set('fontSize', parseInt(size.value, 10));","replace":"void size.value;","why":"the Text size slider updates its readout but never applies the size"}
+]

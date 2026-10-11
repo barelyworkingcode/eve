@@ -319,6 +319,7 @@ The same command holds the map rules (`scripts/spec-map.js`; M4 is S7 above). A 
 |---|---|
 | M2 | every spec named by a row resolves to at least one area defined in `docs/areas.jsonc`; no tracked `*.spec.js` lies outside the top level of `test/e2e/` |
 | M3 | every area that is not `full` and not journey-only is listed by a goal and selects at least one spec; an area waits while any goal listing it is in `coverage-pending.txt` |
+| M5 | every area that is not `full`, journey-only or listed under Pending has a break in `test/map-proof/breaks.json` (a file in one of the area's code globs) and a row in `docs/map-proof.md`; every journey-only area is listed in its "Journey-only areas"; a Pending line names the goals that list the area and the issues `coverage-pending.txt` gives them, and an area with a Pending line has no proof row; the area may be Pending only while every goal listing it is on `coverage-pending.txt` |
 | syntax | every area in the Goals table is defined in `docs/areas.jsonc`; "## Areas" in `docs/FEATURES.md` has one `Journey-only:` line, `none` or a comma-separated list of defined areas |
 
 ### Test selection
@@ -332,7 +333,11 @@ Per changed path (`git diff --no-renames --name-only -z base...head`):
 3. Any other path takes the areas of the base map plus the head map. In no area and not `quiet` in either: `UNMAPPED`. A `full` area runs every spec. `quiet` only runs nothing. Otherwise it runs every spec present at head that the rows of a goal listing the area name, in either map.
 4. Narrowing is read at the merge base and at head. For each tracked file at head, a spec the merge-base map selects and the head map does not is `NARROWED`, and so is an area added to `Journey-only:`. The PR label `map-narrowing-approved`, applied only by the owner, allows it.
 
-A push to `main` runs every spec (`--full`). The M2 to M4 checks run in the `check` job, so a gap in the map fails there as well.
+Two more checks read the merge base and head. A goal at head that `test/e2e/coverage-pending.txt` lists and the merge base does not is `NARROWED pending:<goal>`; an area under "## Pending" in `docs/map-proof.md` that the merge base does not list is `NARROWED pending-area:<area>` (skipped when the merge base has no `docs/map-proof.md`). Both need the `map-narrowing-approved` label.
+
+`node scripts/map-proof.js (--areas a,b | --all) [--base REV] [--record docs/map-proof.md]` runs the map proof (`docs/map-proof.md`): it breaks one line per area in a detached worktree and prints `PROVEN`, `GREEN`, `BASE-RED` or `REFUSED` per area; exit 0 all proven, 1 otherwise, 2 usage, git, `npm ci` or build errors.
+
+A push to `main` runs every spec (`--full`). The M2 to M5 checks run in the `check` job, so a gap in the map fails there as well.
 
 ## CI and hooks
 
