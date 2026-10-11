@@ -45,6 +45,7 @@ function createFake(answer) {
   const requests = [];
   const waiters = [];
   const sockets = new Set();
+  let hold = null; // { answerFirst, pending: [answer fns] } while holding
 
   const server = net.createServer((sock) => {
     sockets.add(sock);
@@ -64,7 +65,10 @@ function createFake(answer) {
         return;
       }
       buf = Buffer.alloc(0);
-      sock.end(frame(answer(request, state)));
+      const reply = frame(answer(request, state));
+      // Only work requests (no `action`: a synth or a transcription) can be held.
+      if (hold && !request.action && hold.answerFirst-- <= 0) hold.pending.push(() => sock.end(reply));
+      else sock.end(reply);
       if (request.action !== 'ping') record(request);
     });
   });
@@ -87,6 +91,17 @@ function createFake(answer) {
       return new Promise((resolve) => waiters.push({ match, resolve }));
     },
     reply(r) { state.reply = r; },
+    // Later work requests are recorded at once but answered only on release().
+    // `after` lets that many through first.
+    hold({ after = 0 } = {}) {
+      this.release(); // answer an earlier hold's requests rather than orphan them
+      hold = { answerFirst: after, pending: [] };
+    },
+    release() {
+      const held = hold ? hold.pending : [];
+      hold = null;
+      for (const send of held) send();
+    },
     listen() {
       // Resolves on the server's own `listening` callback.
       return new Promise((resolve, reject) => {
@@ -95,6 +110,7 @@ function createFake(answer) {
       });
     },
     close() {
+      this.release();
       for (const s of sockets) s.destroy();
       return new Promise((resolve) => server.close(() => resolve()));
     },
@@ -124,10 +140,10 @@ function createStt() {
   });
 }
 
-// Specs see the live request list, the wait and the reply switch; not the socket.
+// Specs see the live request list, the wait, the reply switch and the hold; not the socket.
 function expose(fake) {
-  const { requests, waitForRequest, reply } = fake;
-  return { requests, waitForRequest, reply };
+  const { requests, waitForRequest, reply, hold, release } = fake;
+  return { requests, waitForRequest, reply, hold, release };
 }
 
 async function startVoiceFakes() {

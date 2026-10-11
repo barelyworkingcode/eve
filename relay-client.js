@@ -492,10 +492,17 @@ class RelayClient {
   }
 
   setVoiceMode(enabled, voice, speed) {
+    // A reset bumps _ttsGeneration, which drops the in-flight reply's chunks
+    // and its tts_done. A voice or speed pick keeps the reply; every other
+    // frame (on/off, or a resync on leaving Hands-free) still drops it.
+    // The browser sends speed as a number; Number() guards a numeric string.
+    const changed = (voice && voice !== this.voicePreset) ||
+      (speed && Number(speed) !== Number(this.voiceSpeed));
+    const keepReply = enabled && this.voiceMode && changed;
     this.voiceMode = enabled;
     if (voice) this.voicePreset = voice;
     if (speed) this.voiceSpeed = speed;
-    this._resetTTSState();
+    if (!keepReply) this._resetTTSState();
   }
 
   _resetTTSState() {
