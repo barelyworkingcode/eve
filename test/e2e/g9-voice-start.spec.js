@@ -11,7 +11,7 @@ function voiceWorld({ preset = true, defaultProject = true } = {}) {
       {
         id: 't_voice',
         name: 'Voice - Acme',
-        model: 'haiku',
+        model: 'sonnet',
         mode: 'voice',
         voice: true,
         system_prompt: 'Talk briefly.',
@@ -112,8 +112,10 @@ test.describe('a Work voice preset and a default project', () => {
     const since = await relay.mark();
     await eve.open('/#/voice-chat');
     await expectVoiceView(page);
-    await relay.waitForEvent('session.launch', { since });
+    const launch = await relay.waitForEvent('session.launch', { since, match: (l) => l.status === 'ok' });
     await expect(page.getByRole('tab', { name: /Voice/ })).toBeVisible();
+    const made = (await relay.json('ctl', 'state', '--json')).sessions.find((s) => s.id === launch.session_id);
+    expect(made.model).toBe('sonnet');
   });
 
   test('the Action Button link starts the current mode voice chat @G15.2', async ({ eve, page, relay }) => {
@@ -121,11 +123,13 @@ test.describe('a Work voice preset and a default project', () => {
     const since = await relay.mark();
     await eve.open('/#/voice-chat');
     await expectVoiceView(page);
-    await relay.waitForEvent('session.launch', { since });
+    const launch = await relay.waitForEvent('session.launch', { since, match: (l) => l.status === 'ok' });
     // A second press reuses the recent voice thread.
     await eve.open('/#/voice-chat');
     await expectVoiceView(page);
     expect(await relay.logs({ event: 'session.launch', since })).toHaveLength(1);
+    const sessions = (await relay.json('ctl', 'state', '--json')).sessions;
+    expect(sessions.find((s) => s.id === launch.session_id).model).toBe('sonnet');
   });
 });
 

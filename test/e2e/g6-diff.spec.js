@@ -148,6 +148,7 @@ test.describe('files with no text diff', () => {
     await row(page, 'Untracked: blob.bin').click();
     await expect(page.getByText('Binary file changed')).toBeVisible();
     await expect(diffView(page)).toBeVisible();
+    await expect(page.getByRole('main').getByText('0 B → 8 B (+8 B)')).toBeVisible();
     await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
     await row(page, 'Untracked: huge.txt').click();
     await expect(page.getByText('File too large to diff')).toBeVisible();

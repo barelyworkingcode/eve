@@ -123,6 +123,24 @@ test.describe('repos with changes', () => {
     await expect(panel(page).getByRole('button', { name: /^alpha\b/ })).toHaveText(/^alpha\s*main\s*3$/);
     await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
   });
+
+  test('an agent\'s edit updates the open diff @G6.77', async ({ eve, relay, page }) => {
+    await eve.open('/');
+    await openChanges(page);
+    await modified(page).click();
+    const diffView = page.getByRole('group', { name: 'Diff view' });
+    await expect(diffView).toBeVisible();
+    await expect(diffView.getByRole('button', { name: 'Ask about this', exact: true })).toBeEnabled();
+    await expect(page.getByRole('main').getByText('one changed')).toBeVisible();
+    await relay.waitForEvent('fakerelay.watch', { match: (l) => l.status === 'ok' });
+    const since = relay.mark();
+    const write = await relay.ctl('fs-write', '--project', 'p_acme', '--path', 'alpha/a.txt', '--content', 'agentedit\n');
+    expect(write.code).toBe(0);
+    expect(JSON.parse(write.stdout).delivered).toBeGreaterThanOrEqual(1);
+    await expect(page.getByRole('main').getByText('agentedit', { exact: true })).toBeVisible();
+    await expect(page.getByRole('main').getByText('one changed')).toHaveCount(0);
+    await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
+  });
 });
 
 test.describe('a project with no repos', () => {
