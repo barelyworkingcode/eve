@@ -43,8 +43,11 @@ test.describe('agents on the board', () => {
     await expect(row(other, 'Hold', 'asking')).toBeVisible();
     await expect(other.getByRole('heading', { name: 'Idle 1', level: 4 })).toBeVisible();
     await expect(row(other, 'Ledger', 'idle')).toBeVisible();
+    // The agents the board shows are the threads relay holds. The Chief of Staff's
+    // own hidden session (`__cos:`) is created on its own timing and is no agent.
+    const shown = ['Hold', 'Ledger'];
     const sessions = (await relay.json('ctl', 'state', '--json')).sessions;
-    expect(sessions.map((s) => s.name).sort()).toEqual(['Hold', 'Ledger']);
+    expect(sessions.map((s) => s.name).filter((n) => !n.startsWith('__cos:')).sort()).toEqual(shown);
   });
 
   test('a terminal is working while it runs and done after it exits @G6.20', async ({ eve, page }) => {

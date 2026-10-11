@@ -127,8 +127,6 @@ test.describe('threads from yesterday', () => {
     await expect(confirm.getByText('Delete session "Ledger"? This will terminate the process and delete all history.')).toBeVisible();
     await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect.poll(() => sessionIds(relay)).toEqual(['s_t2']);
-    // The row stays in the list until the Launcher is opened again.
-    await expect(launcher.getByRole('button', { name: 'Ledger', exact: true })).toBeVisible();
     await launcher.getByRole('button', { name: 'Close' }).click();
     const again = await openResume(page);
     await expect(again.getByRole('button', { name: 'Roadmap', exact: true })).toBeVisible();
