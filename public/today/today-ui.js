@@ -88,6 +88,8 @@ function todayRow(state, { testid, project, projectId, title, sub, status, kind,
     const dot = document.createElement('span');
     dot.className = `home__live home__live--${status}`;
     dot.title = TODAY_DOT_TITLES[status];
+    dot.setAttribute('role', 'img');
+    dot.setAttribute('aria-label', TODAY_DOT_TITLES[status]);
     meta.appendChild(dot);
   }
   if (time) {
