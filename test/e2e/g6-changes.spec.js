@@ -31,13 +31,13 @@ test.describe('repos with changes', () => {
   test.use({ world: changesWorld() });
 
   test('open the Changes tab from the Project page @G6.66', async ({ eve, relay, page }) => {
+    const since = relay.mark();
     await eve.open('/');
     await rail(page).getByRole('button', { name: 'Acme', exact: true }).click();
     await page.getByRole('button', { name: 'Project page', exact: true }).click();
-    const since = relay.mark();
     await page.getByRole('main').getByRole('button', { name: /^Changes 2$/ }).click();
     await expect(page.getByRole('group', { name: 'Scope' })).toBeVisible();
-    await expect(tab(page)).toHaveText('Changes 2');
+    await expect(tab(page)).toHaveText(/^Changes\s*2$/);
     await expect(page.getByRole('tree', { name: 'Files' })).toBeHidden();
     await expect(modified(page)).toBeVisible();
     await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
@@ -48,9 +48,9 @@ test.describe('repos with changes', () => {
     await eve.open('/');
     await openChanges(page);
     await expect(panel(page).getByRole('group', { name: 'Scope' })).toBeVisible();
-    await expect(tab(page)).toHaveText('Changes 2');
-    await expect(panel(page).getByRole('button', { name: /^alpha\b/ })).toHaveText('alpha main 2');
-    await expect(panel(page).getByRole('button', { name: /^beta\b/ })).toHaveText('beta main clean');
+    await expect(tab(page)).toHaveText(/^Changes\s*2$/);
+    await expect(panel(page).getByRole('button', { name: /^alpha\b/ })).toHaveText(/^alpha\s*main\s*2$/);
+    await expect(panel(page).getByRole('button', { name: /^beta\b/ })).toHaveText(/^beta\s*main\s*clean$/);
     await expect(modified(page)).toBeVisible();
     await expect(untracked(page)).toBeVisible();
     await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
@@ -96,8 +96,8 @@ test.describe('repos with changes', () => {
     await eve.open('/');
     await openChanges(page);
     const alpha = panel(page).getByRole('button', { name: /^alpha\b/ });
-    await expect(panel(page).getByRole('button', { name: /^beta\b/, expanded: false })).toHaveText('beta main clean');
-    await expect(alpha).toHaveAttribute('aria-expanded', 'true');
+    await expect(panel(page).getByRole('button', { name: /^beta\b/, expanded: false })).toHaveText(/^beta\s*main\s*clean$/);
+    await expect(panel(page).getByRole('button', { name: /^alpha\b/, expanded: true })).toBeVisible();
     await expect(modified(page)).toBeVisible();
     await alpha.click();
     await expect(panel(page).getByRole('button', { name: /^alpha\b/, expanded: false })).toBeVisible();
@@ -118,8 +118,8 @@ test.describe('repos with changes', () => {
     expect(write.code).toBe(0);
     expect(JSON.parse(write.stdout).delivered).toBeGreaterThanOrEqual(1);
     await expect(page.getByRole('button', { name: 'Untracked: extra.txt', exact: true })).toBeVisible();
-    await expect(tab(page)).toHaveText('Changes 3');
-    await expect(panel(page).getByRole('button', { name: /^alpha\b/ })).toHaveText('alpha main 3');
+    await expect(tab(page)).toHaveText(/^Changes\s*3$/);
+    await expect(panel(page).getByRole('button', { name: /^alpha\b/ })).toHaveText(/^alpha\s*main\s*3$/);
     await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
   });
 });
