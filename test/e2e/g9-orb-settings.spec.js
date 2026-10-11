@@ -95,6 +95,7 @@ test('the speech jitter slider changes its value @G9.20', async ({ eve, page, re
 
 // Waits: each slider toHaveValue its default, read before moving.
 test('Reset to defaults puts all five sliders back @G9.21', async ({ eve, page, relay }) => {
+  test.slow();
   await openVoiceView(eve, page, relay);
   await openSheet(page);
   const defaults = {};

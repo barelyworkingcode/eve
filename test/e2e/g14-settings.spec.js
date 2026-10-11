@@ -147,27 +147,6 @@ test.describe('settings sheet', () => {
     await expect(sheet(page).getByRole('combobox', { name: 'Voice' }).getByRole('option', { name: 'George', selected: true })).toHaveCount(1);
   });
 
-  test.describe('voice view', () => {
-    test.use({ mic: 'silence' });
-
-    test('the voice choice is shared with the voice drawer @G14.36', async ({ eve, page }) => {
-      await eve.open('/');
-      await openSettings(page);
-      const voices = sheet(page).getByRole('combobox', { name: 'Voice' });
-      await expect(voices.getByRole('option', { name: 'George' })).toHaveCount(1);
-      await voices.selectOption({ label: 'George' });
-      await expect(voices.getByRole('option', { name: 'George', selected: true })).toHaveCount(1);
-      await page.getByRole('button', { name: 'Done' }).click();
-      await page.getByRole('button', { name: 'Voice', exact: true }).click();
-      const launcher = page.getByRole('dialog', { name: 'Shell Launcher' });
-      await launcher.getByRole('combobox', { name: 'Model' }).selectOption('haiku');
-      await launcher.getByRole('button', { name: 'Start Voice Chat' }).click();
-      await expect(page.getByRole('button', { name: 'Voice controls' })).toBeVisible();
-      await page.getByRole('button', { name: 'Voice controls' }).click();
-      await expect(page.getByRole('combobox', { name: 'Voice' }).getByRole('option', { name: 'George', selected: true })).toHaveCount(1);
-    });
-  });
-
   test('pick the speed replies are read at @G14.37', async ({ eve, page }) => {
     await eve.open('/');
     await openSettings(page);

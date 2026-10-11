@@ -130,7 +130,7 @@ test.describe('tabs', () => {
     await eve.open('/');
     await openProjectPage(page, 'Acme');
     await openThread(page, 'Ledger');
-    await page.keyboard.press('ControlOrMeta+w');
+    await page.keyboard.press('Meta+w');
     await expect(page.getByRole('tab', { name: 'Ledger' })).toHaveCount(0);
   });
 
@@ -139,7 +139,7 @@ test.describe('tabs', () => {
     await openTerminal(page);
     await expect.poll(async () => (await terminals(relay)).length).toBe(1);
     await page.getByRole('textbox', { name: 'Terminal input' }).focus();
-    await page.keyboard.press('ControlOrMeta+w');
+    await page.keyboard.press('Meta+w');
     await expect(page.getByRole('tab', { name: 'Acme - Shell' })).toHaveCount(0);
     await expect.poll(async () => (await terminals(relay)).length).toBe(0);
   });
@@ -149,7 +149,7 @@ test.describe('tabs', () => {
     await openDirtyFile(page);
     const messages = [];
     page.once('dialog', async (d) => { messages.push(d.message()); await d.dismiss(); });
-    await page.keyboard.press('ControlOrMeta+w');
+    await page.keyboard.press('Meta+w');
     await expect.poll(() => messages.length).toBe(1);
     expect(messages[0]).toMatch(/README\.md.* has unsaved changes\. Close anyway\?/);
     await expect(page.getByRole('tab', { name: /README\.md/ })).toBeVisible();
@@ -159,7 +159,7 @@ test.describe('tabs', () => {
     await eve.open('/');
     await openProjectPage(page, 'Acme');
     await openThread(page, 'Ledger');
-    await page.keyboard.press('ControlOrMeta+k');
+    await page.keyboard.press('Meta+k');
     const box = page.getByRole('textbox', { name: PALETTE });
     await box.fill('Close');
     await page.getByRole('option', { name: /Close current tab/ }).click();
@@ -171,7 +171,7 @@ test.describe('tabs', () => {
     await eve.open('/');
     await openTerminal(page);
     await expect.poll(async () => (await terminals(relay)).length).toBe(1);
-    await page.keyboard.press('ControlOrMeta+k');
+    await page.keyboard.press('Meta+k');
     const box = page.getByRole('textbox', { name: PALETTE });
     await box.fill('Close');
     await page.getByRole('option', { name: /Close current tab/ }).click();
@@ -185,7 +185,7 @@ test.describe('tabs', () => {
     await openDirtyFile(page);
     const messages = [];
     page.once('dialog', async (d) => { messages.push(d.message()); await d.dismiss(); });
-    await page.keyboard.press('ControlOrMeta+k');
+    await page.keyboard.press('Meta+k');
     await page.getByRole('textbox', { name: PALETTE }).fill('Close');
     await page.getByRole('option', { name: /Close current tab/ }).click();
     await expect.poll(() => messages.length).toBe(1);

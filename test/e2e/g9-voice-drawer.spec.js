@@ -47,6 +47,8 @@ test.describe('with a microphone that hears speech', () => {
   test.use({ mic: 'speech' });
 
   test('the voice picked in the drawer reads the spoken reply @G9.30', async ({ eve, page, relay, voice }) => {
+    // A one-second reply, so hands-free detection resumes and a later utterance goes out with the new choice.
+    await voice.tts.reply({ seconds: 1 });
     await openVoiceView(eve, page, relay);
     await page.getByRole('button', { name: 'Voice controls' }).click();
     const picker = page.getByRole('combobox', { name: 'Voice', exact: true });
@@ -61,6 +63,8 @@ test.describe('with a microphone that hears speech, at a set speed', () => {
   test.use({ mic: 'speech' });
 
   test('the speed picked in the drawer reads the spoken reply @G9.31', async ({ eve, page, relay, voice }) => {
+    // A one-second reply, so hands-free detection resumes and a later utterance goes out with the new choice.
+    await voice.tts.reply({ seconds: 1 });
     await openVoiceView(eve, page, relay);
     await page.getByRole('button', { name: 'Voice controls' }).click();
     const picker = page.getByRole('combobox', { name: 'Playback speed', exact: true });
@@ -71,13 +75,19 @@ test.describe('with a microphone that hears speech, at a set speed', () => {
 });
 
 // Waits: the voice view's button; the launch log holds only the thread's own launch.
-test('Switch to Voice UI opens the voice view on the same conversation @G9.33', async ({ eve, page, relay }) => {
-  const since = await relay.mark();
-  await openTextThread(eve, page);
-  await page.getByRole('button', { name: 'Voice controls' }).click();
-  await page.getByRole('button', { name: 'Switch to Voice UI' }).click();
-  await expect(page.getByRole('button', { name: 'Hold to record' })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'Type your message...' })).toBeHidden();
-  expect(await relay.logs({ event: 'session.launch', since })).toHaveLength(1);
-  expect((await relay.json('ctl', 'state', '--json')).sessions).toHaveLength(1);
+// Chief of Staff is off, so no background row-summary session is launched after the turn.
+test.describe('with Chief of Staff off', () => {
+  test.use({ eveSettings: { chiefOfStaff: { enabled: false } } });
+
+  test('Switch to Voice UI opens the voice view on the same conversation @G9.33', async ({ eve, page, relay }) => {
+    const since = await relay.mark();
+    await openTextThread(eve, page);
+    await page.getByRole('button', { name: 'Voice controls' }).click();
+    await page.getByRole('button', { name: 'Switch to Voice UI' }).click();
+    await expect(page.getByRole('button', { name: 'Hold to record' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Type your message...' })).toBeHidden();
+    expect(await relay.logs({ event: 'session.launch', since })).toHaveLength(1);
+    const own = (await relay.json('ctl', 'state', '--json')).sessions.filter((s) => !String(s.name || '').startsWith('__'));
+    expect(own).toHaveLength(1);
+  });
 });
