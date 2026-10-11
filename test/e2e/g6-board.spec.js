@@ -139,6 +139,7 @@ test.describe('a routine that is running', () => {
     const running = page.getByRole('button').filter({ hasText: 'Acme · routine' });
     await expect(running).toBeVisible();
     await expect(running).toContainText('Testbox sweep');
+    await expect(running.getByRole('img', { name: 'Running', exact: true })).toBeVisible();
   });
 });
 

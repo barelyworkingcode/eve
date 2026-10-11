@@ -358,3 +358,5 @@ The rule is enforced, not requested. A `PreToolUse` hook in `.claude/settings.js
 | Bash | starts with `npx playwright test`, `npm run -s lint`, `npm run -s check:coverage` or `node --check test/e2e/`; no `;`, `&`, `|`, `$(`, backtick, `>`, `<` or newline; no argument under a refused path | the read refusal for a path, else `eve-test-writer runs only ...` |
 
 Paths resolve against the repo root, `..` is normalised and symlinks are followed before matching. `node .claude/hooks/eve-test-writer-guard.js --self-test` runs the allow and deny table; `npm run check:static` (S10) calls it.
+
+Toasts sit in one `status` region; find one with `getByRole('status').filter({ hasText })`.

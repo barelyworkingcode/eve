@@ -93,6 +93,7 @@ class TerminalKeybar {
     if (def.mod) {
       this._modButtons[def.mod] = btn;
       btn.dataset.mod = def.mod;
+      btn.setAttribute('aria-pressed', 'false');
       this._bindPress(btn, () => this._onModTap(def.mod));
     } else {
       this._bindPress(btn, () => this._onKeyTap(def));
@@ -161,6 +162,7 @@ class TerminalKeybar {
     if (!btn) return;
     btn.classList.toggle('terminal-keybar__key--armed', this._mods[name] === MOD_ARMED);
     btn.classList.toggle('terminal-keybar__key--locked', this._mods[name] === MOD_LOCKED);
+    btn.setAttribute('aria-pressed', String(this._mods[name] !== MOD_OFF));
   }
 
   // Modifiers fold over the first byte only — that's what a real Ctrl/Alt chord targets.
