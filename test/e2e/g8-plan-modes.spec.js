@@ -55,8 +55,11 @@ test.describe('a plan', () => {
     await expect(page.getByRole('button', { name: 'Approve Plan', exact: true })).toBeHidden();
     await box.fill('shorter please');
     await box.press('Enter');
-    await expect(page.getByText('shorter please')).toBeVisible();
+    // The fake plans again on every turn, so the revise turn opens a new plan tab that takes focus:
+    // wait for the turn, then go back to the thread before looking for the message.
     await expect.poll(async () => (await relay.logs({ event: 'chat.turn' })).length).toBe(2);
+    await backToThread(page);
+    await expect(page.getByText('shorter please')).toBeVisible();
   });
 
   test('approve the plan @G8.9', async ({ eve, page, relay }) => {
