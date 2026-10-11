@@ -183,6 +183,7 @@ A terminal is an echo terminal, not a shell. Input comes back as output, byte fo
 - A host project is `{ host_id, path, files, repos }`. `files` and `repos` live under the host's own root. Its terminals and files run there.
 - Status is `connecting`, `connected` or `unreachable`. With agent `none`, the first file op or watch moves the host to `connecting`, then `connected`. `ctl('host', 'status', '--id', H, '--status', S, '--error', TEXT)` answers after the frame has reached every `/ws/files` connection, so the page has it by then. It sets any of the three; any other value is refused 400.
 - While a host is `connecting` or `unreachable`, a file op answers 503 `{"error":"host is not connected","code":"HOST_UNREACHABLE"}` and a watch fails with that code. Persistent list and kill: 502 `{"error":"host unreachable"}` only when the host is `unreachable` (or its probe failed); 409 `{"error":"host has no tmux"}` when neither the host nor its probe has a `tmux_path`; kill of a missing name 404, of a malformed name 400.
+- `session.delete` is written when a thread is deleted.
 - `session.persistent.list` and `session.persistent.kill` carry `project_id`. `host.pastetmp` carries `host_id`. File ops write `file.*`.
 - `attached_here` is always `false` on a persistent row, though relay sets it when a live terminal carries the name. A spec cannot see an attached-here state.
 

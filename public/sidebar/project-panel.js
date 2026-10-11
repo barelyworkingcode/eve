@@ -87,6 +87,7 @@ class ProjectPanel {
       btn.type = 'button';
       btn.className = `panel-tab${tab.key === this.activeTab ? ' panel-tab--active' : ''}`;
       btn.title = tab.label;
+      btn.setAttribute('aria-label', tab.count > 0 ? `${tab.label} ${tab.count}` : tab.label);
       btn.dataset.tab = tab.key;
       btn.dataset.testid = `panel-tab-${tab.key}`;
 
