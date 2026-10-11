@@ -1,7 +1,9 @@
 // A failed routine's reason lives in the newest history entry. This cache is
-// shared by the project page and the Routines page: one fetch per
-// (task, lastRun), for at most `limit` tasks, never polled. A newer run
-// supersedes the task's older entry, so the cap counts tasks.
+// shared by the project page and the Routines page: one fetch per (task,
+// lastRun, lastStatus, session id, terminal id), for at most `limit` tasks,
+// never polled. A newer run supersedes the task's older entry, so the cap
+// counts tasks. While a task is running it keeps its last entry and opens no
+// new key.
 class RoutineHistory {
   // load(taskId) → Promise<history[]>; onChange() runs when an entry lands.
   // pick(history) chooses what an entry holds; the default is the newest run.
@@ -22,7 +24,17 @@ class RoutineHistory {
 
   // The same for a task of any status.
   newest(task) {
-    const key = `${task.id}|${task.lastRun}`;
+    // A run event updates only lastStatus until tasks reload: keep showing
+    // the previous output rather than fetching for the in-between state. A
+    // task first seen running has no entry yet and falls through to one fetch.
+    if (task.lastStatus === 'running') {
+      for (const [k, v] of this._cache) if (k.startsWith(`${task.id}|`)) return v;
+    }
+    // lastRun is stamped to the whole second: a run and a retry ending in the
+    // same second differ by status or by the run's session or terminal id.
+    // Both ids are keyed: the scheduler keeps an old session id when a
+    // routine switches to a terminal.
+    const key = `${task.id}|${task.lastRun}|${task.lastStatus}|${task.lastSessionId || ''}|${task.lastTerminalId || ''}`;
     if (this._cache.has(key)) return this._cache.get(key);
     // Drop the task's older entries first: a newer run replaces its own slot,
     // so a full cache still refreshes a task it already holds.

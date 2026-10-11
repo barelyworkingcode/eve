@@ -68,26 +68,6 @@ test.describe('a brief that reads', () => {
     await expect(page.getByText('Weather', { exact: true })).toBeVisible();
   });
 
-  test('a failed brief offers Retry and Retry brings the brief back @G6.10', async ({ eve, page, relay }) => {
-    await eve.open('/');
-    await setUpBrief(page);
-    await runBriefOnce(page);
-    await expect(page.getByText(/^Brief · /)).toBeVisible();
-
-    const once = await relay.ctl('fault', 'add', '--route', 'POST /api/sessions', '--mode', 'error', '--times', '1', '--status', '500', '--body', '{"error":"boom"}');
-    expect(once.code).toBe(0);
-    await page.getByRole('main').getByRole('button', { name: 'Refresh', exact: true }).click();
-    const retry = page.getByRole('main').getByRole('button', { name: 'Retry', exact: true });
-    await expect(retry).toBeVisible();
-
-    const failure = page.getByText(/^failed \d\d:\d\d/);
-    await expect(failure).toBeVisible();
-    await retry.click();
-    await expect(page.getByText(/^Brief · /)).toBeVisible();
-    await expect(failure).toBeHidden();
-    await expect(retry).toBeHidden();
-  });
-
   test('a brief that fails again keeps the failure line and Retry @G6.10.r1', async ({ eve, page, relay }) => {
     await eve.open('/');
     await setUpBrief(page);

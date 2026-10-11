@@ -21,7 +21,7 @@ class CustomPart extends TodayPart {
     this._history = null;
   }
 
-  // One fetch per (task, lastRun): the newest run (for the failure reason) and
+  // One fetch per run (RoutineHistory's key): the newest run (for the failure reason) and
   // the newest successful run (what the card shows).
   _runs(task) {
     if (!this._history) {
