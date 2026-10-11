@@ -261,8 +261,8 @@ class MessageDispatcher {
     if (this._localSubmitSession === sessionId) this._stopEchoExpected.add(sessionId);
   }
 
-  _notifyVoiceError(message) {
-    this.voice?.handleError(message);
+  _notifyVoiceError(message, alreadyShown = false) {
+    this.voice?.handleError(message, alreadyShown);
   }
 
   _captureTurnMetrics(stats) {
@@ -342,7 +342,7 @@ class MessageDispatcher {
     if (data.context === 'terminal_create' && this.bus) {
       this.bus.emit(EVT.TOAST_SHOW, { id: 'terminal-create-error', message: data.message, type: 'error', duration: 6000 });
     }
-    this._notifyVoiceError(data.message);
+    this._notifyVoiceError(data.message, true);
     this.app.hideStopButton();
     this.app.clearSessionStarting();
     this.app.voiceModes?.cancelRequests();
@@ -374,10 +374,10 @@ class MessageDispatcher {
     if (!hadContent && !data.error && !stopped) {
       const msg = data.errorMessage || 'No response from model';
       this.renderer.appendSystemMessage(msg, 'error');
-      this._notifyVoiceError(msg);
+      this._notifyVoiceError(msg, true);
     } else if (data.error) {
       this.renderer.appendSystemMessage(data.error, 'error');
-      this._notifyVoiceError(data.error);
+      this._notifyVoiceError(data.error, true);
     }
     this.voice?.handleResponseComplete();
     this._flushClientTTS(data.sessionId || this.state.currentSessionId);
