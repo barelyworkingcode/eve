@@ -11,7 +11,7 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 const { parseMap, globToRegExp } = require('../devboxverify/areas');
-const { parseFeatures, parseSpec, splitRow } = require('./check-coverage');
+const { parseFeatures, parseSpec, splitRow, parsePending } = require('./check-coverage');
 
 const ROOT = path.resolve(__dirname, '..');
 const MAP_FILE = 'docs/areas.jsonc';
@@ -27,7 +27,9 @@ const APPROVED_LABEL = 'map-narrowing-approved';
 const SPEC_HARNESS = ['test/e2e/support/**', 'test/e2e/relay-pin.json', 'playwright.config.js', 'scripts/browser-lock.js'];
 const HARNESS_RES = SPEC_HARNESS.map(globToRegExp);
 
-const RULES = ['M2', 'M3', 'M4', 'syntax'];
+const RULES = ['M2', 'M3', 'M4', 'M5', 'syntax'];
+const PROOF_FILE = 'docs/map-proof.md';
+const PENDING_FILE = 'test/e2e/coverage-pending.txt';
 
 /** @typedef {{ goalAreas: Map<string,string[]>, specRows: Map<string,string[]>, journeyOnly: Set<string> }} FeatureMap */
 
@@ -125,16 +127,118 @@ function isAppFile(file) {
   return /^[^/]+\.js$/.test(file) && !file.endsWith('.config.js');
 }
 
+/** @typedef {{ area: string, file: string, find: string, replace: string, why: string }} Break */
+/** @typedef {{ rows: Map<string, { file: string, why: string, base: string, red: string[], date: string }>,
+ *   journeyOnly: Map<string, string>, pending: Map<string, { goals: string[], issues: number[] }> }} ProofRecord */
+
+// docs/map-proof.md: a table of proof rows, then "## Journey-only areas" (`none`
+// or `- <area>: <reason>`) and "## Pending" (`none` or `- <area>: G8 (#369), ...`).
+function parseProofRecord(md) {
+  const findings = [];
+  const record = { rows: new Map(), journeyOnly: new Map(), pending: new Map() };
+  const lines = md.split('\n');
+  const at = (heading) => lines.indexOf(`## ${heading}`);
+  const sectionLines = (heading) => {
+    const i = at(heading);
+    if (i < 0) { findings.push(`${PROOF_FILE}: no "## ${heading}" section`); return []; }
+    const rest = lines.slice(i + 1);
+    const end = rest.findIndex((l) => l.startsWith('## '));
+    return (end < 0 ? rest : rest.slice(0, end)).map((l) => l.trim()).filter(Boolean);
+  };
+
+  const head = lines.findIndex((l) => l.startsWith('| Area |'));
+  if (head < 0) findings.push(`${PROOF_FILE}: no proof table (header "| Area | File | Break | Base | Red tests | Date |")`);
+  else {
+    for (const line of lines.slice(head + 1)) {
+      if (!line.startsWith('|')) { if (line.trim()) break; else continue; }
+      const cells = splitRow(line);
+      if (/^-+$/.test(cells[1])) continue;
+      if (cells.length !== 8) { findings.push(`${PROOF_FILE}: row "${cells[1]}" has ${cells.length - 2} cells, want 6`); continue; }
+      const [area, file, why, base, red, date] = cells.slice(1, 7);
+      if (record.rows.has(area)) { findings.push(`${PROOF_FILE}: ${area} has two proof rows`); continue; }
+      if (!/^[0-9a-f]{40}$/.test(base)) findings.push(`${PROOF_FILE}: ${area}: Base "${base}" is not a 40-hex commit`);
+      const redTests = red.split(';').map((t) => t.trim()).filter(Boolean);
+      if (redTests.length === 0) findings.push(`${PROOF_FILE}: ${area}: no red tests`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) findings.push(`${PROOF_FILE}: ${area}: Date "${date}" is not YYYY-MM-DD`);
+      record.rows.set(area, { file: file.replace(/^`|`$/g, ''), why, base, red: redTests, date });
+    }
+  }
+
+  for (const line of sectionLines('Journey-only areas')) {
+    if (line === 'none') continue;
+    const m = /^- ([a-z][a-z-]*): (\S.*)$/.exec(line);
+    if (!m) findings.push(`${PROOF_FILE}: Journey-only line "${line}" is not "- <area>: <reason>" or "none"`);
+    else record.journeyOnly.set(m[1], m[2]);
+  }
+  for (const line of sectionLines('Pending')) {
+    if (line === 'none') continue;
+    const m = /^- ([a-z][a-z-]*): (G\d+ \(#\d+\)(?:, G\d+ \(#\d+\))*)$/.exec(line);
+    if (!m) { findings.push(`${PROOF_FILE}: Pending line "${line}" is not "- <area>: G<n> (#<issue>), ..." or "none"`); continue; }
+    const items = m[2].split(', ').map((i) => /^(G\d+) \(#(\d+)\)$/.exec(i));
+    record.pending.set(m[1], { goals: items.map((i) => i[1]), issues: items.map((i) => Number(i[2])) });
+  }
+  return { record, findings };
+}
+
+// M5: every proven area has a break and a proof row (see docs/test.md, "Coverage").
+function proofFindings({ areaMap, featureMap, pendingGoals, proof }) {
+  const findings = [];
+  const defined = new Set(Object.keys(areaMap.areas));
+  const { breaks, record } = proof;
+  const undef = (what, a) => { if (!defined.has(a)) findings.push(`${a}: ${what} names an area not defined in ${MAP_FILE}`); };
+
+  breaks.forEach((b) => undef('a break', b.area));
+  for (const a of record.rows.keys()) undef(`a ${PROOF_FILE} row`, a);
+  for (const a of record.journeyOnly.keys()) undef(`a ${PROOF_FILE} Journey-only listing`, a);
+  for (const a of record.pending.keys()) undef(`a ${PROOF_FILE} Pending listing`, a);
+
+  for (const b of breaks) {
+    if (!defined.has(b.area)) continue;
+    const res = areaMap.areas[b.area].code.map(globToRegExp);
+    if (!matches(res, b.file)) findings.push(`${b.file}: the break for ${b.area} matches no code glob of ${b.area}`);
+  }
+  for (const b of breaks) {
+    const row = record.rows.get(b.area);
+    if (row && row.file !== b.file) findings.push(`${b.area}: proof row names ${row.file}, the break is in ${b.file}`);
+  }
+  for (const name of [...defined].sort()) {
+    if (areaMap.areas[name].full || featureMap.journeyOnly.has(name) || record.pending.has(name)) continue;
+    if (!breaks.some((b) => b.area === name)) findings.push(`${name}: proven area with no break in test/map-proof/breaks.json`);
+    if (!record.rows.has(name)) findings.push(`${name}: proven area with no proof row in ${PROOF_FILE}`);
+  }
+  for (const a of [...featureMap.journeyOnly].sort()) {
+    if (defined.has(a) && !record.journeyOnly.has(a)) findings.push(`${a}: journey-only area not listed under "Journey-only areas" in ${PROOF_FILE}`);
+  }
+  for (const [a, listing] of record.pending) {
+    if (record.rows.has(a)) findings.push(`${a}: has both a proof row and a Pending line in ${PROOF_FILE}`);
+    if (!defined.has(a)) continue;
+    const goals = [...featureMap.goalAreas].filter(([, areas]) => areas.includes(a)).map(([g]) => g).sort();
+    for (const g of goals) if (!pendingGoals.has(g)) findings.push(`${a}: listed Pending, but ${g} lists it and is not on coverage-pending.txt`);
+    if (goals.join(',') !== [...listing.goals].sort().join(',')) {
+      findings.push(`${a}: Pending line names ${listing.goals.join(', ') || 'no goals'}, the goals that list it are ${goals.join(', ') || 'none'}`);
+    }
+    const want = listing.goals.map((g) => pendingGoals.get(g));
+    if (want.some((i) => i === undefined) || want.join(',') !== listing.issues.join(',')) {
+      findings.push(`${a}: Pending line issues ${listing.issues.map((i) => `#${i}`).join(', ')} differ from coverage-pending.txt (${want.map((i) => (i === undefined ? 'absent' : `#${i}`)).join(', ')})`);
+    }
+  }
+  return findings;
+}
+
 /**
- * M2, M3, M4 and syntax findings, one string each. `rules` narrows which run.
- * `featureMap` may be null when `rules` is only ['M4'].
+ * M2, M3, M4, M5 and syntax findings, one string each. `rules` narrows which run.
+ * `featureMap` may be null when `rules` is only ['M4']. `proof`
+ * ({ breaks: Break[], record: ProofRecord }) is required when `rules` includes
+ * 'M5'; the default rules leave M5 out when no proof is given.
  * @param {{ areaMap: {quiet: string[], areas: object}, featureMap: FeatureMap|null,
- *   trackedFiles: string[], pendingGoals: Map<string,*>|Set<string> }} input
+ *   trackedFiles: string[], pendingGoals: Map<string,*>|Set<string>,
+ *   proof?: { breaks: Break[], record: ProofRecord } }} input
  * @param {string[]} [rules]
  * @returns {string[]}
  */
-function mapFindings({ areaMap, featureMap, trackedFiles, pendingGoals }, rules = RULES) {
+function mapFindings({ areaMap, featureMap, trackedFiles, pendingGoals, proof }, rules = proof ? RULES : RULES.filter((r) => r !== 'M5')) {
   const on = new Set(rules);
+  if (on.has('M5') && !proof) throw new Error('mapFindings: rule M5 needs proof');
   const findings = [];
   const defined = new Set(Object.keys(areaMap.areas));
 
@@ -181,6 +285,8 @@ function mapFindings({ areaMap, featureMap, trackedFiles, pendingGoals }, rules 
       }
     }
   }
+
+  if (on.has('M5')) findings.push(...proofFindings({ areaMap, featureMap, pendingGoals, proof }));
   return findings;
 }
 
@@ -282,6 +388,23 @@ function select({ root = ROOT, base, head, mergeBase, changed, specsAtHead, trac
     if (!mergeMap.journeyOnly.has(a)) narrowed[`area:${a}`] = ['journey-only'];
   }
 
+  // Two listings that narrow the proof. A missing coverage-pending.txt reads as
+  // empty; a merge base with no map-proof.md skips the Pending check.
+  const readAt = (rev, file) => (git(root, ['ls-tree', '--name-only', rev, '--', file]).trim() ? git(root, ['show', `${rev}:${file}`]) : null);
+  const pendingGoalsAt = (rev) => new Set(parsePending(readAt(rev, PENDING_FILE) || '', []).keys());
+  const goalsBefore = pendingGoalsAt(mergeBase);
+  for (const g of [...pendingGoalsAt(head)].sort()) {
+    if (!goalsBefore.has(g)) narrowed[`pending:${g}`] = ['coverage-pending.txt'];
+  }
+  const proofBefore = readAt(mergeBase, PROOF_FILE);
+  if (proofBefore !== null) {
+    const pendingAreasAt = (md) => new Set(md === null ? [] : parseProofRecord(md).record.pending.keys());
+    const before = pendingAreasAt(proofBefore);
+    for (const a of [...pendingAreasAt(readAt(head, PROOF_FILE))].sort()) {
+      if (!before.has(a)) narrowed[`pending-area:${a}`] = ['map-proof.md Pending'];
+    }
+  }
+
   const names = (labels || []).map((l) => (typeof l === 'string' ? l : l && l.name));
   const approved = names.includes(APPROVED_LABEL);
   const total = specsAtHead.length;
@@ -292,6 +415,6 @@ function select({ root = ROOT, base, head, mergeBase, changed, specsAtHead, trac
 }
 
 module.exports = {
-  parseFeatureMap, specAreas, mapFindings, select, git, trackedFiles, splitNul,
-  SPEC_HARNESS, APPROVED_LABEL, TOP_SPEC, ROOT,
+  parseFeatureMap, parseProofRecord, specAreas, mapFindings, select, git, trackedFiles, splitNul,
+  SPEC_HARNESS, APPROVED_LABEL, TOP_SPEC, ROOT, RULES, PROOF_FILE,
 };

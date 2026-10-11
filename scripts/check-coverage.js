@@ -10,7 +10,7 @@
 // Usage: node scripts/check-coverage.js
 // Output: one finding per line, `<ID or file>: <what>`.
 // docs/FEATURES-iOS.md is out of scope: its rows are never counted, only held to the door rule (C8).
-// Also the map rules M2, M3 and the syntax rule (scripts/spec-map.js); M4 is S7 in check-static.
+// Also the map rules M2, M3, M5 and the syntax rule (scripts/spec-map.js); M4 is S7 in check-static.
 // Exit: 0 clean, 1 findings, 2 parse or usage error.
 // Docs: docs/test.md, "Coverage"; the Spec grammar is in docs/FEATURES.md, "How to read a row".
 
@@ -20,6 +20,8 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+// A missing proof input reads as empty, so M5 names what is unproven.
+const readOrEmpty = (rel, empty) => { try { return read(rel); } catch (e) { if (e.code === 'ENOENT') return empty; throw e; } };
 
 const ROW_ID = /^G\d+\.\d+$/;
 const TAG = /^(G\d+\.\d+)(?:\.r(\d+))?$/;
@@ -225,12 +227,15 @@ function main(argv, { out = console.log, err = console.error } = {}) {
     const specMap = require('./spec-map');
     const featureMap = specMap.parseFeatureMap(text);
     const features = parseFeatures(text);
+    const proofRecord = specMap.parseProofRecord(readOrEmpty(specMap.PROOF_FILE, ''));
+    const breaks = require('./map-proof').loadBreaks(readOrEmpty('test/map-proof/breaks.json', '[]'));
     findings = [...pendingFindings, ...featureMap.findings, ...specMap.mapFindings({
       areaMap: parseMap(read('docs/areas.jsonc')),
       featureMap: featureMap.map,
       trackedFiles: specMap.trackedFiles(ROOT),
       pendingGoals: pending,
-    }, ['M2', 'M3', 'syntax']), ...check({
+      proof: { breaks, record: proofRecord.record },
+    }, ['M2', 'M3', 'M5', 'syntax']), ...proofRecord.findings, ...check({
       features,
       retired: parseRetired(text),
       pending,
