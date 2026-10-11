@@ -11,6 +11,8 @@ class ToastManager {
   _initContainer() {
     this._container = document.createElement('div');
     this._container.className = 'toast-container';
+    this._container.setAttribute('role', 'status');
+    this._container.setAttribute('aria-atomic', 'false');
     document.body.appendChild(this._container);
   }
 
