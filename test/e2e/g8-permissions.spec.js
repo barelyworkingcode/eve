@@ -68,6 +68,23 @@ test.describe('a gated tool', () => {
     await expect(page.getByText('denied', { exact: true })).toBeVisible();
     await expect(page.getByText('echo: run it from testbox')).toBeHidden();
   });
+
+  test('deny a tool call with a click outside the prompt @G8.5', async ({ eve, page }) => {
+    await eve.open('/');
+    await askAndWaitForPrompt(page, 'run it from testbox');
+    const panel = page.getByRole('dialog', { name: 'Permission Request' });
+    await expect(panel).toBeVisible();
+    const box = await panel.boundingBox();
+    const viewport = page.viewportSize();
+    // The dimmed backdrop surrounds the panel; click its top-left corner area, outside the box.
+    const x = Math.max(1, Math.min(box.x / 2, viewport.width - 1));
+    const y = Math.max(1, Math.min(box.y / 2, viewport.height - 1));
+    expect(x < box.x || y < box.y).toBe(true);
+    await page.mouse.click(x, y);
+    await expect(panel).toBeHidden();
+    await expect(page.getByText('denied', { exact: true })).toBeVisible();
+    await expect(page.getByText('echo: run it from testbox')).toBeHidden();
+  });
 });
 
 function twoGated() {

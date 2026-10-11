@@ -87,6 +87,21 @@ test('open the Launcher from the Command palette @G2.4', async ({ eve, page }) =
   await expect(palette).toBeHidden();
 });
 
+test.describe('no projects', () => {
+  test.use({ world: { ...worlds.base(), projects: [], default_project: { home: '', work: '' } } });
+
+  test('the palette lists no New session option without a project @G2.4', async ({ eve, page }) => {
+    await eve.open('/');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await page.keyboard.press('ControlOrMeta+k');
+    const palette = page.getByRole('textbox', { name: 'Jump to a session, project, file or action…' });
+    await expect(palette).toBeVisible();
+    await palette.fill('New session');
+    await expect(page.getByText('No matches for “New session”')).toBeVisible();
+    await expect(page.getByRole('option', { name: 'New session…' })).toHaveCount(0);
+  });
+});
+
 test('start the Web Chat form from the Launcher @G2.5', async ({ eve, page }) => {
   await openLauncher(eve, page);
   await page.getByRole('button', { name: 'Web Chat' }).click();
@@ -163,6 +178,17 @@ test.describe('a template with no model', () => {
     await page.getByRole('button', { name: 'Plain', exact: true }).click();
     await expect(page.getByText('Pick a model for "Plain" before starting a chat.')).toBeVisible();
   });
+});
+
+test('a click outside the Launcher closes it @G2.11', async ({ eve, page }) => {
+  await openLauncher(eve, page);
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  const box = await page.getByRole('dialog').boundingBox();
+  // The dimmed backdrop fills the window around the dialog; the point sits left of its box.
+  await page.mouse.click(box.x / 2, box.y + box.height / 2);
+  await expect(page.getByRole('heading', { name: 'Shell Launcher' })).toBeHidden();
+  await expect(page.getByRole('textbox', { name: 'Type your message...' })).toHaveCount(0);
+  await expect(page.getByRole('tab')).toHaveCount(0);
 });
 
 test('close the Launcher without starting @G2.11', async ({ eve, page }) => {

@@ -203,6 +203,30 @@ test.describe('on a phone', () => {
     await expect(strip).toBeFocused();
   });
 
+  test('close the agents sheet by a click above it or a drag down @G6.44', async ({ eve, page }) => {
+    await eve.open('/');
+    await openCos(page, true);
+    const strip = page.getByRole('button', { name: /Agents$/ });
+    const sheet = page.getByRole('dialog', { name: 'Agents' });
+    await strip.click();
+    await expect(sheet).toBeVisible();
+    const box = await sheet.boundingBox();
+    await page.touchscreen.tap(box.x + box.width / 2, box.y / 2);
+    await expect(sheet).toBeHidden();
+    await expect(strip).toBeFocused();
+    await strip.click();
+    await expect(sheet).toBeVisible();
+    const title = await sheet.getByRole('heading', { name: 'AGENTS' }).boundingBox();
+    const x = title.x + title.width / 2;
+    const y = title.y + title.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + 80, { steps: 8 });
+    await page.mouse.up();
+    await expect(sheet).toBeHidden();
+    await expect(strip).toBeFocused();
+  });
+
   test('no counts when relay is down @G6.43.r1', async ({ eve, page, relay }) => {
     const added = await relay.ctl('fault', 'add', '--route', 'GET /api/sessions', '--mode', 'down');
     expect(added.code).toBe(0);
@@ -232,7 +256,7 @@ test.describe('a terminal that has ended', () => {
     await page.keyboard.type('exit');
     await page.keyboard.press('Enter');
     await openCos(page);
-    const done = rail.getByRole('button', { name: /Done 1$/ });
+    const done = rail.getByRole('button', { name: 'Done 1', exact: true });
     await expect(done).toBeVisible();
     await expect(done).toHaveAttribute('aria-expanded', 'false');
     await expect(rail.getByRole('button', { name: /Shell/ })).toBeHidden();

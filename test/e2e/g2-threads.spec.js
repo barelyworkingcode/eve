@@ -1,6 +1,8 @@
 const { test, expect, profiles } = require('./support/fixtures');
 const worlds = require('./support/worlds');
 
+const GREETING = /^(Good morning|Good afternoon|Good evening|Working late)\.$/;
+
 const rail = (page) => page.getByRole('navigation', { name: 'Projects' });
 
 function withThreads() {
@@ -108,6 +110,33 @@ test.describe('threads on the Project page', () => {
     await expect(row(page, 'Alpha notes')).toHaveCount(0);
     await expect(row(page, 'Beta notes')).toBeVisible();
     await expect.poll(() => sessionNames(relay)).not.toContain('Alpha notes');
+  });
+
+  test('deleting an open thread closes its tab and shows Today @G2.44', async ({ eve, page }) => {
+    await openProjectPage(eve, page);
+    await row(page, 'Alpha notes').click();
+    await expect(page.getByRole('tab', { name: 'Alpha notes' })).toBeVisible();
+    await page.getByRole('tab', { name: 'Acme' }).click();
+    await row(page, 'Alpha notes').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
+    await page.getByRole('dialog', { name: 'Confirm Deletion' }).getByRole('button', { name: 'Delete' }).click();
+    await expect(page.getByRole('tab', { name: 'Alpha notes' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Acme' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 1, name: GREETING })).toBeVisible();
+  });
+
+  test('Escape keeps the thread @G2.44.r1', async ({ eve, page, relay }) => {
+    await openProjectPage(eve, page);
+    const since = relay.mark();
+    await row(page, 'Alpha notes').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Confirm Deletion' });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(row(page, 'Alpha notes')).toBeVisible();
+    await row(page, 'Alpha notes').click();
+    await expectNoDeleteSince(page, relay, since);
   });
 
   test('cancel keeps the thread @G2.44.r1', async ({ eve, page, relay }) => {
@@ -354,6 +383,16 @@ test.describe('thread folders', () => {
     await expect(folder(page, 'Ungrouped')).toContainText('2');
     await expect(row(page, 'Alpha notes')).toBeVisible();
     await relay.waitForEvent('project.update', { since, match: (l) => l.status === 'ok' });
+  });
+
+  test('the folder delete dialog counts the threads that move @G2.50', async ({ eve, page }) => {
+    await openProjectPage(eve, page);
+    await makeFolder(page, 'Ideas');
+    await moveTo(page, 'Alpha notes', 'Ideas');
+    await expect(folder(page, 'Ideas')).toContainText('1');
+    await page.getByRole('button', { name: 'Folder actions' }).click();
+    await page.getByRole('menuitem', { name: 'Delete Folder' }).click();
+    await expect(page.getByText(/^Delete folder "Ideas"\? Its 1 session\(s\) move to Ungrouped/)).toBeVisible();
   });
 
   test('cancel keeps the folder @G2.50.r1', async ({ eve, page }) => {
