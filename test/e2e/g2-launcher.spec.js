@@ -182,11 +182,13 @@ test.describe('a template with no model', () => {
 
 test('a click outside the Launcher closes it @G2.11', async ({ eve, page }) => {
   await openLauncher(eve, page);
+  await expect(page.getByRole('tab')).toHaveCount(0);
   const box = await page.getByRole('dialog').boundingBox();
   // The dimmed backdrop fills the window around the dialog; the point sits left of its box.
   await page.mouse.click(box.x / 2, box.y + box.height / 2);
   await expect(page.getByRole('heading', { name: 'Shell Launcher' })).toBeHidden();
   await expect(page.getByRole('textbox', { name: 'Type your message...' })).toHaveCount(0);
+  await expect(page.getByRole('tab')).toHaveCount(0);
 });
 
 test('close the Launcher without starting @G2.11', async ({ eve, page }) => {

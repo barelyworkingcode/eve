@@ -1,6 +1,8 @@
 const { test, expect, profiles } = require('./support/fixtures');
 const worlds = require('./support/worlds');
 
+const GREETING = /^(Good morning|Good afternoon|Good evening|Working late)\.$/;
+
 const rail = (page) => page.getByRole('navigation', { name: 'Projects' });
 
 function withThreads() {
@@ -120,7 +122,7 @@ test.describe('threads on the Project page', () => {
     await page.getByRole('dialog', { name: 'Confirm Deletion' }).getByRole('button', { name: 'Delete' }).click();
     await expect(page.getByRole('tab', { name: 'Alpha notes' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Acme' })).toHaveCount(0);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: GREETING })).toBeVisible();
   });
 
   test('Escape keeps the thread @G2.44.r1', async ({ eve, page, relay }) => {

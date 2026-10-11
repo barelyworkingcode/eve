@@ -211,7 +211,7 @@ test.describe('on a phone', () => {
     await strip.click();
     await expect(sheet).toBeVisible();
     const box = await sheet.boundingBox();
-    await page.mouse.click(box.x + box.width / 2, box.y / 2);
+    await page.touchscreen.tap(box.x + box.width / 2, box.y / 2);
     await expect(sheet).toBeHidden();
     await expect(strip).toBeFocused();
     await strip.click();

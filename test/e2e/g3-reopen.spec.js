@@ -304,8 +304,16 @@ test('see Continue when there are no threads @G3.7', async ({ eve, page }) => {
 test('see the Resume tab with nothing to resume @G3.13', async ({ eve, page }) => {
   await eve.open('/');
   const launcher = await openResume(page);
-  await expect(launcher.getByRole('heading', { name: 'Running Terminals' })).toBeVisible();
-  await expect(launcher.getByText('No active sessions or terminals.')).toBeVisible();
+  const heading = launcher.getByRole('heading', { name: 'Running Terminals' });
+  const empty = launcher.getByText('No active sessions or terminals.');
+  await expect(heading).toBeVisible();
+  await expect(empty).toBeVisible();
+  // The text sits below the heading. Polled: the tab may still be settling when both first show.
+  await expect.poll(async () => {
+    const headingBox = await heading.boundingBox();
+    const emptyBox = await empty.boundingBox();
+    return emptyBox.y - (headingBox.y + headingBox.height);
+  }).toBeGreaterThanOrEqual(0);
 });
 
 test('see that the Threads list is empty @G3.5', async ({ eve, page }) => {
