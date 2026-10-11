@@ -237,7 +237,7 @@ New `routine-touched` (areas tasks, terminal; needs project:acme; 90 s). This is
 The nightly gains about 120 s.
 
 ## Risks
-- History fetches: Today fetches at most 10 histories, and the page fetches only failed rows, at most 20. Both are cached per (taskId, lastRun) and never polled.
+- History fetches: Today fetches at most 10 histories, and the page fetches only failed rows, at most 20. Both are cached per (taskId, lastRun, lastStatus, run id) and never polled.
 - The deep audit read of up to 8 MB runs only when a sheet opens.
 - Real failure errors may read badly even as one line.
 - Script order: `core/routine-sentence.js` loads after `core/task-schedule.js`; the pages after `sidebar/*`; the part with `today/*`. Restart eve after the `index.html` edit.
@@ -253,7 +253,7 @@ L. About 22 files, ~1,600 product lines and ~1,200 spec and journey lines. Cut l
 
 ## As built
 
-- **Shared history helper.** `public/routine-history.js` (`RoutineHistory`: `newest(task)`, `lastExec(task)`) holds the one fetch per (task, lastRun). The project page, the Routines page and the Today part use it. It never polls and caps the number of tasks it loads (20; the Today part uses 10).
+- **Shared history helper.** `public/routine-history.js` (`RoutineHistory`: `newest(task)`, `lastExec(task)`) holds the one fetch per (task, lastRun, lastStatus, run id). The project page, the Routines page and the Today part use it. It never polls and caps the number of tasks it loads (20; the Today part uses 10).
 - **Sentence.** `core/routine-sentence.js` is pure. The dialog, the project page, the page, the sheet and the Today part all call it.
 - **Routines page.** An unpersisted `#routines` tab (`panes/routines-pane.js`). It is reached from ⌘K, the project page's All routines link and the deep link. It is not on the rail or the bottom bar.
 - **Sheet breakpoint.** The sheet goes to a bottom sheet at `max-width: 599.98px`. `css-breakpoints.test.js` rejects `600px`.
