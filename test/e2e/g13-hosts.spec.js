@@ -125,6 +125,30 @@ test.describe('the host bar', () => {
     await expect(main.getByRole('button', { name: 'Acme' }).getByText('testbox')).toBeHidden();
   });
 
+  test('Today shows the host status dot on the host project only @G13.7', async ({ eve, page }) => {
+    await eve.open('/');
+    const main = page.getByRole('main');
+    await expect(main.getByRole('button', { name: 'Remote', exact: true }).getByRole('img', { name: 'connected', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Acme', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Acme', exact: true }).getByRole('img')).toHaveCount(0);
+  });
+
+  test('the palette shows the host status dot after the host becomes unreachable @G13.7', async ({ eve, relay, page }) => {
+    await eve.open('/');
+    await rail(page).getByRole('button', { name: 'Remote' }).click();
+    await expect(hostBar(page, 'connected')).toBeVisible();
+    await setStatus(relay, 'unreachable', 'ssh could not connect');
+    await expect(hostBar(page, 'unreachable')).toBeVisible();
+    await page.keyboard.press('ControlOrMeta+K');
+    const box = page.getByRole('textbox', { name: 'Jump to a session, project, file or action…' });
+    await expect(box).toBeVisible();
+    await box.fill('Remote');
+    await expect(page.getByRole('option', { name: 'Remote', exact: true }).getByRole('img', { name: 'unreachable', exact: true })).toBeVisible();
+    await box.fill('Acme');
+    await expect(page.getByRole('option', { name: 'Acme', exact: true })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Acme', exact: true }).getByRole('img')).toHaveCount(0);
+  });
+
   test('the palette names the host beside the project @G13.7', async ({ eve, page }) => {
     await eve.open('/');
     await page.keyboard.press('Control+K');

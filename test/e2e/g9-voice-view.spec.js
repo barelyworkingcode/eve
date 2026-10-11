@@ -39,6 +39,32 @@ test.describe('with a silent microphone', () => {
     await expect(page.getByText('Listening...')).toBeVisible();
   });
 
+  async function toPushToTalk(page) {
+    await page.getByRole('button', { name: 'Hands-free' }).click();
+    await expect(page.getByRole('button', { name: 'Push-to-talk' })).toBeVisible();
+    await expect(page.getByText('Hold spacebar to speak...')).toBeVisible();
+  }
+
+  // Waits: the prompt text after each press.
+  test('holding the orb listens @G9.8', async ({ eve, page, relay }) => {
+    await openVoiceView(eve, page, relay);
+    await toPushToTalk(page);
+    const orb = page.getByRole('img', { name: 'Voice orb' });
+    await expect(orb).toBeVisible();
+    await orb.hover();
+    await page.mouse.down();
+    await expect(page.getByText('Listening...')).toBeVisible();
+    await page.mouse.up();
+  });
+
+  test('holding the Space key listens @G9.9', async ({ eve, page, relay }) => {
+    await openVoiceView(eve, page, relay);
+    await toPushToTalk(page);
+    await page.keyboard.down('Space');
+    await expect(page.getByText('Listening...')).toBeVisible();
+    await page.keyboard.up('Space');
+  });
+
   // Waits: the tab goes; Today lists the thread.
   test('End session closes the voice tab and keeps the thread for Today @G9.13', async ({ eve, page, relay }) => {
     await openVoiceView(eve, page, relay);
@@ -82,15 +108,23 @@ test.describe('on a phone', () => {
 test.describe('with a microphone that hears speech', () => {
   test.use({ mic: 'speech' });
 
-  // Waits: voice.stt.waitForRequest, the user caption (exact), chat.turn, the TTS request, "Speaking...".
-  // "Transcribing..." and "Thinking..." flash too fast to assert; those parts stay open.
+  // Waits: voice.stt.waitForRequest, "Transcribing...", the user caption (exact), chat.turn, the TTS request, "Thinking...", "Speaking...".
+  // The fake engines are held so each prompt stays up until it is released.
   test('talking without holding anything sends the words and speaks the reply @G9.10', async ({ eve, page, relay, voice }) => {
+    voice.stt.hold();
+    voice.tts.hold();
     await openVoiceView(eve, page, relay);
     const since = await relay.mark();
     await voice.stt.waitForRequest();
+    await expect(page.getByText('Transcribing...')).toBeVisible();
+    voice.stt.release();
     // The echo reply caption also contains the words, so the user's own caption is matched exactly.
     await expectHeardCaption(page);
     await relay.waitForEvent('chat.turn', { since });
+    await voice.tts.waitForRequest((r) => typeof r.text === 'string');
+    await expect(page.getByText('Thinking...')).toBeVisible();
+    voice.tts.release();
+    // Sentences go out one at a time, so the one holding the words is sent only after the first is answered.
     await voice.tts.waitForRequest((r) => r.text && r.text.includes(HEARD));
     await expect(page.getByText('Speaking...')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Hands-free' })).toBeVisible();

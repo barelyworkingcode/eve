@@ -276,6 +276,8 @@ function hostChip(host, { size = '', status = null, title = null } = {}) {
   el.title = title || hostStatusLabel(host, s);
   const dot = document.createElement('span');
   dot.className = 'host-chip__dot';
+  dot.setAttribute('role', 'img');
+  dot.setAttribute('aria-label', hostStatusWord(s));
   el.appendChild(dot);
   const name = document.createElement('span');
   name.className = 'host-chip__name';
@@ -284,14 +286,18 @@ function hostChip(host, { size = '', status = null, title = null } = {}) {
   return el;
 }
 
-function hostStatusLabel(host, status) {
-  const word = {
+function hostStatusWord(status) {
+  return {
     connected: 'connected',
     connecting: 'connecting…',
     unreachable: 'unreachable',
     idle: 'idle',
     unknown: 'not checked yet',
   }[status] || status;
+}
+
+function hostStatusLabel(host, status) {
+  const word = hostStatusWord(status);
   const target = host.target ? ` (${host.target})` : '';
   return `${host.name}${target} — ${word}`;
 }

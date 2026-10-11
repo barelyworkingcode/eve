@@ -128,8 +128,51 @@ test.describe('a Work voice preset and a default project', () => {
     await eve.open('/#/voice-chat');
     await expectVoiceView(page);
     expect(await relay.logs({ event: 'session.launch', since })).toHaveLength(1);
+    // The same thread: one Voice tab and one session, not a second of either.
+    await expect(page.getByRole('tab', { name: /Voice/ })).toHaveCount(1);
     const sessions = (await relay.json('ctl', 'state', '--json')).sessions;
+    expect(sessions).toHaveLength(1);
     expect(sessions.find((s) => s.id === launch.session_id).model).toBe('sonnet');
+  });
+});
+
+// Home half: the same link in Home mode starts the Home voice preset, on its own model.
+function homeVoiceWorld() {
+  const world = voiceWorld();
+  world.projects.push({
+    id: 'p_home',
+    name: 'Hearth',
+    mode: 'home',
+    chat_templates: [
+      {
+        id: 't_home_voice',
+        name: 'Voice - Hearth',
+        model: 'opus',
+        mode: 'voice',
+        voice: true,
+        system_prompt: 'Talk briefly.',
+        preset_for: ['home'],
+      },
+    ],
+  });
+  world.default_project = { home: 'p_home', work: 'p_acme' };
+  return world;
+}
+
+test.describe('a Home voice preset and a Home default project', () => {
+  test.use({ world: homeVoiceWorld() });
+
+  // Waits: the radio checked, the voice view, then session.launch from the link.
+  test('the deep link in Home mode starts the Home voice preset @G9.4', async ({ eve, page, relay }) => {
+    await eve.open('/');
+    await page.getByRole('radio', { name: 'Home' }).click();
+    await expect(page.getByRole('radio', { name: 'Home' })).toBeChecked();
+    const since = await relay.mark();
+    await eve.open('/#/voice-chat');
+    await expect(page.getByRole('button', { name: 'Hold to record' })).toBeVisible();
+    const launch = await relay.waitForEvent('session.launch', { since, match: (l) => l.status === 'ok' });
+    const made = (await relay.json('ctl', 'state', '--json')).sessions.find((s) => s.id === launch.session_id);
+    expect(made.model).toBe('opus');
   });
 });
 
