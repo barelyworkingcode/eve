@@ -93,7 +93,10 @@ function createFake(answer) {
     reply(r) { state.reply = r; },
     // Later work requests are recorded at once but answered only on release().
     // `after` lets that many through first.
-    hold({ after = 0 } = {}) { hold = { answerFirst: after, pending: [] }; },
+    hold({ after = 0 } = {}) {
+      this.release(); // answer an earlier hold's requests rather than orphan them
+      hold = { answerFirst: after, pending: [] };
+    },
     release() {
       const held = hold ? hold.pending : [];
       hold = null;
