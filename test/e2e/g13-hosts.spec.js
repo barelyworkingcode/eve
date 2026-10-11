@@ -129,7 +129,7 @@ test.describe('the host bar', () => {
     await eve.open('/');
     const main = page.getByRole('main');
     await expect(main.getByRole('button', { name: 'Remote', exact: true }).getByRole('img', { name: 'connected', exact: true })).toBeVisible();
-    await expect(main.getByRole('button', { name: 'Acme', exact: true }).getByRole('img', { name: 'connected', exact: true })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: 'Acme', exact: true }).getByRole('img')).toHaveCount(0);
   });
 
   test('the palette shows the host status dot as it changes @G13.7', async ({ eve, relay, page }) => {
@@ -145,7 +145,7 @@ test.describe('the host bar', () => {
     await expect(page.getByRole('option', { name: 'Remote', exact: true }).getByRole('img', { name: 'unreachable', exact: true })).toBeVisible();
     await box.fill('Acme');
     await expect(page.getByRole('option', { name: 'Acme', exact: true })).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Acme', exact: true }).getByRole('img', { name: 'unreachable', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('option', { name: 'Acme', exact: true }).getByRole('img')).toHaveCount(0);
   });
 
   test('the palette names the host beside the project @G13.7', async ({ eve, page }) => {
