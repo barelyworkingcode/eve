@@ -269,18 +269,18 @@ class STTManager {
 
     // Skip empty or very short recordings — MediaRecorder produces invalid containers
     const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0;
-    if (blob.size < 100) {
-      this.log.warn(`Empty recording (${blob.size} bytes), skipping`);
-      this.app.voiceChatManager?.handleError('No audio captured');
-      this._finishTalk(null);
-      return;
-    }
     if (duration < 300) {
       this.log.warn(`Recording too short (${duration}ms, ${blob.size} bytes), skipping`);
       this.app.voiceChatManager?.handleError('Recording too short — hold longer');
       if (!this.app.voiceChatManager?.isVoiceSession) {
         this.app.messageRenderer.appendSystemMessage('Recording too short. Hold the button longer to record.', 'warning');
       }
+      this._finishTalk(null);
+      return;
+    }
+    if (blob.size < 100) {
+      this.log.warn(`Empty recording (${blob.size} bytes), skipping`);
+      this.app.voiceChatManager?.handleError('No audio captured');
       this._finishTalk(null);
       return;
     }

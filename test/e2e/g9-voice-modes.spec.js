@@ -158,3 +158,15 @@ test('an image attached in Talk goes with the next spoken turn @G9.42', async ({
   await expect(page.getByRole('button', { name: 'Remove attachment', exact: true })).toHaveCount(0);
   await expect(page.getByText('photo.png')).toBeVisible();
 });
+
+test('a quick tap on Hold to talk says the recording was too short @G9.39.r2', async ({ eve, page, voice }) => {
+  await openThread(eve, page);
+  await chooseTalk(page);
+
+  await holdToTalk(page);
+  await release(page);
+
+  await expect(page.getByText('Recording too short. Hold the button longer to record.')).toBeVisible();
+  // The message proves the release was handled, so the request log is final.
+  expect(voice.stt.requests).toHaveLength(0);
+});
