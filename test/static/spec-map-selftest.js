@@ -41,7 +41,7 @@ function areasJsonc({ beta = ['public/beta.js', 'public/shared.js'], gamma = ['p
 }
 
 const BASE_FILES = {
-  '.gitignore': 'node_modules\nscripts/spec-map.js\nscripts/select-specs.js\nscripts/check-coverage.js\ndevboxverify/areas.js\n',
+  '.gitignore': 'node_modules\nscripts/spec-map.js\nscripts/select-specs.js\nscripts/check-coverage.js\nscripts/map-proof.js\ndevboxverify/areas.js\n',
   'docs/areas.jsonc': areasJsonc(),
   'docs/FEATURES.md': featuresMd({ goals: BASE_GOALS, rows: BASE_ROWS }),
   'server.js': '// core\n',
@@ -57,6 +57,12 @@ const BASE_FILES = {
   'test/e2e/b.spec.js': '// b\n',
   'test/e2e/c.spec.js': '// c\n',
   'test/e2e/support/fixtures.js': '// support\n',
+  // check-coverage reads the proof inputs: every fixture area is proven, none is Pending.
+  'test/map-proof/breaks.json': JSON.stringify(['alpha', 'beta', 'gamma'].map((area) =>
+    ({ area, file: `public/${area}.js`, find: `// ${area}`, replace: '// broken', why: `${area} break` }))),
+  'docs/map-proof.md': '# Map proof\n\n| Area | File | Break | Base | Red tests | Date |\n|---|---|---|---|---|---|\n' +
+    ['alpha', 'beta', 'gamma'].map((area) => `| ${area} | \`public/${area}.js\` | ${area} break | ${'a'.repeat(40)} | a.spec.js G1.1 | 2026-10-11 |`).join('\n') +
+    '\n\n## Journey-only areas\nnone\n\n## Pending\nnone\n',
 };
 
 // ---- fixture repo ----
@@ -81,7 +87,7 @@ function fixture() {
     fs.writeFileSync(path.join(dir, rel), content);
   };
   // The tooling under test runs from inside the fixture, untracked.
-  for (const rel of ['scripts/spec-map.js', 'scripts/select-specs.js', 'scripts/check-coverage.js', 'devboxverify/areas.js']) {
+  for (const rel of ['scripts/spec-map.js', 'scripts/select-specs.js', 'scripts/check-coverage.js', 'scripts/map-proof.js', 'devboxverify/areas.js']) {
     write(rel, fs.readFileSync(path.join(EVE, rel)));
   }
   fs.symlinkSync(path.join(EVE, 'node_modules'), path.join(dir, 'node_modules'));
@@ -313,6 +319,19 @@ it('check-coverage.js passes a clean iOS file', () => {
   assert.strictEqual(r.status, 0, r.stdout + r.stderr);
 });
 
+it('check-coverage.js fails when docs/map-proof.md is deleted, and names the file or the unproven areas', () => {
+  const repo = fixture();
+  repo.write('docs/FEATURES.md', featuresMd({ goals: BASE_GOALS, rows: BASE_ROWS.map(([id]) => [id, 'none yet']) }));
+  repo.write('test/e2e/coverage-pending.txt', 'G1 #1\nG2 #1\nG3 #1\n');
+  repo.write('docs/FEATURES-iOS.md', '# eve feature map: iOS app only\n');
+  repo.write('test/static/frozen.json', JSON.stringify({ journeys: [] }));
+  fs.rmSync(path.join(repo.dir, 'docs/map-proof.md'));
+  repo.commit();
+  const r = spawnSync(process.execPath, [path.join(repo.dir, 'scripts/check-coverage.js')], { cwd: repo.dir, env: cleanEnv(), encoding: 'utf8' });
+  assert.notStrictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout + r.stderr, /map-proof\.md|alpha|beta|gamma/, r.stdout + r.stderr);
+});
+
 // ---- map rules, in process ----
 
 const AREA_MAP = (extra = {}, quiet = ['**/*.md']) => parseMap(JSON.stringify({
@@ -377,6 +396,82 @@ it('a Journey-only line that is missing or names an undefined area is flagged', 
   assert.ok(mentions(missing, 'Journey-only'), missing.join('\n'));
   const undef = findingsFor({ areaMap: AREA_MAP(), md: featuresMd({ ...base, journeyOnly: 'nowhere' }), tracked: ['test/e2e/a.spec.js'] });
   assert.ok(mentions(undef, 'nowhere'), undef.join('\n'));
+});
+
+// ---- narrowing by listing: coverage-pending.txt and docs/map-proof.md ----
+
+const PENDING_FILE = 'test/e2e/coverage-pending.txt';
+const PROOF_FILE = 'docs/map-proof.md';
+const LABEL = '["map-narrowing-approved"]';
+const proofMd = (pendingLines) =>
+  `# Map proof\n\n| Area | File | Break | Base | Red tests | Date |\n|---|---|---|---|---|---|\n\n## Journey-only areas\nnone\n\n## Pending\n${pendingLines}\n`;
+
+// The fixture's quiet list has no test/e2e/*.txt; add it so only narrowing can fail the run.
+function quietPendingFile() {
+  const map = JSON.parse(areasJsonc());
+  map.quiet.push(PENDING_FILE);
+  return JSON.stringify(map, null, 2);
+}
+
+// `baseFiles` are on main when the PR branches; `headFiles` are the PR's change.
+function listingPr(baseFiles, headFiles, { dropFromBase = [] } = {}) {
+  const repo = fixture();
+  repo.write('docs/areas.jsonc', quietPendingFile());
+  for (const [rel, content] of Object.entries(baseFiles)) repo.write(rel, content);
+  for (const rel of dropFromBase) fs.rmSync(path.join(repo.dir, rel));
+  repo.commit('base listings');
+  repo.branch('pr');
+  for (const [rel, content] of Object.entries(headFiles)) repo.write(rel, content);
+  repo.commit();
+  return repo;
+}
+const selectRun = (repo, labels) => repo.run(['--base', 'main', ...(labels ? ['--labels-json', labels] : [])]);
+
+it('a goal added to coverage-pending.txt exits 1 with NARROWED, and only for the new goal', () => {
+  const r = selectRun(listingPr({ [PENDING_FILE]: 'G1 #1\n' }, { [PENDING_FILE]: 'G1 #1\nG2 #2\n' }));
+  assert.strictEqual(r.status, 1, r.out + r.err);
+  assert.match(r.out, /^NARROWED pending:G2 coverage-pending\.txt$/m);
+  assert.doesNotMatch(r.out, /pending:G1/);
+});
+
+it('the map-narrowing-approved label lets a coverage-pending.txt growth pass', () => {
+  const r = selectRun(listingPr({ [PENDING_FILE]: 'G1 #1\n' }, { [PENDING_FILE]: 'G1 #1\nG2 #2\n' }), LABEL);
+  assert.strictEqual(r.status, 0, r.out + r.err);
+});
+
+for (const [label, head] of [
+  ['re-pointing a goal at a new issue', 'G1 #9\n'],
+  ['removing a goal', ''],
+]) {
+  it(`${label} in coverage-pending.txt is not growth`, () => {
+    const r = selectRun(listingPr({ [PENDING_FILE]: 'G1 #1\n' }, { [PENDING_FILE]: head }));
+    assert.strictEqual(r.status, 0, r.out + r.err);
+    assert.doesNotMatch(r.out, /NARROWED/);
+  });
+}
+
+it('a merge base with no coverage-pending.txt reads as empty: every head goal is growth', () => {
+  const r = selectRun(listingPr({}, { [PENDING_FILE]: 'G1 #1\n' }));
+  assert.strictEqual(r.status, 1, r.out + r.err);
+  assert.match(r.out, /^NARROWED pending:G1 coverage-pending\.txt$/m);
+});
+
+it('an area added under Pending in map-proof.md exits 1 with NARROWED, and only for the new area', () => {
+  const r = selectRun(listingPr({ [PROOF_FILE]: proofMd('- alpha: G1 (#1)') }, { [PROOF_FILE]: proofMd('- alpha: G1 (#1)\n- beta: G2 (#2)') }));
+  assert.strictEqual(r.status, 1, r.out + r.err);
+  assert.match(r.out, /^NARROWED pending-area:beta map-proof\.md Pending$/m);
+  assert.doesNotMatch(r.out, /pending-area:alpha/);
+});
+
+it('the map-narrowing-approved label lets a Pending area growth pass', () => {
+  const r = selectRun(listingPr({ [PROOF_FILE]: proofMd('- alpha: G1 (#1)') }, { [PROOF_FILE]: proofMd('- alpha: G1 (#1)\n- beta: G2 (#2)') }), LABEL);
+  assert.strictEqual(r.status, 0, r.out + r.err);
+});
+
+it('a merge base with no map-proof.md skips the Pending area check', () => {
+  const r = selectRun(listingPr({}, { [PROOF_FILE]: proofMd('- beta: G2 (#2)') }, { dropFromBase: [PROOF_FILE] }));
+  assert.strictEqual(r.status, 0, r.out + r.err);
+  assert.doesNotMatch(r.out, /NARROWED/);
 });
 
 // ---- run ----
