@@ -181,6 +181,18 @@ test.describe('threads from yesterday', () => {
     await expect(page.getByText('answer in Roadmap')).toBeVisible();
   });
 
+  test('a link to a thread selects its one tab @G3.16', async ({ eve, page }) => {
+    await eve.open('/');
+    await openProjectPage(page);
+    await page.getByRole('button', { name: 'Roadmap', exact: true }).click();
+    await page.getByRole('tab', { name: 'Acme' }).click();
+    await page.getByRole('button', { name: 'Ledger', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Ledger' })).toHaveAttribute('aria-selected', 'true');
+    await eve.open('/#session/s_t2');
+    await expect(page.getByRole('tab', { name: 'Roadmap' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: 'Roadmap' })).toHaveCount(1);
+  });
+
   test('a link to an unknown thread says so @G3.16.r1', async ({ eve, page }) => {
     await eve.open('/#session/s_missing');
     await expect(page.getByText('Session not found.')).toBeVisible();
@@ -292,6 +304,7 @@ test('see Continue when there are no threads @G3.7', async ({ eve, page }) => {
 test('see the Resume tab with nothing to resume @G3.13', async ({ eve, page }) => {
   await eve.open('/');
   const launcher = await openResume(page);
+  await expect(launcher.getByRole('heading', { name: 'Running Terminals' })).toBeVisible();
   await expect(launcher.getByText('No active sessions or terminals.')).toBeVisible();
 });
 

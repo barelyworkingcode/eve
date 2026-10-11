@@ -43,6 +43,10 @@ test.describe('agents on the board', () => {
     await expect(row(other, 'Hold', 'asking')).toBeVisible();
     await expect(other.getByRole('heading', { name: 'Idle 1', level: 4 })).toBeVisible();
     await expect(row(other, 'Ledger', 'idle')).toBeVisible();
+    const waiting = row(other, 'Hold', 'asking').getByRole('img', { name: 'Waiting on you' });
+    await expect(waiting).toBeVisible();
+    await expect(row(other, 'Hold', 'asking')).toHaveAccessibleDescription('Waiting on you');
+    await expect(row(other, 'Ledger', 'idle').getByRole('img', { name: 'Idle' })).toBeVisible();
     // The agents the board shows are the threads relay holds. The Chief of Staff's
     // own hidden session (`__cos:`) is created on its own timing and is no agent.
     const seeded = boardWorld().sessions.map((s) => s.name).sort();
