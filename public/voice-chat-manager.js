@@ -324,10 +324,8 @@ class VoiceChatManager {
     this._setState('listening', 'TTS ended');
   }
 
-  // `alreadyShown`: the caller put the message in the chat itself.
-  handleError(message, alreadyShown = false) {
+  handleError(message) {
     if (!this.isVoiceSession) return;
-    if (!alreadyShown) this.app.messageRenderer.appendSystemMessage(message, 'error');
     this._vadTranscribing = false;
     this._clearTranscribeWatchdog();
     this._pendingInterruptNote = false;
