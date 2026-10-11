@@ -726,10 +726,12 @@ async function routineTouched(env) {
 
 const VOICE_VIEW_MS = 30000;
 
-// The voice chat view, judged as a person sees it: text starting "Listening" and no text
-// composer. Both the full-screen voice view and Hands-free in the chat show that text.
+// The voice chat, judged as a person sees it: the chat is in Hands-free (the "Hands-free" radio
+// is checked), text starting "Listening" shows, and the text composer is hidden.
 async function voiceView(page) {
-  await need(`the voice chat view did not show "Listening" within ${VOICE_VIEW_MS / 1000}s`, expect(
+  await need(`the chat is not in Hands-free within ${VOICE_VIEW_MS / 1000}s`, expect(
+    page.getByRole('radio', { name: 'Hands-free' })).toBeChecked({ timeout: VOICE_VIEW_MS }));
+  await need(`the chat did not show "Listening" within ${VOICE_VIEW_MS / 1000}s`, expect(
     page.getByText(/^Listening/).filter({ visible: true }).first()).toBeVisible({ timeout: VOICE_VIEW_MS }));
   await need('the text composer is still showing', expect(page.getByTestId('chat-input')).toBeHidden({ timeout: 5000 }));
 }
@@ -807,7 +809,7 @@ async function voiceDeepLink(env) {
   const after = addedIds(before, await acmeIds(env, 'sessions'));
   if (after.length !== 1) return result(id, FAIL, `the second press within 30 minutes made ${after.length - 1} new ${acme.name} session(s)`);
   return result(id, PASS, `no star; World voice ${wasSet ? 'was already' : 'is now'} Work's voice preset; `
-    + `voice view in ${took}s with one session; a second press resumed it`);
+    + `Hands-free chat in ${took}s with one session; a second press resumed it`);
 }
 
 async function changesDiff(env) {

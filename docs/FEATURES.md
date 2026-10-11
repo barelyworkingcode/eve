@@ -36,7 +36,7 @@ audited). Never an API or flag that skips it. See [Owner gates](#owner-gates).
 | G6 | Check what my agents did | Come back and see what ran and what changed | A task's run is readable afterwards; the Changes tab lists edited files and the diff opens; the agent board puts agents that need me first; the Chief of Staff thread shows every agent on a rail (a strip and sheet on a phone) and posts when an agent needs me and sends my words to an agent, marked | tasks, git, home, chief-of-staff | **must-have** | task-created-listed (run and history), routine-touched, changes-diff, changes-agent-edit, agent-board-states, agent-drop-in, cos-asking-post, cos-tell-sends-marked, cos-reads-project, cos-start-card, cos-errand-finished, cos-host-agent, cos-host-noread, cos-agent-rail |
 | G7 | Read and edit project files | Browse, open, change and save a file | The tree lists the project, a file opens in the editor, Save persists it, an outside edit is flagged | files | **must-have** | file-edit-save, files-on-host |
 | G8 | Let an agent act, under my control | Agents use tools only as the project's policy and my answers allow | Mode banner is right; a tool call in a gated mode raises the prompt; plan mode waits for Approve | chat, projects, ui-control | should | none yet: answering the prompt is relay's owner gate; the prompt appearing is journey-checkable |
-| G9 | Talk hands-free | Start a voice chat and converse | The voice view opens (incl. the `#/voice-chat` deep link), speech is transcribed, replies are spoken | voice | should | voice-deep-link (view opens, one session; no audio) |
+| G9 | Talk hands-free | Start a voice chat and converse | The chat opens in Hands-free (incl. the `#/voice-chat` deep link), speech is transcribed, replies are spoken | voice | should | voice-deep-link (Hands-free chat opens, one session; no audio) |
 | G10 | Find something in my project | Locate text or a thing I did before | Search returns matches and opens them; ⌘K finds sessions, projects, files | search, home | should | none yet: not written |
 | G11 | Share files and images with the model | Give the model a file, see images it makes | Attached/pasted/dropped files reach the turn; images render and open fullscreen | chat, files | should | none yet: not written |
 | G12 | Set up and tune a project | Create a project and set its templates, models and policy | A new project appears in the rail; template and policy edits take effect on the next launch | projects | should | project-mode-new (a `verify-<nonce>` project it creates and deletes), project-admin-in-relay |
@@ -82,7 +82,6 @@ The first step of every Simple door is one of these names. Relay and the iOS app
 | Editor | Open a file from the tree | button "Save" and the file path line; buttons "Edit", "Split" and "Preview" on .md and .html files |
 | Diff pane | Pick a changed file in the Changes tab | group "Diff view" with buttons "Side by side", "Inline" and "Ask about this" |
 | Terminal | Open a terminal tab | textbox "Terminal input" |
-| Voice view | Open a voice thread | button "Hold to record", with buttons "End session" and "Switch to text chat" |
 | Chief of Staff | Rail button "Chief of Staff"; Bottom bar button "Chief of Staff"; the link `#chief-of-staff` | tab "Chief of Staff" and textbox "Tell an agent" |
 | Settings sheet | Rail button "Settings"; Command palette option "Settings" | heading "Settings" with button "Done" |
 | Command palette | Press ⌘K (Ctrl+K) | textbox "Jump to a session, project, file or action…" over a list of options |
@@ -489,39 +488,20 @@ Code: public/modal-manager.js, public/index.html, public/features/permissions.js
 
 ### G9 · Talk hands-free
 
-Code: public/voice-chat-manager.js, public/voice-modes.js, public/voice-orb-settings.js, public/voice-orb-3d.js, public/voice-crash-guard.js, public/voice-init-coordinator.js, public/stt-manager.js, public/stt-server-backend.js, public/stt-native-backend.js, public/vad-manager.js, public/tts-manager.js, public/tts-server-backend.js, public/tts-native-backend.js, public/native-audio-bridge.js, public/features/tts.js, public/features/stt.js, public/core/mode-presets.js, public/today/parts/start-part.js, public/app.js, stt-service.js, tts-service.js, tts-chunker.js, tts-director.js, ws/voice-messages.js
+Code: public/voice-chat-manager.js, public/voice-modes.js, public/voice-crash-guard.js, public/voice-init-coordinator.js, public/stt-manager.js, public/stt-server-backend.js, public/stt-native-backend.js, public/vad-manager.js, public/tts-manager.js, public/tts-server-backend.js, public/tts-native-backend.js, public/native-audio-bridge.js, public/features/tts.js, public/features/stt.js, public/core/mode-presets.js, public/today/parts/start-part.js, public/app.js, stt-service.js, tts-service.js, tts-chunker.js, tts-director.js, ws/voice-messages.js
 
 | ID | Action | Simple door | Power door | Screen proof | Relay proof | Refusals | Journey | Spec |
 |---|---|---|---|---|---|---|---|---|
-| G9.1 | Start a voice chat from the Today Voice tile | Today > button "Voice" > Launcher > combobox "Model" > combobox "Voice" > button "Start Voice Chat" | none | Voice view opens with the orb; the prompt reads "Hold spacebar to speak..." or "Listening..." | `relay logs --event session.launch` ok | r1: no model picked: toast `Pick a model for "Voice - <model>" before starting a chat.` | none yet | g9-voice-start.spec.js |
-| G9.2 | Start a voice chat from the Launcher Voice Chat card | Project panel > button "New Session" > Launcher > button "Voice Chat" > combobox "Model" > combobox "Voice" > button "Start Voice Chat" | none | Voice view opens with the orb; the prompt reads "Hold spacebar to speak..." or "Listening..." | `relay logs --event session.launch` ok | r1: no model picked: toast `Pick a model for "Voice - <model>" before starting a chat.` | none yet | g9-voice-start.spec.js |
-| G9.3 | Open the voice view again by the deep link when a voice thread is on screen or recent | Today > open #/voice-chat in the address bar | relay `settings.json` `projects[].chat_templates[].preset_for` | Voice view shows the existing voice thread; no second session starts | none | none | voice-deep-link | g9-voice-start.spec.js |
-| G9.4 | Start the mode's voice preset by the deep link when no voice thread is recent | Today > open #/voice-chat in the address bar | relay `settings.json` `projects[].chat_templates[].preset_for` | Voice view opens on a new voice thread from the Home or Work voice preset | `relay logs --event session.launch` ok | none | voice-deep-link | g9-voice-start.spec.js |
+| G9.1 | Start a voice chat from the Today Voice tile | Today > button "Voice" > Launcher > combobox "Model" > combobox "Voice" > button "Start Voice Chat" | none | The chat opens in Hands-free: radio "Hands-free" is checked and the status reads "Listening…" | `relay logs --event session.launch` ok | r1: no model picked: toast `Pick a model for "Voice - <model>" before starting a chat.` | none yet | none yet |
+| G9.2 | Start a voice chat from the Launcher Voice Chat card | Project panel > button "New Session" > Launcher > button "Voice Chat" > combobox "Model" > combobox "Voice" > button "Start Voice Chat" | none | The chat opens in Hands-free: radio "Hands-free" is checked and the status reads "Listening…" | `relay logs --event session.launch` ok | r1: no model picked: toast `Pick a model for "Voice - <model>" before starting a chat.` | none yet | none yet |
+| G9.3 | Open the voice chat again by the deep link when a voice thread is on screen or recent | Today > open #/voice-chat in the address bar | relay `settings.json` `projects[].chat_templates[].preset_for` | The existing voice thread opens in Hands-free; no second session starts | none | none | voice-deep-link | none yet |
+| G9.4 | Start the mode's voice preset by the deep link when no voice thread is recent | Today > open #/voice-chat in the address bar | relay `settings.json` `projects[].chat_templates[].preset_for` | The chat opens in Hands-free on a new voice thread from the Home or Work voice preset | `relay logs --event session.launch` ok | none | voice-deep-link | none yet |
 | G9.5 | Be sent to the voice form when the mode has no voice preset | Today > open #/voice-chat in the address bar | relay `settings.json` `projects[].chat_templates[].preset_for` | Launcher opens on the Voice Chat form with button "Start Voice Chat" | none | r1: no preset: toast "No <Home or Work> voice preset. Pick one in Edit Project → Templates." | mode-presets | g9-voice-start.spec.js |
-| G9.6 | Be told when the mode has no default project | Today > open #/voice-chat in the address bar | relay `settings.json` `default_project` | A toast reads "Set a default <Home or Work> project in Relay to use the Action Button." | none | r1: no default project: that toast and no voice view | none yet | g9-voice-start.spec.js |
-| G9.7 | Speak by holding the mic button | Voice view > button "Hold to record" > hold the mic | none | The prompt reads "Listening...", then "Transcribing...", then "Thinking..."; your words show in the captions and the reply is spoken | `relay logs --event chat.turn` ok | r1: engine down: caption "Speech failed: <reason>"; r2: caption "Recording too short — hold longer" | none yet | none yet: #369 |
-| G9.8 | Speak by holding the orb | Voice view > hold image "Voice orb" | none | The orb turns to listening and the prompt reads "Listening..."; letting go sends the words | `relay logs --event chat.turn` ok | r1: caption "Speech failed: <reason>" | none yet | g9-voice-view.spec.js |
-| G9.9 | Speak by holding the Space key | Voice view > hold Space | none | The prompt reads "Hold spacebar to speak..." at rest and "Listening..." while the key is down | `relay logs --event chat.turn` ok | r1: caption "Speech failed: <reason>" | none yet | g9-voice-view.spec.js |
-| G9.10 | Talk without holding anything | Voice view > speak | none | The prompt reads "Listening..." and the button reads "Hands-free"; a pause sends your words | `relay logs --event chat.turn` ok | r1: detection did not start: prompt "Voice detection failed" and push-to-talk takes over | none yet | g9-voice-view.spec.js |
-| G9.11 | Switch between hands-free and push-to-talk | Voice view > button "Hands-free" | none | The button reads "Push-to-talk" and the prompt reads "Hold spacebar to speak..." (or "Hold mic to speak..." on a phone); tapping again flips back | none | none | none yet | g9-voice-view.spec.js |
-| G9.12 | Switch a voice chat to a text chat | Voice view > button "Switch to text chat" | none | Thread shows the same conversation with its composer; the voice view is gone and no new session starts | none | none | voice-deep-link | g9-voice-view.spec.js |
-| G9.13 | End a voice chat | Voice view > button "End session" | none | The voice tab closes; the session stays and can be opened again from Today | none | none | voice-deep-link | g9-voice-view.spec.js |
-| G9.14 | Open the orb settings | Voice view > button "Orb settings" | none | A sheet headed "Orb settings" shows five sliders and button "Reset to defaults" | none | none | none yet | g9-orb-settings.spec.js |
-| G9.15 | Close the orb settings | Voice view > button "Close" | none | The "Orb settings" sheet goes | none | none | none yet | g9-orb-settings.spec.js |
-| G9.16 | Change the inner orb size | Voice view > slider "Inner orb size" | none | The orb's inner core grows or shrinks and the value beside the slider changes | none | none | none yet | g9-orb-settings.spec.js |
-| G9.17 | Change the outer orb size | Voice view > slider "Outer orb size" | none | The orb's outer shell grows or shrinks and the value beside the slider changes | none | none | none yet | g9-orb-settings.spec.js |
-| G9.18 | Change the orb spin rate | Voice view > slider "Spin rate" | none | The orb spins faster or slower and the value beside the slider changes | none | none | none yet | g9-orb-settings.spec.js |
-| G9.19 | Change the orb idle jitter | Voice view > slider "Idle jitter" | none | The resting orb moves more or less and the value beside the slider changes | none | none | none yet | g9-orb-settings.spec.js |
-| G9.20 | Change the orb speech jitter | Voice view > slider "Speech jitter" | none | The orb moves more or less while speech plays and the value beside the slider changes | none | none | none yet | g9-orb-settings.spec.js |
-| G9.21 | Put all orb settings back to their defaults | Voice view > button "Reset to defaults" | none | All five sliders return to their default values and the orb looks as it did at first | none | none | none yet | g9-orb-settings.spec.js |
-| G9.24 | See which speech engines are in use | Voice view | none | A line reads "TTS: server  ·  STT: server" (or "on-device" for either engine) above the orb | none | none | none yet | g9-voice-view.spec.js |
-| G9.26 | Open the voice controls drawer in a text chat | Thread > button "Voice controls" | none | A strip opens with button "Switch to Voice UI" | none | none | none yet | g9-voice-drawer.spec.js |
-| G9.27 | Open the voice controls drawer in the voice view | Voice view > button "Voice controls" | none | A strip opens with a voice picker, a speed picker and button "Switch to text chat" | none | none | none yet | g9-voice-drawer.spec.js |
+| G9.6 | Be told when the mode has no default project | Today > open #/voice-chat in the address bar | relay `settings.json` `default_project` | A toast reads "Set a default <Home or Work> project in Relay to use the Action Button." | none | r1: no default project: that toast and no chat opens | none yet | g9-voice-start.spec.js |
+| G9.12 | Switch a voice chat to a text chat | Thread > radio "Text" | none | Hands-free stops and the composer returns with the same conversation; no new session starts; a voice thread opened from the thread list starts in Text | none | none | none yet | none yet |
+| G9.13 | Leave a voice chat with the back arrow | Thread > button "Back" | none | The chat closes and Today shows; Hands-free stops; the session stays and opens again from Today in Text | none | none | none yet | none yet |
 | G9.28 | Pick the voice that reads replies aloud | Thread > button "Voice settings" > combobox "Voice" | none | The picker shows the chosen voice; later replies are read in it | none | none | none yet | g9-hands-free.spec.js |
-| G9.29 | Pick the speed at which replies are read | Thread > button "Voice settings" > combobox "Speed" | none | The picker shows the chosen speed from "0.75×" to "1.5×"; the voice view picker follows | none | none | none yet | g9-voice-speed.spec.js |
-| G9.30 | Pick the voice in the voice view drawer | Voice view > button "Voice controls" > combobox "Voice" | none | The picker shows the chosen voice; spoken replies use it | none | none | none yet | g9-voice-drawer.spec.js |
-| G9.31 | Pick the speed in the voice view drawer | Voice view > button "Voice controls" > combobox "Playback speed" | none | The picker shows the chosen speed; spoken replies use it | none | none | none yet | g9-voice-drawer.spec.js |
-| G9.33 | Switch a text chat to the voice view with the drawer button | Thread > button "Voice controls" > button "Switch to Voice UI" | none | Voice view opens on the same conversation | none | none | none yet | g9-voice-drawer.spec.js |
+| G9.29 | Pick the speed at which replies are read | Thread > button "Voice settings" > combobox "Speed" | none | The picker shows the chosen speed from "0.75×" to "1.5×" | none | none | none yet | g9-voice-speed.spec.js |
 | G9.35 | Have one reply read aloud | Thread > button "Read aloud" | none | The button's name turns to "Stop speaking" while the reply plays; on a touch device the button shows on every reply | none | r1: speech engine down: caption "Speech failed: <reason>" | listen | g9-read-aloud.spec.js |
 | G9.36 | Stop a reply that is being read aloud | Thread > button "Stop speaking" | none | The audio stops and the button's name returns to "Read aloud" | none | none | listen | g9-read-aloud.spec.js |
 | G9.37 | Dictate a message into the composer | Thread > button "Dictate (Speech-to-Text)" | none | The button reads "Stop recording" and shows the time; pressing it again puts your words into the composer | none | r1: mic blocked: text "Microphone access denied. Check browser permissions."; r2: text "Transcription failed. Please try again." | none yet | g9-dictate.spec.js |
@@ -535,7 +515,7 @@ Code: public/voice-chat-manager.js, public/voice-modes.js, public/voice-orb-sett
 | G9.45 | Stop a reply that is being spoken in Hands-free | Thread > status "Voice status" > button "Stop reply" | none | The speech stops and the status returns to "Listening…"; a tap on button "Voice orb" while it speaks does the same; the reply text keeps streaming; scrolling the chat or tapping a link does not stop the speech; "Stop reply" shows only while eve speaks | none | none | none yet | g9-hands-free.spec.js |
 | G9.46 | Leave Hands-free | Thread > radio "Text" or "Talk" | none | Listening and speech stop on the same tap and the status disappears; replies are spoken again only if "Speak replies" was on | none | none | none yet | g9-hands-free.spec.js |
 | G9.47 | Hear a reminder after a long silence in Hands-free | Thread > radio "Hands-free" (then say nothing) | eve `data/settings.json` `voice.handsFreeReminderSeconds` (integer 5 to 3600, default 300; the silence before eve says "I'm still here.") | After the period with no speech from either side, eve says "I'm still here." and the status shows the same words in a faint line; the mode stays Hands-free; no turn is sent and nothing is saved | none | none | none yet | g9-hands-free.spec.js |
-| G9.48 | Open the voice and speed controls from the chat | Thread > button "Voice settings" | none | Settings opens showing only the Voice group (voice and speed, and the speech engines in the iOS app); the button shows in every mode | none | none | none yet | g9-hands-free.spec.js |
+| G9.48 | Open the voice and speed controls from the chat | Thread > button "Voice settings" | none | Settings opens showing only the Voice group (voice and speed, and in the iOS app the speech engines, river volume and device logs); the button shows in every mode | none | none | none yet | g9-hands-free.spec.js |
 
 ### G10 · Find something in my project
 
@@ -719,7 +699,7 @@ Code: public/auth.js, routes/auth.js, public/app.js, public/terminal-keybar.js, 
 | ID | Action | Simple door | Power door | Screen proof | Relay proof | Refusals | Journey | Spec |
 |---|---|---|---|---|---|---|---|---|
 | G15.1 | Sign in from the iOS app through the Safari passkey sheet | iOS app > Sign-in screen > button "Sign In" > button "Sign In with Passkey" | none | The Safari sheet shows heading "Home\|Work" and text "Success! Returning to app…"; the app then shows Today's greeting heading | `relay logs --event eve.passkey.report` ok | r1: text "Server error"; r2: text "Verification failed"; (r3 in FEATURES-iOS.md) | none yet (owner gate: passkey-sign-in covers the desktop path) | g15-phone.spec.js |
-| G15.2 | Start the current mode's voice chat with the iPhone Action Button | iOS app > press the Action Button | relay `settings.json` `projects[].chat_templates[].preset_for` | Voice view shows button "Hold to record" for the mode's voice preset, reusing a recent voice thread | `relay logs --event session.launch` ok | r1: no default project: toast "Set a default Work project in Relay to use the Action Button."; r2: no voice preset: toast "No Work voice preset. Pick one in Edit Project → Templates." | voice-deep-link | g9-voice-start.spec.js |
+| G15.2 | Start the current mode's voice chat with the iPhone Action Button | iOS app > press the Action Button | relay `settings.json` `projects[].chat_templates[].preset_for` | The chat opens in Hands-free (radio "Hands-free" checked, status "Listening…") for the mode's voice preset, reusing a recent voice thread | `relay logs --event session.launch` ok | r1: no default project: toast "Set a default Work project in Relay to use the Action Button."; r2: no voice preset: toast "No Work voice preset. Pick one in Edit Project → Templates." | voice-deep-link | g9-voice-start.spec.js |
 | G15.3 | Scroll the terminal history with a finger drag | Terminal > drag a finger up or down on the terminal | none | The terminal shows older lines while the finger drags down and newer lines while it drags up | none | none | none yet | g15-phone.spec.js |
 | G15.4 | Keep the key bar above the soft keyboard | Terminal > textbox "Terminal input" | none | The key bar moves up as the keyboard opens and the terminal shrinks to stay visible | none | none | none yet | none yet: iOS app only (#369) |
 
@@ -756,10 +736,31 @@ A row that repeated another goal's row, or a row relay's own feature map owns. T
 - G1.35: Open a Project page from a link. See G3.2.
 - G1.42: Be refused from a public address before any passkey exists. See G16.1.
 - G2.54: End a session on the server. No eve path sends `end_session`, so no person reaches it.
+- G9.7: Speak by holding the mic button. See G9.39.
+- G9.8: Speak by holding the orb. See G9.39.
+- G9.9: Speak by holding the Space key. See G9.39.
+- G9.10: Talk without holding anything. See G9.43.
+- G9.11: Switch between hands-free and push-to-talk. See G9.38.
+- G9.14: Open the orb settings. The orb is gone with the voice view.
+- G9.15: Close the orb settings. The orb is gone with the voice view.
+- G9.16: Change the inner orb size. The orb is gone with the voice view.
+- G9.17: Change the outer orb size. The orb is gone with the voice view.
+- G9.18: Change the orb spin rate. The orb is gone with the voice view.
+- G9.19: Change the orb idle jitter. The orb is gone with the voice view.
+- G9.20: Change the orb speech jitter. The orb is gone with the voice view.
+- G9.21: Put all orb settings back to their defaults. The orb is gone with the voice view.
+- G9.24: See which speech engines are in use. The line was part of the voice view.
+- G9.25: Fall back to the server engines after a voice model crash. Its proof line was part of the voice view; the fallback is background.
+- G9.26: Open the voice controls drawer in a text chat. The drawer is gone; see G9.28 and G9.29.
+- G9.27: Open the voice controls drawer in the voice view. The drawer is gone; see G9.28 and G9.29.
+- G9.30: Pick the voice in the voice view drawer. See G9.28.
+- G9.31: Pick the speed in the voice view drawer. See G9.29.
 - G9.32: Turn spoken replies on or off in a text chat. See G9.40.
+- G9.33: Switch a text chat to the voice view with the drawer button. The voice view is gone; see G9.38.
 - G9.34: Switch a text chat to the voice view by holding the voice mode button. See G9.38.
 - G12.35: Regenerate a project's Skills. See relay's feature map G2.12.
 - G12.36: Rotate a project token. See relay's feature map G2.10.
+- G15.8: Feel a tap when switching voice input mode or holding the mic. The voice view and its mic button are gone.
 
 ## Areas
 

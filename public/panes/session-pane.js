@@ -5,7 +5,7 @@
 //
 // `eve-session-meta` and its accessors deliberately stay on TabManager: they
 // are session metadata, not tab bookkeeping, and are called directly from
-// message-dispatcher.js and voice-chat-manager.js. `create`/`dispose` below
+// message-dispatcher.js. `create`/`dispose` below
 // reach them through `ctx.tabs`.
 panes.registerType({
   type: 'session',
@@ -32,10 +32,7 @@ panes.registerType({
     };
   },
 
-  view(tab, ctx) {
-    const session = ctx.app.sessions.get(tab.id);
-    return session?.sessionType === 'voice' ? 'voice' : 'chat';
-  },
+  view() { return 'chat'; },
   ref(tab) { return { sessionId: tab.id }; },
 
   hash(tab) { return `#session/${encodeURIComponent(tab.id)}`; },
@@ -64,16 +61,10 @@ panes.registerType({
 
   activateSkipRender(tab, ctx) {
     const { tabs, app } = ctx;
-    const session = app.sessions.get(tab.id);
     tabs.activeTabId = tab.id;
     tabs._rememberActive(tab);
     app.showChatScreen();
-    if (session?.sessionType === 'voice') {
-      tabs.voiceChatContent?.classList.remove('hidden');
-      app.voiceChatManager?.activateForSession(tab.id);
-    } else {
-      tabs.chatContent.classList.remove('hidden');
-    }
+    tabs.chatContent.classList.remove('hidden');
     app.currentSessionId = tab.id;
     tabs._syncProjectToActiveTab();
     tabs.render();

@@ -42,7 +42,6 @@ class TabManager {
     // below since other methods still look them up by name.
     this._viewEls = new Map(panes.views().map(v => [v.view, document.getElementById(v.elementId)]));
     this.chatContent = this._viewEls.get('chat');
-    this.voiceChatContent = this._viewEls.get('voice');
     this.editorContent = this._viewEls.get('editor');
     this.viewerContent = this._viewEls.get('viewer'); // shared with 'image' — see panes/views.js
     this.terminalContent = this._viewEls.get('terminal');
@@ -805,7 +804,7 @@ class TabManager {
   }
 
   // `eve-session-meta` is separate from tab persistence — called directly
-  // from message-dispatcher.js and voice-chat-manager.js, plus openSession
+  // from message-dispatcher.js, plus openSession
   // and the session descriptor's dispose via ctx.tabs.
 
   _saveSessionMeta(sessionId, meta) {
