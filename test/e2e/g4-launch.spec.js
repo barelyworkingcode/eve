@@ -71,7 +71,8 @@ test.describe('terminal templates', () => {
     await expect(page.getByText('list the notes')).toBeVisible();
   });
 
-  test('a program that has ended takes no more typing @G4.4.r1', async ({ eve, page, relay }) => {
+  // The "takes no more typing" half is unproven hermetically (gap R15): fakerelay drops bytes after exit whatever eve sends.
+  test('a program that has ended shows as exited with its code @G4.4.r1', async ({ eve, page, relay }) => {
     await eve.open('/');
     const launcher = await openLauncher(page);
     await launcher.getByRole('button', { name: 'Shell' }).click();
@@ -79,8 +80,6 @@ test.describe('terminal templates', () => {
     await page.keyboard.type('exit 3');
     await page.keyboard.press('Enter');
     await relay.waitForEvent('session.exited');
-    await page.keyboard.type('afterwards');
-    await expect(page.getByText('afterwards')).toBeHidden();
     // A second page's board shows the ended terminal with its code.
     const board = await eve.openAnother('/');
     await expect(board.getByRole('button').filter({ hasText: 'exited 3' })).toBeVisible();

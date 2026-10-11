@@ -185,11 +185,21 @@ test.describe('a host without tmux', () => {
   test.use({ world: hostWorld() });
 
   test('say tmux is missing @G13.15.r1', async ({ eve, relay, page }) => {
-    // The text is relay's own for a host with no tmux; fakerelay words it differently.
-    expect((await relay.ctl('fault', 'add', '--route', LISTING, '--mode', 'error', '--status', '409', '--body', '{"error":"tmux is not available on this host."}')).code).toBe(0);
+    // The 409 carries no reason, so the text on screen is eve's own.
+    expect((await relay.ctl('fault', 'add', '--route', LISTING, '--mode', 'error', '--status', '409', '--body', '{}')).code).toBe(0);
     await eve.open('/');
     const launcher = await openLauncher(page);
     await expect(launcher.getByText('tmux is not available on this host.')).toBeVisible();
+  });
+});
+
+test.describe('a host with no tmux path', () => {
+  test.use({ world: hostWorld({ tmux: false }) });
+
+  test('show relay\'s reason for a host without tmux @G13.15.r1', async ({ eve, page }) => {
+    await eve.open('/');
+    const launcher = await openLauncher(page);
+    await expect(launcher.getByText('host has no tmux')).toBeVisible();
   });
 });
 

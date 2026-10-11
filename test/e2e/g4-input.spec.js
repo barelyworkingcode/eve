@@ -87,14 +87,15 @@ test.describe('console terminal', () => {
 
     test('select text in a terminal to copy it @G4.5', async ({ eve, page }) => {
       const { composer } = await threadThenShell(eve, page);
-      await page.keyboard.type('copyme');
-      const line = page.getByText('copyme', { exact: true });
+      const copyme = `copyme-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      await page.keyboard.type(copyme);
+      const line = page.getByText(copyme, { exact: true });
       await expect(line).toBeVisible();
       await selectLine(page, line);
       await showThread(page);
       await composer.focus();
       await page.keyboard.press('ControlOrMeta+V');
-      await expect(composer).toHaveValue('copyme');
+      await expect(composer).toHaveValue(copyme);
     });
   });
 
@@ -104,8 +105,9 @@ test.describe('console terminal', () => {
 
     test('a browser that refuses clipboard writes copies nothing @G4.5.r1', async ({ eve, page }) => {
       const { composer } = await threadThenShell(eve, page);
-      await page.keyboard.type('copyme');
-      const line = page.getByText('copyme', { exact: true });
+      const copyme = `copyme-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      await page.keyboard.type(copyme);
+      const line = page.getByText(copyme, { exact: true });
       await expect(line).toBeVisible();
       await selectLine(page, line);
       await showThread(page);

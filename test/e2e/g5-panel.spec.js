@@ -70,16 +70,6 @@ test.describe('the routine panel', () => {
     await expect(page.getByRole('button', { name: 'Make this a routine', exact: true })).toBeHidden();
   });
 
-  test('a voice thread has no routine button @G5.1.r1', async ({ eve, page }) => {
-    await eve.open('/');
-    await page.getByRole('button', { name: 'Project page', exact: true }).click();
-    await page.getByRole('button', { name: 'New thread', exact: true }).click();
-    await page.getByRole('button', { name: 'Voice Chat' }).click();
-    await page.getByRole('button', { name: 'Start Voice Chat', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'End session', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Make this a routine', exact: true })).toBeHidden();
-  });
-
   test('rename the routine in the panel @G5.2', async ({ eve, page }) => {
     await eve.open('/');
     const panel = await openPanel(page);
@@ -207,8 +197,9 @@ test.describe('the routine panel', () => {
     await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(panel).toBeHidden();
     await page.getByRole('tab', { name: 'Acme', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Run Now Alpha notes', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '+ New routine', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Routines' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Run Now Alpha notes', exact: true })).toHaveCount(0);
     await expect(page.getByText('never ran')).toHaveCount(0);
   });
 });

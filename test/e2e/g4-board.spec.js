@@ -56,7 +56,8 @@ test('the board says relay is out of reach @G4.26.r1', async ({ eve, page, relay
   await eve.open('/');
   await expect(page.getByText('No agents running')).toBeVisible();
   expect((await relay.ctl('fault', 'add', '--route', 'GET /ws', '--mode', 'down')).code).toBe(0);
-  await expect(page.getByText("Can't reach relay.").first()).toBeVisible();
+  // The Ask line above also says it, as a status; the Agents section's own line is a paragraph.
+  await expect(page.getByRole('paragraph').filter({ hasText: "Can't reach relay." })).toBeVisible();
 });
 
 test('reload brings back no terminal tab, only the board row @G4.27', async ({ eve, page, relay }) => {
@@ -94,9 +95,7 @@ test('reopen a terminal that has exited @G4.29', async ({ eve, page, relay }) =>
   await agentRow(board).click();
   await expect(board.getByRole('tab', { name: 'Acme - Shell' })).toHaveAttribute('aria-selected', 'true');
   await expect(board.getByText('saved output', { exact: true }).last()).toBeVisible();
-  await board.getByRole('textbox', { name: 'Terminal input' }).focus();
-  await board.keyboard.type('nothing more');
-  await expect(board.getByText('nothing more')).toBeHidden();
+  // The "takes no more typing" half is unproven hermetically (gap R15): fakerelay drops bytes after exit whatever eve sends.
   const list = await terminals(relay);
   expect(list).toHaveLength(1);
   expect(list[0].state).toBe('stopped');
@@ -145,7 +144,8 @@ test('close a terminal @G4.25', async ({ eve, page, relay }) => {
   // Closing the last tab shows Today, whose board no longer lists the terminal.
   await expect(page.getByText('No agents running')).toBeVisible();
   await expect(agentRow(page)).toBeHidden();
-  expect(await terminals(relay)).toEqual([]);
+  // Nothing relay sends marks the close, so wait on the state until the row is gone.
+  await expect.poll(async () => (await terminals(relay)).length).toBe(0);
 });
 
 test('see a project terminals on its Project page @G4.31', async ({ eve, page }) => {
@@ -171,7 +171,7 @@ test('the Project page says relay is out of reach @G4.31.r1', async ({ eve, page
   await eve.open('/#project/p_acme');
   await expect(page.getByText('No agents running').last()).toBeVisible();
   expect((await relay.ctl('fault', 'add', '--route', 'GET /ws', '--mode', 'down')).code).toBe(0);
-  await expect(page.getByText("Can't reach relay.").last()).toBeVisible();
+  await expect(page.getByRole('paragraph').filter({ hasText: "Can't reach relay." }).last()).toBeVisible();
 });
 
 test('a routine run terminal stays off the board @G4.32', async ({ eve, page, relay }) => {
