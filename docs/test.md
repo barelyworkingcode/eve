@@ -197,7 +197,7 @@ The voice view is the full-screen orb view a Voice tile or `#/voice-chat` opens,
 - In Chromium the voice view always starts in Hands-free, on desktop and under both profiles. The prompt reads "Starting voice detection..." and then "Listening..." once the VAD listens. The mode button is named by its label, "Hands-free" or "Push-to-talk", and switches to the other on a press.
 - The push-to-talk prompt is "Hold spacebar to speak..." on desktop and "Hold mic to speak..." under `profiles.phone` and `profiles.tablet`, because both have Android user agents.
 - In Hands-free, button "Hold to record" and the orb only stop a spoken reply. They record only in Push-to-talk. Space records in both modes, but not while focus is in a text field or select, or while a dialog is open.
-- The voice view has no recording timer. A recording under 300 ms by the page clock is dropped, and the view shows the error caption "Recording too short — hold longer". A hold row installs `page.clock` before `eve.open` and calls `page.clock.fastForward('00:01')` between press and release.
+- The voice view has no recording timer. A recording under 300 ms by the page clock is dropped, and the view shows the error caption "Recording too short — hold longer". Moving `page.clock` between press and release does not make a hold reliable: the view shows no sign that recording started, so a release at machine speed can record nothing. Hold rows wait on an app signal (#369).
 - Captions are plain text with no role, and only the latest four show. The reply caption is the echo text `echo: <words>`, which contains the heard words, so check the user's caption with `exact: true`.
 - Eve's server sends each reply sentence to the fake TTS as `{ text, voice, speed }`. The prompt reads "Speaking..." while the 30 s silent clip plays.
 - Button "Voice controls" opens the drawer, which starts closed. It holds combobox "Voice" ("Heart", "George"), combobox "Playback speed" and button "Switch to text chat".
@@ -218,7 +218,7 @@ The voice view is the full-screen orb view a Voice tile or `#/voice-chat` opens,
 - A tab drag uses pointer events: `page.mouse.down` on the tab, then a move of 8 px or more, in steps, onto an edge of the content.
 - Close a tab from the keyboard with `ControlOrMeta+w`. An unsaved file tab raises a native confirm; handle it with `page.once('dialog', ...)`.
 - Front door: a missing stamp counts as away, so a fresh test context opens on Today. A reload after `page.clock.fastForward` does not count as away, because eve stamps on `pagehide` at the moved time. Nothing hides and shows a page, so the resume path has no test.
-- Appearance: compare `toHaveCSS('background-color', ...)` on an element found by role, before and after. Auto follows `page.emulateMedia({ colorScheme })`. Text size: compare `toHaveCSS('font-size', ...)`. Use no fixed colour value.
+- Appearance: compare `toHaveCSS('background-color', ...)` on an element found by role, before and after. Auto follows `page.emulateMedia({ colorScheme })`. Light and dark are proven by a brightness range (each rgb channel 192 or more for light, 64 or less for dark), never an exact colour. Text size: the font-size equals the size the slider names, in px.
 
 #### Phone rows
 
