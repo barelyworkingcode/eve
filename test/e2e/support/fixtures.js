@@ -3,6 +3,8 @@
 // The one import a spec needs. Per test: its own fakerelay, eve, relayScheduler,
 // fake TTS and STT, data directories and browser context. See docs/test.md.
 
+const fs = require('fs');
+const path = require('path');
 const base = require('@playwright/test');
 const { devices } = base;
 const { Stack } = require('./stack');
@@ -181,7 +183,15 @@ const test = base.test.extend({
     }
   },
 
-  eve: async ({ stack, page, context, network }, use) => {
+  eve: async ({
+    stack, page, context, network, browser, viewport, userAgent, deviceScaleFactor, isMobile, hasTouch,
+    locale, timezoneId, permissions, colorScheme, extraHTTPHeaders, geolocation, javaScriptEnabled,
+  }, use) => {
+    const contextOptions = {
+      viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, locale, timezoneId, permissions,
+      colorScheme, extraHTTPHeaders, geolocation, javaScriptEnabled,
+    };
+    const others = [];
     const ready = () => page.locator('html[data-ready="1"]').waitFor({ state: 'attached' });
     const toReady = async (action, opts) => {
       if (opts && opts.weakConnection) {
@@ -210,6 +220,17 @@ const test = base.test.extend({
         await page.reload({ waitUntil: 'domcontentloaded' });
       },
       setOffline: (offline) => context.setOffline(offline),
+      // A second page in a new browser context with this test's context options (profile, locale,
+      // permissions), so storage is separate. Returns once the app is ready; closed at teardown.
+      async openAnother(urlPath = '/') {
+        const options = Object.fromEntries(Object.entries(contextOptions).filter(([, v]) => v !== undefined));
+        const other = await browser.newContext(options);
+        others.push(other);
+        const second = await other.newPage();
+        await second.goto(stack.url + urlPath, { waitUntil: 'load' });
+        await second.locator('html[data-ready="1"]').waitFor({ state: 'attached' });
+        return second;
+      },
       // Opens http://192.0.2.10:<eve port><path>. The browser's requests to that address are
       // forwarded to eve's real listener with Host 192.0.2.10:<port>, so eve sees a bare-IP visit.
       // Resolves at domcontentloaded: under publicOrigin the app never reaches data-ready.
@@ -228,6 +249,7 @@ const test = base.test.extend({
         await page.goto(`http://${host}${urlPath}`, { waitUntil: 'domcontentloaded' });
       },
     });
+    for (const other of others) await other.close();
   },
 
   relay: async ({ stack }, use) => {
@@ -247,8 +269,33 @@ const test = base.test.extend({
     await use(passkeyFor(page, context));
   },
 
-  desktop: async ({ page }, use) => {
+  desktop: async ({ stack }, use) => {
     await use({
+      // One ClipboardEvent('paste') on the target, carrying one DataTransfer. Each item is text
+      // (a string, text/plain) or a file { name, type?, base64 }. Returns once dispatched; wait
+      // on the effect (the chip).
+      async paste(target, items) {
+        await target.evaluate((el, specs) => {
+          const dt = new DataTransfer();
+          for (const item of specs) {
+            if (typeof item === 'string') {
+              dt.setData('text/plain', item);
+            } else {
+              const bytes = Uint8Array.from(atob(item.base64), (c) => c.charCodeAt(0));
+              dt.items.add(new File([bytes], item.name, { type: item.type ?? '' }));
+            }
+          }
+          el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+        }, items);
+      },
+      // A path to a file the browser cannot read (mode 0), in the test's scratch directory.
+      // For setInputFiles, so the page's FileReader fails as it would on a real unreadable file.
+      unreadableFile(name) {
+        const file = path.join(stack.tmpDir, name);
+        fs.writeFileSync(file, 'unreadable\n');
+        fs.chmodSync(file, 0);
+        return file;
+      },
       // One DataTransfer holding every file; dragenter, dragover, then drop on the target.
       // `size` fills that many zero bytes. Returns once drop is dispatched.
       async dropFiles(target, files) {
@@ -262,6 +309,46 @@ const test = base.test.extend({
             el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
           }
         }, files);
+      },
+    });
+  },
+
+  // Real touches through CDP Input.dispatchTouchEvent (page.touchscreen only taps).
+  touch: async ({ page, context }, use) => {
+    let cdp = null;
+    const session = async () => {
+      if (!cdp) cdp = await context.newCDPSession(page);
+      return cdp;
+    };
+    const centre = async (target) => {
+      const box = await target.boundingBox();
+      if (!box) throw new Error('touch target has no box (not visible)');
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    const send = async (type, points) => (await session()).send('Input.dispatchTouchEvent', {
+      type, touchPoints: points.map((p) => ({ x: p.x, y: p.y })),
+    });
+    await use({
+      // Touch down at the centre of the target, move (dx, dy) in steps, lift. Resolves after the lift.
+      async swipe(target, { dx = 0, dy = 0 }) {
+        const from = await centre(target);
+        await send('touchStart', [from]);
+        const steps = 8;
+        for (let i = 1; i <= steps; i++) {
+          await send('touchMove', [{ x: from.x + (dx * i) / steps, y: from.y + (dy * i) / steps }]);
+        }
+        await send('touchEnd', []);
+      },
+      // Touch down on the target and keep the finger there until `until` (a locator) is visible,
+      // then lift. Rejects (after lifting) when `until` never shows within the expect timeout.
+      async hold(target, { until }) {
+        const at = await centre(target);
+        await send('touchStart', [at]);
+        try {
+          await until.waitFor({ state: 'visible' });
+        } finally {
+          await send('touchEnd', []);
+        }
       },
     });
   },
