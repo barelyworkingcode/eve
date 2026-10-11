@@ -99,7 +99,8 @@ From `docs/fakerelay.md` in the relay repo at the pinned commit (`test/e2e/relay
 | `models[]` | `{ value, label, group, provider, reply }`; `reply` is `{ kind }` and defaults to `echo`. `haiku`, `sonnet` and `opus` are fixed in relay and always listed |
 | `models[].reply.kind` | `echo` (answers `echo: <text>`); `text` (`{ text }`, a fixed answer); `permission` (`{ tool }`: raises a `permission_request` for that tool, echoes on approve); `plan` (`{ text? }`: writes `<relay dir>/home/.claude/plans/<sessionId>.md`, then a `Write` tool use and an `ExitPlanMode` tool use whose `input.plan` is `text`; no text block); `fail` (`message_complete` with `isError: true`) |
 | `sessions[]` | `{ id, project_id, name, model, state: 'idle' \| 'dormant', messages: [{ role, text }] }` |
-| `terminal_templates[]` | relay's terminal template, `{ id, name, ... }` |
+| `terminal_templates[]` | relay's terminal template, `{ id, name, command, description, ... }`; the console's, see Terminal rows |
+| `hosts[]` | `{ id, name, target, probe, tmux_path, agent: 'none' \| 'connecting' \| 'connected' \| 'unreachable', terminal_templates[], persistent_sessions: [{ name, created, attached }] }`; `probe` is `{ at, ok, os, arch, home, shell, node_path, claude_path, tmux_path }`; a project joins it with `host_id` |
 | `audit[]` | verbatim audit rows appended at start: `id, ts, event, actor { kind, auth, ... }, outcome, scope` plus the optional keys of the row shape |
 | `chief_of_staff` | `{ project_id, model, daily_model_calls }` |
 | `default_project` | `{ home, work }` |
@@ -113,10 +114,13 @@ The feature map names relay's own commands. fakerelay serves some of them, and t
 | Real relay | In a spec | Notes |
 |---|---|---|
 | `relay session list` | `(await relay.json('ctl', 'state', '--json')).sessions` | array of the sessions fakerelay holds, seeded and created |
-| `relay terminal list` | `(await relay.json('ctl', 'state', '--json')).terminals` | array; `[]` when none is open |
+| `relay terminal list` | `(await relay.json('ctl', 'state', '--json')).terminals` | array; `[]` when none is open; the verb itself is not served (relay gap R15) |
 | `relay model list` | `await relay.logs({ event: 'model.list' })` | one line per `GET /api/models`, so it shows eve asked; the fixed `haiku`, `sonnet`, `opus` are not in the state. `state.models` holds only the models the world added (`null` when none) |
 | `relay audit` | `await relay.cli('audit', '--json', ...)` | `{ code, stdout, stderr }`; `stdout` is one JSON row per line. Reads only the rows the world seeded plus the `file_op` and `control_decision` rows fakerelay writes. Flags: `--tail N`, `--project ID`, `--event E`, `--outcome O` |
 | `relay project create` / `edit` | `relay.cli('project', 'create' \| 'edit', ...)` | `--file F` reads the body; a widening edit asks `project.grant` presence |
+| `relay terminal stop` / `log` | `terminals` of the ctl state above (a stop is the row leaving the list); a log is the `terminal.log` event | the verbs are not served (R15); no read of the bytes a terminal received |
+| `relay host disconnect` | `await relay.ctl('host', 'status', '--id', H, '--status', 'unreachable', '--error', 'disconnected')` | the verb is not served (R16); the status frame is what eve sees |
+| `relay terminal persistent-list` / `persistent-kill` | event `session.persistent.list` / `session.persistent.kill`, then `hosts[].persistent_sessions` in ctl state | the verbs are not served (R15) |
 | `relay mcp list` | `relay.cli('mcp', 'list')` | |
 | `relay eve list` / `revoke` | `relay.cli('eve', 'list')` | |
 
@@ -162,6 +166,29 @@ Fake TTS and STT speak the length-prefixed JSON protocol of `tts-service.js` and
 #### Network rows
 
 `await eve.setOffline(true)` takes the browser off the network, as a person losing signal. `setOffline(false)` brings it back. Assert on the screen with `expect`, never a duration. `eve.open('/', { weakConnection: true })` fails the first load of one core script, so the page never becomes ready. After the person presses Reload, wait with `await eve.ready()`.
+
+#### Terminal rows
+
+A terminal is an echo terminal, not a shell. Input comes back as output, byte for byte, except `\r`, which comes back as `\r\n`. A line is the bytes since the last `\r`. A line of `exit` or `exit N` (N 0 to 255) echoes, then the terminal exits with N; `exit 300` is only echoed. `\x04` on an empty line exits 0 with no echo; in the middle of a line it is dropped. Bytes after the exit are dropped. Nothing reads what a terminal received, so proof is what the echo shows on screen. xterm acts on echoed escapes, so key-bar bytes show: Tab moves to the next tab stop, left arrow and shift-Tab move the cursor back, Home moves it to the line start, an OSC title sets the title. `\x03`, Page Up and Page Down echo bytes xterm draws nothing for, so the screen does not change.
+
+- `(await relay.json('ctl', 'state', '--json')).terminals` rows are `{ id, templateId, name, directory, state: 'running' | 'stopped', exitCode? }`; `exitCode` only when not 0. A stopped terminal stays in the list until it is closed. The row has no `host` or `origin`.
+- `session.launch` (`kind: 'terminal'`, `session_id`) is written on open. On exit fakerelay writes `session.exited` (`session_id` is the terminal id) before the viewers hear `terminal_exit`. `terminal.log` is written when the log is read. The log keeps every byte sent, also after close.
+- Eve's close (the `terminal_close` frame) writes no event and answers every page with `terminal_closed`. The signal is a second page (`eve.openAnother()`) whose board loses the row; then read the state once.
+- `terminal_templates` in the world are the console templates. A project sees all of them when `allowed_templates` is empty, only the listed ids otherwise (`['*']` is all). A host project sees its host's `terminal_templates` and never the console's. A template outside the list is refused 403 `{"error":"terminal template \"<id>\" is not available for this project"}`.
+- Fault routes: `GET /api/terminal/templates`, `POST /api/terminals`, `GET /api/terminals/{id}/log`, `POST /api/hosts/{id}/pastetmp`, `GET /api/projects/{id}/persistent-sessions`, `DELETE /api/projects/{id}/persistent-sessions/{name}`, `POST /api/projects/{id}/files/<op>` (`list`, `stat`, `read`, `write`, `mkdir`, `rename`, `move`, `delete`, `search`, `git`), `GET /api/models`, `POST /api/sessions`, and tasks as `PROXY /api/tasks` (list, create) or `PROXY /api/tasks/` (one task, its run, history and delete; the longest matching manifest route). A file route's error body is `{"error": TEXT, "code": CODE}`; other routes use `{"error": TEXT}`.
+
+#### Host rows
+
+- State: `ctl state --json` has `hosts[]` (the world rows with `root`; `agent` is the world's initial value) and `host_status`, a map `{ [hostId]: { status, error? } }` that holds the live state. Read `host_status`, not `hosts[].agent`. `persistent_sessions` in `hosts[]` loses a row once it is killed.
+- A host project is `{ host_id, path, files, repos }`. `files` and `repos` live under the host's own root. Its terminals and files run there.
+- Status is `connecting`, `connected` or `unreachable`. With agent `none`, the first file op or watch moves the host to `connecting`, then `connected`. `ctl('host', 'status', '--id', H, '--status', S, '--error', TEXT)` answers after the frame has reached every `/ws/files` connection, so the page has it by then. It sets any of the three; any other value is refused 400.
+- While a host is `connecting` or `unreachable`, a file op answers 503 `{"error":"host is not connected","code":"HOST_UNREACHABLE"}` and a watch fails with that code. Persistent list and kill: 502 `{"error":"host unreachable"}` only when the host is `unreachable` (or its probe failed); 409 `{"error":"host has no tmux"}` when neither the host nor its probe has a `tmux_path`; kill of a missing name 404, of a malformed name 400.
+- `session.persistent.list` and `session.persistent.kill` carry `project_id`. `host.pastetmp` carries `host_id`. File ops write `file.*`.
+- `attached_here` is always `false` on a persistent row, though relay sets it when a live terminal carries the name. A spec cannot see an attached-here state.
+
+#### Routine rows
+
+A routine run is a session started by the scheduler, so it reaches fakerelay as `POST /api/sessions` and is the project's session on the routine's model. A run on a model whose `reply` is `{ kind: 'permission', tool }` stays held at its permission request (the run is running until nobody answers), and `echo` finishes at once. A failed run: add `ctl('fault', 'add', '--route', 'POST /api/sessions', '--mode', 'error', '--times', '1', '--status', '500', '--body', '{"error":"boom"}')` before pressing Run Now, then wait for the `fakerelay.fault` line with `action: 'applied'`. Task events reach the page over `/ws/tasks`; a spec waits on what the page shows.
 
 #### Request shapes a spec can match on
 
