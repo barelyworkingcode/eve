@@ -190,6 +190,42 @@ A terminal is an echo terminal, not a shell. Input comes back as output, byte fo
 
 A routine run is a session started by the scheduler, so it reaches fakerelay as `POST /api/sessions` and is the project's session on the routine's model. A run on a model whose `reply` is `{ kind: 'permission', tool }` stays held at its permission request (the run stays running until someone answers), and `echo` finishes at once. A failed run: add `ctl('fault', 'add', '--route', 'POST /api/sessions', '--mode', 'error', '--times', '1', '--status', '500', '--body', '{"error":"boom"}')` before pressing Run Now, then wait for the `fakerelay.fault` line with `action: 'applied'`. Task events reach the page over `/ws/tasks`; a spec waits on what the page shows.
 
+#### Voice view rows
+
+The voice view is the full-screen orb view a Voice tile or `#/voice-chat` opens, not the chat's Talk and Hands-free modes (Voice rows above).
+
+- In Chromium the voice view always starts in Hands-free, on desktop and under both profiles. The prompt reads "Starting voice detection..." and then "Listening..." once the VAD listens. The mode button is named by its label, "Hands-free" or "Push-to-talk", and switches to the other on a press.
+- The push-to-talk prompt is "Hold spacebar to speak..." on desktop and "Hold mic to speak..." under `profiles.phone` and `profiles.tablet`, because both have Android user agents.
+- In Hands-free, button "Hold to record" and the orb only stop a spoken reply. They record only in Push-to-talk. Space records in both modes, but not while focus is in a text field or select, or while a dialog is open.
+- The voice view has no recording timer. A recording under 300 ms by the page clock is dropped, and the view shows the error caption "Recording too short — hold longer". A hold row installs `page.clock` before `eve.open` and calls `page.clock.fastForward('00:01')` between press and release.
+- Captions are plain text with no role, and only the latest four show. The reply caption is the echo text `echo: <words>`, which contains the heard words, so check the user's caption with `exact: true`.
+- Eve's server sends each reply sentence to the fake TTS as `{ text, voice, speed }`. The prompt reads "Speaking..." while the 30 s silent clip plays.
+- Button "Voice controls" opens the drawer, which starts closed. It holds combobox "Voice" ("Heart", "George"), combobox "Playback speed" and button "Switch to text chat".
+- The engine line reads `TTS: server  ·  STT: server`, with two spaces on each side of the dot. Match it with a regex.
+- Button "Orb settings" opens the sheet. Its header is text, not a heading. It holds five named sliders ("Inner orb size", "Outer orb size", "Spin rate", "Idle jitter", "Speech jitter"), each followed by its value as text with two decimals, and the button "Reset to defaults". Set a slider with `fill('<value>')`. "River volume" and "Stream device logs" are hidden outside the iOS app.
+- The orb is a canvas with no role or name, so a spec cannot press it.
+- A voice-view row that needs no speech uses `mic: 'silence'`, so the VAD never fires. A row that needs a heard sentence uses `mic: 'speech'`.
+- Inject an engine error with `voice.stt.reply({ error })` or `voice.tts.reply({ error })` before the action. The expected text comes from the row.
+- A blocked microphone cannot be made: the suite's launch flags accept every prompt.
+
+#### Layout rows
+
+- Widths: wide is 1024 px and up, regular is 600 to 1023, compact is under 600. `page.setViewportSize` after `eve.open` re-lays out the page live. `profiles.phone` is 412x839 (compact) and `profiles.tablet` is 712x1138 (regular). Both have touch, which the `touch` fixture needs.
+- A closed menu slides off-screen and still counts as visible. Check the Rail and the Project panel with `toBeInViewport()` and `not.toBeInViewport()`, never `toBeVisible`.
+- At regular width the dimmed area is a full-window layer with no role. Tap a point to the right of the panel's `boundingBox` with `page.mouse.click` or `page.touchscreen.tap`. At compact width the menu is a full-screen sheet and there is no dimmed area.
+- An edge swipe opens the menu only when the touch starts less than 30 px from the left edge and moves more than 60 px right, with no more movement down than across. A swipe closes it when the touch moves more than 60 px left, from anywhere. `touch.swipe` starts at the target's centre.
+- The pane divider and the panel's edge have no role. Drag them with `page.mouse` at the shared edge of the two panes' boxes, or at the panel's right edge. A pane is at least 140 px. The panel is 200 to 600 px, and its width survives a reload.
+- A tab drag uses pointer events: `page.mouse.down` on the tab, then a move of 8 px or more, in steps, onto an edge of the content.
+- Close a tab from the keyboard with `ControlOrMeta+w`. An unsaved file tab raises a native confirm; handle it with `page.once('dialog', ...)`.
+- Front door: a missing stamp counts as away, so a fresh test context opens on Today. A reload after `page.clock.fastForward` does not count as away, because eve stamps on `pagehide` at the moved time. Nothing hides and shows a page, so the resume path has no test.
+- Appearance: compare `toHaveCSS('background-color', ...)` on an element found by role, before and after. Auto follows `page.emulateMedia({ colorScheme })`. Text size: compare `toHaveCSS('font-size', ...)`. Use no fixed colour value.
+
+#### Phone rows
+
+- The Safari fallback page: `eve.open('/api/auth/safari-login', { preReady: '<reason>' })` under `network: 'untrusted'`, with a passkey already enrolled. The page starts the ceremony itself half a second after load, shows "Success! Returning to app…", then sets the location to `relayclient://...`, which Chromium cannot open.
+- Dragging a finger on the terminal scrolls its history. Target a visible echoed line.
+- Chromium has no soft keyboard, haptics, screen lock or native audio. Rows that need them are not testable here.
+
 #### Request shapes a spec can match on
 
 Each entry in `voice.tts.requests` and `voice.stt.requests` is the parsed JSON object eve sent, with eve's field names. `ping` requests are not recorded.
@@ -225,7 +261,7 @@ A setup failure throws a named error: `fakerelay exited <code> before ready: <st
 | E5 screen only | `test/e2e/*.spec.js` | `locator`, `frameLocator`, `getByTestId`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `$`, `$$`, `$eval`, `$$eval`, `waitForSelector`, `evaluate`, `evaluateAll`, `evaluateHandle`, `waitForFunction`, `addInitScript`, `addScriptTag`, `exposeFunction`, `exposeBinding`, `route`, `routeWebSocket`, `unroute`, `request`, `goto`, `newCDPSession` on any receiver; `reload` on any receiver but `eve`; destructuring any of them; a `request` fixture parameter |
 | E6 spec imports | `test/e2e/*.spec.js` | any `require` but `./support/fixtures` and `./support/worlds`, and any `import` |
 
-Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`last`/`nth`, `page.keyboard`, `page.mouse`, `page.touchscreen`, `setInputFiles`, `boundingBox` (geometry rows), `toHaveJSProperty('duration', ...)` on a media element found by label, `expect`, and the fixtures (`eve.open`, `eve.reload`, `eve.ready`, `eve.signOut`, `eve.setOffline`, `eve.openByIp`, `eve.openAnother`, `relay`, `desktop` (incl. `desktop.paste`, `desktop.unreadableFile`), `passkey`, `voice`, `touch`).
+Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`last`/`nth`, `page.keyboard`, `page.mouse`, `page.touchscreen`, `toHaveCSS`, `toBeInViewport`, `page.emulateMedia`, `page.setViewportSize`, `page.clock`, `page.goBack`, `page.once('dialog')`, `setInputFiles`, `boundingBox` (geometry rows), `toHaveJSProperty('duration', ...)` on a media element found by label, `expect`, and the fixtures (`eve.open`, `eve.reload`, `eve.ready`, `eve.signOut`, `eve.setOffline`, `eve.openByIp`, `eve.openAnother`, `relay`, `desktop` (incl. `desktop.paste`, `desktop.unreadableFile`), `passkey`, `voice`, `touch`).
 
 `npm run check:static` (`scripts/check-static.js`, plain Node) holds the rest. One finding per line, `<check>: <file>[:<line>]: <what>`; exit 0 clean, 1 findings, 2 usage or an unreadable input. The frozen sets are in `test/static/frozen.json` (`wsTypes`, `expensiveTypes`, `asyncHandlers`, `breakpoints`, `journeys`), so a deliberate change shows in the diff.
 
