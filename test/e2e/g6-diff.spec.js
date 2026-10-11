@@ -64,7 +64,7 @@ test.describe('a modified file', () => {
     await expect(page.getByText('Could not load the diff')).toBeHidden();
   });
 
-  test('side by side is pressed at a wide window @G6.72', async ({ eve, page }) => {
+  test('Side by side turns pressed and Inline turns off @G6.72', async ({ eve, page }) => {
     await eve.open('/');
     await openChanges(page);
     await openTextDiff(page, 'Modified: a.txt');
@@ -75,7 +75,7 @@ test.describe('a modified file', () => {
     await expect(diffView(page).getByRole('button', { name: 'Inline', exact: true, pressed: false })).toBeVisible();
   });
 
-  test('inline shows the changes in one column @G6.73', async ({ eve, page }) => {
+  test('Inline turns pressed and Side by side turns off @G6.73', async ({ eve, page }) => {
     await eve.open('/');
     await openChanges(page);
     await openTextDiff(page, 'Modified: a.txt');
@@ -92,6 +92,8 @@ test.describe('a modified file', () => {
     const since = relay.mark();
     await diffView(page).getByRole('button', { name: 'File', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+    await expect(page.getByRole('main').getByText('/alpha/a.txt', { exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'a.txt', exact: true })).toHaveCount(2);
     await relay.waitForEvent('file.read', { since, match: (l) => l.status === 'ok' });
   });
 
@@ -100,9 +102,11 @@ test.describe('a modified file', () => {
     await openChanges(page);
     await openTextDiff(page, 'Modified: a.txt');
     await askButton(page).click();
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(page.getByText('Diff: alpha/a.txt')).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Ask', exact: true })).toBeVisible();
+    const today = page.getByRole('main');
+    await expect(today.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(today.getByRole('textbox', { name: 'Ask', exact: true })).toBeVisible();
+    await expect(today.getByText('Diff: alpha/a.txt', { exact: true })).toBeVisible();
+    await expect(today.getByRole('button', { name: 'Remove attachment', exact: true })).toBeVisible();
   });
 });
 

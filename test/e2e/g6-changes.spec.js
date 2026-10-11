@@ -17,6 +17,7 @@ const panel = (page) => page.getByRole('complementary');
 const tab = (page) => panel(page).getByRole('button', { name: /^Changes/ });
 const modified = (page) => page.getByRole('button', { name: 'Modified: a.txt', exact: true });
 const untracked = (page) => page.getByRole('button', { name: 'Untracked: new.txt', exact: true });
+const beta = (page) => panel(page).getByRole('button', { name: /^beta\b/ });
 
 // Opens the project's Changes tab from the Project panel.
 async function openChanges(page, project = 'Acme') {
@@ -55,12 +56,12 @@ test.describe('repos with changes', () => {
   });
 
   test('Uncommitted lists the working tree changes @G6.67', async ({ eve, relay, page }) => {
+    const since = relay.mark();
     await eve.open('/');
     await openChanges(page);
     await expect(modified(page)).toBeVisible();
     await panel(page).getByRole('button', { name: 'vs base', exact: true }).click();
     await expect(panel(page).getByRole('button', { name: 'vs base', exact: true, pressed: true })).toBeVisible();
-    const since = relay.mark();
     await panel(page).getByRole('button', { name: 'Uncommitted', exact: true }).click();
     await expect(panel(page).getByRole('button', { name: 'Uncommitted', exact: true, pressed: true })).toBeVisible();
     await expect(modified(page)).toBeVisible();
@@ -68,10 +69,11 @@ test.describe('repos with changes', () => {
     await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
   });
 
-  test('vs base lists the changes on the branch @G6.68', async ({ eve, relay, page }) => {
+  test('vs base turns pressed and lists the working changes @G6.68', async ({ eve, relay, page }) => {
     await eve.open('/');
     await openChanges(page);
     await expect(modified(page)).toBeVisible();
+    await expect(beta(page)).toHaveText(/^beta\s*main\s*clean$/);
     const since = relay.mark();
     await panel(page).getByRole('button', { name: 'vs base', exact: true }).click();
     await expect(panel(page).getByRole('button', { name: 'vs base', exact: true, pressed: true })).toBeVisible();
@@ -84,6 +86,7 @@ test.describe('repos with changes', () => {
     await eve.open('/');
     await openChanges(page);
     await expect(modified(page)).toBeVisible();
+    await expect(beta(page)).toHaveText(/^beta\s*main\s*clean$/);
     const since = relay.mark();
     await panel(page).getByRole('button', { name: 'Refresh', exact: true }).click();
     await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
@@ -154,7 +157,7 @@ test.describe('git is slow', () => {
     expect(added.code).toBe(0);
     await panel(page).getByRole('button', { name: 'vs base', exact: true }).click();
     await relay.waitForEvent('fakerelay.fault', { match: (l) => l.action === 'applied' });
-    await expect(page.getByText('git timed out').first()).toBeVisible();
+    await expect(page.getByText('git timed out')).toBeVisible();
   });
 
   test('vs base says there are too many changes @G6.68.r2', async ({ eve, relay, page }) => {
@@ -165,18 +168,19 @@ test.describe('git is slow', () => {
     expect(added.code).toBe(0);
     await panel(page).getByRole('button', { name: 'vs base', exact: true }).click();
     await relay.waitForEvent('fakerelay.fault', { match: (l) => l.action === 'applied' });
-    await expect(page.getByText('Too many changes to list').first()).toBeVisible();
+    await expect(page.getByText('Too many changes to list')).toBeVisible();
   });
 
   test('Refresh says why git failed @G6.69.r1', async ({ eve, relay, page }) => {
     await eve.open('/');
     await openChanges(page);
     await expect(modified(page)).toBeVisible();
+    await expect(beta(page)).toHaveText(/^beta\s*main\s*clean$/);
     const added = await relay.ctl('fault', 'add', '--route', 'POST /api/projects/{id}/files/git', '--mode', 'error', '--name', 'ERROR');
     expect(added.code).toBe(0);
     await panel(page).getByRole('button', { name: 'Refresh', exact: true }).click();
     await relay.waitForEvent('fakerelay.fault', { match: (l) => l.action === 'applied' });
-    await expect(page.getByText('internal error').first()).toBeVisible();
+    await expect(page.getByText('internal error')).toBeVisible();
   });
 });
 
@@ -207,7 +211,6 @@ test.describe('a host project', () => {
     await expect(modified(page)).toBeVisible();
     const down = await relay.ctl('host', 'status', '--id', 'h_box', '--status', 'unreachable', '--error', 'ssh could not connect');
     expect(down.code).toBe(0);
-    await panel(page).getByRole('button', { name: 'Refresh', exact: true }).click();
-    await expect(page.getByText('Host unreachable.')).toBeVisible();
+    await expect(page.getByText(/^Host unreachable\./)).toBeVisible();
   });
 });
