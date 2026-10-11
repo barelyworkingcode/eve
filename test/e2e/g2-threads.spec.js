@@ -34,6 +34,18 @@ async function sessionNames(relay) {
   return state.sessions.map((s) => s.name);
 }
 
+// A Cancel sends nothing to relay, so a read right after it can pass before a delete would have
+// arrived. The barrier: send a message on the same socket and wait for relay's chat.turn, which
+// can only follow a delete that Cancel had wrongly sent. Then no delete is on record since the mark.
+async function expectNoDeleteSince(page, relay, since) {
+  const box = page.getByRole('textbox', { name: 'Type your message...' });
+  await expect(box).toBeEnabled();
+  await box.fill('after cancel from testbox');
+  await box.press('Enter');
+  await relay.waitForEvent('chat.turn', { since });
+  expect(await relay.logs({ event: 'session.delete', since })).toHaveLength(0);
+}
+
 async function makeFolder(page, name) {
   await page.getByRole('button', { name: 'New folder', exact: true }).click();
   await page.getByRole('textbox', { name: 'Folder name' }).fill(name);
@@ -100,6 +112,7 @@ test.describe('threads on the Project page', () => {
 
   test('cancel keeps the thread @G2.44.r1', async ({ eve, page, relay }) => {
     await openProjectPage(eve, page);
+    const since = relay.mark();
     await row(page, 'Alpha notes').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete' }).click();
     const dialog = page.getByRole('dialog', { name: 'Confirm Deletion' });
@@ -107,7 +120,8 @@ test.describe('threads on the Project page', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toBeHidden();
     await expect(row(page, 'Alpha notes')).toBeVisible();
-    expect(await sessionNames(relay)).toContain('Alpha notes');
+    await row(page, 'Alpha notes').click();
+    await expectNoDeleteSince(page, relay, since);
   });
 
   test('delete a thread by holding its tab close button @G2.47', async ({ eve, page, relay }) => {
@@ -144,13 +158,14 @@ test.describe('threads on the Project page', () => {
     const close = page.getByRole('button', { name: 'Close Alpha notes' });
     const box = await close.boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const since = relay.mark();
     await page.mouse.down();
     await expect(page.getByRole('heading', { name: 'Confirm Deletion' })).toBeVisible();
     await page.mouse.up();
     await page.getByRole('dialog', { name: 'Confirm Deletion' }).getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByRole('heading', { name: 'Confirm Deletion' })).toBeHidden();
     await expect(page.getByRole('tab', { name: 'Alpha notes' })).toBeVisible();
-    expect(await sessionNames(relay)).toContain('Alpha notes');
+    await expectNoDeleteSince(page, relay, since);
   });
 });
 
@@ -170,6 +185,7 @@ test.describe('threads on a phone', () => {
 
   test('cancel keeps the swiped row @G2.45.r1', async ({ eve, page, touch, relay }) => {
     await openProjectPageOnPhone(eve, page);
+    const since = relay.mark();
     await touch.swipe(row(page, 'Alpha notes'), { dx: -120, dy: 0 });
     await page.getByRole('button', { name: 'Delete Alpha notes' }).click();
     const dialog = page.getByRole('dialog', { name: 'Confirm Deletion' });
@@ -177,7 +193,9 @@ test.describe('threads on a phone', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toBeHidden();
     await expect(row(page, 'Alpha notes')).toBeVisible();
-    expect(await sessionNames(relay)).toContain('Alpha notes');
+    // The swiped row stays open and a tap on it only closes it, so the thread opens from the Agents list.
+    await page.getByRole('button', { name: 'Alpha notes', exact: true }).filter({ hasText: 'idle' }).click();
+    await expectNoDeleteSince(page, relay, since);
   });
 
   test('open a thread menu with a long press @G2.46', async ({ eve, page, touch }) => {

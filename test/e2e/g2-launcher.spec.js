@@ -99,13 +99,13 @@ test.describe('a project that allows one model', () => {
   test.use({ world: allowOne() });
 
   test('the model list shows only the allowed models @G2.6', async ({ eve, page, relay }) => {
+    const since = relay.mark();
     await openChatForm(eve, page);
+    await relay.waitForEvent('model.list', { since });
     const model = page.getByRole('combobox', { name: 'Model' });
     await expect(model.getByRole('option')).toHaveCount(1);
     await expect(model.getByRole('option', { name: /sonnet/i })).toBeAttached();
     await expect(model.getByRole('option', { name: /haiku/i })).toHaveCount(0);
-    const listed = await relay.waitForEvent('model.list');
-    expect(listed.event).toBe('model.list');
   });
 });
 

@@ -136,13 +136,23 @@ test.describe('threads from yesterday', () => {
   test('cancel the delete and the thread stays @G3.12.r1', async ({ eve, page, relay }) => {
     await eve.open('/');
     const launcher = await openResume(page);
+    const since = relay.mark();
     await launcher.getByRole('button', { name: 'Delete session Ledger' }).click();
     const confirm = page.getByRole('dialog', { name: 'Confirm Deletion' });
     await expect(confirm).toBeVisible();
     await confirm.getByRole('button', { name: 'Cancel' }).click();
     await expect(confirm).toBeHidden();
     await expect(launcher.getByRole('button', { name: 'Ledger', exact: true })).toBeVisible();
-    expect(await sessionIds(relay)).toEqual(['s_t1', 's_t2']);
+    // A Cancel sends nothing to relay, so a read now could pass before a delete arrived. The
+    // barrier: open the thread and send a message on the same socket, wait for relay's
+    // chat.turn, then no delete may be on record since the mark.
+    await launcher.getByRole('button', { name: 'Ledger', exact: true }).click();
+    const box = page.getByRole('textbox', { name: 'Type your message...' });
+    await expect(box).toBeEnabled();
+    await box.fill('after cancel from testbox');
+    await box.press('Enter');
+    await relay.waitForEvent('chat.turn', { since });
+    expect(await relay.logs({ event: 'session.delete', since })).toHaveLength(0);
   });
 
   test('get your open threads back after a reload @G3.14', async ({ eve, page }) => {

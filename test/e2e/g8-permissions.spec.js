@@ -44,7 +44,7 @@ test.describe('a gated tool', () => {
     await page.getByRole('button', { name: 'Allow All', exact: true }).click();
     await expect(prompt(page)).toBeHidden();
     await expect(page.getByText('echo: first from testbox')).toBeVisible();
-    const composer = page.getByRole('textbox', { name: 'Type yes/no or your response...' });
+    const composer = page.getByRole('textbox', { name: /^Type / });
     await composer.fill('second from testbox');
     await composer.press('Enter');
     await expect(page.getByText('echo: second from testbox')).toBeVisible();
