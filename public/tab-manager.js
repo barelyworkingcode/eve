@@ -321,7 +321,7 @@ class TabManager {
     this._activeProjectId = projectId;
 
     const active = this.tabs.find(t => t.id === this.activeTabId);
-    if (active && this._tabProjectId(active) === projectId) {
+    if (active && (panes.type(active.type)?.global || this._tabProjectId(active) === projectId)) {
       this.render();
       return;
     }
@@ -704,7 +704,7 @@ class TabManager {
     for (const tab of this.tabs) {
       if (tab._nestedIn) continue;
 
-      if (this._activeProjectId && this._tabProjectId(tab) !== this._activeProjectId) {
+      if (this._activeProjectId && !panes.type(tab.type)?.global && this._tabProjectId(tab) !== this._activeProjectId) {
         continue;
       }
 
