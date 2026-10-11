@@ -76,6 +76,25 @@ test.describe('with a microphone that hears speech, at a set speed', () => {
   });
 });
 
+// Waits: voice.tts.waitForRequest (first synth); Speaking... visible; the picker shows the choice; Listening... visible; voice.tts.waitForRequest on the speed.
+test.describe('with a microphone that hears speech, during a long reply', () => {
+  test.use({ mic: 'speech' });
+
+  test('a speed picked while a reply is spoken leaves the voice view listening again @G9.31', async ({ eve, page, relay, voice }) => {
+    test.slow();
+    await voice.tts.reply({ seconds: 5 });
+    await openVoiceView(eve, page, relay);
+    await voice.tts.waitForRequest(() => true);
+    await expect(page.getByText('Speaking...')).toBeVisible();
+    await page.getByRole('button', { name: 'Voice controls' }).click();
+    const picker = page.getByRole('combobox', { name: 'Playback speed', exact: true });
+    await picker.selectOption({ label: '1.25×' });
+    await expect(picker.getByRole('option', { name: '1.25×', selected: true })).toBeAttached();
+    await expect(page.getByText('Listening...')).toBeVisible({ timeout: 30000 });
+    await voice.tts.waitForRequest((r) => r.speed === 1.25);
+  });
+});
+
 // Waits: the voice view's button; the launch log holds only the thread's own launch.
 // Chief of Staff is off, so no background row-summary session is launched after the turn.
 test.describe('with Chief of Staff off', () => {
