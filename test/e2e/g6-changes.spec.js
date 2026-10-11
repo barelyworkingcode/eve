@@ -131,6 +131,7 @@ test.describe('repos with changes', () => {
     const diffView = page.getByRole('group', { name: 'Diff view' });
     await expect(diffView).toBeVisible();
     await expect(diffView.getByRole('button', { name: 'Ask about this', exact: true })).toBeEnabled();
+    await expect(page.getByRole('main').getByText('one changed')).toBeVisible();
     await relay.waitForEvent('fakerelay.watch', { match: (l) => l.status === 'ok' });
     const since = relay.mark();
     const write = await relay.ctl('fs-write', '--project', 'p_acme', '--path', 'alpha/a.txt', '--content', 'agentedit\n');
