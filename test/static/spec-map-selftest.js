@@ -278,6 +278,41 @@ it('check-coverage.js reports an M2 finding from a fixture', () => {
   assert.match(r.stdout, /z\.spec\.js: rows G9\.1 resolve to no area/, r.stdout + r.stderr);
 });
 
+function coverageRun(iosRows) {
+  const repo = fixture();
+  // Every live row is `none yet` under a pending goal, so only the iOS file can produce a finding.
+  repo.write('docs/FEATURES.md', featuresMd({ goals: BASE_GOALS, rows: BASE_ROWS.map(([id]) => [id, 'none yet']) }));
+  repo.write('test/e2e/coverage-pending.txt', 'G1 #1\nG2 #1\nG3 #1\n');
+  repo.write('docs/FEATURES-iOS.md', '# eve feature map: iOS app only\n\n| ID | Action | Simple door | Power door | Screen proof | Relay proof | Refusals | Journey | Spec |\n|---|---|---|---|---|---|---|---|---|\n' + iosRows);
+  repo.write('test/static/frozen.json', JSON.stringify({ journeys: [] }));
+  repo.commit();
+  return spawnSync(process.execPath, [path.join(repo.dir, 'scripts/check-coverage.js')], { cwd: repo.dir, env: cleanEnv(), encoding: 'utf8' });
+}
+const iosRow = (id, door = 'iOS app > Voice view', power = 'none', spec = 'none yet: iOS app only (relayClient#3)') =>
+  `| ${id} | act | ${door} | ${power} | screen | none | none | none | ${spec} |\n`;
+
+it('check-coverage.js fails an iOS-file row with a web door', () => {
+  const r = coverageRun(iosRow('G9.22', 'Terminal > textbox "Terminal input"'));
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^G9\.22: docs\/FEATURES-iOS\.md holds only rows with no web door/m, r.stdout);
+});
+
+it('check-coverage.js fails an iOS-file row with a spec, a power door, or a live twin', () => {
+  const r = coverageRun(iosRow('G9.22', 'iOS app > Voice view', 'config key', 'z.spec.js') + iosRow('G1.1') + iosRow('G1.1.r2') + iosRow('G7.1.r1') + iosRow('X1'));
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^G9\.22: .*Power door "config key"/m, r.stdout);
+  assert.match(r.stdout, /^G9\.22: .*Spec "z\.spec\.js"/m, r.stdout);
+  assert.match(r.stdout, /^G1\.1: .*live in docs\/FEATURES\.md/m, r.stdout);
+  assert.match(r.stdout, /^G7\.1\.r1: .*parent G7\.1 is not a live row/m, r.stdout);
+  assert.match(r.stdout, /^X1: .*not of the form/m, r.stdout);
+  assert.doesNotMatch(r.stdout, /^G1\.1\.r2:/m, r.stdout);
+});
+
+it('check-coverage.js passes a clean iOS file', () => {
+  const r = coverageRun(iosRow('G9.22') + iosRow('G9.25', 'n/a: background', 'n/a: background') + iosRow('G1.1.r2'));
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+});
+
 // ---- map rules, in process ----
 
 const AREA_MAP = (extra = {}, quiet = ['**/*.md']) => parseMap(JSON.stringify({

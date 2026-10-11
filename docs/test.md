@@ -283,7 +283,7 @@ Guards 9 (burn-in), 7, 8 and 12 are the CI burn-in step and E5, E3 and E4. A del
 
 ## Coverage
 
-`npm run check:coverage` (`scripts/check-coverage.js`) ties `docs/FEATURES.md` to the specs. It reads the row tables, "Retired IDs", `test/e2e/coverage-pending.txt`, the tests from `npx playwright test --list --reporter=json` (no global setup, no browser) and the journey ids in `frozen.json`. One finding per line, `<ID or file>: <what>`; exit 0, 1 or 2 as above. `docs/FEATURES-iOS.md` is out of scope: its rows are not counted, and the check fails a row there whose Simple door does not start with "iOS app" (or is not "n/a: background").
+`npm run check:coverage` (`scripts/check-coverage.js`) ties `docs/FEATURES.md` to the specs. It reads the row tables, "Retired IDs", `test/e2e/coverage-pending.txt`, the tests from `npx playwright test --list --reporter=json` (no global setup, no browser) and the journey ids in `frozen.json`. One finding per line, `<ID or file>: <what>`; exit 0, 1 or 2 as above. `docs/FEATURES-iOS.md` is out of scope: its rows are not counted, and the check fails a row there whose Simple door neither starts with "iOS app" nor is "n/a: background", whose Power door is not `none` or `n/a...`, whose Spec does not start with `none yet`, or whose ID is malformed or also live in `docs/FEATURES.md` (a `G<n>.<n>.r<k>` refusal entry needs a live parent).
 
 A test names its row in its title: `test('greeting and summary line @G1.3', …)`. A refusal is `@G1.3.r1`. The Spec cell grammar is in `docs/FEATURES.md`, "How to read a row".
 
