@@ -23,7 +23,7 @@ const RESTART_TIMEOUT_MS = 60000;
 const OWNER_RESET_WAIT_MS = 30000;
 const OWNER_FILES = ['auth.json', 'sessions.json'];
 const RELAY_AUDIT_TAIL = '500';
-const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen] [--only ID[,ID...]]';
+const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR | --epic REF] [--screen] [--only ID[,ID...]]';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function scrub(s, home) {
@@ -55,11 +55,24 @@ function usageError(msg) {
   return Object.assign(new Error(msg), { usage: true });
 }
 
+const EPIC_REF = /^(?:([\w.-]+\/[\w.-]+)#)?([1-9]\d*)$/;
+
+function parseEpicRef(ref) {
+  const m = EPIC_REF.exec(ref);
+  if (!m) throw usageError(`--epic needs N or owner/repo#N, got ${ref}`);
+  return { repo: m[1] || null, number: Number(m[2]) };
+}
+
+// The default branch's head on GitHub is what a full run must have checked out.
+function mainHeadProblem({ head, branch, remoteHead }) {
+  return head === remoteHead ? null : `checkout HEAD ${head} is not ${branch} head ${remoteHead} on GitHub`;
+}
+
 function parseArgs(argv, { toolRoot }) {
   const opts = {
-    checkout: toolRoot, url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false, only: null,
+    checkout: toolRoot, url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false, only: null, epic: null,
   };
-  const names = new Set(['checkout', 'url', 'service', 'post', 'only']);
+  const names = new Set(['checkout', 'url', 'service', 'post', 'only', 'epic']);
   for (let i = 0; i < argv.length; i++) {
     const m = /^--([a-z]+)(?:=(.*))?$/.exec(argv[i]);
     if (m && m[1] === 'screen') {
@@ -71,6 +84,12 @@ function parseArgs(argv, { toolRoot }) {
     const value = m[2] !== undefined ? m[2] : argv[++i];
     if (value === undefined || value === '') throw usageError(`--${m[1]} needs a value`);
     opts[m[1]] = value;
+  }
+  if (opts.epic !== null) {
+    if (opts.post !== null) throw usageError('--epic posts its own status; drop --post');
+    if (opts.only !== null) throw usageError('--epic runs every journey; drop --only');
+    opts.epic = parseEpicRef(opts.epic);
+    opts.screen = true;
   }
   if (opts.only !== null) {
     opts.only = opts.only.split(',').map(id => id.trim());
@@ -738,7 +757,7 @@ async function run(argv) {
     return 2;
   }
   const recordHead = await git(opts.checkout, 'rev-parse', 'HEAD').catch(() => '');
-  record = openRunRecord({ dir: runRecordDir(process.env, home), startedAtMs, head: recordHead, argv, home, post: opts.post !== null });
+  record = openRunRecord({ dir: runRecordDir(process.env, home), startedAtMs, head: recordHead, argv, home, post: opts.post !== null || opts.epic !== null });
   let code, thrown;
   try {
     emit('SELECTION', ...selectionLine(selection));
@@ -775,7 +794,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
   const anonymous = new EveApi(base);
   const relayBin = process.env.RELAY_BIN || '/Applications/Relay.app/Contents/MacOS/relay';
   const lsEnv = { env: { ...process.env, LC_ALL: 'C' } };
-  let head, pid, cwd, liveCwd, listOut, dataDir, projects, worldCounts, repair;
+  let head, epicMain, pid, cwd, liveCwd, listOut, dataDir, projects, worldCounts, repair;
   let cosSetup = { projectId: '', problem: '' };
   const eveLog = serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`));
 
@@ -784,6 +803,13 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
     ['tree', async () => {
       if (await git(checkout, 'status', '--porcelain', '--untracked-files=no')) throw new Error('tracked files are modified; commit or reset them');
       return 'clean';
+    }],
+    ['main', async () => {
+      const { slug, branch, head: remoteHead } = await require('./post').defaultBranchHead({ cwd: toolRoot });
+      const problem = mainHeadProblem({ head, branch, remoteHead });
+      if (problem) throw new Error(problem);
+      epicMain = { slug, head };
+      return `${slug}@${head}`;
     }],
     ['service', async () => {
       listOut = await exec(relayBin, ['service', 'list']);
@@ -897,6 +923,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
   ];
   for (const [name, check] of checks) {
     if (name === 'pr' && !opts.post) continue;
+    if (name === 'main' && !opts.epic) continue;
     try {
       emit('PREFLIGHT', name, 'OK', await check());
     } catch (err) {
@@ -1025,11 +1052,25 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
       return 2;
     }
   }
+  if (opts.epic) {
+    const { postFull, fullState, fullDescription, FULL_CONTEXT } = require('./post');
+    try {
+      const total = journeys.length;
+      const { state } = await postFull({ ...epicMain, epic: opts.epic, results, total }, { cwd: toolRoot });
+      runRecord.posted({ state, description: fullDescription(results, total), url: `${epicMain.slug}@${epicMain.head}` });
+      emit('POSTED', state, FULL_CONTEXT);
+      return fullState(results, total) === 'success' ? exitCode : 1;
+    } catch (err) {
+      runRecord.posted({ error: firstLine(err) });
+      log(`post failed: ${firstLine(err)}`);
+      return 2;
+    }
+  }
   return exitCode;
 }
 
 module.exports = {
-  scrub, writeHeartbeat, runRecordDir, openRunRecord, formatLine, parseArgs, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
+  scrub, writeHeartbeat, runRecordDir, openRunRecord, formatLine, parseArgs, parseEpicRef, mainHeadProblem, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
   relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,

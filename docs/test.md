@@ -13,7 +13,7 @@ Eve's hermetic suite is Playwright. Each test starts its own `fakerelay` (relay'
 | `npm ci` | CI job `check` | the lockfile installs |
 | PR guards | CI workflow `guards` (`scripts/ci-guards.sh`) | tests-only, skip-focus and hygiene |
 | `npx playwright test` | CI job `e2e` (on a PR the specs its change reaches, see "Test selection"; every spec on a push to `main`); the hermetic suite (this guide) | eve against fakerelay, one stack per test |
-| Devbox world | `npm run -s verify:devbox`; the `devbox/verify` status check on PRs | journeys against the installed stack on the test machine; unchanged, see `devboxverify/README.md` |
+| Devbox world | `npm run -s verify:devbox`; `devboxverify --epic REF` posts `devbox/verify-full` once per epic | journeys against the installed stack on the test machine; unchanged, see `devboxverify/README.md` |
 
 ## Local hooks
 
