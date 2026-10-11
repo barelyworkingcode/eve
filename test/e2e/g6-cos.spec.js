@@ -98,7 +98,8 @@ test.describe('an agent that needs me', () => {
     await expect(rail.getByRole('button', { name: 'Ledger', exact: true })).toContainText('Acme · Idle');
     const sessions = (await relay.json('ctl', 'state', '--json')).sessions;
     // The Chief of Staff's own model sessions are unlisted (`__cos:`) and not agents.
-    expect(sessions.map((s) => s.name).filter((n) => !n.startsWith('__')).sort()).toEqual(['Hold', 'Ledger']);
+    const seeded = cosWorld().sessions.map((s) => s.name).sort();
+    expect(sessions.map((s) => s.name).filter((n) => !n.startsWith('__')).sort()).toEqual(seeded);
   });
 
   test('see the agent that asked in a post @G6.45', async ({ eve, page }) => {
