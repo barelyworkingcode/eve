@@ -47,8 +47,9 @@ test.describe('with a microphone that hears speech', () => {
   test.use({ mic: 'speech' });
 
   test('the voice picked in the drawer reads the spoken reply @G9.30', async ({ eve, page, relay, voice }) => {
-    // A one-second reply, so hands-free detection resumes and a later utterance goes out with the new choice.
-    await voice.tts.reply({ seconds: 1 });
+    // Every action is slow under CI load; a short reply lets hands-free detection resume so a later utterance goes out with the new choice.
+    test.slow();
+    await voice.tts.reply({ seconds: 0.1 });
     await openVoiceView(eve, page, relay);
     await page.getByRole('button', { name: 'Voice controls' }).click();
     const picker = page.getByRole('combobox', { name: 'Voice', exact: true });
@@ -63,8 +64,9 @@ test.describe('with a microphone that hears speech, at a set speed', () => {
   test.use({ mic: 'speech' });
 
   test('the speed picked in the drawer reads the spoken reply @G9.31', async ({ eve, page, relay, voice }) => {
-    // A one-second reply, so hands-free detection resumes and a later utterance goes out with the new choice.
-    await voice.tts.reply({ seconds: 1 });
+    // Every action is slow under CI load; a short reply lets hands-free detection resume so a later utterance goes out with the new choice.
+    test.slow();
+    await voice.tts.reply({ seconds: 0.1 });
     await openVoiceView(eve, page, relay);
     await page.getByRole('button', { name: 'Voice controls' }).click();
     const picker = page.getByRole('combobox', { name: 'Playback speed', exact: true });
