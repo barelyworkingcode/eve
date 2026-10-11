@@ -226,6 +226,25 @@ The voice view is the full-screen orb view a Voice tile or `#/voice-chat` opens,
 - Dragging a finger on the terminal scrolls its history. Target a visible echoed line.
 - Chromium has no soft keyboard, haptics, screen lock or native audio. Rows that need them are not testable here.
 
+#### Changes rows
+
+The Changes tab and the diff pane (a file row opens the diff).
+
+- A world repo is `projects[].repos[]` with `files` laid over it (see World keys). The repo has one branch, nothing staged and nothing deleted. On `main`, "vs base" lists the same files as "Uncommitted".
+- Git failures are faults on the literal route `POST /api/projects/{id}/files/git` (type `{id}` as written, it matches every project). Add one through `relay.ctl('fault', 'add', ...)` before the action that loads the list (see `relay.ctl` and faults):
+
+| Screen shows | Fault flags |
+|---|---|
+| "Git is not installed on this machine." (the note replaces the list) | `--mode error --status 500 --body '{"error":"file operation failed","code":"GIT_MISSING"}'` |
+| "git timed out" | `--mode error --name TIMEOUT` |
+| "Too many changes to list" | `--mode error --status 413 --body '{"error":"File too large","code":"TOO_LARGE"}'` |
+| "internal error" (relay's own reason) | `--mode error --name ERROR` |
+
+- An agent's edit while the tab is open: `await relay.ctl('fs-write', '--project', P, '--path', REL, '--content', TEXT)` writes the file as a process outside relay would. It answers `{path, kind, delivered}` once the `fs_event` is on the wire, so the page has been told by then; wait for the row on screen, never a duration. `kind` is `rename` for a new file, else `change`. Parent folders must already exist (a missing one is `ENOENT`).
+- The diff opens side by side at 768 px wide and wider, inline below that.
+- Diff-ready signal: the button "Ask about this" is disabled until the diff is computed, and enabled once it is. It stays disabled for a diff with no line changes and is hidden for a binary file, a too-large file and a host project, so wait on it only for a text change.
+- Limits: a file over 2 MiB (in world `files`) shows "File too large to diff". A text diff over 256 KB opens, but "Ask about this" answers "That's too large to attach (over 256 KB)."
+
 #### Request shapes a spec can match on
 
 Each entry in `voice.tts.requests` and `voice.stt.requests` is the parsed JSON object eve sent, with eve's field names. `ping` requests are not recorded.
