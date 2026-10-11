@@ -33,18 +33,27 @@ async function startFromTodayTile(page) {
   await page.getByRole('button', { name: 'Start Voice Chat' }).click();
 }
 
-async function expectVoiceView(page) {
-  await expect(page.getByRole('button', { name: 'Hold to record' })).toBeVisible();
-  await expect(page.getByText('Listening...')).toBeVisible();
+// The chat is open in Hands-free: the radio is checked and the status listens. The removed
+// full-screen view leaves no "End session" button and no "Hold to record" button behind.
+async function expectHandsFree(page) {
+  await expect(page.getByRole('radiogroup', { name: 'Voice mode' }).getByRole('radio', { name: 'Hands-free' })).toBeChecked();
+  await expect(page.getByRole('status', { name: 'Voice status' }).getByText('Listening…')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'End session' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Hold to record' })).toHaveCount(0);
 }
 
-// Waits: the voice view's button "Hold to record", then the VAD's "Listening...", then session.launch.
-test('the Today Voice tile starts a voice chat and the view listens @G9.1', async ({ eve, page, relay }) => {
+// No chat opened: no mode radios and no voice status.
+async function expectNoChat(page) {
+  await expect(page.getByRole('radiogroup', { name: 'Voice mode' })).toHaveCount(0);
+  await expect(page.getByRole('status', { name: 'Voice status' })).toHaveCount(0);
+}
+
+// Waits: the radio checked, then the status "Listening…", then session.launch.
+test('the Today Voice tile starts a voice chat in Hands-free @G9.1', async ({ eve, page, relay }) => {
   await eve.open('/');
   const since = await relay.mark();
   await startFromTodayTile(page);
-  await expectVoiceView(page);
-  await expect(page.getByRole('button', { name: 'End session' })).toBeVisible();
+  await expectHandsFree(page);
   await relay.waitForEvent('session.launch', { since });
 });
 
@@ -57,12 +66,12 @@ test.describe('a project that allows no model', () => {
     })(),
   });
 
-  // Waits: the toast text; the voice view never shows.
+  // Waits: the toast text; no chat opens.
   test('no model picked: the Today Voice tile refuses with a toast @G9.1.r1', async ({ eve, page }) => {
     await eve.open('/');
     await startFromTodayTile(page);
     await expect(page.getByText(/^Pick a model for "Voice - .*" before starting a chat\.$/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Hold to record' })).toHaveCount(0);
+    await expectNoChat(page);
   });
 
   test('no model picked: the Launcher Voice Chat card refuses with a toast @G9.2.r1', async ({ eve, page }) => {
@@ -71,47 +80,30 @@ test.describe('a project that allows no model', () => {
     await page.getByRole('button', { name: 'Voice Chat' }).click();
     await page.getByRole('button', { name: 'Start Voice Chat' }).click();
     await expect(page.getByText(/^Pick a model for "Voice - .*" before starting a chat\.$/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Hold to record' })).toHaveCount(0);
+    await expectNoChat(page);
   });
 });
 
-// Waits: the Launcher's button "Start Voice Chat", the voice view, session.launch.
-test('the Launcher Voice Chat card starts a voice chat @G9.2', async ({ eve, page, relay }) => {
+// Waits: the Launcher's button "Start Voice Chat", the radio and status, session.launch.
+test('the Launcher Voice Chat card starts a voice chat in Hands-free @G9.2', async ({ eve, page, relay }) => {
   await eve.open('/');
   const since = await relay.mark();
   await page.getByRole('button', { name: 'New Session' }).click();
   await page.getByRole('button', { name: 'Voice Chat' }).click();
   await page.getByRole('button', { name: 'Start Voice Chat' }).click();
-  await expectVoiceView(page);
+  await expectHandsFree(page);
   await relay.waitForEvent('session.launch', { since });
-});
-
-// Waits: the tab goes after End session; the link then shows the voice view again, and only the first
-// launch is logged. This world has no voice preset, so a new launch would toast instead of showing the view.
-// A voice thread that is on screen has no test of its own: with the view already up, the link changes nothing to see.
-test('the deep link reuses a recent voice thread after its tab is closed @G9.3', async ({ eve, page, relay }) => {
-  await eve.open('/');
-  const since = await relay.mark();
-  await startFromTodayTile(page);
-  await expectVoiceView(page);
-  await relay.waitForEvent('session.launch', { since });
-  await page.getByRole('button', { name: 'End session' }).click();
-  await expect(page.getByRole('button', { name: 'Hold to record' })).toHaveCount(0);
-
-  await eve.open('/#/voice-chat');
-  await expectVoiceView(page);
-  expect(await relay.logs({ event: 'session.launch', since })).toHaveLength(1);
 });
 
 test.describe('a Work voice preset and a default project', () => {
   test.use({ world: voiceWorld() });
 
-  // Waits: the voice view, then session.launch from the link.
-  test('the deep link starts the Work voice preset @G9.4', async ({ eve, page, relay }) => {
+  // Waits: the Hands-free radio and status, then session.launch from the link.
+  test('the deep link starts the Work voice preset in Hands-free @G9.4', async ({ eve, page, relay }) => {
     await eve.open('/');
     const since = await relay.mark();
     await eve.open('/#/voice-chat');
-    await expectVoiceView(page);
+    await expectHandsFree(page);
     const launch = await relay.waitForEvent('session.launch', { since, match: (l) => l.status === 'ok' });
     await expect(page.getByRole('tab', { name: /Voice/ })).toBeVisible();
     const made = (await relay.json('ctl', 'state', '--json')).sessions.find((s) => s.id === launch.session_id);
@@ -122,11 +114,11 @@ test.describe('a Work voice preset and a default project', () => {
     await eve.open('/');
     const since = await relay.mark();
     await eve.open('/#/voice-chat');
-    await expectVoiceView(page);
+    await expectHandsFree(page);
     const launch = await relay.waitForEvent('session.launch', { since, match: (l) => l.status === 'ok' });
     // A second press reuses the recent voice thread.
     await eve.open('/#/voice-chat');
-    await expectVoiceView(page);
+    await expectHandsFree(page);
     expect(await relay.logs({ event: 'session.launch', since })).toHaveLength(1);
     // The same thread: one Voice tab and one session, not a second of either.
     await expect(page.getByRole('tab', { name: /Voice/ })).toHaveCount(1);
@@ -162,14 +154,14 @@ function homeVoiceWorld() {
 test.describe('a Home voice preset and a Home default project', () => {
   test.use({ world: homeVoiceWorld() });
 
-  // Waits: the radio checked, the voice view, then session.launch from the link.
+  // Waits: the radio checked, the Hands-free radio and status, then session.launch from the link.
   test('the deep link in Home mode starts the Home voice preset @G9.4', async ({ eve, page, relay }) => {
     await eve.open('/');
     await page.getByRole('radio', { name: 'Home' }).click();
     await expect(page.getByRole('radio', { name: 'Home' })).toBeChecked();
     const since = await relay.mark();
     await eve.open('/#/voice-chat');
-    await expect(page.getByRole('button', { name: 'Hold to record' })).toBeVisible();
+    await expectHandsFree(page);
     const launch = await relay.waitForEvent('session.launch', { since, match: (l) => l.status === 'ok' });
     const made = (await relay.json('ctl', 'state', '--json')).sessions.find((s) => s.id === launch.session_id);
     expect(made.model).toBe('opus');
@@ -187,18 +179,18 @@ test.describe('a default project but no voice preset', () => {
     // The Launcher opens on its Voice Chat form instead.
     await expect(page.getByRole('heading', { name: 'Shell Launcher' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start Voice Chat' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Hold to record' })).toHaveCount(0);
+    await expectNoChat(page);
   });
 });
 
 test.describe('no default project', () => {
   test.use({ world: voiceWorld({ defaultProject: false }) });
 
-  // Waits: the toast text; the voice view never shows.
-  test('no default project: a toast and no voice view @G9.6 @G9.6.r1 @G15.2.r1', async ({ eve, page }) => {
+  // Waits: the toast text; no chat opens.
+  test('no default project: a toast and no chat @G9.6 @G9.6.r1 @G15.2.r1', async ({ eve, page }) => {
     await eve.open('/');
     await eve.open('/#/voice-chat');
     await expect(page.getByText('Set a default Work project in Relay to use the Action Button.')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Hold to record' })).toHaveCount(0);
+    await expectNoChat(page);
   });
 });
