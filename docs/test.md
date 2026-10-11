@@ -63,6 +63,7 @@ Options, set with `test.use`:
 | `plansDir` | `'agent'` | `'agent'` sets `EVE_PLANS_DIR` to fakerelay's plans dir (`<relay dir>/home/.claude/plans`), where `plan` replies write. `'eve'` leaves it unset, so eve uses its own default (a plan written on another machine). |
 | `eveSettings` | `null` | An object written as eve's `data/settings.json` before eve starts, e.g. `{ voice: { handsFreeReminderSeconds: 5 } }` or `{ chiefOfStaff: {...} }`. `null` writes no file. |
 | `mic` | `'beep'` | What the page hears when it opens the microphone. `'beep'` is Chromium's own fake device. `'silence'` and `'speech'` replace the audio of `getUserMedia` with a looping WAV generated in code (`test/e2e/support/mic-audio.js`, no audio file in the repo): one second of silence, or 2.5 s of synthetic speech-like audio (a pulse train through moving vowel formants) followed by five seconds of silence, repeating. |
+| `micBlocked` | `false` | `true` makes `getUserMedia` with audio reject with a `DOMException` named `NotAllowedError`, as when a person denies the browser prompt. It wins over `mic`. Video requests pass through. |
 
 `worlds.media.webm()` and `worlds.media.wav()` return `{ base64 }`, a world file value of about 1 s that plays in Playwright's Chromium: `files: { 'clip.webm': worlds.media.webm() }`.
 
@@ -208,7 +209,7 @@ The voice view is the full-screen orb view a Voice tile or `#/voice-chat` opens,
 - The orb is image 'Voice orb'. It records only in Push-to-talk; press it with `hover()` then `page.mouse.down()`.
 - A voice-view row that needs no speech uses `mic: 'silence'`, so the VAD never fires. A row that needs a heard sentence uses `mic: 'speech'`.
 - Inject an engine error with `voice.stt.reply({ error })` or `voice.tts.reply({ error })` before the action. The expected text comes from the row.
-- A blocked microphone cannot be made: the suite's launch flags accept every prompt.
+- A blocked microphone: `test.use({ micBlocked: true })`. The launch flags accept every real prompt, so the fixture rejects the call instead.
 
 #### Layout rows
 
