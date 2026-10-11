@@ -66,7 +66,7 @@ test.describe('a terminal on the host', () => {
     await expect(launcher.getByText('Sessions and terminals open on testbox.')).toBeVisible();
     await launcher.getByRole('button', { name: 'Shell', exact: true }).click();
     await expect(launcher).toBeHidden();
-    await expect(page.getByRole('tab', { name: /testbox/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'testbox · Remote - Shell', exact: true })).toBeVisible();
     await relay.waitForEvent('session.launch', { match: (l) => l.status === 'ok' && l.kind === 'terminal' });
     expect((await state(relay)).terminals).toHaveLength(1);
   });

@@ -54,6 +54,7 @@ test.describe('a host project with a changed file', () => {
     const down = await relay.ctl('host', 'status', '--id', 'h_box', '--status', 'unreachable', '--error', 'ssh could not connect');
     expect(down.code).toBe(0);
     await expect(page.getByText('Host unreachable. Showing the last known changes.')).toBeVisible();
+    await expect(modified(page)).toBeVisible();
   });
 
   test('git missing on the host says so @G13.13.r2', async ({ eve, relay, page }) => {

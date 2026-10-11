@@ -124,4 +124,17 @@ test.describe('the host bar', () => {
     await expect(main.getByText('testbox', { exact: true })).toBeVisible();
     await expect(main.getByRole('button', { name: 'Acme' }).getByText('testbox')).toBeHidden();
   });
+
+  test('the palette names the host beside the project @G13.7', async ({ eve, page }) => {
+    await eve.open('/');
+    await page.keyboard.press('Control+K');
+    const box = page.getByRole('textbox', { name: 'Jump to a session, project, file or action…' });
+    await expect(box).toBeVisible();
+    await box.fill('Remote');
+    await expect(page.getByRole('option', { name: 'Remote', exact: true })).toContainText('testbox');
+    await box.clear();
+    await box.fill('Acme');
+    await expect(page.getByRole('option', { name: 'Acme', exact: true })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Acme', exact: true }).getByText('testbox')).toHaveCount(0);
+  });
 });
