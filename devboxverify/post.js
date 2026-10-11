@@ -118,4 +118,53 @@ async function post(ev, { cwd }) {
   return commentUrl;
 }
 
-module.exports = { statusState, renderComment, checkSelection, statusDescription, commentUrlFrom, gh, prHead, post };
+const FULL_CONTEXT = 'devbox/verify-full';
+const SHA40 = /^[0-9a-f]{40}$/;
+
+// Success needs every journey reported: a short or empty run is not a full run.
+function fullState(results, total) {
+  const c = countStates(results);
+  if (total > 0 && results.length === total && c.FAIL === 0 && c.BLOCKED === 0) return 'success';
+  return c.FAIL > 0 ? 'failure' : 'error';
+}
+
+function fullDescription(results, total) {
+  const c = countStates(results);
+  return `full ${results.length}/${total} pass=${c.PASS} fail=${c.FAIL} blocked=${c.BLOCKED} notrun=${c.NOTRUN}`.slice(0, DESCRIPTION_MAX);
+}
+
+function fullVerifyLine(slug, sha) {
+  if (!SHA40.test(sha)) throw new Error(`full verify: not a 40-hex sha: ${sha}`);
+  return `Full verify: ${slug}@${sha}`;
+}
+
+// Explicit slug and branch: the full run is graded against the repo's default branch, not the cwd's remote guess.
+async function defaultBranchHead({ cwd, ghFn = gh }) {
+  const repo = JSON.parse(await ghFn(['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'], { cwd }));
+  const slug = repo.nameWithOwner;
+  const branch = repo.defaultBranchRef && repo.defaultBranchRef.name;
+  if (!slug || !branch) throw new Error('gh repo view named no repository or default branch');
+  const head = await ghFn(['api', `repos/${slug}/commits/${branch}`, '-q', '.sha'], { cwd });
+  if (!SHA40.test(head)) throw new Error(`GitHub returned no 40-hex head for ${slug} ${branch}`);
+  return { slug, branch, head };
+}
+
+// Status first, awaited; the comment only follows a success status.
+async function postFull({ slug, head, epic, results, total }, { cwd, ghFn = gh }) {
+  const state = fullState(results, total);
+  await ghFn([
+    'api', '-X', 'POST', `repos/${slug}/statuses/${head}`,
+    '-f', `state=${state}`,
+    '-f', `context=${FULL_CONTEXT}`,
+    '-f', `description=${fullDescription(results, total)}`,
+  ], { cwd });
+  if (state !== 'success') return { state, commented: false };
+  await ghFn(['issue', 'comment', String(epic.number), '-R', epic.repo || slug, '--body-file', '-'],
+    { cwd, stdin: fullVerifyLine(slug, head) + '\n' });
+  return { state, commented: true };
+}
+
+module.exports = {
+  statusState, renderComment, checkSelection, statusDescription, commentUrlFrom, gh, prHead, post,
+  FULL_CONTEXT, fullState, fullDescription, fullVerifyLine, defaultBranchHead, postFull,
+};

@@ -9,7 +9,7 @@ The test model is Claude Haiku 5.5: journeys and the Chief of Staff launch
 the alias `haiku`, and assert the full id `claude-haiku-5-5`.
 
 ```bash
-node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR] [--screen] [--only ID[,ID...]]
+node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR | --epic REF] [--screen] [--only ID[,ID...]]
 npm run -s verify:devbox -- [flags]
 ```
 
@@ -21,6 +21,7 @@ Keep `-s` on the npm form. npm's banner would break the stdout grammar.
 | `--url` | `http://localhost:3100`; must be `http:`, `localhost` or `127.0.0.1`, with a port |
 | `--service` | `eve-verify` |
 | `--post` | none; a PR number. Selects journeys by the areas the PR touches; see "Selection" |
+| `--epic` | none; `N` or `owner/repo#N`, the epic issue that gets the `Full verify` line. Runs every journey, screen journeys included, and posts `devbox/verify-full`; see "Verifying an epic". Cannot be combined with `--post` or `--only` |
 | `--screen` | off; runs the journeys that drive the real screen (no value) |
 | `--only` | all journeys; comma-separated journey ids (or `--only=a,b`). Fixture journeys (owner sign-in) always run. An unknown id exits 2 before the lock. Cannot be combined with `--post` |
 
@@ -71,6 +72,7 @@ TIMING journey <id> <ms>
 TIMING run <ms>
 SUMMARY pass=<n> fail=<n> blocked=<n> notrun=<n> [partial=only:<id,id>|partial=areas:<csv|none>]
 POSTED success|failure|error <comment URL>
+POSTED success|failure|error devbox/verify-full    (--epic)
 ```
 
 `SELECTION` is always the first line. See "Selection" for the fields.
@@ -97,8 +99,8 @@ failed write prints one `run record: <reason>` line on stderr, later writes
 are skipped, and the exit code, stdout and post are unchanged.
 
 Preflight runs in order and stops at the first FAIL: `machine`, `pin`,
-`fixtures`, `lock`, `head`, `tree`, `service`, `eve`, `live`, `pr` (only with
-`--post`), `browser`, `audio`, `bootstrap`, `world`, `owner`. Then the run
+`fixtures`, `lock`, `head`, `tree`, `main` (only with `--epic`), `service`, `eve`, `live`, `pr`
+(only with `--post`), `browser`, `audio`, `bootstrap`, `world`, `owner`. Then the run
 signs in and carries on:
 
 1. The fixture journeys `passkey-first-enrol` and `passkey-sign-in` run the
@@ -1464,31 +1466,41 @@ starts this run, as it does the Relay rebuild after a relay merge.
 4. Comment the `PHASE eve` and `SET` lines on the merged PR.
 5. Release the locks: `devlock release SCREEN RESTART WORLD --holder <you>`.
 
+A PR merged without a `devbox/verify` status triggers nothing here; the epic's full run covers it.
+
 A `SET` result other than `success` is red on `main`: revert the merge first,
 then fix on a branch.
 
-## Epic-end full regression
+## Verifying an epic
 
-When an epic's last child merges, run the full set on `main`:
+Eve's verify cadence is `epic`: PRs need no `devbox/verify` status, and the
+epic's last task runs one full eve run on `main`:
 
 ```
-node devboxverify/set.js --relay main --eve main
+node devboxverify/main.js --epic N
+node devboxverify/main.js --epic owner/repo#N
 ```
 
-There is no `--post`. For relay alone, use `node devboxverify/set.js --relay main`.
+- **Checkout:** run it from a clean eve-verify worktree (the `tree` rule:
+  tracked files only) at the head of eve's default branch. `PREFLIGHT main`
+  compares HEAD with the default-branch head on GitHub and names both shas
+  when they differ.
+- **Scope:** every journey, screen journeys included (`--epic` implies
+  `--screen`). `--epic` with `--post` or `--only` exits 2 with the usage line.
+- **Locks and console:** same as any run. Take devlock `SCREEN RESTART WORLD`
+  first, run from a desktop Terminal `.command` file that writes a done-file,
+  and wait on the file.
+- **Status:** `devbox/verify-full` on HEAD, posted first. `success` only when
+  every journey reported and none is FAIL or BLOCKED (NOTRUN is fine). The
+  description reads `full <n>/<total> pass=.. fail=.. blocked=.. notrun=..`.
+  A run that stops before the journeys (preflight, `api`, `RESET`) posts
+  nothing and exits 2.
+- **Comment:** only after a success status, one line on the issue REF names:
+  `Full verify: <owner>/<repo>@<sha40>`. A bare `N` is an issue in eve.
+- **Exit:** 0 posted and commented; 1 posted, not success; 2 usage, a failed
+  preflight, or a failed status or comment call. The last stdout line is
+  `POSTED<TAB><state><TAB>devbox/verify-full`.
 
-- **Environment:** `NIGHTLY_RELAY_CHECKOUT=<relay checkout>` and
-  `NIGHTLY_EVE_CHECKOUT=<eve-verify worktree>` are required. Read each from
-  the nightly plist with
-  `plutil -extract EnvironmentVariables.<VAR> raw <plist>`.
-- **Before you start:** unlock the devid keychain, and keep the console
-  logged in. The run refuses to start between 02:30 and 04:30 local. Take
-  devlock `SCREEN RESTART WORLD` first, with `--holder`, `--minutes`
-  (90 is enough) and `--reason`, and release it after the process exits.
-- **Cost:** Relay builds twice, once for the ref and once for the restore.
-  Run it from the main checkout and wait for the process to exit.
-- **Record:** put the `SET` line and each
-  `PHASE <label> <result> <sha12> <summary>` line in the epic's closing
-  comment.
-- **Outcome:** a `SET` other than `success` reopens work and does not close
-  the epic.
+For relay alone, or a relay and eve set, use `node devboxverify/set.js --relay main --eve main`
+as before: it has no `--post`, and its `SET` and `PHASE` lines go in the
+epic's closing comment.
