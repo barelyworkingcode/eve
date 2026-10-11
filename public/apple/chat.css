@@ -181,32 +181,14 @@
 .btn-mic--recording:hover { background: var(--danger); color: #fff; }
 .btn-mic--transcribing { background: var(--accent); color: #fff; }
 
-/* — Voice drawer ----------------------------------------------------------- */
-.voice-drawer__toggle { background: transparent; }
-.voice-drawer__toggle:hover { background: var(--bg-hover); }
-.voice-drawer__panel {
-  background: var(--material-bar);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  border-bottom: 0.5px solid var(--separator);
-}
-.voice-drawer__select {
-  height: 32px;
-}
 .btn-voice-mode { background: transparent; color: var(--text-secondary); }
 .btn-voice-mode:hover { background: var(--bg-hover); color: var(--accent); }
 .btn-voice-mode--active,
 .btn-voice-mode--active:hover { background: var(--accent); color: #fff; }
-.btn-voice-ui {
-  width: 36px; height: 36px;
-  background: transparent;
-  color: var(--text-secondary);
-}
-.btn-voice-ui:hover { background: var(--bg-hover); color: var(--accent); }
 
 /* Mobile: 44px touch targets for all composer controls. */
 @media (max-width: 1023.98px) {
-  .btn-attach, .btn-mic, .btn-send, .btn-stop, .btn-voice-mode, .btn-voice-ui {
+  .btn-attach, .btn-mic, .btn-send, .btn-stop, .btn-voice-mode {
     width: 44px; height: 44px;
   }
   .input-form textarea { min-height: 44px; border-radius: 22px; font-size: 16px; }

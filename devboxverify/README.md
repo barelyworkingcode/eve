@@ -317,14 +317,15 @@ beyond `ts`, `tool`, `outcome` and `allowed`.
 **voice-deep-link.** Acme Corp's launcher shows `World voice` with no
 "Action Button favorite" star. Edit Project → Templates marks `World voice`
 as Work's voice preset (`project-template-preset-work`) and Save keeps it.
-In Work, `#/voice-chat` on a new page shows the voice chat view within 30 s
-("End session", no text composer) and makes exactly one new Acme Corp
-session. A second `#/voice-chat` on another new page shows the voice view
-again within 30 s on that session (`#session/<id>`), with no new session.
+In Work, `#/voice-chat` on a new page opens the chat in Hands-free within 30 s
+(radio "Hands-free" checked, text starting "Listening" visible, no text
+composer) and makes exactly one new Acme Corp session. A second `#/voice-chat`
+on another new page shows the same within 30 s on that session
+(`#session/<id>`), with no new session.
 - Lives in: `#/voice-chat` → `public/app.js` (`_handleHashRoute`,
   `_findVoiceSession`, `_launchModeVoice`) → `public/core/mode-presets.js`
   (`forMode`, `resumable`) → `shellLauncher.launchTemplate` →
-  `public/voice-chat-manager.js`; the preset row in
+  `public/voice-modes.js` (`requestHandsFree*`); the preset row in
   `public/dialogs/project-dialog.js`.
 - Traps: BLOCKED without setup V1; FAIL without setup V2, naming it. The voice preset is
   the journey's one lasting write. A voice session from the last 30 minutes

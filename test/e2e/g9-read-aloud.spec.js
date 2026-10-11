@@ -19,6 +19,15 @@ test('have one reply read aloud @G9.35', async ({ eve, page, voice }) => {
   await expect(page.getByRole('button', { name: 'Stop speaking' })).toBeVisible();
 });
 
+// Waits: the TTS request that failed, then the caption text.
+test('a speech engine that is down says why @G9.35.r1', async ({ eve, page, voice }) => {
+  voice.tts.reply({ error: 'engine down' });
+  await startThreadWithReply(eve, page);
+  await page.getByRole('button', { name: 'Read aloud' }).click();
+  await voice.tts.waitForRequest((r) => JSON.stringify(r).includes(QUESTION));
+  await expect(page.getByText('TTS error: Speech synthesis failed')).toBeVisible();
+});
+
 test('stop a reply that is being read aloud @G9.36', async ({ eve, page, voice }) => {
   await startThreadWithReply(eve, page);
   await page.getByRole('button', { name: 'Read aloud' }).click();

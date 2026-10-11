@@ -67,8 +67,6 @@ select,
 .dialog__select,
 .dialog__model-select,
 .search-dialog__model-select,
-.voice-drawer__select,
-.voice-chat__voice-select,
 #taskScheduleConfig select {
   appearance: none;
   -webkit-appearance: none;
@@ -117,8 +115,6 @@ select,
   .dialog__select,
   .dialog__model-select,
   .search-dialog__model-select,
-  .voice-drawer__select,
-  .voice-chat__voice-select,
   #taskScheduleConfig select {
     background-image:
       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23f5f5f7' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
@@ -131,8 +127,6 @@ html[data-theme="dark"] .model-select-row select,
 html[data-theme="dark"] .dialog__select,
 html[data-theme="dark"] .dialog__model-select,
 html[data-theme="dark"] .search-dialog__model-select,
-html[data-theme="dark"] .voice-drawer__select,
-html[data-theme="dark"] .voice-chat__voice-select,
 html[data-theme="dark"] #taskScheduleConfig select {
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23f5f5f7' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
@@ -144,8 +138,6 @@ html[data-theme="light"] .model-select-row select,
 html[data-theme="light"] .dialog__select,
 html[data-theme="light"] .dialog__model-select,
 html[data-theme="light"] .search-dialog__model-select,
-html[data-theme="light"] .voice-drawer__select,
-html[data-theme="light"] .voice-chat__voice-select,
 html[data-theme="light"] #taskScheduleConfig select {
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%231d1d1f' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
@@ -158,8 +150,6 @@ select:hover,
 .dialog__select:hover,
 .dialog__model-select:hover,
 .search-dialog__model-select:hover,
-.voice-drawer__select:hover,
-.voice-chat__voice-select:hover,
 #taskScheduleConfig select:hover {
   border-color: var(--border-strong);
 }
@@ -171,8 +161,6 @@ select:focus,
 .dialog__select:focus,
 .dialog__model-select:focus,
 .search-dialog__model-select:focus,
-.voice-drawer__select:focus,
-.voice-chat__voice-select:focus,
 #taskScheduleConfig select:focus {
   outline: none;
   border-color: var(--accent);
@@ -186,8 +174,6 @@ select option,
 .dialog__select option,
 .dialog__model-select option,
 .search-dialog__model-select option,
-.voice-drawer__select option,
-.voice-chat__voice-select option,
 #taskScheduleConfig select option {
   background: var(--bg-elevated);
   color: var(--text-primary);
@@ -201,8 +187,6 @@ select:disabled,
 .dialog__select:disabled,
 .dialog__model-select:disabled,
 .search-dialog__model-select:disabled,
-.voice-drawer__select:disabled,
-.voice-chat__voice-select:disabled,
 #taskScheduleConfig select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -221,8 +205,6 @@ select:disabled,
   .dialog__select,
   .dialog__model-select,
   .search-dialog__model-select,
-  .voice-drawer__select,
-  .voice-chat__voice-select,
   #taskScheduleConfig select {
     min-height: var(--hit);
     padding: 10px 12px 10px 12px;

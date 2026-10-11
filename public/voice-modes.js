@@ -44,6 +44,8 @@ class VoiceModes {
     this._entry = 0;             // bumps on every Hands-free start and end
     this._hfStarting = false;
     this._stopped = null;        // settles when a Hands-free native session is down
+    this._requested = null;      // session id whose next chat show opens Hands-free
+    this._launchRequested = false; // the next voice thread created opens Hands-free
     this._reminderSeconds = null;
     this._reminderTimer = null;
     this.radios = new Map();
@@ -107,19 +109,47 @@ class VoiceModes {
     this._renderSpeaker();
   }
 
-  // Last step of the chat view's show. Arriving back from the orb view ends
-  // Hands-free; the orb view may also have switched replies on, so the stored
-  // speaker setting is restored.
+  // Opens the next shown chat of this session in Hands-free (the `#/voice-chat`
+  // link on a thread that already exists).
+  requestHandsFree(sessionId) {
+    this._requested = sessionId || null;
+  }
+
+  // The `#/voice-chat` link, the Voice tile and Start Voice Chat create a
+  // thread first; the request waits for that thread's session_created.
+  requestHandsFreeForNextLaunch() {
+    this._launchRequested = true;
+  }
+
+  // session_created: the launch's request now names its new thread.
+  claimLaunchRequest(sessionId) {
+    if (!this._launchRequested) return;
+    this._launchRequested = false;
+    this._requested = sessionId;
+  }
+
+  // The launch or the join failed; no later chat should inherit the request.
+  cancelRequests() {
+    this._launchRequested = false;
+    this._requested = null;
+  }
+
+  // Last step of the chat view's show. A chat opens in Text unless a request
+  // names it. The view's show already stopped the engine, so a Hands-free that
+  // was running here has ended; the stored speaker setting is restored.
   onChatShown(sessionId) {
     if (this._holding || this._starting) this._cancelTalk();
-    if (this._mode === 'handsfree') {
-      // The view's show already stopped the engine.
+    const wanted = this._requested === sessionId;
+    if (wanted) this._requested = null;
+    if (this._mode !== 'text') {
+      const wasHandsFree = this._mode === 'handsfree';
       this._mode = 'text';
-      this._endHandsFree();
+      if (wasHandsFree) this._endHandsFree();
       this.bus.emit(EVT.VOICE_MODE_CHANGED, { mode: 'text', sessionId });
     }
     if (this.app.ttsManager.enabled !== this._speakerOn) this._applySpeaker();
     this._render();
+    if (wanted) this.setMode('handsfree');
   }
 
   // — Hands-free ------------------------------------------------------------
@@ -486,7 +516,7 @@ class VoiceModes {
     const tab = tm.tabs.find(t => t.id === tm.activeTabId);
     if (!tab || tab.type !== 'session') return false;
     const session = this.app.state.sessions.get(tab.id);
-    return !!session && session.sessionType !== 'voice';
+    return !!session;
   }
 
   _syncSpeakerVisibility() {

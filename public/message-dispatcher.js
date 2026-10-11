@@ -345,6 +345,7 @@ class MessageDispatcher {
     this._notifyVoiceError(data.message);
     this.app.hideStopButton();
     this.app.clearSessionStarting();
+    this.app.voiceModes?.cancelRequests();
   }
 
   _handleMessageComplete(data) {
@@ -666,6 +667,11 @@ class MessageDispatcher {
     this.state.currentSessionId = data.sessionId;
     this.state.sessionHistories.set(data.sessionId, []);
     this.app.showChatScreen();
+    // A voice launch asked for Hands-free; the chat view applies it when it shows.
+    if (data.sessionType === 'voice') {
+      if (data.voice) this.app.ttsManager.setVoice(data.voice);
+      this.app.voiceModes.claimLaunchRequest(data.sessionId);
+    }
     this.tabManager.openSession(data.sessionId);
     this.app.clearSessionStarting();
     // A thread started from Today's Ask: its first message is the typed text.
@@ -678,10 +684,6 @@ class MessageDispatcher {
     this.sidebar.renderProjectList();
     this.modalManager.hideSessionModal();
     this.modalManager.hidePlanApproval();
-
-    if (data.sessionType === 'voice') {
-      this.app.enableVoiceMode(data.voice);
-    }
   }
 
   // Marked by app.js#resubscribeAfterReconnect() right before it sends each
@@ -810,10 +812,6 @@ class MessageDispatcher {
     this.modalManager.hidePlanApproval();
     if (data.stats) {
       this.app.updateStats(data.stats);
-    }
-
-    if (sessionType === 'voice') {
-      this.app.enableVoiceMode();
     }
   }
 

@@ -58,6 +58,16 @@ function installFakeMic(wavBase64) {
   };
 }
 
+// Runs in the page, before any script. Rejects every microphone request the way
+// the browser does when a person denies the prompt.
+function installBlockedMic() {
+  const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (constraints) => {
+    if (!constraints || !constraints.audio) return real(constraints);
+    throw new DOMException('Permission denied', 'NotAllowedError');
+  };
+}
+
 // Runs in the page, before any script. Reports each stop of a playing sound to the
 // test side. Looping sources are the fake microphone's own, so only one-shot sources
 // (eve's speech) count as 'speech'.
@@ -136,8 +146,15 @@ const test = base.test.extend({
   eveSettings: [null, { option: true }],
   // 'beep' | 'silence' | 'speech': what getUserMedia delivers (see MIC_KINDS).
   mic: ['beep', { option: true }],
+  // true: getUserMedia with audio rejects with a NotAllowedError DOMException.
+  micBlocked: [false, { option: true }],
 
-  _fakeMic: [async ({ page, mic }, use) => {
+  _fakeMic: [async ({ page, mic, micBlocked }, use) => {
+    if (micBlocked) {
+      await page.addInitScript(installBlockedMic);
+      await use();
+      return;
+    }
     if (mic !== 'beep') {
       if (!MIC_KINDS.includes(mic)) throw new Error(`mic must be 'beep', 'silence' or 'speech', got ${mic}`);
       const wav = micWav(mic);

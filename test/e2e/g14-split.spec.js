@@ -92,29 +92,6 @@ test.describe('split panes', () => {
     await expect(page.getByRole('button', { name: UNDOCK })).toHaveCount(2);
   });
 
-  test.describe('with a voice thread', () => {
-    test.use({ mic: 'silence' });
-
-    test('a voice thread opens no second pane @G14.4.r1', async ({ eve, page }) => {
-      await eve.open('/');
-      await page.getByRole('button', { name: 'Voice', exact: true }).click();
-      await page.getByRole('button', { name: 'Start Voice Chat' }).click();
-      await expect(page.getByRole('button', { name: 'Hold to record' })).toBeVisible();
-      await rail(page).getByRole('button', { name: 'Acme' }).click();
-      await page.getByRole('treeitem', { name: 'README.md' }).click();
-      await expect(page.getByRole('tab', { name: 'README.md' })).toHaveAttribute('aria-selected', 'true');
-      await dragTabToRightEdge(page, page.getByRole('tab', { name: /Voice/ }));
-      await expect(page.getByRole('button', { name: UNDOCK })).toHaveCount(0);
-      await expect(page.getByRole('tab', { name: /Voice/ })).toBeVisible();
-      // The same drag splits once the other tab is a thread, so the drag above was heard and refused.
-      await page.getByRole('button', { name: 'Project page' }).click();
-      await page.getByRole('button', { name: 'Ledger', exact: true }).first().click();
-      await expect(page.getByRole('tab', { name: 'Ledger' })).toHaveAttribute('aria-selected', 'true');
-      await dragTabToRightEdge(page, page.getByRole('tab', { name: 'README.md' }));
-      await expect(page.getByRole('button', { name: UNDOCK })).toHaveCount(2);
-    });
-  });
-
   test('drag the divider to resize the panes @G14.5', async ({ eve, page }) => {
     await eve.open('/');
     await split(page);

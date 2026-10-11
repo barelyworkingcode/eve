@@ -267,7 +267,7 @@ runner; if not, `locator.waitFor()` and polling.
 | 4 | `open-existing-thread` | 60 s | New context → Acme Corp → Sessions tab → click the thread | The pane shows the question (with nonce) and an assistant reply after it; no new session | No `shared.thread` | nothing |
 | 5 | `terminal-on-request` | 90 s | Acme Corp; wait for the panel + 3 s; New Session → "World probe"; type `printf '%s_%s\n' EVE OK` + Enter | **A** before asking: no terminal pane, no world terminal (else FAIL "a terminal opened without being asked"). **B** after: a terminal pane shows `EVE_OK` within 20 s, exactly one new world terminal | No "World probe" card | 1 terminal |
 | 6 | `task-created-listed` | 90 s | Acme Corp → Tasks → "+ New Task" → name `verify-<nonce>`, type "Chat (LLM)", prompt `Say hello.`, the model, "On demand" → Create Task | The Tasks list shows `verify-<nonce>`, still after reload. FAIL gives any error toast text | Model not offered | 1 task (never runs) |
-| 7 | `voice-deep-link` | 90 s | Acme Corp → New Session (look for a star) → Edit Project → Templates → "World voice": press Work's voice preset, Save Template, Save → close page → new page, same context, Work, `<url>/#/voice-chat` → close page → new page, `<url>/#/voice-chat` again | The launcher has no "Action Button favorite" star; the first press shows the voice chat view within 30 s ("End session" visible, text composer hidden) with exactly one new Acme session; the second shows it within 30 s on that session (`#session/<id>`) with no new session | No "World voice" voice template (setup V1); Acme not Work's default (setup V2) | 1 voice session; World voice stays Work's voice preset |
+| 7 | `voice-deep-link` | 90 s | Acme Corp → New Session (look for a star) → Edit Project → Templates → "World voice": press Work's voice preset, Save Template, Save → close page → new page, same context, Work, `<url>/#/voice-chat` → close page → new page, `<url>/#/voice-chat` again | The launcher has no "Action Button favorite" star; the first press shows the chat in Hands-free within 30 s (radio "Hands-free" checked, text starting "Listening" visible, text composer hidden) with exactly one new Acme session; the second shows the same within 30 s on that session (`#session/<id>`) with no new session | No "World voice" voice template (setup V1); Acme not Work's default (setup V2) | 1 voice session; World voice stays Work's voice preset |
 
 ### `devboxverify/post.js` (T3)
 
@@ -366,7 +366,8 @@ doesn't bite, pick another in the same file and say so.
   uses a native `confirm()`; models filtered by `allowed_models`.
 - **voice-deep-link.** `#/voice-chat` → `app.js#_handleHashRoute` → the
   current mode's voice preset (`core/mode-presets.js#forMode`, read from the
-  mode's project in relay) → `launchTemplate` → `voice-chat-manager.js`.
+  mode's project in relay) → `launchTemplate` →
+  `voiceModes.requestHandsFreeForNextLaunch` → `voice-modes.js` Hands-free.
   Traps: no mode project or no voice preset → a toast; a voice thread active
   in the last 30 minutes in the mode is resumed, not created.
 

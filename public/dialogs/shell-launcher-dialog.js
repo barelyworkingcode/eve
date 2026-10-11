@@ -295,6 +295,8 @@ class ShellLauncherDialog extends DialogBase {
     if (sessionType === 'voice' || voice) {
       msg.sessionType = 'voice';
       msg.voice = voice || 'af_heart';
+      // A voice launch opens its chat in Hands-free; session_created claims this.
+      this.container.get('voiceModes').requestHandsFreeForNextLaunch();
     }
     msg = applyChatDefaults(msg, this.state.models);
     this.container.get('app').showSessionStarting();

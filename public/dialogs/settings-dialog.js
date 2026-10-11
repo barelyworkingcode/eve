@@ -173,7 +173,61 @@ class SettingsDialog extends DialogBase {
         group.appendChild(this._row('Dictation engine', this._engineSelect('settings-stt-engine', stt)));
       }
     }
+    const engine = this.container.has('voiceChatManager') ? this.container.get('voiceChatManager') : null;
+    if (engine && engine.nativeAudio && engine.nativeAudio.available) {
+      group.appendChild(this._buildRiverVolume(engine));
+      group.appendChild(this._buildDeviceLogs(engine.nativeAudio));
+    }
     return group;
+  }
+
+  // Native app only: the ambient river bed under Hands-free.
+  _buildRiverVolume(engine) {
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'settings-sheet__range';
+    slider.dataset.testid = 'settings-river-volume';
+    slider.setAttribute('aria-label', 'River volume');
+    slider.min = '0';
+    slider.max = String(VoiceChatManager.RIVER_VOLUME_MAX);
+    slider.step = '0.01';
+    slider.value = String(engine.riverVolume);
+    slider.title = 'Ambient river bed volume; it ducks under speech and cues';
+    const readout = document.createElement('span');
+    readout.className = 'settings-sheet__value';
+    readout.textContent = engine.riverVolume.toFixed(2);
+    slider.addEventListener('input', () => {
+      const value = parseFloat(slider.value);
+      readout.textContent = value.toFixed(2);
+      engine.setRiverVolume(value);
+    });
+    const wrap = document.createElement('div');
+    wrap.className = 'settings-sheet__inline';
+    wrap.appendChild(slider);
+    wrap.appendChild(readout);
+    return this._row('River volume', wrap);
+  }
+
+  // Native app only: stream the native audio trace to the device log. The
+  // setting persists in the native engine, default off.
+  _buildDeviceLogs(native) {
+    const row = document.createElement('label');
+    row.className = 'dialog__checkbox-row';
+    row.title = 'Stream the native audio trace to eve/relay-device.log (persists across restarts)';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.dataset.testid = 'settings-device-logs';
+    const label = document.createElement('span');
+    label.textContent = 'Stream device logs';
+    row.appendChild(checkbox);
+    row.appendChild(label);
+    native.getDiagLogging().then((r) => { checkbox.checked = !!(r && r.enabled); }).catch(() => {});
+    checkbox.addEventListener('change', () => {
+      native.setDiagLogging(checkbox.checked)
+        .then((r) => { checkbox.checked = !!(r && r.enabled); })
+        .catch(() => {});
+    });
+    return row;
   }
 
   // The server speaks replies with the voice/speed of the last voice_mode

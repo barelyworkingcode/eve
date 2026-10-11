@@ -123,6 +123,21 @@ test.describe('with a microphone that hears speech', () => {
     await expect(status(page)).toHaveCount(0);
   });
 
+  // Waits: the picker shows the choice, the sheet closes, voice.tts.waitForRequest on the voice id.
+  // The microphone hears a sentence every few seconds, so a reply is spoken after the choice is made.
+  test('the voice picked in Voice settings reads the spoken reply in Hands-free @G9.28', async ({ eve, page, voice }) => {
+    // Every action is slow under CI load; a short reply lets listening resume so a later utterance goes out with the new choice.
+    test.slow();
+    await voice.tts.reply({ seconds: 0.1 });
+    await openThread(eve, page);
+    await chooseHandsFree(page);
+    await page.getByRole('button', { name: 'Voice settings' }).click();
+    const picker = page.getByRole('combobox', { name: 'Voice', exact: true });
+    await picker.selectOption({ label: 'George' });
+    await expect(picker.getByRole('option', { name: 'George', selected: true })).toBeAttached();
+    await voice.tts.waitForRequest((r) => r.voice === 'bm_george');
+  });
+
   test('Hands-free hides the textarea and Send and keeps attach @G9.43', async ({ eve, page }) => {
     await openThread(eve, page);
     await chooseHandsFree(page);
@@ -164,6 +179,19 @@ test.describe('with a silent microphone and a 5 second reminder', () => {
     await expect(page.getByRole('button', { name: 'Read aloud' })).toHaveCount(1);
     expect(voice.stt.requests).toHaveLength(0);
     await expect(page.getByText(REMINDER)).toHaveCount(1); // the status line only, never a chat turn
+  });
+});
+
+test.describe('a blocked microphone', () => {
+  test.use({ micBlocked: true });
+
+  // Waits: the refusal text, then the Text radio checked.
+  test('Hands-free that cannot start says why and falls back to Text @G9.43.r1', async ({ eve, page }) => {
+    await openThread(eve, page);
+    await radio(page, 'Hands-free').click();
+    await expect(page.getByText(/Hands-free could not start: ./)).toBeVisible();
+    await expect(radio(page, 'Text')).toBeChecked();
+    await expect(status(page)).toHaveCount(0);
   });
 });
 

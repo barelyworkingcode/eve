@@ -213,6 +213,11 @@ class EveWorkspaceClient {
     });
     this.bus.on(EVT.NAV_CHANGED, ({ depth, tabId, source }) => {
       this.closeSidebarOnMobile();
+      // The back arrow closes the chat view and keeps the session; Hands-free
+      // does not outlive the chat it listened in.
+      // Wide layouts report depth 0 with the open tab's id on every show, so
+      // only Today (no tab) ends it.
+      if (depth === 0 && !tabId) this.voiceModes?.setMode('text');
       if (source !== 'history') return;
       const tabs = this.tabManager;
       if (depth === 0) tabs.showToday({ fromHistory: true });
@@ -289,10 +294,6 @@ class EveWorkspaceClient {
       connectionStatus: document.getElementById('connectionStatus'),
       connectionBanner: document.getElementById('connectionBanner'),
       welcomeOpenSidebar: document.getElementById('welcomeOpenSidebar'),
-      voiceUIBtn: document.getElementById('voiceUIBtn'),
-      voiceDrawer: document.getElementById('voiceDrawer'),
-      voiceDrawerToggle: document.getElementById('voiceDrawerToggle'),
-      voiceDrawerPanel: document.getElementById('voiceDrawerPanel'),
       taskModal: document.getElementById('taskModal'),
       taskModalTitle: document.getElementById('taskModalTitle'),
       taskForm: document.getElementById('taskForm'),
@@ -431,21 +432,6 @@ class EveWorkspaceClient {
     });
 
     this.ttsManager.init();
-
-    if (this.elements.voiceUIBtn) {
-      this.elements.voiceUIBtn.addEventListener('click', () => {
-        this.voiceChatManager.convertToVoiceChat();
-      });
-    }
-
-    if (this.elements.voiceDrawerToggle) {
-      this.elements.voiceDrawerToggle.addEventListener('click', () => {
-        const panel = this.elements.voiceDrawerPanel;
-        const drawer = this.elements.voiceDrawer;
-        panel.classList.toggle('hidden');
-        drawer.classList.toggle('voice-drawer--open');
-      });
-    }
 
     this.sttManager.init();
 
@@ -689,6 +675,7 @@ class EveWorkspaceClient {
 
       const existingId = this._findVoiceSession();
       if (existingId) {
+        this.voiceModes.requestHandsFree(existingId);
         if (this.tabManager.tabs.some(t => t.id === existingId)) {
           this.tabManager.switchToTab(existingId);
           return;
@@ -828,6 +815,7 @@ class EveWorkspaceClient {
     const fallback = this._disarmVoiceFallback();
     if (!fallback) return;
     if (this._deepLinkPin?.sessionId === fallback.sessionId) this._releaseDeepLinkPin();
+    this.voiceModes.cancelRequests();
     this._launchModeVoice();
   }
 
@@ -1455,22 +1443,6 @@ class EveWorkspaceClient {
   clearSessionStarting() {
     this.elements.userInput.disabled = false;
     this.chatForm.setSubmitEnabled(true);
-  }
-
-  enableVoiceMode(voice) {
-    this.ttsManager.unlockAudio(); // iOS: unlock audio within the triggering gesture
-    if (voice) this.ttsManager.setVoice(voice);
-    this.ttsManager.setEnabled(true);
-    this.ttsManager.syncButtonState();
-    this.ttsManager.syncVoiceMode(this.wsClient);
-    this._updateVoiceUIBtnVisibility();
-  }
-
-  _updateVoiceUIBtnVisibility() {
-    const btn = this.elements.voiceUIBtn;
-    if (!btn) return;
-    const session = this.sessions.get(this.currentSessionId);
-    btn.classList.toggle('hidden', session?.sessionType === 'voice');
   }
 
   toggleSidebar(open) {

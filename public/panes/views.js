@@ -8,7 +8,6 @@ panes.registerView({
     const { tabs, app } = ctx;
     el.classList.remove('hidden');
     app.voiceChatManager?.deactivate();
-    app._updateVoiceUIBtnVisibility?.();
     const sessionId = ref.sessionId;
     const prevSessionId = app.currentSessionId;
     if (prevSessionId && prevSessionId !== sessionId) {
@@ -27,17 +26,6 @@ panes.registerView({
       app.hideStopButton();
     }
     app.voiceModes?.onChatShown(sessionId);
-  },
-});
-
-panes.registerView({
-  view: 'voice',
-  elementId: 'voiceChat',
-  splittable: false,
-  show(ref, ctx, el) {
-    el?.classList.remove('hidden');
-    ctx.app.voiceChatManager?.activateForSession(ref.sessionId);
-    ctx.app._updateVoiceUIBtnVisibility?.();
   },
 });
 

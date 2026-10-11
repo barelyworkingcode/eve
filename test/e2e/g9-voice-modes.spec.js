@@ -99,6 +99,22 @@ test('the chat shows the words while the Talk button is still held @G9.39', asyn
   await expect(page.getByRole('img', { name: 'Spoken' })).toBeVisible();
 });
 
+test.describe('a blocked microphone', () => {
+  test.use({ micBlocked: true });
+
+  // Waits: the refusal text after the press; nothing is sent.
+  test('holding the Talk button says the microphone is blocked @G9.39.r1', async ({ eve, page, voice }) => {
+    await openThread(eve, page);
+    await chooseTalk(page);
+    await page.getByRole('button', { name: 'Hold to talk' }).hover();
+    await page.mouse.down();
+    await expect(page.getByText('Microphone access denied. Check browser permissions.')).toBeVisible();
+    await page.mouse.up();
+    expect(voice.stt.requests).toHaveLength(0);
+    await expect(page.getByRole('img', { name: 'Spoken' })).toHaveCount(0);
+  });
+});
+
 test('the speaker is off on a fresh device and the setting survives a reload @G9.40', async ({ eve, page }) => {
   await openThread(eve, page);
   const speaker = page.getByRole('button', { name: 'Speak replies' });

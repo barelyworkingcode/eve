@@ -63,6 +63,7 @@ Options, set with `test.use`:
 | `plansDir` | `'agent'` | `'agent'` sets `EVE_PLANS_DIR` to fakerelay's plans dir (`<relay dir>/home/.claude/plans`), where `plan` replies write. `'eve'` leaves it unset, so eve uses its own default (a plan written on another machine). |
 | `eveSettings` | `null` | An object written as eve's `data/settings.json` before eve starts, e.g. `{ voice: { handsFreeReminderSeconds: 5 } }` or `{ chiefOfStaff: {...} }`. `null` writes no file. |
 | `mic` | `'beep'` | What the page hears when it opens the microphone. `'beep'` is Chromium's own fake device. `'silence'` and `'speech'` replace the audio of `getUserMedia` with a looping WAV generated in code (`test/e2e/support/mic-audio.js`, no audio file in the repo): one second of silence, or 2.5 s of synthetic speech-like audio (a pulse train through moving vowel formants) followed by five seconds of silence, repeating. |
+| `micBlocked` | `false` | `true` makes `getUserMedia` with audio reject with a `DOMException` named `NotAllowedError`, as when a person denies the browser prompt. It wins over `mic`. Video requests pass through. |
 
 `worlds.media.webm()` and `worlds.media.wav()` return `{ base64 }`, a world file value of about 1 s that plays in Playwright's Chromium: `files: { 'clip.webm': worlds.media.webm() }`.
 
@@ -157,6 +158,8 @@ A row that needs a signed-out browser with a passkey enrols first, then calls `a
 
 - Dictation: eve discards a recording shorter than 300 ms ("Recording too short"), and nothing reaches the fake STT. The button is named "Stop recording" at once and renames itself to `Recording... 0:01` on the one-second timer tick, so wait for `getByRole('button', { name: /^Recording\.\.\./ })` before pressing it. A button press right after "Stop recording" shows sends no audio.
 - The fake STT's `requests` list shows what reached it; `waitForRequest` waits on that, not on a duration.
+- Inject an engine error with `voice.stt.reply({ error })` or `voice.tts.reply({ error })` before the action. The expected text comes from the row.
+- A blocked microphone: `test.use({ micBlocked: true })`. The launch flags accept every real prompt, so the fixture rejects the call instead.
 - Hands-free (`getByRole('radio', { name: 'Hands-free' })`): the status region "Voice status" holds the orb (button "Voice orb"), the text "Listening…" / "Thinking…" / "Speaking…" and, only while speaking, the button "Stop reply". "Listening…" appears when listening has started. With `mic: 'speech'` the VAD hears the sentence; the signal is the fake STT's `waitForRequest` and then the spoken turn with its "Spoken" mark. With `mic: 'silence'` the VAD hears nothing, so a spec of the silence reminder sets `eveSettings: { voice: { handsFreeReminderSeconds: 5 } }` and waits on `voice.tts.waitForRequest` for the text "I'm still here.". The fake TTS reply is 30 s of silence, so "Speaking…" lasts until Stop or its end.
 
 `voice.mic` counts the page stopping the fake microphone track (only with `mic: 'speech'` or `'silence'`; Chromium's own `'beep'` device is not wrapped). `voice.speech` counts the page stopping a spoken reply (a non-looping `AudioBufferSourceNode.stop`). Counts only grow, so read `stops` before the action and pass it: `waitForStop(before)` resolves once a later stop has happened and cannot miss one that came early. Both are no-ops for specs that never read them.
@@ -191,24 +194,6 @@ A terminal is an echo terminal, not a shell. Input comes back as output, byte fo
 #### Routine rows
 
 A routine run is a session started by the scheduler, so it reaches fakerelay as `POST /api/sessions` and is the project's session on the routine's model. A run on a model whose `reply` is `{ kind: 'permission', tool }` stays held at its permission request (the run stays running until someone answers), and `echo` finishes at once. A failed run: add `ctl('fault', 'add', '--route', 'POST /api/sessions', '--mode', 'error', '--times', '1', '--status', '500', '--body', '{"error":"boom"}')` before pressing Run Now, then wait for the `fakerelay.fault` line with `action: 'applied'`. Task events reach the page over `/ws/tasks`; a spec waits on what the page shows.
-
-#### Voice view rows
-
-The voice view is the full-screen orb view a Voice tile or `#/voice-chat` opens, not the chat's Talk and Hands-free modes (Voice rows above).
-
-- In Chromium the voice view always starts in Hands-free, on desktop and under both profiles. The prompt reads "Starting voice detection..." and then "Listening..." once the VAD listens. The mode button is named by its label, "Hands-free" or "Push-to-talk", and switches to the other on a press.
-- The push-to-talk prompt is "Hold spacebar to speak..." on desktop and "Hold mic to speak..." under `profiles.phone` and `profiles.tablet`, because both have Android user agents.
-- In Hands-free, button "Hold to record" and the orb only stop a spoken reply. They record only in Push-to-talk. Space records in both modes, but not while focus is in a text field or select, or while a dialog is open.
-- The voice view has no recording timer. A recording under 300 ms by the page clock is dropped, and the view shows the error caption "Recording too short — hold longer". Moving `page.clock` between press and release does not make a hold reliable: the view shows no sign that recording started, so a release at machine speed can record nothing. Hold rows wait on an app signal (#369).
-- Captions are plain text with no role, and only the latest four show. The reply caption is the echo text `echo: <words>`, which contains the heard words, so check the user's caption with `exact: true`.
-- Eve's server sends each reply sentence to the fake TTS as `{ text, voice, speed }`. The prompt reads "Speaking..." while the 30 s silent clip plays.
-- Button "Voice controls" opens the drawer, which starts closed. It holds combobox "Voice" ("Heart", "George"), combobox "Playback speed" and button "Switch to text chat".
-- The engine line reads `TTS: server  ·  STT: server`, with two spaces on each side of the dot. Match it with a regex.
-- Button "Orb settings" opens the sheet. Its header is text, not a heading. It holds five named sliders ("Inner orb size", "Outer orb size", "Spin rate", "Idle jitter", "Speech jitter"), each followed by its value as text with two decimals, and the button "Reset to defaults". Set a slider with `fill('<value>')`. "River volume" and "Stream device logs" are hidden outside the iOS app.
-- The orb is image 'Voice orb'. It records only in Push-to-talk; press it with `hover()` then `page.mouse.down()`.
-- A voice-view row that needs no speech uses `mic: 'silence'`, so the VAD never fires. A row that needs a heard sentence uses `mic: 'speech'`.
-- Inject an engine error with `voice.stt.reply({ error })` or `voice.tts.reply({ error })` before the action. The expected text comes from the row.
-- A blocked microphone cannot be made: the suite's launch flags accept every prompt.
 
 #### Layout rows
 
