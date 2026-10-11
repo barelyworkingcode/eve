@@ -76,20 +76,28 @@ test.describe('with a microphone that hears speech, at a set speed', () => {
   });
 });
 
-// Waits: voice.tts.waitForRequest (first synth); Speaking... visible; the picker shows the choice; Listening... visible; voice.tts.waitForRequest on the speed.
+// Waits: voice.tts.waitForRequest (first synth, answered); Speaking... visible; expect.poll on voice.tts.requests (a second synth, held);
+// the picker shows the choice; Listening... visible; voice.tts.waitForRequest on the speed.
+// Eve sends no reply to the pick's voice_mode frame, so nothing shows it reached the server before release();
+// the frame leaves the page inside selectOption, and release() follows a further browser round trip.
 test.describe('with a microphone that hears speech, during a long reply', () => {
   test.use({ mic: 'speech' });
 
   test('a speed picked while a reply is spoken leaves the voice view listening again @G9.31', async ({ eve, page, relay, voice }) => {
     test.slow();
-    await voice.tts.reply({ seconds: 5 });
+    const synth = (r) => !r.action;
+    await voice.tts.reply({ seconds: 0.5 });
+    // The reply's first chunk plays; the rest of its synthesis waits until after the pick.
+    voice.tts.hold({ after: 1 });
     await openVoiceView(eve, page, relay);
-    await voice.tts.waitForRequest(() => true);
+    await voice.tts.waitForRequest(synth);
     await expect(page.getByText('Speaking...')).toBeVisible();
+    await expect.poll(() => voice.tts.requests.filter(synth).length).toBeGreaterThan(1);
     await page.getByRole('button', { name: 'Voice controls' }).click();
     const picker = page.getByRole('combobox', { name: 'Playback speed', exact: true });
     await picker.selectOption({ label: '1.25×' });
     await expect(picker.getByRole('option', { name: '1.25×', selected: true })).toBeAttached();
+    voice.tts.release();
     await expect(page.getByText('Listening...')).toBeVisible({ timeout: 30000 });
     await voice.tts.waitForRequest((r) => r.speed === 1.25);
   });
