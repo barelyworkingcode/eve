@@ -57,11 +57,13 @@ test.describe('a brief that reads', () => {
     const since = await relay.mark();
     await retry.click();
     await relay.waitForEvent('chat.turn', { since });
+    // The failed line leaves only once the retry run has started.
+    await expect(page.getByText(/^failed \d\d:\d\d/)).toBeHidden();
+    // Then "Refreshing…" leaving means the run has finished.
     await expect(page.getByText('Refreshing…')).toBeHidden();
 
     await expect(page.getByText(/^Brief · /)).toBeVisible();
     await expect(page.getByText("The brief came back in a form eve can't read.")).toHaveCount(0);
-    await expect(page.getByText(/^failed \d\d:\d\d/)).toBeHidden();
     await expect(retry).toBeHidden();
   });
 });
