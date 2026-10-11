@@ -334,6 +334,8 @@ class ShellLauncherDialog extends DialogBase {
     if (sessions.length > 0) {
       const header = document.createElement('div');
       header.className = 'shell-launcher__section-title';
+      header.setAttribute('role', 'heading');
+      header.setAttribute('aria-level', '4');
       header.textContent = 'Chat Sessions';
       container.appendChild(header);
 
@@ -381,6 +383,8 @@ class ShellLauncherDialog extends DialogBase {
 
     const termHeader = document.createElement('div');
     termHeader.className = 'shell-launcher__section-title';
+    termHeader.setAttribute('role', 'heading');
+    termHeader.setAttribute('aria-level', '4');
     termHeader.textContent = 'Running Terminals';
     container.appendChild(termHeader);
 

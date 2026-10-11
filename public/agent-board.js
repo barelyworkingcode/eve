@@ -384,6 +384,10 @@ class AgentBoard {
     const dot = document.createElement('span');
     dot.className = 'agent-row__dot';
     dot.dataset.state = state;
+    dot.setAttribute('role', 'img');
+    dot.setAttribute('aria-label', AgentBoard.STATE_WORDS[state] || state);
+    dot.id = `${this.prefix}-agent-dot-${id}`;
+    row.setAttribute('aria-describedby', dot.id);
     head.appendChild(dot);
     const title = document.createElement('span');
     title.className = 'agent-row__title';

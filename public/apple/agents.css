@@ -183,8 +183,8 @@
   text-transform: inherit;
   cursor: pointer;
 }
-.agent-board__group-toggle::before { content: "\25B8"; margin-right: 6px; }
-.agent-board__group-toggle[aria-expanded="true"]::before { content: "\25BE"; }
+.agent-board__group-toggle::before { content: "\25B8"; content: "\25B8" / ""; margin-right: 6px; }
+.agent-board__group-toggle[aria-expanded="true"]::before { content: "\25BE"; content: "\25BE" / ""; }
 .agent-board__group-toggle > :first-child { margin-right: auto; }
 .agent-board__group-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm, 6px); }
 @media (pointer: coarse) {
