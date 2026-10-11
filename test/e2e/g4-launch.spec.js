@@ -90,8 +90,8 @@ test.describe('terminal templates', () => {
     const launcher = await openLauncher(page);
     expect((await relay.ctl('fault', 'add', '--route', FAULT_ROUTE, ...NO_ROOM)).code).toBe(0);
     await launcher.getByRole('button', { name: 'Shell' }).click();
-    // The same text is also written into the (hidden) chat; the toast is the last match.
-    await expect(page.getByText('terminal create failed: no room').last()).toBeVisible();
+    // The same text is also written into the (hidden) chat; the toast is the one in a status region.
+    await expect(page.getByRole('status').filter({ hasText: 'terminal create failed: no room' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Acme - Shell' })).toBeHidden();
   });
 
@@ -99,7 +99,7 @@ test.describe('terminal templates', () => {
     await eve.open('/');
     expect((await relay.ctl('fault', 'add', '--route', FAULT_ROUTE, ...NO_ROOM)).code).toBe(0);
     await page.getByRole('button', { name: 'Shell', exact: true }).click();
-    await expect(page.getByText('terminal create failed: no room').last()).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'terminal create failed: no room' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Acme - Shell' })).toBeHidden();
   });
 

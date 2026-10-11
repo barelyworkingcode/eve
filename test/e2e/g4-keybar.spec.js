@@ -60,13 +60,15 @@ test.describe('a touch screen', () => {
     await eve.open('/');
     await startShell(page);
     await page.keyboard.type('abc');
-    // The button has no pressed state a screen reader or role query can see, so the proof is
-    // what the echo shows. Ctrl and h is Backspace: the cursor steps left. The next key is a
-    // plain letter again, so the arm cleared after one key.
+    // Ctrl and h is Backspace: the cursor steps left. The next key is a plain letter again,
+    // so the arm cleared after one key.
+    await expect(key(page, 'Ctrl')).toHaveAttribute('aria-pressed', 'false');
     await key(page, 'Ctrl').tap();
+    await expect(key(page, 'Ctrl')).toHaveAttribute('aria-pressed', 'true');
     await page.keyboard.type('h');
     await page.keyboard.type('X');
     await expect(text(page, 'abX')).toBeVisible();
+    await expect(key(page, 'Ctrl')).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('lock Ctrl on by double tapping it @G4.19', async ({ eve, page }) => {
@@ -76,11 +78,14 @@ test.describe('a touch screen', () => {
     await page.keyboard.type('abc');
     await key(page, 'Ctrl').tap();
     await key(page, 'Ctrl').tap();
+    await expect(key(page, 'Ctrl')).toHaveAttribute('aria-pressed', 'true');
     // Two Backspace chords: the lock holds for more than one key.
     await page.keyboard.type('hh');
+    await expect(key(page, 'Ctrl')).toHaveAttribute('aria-pressed', 'true');
     // Time moves on, so the next tap is a new single tap, which lets go of the lock.
     await page.clock.fastForward('00:10');
     await key(page, 'Ctrl').tap();
+    await expect(key(page, 'Ctrl')).toHaveAttribute('aria-pressed', 'false');
     await page.keyboard.type('XY');
     await expect(text(page, 'aXY')).toBeVisible();
   });

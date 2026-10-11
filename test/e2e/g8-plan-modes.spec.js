@@ -77,7 +77,6 @@ test.describe('a plan', () => {
   });
 });
 
-// The button's pressed look has no accessible state, so only the banner is proven here.
 test('turn plan mode on and off for the thread @G8.12', async ({ eve, page }) => {
   await eve.open('/');
   const ask = page.getByRole('textbox', { name: 'Ask' });
@@ -86,10 +85,13 @@ test('turn plan mode on and off for the thread @G8.12', async ({ eve, page }) =>
   await expect(page.getByText('echo: plain from testbox')).toBeVisible();
   await expect(page.getByText(/Plan mode/)).toBeHidden();
   const toggle = page.getByRole('button', { name: 'Toggle plan mode' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click();
   await expect(page.getByText(/Plan mode/)).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
   await expect(page.getByText(/Plan mode/)).toBeHidden();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 });
 
 function chatOnly() {

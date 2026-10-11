@@ -32,6 +32,7 @@ test('attach files with the Attach button @G11.1', async ({ eve, page }) => {
   ]);
   await expect(page.getByText('notes.txt', { exact: true })).toBeVisible();
   await expect(page.getByText('dot.png', { exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'dot.png', exact: true })).toBeVisible();
 });
 
 test.describe('a model that takes no attachments', () => {
