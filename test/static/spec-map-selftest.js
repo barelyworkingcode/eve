@@ -271,6 +271,7 @@ it('check-coverage.js reports an M2 finding from a fixture', () => {
   repo.write('docs/FEATURES.md', featuresMd({ goals: BASE_GOALS, rows: [...BASE_ROWS, ['G9.1', 'z.spec.js']] }));
   repo.write('test/e2e/z.spec.js', '// z\n');
   repo.write('test/e2e/coverage-pending.txt', '');
+  repo.write('docs/FEATURES-iOS.md', '# eve feature map: iOS app only\n');
   repo.write('test/static/frozen.json', JSON.stringify({ journeys: [] }));
   repo.commit();
   const r = spawnSync(process.execPath, [path.join(repo.dir, 'scripts/check-coverage.js')], { cwd: repo.dir, env: cleanEnv(), encoding: 'utf8' });

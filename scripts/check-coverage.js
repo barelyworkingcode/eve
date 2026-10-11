@@ -9,6 +9,7 @@
 //
 // Usage: node scripts/check-coverage.js
 // Output: one finding per line, `<ID or file>: <what>`.
+// docs/FEATURES-iOS.md is out of scope: its rows are never counted, only held to the door rule (C8).
 // Also the map rules M2, M3 and the syntax rule (scripts/spec-map.js); M4 is S7 in check-static.
 // Exit: 0 clean, 1 findings, 2 parse or usage error.
 // Docs: docs/test.md, "Coverage"; the Spec grammar is in docs/FEATURES.md, "How to read a row".
@@ -28,6 +29,10 @@ const SPEC_FILE = /^[\w.-]+\.spec\.js$/;
 const COLUMNS = 11;
 const REFUSALS = 7;
 const SPEC = 9;
+const SIMPLE_DOOR = 3;
+const IOS_FILE = 'docs/FEATURES-iOS.md';
+// A row in the iOS file must have no web door: a native-app door, or no door at all.
+const IOS_DOOR = /^(iOS app\b|n\/a: background$)/;
 
 class ParseError extends Error {}
 
@@ -55,6 +60,26 @@ function parseFeatures(text) {
   }
   if (rows.length === 0) throw new ParseError('docs/FEATURES.md: no feature rows found');
   return rows;
+}
+
+// Rows of docs/FEATURES-iOS.md, unparsed beyond ID and Simple door.
+function parseIosRows(text) {
+  const rows = [];
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('|')) continue;
+    const cells = splitRow(line);
+    if (cells[1] === 'ID' || /^-+$/.test(cells[1])) continue;
+    if (cells.length !== COLUMNS) throw new ParseError(`${IOS_FILE}: row "${cells[1]}" has ${cells.length - 2} cells, want ${COLUMNS - 2}`);
+    rows.push({ id: cells[1], door: cells[SIMPLE_DOOR] });
+  }
+  return rows;
+}
+
+// C8
+function checkIos(rows) {
+  return rows
+    .filter((r) => !IOS_DOOR.test(r.door))
+    .map((r) => `${r.id}: ${IOS_FILE} holds only rows with no web door; Simple door "${r.door}" must start with "iOS app" or be "n/a: background"; keep the row in docs/FEATURES.md`);
 }
 
 function parseRetired(text) {
@@ -197,7 +222,7 @@ function main(argv, { out = console.log, err = console.error } = {}) {
       tests: listTests(),
       journeyIds: new Set(frozen.journeys.map((j) => j.id)),
       specFiles,
-    })];
+    }), ...checkIos(parseIosRows(read(IOS_FILE)))];
   } catch (e) {
     err(`check-coverage: ${e instanceof ParseError ? '' : 'unexpected: '}${e.message}`);
     return 2;
@@ -208,6 +233,6 @@ function main(argv, { out = console.log, err = console.error } = {}) {
 }
 
 // Assigned before main runs: spec-map requires this module back.
-module.exports = { main, check, parseFeatures, parseRetired, parseSpec, parsePending, splitRow };
+module.exports = { main, check, checkIos, parseIosRows, parseFeatures, parseRetired, parseSpec, parsePending, splitRow };
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
