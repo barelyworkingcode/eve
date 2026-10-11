@@ -5,6 +5,10 @@
 panes.registerType({
   type: 'routines',
 
+  // Belongs to no project: TabManager draws it, and keeps it active, whatever
+  // project is active.
+  global: true,
+
   // Side-effect free, so TabManager#openPane can call it to learn the id.
   create() { return { id: 'routines', type: 'routines', label: 'Routines' }; },
 
