@@ -465,7 +465,13 @@ class CommandPalette extends DialogBase {
         const chip = item.host && typeof hostChip === 'function'
           ? hostChip(item.host, { size: 'sm', status: this.state.hostStatus?.(item.host.id) })
           : null;
-        if (chip) subEl.appendChild(chip);
+        if (chip) {
+          // Describe the option by "<host name> <status word>"; the name stays the label.
+          chip.querySelector('.host-chip__name').id = `palette-item-${idx}-host-name`;
+          chip.querySelector('.host-chip__dot').id = `palette-item-${idx}-host-dot`;
+          row.setAttribute('aria-describedby', `palette-item-${idx}-host-name palette-item-${idx}-host-dot`);
+          subEl.appendChild(chip);
+        }
         body.appendChild(subEl);
       }
       row.appendChild(body);
