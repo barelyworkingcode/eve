@@ -18,12 +18,10 @@ const tab = (page) => panel(page).getByRole('button', { name: /^Changes/ });
 const modified = (page) => page.getByRole('button', { name: 'Modified: a.txt', exact: true });
 const untracked = (page) => page.getByRole('button', { name: 'Untracked: new.txt', exact: true });
 
-// Opens the project's Changes tab through the Project page.
+// Opens the project's Changes tab from the Project panel.
 async function openChanges(page, project = 'Acme') {
   await rail(page).getByRole('button', { name: project, exact: true }).click();
-  await page.getByRole('button', { name: 'Project page', exact: true }).click();
-  await expect(page.getByRole('heading', { name: project, level: 1 })).toBeVisible();
-  await page.getByRole('main').getByRole('button', { name: /^Changes/ }).click();
+  await panel(page).getByRole('button', { name: /^Changes(\s+\d+)?$/ }).click();
   await expect(page.getByRole('group', { name: 'Scope' })).toBeVisible();
 }
 
@@ -48,7 +46,7 @@ test.describe('repos with changes', () => {
     await eve.open('/');
     await openChanges(page);
     await expect(panel(page).getByRole('group', { name: 'Scope' })).toBeVisible();
-    await expect(tab(page)).toHaveText(/^Changes\s*2$/);
+    await expect(panel(page).getByRole('button', { name: 'Changes 2', exact: true })).toBeVisible();
     await expect(panel(page).getByRole('button', { name: /^alpha\b/ })).toHaveText(/^alpha\s*main\s*2$/);
     await expect(panel(page).getByRole('button', { name: /^beta\b/ })).toHaveText(/^beta\s*main\s*clean$/);
     await expect(modified(page)).toBeVisible();
@@ -118,7 +116,7 @@ test.describe('repos with changes', () => {
     expect(write.code).toBe(0);
     expect(JSON.parse(write.stdout).delivered).toBeGreaterThanOrEqual(1);
     await expect(page.getByRole('button', { name: 'Untracked: extra.txt', exact: true })).toBeVisible();
-    await expect(tab(page)).toHaveText(/^Changes\s*3$/);
+    await expect(panel(page).getByRole('button', { name: 'Changes 3', exact: true })).toBeVisible();
     await expect(panel(page).getByRole('button', { name: /^alpha\b/ })).toHaveText(/^alpha\s*main\s*3$/);
     await relay.waitForEvent('file.git', { since, match: (l) => l.status === 'ok' });
   });
