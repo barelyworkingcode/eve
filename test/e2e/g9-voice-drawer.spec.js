@@ -52,8 +52,7 @@ test.describe('with a microphone that hears speech', () => {
     const picker = page.getByRole('combobox', { name: 'Voice', exact: true });
     await picker.selectOption({ label: 'George' });
     await expect(picker.getByRole('option', { name: 'George', selected: true })).toBeAttached();
-    const request = await voice.tts.waitForRequest((r) => r.voice === 'bm_george');
-    expect(request.voice).toBe('bm_george');
+    await voice.tts.waitForRequest((r) => r.voice === 'bm_george');
   });
 });
 
@@ -67,8 +66,7 @@ test.describe('with a microphone that hears speech, at a set speed', () => {
     const picker = page.getByRole('combobox', { name: 'Playback speed', exact: true });
     await picker.selectOption({ label: '1.25×' });
     await expect(picker.getByRole('option', { name: '1.25×', selected: true })).toBeAttached();
-    const request = await voice.tts.waitForRequest((r) => r.speed === 1.25);
-    expect(request.speed).toBe(1.25);
+    await voice.tts.waitForRequest((r) => r.speed === 1.25);
   });
 });
 

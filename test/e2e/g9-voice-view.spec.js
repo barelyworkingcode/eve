@@ -48,8 +48,12 @@ test.describe('with a silent microphone', () => {
     await expect(tab).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Hold to record' })).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Voice/ }).filter({ hasText: 'Acme' })).toBeVisible();
+    const row = page.getByRole('button', { name: /Voice/ }).filter({ hasText: 'Acme' });
+    await expect(row).toBeVisible();
     expect((await relay.json('ctl', 'state', '--json')).sessions).toHaveLength(1);
+    await row.click();
+    await expect(page.getByRole('tab', { name: /Voice/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('button', { name: 'Hold to record' })).toBeVisible();
   });
 
   // Waits: the composer shows; the launch log holds only the first launch.

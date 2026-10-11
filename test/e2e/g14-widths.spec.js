@@ -71,8 +71,12 @@ test.describe('widths', () => {
     await expect(page.getByRole('tab', { name: 'Ledger' })).toBeHidden();
     await bottomBar(page).getByRole('button', { name: 'Projects' }).click();
     await expect(rail(page)).toBeInViewport();
-    const box = await rail(page).boundingBox();
-    expect(box).not.toBeNull();
+    // The Rail and the Project panel share one complementary region; at this width it is a full-screen sheet.
+    await expect(page.getByRole('complementary')).toBeInViewport({ ratio: 1 });
+    const box = await page.getByRole('complementary').boundingBox();
+    const size = page.viewportSize();
+    expect(box.x).toBeLessThanOrEqual(0);
+    expect(box.x + box.width).toBeGreaterThanOrEqual(size.width);
   });
 
   test('the Home and Work switch moves to Today at tablet width @G14.17', async ({ eve, page }) => {
@@ -116,5 +120,15 @@ test.describe('touch size on a tablet', () => {
     await eve.open('/');
     await expect(openMenu(page)).toBeVisible();
     await expectBigTargets(page, 'tablet Today');
+  });
+});
+
+test.describe('touch size on a wide window', () => {
+  test.use(profiles.tablet);
+  test('every control is at least 44 by 44 @G14.25', async ({ eve, page }) => {
+    await eve.open('/');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(rail(page)).toBeInViewport();
+    await expectBigTargets(page, 'wide Today');
   });
 });

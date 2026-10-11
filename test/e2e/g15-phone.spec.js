@@ -25,8 +25,7 @@ test.describe('the Safari sign-in sheet', () => {
     await eve.open('/api/auth/safari-login', SAFARI_PAGE);
     await expect(page.getByRole('heading', { name: 'Home|Work' })).toBeVisible();
     await expect(page.getByText('Success! Returning to app…')).toBeVisible();
-    const report = await relay.waitForEvent('eve.passkey.report', { since, match: (l) => l.status === 'ok' });
-    expect(report.status).toBe('ok');
+    await relay.waitForEvent('eve.passkey.report', { since, match: (l) => l.status === 'ok' });
   });
 });
 

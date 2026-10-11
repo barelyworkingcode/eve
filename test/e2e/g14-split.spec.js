@@ -6,6 +6,9 @@ const UNDOCK = 'Undock this pane (move it to its own tab)';
 
 function splitWorld() {
   const w = worlds.base();
+  const png = { base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' };
+  w.projects[0].files['one.png'] = png;
+  w.projects[0].files['two.png'] = png;
   w.sessions = [
     { id: 's_a1', project_id: 'p_acme', name: 'Ledger', model: 'haiku', state: 'dormant', messages: [{ role: 'user', text: 'question in Ledger' }, { role: 'assistant', text: 'answer in Ledger' }] },
     { id: 's_a2', project_id: 'p_acme', name: 'Roadmap', model: 'haiku', state: 'dormant', messages: [{ role: 'user', text: 'question in Roadmap' }, { role: 'assistant', text: 'answer in Roadmap' }] },
@@ -69,6 +72,47 @@ test.describe('split panes', () => {
     await expect(page.getByRole('tab', { name: 'README.md' })).toHaveAttribute('aria-selected', 'true');
     await dragTabToRightEdge(page, page.getByRole('tab', { name: 'Ledger' }));
     await expect(page.getByRole('button', { name: UNDOCK })).toHaveCount(2);
+  });
+
+  test('two image tabs open no second pane @G14.4.r1', async ({ eve, page }) => {
+    await eve.open('/');
+    await rail(page).getByRole('button', { name: 'Acme' }).click();
+    await page.getByRole('treeitem', { name: 'one.png' }).click();
+    await expect(page.getByRole('tab', { name: 'one.png' })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('treeitem', { name: 'two.png' }).click();
+    await expect(page.getByRole('tab', { name: 'two.png' })).toHaveAttribute('aria-selected', 'true');
+    await dragTabToRightEdge(page, page.getByRole('tab', { name: 'one.png' }));
+    await expect(page.getByRole('button', { name: UNDOCK })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'one.png' })).toBeVisible();
+    // The same drag splits once the other tab is a thread, so the drag above was heard and refused.
+    await page.getByRole('button', { name: 'Project page' }).click();
+    await page.getByRole('button', { name: 'Ledger', exact: true }).first().click();
+    await expect(page.getByRole('tab', { name: 'Ledger' })).toHaveAttribute('aria-selected', 'true');
+    await dragTabToRightEdge(page, page.getByRole('tab', { name: 'one.png' }));
+    await expect(page.getByRole('button', { name: UNDOCK })).toHaveCount(2);
+  });
+
+  test.describe('with a voice thread', () => {
+    test.use({ mic: 'silence' });
+
+    test('a voice thread opens no second pane @G14.4.r1', async ({ eve, page }) => {
+      await eve.open('/');
+      await page.getByRole('button', { name: 'Voice', exact: true }).click();
+      await page.getByRole('button', { name: 'Start Voice Chat' }).click();
+      await expect(page.getByRole('button', { name: 'Hold to record' })).toBeVisible();
+      await rail(page).getByRole('button', { name: 'Acme' }).click();
+      await page.getByRole('treeitem', { name: 'README.md' }).click();
+      await expect(page.getByRole('tab', { name: 'README.md' })).toHaveAttribute('aria-selected', 'true');
+      await dragTabToRightEdge(page, page.getByRole('tab', { name: /Voice/ }));
+      await expect(page.getByRole('button', { name: UNDOCK })).toHaveCount(0);
+      await expect(page.getByRole('tab', { name: /Voice/ })).toBeVisible();
+      // The same drag splits once the other tab is a thread, so the drag above was heard and refused.
+      await page.getByRole('button', { name: 'Project page' }).click();
+      await page.getByRole('button', { name: 'Ledger', exact: true }).first().click();
+      await expect(page.getByRole('tab', { name: 'Ledger' })).toHaveAttribute('aria-selected', 'true');
+      await dragTabToRightEdge(page, page.getByRole('tab', { name: 'README.md' }));
+      await expect(page.getByRole('button', { name: UNDOCK })).toHaveCount(2);
+    });
   });
 
   test('drag the divider to resize the panes @G14.5', async ({ eve, page }) => {
