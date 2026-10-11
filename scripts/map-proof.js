@@ -16,7 +16,6 @@
 // Docs: docs/map-proof.md, docs/test.md ("Coverage").
 
 const { spawnSync } = require('child_process');
-const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -51,6 +50,9 @@ function loadBreaks(json) {
     for (const k of ['area', 'file', 'find', 'replace', 'why']) {
       if (!b || typeof b[k] !== 'string' || (k !== 'replace' && b[k] === '')) throw new Error(`${BREAKS_FILE}: break ${i} has no string "${k}"`);
     }
+  });
+  v.forEach((b, i) => {
+    if (b.why.includes('|')) throw new Error(`${BREAKS_FILE}: break ${i} (${b.area}) has "|" in "why"; it would split the proof table row`);
   });
   const seen = new Set();
   for (const b of v) {
@@ -110,7 +112,6 @@ function parseArgs(argv) {
 }
 
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
-const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 function runTool(cmd, args, cwd, env = cleanEnv()) {
   const r = spawnSync(cmd, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
@@ -161,7 +162,9 @@ function proveArea({ wt, brk, areaMap, featureMap, base, tracked, baseRed, repor
   } finally {
     fs.writeFileSync(target, original);
   }
-  if (sha256(fs.readFileSync(target)) !== sha256(original)) return { line: `REFUSED ${area} ${brk.file} differs from the original after restore (sha256)`, fatal: true, ok: false };
+  // Compared with the blob at base, not with the buffer just written back.
+  const restored = git(wt, ['hash-object', '--no-filters', brk.file]).trim();
+  if (restored !== git(wt, ['rev-parse', `${base}:${brk.file}`]).trim()) return { line: `REFUSED ${area} ${brk.file} differs from the original after restore (differs from the blob at base)`, fatal: true, ok: false };
   const red = redTests(report, featureMap, area);
   if (red.length === 0) return { line: `GREEN ${area}`, ok: false };
   return { line: `PROVEN ${area} ${red.join('; ')}`, ok: true, red };
@@ -191,7 +194,9 @@ function main(argv, { out = console.log, err = console.error } = {}) {
     const parsed = parseFeatureMap(git(ROOT, ['show', `${base}:docs/FEATURES.md`]));
     const featureMap = parsed.map;
     const areaMap = parseMap(git(ROOT, ['show', `${base}:docs/areas.jsonc`]));
-    const record = parseProofRecord(fs.existsSync(path.join(ROOT, PROOF_FILE)) ? fs.readFileSync(path.join(ROOT, PROOF_FILE), 'utf8') : '').record;
+    const proofText = fs.existsSync(path.join(ROOT, PROOF_FILE)) ? fs.readFileSync(path.join(ROOT, PROOF_FILE), 'utf8') : '';
+    const parsedRecord = parseProofRecord(proofText);
+    const record = parsedRecord.record;
 
     let wanted;
     if (opts.all) {
@@ -201,6 +206,10 @@ function main(argv, { out = console.log, err = console.error } = {}) {
       for (const a of wanted) if (!areaMap.areas[a]) throw new UsageError(`unknown area "${a}"`);
     }
     if (opts['--record'] && path.resolve(ROOT, opts['--record']) !== path.join(ROOT, PROOF_FILE)) throw new UsageError(`--record writes ${PROOF_FILE}`);
+    if (opts['--record']) {
+      if (!fs.existsSync(path.join(ROOT, PROOF_FILE))) throw new UsageError(`--record needs ${PROOF_FILE} to exist`);
+      if (parsedRecord.findings.length) throw new ToolError(`--record refused: ${PROOF_FILE} has findings: ${parsedRecord.findings[0]}`);
+    }
 
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-map-proof-'));
     wt = path.join(tmp, 'tree');

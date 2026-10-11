@@ -332,6 +332,20 @@ it('check-coverage.js fails when docs/map-proof.md is deleted, and names the fil
   assert.match(r.stdout + r.stderr, /map-proof\.md|alpha|beta|gamma/, r.stdout + r.stderr);
 });
 
+it('check-coverage.js runs M5: a removed break fails and names its area', () => {
+  const repo = fixture();
+  repo.write('docs/FEATURES.md', featuresMd({ goals: BASE_GOALS, rows: BASE_ROWS.map(([id]) => [id, 'none yet']) }));
+  repo.write('test/e2e/coverage-pending.txt', 'G1 #1\nG2 #1\nG3 #1\n');
+  repo.write('docs/FEATURES-iOS.md', '# eve feature map: iOS app only\n');
+  repo.write('test/static/frozen.json', JSON.stringify({ journeys: [] }));
+  const breaks = JSON.parse(fs.readFileSync(path.join(repo.dir, 'test/map-proof/breaks.json'), 'utf8')).filter((b) => b.area !== 'beta');
+  repo.write('test/map-proof/breaks.json', JSON.stringify(breaks));
+  repo.commit();
+  const r = spawnSync(process.execPath, [path.join(repo.dir, 'scripts/check-coverage.js')], { cwd: repo.dir, env: cleanEnv(), encoding: 'utf8' });
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^beta: proven area with no break/m, r.stdout + r.stderr);
+});
+
 // ---- map rules, in process ----
 
 const AREA_MAP = (extra = {}, quiet = ['**/*.md']) => parseMap(JSON.stringify({

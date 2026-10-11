@@ -197,6 +197,10 @@ function proofFindings({ areaMap, featureMap, pendingGoals, proof }) {
     const res = areaMap.areas[b.area].code.map(globToRegExp);
     if (!matches(res, b.file)) findings.push(`${b.file}: the break for ${b.area} matches no code glob of ${b.area}`);
   }
+  for (const b of breaks) {
+    const row = record.rows.get(b.area);
+    if (row && row.file !== b.file) findings.push(`${b.area}: proof row names ${row.file}, the break is in ${b.file}`);
+  }
   for (const name of [...defined].sort()) {
     if (areaMap.areas[name].full || featureMap.journeyOnly.has(name) || record.pending.has(name)) continue;
     if (!breaks.some((b) => b.area === name)) findings.push(`${name}: proven area with no break in test/map-proof/breaks.json`);

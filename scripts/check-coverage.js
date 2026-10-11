@@ -20,6 +20,8 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+// A missing proof input reads as empty, so M5 names what is unproven.
+const readOrEmpty = (rel, empty) => { try { return read(rel); } catch (e) { if (e.code === 'ENOENT') return empty; throw e; } };
 
 const ROW_ID = /^G\d+\.\d+$/;
 const TAG = /^(G\d+\.\d+)(?:\.r(\d+))?$/;
@@ -225,8 +227,8 @@ function main(argv, { out = console.log, err = console.error } = {}) {
     const specMap = require('./spec-map');
     const featureMap = specMap.parseFeatureMap(text);
     const features = parseFeatures(text);
-    const proofRecord = specMap.parseProofRecord(read(specMap.PROOF_FILE));
-    const breaks = require('./map-proof').loadBreaks(read('test/map-proof/breaks.json'));
+    const proofRecord = specMap.parseProofRecord(readOrEmpty(specMap.PROOF_FILE, ''));
+    const breaks = require('./map-proof').loadBreaks(readOrEmpty('test/map-proof/breaks.json', '[]'));
     findings = [...pendingFindings, ...featureMap.findings, ...specMap.mapFindings({
       areaMap: parseMap(read('docs/areas.jsonc')),
       featureMap: featureMap.map,

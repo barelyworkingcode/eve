@@ -97,6 +97,12 @@ it('M5 names a break whose file matches no code glob of its area', () => {
   assert.ok(mentions(f, 'public/elsewhere.js'), f.join('\n'));
 });
 
+it('M5 names a proof row whose file differs from the break file of its area', () => {
+  const f = m5(world({ rows: new Map([['alpha', proofRow('public/other.js')]]) }));
+  onlyAbout(f, 'alpha');
+  assert.ok(mentions(f, 'public/other.js'), f.join('\n'));
+});
+
 it('M5 names a journey-only area that the record does not list', () => {
   onlyAbout(m5(world({ recordJourneyOnly: new Map() })), 'joa');
 });
@@ -215,6 +221,13 @@ it('applyBreak refuses a find text that occurs twice', () => {
 it('applyBreak replaces a find text that occurs exactly once and touches nothing else', () => {
   const applyBreak = loadApplyBreak();
   assert.strictEqual(applyBreak('a\nif (ok) return $1;\nb\n', brk('if (ok) return $1;', 'return $&;')), 'a\nreturn $&;\nb\n');
+});
+
+it('loadBreaks refuses a why containing a pipe', () => {
+  const { loadBreaks } = require(path.join(EVE, 'scripts/map-proof'));
+  const one = (why) => JSON.stringify([{ area: 'alpha', file: 'public/alpha.js', find: 'x', replace: 'y', why }]);
+  assert.strictEqual(loadBreaks(one('plain')).length, 1);
+  assert.throws(() => loadBreaks(one('a | b')), /"\|"/);
 });
 
 // ---- run ----
