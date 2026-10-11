@@ -155,8 +155,12 @@ class Layout {
       this._setDepth(1, state.tabId ?? null, 'history');
       return;
     }
-    // Back at the Today entry: it may carry the hash of a deep link.
-    if (this.win.location.hash) {
+    // Back at the Today entry: it may carry the hash of a deep link. An action
+    // link ('#/voice-chat') is not a place Back can land on (the app clears it
+    // at once), so a popstate with one is a fresh link: its hashchange follows
+    // and must still see it.
+    const hash = this.win.location.hash;
+    if (hash && !/^#!?\//.test(hash)) {
       this.win.history.replaceState(state, '', this._base());
     }
     this._setDepth(0, null, 'history');

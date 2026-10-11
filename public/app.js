@@ -215,7 +215,9 @@ class EveWorkspaceClient {
       this.closeSidebarOnMobile();
       // The back arrow closes the chat view and keeps the session; Hands-free
       // does not outlive the chat it listened in.
-      if (depth === 0) this.voiceModes?.setMode('text');
+      // Wide layouts report depth 0 with the open tab's id on every show, so
+      // only Today (no tab) ends it.
+      if (depth === 0 && !tabId) this.voiceModes?.setMode('text');
       if (source !== 'history') return;
       const tabs = this.tabManager;
       if (depth === 0) tabs.showToday({ fromHistory: true });
