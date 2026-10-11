@@ -492,10 +492,13 @@ class RelayClient {
   }
 
   setVoiceMode(enabled, voice, speed) {
+    // A reset bumps _ttsGeneration, which drops the in-flight reply's chunks
+    // and its tts_done; only an on/off toggle may do that.
+    const toggled = !enabled || !this.voiceMode;
     this.voiceMode = enabled;
     if (voice) this.voicePreset = voice;
     if (speed) this.voiceSpeed = speed;
-    this._resetTTSState();
+    if (toggled) this._resetTTSState();
   }
 
   _resetTTSState() {
