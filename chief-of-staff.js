@@ -681,7 +681,7 @@ class ChiefOfStaff {
     this._settleErrand(row, next);
     this._settleRowTurn(row, next);
     if (TRIGGER_STATES.has(next) && next !== prev) {
-      this._enqueue(row.id, { kind: 'state', state: next, since: row.since, excerpt: '' });
+      this._enqueue(row.id, { kind: 'state', state: next, since: row.since, excerpt: next === 'errored' ? prompt.exitLine(frame.exit) : '' });
     } else {
       // A session that left a trigger state has nothing waiting any more.
       const w = this._waiting.get(row.id);
