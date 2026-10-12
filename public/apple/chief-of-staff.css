@@ -43,7 +43,8 @@
 /* Page */
 .cos-pane { height: 100%; }
 /* Wide: the thread, a divider, and the agent rail on the right (own scroll). The rail's width
-   is --cos-rail-w (set by CosAgentRail, 220-480px), never leaving the thread under 360px. */
+   is --cos-rail-w (set by CosAgentRail, 220-480px), never leaving the thread under 360px.
+   366px = that 360px + the 6px divider (CosAgentRail.THREAD_MIN_PX + DIVIDER_PX). */
 .cos-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto min(var(--cos-rail-w, 280px), max(220px, calc(100% - 366px)));

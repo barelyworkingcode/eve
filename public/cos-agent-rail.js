@@ -15,6 +15,8 @@ class CosAgentRail {
   static MAX_PX = 480;
   static FOLD_PX = 160;
   static THREAD_MIN_PX = 360;
+  // The divider's grid column; chief-of-staff.css subtracts THREAD_MIN_PX + DIVIDER_PX (366) from the page.
+  static DIVIDER_PX = 6;
   static KEY_STEP_PX = 16;
   static COUNT_KINDS = [
     { key: 'needs', cls: 'red', words: 'need you' },
@@ -60,7 +62,7 @@ class CosAgentRail {
   }
 
   static maxWidth(pageWidth) {
-    const room = Number.isFinite(pageWidth) && pageWidth > 0 ? pageWidth - CosAgentRail.THREAD_MIN_PX : Infinity;
+    const room = Number.isFinite(pageWidth) && pageWidth > 0 ? pageWidth - CosAgentRail.THREAD_MIN_PX - CosAgentRail.DIVIDER_PX : Infinity;
     return Math.max(CosAgentRail.MIN_PX, Math.min(CosAgentRail.MAX_PX, room));
   }
 
@@ -246,10 +248,12 @@ class CosAgentRail {
 
     let pointerId = null;
     let startWidth = this.width;
+    let startX = 0;
     d.addEventListener('pointerdown', (e) => {
       if (e.button != null && e.button !== 0) return;
       pointerId = e.pointerId;
       startWidth = this.width;
+      startX = e.clientX;
       try { d.setPointerCapture(pointerId); } catch { /* synthetic pointer */ }
       d.classList.add('resizing');
       document.body.style.userSelect = 'none';
@@ -258,8 +262,8 @@ class CosAgentRail {
     });
     d.addEventListener('pointermove', (e) => {
       if (pointerId === null || !this.page) return;
-      // The rail is the page's right edge, so its width is the distance from the pointer to it.
-      this.setWidth(this.page.getBoundingClientRect().right - e.clientX, { save: false });
+      // Relative to the grab, so grabbing the divider off-centre does not jump the rail.
+      this.setWidth(startWidth + (startX - e.clientX), { save: false });
     });
     const end = () => {
       if (pointerId === null) return;
