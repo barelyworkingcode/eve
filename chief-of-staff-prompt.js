@@ -401,6 +401,26 @@ function templateFinished(event) {
   return { summary: `…${tail}` };
 }
 
+// Why a provider exited: its last non-blank stderr line and the exit code, on
+// one line of at most CAPS.row characters. Same rules and output as
+// AgentBoard.exitLine in public/agent-board.js (a copy: the browser has no modules).
+function exitLine(exit) {
+  if (!exit || typeof exit !== 'object' || !Number.isInteger(exit.code)) return '';
+  const suffix = `exit ${exit.code}`;
+  let line = '';
+  const err = Array.isArray(exit.stderr) ? exit.stderr : [];
+  for (let i = err.length - 1; i >= 0 && !line; i--) {
+    if (typeof err[i] === 'string') line = err[i].replace(/\s+/g, ' ').trim();
+  }
+  if (!line) return suffix;
+  const tailPart = ` (${suffix})`;
+  if (line.length + tailPart.length <= CAPS.row) return `${line}${tailPart}`;
+  let t = line.slice(-(CAPS.row - 1 - tailPart.length));
+  const first = t.charCodeAt(0);
+  if (first >= 0xdc00 && first <= 0xdfff) t = t.slice(1);
+  return `\u2026${t}${tailPart}`;
+}
+
 function templatePost(event) {
   const label = oneLine(event?.label, CAPS.label) || 'A session';
   switch (event?.state) {
@@ -437,4 +457,5 @@ module.exports = {
   templateFinished,
   templateRow,
   templatePost,
+  exitLine,
 };

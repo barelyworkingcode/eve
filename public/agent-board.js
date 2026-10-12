@@ -11,7 +11,7 @@ class AgentAttention {
     this.bus = bus;
     this.state = state;
     this.refreshList = refreshList;
-    this._entries = new Map();   // id -> { state, since }
+    this._entries = new Map();   // id -> { state, since, exit }
     this._listed = new Set();    // ids that were listed at the last change
     this._asked = new Set();     // ids that already asked for a refresh, per page life
     this._pending = new Set();
@@ -52,7 +52,7 @@ class AgentAttention {
       if (this._entries.delete(id)) this._changed(id);
       return;
     }
-    this._entries.set(id, { state: d.state, since: d.since || '' });
+    this._entries.set(id, { state: d.state, since: d.since || '', exit: d.exit || null });
     this._changed(id);
     if (!this.state.sessions.has(id)) this._requestRefresh(id);
   }
@@ -62,7 +62,7 @@ class AgentAttention {
     const cur = this._entries.get(id);
     let changed = false;
     if (att && AgentAttention.STATES.has(att.state) && (!cur || att.since > cur.since)) {
-      this._entries.set(id, { state: att.state, since: att.since || '' });
+      this._entries.set(id, { state: att.state, since: att.since || '', exit: att.exit || null });
       changed = true;
     }
     const becameListed = this._entries.has(id) && this.state.sessions.has(id) && !this._listed.has(id);
@@ -126,6 +126,26 @@ class AgentBoard {
     if (s < 86400) return `${Math.floor(s / 3600)}h`;
     return `${Math.floor(s / 86400)}d`;
   }
+  // Why a provider exited: its last non-blank stderr line and the exit code,
+  // on one line of at most 160 characters. Same rules and output as exitLine()
+  // in chief-of-staff-prompt.js; the browser has no modules, so it is a copy.
+  static exitLine(exit) {
+    if (!exit || typeof exit !== 'object' || !Number.isInteger(exit.code)) return '';
+    const suffix = `exit ${exit.code}`;
+    let line = '';
+    const err = Array.isArray(exit.stderr) ? exit.stderr : [];
+    for (let i = err.length - 1; i >= 0 && !line; i--) {
+      if (typeof err[i] === 'string') line = err[i].replace(/\s+/g, ' ').trim();
+    }
+    if (!line) return suffix;
+    const tailPart = ` (${suffix})`;
+    if (line.length + tailPart.length <= 160) return `${line}${tailPart}`;
+    let t = line.slice(-(160 - 1 - tailPart.length));
+    const first = t.charCodeAt(0);
+    if (first >= 0xdc00 && first <= 0xdfff) t = t.slice(1);
+    return `\u2026${t}${tailPart}`;
+  }
+
   static FETCH_EVERY_MS = 15000;
   static TAIL_BYTES = 8192;
   // Shared by every board so Today and a project page never double-fetch.
@@ -313,8 +333,8 @@ class AgentBoard {
     const state = container.get('state');
     const mgr = AgentBoard._termMgr(container);
     const rows = [];
-    const add = (kind, item, id, st, label, project, since = '') => {
-      if (filter(item, project)) rows.push({ kind, id, state: st, group: AgentBoard.groupOf(st), label, project, since, item });
+    const add = (kind, item, id, st, label, project, since = '', exit = null) => {
+      if (filter(item, project)) rows.push({ kind, id, state: st, group: AgentBoard.groupOf(st), label, project, since, exit, item });
     };
     for (const t of mgr ? mgr.allTerminals.values() : []) {
       if (state.isTaskRun(t.id)) continue;
@@ -326,7 +346,7 @@ class AgentBoard {
       const session = state.getSession(id);
       const project = (session.projectId && state.projects.get(session.projectId)) || null;
       const att = attention.get(id);
-      add('session', session, id, att.state, sessionDisplayName(session, project), project, att.since || '');
+      add('session', session, id, att.state, sessionDisplayName(session, project), project, att.since || '', att.exit || null);
     }
     const order = (r) => AgentBoard.GROUPS.findIndex(g => g.key === r.group);
     rows.sort((a, b) => order(a) - order(b)
@@ -420,6 +440,13 @@ class AgentBoard {
     head.appendChild(st);
     row.appendChild(head);
 
+    const why = kind === 'session' && state === 'errored' ? AgentBoard.exitLine(r.exit) : '';
+    if (why) {
+      const last = document.createElement('span');
+      last.className = 'agent-row__last';
+      last.textContent = why;
+      row.appendChild(last);
+    }
     if (kind === 'terminal') {
       const line = held != null ? held : (AgentBoard.lines.get(id)?.line || '');
       if (line) {
@@ -459,6 +486,10 @@ class AgentBoard {
       text = held != null ? held : (AgentBoard.lines.get(id)?.line || '');
       lineKind = 'last';
       source = 'terminal';
+    } else if (state === 'errored' && AgentBoard.exitLine(r.exit)) {
+      text = AgentBoard.exitLine(r.exit);
+      lineKind = 'exit';
+      source = 'relay';
     } else {
       const n = this.note ? this.note(id) : null;
       const wanted = r.group === 'needs' ? 'alert' : (r.group === 'idle' || r.group === 'done') ? 'summary' : '';
