@@ -152,6 +152,10 @@ The person model can start an agent and send to one through the `eve-cos` MCP (`
 
 The composer walks the person's earlier prompts with Up and Down. History is the person posts in the snapshot, oldest first, so it survives a reload. The first Up saves the current text as the draft and steps one older; at the oldest it stays. Down steps newer, and past the newest restores the draft. A recalled prompt lands with the caret at its end. Any edit or Send ends recall, and the edited text becomes the new draft. Modified keys and IME composition are left alone. The caret rule is a line test: Up is taken only when no newline lies before the caret, Down only when none lies after it. The composer is a single-line `<input>` today, so the rule always holds; it is written as a line test so it stays right if the box becomes multi-line.
 
+## Message time (eve#420)
+
+Every post ends with one `<time class="cos-time">` built from the post's `at`; a post whose `at` does not parse gets none. The visible text is the time alone when `at` falls on the browser's local day at render, else date and time; it is `aria-hidden`, and a `.cos-sr` span carries the full date and time for screen readers. A person post is a wrapper (`cos-post-<id>`) holding the bubble and the time, so the bubble text stays exactly the person's. Alert and finished posts no longer carry a clock in their meta line, which keeps only the project. Under 600px the time is hidden. "Today" is not re-evaluated after midnight until the next render.
+
 ## Agent rail (eve#274)
 
 The thread has an agent rail: every agent session and terminal as a row, beside the thread. `public/cos-agent-rail.js` (`CosAgentRail`) is not a board. It hosts two mounts of the shared `AgentBoard` (layout `rail`, `filter: () => true`, no row cap, Done collapsed): prefix `rail`, always mounted, and prefix `sheet`, mounted while the phone sheet is open.

@@ -117,6 +117,14 @@
 }
 .cos-post p { margin: 0 0 var(--sp-4); }
 .cos-post__meta { color: var(--text-secondary); font-size: var(--text-subhead); margin-bottom: var(--sp-2); }
+.cos-time {
+  display: block;
+  margin-top: var(--sp-2);
+  font-size: var(--text-footnote);
+  font-style: italic;
+  font-weight: 300;
+  color: var(--text-secondary);
+}
 .cos-post__summary { white-space: pre-line; }
 .cos-post__sent-text { color: var(--text-secondary); }
 .cos-ref {
@@ -137,9 +145,15 @@
   font-size: var(--text-subhead);
 }
 
-.cos-me {
+.cos-me-post {
   align-self: flex-end;
   max-width: 80%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cos-me {
+  max-width: 100%;
   padding: var(--sp-4) 14px;
   border-radius: var(--radius-bubble) var(--radius-bubble) var(--radius-xs) var(--radius-bubble);
   background: var(--message-user);
@@ -278,6 +292,10 @@
   .cos-page { padding-bottom: var(--bottom-bar-h); }
   .cos-btn, .cos-composer__send { min-height: var(--hit); }
   .cos-composer__input { min-height: var(--hit); }
+}
+
+@media (max-width: 599.98px) {
+  .cos-time { display: none; }
 }
 
 /* Agent rail, strip and sheet (eve#274). */
