@@ -71,6 +71,7 @@ class ChiefOfStaffPage {
   // ---- inbound ----
 
   _onSnapshot(d) {
+    this._recallAt = null;
     this.posts = Array.isArray(d?.posts) ? d.posts.slice() : [];
     this.status = d?.status || null;
     this.rowNotes = new Map();
@@ -134,6 +135,7 @@ class ChiefOfStaffPage {
     const root = this.el;
     if (!root || this._built) return;
     this._built = true;
+    this._recallAt = null;
     const page = this._div('cos-page', 'cos-page');
 
     const top = this._div('cos-top');
