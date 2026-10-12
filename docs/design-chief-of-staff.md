@@ -148,6 +148,10 @@ The person model can start an agent and send to one through the `eve-cos` MCP (`
 - **D17** Notes are memory only. An eve restart leaves line 3 empty until each agent's next turn.
 - **D18** A turn that ends on a question shows the question on line 3 with no model call.
 
+## Recalling a prompt (eve#419)
+
+The composer walks the person's earlier prompts with Up and Down. History is the person posts in the snapshot, oldest first, so it survives a reload. The first Up saves the current text as the draft and steps one older; at the oldest it stays. Down steps newer, and past the newest restores the draft. A recalled prompt lands with the caret at its end. Any edit or Send ends recall, and the edited text becomes the new draft. Modified keys and IME composition are left alone. The caret rule is a line test: Up is taken only when no newline lies before the caret, Down only when none lies after it. The composer is a single-line `<input>` today, so the rule always holds; it is written as a line test so it stays right if the box becomes multi-line.
+
 ## Agent rail (eve#274)
 
 The thread has an agent rail: every agent session and terminal as a row, beside the thread. `public/cos-agent-rail.js` (`CosAgentRail`) is not a board. It hosts two mounts of the shared `AgentBoard` (layout `rail`, `filter: () => true`, no row cap, Done collapsed): prefix `rail`, always mounted, and prefix `sheet`, mounted while the phone sheet is open.

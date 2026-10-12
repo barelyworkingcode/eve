@@ -28,6 +28,9 @@ class ChiefOfStaffPage {
     this.bus = container.get('bus');
     this.state = container.get('state');
     this.posts = [];
+    // Prompt recall: null when not recalling, else the index into the person posts.
+    this._recallAt = null;
+    this._draft = '';
     this.status = null;
     this.rowNotes = new Map();
     this.rail = null;
@@ -165,6 +168,8 @@ class ChiefOfStaffPage {
     send.dataset.testid = 'cos-send';
     send.textContent = 'Send';
     form.append(this._input, send);
+    this._input.addEventListener('keydown', (e) => this._onComposerKey(e));
+    this._input.addEventListener('input', () => { this._recallAt = null; });
     form.addEventListener('submit', (e) => { e.preventDefault(); this._send(); });
 
     const thread = this._div('cos-thread', 'cos-thread');
@@ -193,7 +198,46 @@ class ChiefOfStaffPage {
     if (!text) return;
     const ws = this.container.has('ws') ? this.container.get('ws') : null;
     // Keep the text when the socket is down so a retry loses nothing.
-    if (ws && ws.send({ type: 'cos_message', text })) this._input.value = '';
+    if (ws && ws.send({ type: 'cos_message', text })) {
+      this._input.value = '';
+      this._recallAt = null;
+    }
+  }
+
+  // Up and Down walk the person's earlier prompts, as in a shell.
+  _onComposerKey(e) {
+    if (e.isComposing || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    const up = e.key === 'ArrowUp';
+    // Take over only at the first line (Up) or last line (Down), so a multi-line box keeps its caret keys.
+    const { value, selectionStart, selectionEnd } = this._input;
+    if (up ? value.slice(0, selectionStart).includes('\n') : value.slice(selectionEnd).includes('\n')) return;
+    if (this._recall(up ? -1 : 1)) e.preventDefault();
+  }
+
+  // Step through history; returns true when it handled the key.
+  _recall(step) {
+    const history = this.posts.filter(p => p.kind === 'person').map(p => p.text);
+    let at = this._recallAt;
+    if (at === null) {
+      if (step > 0 || history.length === 0) return false;
+      this._draft = this._input.value;
+      at = history.length;
+    }
+    at = Math.max(0, at + step);
+    if (at >= history.length) {
+      this._recallAt = null;
+      this._setComposer(this._draft);
+    } else {
+      this._recallAt = at;
+      this._setComposer(history[at]);
+    }
+    return true;
+  }
+
+  _setComposer(text) {
+    this._input.value = text;
+    this._input.setSelectionRange(text.length, text.length);
   }
 
   // ---- status ----
