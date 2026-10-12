@@ -103,7 +103,8 @@ class RelayFileClient extends EventEmitter {
    *                 reconnect backoff with fake timers
    * now             () => ms, for search durations
    * Events: 'fs_event' {projectId,path,kind}, 'watch_ok' {projectId},
-   *         'watch_error' {projectId,code,error}, 'host_status' {hostId,name,status,error}
+   *         'watch_error' {projectId,code,error}, 'host_status' {hostId,name,status,error},
+   *         'eve_passkey_revocations' {revocations: string[]}
    */
   constructor({ relayTransport, log, timers, now } = {}) {
     super();
@@ -220,6 +221,11 @@ class RelayFileClient extends EventEmitter {
         this.emit('host_status', evt);
         break;
       }
+      case 'eve_passkey_revocations':
+        if (Array.isArray(msg.revocations) && msg.revocations.every((id) => typeof id === 'string' && id !== '')) {
+          this.emit('eve_passkey_revocations', { revocations: msg.revocations });
+        }
+        break;
       default: // unknown frame types are ignored
     }
   }

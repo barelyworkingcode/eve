@@ -2,19 +2,19 @@
 // (../relay/docs/eve-passkey-enrolment.md, "Listing and revoking eve
 // passkeys"). report() doubles as the acknowledgement of any revocation
 // relay applied (decision 12) — there is no separate ack round-trip.
+// Revocations arrive as a push on the /ws/files socket; there is no poll.
 
 const { NullLogger } = require('./logger');
 
-const DEFAULT_POLL_MS = 30000;
-
 class PasskeySync {
-  constructor({ authService, relayTransport, log, pollMs = DEFAULT_POLL_MS, enabled = true } = {}) {
+  constructor({ authService, relayTransport, files, log, enabled = true } = {}) {
     this.authService = authService;
     this.relayTransport = relayTransport || null;
+    this.files = files || null;
     this.log = log || new NullLogger();
-    this.pollMs = pollMs;
     this.enabled = enabled;
-    this.timer = null;
+    this._onRevocations = (evt) => this.handleRevocations(evt && evt.revocations);
+    this._subscribed = false;
   }
 
   // PUTs the current credential list and applies whatever revocations relay
@@ -57,7 +57,21 @@ class PasskeySync {
   // credential list (mirrors relay's own last-credential guard — decision
   // 13), then reports once, which is the acknowledgement.
   async apply(ids) {
-    if (!this.enabled || !this.relayTransport || !Array.isArray(ids) || ids.length === 0) return;
+    if (await this._removeAll(ids)) await this.report();
+  }
+
+  // The push entry point. Always ends in exactly one report(), even when
+  // nothing was removable: that report is what clears relay's pending list.
+  // apply() is not used here, so the report cannot be doubled.
+  async handleRevocations(ids) {
+    if (!this.enabled || !this.relayTransport) return;
+    await this._removeAll(ids);
+    await this.report();
+  }
+
+  // Resolves true when at least one credential was removed.
+  async _removeAll(ids) {
+    if (!this.enabled || !this.relayTransport || !Array.isArray(ids) || ids.length === 0) return false;
     const existing = new Set(this.authService.listCredentials().map((c) => c.id));
     let removedAny = false;
     for (const id of ids) {
@@ -71,23 +85,21 @@ class PasskeySync {
         this.log.error(`Failed to apply revocation for ${id}:`, err.message);
       }
     }
-    if (removedAny) await this.report();
+    return removedAny;
   }
 
-  // Runs an initial report immediately, then polls. `.unref()`'d so this
-  // timer never keeps the process alive.
+  // Reports once, then listens for relay's pushed revocations.
   start() {
-    if (!this.enabled || !this.relayTransport || this.timer) return;
+    if (!this.enabled || !this.relayTransport || this._subscribed) return;
+    this._subscribed = true;
     this.report();
-    this.timer = setInterval(() => this.report(), this.pollMs);
-    this.timer.unref?.();
+    if (this.files) this.files.on('eve_passkey_revocations', this._onRevocations);
   }
 
   stop() {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
+    if (!this._subscribed) return;
+    this._subscribed = false;
+    if (this.files) this.files.off('eve_passkey_revocations', this._onRevocations);
   }
 }
 

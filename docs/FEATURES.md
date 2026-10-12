@@ -717,7 +717,8 @@ Code: public/auth.js, routes/auth.js, auth.js, enrollment-gate.js, enrollment-wi
 | G16.6 | Revoke a lost browser's passkey | Relay > menuitem "Settings..." > tab "Passkeys" > button "Revoke" | `relay eve revoke --id <credential id>` | The card shows text "revocation pending" and button "Revoke" goes; the card leaves after eve applies it | `relay eve list` shows STATUS revocation pending, then no row | r1: the last passkey: eve keeps it and the card stays | none yet | g16-add-browser.spec.js |
 | G16.7 | Be refused at sign-in with a revoked passkey | Sign-in screen > button "Sign In" | none | text "This passkey has been revoked." shows under the button | none | none | none yet | g16-add-browser.spec.js |
 | G16.8 | Be signed out in an open browser after its passkey is revoked | n/a: background | n/a: background | The page reloads and heading "Sign In" shows | `relay eve list` no longer lists the passkey | none | none yet | g16-add-browser.spec.js |
-| G16.9 | Report eve's passkey list to relay every 30 seconds and after each sign-in | n/a: background | n/a: background | n/a: background | `relay logs --event eve.passkey.report` ok | none | none yet | g16-add-browser.spec.js |
+| G16.9 | Report eve's passkey list to relay at startup and after each change | n/a: background | n/a: background | n/a: background | `relay logs --event eve.passkey.report` ok | none | none yet | g16-add-browser.spec.js |
+| G16.10 | Pick up a revocation made while eve was away from relay | n/a: background | n/a: background | An open page shows heading "Sign In" after eve reconnects | `relay eve list` no longer lists the passkey | none | none yet | g16-add-browser.spec.js |
 
 Operator surfaces (`npm run relay:restart`, `register`, `start:secure`,
 `ssl`, `verify:devbox`, `devboxverify/set.js`) are not user goals and get no journey.
