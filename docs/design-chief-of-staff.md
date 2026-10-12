@@ -115,18 +115,32 @@ The roster refetch before a person turn replaces the roster's membership (a sess
 
 ## Actions and provenance
 
-The person model can start an agent and send to one through the `eve-cos` MCP (`mcp/cos.js`): `cos_list_sessions`, `cos_session_status`, `cos_propose_start`, `cos_propose_send`. The MCP only calls eve's loopback `/internal/cos`; eve decides.
+The person model can start an agent and send to one through the `eve-cos` MCP (`mcp/cos.js`): six tools: `cos_list_sessions`, `cos_session_status`, `cos_list_agents` (reads) and `cos_propose_start`, `cos_propose_send`, `cos_propose_agent` (propose). The MCP only calls eve's loopback `/internal/cos`; eve decides.
 
 **A call is tied to a real tool call.** eve records every `tool_use` the person model makes (`ChiefOfStaffModel`'s `onToolUse`, fired when a tool_use block stops) in a `CosTurn` for the length of the person turn. `/internal/cos` checks the loopback peer and the secret, that `meta.project_id` (vouched by relay) is the person model's project, that a person turn is in flight, and then waits for an unclaimed `tool_use` with the same name and the same input (sorted-key JSON). `claim()` resolves when that call is recorded and rejects when the turn settles, so a call that the model never made, or made in an earlier turn, is refused as `unverified_call`. eve.log gets one info line per tool call with the turn id and tool name; the input is never logged, because it can quote agent data.
 
 **Provenance decides act or card** (`chief-of-staff-provenance.js`, pure):
-- If the person model session has read nothing, eve acts at once (`no_read`). Any tool except the two propose tools counts as a read, and the mark lasts the life of that model session.
+- If the person model session has read nothing, eve acts at once (`no_read`). Any tool except the three propose tools counts as a read, and the mark lasts the life of that model session.
 - After a read, eve acts at once only when the prompt or text is a verbatim span of the person's message (whitespace collapsed, case-sensitive) and the message names the project (start) or the session label (send), case-insensitively.
 - Otherwise eve posts a `start_card` or `send_card` and does nothing until the person taps Start. Edits made on the card are the person's own words, so a tap needs no provenance check.
 
 **Start goes through relay's scoped route only** (`POST /api/chief-of-staff/sessions`), never an unscoped create, so the session carries `origin: 'chief-of-staff'` and relay audits it. eve then refreshes the roster, so a headless start joins it and alerts for it post as usual. A terminal start shows in relay's session list and in the `started` post, not in the roster. A project on an SSH host starts headless only (relay refuses a terminal there with `terminal_on_host`, which posts `start_failed`). A relay refusal posts `start_failed` (or `send_failed`) and the tool answers `relay_<code>`.
 
 **Cards** persist with the posts. Only a `pending` card takes an action, and its state leaves `pending` before anything is awaited, so one tap acts once. `cos_post_update` replaces the post in every browser. A card never expires; `failed` is final.
+
+## Agents (eve#407)
+
+A project can have named agents: entries of a type, a name, a kind (claude, codex or pi), an optional model and an optional command. Relay owns them (`projects[].agents`); eve lists them, offers to add one, and starts one by name.
+
+**List.** `cos_list_agents` is a read. It asks relay's scoped list and passes the rows through as relay typed them, filtered to the row types in `LIST_ROW_TYPES` (today `agent`). The model uses it when the person asks what a project has, or names an agent it cannot match.
+
+**Add is always a card.** `cos_propose_agent` has relay check the entry first (the scoped preview: relay validates the name and kind, finds the command and says which machine runs it; it writes nothing and raises no prompt), then posts an `agent_card`. It never goes through `provenance.decide`. There is no act-at-once path because adding an agent changes what can run on the person's machine: relay gates the write with a presence prompt at the Mac, and eve must not call it on text the model made up. Provenance asks whether the words are the person's. Here the words are a name and a command, and the person's tap on the card is what relay needs to see. The tap calls the unscoped `POST /api/projects/{id}/agents`, and eve sets no timer, because the person may take a while to reach the Mac. The card reads "Approve on the Mac" meanwhile. The state leaves `pending` before the call, so one tap acts once. The card has Add and Cancel and no fields; an edit sent for it is refused ("An add card takes no edits").
+
+**The command is a name only.** The model may send a bare program name such as `mywrapper`, matching `^[A-Za-z0-9._+][A-Za-z0-9._+-]{0,63}$`. A path, an argument or a command line is refused (`invalid_args`), and so is any other field (`args` included). Absolute paths and arguments are set in relay's Settings or its CLI (`relay project agents add`), where the person types them. The prompt tells the model never to put one in `command` and never to ask the person for one. A program that is none of the three kinds is a claude launcher, so the model sends kind `claude`.
+
+**Errors.** A relay refusal on the list, the preview, the add or the start is `{error, message}`. eve keeps `error` as the code when it is lowercase letters and underscores, else `http_<status>`, and answers `502 relay_<code>` with relay's `message` (or `Relay refused the <list|preview|add|start> (<code>).`). A call that throws is `unreachable`. A failed preview posts no card. A failed add leaves the card `failed` with relay's message; presence refused or timed out is such a refusal. A project removed before the tap fails the card with "That project is no longer available".
+
+**Start by entry.** `cos_propose_start` takes `entry` (a name) or `model`, never both. An agent by name starts headless: `mode: 'terminal'` with an entry is refused. eve sends relay exactly one of `entry` and `model`; when the tool sends neither, eve fills the default model as before. A start card for an entry shows Prompt, Folder and a read-only Agent row; Edit changes only the prompt and the folder. An unknown name is relay's refusal, which lists the project's agents.
 
 ## Decisions
 - **D1** Wake session: tools off in eve: deny list, init check, one relaunch, else off. The person session uses D12.

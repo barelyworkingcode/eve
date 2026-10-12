@@ -34,7 +34,7 @@ function runToEnd(file, args, env) {
 }
 
 class Stack {
-  constructor({ fakerelay, relayscheduler, world, network, scheduler, publicOrigin = null, trustedSubnets = null, plansDir = 'agent', eveSettings = null }) {
+  constructor({ fakerelay, relayscheduler, world, network, scheduler, publicOrigin = null, trustedSubnets = null, plansDir = 'agent', eveSettings = null, eveFiles = null }) {
     this.bins = { fakerelay, relayscheduler };
     this.world = world;
     this.network = network;
@@ -43,6 +43,7 @@ class Stack {
     this.trustedSubnets = trustedSubnets;
     this.plansMode = plansDir;
     this.eveSettings = eveSettings;
+    this.eveFiles = eveFiles;
     this.watchers = new Set();
     this.exited = null;
     this.child = null;
@@ -129,6 +130,11 @@ class Stack {
     this.checkSocketPaths();
     // Operator-authored in real life; eve only reads it. Written before eve starts.
     if (this.eveSettings) fs.writeFileSync(path.join(this.root, 'eve', 'settings.json'), JSON.stringify(this.eveSettings));
+    // Other operator or eve-owned data files (for example posts), written the same way, before eve starts.
+    for (const [name, contents] of Object.entries(this.eveFiles || {})) {
+      if (name.includes('/') || name.includes('..')) throw new Error(`eveFiles names a file, not a path: ${name}`);
+      fs.writeFileSync(path.join(this.root, 'eve', name), contents);
+    }
 
     this.voiceFakes = await startVoiceFakes();
     this.voice = this.voiceFakes.voice;
