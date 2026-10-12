@@ -144,6 +144,10 @@ const test = base.test.extend({
   plansDir: ['agent', { option: true }],
   // Contents of eve's data/settings.json, written before eve starts. null = no file.
   eveSettings: [null, { option: true }],
+  // Extra files written into eve's data dir before it starts: { 'name.json': 'contents' }. null = none.
+  eveFiles: [null, { option: true }],
+  // Posts seeded into data/chief-of-staff.jsonl, one object per line. null = no file.
+  cosPosts: [null, { option: true }],
   // 'beep' | 'silence' | 'speech': what getUserMedia delivers (see MIC_KINDS).
   mic: ['beep', { option: true }],
   // true: getUserMedia with audio rejects with a NotAllowedError DOMException.
@@ -171,11 +175,14 @@ const test = base.test.extend({
   }, { auto: true }],
 
   // The running stack. Not for specs: they use eve, relay, passkey and voice.
-  stack: async ({ world, network, scheduler, publicOrigin, trustedSubnets, plansDir, eveSettings }, use, testInfo) => {
+  stack: async ({ world, network, scheduler, publicOrigin, trustedSubnets, plansDir, eveSettings, eveFiles, cosPosts }, use, testInfo) => {
+    const files = { ...(eveFiles || {}) };
+    if (cosPosts) files['chief-of-staff.jsonl'] = cosPosts.map((p) => JSON.stringify(p)).join('\n') + '\n';
     const stack = new Stack({
       fakerelay: process.env.EVE_E2E_FAKERELAY,
       relayscheduler: process.env.EVE_E2E_RELAYSCHEDULER,
       world, network, scheduler, publicOrigin, trustedSubnets, plansDir, eveSettings,
+      eveFiles: Object.keys(files).length ? files : null,
     });
     let setupError = null;
     try {
