@@ -12,7 +12,7 @@ Eve's hermetic suite is Playwright. Each test starts its own `fakerelay` (relay'
 | `npm run -s check:coverage` | CI job `check`; pre-push | every feature-map row names its proof, every spec test names its row |
 | `npm ci` | CI job `check` | the lockfile installs |
 | PR guards | CI workflow `guards` (`scripts/ci-guards.sh`) | tests-only, skip-focus and hygiene |
-| `npx playwright test` | CI job `e2e` (on a PR the specs its change reaches, see "Test selection"; every spec on a push to `main`); the hermetic suite (this guide) | eve against fakerelay, one stack per test |
+| `npx playwright test` | CI jobs `e2e shard 1/3` to `3/3`, graded by `e2e` (on a PR the specs its change reaches, see "Test selection"; every spec on a push to `main`); the hermetic suite (this guide) | eve against fakerelay, one stack per test |
 | Devbox world | `npm run -s verify:devbox`; `devboxverify --epic REF` posts `devbox/verify-full` once per epic | journeys against the installed stack on the test machine; unchanged, see `devboxverify/README.md` |
 
 ## Local hooks
@@ -285,7 +285,7 @@ Allowed in specs: `getByRole`, `getByLabel`, `getByText`, `filter`, `first`/`las
 | S10 | `node .claude/hooks/eve-test-writer-guard.js --self-test` exits 0 |
 | S11 | every `test/static/*-selftest.js` exits 0 |
 
-Guards 9 (burn-in), 7, 8 and 12 are the CI burn-in step and E5, E3 and E4. A deliberate change to a frozen set edits `test/static/frozen.json` in the same PR.
+Guards 9 (burn-in), 7, 8 and 12 are the CI `e2e-burn-in` job and E5, E3 and E4. A deliberate change to a frozen set edits `test/static/frozen.json` in the same PR.
 
 ## Coverage
 
@@ -330,7 +330,13 @@ A push to `main` runs every spec (`--full`). The M2 to M5 checks run in the `che
 `.github/workflows/ci.yml`:
 
 - `check`: `npm ci`, `node --check` on every tracked JS file, `npm run -s lint`, `npm run -s check:static`, `npm run -s check:coverage`.
-- `e2e` (every PR and every push to `main`; Ubuntu, 30 minutes): first `select specs` (`--base`/`--head` on a PR, `--full` otherwise; see "Test selection"), which fails the job on an unmapped path or unapproved narrowing before any spec runs. Unless the mode is `none`, it builds the fakes from the pin, installs Chromium and runs `npx playwright test` (mode `all`) or `npx playwright test $SELECT_SPECS`. The job summary lists the areas, the specs run and the count not run. On a PR it then runs the burn-in: `node scripts/burn-in-specs.js "$BASE_SHA" "$HEAD_SHA"` lists the specs the PR adds or changes (top-level `test/e2e/*.spec.js` only), and `npx playwright test --repeat-each=5 --retries=0 <specs>` runs them. A change to `test/e2e/support/` or `playwright.config.js` lists none. On failure the job uploads `playwright-report/` and `test-results/` (7 days). CI skips the browser lock.
+- The hermetic suite (every PR and every push to `main`; Ubuntu) runs as parallel jobs, graded by one job named `e2e`:
+  - `e2e-select` runs `select specs` once (`--base`/`--head` on a PR, `--full` otherwise; see "Test selection"), which fails the run on an unmapped path or unapproved narrowing before any spec runs. Its summary lists the areas, the specs run and the count not run, and its outputs (`SELECT_MODE`, `SELECT_SPECS`) feed every shard, so each shard splits the same list.
+  - `e2e-fakes` builds fakerelay and relayScheduler from the pin into the build cache and saves it with `actions/cache`, keyed on `test/e2e/relay-pin.json`; a hit skips the build. The shards and the burn-in restore it and never build or install Go.
+  - `e2e shard 1/3`, `2/3` and `3/3` (30 minutes each), unless the mode is `none`: each installs Chromium and runs `npx playwright test --shard=<n>/3 --reporter=list,blob` (mode `all`) or the same with `$SELECT_SPECS`. Playwright splits the selected tests evenly, so each test runs in exactly one shard; a shard the selection leaves empty runs nothing and passes.
+  - `e2e-burn-in` (a PR only, in parallel with the shards, 30 minutes): `node scripts/burn-in-specs.js "$BASE_SHA" "$HEAD_SHA"` lists the specs the PR adds or changes (top-level `test/e2e/*.spec.js` only), and `npx playwright test --repeat-each=5 --retries=0 <specs>` runs them. A change to `test/e2e/support/` or `playwright.config.js` lists none, and the job passes without installing a browser.
+  - `e2e` needs all four and always runs. It fails when any of them failed or was cancelled; a skip passes only for the shards when the mode is `none` and for the burn-in off a PR. This is the status branch protection and `merge-check` read. On failure it merges the blob reports the failed jobs uploaded (`npx playwright merge-reports --reporter html`) into one `e2e-report` artifact, traces included (7 days).
+  - CI skips the browser lock.
 - Both workflows also run on `labeled` and `unlabeled`, so adding or removing a PR label reruns every job.
 - `guards.yml` (tests-only, skip-focus, hygiene) is unchanged.
 

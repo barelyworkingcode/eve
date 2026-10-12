@@ -37,28 +37,31 @@ jobs:
         run: npm run -s check:coverage
 
   # The hermetic suite: each test starts its own fakerelay and eve (docs/test.md).
-  # No browser lock in CI; the lock is for the shared test machine.
-  e2e:
+  # No browser lock in CI; the lock is for the shared test machine. The suite
+  # runs as three shards plus a burn-in; the `e2e` job at the end is the one
+  # status that grades them all.
+
+  # Fails the run on an unmapped path or unapproved narrowing, and never falls
+  # back to the whole suite. A push runs every spec. Once here, so every shard
+  # splits the same list.
+  e2e-select:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.select.outputs.SELECT_MODE }}
+      specs: ${{ steps.select.outputs.SELECT_SPECS }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Spec selection (merge-base, git show <rev>:, base...head diff) and
-          # the burn-in need the full history.
+          # merge-base, git show <rev>: and the base...head diff need the full history.
           fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 1.25.x
-          cache: false
       - run: npm ci
-      # Fails the job on an unmapped path or unapproved narrowing, and never
-      # falls back to the whole suite. A push runs every spec.
       - name: select specs
+        id: select
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -67,28 +70,103 @@ jobs:
         run: |
           if [ "$EVENT" = pull_request ]; then
             node scripts/select-specs.js --base "$BASE_SHA" --head "$HEAD_SHA" \
-              --labels-json "$LABELS_JSON" --env "$GITHUB_ENV" --summary "$GITHUB_STEP_SUMMARY"
+              --labels-json "$LABELS_JSON" --env "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
           else
-            node scripts/select-specs.js --full --env "$GITHUB_ENV" --summary "$GITHUB_STEP_SUMMARY"
+            node scripts/select-specs.js --full --env "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
           fi
+
+  # fakerelay and relayScheduler, built once from the pin into the build cache
+  # (docs/test.md) and shared through actions/cache, which keeps the
+  # executable bit. A hit skips the build.
+  e2e-fakes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache
+        with:
+          path: ~/.cache/eve-e2e
+          key: eve-e2e-fakes-${{ runner.os }}-go1.25-${{ hashFiles('test/e2e/relay-pin.json') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.25.x
+          cache: false
       - name: build fakerelay and relayScheduler from the pin
-        if: env.SELECT_MODE != 'none'
+        if: steps.cache.outputs.cache-hit != 'true'
         run: node test/e2e/support/build-fakes.js
-      - if: env.SELECT_MODE != 'none'
-        run: npx playwright install --with-deps chromium
+
+  e2e-shard:
+    name: e2e shard ${{ matrix.shard }}/3
+    needs: [e2e-select, e2e-fakes]
+    if: needs.e2e-select.outputs.mode != 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Every shard reports, so one red shard does not hide another.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: restore fakerelay and relayScheduler
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/eve-e2e
+          key: eve-e2e-fakes-${{ runner.os }}-go1.25-${{ hashFiles('test/e2e/relay-pin.json') }}
+          fail-on-cache-miss: true
+      - run: npx playwright install --with-deps chromium
+      # A shard the selection leaves empty runs nothing and exits 0.
       - name: playwright test
-        if: env.SELECT_MODE != 'none'
+        env:
+          SELECT_MODE: ${{ needs.e2e-select.outputs.mode }}
+          SELECT_SPECS: ${{ needs.e2e-select.outputs.specs }}
+          SHARD: ${{ matrix.shard }}
         run: |
           if [ "$SELECT_MODE" = all ]; then
-            npx playwright test
+            npx playwright test --shard="$SHARD/3" --reporter=list,blob
           else
             # Word splitting is the point: one argument per spec path.
-            npx playwright test $SELECT_SPECS
+            npx playwright test --shard="$SHARD/3" --reporter=list,blob $SELECT_SPECS
           fi
-      # Each spec a PR adds or changes runs five times with retries off, so a
-      # flake shows before merge. Specs only; see scripts/burn-in-specs.js.
-      - name: burn-in
-        if: github.event_name == 'pull_request'
+      - name: upload the blob report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-blob-shard-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Each spec a PR adds or changes runs five times with retries off, so a
+  # flake shows before merge. Specs only; see scripts/burn-in-specs.js.
+  e2e-burn-in:
+    needs: e2e-fakes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base...head diff needs the full history.
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: list added or changed specs
+        id: list
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -96,19 +174,106 @@ jobs:
           specs=$(node scripts/burn-in-specs.js "$BASE_SHA" "$HEAD_SHA")
           if [ -z "$specs" ]; then
             echo "no spec added or changed; nothing to burn in"
-            exit 0
+          else
+            echo "burn-in x5:"
+            echo "$specs"
           fi
-          echo "burn-in x5:"
-          echo "$specs"
-          # Word splitting is the point: one argument per spec path.
-          npx playwright test --repeat-each=5 --retries=0 $specs
-      - name: upload the report and traces
+          echo "specs=$(echo $specs)" >> "$GITHUB_OUTPUT"
+      - name: restore fakerelay and relayScheduler
+        if: steps.list.outputs.specs != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/eve-e2e
+          key: eve-e2e-fakes-${{ runner.os }}-go1.25-${{ hashFiles('test/e2e/relay-pin.json') }}
+          fail-on-cache-miss: true
+      - if: steps.list.outputs.specs != ''
+        run: npx playwright install --with-deps chromium
+      - name: burn-in
+        if: steps.list.outputs.specs != ''
+        env:
+          SPECS: ${{ steps.list.outputs.specs }}
+        # Word splitting is the point: one argument per spec path.
+        run: npx playwright test --repeat-each=5 --retries=0 --reporter=list,blob $SPECS
+      - name: upload the blob report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-report
-          path: |
-            playwright-report/
-            test-results/
+          name: e2e-blob-burn-in
+          path: blob-report/
           retention-days: 7
           if-no-files-found: ignore
+
+  # The status merge-check and branch protection read. Red when any part of
+  # the suite failed or was cancelled; a skip passes only where the part does
+  # not apply: the shards when the selection is `none`, the burn-in off a PR.
+  e2e:
+    needs: [e2e-select, e2e-fakes, e2e-shard, e2e-burn-in]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: grade the suite
+        id: grade
+        env:
+          EVENT: ${{ github.event_name }}
+          MODE: ${{ needs.e2e-select.outputs.mode }}
+          SELECT: ${{ needs.e2e-select.result }}
+          FAKES: ${{ needs.e2e-fakes.result }}
+          SHARDS: ${{ needs.e2e-shard.result }}
+          BURN_IN: ${{ needs.e2e-burn-in.result }}
+        run: |
+          echo "select=$SELECT fakes=$FAKES shards=$SHARDS burn-in=$BURN_IN mode=$MODE event=$EVENT"
+          ok=true
+          [ "$SELECT" = success ] || ok=false
+          [ "$FAKES" = success ] || ok=false
+          if [ "$SELECT" = success ] && [ "$MODE" = none ]; then
+            [ "$SHARDS" = skipped ] || ok=false
+          else
+            [ "$SHARDS" = success ] || ok=false
+          fi
+          if [ "$EVENT" = pull_request ]; then
+            [ "$BURN_IN" = success ] || ok=false
+          else
+            [ "$BURN_IN" = skipped ] || ok=false
+          fi
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+      # One HTML report, traces included, from every blob a failed part left.
+      - if: steps.grade.outputs.ok != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: steps.grade.outputs.ok != 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - if: steps.grade.outputs.ok != 'true'
+        run: npm ci
+      # A part that failed before any test ran leaves no blob; the merge
+      # below reports that, and the last step still fails the job.
+      - if: steps.grade.outputs.ok != 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: e2e-blob-*
+          path: all-blob-reports
+          merge-multiple: true
+      - name: merge the reports
+        if: steps.grade.outputs.ok != 'true'
+        run: |
+          if [ -n "$(ls -A all-blob-reports 2>/dev/null)" ]; then
+            npx playwright merge-reports --reporter html all-blob-reports
+          else
+            echo "no blob report to merge"
+          fi
+      - name: upload the report and traces
+        if: steps.grade.outputs.ok != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-report
+          path: playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: fail when the suite failed
+        if: steps.grade.outputs.ok != 'true'
+        run: |
+          echo "a part of the e2e suite failed, was cancelled, or ran where it should not"
+          exit 1
