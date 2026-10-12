@@ -271,9 +271,6 @@ try {
 // can run relay-less doesn't have to touch this call site.
 const enrollmentWindow = new EnrollmentWindow({ relayTransport, log: log.child('EnrollmentWindow') });
 
-// Null-transport-safe (see passkey-sync.js) for the same reason as
-// enrollmentWindow above.
-const passkeySync = new PasskeySync({ authService, relayTransport, log: log.child('PasskeySync'), enabled: passkeySyncConfig.enabled });
 const notifier = createNotifier({ dataDir: DATA_DIR, log: log.child('Notifier') });
 const routineFailureWatcher = new RoutineFailureWatcher({ relayTransport, notifier, log: log.child('RoutineFailures') });
 // Server-wide Chief of Staff thread (docs/design-chief-of-staff.md). Reads
@@ -293,7 +290,7 @@ const chiefOfStaff = new ChiefOfStaff({
   fileSource: settings.chiefOfStaff !== undefined ? 'settings.json' : 'defaults',
 });
 if (!passkeySyncConfig.enabled) {
-  serverLog.info('Passkey sync: off (EVE_PASSKEY_SYNC=off); no report or revocation poll to relay');
+  serverLog.info('Passkey sync: off (EVE_PASSKEY_SYNC=off); no report to relay and no revocation push applied');
 }
 
 // Attaches the derived, browser-safe `host` field (null for a console
@@ -315,6 +312,10 @@ function resolveProject(id) {
 // relay through this client (relay-file-client.js). Started with the other
 // relay watchers once the server is listening.
 const relayFileClient = new RelayFileClient({ relayTransport, log: log.child('RelayFiles') });
+// Built after relayFileClient: relay pushes passkey revocations on that
+// socket. Null-transport-safe (see passkey-sync.js) for the same reason as
+// enrollmentWindow above.
+const passkeySync = new PasskeySync({ authService, relayTransport, files: relayFileClient, log: log.child('PasskeySync'), enabled: passkeySyncConfig.enabled });
 const fileHandlers = new FileHandlers({
   resolveProject,
   files: relayFileClient,
@@ -602,7 +603,8 @@ function startServing() {
 
     // Started only once eve is actually reachable, so the initial report()
     // it fires immediately reflects a server that can also answer relay's
-    // /api/eve/passkeys/revocations poll back.
+    // /api/eve/passkeys/revocations check back. It subscribes to the file
+    // client's push, so relayFileClient.start() below may follow in any order.
     passkeySync.start();
     routineFailureWatcher.start();
     relayFileClient.start();

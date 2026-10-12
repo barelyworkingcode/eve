@@ -154,8 +154,6 @@ test('too many tries to add this browser are refused @G16.4.r2', async ({ eve, p
 });
 
 test('revoke a lost browser and eve drops it @G16.6', async ({ eve, page, relay, passkey }) => {
-  // eve reports its passkeys every 30 s; this test waits for one report.
-  test.slow();
   const first = await addThisBrowser(eve, page, relay, passkey);
   await relay.ctl('presence', 'eve.passkey.revoke=approve');
   const since = relay.mark();
@@ -165,7 +163,6 @@ test('revoke a lost browser and eve drops it @G16.6', async ({ eve, page, relay,
   const pending = await relay.cli('eve', 'list');
   expect(pending.stdout).toContain('revocation pending');
 
-  // The page stays signed in with its own passkey until eve reports again.
   await relay.waitForEvent('eve.passkey.report', {
     since,
     match: (l) => l.status === 'ok' && l.count === 1,
@@ -176,8 +173,6 @@ test('revoke a lost browser and eve drops it @G16.6', async ({ eve, page, relay,
 });
 
 test('@G16.8 @G1.41 an open page signs out after its passkey is revoked', async ({ eve, page, relay, passkey }) => {
-  // eve reports its passkeys every 30 s; this test waits for one report.
-  test.slow();
   await addThisBrowser(eve, page, relay, passkey);
   await expect(page.getByRole('heading', { name: 'Sign In' })).toBeHidden();
   const own = await passkey.credentials();
