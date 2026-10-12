@@ -278,9 +278,10 @@ const railWidth = (page) => async () => (await page.getByRole('navigation', { na
 const railIs = (page, want) => expect.poll(async () => Math.abs((await railWidth(page)()) - want)).toBeLessThanOrEqual(2);
 
 // A real pointer drag on the separator, dx pixels along the row (left widens the rail).
-async function dragSeparator(page, dx) {
+// grab is an offset from the handle's centre where the pointer goes down.
+async function dragSeparator(page, dx, grab = 0) {
   const box = await page.getByRole('separator', { name: 'Resize agents' }).boundingBox();
-  const x = box.x + box.width / 2;
+  const x = box.x + box.width / 2 + grab;
   const y = box.y + box.height / 2;
   await page.mouse.move(x, y);
   await page.mouse.down();
@@ -301,8 +302,8 @@ test.describe('the agents rail width', () => {
     await expect(sep).toHaveAttribute('aria-valuenow', '280');
     await railIs(page, 280);
 
-    // The width follows the drag distance, wherever on the handle it was grabbed.
-    await dragSeparator(page, -60);
+    // The width follows the drag distance, wherever on the handle it was grabbed (here 2px left of centre).
+    await dragSeparator(page, -60, -2);
     await expect(sep).toHaveAttribute('aria-valuenow', '340');
     const dragged = Number(await sep.getAttribute('aria-valuenow'));
     await railIs(page, dragged);
@@ -436,6 +437,7 @@ test.describe('folding the agents rail', () => {
     await expect(rail).toBeHidden();
     await other.getByRole('button', { name: '1 needs you', exact: true }).click();
     await expect(rail).toBeVisible();
+    await expect(rail.getByRole('heading', { name: 'Needs you 1', level: 4 })).toBeFocused();
   });
 });
 
