@@ -150,6 +150,10 @@ test.describe('the time of each message', () => {
       await expect(time).toHaveText(clockOnly);
       await expect(time).toContainText(fullDate);
       await expect(time).toHaveCSS('font-style', 'italic');
+      // The clock is the browser's own zone, not UTC.
+      const at = new Date(await time.getAttribute('datetime'));
+      const local = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeStyle: 'short' }).format(at);
+      await expect(time).toHaveText(new RegExp(`^${local.replace(/\s/g, '\\s')}`));
     }
 
     // The same posts, seen two days later, read as older: date and time.
