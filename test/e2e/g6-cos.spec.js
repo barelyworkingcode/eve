@@ -129,6 +129,61 @@ test.describe('the thread', () => {
   });
 });
 
+test.describe('the time of each message', () => {
+  test.use({ world: cosWorld(), locale: 'en-US', timezoneId: 'America/New_York' });
+
+  test('each message shows when it was posted @G6.82', async ({ eve, page }) => {
+    const feed = page.getByRole('log');
+    await eve.open('/');
+    await openCos(page);
+    await tell(page, 'how is Ledger');
+    await expect(feed.getByText('how is Ledger', { exact: true })).toBeVisible();
+    await expect(feed.getByText(/tools aren't set up/i).first()).toBeVisible();
+    const times = feed.getByRole('time');
+    await expect(times).toHaveCount(2);
+
+    // The element reads as the short time, then carries the full date for screen readers.
+    const clockOnly = /^\d{1,2}:\d{2}\s?[AP]M(?!,)(?=[A-Z])/;
+    const fullDate = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),? \w+ \d{1,2},? \d{4}/;
+    for (const time of await times.all()) {
+      await expect(time).toBeVisible();
+      await expect(time).toHaveText(clockOnly);
+      await expect(time).toContainText(fullDate);
+      await expect(time).toHaveCSS('font-style', 'italic');
+    }
+
+    // The same posts, seen two days later, read as older: date and time.
+    await page.clock.setFixedTime(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+    await eve.reload();
+    await openCos(page);
+    await expect(feed.getByText('how is Ledger', { exact: true })).toBeVisible();
+    await expect(times).toHaveCount(2);
+    for (const time of await times.all()) {
+      await expect(time).toBeVisible();
+      // Short date and time first (e.g. "Oct 14, 2026, 5:57 PM"), then the full date.
+      await expect(time).toHaveText(/^[A-Z][a-z]{2} \d{1,2}, (\d{4}, )?\d{1,2}:\d{2}\s?[AP]M(?=[A-Z])/);
+      await expect(time).toContainText(fullDate);
+    }
+  });
+});
+
+test.describe('the time of each message on a phone', () => {
+  test.use({ ...profiles.phone, world: cosWorld(), locale: 'en-US', timezoneId: 'America/New_York' });
+
+  test('the time is hidden at phone width @G6.82.r1', async ({ eve, page }) => {
+    await eve.open('/');
+    await openCos(page, true);
+    await tell(page, 'how is Ledger');
+    const feed = page.getByRole('log');
+    await expect(feed.getByText('how is Ledger', { exact: true })).toBeVisible();
+    await expect(feed.getByText(/tools aren't set up/i).first()).toBeVisible();
+    // Both times are in the page, but none shows.
+    const times = feed.getByRole('time', { includeHidden: true });
+    await expect(times).toHaveCount(2);
+    for (const time of await times.all()) await expect(time).toBeHidden();
+  });
+});
+
 test.describe('an agent that needs me', () => {
   test.use({ world: cosWorld() });
 
