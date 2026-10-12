@@ -12,4 +12,3 @@ test('open the Project page from the bottom bar @G3.1', async ({ eve, page }) =>
   await expect(page.getByRole('heading', { name: 'Threads' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Routines' })).toBeVisible();
 });
-// TEMPORARY: touches one spec so the PR run exercises selection, an empty shard and the burn-in.
