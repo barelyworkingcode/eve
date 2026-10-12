@@ -316,10 +316,15 @@ class ChiefOfStaffPage {
 
   _renderPost(post) {
     if (post.kind === 'person') {
-      const me = this._div('cos-me', `cos-post-${post.id}`);
-      me.dataset.kind = post.kind;
+      // The bubble keeps exactly the person's text; the time sits outside it.
+      const wrap = this._div('cos-me-post', `cos-post-${post.id}`);
+      wrap.dataset.kind = post.kind;
+      const me = this._div('cos-me');
       me.textContent = String(post.text || '');
-      return me;
+      wrap.appendChild(me);
+      const when = this._time(post.at);
+      if (when) wrap.appendChild(when);
+      return wrap;
     }
     const article = document.createElement('article');
     article.className = 'cos-post';
@@ -333,7 +338,7 @@ class ChiefOfStaffPage {
       const meta = document.createElement('p');
       meta.className = 'cos-post__meta';
       meta.textContent = this._meta(post);
-      body.appendChild(meta);
+      if (meta.textContent) body.appendChild(meta);
       if (post.headline) body.appendChild(this._text('h3', post.headline));
       if (post.body) body.appendChild(this._text('p', post.body));
       if (post.card) body.appendChild(this._card(post));
@@ -341,7 +346,7 @@ class ChiefOfStaffPage {
       const meta = document.createElement('p');
       meta.className = 'cos-post__meta';
       meta.textContent = this._meta(post);
-      body.appendChild(meta);
+      if (meta.textContent) body.appendChild(meta);
       body.appendChild(this._text('h3', `${post.label || 'An agent'} finished`));
       const summary = this._text('p', post.summary || '', 'cos-post__summary');
       summary.dataset.testid = `cos-finished-summary-${post.id}`;
@@ -373,6 +378,8 @@ class ChiefOfStaffPage {
       if (post.headline) body.appendChild(this._text('h3', post.headline));
       body.appendChild(this._text('p', post.body || post.text || ''));
     }
+    const when = this._time(post.at);
+    if (when) body.appendChild(when);
     article.append(dot, body);
     return article;
   }
@@ -385,16 +392,32 @@ class ChiefOfStaffPage {
   }
 
   _meta(post) {
-    const parts = [this._clock(post.at)];
-    if (post.card?.project) parts.push(post.card.project);
-    else if (post.kind === 'finished' && post.projectName) parts.push(post.projectName);
-    return parts.filter(Boolean).join(' · ');
+    if (post.card?.project) return post.card.project;
+    if (post.kind === 'finished' && post.projectName) return post.projectName;
+    return '';
   }
 
-  _clock(iso) {
+  // One <time> per post: short text for the eye, the full date and time for
+  // screen readers. "Today" is decided when the post renders.
+  _time(iso) {
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (!iso || Number.isNaN(d.getTime())) return null;
+    const f = ChiefOfStaffPage._timeFormats || (ChiefOfStaffPage._timeFormats = {
+      today: new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }),
+      older: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
+      full: new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short' }),
+    });
+    const t = document.createElement('time');
+    t.className = 'cos-time';
+    t.setAttribute('datetime', iso);
+    const short = document.createElement('span');
+    short.setAttribute('aria-hidden', 'true');
+    short.textContent = (d.toDateString() === new Date().toDateString() ? f.today : f.older).format(d);
+    const full = document.createElement('span');
+    full.className = 'cos-sr';
+    full.textContent = f.full.format(d);
+    t.append(short, full);
+    return t;
   }
 
   _age(iso) {
