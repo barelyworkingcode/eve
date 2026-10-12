@@ -169,6 +169,16 @@ function projectAllows(project, model) {
   return a.length === 0 || a.includes('*') || a.includes(model);
 }
 
+// A relay refusal as {ok:false, code, message}. status 0 means the call threw.
+function relayRefusal(status, data, what) {
+  if (status === 0) return { ok: false, code: 'unreachable', message: `Relay refused the ${what} (unreachable).` };
+  const code = data && typeof data.error === 'string' && /^[a-z_]+$/.test(data.error) ? data.error : `http_${status}`;
+  const message = (data && typeof data.message === 'string' && data.message)
+    || (data && typeof data.error === 'string' && data.error)
+    || `Relay refused the ${what} (${code}).`;
+  return { ok: false, code, message };
+}
+
 class ChiefOfStaff {
   // createModel({countCall, previousSessionId, onSessionId}) -> ChiefOfStaffModel
   // (or any object with turn()). `model` may be passed ready-made instead.
@@ -1280,28 +1290,73 @@ class ChiefOfStaff {
     return actions.cardAction(this, frame);
   }
 
-  // Scoped start; relay stamps the origin. Resolves {ok:true, sessionId, name, mode}
-  // or {ok:false, code, message}; never throws.
-  async _startSession({ projectId, folder, prompt: text, model, mode }) {
-    const body = { projectId, prompt: text, model, mode };
+  // Scoped start; relay stamps the origin. Sends `entry` (an agent by name, headless)
+  // or `model`, never both. Resolves {ok:true, sessionId, name, mode} or
+  // {ok:false, code, message}; never throws.
+  async _startSession({ projectId, folder, prompt: text, model, entry, mode }) {
+    const body = entry ? { projectId, prompt: text, entry, mode: 'headless' } : { projectId, prompt: text, model, mode };
     if (folder) body.folder = folder;
     let res;
     try {
       res = await this.relayTransport.fetch('POST', '/api/chief-of-staff/sessions', body, { scope: SCOPE });
     } catch (err) {
       this.log.warn(`Chief of Staff start failed: ${err.message}`);
-      return { ok: false, code: 'unreachable', message: 'Relay refused the start (unreachable).' };
+      return relayRefusal(0, null, 'start');
     }
     const { status, data } = res;
     if (status === 201 && data && typeof data.sessionId === 'string') {
       const name = typeof data.name === 'string' ? data.name : '';
-      const startedMode = data.mode || mode;
+      const startedMode = data.mode || body.mode;
       if (startedMode === 'headless') this._armErrand(data.sessionId, 'start', this._labelOf({ name }, data.sessionId), projectId);
       return { ok: true, sessionId: data.sessionId, name, mode: data.mode };
     }
-    const code = data && typeof data.error === 'string' ? data.error : `http_${status}`;
-    const message = data && typeof data.message === 'string' && data.message ? data.message : `Relay refused the start (${code}).`;
-    return { ok: false, code, message };
+    return relayRefusal(status, data, 'start');
+  }
+
+  // A project's agent rows, through the scoped list. Never throws.
+  async _listAgents(projectId) {
+    const route = `/api/chief-of-staff/projects/${encodeURIComponent(projectId)}/agents`;
+    return this._agentCall('GET', route, undefined, { scope: SCOPE }, 200, 'list', 'entries');
+  }
+
+  // Relay checks the entry and resolves the command; it writes nothing and raises no prompt.
+  async _previewAgent(projectId, fields) {
+    const body = { name: fields.name, kind: fields.kind };
+    if (fields.model) body.model = fields.model;
+    if (fields.command) body.command = fields.command;
+    const route = `/api/chief-of-staff/projects/${encodeURIComponent(projectId)}/agents/preview`;
+    return this._agentCall('POST', route, body, { scope: SCOPE }, 200, 'preview', 'entry');
+  }
+
+  // Unscoped: relay raises the presence prompt at the Mac and writes the entry.
+  // No timer, because the person may take a while to answer it.
+  async _addAgent(projectId, entry) {
+    const body = { name: entry.name, kind: entry.kind };
+    if (entry.model) body.model = entry.model;
+    if (entry.command) body.command = entry.command;
+    const route = `/api/projects/${encodeURIComponent(projectId)}/agents`;
+    return this._agentCall('POST', route, body, undefined, 201, 'add', 'entry');
+  }
+
+  async _agentCall(method, route, body, opts, okStatus, what, key) {
+    let res;
+    try {
+      res = await this.relayTransport.fetch(method, route, body, opts);
+    } catch (err) {
+      this.log.warn(`Chief of Staff agent ${what} failed: ${err.message}`);
+      return relayRefusal(0, null, what);
+    }
+    const { status, data } = res;
+    if (status === okStatus && data && data[key] !== undefined && data[key] !== null) {
+      return {
+        ok: true,
+        projectId: data.projectId,
+        projectName: data.projectName,
+        machine: typeof data.machine === 'string' ? data.machine : '',
+        [key]: data[key],
+      };
+    }
+    return relayRefusal(status, data, what);
   }
 
   // Scoped POST; relay stamps the origin, so the body never carries one.

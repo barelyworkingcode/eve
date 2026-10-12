@@ -7,7 +7,7 @@
 // own words, aimed at a target the person named. Anything else becomes a card.
 
 const RELAY_MCP_PREFIX = 'mcp__relay__';
-const PROPOSE_TOOLS = Object.freeze(['cos_propose_start', 'cos_propose_send']);
+const PROPOSE_TOOLS = Object.freeze(['cos_propose_start', 'cos_propose_send', 'cos_propose_agent']);
 
 // JS \s is Unicode whitespace, so NBSP, line breaks and thin spaces collapse too.
 function normalizeWs(s) {
@@ -25,7 +25,7 @@ function namesTarget(target, personText) {
   return t.length > 0 && normalizeWs(personText).toLowerCase().includes(t.toLowerCase());
 }
 
-// Every tool except the two propose tools counts as reading.
+// Every tool except the propose tools counts as reading.
 function isReadingTool(name) {
   return !PROPOSE_TOOLS.some((t) => name === RELAY_MCP_PREFIX + t);
 }

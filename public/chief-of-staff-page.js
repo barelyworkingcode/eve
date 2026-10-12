@@ -368,6 +368,8 @@ class ChiefOfStaffPage {
       body.appendChild(this._text('p', post.error || "Couldn't send that."));
     } else if (post.kind === 'start_card' || post.kind === 'send_card') {
       if (post.card) body.appendChild(this._actionCard(post));
+    } else if (post.kind === 'agent_card') {
+      if (post.card) body.appendChild(this._agentCard(post));
     } else if (post.kind === 'started') {
       body.appendChild(this._startedBody(post));
     } else if (post.kind === 'start_failed') {
@@ -486,7 +488,7 @@ class ChiefOfStaffPage {
 
   static CARD_STATE = {
     starting: 'Starting…', started: 'Started', sending: 'Sending…', sent: 'Sent',
-    cancelled: 'Cancelled',
+    cancelled: 'Cancelled', adding: 'Approve on the Mac', added: 'Added',
   };
 
   // One card for a proposed start or send. Buttons work only while pending;
@@ -536,8 +538,17 @@ class ChiefOfStaffPage {
     if (isStart) {
       addRow('prompt', 'Prompt', card.prompt, 'long');
       addRow('folder', 'Folder', card.folder);
-      addRow('model', 'Model', card.model);
-      addRow('mode', 'Mode', card.mode, 'mode');
+      if (card.entry) {
+        // A named agent entry fixes the model and mode; shown, never edited.
+        const row = this._div('cos-field');
+        row.dataset.field = 'entry';
+        row.append(this._text('span', 'Agent', 'cos-field__label'),
+          this._text('span', card.entry, 'cos-field__value'));
+        rows.appendChild(row);
+      } else {
+        addRow('model', 'Model', card.model);
+        addRow('mode', 'Mode', card.mode, 'mode');
+      }
     } else {
       addRow('text', 'Message', card.text, 'long');
     }
@@ -569,6 +580,58 @@ class ChiefOfStaffPage {
       for (const f of fields) { f.input.hidden = !f.input.hidden; f.val.hidden = !f.input.hidden; }
     });
     mk('cancel', 'Cancel', '', () => this._cardAction(post.id, 'cancel'));
+    el.appendChild(acts);
+    return el;
+  }
+
+  // The Add-an-agent card: read-only rows, Add and Cancel while pending.
+  _agentCard(post) {
+    const card = post.card;
+    const entry = card.entry || {};
+    const el = this._div('cos-card cos-card--action', `cos-card-${post.id}`);
+    el.dataset.kind = 'agent';
+    el.dataset.state = card.state;
+
+    const hd = this._div('cos-card__hd');
+    const small = document.createElement('small');
+    small.textContent = 'Add an agent?';
+    const title = this._div('cos-card__title');
+    title.appendChild(this._text('b', card.project?.name || ''));
+    hd.append(small, title);
+    el.appendChild(hd);
+
+    const rows = this._div('cos-card__rows');
+    const addRow = (key, label, value, cls) => {
+      const row = this._div('cos-field');
+      row.dataset.field = key;
+      row.append(this._text('span', label, 'cos-field__label'),
+        this._text('span', value, 'cos-field__value' + (cls ? ` ${cls}` : '')));
+      rows.appendChild(row);
+    };
+    addRow('name', 'Name', entry.name || '—');
+    addRow('kind', 'Kind', entry.kind || '—');
+    addRow('model', 'Model', entry.model || 'default');
+    if (entry.command) addRow('command', 'Command', entry.command, 'cos-field__value--command');
+    addRow('machine', 'Runs on', card.machine || '—');
+    el.appendChild(rows);
+
+    const status = this._cardStatus(card, post);
+    if (status) el.appendChild(status);
+
+    const pending = card.state === 'pending';
+    const acts = this._div('cos-card__acts');
+    const mk = (id, label, cls, action) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cos-btn' + (cls ? ` ${cls}` : '');
+      b.dataset.testid = `cos-${id}-${post.id}`;
+      b.textContent = label;
+      b.disabled = !pending;
+      b.addEventListener('click', () => this._cardAction(post.id, action));
+      acts.appendChild(b);
+    };
+    mk('add', 'Add', 'cos-btn--primary', 'add');
+    mk('cancel', 'Cancel', '', 'cancel');
     el.appendChild(acts);
     return el;
   }

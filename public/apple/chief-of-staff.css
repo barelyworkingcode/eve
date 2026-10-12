@@ -250,6 +250,10 @@
   color: var(--text-secondary);
 }
 .cos-field__value { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cos-field__value--command {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-footnote);
+}
 .cos-field__input {
   padding: var(--sp-3);
   border: 1px solid var(--border);
