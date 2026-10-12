@@ -212,3 +212,36 @@ test('report the passkey list to relay after enrolment @G16.9',async ({ eve, pag
   const report = await relay.waitForEvent('eve.passkey.report', { match: (l) => l.status === 'ok' && l.count === 1 });
   expect(report.status).toBe('ok');
 });
+
+const PASSKEY_PUT = 'PUT /api/eve/passkeys';
+
+test('@G16.8 an open page signs out at once when relay pushes its revocation', async ({ eve, page, relay, passkey }) => {
+  await addThisBrowser(eve, page, relay, passkey);
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeHidden();
+  // With the report route down, only a pushed revocation can reach eve.
+  expect((await relay.ctl('fault', 'add', '--route', PASSKEY_PUT, '--mode', 'down')).code).toBe(0);
+  const own = await passkey.credentials();
+  await relay.ctl('presence', 'eve.passkey.revoke=approve');
+  const revoked = await relay.cli('eve', 'revoke', '--id', b64url(own[0].credentialId));
+  expect(revoked.code).toBe(0);
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+});
+
+test('@G16.10 a revocation made while eve was away applies when it reconnects', async ({ eve, page, relay, passkey }) => {
+  // The test budget must cover the 30 s reconnect bound below.
+  test.slow();
+  await addThisBrowser(eve, page, relay, passkey);
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeHidden();
+  expect((await relay.ctl('fault', 'add', '--route', PASSKEY_PUT, '--mode', 'down')).code).toBe(0);
+  const since = relay.mark();
+  const wsDown = await relay.ctl('fault', 'add', '--route', 'GET /ws/files', '--mode', 'down');
+  expect(wsDown.code).toBe(0);
+  await relay.waitForEvent('file.ws.close', { since });
+  const own = await passkey.credentials();
+  await relay.ctl('presence', 'eve.passkey.revoke=approve');
+  const revoked = await relay.cli('eve', 'revoke', '--id', b64url(own[0].credentialId));
+  expect(revoked.code).toBe(0);
+  expect((await relay.ctl('fault', 'clear', '--id', JSON.parse(wsDown.stdout).id)).code).toBe(0);
+  // eve reconnects with capped backoff (up to 30 s) and must then apply it.
+  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible({ timeout: 30_000 });
+});
