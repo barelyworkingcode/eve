@@ -62,6 +62,11 @@ test.describe('off the trusted network', () => {
     await page.getByRole('button', { name: 'Add this browser' }).click();
     await eve.ready();
 
+    // Deliberate: the socket is held down so the push cannot reach eve; the login check, not the push, is what refuses.
+    const wsSince = relay.mark();
+    const wsDown = await relay.ctl('fault', 'add', '--route', 'GET /ws/files', '--mode', 'down');
+    expect(wsDown.code).toBe(0);
+    await relay.waitForEvent('file.ws.close', { since: wsSince });
     const own = await passkey.credentials();
     await relay.ctl('presence', 'eve.passkey.revoke=approve');
     const revoked = await relay.cli('eve', 'revoke', '--id', b64url(own[0].credentialId));

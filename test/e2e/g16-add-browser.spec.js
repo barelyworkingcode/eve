@@ -155,6 +155,11 @@ test('too many tries to add this browser are refused @G16.4.r2', async ({ eve, p
 
 test('revoke a lost browser and eve drops it @G16.6', async ({ eve, page, relay, passkey }) => {
   const first = await addThisBrowser(eve, page, relay, passkey);
+  // Deliberate: the socket is held down so the push cannot reach eve; the pending state stays observable until it reconnects.
+  const wsSince = relay.mark();
+  const wsDown = await relay.ctl('fault', 'add', '--route', 'GET /ws/files', '--mode', 'down');
+  expect(wsDown.code).toBe(0);
+  await relay.waitForEvent('file.ws.close', { since: wsSince });
   await relay.ctl('presence', 'eve.passkey.revoke=approve');
   const since = relay.mark();
   const revoked = await relay.cli('eve', 'revoke', '--id', b64url(first[0].credentialId));
@@ -162,6 +167,7 @@ test('revoke a lost browser and eve drops it @G16.6', async ({ eve, page, relay,
   expect(revoked.stdout).toContain('revocation pending');
   const pending = await relay.cli('eve', 'list');
   expect(pending.stdout).toContain('revocation pending');
+  expect((await relay.ctl('fault', 'clear', '--id', JSON.parse(wsDown.stdout).id)).code).toBe(0);
 
   await relay.waitForEvent('eve.passkey.report', {
     since,
@@ -192,6 +198,11 @@ test('@G16.8 @G1.41 an open page signs out after its passkey is revoked', async 
 
 test('a revoked passkey is refused at sign-in @G16.7', async ({ eve, page, relay, passkey }) => {
   await addThisBrowser(eve, page, relay, passkey);
+  // Deliberate: the socket is held down so the push cannot reach eve; the login check, not the push, is what refuses.
+  const wsSince = relay.mark();
+  const wsDown = await relay.ctl('fault', 'add', '--route', 'GET /ws/files', '--mode', 'down');
+  expect(wsDown.code).toBe(0);
+  await relay.waitForEvent('file.ws.close', { since: wsSince });
   const own = await passkey.credentials();
   await relay.ctl('presence', 'eve.passkey.revoke=approve');
   const revoked = await relay.cli('eve', 'revoke', '--id', b64url(own[0].credentialId));
