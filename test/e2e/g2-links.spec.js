@@ -105,7 +105,7 @@ test('turn a pasted link into a chip in Today\'s Ask box @G2.37', async ({ eve, 
   const ask = page.getByRole('textbox', { name: 'Ask' });
   await desktop.paste(ask, [link(1)]);
   await expect(remove(page, 1)).toBeVisible();
-  await expect(ask).toHaveValue('deliberately wrong');
+  await expect(ask).toHaveValue('');
 });
 
 test('the sixth link in Ask pastes as plain text @G2.37.r1', async ({ eve, page, desktop }) => {
