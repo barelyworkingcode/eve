@@ -46,6 +46,7 @@ class CosAgentRail {
     this._ro = null;
     this._onMq = () => {
       if (!this.isNarrow() && this._sheetOpen) this.closeSheet({ returnFocus: false });
+      this._syncStrip();
       if (this.isNarrow()) this.strip?.setAttribute('aria-expanded', 'false');
       else this._apply();
     };
