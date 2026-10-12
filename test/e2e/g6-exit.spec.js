@@ -23,9 +23,9 @@ function row(page, name, state) {
   return page.getByRole('button', { name, exact: true }).filter({ hasText: state });
 }
 
-// Opens the agent from Today and sends it a message, then waits until the
-// person's page shows the provider exited. The modal covers that page, so the
-// board is read from another browser.
+// Opens the agent from Today and sends it a message. The modal covers that
+// page, so the board is read from another browser. Callers wait for their own
+// signal: a provider exit shows a system line, a failed turn does not.
 async function failTurn(page, name) {
   await page.getByRole('button', { name, exact: true }).first().click();
   const box = page.getByRole('textbox', { name: 'Type your message...' });
@@ -47,9 +47,9 @@ test.describe('an agent whose provider exits', () => {
     await eve.open('/');
     await failTurn(page, 'Crash');
     await expect(page.getByText('Provider process exited. Will restart on next message.')).toBeVisible();
-    await expect(row(watcher, 'Crash', 'rror')).toContainText(LINE);
+    await expect(row(watcher, 'Crash', 'errored')).toContainText(LINE);
     const fresh = await eve.openAnother('/');
-    await expect(row(fresh, 'Crash', 'rror')).toContainText(LINE);
+    await expect(row(fresh, 'Crash', 'errored')).toContainText(LINE);
   });
 
   test('the rail and the alert post show the exit line @G6.38 @G6.45', async ({ eve, page }) => {
@@ -68,12 +68,11 @@ test.describe('an agent whose provider exits', () => {
     await eve.open('/');
     await failTurn(page, 'Flop');
     const other = await eve.openAnother('/');
-    const flop = row(other, 'Flop', 'rror');
-    await expect(flop).toBeVisible();
-    await expect(flop).not.toContainText('exit ');
+    const flop = row(other, 'Flop', 'errored');
+    await expect(flop).toHaveText(/^Flop\s*Acme\s*errored$/);
     await openCos(other);
     const post = other.getByRole('article').filter({ has: other.getByRole('heading', { name: 'Flop stopped with an error' }) });
     await expect(post).toContainText('Open it to see what happened.');
-    await expect(post).not.toContainText('exit ');
+    await expect(post.getByRole('blockquote')).toHaveCount(0);
   });
 });
