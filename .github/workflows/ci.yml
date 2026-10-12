@@ -87,6 +87,8 @@ jobs:
         id: cache
         with:
           path: ~/.cache/eve-e2e
+          # A hit needs no download here; the shards restore it themselves.
+          lookup-only: true
           key: eve-e2e-fakes-${{ runner.os }}-go1.25-${{ hashFiles('test/e2e/relay-pin.json') }}
       - if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
