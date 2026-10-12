@@ -95,10 +95,27 @@ test.describe('the thread', () => {
     await expect(box).toHaveValue('newer prompt');
     await box.press('ArrowUp');
     await expect(box).toHaveValue('older prompt');
+    await box.press('Enter');
+    await expect(box).toHaveValue('');
+    await expect(feed.getByText('older prompt', { exact: true })).toHaveCount(2);
+    await box.press('ArrowUp');
+    await expect(box).toHaveValue('older prompt');
+    await box.press('ArrowUp');
+    await expect(box).toHaveValue('newer prompt');
     await box.pressSequentially(', edited');
     await box.press('Enter');
-    await expect(feed.getByText('older prompt, edited', { exact: true })).toBeVisible();
+    await expect(feed.getByText('newer prompt, edited', { exact: true })).toBeVisible();
     await expect(box).toHaveValue('');
+  });
+
+  test('Up with no earlier prompt leaves the box as it is @G6.81.r1', async ({ eve, page }) => {
+    const box = page.getByRole('textbox', { name: 'Tell an agent' });
+    await eve.open('/');
+    await openCos(page);
+    await expect(page.getByText(EMPTY)).toBeVisible();
+    await box.fill('draft');
+    await box.press('ArrowUp');
+    await expect(box).toHaveValue('draft');
   });
 
   test('an empty box sends nothing @G6.35.r1', async ({ eve, page, relay }) => {
