@@ -64,7 +64,7 @@ class CosAgentRail {
 
   static maxWidth(pageWidth) {
     const room = Number.isFinite(pageWidth) && pageWidth > 0 ? pageWidth - CosAgentRail.THREAD_MIN_PX - CosAgentRail.DIVIDER_PX : Infinity;
-    return Math.max(CosAgentRail.MIN_PX, Math.min(CosAgentRail.MAX_PX, room));
+    return Math.max(CosAgentRail.MIN_PX, Math.min(CosAgentRail.MAX_PX, Math.floor(room)));
   }
 
   static clampWidth(w, pageWidth) {
@@ -119,7 +119,6 @@ class CosAgentRail {
     strip.type = 'button';
     strip.className = 'cos-strip';
     strip.dataset.testid = 'cos-agents-strip';
-    strip.setAttribute('aria-haspopup', 'dialog');
     this._countEls = {};
     for (const { key, cls } of CosAgentRail.COUNT_KINDS) {
       const c = document.createElement('span');
@@ -147,6 +146,7 @@ class CosAgentRail {
     });
     host.appendChild(strip);
     this.strip = strip;
+    this._syncStrip();
     this._renderCounts();
   }
 
@@ -200,24 +200,36 @@ class CosAgentRail {
     return this.page?.getBoundingClientRect().width || Infinity;
   }
 
+  // Narrow: a click opens the sheet (a dialog). Wide: it unfolds the rail.
+  _syncStrip() {
+    if (!this.strip) return;
+    if (this.isNarrow()) this.strip.setAttribute('aria-haspopup', 'dialog');
+    else this.strip.removeAttribute('aria-haspopup');
+  }
+
+  // this.width is the person's preference; the page may be too narrow to show it.
+  shownWidth() {
+    return CosAgentRail.clampWidth(this.width, this._pageWidth());
+  }
+
   _apply() {
+    this._syncStrip();
     if (!this.page) return;
-    this.page.style.setProperty('--cos-rail-w', `${this.width}px`);
+    const shown = this.shownWidth();
+    this.page.style.setProperty('--cos-rail-w', `${shown}px`);
     if (this.folded) this.page.setAttribute('data-rail-folded', '');
     else this.page.removeAttribute('data-rail-folded');
     const d = this.divider;
     if (d) {
-      d.setAttribute('aria-valuenow', String(this.folded ? 0 : this.width));
+      d.setAttribute('aria-valuenow', String(this.folded ? 0 : shown));
       d.setAttribute('aria-valuemax', String(CosAgentRail.maxWidth(this._pageWidth())));
-      d.setAttribute('aria-valuetext', this.folded ? 'Agents folded' : `${this.width} pixels`);
+      d.setAttribute('aria-valuetext', this.folded ? 'Agents folded' : `${shown} pixels`);
     }
     if (!this.isNarrow()) this.strip?.setAttribute('aria-expanded', String(!this.folded));
   }
 
   _reclamp() {
     if (!this.page || this.folded || this.isNarrow()) return;
-    const w = CosAgentRail.clampWidth(this.width, this._pageWidth());
-    if (w !== this.width) this.width = w;
     this._apply();
   }
 
@@ -237,7 +249,6 @@ class CosAgentRail {
 
   unfold({ focus = false } = {}) {
     this.folded = false;
-    this.width = CosAgentRail.clampWidth(this.width, this._pageWidth());
     this._apply();
     this._save();
     if (focus) this.divider?.focus();
@@ -253,9 +264,8 @@ class CosAgentRail {
     d.setAttribute('aria-controls', this.railEl?.id || '');
     this._load();
     this._apply();
-    // CSS clamps the rail when the window or sidebar resizes; follow it so the
-    // separator's values and the arrow keys start from the width actually shown.
-    // Memory only: the saved preference stays until the user resizes again.
+    // The page may shrink below the preferred width; re-derive the shown width
+    // so the separator's values follow. The preference itself never changes here.
     if (typeof ResizeObserver !== 'undefined') {
       this._ro = new ResizeObserver(() => this._reclamp());
       this._ro.observe(this.page);
@@ -265,12 +275,19 @@ class CosAgentRail {
     let startWidth = this.width;
     let keptWidth = this.width;
     let startX = 0;
+    this._endDrag = () => {
+      if (pointerId === null) return;
+      pointerId = null;
+      d.classList.remove('resizing');
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
     d.addEventListener('pointerdown', (e) => {
       if (e.button != null && e.button !== 0) return;
       pointerId = e.pointerId;
       keptWidth = this.width;
       // A folded rail measures from 0: it unfolds only once the drag passes FOLD_PX.
-      startWidth = this.folded ? 0 : this.width;
+      startWidth = this.folded ? 0 : this.shownWidth();
       startX = e.clientX;
       try { d.setPointerCapture(pointerId); } catch { /* synthetic pointer */ }
       d.classList.add('resizing');
@@ -279,30 +296,29 @@ class CosAgentRail {
       e.preventDefault();
     });
     d.addEventListener('pointermove', (e) => {
-      if (pointerId === null || !this.page) return;
+      if (pointerId === null || e.pointerId !== pointerId || !this.page) return;
       // Relative to the grab, so grabbing the divider off-centre does not jump the rail.
       this.setWidth(startWidth + (startX - e.clientX), { save: false });
     });
     const end = () => {
       if (pointerId === null) return;
       try { d.releasePointerCapture(pointerId); } catch { /* already released */ }
-      pointerId = null;
-      d.classList.remove('resizing');
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
+      this._endDrag();
       // A drag that folds passes through the minimum on its way; unfold at the width it started from.
       if (this.folded) this.width = keptWidth;
       this._save();
     };
     d.addEventListener('pointerup', end);
     d.addEventListener('pointercancel', end);
+    d.addEventListener('lostpointercapture', end);
     d.addEventListener('dblclick', () => this.setWidth(CosAgentRail.DEFAULT_PX));
     d.addEventListener('keydown', (e) => {
       const step = CosAgentRail.KEY_STEP_PX;
+      const shown = this.shownWidth();
       let next = null;
       // Left widens the rail (the divider moves left); keys never fold it, Enter does.
-      if (e.key === 'ArrowLeft') next = this.folded ? this.width : this.width + step;
-      else if (e.key === 'ArrowRight') next = this.folded ? null : Math.max(this.width - step, CosAgentRail.MIN_PX);
+      if (e.key === 'ArrowLeft') next = this.folded ? this.width : shown + step;
+      else if (e.key === 'ArrowRight') next = this.folded ? null : Math.max(shown - step, CosAgentRail.MIN_PX);
       else if (e.key === 'Home') next = CosAgentRail.MIN_PX;
       else if (e.key === 'End') next = CosAgentRail.MAX_PX;
       else if (e.key === 'Enter' || e.key === ' ') {
@@ -434,6 +450,7 @@ class CosAgentRail {
     this.closeSheet({ returnFocus: false });
     this._mq?.removeEventListener?.('change', this._onMq);
     this._mq = null;
+    this._endDrag?.();
     this._ro?.disconnect();
     this._ro = null;
     this.board?.destroy();

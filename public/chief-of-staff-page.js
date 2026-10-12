@@ -181,8 +181,6 @@ class ChiefOfStaffPage {
     root.textContent = '';
     root.appendChild(page);
     if (typeof CosAgentRail !== 'undefined') {
-      // show() rebuilds the page on every open; drop the old rail's listeners and observer.
-      this.rail?.destroy();
       this.rail = new CosAgentRail({ container: this.container, note: (id) => this.rowNotes.get(id) || null });
       this.rail.mount(nav, stripHost, { page, divider });
     }

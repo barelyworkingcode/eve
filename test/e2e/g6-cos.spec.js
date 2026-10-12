@@ -318,10 +318,9 @@ test.describe('the agents rail width', () => {
     await expect(sep).toHaveAttribute('aria-valuenow', '220');
     await railIs(page, 220);
     await page.keyboard.press('End');
-    const max = Number(await sep.getAttribute('aria-valuemax'));
-    expect(max).toBeLessThanOrEqual(480);
-    await expect(sep).toHaveAttribute('aria-valuenow', String(max));
-    await railIs(page, max);
+    await expect(sep).toHaveAttribute('aria-valuemax', '480');
+    await expect(sep).toHaveAttribute('aria-valuenow', '480');
+    await railIs(page, 480);
 
     await page.keyboard.press('Home');
     await page.keyboard.press('ArrowLeft');
@@ -342,11 +341,11 @@ test.describe('the agents rail width', () => {
     const sep = page.getByRole('separator', { name: 'Resize agents' });
     await expect(sep).toBeVisible();
     await dragSeparator(page, -900);
-    const max = Number(await sep.getAttribute('aria-valuemax'));
-    expect(max).toBeLessThanOrEqual(480);
-    await railIs(page, max);
+    await expect(sep).toHaveAttribute('aria-valuemax', '480');
+    await expect(sep).toHaveAttribute('aria-valuenow', '480');
+    await railIs(page, 480);
     // Right to 160px or more is a narrow rail, not a fold.
-    await dragSeparator(page, max - 190);
+    await dragSeparator(page, 480 - 190);
     await railIs(page, 220);
     await expect(sep).toHaveAttribute('aria-valuenow', '220');
   });
@@ -370,6 +369,27 @@ test.describe('the agents rail width', () => {
     expect(log.width).toBeGreaterThanOrEqual(358);
     expect(log.x + log.width).toBeLessThanOrEqual(rail.x + 2);
     await railIs(page, max);
+  });
+
+  test('narrowing the window and widening it again keeps the saved width @G6.79.r2', async ({ eve, page }) => {
+    await eve.open('/');
+    await openCos(page);
+    const sep = page.getByRole('separator', { name: 'Resize agents' });
+    await sep.focus();
+    await page.keyboard.press('End');
+    await expect(sep).toHaveAttribute('aria-valuenow', '480');
+    await railIs(page, 480);
+    await page.setViewportSize({ width: 1024, height: 720 });
+    await expect(sep).toBeVisible();
+    await expect.poll(async () => Number(await sep.getAttribute('aria-valuemax'))).toBeLessThan(480);
+    await expect.poll(railWidth(page)).toBeLessThan(478);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(sep).toHaveAttribute('aria-valuenow', '480');
+    await railIs(page, 480);
+    await eve.reload();
+    await openCos(page);
+    await expect(sep).toHaveAttribute('aria-valuenow', '480');
+    await railIs(page, 480);
   });
 
   test('the agents strip opens the sheet at 900px and narrower @G6.79.r3 @G6.80.r1', async ({ eve, page }) => {
@@ -423,6 +443,18 @@ test.describe('folding the agents rail', () => {
     await page.keyboard.press('Enter');
     await expect(rail).toBeVisible();
     await railIs(page, 312);
+  });
+
+  test('dragging the divider back out unfolds it @G6.80', async ({ eve, page }) => {
+    await eve.open('/');
+    await openCos(page);
+    const rail = page.getByRole('navigation', { name: 'Agents' });
+    await dragSeparator(page, 250);
+    await expect(rail).toBeHidden();
+    await expect(page.getByRole('button', { name: /Agents$/ })).toBeVisible();
+    await dragSeparator(page, -250);
+    await expect(rail).toBeVisible();
+    await railIs(page, 250);
   });
 
   test('the need-you count unfolds the rail @G6.80', async ({ eve, page }) => {
