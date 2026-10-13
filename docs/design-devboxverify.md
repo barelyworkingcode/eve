@@ -524,10 +524,11 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   unused; it waits out a leftover one. Without `--screen` a screen journey reports
   `NOTRUN screen journey; run with --screen`. The nightly passes `--screen`;
   a manual run passes it only with a SCREEN grant.
-- **A12 · Budget.** The journeys share `JOURNEY_BUDGET_MS` (480 s), counted
+- **A12 · Budget.** The journeys share `JOURNEY_BUDGET_MS` (600 s), counted
   as time spent running journeys. `journeyTimeout` cuts each timeout to what is
   left; under 1 s the journey is `BLOCKED run budget spent`. With preflight,
-  reset and snapshots this keeps eve's nightly under 10 minutes.
+  reset and snapshots this keeps eve's nightly near 12 minutes (480 s until
+  the outside-session journeys made a full run longer, #439).
 - **A13 · eve-verify is untrusted.** It runs with `EVE_DISABLE_SUBNET_BYPASS=1`
   and `EVE_PASSKEY_SYNC=off`; both only tighten. `PREFLIGHT eve` also needs an
   absolute `--data <dir>` on the service row (`pinnedDataDir`) and an auth

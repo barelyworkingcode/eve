@@ -213,7 +213,7 @@ and relay's presence dialog. Without `--screen` it reports
 `NOTRUN screen journey; run with --screen`. Pass `--screen` by hand only with
 a SCREEN grant; the nightly passes it.
 
-All journeys share a 480 s budget. A journey's timeout is cut to what is left,
+All journeys share a 600 s budget. A journey's timeout is cut to what is left,
 and one that would get less than 1 s reports `BLOCKED run budget spent`.
 
 The session token from the sign-in is used for every browser context and
