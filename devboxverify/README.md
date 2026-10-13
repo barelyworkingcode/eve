@@ -785,8 +785,8 @@ naming `v<nonce>`. A `started` post is FAIL.
 - Lives in: `chief-of-staff-actions.js` (`cos_list_agents`, start by entry);
   `public/chief-of-staff-page.js`; relay's start by entry and its audit row.
 - Waits: the model's posts have none possible: model output, so `cosWaitPost`
-  bounds each at 120 s; the presence helper's `ready`; then one `relay audit`
-  read after the `started` frame.
+  bounds each at 120 s; the presence helper's `ready`; then a poll of `relay audit`
+  for the row, for up to 10 s, after the `started` frame.
 - Traps: BLOCKED setup V-COS when its check fails, and BLOCKED when a presence
   dialog is not answered; no NOTRUN path. A cleanup deletes every new Acme Corp
   session; another removes the seeded entry (presence prompt) and fails if it

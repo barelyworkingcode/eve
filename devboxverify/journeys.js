@@ -3308,9 +3308,10 @@ async function cosAddAgent(env) {
   env.step('wait for the card to reach added');
   const done = await cosWaitUpdate(seen, postId, ['added', 'failed']);
   const { state: dialog } = await presence.result;
+  if (dialog === 'no-helper' || dialog === 'error') return result(id, BLOCKED, `presence dialog ${dialog}`);
   if (!done) return result(id, FAIL, `the card reached neither added nor failed within ${COS_CARD_UPDATE_WITHIN_MS / 1000}s of Add (presence dialog ${dialog}); ${problems.join('; ')}`);
-  if (done.card.state !== 'added') {
-    return result(id, dialog === 'answered' ? FAIL : BLOCKED, `the card failed: "${done.card.error || ''}" (presence dialog ${dialog}); ${problems.join('; ')}`);
+  if (done.card.state !== 'added' || dialog !== 'answered') {
+    return result(id, FAIL, `the card is ${done.card.state} with presence dialog ${dialog}, error "${done.card.error || ''}"; ${problems.join('; ')}`);
   }
   const shown = await expect(page.getByTestId(`cos-card-status-${postId}`)).toContainText('Added', { timeout: 10000 }).then(() => true, () => false);
   if (!shown) problems.push('the card status on the page never read Added');

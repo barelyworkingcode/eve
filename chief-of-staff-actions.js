@@ -526,6 +526,6 @@ async function tapSend(cos, post, edits) {
 }
 
 module.exports = {
-  CosTurn, TOOLS, canonical, validateStartFields, validateAgentFields, resolveProjectArg,
+  CosTurn, TOOLS, canonical, validateStartFields, resolveProjectArg,
   handleCall, internalHandler, cardAction, runStart,
 };
