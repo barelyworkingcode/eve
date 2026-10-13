@@ -810,7 +810,9 @@ for up to 10 s) must hold an `ok` row with entry `vc<nonce>` and origin
 `chief-of-staff`, and the session's thread must show an assistant reply with
 the marker within the turn bound. (5) `Add a chat called VC<nonce> with haiku to
 Acme Corp` must give a `reply` that says the name is taken and no `chat_card`;
-the project still lists one template of that name in any case.
+the project still lists one template of that name in any case, and
+eve-verify's log must show a `cos_propose_chat` tool call in that turn, so the
+refusal came from eve's name check and not from the model's memory.
 - Lives in: `chief-of-staff-actions.js` (`cos_propose_chat`, `nameClash`, the
   add tap); `public/chief-of-staff-page.js`; relay's
   `POST /api/projects/{id}/chat-templates` behind its presence gate and its

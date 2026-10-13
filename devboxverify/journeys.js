@@ -3521,7 +3521,7 @@ async function cosAddChat(env) {
   // Waits: none possible: model output; bounded by COS_TURN_WITHIN_MS.
   const listed = await cosWaitPost(seen, from, COS_CHAT_KINDS);
   if (!listed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the question; ${problems.join('; ')}`);
-  if (listed.kind !== 'reply' || !cosSaid({ body: listed.body || listed.text }).includes(name)) {
+  if (listed.kind !== 'reply' || !String(listed.body || listed.text || '').includes(name)) {
     problems.push(`the answer to "which agents and chats" is a ${listed.kind} that does not name ${name}: "${cosSaid(listed)}"`);
   }
 
@@ -3559,6 +3559,9 @@ async function cosAddChat(env) {
   env.step('ask for the same name in other case');
   await idle();
   const clash = name.toUpperCase();
+  // The model has seen the name added, so it may answer without the tool; only a
+  // cos_propose_chat call in this turn proves eve's name check refused it.
+  const logMark = await env.serviceLog.mark();
   from = await cosSay(page, seen, `Add a chat called ${clash} with ${COS_MODEL} to ${acme.name}`);
   env.step('wait for the refusal');
   // Waits: none possible: model output; bounded by COS_TURN_WITHIN_MS.
@@ -3566,8 +3569,11 @@ async function cosAddChat(env) {
   if (!refused) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the request for ${clash}; ${problems.join('; ')}`);
   if (refused.kind === 'chat_card') problems.push(`a request for ${clash}, a name ${name} already uses, made an Add card`);
   else if (refused.kind !== 'reply') problems.push(`the answer for ${clash} is a ${refused.kind}, want a reply: "${cosSaid(refused)}"`);
-  else if (!/already|taken|exists|in use|same name|duplicate/i.test(cosSaid({ body: refused.body || refused.text }))) {
+  else if (!/already|taken|exists|in use|same name|duplicate/i.test(String(refused.body || refused.text || ''))) {
     problems.push(`the reply for ${clash} does not say the name is taken: "${cosSaid(refused)}"`);
+  }
+  if (!(await env.serviceLog.since(logMark)).includes('cos_propose_chat')) {
+    problems.push(`eve-verify's log has no cos_propose_chat tool call for ${clash}, so eve's name check was never reached`);
   }
   const lower = name.toLowerCase();
   const all = ((await eveJson(env, 'GET', `/api/projects/${acme.id}`)).chatTemplates || []).filter((t) => String(t.name).toLowerCase() === lower);

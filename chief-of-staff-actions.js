@@ -153,7 +153,7 @@ function checkMode(v) {
 function checkEntry(v) {
   if (v === undefined || v === null) return { value: '' };
   const e = typeof v === 'string' ? v.trim() : '';
-  if (!e || e.length > CHAT_NAME_MAX) return invalid('entry', `must be a name of 1 to ${CHAT_NAME_MAX} characters`);
+  if (!e || [...e].length > CHAT_NAME_MAX) return invalid('entry', `must be a name of 1 to ${CHAT_NAME_MAX} characters`);
   return { value: e };
 }
 
