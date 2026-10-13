@@ -3430,6 +3430,154 @@ async function cosStartEntry(env) {
     + `session_launch with entry ${name} from chief-of-staff, the agent replied ${marker}; ${missing} did not start and the answer gave the choices`);
 }
 
+// — Chief of Staff chats (eve#408) -------------------------------------------------
+
+const COS_CHAT_KINDS = [...COS_AGENT_KINDS, 'chat_card'];
+
+// Waits for the Chief of Staff to finish its turn (cos_status busy:false), so a
+// late reply to the last request cannot answer the next one. Bounded: model output.
+async function cosWaitIdle(seen) {
+  return poll(async () => (seen.status && seen.status.busy === false) || null, { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 250 });
+}
+
+// Removes every Acme template called `name` (any case) through eve's project
+// PUT, as the mode-presets cleanup does. It fails when one stays.
+function removeChatTemplateLater(env, project, name) {
+  const lower = name.toLowerCase();
+  env.cleanup(`remove the ${project.name} chat ${name}`, async () => {
+    const current = await eveJson(env, 'GET', `/api/projects/${project.id}`);
+    const keep = (current.chatTemplates || []).filter((t) => String(t.name).toLowerCase() !== lower);
+    if (keep.length === (current.chatTemplates || []).length) return;
+    await eveJson(env, 'PUT', `/api/projects/${project.id}`, {
+      name: current.name, path: current.path, host_id: current.hostId || '',
+      chat_templates: keep.map((t) => ({
+        id: t.id, name: t.name, model: t.model, mode: t.mode, voice: t.voice, system_prompt: t.systemPrompt,
+        ...(t.presetFor && t.presetFor.length ? { preset_for: t.presetFor } : {}),
+      })),
+    });
+    const after = await eveJson(env, 'GET', `/api/projects/${project.id}`);
+    if ((after.chatTemplates || []).some((t) => String(t.name).toLowerCase() === lower)) {
+      throw new Error(`chat ${name} is still in ${project.name}; remove it in the project dialog's Templates tab`);
+    }
+  }, 60000);
+}
+
+async function cosAddChat(env) {
+  const id = 'cos-add-chat';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const acme = env.world.projects.acme;
+  const name = `vc${env.nonce}`;
+  const marker = `verify-${env.nonce}-chat`;
+  const before = await acmeIds(env, 'sessions');
+  env.cleanup(`delete the ${acme.name} chat session`, async () => {
+    for (const sid of addedIds(before, await acmeIds(env, 'sessions'))) await deleteSession(env, sid);
+  });
+  removeChatTemplateLater(env, acme, name);
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const problems = [];
+  const idle = async () => { if (!(await cosWaitIdle(seen))) problems.push('the Chief of Staff was still busy at the bound'); };
+
+  env.step('ask for the chat');
+  let from = await cosSay(page, seen, `Add a chat called ${name} with ${COS_MODEL} to ${acme.name}`);
+  env.step('wait for the Add card');
+  // Waits: none possible: model output; bounded by COS_TURN_WITHIN_MS on the cos_post frame.
+  const proposed = await cosWaitPost(seen, from, COS_CHAT_KINDS);
+  if (!proposed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  if (proposed.kind !== 'chat_card') return result(id, FAIL, `the first post after the request is "${proposed.kind}", want chat_card: "${cosSaid(proposed)}"`);
+  const template = (proposed.card && proposed.card.template) || {};
+  if (template.name !== name) problems.push(`the card template is named "${template.name}", not ${name}`);
+  if (template.model !== COS_MODEL) problems.push(`the card model is "${template.model}", not ${COS_MODEL}`);
+  const postId = proposed.id;
+  await need('the Add card is not on the page', expect(page.getByTestId(`cos-card-${postId}`)).toBeVisible({ timeout: 10000 }));
+  if ((await templatesNamed(env, acme, name)).length) {
+    return result(id, FAIL, `eve lists ${name} in ${acme.name} before any tap; ${problems.join('; ')}`);
+  }
+
+  env.step('tap Add');
+  const presence = env.screen.answerPresence({ expect: name, timeoutMs: COS_PRESENCE_WITHIN_MS });
+  if (!(await presence.ready)) return result(id, BLOCKED, `presence dialog ${(await presence.result).state}`);
+  await page.getByTestId(`cos-add-${postId}`).click({ timeout: 5000 });
+  env.step('wait for the card to reach added');
+  const done = await cosWaitUpdate(seen, postId, ['added', 'failed']);
+  const { state: dialog } = await presence.result;
+  if (dialog === 'no-helper' || dialog === 'error') return result(id, BLOCKED, `presence dialog ${dialog}`);
+  if (!done) return result(id, FAIL, `the card reached neither added nor failed within ${COS_CARD_UPDATE_WITHIN_MS / 1000}s of Add (presence dialog ${dialog}); ${problems.join('; ')}`);
+  if (done.card.state !== 'added' || dialog !== 'answered') {
+    return result(id, FAIL, `the card is ${done.card.state} with presence dialog ${dialog}, error "${done.card.error || ''}"; ${problems.join('; ')}`);
+  }
+  const shown = await expect(page.getByTestId(`cos-card-status-${postId}`)).toContainText('Added', { timeout: 10000 }).then(() => true, () => false);
+  if (!shown) problems.push('the card status on the page never read Added');
+  const stored = await templatesNamed(env, acme, name);
+  if (stored.length !== 1) problems.push(`eve lists ${stored.length} templates named ${name} in ${acme.name} after Added, want 1`);
+  else if (stored[0].model !== COS_MODEL) problems.push(`the stored template has model "${stored[0].model}", not ${COS_MODEL}`);
+
+  env.step('ask which agents and chats the project has');
+  await idle();
+  from = await cosSay(page, seen, `Which agents and chats does ${acme.name} have?`);
+  env.step('wait for the list reply');
+  // Waits: none possible: model output; bounded by COS_TURN_WITHIN_MS.
+  const listed = await cosWaitPost(seen, from, COS_CHAT_KINDS);
+  if (!listed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the question; ${problems.join('; ')}`);
+  if (listed.kind !== 'reply' || !cosSaid({ body: listed.body || listed.text }).includes(name)) {
+    problems.push(`the answer to "which agents and chats" is a ${listed.kind} that does not name ${name}: "${cosSaid(listed)}"`);
+  }
+
+  env.step('ask for the start');
+  await idle();
+  from = await cosSay(page, seen, `Start ${name} on ${acme.name} and ask it: Reply with exactly ${marker} and nothing else.`);
+  env.step('wait for the start');
+  let started = await cosWaitPost(seen, from, COS_CHAT_KINDS);
+  if (!started) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the start request; ${problems.join('; ')}`);
+  if (started.kind === 'start_card') {
+    env.step('tap Start');
+    started = await cosTapStartIfCard(page, seen, from, started);
+    if (!started) return result(id, FAIL, `no started post within ${COS_TURN_WITHIN_MS / 1000}s of Start; ${problems.join('; ')}`);
+  }
+  if (started.kind !== 'started') return result(id, FAIL, `the start request posted "${started.kind}", want started: "${cosSaid(started)}"; ${problems.join('; ')}`);
+  const sid = started.sessionId;
+
+  env.step('read relay audit');
+  let rows = [];
+  await poll(async () => {
+    rows = await entryLaunchRows(env, sid).catch(() => []);
+    return rows.length ? rows : null;
+  }, { timeoutMs: 10000, intervalMs: 500 });
+  if (!rows.some((r) => r.origin === 'chief-of-staff' && r.outcome === 'ok' && r.entry === name)) {
+    problems.push(`relay audit holds no ok session_launch row with origin chief-of-staff and entry ${name} (rows: ${rows.map((r) => `${r.outcome}/${r.origin || 'none'}/${r.entry || 'no entry'}`).join(', ') || 'none'})`);
+  }
+
+  env.step('open the started chat\'s thread');
+  const other = await env.newPage();
+  await openEve(other, env, `#session/${sid}`);
+  const answered = await poll(async () => (await thread(other).catch(() => [])).some((m) => m.who === 'message-assistant' && m.text.includes(marker)),
+    { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 1000 });
+  if (!answered) problems.push(`the started chat's thread holds no assistant reply with ${marker} within ${COS_TURN_WITHIN_MS / 1000}s`);
+
+  env.step('ask for the same name in other case');
+  await idle();
+  const clash = name.toUpperCase();
+  from = await cosSay(page, seen, `Add a chat called ${clash} with ${COS_MODEL} to ${acme.name}`);
+  env.step('wait for the refusal');
+  // Waits: none possible: model output; bounded by COS_TURN_WITHIN_MS.
+  const refused = await cosWaitPost(seen, from, COS_CHAT_KINDS);
+  if (!refused) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the request for ${clash}; ${problems.join('; ')}`);
+  if (refused.kind === 'chat_card') problems.push(`a request for ${clash}, a name ${name} already uses, made an Add card`);
+  else if (refused.kind !== 'reply') problems.push(`the answer for ${clash} is a ${refused.kind}, want a reply: "${cosSaid(refused)}"`);
+  else if (!/already|taken|exists|in use|same name|duplicate/i.test(cosSaid({ body: refused.body || refused.text }))) {
+    problems.push(`the reply for ${clash} does not say the name is taken: "${cosSaid(refused)}"`);
+  }
+  const lower = name.toLowerCase();
+  const all = ((await eveJson(env, 'GET', `/api/projects/${acme.id}`)).chatTemplates || []).filter((t) => String(t.name).toLowerCase() === lower);
+  if (all.length !== 1) problems.push(`${acme.name} holds ${all.length} templates named ${name} in any case after the clash, want 1`);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `a request to add ${name} to ${acme.name} made an Add card (${COS_MODEL}) and wrote nothing; after the tap and the presence prompt `
+    + `the card reached added and the project lists it; the Chief of Staff named it, started it (ok session_launch with entry ${name} from chief-of-staff), `
+    + `the chat replied ${marker}; ${clash} made no card and left one template`);
+}
+
 const HOST_PREFIX = 'loopback-';
 const HOST_TARGET = 'localhost';
 const HOST_STATE_DIR = 'grant-dropin-'; // swept by verify-fixtures-removed's grant-* rule
@@ -4123,6 +4271,10 @@ const journeys = [
   {
     id: 'cos-start-entry', timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosStartEntry,
+  },
+  {
+    id: 'cos-add-chat', timeoutMs: 540000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    run: cosAddChat,
   },
   {
     id: 'cos-host-agent', timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,

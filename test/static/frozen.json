@@ -110,6 +110,7 @@
     {"id":"chat-tool-search","needs":[],"areas":["chat"],"timeoutMs":240000},
     {"id":"cos-add-agent","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":300000,"screen":true},
     {"id":"cos-start-entry","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":480000,"screen":true},
+    {"id":"cos-add-chat","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":540000,"screen":true},
     {"id":"cos-host-agent","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":420000,"screen":true},
     {"id":"cos-host-noread","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":300000,"screen":true},
     {"id":"cos-project-from-relay","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":180000,"screen":true},
