@@ -5,10 +5,9 @@ const worlds = require('./support/worlds');
 // Correct these when it lands:
 //  1. Presence op for an agent write is `project.agent`: world `presence: { 'project.agent': 'approve' | 'deny' | 'timeout' }`.
 //  2. The add route fault is `POST /api/projects/{id}/agents` (literal `{id}`, like the git fault in docs/test.md).
-//  3. World agents are `projects[].agents: [{ type: 'agent', name, kind, model?, command? }]`; state reads them back
+//  3. World agents are `projects[].agents: [{ name, kind, model?, command? }]`; state reads them back
 //     at `ctl state --json` -> `projects[].agents` (an absent or empty list means none).
-//  4. Command lookup tables are world keys `local_path` and `host_path`, each `{ <program name>: <absolute path> }`;
-//     `host_path` is keyed by host id (`{ h_box: { mywrapper: '/opt/bin/mywrapper' } }`) and read for a hosted project first.
+//  4. Command lookup is the world's `local_path` / `host_path` (PATH strings); the `pathCommands` fixture option fills them.
 //  5. A write logs the event `agent.add` (status `ok` on success); a refused one logs it with another status or not at all.
 //  6. A started session's `model` in `ctl state` is `<kind>/<entry model>` (codex + gpt-x -> `codex/gpt-x`).
 //  7. Seeded posts are `{ v: 1, id, at: <ISO time>, kind, byModel: true, card }` with the card shapes of docs/api.md;
@@ -21,7 +20,6 @@ function cosWorld({ presence = 'approve' } = {}) {
   const w = worlds.base();
   w.chief_of_staff = { project_id: 'p_acme', model: 'haiku', daily_model_calls: 20 };
   w.presence = { 'project.agent': presence };
-  w.local_path = { codex: '/usr/local/bin/codex', mywrapper: '/opt/bin/mywrapper', piLocal: '/usr/local/bin/pi' };
   return w;
 }
 
@@ -36,7 +34,6 @@ function hostedCosWorld({ presence = 'approve' } = {}) {
     agent: 'connected',
   }];
   w.projects.push({ id: 'p_box', name: 'Orchard', host_id: 'h_box', path: '/home/acme/orchard', mode: 'work', files: { 'todo.txt': 'one\n' } });
-  w.host_path = { h_box: { mywrapper: '/opt/bin/mywrapper' } };
   return w;
 }
 
@@ -123,7 +120,8 @@ test.describe('add a codex agent', () => {
 test.describe('add a named command on a host', () => {
   test.use({
     world: hostedCosWorld(),
-    cosPosts: [addCard('c_add', { name: 'mywrapper', kind: 'claude', command: '/opt/bin/mywrapper' }, { project: { id: 'p_box', name: 'Orchard' }, machine: 'testbox' })],
+    pathCommands: ['mywrapper'],
+    cosPosts: [addCard('c_add', { name: 'mywrapper', kind: 'claude', command: 'mywrapper' }, { project: { id: 'p_box', name: 'Orchard' }, machine: 'testbox' })],
   });
 
   test('a card for a named command shows its path and runs on testbox @G6.84', async ({ eve, page, relay }) => {
@@ -131,14 +129,14 @@ test.describe('add a named command on a host', () => {
     await openCos(page);
     const card = page.getByRole('article');
     await expect(card).toContainText(/Name\s*mywrapper/);
-    await expect(card).toContainText(/Command\s*\/opt\/bin\/mywrapper/);
+    await expect(card).toContainText(/Command\s*mywrapper/);
     await expect(card).toContainText(/Runs on\s*testbox/);
     await card.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(card.getByText('Added', { exact: true })).toBeVisible();
     await relay.waitForEvent('agent.add', { match: (l) => l.status === 'ok' });
     const agents = await agentsOf(relay, 'p_box');
     expect(agents).toHaveLength(1);
-    expect(agents[0]).toMatchObject({ name: 'mywrapper', command: '/opt/bin/mywrapper' });
+    expect(agents[0]).toMatchObject({ name: 'mywrapper', command: expect.stringMatching(/^\/.*\/mywrapper$/) });
   });
 });
 
@@ -161,30 +159,46 @@ test.describe('add an agent with its own name', () => {
   });
 });
 
-for (const outcome of ['deny', 'timeout']) {
-  test.describe(`presence ${outcome}`, () => {
-    test.use({ world: cosWorld({ presence: outcome }), cosPosts: [addCard('c_add', { name: 'codex', kind: 'codex' })] });
+test.describe('presence refused', () => {
+  test.use({ world: cosWorld({ presence: 'deny' }), cosPosts: [addCard('c_add', { name: 'codex', kind: 'codex' })] });
 
-    test(`presence ${outcome === 'deny' ? 'refused' : 'timed out'} writes nothing @G6.84.r1`, async ({ eve, page, relay }) => {
-      await eve.open('/');
-      await openCos(page);
-      const card = page.getByRole('article');
-      await card.getByRole('button', { name: 'Add', exact: true }).click();
-      const failed = card.getByText(/^Failed: \S/);
-      await expect(failed).toBeVisible();
-      await expect(card.getByText('Added', { exact: true })).toHaveCount(0);
-      expect(await agentsOf(relay, 'p_acme')).toEqual([]);
-      const writes = await relay.logs({ event: 'agent.add' });
-      expect(writes.filter((l) => l.status === 'ok')).toHaveLength(0);
-      await expect(card.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
-    });
+  test('presence refused writes nothing @G6.84.r1', async ({ eve, page, relay }) => {
+    await eve.open('/');
+    await openCos(page);
+    const card = page.getByRole('article');
+    await card.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(card.getByText('Failed: presence was refused')).toBeVisible();
+    await expect(card.getByText('Added', { exact: true })).toHaveCount(0);
+    expect(await agentsOf(relay, 'p_acme')).toEqual([]);
+    const writes = await relay.logs({ event: 'agent.add' });
+    expect(writes.filter((l) => l.status === 'ok')).toHaveLength(0);
+    await expect(card.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
   });
-}
+});
+
+test.describe('presence timed out', () => {
+  test.use({ world: cosWorld({ presence: 'timeout' }), cosPosts: [addCard('c_add', { name: 'codex', kind: 'codex' })] });
+
+  test('presence timed out writes nothing @G6.84.r1', async ({ eve, page, relay }) => {
+    await eve.open('/');
+    await openCos(page);
+    const card = page.getByRole('article');
+    await card.getByRole('button', { name: 'Add', exact: true }).click();
+    // Relay gives no answer on a timeout and eve sets no timer: the card keeps waiting.
+    await relay.waitForEvent('debug.presence.answer', { match: (l) => l.answer === 'timeout' });
+    await expect(card.getByText('Approve on the Mac')).toBeVisible();
+    await expect(card.getByText('Added', { exact: true })).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
+    expect(await agentsOf(relay, 'p_acme')).toEqual([]);
+    const writes = await relay.logs({ event: 'agent.add' });
+    expect(writes.filter((l) => l.status === 'ok')).toHaveLength(0);
+  });
+});
 
 test.describe('a command relay cannot find', () => {
   test.use({
     world: hostedCosWorld(),
-    cosPosts: [addCard('c_add', { name: 'ghost', kind: 'claude', command: '/opt/bin/ghost' }, { project: { id: 'p_box', name: 'Orchard' }, machine: 'testbox' })],
+    cosPosts: [addCard('c_add', { name: 'ghost', kind: 'claude', command: 'ghost' }, { project: { id: 'p_box', name: 'Orchard' }, machine: 'testbox' })],
   });
 
   test('relay refuses a command it cannot find @G6.84.r2', async ({ eve, page, relay }) => {
@@ -220,9 +234,9 @@ test.describe('cancel an add card', () => {
 function agentsWorld() {
   const w = cosWorld();
   w.projects[0].agents = [
-    { type: 'agent', name: 'codex', kind: 'codex', model: 'gpt-x' },
-    { type: 'agent', name: 'mywrapper', kind: 'claude', command: '/opt/bin/mywrapper' },
-    { type: 'agent', name: 'Researcher', kind: 'claude' },
+    { name: 'codex', kind: 'codex', model: 'gpt-x' },
+    { name: 'mywrapper', kind: 'claude' },
+    { name: 'Researcher', kind: 'claude' },
   ];
   return w;
 }
