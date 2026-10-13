@@ -1205,6 +1205,7 @@ class EveWorkspaceClient {
     document.querySelectorAll('.question-options').forEach(el => el.remove());
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
+    this._pendingStops.delete(this.currentSessionId); // a new turn supersedes an old stop
     this.showStopButton();
   }
 
@@ -1229,6 +1230,7 @@ class EveWorkspaceClient {
     document.querySelectorAll('.question-options').forEach(el => el.remove());
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
+    this._pendingStops.delete(this.currentSessionId); // a new turn supersedes an old stop
     this.showStopButton();
     return true;
   }
@@ -1247,6 +1249,7 @@ class EveWorkspaceClient {
     this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, urls, sessionId });
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
+    this._pendingStops.delete(this.currentSessionId); // a new turn supersedes an old stop
     this.showStopButton();
   }
 
@@ -1289,11 +1292,18 @@ class EveWorkspaceClient {
   // Runs once the socket has re-authed and the sessions are rejoined.
   _flushPendingStops() {
     for (const sessionId of [...this._pendingStops]) {
+      // The turn ended without the stop (hideStopButton can't tell a turn end
+      // from a view switch, so the check lives here): nothing to stop.
+      if (!this.messageDispatcher.streamingSessions.has(sessionId)) {
+        this._pendingStops.delete(sessionId);
+        continue;
+      }
       if (!this.wsClient.send({ type: 'stop_generation', sessionId })) continue;
       this.log.info(`Sent pending stop for session ${sessionId} after reconnect`);
       this._pendingStops.delete(sessionId);
       this._finishStoppedTurn(sessionId);
     }
+    this._labelStopButton(this._pendingStops.has(this.currentSessionId));
   }
 
   _labelStopButton(stopping) {
@@ -1304,13 +1314,11 @@ class EveWorkspaceClient {
   }
 
   showStopButton() {
+    this._labelStopButton(this._pendingStops.has(this.currentSessionId));
     this.chatForm.showStop();
   }
 
   hideStopButton() {
-    // The turn ended some other way, so a stop still waiting has nothing to stop.
-    if (this.currentSessionId) this._pendingStops.delete(this.currentSessionId);
-    this._labelStopButton(false);
     this.chatForm.hideStop();
   }
 

@@ -112,6 +112,7 @@ class WsClient {
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     const old = this.ws;
     this.ws = null;
+    this.log.info('Disconnected from server (socket force-closed, no close code), reconnecting');
     if (old) {
       old.onopen = old.onmessage = old.onclose = old.onerror = null;
       try { old.close(); } catch (e) { /* ignore */ }
