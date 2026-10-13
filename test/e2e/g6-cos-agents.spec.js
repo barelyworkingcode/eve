@@ -1,20 +1,8 @@
 const { test, expect } = require('./support/fixtures');
 const worlds = require('./support/worlds');
 
-// ASSUMPTIONS about the fakerelay of relay#372 and relay#373 (not in the pinned build yet).
-// Correct these when it lands:
-//  1. Presence op for an agent write is `project.agent`: world `presence: { 'project.agent': 'approve' | 'deny' | 'timeout' }`.
-//  2. The add route fault is `POST /api/projects/{id}/agents` (literal `{id}`, like the git fault in docs/test.md).
-//  3. World agents are `projects[].agents: [{ name, kind, model?, command? }]`; state reads them back
-//     at `ctl state --json` -> `projects[].agents` (an absent or empty list means none).
-//  4. Command lookup is the world's `local_path` / `host_path` (PATH strings); the `pathCommands` fixture option fills them.
-//  5. A write logs the event `agent.add` (status `ok` on success); a refused one logs it with another status or not at all.
-//  6. A started session's `model` in `ctl state` is `<kind>/<entry model>` (codex + gpt-x -> `codex/gpt-x`).
-//  7. Seeded posts are `{ v: 1, id, at: <ISO time>, kind, byModel: true, card }` with the card shapes of docs/api.md;
-//     a card is a role `article`, one per test; its rows read as "<Label><value>" text (Name, Kind, Model, Command, Runs on,
-//     and Prompt, Folder, Agent on a start card).
-//  8. Relay's refusal text on a refused presence is not pinned: a test reads only that it starts "Failed: " and is not empty.
-//  9. `cosPosts` (array of post objects -> data/chief-of-staff.jsonl) comes from the fixtures.js change of #407.
+// Seeded posts are `{ v: 1, id, at: <ISO time>, kind, byModel: true, card }` with the card shapes of docs/api.md.
+// A card is a role `article`, one per test; its rows read as "<Label><value>" text.
 
 function cosWorld({ presence = 'approve' } = {}) {
   const w = worlds.base();
@@ -137,6 +125,9 @@ test.describe('add a named command on a host', () => {
     const agents = await agentsOf(relay, 'p_box');
     expect(agents).toHaveLength(1);
     expect(agents[0]).toMatchObject({ name: 'mywrapper', command: expect.stringMatching(/^\/.*\/mywrapper$/) });
+    // The card now shows the absolute path relay stored, not the bare name.
+    const stored = agents[0].command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    await expect(card).toContainText(new RegExp(`Command\\s*${stored}`));
   });
 });
 
