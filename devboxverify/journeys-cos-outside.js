@@ -13,7 +13,7 @@ const path = require('path');
 const { promisify } = require('util');
 const { execFile } = require('child_process');
 const { expect } = require('@playwright/test');
-const { PASS, FAIL, BLOCKED, result, firstLine, sleep, need, poll, openEve, eveJson } = require('./journey-kit');
+const { PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, eveJson } = require('./journey-kit');
 
 const exec = promisify(execFile);
 
@@ -28,7 +28,6 @@ const GONE_WITHIN_MS = 60000; // relay evicts a failed or ended session within 6
 const HOOK_STATE_WITHIN_MS = 5000; // relay drains hook reports every 2 s
 const PERMISSION_WITHIN_MS = 120000;
 const VIEWER_WITHIN_MS = 15000;
-const TYPED_OBSERVE_MS = 3000; // bounded: nothing is expected to arrive, so there is no signal to wait on
 const HOST_PREFIX = 'loopback-';
 const HOST_STATE_DIR = 'grant-dropin-'; // swept by verify-fixtures-removed's grant-* rule
 const STATE_WORDS = ['Working', 'Waiting on you', 'Idle'];
@@ -41,9 +40,10 @@ const kit = () => require('./journeys');
 // Eve's own Chief of Staff frames: the newest status, every post, the outside
 // inventory (machines and sessions) and what this page sent on its sockets.
 function frames(page) {
-  const seen = { status: null, posts: [], machines: [], sessions: [], sent: [] };
+  const seen = { status: null, posts: [], machines: [], sessions: [], sent: [], received: [] };
   const take = (m) => {
     if (!m) return;
+    if (typeof m.type === 'string') seen.received.push(m.type);
     if ((m.type === 'cos_snapshot' || m.type === 'cos_status') && m.status) seen.status = m.status;
     if (m.type === 'cos_snapshot') {
       if (Array.isArray(m.outsideMachines)) seen.machines = m.outsideMachines;
@@ -319,12 +319,18 @@ async function cosOutsideSimple(env) {
   const shown = await expect(badge).toBeVisible({ timeout: VIEWER_WITHIN_MS }).then(() => true, () => false);
   if (!shown) return result(id, FAIL, `${problems.length ? `${problems.join('; ')}; ` : ''}the terminal shows no Read-only badge within ${VIEWER_WITHIN_MS / 1000}s of View read-only`);
   if (!(await badge.innerText().then((t) => /Read-only/.test(t), () => false))) problems.push('the terminal badge does not say Read-only');
+  // Type only once relay has joined the viewer: a join clears what was typed before it.
+  const joined = await poll(async () => seen.received.includes('terminal_joined') || null, { timeoutMs: VIEWER_WITHIN_MS, intervalMs: 250 });
+  if (!joined) return result(id, FAIL, `${problems.length ? `${problems.join('; ')}; ` : ''}no terminal_joined within ${VIEWER_WITHIN_MS / 1000}s of View read-only`);
   const mark = seen.sent.length;
   const typed = `typed-${env.nonce}`;
-  await page.locator('#terminal').click({ timeout: 5000 }).catch(() => {});
+  await page.getByRole('textbox', { name: 'Terminal input' }).focus({ timeout: 5000 });
   await page.keyboard.type(`echo ${typed}`);
   await page.keyboard.press('Enter');
-  await sleep(TYPED_OBSERVE_MS);
+  // Close is the marker: its frame goes out after every earlier keystroke was handled.
+  await page.getByRole('button', { name: `Close ${consoleName}`, exact: true }).click({ timeout: 5000 });
+  const closed = await poll(async () => seen.sent.slice(mark).includes('terminal_close') || null, { timeoutMs: VIEWER_WITHIN_MS, intervalMs: 250 });
+  if (!closed) problems.push(`Close sent no terminal_close within ${VIEWER_WITHIN_MS / 1000}s`);
   const leaked = seen.sent.slice(mark).filter((t) => t === 'terminal_input' || t === 'terminal_resize');
   if (leaked.length) problems.push(`typing in the viewer sent ${leaked.join(', ')}`);
   if ((await pane(tools.tmux, consoleName)).includes(typed)) problems.push('the typed text reached the outside tmux session');

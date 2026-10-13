@@ -610,6 +610,7 @@ class TerminalManager {
     terminal.inputBuf = '';
     clearTimeout(terminal.inputTimer);
     clearTimeout(terminal.resizeTimer);
+    terminal.inputTimer = terminal.resizeTimer = null;
     terminal.pendingResize = null;
     if (!terminal.container.querySelector('.terminal-read-only')) {
       const badge = document.createElement('span');

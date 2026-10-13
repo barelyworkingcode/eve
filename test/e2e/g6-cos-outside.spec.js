@@ -180,10 +180,16 @@ test.describe('watch an outside tmux session', () => {
 
   test('View read-only opens a labelled terminal that sends no input @G6.95', async ({ eve, page, relay }) => {
     const sent = [];
+    const received = [];
+    const types = (payload) => {
+      try {
+        const f = JSON.parse(String(payload));
+        return f.type === '__batch' && Array.isArray(f.msgs) ? f.msgs.map((m) => m.type) : [f.type];
+      } catch { return []; } // binary or non-JSON frame
+    };
     page.on('websocket', (ws) => {
-      ws.on('framesent', (frame) => {
-        try { sent.push(JSON.parse(String(frame.payload)).type); } catch { /* binary or non-JSON frame */ }
-      });
+      ws.on('framesent', (frame) => { sent.push(...types(frame.payload)); });
+      ws.on('framereceived', (frame) => { received.push(...types(frame.payload)); });
     });
     await eve.open('/');
     await openCos(page);
@@ -191,6 +197,8 @@ test.describe('watch an outside tmux session', () => {
     await expect(viewable).toContainText('View read-only');
     await viewable.click();
     await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
+    // Type only once relay has joined the viewer: a join clears what was typed before it.
+    await expect.poll(() => received.includes('terminal_joined')).toBe(true);
 
     const input = page.getByRole('textbox', { name: 'Terminal input' });
     await input.focus();
@@ -215,7 +223,7 @@ test.describe('a host that has not opted in', () => {
     await openCos(page);
     await rowOf(page, 'Orchard review').click();
     await expect(page.getByText('Read-only', { exact: true })).toHaveCount(0);
-    await expect(page.getByRole('status').filter({ hasText: /./ })).toBeVisible();
+    await expect(page.getByText('Cannot open this read-only view.')).toBeVisible();
     expect((await relay.json('ctl', 'state', '--json')).terminals ?? []).toEqual([]);
   });
 });

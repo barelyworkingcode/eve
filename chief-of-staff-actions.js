@@ -396,7 +396,7 @@ async function sessionStatus(cos, args) {
     try {
       const detail = await cos.outside.detail(id);
       return ok({ ...outsideRow(cos, detail.session), lastTurn: detail.lastTurn, lastExcerpt: detail.lastExcerpt });
-    } catch (err) { return fail(err.status || 502, err.code || 'outside_status_unavailable', 'Outside status is unavailable.'); }
+    } catch (err) { return fail(err.status || 502, err.code || 'outside_status_unavailable', err.status === 404 ? err.message : 'Outside status is unavailable.'); }
   }
   const bad = await freshRoster(cos);
   if (bad) return bad;
