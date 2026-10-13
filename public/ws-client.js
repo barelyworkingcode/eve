@@ -8,6 +8,7 @@ class WsClient {
     this._onAudio = callbacks.onAudio;
     this.ws = null;
     this.reconnectDelay = 2000;
+    this._lastCloseCode = null;
 
     // A network switch can leave a half-open "zombie" socket that looks open
     // but is dead; heartbeat + stale-window detect it and force a reconnect.
@@ -32,7 +33,8 @@ class WsClient {
     this._authenticated = false;
 
     this.ws.onopen = () => {
-      this.log.info('Connected to server');
+      this.log.info(`Connected to server${this._lastCloseCode === null ? '' : ` (reconnect after close code ${this._lastCloseCode})`}`);
+      this._lastCloseCode = null;
       this.reconnectDelay = 2000;
       this._lastInbound = Date.now();
       if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
@@ -68,8 +70,9 @@ class WsClient {
       this._dispatchOne(data);
     };
 
-    this.ws.onclose = () => {
-      this.log.info(`Disconnected from server, reconnecting in ${this.reconnectDelay / 1000}s`);
+    this.ws.onclose = (event) => {
+      this._lastCloseCode = event?.code ?? null;
+      this.log.info(`Disconnected from server (close code ${event?.code}), reconnecting in ${this.reconnectDelay / 1000}s`);
       this._stopHeartbeat();
       this._authenticated = false;
       this._markDisconnected();
