@@ -422,9 +422,8 @@ class MessageDispatcher {
   _handleTtsError(data) {
     this.log.warn('TTS error:', data.message);
     this._notifyVoiceError(`Speech failed: ${data.message}`);
-    if (!this.voice?.isVoiceSession) {
-      this.renderer.appendSystemMessage(`TTS error: ${data.message}`, 'error');
-    }
+    const label = this.voice?.isVoiceSession ? 'Speech failed' : 'TTS error';
+    this.renderer.appendSystemMessage(`${label}: ${data.message}`, 'error');
     this.bus.emit(EVT.TTS_PLAYBACK_ENDED);
   }
 
