@@ -164,7 +164,7 @@ class AgentBoard {
   constructor({
     container, testidPrefix, showProject, filter, onCount,
     maxRows = AgentBoard.MAX_ROWS, layout = 'board', collapseDone = false,
-    note = null, onCounts = null, onOpen = null,
+    note = null, onCounts = null, onOpen = null, outsideRows = null, openOutside = null,
   }) {
     this.container = container;
     this.prefix = testidPrefix;
@@ -177,6 +177,8 @@ class AgentBoard {
     this.note = note;
     this.onCounts = onCounts;
     this.onOpen = onOpen;
+    this.outsideRows = outsideRows;
+    this.openOutside = openOutside;
     this._doneOpen = false;
     this.state = container.get('state');
     this.bus = container.get('bus');
@@ -233,7 +235,7 @@ class AgentBoard {
     if (relayDown) kind = 'offline';
     else if (!mgr || !mgr.listLoaded) kind = 'loading';
     else {
-      rows = AgentBoard.collect(this.container, this.filter);
+      rows = AgentBoard.collect(this.container, this.filter, this.outsideRows?.() || []);
       if (rows.length === 0) kind = 'empty';
     }
     el.dataset.state = kind;
@@ -280,6 +282,7 @@ class AgentBoard {
   // Never rejects. No client timeout: relay bounds the wait, and giving up sooner
   // would orphan a terminal it already launched.
   static async dropIn(container, sessionId) {
+    if (sessionId?.startsWith('outside:')) return;
     if (AgentBoard.dropping.has(sessionId)) return;
     AgentBoard.dropping.add(sessionId);
     const renderAll = () => { for (const b of AgentBoard.live) b.render(); };
@@ -329,7 +332,7 @@ class AgentBoard {
   // Terminals (not task runs) and the sessions the list names, in group order,
   // then label, then id: the order must not jump as a row's state changes inside
   // its group or as lines change.
-  static collect(container, filter) {
+  static collect(container, filter, outsideRows = []) {
     const state = container.get('state');
     const mgr = AgentBoard._termMgr(container);
     const rows = [];
@@ -337,7 +340,7 @@ class AgentBoard {
       if (filter(item, project)) rows.push({ kind, id, state: st, group: AgentBoard.groupOf(st), label, project, since, exit, item });
     };
     for (const t of mgr ? mgr.allTerminals.values() : []) {
-      if (state.isTaskRun(t.id)) continue;
+      if (state.isTaskRun(t.id) || t.outside === true) continue;
       const project = AgentBoard._projectOf(state, t);
       add('terminal', t, t.id, AgentBoard.terminalState(t), AgentBoard._terminalLabel(state, t, project), project);
     }
@@ -347,6 +350,11 @@ class AgentBoard {
       const project = (session.projectId && state.projects.get(session.projectId)) || null;
       const att = attention.get(id);
       add('session', session, id, att.state, sessionDisplayName(session, project), project, att.since || '', att.exit || null);
+    }
+    for (const item of outsideRows) {
+      if (!item?.id?.startsWith('outside:')) continue;
+      const project = state.projects.get(item.projectId) || null;
+      add('outside', item, item.id, item.state, item.name, project, item.since);
     }
     const order = (r) => AgentBoard.GROUPS.findIndex(g => g.key === r.group);
     rows.sort((a, b) => order(a) - order(b)
@@ -414,7 +422,7 @@ class AgentBoard {
     title.textContent = label;
     head.appendChild(title);
     if (this.layout === 'rail') {
-      const age = r.kind === 'session' ? AgentBoard.ago(r.since) : '';
+      const age = r.kind !== 'terminal' ? AgentBoard.ago(r.since) : '';
       if (age) {
         const a = document.createElement('span');
         a.className = 'agent-row__age';
@@ -462,6 +470,11 @@ class AgentBoard {
 
   _open(r) {
     // onOpen first: a sheet closes (no focus return) before the pane switch hides its opener.
+    if (r.kind === 'outside') {
+      if (r.item.viewable) { this.onOpen?.(r); this.openOutside?.(r.item); }
+      return;
+    }
+    if (r.id?.startsWith('outside:')) return;
     this.onOpen?.(r);
     if (r.kind === 'session') this.container.get('app').joinSession(r.id);
     else this._attach(r.id);
@@ -470,6 +483,19 @@ class AgentBoard {
   // Rail lines 2 and 3: project and state words, then the live last line or the note.
   _railLines(row, r, held) {
     const { kind, id, state, project, item: t } = r;
+    if (kind === 'outside') {
+      const meta = document.createElement('span');
+      meta.className = 'agent-row__meta agent-row__outside';
+      meta.textContent = ['Outside', t.machine, t.directory, t.branch, AgentBoard.STATE_WORDS[state]].filter(Boolean).join(' · ');
+      const action = document.createElement('span');
+      action.className = 'agent-row__line';
+      const reasons = { not_in_tmux: 'Not in tmux', outside_view_disabled: 'Host viewing is disabled',
+        tmux_view_unsupported: 'Read-only tmux viewing is unsupported', host_unreachable: 'Host is unreachable',
+        tmux_session_not_found: 'Tmux session is gone' };
+      action.textContent = t.viewable ? 'View read-only' : `Cannot open from Eve: ${reasons[t.viewReason] || 'view unavailable'}`;
+      row.append(meta, action);
+      return;
+    }
     const words = kind === 'session' ? AgentBoard.STATE_WORDS[state] || state
       : t.state !== 'stopped' ? 'open' : `exited${t.exitCode != null ? ` ${t.exitCode}` : ''}`;
     const meta = document.createElement('span');

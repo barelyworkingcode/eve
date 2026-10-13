@@ -269,6 +269,7 @@ function postStartCard(cos, turn, project, f, why) {
 }
 
 function postSendCard(cos, turn, sessionId, label, text, why) {
+  if (sessionId.startsWith('outside:')) return null;
   return cos._addPost({
     kind: 'send_card',
     card: { state: 'pending', sessionId, label, text, why, turnId: turn.turnId, error: null },
@@ -311,6 +312,12 @@ function sessionRow(cos, row) {
     headless: row.headless === true,
     origin: row.origin || '',
   };
+}
+
+function outsideRow(cos, row) {
+  return { ...sessionRow(cos, { ...row, origin: 'outside', headless: false }), label: row.name,
+    outside: true, readOnly: true, machine: row.machine, directory: row.directory,
+    branch: row.branch, viewable: row.viewable, viewReason: row.viewReason };
 }
 
 // ---- /internal/cos ---------------------------------------------------------
@@ -375,12 +382,22 @@ async function freshRoster(cos) {
 async function listSessions(cos) {
   const bad = await freshRoster(cos);
   if (bad) return bad;
-  return ok({ sessions: [...cos.roster.values()].slice(0, LIST_MAX).map((r) => sessionRow(cos, r)) });
+  const sessions = [...cos.roster.values()].slice(0, LIST_MAX).map((r) => sessionRow(cos, r));
+  // An outside read failure never hides the managed rows.
+  let outside;
+  try { outside = await cos.outside.list(); } catch { return ok({ sessions, outsideUnavailable: true }); }
+  return ok({ sessions: sessions.concat(outside.map(r => outsideRow(cos, r))) });
 }
 
 async function sessionStatus(cos, args) {
   const id = typeof args.sessionId === 'string' ? args.sessionId.trim() : '';
   if (!id) { const e = invalid('sessionId', 'is required'); return fail(e.error.status, e.error.code, e.error.message); }
+  if (id.startsWith('outside:')) {
+    try {
+      const detail = await cos.outside.detail(id);
+      return ok({ ...outsideRow(cos, detail.session), lastTurn: detail.lastTurn, lastExcerpt: detail.lastExcerpt });
+    } catch (err) { return fail(err.status || 502, err.code || 'outside_status_unavailable', 'Outside status is unavailable.'); }
+  }
   const bad = await freshRoster(cos);
   if (bad) return bad;
   const row = cos.roster.get(id);
@@ -447,6 +464,7 @@ async function proposeStart(cos, turn, args) {
 async function proposeSend(cos, turn, args) {
   const sessionId = typeof args.sessionId === 'string' ? args.sessionId.trim() : '';
   if (!sessionId) return failFrom(invalid('sessionId', 'is required'));
+  if (sessionId.startsWith('outside:')) return fail(403, 'outside_session_read_only', 'Outside sessions are read-only.');
   const t = checkText('text', args.text);
   if (t.error) return failFrom(t);
   const bad = await freshRoster(cos);
@@ -488,6 +506,7 @@ async function cardAction(cos, { postId, action, edits } = {}) {
   if (!allowed) return cardFail('That card is gone');
   if (!allowed.includes(action)) return cardFail('Unknown card action');
   const card = post.card;
+  if (card.sessionId?.startsWith('outside:')) return { ok: false, error: 'outside_session_read_only', message: 'Outside sessions are read-only.' };
   if (card.state !== 'pending') return cardFail(`This card is ${card.state}`);
   if ((post.kind === 'agent_card' || post.kind === 'chat_card') && edits && typeof edits === 'object' && Object.keys(edits).length) {
     return cardFail('An add card takes no edits');
@@ -567,6 +586,7 @@ async function tapAdd(cos, post) {
 
 async function tapSend(cos, post, edits) {
   const card = post.card;
+  if (card.sessionId?.startsWith('outside:')) return { ok: false, error: 'outside_session_read_only', message: 'Outside sessions are read-only.' };
   let text = card.text;
   if (edits.text !== undefined) {
     const t = checkText('text', edits.text);

@@ -275,6 +275,10 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     proxy(req, res, 'POST', `/api/tasks/${req.params.taskId}/run`);
   });
 
+  app.post('/api/tmux/views', requireAuth, (req, res) => {
+    proxy(req, res, 'POST', '/api/tmux/views', req.body);
+  });
+
   app.get('/api/terminal/templates', requireAuth, (req, res) => {
     const project = req.query.project ? `?project=${encodeURIComponent(req.query.project)}` : '';
     proxy(req, res, 'GET', `/api/terminal/templates${project}`);
@@ -319,6 +323,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   // opens a terminal on the same conversation (relay `session.drop_in`). The body
   // check also keeps a cross-site no-cors POST, which cannot send JSON, out.
   app.post('/api/sessions/:id/drop-in', requireAuth, (req, res) => {
+    if (req.params.id.startsWith('outside:')) return res.status(403).json({ ok: false, error: 'outside_session_read_only', message: 'Outside sessions are read-only.' });
     const whole = (n) => Number.isInteger(n) && n >= 1 && n <= 500;
     const { cols, rows } = req.body || {};
     if (!whole(cols) || !whole(rows)) {

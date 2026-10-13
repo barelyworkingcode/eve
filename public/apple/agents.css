@@ -218,3 +218,5 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+.agent-row__outside { overflow-wrap: anywhere; white-space: normal; }

@@ -85,7 +85,7 @@ class TerminalManager {
 
   sendInput(seq) {
     const terminal = this.terminals.get(this.activeTerminalId);
-    if (!terminal || terminal.exited || !seq) return;
+    if (!terminal || terminal.readOnly || terminal.exited || !seq) return;
     // Flush buffered input first so a tapped special key can't jump ahead of
     // characters typed just before it.
     this._flushTerminalInput(this.activeTerminalId);
@@ -98,7 +98,7 @@ class TerminalManager {
 
   _flushTerminalInput(terminalId) {
     const terminal = this.terminals.get(terminalId);
-    if (!terminal) return;
+    if (!terminal || terminal.readOnly) return;
     if (terminal.inputTimer) {
       clearTimeout(terminal.inputTimer);
       terminal.inputTimer = null;
@@ -441,7 +441,7 @@ class TerminalManager {
   // separate join_terminal is needed.
   // host ({id,name}) is present when relay-sessions resolved the session onto an
   // SSH host (../relay/docs/ssh-hosts.md); undefined for a console terminal.
-  onTerminalCreated(terminalId, templateId, name, directory, host) {
+  onTerminalCreated(terminalId, templateId, name, directory, host, metadata = {}) {
     const auto = this._autoReattachPending?.get(name);
     if (auto) {
       clearTimeout(auto.timer);
@@ -449,7 +449,7 @@ class TerminalManager {
       // Relay now reports it attached_here; let open Remote sessions lists catch up.
       this.app.bus.emit(EVT.PERSISTENT_SESSIONS_CHANGED, { projectId: auto.projectId });
     }
-    this.setupTerminal(terminalId, templateId, name, directory, false, false, host, !auto || auto.focus);
+    this.setupTerminal(terminalId, templateId, name, directory, false, false, host, !auto || auto.focus, metadata);
     this.app.bus.emit(EVT.TERMINAL_LIST);
   }
 
@@ -465,7 +465,7 @@ class TerminalManager {
 
     // Fallback for terminal_joined arriving without prior setup.
     if (!terminal) {
-      this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped', false, data.host, /* activate */ false);
+      this.setupTerminal(terminalId, data.templateId, data.name, data.directory, data.state === 'stopped', false, data.host, /* activate */ false, data);
       this.app.bus.emit(EVT.TERMINAL_LIST);
       terminal = this.terminals.get(terminalId);
       if (terminal && Number.isInteger(data.cols) && data.cols > 0 &&
@@ -474,6 +474,7 @@ class TerminalManager {
       }
     }
     if (!terminal) return;
+    this._applyViewerMetadata(terminalId, data);
 
     if (data.scrollback) {
       const bytes = this._decodeBase64(data.scrollback);
@@ -499,6 +500,8 @@ class TerminalManager {
     }
 
     terminal.container.style.display = 'block';
+    document.getElementById('terminal')?.classList.toggle('terminal--read-only', terminal.readOnly === true);
+    this.keybar?.setReadOnly(terminal.readOnly === true);
 
     requestAnimationFrame(() => {
       terminal.fitAddon.fit();
@@ -555,8 +558,7 @@ class TerminalManager {
     this.app.wsClient.send({
       type: 'terminal_reconnect',
       terminalId,
-      cols: terminal.term.cols,
-      rows: terminal.term.rows,
+      ...(terminal.readOnly ? {} : { cols: terminal.term.cols, rows: terminal.term.rows }),
     });
   }
 
@@ -585,9 +587,41 @@ class TerminalManager {
   // is the ordinary closeTerminal.
   openDropIn(terminal) {
     this.onReady(() => {
-      this.onTerminalCreated(terminal.terminalId, terminal.templateId, terminal.name, terminal.directory, terminal.host);
+      this.onTerminalCreated(terminal.terminalId, terminal.templateId, terminal.name, terminal.directory, terminal.host, terminal);
       this.app.wsClient.send({ type: 'join_terminal', terminalId: terminal.terminalId });
     });
+  }
+
+  openOutsideViewer(descriptor) {
+    if (descriptor?.readOnly !== true || descriptor.outside !== true || !descriptor.terminalId) return;
+    this.openDropIn(descriptor);
+  }
+
+  _applyViewerMetadata(terminalId, metadata) {
+    for (const row of [this.terminals.get(terminalId), this.allTerminals.get(terminalId)]) {
+      if (!row) continue;
+      // Once read-only, a partial/list frame cannot silently make this viewer writable.
+      row.readOnly = row.readOnly === true || metadata.readOnly === true || metadata.outside === true;
+      row.outside = row.outside === true || metadata.outside === true;
+    }
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal?.readOnly) return;
+    terminal.term.options.disableStdin = true;
+    terminal.inputBuf = '';
+    clearTimeout(terminal.inputTimer);
+    clearTimeout(terminal.resizeTimer);
+    terminal.pendingResize = null;
+    if (!terminal.container.querySelector('.terminal-read-only')) {
+      const badge = document.createElement('span');
+      badge.className = 'terminal-read-only';
+      badge.textContent = 'Read-only';
+      badge.dataset.testid = 'terminal-read-only';
+      terminal.container.appendChild(badge);
+    }
+    if (this.activeTerminalId === terminalId) {
+      document.getElementById('terminal')?.classList.add('terminal--read-only');
+      this.keybar?.setReadOnly(true);
+    }
   }
 
   closeTerminal(terminalId) {
@@ -635,9 +669,13 @@ class TerminalManager {
     this.listLoaded = true;
     if (terminalList && terminalList.length > 0) {
       for (const t of terminalList) {
+        const previous = before.get(t.id);
+        t.readOnly = t.readOnly === true || t.outside === true || previous?.readOnly === true;
+        t.outside = t.outside === true || previous?.outside === true;
         // relay's list carries no exit code; keep the one terminal_exit gave us.
         this.allTerminals.set(t.id, t.exitCode == null && before.get(t.id)?.exitCode != null
           ? { ...t, exitCode: before.get(t.id).exitCode } : t);
+        this._applyViewerMetadata(t.id, t);
         // A terminal relay lists but this page does not hold is only registered:
         // no xterm, no tab, no focus. The sidebar (or a #terminal link) opens it
         // through openTaskTerminal when asked.
@@ -729,6 +767,7 @@ class TerminalManager {
   // text-only pastes fall through to xterm untouched.
   _attachImagePaste(containerDiv, terminalId) {
     containerDiv.addEventListener('paste', (e) => {
+      if (this.terminals.get(terminalId)?.readOnly) { e.preventDefault(); e.stopImmediatePropagation(); return; }
       const images = this._imageFilesFrom(e.clipboardData);
       if (!images.length) return;
       e.preventDefault();
@@ -739,6 +778,7 @@ class TerminalManager {
       if (e.dataTransfer?.types?.includes?.('Files')) e.preventDefault();
     });
     containerDiv.addEventListener('drop', (e) => {
+      if (this.terminals.get(terminalId)?.readOnly) { e.preventDefault(); e.stopImmediatePropagation(); return; }
       const images = this._imageFilesFrom(e.dataTransfer);
       if (!images.length) return;
       e.preventDefault();
@@ -758,7 +798,7 @@ class TerminalManager {
 
   async _pasteImages(terminalId, files) {
     const terminal = this.terminals.get(terminalId);
-    if (!terminal || terminal.exited) return;
+    if (!terminal || terminal.readOnly || terminal.exited) return;
     const paths = [];
     for (const file of files) {
       try {
@@ -770,14 +810,14 @@ class TerminalManager {
       }
     }
     // The tab may have closed while the upload was in flight.
-    if (!paths.length || this.terminals.get(terminalId) !== terminal) return;
+    if (!paths.length || terminal.readOnly || this.terminals.get(terminalId) !== terminal) return;
     terminal.term.paste(paths.join(' '));
   }
 
-  reconnectTerminal(terminalId, templateId, name, directory, exited, host) {
+  reconnectTerminal(terminalId, templateId, name, directory, exited, host, metadata = {}) {
     // terminal_reconnect is deferred until showTerminal so xterm can fit()
     // against the visible container first and report the real viewport size.
-    this.setupTerminal(terminalId, templateId, name, directory, exited, /* needsReconnect */ true, host);
+    this.setupTerminal(terminalId, templateId, name, directory, exited, /* needsReconnect */ true, host, true, metadata);
   }
 
   // host ({id,name}) is present for a terminal opened on an SSH host
@@ -785,15 +825,15 @@ class TerminalManager {
   // and the raw object is stored on both terminal records so the sidebar
   // (someone else's file) can read `terminal.host`.
   // activate=false opens the tab without switching to it.
-  setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect = false, host = null, activate = true) {
+  setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect = false, host = null, activate = true, metadata = {}) {
     // A terminal_created can reach the browser before xterm's async imports
     // finish; queue the setup rather than drop the terminal.
     if (!this.xtermLoaded) {
-      this.onReady(() => this.setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect, host, activate));
+      this.onReady(() => this.setupTerminal(terminalId, templateId, name, directory, exited, needsReconnect, host, activate, metadata));
       return;
     }
 
-    if (this.terminals.has(terminalId)) return;
+    if (this.terminals.has(terminalId)) { this._applyViewerMetadata(terminalId, metadata); return; }
 
     const { term, fitAddon } = this.createXtermInstance();
 
@@ -829,13 +869,15 @@ class TerminalManager {
       state: exited ? 'stopped' : 'running'
     });
 
+    this._applyViewerMetadata(terminalId, metadata);
+    term.attachCustomKeyEventHandler?.(() => !this.terminals.get(terminalId)?.readOnly);
     // A modifier fold flushes immediately so a chord (^C, Option+x) is never
     // merged behind a following plain key. Concatenation stays byte-correct
     // because transformInput folds the one-shot modifier over its own chunk's
     // first byte, and _encodeBase64(a+b) equals base64 of a+b's UTF-8 bytes.
     term.onData((data) => {
       const terminal = this.terminals.get(terminalId);
-      if (!terminal || terminal.exited) return;
+      if (!terminal || terminal.readOnly || terminal.exited) return;
       const out = this.keybar ? this.keybar.transformInput(data) : data;
       const folded = this.keybar && out !== data;
       terminal.inputBuf += out;
@@ -847,7 +889,7 @@ class TerminalManager {
 
     term.onResize(({ cols, rows }) => {
       const terminal = this.terminals.get(terminalId);
-      if (!terminal) return;
+      if (!terminal || terminal.readOnly) return;
       // The mobile soft keyboard spams resize via fitActive().
       terminal.pendingResize = { cols, rows };
       if (terminal.resizeTimer) clearTimeout(terminal.resizeTimer);
@@ -855,7 +897,7 @@ class TerminalManager {
         terminal.resizeTimer = null;
         const r = terminal.pendingResize;
         terminal.pendingResize = null;
-        if (r) {
+        if (r && !terminal.readOnly) {
           this.app.wsClient.send({ type: 'terminal_resize', terminalId, cols: r.cols, rows: r.rows });
         }
       }, 120);
@@ -925,12 +967,15 @@ class TerminalManager {
         name: meta.name || '',
         directory: meta.directory || '',
         host: meta.host || null,
+        readOnly: meta.readOnly === true || meta.outside === true,
+        outside: meta.outside === true,
         state: meta.state || 'running',
       });
     }
   }
 
   openTaskTerminal(terminalId, opts = {}) {
+    if (terminalId?.startsWith('outside:')) return;
     if (this.terminals.has(terminalId)) {
       this.showTerminal(terminalId);
       return;
@@ -944,6 +989,7 @@ class TerminalManager {
         meta.directory || opts.directory || '',
         meta.state === 'stopped',
         meta.host,
+        meta,
       );
       this.showTerminal(terminalId);
       return;

@@ -19,6 +19,7 @@ const { HIDDEN_SEARCH_PREFIX } = require('./search-summarizer');
 const { HIDDEN_COS_PREFIX, PERSON_ALLOWED_TOOLS } = require('./chief-of-staff-model');
 const actions = require('./chief-of-staff-actions');
 const provenance = require('./chief-of-staff-provenance');
+const { ChiefOfStaffOutside } = require('./chief-of-staff-outside');
 
 const SCOPE = 'chief-of-staff';
 const POSTS_FILE = 'chief-of-staff.jsonl';
@@ -208,6 +209,10 @@ class ChiefOfStaff {
     this.state = { day: localDay(new Date(now())), calls: 0, rowCalls: 0, modelSessionId: null, personSessionId: null, limitNoticeDay: null };
     this._writeChain = Promise.resolve();
 
+    this.outside = new ChiefOfStaffOutside({ relayTransport, onSnapshot: (snapshot) => {
+      this._fanOut({ type: 'cos_outside_sessions', ...snapshot });
+      this._emitStatus();
+    } });
     this.roster = new Map();      // id -> row
     this._ownIds = { wake: null, person: null };
     this._waiting = new Map();    // sessionId -> trigger entry (newer replaces)
@@ -261,6 +266,7 @@ class ChiefOfStaff {
     if (this._started) return;
     this._started = true;
     this._loadFiles();
+    this.outside.start();
     if (!this.settings.enabled) {
       this.off = { reason: 'disabled', detail: '' };
       this._emitStatus();
@@ -292,6 +298,7 @@ class ChiefOfStaff {
   // the model sessions' DELETEs.
   stop() {
     this._stopped = true;
+    this.outside.stop();
     for (const t of [this._reconnectTimer, this._batchTimer, this._refreshTimer]) clearTimeout(t);
     this._reconnectTimer = this._batchTimer = this._refreshTimer = null;
     const ws = this._ws;
@@ -429,6 +436,10 @@ class ChiefOfStaff {
       watching += 1;
       if (NEED_YOU_STATES.has(row.state)) needYou += 1;
     }
+    for (const row of this.outside.getSnapshot().sessions) {
+      watching += 1;
+      if (row.state === 'asking') needYou += 1;
+    }
     return {
       busy: this._isBusy(),
       watching,
@@ -440,7 +451,9 @@ class ChiefOfStaff {
   }
 
   getSnapshot() {
-    return { posts: this.posts.slice(), status: this.getStatus(), rowNotes: this.getRowNotes() };
+    const outside = this.outside.getSnapshot();
+    return { posts: this.posts.slice(), status: this.getStatus(), rowNotes: this.getRowNotes(),
+      outsideSessions: outside.sessions, outsideMachines: outside.machines };
   }
 
   getRowNotes() {
@@ -537,7 +550,7 @@ class ChiefOfStaff {
   // Hidden sessions (the model's own, the search summariser's) are never watched.
   _isHidden(s) {
     const name = typeof s.name === 'string' ? s.name : '';
-    return this._isOwnId(s.id) || name.startsWith(HIDDEN_COS_PREFIX) || name.startsWith(HIDDEN_SEARCH_PREFIX);
+    return s.id?.startsWith('outside:') || s.outside === true || this._isOwnId(s.id) || name.startsWith(HIDDEN_COS_PREFIX) || name.startsWith(HIDDEN_SEARCH_PREFIX);
   }
 
   // Scoped GET /api/sessions. `seed` replaces the roster and posts nothing
@@ -1370,6 +1383,7 @@ class ChiefOfStaff {
   // Scoped POST; relay stamps the origin, so the body never carries one.
   // Posts `sent` or `send_failed` and returns {ok:true} or {ok:false, code, message}.
   async _send(sessionId, text) {
+    if (sessionId?.startsWith('outside:')) return { ok: false, code: 'outside_session_read_only', message: 'Outside sessions are read-only.' };
     const row = this.roster.get(sessionId);
     const label = this._labelOf(row, sessionId);
     let status = 0;
