@@ -663,7 +663,7 @@ function longThread(n = 150) {
 test.describe('scrolling a long thread on a wide window', () => {
   test.use({ world: cosWorld(), eveFiles: { 'chief-of-staff.jsonl': longThread().map((p) => JSON.stringify(p)).join('\n') + '\n' }, viewport: { width: 1440, height: 800 } });
 
-  test('wheeling past either end never scrolls the page @G6.30', async ({ eve, page }) => {
+  test('wheeling past the end of the thread never scrolls the page @G6.30', async ({ eve, page }) => {
     await eve.open('/');
     await openCos(page);
     const feed = page.getByRole('log');
