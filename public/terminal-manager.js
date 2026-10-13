@@ -780,17 +780,19 @@ class TerminalManager {
     });
     containerDiv.addEventListener('drop', (e) => {
       if (this.terminals.get(terminalId)?.readOnly) { e.preventDefault(); e.stopImmediatePropagation(); return; }
-      const images = this._imageFilesFrom(e.dataTransfer);
+      // A dropped file of any type goes up, so a non-image gets the server's
+      // "Unsupported image type" toast instead of a silent no-op (G4.11 r1).
+      const images = this._imageFilesFrom(e.dataTransfer, true);
       if (!images.length) return;
       e.preventDefault();
       this._pasteImages(terminalId, images);
     });
   }
 
-  _imageFilesFrom(dataTransfer) {
+  _imageFilesFrom(dataTransfer, anyFile = false) {
     const files = [];
     for (const item of dataTransfer?.items || []) {
-      if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+      if (item.kind !== 'file' || (!anyFile && !item.type.startsWith('image/'))) continue;
       const file = item.getAsFile();
       if (file) files.push(file);
     }
@@ -807,7 +809,7 @@ class TerminalManager {
         paths.push(path);
       } catch (err) {
         this.log.error('Terminal image paste failed:', err?.message || err);
-        this.app.messageRenderer?.appendSystemMessage?.(`Image paste failed: ${err?.message || err}`, 'error');
+        this.app.bus.emit(EVT.TOAST_SHOW, { id: 'terminal-image-paste-error', message: `Image paste failed: ${err?.message || err}`, type: 'error', duration: 6000 });
       }
     }
     // The tab may have closed while the upload was in flight.

@@ -168,6 +168,22 @@ test.describe('console terminal', () => {
     await desktop.dropFiles(input, [{ name: 'shot.png', type: 'image/png', size: 64 }]);
     await expect(page.getByText(/eve-paste-\d+-\w+\.png/)).toBeVisible();
   });
+
+  test('pasting a file that is not a supported image says why on the terminal screen @G4.9.r1', async ({ eve, page, desktop }) => {
+    await eve.open('/');
+    const input = await startShell(page);
+    await desktop.paste(input, [{ name: 'image.bmp', type: 'image/bmp', base64: PNG_BASE64 }]);
+    await expect(page.getByRole('tab', { name: 'Acme - Shell' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByText('Image paste failed: Unsupported image type: image/bmp')).toBeVisible();
+  });
+
+  test('dropping a file that is not an image says why on the terminal screen @G4.11.r1', async ({ eve, page, desktop }) => {
+    await eve.open('/');
+    const input = await startShell(page);
+    await desktop.dropFiles(input, [{ name: 'notes.txt', type: 'text/plain', size: 64 }]);
+    await expect(page.getByRole('tab', { name: 'Acme - Shell' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByText('Image paste failed: Unsupported image type: text/plain')).toBeVisible();
+  });
 });
 
 test.describe('console terminal, resized', () => {
