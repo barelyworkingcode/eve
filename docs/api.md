@@ -354,3 +354,55 @@ Every action carries one trace ID (see `relay/docs/logging-standard.md`). HTTP: 
 `llm_event.event` is a raw relayLLM frame (assistant text/tool_use/thinking blocks as deltas or full blocks; `result` summary). Eve forwards it unchanged — see relayLLM `docs/event-protocol.md` for the full shape.
 
 `result` events with `subtype: 'tool_result'` carry `tool_use_id`, `tool_name`, `content`, `is_error` and, only when macMCP's scope check refused the call, `scope_violation: true`. A Claude `tool_result` block carries `is_error` and no `scope_violation`. Eve reads a refusal from these: `scope_violation === true`, or `is_error === true` with `access denied: ` in the text (`public/core/refusal.js`).
+
+## Outside sessions and read-only viewers
+
+Relay owns discovery, process identity, reports, and transcript reads. Eve uses
+`RelayTransport` with `{scope:'chief-of-staff'}` for
+`GET /api/chief-of-staff/outside-sessions`, `GET .../{id}` and
+`GET /ws/outside-sessions`. The inventory WS accepts no client data frames.
+
+Relay snapshots are `{type:'outside_sessions',revision,probeIntervalMs:15000,
+sessions:OutsideSession[],machines:MachineStatus[]}`. Each row has `id`, `name`,
+`projectId`, `hostId`, `machine`, `directory`, `branch`, `state` (running, asking,
+idle), `since`, `updatedAt`, `source` (hook or probe), `outside:true`,
+`readOnly:true`, `tmuxSession`, `viewable`, `viewReason`. IDs have the reserved
+`outside:` prefix; nullable project/host/tmux values remain nullable. Machine
+status has `hostId`, `machine`, `status`, `lastProbeAt`, `error`.
+Full snapshots replace membership; a new WS reseeds revision after reconnect.
+
+Browser `cos_snapshot` additionally includes `outsideSessions` and
+`outsideMachines`; subsequent full replacements use
+`{type:'cos_outside_sessions',revision,probeIntervalMs,sessions,machines}`.
+These contain metadata only, never latest-turn text. The CoS status counts
+outside asking rows once in `needYou`. Outside identities enter neither the
+managed roster nor browser StateStore nor errands.
+
+`cos_list_sessions` adds outside rows with `sessionId`, `label`, `project`,
+`projectId`, `state`, `since`, `headless:false`, `origin:'outside'`, `outside:true`,
+`readOnly:true`, `machine`, `directory`, `branch`, `viewable`, `viewReason`.
+`cos_session_status` reads a fresh scoped detail response at request time:
+`{session,lastTurn:{text,at,complete},lastExcerpt}`. Latest assistant turn text
+is bounded to its last 8192 characters; excerpt is its last 500. Expired IDs
+return `outside_session_not_found`; failed reads return
+`outside_status_unavailable`, never successful cached text. Existing tool-call
+claims and provenance remain mandatory. Outside sends/cards/actions refuse
+`outside_session_read_only` with `Outside sessions are read-only.`
+
+Authenticated browser `POST /api/tmux/views` proxies through RelayTransport
+without CoS scope. ApiClient sends `{hostId:row.hostId||'',
+sessionName:row.tmuxSession,cols:80,rows:24}`. Relay strictly validates fields
+and independently repeats fresh host opt-in, exact tmux inventory, and
+read-only capability checks. Success 201 is
+`{terminalId,templateId:'',name,directory,host,readOnly:true,outside:true}`.
+Host is `{id,name}` or null. Refusals include `invalid_request`,
+`outside_view_disabled`, `tmux_session_not_found`, `tmux_view_unsupported`,
+`host_unreachable`, `session_host_unavailable`.
+
+`readOnly`/`outside` persist through terminal list and terminal_joined metadata
+and all resident viewer reconnections. A read-only reconnect sends only
+`{type:'terminal_reconnect',terminalId}`, without dimensions. Local fit never
+sends resize; input, shortcuts, keybar, paste and image/drop uploads are blocked.
+The pane shows Read-only. Closing sends only `terminal_close` for the viewer,
+which Relay detaches without killing the original tmux session. Browser
+suppression complements Relay's authoritative input/resize refusal.

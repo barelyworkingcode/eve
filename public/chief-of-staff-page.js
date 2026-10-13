@@ -32,10 +32,13 @@ class ChiefOfStaffPage {
     this._recallAt = null;
     this._draft = '';
     this.status = null;
+    this.outsideRows = new Map();
+    this.outsideMachines = [];
     this.rowNotes = new Map();
     this.rail = null;
     this._built = false;
     this._subscribed = false;
+    this.bus.on(EVT.COS_OUTSIDE_SESSIONS, (d) => this._onOutside(d));
     this.bus.on(EVT.COS_SNAPSHOT, (d) => this._onSnapshot(d));
     this.bus.on(EVT.COS_POST, (d) => this._onPost(d));
     this.bus.on(EVT.COS_POST_UPDATE, (d) => this._onPostUpdate(d));
@@ -71,6 +74,7 @@ class ChiefOfStaffPage {
   // ---- inbound ----
 
   _onSnapshot(d) {
+    this._onOutside({ sessions: d?.outsideSessions, machines: d?.outsideMachines });
     this._recallAt = null;
     this.posts = Array.isArray(d?.posts) ? d.posts.slice() : [];
     this.status = d?.status || null;
@@ -79,6 +83,24 @@ class ChiefOfStaffPage {
     this._renderFeed();
     this._renderStatus();
     this.rail?.render();
+  }
+
+  _onOutside(d) {
+    this.outsideRows = new Map((Array.isArray(d?.sessions) ? d.sessions : [])
+      .filter(r => r?.id?.startsWith('outside:') && r.outside === true && r.readOnly === true).map(r => [r.id, { ...r }]));
+    this.outsideMachines = Array.isArray(d?.machines) ? d.machines : [];
+    this.rail?.render();
+  }
+
+  async _openOutside(row) {
+    const current = this.outsideRows.get(row.id);
+    if (!current?.viewable || !current.tmuxSession) return;
+    try {
+      const descriptor = await this.container.get('api').viewOutsideSession(current);
+      AgentBoard._termMgr(this.container)?.openOutsideViewer({ ...descriptor, projectId: current.projectId || null });
+    } catch {
+      this.bus.emit(EVT.TOAST_SHOW, { id: 'outside-view', message: 'Cannot open this read-only view.', type: 'error', duration: 8000 });
+    }
   }
 
   static ROW_NOTES_MAX = 200;
@@ -188,7 +210,7 @@ class ChiefOfStaffPage {
     root.textContent = '';
     root.appendChild(page);
     if (typeof CosAgentRail !== 'undefined') {
-      this.rail = new CosAgentRail({ container: this.container, note: (id) => this.rowNotes.get(id) || null });
+      this.rail = new CosAgentRail({ container: this.container, outsideRows: () => [...this.outsideRows.values()], openOutside: row => this._openOutside(row), note: (id) => this.rowNotes.get(id) || null });
       this.rail.mount(nav, stripHost, { page, divider });
     }
     this._renderFeed();
@@ -674,6 +696,7 @@ class ChiefOfStaffPage {
 
   // Headless: a session tab, as an alert card's Open. Terminal: its terminal tab.
   _openStarted(post) {
+    if (post.sessionId?.startsWith('outside:')) return;
     if (post.mode !== 'terminal') { this._open(post.sessionId); return; }
     const tabs = this.container.get('tabManager');
     if (tabs.tabs.some(t => t.id === post.sessionId)) tabs.switchToTab(post.sessionId);
@@ -683,6 +706,7 @@ class ChiefOfStaffPage {
   // ---- card actions ----
 
   _act(action, card) {
+    if (card.sessionId?.startsWith('outside:')) return;
     if (action === 'drop_in') this._dropIn(card);
     else if (action === 'answer') this._answer(card.sessionId);
     else this._open(card.sessionId);
@@ -691,6 +715,7 @@ class ChiefOfStaffPage {
   // Same as a #session/<id> link: reuse the tab, else join. A join is what loads
   // the thread and subscribes to it; opening a bare tab would show neither.
   _open(sessionId) {
+    if (sessionId?.startsWith('outside:')) return;
     const tabs = this.container.get('tabManager');
     if (tabs.tabs.some(t => t.id === sessionId)) tabs.switchToTab(sessionId);
     else this.container.get('app').joinSession(sessionId);
@@ -698,6 +723,7 @@ class ChiefOfStaffPage {
 
 
   _answer(sessionId) {
+    if (sessionId?.startsWith('outside:')) return;
     this._open(sessionId);
     // A join is async; focus now and again once the thread has rendered.
     const focus = () => document.getElementById('userInput')?.focus();
@@ -708,6 +734,7 @@ class ChiefOfStaffPage {
   // The board's Drop in, for the sessions it offers it to (headless Claude);
   // any other session is opened instead.
   _dropIn(card) {
+    if (card.sessionId?.startsWith('outside:')) return;
     if (card.headless === true && AgentBoard.isClaude({ model: card.model })) {
       AgentBoard.dropIn(this.container, card.sessionId);
       return;

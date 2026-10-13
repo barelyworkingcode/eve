@@ -46,4 +46,28 @@ const media = {
   wav: () => ({ base64: wavBase64() }),
 };
 
-module.exports = { base, media };
+// Outside sessions live in the world's `outside_sessions`. replace() swaps every
+// row through fakerelay's control socket (PUT /v1/outside-sessions), which pushes
+// a new snapshot; it resolves with the new revision once fakerelay answers.
+const outside = {
+  replace(relayDir, rows) {
+    const http = require('http');
+    const path = require('path');
+    const body = JSON.stringify(rows);
+    return new Promise((resolve, reject) => {
+      const req = http.request({
+        socketPath: path.join(relayDir, 'fakerelay-control.sock'), path: '/v1/outside-sessions', method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      }, (res) => {
+        let text = '';
+        res.on('data', (c) => { text += c; });
+        res.on('end', () => (res.statusCode === 200 ? resolve(JSON.parse(text).revision)
+          : reject(new Error(`PUT /v1/outside-sessions answered ${res.statusCode}: ${text}`))));
+      });
+      req.on('error', reject);
+      req.end(body);
+    });
+  },
+};
+
+module.exports = { base, media, outside };

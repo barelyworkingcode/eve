@@ -915,6 +915,70 @@ first 300 characters of the reply.
   new wording is a FAIL to read, not a fault. Run it alone:
   `node devboxverify/main.js --screen --only cos-host-noread`.
 
+**cos-outside-simple.** A Claude started outside relay shows on the Chief of
+Staff rail, can be asked about, and opens read-only (G6.93, G6.94, G6.95). Screen
+journey (`screen: true`, 600 s). It needs relay's outside inventory: when the
+first Chief of Staff snapshot lists no machine within 40 s (relay answers 404 for
+the route) it is BLOCKED. It makes a scratch git folder `verify-<nonce>-outside-*`
+in Acme Corp (branch `verify-<nonce>-console`), and the loopback host and project
+of cos-host-agent (`loopback-<nonce>-outside`, `Drop-in Host outside <nonce>`,
+same presence dialog) with a git folder under it (branch `verify-<nonce>-hosted`).
+In each it starts `claude --model haiku --permission-mode default "Reply with exactly
+verify-<nonce>-outside-console|host and nothing else."` in a detached tmux
+session, with no hooks, and answers the folder-trust prompt if the pane shows
+one. Within 60 s of the start each folder needs a `rail-agent-outside:` row whose
+meta line reads `Outside · <machine> · <folder> · <branch> · <state>` (the hosted
+row's machine is the host's name; the loopback host is the console machine, so
+relay also lists the hosted claude as a Console row with no project, and the journey
+picks the row whose meta line names the host). Once each pane holds its marker twice (prompt
+and reply; up to 120 s, BLOCKED when it never does) it asks the Chief of Staff
+what the session in the console folder replied last: a `reply` post must carry the
+console marker and not the hosted one, and the status model must be the pinned
+Haiku. With no hooks, once the console row reads Idle (up to 45 s) it types a
+request for a Bash command into the session; once the permission prompt shows on
+the pane, the row must read Waiting on you within 17 s (relay's 15 s probe plus
+2 s). relay's probe reads a pending tool call as asking, so this is the hookless
+change it can show for sure; the verdict gives the time from the prompt and from
+the request. It clicks View read-only on the console row; `terminal-read-only` must
+show Read-only. Once `terminal_joined` arrives it types `echo typed-<nonce>` and
+Return in the terminal input, then closes the tab; up to the `terminal_close`
+frame the page must send no `terminal_input` or `terminal_resize` frame, and once
+relay answers `terminal_closed` the tmux pane must not hold the text. It then kills both tmux sessions and
+every row for either folder, duplicates included, must leave the rail within 60 s. PASS needs all of these.
+- Lives in: `chief-of-staff-outside.js`; `public/agent-board.js`;
+  `public/terminal-manager.js`; relay's outside-session probe.
+- Traps: BLOCKED setup V-COS, BLOCKED when tmux or claude is not on PATH, BLOCKED
+  relay's setup P11 when the host or its project cannot be created, BLOCKED when
+  the presence dialog is not answered; no NOTRUN path. The first start in each
+  folder raises Claude's folder-trust prompt; the journey answers it, which
+  leaves a trust entry in Claude's own state for the scratch folder. One cleanup,
+  which also runs on FAIL and on timeout, kills the tmux sessions it started
+  (by exact name), deletes the project, the host and the scratch folders. Run it
+  alone: `node devboxverify/main.js --screen --only cos-outside-simple`.
+
+**cos-outside-hooks.** An outside Claude's hook report moves its row at once
+(G6.93, power path). Not a screen journey (360 s). Same BLOCKED
+rule for a relay with no outside inventory. It makes a scratch git folder in Acme
+Corp and a temp folder holding a settings file of its own and a wrapper script,
+then starts `claude --model haiku --permission-mode default --settings <that file> "Run exactly this shell
+command with your Bash tool, then say done: touch <file>"` in a tmux session. The
+settings file hooks UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest,
+Notification, Stop and SessionEnd; each hook runs the wrapper, which saves
+the hook's stdin payload as `fired.<event>.<pid>` in the temp folder and passes it to relay's
+`scripts/outside-session-report.sh` (found in the relay checkout, or at
+`RELAY_OUTSIDE_REPORT`; BLOCKED when absent). The user's Claude settings are
+never touched. The row must appear within 60 s with the meta line of
+cos-outside-simple. When the permission prompt fires a `PermissionRequest` hook, or a
+`Notification` hook whose payload has `notification_type` `permission_prompt` (an
+`idle_prompt` Notification does not count; up to 120 s; BLOCKED when claude never asks), the row's last
+meta word must read `Waiting on you` within 5 s of that file's time. The verdict
+gives the measured gap.
+- Lives in: relay's outside report spool and drain; `public/agent-board.js`.
+- Traps: BLOCKED setup V-COS; BLOCKED when tmux, claude or the report script is
+  missing. Reports spooled into relay's report folder are drained by relay. One
+  cleanup kills the tmux session and removes both folders.
+  Run it alone: `node devboxverify/main.js --only cos-outside-hooks`.
+
 **cos-project-from-relay.** A project chosen in relay's Settings is the one the
 Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
 needs setup V-COS-B and relay's Chief of Staff setting at Not set; with the

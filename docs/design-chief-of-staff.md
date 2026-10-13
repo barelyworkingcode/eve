@@ -194,3 +194,53 @@ The thread has an agent rail: every agent session and terminal as a row, beside 
 - **Line 3.** The page keeps `rowNotes` (a Map capped at 200), replaced by each `cos_snapshot` and updated by each `cos_row_note`; the board reads it through `note(id)`. Notes are agent-derived and reach the DOM through `textContent` only.
 - **The subline.** "M need you" is a button (`cos-need-you`) that calls `showNeeds()`. Its count is the server roster's, sessions only, so it can differ from the rail's Needs you, which also counts terminals that exited non-zero.
 - **Chief of Staff off.** The rail still lists every row, with no notes.
+
+## Outside work
+
+`ChiefOfStaffOutside` is a separate scoped RelayTransport reader. ChiefOfStaff
+owns its startup and shutdown; it starts even when the model is disabled.
+The existing rail-off behavior stays intact. It replaces full snapshots,
+ignores older revisions within a connection and reseeds after reconnect.
+Lists return copies, and status tools read latest-turn detail at request time.
+An older Relay with no inventory route contributes no outside tool rows. Any
+other outside read failure returns the managed rows with `outsideUnavailable:
+true`, never an error for the whole list.
+
+ChiefOfStaffPage keeps a private outside Map and passes it only to its rail
+and phone-sheet boards. Today, projects, managed attention, StateStore, errands
+and wake summaries retain their existing membership. Viewer terminals are
+excluded from boards to avoid counting an outside session twice. Rows show
+Outside, machine, folder, branch and Working, Waiting on you, or Idle. Asking
+rows contribute once to both the rail counts and server need-you count.
+Non-viewable rows explain Cannot open from Eve, including Not in tmux.
+
+Outside rows offer only View read-only. Viewer creation uses the browser's
+ordinary authenticated proxy and Relay's fresh attach enforcement, never the
+CoS scoped action route. The viewer keeps readOnly/outside across list,
+creation, join and reconnect. Its visible badge and suppressed input, resize,
+paste, drop and keybar distinguish it from a managed terminal. Close detaches
+only the viewer. Terminal tabs retain their existing unpersisted policy;
+opening a resident terminal by ID uses its fresh list metadata.
+
+**The promise.** Eve never sends input, kill or start requests to an outside
+session; outside sessions are read-only. Outside metadata and latest-turn
+replies are untrusted, hostile display data. All row
+text uses textContent. Status text stays out of snapshots, row notes,
+notifications and logs. The existing real tool-use claim and provenance read
+mark still apply; an outside read grants no message or action authority.
+Reserved outside IDs are refused at proposal, card tap, direct send, Drop in,
+and managed browser opening, even after inventory removal.
+
+Relay independently probes healthy machines every 15 seconds, drains optional
+native hook reports within two seconds, and emits full changed snapshots.
+Eve immediately fans them out: end-to-end promises remain hook state <=5s,
+hookless state <=15s, confirmed exit/unreachable expiry <=60s. No hooks are
+required on SSH hosts. Optional reports improve fidelity, never authority.
+See Relay's outside-sessions and SSH-host docs for opt-in configuration.
+
+## Decisions made for the owner
+
+Outside inventory remains available when model calls are off. Legacy Relay
+404 on the list means no outside capability, preserving managed read tools.
+Status failures never return stale latest-turn text. Terminal tabs stay
+unpersisted; viewer flags survive list, join and reconnect only (eve#432).

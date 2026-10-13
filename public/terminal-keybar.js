@@ -57,6 +57,12 @@ class TerminalKeybar {
     if (this.enabled) this._build();
   }
 
+  setReadOnly(value) {
+    this.readOnly = value;
+    if (this._bar) this._bar.hidden = value;
+    if (value) { this._mods = { ctrl: MOD_OFF, alt: MOD_OFF }; }
+  }
+
   _build() {
     const host = document.getElementById('terminal');
     if (!host) {
@@ -116,6 +122,7 @@ class TerminalKeybar {
   _bindPress(btn, handler) {
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      if (this.readOnly) return;
       handler();
       this.tm.focusActive();
     });
@@ -133,6 +140,7 @@ class TerminalKeybar {
   }
 
   _onKeyTap(def) {
+    if (this.readOnly) return;
     const seq = def.arrow ? this._arrowSeq(def.arrow) : def.seq;
     this.tm.sendInput(this._applyModifiers(seq));
   }

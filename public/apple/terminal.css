@@ -181,3 +181,7 @@
     padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
   }
 }
+
+.terminal-instance { position: relative; }
+.terminal-read-only { position: absolute; top: 4px; right: 12px; z-index: 2; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary, #333); color: var(--text-primary, #fff); font-size: 12px; pointer-events: none; }
+.terminal--read-only .terminal-keybar { display: none; }
