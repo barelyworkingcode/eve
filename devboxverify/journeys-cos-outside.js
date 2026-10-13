@@ -21,6 +21,7 @@ const CLAUDE_MODEL = 'haiku';
 const COS_MODEL_ID = 'claude-haiku-5-5';
 const INVENTORY_WITHIN_MS = 40000; // two probe intervals of 15 s, plus the first snapshot
 const TRUST_WITHIN_MS = 30000;
+const TRUST_MAX_DOWNS = 4;
 const ROW_WITHIN_MS = 60000; // a probe interval of 15 s, claude start-up, and an ssh probe
 const REPLY_WITHIN_MS = 120000;
 const COS_TURN_WITHIN_MS = 120000;
@@ -141,11 +142,20 @@ async function startClaude(env, tools, { name, dir, prompt, settings }) {
     { env: cleanEnv(), timeout: 20000 });
   tools.sessions.push(name);
   let trusted = false;
+  let downs = 0;
   await poll(async () => {
     const text = await pane(tools.tmux, name);
     if (!trusted && TRUST_PROMPT.test(text)) {
-      trusted = true;
-      await exec(tools.tmux, ['send-keys', '-t', name, 'Enter'], { timeout: 10000 });
+      // The cursor may start on "No, exit": read which line it is on, move down
+      // until it is on "Yes, I trust", then confirm.
+      const cursorLine = (text.split('\n').find((l) => /^\s*[❯>]\s/.test(l)) || '');
+      if (/Yes, I trust/i.test(cursorLine)) {
+        trusted = true;
+        await exec(tools.tmux, ['send-keys', '-t', name, 'Enter'], { timeout: 10000 });
+      } else if (downs < TRUST_MAX_DOWNS) {
+        downs++;
+        await exec(tools.tmux, ['send-keys', '-t', name, 'Down'], { timeout: 10000 });
+      }
       return null;
     }
     return text.includes(prompt.slice(-24)) ? true : null;
