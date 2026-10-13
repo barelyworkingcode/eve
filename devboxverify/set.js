@@ -10,7 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const USAGE = 'usage: node devboxverify/set.js [--relay REF] [--eve REF] [--post]';
+const USAGE = 'usage: node devboxverify/set.js [--relay REF] [--eve REF [--epic REF]] [--post]';
 const PHASE_TIMEOUT_MS = 30 * 60 * 1000;
 const BUILD_TIMEOUT_MS = 20 * 60 * 1000;
 const NPM_CI_TIMEOUT_MS = 10 * 60 * 1000;
@@ -38,7 +38,7 @@ function parseRef(value) {
 }
 
 function parseArgs(argv) {
-  const out = { relay: null, eve: null, post: false };
+  const out = { relay: null, eve: null, post: false, epic: null };
   let postSeen = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -46,6 +46,12 @@ function parseArgs(argv) {
       const key = a.slice(2);
       if (out[key]) throw usageError();
       out[key] = parseRef(argv[++i]);
+    } else if (a === '--epic') {
+      if (out.epic !== null) throw usageError();
+      const ref = argv[++i];
+      if (ref === undefined) throw usageError();
+      try { require('./main').parseEpicRef(ref); } catch (err) { throw usageError(err.message); }
+      out.epic = ref;
     } else if (a === '--post') {
       if (postSeen) throw usageError();
       postSeen = out.post = true;
@@ -57,15 +63,17 @@ function parseArgs(argv) {
     }
   }
   if (!out.relay && !out.eve) throw usageError();
+  if (out.epic !== null && !out.eve) throw usageError('--epic needs --eve');
+  if (out.epic !== null && out.post) throw usageError('--epic posts its own status; drop --post');
   if (out.post && [out.relay, out.eve].some(r => r && !r.pr)) throw usageError();
   return out;
 }
 
 // Refs carry the checkout each phase runs in (the relay worktree for relay).
-function planPhases({ relay, eve, post }) {
+function planPhases({ relay, eve, post, epic }) {
   const relayCmd = (label, extra) => ({ label, repo: 'relay', cwd: relay.checkout, cmd: 'go',
     args: ['run', './cmd/devboxverify', '--checkout', relay.checkout, ...extra] });
-  const eveArgs = ['devboxverify/main.js', '--checkout', eve && eve.checkout, '--screen'];
+  const eveArgs = ['devboxverify/main.js', '--checkout', eve && eve.checkout, '--screen', ...(epic ? ['--epic', epic] : [])];
   if (relay && eve) {
     return [relayCmd('relay-api', ['--phase', 'api']),
       { label: 'eve', repo: 'eve', cwd: eve.checkout, cmd: 'node', args: eveArgs },
@@ -285,7 +293,7 @@ async function runSet(opts, deps) {
     if (!(await evePrepare('eve-verify'))) throw Object.assign(new Error('eve-verify not up'), { step: null });
 
     // Step 8: console run.
-    const phases = planPhases({ relay: refs.relay && { ...refs.relay, checkout: relayWt }, eve: refs.eve, post: opts.post && !paired });
+    const phases = planPhases({ relay: refs.relay && { ...refs.relay, checkout: relayWt }, eve: refs.eve, post: opts.post && !paired, epic: opts.epic });
     const nodePath = opts.nodePath || process.execPath;
     const toolRoot = opts.toolRoot || path.resolve(__dirname, '..');
     const logDir = env.NIGHTLY_LOG_DIR || path.join(home, 'Library', 'Logs', 'devboxverify');
@@ -322,7 +330,7 @@ async function runSet(opts, deps) {
     });
     for (const r of phaseResults) {
       out(['PHASE', r.label, r.result, sha12(r.sha), summaryOf(r.stdout)].join('\t'));
-      if (!paired) for (const l of r.stdout.split(/\r?\n/)) if (/^POSTED\b/.test(l)) out(l);
+      if (!paired || (opts.epic && r.repo === 'eve')) for (const l of r.stdout.split(/\r?\n/)) if (/^POSTED\b/.test(l)) out(l);
     }
   } catch (err) {
     state.failed = true;
