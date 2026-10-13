@@ -3545,9 +3545,12 @@ async function cosAddChat(env) {
     rows = await entryLaunchRows(env, sid).catch(() => []);
     return rows.length ? rows : null;
   }, { timeoutMs: 10000, intervalMs: 500 });
-  if (!rows.some((r) => r.origin === 'chief-of-staff' && r.outcome === 'ok' && r.entry === name)) {
-    problems.push(`relay audit holds no ok session_launch row with origin chief-of-staff and entry ${name} (rows: ${rows.map((r) => `${r.outcome}/${r.origin || 'none'}/${r.entry || 'no entry'}`).join(', ') || 'none'})`);
+  // relay starts a chat as a raw-model start, so its row carries no entry; the
+  // session name relay builds from the template ("<project> - <chat>") shows which one ran.
+  if (!rows.some((r) => r.origin === 'chief-of-staff' && r.outcome === 'ok')) {
+    problems.push(`relay audit holds no ok session_launch row with origin chief-of-staff (rows: ${rows.map((r) => `${r.outcome}/${r.origin || 'none'}`).join(', ') || 'none'})`);
   }
+  if (started.name !== `${acme.name} - ${name}`) problems.push(`the started session is named "${started.name}", not "${acme.name} - ${name}"`);
 
   env.step('open the started chat\'s thread');
   const other = await env.newPage();
@@ -3556,18 +3559,32 @@ async function cosAddChat(env) {
     { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 1000 });
   if (!answered) problems.push(`the started chat's thread holds no assistant reply with ${marker} within ${COS_TURN_WITHIN_MS / 1000}s`);
 
-  env.step('ask for the same name in other case');
+  env.step('add a chat the Chief of Staff has not seen');
   await idle();
-  const clash = name.toUpperCase();
-  // The model has seen the name added, so it may answer without the tool; only a
-  // cos_propose_chat call in this turn proves eve's name check refused it.
+  // A name the model saw added it may refuse from memory, without the tool. This one
+  // goes in through eve's API, as the project dialog would, after the model's last list.
+  const unseen = `vd${env.nonce}`;
+  removeChatTemplateLater(env, acme, unseen);
+  const current = await eveJson(env, 'GET', `/api/projects/${acme.id}`);
+  await eveJson(env, 'PUT', `/api/projects/${acme.id}`, {
+    name: current.name, path: current.path, host_id: current.hostId || '',
+    chat_templates: [...(current.chatTemplates || []).map((t) => ({
+      id: t.id, name: t.name, model: t.model, mode: t.mode, voice: t.voice, system_prompt: t.systemPrompt,
+      ...(t.presetFor && t.presetFor.length ? { preset_for: t.presetFor } : {}),
+    })), { id: crypto.randomUUID(), name: unseen, model: COS_MODEL, mode: 'text', voice: '', system_prompt: '' }],
+  });
+  if ((await templatesNamed(env, acme, unseen)).length !== 1) return result(id, FAIL, `eve's PUT did not add ${unseen} to ${acme.name}; ${problems.join('; ')}`);
+
+  env.step('ask for that name in other case');
+  const clash = unseen.toUpperCase();
+  // Only a cos_propose_chat call in this turn proves eve's name check refused it.
   const logMark = await env.serviceLog.mark();
   from = await cosSay(page, seen, `Add a chat called ${clash} with ${COS_MODEL} to ${acme.name}`);
   env.step('wait for the refusal');
   // Waits: none possible: model output; bounded by COS_TURN_WITHIN_MS.
   const refused = await cosWaitPost(seen, from, COS_CHAT_KINDS);
   if (!refused) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the request for ${clash}; ${problems.join('; ')}`);
-  if (refused.kind === 'chat_card') problems.push(`a request for ${clash}, a name ${name} already uses, made an Add card`);
+  if (refused.kind === 'chat_card') problems.push(`a request for ${clash}, a name ${unseen} already uses, made an Add card`);
   else if (refused.kind !== 'reply') problems.push(`the answer for ${clash} is a ${refused.kind}, want a reply: "${cosSaid(refused)}"`);
   else if (!/already|taken|exists|in use|same name|duplicate/i.test(String(refused.body || refused.text || ''))) {
     problems.push(`the reply for ${clash} does not say the name is taken: "${cosSaid(refused)}"`);
@@ -3575,13 +3592,13 @@ async function cosAddChat(env) {
   if (!(await env.serviceLog.since(logMark)).includes('cos_propose_chat')) {
     problems.push(`eve-verify's log has no cos_propose_chat tool call for ${clash}, so eve's name check was never reached`);
   }
-  const lower = name.toLowerCase();
+  const lower = unseen.toLowerCase();
   const all = ((await eveJson(env, 'GET', `/api/projects/${acme.id}`)).chatTemplates || []).filter((t) => String(t.name).toLowerCase() === lower);
-  if (all.length !== 1) problems.push(`${acme.name} holds ${all.length} templates named ${name} in any case after the clash, want 1`);
+  if (all.length !== 1) problems.push(`${acme.name} holds ${all.length} templates named ${unseen} in any case after the clash, want 1`);
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `a request to add ${name} to ${acme.name} made an Add card (${COS_MODEL}) and wrote nothing; after the tap and the presence prompt `
-    + `the card reached added and the project lists it; the Chief of Staff named it, started it (ok session_launch with entry ${name} from chief-of-staff), `
-    + `the chat replied ${marker}; ${clash} made no card and left one template`);
+    + `the card reached added and the project lists it; the Chief of Staff named it, started it as "${acme.name} - ${name}" (ok session_launch from chief-of-staff), `
+    + `the chat replied ${marker}; ${clash}, clashing with ${unseen} added outside the thread, reached eve's name check, made no card and left one template`);
 }
 
 const HOST_PREFIX = 'loopback-';

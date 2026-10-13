@@ -805,14 +805,17 @@ Added, and the project must list one template of that name with model `haiku`.
 (3) `Which agents and chats does Acme Corp have?` must get a `reply` naming it.
 (4) `Start vc<nonce> on Acme Corp and ask it: Reply with exactly
 verify-<nonce>-chat and nothing else.` must give a `started` post (or a
-`start_card` the journey taps). `relay audit --event session_launch` (read back
-for up to 10 s) must hold an `ok` row with entry `vc<nonce>` and origin
-`chief-of-staff`, and the session's thread must show an assistant reply with
-the marker within the turn bound. (5) `Add a chat called VC<nonce> with haiku to
-Acme Corp` must give a `reply` that says the name is taken and no `chat_card`;
-the project still lists one template of that name in any case, and
-eve-verify's log must show a `cos_propose_chat` tool call in that turn, so the
-refusal came from eve's name check and not from the model's memory.
+`start_card` the journey taps), named `Acme Corp - vc<nonce>` as relay names
+a chat start. `relay audit --event session_launch` (read back for up to 10 s)
+must hold an `ok` row with origin `chief-of-staff` (relay starts a chat as a
+raw-model start, so the row carries no entry), and the session's thread must
+show an assistant reply with the marker within the turn bound. (5) The journey
+adds a chat `vd<nonce>` through eve's `PUT /api/projects/{id}`, unseen by the
+model, then `Add a chat called VD<nonce> with haiku to Acme Corp` must give a
+`reply` that says the name is taken and no `chat_card`; the project still lists
+one template of that name in any case, and eve-verify's log must show a
+`cos_propose_chat` tool call in that turn, so the refusal came from eve's name
+check and not from the model's memory.
 - Lives in: `chief-of-staff-actions.js` (`cos_propose_chat`, `nameClash`, the
   add tap); `public/chief-of-staff-page.js`; relay's
   `POST /api/projects/{id}/chat-templates` behind its presence gate and its
@@ -825,7 +828,7 @@ refusal came from eve's name check and not from the model's memory.
 - Traps: BLOCKED setup V-COS when its check fails, and BLOCKED when the
   presence dialog is not answered; no NOTRUN path. The presence prompt is
   matched on the chat name. One cleanup deletes every new Acme Corp session;
-  another removes the template (any case) through eve's `PUT /api/projects/{id}`
+  two more remove the templates (any case) through eve's `PUT /api/projects/{id}`
   and fails if it stays. Run it alone:
   `node devboxverify/main.js --screen --only cos-add-chat`.
 
