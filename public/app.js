@@ -1249,7 +1249,7 @@ class EveWorkspaceClient {
     this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, urls, sessionId });
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
-    this._pendingStops.delete(this.currentSessionId); // a new turn supersedes an old stop
+    this._pendingStops.delete(sessionId); // a new turn supersedes an old stop
     this.showStopButton();
   }
 
