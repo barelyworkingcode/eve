@@ -744,6 +744,54 @@ reply with the marker within the turn bound.
   journey's cleanup deletes every new Acme Corp session. The installed relay
   must audit `session_launch` with the session id.
 
+**cos-add-agent.** The Chief of Staff offers to add a named agent and writes
+nothing until a tap (G6.83, G6.84). Screen journey (`screen: true`, 300 s). It
+needs the login shell to find `claude` (`$SHELL -lic 'command -v claude'`, first
+non-empty line), else BLOCKED. In the Chief of Staff thread it types `Add an
+agent named v<nonce> to Acme Corp that runs the claude command with the haiku
+model.` The first post must be an `agent_card` (anything else is FAIL). Its
+entry must be named `v<nonce>`, kind `claude`, model `haiku`, with a command
+that starts with `/` and equals the login-shell path. `relay project agents
+list --id <Acme> --json` is read once and must not hold the entry. The journey
+starts the presence helper, waits for its `ready`, taps `cos-add-<id>`, and
+waits for a `cos_post_update` with state `added` (`failed` is FAIL, or BLOCKED
+when the presence dialog was not answered). `cos-card-status-<id>` must read
+Added. One more list read must hold the entry with the card's command.
+- Lives in: `chief-of-staff-actions.js` (`cos_propose_agent`, the add tap);
+  `public/chief-of-staff-page.js`; relay's scoped preview and
+  `POST /api/projects/{id}/agents` behind the `project.agent` gate.
+- Waits: the `agent_card` `cos_post` frame (bounded 120 s: model output); the
+  presence helper's `ready`; the `cos_post_update` frame; then one list read.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The presence
+  prompt is matched on the entry name. One cleanup, which also runs on FAIL and
+  on timeout, removes the entry through `relay project agents remove` with its
+  own presence prompt and fails if the entry stays. Run it alone:
+  `node devboxverify/main.js --screen --only cos-add-agent`.
+
+**cos-start-entry.** The Chief of Staff lists and starts a project's agent by
+the name the person gave (G6.86, G6.88). Screen journey (`screen: true`,
+480 s). It seeds `v<nonce>` (kind `claude`, model `haiku`) in Acme Corp with
+`relay project agents add ... --json` behind a presence prompt it answers. In the thread:
+(a) `Which agents does Acme Corp have?` must get a `reply` naming `v<nonce>`;
+(b) `Start v<nonce> on Acme Corp and tell it: Reply with exactly
+verify-<nonce>-entry and nothing else.` must give a `started` post, or a
+`start_card` whose entry is `v<nonce>`, which the journey taps. Then
+`relay audit --event session_launch` (read back for up to 10 s) must hold an
+`ok` row for the session with entry `v<nonce>` and origin `chief-of-staff`, and
+the agent's thread must show an assistant reply with the marker within the turn
+bound; (c) `Start v<nonce>zz on Acme Corp and tell it: hello.` passes on a
+`start_failed` post whose error holds `Choices` and `v<nonce>`, or on a reply
+naming `v<nonce>`. A `started` post is FAIL.
+- Lives in: `chief-of-staff-actions.js` (`cos_list_agents`, start by entry);
+  `public/chief-of-staff-page.js`; relay's start by entry and its audit row.
+- Waits: the model's posts have none possible: model output, so `cosWaitPost`
+  bounds each at 120 s; the presence helper's `ready`; then a poll of `relay audit`
+  for the row, for up to 10 s, after the `started` frame.
+- Traps: BLOCKED setup V-COS when its check fails, and BLOCKED when a presence
+  dialog is not answered; no NOTRUN path. A cleanup deletes every new Acme Corp
+  session; another removes the seeded entry (presence prompt) and fails if it
+  stays. Run it alone: `node devboxverify/main.js --screen --only cos-start-entry`.
+
 **cos-errand-finished.** An agent the person started through the thread reports
 back when it is done (eve#273). The journey types, in `cos-input`, `In the
 project Acme Corp, start a headless agent with the prompt: Reply with exactly

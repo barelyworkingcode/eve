@@ -11,12 +11,28 @@ const crypto = require('crypto');
 const { isLoopbackReq, safeEqual } = require('./ui-command-bus');
 const provenance = require('./chief-of-staff-provenance');
 
-const TOOLS = Object.freeze(['cos_list_sessions', 'cos_session_status', 'cos_propose_start', 'cos_propose_send']);
+const TOOLS = Object.freeze([
+  'cos_list_sessions', 'cos_session_status', 'cos_list_agents',
+  'cos_propose_start', 'cos_propose_send', 'cos_propose_agent',
+]);
 const TEXT_MAX = 8000;
 const LIST_MAX = 100;
 const EXCERPT_MAX = 500;
 const NAMES_MAX = 20;
 const MODES = Object.freeze(['headless', 'terminal']);
+const KINDS = Object.freeze(['claude', 'codex', 'pi']);
+const AGENT_FIELDS = Object.freeze(['project', 'name', 'kind', 'model', 'command']);
+// A bare program name: never a path, an argument or a command line.
+const COMMAND_RE = /^[A-Za-z0-9._+][A-Za-z0-9._+-]{0,63}$/;
+const AGENT_NAME_MAX = 40;
+// Row types cos_list_agents passes on from relay's list.
+const LIST_ROW_TYPES = Object.freeze(['agent']);
+// Which actions each card kind accepts.
+const CARD_ACTIONS = Object.freeze({
+  start_card: ['start', 'cancel'],
+  send_card: ['start', 'cancel'],
+  agent_card: ['add', 'cancel'],
+});
 
 // Sorted-key JSON, so two inputs compare equal whatever their key order.
 function canonical(v) {
@@ -130,13 +146,47 @@ function checkMode(v) {
   return { value: v };
 }
 
-// prompt, folder, model, mode: shared by tool arguments and card edits.
-function validateStartFields({ prompt, folder, model, mode }, defaultModel) {
+function checkEntry(v) {
+  if (v === undefined || v === null) return { value: '' };
+  const e = typeof v === 'string' ? v.trim() : '';
+  if (!e || e.length > AGENT_NAME_MAX) return invalid('entry', `must be a name of 1 to ${AGENT_NAME_MAX} characters`);
+  return { value: e };
+}
+
+// prompt, folder, model, mode, entry: shared by tool arguments and card edits.
+// An entry (an agent by name) replaces the model and starts headless.
+function validateStartFields({ prompt, folder, model, mode, entry }, defaultModel) {
   const p = checkText('prompt', prompt); if (p.error) return p;
   const f = checkFolder(folder); if (f.error) return f;
-  const m = checkModel(model, defaultModel); if (m.error) return m;
+  const e = checkEntry(entry); if (e.error) return e;
+  if (e.value && model !== undefined && model !== null) return invalid('entry', 'send entry or model, not both');
+  const m = e.value ? { value: null } : checkModel(model, defaultModel);
+  if (m.error) return m;
   const d = checkMode(mode); if (d.error) return d;
-  return { value: { prompt: p.value, folder: f.value, model: m.value, mode: d.value } };
+  if (e.value && d.value === 'terminal') return invalid('mode', 'an agent by name starts headless');
+  return { value: { prompt: p.value, folder: f.value, model: m.value, entry: e.value || null, mode: d.value } };
+}
+
+// name, kind, model, command of cos_propose_agent. Relay owns the name grammar.
+function validateAgentFields(args) {
+  const unknown = Object.keys(args).find((k) => !AGENT_FIELDS.includes(k));
+  if (unknown) return invalid(unknown, 'is not a field of cos_propose_agent');
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+  if (!name || name.length > AGENT_NAME_MAX) return invalid('name', `must be 1 to ${AGENT_NAME_MAX} characters`);
+  if (!KINDS.includes(args.kind)) return invalid('kind', 'must be "claude", "codex" or "pi"');
+  let model = null;
+  if (args.model !== undefined && args.model !== null) {
+    model = typeof args.model === 'string' ? args.model.trim() : '';
+    if (!model || model.length > 200) return invalid('model', 'must be a non-empty string');
+  }
+  let command = null;
+  if (args.command !== undefined && args.command !== null) {
+    if (typeof args.command !== 'string' || !COMMAND_RE.test(args.command)) {
+      return invalid('command', 'must be a program name, not a path or a command line');
+    }
+    command = args.command;
+  }
+  return { value: { name, kind: args.kind, model, command } };
 }
 
 // project: exact id, or exact case-insensitive name among all projects, local or on a host.
@@ -159,8 +209,8 @@ function resolveProjectArg(listProjects, ref) {
 
 // Starts through relay's scoped route, then lets the roster see a headless
 // session. Posts `started` or `start_failed`. Returns {ok, ...}.
-async function runStart(cos, { project, folder, model, mode, prompt, byModel }) {
-  const res = await cos._startSession({ projectId: project.id, folder, prompt, model, mode });
+async function runStart(cos, { project, folder, model, entry, mode, prompt, byModel }) {
+  const res = await cos._startSession({ projectId: project.id, folder, prompt, model, entry, mode });
   if (!res.ok) {
     cos._addPost({ kind: 'start_failed', projectName: project.name, error: res.message, byModel: false });
     return res;
@@ -183,7 +233,7 @@ function postStartCard(cos, turn, project, f, why) {
     kind: 'start_card',
     card: {
       state: 'pending', project: { id: project.id, name: project.name }, folder: f.folder, model: f.model,
-      mode: f.mode, prompt: f.prompt, why, turnId: turn.turnId, result: null, error: null,
+      entry: f.entry || null, mode: f.mode, prompt: f.prompt, why, turnId: turn.turnId, result: null, error: null,
     },
     byModel: true,
   });
@@ -193,6 +243,18 @@ function postSendCard(cos, turn, sessionId, label, text, why) {
   return cos._addPost({
     kind: 'send_card',
     card: { state: 'pending', sessionId, label, text, why, turnId: turn.turnId, error: null },
+    byModel: true,
+  });
+}
+
+function postAgentCard(cos, turn, project, machine, entry) {
+  return cos._addPost({
+    kind: 'agent_card',
+    card: {
+      state: 'pending', project: { id: project.id, name: project.name }, machine: machine || '',
+      entry: { name: entry.name, kind: entry.kind, model: entry.model || null, command: entry.command || null },
+      why: 'add_needs_tap', turnId: turn.turnId, error: null,
+    },
     byModel: true,
   });
 }
@@ -250,8 +312,11 @@ async function dispatch(cos, turn, tool, args) {
   switch (tool) {
     case 'cos_list_sessions': return listSessions(cos);
     case 'cos_session_status': return sessionStatus(cos, args);
+    case 'cos_list_agents': return listAgents(cos, args);
     case 'cos_propose_start': return proposeStart(cos, turn, args);
-    default: return proposeSend(cos, turn, args);
+    case 'cos_propose_send': return proposeSend(cos, turn, args);
+    case 'cos_propose_agent': return proposeAgent(cos, turn, args);
+    default: return fail(400, 'unknown_tool', `Unknown tool "${String(tool).slice(0, 60)}"`);
   }
 }
 
@@ -283,6 +348,26 @@ async function sessionStatus(cos, args) {
 
 function failFrom(e) {
   return fail(e.error.status, e.error.code, e.error.message);
+}
+
+async function listAgents(cos, args) {
+  const p = resolveProjectArg(cos.listProjects, args.project);
+  if (p.error) return failFrom(p);
+  const r = await cos._listAgents(p.value.id);
+  if (!r.ok) return fail(502, `relay_${r.code}`, r.message);
+  const entries = (Array.isArray(r.entries) ? r.entries : []).filter((row) => row && LIST_ROW_TYPES.includes(row.type));
+  return ok({ projectId: p.value.id, projectName: p.value.name, machine: r.machine, entries });
+}
+
+// Always a card: nothing is added until the person taps Add and approves at the Mac.
+async function proposeAgent(cos, turn, args) {
+  const f = validateAgentFields(args);
+  if (f.error) return failFrom(f);
+  const p = resolveProjectArg(cos.listProjects, args.project);
+  if (p.error) return failFrom(p);
+  const r = await cos._previewAgent(p.value.id, f.value);
+  if (!r.ok) return fail(502, `relay_${r.code}`, r.message);
+  return ok({ status: 'card', cardId: postAgentCard(cos, turn, p.value, r.machine, r.entry).id });
 }
 
 async function proposeStart(cos, turn, args) {
@@ -340,17 +425,23 @@ function cardFail(message) { return { ok: false, message }; }
 
 // One action per card: the state leaves `pending` before anything is awaited.
 async function cardAction(cos, { postId, action, edits } = {}) {
-  if (action !== 'start' && action !== 'cancel') return cardFail('Unknown card action');
+  if (!['start', 'add', 'cancel'].includes(action)) return cardFail('Unknown card action');
   const post = cos.posts.find((p) => p.id === postId);
-  if (!post || (post.kind !== 'start_card' && post.kind !== 'send_card')) return cardFail('That card is gone');
+  const allowed = post && Object.hasOwn(CARD_ACTIONS, post.kind) ? CARD_ACTIONS[post.kind] : null;
+  if (!allowed) return cardFail('That card is gone');
+  if (!allowed.includes(action)) return cardFail('Unknown card action');
   const card = post.card;
   if (card.state !== 'pending') return cardFail(`This card is ${card.state}`);
+  if (post.kind === 'agent_card' && edits && typeof edits === 'object' && Object.keys(edits).length) {
+    return cardFail('An add card takes no edits');
+  }
   if (action === 'cancel') {
     card.state = 'cancelled';
     cos._updatePost(post);
     return { ok: true };
   }
   const e = edits && typeof edits === 'object' && !Array.isArray(edits) ? edits : {};
+  if (post.kind === 'agent_card') return tapAdd(cos, post);
   return post.kind === 'start_card' ? tapStart(cos, post, e) : tapSend(cos, post, e);
 }
 
@@ -361,6 +452,7 @@ async function tapStart(cos, post, edits) {
     folder: edits.folder !== undefined ? edits.folder : card.folder,
     model: edits.model !== undefined ? edits.model : card.model,
     mode: edits.mode !== undefined ? edits.mode : card.mode,
+    entry: card.entry ?? null,
   }, cos.settings.model);
   if (f.error) return cardFail(f.error.message);
   const project = cos.listProjects().find((p) => p.id === card.project.id);
@@ -376,6 +468,33 @@ async function tapStart(cos, post, edits) {
   if (r.ok) {
     card.state = 'started';
     card.result = { sessionId: r.sessionId, name: r.name };
+  } else {
+    card.state = 'failed';
+    card.error = r.message;
+  }
+  cos._updatePost(post);
+  return { ok: true };
+}
+
+// The one caller of _addAgent. The state leaves `pending` before the await, which
+// can last as long as the person takes to approve at the Mac.
+async function tapAdd(cos, post) {
+  const card = post.card;
+  const project = cos.listProjects().find((p) => p.id === card.project.id);
+  if (!project) {
+    card.state = 'failed';
+    card.error = 'That project is no longer available';
+    cos._updatePost(post);
+    return { ok: true };
+  }
+  card.state = 'adding';
+  card.error = null;
+  cos._updatePost(post);
+  const r = await cos._addAgent(project.id, card.entry);
+  if (r.ok) {
+    card.state = 'added';
+    card.entry = r.entry;
+    card.machine = r.machine || card.machine;
   } else {
     card.state = 'failed';
     card.error = r.message;

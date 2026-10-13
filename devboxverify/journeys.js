@@ -2814,13 +2814,14 @@ const COS_SENT_WITHIN_MS = 60000;
 function cosFrames(page) {
   // idleAt: how many posts had arrived at each cos_status frame with busy:false.
   // rowNotes: every cos_row_note frame, with how many busy:false statuses had arrived before it.
-  const seen = { status: null, posts: [], idleAt: [], rowNotes: [] };
+  const seen = { status: null, posts: [], updates: [], idleAt: [], rowNotes: [] };
   const take = (m) => {
     if (!m) return;
     if (m.type === 'cos_row_note') seen.rowNotes.push({ ...m, idleBefore: seen.idleAt.length });
     if ((m.type === 'cos_snapshot' || m.type === 'cos_status') && m.status) seen.status = m.status;
     if (m.type === 'cos_status' && m.status && m.status.busy === false) seen.idleAt.push(seen.posts.length);
     if (m.type === 'cos_post' && m.post) seen.posts.push(m.post);
+    if (m.type === 'cos_post_update' && m.post) seen.updates.push(m.post);
   };
   page.on('websocket', (ws) => ws.on('framereceived', ({ payload }) => {
     if (typeof payload !== 'string') return;
@@ -3211,6 +3212,222 @@ async function cosStartCard(env) {
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `reading ${file} made a Start card for ${acme.name} (headless, ${model}) with the prompt; Start posted Started with Open, `
     + `the roster grew, relay audit holds an ok session_launch from chief-of-staff, and the agent replied ${marker}`);
+}
+
+// — Chief of Staff named agents (eve#407) ------------------------------------------
+
+const COS_AGENT_KINDS = ['agent_card', 'start_card', 'started', 'start_failed', 'reply', 'notice'];
+const COS_PRESENCE_WITHIN_MS = 45000;
+const COS_CARD_UPDATE_WITHIN_MS = 60000;
+
+// The text of a post that is not a card, for a FAIL detail.
+const cosSaid = (p) => String(p.body || p.text || p.error || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+
+// The first cos_post_update for the post whose card state is one of `states`;
+// null at the bound. It waits on the frame, which carries the new state.
+async function cosWaitUpdate(seen, postId, states, timeoutMs = COS_CARD_UPDATE_WITHIN_MS) {
+  return poll(async () => seen.updates.find((p) => p.id === postId && p.card && states.includes(p.card.state)) || null,
+    { timeoutMs, intervalMs: 250 });
+}
+
+// The absolute path the person's login shell finds for `claude`: the first
+// non-empty line of `$SHELL -lic 'command -v claude'`. Empty when none.
+async function loginShellClaude() {
+  const shell = process.env.SHELL || '/bin/zsh';
+  const { stdout } = await exec(shell, ['-lic', 'command -v claude'], { timeout: 20000 }).catch(() => ({ stdout: '' }));
+  return stdout.split('\n').map((l) => l.trim()).find(Boolean) || '';
+}
+
+// The project's agent entries as `relay project agents list --json` prints them.
+async function relayAgentEntries(env, projectId) {
+  const { stdout } = await exec(env.relayBin, ['project', 'agents', 'list', '--id', projectId, '--json'], { timeout: 20000 });
+  const o = JSON.parse(stdout);
+  return Array.isArray(o) ? o : (o && Array.isArray(o.entries) ? o.entries : []);
+}
+
+// Runs a relay agent write (add or remove) behind relay's project.agent presence
+// prompt. The helper is ready before the CLI runs. Returns null, or the reason.
+async function relayAgentWrite(env, verb, projectId, name, extra = []) {
+  const presence = env.screen.answerPresence({ expect: name, timeoutMs: COS_PRESENCE_WITHIN_MS });
+  if (!(await presence.ready)) return `presence dialog ${(await presence.result).state}`;
+  const args = ['project', 'agents', verb, '--id', projectId, '--name', name, ...extra, '--json'];
+  const ran = await exec(env.relayBin, args, { timeout: COS_PRESENCE_WITHIN_MS + 15000 }).then(() => null, (err) => firstLine(err));
+  const { state } = await presence.result;
+  if (ran) return `relay project agents ${verb} failed (${ran}; presence dialog ${state})`;
+  return state === 'answered' ? null : `presence dialog ${state}`;
+}
+
+// A cleanup that removes the entry when it is there and fails when it stays.
+function removeAgentEntryLater(env, project, name) {
+  env.cleanup(`remove the ${project.name} agent ${name}`, async () => {
+    const present = async () => (await relayAgentEntries(env, project.id)).some((e) => e.name === name);
+    if (!(await present())) return;
+    const problem = await relayAgentWrite(env, 'remove', project.id, name);
+    if (await present()) throw new Error(`agent ${name} is still in ${project.name}${problem ? ` (${problem})` : ''}; remove it with relay project agents remove`);
+  }, 90000);
+}
+
+async function cosAddAgent(env) {
+  const id = 'cos-add-agent';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const acme = env.world.projects.acme;
+  const name = `v${env.nonce}`;
+  const expectedCommand = await loginShellClaude();
+  if (!expectedCommand.startsWith('/')) return result(id, BLOCKED, 'the login shell finds no claude command to compare the card with');
+  removeAgentEntryLater(env, acme, name);
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+
+  env.step('ask for the agent');
+  const from = await cosSay(page, seen, `Add an agent named ${name} to ${acme.name} that runs the claude command with the haiku model.`);
+  env.step('wait for the Add card');
+  const proposed = await cosWaitPost(seen, from, COS_AGENT_KINDS);
+  if (!proposed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
+  if (proposed.kind !== 'agent_card') return result(id, FAIL, `the first post after the request is "${proposed.kind}", want agent_card: "${cosSaid(proposed)}"`);
+  const problems = [];
+  const entry = (proposed.card && proposed.card.entry) || {};
+  if (entry.name !== name) problems.push(`the card entry is named "${entry.name}", not ${name}`);
+  if (entry.kind !== 'claude') problems.push(`the card kind is "${entry.kind}", not claude`);
+  if (entry.model !== 'haiku') problems.push(`the card model is "${entry.model}", not haiku`);
+  if (typeof entry.command !== 'string' || !entry.command.startsWith('/')) problems.push(`the card command is "${entry.command}", not an absolute path`);
+  else if (entry.command !== expectedCommand) problems.push(`the card command is ${entry.command}, the login shell finds ${expectedCommand}`);
+  const postId = proposed.id;
+  await need('the Add card is not on the page', expect(page.getByTestId(`cos-card-${postId}`)).toBeVisible({ timeout: 10000 }));
+
+  env.step('read the list before the tap');
+  if ((await relayAgentEntries(env, acme.id)).some((e) => e.name === name)) {
+    return result(id, FAIL, `relay lists ${name} in ${acme.name} before any tap; ${problems.join('; ')}`);
+  }
+
+  env.step('tap Add');
+  const presence = env.screen.answerPresence({ expect: name, timeoutMs: COS_PRESENCE_WITHIN_MS });
+  if (!(await presence.ready)) return result(id, BLOCKED, `presence dialog ${(await presence.result).state}`);
+  await page.getByTestId(`cos-add-${postId}`).click({ timeout: 5000 });
+  env.step('wait for the card to reach added');
+  const done = await cosWaitUpdate(seen, postId, ['added', 'failed']);
+  const { state: dialog } = await presence.result;
+  if (dialog === 'no-helper' || dialog === 'error') return result(id, BLOCKED, `presence dialog ${dialog}`);
+  if (!done) return result(id, FAIL, `the card reached neither added nor failed within ${COS_CARD_UPDATE_WITHIN_MS / 1000}s of Add (presence dialog ${dialog}); ${problems.join('; ')}`);
+  if (done.card.state !== 'added' || dialog !== 'answered') {
+    return result(id, FAIL, `the card is ${done.card.state} with presence dialog ${dialog}, error "${done.card.error || ''}"; ${problems.join('; ')}`);
+  }
+  const shown = await expect(page.getByTestId(`cos-card-status-${postId}`)).toContainText('Added', { timeout: 10000 }).then(() => true, () => false);
+  if (!shown) problems.push('the card status on the page never read Added');
+
+  env.step('read the list after the tap');
+  const stored = (await relayAgentEntries(env, acme.id)).find((e) => e.name === name);
+  if (!stored) problems.push(`relay lists no ${name} in ${acme.name} after Added`);
+  else if (stored.command !== entry.command) problems.push(`relay stores command ${stored.command}, the card showed ${entry.command}`);
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `a request to add ${name} to ${acme.name} made an Add card (claude, haiku, ${entry.command}) and wrote nothing; `
+    + 'after the tap and the presence prompt the card reached added and relay lists the entry with that command');
+}
+
+// The session_launch rows of `relay audit` for one session, with the entry each names.
+async function entryLaunchRows(env, sessionId) {
+  const args = ['audit', '--event', 'session_launch', '--grep', sessionId, '--json', '--tail', '50'];
+  const { stdout } = await exec(env.relayBin, args, { timeout: 10000, maxBuffer: 32 << 20 });
+  const rows = [];
+  for (const line of stdout.split('\n')) {
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (!o || o.event !== 'session_launch') continue;
+    const a = o.args && typeof o.args === 'object' ? o.args : {};
+    if (a.session_id === sessionId) rows.push({ outcome: o.outcome, origin: a.origin, entry: a.entry !== undefined ? a.entry : o.entry });
+  }
+  return rows;
+}
+
+// Taps a Start card if that is what `post` is and returns the next started or
+// start_failed post; any other post comes back as it is.
+async function cosTapStartIfCard(page, seen, from, post) {
+  if (post.kind !== 'start_card') return post;
+  await page.getByTestId(`cos-start-${post.id}`).click({ timeout: 5000 });
+  return cosWaitPost(seen, from, ['started', 'start_failed']);
+}
+
+async function cosStartEntry(env) {
+  const id = 'cos-start-entry';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const acme = env.world.projects.acme;
+  const name = `v${env.nonce}`;
+  const marker = `verify-${env.nonce}-entry`;
+  const before = await acmeIds(env, 'sessions');
+  env.cleanup(`delete the ${acme.name} agent session`, async () => {
+    for (const sid of addedIds(before, await acmeIds(env, 'sessions'))) await deleteSession(env, sid);
+  });
+  removeAgentEntryLater(env, acme, name);
+
+  env.step('seed the agent through relay');
+  const seedProblem = await relayAgentWrite(env, 'add', acme.id, name, ['--kind', 'claude', '--model', 'haiku']);
+  if (seedProblem) return result(id, seedProblem.startsWith('presence dialog') ? BLOCKED : FAIL, seedProblem);
+  const page = await env.newPage();
+  const seen = cosFrames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const problems = [];
+
+  env.step('ask which agents the project has');
+  let from = await cosSay(page, seen, `Which agents does ${acme.name} have?`);
+  env.step('wait for the list reply');
+  // Waits: none possible: model output; bounded by COS_TURN_WITHIN_MS.
+  const listed = await cosWaitPost(seen, from, COS_AGENT_KINDS);
+  if (!listed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the question`);
+  if (listed.kind !== 'reply' || !cosSaid({ body: listed.body || listed.text }).includes(name)) {
+    return result(id, FAIL, `the answer to "which agents" is a ${listed.kind} that does not name ${name}: "${cosSaid(listed)}"`);
+  }
+
+  env.step('ask for the start');
+  from = await cosSay(page, seen, `Start ${name} on ${acme.name} and tell it: Reply with exactly ${marker} and nothing else.`);
+  env.step('wait for the start');
+  let started = await cosWaitPost(seen, from, COS_AGENT_KINDS);
+  if (!started) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the start request`);
+  if (started.kind === 'start_card') {
+    if (started.card && started.card.entry !== name) problems.push(`the Start card names agent "${started.card.entry}", not ${name}`);
+    env.step('tap Start');
+    started = await cosTapStartIfCard(page, seen, from, started);
+    if (!started) return result(id, FAIL, `no started post within ${COS_TURN_WITHIN_MS / 1000}s of Start`);
+  }
+  if (started.kind !== 'started') return result(id, FAIL, `the start request posted "${started.kind}", want started: "${cosSaid(started)}"`);
+  const sid = started.sessionId;
+
+  env.step('read relay audit');
+  let rows = [];
+  await poll(async () => {
+    rows = await entryLaunchRows(env, sid).catch(() => []);
+    return rows.length ? rows : null;
+  }, { timeoutMs: 10000, intervalMs: 500 });
+  if (!rows.some((r) => r.origin === 'chief-of-staff' && r.outcome === 'ok' && r.entry === name)) {
+    problems.push(`relay audit holds no ok session_launch row with origin chief-of-staff and entry ${name} (rows: ${rows.map((r) => `${r.outcome}/${r.origin || 'none'}/${r.entry || 'no entry'}`).join(', ') || 'none'})`);
+  }
+
+  env.step('open the started agent\'s thread');
+  const other = await env.newPage();
+  await openEve(other, env, `#session/${sid}`);
+  const answered = await poll(async () => (await thread(other).catch(() => [])).some((m) => m.who === 'message-assistant' && m.text.includes(marker)),
+    { timeoutMs: COS_TURN_WITHIN_MS, intervalMs: 1000 });
+  if (!answered) problems.push(`the started agent's thread holds no assistant reply with ${marker} within ${COS_TURN_WITHIN_MS / 1000}s`);
+
+  env.step('ask for an agent that does not exist');
+  const missing = `${name}zz`;
+  from = await cosSay(page, seen, `Start ${missing} on ${acme.name} and tell it: hello.`);
+  env.step('wait for the refusal');
+  let refused = await cosWaitPost(seen, from, COS_AGENT_KINDS);
+  if (!refused) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of the request for ${missing}; ${problems.join('; ')}`);
+  refused = await cosTapStartIfCard(page, seen, from, refused);
+  if (!refused) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Start for ${missing}; ${problems.join('; ')}`);
+  if (refused.kind === 'started') problems.push(`a start of the unknown agent ${missing} was accepted`);
+  else if (refused.kind === 'start_failed') {
+    const error = String(refused.error || '');
+    if (!error.includes('Choices') || !error.includes(name)) problems.push(`the failed start does not list the choices with ${name}: "${error.slice(0, 160)}"`);
+  } else if (!cosSaid({ body: refused.body || refused.text }).includes(name)) {
+    problems.push(`the answer for ${missing} is a ${refused.kind} that does not name ${name}: "${cosSaid(refused)}"`);
+  }
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `asked which agents ${acme.name} has, the Chief of Staff named ${name}; "start ${name}" posted Started, relay audit holds an ok `
+    + `session_launch with entry ${name} from chief-of-staff, the agent replied ${marker}; ${missing} did not start and the answer gave the choices`);
 }
 
 const HOST_PREFIX = 'loopback-';
@@ -3899,6 +4116,14 @@ const journeys = [
   { id: 'cos-start-card', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosStartCard },
   { id: 'cos-errand-finished', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosErrandFinished },
   { id: 'cos-agent-rail', timeoutMs: 300000, areas: ['chief-of-staff', 'home'], needs: ['project:acme'], run: cosAgentRail },
+  {
+    id: 'cos-add-agent', timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    run: cosAddAgent,
+  },
+  {
+    id: 'cos-start-entry', timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    run: cosStartEntry,
+  },
   {
     id: 'cos-host-agent', timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosHostAgent,

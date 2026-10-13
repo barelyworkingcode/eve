@@ -2,7 +2,7 @@
 // The Chief of Staff's MCP server (eve-cos). Each tool POSTs to eve's
 // loopback-only /internal/cos endpoint, which ties the call to a tool_use the
 // person model really made in the person's current turn, then lists, reports,
-// starts or sends (docs/design-chief-of-staff.md, "Actions and provenance").
+// starts, sends or proposes an agent (docs/design-chief-of-staff.md, "Actions and provenance").
 //
 // Relay spawns this process and injects (via `relay mcp register --env`):
 //   EVE_INTERNAL_URL     eve's loopback base URL
@@ -40,6 +40,17 @@ const TOOLS = [
     },
   },
   {
+    name: 'cos_list_agents',
+    description:
+      "List a project's named agents: type, name, kind (claude, codex or pi), model and command. Use when the person asks which agents a project has, or names one you can't match.",
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { project: { type: 'string', description: 'The project id or exact name.' } },
+      required: ['project'],
+    },
+  },
+  {
     name: 'cos_propose_start',
     description:
       "Start a new agent on a project with a prompt. Use when the person asks to start, launch or spin up an agent. The agent runs headless unless the person asks for a terminal. eve starts it at once when the prompt is the person's own words; otherwise it posts a card the person taps.",
@@ -49,7 +60,8 @@ const TOOLS = [
         project: { type: 'string', description: 'The project id or exact name.' },
         prompt: { type: 'string', description: 'What the agent should do (1 to 8000 characters).' },
         folder: { type: 'string', description: 'Optional folder inside the project, relative, no "..".' },
-        model: { type: 'string', description: 'Optional model; defaults to the Chief of Staff model.' },
+        model: { type: 'string', description: 'Optional model; defaults to the Chief of Staff model. Leave it out when you send entry.' },
+        entry: { type: 'string', description: "The name of one of the project's agents (cos_list_agents). Send entry or model, never both. An agent by name starts headless." },
         mode: { type: 'string', enum: ['headless', 'terminal'], description: 'headless (default) or terminal, only when the person asks for a terminal.' },
       },
       required: ['project', 'prompt'],
@@ -66,6 +78,23 @@ const TOOLS = [
         text: { type: 'string', description: 'The message (1 to 8000 characters).' },
       },
       required: ['sessionId', 'text'],
+    },
+  },
+  {
+    name: 'cos_propose_agent',
+    description:
+      'Propose adding a named agent to a project. eve has relay check it and find the command, then always posts an Add card. Nothing is added until the person taps Add and approves on the Mac.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        project: { type: 'string', description: 'The project id or exact name.' },
+        name: { type: 'string', description: 'The name the person will say to start it. No spaces, at most 40 characters.' },
+        kind: { type: 'string', enum: ['claude', 'codex', 'pi'] },
+        model: { type: 'string', description: 'Only when the person named a model. Required for pi.' },
+        command: { type: 'string', description: 'A bare program name the person said, such as mywrapper. Never a path, arguments or a command line.' },
+      },
+      required: ['project', 'name', 'kind'],
     },
   },
 ];

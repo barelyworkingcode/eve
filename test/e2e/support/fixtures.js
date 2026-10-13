@@ -4,6 +4,7 @@
 // fake TTS and STT, data directories and browser context. See docs/test.md.
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const base = require('@playwright/test');
 const { devices } = base;
@@ -144,6 +145,14 @@ const test = base.test.extend({
   plansDir: ['agent', { option: true }],
   // Contents of eve's data/settings.json, written before eve starts. null = no file.
   eveSettings: [null, { option: true }],
+  // Extra files written into eve's data dir before it starts: { 'name.json': 'contents' }. null = none.
+  eveFiles: [null, { option: true }],
+  // Posts seeded into data/chief-of-staff.jsonl, one object per line. null = no file.
+  cosPosts: [null, { option: true }],
+  // Program names that resolve as commands (a Chief of Staff agent's `command`): a list for both
+  // machines, or { local: [...], host: [...] }. Each name becomes an executable stub in a scratch
+  // dir that is the world's local_path and host_path (a path the world sets itself is kept). null = none.
+  pathCommands: [null, { option: true }],
   // 'beep' | 'silence' | 'speech': what getUserMedia delivers (see MIC_KINDS).
   mic: ['beep', { option: true }],
   // true: getUserMedia with audio rejects with a NotAllowedError DOMException.
@@ -171,11 +180,27 @@ const test = base.test.extend({
   }, { auto: true }],
 
   // The running stack. Not for specs: they use eve, relay, passkey and voice.
-  stack: async ({ world, network, scheduler, publicOrigin, trustedSubnets, plansDir, eveSettings }, use, testInfo) => {
+  stack: async ({ world: baseWorld, network, scheduler, publicOrigin, trustedSubnets, plansDir, eveSettings, eveFiles, cosPosts, pathCommands }, use, testInfo) => {
+    const files = { ...(eveFiles || {}) };
+    if (cosPosts) files['chief-of-staff.jsonl'] = cosPosts.map((p) => JSON.stringify(p)).join('\n') + '\n';
+    let world = baseWorld;
+    const scratch = [];
+    if (pathCommands) {
+      const names = Array.isArray(pathCommands) ? { local: pathCommands, host: pathCommands } : pathCommands;
+      world = { ...baseWorld };
+      for (const [side, key] of [['local', 'local_path'], ['host', 'host_path']]) {
+        if (key in world) continue;
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-cmd-'));
+        scratch.push(dir);
+        for (const name of names[side] || []) fs.writeFileSync(path.join(dir, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+        world[key] = dir;
+      }
+    }
     const stack = new Stack({
       fakerelay: process.env.EVE_E2E_FAKERELAY,
       relayscheduler: process.env.EVE_E2E_RELAYSCHEDULER,
       world, network, scheduler, publicOrigin, trustedSubnets, plansDir, eveSettings,
+      eveFiles: Object.keys(files).length ? files : null,
     });
     let setupError = null;
     try {
@@ -196,6 +221,9 @@ const test = base.test.extend({
         }
       } finally {
         stack.remove();
+        for (const dir of scratch) {
+          if (path.basename(dir).startsWith('ev-cmd-') && path.dirname(dir) === os.tmpdir()) fs.rmSync(dir, { recursive: true, force: true });
+        }
       }
     }
   },
