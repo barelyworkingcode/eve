@@ -33,7 +33,7 @@ class WsClient {
     this._authenticated = false;
 
     this.ws.onopen = () => {
-      this.log.info(`Connected to server${this._lastCloseCode === null ? '' : ` (reconnect after close code ${this._lastCloseCode})`}`);
+      this.log.info(`Connected to server${this._lastCloseCode === null ? '' : ` (reconnect after ${this._lastCloseCode === 'forced' ? 'forced close' : `close code ${this._lastCloseCode}`})`}`);
       this._lastCloseCode = null;
       this.reconnectDelay = 2000;
       this._lastInbound = Date.now();
@@ -113,6 +113,7 @@ class WsClient {
     const old = this.ws;
     this.ws = null;
     this.log.info('Disconnected from server (socket force-closed, no close code), reconnecting');
+    this._lastCloseCode = 'forced';
     if (old) {
       old.onopen = old.onmessage = old.onclose = old.onerror = null;
       try { old.close(); } catch (e) { /* ignore */ }

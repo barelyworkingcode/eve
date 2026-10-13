@@ -1281,7 +1281,10 @@ class EveWorkspaceClient {
   }
 
   _finishStoppedTurn(sessionId) {
-    this.messageDispatcher.resetTurnState(sessionId);
+    // resetTurnState also clears the visible session's render state, so a
+    // session that is not on screen is only untracked and marked stopped.
+    if (sessionId === this.currentSessionId) this.messageDispatcher.resetTurnState(sessionId);
+    else this.messageDispatcher._untrackStreaming(sessionId);
     this.messageDispatcher.markTurnStopped(sessionId);
     if (sessionId !== this.currentSessionId) return;
     this.messageRenderer.hideThinkingIndicator();
@@ -1292,12 +1295,6 @@ class EveWorkspaceClient {
   // Runs once the socket has re-authed and the sessions are rejoined.
   _flushPendingStops() {
     for (const sessionId of [...this._pendingStops]) {
-      // The turn ended without the stop (hideStopButton can't tell a turn end
-      // from a view switch, so the check lives here): nothing to stop.
-      if (!this.messageDispatcher.streamingSessions.has(sessionId)) {
-        this._pendingStops.delete(sessionId);
-        continue;
-      }
       if (!this.wsClient.send({ type: 'stop_generation', sessionId })) continue;
       this.log.info(`Sent pending stop for session ${sessionId} after reconnect`);
       this._pendingStops.delete(sessionId);

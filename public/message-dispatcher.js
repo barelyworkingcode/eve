@@ -236,8 +236,12 @@ class MessageDispatcher {
     if (sessionId) this.streamingSessions.add(sessionId);
   }
 
+  // Every turn end (and a stop) comes through here: a stop still waiting to
+  // be sent has nothing left to stop.
   _untrackStreaming(sessionId) {
-    if (sessionId) this.streamingSessions.delete(sessionId);
+    if (!sessionId) return;
+    this.streamingSessions.delete(sessionId);
+    this.app._pendingStops?.delete(sessionId);
   }
 
   resetTurnState(sessionId) {
@@ -589,7 +593,7 @@ class MessageDispatcher {
     }
 
     if (data.type === 'message_complete') {
-      this.streamingSessions.delete(sid);
+      this._untrackStreaming(sid);
       this._flushClientTTS(sid);
       const buf = this.backgroundBuffers.get(sid);
       if (buf) {
@@ -611,7 +615,7 @@ class MessageDispatcher {
     }
 
     if (data.type === 'error' || data.type === 'process_exited') {
-      this.streamingSessions.delete(sid);
+      this._untrackStreaming(sid);
       return;
     }
   }
