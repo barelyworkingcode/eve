@@ -145,6 +145,17 @@ test.describe('with a microphone that hears speech', () => {
     await expect(page.getByRole('button', { name: 'Send' })).toBeHidden();
     await expect(page.getByRole('button', { name: 'Attach files' })).toBeVisible();
   });
+
+  // Waits: the Spoken turn, then the TTS request for the reply; the failure line is a web-first assertion.
+  test('Hands-free names the failure when the speech engine fails on a reply @G9.43.r2', async ({ eve, page, voice }) => {
+    await voice.tts.reply({ error: 'engine down' });
+    await openThread(eve, page);
+    await chooseHandsFree(page);
+    await voice.stt.waitForRequest();
+    await expect(page.getByRole('img', { name: 'Spoken' })).toBeVisible();
+    await voice.tts.waitForRequest((r) => r.text && r.text.includes(HEARD));
+    await expect(page.getByText('Speech failed: engine down')).toBeVisible();
+  });
 });
 
 test.describe('with a silent microphone, listening and nothing heard', () => {

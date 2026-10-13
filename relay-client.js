@@ -597,6 +597,11 @@ class RelayClient {
     if (this._ttsFailureLoggedGen === gen) return;
     this._ttsFailureLoggedGen = gen;
     this.log.error(msg, err.message);
+    // A stopped reply (stale generation) stays silent. The reason is the
+    // engine's message only, never the stack.
+    if (gen === this._ttsGeneration) {
+      this._sendToBrowser({ type: 'tts_error', message: err.message || 'Speech synthesis failed' });
+    }
   }
 
   async _synthesizeAndSend(text, seq, gen, span, traceId) {
