@@ -115,14 +115,14 @@ class TabManager {
   }
 
   // activate=false adds the tab in the background (auto-reattach).
-  openTerminal(terminalId, label, directory, { activate = true, title = '' } = {}) {
+  openTerminal(terminalId, label, directory, { activate = true, title = '', outside = false, projectId = null } = {}) {
     const existingTab = this.tabs.find(t => t.id === terminalId);
     if (existingTab) {
       if (activate) this.switchToTab(terminalId);
       return;
     }
 
-    const tab = panes.type('terminal').create({ terminalId, label, directory, title }, this._ctx());
+    const tab = panes.type('terminal').create({ terminalId, label, directory, title, outside, projectId }, this._ctx());
     this.tabs.push(tab);
     if (activate) this.switchToTab(terminalId);
     else this.render();
@@ -703,7 +703,10 @@ class TabManager {
     for (const tab of this.tabs) {
       if (tab._nestedIn) continue;
 
-      if (this._activeProjectId && !panes.type(tab.type)?.global && this._tabProjectId(tab) !== this._activeProjectId) {
+      const tabProjectId = this._tabProjectId(tab);
+      // An outside viewer in no project shows in every project, so it can always be closed.
+      if (this._activeProjectId && !panes.type(tab.type)?.global && tabProjectId !== this._activeProjectId
+        && !(tab.outside && !tabProjectId)) {
         continue;
       }
 

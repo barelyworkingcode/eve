@@ -4240,6 +4240,7 @@ async function cosProjectFromRelay(env) {
 const auth = require('./journeys-auth').journeys;
 const toolSearch = require('./journeys-tool-search').journeys;
 const files = require('./journeys-files').journeys;
+const cosOutside = require('./journeys-cos-outside').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
 // that could open relay's one enrolment window; add-browser-in-window runs
@@ -4321,6 +4322,8 @@ const journeys = [
   { id: 'chat-pasted-url-source', timeoutMs: 180000, areas: ['chat'], needs: [], run: chatPastedUrlSource },
   toolSearch.chatToolSearch,
   files.filesOnHost,
+  cosOutside.cosOutsideSimple,
+  cosOutside.cosOutsideHooks,
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
 ];

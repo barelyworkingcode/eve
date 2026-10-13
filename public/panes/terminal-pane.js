@@ -29,6 +29,8 @@ panes.registerType({
       label: spec.label,
       title: spec.title || '',
       directory: spec.directory,
+      outside: spec.outside === true,
+      projectId: spec.projectId || null,
     };
   },
 
@@ -41,7 +43,7 @@ panes.registerType({
   // never restored on reload.
 
   projectId(tab, ctx) {
-    return projectIdForDirectory(tab.directory, ctx.app.projects);
+    return tab.projectId || projectIdForDirectory(tab.directory, ctx.app.projects);
   },
 
   dispose(tab, ctx) {

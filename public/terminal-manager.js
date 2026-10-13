@@ -911,7 +911,8 @@ class TerminalManager {
       : name;
     const label = withHost(friendly || templateId || 'Terminal');
     const title = name && friendly !== name ? withHost(name) : '';
-    this.app.tabManager.openTerminal(terminalId, label, directory, { activate, title });
+    this.app.tabManager.openTerminal(terminalId, label, directory,
+      { activate, title, outside: metadata.outside === true, projectId: metadata.projectId || null });
 
     // A title the program sets (OSC 0/2) wins while the terminal lives; a
     // cleared or generic console title falls back to the label above.

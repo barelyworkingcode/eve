@@ -506,8 +506,14 @@ async function cardAction(cos, { postId, action, edits } = {}) {
   if (!allowed) return cardFail('That card is gone');
   if (!allowed.includes(action)) return cardFail('Unknown card action');
   const card = post.card;
-  if (card.sessionId?.startsWith('outside:')) return { ok: false, error: 'outside_session_read_only', message: 'Outside sessions are read-only.' };
   if (card.state !== 'pending') return cardFail(`This card is ${card.state}`);
+  // The card shows the refusal; nothing reaches relay.
+  if (card.sessionId?.startsWith('outside:') && action !== 'cancel') {
+    card.state = 'failed';
+    card.error = 'Outside sessions are read-only.';
+    cos._updatePost(post);
+    return { ok: false, error: 'outside_session_read_only', message: 'Outside sessions are read-only.' };
+  }
   if ((post.kind === 'agent_card' || post.kind === 'chat_card') && edits && typeof edits === 'object' && Object.keys(edits).length) {
     return cardFail('An add card takes no edits');
   }

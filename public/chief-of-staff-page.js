@@ -97,7 +97,7 @@ class ChiefOfStaffPage {
     if (!current?.viewable || !current.tmuxSession) return;
     try {
       const descriptor = await this.container.get('api').viewOutsideSession(current);
-      AgentBoard._termMgr(this.container)?.openOutsideViewer(descriptor);
+      AgentBoard._termMgr(this.container)?.openOutsideViewer({ ...descriptor, projectId: current.projectId || null });
     } catch {
       this.bus.emit(EVT.TOAST_SHOW, { id: 'outside-view', message: 'Cannot open this read-only view.', type: 'error', duration: 8000 });
     }
