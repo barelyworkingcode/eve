@@ -932,11 +932,16 @@ row's machine is the host's name). Once each pane holds its marker twice (prompt
 and reply; up to 120 s, BLOCKED when it never does) it asks the Chief of Staff
 what the session in the console folder replied last: a `reply` post must carry the
 console marker and not the hosted one, and the status model must be the pinned
-Haiku. It clicks View read-only on the console row; `terminal-read-only` must
+Haiku. With no hooks, once the console row reads Idle (up to 45 s) it types a
+request for a Bash command into the session; once the permission prompt shows on
+the pane, the row must read Waiting on you within 17 s (relay's 15 s probe plus
+2 s). relay's probe reads a pending tool call as asking, so this is the hookless
+change it can show for sure; the verdict gives the time from the prompt and from
+the request. It clicks View read-only on the console row; `terminal-read-only` must
 show Read-only. Once `terminal_joined` arrives it types `echo typed-<nonce>` and
 Return in the terminal input, then closes the tab; up to the `terminal_close`
-frame the page must send no `terminal_input` or `terminal_resize` frame, and the
-tmux pane must not hold the text. It then kills both tmux sessions and
+frame the page must send no `terminal_input` or `terminal_resize` frame, and once
+relay answers `terminal_closed` the tmux pane must not hold the text. It then kills both tmux sessions and
 both rows must leave the rail within 60 s. PASS needs all of these.
 - Lives in: `chief-of-staff-outside.js`; `public/agent-board.js`;
   `public/terminal-manager.js`; relay's outside-session probe.

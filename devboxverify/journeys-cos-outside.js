@@ -28,6 +28,9 @@ const GONE_WITHIN_MS = 60000; // relay evicts a failed or ended session within 6
 const HOOK_STATE_WITHIN_MS = 5000; // relay drains hook reports every 2 s
 const PERMISSION_WITHIN_MS = 120000;
 const VIEWER_WITHIN_MS = 15000;
+// relay's hookless probe runs every 15 s; 2 s more covers its run and eve's fan-out.
+const PROBE_STATE_WITHIN_MS = 17000;
+const IDLE_WITHIN_MS = 45000;
 const HOST_PREFIX = 'loopback-';
 const HOST_STATE_DIR = 'grant-dropin-'; // swept by verify-fixtures-removed's grant-* rule
 const STATE_WORDS = ['Working', 'Waiting on you', 'Idle'];
@@ -311,6 +314,21 @@ async function cosOutsideSimple(env) {
   const modelIssue = await modelProblem(seen);
   if (modelIssue) problems.push(modelIssue);
 
+  // A hookless state change. relay's probe reads a pending tool call as asking, so
+  // the change it can show for sure is Idle to Waiting on you at a permission prompt.
+  env.step('change the hookless console session to Waiting on you');
+  const stateOf = async () => (await metaOf(consoleRow.first())).split(' · ').pop();
+  const idle = await poll(async () => (await stateOf()) === 'Idle' || null, { timeoutMs: IDLE_WITHIN_MS, intervalMs: 500 });
+  if (!idle) return result(id, FAIL, `${problems.length ? `${problems.join('; ')}; ` : ''}the console row did not settle on Idle within ${IDLE_WITHIN_MS / 1000}s of its reply (it shows "${await stateOf()}")`);
+  const sentAt = Date.now();
+  await exec(tools.tmux, ['send-keys', '-t', consoleName, '-l', `Use the Bash tool to run: touch verify-${env.nonce}-probe`], { timeout: 10000 });
+  await exec(tools.tmux, ['send-keys', '-t', consoleName, 'Enter'], { timeout: 10000 });
+  const promptAt = await poll(async () => (PERMISSION_PROMPT.test(await pane(tools.tmux, consoleName)) ? Date.now() : null), { timeoutMs: PERMISSION_WITHIN_MS, intervalMs: 250 });
+  if (!promptAt) return result(id, BLOCKED, `the console claude showed no permission prompt within ${PERMISSION_WITHIN_MS / 1000}s of the request (model output)`);
+  const waitingAt = await poll(async () => ((await stateOf()) === 'Waiting on you' ? Date.now() : null), { timeoutMs: PROBE_STATE_WITHIN_MS, intervalMs: 250 });
+  if (!waitingAt) problems.push(`the console row did not show Waiting on you within ${PROBE_STATE_WITHIN_MS / 1000}s of the permission prompt (it shows "${await stateOf()}")`);
+  const probeGap = waitingAt ? `Waiting on you ${((waitingAt - promptAt) / 1000).toFixed(1)}s after the prompt (${((waitingAt - sentAt) / 1000).toFixed(1)}s after the request)` : '';
+
   env.step('view the console session read-only');
   const line = await consoleRow.first().locator('.agent-row__line').first().evaluate((el) => el.textContent, null, { timeout: 2000 }).catch(() => '');
   if (line !== 'View read-only') return result(id, FAIL, `${problems.length ? `${problems.join('; ')}; ` : ''}the console row offers "${line}", not View read-only`);
@@ -331,6 +349,10 @@ async function cosOutsideSimple(env) {
   await page.getByRole('button', { name: `Close ${consoleName}`, exact: true }).click({ timeout: 5000 });
   const closed = await poll(async () => seen.sent.slice(mark).includes('terminal_close') || null, { timeoutMs: VIEWER_WITHIN_MS, intervalMs: 250 });
   if (!closed) problems.push(`Close sent no terminal_close within ${VIEWER_WITHIN_MS / 1000}s`);
+  // relay answers terminal_closed once it has handled every earlier frame from this page.
+  const joinedAt = seen.received.lastIndexOf('terminal_joined');
+  const detached = await poll(async () => seen.received.slice(joinedAt).includes('terminal_closed') || null, { timeoutMs: VIEWER_WITHIN_MS, intervalMs: 250 });
+  if (!detached) problems.push(`relay sent no terminal_closed within ${VIEWER_WITHIN_MS / 1000}s of Close`);
   const leaked = seen.sent.slice(mark).filter((t) => t === 'terminal_input' || t === 'terminal_resize');
   if (leaked.length) problems.push(`typing in the viewer sent ${leaked.join(', ')}`);
   if ((await pane(tools.tmux, consoleName)).includes(typed)) problems.push('the typed text reached the outside tmux session');
@@ -344,7 +366,8 @@ async function cosOutsideSimple(env) {
 
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `the rail showed two Outside rows (console ${consoleBase} on ${consoleBranch}, host ${hostBase} on ${hostBranch}) with machine, folder, branch and a state; `
-    + `the Chief of Staff's reply carried ${consoleMarker}; View read-only showed the Read-only badge and ${TYPED_OBSERVE_MS / 1000}s of typing sent no terminal_input or terminal_resize; `
+    + `the Chief of Staff's reply carried ${consoleMarker}; with no hooks the row showed ${probeGap}; `
+    + `View read-only showed the Read-only badge, and typing up to Close sent no terminal_input or terminal_resize and never reached the pane; `
     + `both rows were gone within ${GONE_WITHIN_MS / 1000}s of their claude ending`);
 }
 
