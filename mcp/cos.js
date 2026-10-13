@@ -2,7 +2,7 @@
 // The Chief of Staff's MCP server (eve-cos). Each tool POSTs to eve's
 // loopback-only /internal/cos endpoint, which ties the call to a tool_use the
 // person model really made in the person's current turn, then lists, reports,
-// starts, sends or proposes an agent (docs/design-chief-of-staff.md, "Actions and provenance").
+// starts, sends or proposes an agent or chat (docs/design-chief-of-staff.md, "Actions and provenance").
 //
 // Relay spawns this process and injects (via `relay mcp register --env`):
 //   EVE_INTERNAL_URL     eve's loopback base URL
@@ -42,7 +42,7 @@ const TOOLS = [
   {
     name: 'cos_list_agents',
     description:
-      "List a project's named agents: type, name, kind (claude, codex or pi), model and command. Use when the person asks which agents a project has, or names one you can't match.",
+      "List a project's agents and chats: type (agent or chat), name, model and, for an agent, kind (claude, codex or pi) and command. Use when the person asks which agents or chats a project has, or names one you can't match.",
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -61,7 +61,7 @@ const TOOLS = [
         prompt: { type: 'string', description: 'What the agent should do (1 to 8000 characters).' },
         folder: { type: 'string', description: 'Optional folder inside the project, relative, no "..".' },
         model: { type: 'string', description: 'Optional model; defaults to the Chief of Staff model. Leave it out when you send entry.' },
-        entry: { type: 'string', description: "The name of one of the project's agents (cos_list_agents). Send entry or model, never both. An agent by name starts headless." },
+        entry: { type: 'string', description: "The name of one of the project's agents or chats (cos_list_agents). Send entry or model, never both. An agent by name starts headless." },
         mode: { type: 'string', enum: ['headless', 'terminal'], description: 'headless (default) or terminal, only when the person asks for a terminal.' },
       },
       required: ['project', 'prompt'],
@@ -95,6 +95,21 @@ const TOOLS = [
         command: { type: 'string', description: 'A bare program name the person said, such as mywrapper. Never a path, arguments or a command line.' },
       },
       required: ['project', 'name', 'kind'],
+    },
+  },
+  {
+    name: 'cos_propose_chat',
+    description:
+      'Propose adding a web chat (a chat template) to a project. eve checks the name is free, then always posts an Add card. Nothing is added until the person taps Add and approves on the Mac.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        project: { type: 'string', description: 'The project id or exact name.' },
+        name: { type: 'string', description: 'The chat name the person gave, 1 to 60 characters. It must differ from every agent and chat of the project.' },
+        model: { type: 'string', description: 'The model the person named, such as local/chat. Required; never guess one.' },
+      },
+      required: ['project', 'name', 'model'],
     },
   },
 ];

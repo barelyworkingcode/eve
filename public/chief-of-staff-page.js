@@ -368,7 +368,7 @@ class ChiefOfStaffPage {
       body.appendChild(this._text('p', post.error || "Couldn't send that."));
     } else if (post.kind === 'start_card' || post.kind === 'send_card') {
       if (post.card) body.appendChild(this._actionCard(post));
-    } else if (post.kind === 'agent_card') {
+    } else if (post.kind === 'agent_card' || post.kind === 'chat_card') {
       if (post.card) body.appendChild(this._agentCard(post));
     } else if (post.kind === 'started') {
       body.appendChild(this._startedBody(post));
@@ -584,17 +584,18 @@ class ChiefOfStaffPage {
     return el;
   }
 
-  // The Add-an-agent card: read-only rows, Add and Cancel while pending.
+  // The Add-an-agent or Add-a-chat card: read-only rows, Add and Cancel while pending.
   _agentCard(post) {
     const card = post.card;
-    const entry = card.entry || {};
+    const isChat = post.kind === 'chat_card';
+    const entry = (isChat ? card.template : card.entry) || {};
     const el = this._div('cos-card cos-card--action', `cos-card-${post.id}`);
-    el.dataset.kind = 'agent';
+    el.dataset.kind = isChat ? 'chat' : 'agent';
     el.dataset.state = card.state;
 
     const hd = this._div('cos-card__hd');
     const small = document.createElement('small');
-    small.textContent = 'Add an agent?';
+    small.textContent = isChat ? 'Add a chat?' : 'Add an agent?';
     const title = this._div('cos-card__title');
     title.appendChild(this._text('b', card.project?.name || ''));
     hd.append(small, title);
@@ -609,10 +610,10 @@ class ChiefOfStaffPage {
       rows.appendChild(row);
     };
     addRow('name', 'Name', entry.name || '—');
-    addRow('kind', 'Kind', entry.kind || '—');
+    if (!isChat) addRow('kind', 'Kind', entry.kind || '—');
     addRow('model', 'Model', entry.model || 'default');
-    if (entry.command) addRow('command', 'Command', entry.command, 'cos-field__value--command');
-    addRow('machine', 'Runs on', card.machine || '—');
+    if (!isChat && entry.command) addRow('command', 'Command', entry.command, 'cos-field__value--command');
+    if (!isChat) addRow('machine', 'Runs on', card.machine || '—');
     el.appendChild(rows);
 
     const status = this._cardStatus(card, post);

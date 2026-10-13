@@ -1338,6 +1338,14 @@ class ChiefOfStaff {
     return this._agentCall('POST', route, body, undefined, 201, 'add', 'entry');
   }
 
+  // Unscoped: relay raises the presence prompt at the Mac and writes the template.
+  // No timer, because the person may take a while to answer it.
+  async _addChatTemplate(projectId, template) {
+    const body = { name: template.name, model: template.model };
+    const route = `/api/projects/${encodeURIComponent(projectId)}/chat-templates`;
+    return this._agentCall('POST', route, body, undefined, 201, 'add', 'template');
+  }
+
   async _agentCall(method, route, body, opts, okStatus, what, key) {
     let res;
     try {

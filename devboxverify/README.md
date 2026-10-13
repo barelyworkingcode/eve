@@ -792,6 +792,46 @@ naming `v<nonce>`. A `started` post is FAIL.
   session; another removes the seeded entry (presence prompt) and fails if it
   stays. Run it alone: `node devboxverify/main.js --screen --only cos-start-entry`.
 
+**cos-add-chat.** The Chief of Staff adds a chat to a project, lists it, starts
+it, and refuses a second chat with the same name (G6.88 to G6.92). Screen
+journey (`screen: true`, 540 s). In the thread, with `vc<nonce>` as the name:
+(1) `Add a chat called vc<nonce> with haiku to Acme Corp` must give a
+`chat_card` (anything else is FAIL) whose template is `vc<nonce>` with model
+`haiku`; eve's `GET /api/projects/{id}` must not list it yet. (2) The journey
+starts the presence helper, waits for its `ready`, taps `cos-add-<id>`, and
+waits for a `cos_post_update` with state `added` (`failed` is FAIL, or BLOCKED
+when the presence dialog was not answered). `cos-card-status-<id>` must read
+Added, and the project must list one template of that name with model `haiku`.
+(3) `Which agents and chats does Acme Corp have?` must get a `reply` naming it.
+(4) `Start vc<nonce> on Acme Corp and ask it: Reply with exactly
+verify-<nonce>-chat and nothing else.` must give a `started` post (or a
+`start_card` the journey taps), named `Acme Corp - vc<nonce>` as relay names
+a chat start. `relay audit --event session_launch` (read back for up to 10 s)
+must hold an `ok` row with origin `chief-of-staff` (relay starts a chat as a
+raw-model start, so the row carries no entry), and the session's thread must
+show an assistant reply with the marker within the turn bound. (5) The journey
+adds a chat `vd<nonce>` through eve's `PUT /api/projects/{id}`, unseen by the
+model, then `Add a chat called VD<nonce> with haiku to Acme Corp` must give a
+`reply` that says the name is taken and no `chat_card`; the project still lists
+one template of that name in any case, and eve-verify's log must show a
+`cos_propose_chat` tool call in that turn, so the refusal came from eve's name
+check and not from the model's memory.
+- Lives in: `chief-of-staff-actions.js` (`cos_propose_chat`, `nameClash`, the
+  add tap); `public/chief-of-staff-page.js`; relay's
+  `POST /api/projects/{id}/chat-templates` behind its presence gate and its
+  start by entry.
+- Waits: the model's posts have none possible: model output, so `cosWaitPost`
+  bounds each at 120 s; before each request, `cos_status` `busy:false`
+  (bounded 120 s) so a late reply cannot answer the next one; the presence
+  helper's `ready`, then its `result`; the `cos_post_update` frame; then a poll
+  of `relay audit` for up to 10 s after `started`.
+- Traps: BLOCKED setup V-COS when its check fails, and BLOCKED when the
+  presence dialog is not answered; no NOTRUN path. The presence prompt is
+  matched on the chat name. One cleanup deletes every new Acme Corp session;
+  two more remove the templates (any case) through eve's `PUT /api/projects/{id}`
+  and fails if it stays. Run it alone:
+  `node devboxverify/main.js --screen --only cos-add-chat`.
+
 **cos-errand-finished.** An agent the person started through the thread reports
 back when it is done (eve#273). The journey types, in `cos-input`, `In the
 project Acme Corp, start a headless agent with the prompt: Reply with exactly
