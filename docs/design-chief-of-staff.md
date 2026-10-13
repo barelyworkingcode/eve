@@ -115,12 +115,12 @@ The roster refetch before a person turn replaces the roster's membership (a sess
 
 ## Actions and provenance
 
-The person model can start an agent and send to one through the `eve-cos` MCP (`mcp/cos.js`): six tools: `cos_list_sessions`, `cos_session_status`, `cos_list_agents` (reads) and `cos_propose_start`, `cos_propose_send`, `cos_propose_agent` (propose). The MCP only calls eve's loopback `/internal/cos`; eve decides.
+The person model can start an agent and send to one through the `eve-cos` MCP (`mcp/cos.js`): seven tools: `cos_list_sessions`, `cos_session_status`, `cos_list_agents` (reads) and `cos_propose_start`, `cos_propose_send`, `cos_propose_agent`, `cos_propose_chat` (propose). The MCP only calls eve's loopback `/internal/cos`; eve decides.
 
 **A call is tied to a real tool call.** eve records every `tool_use` the person model makes (`ChiefOfStaffModel`'s `onToolUse`, fired when a tool_use block stops) in a `CosTurn` for the length of the person turn. `/internal/cos` checks the loopback peer and the secret, that `meta.project_id` (vouched by relay) is the person model's project, that a person turn is in flight, and then waits for an unclaimed `tool_use` with the same name and the same input (sorted-key JSON). `claim()` resolves when that call is recorded and rejects when the turn settles, so a call that the model never made, or made in an earlier turn, is refused as `unverified_call`. eve.log gets one info line per tool call with the turn id and tool name; the input is never logged, because it can quote agent data.
 
 **Provenance decides act or card** (`chief-of-staff-provenance.js`, pure):
-- If the person model session has read nothing, eve acts at once (`no_read`). Any tool except the three propose tools counts as a read, and the mark lasts the life of that model session.
+- If the person model session has read nothing, eve acts at once (`no_read`). Any tool except the propose tools counts as a read, and the mark lasts the life of that model session.
 - After a read, eve acts at once only when the prompt or text is a verbatim span of the person's message (whitespace collapsed, case-sensitive) and the message names the project (start) or the session label (send), case-insensitively.
 - Otherwise eve posts a `start_card` or `send_card` and does nothing until the person taps Start. Edits made on the card are the person's own words, so a tap needs no provenance check.
 
@@ -132,7 +132,7 @@ The person model can start an agent and send to one through the `eve-cos` MCP (`
 
 A project can have named agents: entries of a type, a name, a kind (claude, codex or pi), an optional model and an optional command. Relay owns them (`projects[].agents`); eve lists them, offers to add one, and starts one by name.
 
-**List.** `cos_list_agents` is a read. It asks relay's scoped list and passes the rows through as relay typed them, filtered to the row types in `LIST_ROW_TYPES` (today `agent`). The model uses it when the person asks what a project has, or names an agent it cannot match.
+**List.** `cos_list_agents` is a read. It asks relay's scoped list and passes the rows through as relay typed them, filtered to the row types in `LIST_ROW_TYPES` (`agent` and `chat`). The model uses it when the person asks what a project has, or names an agent it cannot match.
 
 **Add is always a card.** `cos_propose_agent` has relay check the entry first (the scoped preview: relay validates the name and kind, finds the command and says which machine runs it; it writes nothing and raises no prompt), then posts an `agent_card`. It never goes through `provenance.decide`. There is no act-at-once path because adding an agent changes what can run on the person's machine: relay gates the write with a presence prompt at the Mac, and eve must not call it on text the model made up. Provenance asks whether the words are the person's. Here the words are a name and a command, and the person's tap on the card is what relay needs to see. The tap calls the unscoped `POST /api/projects/{id}/agents`, and eve sets no timer, because the person may take a while to reach the Mac. The card reads "Approve on the Mac" meanwhile. The state leaves `pending` before the call, so one tap acts once. The card has Add and Cancel and no fields; an edit sent for it is refused ("An add card takes no edits").
 
@@ -141,6 +141,20 @@ A project can have named agents: entries of a type, a name, a kind (claude, code
 **Errors.** A relay refusal on the list, the preview, the add or the start is `{error, message}`. eve keeps `error` as the code when it is lowercase letters and underscores, else `http_<status>`, and answers `502 relay_<code>` with relay's `message` (or `Relay refused the <list|preview|add|start> (<code>).`). A call that throws is `unreachable`. A failed preview posts no card. A failed add leaves the card `failed` with relay's message; presence refused or timed out is such a refusal. A project removed before the tap fails the card with "That project is no longer available".
 
 **Start by entry.** `cos_propose_start` takes `entry` (a name) or `model`, never both. An agent by name starts headless: `mode: 'terminal'` with an entry is refused. eve sends relay exactly one of `entry` and `model`; when the tool sends neither, eve fills the default model as before. A start card for an entry shows Prompt, Folder and a read-only Agent row; Edit changes only the prompt and the folder. An unknown name is relay's refusal, which lists the project's agents.
+
+## Chats (eve#408)
+
+A project also stores chat templates (name, model, mode, voice, system prompt). Relay owns them (`projects[].chat_templates`) and eve's project dialog edits them. The Chief of Staff lists them, adds one from a sentence, and starts one by name.
+
+**List.** `cos_list_agents` returns agents and chats as one list; each row is typed `agent` or `chat`. The prompt tells the model to name both when the person asks "which agents".
+
+**Start by name.** A chat starts like an agent: `cos_propose_start` with `entry` set to its name and no model. Relay resolves the name and builds a chat start (as `applyChatDefaults` does for the web); eve sends only `entry`. The Start card cannot tell the type before relay answers, so it shows the name under "Agent". The `entry` limit is 60 characters, since it may name a chat. A duplicate chat name is relay's `entry_ambiguous`.
+
+**Add is always a card.** `cos_propose_chat {project, name, model}` posts a `chat_card` with Name and Model rows, Add and Cancel, no fields. It never goes through `provenance.decide`, for the reason agents do not: relay gates the write with a presence prompt at the Mac. The tap calls the unscoped `POST /api/projects/{id}/chat-templates` with no timer, and the card reads "Approve on the Mac" meanwhile. The model asks for a model when the person gave none; it never guesses one. eve checks only the model's shape (at most 200 bytes, no whitespace or control characters); a wrong model costs one failed start.
+
+**Why eve checks the name first.** Relay has no scoped preview for a chat, so nothing else would refuse a taken name before the person is asked to approve. eve lists the project's rows and compares the name with every row of any type, case-insensitively. A clash answers 409 `name_taken` (`"<name>" is already a chat template in <project>` or `"<name>" is already an agent in <project>`) and posts no card. Relay checks the name again at the tap, so a race ends as a failed card.
+
+**The list fails closed.** If relay's list fails, eve answers 502 `relay_<code>` and posts no card, rather than offer an add it cannot check.
 
 ## Decisions
 - **D1** Wake session: tools off in eve: deny list, init check, one relaunch, else off. The person session uses D12.
