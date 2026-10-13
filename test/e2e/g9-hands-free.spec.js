@@ -154,7 +154,7 @@ test.describe('with a microphone that hears speech', () => {
     await voice.stt.waitForRequest();
     await expect(page.getByRole('img', { name: 'Spoken' })).toBeVisible();
     await voice.tts.waitForRequest((r) => r.text && r.text.includes(HEARD));
-    await expect(page.getByText('Speech failed: engine down')).toBeVisible();
+    await expect(page.getByText('Speech failed: engine down').first()).toBeVisible();
   });
 });
 

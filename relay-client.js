@@ -28,6 +28,15 @@ const { acceptTraceId } = require('./trace');
 // because they never reach here at all.
 const TURN_TERMINAL_TYPES = new Set(['message_complete', 'process_exited', 'error']);
 
+// tts-service.js prefixes every transport failure (connection error, timeout,
+// bad JSON) with "TTS daemon"; those carry addresses and errnos, so the person
+// gets a fixed line. Any other message is the engine's own response.error.
+function ttsFailureReason(err) {
+  const msg = err && err.message;
+  if (!msg || /^TTS daemon\b/.test(msg)) return 'Speech engine unavailable';
+  return msg;
+}
+
 class RelayClient {
   constructor(relayTransport, browserWs, ttsService, log) {
     this.log = log || new NullLogger();
@@ -586,21 +595,21 @@ class RelayClient {
         if (gen !== this._ttsGeneration) return;
         return this._synthesizeAndSend(cleaned, seq, gen, span, traceId);
       }).catch(err => {
-        this._logTtsFailureOnce(gen, `TTS chain error at chunk ${seq}:`, err);
+        this._reportTtsFailureOnce(gen, `TTS chain error at chunk ${seq}:`, err);
       });
     }
   }
 
   // One failed chunk usually means the daemon is down, so every later chunk
   // of the same response fails too. Log the first per generation only.
-  _logTtsFailureOnce(gen, msg, err) {
+  _reportTtsFailureOnce(gen, msg, err) {
     if (this._ttsFailureLoggedGen === gen) return;
     this._ttsFailureLoggedGen = gen;
     this.log.error(msg, err.message);
     // A stopped reply (stale generation) stays silent. The reason is the
     // engine's message only, never the stack.
     if (gen === this._ttsGeneration) {
-      this._sendToBrowser({ type: 'tts_error', message: err.message || 'Speech synthesis failed' });
+      this._sendToBrowser({ type: 'tts_error', message: ttsFailureReason(err) });
     }
   }
 
@@ -617,7 +626,7 @@ class RelayClient {
       }
       this._sendAudioToBrowser(result.audio_base64);
     } catch (err) {
-      this._logTtsFailureOnce(gen, `TTS chunk ${seq} failed:`, err);
+      this._reportTtsFailureOnce(gen, `TTS chunk ${seq} failed:`, err);
     } finally {
       this.ttsPending--;
     }
