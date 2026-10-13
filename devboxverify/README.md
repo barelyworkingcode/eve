@@ -923,12 +923,14 @@ the route) it is BLOCKED. It makes a scratch git folder `verify-<nonce>-outside-
 in Acme Corp (branch `verify-<nonce>-console`), and the loopback host and project
 of cos-host-agent (`loopback-<nonce>-outside`, `Drop-in Host outside <nonce>`,
 same presence dialog) with a git folder under it (branch `verify-<nonce>-hosted`).
-In each it starts `claude --model haiku "Reply with exactly
+In each it starts `claude --model haiku --permission-mode default "Reply with exactly
 verify-<nonce>-outside-console|host and nothing else."` in a detached tmux
 session, with no hooks, and answers the folder-trust prompt if the pane shows
 one. Within 60 s of the start each folder needs a `rail-agent-outside:` row whose
 meta line reads `Outside · <machine> · <folder> · <branch> · <state>` (the hosted
-row's machine is the host's name). Once each pane holds its marker twice (prompt
+row's machine is the host's name; the loopback host is the console machine, so
+relay also lists the hosted claude as a Console row with no project, and the journey
+picks the row whose meta line names the host). Once each pane holds its marker twice (prompt
 and reply; up to 120 s, BLOCKED when it never does) it asks the Chief of Staff
 what the session in the console folder replied last: a `reply` post must carry the
 console marker and not the hosted one, and the status model must be the pinned
@@ -942,7 +944,7 @@ show Read-only. Once `terminal_joined` arrives it types `echo typed-<nonce>` and
 Return in the terminal input, then closes the tab; up to the `terminal_close`
 frame the page must send no `terminal_input` or `terminal_resize` frame, and once
 relay answers `terminal_closed` the tmux pane must not hold the text. It then kills both tmux sessions and
-both rows must leave the rail within 60 s. PASS needs all of these.
+every row for either folder, duplicates included, must leave the rail within 60 s. PASS needs all of these.
 - Lives in: `chief-of-staff-outside.js`; `public/agent-board.js`;
   `public/terminal-manager.js`; relay's outside-session probe.
 - Traps: BLOCKED setup V-COS, BLOCKED when tmux or claude is not on PATH, BLOCKED
@@ -958,16 +960,17 @@ both rows must leave the rail within 60 s. PASS needs all of these.
 (G6.93, power path). Not a screen journey (360 s). Same BLOCKED
 rule for a relay with no outside inventory. It makes a scratch git folder in Acme
 Corp and a temp folder holding a settings file of its own and a wrapper script,
-then starts `claude --model haiku --settings <that file> "Run exactly this shell
+then starts `claude --model haiku --permission-mode default --settings <that file> "Run exactly this shell
 command with your Bash tool, then say done: touch <file>"` in a tmux session. The
 settings file hooks UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest,
-Notification, Stop and SessionEnd; each hook runs the wrapper, which stamps
-`fired.<event>.<pid>` in the temp folder and passes stdin to relay's
+Notification, Stop and SessionEnd; each hook runs the wrapper, which saves
+the hook's stdin payload as `fired.<event>.<pid>` in the temp folder and passes it to relay's
 `scripts/outside-session-report.sh` (found in the relay checkout, or at
 `RELAY_OUTSIDE_REPORT`; BLOCKED when absent). The user's Claude settings are
 never touched. The row must appear within 60 s with the meta line of
-cos-outside-simple. When the permission prompt fires a `PermissionRequest` or
-`Notification` hook (up to 120 s; BLOCKED when claude never asks), the row's last
+cos-outside-simple. When the permission prompt fires a `PermissionRequest` hook, or a
+`Notification` hook whose payload has `notification_type` `permission_prompt` (an
+`idle_prompt` Notification does not count; up to 120 s; BLOCKED when claude never asks), the row's last
 meta word must read `Waiting on you` within 5 s of that file's time. The verdict
 gives the measured gap.
 - Lives in: relay's outside report spool and drain; `public/agent-board.js`.

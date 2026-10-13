@@ -133,7 +133,8 @@ async function pane(tmux, name) {
 // the folder-trust prompt if it comes. Returns { trusted } once the prompt text
 // is on the pane or the trust bound passes.
 async function startClaude(env, tools, { name, dir, prompt, settings }) {
-  const args = ['--model', CLAUDE_MODEL];
+  // Default permission mode: the machine's own mode (auto, say) may never show a permission prompt.
+  const args = ['--model', CLAUDE_MODEL, '--permission-mode', 'default'];
   if (settings) args.push('--settings', settings);
   args.push(prompt);
   const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -298,7 +299,10 @@ async function cosOutsideSimple(env) {
   const problems = [];
   env.step('wait for both rows on the rail');
   const consoleRow = outsideRows(page, consoleBase);
-  const hostRow = outsideRows(page, hostBase);
+  // A loopback host is the console machine, so relay's console probe lists the hosted claude too, as a
+  // Console row with no project. Pick the host's row by its machine; the gone check still covers every row.
+  const hostRows = outsideRows(page, hostBase);
+  const hostRow = hostRows.filter({ hasText: hosted.hostName });
   for (const [label, row] of [['console', consoleRow], ['host', hostRow]]) {
     const there = await poll(async () => (await row.count()) > 0 || null, { timeoutMs: ROW_WITHIN_MS, intervalMs: 500 });
     if (!there) return result(id, FAIL, `no Outside row for the ${label} claude on the rail within ${ROW_WITHIN_MS / 1000}s of its start`);
@@ -372,7 +376,7 @@ async function cosOutsideSimple(env) {
   await endClaude(tools, hostName);
   const gone = async (row) => poll(async () => (await row.count()) === 0 || null, { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
   if (!(await gone(consoleRow))) problems.push(`the console row is still on the rail ${GONE_WITHIN_MS / 1000}s after its claude ended`);
-  if (!(await gone(hostRow))) problems.push(`the host row is still on the rail ${GONE_WITHIN_MS / 1000}s after its claude ended`);
+  if (!(await gone(hostRows))) problems.push(`the host row is still on the rail ${GONE_WITHIN_MS / 1000}s after its claude ended`);
 
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `the rail showed two Outside rows (console ${consoleBase} on ${consoleBranch}, host ${hostBase} on ${hostBranch}) with machine, folder, branch and a state; `
@@ -408,12 +412,12 @@ async function cosOutsideHooks(env) {
   env.step('write the hook settings');
   // The settings file is the harness's own, passed with --settings; the user's
   // Claude settings are never read or changed. A wrapper stamps each firing
-  // (its file's mtime) and hands the same stdin to relay's helper, which spools it.
+  // (the file's mtime) with the hook's stdin payload and hands the same payload to relay's helper, which spools it.
   const work = await fs.promises.mkdtemp(path.join(os.tmpdir(), `verify-${env.nonce}-hooks-`));
   tools.dirs.push(work);
   for (const p of [work, helper]) if (p.includes("'")) return result(id, BLOCKED, 'a path holds a quote; the hook command cannot be written safely');
   const wrapper = path.join(work, 'hook.sh');
-  await fs.promises.writeFile(wrapper, `#!/bin/sh\n: > '${work}'/fired."$1".$$\nexec /bin/sh '${helper}'\n`, { mode: 0o700 });
+  await fs.promises.writeFile(wrapper, `#!/bin/sh\ncat > '${work}'/fired."$1".$$\n/bin/sh '${helper}' < '${work}'/fired."$1".$$\n`, { mode: 0o700 });
   const settings = path.join(work, 'settings.json');
   const hooks = Object.fromEntries(HOOK_EVENTS.map((e) => [e, [{ hooks: [{ type: 'command', command: `/bin/sh '${wrapper}' ${e}` }] }]]));
   await fs.promises.writeFile(settings, JSON.stringify({ hooks }));
@@ -435,9 +439,17 @@ async function cosOutsideHooks(env) {
   if (problems.length) return result(id, FAIL, problems.join('; '));
 
   env.step('wait for the permission hook to fire');
-  const askNames = (n) => n.startsWith('fired.PermissionRequest.') || n.startsWith('fired.Notification.');
+  // Relay maps only PermissionRequest, or a Notification of type permission_prompt, to asking:
+  // an idle_prompt Notification is not the permission hook.
+  const isAsk = async (n) => {
+    if (n.startsWith('fired.PermissionRequest.')) return true;
+    if (!n.startsWith('fired.Notification.')) return false;
+    try { return JSON.parse(await fs.promises.readFile(path.join(work, n), 'utf8')).notification_type === 'permission_prompt'; } catch { return false; }
+  };
   const fired = await poll(async () => {
-    const names = (await fs.promises.readdir(work).catch(() => [])).filter(askNames);
+    const all = await fs.promises.readdir(work).catch(() => []);
+    const flags = await Promise.all(all.map(isAsk));
+    const names = all.filter((_, i) => flags[i]);
     if (!names.length) return null;
     const stats = await Promise.all(names.map((n) => fs.promises.stat(path.join(work, n))));
     return { at: Math.min(...stats.map((s) => s.mtimeMs)), names };
@@ -445,7 +457,7 @@ async function cosOutsideHooks(env) {
   if (!fired) {
     const text = await pane(tools.tmux, name);
     if (!PERMISSION_PROMPT.test(text)) return result(id, BLOCKED, `claude did not ask permission for the touch within ${PERMISSION_WITHIN_MS / 1000}s (model output or a permission rule${trusted ? '; a trust prompt was answered' : ''})`);
-    return result(id, FAIL, `the pane shows a permission prompt but neither PermissionRequest nor Notification fired the hook within ${PERMISSION_WITHIN_MS / 1000}s`);
+    return result(id, FAIL, `the pane shows a permission prompt but neither PermissionRequest nor a permission_prompt Notification fired the hook within ${PERMISSION_WITHIN_MS / 1000}s`);
   }
 
   env.step('wait for Waiting on you');
