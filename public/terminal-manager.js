@@ -780,23 +780,34 @@ class TerminalManager {
     });
     containerDiv.addEventListener('drop', (e) => {
       if (this.terminals.get(terminalId)?.readOnly) { e.preventDefault(); e.stopImmediatePropagation(); return; }
-      // A dropped file of any type goes up, so a non-image gets the server's
-      // "Unsupported image type" toast instead of a silent no-op (G4.11 r1).
-      const images = this._imageFilesFrom(e.dataTransfer, true);
-      if (!images.length) return;
+      const images = this._imageFilesFrom(e.dataTransfer);
+      if (!images.length) {
+        // Files that are all non-images are refused here, so their bytes never
+        // leave the browser (G4.11 r1). Wording matches terminal-paste.js.
+        const first = [...(e.dataTransfer?.items || [])].find((item) => item.kind === 'file');
+        if (first) {
+          e.preventDefault();
+          this._toastPasteError(`Unsupported image type: ${first.type || 'none'}`);
+        }
+        return;
+      }
       e.preventDefault();
       this._pasteImages(terminalId, images);
     });
   }
 
-  _imageFilesFrom(dataTransfer, anyFile = false) {
+  _imageFilesFrom(dataTransfer) {
     const files = [];
     for (const item of dataTransfer?.items || []) {
-      if (item.kind !== 'file' || (!anyFile && !item.type.startsWith('image/'))) continue;
+      if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
       const file = item.getAsFile();
       if (file) files.push(file);
     }
     return files;
+  }
+
+  _toastPasteError(reason) {
+    this.app.bus.emit(EVT.TOAST_SHOW, { id: 'terminal-image-paste-error', message: `Image paste failed: ${reason}`, type: 'error', duration: 6000 });
   }
 
   async _pasteImages(terminalId, files) {
@@ -809,7 +820,7 @@ class TerminalManager {
         paths.push(path);
       } catch (err) {
         this.log.error('Terminal image paste failed:', err?.message || err);
-        this.app.bus.emit(EVT.TOAST_SHOW, { id: 'terminal-image-paste-error', message: `Image paste failed: ${err?.message || err}`, type: 'error', duration: 6000 });
+        this._toastPasteError(err?.message || err);
       }
     }
     // The tab may have closed while the upload was in flight.
