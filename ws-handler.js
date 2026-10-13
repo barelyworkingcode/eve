@@ -151,7 +151,8 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
       }
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code) => {
+      log?.info(`Browser socket closed (code ${code})`);
       // Searches in relay and hidden relay sessions both stay alive until
       // their own timeouts otherwise.
       for (const id of inflightSearchIds) {

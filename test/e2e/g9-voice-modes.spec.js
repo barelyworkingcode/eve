@@ -144,6 +144,18 @@ test('with the speaker on, a reply is spoken @G9.40', async ({ eve, page, voice 
   expect(request.text).toContain('speak this from testbox');
 });
 
+// Waits: the reply echoes the turn (sendText), then the TTS request; the error line is a web-first assertion.
+test('with the speaker on, a reply whose speech fails shows the reason @G9.40.r1', async ({ eve, page, voice }) => {
+  await voice.tts.reply({ error: 'engine down' });
+  await openThread(eve, page);
+  await page.getByRole('button', { name: 'Speak replies' }).click();
+  await expect(page.getByRole('button', { name: 'Speak replies' })).toHaveAttribute('aria-pressed', 'true');
+
+  await sendText(page, 'fail this from testbox');
+  await voice.tts.waitForRequest((r) => JSON.stringify(r).includes('fail this from testbox'));
+  await expect(page.getByText('TTS error: engine down')).toBeVisible();
+});
+
 test('with the speaker off, a reply is not spoken @G9.40', async ({ eve, page, voice }) => {
   await openThread(eve, page);
   await expect(page.getByRole('button', { name: 'Speak replies' })).toHaveAttribute('aria-pressed', 'false');

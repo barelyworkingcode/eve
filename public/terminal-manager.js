@@ -781,7 +781,16 @@ class TerminalManager {
     containerDiv.addEventListener('drop', (e) => {
       if (this.terminals.get(terminalId)?.readOnly) { e.preventDefault(); e.stopImmediatePropagation(); return; }
       const images = this._imageFilesFrom(e.dataTransfer);
-      if (!images.length) return;
+      if (!images.length) {
+        // Files that are all non-images are refused here, so their bytes never
+        // leave the browser (G4.11 r1). Wording matches terminal-paste.js.
+        const first = [...(e.dataTransfer?.items || [])].find((item) => item.kind === 'file');
+        if (first) {
+          e.preventDefault();
+          this._toastPasteError(`Unsupported image type: ${first.type || 'none'}`);
+        }
+        return;
+      }
       e.preventDefault();
       this._pasteImages(terminalId, images);
     });
@@ -797,6 +806,10 @@ class TerminalManager {
     return files;
   }
 
+  _toastPasteError(reason) {
+    this.app.bus.emit(EVT.TOAST_SHOW, { id: 'terminal-image-paste-error', message: `Image paste failed: ${reason}`, type: 'error', duration: 6000 });
+  }
+
   async _pasteImages(terminalId, files) {
     const terminal = this.terminals.get(terminalId);
     if (!terminal || terminal.readOnly || terminal.exited) return;
@@ -807,7 +820,7 @@ class TerminalManager {
         paths.push(path);
       } catch (err) {
         this.log.error('Terminal image paste failed:', err?.message || err);
-        this.app.messageRenderer?.appendSystemMessage?.(`Image paste failed: ${err?.message || err}`, 'error');
+        this._toastPasteError(err?.message || err);
       }
     }
     // The tab may have closed while the upload was in flight.

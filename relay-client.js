@@ -28,6 +28,15 @@ const { acceptTraceId } = require('./trace');
 // because they never reach here at all.
 const TURN_TERMINAL_TYPES = new Set(['message_complete', 'process_exited', 'error']);
 
+// tts-service.js names "TTS daemon" in every transport failure (connection
+// error, timeout, bad JSON); those carry addresses and errnos, so the person
+// gets a fixed line. Any other message is the engine's own response.error.
+function ttsFailureReason(err) {
+  const msg = err && err.message;
+  if (!msg || /TTS daemon/.test(msg)) return 'Speech engine unavailable';
+  return msg;
+}
+
 class RelayClient {
   constructor(relayTransport, browserWs, ttsService, log) {
     this.log = log || new NullLogger();
@@ -83,6 +92,7 @@ class RelayClient {
     this._ttsChain = Promise.resolve();
     this._ttsChunkSeq = 0;
     this._ttsGeneration = 0;
+    this._ttsReply = 0; // advances when a reply ends, so a failure is reported once per reply
     this._ttsFirstChunk = true;
     // Delivery state persists across a turn; reset per turn in _resetTTSState / on complete.
     this.director = new Director();
@@ -557,6 +567,7 @@ class RelayClient {
         this.log.error('TTS chain error before tts_done:', err.message);
       });
       this._ttsFirstChunk = true;
+      this._ttsReply++;
       this.director.reset();
     }
   }
@@ -581,25 +592,32 @@ class RelayClient {
 
       const seq = this._ttsChunkSeq++;
       const gen = this._ttsGeneration;
+      const reply = this._ttsReply;
       const traceId = this._turnTraceId;
       this._ttsChain = this._ttsChain.then(() => {
         if (gen !== this._ttsGeneration) return;
-        return this._synthesizeAndSend(cleaned, seq, gen, span, traceId);
+        return this._synthesizeAndSend(cleaned, seq, gen, reply, span, traceId);
       }).catch(err => {
-        this._logTtsFailureOnce(gen, `TTS chain error at chunk ${seq}:`, err);
+        this._reportTtsFailureOnce(gen, reply, `TTS chain error at chunk ${seq}:`, err);
       });
     }
   }
 
   // One failed chunk usually means the daemon is down, so every later chunk
-  // of the same response fails too. Log the first per generation only.
-  _logTtsFailureOnce(gen, msg, err) {
-    if (this._ttsFailureLoggedGen === gen) return;
-    this._ttsFailureLoggedGen = gen;
+  // of the same response fails too. Report the first per reply only (a reply is one generation plus one reply count).
+  _reportTtsFailureOnce(gen, reply, msg, err) {
+    const key = `${gen}:${reply}`;
+    if (this._ttsFailureReportedKey === key) return;
+    this._ttsFailureReportedKey = key;
     this.log.error(msg, err.message);
+    // A stopped reply (stale generation) stays silent. The reason is the
+    // engine's message only, never the stack.
+    if (gen === this._ttsGeneration) {
+      this._sendToBrowser({ type: 'tts_error', message: ttsFailureReason(err) });
+    }
   }
 
-  async _synthesizeAndSend(text, seq, gen, span, traceId) {
+  async _synthesizeAndSend(text, seq, gen, reply, span, traceId) {
     this.ttsPending++;
     try {
       // Delivery tempo layers on the user's base speed; instruct/gain carry the
@@ -612,7 +630,7 @@ class RelayClient {
       }
       this._sendAudioToBrowser(result.audio_base64);
     } catch (err) {
-      this._logTtsFailureOnce(gen, `TTS chunk ${seq} failed:`, err);
+      this._reportTtsFailureOnce(gen, reply, `TTS chunk ${seq} failed:`, err);
     } finally {
       this.ttsPending--;
     }

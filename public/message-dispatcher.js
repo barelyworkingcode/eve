@@ -236,8 +236,12 @@ class MessageDispatcher {
     if (sessionId) this.streamingSessions.add(sessionId);
   }
 
+  // Every turn end (and a stop) comes through here: a stop still waiting to
+  // be sent has nothing left to stop.
   _untrackStreaming(sessionId) {
-    if (sessionId) this.streamingSessions.delete(sessionId);
+    if (!sessionId) return;
+    this.streamingSessions.delete(sessionId);
+    this.app._pendingStops?.delete(sessionId);
   }
 
   resetTurnState(sessionId) {
@@ -418,9 +422,8 @@ class MessageDispatcher {
   _handleTtsError(data) {
     this.log.warn('TTS error:', data.message);
     this._notifyVoiceError(`Speech failed: ${data.message}`);
-    if (!this.voice?.isVoiceSession) {
-      this.renderer.appendSystemMessage(`TTS error: ${data.message}`, 'error');
-    }
+    const label = this.voice?.isVoiceSession ? 'Speech failed' : 'TTS error';
+    this.renderer.appendSystemMessage(`${label}: ${data.message}`, 'error');
     this.bus.emit(EVT.TTS_PLAYBACK_ENDED);
   }
 
@@ -589,7 +592,7 @@ class MessageDispatcher {
     }
 
     if (data.type === 'message_complete') {
-      this.streamingSessions.delete(sid);
+      this._untrackStreaming(sid);
       this._flushClientTTS(sid);
       const buf = this.backgroundBuffers.get(sid);
       if (buf) {
@@ -611,7 +614,7 @@ class MessageDispatcher {
     }
 
     if (data.type === 'error' || data.type === 'process_exited') {
-      this.streamingSessions.delete(sid);
+      this._untrackStreaming(sid);
       return;
     }
   }

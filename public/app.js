@@ -6,6 +6,8 @@ class EveWorkspaceClient {
     // Captured before tab restore or an empty-state render can rewrite it;
     // routed once sessions have loaded (onWebSocketReady).
     this._initialHash = window.location.hash;
+    // Sessions whose Stop was pressed while the socket was down.
+    this._pendingStops = new Set();
     this._deepLinkPin = null;
     // Decided once, before anything stamps or reads stored tabs.
     this._initFrontDoor();
@@ -351,10 +353,17 @@ class EveWorkspaceClient {
       // A turn that finishes while offline never delivers its message_complete.
       if (!online) this.sessionActivity?.reset();
       this._applyConnectionState(online);
+      // The socket survived an offline spell (no new auth, so no rejoin to wait for).
+      if (online && !this._socketReplaced) this._flushPendingStops();
     });
     // A socket that drops before its first auth leaves the state at its
     // initial offline value, so CONNECTION_CHANGED never fires for it.
-    this.bus.on(EVT.WS_DISCONNECTED, () => this._applyConnectionState(this.state.isOnline()));
+    this.bus.on(EVT.WS_DISCONNECTED, () => {
+      // A replaced socket must auth and rejoin before a stop can be sent;
+      // onWebSocketReady flushes then.
+      if (this.wsClient?.ws?.readyState !== WebSocket.OPEN) this._socketReplaced = true;
+      this._applyConnectionState(this.state.isOnline());
+    });
 
     this.bus.on(EVT.MODELS_LOADED, () => {
       this._updateChatInputCapabilities(this._activeModelValue());
@@ -493,6 +502,8 @@ class EveWorkspaceClient {
     const booted = this.loadProjects().then(() => this.loadSessions()).then(() => {
       const restoredSessionIds = this.tabManager.getRecentSessionIds().filter(id => this.sessions.has(id));
       this.resubscribeAfterReconnect({ silent: isReconnect, terminalIds: terminalsBeforeLoad });
+      this._socketReplaced = false;
+      this._flushPendingStops();
 
       const recentFiles = this.tabManager.getRecentFiles();
       for (const file of recentFiles) {
@@ -1194,6 +1205,7 @@ class EveWorkspaceClient {
     document.querySelectorAll('.question-options').forEach(el => el.remove());
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
+    this._pendingStops.delete(this.currentSessionId); // a new turn supersedes an old stop
     this.showStopButton();
   }
 
@@ -1218,6 +1230,7 @@ class EveWorkspaceClient {
     document.querySelectorAll('.question-options').forEach(el => el.remove());
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
+    this._pendingStops.delete(this.currentSessionId); // a new turn supersedes an old stop
     this.showStopButton();
     return true;
   }
@@ -1236,6 +1249,7 @@ class EveWorkspaceClient {
     this.wsClient.send({ type: 'user_input', text: this._buildSendText(text, false), files, urls, sessionId });
     this.messageRenderer.finishAssistantMessage();
     this.messageRenderer.showThinkingIndicator();
+    this._pendingStops.delete(sessionId); // a new turn supersedes an old stop
     this.showStopButton();
   }
 
@@ -1251,15 +1265,53 @@ class EveWorkspaceClient {
 
   handleStop() {
     if (!this.currentSessionId) return;
-    this.wsClient.send({ type: 'stop_generation', sessionId: this.currentSessionId });
-    this.messageDispatcher.resetTurnState(this.currentSessionId);
-    this.messageDispatcher.markTurnStopped(this.currentSessionId);
+    const sessionId = this.currentSessionId;
+    // A stop that cannot reach the server is not a stop: keep the turn
+    // running on screen and send the stop once the socket is back. A socket
+    // can read OPEN while the browser is offline and swallow the frame, so
+    // the connection state decides first.
+    if (!this.state.isOnline() || !this.wsClient.send({ type: 'stop_generation', sessionId })) {
+      this.log.warn(`Stop for session ${sessionId} not sent: connection is down, waiting for reconnect`);
+      this._pendingStops.add(sessionId);
+      this._labelStopButton(true);
+      return;
+    }
+    this._pendingStops.delete(sessionId);
+    this._finishStoppedTurn(sessionId);
+  }
+
+  _finishStoppedTurn(sessionId) {
+    // resetTurnState also clears the visible session's render state, so a
+    // session that is not on screen is only untracked and marked stopped.
+    if (sessionId === this.currentSessionId) this.messageDispatcher.resetTurnState(sessionId);
+    else this.messageDispatcher._untrackStreaming(sessionId);
+    this.messageDispatcher.markTurnStopped(sessionId);
+    if (sessionId !== this.currentSessionId) return;
     this.messageRenderer.hideThinkingIndicator();
     this.messageRenderer.finishAssistantMessage();
     this.hideStopButton();
   }
 
+  // Runs once the socket has re-authed and the sessions are rejoined.
+  _flushPendingStops() {
+    for (const sessionId of [...this._pendingStops]) {
+      if (!this.wsClient.send({ type: 'stop_generation', sessionId })) continue;
+      this.log.info(`Sent pending stop for session ${sessionId} after reconnect`);
+      this._pendingStops.delete(sessionId);
+      this._finishStoppedTurn(sessionId);
+    }
+    this._labelStopButton(this._pendingStops.has(this.currentSessionId));
+  }
+
+  _labelStopButton(stopping) {
+    const btn = this.chatForm.stopBtn;
+    if (!btn) return;
+    btn.setAttribute('aria-label', stopping ? 'Stopping…' : 'Stop');
+    btn.title = stopping ? 'Stopping…' : '';
+  }
+
   showStopButton() {
+    this._labelStopButton(this._pendingStops.has(this.currentSessionId));
     this.chatForm.showStop();
   }
 
