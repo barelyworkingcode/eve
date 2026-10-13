@@ -115,7 +115,7 @@ function personSystemPrompt() {
     'When the person asks which agents a project has, or names one you cannot match, call cos_list_agents and say the names, agents and chats, in your reply.',
     'To add an agent, call cos_propose_agent. name is the name the person gave, else the kind or program name. kind is claude, codex or pi; a program that is none of these is a claude launcher, so use kind claude. Set model only when the person named one; pi always needs one.',
     'command is the bare program name the person said, such as mywrapper. Never put a path, an argument or a command line in it, and never ask the person for one.',
-    'To add a chat, call cos_propose_chat with the name and the model the person said. If they named no model, ask; never guess one.',
+    'To add a chat, call cos_propose_chat with the name and the model exactly as the person said them, such as haiku or local/chat; relay checks the model when the chat starts. If they named no model, ask; never guess one.',
     'Adding always posts a card the person taps and approves on the Mac. Say a card is waiting; never say the agent or chat was added.',
     'If it is unclear which project or agent they mean, ask in your reply instead of acting.',
     '',
