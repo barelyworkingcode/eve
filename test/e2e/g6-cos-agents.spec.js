@@ -238,6 +238,8 @@ function agentsWorld() {
     { name: 'mywrapper', kind: 'claude' },
     { name: 'Researcher', kind: 'claude' },
   ];
+  // relay offers a codex entry only the models its catalogue lists.
+  w.models = [...(w.models || []), { value: 'codex/gpt-x', label: 'GPT X', group: 'Codex', provider: 'codex' }];
   return w;
 }
 
@@ -255,7 +257,9 @@ test.describe('start a named agent', () => {
     await expect(card).not.toContainText(/\bModel\b/);
     await expect(card).not.toContainText(/\bMode\b/);
     await card.getByRole('button', { name: 'Start', exact: true }).click();
-    await expect(card.getByText('Started codex')).toBeVisible();
+    // <name> is the session name relay gives the start, as for any Start card.
+    await expect(card.getByText('Started tidy the readme', { exact: true })).toBeVisible();
+    await expect(page.getByText('Started tidy the readme in Acme.')).toBeVisible();
     await relay.waitForEvent('chief_of_staff.start');
     await expect.poll(async () => {
       const state = await relay.json('ctl', 'state', '--json');
