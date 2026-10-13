@@ -129,6 +129,35 @@ test.describe('a turn that waits for an answer', () => {
   });
 });
 
+test.describe('a running turn while the connection is down', () => {
+  test.use({ world: askingLedgerWorld() });
+
+  test('Stop pressed offline waits, then ends the turn when the connection returns @G2.16', async ({ eve, page, relay }) => {
+    await eve.open('/');
+    const box = await openLedger(page);
+    await box.fill('hello from testbox');
+    await box.press('Enter');
+    // The permission prompt keeps the turn running until someone answers or stops it.
+    await expect(page.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
+    await eve.setOffline(true);
+    await expect(page.getByText('Reconnecting…')).toBeVisible();
+    // The prompt's backdrop covers the pointer, so a person reaches Stop with the keyboard.
+    await page.getByRole('button', { name: 'Stop' }).focus();
+    await page.keyboard.press('Enter');
+    // The stop has not reached the server, so the screen must not claim the turn stopped.
+    await expect(page.getByRole('button', { name: 'Stopping…', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Stop/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send' })).toBeHidden();
+    await eve.setOffline(false);
+    await expect(page.getByText('Reconnecting…')).toBeHidden();
+    // The server got the stop: relay writes chat.turn only when the turn ends.
+    await expect.poll(async () => (await relay.logs({ event: 'chat.turn' })).length).toBe(1);
+    await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Stop/ })).toBeHidden();
+  });
+});
+
 test('an empty box sends nothing @G2.12.r1', async ({ eve, page, relay }) => {
   const box = await startThread(eve, page);
   await box.press('Enter');
