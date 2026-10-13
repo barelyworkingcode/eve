@@ -647,3 +647,43 @@ test.describe('the daily limit', () => {
     await expect(other.getByText("I've reached today's limit, so I can't send until tomorrow.")).toBeVisible();
   });
 });
+
+function longThread(n = 150) {
+  const start = Date.now() - n * 60000;
+  return Array.from({ length: n }, (_, i) => ({
+    v: 1,
+    id: `c_long_${i}`,
+    at: new Date(start + i * 60000).toISOString(),
+    kind: 'person',
+    text: `Ledger check number ${i + 1} from testbox`,
+    byModel: false,
+  }));
+}
+
+test.describe('scrolling a long thread on a wide window', () => {
+  test.use({ world: cosWorld(), eveFiles: { 'chief-of-staff.jsonl': longThread().map((p) => JSON.stringify(p)).join('\n') + '\n' }, viewport: { width: 1440, height: 800 } });
+
+  test('wheeling past the end of the thread never scrolls the page @G6.30', async ({ eve, page }) => {
+    await eve.open('/');
+    await openCos(page);
+    const feed = page.getByRole('log');
+    await expect(feed.getByText('Ledger check number 150 from testbox', { exact: true })).toBeVisible();
+    const top = page.getByText(/^Watching 2 agents/);
+    const compose = page.getByRole('textbox', { name: 'Tell an agent' });
+    const rail = page.getByRole('navigation', { name: 'Agents' });
+
+    // The page must still show its top and bottom after each burst.
+    const wheelOver = async (target) => {
+      const box = await target.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      for (let i = 0; i < 60; i++) await page.mouse.wheel(0, 1500);
+      await expect(top).toBeInViewport({ ratio: 1 });
+      await expect(compose).toBeInViewport({ ratio: 1 });
+    };
+
+    await wheelOver(feed);
+    await wheelOver(rail);
+    // The line above the thread is not a scroller: the page is all that can take the wheel.
+    await wheelOver(top);
+  });
+});

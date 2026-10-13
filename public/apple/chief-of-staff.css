@@ -94,6 +94,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  position: relative;
+  overscroll-behavior-y: contain;
   display: flex;
   flex-direction: column;
   gap: 22px;
@@ -344,6 +346,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  position: relative;
+  overscroll-behavior-y: contain;
   padding: 0 var(--sp-3) var(--sp-5);
 }
 .cos-strip-host { display: none; }
