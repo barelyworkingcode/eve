@@ -818,11 +818,16 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
       let epicRef = null;
       let problem;
       if (opts.epic && head !== remoteHead) {
-        const found = await gh.epicBranchHead({ slug, number: opts.epic.number }, { cwd: toolRoot });
-        epicRef = found;
-        const mainInEpic = found.head === head
-          && await gh.containsCommit({ slug, base: remoteHead, head }, { cwd: toolRoot });
-        problem = mainHeadProblem({ head, branch, remoteHead, epicBranch: found.branch, epicHead: found.head, mainInEpic });
+        try {
+          const found = await gh.epicBranchHead({ slug, number: opts.epic.number }, { cwd: toolRoot });
+          epicRef = found;
+          const mainInEpic = found.head === head
+            && await gh.containsCommit({ slug, base: remoteHead, head }, { cwd: toolRoot });
+          problem = mainHeadProblem({ head, branch, remoteHead, epicBranch: found.branch, epicHead: found.head, mainInEpic });
+        } catch (err) {
+          // The epic branch may be gone (deleted after the merge); the FAIL still names both heads.
+          problem = `${mainHeadProblem({ head, branch, remoteHead })}; ${err.message}`;
+        }
       } else {
         problem = mainHeadProblem({ head, branch, remoteHead });
       }

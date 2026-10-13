@@ -37,7 +37,7 @@ function setCases() {
   let parsed;
   assert.doesNotThrow(() => { parsed = parseArgs(argv); }, '--eve REF --epic N parses');
   assert.ok(/446/.test(JSON.stringify(parsed.epic)), `parsed epic keeps 446, got ${JSON.stringify(parsed.epic)}`);
-  assert.throws(() => parseArgs(['--epic', '446']), '--epic without --eve is refused');
+  assert.throws(() => parseArgs(['--relay', 'main', '--epic', '446']), '--epic without --eve is refused');
   assert.throws(() => parseArgs(['--eve', '12', '--epic', '446', '--post']), '--epic with --post is refused');
 
   const phases = planPhases({ eve: { branch: EPIC_BRANCH, checkout: '/tmp/eve-checkout' }, epic: '446' });

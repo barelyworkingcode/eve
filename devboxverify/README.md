@@ -1640,13 +1640,15 @@ ref, passes `--epic` to the eve phase, and restores both to `main` after.
 `--epic` needs `--eve` and cannot be combined with `--post`; it takes the same
 `N` or `owner/repo#N` as below. The eve phase's `POSTED` line is echoed.
 
-The run on `main` after the merge stays as the backstop. A red run there
-reverts the epic's merge commit first, then the fix goes on a branch:
+The run on `main` after the merge stays as the backstop:
 
 ```
 node devboxverify/main.js --epic N
 node devboxverify/main.js --epic owner/repo#N
 ```
+
+A red backstop run reverts the epic's merge commit first. The fix then goes
+on a branch.
 
 - **Checkout:** run it from a clean eve-verify worktree (the `tree` rule:
   tracked files only). `PREFLIGHT main` passes when HEAD is the default-branch
@@ -1670,6 +1672,11 @@ node devboxverify/main.js --epic owner/repo#N
   preflight, or a failed status or comment call. The last stdout line is
   `POSTED<TAB><state><TAB>devbox/verify-full`.
 
-For relay alone, or a relay and eve set, use `node devboxverify/set.js --relay main --eve main`
-as before: it has no `--post`, and its `SET` and `PHASE` lines go in the
-epic's closing comment.
+Pass `--relay epic/<N>-slug` whenever the epic has a relay branch. Without
+it, eve is graded against the installed relay. Once relay's epic has merged
+and eve is re-pinned, use `--relay main` (or no `--relay`) on eve's re-pinned
+epic head.
+
+For a relay-only epic, or a relay and eve set without `--epic`, use
+`node devboxverify/set.js --relay main --eve main`. It has no `--post`; its
+`SET` and `PHASE` lines go in the epic's closing comment.
