@@ -13,7 +13,7 @@ const provenance = require('./chief-of-staff-provenance');
 
 const TOOLS = Object.freeze([
   'cos_list_sessions', 'cos_session_status', 'cos_list_agents',
-  'cos_propose_start', 'cos_propose_send', 'cos_propose_agent',
+  'cos_propose_start', 'cos_propose_send', 'cos_propose_agent', 'cos_propose_chat',
 ]);
 const TEXT_MAX = 8000;
 const LIST_MAX = 100;
@@ -25,13 +25,16 @@ const AGENT_FIELDS = Object.freeze(['project', 'name', 'kind', 'model', 'command
 // A bare program name: never a path, an argument or a command line.
 const COMMAND_RE = /^[A-Za-z0-9._+][A-Za-z0-9._+-]{0,63}$/;
 const AGENT_NAME_MAX = 40;
+const CHAT_FIELDS = Object.freeze(['project', 'name', 'model']);
+const CHAT_NAME_MAX = 60; // relay's chat-name rule
 // Row types cos_list_agents passes on from relay's list.
-const LIST_ROW_TYPES = Object.freeze(['agent']);
+const LIST_ROW_TYPES = Object.freeze(['agent', 'chat']);
 // Which actions each card kind accepts.
 const CARD_ACTIONS = Object.freeze({
   start_card: ['start', 'cancel'],
   send_card: ['start', 'cancel'],
   agent_card: ['add', 'cancel'],
+  chat_card: ['add', 'cancel'],
 });
 
 // Sorted-key JSON, so two inputs compare equal whatever their key order.
@@ -146,10 +149,11 @@ function checkMode(v) {
   return { value: v };
 }
 
+// An entry may name an agent or a chat; relay resolves it and refuses a miss.
 function checkEntry(v) {
   if (v === undefined || v === null) return { value: '' };
   const e = typeof v === 'string' ? v.trim() : '';
-  if (!e || e.length > AGENT_NAME_MAX) return invalid('entry', `must be a name of 1 to ${AGENT_NAME_MAX} characters`);
+  if (!e || e.length > CHAT_NAME_MAX) return invalid('entry', `must be a name of 1 to ${CHAT_NAME_MAX} characters`);
   return { value: e };
 }
 
@@ -187,6 +191,31 @@ function validateAgentFields(args) {
     command = args.command;
   }
   return { value: { name, kind: args.kind, model, command } };
+}
+
+// name and model of cos_propose_chat. Relay's door applies the same rules, and a
+// chat has no scoped preview, so eve checks them before it posts the card.
+function validateChatFields(args) {
+  const unknown = Object.keys(args).find((k) => !CHAT_FIELDS.includes(k));
+  if (unknown) return invalid(unknown, 'is not a field of cos_propose_chat');
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+  if (!name || [...name].length > CHAT_NAME_MAX || /\p{Cc}/u.test(name)) {
+    return invalid('name', `must be 1 to ${CHAT_NAME_MAX} characters with no control characters`);
+  }
+  const model = typeof args.model === 'string' ? args.model.trim() : '';
+  if (!model) return invalid('model', 'is required');
+  if (Buffer.byteLength(model) > 200 || /[\s\p{Cc}]/u.test(model)) {
+    return invalid('model', 'must be at most 200 bytes with no whitespace or control characters');
+  }
+  return { value: { name, model } };
+}
+
+// The first row of relay's list, of any type, that already uses the name; else null.
+function nameClash(rows, name, projectName) {
+  const want = name.toLowerCase();
+  const hit = (Array.isArray(rows) ? rows : []).find((r) => r && typeof r.name === 'string' && r.name.toLowerCase() === want);
+  if (!hit) return null;
+  return `"${name}" is already ${hit.type === 'chat' ? 'a chat template' : 'an agent'} in ${projectName}`;
 }
 
 // project: exact id, or exact case-insensitive name among all projects, local or on a host.
@@ -259,6 +288,18 @@ function postAgentCard(cos, turn, project, machine, entry) {
   });
 }
 
+function postChatCard(cos, turn, project, template) {
+  return cos._addPost({
+    kind: 'chat_card',
+    card: {
+      state: 'pending', project: { id: project.id, name: project.name },
+      template: { name: template.name, model: template.model },
+      why: 'add_needs_tap', turnId: turn.turnId, error: null,
+    },
+    byModel: true,
+  });
+}
+
 function sessionRow(cos, row) {
   return {
     sessionId: row.id,
@@ -316,6 +357,7 @@ async function dispatch(cos, turn, tool, args) {
     case 'cos_propose_start': return proposeStart(cos, turn, args);
     case 'cos_propose_send': return proposeSend(cos, turn, args);
     case 'cos_propose_agent': return proposeAgent(cos, turn, args);
+    case 'cos_propose_chat': return proposeChat(cos, turn, args);
     default: return fail(400, 'unknown_tool', `Unknown tool "${String(tool).slice(0, 60)}"`);
   }
 }
@@ -368,6 +410,21 @@ async function proposeAgent(cos, turn, args) {
   const r = await cos._previewAgent(p.value.id, f.value);
   if (!r.ok) return fail(502, `relay_${r.code}`, r.message);
   return ok({ status: 'card', cardId: postAgentCard(cos, turn, p.value, r.machine, r.entry).id });
+}
+
+// Always a card. Relay has no preview for a chat, so eve lists the project's rows
+// and refuses a name any of them uses; a failed list posts nothing. Relay checks
+// the name again at the tap.
+async function proposeChat(cos, turn, args) {
+  const f = validateChatFields(args);
+  if (f.error) return failFrom(f);
+  const p = resolveProjectArg(cos.listProjects, args.project);
+  if (p.error) return failFrom(p);
+  const r = await cos._listAgents(p.value.id);
+  if (!r.ok) return fail(502, `relay_${r.code}`, r.message);
+  const clash = nameClash(r.entries, f.value.name, p.value.name);
+  if (clash) return fail(409, 'name_taken', clash);
+  return ok({ status: 'card', cardId: postChatCard(cos, turn, p.value, f.value).id });
 }
 
 async function proposeStart(cos, turn, args) {
@@ -432,7 +489,7 @@ async function cardAction(cos, { postId, action, edits } = {}) {
   if (!allowed.includes(action)) return cardFail('Unknown card action');
   const card = post.card;
   if (card.state !== 'pending') return cardFail(`This card is ${card.state}`);
-  if (post.kind === 'agent_card' && edits && typeof edits === 'object' && Object.keys(edits).length) {
+  if ((post.kind === 'agent_card' || post.kind === 'chat_card') && edits && typeof edits === 'object' && Object.keys(edits).length) {
     return cardFail('An add card takes no edits');
   }
   if (action === 'cancel') {
@@ -441,7 +498,7 @@ async function cardAction(cos, { postId, action, edits } = {}) {
     return { ok: true };
   }
   const e = edits && typeof edits === 'object' && !Array.isArray(edits) ? edits : {};
-  if (post.kind === 'agent_card') return tapAdd(cos, post);
+  if (post.kind === 'agent_card' || post.kind === 'chat_card') return tapAdd(cos, post);
   return post.kind === 'start_card' ? tapStart(cos, post, e) : tapSend(cos, post, e);
 }
 
@@ -476,7 +533,7 @@ async function tapStart(cos, post, edits) {
   return { ok: true };
 }
 
-// The one caller of _addAgent. The state leaves `pending` before the await, which
+// The one caller of _addAgent and _addChatTemplate. The state leaves `pending` before the await, which
 // can last as long as the person takes to approve at the Mac.
 async function tapAdd(cos, post) {
   const card = post.card;
@@ -490,11 +547,16 @@ async function tapAdd(cos, post) {
   card.state = 'adding';
   card.error = null;
   cos._updatePost(post);
-  const r = await cos._addAgent(project.id, card.entry);
+  const isChat = post.kind === 'chat_card';
+  const r = isChat ? await cos._addChatTemplate(project.id, card.template) : await cos._addAgent(project.id, card.entry);
   if (r.ok) {
     card.state = 'added';
-    card.entry = r.entry;
-    card.machine = r.machine || card.machine;
+    if (isChat) {
+      card.template = { name: r.template.name, model: r.template.model };
+    } else {
+      card.entry = r.entry;
+      card.machine = r.machine || card.machine;
+    }
   } else {
     card.state = 'failed';
     card.error = r.message;
