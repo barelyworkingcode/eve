@@ -973,7 +973,7 @@ frame must list the folder within 60 s, then the rail row must exist and its lin
 must read `Read-only thread`. A click opens the thread tab (`outside-thread`;
 the load is done when `aria-busy` is false and `data-fetches` is above 0). The
 `Conversation` log must show a `You` entry with the prompt, a `Claude` entry that
-reads exactly the marker (plain text) and a `Tool` entry (each a bounded poll of
+carries the marker as plain text (no child elements) and a `Tool` entry (each a bounded poll of
 up to 120 s: model output; BLOCKED when the reply never comes). The thread must hold no
 textbox and no Send or Stop button. The journey then ends the process group and
 waits for the child's `exit` event; the tab must close and the toast `<name> left
