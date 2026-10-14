@@ -109,7 +109,7 @@ test.describe('open a thread', () => {
     await expect(thread).toBeVisible();
     await fetched(thread, 1);
     await expect(thread).toContainText('Entry 000');
-    await expect(page.getByText('Outside · acme-console · /work/acme')).toBeVisible();
+    await expect(page.getByText('Outside · acme-console · /work/acme', { exact: true })).toBeVisible();
     await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
 
     // A session on an SSH host.
@@ -117,7 +117,7 @@ test.describe('open a thread', () => {
     await rowOf(page, 'Orchard review').click();
     await expect(thread).toContainText('Prune the orchard plan');
     await expect(thread).toHaveAttribute('aria-busy', 'false');
-    await expect(page.getByText('Outside · testbox · /home/acme/orchard')).toBeVisible();
+    await expect(page.getByText('Outside · testbox · /home/acme/orchard', { exact: true })).toBeVisible();
     await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
   });
 });
@@ -260,8 +260,7 @@ test.describe('the row says whether a thread is available', () => {
     await expect(rowOf(page, 'Orchard review')).toContainText('Read-only thread');
 
     // The host drops: its row says so, and pressing it opens nothing.
-    await relay.ctl('host', 'status', '--id', 'h_box', '--status', 'unreachable', '--error', 'offline');
-    await worlds.outside.replace(relay.dir, [outsideRow(), hostRow()]);
+    await worlds.outside.replace(relay.dir, [outsideRow(), hostRow({ machine_status: 'unreachable' })]);
     await expect(rowOf(page, 'Orchard review')).toContainText('Thread unavailable: Host is unreachable');
     await expect(rowOf(page, 'Ledger notes')).toContainText('Read-only thread');
 
@@ -272,6 +271,6 @@ test.describe('the row says whether a thread is available', () => {
     await expect(thread).toBeVisible();
     await expect(thread).toContainText('Entry 000');
     await expect(thread).toHaveCount(1);
-    await expect(page.getByText('Outside · testbox · /home/acme/orchard')).toHaveCount(0);
+    await expect(page.getByText('Outside · testbox · /home/acme/orchard', { exact: true })).toHaveCount(0);
   });
 });

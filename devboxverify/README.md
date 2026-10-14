@@ -916,7 +916,7 @@ first 300 characters of the reply.
   `node devboxverify/main.js --screen --only cos-host-noread`.
 
 **cos-outside-simple.** A Claude started outside relay shows on the Chief of
-Staff rail, can be asked about, and opens read-only (G6.93, G6.94, G6.95). Screen
+Staff rail, can be asked about, and opens read-only (G6.93 to G6.96). Screen
 journey (`screen: true`, 600 s). It needs relay's outside inventory: when the
 first Chief of Staff snapshot lists no machine within 40 s (relay answers 404 for
 the route) it is BLOCKED. It makes a scratch git folder `verify-<nonce>-outside-*`
@@ -939,11 +939,17 @@ request for a Bash command into the session; once the permission prompt shows on
 the pane, the row must read Waiting on you within 17 s (relay's 15 s probe plus
 2 s). relay's probe reads a pending tool call as asking, so this is the hookless
 change it can show for sure; the verdict gives the time from the prompt and from
-the request. It clicks View read-only on the console row; `terminal-read-only` must
-show Read-only. Once `terminal_joined` arrives it types `echo typed-<nonce>` and
+the request. The console row's line must read `Read-only thread` (a row click opens
+the thread), and the journey presses the row's `View <name> read-only` button;
+`terminal-read-only` must show Read-only. Once `terminal_joined` arrives it types `echo typed-<nonce>` and
 Return in the terminal input, then closes the tab; up to the `terminal_close`
 frame the page must send no `terminal_input` or `terminal_resize` frame, and once
-relay answers `terminal_closed` the tmux pane must not hold the text. It then kills both tmux sessions and
+relay answers `terminal_closed` the tmux pane must not hold the text. It then
+clicks the host row, which must read `Read-only thread`; the thread opens (it
+waits on `data-fetches` and `aria-busy` false, G6.96) and must show a `You` entry
+with the host prompt and a `Claude` entry with the host marker (a bounded poll of
+up to 120 s: model output, and the thread refreshes every probe interval).
+It then kills both tmux sessions and
 every row for either folder, duplicates included, must leave the rail within 60 s. PASS needs all of these.
 - Lives in: `chief-of-staff-outside.js`; `public/agent-board.js`;
   `public/terminal-manager.js`; relay's outside-session probe.
@@ -955,6 +961,29 @@ every row for either folder, duplicates included, must leave the rail within 60 
   which also runs on FAIL and on timeout, kills the tmux sessions it started
   (by exact name), deletes the project, the host and the scratch folders. Run it
   alone: `node devboxverify/main.js --screen --only cos-outside-simple`.
+
+**outside-thread.** An outside Claude with no tmux opens as a read-only thread
+(G6.96, simple path). Not a screen journey (420 s). Same BLOCKED rule for a relay
+with no outside inventory, and BLOCKED when claude is not on PATH. It makes a
+scratch git folder in Acme Corp and starts `claude -p --model haiku
+--permission-mode default --allowedTools "Bash(sleep 90)" -- "Reply with exactly
+verify-<nonce>-thread, then run sleep 90 with Bash."` there as a detached child
+in its own process group, with no tmux and no hooks. A `cos_outside_sessions`
+frame must list the folder within 60 s, then the rail row must exist and its line
+must read `Read-only thread`. A click opens the thread tab (`outside-thread`;
+the load is done when `aria-busy` is false and `data-fetches` is above 0). The
+`Conversation` log must show a `You` entry with the prompt, a `Claude` entry that
+reads exactly the marker (plain text) and a `Tool` entry (each a bounded poll of
+up to 120 s: model output; BLOCKED when the reply never comes). The thread must hold no
+textbox and no Send or Stop button. The journey then ends the process group and
+waits for the child's `exit` event; the tab must close and the toast `<name> left
+the Agents list, so its thread closed.` must show within 60 s (relay's eviction).
+- Lives in: `public/outside-thread.js`; `public/panes/outside-thread-pane.js`;
+  `routes/index.js` (transcript route); relay's outside transcript route.
+- Traps: BLOCKED setup V-COS; BLOCKED when claude is not on PATH; no NOTRUN path.
+  One cleanup, which also runs on FAIL and on timeout, ends the process group
+  and then removes the scratch folder. Run it alone:
+  `node devboxverify/main.js --only outside-thread`.
 
 **cos-outside-hooks.** An outside Claude's hook report moves its row at once
 (G6.93, power path). Not a screen journey (360 s). Same BLOCKED
