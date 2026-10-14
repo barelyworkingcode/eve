@@ -92,6 +92,17 @@ class ChiefOfStaffPage {
     this.rail?.render();
   }
 
+  // Each row carries its machine's status, so the rail can refuse a row on an unreachable machine.
+  _outsideRailRows() {
+    const status = new Map(this.outsideMachines.map(m => [m?.hostId || null, m?.status]));
+    return [...this.outsideRows.values()].map(r => ({ ...r, machineStatus: status.get(r.hostId || null) || null }));
+  }
+
+  _openOutsideThread(row) {
+    const current = this.outsideRows.get(row?.id);
+    if (current) this.container.get('outsideThread').open(current);
+  }
+
   async _openOutside(row) {
     const current = this.outsideRows.get(row.id);
     if (!current?.viewable || !current.tmuxSession) return;
@@ -210,7 +221,7 @@ class ChiefOfStaffPage {
     root.textContent = '';
     root.appendChild(page);
     if (typeof CosAgentRail !== 'undefined') {
-      this.rail = new CosAgentRail({ container: this.container, outsideRows: () => [...this.outsideRows.values()], openOutside: row => this._openOutside(row), note: (id) => this.rowNotes.get(id) || null });
+      this.rail = new CosAgentRail({ container: this.container, outsideRows: () => this._outsideRailRows(), openOutside: row => this._openOutside(row), openOutsideThread: row => this._openOutsideThread(row), note: (id) => this.rowNotes.get(id) || null });
       this.rail.mount(nav, stripHost, { page, divider });
     }
     this._renderFeed();
