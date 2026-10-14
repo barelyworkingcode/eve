@@ -751,10 +751,11 @@ create, prints to stderr and exits 64; never launched), else BLOCKED. The
 login shell (`$SHELL -lic 'command -v vcmd<nonce>'`, first non-empty line) must
 find it at exactly that path, else BLOCKED. In the Chief of Staff thread it
 types `Add a claude agent named v<nonce> to Acme Corp that runs the
-vcmd<nonce> program with the haiku model.` The first post must be an `agent_card` (anything else is FAIL). Its
-entry must be named `v<nonce>`, kind `claude`, model `haiku`, with a command
-that starts with `/` and equals the login-shell path for `vcmd<nonce>`. `relay project agents
-list --id <Acme> --json` is read once and must not hold the entry. The journey
+vcmd<nonce> program with the haiku model.` The first post must be an
+`agent_card` (anything else is FAIL). Its entry must be named `v<nonce>`, kind
+`claude`, model `haiku`, with a command that starts with `/` and equals the
+login-shell path for `vcmd<nonce>`. `relay project agents list --id <Acme>
+--json` is read once and must not hold the entry. The journey
 starts the presence helper, waits for its `ready`, taps `cos-add-<id>`, and
 waits for a `cos_post_update` with state `added` (`failed` is FAIL, or BLOCKED
 when the presence dialog was not answered). `cos-card-status-<id>` must read
@@ -765,8 +766,8 @@ Added. One more list read must hold the entry with the card's command.
 - Waits: the `agent_card` `cos_post` frame (bounded 120 s: model output); the
   presence helper's `ready`; the `cos_post_update` frame; then one list read.
 - Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The presence
-  prompt is matched on the entry name. Two cleanups, in order, also run on FAIL and
-  on timeout: the first removes the entry through `relay project agents remove`
+  prompt is matched on the entry name. Two cleanups, in order, also run on FAIL
+  and on timeout: the first removes the entry through `relay project agents remove`
   with its own presence prompt and fails if the entry stays; the second
   removes the scratch file (ENOENT is done) and fails if it stays. A killed
   runner can leave `~/.local/bin/vcmd*` behind, which is harmless; check the
