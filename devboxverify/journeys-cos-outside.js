@@ -582,9 +582,12 @@ async function outsideThread(env) {
   try { process.kill(-child.pid, 'SIGKILL'); } catch (err) { problems.push(`could not end the claude: ${firstLine(err)}`); }
   await held.exited;
   const notice = `${name || base} left the Agents list, so its thread closed.`;
-  const closed = await expect(thread).toHaveCount(0, { timeout: GONE_WITHIN_MS }).then(() => true, () => false);
+  // Closing the tab hides the pane but leaves its nodes in the DOM: gone means hidden, as a person sees it.
+  // The toast is watched from the same moment, in its own window, so its 8 s life cannot be missed.
+  const toast = expect(page.getByText(notice)).toBeVisible({ timeout: GONE_WITHIN_MS }).then(() => true, () => false);
+  const closed = await expect(thread).toBeHidden({ timeout: GONE_WITHIN_MS }).then(() => true, () => false);
   if (!closed) problems.push(`the thread tab is still open ${GONE_WITHIN_MS / 1000}s after the claude ended`);
-  const told = await expect(page.getByText(notice)).toBeVisible({ timeout: closed ? 5000 : 1000 }).then(() => true, () => false);
+  const told = await toast;
   if (!told) problems.push(`no notice "${notice}"`);
 
   if (problems.length) return result(id, FAIL, problems.join('; '));
