@@ -572,8 +572,13 @@ async function outsideThread(env) {
   env.step('read the thread');
   if (!(await entryWith(page, 'You', prompt))) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}the thread shows no You entry with the prompt`);
   if (!(await entryWith(page, 'Claude', marker))) return result(id, BLOCKED, `the thread shows no Claude entry with ${marker} within ${REPLY_WITHIN_MS / 1000}s (model output)`);
-  const reply = await entryOf(page, 'Claude').locator('.outside-thread__text').allTextContents();
-  if (!reply.some((t) => t.trim() === marker)) problems.push(`no Claude entry reads exactly ${marker}`);
+  // Plain text: a text element holding the marker with no child element (no a, img, strong, code).
+  const texts = entryOf(page, 'Claude').locator('.outside-thread__text');
+  const replies = await texts.evaluateAll((els) => els.map((el) => ({ text: el.textContent, children: el.children.length })));
+  const said = replies.find((r) => r.text.includes(marker));
+  const sample = (said ? said.text : replies.map((r) => r.text).join(' | ')).replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!said) problems.push(`no Claude entry carries ${marker} (replies: "${sample}")`);
+  else if (said.children > 0) problems.push(`the Claude entry with ${marker} holds ${said.children} child elements, not plain text ("${sample}")`);
   const tool = await poll(async () => ((await entryOf(page, 'Tool').count()) > 0) || null, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
   if (!tool) problems.push(`the thread shows no Tool entry within ${REPLY_WITHIN_MS / 1000}s (model output, or the Bash call was refused)`);
 
@@ -595,7 +600,7 @@ async function outsideThread(env) {
   if (!told) problems.push(`no notice "${notice}"`);
 
   if (problems.length) return result(id, FAIL, problems.join('; '));
-  return result(id, PASS, `the row for ${base} read Read-only thread; its thread showed a You entry with the prompt, a Claude entry reading ${marker} and a Tool entry, with no textbox, Send or Stop; `
+  return result(id, PASS, `the row for ${base} read Read-only thread; its thread showed a You entry with the prompt, a Claude entry carrying ${marker} as plain text ("${sample}") and a Tool entry, with no textbox, Send or Stop; `
     + `once the claude ended the tab closed with "${notice}" within ${GONE_WITHIN_MS / 1000}s`);
 }
 
