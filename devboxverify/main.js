@@ -64,8 +64,16 @@ function parseEpicRef(ref) {
 }
 
 // The default branch's head on GitHub is what a full run must have checked out.
-function mainHeadProblem({ head, branch, remoteHead }) {
-  return head === remoteHead ? null : `checkout HEAD ${head} is not ${branch} head ${remoteHead} on GitHub`;
+// With --epic, the head of the single epic/<N>- branch also counts when the
+// default-branch head is contained in it (main merged into the epic).
+function mainHeadProblem({ head, branch, remoteHead, epicBranch, epicHead, mainInEpic }) {
+  if (head === remoteHead) return null;
+  if (epicBranch && head === epicHead) {
+    if (mainInEpic) return null;
+    return `${branch} head ${remoteHead} is not in ${epicBranch} ${epicHead}; merge main into the epic first`;
+  }
+  const epic = epicBranch ? `, nor ${epicBranch} head ${epicHead}` : '';
+  return `checkout HEAD ${head} is not ${branch} head ${remoteHead} on GitHub${epic}`;
 }
 
 function parseArgs(argv, { toolRoot }) {
@@ -805,11 +813,27 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
       return 'clean';
     }],
     ['main', async () => {
-      const { slug, branch, head: remoteHead } = await require('./post').defaultBranchHead({ cwd: toolRoot });
-      const problem = mainHeadProblem({ head, branch, remoteHead });
+      const gh = require('./post');
+      const { slug, branch, head: remoteHead } = await gh.defaultBranchHead({ cwd: toolRoot });
+      let epicRef = null;
+      let problem;
+      if (opts.epic && head !== remoteHead) {
+        try {
+          const found = await gh.epicBranchHead({ slug, number: opts.epic.number }, { cwd: toolRoot });
+          epicRef = found;
+          const mainInEpic = found.head === head
+            && await gh.containsCommit({ slug, base: remoteHead, head }, { cwd: toolRoot });
+          problem = mainHeadProblem({ head, branch, remoteHead, epicBranch: found.branch, epicHead: found.head, mainInEpic });
+        } catch (err) {
+          // The epic branch may be gone (deleted after the merge); the FAIL still names both heads.
+          problem = `${mainHeadProblem({ head, branch, remoteHead })}; ${err.message}`;
+        }
+      } else {
+        problem = mainHeadProblem({ head, branch, remoteHead });
+      }
       if (problem) throw new Error(problem);
       epicMain = { slug, head };
-      return `${slug}@${head}`;
+      return `${slug}@${head} ${head === remoteHead ? 'main' : epicRef.branch}`;
     }],
     ['service', async () => {
       listOut = await exec(relayBin, ['service', 'list']);

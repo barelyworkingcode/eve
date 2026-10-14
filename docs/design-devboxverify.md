@@ -601,3 +601,10 @@ kickstarted, record + `status.html` + notification on a BLOCKED night.
   re-verify; green after that continues, with a `REPAIRED` line and a
   `Repaired` evidence row (`none` when nothing was repaired). A repaired run
   resets twice. The wire shape is devboxWorld's `docs/WORLD.md`.
+- **A22 · Epic head (#453).** The full run may target an epic branch head, so
+  `main` only receives a verified epic. With `--epic`, `PREFLIGHT main` passes
+  when HEAD is the default-branch head, or the head of the single `epic/<N>-`
+  branch on GitHub with the default-branch head contained in it. Anything else
+  fails naming HEAD, the default-branch head and the epic branch. `set.js
+  --eve REF --epic N` runs it; the run on `main` after the merge stays as the
+  backstop, and a red one reverts the epic's merge commit first.

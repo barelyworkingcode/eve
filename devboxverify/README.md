@@ -1327,7 +1327,7 @@ later PRs that touch that file. Check every such edit in review.
 one run, and posts one `devbox/verify` result on both PRs.
 
 ```bash
-node devboxverify/set.js [--relay <ref>] [--eve <ref>] [--post]
+node devboxverify/set.js [--relay <ref>] [--eve <ref> [--epic N]] [--post]
 ```
 
 A ref is a PR number or a branch name. `--post` takes no value and needs every
@@ -1627,17 +1627,35 @@ then fix on a branch.
 ## Verifying an epic
 
 Eve's verify cadence is `epic`: PRs need no `devbox/verify` status, and the
-epic's last task runs one full eve run on `main`:
+epic's last task runs one full eve run. The normal run is on the epic head,
+after `main` is merged into the epic and before the epic-to-main PR merges,
+so `main` only receives a verified epic:
+
+```
+node devboxverify/set.js --eve epic/<N>-slug [--relay epic/<N>-slug] --epic N
+```
+
+`set.js` builds Relay.app from the relay ref, points eve-verify at the eve
+ref, passes `--epic` to the eve phase, and restores both to `main` after.
+`--epic` needs `--eve` and cannot be combined with `--post`; it takes the same
+`N` or `owner/repo#N` as below. The eve phase's `POSTED` line is echoed.
+
+The run on `main` after the merge stays as the backstop:
 
 ```
 node devboxverify/main.js --epic N
 node devboxverify/main.js --epic owner/repo#N
 ```
 
+A red backstop run reverts the epic's merge commit first. The fix then goes
+on a branch.
+
 - **Checkout:** run it from a clean eve-verify worktree (the `tree` rule:
-  tracked files only) at the head of eve's default branch. `PREFLIGHT main`
-  compares HEAD with the default-branch head on GitHub and names both shas
-  when they differ.
+  tracked files only). `PREFLIGHT main` passes when HEAD is the default-branch
+  head on GitHub, or the head of the single `epic/<N>-` branch there with the
+  default-branch head contained in it. Otherwise it fails, naming HEAD, the
+  default-branch head and, when it found one, the epic branch and its head.
+  The OK detail reads `<slug>@<head> main` or `<slug>@<head> <epicBranch>`.
 - **Scope:** every journey, screen journeys included (`--epic` implies
   `--screen`). `--epic` with `--post` or `--only` exits 2 with the usage line.
 - **Locks and console:** same as any run. Take devlock `SCREEN RESTART WORLD`
@@ -1654,6 +1672,11 @@ node devboxverify/main.js --epic owner/repo#N
   preflight, or a failed status or comment call. The last stdout line is
   `POSTED<TAB><state><TAB>devbox/verify-full`.
 
-For relay alone, or a relay and eve set, use `node devboxverify/set.js --relay main --eve main`
-as before: it has no `--post`, and its `SET` and `PHASE` lines go in the
-epic's closing comment.
+Pass `--relay epic/<N>-slug` whenever the epic has a relay branch. Without
+it, eve is graded against the installed relay. Once relay's epic has merged
+and eve is re-pinned, use `--relay main` (or no `--relay`) on eve's re-pinned
+epic head.
+
+For a relay-only epic, or a relay and eve set without `--epic`, use
+`node devboxverify/set.js --relay main --eve main`. It has no `--post`; its
+`SET` and `PHASE` lines go in the epic's closing comment.

@@ -11,7 +11,7 @@ Conventions the global rules name: the **feature map** is
 `devboxverify`. A PR that adds or changes a feature updates that feature's row in the feature map in the same PR: its doors, proofs and refusals, and the spec the row names.
 A new feature gets a new row with the next free ID in its goal; IDs are never reused or renumbered. A PR that adds or changes a route or WebSocket frame the browser uses updates [docs/api.md](docs/api.md).
 
-The **verify cadence** is `epic`: a PR needs no `devbox/verify` status. CI runs the specs the change reaches, and each epic's last task runs `devboxverify --epic REF` on `main`.
+The **verify cadence** is `epic`: a PR needs no `devbox/verify` status. CI runs the specs the change reaches, and each epic's last task runs `devboxverify --epic REF` on the epic head after `main` is merged in (`set.js --eve epic/<N>-slug --epic N`); a run on `main` after the merge is the backstop.
 
 ## Security (eve-specific rules)
 
@@ -92,7 +92,7 @@ Frontend is vanilla JS (no framework, no build step), mid-migration from a legac
 node --check <file.js>      # THE build gate. There is no compiler.
 npx playwright test         # hermetic suite: fakerelay + eve per test (docs/test.md)
 npm run -s verify:devbox    # devbox world journeys, test machine only (devboxverify/README.md)
-node devboxverify/main.js --epic REF   # an epic's full run on main; posts devbox/verify-full
+node devboxverify/set.js --eve epic/<N>-slug --epic N   # an epic's full run on its head; posts devbox/verify-full
 ```
 
 **Hermetic suite.** `npx playwright test` (or `npm run test:e2e`): every test starts its own `fakerelay` (relay's repo), relayScheduler and eve, and drives eve only through what a person sees (role, label and text locators). The harness is `playwright.config.js` and `test/e2e/support/`; the fixture API is in [docs/test.md](docs/test.md). The first run builds fakerelay and relayScheduler from the commits in `test/e2e/relay-pin.json`. Devbox world (`devboxverify/`; an epic's last task posts `devbox/verify-full` with `--epic`) stays the proof for what no hermetic spec can reach (real Safari, the iOS app, the installed stack).

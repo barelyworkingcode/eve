@@ -149,6 +149,24 @@ async function defaultBranchHead({ cwd, ghFn = gh }) {
   return { slug, branch, head };
 }
 
+// The epic's branch is the single epic/<N>- ref on GitHub; its head is what an epic-head run checks out.
+async function epicBranchHead({ slug, number }, { cwd, ghFn = gh }) {
+  const prefix = `epic/${number}-`;
+  const refs = JSON.parse(await ghFn(['api', `repos/${slug}/git/matching-refs/heads/${prefix}`], { cwd }));
+  const names = refs.map((r) => String(r.ref).replace(/^refs\/heads\//, ''));
+  if (refs.length === 0) throw new Error(`no ${prefix} branch in ${slug}`);
+  if (refs.length > 1) throw new Error(`${refs.length} ${prefix} branches in ${slug}: ${names.join(', ')}`);
+  const head = refs[0].object && refs[0].object.sha;
+  if (!SHA40.test(head)) throw new Error(`GitHub returned no 40-hex head for ${slug} ${names[0]}`);
+  return { branch: names[0], head };
+}
+
+// True when base is head or an ancestor of it.
+async function containsCommit({ slug, base, head }, { cwd, ghFn = gh }) {
+  const status = await ghFn(['api', `repos/${slug}/compare/${base}...${head}`, '-q', '.status'], { cwd });
+  return status === 'identical' || status === 'ahead';
+}
+
 // Status first, awaited; the comment only follows a success status.
 async function postFull({ slug, head, epic, results, total }, { cwd, ghFn = gh }) {
   const state = fullState(results, total);
@@ -167,4 +185,5 @@ async function postFull({ slug, head, epic, results, total }, { cwd, ghFn = gh }
 module.exports = {
   statusState, renderComment, checkSelection, statusDescription, commentUrlFrom, gh, prHead, post,
   FULL_CONTEXT, fullState, fullDescription, fullVerifyLine, defaultBranchHead, postFull,
+  epicBranchHead, containsCommit,
 };
