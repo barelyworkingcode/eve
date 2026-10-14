@@ -3230,11 +3230,11 @@ async function cosWaitUpdate(seen, postId, states, timeoutMs = COS_CARD_UPDATE_W
     { timeoutMs, intervalMs: 250 });
 }
 
-// The absolute path the person's login shell finds for `claude`: the first
-// non-empty line of `$SHELL -lic 'command -v claude'`. Empty when none.
-async function loginShellClaude() {
+// The absolute path the person's login shell finds for `name`: the first
+// non-empty line of `$SHELL -lic 'command -v name'`. Empty when none.
+async function loginShellFind(name) {
   const shell = process.env.SHELL || '/bin/zsh';
-  const { stdout } = await exec(shell, ['-lic', 'command -v claude'], { timeout: 20000 }).catch(() => ({ stdout: '' }));
+  const { stdout } = await exec(shell, ['-lic', `command -v '${name}'`], { timeout: 20000 }).catch(() => ({ stdout: '' }));
   return stdout.split('\n').map((l) => l.trim()).find(Boolean) || '';
 }
 
@@ -3272,16 +3272,32 @@ async function cosAddAgent(env) {
   if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const acme = env.world.projects.acme;
   const name = `v${env.nonce}`;
-  const expectedCommand = await loginShellClaude();
-  if (!expectedCommand.startsWith('/')) return result(id, BLOCKED, 'the login shell finds no claude command to compare the card with');
   removeAgentEntryLater(env, acme, name);
+  // A scratch program that is not a kind, so the model must supply `command`.
+  // Never launched. Cleanup is registered only after the exclusive create, so
+  // it can only remove a file this run made (runs after the entry cleanup).
+  const program = `vcmd${env.nonce}`;
+  const scratch = path.join(os.homedir(), '.local', 'bin', program);
+  const body = '#!/bin/sh\n# devboxverify cos-add-agent scratch command. Never launched; safe to delete.\n'
+    + 'echo "devboxverify scratch command, not an agent" >&2\nexit 64\n';
+  try {
+    await fs.promises.writeFile(scratch, body, { mode: 0o700, flag: 'wx' });
+  } catch (err) {
+    return result(id, BLOCKED, `cannot create the scratch command ${scratch}: ${firstLine(err)}`);
+  }
+  env.cleanup(`remove the scratch command ${program}`, async () => {
+    await fs.promises.unlink(scratch).catch((err) => { if (err.code !== 'ENOENT') throw err; });
+    if (fs.existsSync(scratch)) throw new Error(`${scratch} is still there; check its marker line, then delete it`);
+  }, 10000);
+  const expectedCommand = await loginShellFind(program);
+  if (expectedCommand !== scratch) return result(id, BLOCKED, `the login shell does not find ${program} at ${scratch}`);
   const page = await env.newPage();
   const seen = cosFrames(page);
   await openEve(page, env);
   await openChiefOfStaff(page, env);
 
   env.step('ask for the agent');
-  const from = await cosSay(page, seen, `Add an agent named ${name} to ${acme.name} that runs the claude command with the haiku model.`);
+  const from = await cosSay(page, seen, `Add a claude agent named ${name} to ${acme.name} that runs the ${program} program with the haiku model.`);
   env.step('wait for the Add card');
   const proposed = await cosWaitPost(seen, from, COS_AGENT_KINDS);
   if (!proposed) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
