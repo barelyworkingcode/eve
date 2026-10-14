@@ -154,7 +154,7 @@ class OutsideThreadPage {
       page = null;
       gone = err?.status === 404;
     }
-    if (!this.threads.has(sessionId)) return null;   // closed while in flight
+    if (this.threads.get(sessionId) !== t) return null;   // closed (or closed and reopened) while in flight
     t.busy = false;
     t.fetches += 1;
     if (gone) { this._left(sessionId); return null; }

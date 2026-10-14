@@ -341,7 +341,7 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   app.get('/api/outside-sessions/:id/transcript', requireAuth, (req, res) => {
     const { before, limit } = req.query;
     const text = (v) => typeof v === 'string';
-    const limitOk = limit === undefined || (text(limit) && /^[0-9]{1,3}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= 200);
+    const limitOk = limit === undefined || (text(limit) && /^[1-9][0-9]{0,2}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= 200);
     const beforeOk = before === undefined || (text(before) && OUTSIDE_CURSOR.test(before));
     if (!OUTSIDE_ID.test(req.params.id) || !limitOk || !beforeOk) {
       return res.status(400).json({ error: 'invalid_request' });

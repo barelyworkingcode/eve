@@ -456,7 +456,7 @@
   .cos-need-you { min-width: var(--hit); }
 }
 
-/* ---- Outside session thread: read-only, plain text (eve#444) ---- */
+/* ---- Outside session thread: read-only, plain text ---- */
 .outside-thread-pane { height: 100%; }
 .outside-thread {
   display: flex;
