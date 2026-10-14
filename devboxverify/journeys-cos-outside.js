@@ -398,6 +398,8 @@ async function cosOutsideSimple(env) {
   if (leaked.length) problems.push(`typing in the viewer sent ${leaked.join(', ')}`);
   if ((await pane(tools.tmux, consoleName)).includes(typed)) problems.push('the typed text reached the outside tmux session');
 
+  // The viewer left its terminal tab on screen; a person goes back to the Chief of Staff for the rail.
+  await openChiefOfStaff(page, env);
   env.step('open the host session thread');
   const hostLine = await rowLine(hostRow);
   if (hostLine !== 'Read-only thread') problems.push(`the host row offers "${hostLine}", not Read-only thread`);
@@ -544,8 +546,10 @@ async function outsideThread(env) {
 
   env.step('start the outside claude with no tmux');
   // Detached into its own process group, so the whole group can be ended; one Bash call is allowed.
+  // The harness runs with a trimmed environment; claude fails to sign in without USER, and then
+  // exits at once, so the row never comes.
   const child = spawn(claude, ['-p', '--model', CLAUDE_MODEL, '--permission-mode', 'default', '--allowedTools', 'Bash(sleep 90)', '--', prompt],
-    { cwd: dir, env: cleanEnv(), detached: true, stdio: 'ignore' });
+    { cwd: dir, env: { ...cleanEnv(), USER: process.env.USER || os.userInfo().username }, detached: true, stdio: 'ignore' });
   held.child = child;
   held.exited = new Promise((resolve) => { child.once('exit', () => { held.done = true; resolve(); }); child.once('error', () => { held.done = true; resolve(); }); });
   child.unref();
@@ -553,7 +557,7 @@ async function outsideThread(env) {
   env.step('wait for the row on the rail');
   const listed = await poll(async () => seen.sessions.find((s) => String(s.directory || '').includes(base) || String(s.name || '').includes(base)) || null,
     { timeoutMs: ROW_WITHIN_MS, intervalMs: 500 });
-  if (!listed) return result(id, FAIL, `no cos_outside_sessions frame listed the claude in ${base} within ${ROW_WITHIN_MS / 1000}s of its start`);
+  if (!listed) return result(id, FAIL, `no cos_outside_sessions frame listed the claude in ${base} within ${ROW_WITHIN_MS / 1000}s of its start (the claude ${held.done ? 'had already exited' : 'was still running'})`);
   const row = outsideRows(page, base);
   const there = await poll(async () => (await row.count()) > 0 || null, { timeoutMs: 10000, intervalMs: 250 });
   if (!there) return result(id, FAIL, `the frame listed ${base} but the rail shows no Outside row for it`);
