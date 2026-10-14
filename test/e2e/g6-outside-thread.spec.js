@@ -186,7 +186,8 @@ test.describe('a running session', () => {
 
     // The session grew, but the page has not asked again yet.
     await worlds.outside.replace(relay.dir, [outsideRow({ transcript: entries(5) })]);
-    await expect(thread).not.toContainText('Entry 004');
+    await expect(thread).toHaveAttribute('data-fetches', '1');
+    await expect(thread).toHaveAttribute('aria-busy', 'false');
 
     await page.clock.runFor(15000);
     await fetched(thread, 2);
@@ -226,8 +227,8 @@ test.describe('nothing to type into', () => {
     await rowOf(page, 'Ledger notes').click();
     const thread = threadOf(page);
     await fetched(thread, 1);
-    // The older page is there to ask for, so the buttons below are all the pane has.
-    await expect(page.getByRole('button', { name: 'Load older', exact: true })).toBeVisible();
+    // The older page is there to ask for, so Load older is the one control the pane offers.
+    await expect(page.getByRole('button', { name: 'Load older', exact: true })).toHaveCount(1);
     await expect(page.getByRole('textbox')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /send|stop/i })).toHaveCount(0);
   });

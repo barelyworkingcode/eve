@@ -131,7 +131,7 @@ test.describe('outside sessions in the rail', () => {
     await expect(idle).toContainText('Idle');
   });
 
-  test('a row without tmux says it cannot be opened and why @G6.93.r1', async ({ eve, page }) => {
+  test('a row without tmux reads Read-only thread and has no viewer button @G6.93.r1', async ({ eve, page }) => {
     await eve.open('/');
     await openCos(page);
     const row = rowOf(page, 'Scratch pad');
