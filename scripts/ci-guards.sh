@@ -34,6 +34,8 @@ range="$1...$2"
 self="scripts/ci-guards.sh"
 
 TEST_PATH='(^|/)(test|tests|Tests|__tests__|testdata)/|_test\.go$|\.(test|spec)\.[cm]?[jt]sx?$|(^|/)test_[^/]*\.py$|_test\.py$'
+# The relay version pin sits under test/ but is a pin between repos, not a test.
+PIN_PATH='^test/e2e/relay-pin\.json$'
 SKIP_OR_FOCUS='\.Skip(f|Now)?\(|(^|[^A-Za-z0-9_])(it|test|describe|context)\.(skip|only)([^A-Za-z0-9_]|$)|\.only\(|(^|[^A-Za-z0-9_.])(x(it|describe|test)|f(it|describe))\(|XCTSkip|@unittest\.skip|\.skipTest\(|pytest\.mark\.skip|pytest\.skip\('
 
 work=$(mktemp -d)
@@ -122,9 +124,10 @@ indent() { sed 's/^/  /'; }
 fail=0
 
 guard_tests_only() {
-    local tests others
-    tests=$(grep -acE "$TEST_PATH" "$work/paths" || true)
-    others=$(grep -avE "$TEST_PATH" "$work/paths" | grep -ac . || true)
+    local tests others total
+    total=$(grep -ac . "$work/paths" || true)
+    tests=$(grep -aE "$TEST_PATH" "$work/paths" | grep -avcE "$PIN_PATH" || true)
+    others=$((total - tests))
     if [ "$tests" -eq 0 ] || [ "$others" -gt 0 ]; then
         echo "tests-only: ok"
     elif has_label tests-only; then
