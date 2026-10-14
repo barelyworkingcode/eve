@@ -13,6 +13,8 @@ A new feature gets a new row with the next free ID in its goal; IDs are never re
 
 The **verify cadence** is `epic`: a PR needs no `devbox/verify` status. CI runs the specs the change reaches, and each epic's last task runs `devboxverify --epic REF` on the epic head after `main` is merged in (`set.js --eve epic/<N>-slug --epic N`); a run on `main` after the merge is the backstop.
 
+The **epic full run** is `before merge`: `devboxverify --epic REF` accepts an epic branch head that contains `main`, so it runs before the epic's PR to main merges (merge-check reads this line).
+
 ## Security (eve-specific rules)
 
 - **Never read `Host` or `X-Forwarded-For` for authorization.** Both are attacker-controllable off-loopback. The only safe network-layer identity is `req.socket.remoteAddress`. See [docs/security-review-auth-transport.md](docs/security-review-auth-transport.md).
