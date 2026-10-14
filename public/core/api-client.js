@@ -31,6 +31,16 @@ class ApiClient {
     return this._request('POST', '/api/tmux/views', { hostId: row.hostId || '', sessionName: row.tmuxSession, cols: 80, rows: 24 });
   }
 
+  // One page of an outside session's transcript, newest page by default; `before` is relay's opaque cursor.
+  getOutsideTranscript(id, { before, limit } = {}) {
+    if (typeof id !== 'string' || !id.startsWith('outside:')) return Promise.reject(new Error('Outside transcript unavailable'));
+    const qs = new URLSearchParams();
+    if (before !== undefined && before !== null) qs.set('before', before);
+    if (limit !== undefined && limit !== null) qs.set('limit', String(limit));
+    const query = qs.toString();
+    return this._request('GET', `/api/outside-sessions/${encodeURIComponent(id)}/transcript${query ? `?${query}` : ''}`);
+  }
+
   dropIn(sessionId, size) {
     if (sessionId?.startsWith('outside:')) return Promise.reject(new Error('Outside sessions are read-only.'));
     return this._request('POST', `/api/sessions/${encodeURIComponent(sessionId)}/drop-in`, size);

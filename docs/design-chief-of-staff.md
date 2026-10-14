@@ -212,9 +212,29 @@ and wake summaries retain their existing membership. Viewer terminals are
 excluded from boards to avoid counting an outside session twice. Rows show
 Outside, machine, folder, branch and Working, Waiting on you, or Idle. Asking
 rows contribute once to both the rail counts and server need-you count.
-Non-viewable rows explain Cannot open from Eve, including Not in tmux.
+A row's line reads Read-only thread, or Thread unavailable: Host is unreachable
+when its machine's status is unreachable; a row on an unreachable machine opens
+nothing.
 
-Outside rows offer only View read-only. Viewer creation uses the browser's
+A row click opens the session's thread (eve#444): one tab per session, global,
+not persisted, `#outside/<id>`. `ChiefOfStaffPage` gives each rail row its
+`machineStatus` from `outsideMachines` by `hostId` and an `openOutsideThread`
+that `AgentBoard#_open` calls. `OutsideThreadPage` (feature `outsideThread`)
+reads relay's transcript through eve's `GET /api/outside-sessions/:id/transcript`:
+the newest 50 entries first, 50 more older per press of Load older (an empty page
+with more behind it steps on, at most four times per press). Entries are `You`,
+`Claude` and `Tool`, oldest at the top. The tab polls on the `probeIntervalMs` of
+the latest `cos_outside_sessions` frame (15 s by default, clamped to 5 to 60 s),
+only while it is the shown tab and the page is visible, asking for the newest 200
+and appending what follows the last known entry (else it replaces the list). A
+`cos_outside_sessions` frame that lacks the session, or a 404, closes the tab with
+the notice "<name> left the Agents list, so its thread closed."; a `cos_snapshot`
+never does, because an eve restart can send an empty first list. A failed read
+keeps the entries, says "Could not read this thread. Eve tries again at the next
+check." and keeps polling. The tab has no input, send or stop control.
+
+A tmux-viewable row also has a sibling button View read-only (like Drop in), which
+opens the tmux viewer below. Viewer creation uses the browser's
 ordinary authenticated proxy and Relay's fresh attach enforcement, never the
 CoS scoped action route. The viewer keeps readOnly/outside across list,
 creation, join and reconnect. Its visible badge and suppressed input, resize,
@@ -230,6 +250,12 @@ notifications and logs. The existing real tool-use claim and provenance read
 mark still apply; an outside read grants no message or action authority.
 Reserved outside IDs are refused at proposal, card tap, direct send, Drop in,
 and managed browser opening, even after inventory removal.
+
+The thread is browser-only. The Chief of Staff gets no transcript tool and no new
+prompt text: `mcp/cos.js`, `chief-of-staff-outside.js` and
+`chief-of-staff-prompt.js` are unchanged, so the model still reads only the latest
+turn. The thread's text is rendered with `textContent`, never as markup, Markdown
+or links.
 
 Relay independently probes healthy machines every 15 seconds, drains optional
 native hook reports within two seconds, and emits full changed snapshots.

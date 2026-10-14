@@ -455,3 +455,59 @@
   }
   .cos-need-you { min-width: var(--hit); }
 }
+
+/* ---- Outside session thread: read-only, plain text (eve#444) ---- */
+.outside-thread-pane { height: 100%; }
+.outside-thread {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: var(--sp-4);
+  box-sizing: border-box;
+  gap: var(--sp-3);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+}
+.outside-thread__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }
+.outside-thread__title { margin: 0; font-size: var(--text-title, 1.2rem); font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.outside-thread__where { margin: 2px 0 0; color: var(--text-muted); font-size: var(--text-caption); overflow-wrap: anywhere; }
+.outside-thread__badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 0.5px solid var(--separator);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+}
+.outside-thread__error { margin: 0; color: var(--text-secondary); font-size: var(--text-subhead); }
+.outside-thread__more {
+  align-self: center;
+  padding: 4px 12px;
+  background: transparent;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.outside-thread__more[hidden], .outside-thread__error[hidden], .outside-thread__empty[hidden] { display: none; }
+.outside-thread__more:disabled { color: var(--text-secondary); cursor: progress; }
+.outside-thread__more:focus-visible, .outside-thread__list:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.outside-thread__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.outside-thread__empty { margin: 0; text-align: center; color: var(--text-muted); font-size: var(--text-subhead); }
+.outside-thread__entry { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm, 6px); background: var(--bg-secondary); }
+.outside-thread__entry[data-role="user"] { background: var(--bg-tertiary); }
+.outside-thread__meta { display: flex; gap: var(--sp-2); color: var(--text-muted); font-size: var(--text-caption); }
+.outside-thread__who { font-weight: var(--weight-semibold); color: var(--text-secondary); }
+.outside-thread__text { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.outside-thread__entry[data-role="tool"] .outside-thread__text { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.85em; }
