@@ -333,6 +333,26 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
       { cols, rows }, { op: 'session.drop_in' });
   });
 
+  // One page of an outside session's transcript (relay class `execute`, socket
+  // only). Eve validates the shapes and forwards only `before` and `limit`;
+  // relay owns the paging, the byte cap and the 404 for an unknown or ended id.
+  const OUTSIDE_ID = /^outside:[A-Za-z0-9_-]{1,128}$/;
+  const OUTSIDE_CURSOR = /^[A-Za-z0-9._-]{1,64}$/;
+  app.get('/api/outside-sessions/:id/transcript', requireAuth, (req, res) => {
+    const { before, limit } = req.query;
+    const text = (v) => typeof v === 'string';
+    const limitOk = limit === undefined || (text(limit) && /^[1-9][0-9]{0,2}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= 200);
+    const beforeOk = before === undefined || (text(before) && OUTSIDE_CURSOR.test(before));
+    if (!OUTSIDE_ID.test(req.params.id) || !limitOk || !beforeOk) {
+      return res.status(400).json({ error: 'invalid_request' });
+    }
+    const qs = new URLSearchParams();
+    if (before !== undefined) qs.set('before', before);
+    if (limit !== undefined) qs.set('limit', limit);
+    const query = qs.toString();
+    proxy(req, res, 'GET', `/api/outside-sessions/${encodeURIComponent(req.params.id)}/transcript${query ? `?${query}` : ''}`);
+  });
+
   // The id is forwarded without shape validation here: relayLLM rejects ids it
   // won't accept before joining one into a log filename.
   app.get('/api/terminals/:id/log', requireAuth, async (req, res) => {

@@ -389,6 +389,20 @@ return `outside_session_not_found`; failed reads return
 claims and provenance remain mandatory. Outside sends/cards/actions refuse
 `outside_session_read_only` with `Outside sessions are read-only.`
 
+`GET /api/outside-sessions/:id/transcript` (browser, `requireAuth`) returns one
+page of an outside session's transcript for the read-only thread tab. `:id` must
+match `^outside:[A-Za-z0-9_-]{1,128}$`; `before`, when present, `^[A-Za-z0-9._-]{1,64}$`
+(relay's opaque cursor); `limit`, when present, a whole number from 1 to 200 (relay
+defaults to 50). Anything else answers 400 `{error:'invalid_request'}` with no relay
+call. Eve forwards only `before` and `limit` through `RelayTransport`, with no
+scope, and passes relay's status and JSON through: 200
+`{entries:[{id,role:'user'|'assistant'|'tool',text,at}],cursor:string|null,hasMore}`
+(entries oldest first within a page, `id` and `cursor` opaque), 400
+`invalid_request`/`invalid_limit`/`invalid_cursor`, 404 `outside_session_not_found`,
+502 `outside_status_unavailable`. A transport failure is 502
+`{error:'Service unavailable'}`. No WebSocket frame carries transcript text; the
+browser polls on the `probeIntervalMs` of the latest `cos_outside_sessions` frame.
+
 Authenticated browser `POST /api/tmux/views` proxies through RelayTransport
 without CoS scope. ApiClient sends `{hostId:row.hostId||'',
 sessionName:row.tmuxSession,cols:80,rows:24}`. Relay strictly validates fields

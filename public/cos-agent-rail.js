@@ -25,11 +25,12 @@ class CosAgentRail {
   ];
 
   // note: (sessionId) => CosRowNote|null, read at render time.
-  constructor({ container, note, outsideRows = null, openOutside = null }) {
+  constructor({ container, note, outsideRows = null, openOutside = null, openOutsideThread = null }) {
     this.container = container;
     this.note = note;
     this.outsideRows = outsideRows;
     this.openOutside = openOutside;
+    this.openOutsideThread = openOutsideThread;
     this.railEl = null;
     this.body = null;
     this.strip = null;
@@ -108,6 +109,7 @@ class CosAgentRail {
       note: (id) => this.note(id),
       outsideRows: this.outsideRows,
       openOutside: this.openOutside,
+      openOutsideThread: this.openOutsideThread,
       ...extra,
     });
   }

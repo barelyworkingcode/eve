@@ -1,6 +1,7 @@
-// The outside-session journeys (G6.93 to G6.95): a Claude started outside
-// relay, in a tmux session, shows on the Chief of Staff rail; the thread can
-// say what it last said; its tmux session opens read-only. See README.md.
+// The outside-session journeys (G6.93 to G6.96): a Claude started outside
+// relay shows on the Chief of Staff rail; the thread can say what it last said;
+// its conversation opens as a read-only thread; a tmux one also opens read-only
+// in a terminal. See README.md.
 // Everything live runs on Haiku. The harness starts the outside `claude`
 // itself, in tmux, with no hooks (simple path) or with hooks from a settings
 // file of its own (power path); it never edits the user's Claude settings.
@@ -11,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { expect } = require('@playwright/test');
 const { PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, eveJson } = require('./journey-kit');
 
@@ -218,6 +219,31 @@ async function modelProblem(seen) {
   return model === COS_MODEL_ID ? null : `the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`;
 }
 
+
+// — the thread tab (G6.96) ---------------------------------------------------
+
+const threadOf = (page) => page.getByTestId('outside-thread');
+const entryOf = (page, who) => threadOf(page).getByRole('log', { name: 'Conversation' }).locator('.outside-thread__entry')
+  .filter({ has: page.locator('.outside-thread__who', { hasText: new RegExp(`^${who}$`) }) });
+
+// Click the row, then wait for the first load: data-fetches counts settled requests.
+async function openThread(page, row) {
+  await row.click({ timeout: 5000 });
+  const thread = threadOf(page);
+  await need('the thread tab did not open', expect(thread).toBeVisible({ timeout: 10000 }));
+  await need('the thread did not finish its first load',
+    expect(thread).toHaveAttribute('aria-busy', 'false', { timeout: 20000 }));
+  await need('the thread settled no request', expect.poll(async () => Number(await thread.getAttribute('data-fetches')), { timeout: 20000 }).toBeGreaterThan(0));
+}
+
+const rowLine = (row) => row.first().locator('.agent-row__line').first().evaluate((el) => el.textContent, null, { timeout: 2000 }).catch(() => '');
+
+// An entry by label with the text; the thread polls, so the model's output has only a bounded wait.
+const entryWith = (page, who, text) => poll(async () => {
+  const texts = await entryOf(page, who).locator('.outside-thread__text').allTextContents().catch(() => []);
+  return texts.some((t) => t.includes(text)) || null;
+}, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
+
 // — cos-outside-simple -------------------------------------------------------
 
 // Hosted setup, the recipe of cos-host-agent: a loopback host and a project on it.
@@ -344,9 +370,10 @@ async function cosOutsideSimple(env) {
   const probeGap = waitingAt ? `Waiting on you ${((waitingAt - promptAt) / 1000).toFixed(1)}s after the prompt (${((waitingAt - sentAt) / 1000).toFixed(1)}s after the request)` : '';
 
   env.step('view the console session read-only');
-  const line = await consoleRow.first().locator('.agent-row__line').first().evaluate((el) => el.textContent, null, { timeout: 2000 }).catch(() => '');
-  if (line !== 'View read-only') return result(id, FAIL, `${problems.length ? `${problems.join('; ')}; ` : ''}the console row offers "${line}", not View read-only`);
-  await consoleRow.first().getByText('View read-only').click({ timeout: 5000 });
+  // A row click opens the thread now; the tmux viewer has the sibling button.
+  const line = await rowLine(consoleRow);
+  if (line !== 'Read-only thread') return result(id, FAIL, `${problems.length ? `${problems.join('; ')}; ` : ''}the console row offers "${line}", not Read-only thread`);
+  await page.locator('.agent-row-wrap').filter({ has: consoleRow.first() }).getByRole('button', { name: /^View .+ read-only$/ }).click({ timeout: 5000 });
   const badge = page.getByTestId('terminal-read-only');
   const shown = await expect(badge).toBeVisible({ timeout: VIEWER_WITHIN_MS }).then(() => true, () => false);
   if (!shown) return result(id, FAIL, `${problems.length ? `${problems.join('; ')}; ` : ''}the terminal shows no Read-only badge within ${VIEWER_WITHIN_MS / 1000}s of View read-only`);
@@ -371,6 +398,15 @@ async function cosOutsideSimple(env) {
   if (leaked.length) problems.push(`typing in the viewer sent ${leaked.join(', ')}`);
   if ((await pane(tools.tmux, consoleName)).includes(typed)) problems.push('the typed text reached the outside tmux session');
 
+  // The viewer left its terminal tab on screen; a person goes back to the Chief of Staff for the rail.
+  await openChiefOfStaff(page, env);
+  env.step('open the host session thread');
+  const hostLine = await rowLine(hostRow);
+  if (hostLine !== 'Read-only thread') problems.push(`the host row offers "${hostLine}", not Read-only thread`);
+  await openThread(page, hostRow.first());
+  if (!(await entryWith(page, 'Claude', hostMarker))) problems.push(`the host thread shows no Claude entry with ${hostMarker}`);
+  if (!(await entryWith(page, 'You', ask(hostMarker)))) problems.push('the host thread shows no You entry with the host prompt');
+
   env.step('end both outside sessions');
   await endClaude(tools, consoleName);
   await endClaude(tools, hostName);
@@ -381,7 +417,8 @@ async function cosOutsideSimple(env) {
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `the rail showed two Outside rows (console ${consoleBase} on ${consoleBranch}, host ${hostBase} on ${hostBranch}) with machine, folder, branch and a state; `
     + `the Chief of Staff's reply carried ${consoleMarker}; with no hooks the row showed ${probeGap}; `
-    + `View read-only showed the Read-only badge, and typing up to Close sent no terminal_input or terminal_resize and never reached the pane; `
+    + `the host row read Read-only thread and its thread showed the prompt and ${hostMarker}; `
+    + `the View read-only button showed the Read-only badge, and typing up to Close sent no terminal_input or terminal_resize and never reached the pane; `
     + `both rows were gone within ${GONE_WITHIN_MS / 1000}s of their claude ending`);
 }
 
@@ -474,11 +511,107 @@ async function cosOutsideHooks(env) {
   return result(id, PASS, `the ${fired.names[0].split('.')[1]} hook spooled a report and the Outside row read Waiting on you ${took} ms after the hook fired, within the ${HOOK_STATE_WITHIN_MS / 1000}s bound`);
 }
 
+// — outside-thread -----------------------------------------------------------
+
+// G6.96, the simple path: a console claude with no tmux (`claude -p`, detached)
+// opens as a read-only thread; when the process ends the tab closes with a notice.
+async function outsideThread(env) {
+  const id = 'outside-thread';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const claude = onPath('claude');
+  if (!claude) return result(id, BLOCKED, 'claude is not on PATH');
+
+  const held = { child: null, exited: null, done: false };
+  env.cleanup('end the outside claude', async () => {
+    if (!held.child || held.done) return;
+    try { process.kill(-held.child.pid, 'SIGKILL'); } catch { /* already gone */ }
+    await held.exited;
+  });
+
+  const page = await env.newPage();
+  const seen = frames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const blocked = await inventoryProblem(seen);
+  if (blocked) return result(id, BLOCKED, blocked);
+
+  env.step('create the folder');
+  const branch = `verify-${env.nonce}-thread`;
+  // Cleanups run in registration order: the process is ended first, then this folder is removed.
+  const dir = await kit().scratchFolder(env, 'outside-thread');
+  await gitFolder(dir, branch);
+  const base = path.basename(dir);
+  const marker = `verify-${env.nonce}-thread`;
+  const prompt = `Reply with exactly ${marker}, then run sleep 90 with Bash.`;
+
+  env.step('start the outside claude with no tmux');
+  // Detached into its own process group, so the whole group can be ended; one Bash call is allowed.
+  // The harness runs with a trimmed environment; claude fails to sign in without USER, and then
+  // exits at once, so the row never comes.
+  const child = spawn(claude, ['-p', '--model', CLAUDE_MODEL, '--permission-mode', 'default', '--allowedTools', 'Bash(sleep 90)', '--', prompt],
+    { cwd: dir, env: { ...cleanEnv(), USER: process.env.USER || os.userInfo().username }, detached: true, stdio: 'ignore' });
+  held.child = child;
+  held.exited = new Promise((resolve) => { child.once('exit', () => { held.done = true; resolve(); }); child.once('error', () => { held.done = true; resolve(); }); });
+  child.unref();
+
+  env.step('wait for the row on the rail');
+  const listed = await poll(async () => seen.sessions.find((s) => String(s.directory || '').includes(base) || String(s.name || '').includes(base)) || null,
+    { timeoutMs: ROW_WITHIN_MS, intervalMs: 500 });
+  if (!listed) return result(id, FAIL, `no cos_outside_sessions frame listed the claude in ${base} within ${ROW_WITHIN_MS / 1000}s of its start (the claude ${held.done ? 'had already exited' : 'was still running'})`);
+  const row = outsideRows(page, base);
+  const there = await poll(async () => (await row.count()) > 0 || null, { timeoutMs: 10000, intervalMs: 250 });
+  if (!there) return result(id, FAIL, `the frame listed ${base} but the rail shows no Outside row for it`);
+  const problems = [];
+  const line = await rowLine(row);
+  if (line !== 'Read-only thread') problems.push(`the row offers "${line}", not Read-only thread`);
+
+  env.step('open the thread');
+  await openThread(page, row.first());
+  const name = (await page.getByTestId('outside-thread-title').innerText({ timeout: 5000 }).catch(() => '')).trim();
+
+  env.step('read the thread');
+  if (!(await entryWith(page, 'You', prompt))) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}the thread shows no You entry with the prompt`);
+  if (!(await entryWith(page, 'Claude', marker))) return result(id, BLOCKED, `the thread shows no Claude entry with ${marker} within ${REPLY_WITHIN_MS / 1000}s (model output)`);
+  // Plain text: a text element holding the marker with no child element (no a, img, strong, code).
+  const texts = entryOf(page, 'Claude').locator('.outside-thread__text');
+  const replies = await texts.evaluateAll((els) => els.map((el) => ({ text: el.textContent, children: el.children.length })));
+  const said = replies.find((r) => r.text.includes(marker));
+  const sample = (said ? said.text : replies.map((r) => r.text).join(' | ')).replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!said) problems.push(`no Claude entry carries ${marker} (replies: "${sample}")`);
+  else if (said.children > 0) problems.push(`the Claude entry with ${marker} holds ${said.children} child elements, not plain text ("${sample}")`);
+  const tool = await poll(async () => ((await entryOf(page, 'Tool').count()) > 0) || null, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
+  if (!tool) problems.push(`the thread shows no Tool entry within ${REPLY_WITHIN_MS / 1000}s (model output, or the Bash call was refused)`);
+
+  env.step('check the thread has no controls');
+  const thread = threadOf(page);
+  if ((await thread.getByRole('textbox').count()) > 0) problems.push('the thread holds a textbox');
+  if ((await thread.getByRole('button', { name: /send|stop/i }).count()) > 0) problems.push('the thread holds a Send or Stop button');
+
+  env.step('end the outside claude');
+  try { process.kill(-child.pid, 'SIGKILL'); } catch (err) { problems.push(`could not end the claude: ${firstLine(err)}`); }
+  await held.exited;
+  const notice = `${name || base} left the Agents list, so its thread closed.`;
+  // Closing the tab hides the pane but leaves its nodes in the DOM: gone means hidden, as a person sees it.
+  // The toast is watched from the same moment, in its own window, so its 8 s life cannot be missed.
+  const toast = expect(page.getByText(notice)).toBeVisible({ timeout: GONE_WITHIN_MS }).then(() => true, () => false);
+  const closed = await expect(thread).toBeHidden({ timeout: GONE_WITHIN_MS }).then(() => true, () => false);
+  if (!closed) problems.push(`the thread tab is still open ${GONE_WITHIN_MS / 1000}s after the claude ended`);
+  const told = await toast;
+  if (!told) problems.push(`no notice "${notice}"`);
+
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `the row for ${base} read Read-only thread; its thread showed a You entry with the prompt, a Claude entry carrying ${marker} as plain text ("${sample}") and a Tool entry, with no textbox, Send or Stop; `
+    + `once the claude ended the tab closed with "${notice}" within ${GONE_WITHIN_MS / 1000}s`);
+}
+
 module.exports = {
   metaProblems,
   journeys: {
     cosOutsideSimple: {
       id: 'cos-outside-simple', timeoutMs: 600000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true, run: cosOutsideSimple,
+    },
+    outsideThread: {
+      id: 'outside-thread', timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideThread,
     },
     cosOutsideHooks: {
       id: 'cos-outside-hooks', timeoutMs: 360000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosOutsideHooks,

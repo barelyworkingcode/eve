@@ -164,7 +164,7 @@ class AgentBoard {
   constructor({
     container, testidPrefix, showProject, filter, onCount,
     maxRows = AgentBoard.MAX_ROWS, layout = 'board', collapseDone = false,
-    note = null, onCounts = null, onOpen = null, outsideRows = null, openOutside = null,
+    note = null, onCounts = null, onOpen = null, outsideRows = null, openOutside = null, openOutsideThread = null,
   }) {
     this.container = container;
     this.prefix = testidPrefix;
@@ -179,6 +179,7 @@ class AgentBoard {
     this.onOpen = onOpen;
     this.outsideRows = outsideRows;
     this.openOutside = openOutside;
+    this.openOutsideThread = openOutsideThread;
     this._doneOpen = false;
     this.state = container.get('state');
     this.bus = container.get('bus');
@@ -433,7 +434,7 @@ class AgentBoard {
       row.appendChild(head);
       this._railLines(row, r, held);
       row.addEventListener('click', () => this._open(r));
-      return this._withDropIn(row, r);
+      return this._withActions(row, r);
     }
     if (this.showProject) {
       const p = document.createElement('span');
@@ -465,13 +466,13 @@ class AgentBoard {
       }
     }
     row.addEventListener('click', () => this._open(r));
-    return this._withDropIn(row, r);
+    return this._withActions(row, r);
   }
 
   _open(r) {
     // onOpen first: a sheet closes (no focus return) before the pane switch hides its opener.
     if (r.kind === 'outside') {
-      if (r.item.viewable) { this.onOpen?.(r); this.openOutside?.(r.item); }
+      if (r.item.machineStatus !== 'unreachable') { this.onOpen?.(r); this.openOutsideThread?.(r.item); }
       return;
     }
     if (r.id?.startsWith('outside:')) return;
@@ -489,10 +490,7 @@ class AgentBoard {
       meta.textContent = ['Outside', t.machine, t.directory, t.branch, AgentBoard.STATE_WORDS[state]].filter(Boolean).join(' · ');
       const action = document.createElement('span');
       action.className = 'agent-row__line';
-      const reasons = { not_in_tmux: 'Not in tmux', outside_view_disabled: 'Host viewing is disabled',
-        tmux_view_unsupported: 'Read-only tmux viewing is unsupported', host_unreachable: 'Host is unreachable',
-        tmux_session_not_found: 'Tmux session is gone' };
-      action.textContent = t.viewable ? 'View read-only' : `Cannot open from Eve: ${reasons[t.viewReason] || 'view unavailable'}`;
+      action.textContent = t.machineStatus === 'unreachable' ? 'Thread unavailable: Host is unreachable' : 'Read-only thread';
       row.append(meta, action);
       return;
     }
@@ -535,6 +533,31 @@ class AgentBoard {
     line.dataset.source = source;
     line.textContent = text;
     row.appendChild(line);
+  }
+
+  // The sibling button a row offers, if any: Drop in or, on an outside row in tmux, View read-only.
+  _withActions(row, r) {
+    return r.kind === 'outside' ? this._withView(row, r) : this._withDropIn(row, r);
+  }
+
+  // The tmux viewer (G6.95) keeps a door of its own beside the row's thread.
+  _withView(row, r) {
+    const { id, label, item } = r;
+    if (!item.viewable) return row;
+    const wrap = document.createElement('div');
+    wrap.className = 'agent-row-wrap';
+    const act = document.createElement('button');
+    act.type = 'button';
+    act.className = 'agent-row__action';
+    act.dataset.testid = `${this.prefix}-view-${id}`;
+    act.setAttribute('aria-label', `View ${label} read-only`);
+    act.textContent = 'View read-only';
+    act.addEventListener('click', () => {
+      this.onOpen?.(r);
+      this.openOutside?.(item);
+    });
+    wrap.append(row, act);
+    return wrap;
   }
 
   _withDropIn(row, r) {
