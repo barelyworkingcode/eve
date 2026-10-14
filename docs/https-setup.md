@@ -65,5 +65,3 @@ A real public cert (Let's Encrypt — no per-device install) is the alternative;
 - `certs/` is gitignored (`.gitignore`) — never commit certs or keys.
 - mkcert leaf certs default to ~2-year validity; re-run `scripts/gen-cert.sh` to renew (same root → no device re-trust needed).
 
-<!-- rehearsal 2 main move -->
-
