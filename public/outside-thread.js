@@ -279,6 +279,8 @@ class OutsideThreadPage {
     if (!d || !t) return;
     d.page.setAttribute('aria-busy', String(t.busy));
     d.page.dataset.fetches = String(t.fetches);
+    d.list.setAttribute('aria-busy', String(t.busy));
+    d.list.dataset.fetches = String(t.fetches);
     d.more.disabled = t.busy;
   }
 

@@ -76,7 +76,9 @@ async function openCos(page) {
 }
 
 const railOf = (page) => page.getByRole('navigation', { name: 'Agents' });
-// An outside row is a rail button named by the session; pressing it opens the read-only view.
+// An outside row is a rail button named by the session; pressing it opens the read-only thread.
+// A tmux-viewable row also has a sibling button that opens the read-only terminal viewer.
+const viewButtonOf = (page, name) => railOf(page).getByRole('button', { name: `View ${name} read-only`, exact: true });
 const rowOf = (page, name) => railOf(page).getByRole('button', { name, exact: true });
 
 test.describe('outside sessions in the rail', () => {
@@ -133,11 +135,13 @@ test.describe('outside sessions in the rail', () => {
     await eve.open('/');
     await openCos(page);
     const row = rowOf(page, 'Scratch pad');
-    await expect(row).toContainText('Cannot open from Eve');
-    await expect(row).toContainText('Not in tmux');
+    await expect(row).toContainText('Read-only thread');
+    await expect(row).not.toContainText('Cannot open from Eve');
     await expect(row).not.toContainText('View read-only');
-    // A tmux row of the same rail does offer it.
-    await expect(rowOf(page, 'Ledger notes')).toContainText('View read-only');
+    await expect(viewButtonOf(page, 'Scratch pad')).toHaveCount(0);
+    // A tmux row of the same rail does offer the viewer button.
+    await expect(rowOf(page, 'Ledger notes')).toContainText('Read-only thread');
+    await expect(viewButtonOf(page, 'Ledger notes')).toBeVisible();
   });
 });
 
@@ -193,8 +197,8 @@ test.describe('watch an outside tmux session', () => {
     });
     await eve.open('/');
     await openCos(page);
-    const viewable = rowOf(page, 'Ledger notes');
-    await expect(viewable).toContainText('View read-only');
+    const viewable = viewButtonOf(page, 'Ledger notes');
+    await expect(viewable).toBeVisible();
     await viewable.click();
     await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
     // Type only once relay has joined the viewer: a join clears what was typed before it.
@@ -221,7 +225,7 @@ test.describe('a host that has not opted in', () => {
   test('viewing is refused when the host has not opted in @G6.95.r1', async ({ eve, page, relay }) => {
     await eve.open('/');
     await openCos(page);
-    await rowOf(page, 'Orchard review').click();
+    await viewButtonOf(page, 'Orchard review').click();
     await expect(page.getByText('Read-only', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Cannot open this read-only view.')).toBeVisible();
     expect((await relay.json('ctl', 'state', '--json')).terminals ?? []).toEqual([]);
