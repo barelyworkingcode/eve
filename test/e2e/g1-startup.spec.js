@@ -13,6 +13,18 @@ async function holdSocket(relay, extra = []) {
   return JSON.parse(hold.stdout).id;
 }
 
+// The browser's own signal that its link was replaced: the heartbeat finds the socket
+// stale and the page opens a new one. Advances the clock in steps until it does.
+async function replaceSocket(page) {
+  let opened = false;
+  const socket = page.waitForEvent('websocket').then(() => { opened = true; });
+  await page.clock.fastForward('00:31');
+  for (let step = 0; step < 6 && !opened; step += 1) {
+    await Promise.race([socket, page.clock.fastForward('00:31')]);
+  }
+  await socket;
+}
+
 async function release(relay, id) {
   expect((await relay.ctl('fault', 'release', '--id', id)).code).toBe(0);
   expect((await relay.ctl('fault', 'clear')).code).toBe(0);
@@ -95,6 +107,33 @@ test('a deep link and the open tabs come back only once eve is ready @G1.44', as
   await expect(starting(page)).toBeHidden();
 });
 
+test('open tabs come back after a socket replaced before the first ready @G1.44', async ({ eve, page, relay }) => {
+  await page.clock.install();
+  await eve.open('/');
+  const ask = page.getByRole('textbox', { name: 'Ask' });
+  await ask.fill('restore from testbox');
+  await ask.press('Enter');
+  const tab = page.getByRole('tab', { name: 'Acme - restore from testbox' });
+  await expect(tab).toBeVisible();
+  await relay.waitForEvent('session.launch', { match: (l) => l.status === 'ok' });
+
+  const since = relay.mark();
+  const hold = await holdSocket(relay);
+  // A real navigation to the bare page: a reload would keep the #session hash and deep-link the tab back.
+  await eve.open('/index.html', { preReady: 'tab restore before eve is ready is the row' });
+  await relay.waitForEvent('fakerelay.fault', { since, match: (l) => l.action === 'held' });
+  await expect(starting(page)).toBeVisible();
+  await expect(page).not.toHaveURL(/#session/);
+  await expect(tab).toBeHidden();
+  await replaceSocket(page);
+  await expect(starting(page)).toBeVisible();
+  await expect(tab).toBeHidden();
+  await release(relay, hold);
+  await eve.ready();
+  await expect(starting(page)).toBeHidden();
+  await expect(tab).toBeVisible();
+});
+
 test('no ready after about two minutes says eve is not responding @G1.44.r1', async ({ eve, page, relay }) => {
   await page.clock.install();
   const since = relay.mark();
@@ -116,10 +155,8 @@ test('a replaced socket shows Starting… and recovers with the draft kept @G1.4
   await eve.open('/');
   const ask = page.getByRole('textbox', { name: 'Ask' });
   await ask.fill('draft from testbox');
-  const since = relay.mark();
   const hold = await holdSocket(relay);
-  await page.clock.fastForward('00:31');
-  await relay.waitForEvent('fakerelay.fault', { since, match: (l) => l.action === 'held' });
+  await replaceSocket(page);
   await expect(starting(page)).toBeVisible();
   await release(relay, hold);
   await expect(starting(page)).toBeHidden();
