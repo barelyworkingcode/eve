@@ -498,8 +498,6 @@ class EveWorkspaceClient {
   }
 
   onWebSocketReady() {
-    const isReconnect = this._wsReadyOnce === true;
-    this._wsReadyOnce = true;
     this.sessionActivity?.reset();
     this.agentAttention?.reset();
     this.messageRenderer.hideThinkingIndicator();
@@ -513,7 +511,7 @@ class EveWorkspaceClient {
     // Nothing loads here: the server pushes the snapshot with its ready frame,
     // and _onStartupReady restores this socket's state then.
     this.startupGate.reset();
-    this._restoreOwed = { silent: isReconnect, terminalIds: terminalsBeforeLoad };
+    this._restoreOwed = { terminalIds: terminalsBeforeLoad };
 
     this.tabManager.reestablishFileWatches();
   }
@@ -535,7 +533,11 @@ class EveWorkspaceClient {
     }
   }
 
-  _restoreAfterReady({ silent, terminalIds }) {
+  _restoreAfterReady({ terminalIds }) {
+    // Silent only once the page has had a ready: a socket replaced before any
+    // ready (eve restarting under "Starting…") still owes the plain first restore.
+    // The hook runs before the gate marks everReady.
+    const silent = this.startupGate.everReady;
     const restoredSessionIds = this.tabManager.getRecentSessionIds().filter(id => this.sessions.has(id));
     this.resubscribeAfterReconnect({ silent, terminalIds });
     this._socketReplaced = false;
