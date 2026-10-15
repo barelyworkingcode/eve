@@ -154,7 +154,7 @@ Not called by the browser. Both need a loopback peer and the header `x-eve-inter
 
 Connect to `ws://<host>:<port>`. When auth is required, send `{type:'auth', token}` first; all other frames are blocked until it succeeds. High-frequency server frames are coalesced into a `__batch {msgs:[...]}` envelope the client unwraps and dispatches in order.
 
-**Reconnects re-subscribe from scratch.** A browser reconnect builds a whole new chain — new browser socket, new `RelayClient`, new upstream socket to relay — so relayLLM's per-connection subscription state starts empty. The upstream leg alone can also drop and reconnect without the browser socket ever closing — relay's own pong timeout, or relayLLM restarting behind it — and lands in the same empty state; `relay-client.js` retries it with capped backoff and tells the browser with `relay_status {connected}`. Either path — a fresh `RelayClient` or a `relay_status:true` on the existing one — must re-join anything the old upstream connection had joined: `join_session` per open session tab, `terminal_reconnect` per live terminal (`public/app.js#resubscribeAfterReconnect`, called from both `onWebSocketReady` and the `relay_status` handler). Terminals are the sharp edge, because `terminal_input` is routed to the PTY by id from any connection while `terminal_output` goes only to registered viewers — skip the re-join and the pane silently becomes write-only. See [learned.md](learned.md).
+**Reconnects re-subscribe from scratch.** A browser reconnect builds a whole new chain — new browser socket, new `RelayClient`, new upstream socket to relay — so relayLLM's per-connection subscription state starts empty. The upstream leg alone can also drop and reconnect without the browser socket ever closing — relay's own pong timeout, or relayLLM restarting behind it — and lands in the same empty state; `relay-client.js` retries it with capped backoff and tells the browser with `relay_status {connected}`. Either path — a fresh `RelayClient` or a `relay_status:true` on the existing one — must re-join anything the old upstream connection had joined: `join_session` per open session tab, `terminal_reconnect` per live terminal (`public/app.js#resubscribeAfterReconnect`, called from both the startup ready hook and the `relay_status` handler). The restore (tabs, hash route) runs on the first `state: ready` after `auth_success`, not on `auth_success` itself. Terminals are the sharp edge, because `terminal_input` is routed to the PTY by id from any connection while `terminal_output` goes only to registered viewers — skip the re-join and the pane silently becomes write-only. See [learned.md](learned.md).
 
 ### Connection, auth and limits
 
@@ -164,7 +164,7 @@ Connect to `ws://<host>:<port>`. When auth is required, send `{type:'auth', toke
 
 | Frame | Answer |
 |-------|--------|
-| `auth` `{token}` with a valid session token | `{type:'auth_success'}` (no fields). The socket is then authenticated and receives the latest `host_status` of each host. |
+| `auth` `{token}` with a valid session token | `{type:'auth_success'}` (no fields), followed by `state`. The socket is then authenticated and receives the latest `host_status` of each host. |
 | `auth` with a missing or bad token | `{type:'auth_failed', message:'Invalid or expired token'}`, then the socket closes with code `4001`. |
 | `ping` | `{type:'pong'}` (no fields), also before auth. |
 | any other frame | `{type:'error', message:'Authentication required'}`. |
@@ -228,7 +228,7 @@ Each row lists the fields Eve reads. `projectId` is a relay project id. A reply 
 
 ### Server → Client
 
-Every frame is JSON with a `type`, except TTS audio, which is a binary frame (the only binary frame; no `type`). `sessionId` frames from relay are forwarded untouched. Frames relay owns are marked (relay); Eve adds nothing to them. These bypass batching and are sent at once: `permission_request`, `error`, `session_created`, `session_joined`, `tts_done`, `tts_error`, `mode_changed`, `relay_status`.
+Every frame is JSON with a `type`, except TTS audio, which is a binary frame (the only binary frame; no `type`). `sessionId` frames from relay are forwarded untouched. Frames relay owns are marked (relay); Eve adds nothing to them. These bypass batching and are sent at once: `permission_request`, `error`, `session_created`, `session_joined`, `tts_done`, `tts_error`, `mode_changed`, `relay_status`, `state`.
 
 | Frame | Fields |
 |-------|--------|
@@ -237,6 +237,7 @@ Every frame is JSON with a `type`, except TTS audio, which is a binary frame (th
 | `auth_failed` | `{message}`, then the socket closes with code 4001. The browser clears its stored token and reloads. |
 | `__batch` | `{msgs: [frame, ...]}`: coalesced high-frequency frames, dispatched in order. |
 | `relay_status` | `{connected}`: the upstream relayLLM leg, not the browser↔eve link `#connectionStatus` already tracks; see reconnect semantics above. |
+| `state` | `{state:'starting'}` or `{state:'ready', projects: Part, sessions: Part}`, `Part = {ok:true, items:[...]} \| {ok:false, status}`. Sent right after `auth_success` (always `starting` first, never to an unauthenticated socket), then on every change. `ready` follows once the socket is authenticated, the upstream relay socket is open and the projects + sessions snapshot has answered. `items` are exactly the bodies `GET /api/projects` (normalized, no `ssh_argv`) and `GET /api/sessions` (bare array, hidden `__search:` sessions filtered) answer. A failed part sends `ready` anyway with `ok:false` and the status the route would answer (relay's non-2xx status, or 502 when relay is unreachable or the body is not a list). An upstream close sends `starting`; the next upstream open reloads the snapshot and sends `ready`. |
 | `error` | `{message, sessionId?, context?, code?, requestId?}`. `sessionId` is present on a session's own error (relay); `context:'terminal_create'` and `code` on a failed terminal create; `requestId` on a rate-limit refusal. `code:'resume_required'` from relay is described below and never reaches the browser. |
 | `session_created` | `{sessionId, directory, projectId, model, name, metadata, sessionType, voice, host}`. `projectId`, `name`, `sessionType`, `voice` and `host` are `null` when absent; `metadata` repeats `directory`; `host` is relay's host chip for an SSH-host session. Sent by Eve after `create_session`. |
 | `session_joined` | (relay) `{sessionId, projectId, directory, model, name, folder, history, stats, headless, protocolVersion, host, live}`. `live` is false for a dormant session. Not sent for the join Eve itself makes right after `session_created`. |

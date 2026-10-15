@@ -48,6 +48,8 @@ class RelayClient {
     this._schedulerReconnectDelay = 2000;
     this._upstreamReconnectDelay = 2000;
     this._upstreamDown = false;
+    // (open: boolean) => void, set by the ws-handler for the startup state.
+    this.onUpstreamChange = null;
     this.suppressNextJoin = false;
     this.sessionDirectory = null;
     this.currentSessionId = null;
@@ -135,6 +137,7 @@ class RelayClient {
         this._upstreamDown = false;
         this._sendToBrowser({ type: 'relay_status', connected: true });
       }
+      this.onUpstreamChange?.(true);
       if (onOpen) onOpen();
     });
 
@@ -170,6 +173,7 @@ class RelayClient {
         this._upstreamDown = true;
         this._sendToBrowser({ type: 'relay_status', connected: false });
       }
+      this.onUpstreamChange?.(false);
       this._scheduleUpstreamReconnect();
     });
 
@@ -366,6 +370,7 @@ class RelayClient {
       case 'tts_error':
       case 'mode_changed':
       case 'relay_status':
+      case 'state':
         return true;
       default:
         return false;

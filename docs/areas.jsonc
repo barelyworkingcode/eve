@@ -11,12 +11,12 @@
   "areas": {
     // Shared plumbing: a change here runs every journey.
     "core": { "full": true, "code": ["server.js", "ws-handler.js", "ws/message-registry.js", "ws/diagnostics-messages.js",
-      "ws-origin.js", "relay-client.js", "relay-transport.js", "launch-identity.js", "instance-config.js", "routes/index.js", "security-headers.js",
+      "ws-origin.js", "startup-snapshot.js", "startup-state.js", "relay-client.js", "relay-transport.js", "launch-identity.js", "instance-config.js", "routes/index.js", "security-headers.js",
       "rate-limiter.js", "session-store.js", "logger.js", "trace.js", "project-normalize.js", "package.json",
       "package-lock.json", "public/index.html", "public/app.js", "public/ws-client.js", "public/message-dispatcher.js",
       "public/styles.css", "public/apple/tokens.css", "public/apple/base.css", "public/core/api-client.js",
       "public/core/constants.js", "public/core/container.js", "public/core/event-bus.js", "public/core/feature-registry.js",
-      "public/core/logger.js", "public/core/settings-manager.js", "public/core/state-store.js", "public/core/ui-utils.js"] },
+      "public/core/logger.js", "public/core/settings-manager.js", "public/core/state-store.js", "public/core/startup-gate.js", "public/core/ui-utils.js"] },
     "auth": { "code": ["auth.js", "routes/auth.js", "trusted-network.js", "ip-host-guard.js", "enrollment-gate.js",
       "enrollment-window.js", "passkey-sync.js", "public/auth.js", "public/auth.css", "public/apple/auth.css"] },
     "home": { "code": ["public/home-screen.js", "public/today/**", "public/agent-board.js", "public/core/session-activity.js",

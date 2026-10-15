@@ -498,6 +498,7 @@ wss.on('connection', createWsHandler({
   files: relayFileClient,
   searchSummarizer,
   resolveProject,
+  refreshProjectCache,
   ensureProjectHost: refreshHostsIfMissing,
   ttsService,
   sttService,
