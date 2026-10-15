@@ -4,7 +4,7 @@ const FRONT_DOOR_STAMP_MS = 60000;
 class EveWorkspaceClient {
   constructor() {
     // Captured before tab restore or an empty-state render can rewrite it;
-    // routed once sessions have loaded (onWebSocketReady).
+    // routed on the gate's first ready frame (_onStartupReady).
     this._initialHash = window.location.hash;
     // Sessions whose Stop was pressed while the socket was down.
     this._pendingStops = new Set();
@@ -39,6 +39,11 @@ class EveWorkspaceClient {
     this.state = new StateStore(this.bus);
     this.container.register('state', this.state);
     this.container.register('app', this); // Legacy bridge: modules can access app via container during migration
+
+    // The one startup gate: restore, the cold deep link and Ask wait on its ready frame.
+    this.startupGate = new StartupGate({ bus: this.bus });
+    this.container.register('startupGate', this.startupGate);
+    this.startupGate.onReady((frame) => this._onStartupReady(frame));
 
     this.settings = new SettingsManager(this.bus);
     this.container.register('settings', this.settings);
@@ -148,11 +153,15 @@ class EveWorkspaceClient {
     this._initBusListeners();
     this._modelsReady = this.loadModels();
     Promise.all([this._modelsReady, this.loadMcps()]);
+    window.addEventListener('hashchange', () => {
+      this.startupGate.whenReady().then(() => this._handleHashRoute());
+    });
+    this._applyConnectionState();
     this.wsClient.connect();
   }
 
   // Away for an hour or more (or never stamped): forget the stored tabs so the
-  // restore in onWebSocketReady finds nothing and Today shows. A deep link is
+  // restore in _onStartupReady finds nothing and Today shows. A deep link is
   // routed from _initialHash and still wins. Reconnects never come back here.
   _initFrontDoor() {
     const now = Date.now();
@@ -352,7 +361,7 @@ class EveWorkspaceClient {
     this.bus.on(EVT.CONNECTION_CHANGED, ({ online }) => {
       // A turn that finishes while offline never delivers its message_complete.
       if (!online) this.sessionActivity?.reset();
-      this._applyConnectionState(online);
+      this._applyConnectionState();
       // The socket survived an offline spell (no new auth, so no rejoin to wait for).
       if (online && !this._socketReplaced) this._flushPendingStops();
     });
@@ -361,9 +370,13 @@ class EveWorkspaceClient {
     this.bus.on(EVT.WS_DISCONNECTED, () => {
       // A replaced socket must auth and rejoin before a stop can be sent;
       // onWebSocketReady flushes then.
-      if (this.wsClient?.ws?.readyState !== WebSocket.OPEN) this._socketReplaced = true;
-      this._applyConnectionState(this.state.isOnline());
+      if (this.wsClient?.ws?.readyState !== WebSocket.OPEN) {
+        this._socketReplaced = true;
+        this.startupGate.reset();
+      }
+      this._applyConnectionState();
     });
+    this.bus.on(EVT.STARTUP_STATE, () => this._applyConnectionState());
 
     this.bus.on(EVT.MODELS_LOADED, () => {
       this._updateChatInputCapabilities(this._activeModelValue());
@@ -494,43 +507,54 @@ class EveWorkspaceClient {
     if (this.ttsManager.enabled) this.ttsManager.syncVoiceMode(this.wsClient);
 
     // Terminals that already exist right now lost their viewership with the
-    // old socket; anything created during the loads below is already joined.
+    // old socket; anything created before the ready frame is already joined.
     const terminalsBeforeLoad = new Set(this.terminalManager?.terminals?.keys() || []);
 
-    // Order matters: task session IDs must be known before sessions load
-    // so task sessions are filtered from the sidebar.
-    const booted = this.loadProjects().then(() => this.loadSessions()).then(() => {
-      const restoredSessionIds = this.tabManager.getRecentSessionIds().filter(id => this.sessions.has(id));
-      this.resubscribeAfterReconnect({ silent: isReconnect, terminalIds: terminalsBeforeLoad });
-      this._socketReplaced = false;
-      this._flushPendingStops();
-
-      const recentFiles = this.tabManager.getRecentFiles();
-      for (const file of recentFiles) {
-        if (this.projects.has(file.projectId)) {
-          if (this.viewerRegistry.isViewerFile(file.path)) {
-            const filename = file.path.split('/').pop();
-            this.tabManager.openFile(file.projectId, file.path, filename);
-          } else {
-            this.wsClient.send({ type: 'read_file', projectId: file.projectId, path: file.path });
-          }
-        }
-      }
-
-      if (this._initialHash !== null) this._restoreInitialHash(restoredSessionIds);
-      this._handleHashRoute(true);
-      if (!this._hashListenerAdded) {
-        window.addEventListener('hashchange', () => this._handleHashRoute());
-        this._hashListenerAdded = true;
-      }
-    });
-
-    // Test-only boot signal: nothing styles or reads it. .finally keeps a
-    // failed boot visible as a pageerror while still setting the flag, and
-    // reconnects leave it set.
-    if (!isReconnect) booted.finally(() => { document.documentElement.dataset.ready = '1'; });
+    // Nothing loads here: the server pushes the snapshot with its ready frame,
+    // and _onStartupReady restores this socket's state then.
+    this.startupGate.reset();
+    this._restoreOwed = { silent: isReconnect, terminalIds: terminalsBeforeLoad };
 
     this.tabManager.reestablishFileWatches();
+  }
+
+  // The gate's ready hook: apply the snapshot, then restore what this socket owes.
+  _onStartupReady(frame) {
+    const first = document.documentElement.dataset.ready !== '1';
+    try {
+      this._applyProjects(frame.projects);
+      this._applySessions(frame.sessions);
+      const owed = this._restoreOwed;
+      this._restoreOwed = null;
+      if (owed) this._restoreAfterReady(owed);
+    } finally {
+      // Test-only boot signal: nothing styles or reads it. The finally keeps a
+      // failed boot visible as a pageerror while still setting the flag, and
+      // later readies leave it set.
+      if (first) document.documentElement.dataset.ready = '1';
+    }
+  }
+
+  _restoreAfterReady({ silent, terminalIds }) {
+    const restoredSessionIds = this.tabManager.getRecentSessionIds().filter(id => this.sessions.has(id));
+    this.resubscribeAfterReconnect({ silent, terminalIds });
+    this._socketReplaced = false;
+    this._flushPendingStops();
+
+    const recentFiles = this.tabManager.getRecentFiles();
+    for (const file of recentFiles) {
+      if (this.projects.has(file.projectId)) {
+        if (this.viewerRegistry.isViewerFile(file.path)) {
+          const filename = file.path.split('/').pop();
+          this.tabManager.openFile(file.projectId, file.path, filename);
+        } else {
+          this.wsClient.send({ type: 'read_file', projectId: file.projectId, path: file.path });
+        }
+      }
+    }
+
+    if (this._initialHash !== null) this._restoreInitialHash(restoredSessionIds);
+    this._handleHashRoute(true);
   }
 
   // Re-establishes everything that lives as per-connection subscription state
@@ -540,7 +564,7 @@ class EveWorkspaceClient {
   // after an upstream relay reconnect signalled by `relay_status`
   // (message-dispatcher's handleRelayStatus), where the browser socket never
   // dropped at all. Local-only state (projects, sessions list, file watches)
-  // is reloaded by onWebSocketReady itself and does not belong here — an
+  // is reloaded by the ready hook itself and does not belong here — an
   // upstream-only drop never touches it.
   //
   // `silent` is true for every trigger except the first ready of a page load:
@@ -670,9 +694,19 @@ class EveWorkspaceClient {
     }
   }
 
-  _applyConnectionState(online) {
-    this.chatForm.setOffline(!online);
-    this.elements.connectionBanner?.classList.toggle('hidden', online);
+  _applyConnectionState() {
+    const { browser, relay } = this.state.connection;
+    const online = this.state.isOnline();
+    const gate = this.startupGate;
+    const text = StartupGate.bannerText({
+      browser, relay, ready: gate.ready, everReady: gate.everReady, stalled: gate.stalled,
+    });
+    const banner = this.elements.connectionBanner;
+    if (banner) {
+      if (text) banner.textContent = text;
+      banner.classList.toggle('hidden', !text);
+    }
+    this.chatForm.setOffline(!online || !gate.ready);
     this.elements.connectionStatus?.classList.toggle('hidden', online);
   }
 
@@ -877,6 +911,7 @@ class EveWorkspaceClient {
   }
 
   handleServerMessage(data) {
+    if (data.type === 'state') { this.startupGate.receive(data); return; }
     const resubscribeJoin = data.type === 'session_joined'
       && this.messageDispatcher.isResubscribeJoin(data.sessionId);
     const pinnedJoin = data.type === 'session_joined' && this._deepLinkPin && !resubscribeJoin;
@@ -957,13 +992,24 @@ class EveWorkspaceClient {
     renderModelSelect(selectEl, this.state.modelsForProject(projectId));
   }
 
+  // Retry and AgentAttention reload over HTTP; startup gets the same parts in the ready frame.
   async loadProjects() {
+    let part;
     try {
       const response = await fetch('/api/projects', { headers: this.getAuthHeaders() });
-      if (!response.ok) throw Object.assign(new Error(`Server error: ${response.status}`), { status: response.status });
-      const projects = await response.json();
-      this._resolveUrlScope(projects);
-      this.state.setProjects(projects); // emits PROJECTS_LOADED → renders sidebar + updates select
+      part = response.ok ? { ok: true, items: await response.json() } : { ok: false, status: response.status };
+    } catch (error) {
+      part = { ok: false, error };
+    }
+    this._applyProjects(part);
+  }
+
+  // part: { ok: true, items } | { ok: false, status } (| { ok: false, error } from a failed fetch)
+  _applyProjects(part) {
+    try {
+      if (!part?.ok) throw part?.error || Object.assign(new Error(`Server error: ${part?.status}`), { status: part?.status });
+      this._resolveUrlScope(part.items);
+      this.state.setProjects(part.items); // emits PROJECTS_LOADED → renders sidebar + updates select
       this.todaySources?.projects.succeed();
       // Tasks load alongside, not before, sessions: a slow scheduler must not hold
       // back threads or tab restore. Task runs are recognised once they arrive.
@@ -979,11 +1025,20 @@ class EveWorkspaceClient {
   }
 
   async loadSessions() {
+    let part;
     try {
       const response = await fetch('/api/sessions', { headers: this.getAuthHeaders() });
-      if (!response.ok) throw Object.assign(new Error(`Server error: ${response.status}`), { status: response.status });
-      const sessions = await response.json();
-      sessions.forEach(session => this.state.addSession(session));
+      part = response.ok ? { ok: true, items: await response.json() } : { ok: false, status: response.status };
+    } catch (error) {
+      part = { ok: false, error };
+    }
+    this._applySessions(part);
+  }
+
+  _applySessions(part) {
+    try {
+      if (!part?.ok) throw part?.error || Object.assign(new Error(`Server error: ${part?.status}`), { status: part?.status });
+      part.items.forEach(session => this.state.addSession(session));
       this.sidebarRenderer.renderProjectList();
       this.todaySources?.sessions.succeed();
     } catch (err) {

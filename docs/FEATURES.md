@@ -155,6 +155,7 @@ Code: public/auth.js, public/home-screen.js, public/today/today-parts.js, public
 | G1.40 | Reload the page from the weak-connection banner | Today > button "Reload" | none | alert "Some files didn’t load (weak connection?). Reload when you have signal." shows first; after Reload the app loads | none | none | none yet | g1-signin.spec.js |
 | G1.41 | Be sent back to the Sign-in screen when the session is no longer valid | n/a: background | n/a: background | The page reloads and heading "Sign In" shows | none | none | none yet | g16-add-browser.spec.js |
 | G1.43 | Be told to use the hostname when opening eve by a bare IP address | Browser > open eve by its bare IP address | eve `.env` `EVE_PUBLIC_ORIGIN` | heading "Open Eve by name, not by IP" and a link to the configured address show (page title "Use the hostname") | none | none | none yet | g1-bare-ip.spec.js |
+| G1.44 | See "Starting…" until eve is ready | n/a: background | n/a: background | status "Starting…" shows at the top until eve is ready, then the page; Ask, a deep link and tab restore act only then; after a relay or eve restart it shows again and clears without a reload | none | r1: no ready after about 2 minutes: status "eve isn't responding." | none yet | g1-startup.spec.js |
 
 ### G2 · Ask about my project and get an answer
 

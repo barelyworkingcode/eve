@@ -1,13 +1,9 @@
 const createAuthRoutes = require('./auth');
-const { HIDDEN_SEARCH_PREFIX } = require('../search-summarizer');
+const { fetchProjects, fetchSessions } = require('../startup-snapshot');
 const path = require('path');
 const express = require('express');
 const { saveTerminalPaste, MAX_PASTE_BYTES } = require('../terminal-paste');
 const { projectAudit } = require('../project-audit');
-
-function isHiddenSession(name) {
-  return (name || '').startsWith(HIDDEN_SEARCH_PREFIX);
-}
 
 const { NullLogger } = require('../logger');
 
@@ -68,14 +64,8 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
 
   app.get('/api/projects', requireAuth, async (req, res) => {
     try {
-      const { status, data } = await relayTransport.fetch('GET', '/api/projects');
-      if (data && Array.isArray(data)) {
-        await refreshProjectCache(data, { replace: true });
-        const normalized = data.map(p => resolveProject(p.id)).filter(Boolean);
-        res.status(status).json(normalized);
-      } else {
-        res.status(status).json(data);
-      }
+      const { status, data } = await fetchProjects({ relayTransport, refreshProjectCache, resolveProject });
+      res.status(status).json(data);
     } catch (err) {
       routeLog.withTrace(req.traceId).error('GET /api/projects failed:', err.message);
       res.status(502).json({ error: 'Service unavailable' });
@@ -212,22 +202,8 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
   // sessions. The prefix is defined in search-summarizer.js.
   app.get('/api/sessions', requireAuth, async (req, res) => {
     try {
-      const { status, data } = await relayTransport.fetch('GET', '/api/sessions');
-      // relay's session-host handler (internal/sessions/api.HandleListSessions)
-      // returns `{ sessions: [...] }`, object-wrapped — unlike the bare array
-      // the old relayLLM implementation returned. Accept both shapes rather
-      // than assuming the new one landed everywhere at once: a bare array is
-      // still handled so this route degrades gracefully against an older
-      // relay build during a staged rollout. Eve's own browser-facing
-      // contract is unchanged either way — always a bare, filtered array.
-      const sessions = Array.isArray(data) ? data
-        : (data && Array.isArray(data.sessions) ? data.sessions : null);
-      if (status >= 200 && status < 300 && sessions) {
-        const filtered = sessions.filter(s => !isHiddenSession(s.name));
-        res.status(status).json(filtered);
-      } else {
-        res.status(status).json(data);
-      }
+      const { status, data } = await fetchSessions({ relayTransport });
+      res.status(status).json(data);
     } catch (err) {
       routeLog.withTrace(req.traceId).error('GET /api/sessions failed:', err.message);
       res.status(502).json({ error: 'Service unavailable' });

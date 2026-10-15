@@ -3,11 +3,13 @@ const FileWatcher = require('./file-watcher');
 const RateLimiter = require('./rate-limiter');
 const { messages } = require('./ws/message-registry');
 const { acceptTraceId } = require('./trace');
+const StartupState = require('./startup-state');
+const { loadStartupSnapshot } = require('./startup-snapshot');
 
 const EXPENSIVE_WINDOW_MS = parseInt(process.env.EVE_RATELIMIT_WINDOW_MS || '10000', 10);
 const EXPENSIVE_MAX = parseInt(process.env.EVE_RATELIMIT_MAX || '30', 10);
 
-function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, files, searchSummarizer, resolveProject, ensureProjectHost, ttsService, sttService, uiBus, chiefOfStaff, paths, log }) {
+function createWsHandler({ authService, trustedNetwork, relayTransport, fileHandlers, files, searchSummarizer, resolveProject, refreshProjectCache, ensureProjectHost, ttsService, sttService, uiBus, chiefOfStaff, paths, log }) {
   // Shared across every connection this factory serves (the factory itself
   // runs once, at server.js startup) — a host_status change must reach every
   // authenticated browser tab, not just the one that happened to trigger it.
@@ -55,6 +57,13 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
     if (isAuthenticated) onAuthenticated();
 
     const relayClient = new RelayClient(relayTransport, ws, ttsService, log?.child('Relay'));
+    const startup = new StartupState({
+      loadSnapshot: () => loadStartupSnapshot({ relayTransport, refreshProjectCache, resolveProject }, log),
+      send: (frame) => relayClient.sendToBrowser(frame),
+      log,
+    });
+    relayClient.onUpstreamChange = (open) => (open ? startup.upstreamOpen() : startup.upstreamClosed());
+    // An unauthenticated socket gets no state frame; announce() runs after auth_success.
 
     // Marked alive by the server's heartbeat pong (see server.js); the
     // reaper terminates any socket still marked dead on the next tick.
@@ -81,6 +90,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         if (message.type === 'auth') {
           if (!requiresAuth) {
             ws.send(JSON.stringify({ type: 'auth_success' }));
+            startup.announce();
             return;
           }
           if (authService.validateSession(message.token)) {
@@ -90,6 +100,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
             socketsByToken.get(socketToken).add(ws);
             onAuthenticated();
             ws.send(JSON.stringify({ type: 'auth_success' }));
+            startup.announce();
           } else {
             ws.send(JSON.stringify({ type: 'auth_failed', message: 'Invalid or expired token' }));
             ws.close(4001, 'Unauthorized');
@@ -163,6 +174,7 @@ function createWsHandler({ authService, trustedNetwork, relayTransport, fileHand
         searchSummarizer?.stop(id);
       }
       inflightAiIds.clear();
+      startup.close();
       relayClient.close();
       fileWatcher.closeAll();
       uiBus?.unregister(relayClient);

@@ -3,6 +3,8 @@ const EVT = {
   WS_MESSAGE: 'ws:message',
   WS_DISCONNECTED: 'ws:disconnected',
   CONNECTION_CHANGED: 'connection:changed',
+  // StartupGate (core/startup-gate.js): { state: 'starting'|'ready', stalled }
+  STARTUP_STATE: 'startup:state',
 
   SESSION_CREATED: 'session:created',
   SESSION_JOINED: 'session:joined',
