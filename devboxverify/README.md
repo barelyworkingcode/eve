@@ -650,6 +650,16 @@ answered with Enter; nothing is ever typed into the terminal). Closing the
 tab must bring an `idle` frame within 15 s and take the terminal out of
 relay's list (the WebSocket `terminal_list`, as every journey reads it).
 PASS needs all of these.
+- Transcript cleanup: the journey reads `claudeSessionId` from the
+  `POST /api/sessions/:id/drop-in` answer the click triggers (a response
+  listener started before the click). A cleanup registered after the existing
+  one waits (15 s bound, a `ps` poll) until no `claude --resume <id>` runs,
+  then deletes `~/.claude/projects/*/<id>.jsonl` only if it holds
+  `verify-<nonce>-`. An answer without a UUID logs `id unknown`; no click logs
+  nothing. One stderr line, no path, no effect on the result.
+  Relay's own session delete already removes a dropped-in session's transcript
+  (agent-drop-in usually logs `absent`); eve's cleanup is the backstop for a
+  resumed Claude that writes again after it.
 - Lives in: `public/agent-board.js` (`AgentBoard.dropIn`),
   `public/terminal-manager.js` (`openDropIn`), `routes/index.js`
   (`POST /api/sessions/:id/drop-in`); relay's drop-in (relay#239) and
@@ -967,6 +977,15 @@ every row for either folder, duplicates included, must leave the rail within 60 
   which also runs on FAIL and on timeout, kills the tmux sessions it started
   (by exact name), deletes the project, the host and the scratch folders. Run it
   alone: `node devboxverify/main.js --screen --only cos-outside-simple`.
+- Transcript cleanup: every tmux Claude gets `--session-id <uuid>` that the
+  harness generated, so the conversation file is known by name. A cleanup
+  registered after the existing cleanup waits (15 s bound, a `ps` poll) until no
+  `claude` carries that id, then deletes `~/.claude/projects/*/<id>.jsonl` only
+  if every such file holds `verify-<nonce>-`. It writes one stderr line per
+  Claude (`transcript <journey>: <id> deleted <n>` | `absent` | `kept: <why>`),
+  never a path, and never changes the result: it cannot reject, and its limit
+  (30 s) sits above its own bound. See `claude-transcripts.js`.
+  Both of its Claudes (console and host) are cleaned up the same way.
 
 **outside-thread.** An outside Claude with no tmux opens as a read-only thread
 (G6.96, simple path). Not a screen journey (420 s). Same BLOCKED rule for a relay
@@ -1013,6 +1032,14 @@ gives the measured gap.
   missing. Reports spooled into relay's report folder are drained by relay. One
   cleanup kills the tmux session and removes both folders.
   Run it alone: `node devboxverify/main.js --only cos-outside-hooks`.
+- Transcript cleanup: every tmux Claude gets `--session-id <uuid>` that the
+  harness generated, so the conversation file is known by name. A cleanup
+  registered after the one above waits (15 s bound, a `ps` poll) until no
+  `claude` carries that id, then deletes `~/.claude/projects/*/<id>.jsonl` only
+  if every such file holds `verify-<nonce>-`. It writes one stderr line per
+  Claude (`transcript <journey>: <id> deleted <n>` | `absent` | `kept: <why>`),
+  never a path, and never changes the result: it cannot reject, and its limit
+  (30 s) sits above its own bound. See `claude-transcripts.js`.
 
 **cos-project-from-relay.** A project chosen in relay's Settings is the one the
 Chief of Staff runs in (eve#249). Screen journey (`screen: true`, 180 s). It
