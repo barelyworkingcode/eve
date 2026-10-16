@@ -54,7 +54,7 @@ class OutsideThreadPage {
   }
 
   _newThread() {
-    return { entries: [], cursor: null, hasMore: false, loaded: false, error: false, busy: false, fetches: 0 };
+    return { entries: [], cursor: null, hasMore: false, loaded: false, error: false, busy: false, filling: false, fetches: 0 };
   }
 
   _thread() { return this.current ? this.threads.get(this.current) : null; }
@@ -114,8 +114,9 @@ class OutsideThreadPage {
     this._stopTimer();
     if (!this._shown()) return;
     const t = this._thread();
-    if (!t || t.busy) return;
-    this._fetch(this.current, t.loaded ? 'poll' : 'first');
+    if (!t || t.busy || t.filling) return;
+    if (t.loaded) this._fetch(this.current, 'poll');
+    else this._loadFirst(this.current);
   }
 
   _stopTimer() {
@@ -130,7 +131,9 @@ class OutsideThreadPage {
       this._timer = null;
       if (!this._shown()) return;
       const t = this._thread();
-      if (t && !t.busy) this._fetch(this.current, t.loaded ? 'poll' : 'first');
+      if (!t || t.busy || t.filling) return;
+      if (t.loaded) this._fetch(this.current, 'poll');
+      else this._loadFirst(this.current);
     }, this.intervalMs);
     this._timer.unref?.();
   }
@@ -172,6 +175,26 @@ class OutsideThreadPage {
     return page;
   }
 
+  // First open: the newest page, then older ones until the thread holds a page's
+  // worth. Relay reads at most 256 KiB per page and current Claude transcripts
+  // carry large records, so the first page can hold only the last turn.
+  // `filling` keeps the thread reading as busy until the fill ends.
+  async _loadFirst(sessionId) {
+    const t = this.threads.get(sessionId);
+    if (!t) return;
+    t.filling = true;
+    try {
+      let page = await this._fetch(sessionId, 'first');
+      for (let step = 0; page && step < OutsideThreadPage.MAX_AUTO_STEPS
+        && t.hasMore && t.entries.length < OutsideThreadPage.PAGE; step++) {
+        page = await this._fetch(sessionId, 'older');
+      }
+    } finally {
+      t.filling = false;
+      if (this.threads.get(sessionId) === t && sessionId === this.current) this._renderState();
+    }
+  }
+
   _apply(sessionId, t, kind, page) {
     const live = sessionId === this.current && this._dom;
     if (kind === 'older') {
@@ -205,7 +228,7 @@ class OutsideThreadPage {
   async _loadOlder() {
     const id = this.current;
     const t = this._thread();
-    if (!t || t.busy || !t.hasMore) return;
+    if (!t || t.busy || t.filling || !t.hasMore) return;
     // A page can hold no entries yet have more behind it: step on at once, bounded.
     for (let step = 0; step < OutsideThreadPage.MAX_AUTO_STEPS; step++) {
       const page = await this._fetch(id, 'older');
@@ -277,11 +300,12 @@ class OutsideThreadPage {
     const d = this._dom;
     const t = this._thread();
     if (!d || !t) return;
-    d.page.setAttribute('aria-busy', String(t.busy));
+    const busy = t.busy || t.filling;
+    d.page.setAttribute('aria-busy', String(busy));
     d.page.dataset.fetches = String(t.fetches);
-    d.list.setAttribute('aria-busy', String(t.busy));
+    d.list.setAttribute('aria-busy', String(busy));
     d.list.dataset.fetches = String(t.fetches);
-    d.more.disabled = t.busy;
+    d.more.disabled = busy;
   }
 
   _renderError() {
