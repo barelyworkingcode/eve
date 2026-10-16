@@ -15,7 +15,7 @@ test('open the enrolment window from the CLI @G16.2', async ({ eve, page, relay,
   await relay.ctl('presence', 'eve.enrolment.open=approve');
   const opened = await relay.cli('eve', 'enrol');
   expect(opened.code).toBe(0);
-  expect(opened.stdout).toContain('eve passkey enrolment open until');
+  expect(opened.stdout).toContain('Home|Work passkey enrolment open until');
   expect(opened.stdout).toContain('5m0s, single use');
 });
 
@@ -42,7 +42,7 @@ test('list the passkeys eve reported @G16.5', async ({ eve, page, relay, passkey
 test('nothing listed before eve has reported @G16.5.r1', async ({ relay }) => {
   const listed = await relay.cli('eve', 'list');
   expect(listed.code).toBe(0);
-  expect(listed.stdout).toContain('no eve passkeys reported');
+  expect(listed.stdout).toContain('no Home|Work passkeys reported');
 });
 
 test('the last passkey cannot be revoked @G16.6.r1', async ({ eve, page, relay, passkey }) => {
@@ -52,7 +52,7 @@ test('the last passkey cannot be revoked @G16.6.r1', async ({ eve, page, relay, 
   const id = creds[0].credentialId.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const refused = await relay.cli('eve', 'revoke', '--id', id);
   expect(refused.code).not.toBe(0);
-  expect(refused.stderr).toContain('the last Eve passkey cannot be revoked');
+  expect(refused.stderr).toContain('the last Home|Work passkey cannot be revoked from relay');
 
   const listed = await relay.cli('eve', 'list');
   expect(listed.stdout.trim().split('\n')).toHaveLength(2);

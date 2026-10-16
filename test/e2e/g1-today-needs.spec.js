@@ -1,13 +1,13 @@
 const { test, expect } = require('./support/fixtures');
 const worlds = require('./support/worlds');
 
-// A model whose reply is a permission prompt: a thread or routine on it stays
-// held, waiting for an answer nobody gives.
+// A model whose reply is a hold: a thread or routine on it stays running,
+// raising no prompt, until it is stopped.
 function holdWorld() {
   const w = worlds.base();
   w.projects[0].allowed_models = ['acme-ask'];
   w.models = [
-    { value: 'acme-ask', label: 'Acme Ask', group: 'Claude', provider: 'claude', reply: { kind: 'permission', tool: 'Bash' } },
+    { value: 'acme-ask', label: 'Acme Ask', group: 'Claude', provider: 'claude', reply: { kind: 'hold' } },
   ];
   return w;
 }
