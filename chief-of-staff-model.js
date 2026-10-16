@@ -24,14 +24,18 @@ const DEFAULT_OPEN_TIMEOUT_MS = 15 * 1000;
 // built-in names a Claude Code release may still report. A name that does not
 // exist is harmless to deny. `mcp__*` denies every MCP tool: user-scope and
 // claude.ai connector servers differ per machine and still load in a headless
-// session, so naming them one by one is not enough. The init check stays the proof.
+// session, so naming them one by one is not enough. Claude Code also lists its own
+// CLI-side MCP tools (WaitForMcpServers while a user-scope server connects, the
+// resource tools once one has), and they are not named `mcp__*`. The init check
+// stays the proof.
 const BUILTIN_TOOLS = Object.freeze([
   'Agent', 'AskUserQuestion', 'Bash', 'BashOutput', 'CronCreate', 'CronDelete', 'CronList',
   'DesignSync', 'Edit', 'EnterPlanMode', 'EnterWorktree', 'ExitPlanMode', 'ExitWorktree',
-  'Glob', 'Grep', 'KillShell', 'ListAgents', 'LSP', 'Monitor', 'MultiEdit', 'NotebookEdit',
-  'NotebookRead', 'PushNotification', 'Read', 'RemoteTrigger', 'ReportFindings',
-  'ScheduleWakeup', 'SendMessage', 'Skill', 'SlashCommand', 'Task', 'TaskCreate', 'TaskGet',
-  'TaskList', 'TaskStop', 'TaskUpdate', 'TodoWrite', 'ToolSearch', 'WebFetch', 'WebSearch',
+  'Glob', 'Grep', 'KillShell', 'ListAgents', 'ListMcpResourcesTool', 'LSP', 'Monitor', 'MultiEdit',
+  'NotebookEdit', 'NotebookRead', 'PushNotification', 'Read', 'ReadMcpResourceDirTool',
+  'ReadMcpResourceTool', 'RemoteTrigger', 'ReportFindings', 'ScheduleWakeup', 'SendMessage',
+  'Skill', 'SlashCommand', 'Task', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskStop',
+  'TaskUpdate', 'TodoWrite', 'ToolSearch', 'WaitForMcpServers', 'WebFetch', 'WebSearch',
   'Workflow', 'Write', 'mcp__*',
 ]);
 

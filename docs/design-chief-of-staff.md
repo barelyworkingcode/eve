@@ -28,6 +28,8 @@ The constant ends with `mcp__*`, which denies every MCP tool. On the devbox a he
 
 The constant also lists names that earlier or later releases report (`Agent`, `Glob`, `Grep`, `MultiEdit`, `TodoWrite`, `BashOutput`, `KillShell`, `AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`, `NotebookRead`, `SlashCommand`). Denying a name that does not exist is harmless. The init check, not this list, is what proves the session has only its allowed tools.
 
+Claude Code 2.1.301 also lists its own MCP tools, which are not named `mcp__*`, when a user-scope MCP server is configured: `WaitForMcpServers` while the server connects, then `ListMcpResourcesTool`, `ReadMcpResourceDirTool` and `ReadMcpResourceTool` once it has. They arrive in two waves, more than the one relaunch covers, so the constant names all four (#523).
+
 ## Quoted data
 Every value an agent controls (excerpt, session name, project name, state) reaches the model only inside one `<agent_data>` region:
 
