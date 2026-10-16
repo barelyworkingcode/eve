@@ -991,10 +991,12 @@ every row for either folder, duplicates included, must leave the rail within 60 
 **outside-thread.** An outside Claude with no tmux opens as a read-only thread
 (G6.96, simple path). Not a screen journey (420 s). Same BLOCKED rule for a relay
 with no outside inventory, and BLOCKED when claude is not on PATH. It makes a
-scratch git folder in Acme Corp and starts `claude -p --model haiku
---permission-mode default --allowedTools "Bash(sleep 90)" -- "Reply with exactly
-verify-<nonce>-thread, then run sleep 90 with Bash."` there as a detached child
-in its own process group, with no tmux and no hooks. A `cos_outside_sessions`
+scratch git folder in Acme Corp with an empty `keepalive.log` and starts
+`claude -p --model haiku --permission-mode default --setting-sources project,local
+--allowedTools "Bash(tail -f keepalive.log)" -- "Reply with exactly
+verify-<nonce>-thread, then run tail -f keepalive.log with Bash."` there as a
+detached child in its own process group, with no tmux and no hooks. The tail is
+the keep-alive: Claude CLI 2.1.300 and later refuse a foreground sleep. A `cos_outside_sessions`
 frame must list the folder within 60 s, then the rail row must exist and its line
 must read `Read-only thread`. A click opens the thread tab (`outside-thread`;
 the load is done when `aria-busy` is false and `data-fetches` is above 0). The
