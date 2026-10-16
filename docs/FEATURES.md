@@ -803,10 +803,10 @@ an area to it narrows selection, so a PR that does needs the
 Journey-only: none
 
 ## Notes
-- **Nightly budget.** The journey phase has a 600 s budget; a journey that
-  would start past it is `BLOCKED run budget spent`. With 50 journeys a green
-  full run spends about 480 s in journeys, and the budget holds the worst case
-  near 12 minutes.
+- **Nightly budget.** The journey phase has a 900 s budget; a journey that
+  would start past it is `BLOCKED run budget spent`. With 51 journeys a green
+  full run spends about 520 to 540 s in journeys; the budget leaves room for
+  one slow model step (#530) and holds the worst case near 17 minutes.
 - **Run order.** The passkey journeys run first against eve-verify, which
   runs untrusted: passkey-first-enrol claims it and passkey-sign-in signs
   in, and every later journey reuses that session. If either is not PASS,
