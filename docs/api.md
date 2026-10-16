@@ -256,7 +256,7 @@ Every frame is JSON with a `type`, except TTS audio, which is a binary frame (th
 | `process_exited` | (relay) `{sessionId}`. The provider process ended; it restarts on the next message. |
 | `clear_messages` | (relay) `{sessionId}`. Clears the thread. |
 | `mode_changed` | (relay) `{sessionId, mode}`. The permission mode now in force. |
-| `permission_request` | (relay) `{sessionId, permissionId, toolName, toolInput, toolUseId}`. `toolInput` is a JSON string. Answer with `permission_response`. |
+| `permission_request` | (relay) `{sessionId, permissionId, toolName, toolInput, toolUseId}`. `toolInput` is a JSON string. Answer with `permission_response`. Relay holds an approval until it is answered or times out, and replays each waiting one to a connection right after its `session_joined`, including one the page already shows; the page ignores a `permissionId` it shows or has queued. While a prompt waits and the link is down, the connection banner reads `Disconnected, approval waiting. Reconnecting…`. |
 | `terminal_request` | `{sessionId, directory, projectId, command}`. From the local slash commands: `command` is `shell` (`/zsh`, `/bash`), `claude-code` (`/claude`) or `rh` (`/rh`). The browser then opens a terminal for `projectId`. |
 | `plan_file_content` | `{path, content}`. Answer to `read_plan_file`. |
 | `directory_listing` | `{projectId, path, entries: [{name, type: 'file'\|'directory', size, mtime}]}`. Directories first, then by name; a link shows as `file`. |
