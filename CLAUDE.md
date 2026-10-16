@@ -11,7 +11,7 @@ Conventions the global rules name: the **feature map** is
 `devboxverify`. A PR that adds or changes a feature updates that feature's row in the feature map in the same PR: its doors, proofs and refusals, and the spec the row names.
 A new feature gets a new row with the next free ID in its goal; IDs are never reused or renumbered. A PR that adds or changes a route or WebSocket frame the browser uses updates [docs/api.md](docs/api.md).
 
-The **verify cadence** is `epic`: a PR needs no `devbox/verify` status. CI runs the specs the change reaches, and each epic's last task runs `devboxverify --epic REF` on the epic head after `main` is merged in (`set.js --eve epic/<N>-slug --epic N`); a run on `main` after the merge is the backstop.
+The **verify cadence** is `epic`: a PR needs no `devbox/verify` status. No CI gates a PR. Proof before `main` is the verification task of each epic or story: `npx playwright test` and `devboxverify` on the head after `main` is merged in (`set.js --eve epic/<N>-slug --epic N` for an epic), closed with a `Verified:` line.
 
 The **epic full run** is `before merge`: `devboxverify --epic REF` accepts an epic branch head that contains `main`, so it runs before the epic's PR to main merges (merge-check reads this line).
 
