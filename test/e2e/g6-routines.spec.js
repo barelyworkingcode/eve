@@ -10,11 +10,11 @@ function modelWorld(extra = (w) => w) {
   return extra(w);
 }
 
-// A model whose reply is a permission prompt: a run on it stays held, waiting for
-// an answer nobody gives.
+// A model whose reply is a hold: a run on it stays running, with no prompt, until
+// it is stopped.
 function holdWorld() {
   const w = modelWorld();
-  w.models[0].reply = { kind: 'permission', tool: 'Bash' };
+  w.models[0].reply = { kind: 'hold' };
   return w;
 }
 
