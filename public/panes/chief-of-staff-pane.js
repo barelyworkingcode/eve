@@ -4,6 +4,10 @@
 panes.registerType({
   type: 'chief-of-staff',
 
+  // Belongs to no project: a project switch (the first ready frame, a mode
+  // switch) keeps it on screen.
+  global: true,
+
   // Side-effect free, so TabManager#openPane can call it to learn the id.
   create() { return { id: 'chief-of-staff', type: 'chief-of-staff', label: 'Chief of Staff' }; },
 
