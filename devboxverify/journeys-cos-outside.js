@@ -534,7 +534,7 @@ async function cosOutsideHooks(env) {
 async function endProcessTree(pid) {
   let kids = [];
   try {
-    kids = (await exec('pgrep', ['-P', String(pid)])).stdout.split('\n').map((n) => parseInt(n, 10)).filter(Number.isInteger);
+    kids = (await exec('pgrep', ['-P', String(pid)], { timeout: 10000 })).stdout.split('\n').map((n) => parseInt(n, 10)).filter(Number.isInteger);
   } catch { /* pgrep exits 1 when there are no children */ }
   for (const kid of kids) {
     try { process.kill(-kid, 'SIGKILL'); } catch { /* already gone, or not a group leader */ }
