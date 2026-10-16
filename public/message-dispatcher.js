@@ -126,6 +126,7 @@ class MessageDispatcher {
       terminal_closed:      (d) => this.terminal.onTerminalExit(d.terminalId, 0),
       terminal_list:        (d) => this.terminal.onTerminalList(d.terminals),
       permission_request:   (d) => this.modalManager.showPermissionModal(d),
+      permission_resolved:  (d) => this.modalManager.permissionResolved(d),
       mode_changed:         (d) => this._applyPermissionMode(d.mode || 'default'),
       relay_status:         (d) => this._handleRelayStatus(d),
       host_status:          (d) => this._handleHostStatus(d),
@@ -718,6 +719,7 @@ class MessageDispatcher {
   }
 
   handleSessionJoined(data) {
+    this.modalManager.sessionJoined(data.sessionId);
     // A relay reconnect re-joins every open session tab to refresh upstream
     // subscription state the new connection lost, but the user never dropped
     // their own socket — they may be sitting on an unrelated tab typing.
