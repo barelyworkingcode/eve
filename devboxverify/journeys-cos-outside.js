@@ -8,6 +8,7 @@
 // The helpers the Chief of Staff journeys share live in journeys.js, which
 // requires this file at its bottom, so they are fetched when a journey runs.
 // The few small readers below repeat theirs because journeys.js exports none.
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -17,6 +18,7 @@ const { expect } = require('@playwright/test');
 const { PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, eveJson } = require('./journey-kit');
 
 const exec = promisify(execFile);
+const { claudeRunning, removeTranscript, psOut, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
 
 const CLAUDE_MODEL = 'haiku';
 const COS_MODEL_ID = 'claude-haiku-5-5';
@@ -137,6 +139,11 @@ async function startClaude(env, tools, { name, dir, prompt, settings }) {
   // Default permission mode: the machine's own mode (auto, say) may never show a permission prompt.
   const args = ['--model', CLAUDE_MODEL, '--permission-mode', 'default'];
   if (settings) args.push('--settings', settings);
+  // Deliberate: the harness owns the conversation id, so its transcript can be removed by name.
+  // Recorded before the start, so a start that fails is still covered.
+  const sessionId = crypto.randomUUID();
+  tools.claudeIds.push({ id: sessionId, journey: tools.journey });
+  args.push('--session-id', sessionId);
   args.push(prompt);
   const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
   env.step(`start ${name}`);
@@ -172,6 +179,8 @@ async function endClaude(tools, name) {
 
 function newTools(env, id) {
   const tools = { tmux: onPath('tmux'), claude: onPath('claude'), sessions: [], dirs: [], problem: '' };
+  tools.claudeIds = [];
+  tools.journey = id;
   if (!tools.tmux) tools.problem = 'tmux is not on PATH';
   else if (!tools.claude) tools.problem = 'claude is not on PATH';
   env.cleanup(`${id}: end the outside claude sessions and remove the scratch folders`, async () => {
@@ -185,6 +194,12 @@ function newTools(env, id) {
     }
     if (failures.length) throw new Error(failures.join('; '));
   });
+  env.cleanup(`${id}: remove the outside claude transcripts`, async () => {
+    // In parallel: two Claudes must fit one cleanup's time limit.
+    await Promise.all(tools.claudeIds.map(({ id: claudeId, journey }) => removeTranscript({
+      journey, id: claudeId, token: `verify-${env.nonce}-`, running: async () => claudeRunning(await psOut(), '--session-id', claudeId),
+    })));
+  }, TRANSCRIPT_CLEANUP_MS);
   return tools;
 }
 
