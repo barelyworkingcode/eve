@@ -135,7 +135,8 @@ async function pane(tmux, name) {
 // is on the pane or the trust bound passes.
 async function startClaude(env, tools, { name, dir, prompt, settings }) {
   // Default permission mode: the machine's own mode (auto, say) may never show a permission prompt.
-  const args = ['--model', CLAUDE_MODEL, '--permission-mode', 'default'];
+  // project,local: the machine's user-level Claude settings and hooks never reach the journey.
+  const args = ['--model', CLAUDE_MODEL, '--permission-mode', 'default', '--setting-sources', 'project,local'];
   if (settings) args.push('--settings', settings);
   const crypto = require('crypto');
   // Deliberate: the harness owns the conversation id, so its transcript can be removed by name.
@@ -557,13 +558,17 @@ async function outsideThread(env) {
   await gitFolder(dir, branch);
   const base = path.basename(dir);
   const marker = `verify-${env.nonce}-thread`;
-  const prompt = `Reply with exactly ${marker}, then run sleep 90 with Bash.`;
+  const prompt = `Reply with exactly ${marker}, then run tail -f keepalive.log with Bash.`;
+
+  // Keep-alive is a tail, not a sleep: Claude CLI 2.1.300+ refuses a foreground sleep by itself, and
+  // its sandbox reads only inside the working folder, so the empty file lives there.
+  await fs.promises.writeFile(path.join(dir, 'keepalive.log'), '');
 
   env.step('start the outside claude with no tmux');
   // Detached into its own process group, so the whole group can be ended; one Bash call is allowed.
   // The harness runs with a trimmed environment; claude fails to sign in without USER, and then
   // exits at once, so the row never comes.
-  const child = spawn(claude, ['-p', '--model', CLAUDE_MODEL, '--permission-mode', 'default', '--allowedTools', 'Bash(sleep 90)', '--', prompt],
+  const child = spawn(claude, ['-p', '--model', CLAUDE_MODEL, '--permission-mode', 'default', '--setting-sources', 'project,local', '--allowedTools', 'Bash(tail -f keepalive.log)', '--', prompt],
     { cwd: dir, env: { ...cleanEnv(), USER: process.env.USER || os.userInfo().username }, detached: true, stdio: 'ignore' });
   held.child = child;
   held.exited = new Promise((resolve) => { child.once('exit', () => { held.done = true; resolve(); }); child.once('error', () => { held.done = true; resolve(); }); });
