@@ -1,5 +1,6 @@
 {
   "schema": 1,
-  "fakerelay": { "repo": "https://github.com/barelyworkingcode/relay", "commit": "bb24e65b1fa61ad8115c241dc9ccee4ef6f23eb4", "dir": "fakerelay", "pkg": "./cmd/fakerelay" },
+  "fakerelay": { "repo": "https://github.com/barelyworkingcode/relay", "commit": "fddee50
+fddee501abd07667a4e40d273720b973d668ca48", "dir": "fakerelay", "pkg": "./cmd/fakerelay" },
   "relayScheduler": { "repo": "https://github.com/barelyworkingcode/relayScheduler", "commit": "9fe52fa96e8a8b16a66915c81156841a28548e0d", "dir": ".", "pkg": "." }
 }
