@@ -13,7 +13,7 @@ A new feature gets a new row with the next free ID in its goal; IDs are never re
 
 The **verify cadence** is `epic`: a PR needs no `devbox/verify` status. No CI gates a PR. Proof before `main` is the verification task of each epic or story: `npx playwright test` and `devboxverify` on the head after `main` is merged in (`set.js --eve epic/<N>-slug --epic N` for an epic), closed with a `Verified:` line.
 
-The **epic full run** is `before merge`: `devboxverify --epic REF` accepts an epic branch head that contains `main`, so it runs before the epic's PR to main merges (merge-check reads this line).
+The **epic full run** is `before merge`: `devboxverify --epic REF` accepts an epic branch head that contains `main`, so it runs before the epic's PR to main merges, as the epic's verification task.
 
 ## Security (eve-specific rules)
 
