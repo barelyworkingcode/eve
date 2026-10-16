@@ -994,7 +994,9 @@ scratch git folder in Acme Corp with an empty `keepalive.log` and starts
 `claude -p --model haiku --permission-mode default --setting-sources project,local
 --allowedTools "Bash(tail -f keepalive.log)" -- "Reply with exactly
 verify-<nonce>-thread, then run tail -f keepalive.log with Bash."` there as a
-detached child in its own process group, with no tmux and no hooks. The tail is
+detached child in its own process group, with no tmux and no hooks. Because of
+`--setting-sources project,local`, no user-level Claude setting or hook on the test
+machine reaches it. Ending it also ends the process group of its Bash tool's shell. The tail is
 the keep-alive: Claude CLI 2.1.300 and later refuse a foreground sleep. A `cos_outside_sessions`
 frame must list the folder within 60 s, then the rail row must exist and its line
 must read `Read-only thread`. A click opens the thread tab (`outside-thread`;

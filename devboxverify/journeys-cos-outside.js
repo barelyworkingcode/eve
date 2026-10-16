@@ -528,6 +528,20 @@ async function cosOutsideHooks(env) {
 
 // — outside-thread -----------------------------------------------------------
 
+// Claude's Bash tool runs in a shell that leads its own process group, so ending claude's group
+// alone would leave that shell (and its tail) running. End each direct child's group first.
+// Throws only if claude's own group cannot be ended.
+async function endProcessTree(pid) {
+  let kids = [];
+  try {
+    kids = (await exec('pgrep', ['-P', String(pid)])).stdout.split('\n').map((n) => parseInt(n, 10)).filter(Number.isInteger);
+  } catch { /* pgrep exits 1 when there are no children */ }
+  for (const kid of kids) {
+    try { process.kill(-kid, 'SIGKILL'); } catch { /* already gone, or not a group leader */ }
+  }
+  process.kill(-pid, 'SIGKILL');
+}
+
 // G6.96, the simple path: a console claude with no tmux (`claude -p`, detached)
 // opens as a read-only thread; when the process ends the tab closes with a notice.
 async function outsideThread(env) {
@@ -539,7 +553,7 @@ async function outsideThread(env) {
   const held = { child: null, exited: null, done: false };
   env.cleanup('end the outside claude', async () => {
     if (!held.child || held.done) return;
-    try { process.kill(-held.child.pid, 'SIGKILL'); } catch { /* already gone */ }
+    try { await endProcessTree(held.child.pid); } catch { /* already gone */ }
     await held.exited;
   });
 
@@ -564,7 +578,7 @@ async function outsideThread(env) {
   await fs.promises.writeFile(path.join(dir, 'keepalive.log'), '');
 
   env.step('start the outside claude with no tmux');
-  // Detached into its own process group, so the whole group can be ended; one Bash call is allowed.
+  // Detached into its own process group; the Bash tool's shell leads its own group, which endProcessTree ends too. One Bash call is allowed.
   // The harness runs with a trimmed environment; claude fails to sign in without USER, and then
   // exits at once, so the row never comes.
   const child = spawn(claude, ['-p', '--model', CLAUDE_MODEL, '--permission-mode', 'default', '--setting-sources', 'project,local', '--allowedTools', 'Bash(tail -f keepalive.log)', '--', prompt],
@@ -607,7 +621,7 @@ async function outsideThread(env) {
   if ((await thread.getByRole('button', { name: /send|stop/i }).count()) > 0) problems.push('the thread holds a Send or Stop button');
 
   env.step('end the outside claude');
-  try { process.kill(-child.pid, 'SIGKILL'); } catch (err) { problems.push(`could not end the claude: ${firstLine(err)}`); }
+  try { await endProcessTree(child.pid); } catch (err) { problems.push(`could not end the claude: ${firstLine(err)}`); }
   await held.exited;
   const notice = `${name || base} left the Agents list, so its thread closed.`;
   // Closing the tab hides the pane but leaves its nodes in the DOM: gone means hidden, as a person sees it.
