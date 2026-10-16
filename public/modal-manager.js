@@ -1,12 +1,17 @@
 class ModalManager {
   constructor(container) {
     this.app = container.get('app');
+    this.container = container;
     this.confirmCallback = null;
     this.editingProjectId = null;
     this.editingTaskId = null;
     this.taskProjectId = null;
     this.pendingPermissionId = null;
     this.permissionQueue = [];
+    this.pendingPermissionSessionId = null;
+    // permissionId -> sessionId for each approval shown, queued, or answered and
+    // not yet reported resolved by relay.
+    this.permissionsInFlight = new Map();
     this.planApprovalCallback = null;
 
     // Per-session "Allow All" bypass; cleared on session_ended.
@@ -128,6 +133,7 @@ class ModalManager {
         || this.permissionQueue.some(q => q.permissionId === data.permissionId))) {
       return;
     }
+    if (data.permissionId) this.permissionsInFlight.set(data.permissionId, data.sessionId || null);
     if (this.pendingPermissionId) {
       this.permissionQueue.push(data);
       this._permissionStateChanged();
@@ -149,6 +155,44 @@ class ModalManager {
     return !!sessionId && this.bypassedSessions.has(sessionId);
   }
 
+  // Relay reports how each request ended (permission_resolved). Only an expiry
+  // acts: it closes the prompt and says so. ended and answered only retire the id.
+  permissionResolved({ sessionId, permissionId, outcome } = {}) {
+    if (!permissionId) return;
+    if (outcome === 'ended' || outcome === 'answered') {
+      this.permissionsInFlight.delete(permissionId);
+      return;
+    }
+    if (outcome !== 'expired') return;
+    const known = this.permissionsInFlight.delete(permissionId);
+    const shown = permissionId === this.pendingPermissionId;
+    const queued = this.permissionQueue.some(q => q.permissionId === permissionId);
+    if (!known && !shown && !queued) return;
+    if (queued) this.permissionQueue = this.permissionQueue.filter(q => q.permissionId !== permissionId);
+    if (shown) {
+      this.hidePermissionModal();
+      this._advancePermissionQueue();
+    }
+    this._permissionStateChanged();
+    this.container.get('bus')?.emit(EVT.TOAST_SHOW, {
+      id: 'permission-expired', type: 'warning', duration: 8000,
+      message: 'Approval expired. The tool call did not run.',
+    });
+  }
+
+  // A join replays the requests still pending, so drop what this page holds for
+  // the session first: whatever expired while the page was away does not return.
+  sessionJoined(sessionId) {
+    if (!sessionId) return;
+    for (const [pid, sid] of this.permissionsInFlight) if (sid === sessionId) this.permissionsInFlight.delete(pid);
+    this.permissionQueue = this.permissionQueue.filter(q => q.sessionId !== sessionId);
+    if (this.pendingPermissionId && this.pendingPermissionSessionId === sessionId) {
+      this.hidePermissionModal();
+      this._advancePermissionQueue();
+    }
+    this._permissionStateChanged();
+  }
+
   _sendPermissionResponse(permissionId, approved) {
     if (!permissionId) return;
     const sent = this.app.wsClient.send({ type: 'permission_response', permissionId, approved });
@@ -162,6 +206,7 @@ class ModalManager {
   _displayPermission(data) {
     this.pendingPermissionId = data.permissionId;
     this.pendingPermissionToolUseId = data.toolUseId || null;
+    this.pendingPermissionSessionId = data.sessionId || null;
     this.app.elements.permissionToolName.textContent = data.toolName || 'Unknown';
     this.app.elements.permissionToolInput.textContent = data.toolInput || '';
     this.app.elements.permissionModal.classList.remove('hidden');
@@ -179,13 +224,18 @@ class ModalManager {
       this.pendingPermissionToolUseId = null;
     }
     this.pendingPermissionId = null;
+    this.pendingPermissionSessionId = null;
   }
 
   respondToPermission(approved) {
     if (!this.pendingPermissionId) return;
     this._sendPermissionResponse(this.pendingPermissionId, approved);
     this.hidePermissionModal();
+    this._advancePermissionQueue();
+  }
 
+  // Show the next queued prompt, auto-answering any whose session is bypassed.
+  _advancePermissionQueue() {
     while (this.permissionQueue.length > 0) {
       const next = this.permissionQueue.shift();
       if (this._isSessionBypassed(next.sessionId)) {

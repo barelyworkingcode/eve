@@ -54,6 +54,9 @@ class SessionActivity {
       case 'permission_request':
         if (id && frame.permissionId) this._set(id, () => { this._permissions.set(frame.permissionId, id); });
         break;
+      case 'permission_resolved':
+        if (frame.outcome === 'expired' && frame.permissionId) this.permissionAnswered(frame.permissionId);
+        break;
       case 'session_joined':
       case 'session_ended':
         if (id) this._clear(id);
