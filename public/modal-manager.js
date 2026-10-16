@@ -174,7 +174,7 @@ class ModalManager {
       this._advancePermissionQueue();
     }
     this._permissionStateChanged();
-    this.container.get('bus')?.emit(EVT.TOAST_SHOW, {
+    this.container.get('bus').emit(EVT.TOAST_SHOW, {
       id: 'permission-expired', type: 'warning', duration: 8000,
       message: 'Approval expired. The tool call did not run.',
     });
