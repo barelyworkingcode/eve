@@ -123,11 +123,26 @@ class ModalManager {
       this._sendPermissionResponse(data.permissionId, true);
       return;
     }
+    // Relay replays a held approval after every join, so the same one can arrive again.
+    if (data.permissionId && (data.permissionId === this.pendingPermissionId
+        || this.permissionQueue.some(q => q.permissionId === data.permissionId))) {
+      return;
+    }
     if (this.pendingPermissionId) {
       this.permissionQueue.push(data);
+      this._permissionStateChanged();
       return;
     }
     this._displayPermission(data);
+  }
+
+  hasPendingPermission() {
+    return !!this.pendingPermissionId || this.permissionQueue.length > 0;
+  }
+
+  // The connection banner says whether an approval waits.
+  _permissionStateChanged() {
+    this.app._applyConnectionState?.();
   }
 
   _isSessionBypassed(sessionId) {
@@ -154,6 +169,7 @@ class ModalManager {
     if (this.pendingPermissionToolUseId) {
       this.app.messageRenderer?.markToolPermissionPending(this.pendingPermissionToolUseId);
     }
+    this._permissionStateChanged();
   }
 
   hidePermissionModal() {
@@ -179,6 +195,7 @@ class ModalManager {
       this._displayPermission(next);
       break;
     }
+    this._permissionStateChanged();
   }
 
   respondToPermissionAll() {

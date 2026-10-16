@@ -705,7 +705,8 @@ class EveWorkspaceClient {
     });
     const banner = this.elements.connectionBanner;
     if (banner) {
-      if (text) banner.textContent = text;
+      const waiting = text === 'Reconnecting…' && this.modalManager.hasPendingPermission();
+      if (text) banner.textContent = waiting ? 'Disconnected, approval waiting. Reconnecting…' : text;
       banner.classList.toggle('hidden', !text);
     }
     this.chatForm.setOffline(!online || !gate.ready);

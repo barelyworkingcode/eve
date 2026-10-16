@@ -156,6 +156,7 @@ Code: public/auth.js, public/home-screen.js, public/today/today-parts.js, public
 | G1.41 | Be sent back to the Sign-in screen when the session is no longer valid | n/a: background | n/a: background | The page reloads and heading "Sign In" shows | none | none | none yet | g16-add-browser.spec.js |
 | G1.43 | Be told to use the hostname when opening eve by a bare IP address | Browser > open eve by its bare IP address | eve `.env` `EVE_PUBLIC_ORIGIN` | heading "Open Eve by name, not by IP" and a link to the configured address show (page title "Use the hostname") | none | none | none yet | g1-bare-ip.spec.js |
 | G1.44 | See "Starting…" until eve is ready | n/a: background | n/a: background | status "Starting…" shows at the top until eve is ready, then the page; Ask, a deep link and tab restore act only then; after a relay or eve restart it shows again and clears without a reload | none | r1: no ready after about 2 minutes: status "eve isn't responding." | none yet | g1-startup.spec.js |
+| G1.45 | See that an approval waits while eve is disconnected | n/a: background | n/a: background | status "Disconnected, approval waiting. Reconnecting…" shows at the top while a permission prompt waits and the link is down; with no prompt it reads "Reconnecting…" (G1.39) | none | none | none yet | g8-approval-wait.spec.js |
 
 ### G2 · Ask about my project and get an answer
 
@@ -505,6 +506,7 @@ Code: public/modal-manager.js, public/index.html, public/features/permissions.js
 | G8.16 | Open an image tab when the agent asks | n/a: background | n/a: background | n/a: background (an image tab opens in the tab bar and takes focus if the agent's project is on screen) | `relay audit --project <id> --event call_tool` shows eve_open_tab | none | none yet | none yet: #369 |
 | G8.17 | Reload an image tab when the agent asks | n/a: background | n/a: background | n/a: background (the open image tab shows the new picture) | `relay audit --project <id> --event call_tool` shows eve_refresh_tab | r1: the tab was not opened by the agent: nothing changes | none yet | none yet: #369 |
 | G8.18 | Close an image tab when the agent asks | n/a: background | n/a: background | n/a: background (the image tab goes from the tab bar) | `relay audit --project <id> --event call_tool` shows eve_close_tab | r1: the tab was opened by you: it stays | none yet | none yet: #369 |
+| G8.19 | Answer a prompt that waited while I was away | Permission prompt > button "Allow" | relay `settings.json` `projects[].permission_policy` | a page that opens or reloads the thread during a held approval shows heading "Permission Request" once per approval; after Allow the prompt closes and the tool step goes on running | none: relay logs no event for the answer | r1: the approval expired after 60 seconds: the prompt stays and an answer does nothing (#499) | none yet | g8-approval-wait.spec.js |
 
 ### G9 · Talk hands-free
 
