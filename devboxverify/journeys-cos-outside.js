@@ -135,8 +135,7 @@ async function pane(tmux, name) {
 // is on the pane or the trust bound passes.
 async function startClaude(env, tools, { name, dir, prompt, settings }) {
   // Default permission mode: the machine's own mode (auto, say) may never show a permission prompt.
-  // project,local: the machine's user-level Claude settings and hooks never reach the journey.
-  const args = ['--model', CLAUDE_MODEL, '--permission-mode', 'default', '--setting-sources', 'project,local'];
+  const args = ['--model', CLAUDE_MODEL, '--permission-mode', 'default'];
   if (settings) args.push('--settings', settings);
   const crypto = require('crypto');
   // Deliberate: the harness owns the conversation id, so its transcript can be removed by name.

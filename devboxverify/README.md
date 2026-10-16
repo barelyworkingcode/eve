@@ -942,8 +942,7 @@ same presence dialog) with a git folder under it (branch `verify-<nonce>-hosted`
 In each it starts `claude --model haiku --permission-mode default "Reply with exactly
 verify-<nonce>-outside-console|host and nothing else."` in a detached tmux
 session, with no hooks, and answers the folder-trust prompt if the pane shows
-one. The journeys' claudes start with `--setting-sources project,local`, so no
-user-level Claude setting or hook on the test machine reaches them. Within 60 s of the start each folder needs a `rail-agent-outside:` row whose
+one. Within 60 s of the start each folder needs a `rail-agent-outside:` row whose
 meta line reads `Outside · <machine> · <folder> · <branch> · <state>` (the hosted
 row's machine is the host's name; the loopback host is the console machine, so
 relay also lists the hosted claude as a Console row with no project, and the journey
