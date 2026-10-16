@@ -2650,6 +2650,7 @@ function claudePidsFor(psOut, sid) {
 }
 
 async function agentDropIn(env) {
+  const { claudeRunning, removeTranscript, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
   const id = 'agent-drop-in';
   const acme = env.world.projects.acme;
   const name = `verify-${env.nonce}-dropin`;
@@ -2682,6 +2683,23 @@ async function agentDropIn(env) {
     }
     if (failure) throw failure;
   });
+  // Registered after the cleanup above, so the terminal is closed and the session deleted first.
+  // The drop-in answer names the conversation the terminal resumes; it is read the moment it
+  // arrives, while the page is open, and only awaited here.
+  let dropAnswer = null;
+  env.cleanup(`remove the ${acme.name} drop-in transcript`, async () => {
+    if (!dropAnswer) return;
+    let timer;
+    const none = new Promise((resolve) => { timer = setTimeout(() => resolve(null), 5000); });
+    const body = await Promise.race([dropAnswer, none]);
+    clearTimeout(timer);
+    const claudeId = body && typeof body.claudeSessionId === 'string' ? body.claudeSessionId : '';
+    if (!claudeId) { process.stderr.write(`transcript ${id}: id unknown: the drop-in answer holds no claudeSessionId\n`); return; }
+    await removeTranscript({
+      journey: id, id: claudeId, token: `verify-${env.nonce}-`,
+      running: async () => claudeRunning('--resume', claudeId),
+    });
+  }, TRANSCRIPT_CLEANUP_MS);
 
   env.step('create the headless agent session');
   sock = await openEveSocket(env);
@@ -2739,7 +2757,12 @@ async function agentDropIn(env) {
     expect(drop).toBeVisible({ timeout: Math.max(200, errored.at + DROP_IN_ROW_WITHIN_MS - Date.now()) }));
   env.step('click Drop in');
   const clickedAt = Date.now();
+  const dropAnswerStarted = desktop.waitForResponse(
+    (r) => r.request().method() === 'POST' && r.url().includes(`/api/sessions/${encodeURIComponent(sid)}/drop-in`),
+    { timeout: DROP_IN_TAB_WITHIN_MS },
+  ).then((r) => r.json()).catch(() => null);
   await drop.click({ timeout: 5000 });
+  dropAnswer = dropAnswerStarted;
 
   const label = `${name} (drop-in)`;
   env.step('wait for the drop-in terminal tab');

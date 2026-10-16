@@ -137,6 +137,12 @@ async function startClaude(env, tools, { name, dir, prompt, settings }) {
   // Default permission mode: the machine's own mode (auto, say) may never show a permission prompt.
   const args = ['--model', CLAUDE_MODEL, '--permission-mode', 'default'];
   if (settings) args.push('--settings', settings);
+  const crypto = require('crypto');
+  // Deliberate: the harness owns the conversation id, so its transcript can be removed by name.
+  // Recorded before the start, so a start that fails is still covered.
+  const sessionId = crypto.randomUUID();
+  tools.claudeIds.push({ id: sessionId, journey: tools.journey });
+  args.push('--session-id', sessionId);
   args.push(prompt);
   const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
   env.step(`start ${name}`);
@@ -171,7 +177,10 @@ async function endClaude(tools, name) {
 }
 
 function newTools(env, id) {
+  const { claudeRunning, removeTranscript, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
   const tools = { tmux: onPath('tmux'), claude: onPath('claude'), sessions: [], dirs: [], problem: '' };
+  tools.claudeIds = [];
+  tools.journey = id;
   if (!tools.tmux) tools.problem = 'tmux is not on PATH';
   else if (!tools.claude) tools.problem = 'claude is not on PATH';
   env.cleanup(`${id}: end the outside claude sessions and remove the scratch folders`, async () => {
@@ -185,6 +194,12 @@ function newTools(env, id) {
     }
     if (failures.length) throw new Error(failures.join('; '));
   });
+  env.cleanup(`${id}: remove the outside claude transcripts`, async () => {
+    // In parallel: two Claudes must fit one cleanup's time limit.
+    await Promise.all(tools.claudeIds.map(({ id: claudeId, journey }) => removeTranscript({
+      journey, id: claudeId, token: `verify-${env.nonce}-`, running: async () => claudeRunning('--session-id', claudeId),
+    })));
+  }, TRANSCRIPT_CLEANUP_MS);
   return tools;
 }
 
