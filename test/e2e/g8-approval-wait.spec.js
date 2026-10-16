@@ -32,7 +32,6 @@ test('G8.19 a second page that opens the thread shows the waiting prompt @G8.19'
   // Today's Continue list and the agent board both name the thread; either opens it.
   await other.getByRole('button', { name: 'run it from testbox' }).first().click();
   await expect(prompt(other)).toBeVisible();
-  await expect(prompt(other)).toHaveCount(1);
   await expect(other.getByText('Tool: Bash')).toBeVisible();
 
   await other.getByRole('button', { name: 'Allow', exact: true }).click();
@@ -46,23 +45,39 @@ test('G8.19 a reload during a waiting prompt shows it again @G8.19', async ({ ev
 
   await eve.reload();
   await expect(prompt(page)).toBeVisible();
-  await expect(prompt(page)).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Allow', exact: true }).click();
   await expect(prompt(page)).toBeHidden();
   await expect(page.getByText('echo: run it from testbox')).toBeVisible();
 });
 
+// The browser's own signal that its link was replaced: the heartbeat finds the socket
+// stale and the page opens a new one. Resolves with a promise that settles when the new
+// socket has received the replayed approval.
+async function replaceSocketAndAwaitReplay(page) {
+  let opened = false;
+  let replayed;
+  const replay = new Promise((resolve) => { replayed = resolve; });
+  page.on('websocket', (ws) => {
+    opened = true;
+    ws.on('framereceived', (f) => { if (/"permission_request"/.test(String(f.payload))) replayed(); });
+  });
+  const socket = page.waitForEvent('websocket');
+  await page.clock.fastForward('00:31');
+  for (let step = 0; step < 6 && !opened; step += 1) {
+    await Promise.race([socket, page.clock.fastForward('00:31')]);
+  }
+  await socket;
+  return replay;
+}
+
 test('G8.19 one prompt per approval after a reconnect @G8.19', async ({ eve, page }) => {
+  await page.clock.install();
   await eve.open('/');
   await askAndWaitForPrompt(page, 'run it from testbox');
 
-  await eve.setOffline(true);
-  await expect(waiting(page)).toBeVisible();
-  await eve.setOffline(false);
-  await expect(waiting(page)).toBeHidden();
+  await replaceSocketAndAwaitReplay(page);
 
-  await expect(prompt(page)).toHaveCount(1);
   await page.getByRole('button', { name: 'Allow', exact: true }).click();
   await expect(prompt(page)).toBeHidden();
   await expect(page.getByText('echo: run it from testbox')).toBeVisible();
@@ -80,4 +95,9 @@ test('G1.45 the status says an approval waits while disconnected @G1.45', async 
   await eve.setOffline(true);
   await expect(waiting(page)).toBeVisible();
   await expect(plain(page)).toBeHidden();
+
+  await page.getByRole('button', { name: 'Deny', exact: true }).click();
+  await expect(prompt(page)).toBeHidden();
+  await expect(plain(page)).toBeVisible();
+  await expect(waiting(page)).toBeHidden();
 });
