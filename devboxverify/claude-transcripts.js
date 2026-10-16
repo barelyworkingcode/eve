@@ -18,13 +18,13 @@ const TRANSCRIPT_CLEANUP_MS = 30000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN = /^[A-Za-z0-9-]+$/;
 
-// True when psOut (`ps -axo pid=,ppid=,command=`) has a process whose
+// True when the ps listing (`ps -axo pid=,ppid=,command=`) has a process whose
 // executable base name is claude and whose argv holds `${flag} ${id}`. The
 // executable is the text before the first flag, so a shell or ssh client that
 // only carries the arguments is not matched.
-function claudeRunning(psOut, flag, id) {
+function listed(psText, flag, id) {
   const needle = `${flag} ${id}`;
-  return String(psOut).split('\n').some((line) => {
+  return String(psText).split('\n').some((line) => {
     const m = /^\s*\d+\s+\d+\s+(.*)$/.exec(line);
     if (!m) return false;
     const command = m[1];
@@ -40,6 +40,11 @@ const why = (err) => (err && /^[A-Z0-9_]+$/.test(String(err.code)) ? err.code : 
 
 async function psOut() {
   return (await exec('ps', ['-axo', 'pid=,ppid=,command='], { maxBuffer: 16 << 20, timeout: 10000 })).stdout;
+}
+
+// True while a claude process carries `${flag} ${id}`. Rejects when ps fails.
+async function claudeRunning(flag, id) {
+  return listed(await psOut(), flag, id);
 }
 
 // Deletes each ~/.claude/projects/*/<id>.jsonl once every one of them holds
@@ -63,7 +68,7 @@ async function removeFiles(id, token) {
   let deleted = 0;
   for (const file of files) {
     try { await fs.promises.unlink(file); } catch (err) {
-      return deleted ? `deleted ${deleted}, kept the rest: ${why(err)}` : `kept: ${why(err)}`;
+      return deleted ? `kept: ${why(err)} after deleting ${deleted}` : `kept: ${why(err)}`;
     }
     deleted++;
   }
@@ -90,4 +95,4 @@ async function removeTranscript({ journey, id, token, running }) {
   }
 }
 
-module.exports = { claudeRunning, removeTranscript, psOut, TRANSCRIPT_CLEANUP_MS };
+module.exports = { claudeRunning, removeTranscript, TRANSCRIPT_CLEANUP_MS };

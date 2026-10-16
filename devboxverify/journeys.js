@@ -2650,7 +2650,7 @@ function claudePidsFor(psOut, sid) {
 }
 
 async function agentDropIn(env) {
-  const { claudeRunning, removeTranscript, psOut, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
+  const { claudeRunning, removeTranscript, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
   const id = 'agent-drop-in';
   const acme = env.world.projects.acme;
   const name = `verify-${env.nonce}-dropin`;
@@ -2697,7 +2697,7 @@ async function agentDropIn(env) {
     if (!claudeId) { process.stderr.write(`transcript ${id}: id unknown: the drop-in answer holds no claudeSessionId\n`); return; }
     await removeTranscript({
       journey: id, id: claudeId, token: `verify-${env.nonce}-`,
-      running: async () => claudeRunning(await psOut(), '--resume', claudeId),
+      running: async () => claudeRunning('--resume', claudeId),
     });
   }, TRANSCRIPT_CLEANUP_MS);
 

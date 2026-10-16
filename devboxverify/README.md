@@ -657,6 +657,9 @@ PASS needs all of these.
   then deletes `~/.claude/projects/*/<id>.jsonl` only if it holds
   `verify-<nonce>-`. An answer without a UUID logs `id unknown`; no click logs
   nothing. One stderr line, no path, no effect on the result.
+  Relay's own session delete already removes a dropped-in session's transcript
+  (agent-drop-in usually logs `absent`); eve's cleanup is the backstop for a
+  resumed Claude that writes again after it.
 - Lives in: `public/agent-board.js` (`AgentBoard.dropIn`),
   `public/terminal-manager.js` (`openDropIn`), `routes/index.js`
   (`POST /api/sessions/:id/drop-in`); relay's drop-in (relay#239) and
