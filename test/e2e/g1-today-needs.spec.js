@@ -1,13 +1,13 @@
 const { test, expect } = require('./support/fixtures');
 const worlds = require('./support/worlds');
 
-// A model whose reply is a permission prompt: a thread or routine on it stays
-// held, waiting for an answer nobody gives.
+// A model whose reply is a hold: a thread or routine on it stays running,
+// raising no prompt, until it is stopped.
 function holdWorld() {
   const w = worlds.base();
   w.projects[0].allowed_models = ['acme-ask'];
   w.models = [
-    { value: 'acme-ask', label: 'Acme Ask', group: 'Claude', provider: 'claude', reply: { kind: 'permission', tool: 'Bash' } },
+    { value: 'acme-ask', label: 'Acme Ask', group: 'Claude', provider: 'claude', reply: { kind: 'hold' } },
   ];
   return w;
 }
@@ -31,15 +31,6 @@ async function startRoutine(page) {
   await page.getByRole('button', { name: 'Run Now', exact: true }).click();
 }
 
-// The held run's thread opens with its Permission Request over it (G8.19) that
-// nobody answers. The prompt's backdrop blocks the tab's close button, and
-// Escape would deny it and end the run, so the tab closes from the keyboard.
-async function leaveHeldThread(page) {
-  await expect(page.getByRole('heading', { name: 'Permission Request' })).toBeVisible();
-  await page.keyboard.press('ControlOrMeta+w');
-  await expect(page.getByRole('tab', { name: /Testbox sweep/ })).toHaveCount(0);
-}
-
 test.describe('a run that is held', () => {
   test.use({ world: holdWorld() });
 
@@ -47,7 +38,8 @@ test.describe('a run that is held', () => {
     await eve.open('/');
     await startRoutine(page);
     await relay.waitForEvent('session.launch', { match: (l) => l.status === 'ok' });
-    await leaveHeldThread(page);
+    await page.getByRole('button', { name: /^Close Testbox sweep/ }).click();
+    await expect(page.getByRole('tab', { name: /Testbox sweep/ })).toHaveCount(0);
     await expect(page.getByText('Acme · routine')).toBeVisible();
     await eve.reload();
     const row = page.getByRole('button').filter({ hasText: 'Acme · routine' });
@@ -61,16 +53,14 @@ test.describe('a run that is held', () => {
     await eve.open('/');
     await startRoutine(page);
     await relay.waitForEvent('session.launch', { match: (l) => l.status === 'ok' });
-    await leaveHeldThread(page);
+    await page.getByRole('button', { name: /^Close Testbox sweep/ }).click();
+    await expect(page.getByRole('tab', { name: /Testbox sweep/ })).toHaveCount(0);
     await expect(page.getByText('Acme · routine')).toBeVisible();
     const down = await relay.ctl('fault', 'add', '--route', 'GET /ws', '--mode', 'down');
     expect(down.code).toBe(0);
     await expect(page.getByText('Acme · routine')).toBeHidden();
     expect((await relay.ctl('fault', 'clear')).code).toBe(0);
     await expect(page.getByText('Reconnected to relay.')).toBeVisible();
-    // The reconnect replays the held approval over Today (G8.19); a reload starts
-    // Today clean, as a person coming back to it would.
-    await eve.reload();
     const row = page.getByRole('button').filter({ hasText: 'routine failed' });
     await expect(row).toBeVisible();
     await expect(row).toContainText('Testbox sweep');

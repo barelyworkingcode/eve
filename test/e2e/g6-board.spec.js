@@ -99,12 +99,12 @@ test('no agents are running @G6.20.r2', async ({ eve, page }) => {
   await expect(page.getByText('No agents running')).toBeVisible();
 });
 
-// A model whose reply is a permission prompt: a routine on it stays running.
+// A model whose reply is a hold: a routine on it stays running, with no prompt.
 function routineWorld() {
   const w = worlds.base();
   w.projects[0].allowed_models = ['acme-ask'];
   w.models = [
-    { value: 'acme-ask', label: 'Acme Ask', group: 'Claude', provider: 'claude', reply: { kind: 'permission', tool: 'Bash' } },
+    { value: 'acme-ask', label: 'Acme Ask', group: 'Claude', provider: 'claude', reply: { kind: 'hold' } },
   ];
   return w;
 }
