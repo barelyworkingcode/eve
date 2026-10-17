@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Self-test for devboxverify's --stack mode (eve#543): the flag's usage
+// Self-test for devboxverify's --stack mode: the flag's usage
 // errors, the stack.json reader, and the paths a stack run uses. Pure
 // functions; no relay, no eve, no browser.
 
@@ -58,6 +58,10 @@ function stackCases() {
   usage(() => from({ ...GOOD, eve_url: 'http://example.com:3100' }), /eve_url must be/, 'eve_url off loopback');
   usage(() => from({ ...GOOD, head: { relay: 'a'.repeat(40) } }), /head\.eve is not a commit/, 'no eve head');
   usage(() => from({ ...GOOD, slot: '' }), /no slot/, 'no slot');
+  usage(() => from({ ...GOOD, outside_spool: 'relative/spool' }), /outside_spool is not an absolute path/, 'relative outside_spool');
+  usage(() => from({ ...GOOD, relay_checkout: 7 }), /relay_checkout is not an absolute path/, 'non-string relay_checkout');
+  assert.strictEqual(from(GOOD).outsideSpool, null, 'absent outside_spool reads as null');
+  assert.strictEqual(from({ ...GOOD, relay_checkout: '/x/relay', outside_spool: '/x/spool' }).outsideSpool, '/x/spool');
   usage(() => from('{nope'), /not readable JSON/, 'bad JSON');
   usage(() => from('[]'), /not a JSON object/, 'not an object');
   usage(() => readStack('/nonexistent/devboxverify/stack.json'), /no such file/, 'absent file');

@@ -97,7 +97,7 @@ function parseArgs(argv, { toolRoot }) {
     given.add(m[1]);
   }
   // A stack run verifies its own stack and nothing shared: no post, no full
-  // epic run, no screen (devboxWorld's stack-up, relay#479).
+  // epic run, no screen.
   if (opts.stack !== null) {
     if (opts.post !== null) throw usageError('--stack cannot be used with --post');
     if (opts.epic !== null) throw usageError('--stack cannot be used with --epic');
@@ -124,8 +124,9 @@ function parseArgs(argv, { toolRoot }) {
   return opts;
 }
 
-// stack.json as relay#479 pins it, written by devboxWorld's stack-up. Every
-// path must be absolute and eve_url must pass --url's own rule.
+// stack.json as devboxWorld's stack-up writes it. Every path must be absolute
+// and eve_url must pass --url's own rule. relay_checkout and outside_spool are
+// optional: only the outside-session journeys read them.
 function readStack(file, { readFile = fs.readFileSync } = {}) {
   let doc;
   try { doc = JSON.parse(readFile(file, 'utf8')); } catch (err) {
@@ -139,7 +140,12 @@ function readStack(file, { readFile = fs.readFileSync } = {}) {
   const head = doc.head && typeof doc.head === 'object' ? doc.head.eve : null;
   if (typeof head !== 'string' || !/^[0-9a-f]{40}$/.test(head)) throw usageError(`--stack ${file}: head.eve is not a commit`);
   checkUrl(doc.eve_url, `--stack ${file}: eve_url`);
+  for (const k of ['relay_checkout', 'outside_spool']) {
+    if (doc[k] !== undefined && (typeof doc[k] !== 'string' || !path.isAbsolute(doc[k]))) throw usageError(`--stack ${file}: ${k} is not an absolute path`);
+  }
   return {
+    relayCheckout: doc.relay_checkout ? path.normalize(doc.relay_checkout) : null,
+    outsideSpool: doc.outside_spool ? path.normalize(doc.outside_spool) : null,
     file, slot: doc.slot, configDir: path.normalize(doc.config_dir), relayBin: doc.relay_bin, marker: doc.marker,
     url: doc.eve_url, dataDir: path.normalize(doc.eve_data_dir), eveHead: head,
   };
@@ -1049,6 +1055,10 @@ async function runLocked({ home, emit, log, toolRoot, opts, stack = null, world,
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
     api, shared: {}, session: null, cosSetupProblem: cosSetup.problem, relayBin, service: opts.service, dataDir,
     relayConfigDir: stack ? stack.configDir : null,
+    stack: stack ? {
+      relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool, slotDir: path.dirname(stack.file),
+      scratchDir: runRecordDir(process.env, home, stack),
+    } : null,
     serviceLog: eveLog,
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
       await relay(['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),

@@ -2778,6 +2778,7 @@ async function agentDropIn(env) {
   }
   const pane = desktop.locator('#terminal');
   let answered = false;
+  let confirmedTrust = false;
   env.step('wait for the conversation in the terminal');
   const carried = await poll(async () => {
     // xterm wraps rows even mid-word, so the text is compared with whitespace gone.
@@ -2795,7 +2796,15 @@ async function agentDropIn(env) {
     if (!answered && /trust/i.test(flat)) {
       answered = true;
       await pane.locator('.xterm-screen').filter({ visible: true }).last().click({ timeout: 5000 });
-      await desktop.keyboard.press('Enter');
+      if (!env.stack) await desktop.keyboard.press('Enter');
+    }
+    // A stack's world clone is a folder Claude has not been told to trust; the prompt's
+    // cursor starts on "No, exit". Move it to "Yes, I trust" and only then confirm.
+    // Only the visible rows are read for the cursor: the scrollback holds stale frames.
+    const shown = visible.replace(/\s+/g, '');
+    if (env.stack && !confirmedTrust && /trust/i.test(shown)) {
+      if (shown.includes('\u276FYes,Itrust')) { confirmedTrust = true; await desktop.keyboard.press('Enter'); }
+      else if (shown.includes('\u276FNo,exit')) await desktop.keyboard.press('ArrowDown');
     }
     return null;
   }, { timeoutMs: Math.max(1, clickedAt + DROP_IN_TAB_WITHIN_MS - Date.now()), intervalMs: 500 });

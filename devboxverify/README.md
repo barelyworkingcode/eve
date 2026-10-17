@@ -1333,7 +1333,7 @@ What comes from the file, and nothing else:
 |---|---|
 | `eve_url` | eve's URL (as `--url`, under the same rule) |
 | `eve_data_dir` | the data dir the journeys read (notifications), in place of the service row's `--data` |
-| `config_dir` | every relay CLI call is `relay --config-dir <config_dir> ...`, and `RELAY_CONFIG_DIR` is set to it for the run, so a relay a journey or a terminal runs reaches the same instance. eve's log is `<config_dir>/logs/<service>.log`; chat-tool-search reads `<config_dir>/sessions/chat.json` and `<config_dir>/logs/relaysessions.log` |
+| `config_dir` | every relay CLI call the harness makes is `relay --config-dir <config_dir> ...`; calls a journey makes rely on `RELAY_CONFIG_DIR`, which is set to it for the run, so a relay a journey or a terminal runs reaches the same instance. eve's log is `<config_dir>/logs/<service>.log`; chat-tool-search reads `<config_dir>/sessions/chat.json` and `<config_dir>/logs/relaysessions.log` |
 | `relay_bin` | the relay binary, in place of `RELAY_BIN` |
 | `marker` | the machine marker (in place of `DEVBOXWORLD_MARKER`), whose `world_root` is the stack's clone of the world's folders |
 | `head.eve` | `PREFLIGHT head` fails unless the checkout's HEAD is this commit |
@@ -1361,8 +1361,15 @@ What a stack run does not do:
   (`eve-data/settings.json`); the run only reads `relay grant --json` and
   `relay mcp list` for setup V-COS and eve's log for the source check, which
   reads the log from its start.
-- **Nothing outside the run directory.** The run record goes to
-  `eve-verify-runs/` beside `stack.json`, not `NIGHTLY_LOG_DIR`.
+- **Little outside the run directory.** The run record and the outside-session
+  journeys' scratch go to `eve-verify-runs/` beside `stack.json`, not
+  `NIGHTLY_LOG_DIR` or the system temp dir. Claude's own transcripts still go
+  to `~/.claude/projects` and are removed by name at cleanup.
+- **Outside sessions.** `relay_checkout` gives `cos-outside-hooks` relay's
+  `scripts/outside-session-report.sh`; `outside_spool` (default
+  `<config_dir>/outside-reports`) is passed to the outside Claude as
+  `RELAY_OUTSIDE_SPOOL` with `tmux new-session -e`. `agent-drop-in` moves
+  Claude's folder-trust prompt to "Yes, I trust this folder" before it confirms.
 
 The preflight order is otherwise the same: `machine`, `pin`, `fixtures`,
 `lock`, `head`, `tree`, `service` (the stack's `relay service list`), `eve`,
