@@ -1364,7 +1364,9 @@ What a stack run does not do:
 - **Little outside the run directory.** The run record and the outside-session
   journeys' scratch go to `eve-verify-runs/` beside `stack.json`, not
   `NIGHTLY_LOG_DIR` or the system temp dir. Claude's own transcripts still go
-  to `~/.claude/projects` and are removed by name at cleanup.
+  to `~/.claude/projects` and are removed by name at cleanup. Claude also
+  records a folder-trust entry in `~/.claude.json` for the stack's world clone
+  and the scratch folders it is started in.
 - **Outside sessions.** `relay_checkout` gives `cos-outside-hooks` relay's
   `scripts/outside-session-report.sh`; `outside_spool` (default
   `<config_dir>/outside-reports`) is passed to the outside Claude as

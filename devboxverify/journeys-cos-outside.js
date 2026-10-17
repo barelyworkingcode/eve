@@ -443,9 +443,11 @@ async function cosOutsideSimple(env) {
 
 // — cos-outside-hooks --------------------------------------------------------
 
-// Where relay's optional report hook lives: RELAY_OUTSIDE_REPORT, else the relay checkout's script.
+// Where relay's optional report hook lives: the stack's relay checkout, else
+// RELAY_OUTSIDE_REPORT, else the relay checkout's script. A stack run never
+// falls back: another checkout's helper would write the tray's spool.
 function reportHelper(env) {
-  if (env.stack && env.stack.relayCheckout) return path.join(env.stack.relayCheckout, 'scripts', 'outside-session-report.sh');
+  if (env.stack) return env.stack.relayCheckout ? path.join(env.stack.relayCheckout, 'scripts', 'outside-session-report.sh') : null;
   if (process.env.RELAY_OUTSIDE_REPORT) return process.env.RELAY_OUTSIDE_REPORT;
   const checkout = process.env.RELAY_CHECKOUT || path.resolve(__dirname, '..', '..', 'relay');
   return path.join(checkout, 'scripts', 'outside-session-report.sh');
@@ -457,6 +459,7 @@ async function cosOutsideHooks(env) {
   const tools = newTools(env, id);
   if (tools.problem) return result(id, BLOCKED, tools.problem);
   const helper = reportHelper(env);
+  if (!helper) return result(id, BLOCKED, 'stack.json names no relay_checkout');
   if (!fs.existsSync(helper)) return result(id, BLOCKED, 'relay\'s outside-session-report.sh is not in the relay checkout (set RELAY_OUTSIDE_REPORT); it ships with relay\'s outside sessions');
 
   const page = await env.newPage();

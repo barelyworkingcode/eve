@@ -60,6 +60,7 @@ function stackCases() {
   usage(() => from({ ...GOOD, slot: '' }), /no slot/, 'no slot');
   usage(() => from({ ...GOOD, outside_spool: 'relative/spool' }), /outside_spool is not an absolute path/, 'relative outside_spool');
   usage(() => from({ ...GOOD, relay_checkout: 7 }), /relay_checkout is not an absolute path/, 'non-string relay_checkout');
+  usage(() => from({ ...GOOD, outside_spool: '/x/spool/' }), /must not end with a slash/, 'trailing slash spool');
   assert.strictEqual(from(GOOD).outsideSpool, null, 'absent outside_spool reads as null');
   assert.strictEqual(from({ ...GOOD, relay_checkout: '/x/relay', outside_spool: '/x/spool' }).outsideSpool, '/x/spool');
   usage(() => from('{nope'), /not readable JSON/, 'bad JSON');

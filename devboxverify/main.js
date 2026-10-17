@@ -143,6 +143,9 @@ function readStack(file, { readFile = fs.readFileSync } = {}) {
   for (const k of ['relay_checkout', 'outside_spool']) {
     if (doc[k] !== undefined && (typeof doc[k] !== 'string' || !path.isAbsolute(doc[k]))) throw usageError(`--stack ${file}: ${k} is not an absolute path`);
   }
+  if (typeof doc.outside_spool === 'string' && doc.outside_spool.length > 1 && doc.outside_spool.endsWith('/')) {
+    throw usageError(`--stack ${file}: outside_spool must not end with a slash`);
+  }
   return {
     relayCheckout: doc.relay_checkout ? path.normalize(doc.relay_checkout) : null,
     outsideSpool: doc.outside_spool ? path.normalize(doc.outside_spool) : null,
@@ -1056,7 +1059,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, stack = null, world,
     api, shared: {}, session: null, cosSetupProblem: cosSetup.problem, relayBin, service: opts.service, dataDir,
     relayConfigDir: stack ? stack.configDir : null,
     stack: stack ? {
-      relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool, slotDir: path.dirname(stack.file),
+      relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool,
       scratchDir: runRecordDir(process.env, home, stack),
     } : null,
     serviceLog: eveLog,
