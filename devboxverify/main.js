@@ -23,7 +23,8 @@ const RESTART_TIMEOUT_MS = 60000;
 const OWNER_RESET_WAIT_MS = 30000;
 const OWNER_FILES = ['auth.json', 'sessions.json'];
 const RELAY_AUDIT_TAIL = '500';
-const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR | --epic REF] [--screen] [--only ID[,ID...]]';
+const USAGE = 'usage: node devboxverify/main.js [--checkout DIR] [--url URL | --stack FILE] [--service ID] [--post PR | --epic REF] [--screen] [--only ID[,ID...]]';
+const STACK_PATHS = ['config_dir', 'relay_bin', 'marker', 'eve_data_dir'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function scrub(s, home) {
@@ -78,9 +79,10 @@ function mainHeadProblem({ head, branch, remoteHead, epicBranch, epicHead, mainI
 
 function parseArgs(argv, { toolRoot }) {
   const opts = {
-    checkout: toolRoot, url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false, only: null, epic: null,
+    checkout: toolRoot, url: 'http://localhost:3100', service: 'eve-verify', post: null, screen: false, only: null, epic: null, stack: null,
   };
-  const names = new Set(['checkout', 'url', 'service', 'post', 'only', 'epic']);
+  const names = new Set(['checkout', 'url', 'service', 'post', 'only', 'epic', 'stack']);
+  const given = new Set();
   for (let i = 0; i < argv.length; i++) {
     const m = /^--([a-z]+)(?:=(.*))?$/.exec(argv[i]);
     if (m && m[1] === 'screen') {
@@ -92,6 +94,16 @@ function parseArgs(argv, { toolRoot }) {
     const value = m[2] !== undefined ? m[2] : argv[++i];
     if (value === undefined || value === '') throw usageError(`--${m[1]} needs a value`);
     opts[m[1]] = value;
+    given.add(m[1]);
+  }
+  // A stack run verifies its own stack and nothing shared: no post, no full
+  // epic run, no screen.
+  if (opts.stack !== null) {
+    if (opts.post !== null) throw usageError('--stack cannot be used with --post');
+    if (opts.epic !== null) throw usageError('--stack cannot be used with --epic');
+    if (opts.screen) throw usageError('--stack cannot be used with --screen');
+    if (given.has('url')) throw usageError('--stack names eve\'s URL; drop --url');
+    opts.stack = path.resolve(opts.stack);
   }
   if (opts.epic !== null) {
     if (opts.post !== null) throw usageError('--epic posts its own status; drop --post');
@@ -108,12 +120,52 @@ function parseArgs(argv, { toolRoot }) {
     if (!/^\d+$/.test(opts.post) || Number(opts.post) < 1) throw usageError('--post needs a PR number');
     opts.post = Number(opts.post);
   }
-  let u;
-  try { u = new URL(opts.url); } catch { throw usageError(`bad --url ${opts.url}`); }
-  if (u.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(u.hostname) || u.port === '') {
-    throw usageError('--url must be http://localhost:<port> or http://127.0.0.1:<port>');
-  }
+  checkUrl(opts.url, '--url');
   return opts;
+}
+
+// stack.json as devboxWorld's stack-up writes it. Every path must be absolute
+// and eve_url must pass --url's own rule. relay_checkout and outside_spool are
+// optional: only the outside-session journeys read them.
+function readStack(file, { readFile = fs.readFileSync } = {}) {
+  let doc;
+  try { doc = JSON.parse(readFile(file, 'utf8')); } catch (err) {
+    throw usageError(`--stack ${file}: ${err.code === 'ENOENT' ? 'no such file' : 'not readable JSON'}`);
+  }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw usageError(`--stack ${file}: not a JSON object`);
+  for (const k of STACK_PATHS) {
+    if (typeof doc[k] !== 'string' || !path.isAbsolute(doc[k])) throw usageError(`--stack ${file}: ${k} is not an absolute path`);
+  }
+  if (typeof doc.slot !== 'string' || !doc.slot) throw usageError(`--stack ${file}: no slot`);
+  const head = doc.head && typeof doc.head === 'object' ? doc.head.eve : null;
+  if (typeof head !== 'string' || !/^[0-9a-f]{40}$/.test(head)) throw usageError(`--stack ${file}: head.eve is not a commit`);
+  checkUrl(doc.eve_url, `--stack ${file}: eve_url`);
+  for (const k of ['relay_checkout', 'outside_spool']) {
+    if (doc[k] !== undefined && (typeof doc[k] !== 'string' || !path.isAbsolute(doc[k]))) throw usageError(`--stack ${file}: ${k} is not an absolute path`);
+  }
+  if (typeof doc.outside_spool === 'string' && doc.outside_spool.length > 1 && doc.outside_spool.endsWith('/')) {
+    throw usageError(`--stack ${file}: outside_spool must not end with a slash`);
+  }
+  return {
+    relayCheckout: doc.relay_checkout ? path.normalize(doc.relay_checkout) : null,
+    outsideSpool: doc.outside_spool ? path.normalize(doc.outside_spool) : null,
+    file, slot: doc.slot, configDir: path.normalize(doc.config_dir), relayBin: doc.relay_bin, marker: doc.marker,
+    url: doc.eve_url, dataDir: path.normalize(doc.eve_data_dir), eveHead: head,
+  };
+}
+
+function checkUrl(url, what) {
+  let u;
+  try { u = new URL(url); } catch { throw usageError(`bad ${what} ${url}`); }
+  if (u.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(u.hostname) || u.port === '') {
+    throw usageError(`${what} must be http://localhost:<port> or http://127.0.0.1:<port>`);
+  }
+}
+
+// The relay CLI argv for this run: with a stack, every call names its config
+// dir, so none can reach the tray's relay.
+function relayArgs(stack, args) {
+  return stack ? ['--config-dir', stack.configDir, ...args] : args;
 }
 
 function parseWorldSummary(stdout) {
@@ -690,7 +742,9 @@ async function runJourney(j, env, browser, { timeoutMs, projects, world, pending
   return result;
 }
 
-function runRecordDir(env, home) {
+// A stack run writes nothing outside its run directory, so its record goes there.
+function runRecordDir(env, home, stack = null) {
+  if (stack) return path.join(path.dirname(stack.file), 'eve-verify-runs');
   return path.join(env.NIGHTLY_LOG_DIR || path.join(home, 'Library', 'Logs', 'devboxverify'), 'runs');
 }
 
@@ -738,10 +792,17 @@ async function run(argv) {
     if (record) record.line(text);
   };
   const log = msg => process.stderr.write(scrub(msg, home) + '\n');
-  let toolRoot, opts;
+  let toolRoot, opts, stack = null;
   try {
     toolRoot = await git(__dirname, 'rev-parse', '--show-toplevel');
     opts = parseArgs(argv, { toolRoot });
+    if (opts.stack) {
+      stack = readStack(opts.stack);
+      opts.url = stack.url;
+      // Deliberate: relay's own rule 2. Every relay a journey or a terminal it
+      // drives runs reaches this stack's instance, never the tray's.
+      process.env.RELAY_CONFIG_DIR = stack.configDir;
+    }
   } catch (err) {
     process.stderr.write((err.usage ? `${err.message}\n${USAGE}` : `run from inside an eve checkout: ${firstLine(err)}`) + '\n');
     return 2;
@@ -765,23 +826,29 @@ async function run(argv) {
     return 2;
   }
   const recordHead = await git(opts.checkout, 'rev-parse', 'HEAD').catch(() => '');
-  record = openRunRecord({ dir: runRecordDir(process.env, home), startedAtMs, head: recordHead, argv, home, post: opts.post !== null || opts.epic !== null });
+  record = openRunRecord({ dir: runRecordDir(process.env, home, stack), startedAtMs, head: recordHead, argv, home, post: opts.post !== null || opts.epic !== null });
   let code, thrown;
   try {
     emit('SELECTION', ...selectionLine(selection));
-    const { lines, world } = worldPreflight({ markerFile: markerPath(process.env, home), journeys, screen: opts.screen });
+    const markerFile = stack ? stack.marker : markerPath(process.env, home);
+    const { lines, world } = worldPreflight({ markerFile, journeys, screen: opts.screen });
     for (const [check, state, detail] of lines) emit('PREFLIGHT', check, state, detail);
     if (!world) return (code = 2);
-    let release;
-    try {
-      release = await acquire({ command: scrub(['devboxverify/main.js', ...argv].join(' '), home), log });
-    } catch (err) {
-      emit('PREFLIGHT', 'lock', 'FAIL', firstLine(err));
-      return (code = 2);
+    // The browser-test lock guards the one screen; a stack run never drives it.
+    let release = async () => {};
+    if (stack && !opts.screen) {
+      emit('PREFLIGHT', 'lock', 'OK', 'not taken: --stack runs no screen journey');
+    } else {
+      try {
+        release = await acquire({ command: scrub(['devboxverify/main.js', ...argv].join(' '), home), log });
+      } catch (err) {
+        emit('PREFLIGHT', 'lock', 'FAIL', firstLine(err));
+        return (code = 2);
+      }
+      emit('PREFLIGHT', 'lock', 'OK', 'acquired');
     }
-    emit('PREFLIGHT', 'lock', 'OK', 'acquired');
     try {
-      return (code = await runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt, runRecord: record }));
+      return (code = await runLocked({ home, emit, log, toolRoot, opts, stack, world, journeys, selection, notSelected, startedAt, runRecord: record }));
     } finally {
       await release();
     }
@@ -793,21 +860,39 @@ async function run(argv) {
   }
 }
 
-async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, selection, notSelected, startedAt, runRecord }) {
+async function runLocked({ home, emit, log, toolRoot, opts, stack = null, world, journeys, selection, notSelected, startedAt, runRecord }) {
   const hb = process.env.DEVBOXVERIFY_HEARTBEAT;
   const toolCommit = await git(toolRoot, 'rev-parse', 'HEAD').catch(() => '');
   const checkout = fs.existsSync(opts.checkout) ? fs.realpathSync(opts.checkout) : path.resolve(opts.checkout);
   const port = Number(new URL(opts.url).port);
   const base = `http://127.0.0.1:${port}`;
   const anonymous = new EveApi(base);
-  const relayBin = process.env.RELAY_BIN || '/Applications/Relay.app/Contents/MacOS/relay';
+  const relayBin = stack ? stack.relayBin : (process.env.RELAY_BIN || '/Applications/Relay.app/Contents/MacOS/relay');
+  const relay = (args, execOpts) => exec(relayBin, relayArgs(stack, args), execOpts);
   const lsEnv = { env: { ...process.env, LC_ALL: 'C' } };
   let head, epicMain, pid, cwd, liveCwd, listOut, dataDir, projects, worldCounts, repair;
   let cosSetup = { projectId: '', problem: '' };
-  const eveLog = serviceLogReader(path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`));
+  const eveLog = serviceLogReader(stack
+    ? path.join(stack.configDir, 'logs', `${opts.service}.log`)
+    : path.join(home, 'Library', 'Application Support', 'Relay', 'logs', `${opts.service}.log`));
+  // Waits: none possible. eve's log is a file with no hook, so it is polled
+  // against a monotonic deadline.
+  const awaitCosLine = async (mark) => {
+    const logDeadline = performance.now() + OWNER_RESET_WAIT_MS;
+    let logged;
+    for (;;) {
+      logged = await eveLog.since(mark);
+      if (/Chief of Staff config from /.test(logged) || performance.now() > logDeadline) return logged;
+      await sleep(500);
+    }
+  };
 
   const checks = [
-    ['head', async () => (head = await git(checkout, 'rev-parse', 'HEAD'))],
+    ['head', async () => {
+      head = await git(checkout, 'rev-parse', 'HEAD');
+      if (stack && head !== stack.eveHead) throw new Error(`checkout HEAD ${head.slice(0, 12)} is not the stack's eve head ${stack.eveHead.slice(0, 12)}`);
+      return head;
+    }],
     ['tree', async () => {
       if (await git(checkout, 'status', '--porcelain', '--untracked-files=no')) throw new Error('tracked files are modified; commit or reset them');
       return 'clean';
@@ -836,7 +921,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
       return `${slug}@${head} ${head === remoteHead ? 'main' : epicRef.branch}`;
     }],
     ['service', async () => {
-      listOut = await exec(relayBin, ['service', 'list']);
+      listOut = await relay(['service', 'list']);
       const problem = serviceRowProblem(listOut, opts.service, opts.url);
       if (problem) throw new Error(problem);
       return `${opts.service} running`;
@@ -851,7 +936,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
         newestChangeMs: await newestChangeMs(checkout),
       });
       if (problem) throw new Error(problem);
-      dataDir = pinnedDataDir(listOut, opts.service);
+      dataDir = stack ? stack.dataDir : pinnedDataDir(listOut, opts.service);
       if (!dataDir) throw new Error(`${opts.service} has no absolute --data dir; register it as in devboxverify/README.md`);
       const statusProblem = authStatusProblem(await anonymous.authStatus());
       if (statusProblem) throw new Error(statusProblem);
@@ -900,6 +985,19 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
     // Deliberate: this deletes eve-verify's owner so the run can enrol its
     // own. Only the two owner files in the pinned dir, never the live eve's.
     ['owner', async () => {
+      // Deliberate: a stack's eve starts from a fresh data dir and the stack's
+      // seed holds the Chief of Staff settings, so nothing is reset, written
+      // or restarted here.
+      if (stack) {
+        cosSetup = chiefOfStaffSetup(await relay(['grant', '--json'], { timeout: 20000 }).catch((err) => err),
+          await relay(['mcp', 'list'], { timeout: 20000 }).catch((err) => err));
+        const status = await anonymous.authStatus();
+        const problem = authStatusProblem(status);
+        if (problem) throw new Error(problem);
+        if (status.enrolled !== false) throw new Error('the stack\'s eve has an owner; run stack-down and stack-up for a fresh data dir');
+        if (!cosSetup.problem) cosSetup.problem = chiefOfStaffSourceProblem(await awaitCosLine(0), cosSetup.projectId);
+        return `fresh data dir; not enrolled; Chief of Staff settings ${cosSetup.projectId ? 'from the stack seed' : 'not found'}`;
+      }
       const real = dir => (dir && fs.existsSync(dir) ? fs.realpathSync(dir) : dir);
       const files = ownerResetPaths(real(dataDir), { liveDataDir: real(liveDataDir(listOut, liveCwd)) });
       for (const f of files) await fs.promises.rm(f, { force: true });
@@ -908,15 +1006,15 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
       const settingsFile = path.join(path.dirname(files[0]), 'settings.json');
       // Read once, as completed CLI calls. A failed call or unreadable JSON throws and fails the preflight;
       // a readable but wrong setup blocks the Chief of Staff journeys, not the run.
-      const grantOut = await exec(relayBin, ['grant', '--json'], { timeout: 20000 }).catch((err) => err);
-      const mcpOut = await exec(relayBin, ['mcp', 'list'], { timeout: 20000 }).catch((err) => err);
+      const grantOut = await relay(['grant', '--json'], { timeout: 20000 }).catch((err) => err);
+      const mcpOut = await relay(['mcp', 'list'], { timeout: 20000 }).catch((err) => err);
       cosSetup = chiefOfStaffSetup(grantOut, mcpOut);
       if (cosSetup.projectId) {
         const current = await fs.promises.readFile(settingsFile, 'utf8').catch((err) => { if (err.code === 'ENOENT') return ''; throw err; });
         await fs.promises.writeFile(settingsFile, chiefOfStaffSettings(current, cosSetup.projectId));
       }
       const logMark = await eveLog.mark();
-      await exec(relayBin, ['service', 'restart', '--id', opts.service], { timeout: RESTART_TIMEOUT_MS });
+      await relay(['service', 'restart', '--id', opts.service], { timeout: RESTART_TIMEOUT_MS });
       const deadline = performance.now() + OWNER_RESET_WAIT_MS;
       let status = null;
       while (!status) {
@@ -929,18 +1027,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
       const problem = authStatusProblem(status);
       if (problem) throw new Error(problem);
       if (status.enrolled !== false) throw new Error('eve still has an owner after the reset');
-      // Waits: none possible. eve's log is a file with no hook, so it is polled
-      // against a monotonic deadline.
-      if (!cosSetup.problem) {
-        const logDeadline = performance.now() + OWNER_RESET_WAIT_MS;
-        let logged;
-        for (;;) {
-          logged = await eveLog.since(logMark);
-          if (/Chief of Staff config from /.test(logged) || performance.now() > logDeadline) break;
-          await sleep(500);
-        }
-        cosSetup.problem = chiefOfStaffSourceProblem(logged, cosSetup.projectId);
-      }
+      if (!cosSetup.problem) cosSetup.problem = chiefOfStaffSourceProblem(await awaitCosLine(logMark), cosSetup.projectId);
       return cosSetup.projectId ? 'owner removed; not enrolled; Chief of Staff settings written'
         : 'owner removed; not enrolled; Chief of Staff settings not written';
     }],
@@ -948,6 +1035,8 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
   for (const [name, check] of checks) {
     if (name === 'pr' && !opts.post) continue;
     if (name === 'main' && !opts.epic) continue;
+    // A stack's world is its own clone: no repair.sh, so no bootstrap or world line.
+    if (stack && (name === 'bootstrap' || name === 'world')) continue;
     try {
       emit('PREFLIGHT', name, 'OK', await check());
     } catch (err) {
@@ -968,9 +1057,14 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
   const env = {
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
     api, shared: {}, session: null, cosSetupProblem: cosSetup.problem, relayBin, service: opts.service, dataDir,
+    relayConfigDir: stack ? stack.configDir : null,
+    stack: stack ? {
+      relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool,
+      scratchDir: runRecordDir(process.env, home, stack),
+    } : null,
     serviceLog: eveLog,
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
-      await exec(relayBin, ['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
+      await relay(['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
   };
   const screen = opts.screen ? createScreen() : null;
   const results = [];
@@ -1019,23 +1113,26 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
         ...world,
         projects: Object.fromEntries(projects.map(p => [p.key, { ...world.projects[p.key], id: p.id, path: p.path }])),
       };
-      emit('WORLD', `pass=${worldCounts.pass}`, `fail=${worldCounts.fail}`);
-      const reset = await worldScript(world.checkout, 'reset.sh', []);
-      if (reset.timedOut) {
-        emit('RESET', 'FAIL', `reset.sh ${timedOutDetail}`);
-        failedEarly = true;
-        return 2;
+      // A stack's relay and world are its own and fresh: no reset, no sweep.
+      if (!stack) {
+        emit('WORLD', `pass=${worldCounts.pass}`, `fail=${worldCounts.fail}`);
+        const reset = await worldScript(world.checkout, 'reset.sh', []);
+        if (reset.timedOut) {
+          emit('RESET', 'FAIL', `reset.sh ${timedOutDetail}`);
+          failedEarly = true;
+          return 2;
+        }
+        try {
+          if (reset.code !== 0) throw new Error('reset.sh failed');
+          await sweep();
+        } catch (err) {
+          log(firstLine(err));
+          emit('RESET', 'FAIL');
+          failedEarly = true;
+          return 2;
+        }
+        emit('RESET', 'OK');
       }
-      try {
-        if (reset.code !== 0) throw new Error('reset.sh failed');
-        await sweep();
-      } catch (err) {
-        log(firstLine(err));
-        emit('RESET', 'FAIL');
-        failedEarly = true;
-        return 2;
-      }
-      emit('RESET', 'OK');
       for (const j of rest) await runOne(j);
     }
     for (const j of skipped) record({ id: j.id, state: 'NOTRUN', detail: 'screen journey; run with --screen' });
@@ -1045,7 +1142,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, world, journeys, sel
     const late = await runCleanups(pending.splice(0));
     if (late) log(late);
     if (projects && !failedEarly) {
-      await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
+      if (!stack) await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
       // Catches a Claude session that started after the last journey's cleanup.
       try {
         const names = await removeHookConfigs(projects);
@@ -1097,7 +1194,7 @@ module.exports = {
   scrub, writeHeartbeat, runRecordDir, openRunRecord, formatLine, parseArgs, parseEpicRef, mainHeadProblem, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-  relayAuditRows, serviceLogReader, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
+  relayAuditRows, serviceLogReader, readStack, relayArgs, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
   main, EXIT_GRACE_MS,
 };
 

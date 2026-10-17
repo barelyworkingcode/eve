@@ -146,7 +146,11 @@ async function startClaude(env, tools, { name, dir, prompt, settings }) {
   args.push(prompt);
   const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
   env.step(`start ${name}`);
-  await exec(tools.tmux, ['new-session', '-d', '-s', name, '-x', '200', '-y', '50', '-c', dir, `${quote(tools.claude)} ${args.map(quote).join(' ')}`],
+  // A running tmux server does not inherit the client's environment, so a stack's
+  // spool goes in with -e. The spool defaults to a folder in the stack's relay config dir.
+  const spool = env.stack ? (env.stack.outsideSpool || path.join(env.relayConfigDir, 'outside-reports')) : null;
+  const spoolEnv = spool ? ['-e', `RELAY_OUTSIDE_SPOOL=${spool}`] : [];
+  await exec(tools.tmux, ['new-session', '-d', ...spoolEnv, '-s', name, '-x', '200', '-y', '50', '-c', dir, `${quote(tools.claude)} ${args.map(quote).join(' ')}`],
     { env: cleanEnv(), timeout: 20000 });
   tools.sessions.push(name);
   let trusted = false;
@@ -439,8 +443,11 @@ async function cosOutsideSimple(env) {
 
 // — cos-outside-hooks --------------------------------------------------------
 
-// Where relay's optional report hook lives: RELAY_OUTSIDE_REPORT, else the relay checkout's script.
-function reportHelper() {
+// Where relay's optional report hook lives: the stack's relay checkout, else
+// RELAY_OUTSIDE_REPORT, else the relay checkout's script. A stack run never
+// falls back: another checkout's helper would write the tray's spool.
+function reportHelper(env) {
+  if (env.stack) return env.stack.relayCheckout ? path.join(env.stack.relayCheckout, 'scripts', 'outside-session-report.sh') : null;
   if (process.env.RELAY_OUTSIDE_REPORT) return process.env.RELAY_OUTSIDE_REPORT;
   const checkout = process.env.RELAY_CHECKOUT || path.resolve(__dirname, '..', '..', 'relay');
   return path.join(checkout, 'scripts', 'outside-session-report.sh');
@@ -451,7 +458,8 @@ async function cosOutsideHooks(env) {
   if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
   const tools = newTools(env, id);
   if (tools.problem) return result(id, BLOCKED, tools.problem);
-  const helper = reportHelper();
+  const helper = reportHelper(env);
+  if (!helper) return result(id, BLOCKED, 'stack.json names no relay_checkout');
   if (!fs.existsSync(helper)) return result(id, BLOCKED, 'relay\'s outside-session-report.sh is not in the relay checkout (set RELAY_OUTSIDE_REPORT); it ships with relay\'s outside sessions');
 
   const page = await env.newPage();
@@ -465,7 +473,10 @@ async function cosOutsideHooks(env) {
   // The settings file is the harness's own, passed with --settings; the user's
   // Claude settings are never read or changed. A wrapper stamps each firing
   // (the file's mtime) with the hook's stdin payload and hands the same payload to relay's helper, which spools it.
-  const work = await fs.promises.mkdtemp(path.join(os.tmpdir(), `verify-${env.nonce}-hooks-`));
+  // A stack run keeps its scratch beside its record, never in the system temp dir.
+  const scratchRoot = env.stack ? env.stack.scratchDir : os.tmpdir();
+  if (env.stack) await fs.promises.mkdir(scratchRoot, { recursive: true });
+  const work = await fs.promises.mkdtemp(path.join(scratchRoot, `verify-${env.nonce}-hooks-`));
   tools.dirs.push(work);
   for (const p of [work, helper]) if (p.includes("'")) return result(id, BLOCKED, 'a path holds a quote; the hook command cannot be written safely');
   const wrapper = path.join(work, 'hook.sh');
