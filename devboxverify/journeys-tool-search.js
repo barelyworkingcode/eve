@@ -22,8 +22,10 @@ const LOOKUP_TOOL = 'tides_lookup';
 const MIN_SKILLS = 40;
 const AUDIT_SLACK_MS = 2000;
 const SUPPORT = path.join(os.homedir(), 'Library', 'Application Support', 'relay');
-const CHAT_CONFIG = path.join(SUPPORT, 'sessions', 'chat.json');
-const SESSIONS_LOG = path.join(SUPPORT, 'logs', 'relaysessions.log');
+// relay's config dir: a stack run's own (env.relayConfigDir), else the tray's.
+const supportDir = (env) => env.relayConfigDir || SUPPORT;
+const chatConfigFile = (env) => path.join(supportDir(env), 'sessions', 'chat.json');
+const sessionsLogFile = (env) => path.join(supportDir(env), 'logs', 'relaysessions.log');
 
 // The tool's contract: 'TIDE-' + first 8 lowercase hex of sha256(lower(trim(port))).
 const tideCode = (port) => `TIDE-${crypto.createHash('sha256').update(String(port).trim().toLowerCase()).digest('hex').slice(0, 8)}`;
@@ -131,9 +133,9 @@ function detailProblem(steps, searchIndex, nonce) {
   return null;
 }
 
-async function logSince(mark) {
+async function logSince(env, mark) {
   let fh;
-  try { fh = await fs.promises.open(SESSIONS_LOG, 'r'); } catch { return ''; }
+  try { fh = await fs.promises.open(sessionsLogFile(env), 'r'); } catch { return ''; }
   try {
     const { size } = await fh.stat();
     const from = size < mark ? 0 : mark;
@@ -144,7 +146,7 @@ async function logSince(mark) {
     await fh.close();
   }
 }
-const logSize = () => fs.promises.stat(SESSIONS_LOG).then((s) => s.size, () => 0);
+const logSize = (env) => fs.promises.stat(sessionsLogFile(env)).then((s) => s.size, () => 0);
 
 // The session's chat.tool_search summary line, or null. Warn lines share the
 // op and session id, so the summary is the one with msg "chat tool search" or
@@ -194,7 +196,7 @@ async function chatToolSearch(env) {
 async function chatToolSearchRun(env, ctx) {
   const id = 'chat-tool-search';
   let chatConfig = null;
-  try { chatConfig = await fs.promises.readFile(CHAT_CONFIG, 'utf8'); } catch (err) { if (err.code !== 'ENOENT') return result(id, BLOCKED, `cannot read chat.json: ${err.code || err.message}`); }
+  try { chatConfig = await fs.promises.readFile(chatConfigFile(env), 'utf8'); } catch (err) { if (err.code !== 'ENOENT') return result(id, BLOCKED, `cannot read chat.json: ${err.code || err.message}`); }
   if (chatConfig !== null) {
     let parsed;
     try { parsed = JSON.parse(chatConfig); } catch { return result(id, BLOCKED, 'chat.json is not valid JSON'); }
@@ -220,7 +222,7 @@ async function chatToolSearchRun(env, ctx) {
   env.cleanup('delete the tool-search sessions', async () => {
     for (const sid of (await mine()).filter((s) => !before.includes(s))) await deleteSession(env, sid);
   });
-  const logMark = await logSize();
+  const logMark = await logSize(env);
 
   const dialog = await openLauncher(page, env, project);
   env.step('open the Web Chat form');
@@ -310,7 +312,7 @@ async function chatToolSearchRun(env, ctx) {
   if (!audited) return result(id, FAIL, `relay audit has no call_tool ${LOOKUP_TOOL} outcome ok for ${PROJECT_NAME} since the question`);
 
   env.step('read the relay-sessions log');
-  const line = await poll(async () => toolSearchLine(await logSince(logMark), sessionId), { timeoutMs: 10000, intervalMs: 1000 });
+  const line = await poll(async () => toolSearchLine(await logSince(env, logMark), sessionId), { timeoutMs: 10000, intervalMs: 1000 });
   if (!line) return result(id, FAIL, `no chat.tool_search line for session ${sessionId} in the relay-sessions log`);
   const problems = [];
   if (line.active !== true && line.active !== 'true') problems.push(`active=${line.active}`);

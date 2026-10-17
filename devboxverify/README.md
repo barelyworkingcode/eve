@@ -9,7 +9,7 @@ The test model is Claude Haiku 5.5: journeys and the Chief of Staff launch
 the alias `haiku`, and assert the full id `claude-haiku-5-5`.
 
 ```bash
-node devboxverify/main.js [--checkout DIR] [--url URL] [--service ID] [--post PR | --epic REF] [--screen] [--only ID[,ID...]]
+node devboxverify/main.js [--checkout DIR] [--url URL | --stack FILE] [--service ID] [--post PR | --epic REF] [--screen] [--only ID[,ID...]]
 npm run -s verify:devbox -- [flags]
 ```
 
@@ -19,6 +19,7 @@ Keep `-s` on the npm form. npm's banner would break the stdout grammar.
 |---|---|
 | `--checkout` | the git toplevel holding `devboxverify/` |
 | `--url` | `http://localhost:3100`; must be `http:`, `localhost` or `127.0.0.1`, with a port |
+| `--stack` | none; a `stack.json` from devboxWorld's `stack-up`. Runs against that stack's eve and relay only; see "Stack runs". Cannot be combined with `--url`, `--post`, `--epic` or `--screen` (exit 2) |
 | `--service` | `eve-verify` |
 | `--post` | none; a PR number. Selects journeys by the areas the PR touches; see "Selection" |
 | `--epic` | none; `N` or `owner/repo#N`, the epic issue that gets the `Full verify` line. Runs every journey, screen journeys included, and posts `devbox/verify-full`; see "Verifying an epic". Cannot be combined with `--post` or `--only` |
@@ -1316,6 +1317,56 @@ judged.
   Exit codes: 0 answered, 1 no dialog in time, 3 refused (locked screen, not
   relay's dialog, text lacks the expected words, several dialogs, or one
   older than the helper); 2, 4 and 5 are errors.
+
+## Stack runs
+
+`--stack <stack.json>` verifies one run's own stack, built by devboxWorld's
+`stack-up <slot> --relay <checkout> --eve <checkout>` (the run directory and
+`stack.json` are pinned on relay#479; devboxWorld's `docs/WORLD.md`,
+"Stacks", is the spec). Two stack runs on different slots run at the same
+time and neither changes the other's result. Without `--stack` nothing below
+applies and the tool behaves as described everywhere else in this file.
+
+What comes from the file, and nothing else:
+
+| Key | Used for |
+|---|---|
+| `eve_url` | eve's URL (as `--url`, under the same rule) |
+| `eve_data_dir` | the data dir the journeys read (notifications), in place of the service row's `--data` |
+| `config_dir` | every relay CLI call is `relay --config-dir <config_dir> ...`, and `RELAY_CONFIG_DIR` is set to it for the run, so a relay a journey or a terminal runs reaches the same instance. eve's log is `<config_dir>/logs/<service>.log`; chat-tool-search reads `<config_dir>/sessions/chat.json` and `<config_dir>/logs/relaysessions.log` |
+| `relay_bin` | the relay binary, in place of `RELAY_BIN` |
+| `marker` | the machine marker (in place of `DEVBOXWORLD_MARKER`), whose `world_root` is the stack's clone of the world's folders |
+| `head.eve` | `PREFLIGHT head` fails unless the checkout's HEAD is this commit |
+| `slot` | must be present |
+
+A missing or unreadable file, a relative path, an `eve_url` off loopback or
+an `eve` head that is not 40 hex characters is a usage error (exit 2). Other
+keys are ignored.
+
+What a stack run does not do:
+
+- **No lock.** `PREFLIGHT lock OK not taken: --stack runs no screen
+  journey`. The browser-test lock guards the one screen, and a stack run
+  cannot use `--screen`; screen journeys report NOTRUN as usual.
+- **No repair, reset or sweep.** No `repair.sh`, so no `PREFLIGHT bootstrap`,
+  `PREFLIGHT world` or `REPAIRED` lines; no `reset.sh` and no sweep, so no
+  `WORLD` or `RESET` lines. The stack's world folders are its own clone and its
+  relay starts empty.
+- **No owner reset and no restart.** `PREFLIGHT owner` deletes nothing and
+  runs no `relay service restart`: the stack's eve started on a fresh data dir,
+  so it needs `enrolled: false` (`the stack's eve has an owner; run stack-down
+  and stack-up for a fresh data dir` otherwise). OK: `fresh data dir; not
+  enrolled; Chief of Staff settings from the stack seed`.
+- **No settings write.** The Chief of Staff settings are in the stack's seed
+  (`eve-data/settings.json`); the run only reads `relay grant --json` and
+  `relay mcp list` for setup V-COS and eve's log for the source check, which
+  reads the log from its start.
+- **Nothing outside the run directory.** The run record goes to
+  `eve-verify-runs/` beside `stack.json`, not `NIGHTLY_LOG_DIR`.
+
+The preflight order is otherwise the same: `machine`, `pin`, `fixtures`,
+`lock`, `head`, `tree`, `service` (the stack's `relay service list`), `eve`,
+`live`, `browser`, `audio`, `owner`.
 
 ## Verifying a PR
 
