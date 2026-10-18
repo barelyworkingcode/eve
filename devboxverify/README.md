@@ -28,9 +28,9 @@ Keep `-s` on the npm form. npm's banner would break the stdout grammar.
 
 Environment: `RELAY_BIN` (default `/Applications/Relay.app/Contents/MacOS/relay`;
 used for `relay service list`, `relay service restart --id eve-verify` and
-`relay audit`), `EVE_VERIFY_MODEL` (default `Europa-Fast`, a relayLLM virtual model on
-the devbox: endpoint `europa`, `chat_template_kwargs.enable_thinking` false; the
-first model whose value equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
+`relay audit`), `EVE_VERIFY_MODEL` (default `Europa-Fast`, a relayLLM virtual model the
+devbox defines and a stack copies, devboxWorld#36; the first model whose value
+equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
 `~/.local/share/devboxverify/bin/devboxpresence`; only `--screen` uses it,
 for relay's presence helper), `DEVBOXWORLD_MARKER` (default
 `~/.config/devboxWorld/machine.json`; the machine marker, see below),
@@ -1219,8 +1219,8 @@ judged.
   (relay#232).
   agent-drop-in needs the same, and a relay with drop-in (relay#239) that
   lists `headless` on sessions (relay#241).
-- **S3 · V1.** An Acme Corp chat template `World voice`, mode Voice, model =
-  `EVE_VERIFY_MODEL`, added from eve's Edit Project → Chat Templates.
+- **S3 · V1.** An Acme Corp chat template `World voice`, mode Voice, model
+  `Chat`, added from eve's Edit Project → Chat Templates.
 - **S3 · V2.** In Relay → Projects → Default projects: Work = Acme Corp,
   Home = Home. Test-world config, not owner config; no grant changes.
   mode-presets, voice-deep-link and ask-in-other-mode FAIL without it.

@@ -36,7 +36,7 @@ Runs on the devbox only, never in CI.
 - **D8 · Chat reply.** `chat-reply` passes on a non-empty assistant reply with
   no error in the thread. Whether the model answered correctly goes in the
   detail, not the verdict.
-- **D9 · Model.** `EVE_VERIFY_MODEL` (default `Chat`) picks the first model whose
+- **D9 · Model.** `EVE_VERIFY_MODEL` (default `Europa-Fast`) picks the first model whose
   value equals it or ends with `/<it>`. The box's model ids stay out of the repo.
 - **D10 · Nightly and `main`.** Relay: verify what is installed; no build (its
   build signs and its register is presence-gated). A relay night after a merge
