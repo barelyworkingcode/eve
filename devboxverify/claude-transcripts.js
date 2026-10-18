@@ -401,4 +401,4 @@ function withTranscriptSweep(journey, startedAtMs) {
   };
 }
 
-module.exports = { claudeRunning, removeTranscript, sweepTranscripts, sweepSlotSessions, sweepSlotAtRunEnd, slotOwnedPrefixes, slotRivals, slotOwned, reapAfterRun, reap, withTranscriptSweep, runMarks, runningIds, TRANSCRIPT_CLEANUP_MS };
+module.exports = { claudeRunning, removeTranscript, sweepTranscripts, sweepSlotSessions, sweepSlotAtRunEnd, slotOwnedPrefixes, slotRivals, reap, withTranscriptSweep, runMarks, runningIds, TRANSCRIPT_CLEANUP_MS };

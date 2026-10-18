@@ -239,10 +239,13 @@ const cases = {
     put(folder, uuid(40), 'x');
     const env = { nonce: NONCE, stack: { scratchDir: path.join(dir, 'eve-verify-runs') } };
     const out = await logged(async () => {
+      // Right name, no marker.json: the marker guard refuses.
       await T.sweepSlotAtRunEnd(env, { slot: 'copy', marker: path.join(dir, 'marker.json') });
+      // Marker present, wrong name: the name guard refuses.
+      fs.writeFileSync(path.join(dir, 'marker.json'), '{}');
       await T.sweepSlotAtRunEnd(env, { slot: 'other', marker: path.join(dir, 'marker.json') });
     });
-    assert.ok(exists(folder, `${uuid(40)}.jsonl`), 'no marker.json, wrong name: untouched');
+    assert.ok(exists(folder, `${uuid(40)}.jsonl`), 'each guard alone leaves the file untouched');
     assert.match(out, /kept: the stack file is not in a slot run directory/);
   },
   async 'the end-of-run sweep leaves a session whose Claude runs; the reaper deletes it on exit'() {
