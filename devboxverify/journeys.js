@@ -11,6 +11,7 @@ const path = require('path');
 const { promisify, isDeepStrictEqual } = require('util');
 const WebSocket = require('ws');
 const { expect } = require('@playwright/test');
+const { withTranscriptSweep } = require('./claude-transcripts');
 const {
   GREETING, PASS, FAIL, BLOCKED, result, firstLine, sleep, now, seconds, left, need, poll, pickModel, optionValues,
   openEve, waitForModels, openProject, openProjectPage, acmeIds, allWorldIds, addedIds, openLauncher, captureErrors,
@@ -2651,7 +2652,7 @@ function claudePidsFor(psOut, sid) {
 }
 
 async function agentDropIn(env) {
-  const { claudeRunning, removeTranscript, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
+  const { claudeRunning, removeTranscript, runMarks, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
   const id = 'agent-drop-in';
   const acme = env.world.projects.acme;
   const name = `verify-${env.nonce}-dropin`;
@@ -2697,7 +2698,7 @@ async function agentDropIn(env) {
     const claudeId = body && typeof body.claudeSessionId === 'string' ? body.claudeSessionId : '';
     if (!claudeId) { process.stderr.write(`transcript ${id}: id unknown: the drop-in answer holds no claudeSessionId\n`); return; }
     await removeTranscript({
-      journey: id, id: claudeId, token: `verify-${env.nonce}-`,
+      journey: id, id: claudeId, token: `verify-${env.nonce}-`, marks: runMarks(env),
       running: async () => claudeRunning('--resume', claudeId),
     });
   }, TRANSCRIPT_CLEANUP_MS);
@@ -4295,6 +4296,9 @@ const cosOutside = require('./journeys-cos-outside').journeys;
 // The table order is the run order. agent-enrol-refused runs before anything
 // that could open relay's one enrolment window; add-browser-in-window runs
 // last (a screen journey) and consumes the window it opens.
+// Every journey is wrapped, so a Claude session any of them (or the Chief of Staff
+// probe behind them) starts is swept at the journey's end. See claude-transcripts.js.
+const RUN_STARTED_MS = Date.now() - 60000;
 const journeys = [
   auth.passkeyFirstEnrol,
   auth.passkeySignIn,
@@ -4377,7 +4381,7 @@ const journeys = [
   cosOutside.cosOutsideHooks,
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
-];
+].map((j) => withTranscriptSweep(j, RUN_STARTED_MS));
 
 module.exports = {
   journeys, scratchFolder, commitOneFile, endOfFile, sessionStates, openEveSocket, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,

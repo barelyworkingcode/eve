@@ -181,7 +181,7 @@ async function endClaude(tools, name) {
 }
 
 function newTools(env, id) {
-  const { claudeRunning, removeTranscript, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
+  const { claudeRunning, removeTranscript, runMarks, TRANSCRIPT_CLEANUP_MS } = require('./claude-transcripts');
   const tools = { tmux: onPath('tmux'), claude: onPath('claude'), sessions: [], dirs: [], problem: '' };
   tools.claudeIds = [];
   tools.journey = id;
@@ -201,7 +201,7 @@ function newTools(env, id) {
   env.cleanup(`${id}: remove the outside claude transcripts`, async () => {
     // In parallel: two Claudes must fit one cleanup's time limit.
     await Promise.all(tools.claudeIds.map(({ id: claudeId, journey }) => removeTranscript({
-      journey, id: claudeId, token: `verify-${env.nonce}-`, running: async () => claudeRunning('--session-id', claudeId),
+      journey, id: claudeId, token: `verify-${env.nonce}-`, marks: runMarks(env), running: async () => claudeRunning('--session-id', claudeId),
     })));
   }, TRANSCRIPT_CLEANUP_MS);
   return tools;
