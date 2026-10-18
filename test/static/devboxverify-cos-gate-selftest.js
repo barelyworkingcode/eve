@@ -54,6 +54,29 @@ async function main() {
     waitCosIdle({}, 'cos-x', 'before the journey started', { open: fakeOpen([status(true)], closed), withinMs: 60, intervalMs: 10 }),
     /cos-x: the Chief of Staff turn had not ended within 0\.06s before the journey started \(waited for cos_status busy:false; last status busy:true\)/);
   assert.deepStrictEqual(closed.filter((x) => x === 'close'), ['close'], 'the socket closes on failure');
+
+  // End-wait times out: a PASS becomes a FAIL naming the journey.
+  const quick = { withinMs: 40, intervalMs: 10 };
+  const endBusy = (n) => { // idle for the first `n` sockets, busy after
+    let opens = 0;
+    return async () => { const busy = opens++ >= n; return { send() {}, close() {}, get frames() { return [status(busy)]; } }; };
+  };
+  const passing = { ...journey, run: async () => ({ id: 'cos-x', state: 'PASS', detail: 'ok' }) };
+  const endTimeout = await withCosTurnGate(passing, { open: endBusy(1), ...quick }).run({});
+  assert.strictEqual(endTimeout.state, 'FAIL', 'an end-wait timeout fails a passing journey');
+  assert.match(endTimeout.detail, /cos-x: the Chief of Staff turn had not ended .* after the journey's last step/);
+
+  // Start-wait times out: FAIL, and the journey body never runs.
+  let startRan = false;
+  const startTimeout = await withCosTurnGate({ ...journey, run: async () => { startRan = true; return { state: 'PASS' }; } }, { open: endBusy(0), ...quick }).run({});
+  assert.strictEqual(startTimeout.state, 'FAIL', 'a start-wait timeout is a FAIL');
+  assert.match(startTimeout.detail, /cos-x: .* before the journey started/);
+  assert.strictEqual(startRan, false, 'the journey does not run after a start-wait timeout');
+
+  // A journey that already failed keeps its verdict when the end-wait times out.
+  const failed = { id: 'cos-x', state: 'FAIL', detail: 'own failure' };
+  const kept = await withCosTurnGate({ ...journey, run: async () => failed }, { open: endBusy(1), ...quick }).run({});
+  assert.strictEqual(kept, failed, 'a failed journey keeps its own verdict');
 }
 
 main().then(() => console.log('devboxverify-cos-gate-selftest: ok'), (err) => { console.error(err); process.exit(1); });

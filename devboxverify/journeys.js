@@ -2907,19 +2907,19 @@ async function waitCosIdle(env, journey, when, { open = openEveSocket, withinMs 
 // otherwise be taken as the next journey's answer. A journey that already
 // failed keeps its verdict; the next journey's start check still holds.
 // The declared timeoutMs is frozen (test/static/frozen.json), so the waits spend it.
-function withCosTurnGate(journey, { open } = {}) {
+function withCosTurnGate(journey, { open, withinMs, intervalMs } = {}) {
   if (!journey.areas || !journey.areas.includes('chief-of-staff')) return journey;
   return {
     ...journey,
     run: async (env) => {
       try {
-        await waitCosIdle(env, journey.id, 'before the journey started (an earlier journey\'s turn was still running)', { open });
+        await waitCosIdle(env, journey.id, 'before the journey started (an earlier journey\'s turn was still running)', { open, withinMs, intervalMs });
       } catch (err) {
         return result(journey.id, FAIL, err.message);
       }
       const verdict = await journey.run(env);
       try {
-        await waitCosIdle(env, journey.id, 'after the journey\'s last step', { open });
+        await waitCosIdle(env, journey.id, 'after the journey\'s last step', { open, withinMs, intervalMs });
       } catch (err) {
         if (verdict && verdict.state === PASS) return result(journey.id, FAIL, err.message);
       }

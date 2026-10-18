@@ -101,7 +101,20 @@ function brokerCases() {
   assert.strictEqual(s.claudeBaseUrl, 'http://127.0.0.1:53200');
   assert.strictEqual(s.claudeTokenFile, TOKEN);
   assert.strictEqual(from(GOOD).claudeTokenFile, null, 'absent broker fields read as null');
-  assert.ok(!JSON.stringify(s).includes('secret-bearer'), 'the stack holds a path, never a token');
+  {
+    // A real 0600 file holding a marker: it must reach no field of the stack and no error message.
+    const mdir = fs.mkdtempSync(path.join(os.tmpdir(), 'dvb-'));
+    try {
+      const mfile = path.join(mdir, 'tok');
+      fs.writeFileSync(mfile, 'marker-bearer-7f3a\n', { mode: 0o600 });
+      const real = readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify({ ...B, claude_token_file: mfile }) });
+      assert.strictEqual(real.claudeTokenFile, mfile);
+      assert.ok(!JSON.stringify(real).includes('marker-bearer-7f3a'), 'the stack holds a path, never a token');
+      let msg = '';
+      try { readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify({ ...B, claude_token_file: mfile, claude_base_url: 'http://example.com:1' }) }); } catch (err) { msg = err.message; }
+      assert.ok(msg && !msg.includes('marker-bearer-7f3a'), 'an error never carries the token');
+    } finally { fs.rmSync(mdir, { recursive: true, force: true }); }
+  }
   for (const bad of ['', ' http://127.0.0.1:1', 5, null, 'a\nb']) {
     usage(() => ok({ ...B, claude_base_url: bad }), /claude_base_url/, `base url ${JSON.stringify(bad)}`);
     usage(() => ok({ ...B, claude_token_file: bad }), /claude_token_file/, `token file ${JSON.stringify(bad)}`);
@@ -130,6 +143,9 @@ function brokerCases() {
     assert.ok(!Object.keys(e).some((k) => k.startsWith('GIT_')), 'GIT_* is dropped as before');
     assert.ok(!OC.shellPrefix(env).includes('secret-bearer'), 'the tmux command line never holds the token');
     assert.ok(OC.shellPrefix(env).includes(`$(cat '${file}')`), 'the shell reads the token file');
+    const pre = OC.shellPrefix(env);
+    assert.ok(pre.startsWith(`[ -s '${file}' ] || { echo `) && pre.includes('>&2; exit 1; }; ANTHROPIC_BASE_URL='), 'the shell refuses to start claude on an unreadable or empty token file');
+    assert.ok(pre.includes(`token file ${file} is empty`), 'the refusal names the file');
     fs.writeFileSync(file, '\n');
     assert.throws(() => OC.outsideClaudeEnv(env), /is empty/, 'an empty token file fails fast');
     // settings.local.json

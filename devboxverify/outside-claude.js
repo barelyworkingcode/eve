@@ -40,7 +40,9 @@ const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 function shellPrefix(env) {
   const b = brokerOf(env);
   if (!b) return '';
-  return `ANTHROPIC_BASE_URL=${quote(b.baseUrl)} ANTHROPIC_DEFAULT_HAIKU_MODEL=${quote(b.model)} ANTHROPIC_AUTH_TOKEN="$(cat ${quote(b.tokenFile)})" `;
+  // Fail loudly, as the spawn path does, rather than start claude with an empty token.
+  const guard = `[ -s ${quote(b.tokenFile)} ] || { echo ${quote(`the broker token file ${b.tokenFile} is empty or unreadable`)} >&2; exit 1; }; `;
+  return `${guard}ANTHROPIC_BASE_URL=${quote(b.baseUrl)} ANTHROPIC_DEFAULT_HAIKU_MODEL=${quote(b.model)} ANTHROPIC_AUTH_TOKEN="$(cat ${quote(b.tokenFile)})" `;
 }
 
 // Writes <dir>/.claude/settings.local.json for a stack run; a run without a broker writes nothing.
