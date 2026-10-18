@@ -527,6 +527,11 @@ function cardFail(message) { return { ok: false, message }; }
 // One action per card: the state leaves `pending` before anything is awaited.
 async function cardAction(cos, { postId, action, edits } = {}) {
   if (!['start', 'add', 'cancel', 'approve', 'stop'].includes(action)) return cardFail('Unknown card action');
+  // Stop works on the active delegation even when its card has aged out of the history.
+  if (action === 'stop' && postId && postId === cos.activeDelegation?.postId && !cos.posts.some((p) => p.id === postId)) {
+    cos._endDelegation('stopped');
+    return { ok: true };
+  }
   const post = cos.posts.find((p) => p.id === postId);
   const allowed = post && Object.hasOwn(CARD_ACTIONS, post.kind) ? CARD_ACTIONS[post.kind] : null;
   if (!allowed) return cardFail('That card is gone');
@@ -576,7 +581,7 @@ async function tapApprove(cos, post) {
   for (const rule of card.rules) {
     const named = rule.kind === 'continue' ? rule.sessions : [rule];
     const gone = named.find((s) => !cos.roster.has(s.sessionId));
-    if (gone) return failCard(`${gone.label} is gone. Type the instruction again.`);
+    if (gone) return failCard(`${gone.label || 'A session'} is gone. Type the instruction again.`);
   }
   cos._activateDelegation(post);
   return { ok: true };
