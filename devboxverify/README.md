@@ -28,8 +28,9 @@ Keep `-s` on the npm form. npm's banner would break the stdout grammar.
 
 Environment: `RELAY_BIN` (default `/Applications/Relay.app/Contents/MacOS/relay`;
 used for `relay service list`, `relay service restart --id eve-verify` and
-`relay audit`), `EVE_VERIFY_MODEL` (default `Chat`; the first model whose
-value equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
+`relay audit`), `EVE_VERIFY_MODEL` (default `Europa-Fast`, a relayLLM virtual model on
+the devbox: endpoint `europa`, `chat_template_kwargs.enable_thinking` false; the
+first model whose value equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
 `~/.local/share/devboxverify/bin/devboxpresence`; only `--screen` uses it,
 for relay's presence helper), `DEVBOXWORLD_MARKER` (default
 `~/.config/devboxWorld/machine.json`; the machine marker, see below),
