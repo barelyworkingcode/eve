@@ -1912,7 +1912,8 @@ async function researchCitations(env) {
   const input = page.getByTestId('chat-input');
   await need('the composer never became usable', expect(input).toBeEnabled({ timeout: 30000 }));
   await input.fill(`${marker}: call ${stub.tool} once with query "${env.nonce}". `
-    + 'Answer in two sentences, each ending with a markdown link to a result URL you used.', { timeout: 5000 });
+    + 'Answer in two sentences, each ending with a markdown link to a result URL you used, '
+    + 'written [title](full-url) with the URL copied from the search results.', { timeout: 5000 });
   env.step('send the research question');
   const sentAt = Date.now() - 1000;
   await page.getByTestId('chat-submit').click({ timeout: 5000 });

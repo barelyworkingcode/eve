@@ -504,7 +504,8 @@ thread's own tool rows (information only).
 **research-citations.** Research with sources end to end (S4). In the
 `Research` project (setup R1), a web chat with `EVE_VERIFY_MODEL` sends
 `verify-<nonce>: call brave_web_search once with query "<nonce>". Answer in
-two sentences, each ending with a markdown link to a result URL you used.`
+two sentences, each ending with a markdown link to a result URL you used,
+written [title](full-url) with the URL copied from the search results.`
 and waits up to 120 s for the reply. `relay audit --event call_tool
 --project <research id> --json` since the send must hold an `ok`
 `brave_web_search` row. The expected sources are the world's
