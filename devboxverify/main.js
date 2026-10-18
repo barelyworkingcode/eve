@@ -1143,7 +1143,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, stack = null, world,
     const late = await runCleanups(pending.splice(0));
     if (late) log(late);
     // A solo --only run leaves the Chief of Staff's bootstrap session, which carries no run token.
-    if (stack) await sweepSlotAtRunEnd(env).catch((err) => log(`final: slot sessions kept: ${firstLine(err)}`));
+    if (stack) await sweepSlotAtRunEnd(env, stack).catch((err) => log(`final: slot sessions kept: ${firstLine(err)}`));
     if (projects && !failedEarly) {
       if (!stack) await sweep().catch(err => log(`final sweep: ${firstLine(err)}`));
       // Catches a Claude session that started after the last journey's cleanup.

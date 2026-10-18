@@ -184,28 +184,66 @@ const cases = {
     assert.deepStrictEqual(m, { nonce: NONCE, slotPrefix: '-Users-a--local-state-dv-runs-s9-' });
     assert.deepStrictEqual(T.runMarks({ nonce: NONCE, stack: null }), { nonce: NONCE, slotPrefix: '' });
   },
-  async 'the end-of-run sweep removes the slot own folders, token or not, and keeps others'() {
+  async 'the end-of-run sweep removes the slot own folders, token or not, and keeps every other slot and folder'() {
     reset();
-    const slotDir = path.join(home, 'runs', 'x1');
-    fs.mkdirSync(path.join(slotDir, 'verify-cos'), { recursive: true });
-    fs.mkdirSync(path.join(slotDir, 'world'), { recursive: true });
     const enc = (p) => p.replace(/[^A-Za-z0-9]/g, '-');
+    const runs = path.join(home, 'runs');
+    const mkSlot = (name) => {
+      const d = path.join(runs, name);
+      fs.mkdirSync(path.join(d, 'verify-cos'), { recursive: true });
+      fs.mkdirSync(path.join(d, 'world', 'Acme-Corp'), { recursive: true });
+      fs.mkdirSync(path.join(d, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(d, 'marker.json'), '{}');
+      return d;
+    };
+    const slotDir = mkSlot('x1');
+    mkSlot('x1-b'); mkSlot('x1-relay'); mkSlot('x1-world'); mkSlot('x1-bin');
     const own = enc(path.join(slotDir, 'verify-cos'));
     const ownWorld = enc(path.join(slotDir, 'world', 'Acme-Corp'));
-    const other = `${enc(path.join(home, 'runs', 'x1-b'))}-verify-cos`;
+    const keep = {
+      [enc(path.join(runs, 'x1-b', 'verify-cos'))]: uuid(32),
+      [enc(path.join(runs, 'x1-relay', 'verify-cos'))]: uuid(35),
+      [enc(path.join(runs, 'x1-world', 'verify-cos'))]: uuid(36),
+      [enc(path.join(runs, 'x1-world', 'world', 'Acme-Corp'))]: uuid(37),
+      [enc(path.join(runs, 'x1-bin', 'world', 'Acme-Corp'))]: uuid(38),
+      [enc(path.join(runs, 'x1_relay', 'p'))]: uuid(39),
+      '-Users-x-World-Acme-Corp': uuid(33),
+    };
     put(own, uuid(30), 'Chief of Staff bootstrap, Reply with the single word: ready');
+    fs.mkdirSync(path.join(ROOT, own, uuid(30), 'subagents'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, own, uuid(30), 'subagents', 'a.jsonl'), 'x');
     put(ownWorld, uuid(31), 'no run token here either');
-    put(other, uuid(32), 'another slot, prefix-extending name');
-    put('-Users-x-World-Acme-Corp', uuid(33), 'unrelated');
+    // world projects of a slot with no look-alike sibling are removed
+    const solo = mkSlot('y1');
+    const soloWorld = enc(path.join(solo, 'world', 'Acme-Corp'));
+    put(soloWorld, uuid(41), 'no run token');
+    for (const [folder, id] of Object.entries(keep)) put(folder, id, 'not ours');
     const env = { nonce: NONCE, stack: { scratchDir: path.join(slotDir, 'eve-verify-runs') } };
-    const marks = { ...T.runMarks(env), slotOwn: T.slotOwnedPrefixes(slotDir) };
-    assert.ok(T.slotOwned(own, marks.slotOwn) && !T.slotOwned(other, marks.slotOwn));
-    const out = await logged(() => T.sweepSlotSessions({ journey: 'end-of-run', marks, ps: async () => '' }));
-    assert.ok(!exists(own), "the slot's own folder and its session are removed");
-    assert.ok(!exists(ownWorld), "the slot's world folder is removed");
-    assert.ok(exists(other, `${uuid(32)}.jsonl`), 'a slot with a prefix-extending name stays');
-    assert.ok(exists('-Users-x-World-Acme-Corp', `${uuid(33)}.jsonl`), 'an unrelated folder stays');
+    const stack = { slot: 'x1', marker: path.join(slotDir, 'marker.json') };
+    const out = await logged(() => T.sweepSlotAtRunEnd(env, stack));
+    await logged(() => T.sweepSlotAtRunEnd({ nonce: NONCE, stack: { scratchDir: path.join(solo, 'eve-verify-runs') } }, { slot: 'y1', marker: path.join(solo, 'marker.json') }));
+    assert.ok(!exists(soloWorld), "a slot's world project folder is removed");
+    assert.ok(!exists(own), "the slot's own folder, its session and its session folder are removed");
+    // Deliberate: with a sibling slot x1-world up, x1's world folder reads the same
+    // as that slot's; the longest match goes to the sibling, so it stays (the token sweep handles it).
+    assert.ok(exists(ownWorld, `${uuid(31)}.jsonl`), 'an ambiguous world folder stays');
+    for (const [folder, id] of Object.entries(keep)) assert.ok(exists(folder, `${id}.jsonl`), `${folder} stays`);
     assert.match(out, new RegExp(`transcript end-of-run: ${uuid(30)} deleted 1\\n`));
+  },
+  async 'a stack file outside a slot run directory deletes nothing'() {
+    reset();
+    const enc = (p) => p.replace(/[^A-Za-z0-9]/g, '-');
+    const dir = path.join(home, 'copy');
+    fs.mkdirSync(path.join(dir, 'verify-cos'), { recursive: true });
+    const folder = enc(path.join(dir, 'verify-cos'));
+    put(folder, uuid(40), 'x');
+    const env = { nonce: NONCE, stack: { scratchDir: path.join(dir, 'eve-verify-runs') } };
+    const out = await logged(async () => {
+      await T.sweepSlotAtRunEnd(env, { slot: 'copy', marker: path.join(dir, 'marker.json') });
+      await T.sweepSlotAtRunEnd(env, { slot: 'other', marker: path.join(dir, 'marker.json') });
+    });
+    assert.ok(exists(folder, `${uuid(40)}.jsonl`), 'no marker.json, wrong name: untouched');
+    assert.match(out, /kept: the stack file is not in a slot run directory/);
   },
   async 'the end-of-run sweep leaves a session whose Claude runs; the reaper deletes it on exit'() {
     reset();
@@ -213,7 +251,7 @@ const cases = {
     fs.mkdirSync(path.join(slotDir, 'verify-cos'), { recursive: true });
     const own = path.join(slotDir, 'verify-cos').replace(/[^A-Za-z0-9]/g, '-');
     put(own, uuid(34), 'bootstrap');
-    const marks = { nonce: NONCE, slotOwn: T.slotOwnedPrefixes(slotDir) };
+    const marks = { nonce: NONCE, slotOwn: T.slotOwnedPrefixes(slotDir), slotRivals: T.slotRivals(slotDir) };
     let polls = 0;
     const ps = async () => (polls++ < 1 ? `  10     1 /bin/claude --session-id ${uuid(34)}\n` : '');
     await logged(async () => {

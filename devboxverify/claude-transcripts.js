@@ -64,25 +64,46 @@ function runMarks(env) {
 
 // The project folders a stack run's own slot directory owns, as encoded names.
 // Claude names a folder by turning every non-alphanumeric character of its cwd
-// into "-", so the run directory of slot x1 is a prefix of the one of slot x1-b.
-// The rule that keeps them apart: a folder belongs to the slot only when it is
-// the encoded slot directory, "-", and the encoded name of a directory that
-// exists in the slot (verify-cos, world, ...), then the name ends or goes on
-// after a "-". Slot x1 has no directory "b", so x1-b's folders never match.
+// into "-", so the encoding is not injective: slot x1 and a slot x1-relay (or a
+// path x1_relay) share a prefix. Two rules, both needed:
+// 1. Only the directories a Claude runs in count: verify-cos (the Chief of
+//    Staff) and each project directory under world. Not bin, relay, eve-data,
+//    and not a folder named like a slot (x1-world-verify-cos).
+// 2. A folder that also falls under another directory of the runs folder whose
+//    encoded name is longer (a rival: slot x1-world, x1-verify-cos) is that
+//    one's, never ours. slotRivals lists them.
+// Together: a folder is ours only if it sits at or under one of those
+// directories of this slot and under no longer-named sibling.
 function slotOwnedPrefixes(slotDir) {
   if (!slotDir) return [];
-  let kids;
-  try { kids = fs.readdirSync(slotDir, { withFileTypes: true }); } catch { return []; }
-  return kids.filter((k) => k.isDirectory()).map((k) => `${folderName(slotDir)}-${folderName(k.name)}`);
+  const dirs = (d) => { try { return fs.readdirSync(d, { withFileTypes: true }).filter((k) => k.isDirectory()).map((k) => k.name); } catch { return []; } };
+  const kids = dirs(slotDir);
+  const cwds = [];
+  if (kids.includes('verify-cos')) cwds.push(path.join(slotDir, 'verify-cos'));
+  if (kids.includes('world')) for (const k of dirs(path.join(slotDir, 'world'))) cwds.push(path.join(slotDir, 'world', k));
+  return cwds.map(folderName);
 }
 
-function slotOwned(name, prefixes) {
-  return !!prefixes && prefixes.some((p) => name === p || name.startsWith(`${p}-`));
+// Encoded names of the other directories beside slotDir that sit under its encoded name.
+function slotRivals(slotDir) {
+  if (!slotDir) return [];
+  const parent = path.dirname(slotDir);
+  const own = `${folderName(slotDir)}-`;
+  let kids;
+  try { kids = fs.readdirSync(parent, { withFileTypes: true }); } catch { return []; }
+  return kids.filter((k) => k.isDirectory() && k.name !== path.basename(slotDir))
+    .map((k) => folderName(path.join(parent, k.name))).filter((n) => n.startsWith(own));
+}
+
+const under = (name, p) => name === p || name.startsWith(`${p}-`);
+
+function slotOwned(name, prefixes, rivals = []) {
+  return !!prefixes && prefixes.some((p) => under(name, p)) && !rivals.some((r) => under(name, r));
 }
 
 function runFolder(name, marks) {
   if (!marks) return false;
-  if (slotOwned(name, marks.slotOwn)) return true;
+  if (slotOwned(name, marks.slotOwn, marks.slotRivals)) return true;
   if (marks.nonce && TOKEN.test(marks.nonce) && name.includes(`verify-${marks.nonce}-`)) return true;
   return !!marks.slotPrefix && name.startsWith(marks.slotPrefix);
 }
@@ -247,10 +268,11 @@ async function sweepSlotSessions({ journey, marks, only = null, ps = psOut }) {
   };
   try {
     const own = marks && marks.slotOwn;
+    const rivals = (marks && marks.slotRivals) || [];
     if (!own || !own.length) return waiting;
     const root = projectsRoot();
     let dirs;
-    try { dirs = (await fs.promises.readdir(root)).filter((d) => slotOwned(d, own)); } catch { return waiting; }
+    try { dirs = (await fs.promises.readdir(root)).filter((d) => slotOwned(d, own, rivals)); } catch { return waiting; }
     const found = [];
     for (const dir of dirs) {
       let names;
@@ -269,10 +291,13 @@ async function sweepSlotSessions({ journey, marks, only = null, ps = psOut }) {
       if (psFailed) { line(id, `kept: ${psFailed}`); continue; }
       if (live.has(id)) { waiting.push(id); line(id, 'kept: process still running'); continue; }
       try { await fs.promises.unlink(file); line(id, 'deleted 1'); } catch (err) {
-        if (err && err.code !== 'ENOENT') line(id, `kept: ${why(err)}`);
+        if (err && err.code !== 'ENOENT') { line(id, `kept: ${why(err)}`); continue; }
       }
+      // The session's own folder (subagents/, tool-results/) goes with it.
+      const side = path.join(path.dirname(file), id);
+      try { if ((await fs.promises.lstat(side)).isDirectory()) await fs.promises.rm(side, { recursive: true }); } catch { /* stays */ }
     }
-    await removeEmptyRunFolders(root, dirs, { slotOwn: own });
+    await removeEmptyRunFolders(root, dirs, { slotOwn: own, slotRivals: rivals });
   } catch (err) {
     try { process.stderr.write(`transcript ${journey}: slot sweep kept: ${why(err)}\n`); } catch { /* best effort */ }
   }
@@ -319,10 +344,18 @@ function reapAfterRun(ids, args) {
 // sweepSlotSessions) and hands any session whose Claude still runs, the Chief
 // of Staff's, to the detached reaper, which deletes it once that Claude exits.
 // A solo --only run needs this: no journey of it puts the run token in that file.
-async function sweepSlotAtRunEnd(env) {
-  if (!env || !env.stack || !env.stack.scratchDir) return;
+// `stack` is the parsed --stack file. Deletes nothing unless the directory
+// holding it is the slot's own run directory: named for the slot and holding the
+// marker the stack file names, so a stack.json copied elsewhere cannot widen it.
+async function sweepSlotAtRunEnd(env, stack) {
+  if (!env || !env.stack || !env.stack.scratchDir || !stack) return;
   const slotDir = path.dirname(env.stack.scratchDir);
-  const marks = { ...runMarks(env), slotOwn: slotOwnedPrefixes(slotDir) };
+  const markerOk = typeof stack.marker === 'string' && path.normalize(stack.marker) === path.join(slotDir, 'marker.json') && fs.existsSync(stack.marker);
+  if (!stack.slot || path.basename(slotDir) !== stack.slot || !markerOk) {
+    try { process.stderr.write('transcript end-of-run: kept: the stack file is not in a slot run directory\n'); } catch { /* best effort */ }
+    return;
+  }
+  const marks = { ...runMarks(env), slotOwn: slotOwnedPrefixes(slotDir), slotRivals: slotRivals(slotDir) };
   const waiting = await sweepSlotSessions({ journey: 'end-of-run', marks });
   reapAfterRun(waiting, { nonce: env.nonce, marks, sinceMs: 0, slot: true, logFile: reaperLog(env) });
 }
@@ -368,4 +401,4 @@ function withTranscriptSweep(journey, startedAtMs) {
   };
 }
 
-module.exports = { claudeRunning, removeTranscript, sweepTranscripts, sweepSlotSessions, sweepSlotAtRunEnd, slotOwnedPrefixes, slotOwned, reap, withTranscriptSweep, runMarks, runningIds, TRANSCRIPT_CLEANUP_MS };
+module.exports = { claudeRunning, removeTranscript, sweepTranscripts, sweepSlotSessions, sweepSlotAtRunEnd, slotOwnedPrefixes, slotRivals, slotOwned, reapAfterRun, reap, withTranscriptSweep, runMarks, runningIds, TRANSCRIPT_CLEANUP_MS };
