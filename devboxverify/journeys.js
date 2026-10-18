@@ -3027,7 +3027,10 @@ async function cosTellSendsMarked(env) {
   await openChiefOfStaff(page, env);
   // Deliberate: the text to send is the bare marker, so any copy the model
   // makes is the person's own words and provenance sends it at once (#253).
-  const tell = `Tell ${name}: ${marker}`;
+  // "this exact message" tells the model the marker is the whole text, to copy
+  // whole. A bare token after the colon reads as no text to send; without
+  // "exact" the model may shorten the marker, which then needs an approval tap.
+  const tell = `Tell ${name} this exact message: ${marker}`;
   const input = page.getByTestId('cos-input');
   await input.fill(tell, { timeout: 5000 });
   env.step('press Return');
