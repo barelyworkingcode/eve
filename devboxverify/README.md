@@ -680,6 +680,8 @@ PASS needs all of these.
   Acme Corp terminal and deletes the new Acme Corp session. SSH-host
   drop-in: needs a test-machine pass.
 
+Every journey in the `chief-of-staff` area waits, before it starts and after its last step, for `cos_status` `busy:false` (cap 120 s, FAIL naming the journey), so a late reply from one journey is never the next one's answer.
+
 **cos-asking-post.** The Chief of Staff thread posts when an agent needs
 you (G6). A Claude Haiku session (`claude-haiku-5-5`) is created in
 Acme Corp over a socket of eve's own, named `verify-<nonce> asker`, in default
@@ -1341,6 +1343,7 @@ What comes from the file, and nothing else:
 | `marker` | the machine marker (in place of `DEVBOXWORLD_MARKER`), whose `world_root` is the stack's clone of the world's folders |
 | `head.eve` | `PREFLIGHT head` fails unless the checkout's HEAD is this commit |
 | `slot` | must be present |
+| `claude_base_url`, `claude_token_file` | optional, together, with `claude_model`. The model broker's loopback URL and the path of a mode-0600 file holding its bearer (never the bearer itself). The outside `claude` processes (`cos-outside`, `outside-hooks`, `outside-thread`) get `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` (read at start) and `ANTHROPIC_DEFAULT_HAIKU_MODEL=<claude_model>`, plus a `.claude/settings.local.json` in their folder, so they never use the host's Claude login. Absent: they use it as before |
 
 A missing or unreadable file, a relative path, an `eve_url` off loopback or
 an `eve` head that is not 40 hex characters is a usage error (exit 2). Other

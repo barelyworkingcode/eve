@@ -131,11 +131,11 @@ function parseArgs(argv, { toolRoot }) {
 // The part of the stack a journey sees on env.stack.
 function journeyStack(stack, scratchDir) {
   return stack ? {
-    claudeModel: stack.claudeModel, relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool, scratchDir,
+    claudeModel: stack.claudeModel, claudeBaseUrl: stack.claudeBaseUrl, claudeTokenFile: stack.claudeTokenFile, relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool, scratchDir,
   } : null;
 }
 
-function readStack(file, { readFile = fs.readFileSync } = {}) {
+function readStack(file, { readFile = fs.readFileSync, statFile = fs.statSync } = {}) {
   let doc;
   try { doc = JSON.parse(readFile(file, 'utf8')); } catch (err) {
     throw usageError(`--stack ${file}: ${err.code === 'ENOENT' ? 'no such file' : 'not readable JSON'}`);
@@ -160,13 +160,34 @@ function readStack(file, { readFile = fs.readFileSync } = {}) {
   if (doc.claude_model !== undefined && (doc.claude_model !== doc.claude_model.trim() || /[\x00-\x1f\x7f]/.test(doc.claude_model))) {
     throw usageError(`--stack ${file}: claude_model must have no surrounding space or control characters`);
   }
+  const broker = brokerFields(doc, file, statFile);
   return {
+    ...broker,
     claudeModel: doc.claude_model === undefined ? null : doc.claude_model,
     relayCheckout: doc.relay_checkout ? path.normalize(doc.relay_checkout) : null,
     outsideSpool: doc.outside_spool ? path.normalize(doc.outside_spool) : null,
     file, slot: doc.slot, configDir: path.normalize(doc.config_dir), relayBin: doc.relay_bin, marker: doc.marker,
     url: doc.eve_url, dataDir: path.normalize(doc.eve_data_dir), eveHead: head,
   };
+}
+
+// The outside claude's broker: a base URL and the path of a file holding the bearer (never the bearer).
+function brokerFields(doc, file, statFile) {
+  const url = doc.claude_base_url;
+  const tokenFile = doc.claude_token_file;
+  if (url === undefined && tokenFile === undefined) return { claudeBaseUrl: null, claudeTokenFile: null };
+  const bad = (v) => typeof v !== 'string' || !v || v !== v.trim() || /[\x00-\x1f\x7f]/.test(v);
+  if (bad(url)) throw usageError(`--stack ${file}: claude_base_url is not a clean non-empty string`);
+  if (bad(tokenFile)) throw usageError(`--stack ${file}: claude_token_file is not a clean non-empty string`);
+  checkUrl(url, `--stack ${file}: claude_base_url`);
+  if (!path.isAbsolute(tokenFile)) throw usageError(`--stack ${file}: claude_token_file is not an absolute path`);
+  if (typeof doc.claude_model !== 'string') throw usageError(`--stack ${file}: claude_base_url needs claude_model`);
+  let st;
+  try { st = statFile(tokenFile); } catch { throw usageError(`--stack ${file}: claude_token_file ${tokenFile} does not exist or is not readable`); }
+  if (!st.isFile()) throw usageError(`--stack ${file}: claude_token_file ${tokenFile} is not a file`);
+  if ((st.mode & 0o077) !== 0) throw usageError(`--stack ${file}: claude_token_file ${tokenFile} must be readable by its owner only (mode 0600)`);
+  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) throw usageError(`--stack ${file}: claude_token_file ${tokenFile} is not owned by this user`);
+  return { claudeBaseUrl: url, claudeTokenFile: tokenFile };
 }
 
 function checkUrl(url, what) {

@@ -6,6 +6,8 @@
 // functions; no relay, no eve, no browser.
 
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const EVE = path.resolve(__dirname, '..', '..');
@@ -88,6 +90,79 @@ function modelCases() {
   assert.strictEqual(journeyStack(null, null), null, 'no stack, no env.stack');
 }
 
+function brokerCases() {
+  const OC = require(path.join(EVE, 'devboxverify/outside-claude'));
+  const TOKEN = '/srv/runs/s1/claude-token';
+  const owned = { isFile: () => true, mode: 0o100600, uid: process.getuid() };
+  const withStat = (st) => (doc) => readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify(doc), statFile: () => st });
+  const ok = withStat(owned);
+  const B = { ...GOOD, claude_model: 'Local-Model-1', claude_base_url: 'http://127.0.0.1:53200', claude_token_file: TOKEN };
+  const s = ok(B);
+  assert.strictEqual(s.claudeBaseUrl, 'http://127.0.0.1:53200');
+  assert.strictEqual(s.claudeTokenFile, TOKEN);
+  assert.strictEqual(from(GOOD).claudeTokenFile, null, 'absent broker fields read as null');
+  {
+    // A real 0600 file holding a marker: it must reach no field of the stack and no error message.
+    const mdir = fs.mkdtempSync(path.join(os.tmpdir(), 'dvb-'));
+    try {
+      const mfile = path.join(mdir, 'tok');
+      fs.writeFileSync(mfile, 'marker-bearer-7f3a\n', { mode: 0o600 });
+      const real = readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify({ ...B, claude_token_file: mfile }) });
+      assert.strictEqual(real.claudeTokenFile, mfile);
+      assert.ok(!JSON.stringify(real).includes('marker-bearer-7f3a'), 'the stack holds a path, never a token');
+      let msg = '';
+      try { readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify({ ...B, claude_token_file: mfile, claude_base_url: 'http://example.com:1' }) }); } catch (err) { msg = err.message; }
+      assert.ok(msg && !msg.includes('marker-bearer-7f3a'), 'an error never carries the token');
+    } finally { fs.rmSync(mdir, { recursive: true, force: true }); }
+  }
+  for (const bad of ['', ' http://127.0.0.1:1', 5, null, 'a\nb']) {
+    usage(() => ok({ ...B, claude_base_url: bad }), /claude_base_url/, `base url ${JSON.stringify(bad)}`);
+    usage(() => ok({ ...B, claude_token_file: bad }), /claude_token_file/, `token file ${JSON.stringify(bad)}`);
+  }
+  usage(() => ok({ ...B, claude_base_url: 'http://example.com:1' }), /claude_base_url must be/, 'base url off loopback');
+  usage(() => ok({ ...B, claude_token_file: 'rel/token' }), /claude_token_file is not an absolute path/, 'relative token file');
+  usage(() => ok({ ...B, claude_token_file: undefined }), /claude_token_file is not a clean/, 'url without token file');
+  usage(() => ok({ ...GOOD, claude_token_file: TOKEN }), /claude_base_url is not a clean/, 'token file without url');
+  usage(() => ok({ ...B, claude_model: undefined }), /needs claude_model/, 'broker without a model');
+  usage(() => withStat({ ...owned, mode: 0o100644 })(B), /owner only/, 'group/world readable');
+  usage(() => withStat({ ...owned, uid: process.getuid() + 1 })(B), /not owned/, 'other owner');
+  usage(() => withStat({ ...owned, isFile: () => false })(B), /is not a file/, 'a directory');
+  usage(() => readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify(B), statFile: () => { throw new Error('ENOENT'); } }), /does not exist/, 'missing file');
+
+  // The env builder, with a real 0600 file.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dvb-'));
+  try {
+    const file = path.join(dir, 'tok');
+    fs.writeFileSync(file, 'secret-bearer\n', { mode: 0o600 });
+    const real = readStack(`${ROOT}/stack.json`, { readFile: () => JSON.stringify({ ...B, claude_token_file: file }) });
+    const env = { stack: journeyStack(real, dir) };
+    const e = OC.outsideClaudeEnv(env);
+    assert.strictEqual(e.ANTHROPIC_AUTH_TOKEN, 'secret-bearer', 'the token is read from the file, trimmed');
+    assert.strictEqual(e.ANTHROPIC_BASE_URL, 'http://127.0.0.1:53200');
+    assert.strictEqual(e.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'Local-Model-1');
+    assert.ok(!Object.keys(e).some((k) => k.startsWith('GIT_')), 'GIT_* is dropped as before');
+    assert.ok(!OC.shellPrefix(env).includes('secret-bearer'), 'the tmux command line never holds the token');
+    assert.ok(OC.shellPrefix(env).includes(`$(cat '${file}')`), 'the shell reads the token file');
+    const pre = OC.shellPrefix(env);
+    assert.ok(pre.startsWith(`[ -s '${file}' ] || { echo `) && pre.includes('>&2; exit 1; }; ANTHROPIC_BASE_URL='), 'the shell refuses to start claude on an unreadable or empty token file');
+    assert.ok(pre.includes(`token file ${file} is empty`), 'the refusal names the file');
+    fs.writeFileSync(file, '\n');
+    assert.throws(() => OC.outsideClaudeEnv(env), /is empty/, 'an empty token file fails fast');
+    // settings.local.json
+    const proj = path.join(dir, 'proj');
+    fs.mkdirSync(proj);
+    return OC.writeOutsideSettings(env, proj).then(async (f) => {
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(f, 'utf8')), { env: { CLAUDE_CODE_ATTRIBUTION_HEADER: '0', CLAUDE_CODE_MAX_OUTPUT_TOKENS: '8000' } });
+      const none = path.join(dir, 'none');
+      fs.mkdirSync(none);
+      assert.strictEqual(await OC.writeOutsideSettings({ stack: from(GOOD) }, none), null, 'no broker, no settings file');
+      assert.ok(!fs.existsSync(path.join(none, '.claude')));
+      assert.strictEqual(OC.shellPrefix({ stack: null }), '');
+      assert.strictEqual(OC.outsideClaudeEnv({ stack: null }).ANTHROPIC_AUTH_TOKEN, process.env.ANTHROPIC_AUTH_TOKEN, 'a run without a stack keeps today\'s env');
+    }).finally(() => fs.rmSync(dir, { recursive: true, force: true }));
+  } catch (err) { fs.rmSync(dir, { recursive: true, force: true }); throw err; }
+}
+
 function pathCases() {
   const s = from(GOOD);
   assert.deepStrictEqual(relayArgs(s, ['service', 'list']), ['--config-dir', GOOD.config_dir, 'service', 'list'],
@@ -101,4 +176,4 @@ argCases();
 modelCases();
 stackCases();
 pathCases();
-console.log('devboxverify-stack-selftest: ok');
+brokerCases().then(() => console.log('devboxverify-stack-selftest: ok'), (err) => { console.error(err); process.exit(1); });

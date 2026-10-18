@@ -14,7 +14,7 @@ const { PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, waitForMode
 const exec = promisify(execFile);
 const kit = () => require('./journeys');
 
-const TURN_WITHIN_MS = 90000;
+const TURN_WITHIN_MS = 120000;
 const CHANGES_WITHIN_MS = 15000;
 const CRED_TTL = '15m';
 const HOST_CONNECTED_WITHIN_MS = 30000;
