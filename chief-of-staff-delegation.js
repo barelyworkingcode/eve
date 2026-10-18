@@ -248,6 +248,7 @@ function buildDigest(delegation, { endReason, now, roster } = {}) {
     from: d.approvedAt,
     to: new Date(now == null ? Date.now() : now).toISOString(),
     endReason,
+    sent: d.actions | 0,
     actions: (Array.isArray(d.log) ? d.log : []).map((l) => ({
       at: l.at, sessionId: l.sessionId, label: l.label, rule: l.rule, text: l.text,
     })),

@@ -236,6 +236,8 @@ class ChiefOfStaff {
     // sessions with a delegated send in flight (one at a time, so the cap holds).
     this._delegTurns = new Map();
     this._delegSending = new Set();
+    // A turn that ended while a send was in flight: decided once that send is recorded.
+    this._delegPending = new Map();
 
     this.posts = [];
     // modelSessionId is the wake model's; personSessionId the person model's.
@@ -493,6 +495,7 @@ class ChiefOfStaff {
     const d = this.activeDelegation;
     if (!d || !d.sessions[id]) return;
     this._delegTurns.delete(id);
+    this._delegPending.delete(id);
     this._setDelegationWaiting(d, id, 'ended');
   }
 
@@ -507,6 +510,12 @@ class ChiefOfStaff {
   }
 
   _decideDelegatedTurn(d, id, turn) {
+    // The next turn can end before relay's answer to the send in flight reaches us. Keep the
+    // latest such turn; the send's result is recorded first, so the cap sees the true count.
+    if (this._delegSending.has(id)) {
+      this._delegPending.set(id, turn);
+      return;
+    }
     const entry = d.sessions[id];
     const decision = decideTurnEnd(d, { sessionId: id, ...turn });
     if (decision.action === 'ready') {
@@ -529,6 +538,16 @@ class ChiefOfStaff {
   }
 
   async _delegatedSend(d, id, decision) {
+    try {
+      await this._delegatedSendOnce(d, id, decision);
+    } finally {
+      const pending = this._delegPending.get(id);
+      this._delegPending.delete(id);
+      if (pending && this.activeDelegation === d) this._decideDelegatedTurn(d, id, pending);
+    }
+  }
+
+  async _delegatedSendOnce(d, id, decision) {
     if (!this._mayDelegate(d, id)) return;
     this._delegSending.add(id);
     let res;

@@ -793,7 +793,7 @@ class ChiefOfStaffPage {
     const actions = Array.isArray(digest.actions) ? digest.actions : [];
     const reason = ChiefOfStaffPage.END_REASON[digest.endReason] || digest.endReason || '';
     const line = this._text('p',
-      `${this._clock(digest.from)} to ${this._clock(digest.to)} · ${actions.length} sent · ended: ${reason}`,
+      `${this._clock(digest.from)} to ${this._clock(digest.to)} · ${Number.isInteger(digest.sent) ? digest.sent : actions.length} sent · ended: ${reason}`,
       'cos-digest__line');
     line.dataset.testid = 'cos-digest-line';
     el.appendChild(line);
