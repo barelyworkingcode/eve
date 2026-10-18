@@ -112,6 +112,41 @@ const TOOLS = [
       required: ['project', 'name', 'model'],
     },
   },
+  {
+    name: 'cos_propose_delegation',
+    description:
+      "Hand work to agents while the person is away. eve always posts a card that lists each rule, the bounds and what is never delegated, and asks for the person's approval; it acts on nothing until the person taps Approve. Use sessionId values from cos_list_sessions. Leave windowHours, maxActions and verifyRuns out unless the person named them.",
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        rules: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 10,
+          description: 'At most one continue rule.',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['continue', 'reply'] },
+              sessions: { type: 'array', minItems: 1, maxItems: 10, items: { type: 'string' }, description: 'continue: the managed sessions to keep going.' },
+              approveIssues: { type: 'array', maxItems: 20, items: { type: 'string' }, description: 'continue: issue references <owner>/<repo>#<n> the person approves. Only numbers you can name.' },
+              buildFromDev: { type: 'boolean', description: 'continue: true only when the person lets the agent build its own from-dev ideas.' },
+              sessionId: { type: 'string', description: 'reply: the session to answer.' },
+              on: { type: 'string', enum: ['question', 'finished'], description: 'reply: question is a turn that ends on a question; finished is a turn that ends otherwise.' },
+              when: { type: ['string', 'null'], maxLength: 200, description: "reply: the person's condition in their words, or null." },
+              text: { type: 'string', maxLength: 2000, description: 'reply: the fixed text to send, as the person said it.' },
+            },
+            required: ['kind'],
+          },
+        },
+        windowHours: { type: ['integer', 'null'], minimum: 1, maximum: 24, description: 'Hours the delegation lasts.' },
+        maxActions: { type: ['integer', 'null'], minimum: 1, maximum: 100, description: 'Most messages eve sends to each listed session.' },
+        verifyRuns: { type: ['integer', 'null'], minimum: 0, maximum: 5, description: 'Most full verify runs the agent may do.' },
+      },
+      required: ['rules'],
+    },
+  },
 ];
 
 function respond(msg) {

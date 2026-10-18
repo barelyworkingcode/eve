@@ -10,10 +10,11 @@
 const crypto = require('crypto');
 const { isLoopbackReq, safeEqual } = require('./ui-command-bus');
 const provenance = require('./chief-of-staff-provenance');
+const delegation = require('./chief-of-staff-delegation');
 
 const TOOLS = Object.freeze([
   'cos_list_sessions', 'cos_session_status', 'cos_list_agents',
-  'cos_propose_start', 'cos_propose_send', 'cos_propose_agent', 'cos_propose_chat',
+  'cos_propose_start', 'cos_propose_send', 'cos_propose_agent', 'cos_propose_chat', 'cos_propose_delegation',
 ]);
 const TEXT_MAX = 8000;
 const LIST_MAX = 100;
@@ -35,6 +36,7 @@ const CARD_ACTIONS = Object.freeze({
   send_card: ['start', 'cancel'],
   agent_card: ['add', 'cancel'],
   chat_card: ['add', 'cancel'],
+  delegation_card: ['approve', 'cancel', 'stop'],
 });
 
 // Sorted-key JSON, so two inputs compare equal whatever their key order.
@@ -301,6 +303,19 @@ function postChatCard(cos, turn, project, template) {
   });
 }
 
+// The card stores labels and project names as resolved now; it never changes after.
+function postDelegationCard(cos, turn, draft) {
+  return cos._addPost({
+    kind: 'delegation_card',
+    card: {
+      state: 'pending', delegationId: delegation.newDelegationId(), instruction: turn.personText,
+      rules: draft.rules, windowHours: draft.windowHours, maxActions: draft.maxActions, verifyRuns: draft.verifyRuns,
+      approvedAt: null, until: null, endedAt: null, endReason: null, actions: 0, turnId: turn.turnId, error: null,
+    },
+    byModel: true,
+  });
+}
+
 function sessionRow(cos, row) {
   return {
     sessionId: row.id,
@@ -365,6 +380,7 @@ async function dispatch(cos, turn, tool, args) {
     case 'cos_propose_send': return proposeSend(cos, turn, args);
     case 'cos_propose_agent': return proposeAgent(cos, turn, args);
     case 'cos_propose_chat': return proposeChat(cos, turn, args);
+    case 'cos_propose_delegation': return proposeDelegation(cos, turn, args);
     default: return fail(400, 'unknown_tool', `Unknown tool "${String(tool).slice(0, 60)}"`);
   }
 }
@@ -444,6 +460,16 @@ async function proposeChat(cos, turn, args) {
   return ok({ status: 'card', cardId: postChatCard(cos, turn, p.value, f.value).id });
 }
 
+// Always a card; it never acts. Sessions resolve in a fresh roster.
+async function proposeDelegation(cos, turn, args) {
+  const bad = await freshRoster(cos);
+  if (bad) return bad;
+  const roster = new Map([...cos.roster].map(([id, row]) => [id, { label: cos._labelOf(row, id), project: cos._projectName(row.projectId) }]));
+  const v = delegation.validateProposal(args, { roster, isOwnId: (id) => cos._isOwnId(id), defaults: cos.settings.delegation });
+  if (v.error) return failFrom(v);
+  return ok({ status: 'card', cardId: postDelegationCard(cos, turn, v.value).id });
+}
+
 async function proposeStart(cos, turn, args) {
   const f = validateStartFields(args, cos.settings.model);
   if (f.error) return failFrom(f);
@@ -500,13 +526,13 @@ function cardFail(message) { return { ok: false, message }; }
 
 // One action per card: the state leaves `pending` before anything is awaited.
 async function cardAction(cos, { postId, action, edits } = {}) {
-  if (!['start', 'add', 'cancel'].includes(action)) return cardFail('Unknown card action');
+  if (!['start', 'add', 'cancel', 'approve', 'stop'].includes(action)) return cardFail('Unknown card action');
   const post = cos.posts.find((p) => p.id === postId);
   const allowed = post && Object.hasOwn(CARD_ACTIONS, post.kind) ? CARD_ACTIONS[post.kind] : null;
   if (!allowed) return cardFail('That card is gone');
   if (!allowed.includes(action)) return cardFail('Unknown card action');
   const card = post.card;
-  if (card.state !== 'pending') return cardFail(`This card is ${card.state}`);
+  if (card.state !== (action === 'stop' ? 'active' : 'pending')) return cardFail(`This card is ${card.state}`);
   // The card shows the refusal; nothing reaches relay.
   if (card.sessionId?.startsWith('outside:') && action !== 'cancel') {
     card.state = 'failed';
@@ -517,6 +543,11 @@ async function cardAction(cos, { postId, action, edits } = {}) {
   if ((post.kind === 'agent_card' || post.kind === 'chat_card') && edits && typeof edits === 'object' && Object.keys(edits).length) {
     return cardFail('An add card takes no edits');
   }
+  if (post.kind === 'delegation_card') {
+    if (edits && typeof edits === 'object' && Object.keys(edits).length) return cardFail('A delegation card takes no edits');
+    if (action === 'stop') { cos._endDelegation('stopped', post); return { ok: true }; }
+    if (action === 'approve') return tapApprove(cos, post);
+  }
   if (action === 'cancel') {
     card.state = 'cancelled';
     cos._updatePost(post);
@@ -525,6 +556,30 @@ async function cardAction(cos, { postId, action, edits } = {}) {
   const e = edits && typeof edits === 'object' && !Array.isArray(edits) ? edits : {};
   if (post.kind === 'agent_card' || post.kind === 'chat_card') return tapAdd(cos, post);
   return post.kind === 'start_card' ? tapStart(cos, post, e) : tapSend(cos, post, e);
+}
+
+// The state leaves `pending` before the roster read, so a second tap finds the card busy.
+// A session gone by now fails the whole card: nothing partial becomes active.
+async function tapApprove(cos, post) {
+  const card = post.card;
+  card.state = 'approving';
+  card.error = null;
+  cos._updatePost(post);
+  const failCard = (message) => {
+    card.state = 'failed';
+    card.error = message;
+    cos._updatePost(post);
+    return { ok: true };
+  };
+  const bad = await freshRoster(cos);
+  if (bad) return failCard("I couldn't read the sessions just now. Type the instruction again.");
+  for (const rule of card.rules) {
+    const named = rule.kind === 'continue' ? rule.sessions : [rule];
+    const gone = named.find((s) => !cos.roster.has(s.sessionId));
+    if (gone) return failCard(`${gone.label} is gone. Type the instruction again.`);
+  }
+  cos._activateDelegation(post);
+  return { ok: true };
 }
 
 async function tapStart(cos, post, edits) {
