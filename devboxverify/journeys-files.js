@@ -20,7 +20,7 @@ const CRED_TTL = '15m';
 const HOST_CONNECTED_WITHIN_MS = 30000;
 const FILE_OP_WITHIN_MS = 15000;
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
-// Every live model in a journey is Haiku; system/init names the model that ran.
+// system/init names the model that ran: claude-haiku-5-5 unless the stack names another.
 
 // Null when `text` holds `line` as a whole line; else why the journey is BLOCKED.
 function agentEditProblem(text, line, file) {

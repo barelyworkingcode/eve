@@ -2,7 +2,7 @@
 // relay shows on the Chief of Staff rail; the thread can say what it last said;
 // its conversation opens as a read-only thread; a tmux one also opens read-only
 // in a terminal. See README.md.
-// Everything live runs on Haiku. The harness starts the outside `claude`
+// Everything live runs on claude-haiku-5-5 unless the stack names another. The harness starts the outside `claude`
 // itself, in tmux, with no hooks (simple path) or with hooks from a settings
 // file of its own (power path); it never edits the user's Claude settings.
 // The helpers the Chief of Staff journeys share live in journeys.js, which

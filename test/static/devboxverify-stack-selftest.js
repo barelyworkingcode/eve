@@ -9,7 +9,7 @@ const assert = require('assert');
 const path = require('path');
 
 const EVE = path.resolve(__dirname, '..', '..');
-const { parseArgs, readStack, relayArgs, runRecordDir } = require(path.join(EVE, 'devboxverify/main'));
+const { parseArgs, journeyStack, readStack, relayArgs, runRecordDir } = require(path.join(EVE, 'devboxverify/main'));
 
 const ROOT = '/srv/runs/s1';
 const HEAD = 'e'.repeat(40);
@@ -68,6 +68,9 @@ function stackCases() {
   for (const bad of ['', '  ', 5, null, ['x'], {}]) {
     usage(() => from({ ...GOOD, claude_model: bad }), /claude_model is not a non-empty string/, `claude_model ${JSON.stringify(bad)}`);
   }
+  for (const bad of [' m ', 'a\nb', 'm\u007f']) {
+    usage(() => from({ ...GOOD, claude_model: bad }), /claude_model must have no surrounding space or control/, `claude_model ${JSON.stringify(bad)}`);
+  }
   usage(() => from('{nope'), /not readable JSON/, 'bad JSON');
   usage(() => from('[]'), /not a JSON object/, 'not an object');
   usage(() => readStack('/nonexistent/devboxverify/stack.json'), /no such file/, 'absent file');
@@ -79,6 +82,10 @@ function modelCases() {
   assert.strictEqual(claudeModelId({ stack: { claudeModel: null } }), 'claude-haiku-5-5', 'a stack without claude_model asserts the Haiku id');
   assert.strictEqual(claudeModelId({ stack: from(GOOD) }), 'claude-haiku-5-5', 'a read stack without claude_model asserts the Haiku id');
   assert.strictEqual(claudeModelId({ stack: from({ ...GOOD, claude_model: 'Local-Model-1' }) }), 'Local-Model-1', 'claude_model is the asserted id');
+  const env = { stack: journeyStack(from({ ...GOOD, claude_model: 'Local-Model-1' }), '/srv/scratch') };
+  assert.strictEqual(claudeModelId(env), 'Local-Model-1', 'the env.stack projection keeps claude_model');
+  assert.strictEqual(env.stack.scratchDir, '/srv/scratch');
+  assert.strictEqual(journeyStack(null, null), null, 'no stack, no env.stack');
 }
 
 function pathCases() {

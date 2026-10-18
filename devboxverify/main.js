@@ -127,6 +127,13 @@ function parseArgs(argv, { toolRoot }) {
 // stack.json as devboxWorld's stack-up writes it. Every path must be absolute
 // and eve_url must pass --url's own rule. relay_checkout and outside_spool are
 // optional: only the outside-session journeys read them.
+// The part of the stack a journey sees on env.stack.
+function journeyStack(stack, scratchDir) {
+  return stack ? {
+    claudeModel: stack.claudeModel, relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool, scratchDir,
+  } : null;
+}
+
 function readStack(file, { readFile = fs.readFileSync } = {}) {
   let doc;
   try { doc = JSON.parse(readFile(file, 'utf8')); } catch (err) {
@@ -148,6 +155,9 @@ function readStack(file, { readFile = fs.readFileSync } = {}) {
   }
   if (doc.claude_model !== undefined && (typeof doc.claude_model !== 'string' || !doc.claude_model.trim())) {
     throw usageError(`--stack ${file}: claude_model is not a non-empty string`);
+  }
+  if (doc.claude_model !== undefined && (doc.claude_model !== doc.claude_model.trim() || /[\x00-\x1f\x7f]/.test(doc.claude_model))) {
+    throw usageError(`--stack ${file}: claude_model must have no surrounding space or control characters`);
   }
   return {
     claudeModel: doc.claude_model === undefined ? null : doc.claude_model,
@@ -1062,10 +1072,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, stack = null, world,
     url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Europa-Fast',
     api, shared: {}, session: null, cosSetupProblem: cosSetup.problem, relayBin, service: opts.service, dataDir,
     relayConfigDir: stack ? stack.configDir : null,
-    stack: stack ? {
-      claudeModel: stack.claudeModel, relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool,
-      scratchDir: runRecordDir(process.env, home, stack),
-    } : null,
+    stack: journeyStack(stack, stack ? runRecordDir(process.env, home, stack) : null),
     serviceLog: eveLog,
     relayAudit: async ({ path: want, sinceMs }) => relayAuditRows(
       await relay(['audit', '-json', '-tail', RELAY_AUDIT_TAIL, '-grep', want]), { path: want, sinceMs }),
@@ -1198,7 +1205,7 @@ module.exports = {
   scrub, writeHeartbeat, runRecordDir, openRunRecord, formatLine, parseArgs, parseEpicRef, mainHeadProblem, selectJourneys, runSelection, selectionLine, summaryPartial, parseWorldSummary, parseRepair, REPAIR_TIMEOUT_MS, tally, parseListenPids, parseCwd, parseLstart,
   eveProcessProblem, liveEveProblem, serviceRowProblem, audioProblem, run, runJourney, worldPreflight,
   CLOSE_TIMEOUT_MS, boundedClose, JOURNEY_BUDGET_MS, orderJourneys, journeyTimeout, pinnedDataDir, liveDataDir, authStatusProblem, ownerResetPaths,
-  relayAuditRows, serviceLogReader, readStack, relayArgs, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
+  relayAuditRows, serviceLogReader, readStack, journeyStack, relayArgs, chiefOfStaffSourceProblem, chiefOfStaffSettings, chiefOfStaffResetPaths, chiefOfStaffSetup,
   main, EXIT_GRACE_MS,
 };
 
