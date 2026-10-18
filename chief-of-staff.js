@@ -19,14 +19,16 @@ const { HIDDEN_SEARCH_PREFIX } = require('./search-summarizer');
 const { HIDDEN_COS_PREFIX, PERSON_ALLOWED_TOOLS } = require('./chief-of-staff-model');
 const actions = require('./chief-of-staff-actions');
 const provenance = require('./chief-of-staff-provenance');
+const { DELEGATION_DEFAULTS, LIMITS: DELEGATION_LIMITS } = require('./chief-of-staff-delegation');
 const { ChiefOfStaffOutside } = require('./chief-of-staff-outside');
 
 const SCOPE = 'chief-of-staff';
 const POSTS_FILE = 'chief-of-staff.jsonl';
 const STATE_FILE = 'chief-of-staff-state.json';
+const DELEGATION_FILE = 'chief-of-staff-delegation.json';
 const MAX_POSTS = 200;
 
-const DEFAULTS = Object.freeze({ enabled: true, model: 'sonnet', summaryModel: 'haiku', projectId: null, dailyModelCalls: 100 });
+const DEFAULTS = Object.freeze({ enabled: true, model: 'sonnet', summaryModel: 'haiku', projectId: null, dailyModelCalls: 100, delegation: DELEGATION_DEFAULTS });
 
 const TRIGGER_STATES = new Set(['asking', 'errored', 'stalled']);
 const NEED_YOU_STATES = TRIGGER_STATES;
@@ -124,6 +126,23 @@ function parseChiefOfStaffSettings(raw, log, source = 'settings.json') {
     const n = raw.dailyModelCalls;
     if (Number.isInteger(n) && n >= 1 && n <= 10000) out.dailyModelCalls = n; else warn('dailyModelCalls', 'must be an integer from 1 to 10000');
   }
+  if (raw.delegation !== undefined) out.delegation = parseDelegationSettings(raw.delegation, log, source);
+  return out;
+}
+
+// chiefOfStaff.delegation: the bounds a new card gets when the instruction names none.
+function parseDelegationSettings(raw, log, source) {
+  const out = { ...DELEGATION_DEFAULTS };
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    log?.warn?.(`${source}: chiefOfStaff.delegation must be an object; using defaults`);
+    return out;
+  }
+  for (const key of Object.keys(DELEGATION_DEFAULTS)) {
+    if (raw[key] === undefined) continue;
+    const { min, max } = DELEGATION_LIMITS[key];
+    if (Number.isInteger(raw[key]) && raw[key] >= min && raw[key] <= max) out[key] = raw[key];
+    else log?.warn?.(`${source}: chiefOfStaff.delegation.${key} must be an integer from ${min} to ${max}; using ${DELEGATION_DEFAULTS[key]}`);
+  }
   return out;
 }
 
@@ -191,6 +210,7 @@ class ChiefOfStaff {
     this.resolveProject = resolveProject || (() => null);
     this.listProjects = listProjects || (() => []);
     this.settings = { ...DEFAULTS, ...(settings || {}) };
+    this.settings.delegation = { ...DELEGATION_DEFAULTS, ...(this.settings.delegation || {}) };
     this._fileSettings = this.settings;
     this._fileSource = fileSource || 'defaults';
     this._readRelayConfig = readRelayConfig || null;
@@ -203,6 +223,10 @@ class ChiefOfStaff {
     this.now = now;
     this.postsFile = path.join(dataDir, POSTS_FILE);
     this.stateFile = path.join(dataDir, STATE_FILE);
+    this.delegationFile = path.join(dataDir, DELEGATION_FILE);
+    // The active delegation (the state file's object) or null; one at a time.
+    this.activeDelegation = null;
+    this._delegationTimer = null;
 
     this.posts = [];
     // modelSessionId is the wake model's; personSessionId the person model's.
@@ -266,6 +290,7 @@ class ChiefOfStaff {
     if (this._started) return;
     this._started = true;
     this._loadFiles();
+    this._resumeDelegation();
     this.outside.start();
     if (!this.settings.enabled) {
       this.off = { reason: 'disabled', detail: '' };
@@ -299,8 +324,8 @@ class ChiefOfStaff {
   stop() {
     this._stopped = true;
     this.outside.stop();
-    for (const t of [this._reconnectTimer, this._batchTimer, this._refreshTimer]) clearTimeout(t);
-    this._reconnectTimer = this._batchTimer = this._refreshTimer = null;
+    for (const t of [this._reconnectTimer, this._batchTimer, this._refreshTimer, this._delegationTimer]) clearTimeout(t);
+    this._reconnectTimer = this._batchTimer = this._refreshTimer = this._delegationTimer = null;
     const ws = this._ws;
     this._ws = null;
     if (ws) { try { ws.close(); } catch { /* closing */ } }
@@ -335,7 +360,89 @@ class ChiefOfStaff {
     } catch (err) {
       if (err.code !== 'ENOENT') this.log.warn(`Chief of Staff state not read: ${err.message}`);
     }
+    try {
+      const d = JSON.parse(fs.readFileSync(this.delegationFile, 'utf8'));
+      if (d && d.v === 1 && typeof d.postId === 'string' && Number.isFinite(Date.parse(d.until))) this.activeDelegation = d;
+    } catch (err) {
+      if (err.code !== 'ENOENT') this.log.warn(`Chief of Staff delegation not read: ${err.message}`);
+    }
     this._rollDay();
+  }
+
+  // ---- delegation (docs/design-chief-of-staff.md, "Acting while you're away") ----
+
+  _persistDelegation() {
+    const d = this.activeDelegation;
+    if (!d) {
+      this._queueWrite(() => fs.promises.rm(this.delegationFile, { force: true }), 'delegation');
+      return;
+    }
+    const text = `${JSON.stringify(d)}\n`;
+    this._queueWrite(() => writeAtomic(this.delegationFile, text), 'delegation');
+  }
+
+  // At start: a window that ended while eve was down ends now; else the timer re-arms.
+  _resumeDelegation() {
+    const d = this.activeDelegation;
+    if (!d) return;
+    if (Date.parse(d.until) <= this.now()) this._endDelegation('window');
+    else this._armDelegationTimer();
+  }
+
+  _armDelegationTimer() {
+    clearTimeout(this._delegationTimer);
+    const wait = Math.max(0, Date.parse(this.activeDelegation.until) - this.now());
+    this._delegationTimer = setTimeout(() => this._endDelegation('window'), wait);
+    this._delegationTimer.unref?.();
+  }
+
+  // The owner approved `post` (a pending delegation_card). One delegation is active
+  // at a time: a new approval ends the old one.
+  _activateDelegation(post) {
+    if (this.activeDelegation) this._endDelegation('replaced');
+    const card = post.card;
+    const now = this.now();
+    const sessions = {};
+    for (const rule of card.rules) {
+      for (const s of rule.kind === 'continue' ? rule.sessions : [rule]) {
+        sessions[s.sessionId] = { ready: false, report: '', waiting: null, actions: 0 };
+      }
+    }
+    card.state = 'active';
+    card.approvedAt = new Date(now).toISOString();
+    card.until = new Date(now + card.windowHours * 3600000).toISOString();
+    card.actions = 0;
+    this.activeDelegation = {
+      v: 1, delegationId: card.delegationId, postId: post.id, instruction: card.instruction,
+      approvedAt: card.approvedAt, until: card.until, maxActions: card.maxActions, verifyRuns: card.verifyRuns,
+      rules: card.rules, actions: 0, sessions, log: [],
+    };
+    this._persistDelegation();
+    this._armDelegationTimer();
+    this._updatePost(post);
+    this._emitStatus();
+  }
+
+  // Ends the active delegation (or, given `post`, a card left active without one).
+  // Reasons: window, cap, done, stopped, replaced.
+  _endDelegation(reason, post = null) {
+    const active = this.activeDelegation;
+    const d = active && (!post || post.id === active.postId) ? active : null;
+    const target = post || (d && this.posts.find((p) => p.id === d.postId)) || null;
+    if (d) {
+      clearTimeout(this._delegationTimer);
+      this._delegationTimer = null;
+      this.activeDelegation = null;
+      this._persistDelegation();
+    }
+    if (target?.card) {
+      target.card.state = 'ended';
+      target.card.endedAt = new Date(this.now()).toISOString();
+      target.card.endReason = reason;
+      if (d) target.card.actions = d.actions;
+      this._updatePost(target);
+    }
+    this._emitStatus();
   }
 
   // ---- daily call counter ------------------------------------------------
@@ -447,6 +554,11 @@ class ChiefOfStaff {
       model: this.modelId,
       calls: { used: this.state.calls, max: this.settings.dailyModelCalls },
       off: this.off,
+      delegation: this.activeDelegation ? {
+        delegationId: this.activeDelegation.delegationId, postId: this.activeDelegation.postId,
+        until: this.activeDelegation.until, actions: this.activeDelegation.actions,
+        maxActions: this.activeDelegation.maxActions,
+      } : null,
     };
   }
 

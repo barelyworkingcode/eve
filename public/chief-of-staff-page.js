@@ -183,6 +183,9 @@ class ChiefOfStaffPage {
     this._off.hidden = true;
     top.append(pill, this._subline, this._off);
 
+    this._bar = this._div('cos-delegation-bar', 'cos-delegation-bar');
+    this._bar.hidden = true;
+
     this._feed = this._div('cos-feed');
     this._feed.setAttribute('role', 'log');
     this._feed.setAttribute('aria-live', 'polite');
@@ -209,7 +212,7 @@ class ChiefOfStaffPage {
 
     const thread = this._div('cos-thread', 'cos-thread');
     const stripHost = this._div('cos-strip-host');
-    thread.append(top, this._feed, stripHost, form);
+    thread.append(top, this._bar, this._feed, stripHost, form);
     const nav = document.createElement('nav');
     nav.className = 'cos-rail';
     nav.id = 'cos-agents-rail';
@@ -283,6 +286,7 @@ class ChiefOfStaffPage {
     for (const a of document.querySelectorAll('[data-testid="cos-avatar"]')) {
       if (s && s.busy) a.setAttribute('data-busy', ''); else a.removeAttribute('data-busy');
     }
+    this._renderDelegationBar();
     if (!this._subline) return;
     const reason = s?.off?.reason;
     if (!s) {
@@ -403,6 +407,8 @@ class ChiefOfStaffPage {
       if (post.card) body.appendChild(this._actionCard(post));
     } else if (post.kind === 'agent_card' || post.kind === 'chat_card') {
       if (post.card) body.appendChild(this._agentCard(post));
+    } else if (post.kind === 'delegation_card') {
+      if (post.card) body.appendChild(this._delegationCard(post));
     } else if (post.kind === 'started') {
       body.appendChild(this._startedBody(post));
     } else if (post.kind === 'start_failed') {
@@ -668,6 +674,125 @@ class ChiefOfStaffPage {
     mk('cancel', 'Cancel', '', 'cancel');
     el.appendChild(acts);
     return el;
+  }
+
+  // ---- delegation card and bar ----
+
+  static END_REASON = {
+    window: 'time is up', cap: 'message limit reached', done: 'all done',
+    stopped: 'you stopped it', replaced: 'replaced by a newer instruction',
+  };
+
+  // HH:MM in the browser's local time, 24-hour.
+  _clock(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  // One plain-words line per rule. Labels, project names, conditions and texts come
+  // from agents or the model, so they go in as text only.
+  _ruleLine(rule) {
+    const who = (s) => (s.project ? `${s.label} (${s.project})` : s.label);
+    if (rule.kind === 'continue') {
+      let line = `Keep ${(rule.sessions || []).map(who).join(', ')} going until ready to merge to main.`;
+      if (rule.buildFromDev) line += ' It may build its own from-dev ideas up to a PR.';
+      return line;
+    }
+    const trigger = rule.on === 'question' ? 'ends a turn on a question' : 'finishes a turn';
+    const cond = rule.when ? ` and it matches "${rule.when}"` : '';
+    return `When ${who(rule)} ${trigger}${cond}, send "${rule.text}".`;
+  }
+
+  _delegationStatusLine(card) {
+    switch (card.state) {
+      case 'pending': return 'Waiting for your approval';
+      case 'approving': return 'Approving…';
+      case 'active': return `Active until ${this._clock(card.until)}`;
+      case 'cancelled': return 'Cancelled';
+      case 'ended': return `Ended: ${ChiefOfStaffPage.END_REASON[card.endReason] || card.endReason || 'done'}`;
+      case 'failed': return `Failed: ${card.error || 'unknown error'}`;
+      default: return card.state;
+    }
+  }
+
+  // The card: the words, each rule, the issues, the bounds and the never line.
+  // Buttons work only while pending; Stop lives on the bar.
+  _delegationCard(post) {
+    const card = post.card;
+    const el = this._div('cos-card cos-card--action cos-card--delegation', `cos-card-${post.id}`);
+    el.dataset.kind = 'delegation';
+    el.dataset.state = card.state;
+
+    const hd = this._div('cos-card__hd');
+    const title = this._div('cos-card__title');
+    title.appendChild(this._text('h3', "Act for you while you're away"));
+    hd.appendChild(title);
+    el.appendChild(hd);
+
+    const rows = this._div('cos-card__rows');
+    const addRow = (label, node) => {
+      const row = this._div('cos-field');
+      row.appendChild(this._text('span', label, 'cos-field__label'));
+      row.appendChild(node);
+      rows.appendChild(row);
+    };
+    addRow('Your words', this._text('span', card.instruction || '—', 'cos-field__value'));
+    const rules = document.createElement('ul');
+    rules.className = 'cos-delegation-rules';
+    for (const rule of card.rules || []) rules.appendChild(this._text('li', this._ruleLine(rule)));
+    addRow('Rules', rules);
+    const issues = (card.rules || []).filter((r) => r.kind === 'continue').flatMap((r) => r.approveIssues || []);
+    addRow('Issues you approve', this._text('span', issues.length ? issues.join(', ') : 'none', 'cos-field__value'));
+    el.appendChild(rows);
+
+    el.appendChild(this._text('p',
+      `Window ${card.windowHours} h · Up to ${card.maxActions} messages per agent · At most ${card.verifyRuns} full verify runs`,
+      'cos-card__bounds'));
+    el.appendChild(this._text('p',
+      'Never: merge to main, credentials, publishing outside your repos, deleting, CI, guards or merge-check, tool approvals, anything not listed. Those wait for you.',
+      'cos-card__never'));
+
+    const status = this._text('p', this._delegationStatusLine(card), 'cos-card__status');
+    status.dataset.testid = `cos-card-status-${post.id}`;
+    el.appendChild(status);
+
+    const pending = card.state === 'pending';
+    const acts = this._div('cos-card__acts');
+    const mk = (id, label, cls, action) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cos-btn' + (cls ? ` ${cls}` : '');
+      b.dataset.testid = `cos-${id}-${post.id}`;
+      b.textContent = label;
+      b.disabled = !pending;
+      b.addEventListener('click', () => this._cardAction(post.id, action));
+      acts.appendChild(b);
+    };
+    mk('approve', 'Approve', 'cos-btn--primary', 'approve');
+    mk('cancel', 'Cancel', '', 'cancel');
+    el.appendChild(acts);
+    return el;
+  }
+
+  // "Acting for you until HH:MM · n sent · up to max per agent" and Stop, while a delegation is active.
+  _renderDelegationBar() {
+    if (!this._bar) return;
+    const d = this.status?.delegation;
+    this._bar.textContent = '';
+    this._bar.hidden = !d;
+    if (!d) return;
+    const text = this._text('span',
+      `Acting for you until ${this._clock(d.until)} · ${d.actions | 0} sent · up to ${d.maxActions | 0} per agent`,
+      'cos-delegation-bar__text');
+    text.dataset.testid = 'cos-delegation-bar-text';
+    const stop = document.createElement('button');
+    stop.type = 'button';
+    stop.className = 'cos-btn';
+    stop.dataset.testid = 'cos-delegation-stop';
+    stop.textContent = 'Stop';
+    stop.addEventListener('click', () => this._cardAction(d.postId, 'stop'));
+    this._bar.append(text, stop);
   }
 
   _cardStatus(card, post) {

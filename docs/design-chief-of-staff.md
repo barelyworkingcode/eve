@@ -266,6 +266,20 @@ hookless state <=15s, confirmed exit/unreachable expiry <=60s. No hooks are
 required on SSH hosts. Optional reports improve fidelity, never authority.
 See Relay's outside-sessions and SSH-host docs for opt-in configuration.
 
+## Acting while you're away
+
+Design for eve#507; this part is the card (eve#508). The person types an instruction such as "I'm AFK, continue until ready to merge to main". The person model calls `cos_propose_delegation`, which always posts a `delegation_card` and acts on nothing. The card shows the owner's words, one line per rule, the issues the owner approves, the bounds and a fixed never line. The owner taps Approve, Cancel, or later Stop on the bar.
+
+**Rules.** `continue` keeps 1 to 10 managed sessions going with a fixed text that eve builds (`continueText`, never a model). `reply` sends a fixed text to one session when its turn ends on a question or otherwise, with an optional condition in the owner's words. Bounds: a window of 1 to 24 hours (default 8), at most 1 to 100 messages to each listed session (default 50), and 0 to 5 full verify runs (default 2; an instruction in the text, not counted). `chiefOfStaff.delegation` in `data/settings.json` (`windowHours`, `maxActions`, `verifyRuns`; read only) sets the defaults. A wrong type or range warns and uses the default.
+
+**The card is the authority.** `validateProposal` resolves each session in a fresh roster and stores its label and project name on the card. An outside id answers 403 `outside_session_read_only`, an unknown id 404, the Chief of Staff's own session 403 `own_session`, a second continue rule or a bad issue reference 400. A hostile excerpt cannot add a rule, session or issue, or widen a bound: nothing after the card is built reads agent text into it. Never delegated, with no code path: credentials, merges to main, publishing outside the owner's repos, deleting, CI workflows, guards and merge-check, tool approvals, and anything not on the card.
+
+**Approve, Cancel, Stop.** Approve needs `pending`: the state leaves `pending` before the roster is read again, so one tap acts once. A session gone by then fails the whole card with "<label> is gone. Type the instruction again." and nothing becomes active. Approving ends any active delegation with `replaced`: one is active at a time. Stop needs `active`. A delegation card takes no edits; a different instruction is a new card.
+
+**State.** `data/chief-of-staff-delegation.json` (0600, tmp and rename, removed when the delegation ends) is `{v: 1, delegationId, postId, instruction, approvedAt, until, maxActions, verifyRuns, rules, actions, sessions, log}`: the card's rules, the total `actions`, for each session any rule names `{ready, report, waiting, actions}`, and at most 100 `log` entries. A file without `v: 1` is ignored. It survives an eve restart. The window is a timer to `until` (`unref`'d) and a check at start: a window that ended while eve was down ends the card with "time is up". `getStatus().delegation` is null or `{delegationId, postId, until, actions, maxActions}` and drives the bar "Acting for you until HH:MM · n sent · up to max per agent".
+
+**Not yet in this part.** Acting under the card (sends, the cap, ready lines, the digest) is eve#509 and the model-matched condition is eve#510.
+
 ## Decisions made for the owner
 
 Outside inventory remains available when model calls are off. Legacy Relay

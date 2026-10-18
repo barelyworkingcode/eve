@@ -46,6 +46,7 @@ const PERSON_ALLOWED_TOOLS = Object.freeze([
   'mcp__relay__cos_list_sessions', 'mcp__relay__cos_session_status',
   'mcp__relay__cos_propose_start', 'mcp__relay__cos_propose_send',
   'mcp__relay__cos_list_agents', 'mcp__relay__cos_propose_agent', 'mcp__relay__cos_propose_chat',
+  'mcp__relay__cos_propose_delegation',
 ]);
 
 // The turn's text: every finished message, then any deltas not yet closed by one.
