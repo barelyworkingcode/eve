@@ -2586,7 +2586,6 @@ async function agentBoardStates(env) {
 
 // — Agent drop-in (relay#239) --------------------------------------------------
 
-const DROP_IN_INIT_MODEL = 'claude-haiku-5-5';
 const DROP_IN_ROW_WITHIN_MS = 2000;
 const DROP_IN_TAB_WITHIN_MS = 75000;
 const DROP_IN_IDLE_WITHIN_MS = 15000;
@@ -2728,7 +2727,7 @@ async function agentDropIn(env) {
   if (firstEnd.state !== 'idle') return result(id, FAIL, `session ${sid}: turn 1 ended ${firstEnd.state}, not idle`);
   const init = sock.frames.find((f) => f.type === 'llm_event' && f.event?.type === 'system' && f.event?.subtype === 'init');
   if (!init) return result(id, FAIL, `session ${sid}: no system/init event after turn 1`);
-  if (init.event.model !== DROP_IN_INIT_MODEL) return result(id, BLOCKED, `session ${sid}: system/init reported model ${init.event.model}, not ${DROP_IN_INIT_MODEL}`);
+  if (init.event.model !== claudeModelId(env)) return result(id, BLOCKED, `session ${sid}: system/init reported model ${init.event.model}, not ${claudeModelId(env)}`);
 
   env.step('send turn 2');
   const secondAt = Date.now();
@@ -2836,9 +2835,13 @@ async function agentDropIn(env) {
 // — Chief of Staff (G6) --------------------------------------------------------
 
 // Relay's model value for Claude Haiku (internal/sessions/api/models.go); the
-// session's system/init reports it as COS_MODEL_ID.
+// session's system/init reports it as the model id (claudeModelId).
 const COS_MODEL = 'haiku';
-const COS_MODEL_ID = 'claude-haiku-5-5';
+// Deliberate: the model id every Claude-driven journey asserts in system/init and
+// the Chief of Staff status. A stack's optional claude_model overrides it; a run
+// without --stack, or a stack without the field, asserts the Haiku id.
+const DEFAULT_CLAUDE_MODEL_ID = 'claude-haiku-5-5';
+function claudeModelId(env) { return (env && env.stack && env.stack.claudeModel) || DEFAULT_CLAUDE_MODEL_ID; }
 // The Chief of Staff's own project; its session runs in that folder.
 const COS_PROJECT_NAME = 'Verify Chief of Staff';
 const COS_POST_WITHIN_MS = 90000;
@@ -2958,7 +2961,7 @@ async function cosAskingPost(env) {
   // The model id arrives with the first model turn; allow it a moment.
   await poll(async () => seen.status && seen.status.model, { timeoutMs: 5000, intervalMs: 250 });
   const model = seen.status && seen.status.model;
-  if (model !== COS_MODEL_ID) problems.push(`the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`);
+  if (model !== claudeModelId(env)) problems.push(`the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${claudeModelId(env)}`);
 
   env.step('click Open');
   await page.getByTestId(`cos-open-${postId}`).click({ timeout: 5000 }).catch(() => problems.push('Open could not be clicked'));
@@ -3105,10 +3108,10 @@ async function acmeFile(env, kind, name, body) {
   return `${path.basename(dir)}/${name}`;
 }
 
-async function cosModelProblem(seen) {
+async function cosModelProblem(seen, env) {
   await poll(async () => seen.status && seen.status.model, { timeoutMs: 5000, intervalMs: 250 });
   const model = seen.status && seen.status.model;
-  return model === COS_MODEL_ID ? null : `the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`;
+  return model === claudeModelId(env) ? null : `the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${claudeModelId(env)}`;
 }
 
 async function cosReadsProject(env) {
@@ -3133,10 +3136,10 @@ async function cosReadsProject(env) {
   if (!said.includes(marker)) problems.push(`the reply does not hold the file's line ${marker}: "${said.slice(0, 120)}"`);
   const shown = await expect(page.getByTestId(`cos-post-${post.id}`)).toContainText(marker, { timeout: 10000 }).then(() => true, () => false);
   if (!shown) problems.push('the reply post on the page does not show the marker');
-  const modelProblem = await cosModelProblem(seen);
+  const modelProblem = await cosModelProblem(seen, env);
   if (modelProblem) problems.push(modelProblem);
   if (problems.length) return result(id, FAIL, problems.join('; '));
-  return result(id, PASS, `the Chief of Staff, on ${COS_MODEL_ID}, answered from ${file} in ${acme.name} with ${marker}`);
+  return result(id, PASS, `the Chief of Staff, on ${claudeModelId(env)}, answered from ${file} in ${acme.name} with ${marker}`);
 }
 
 // The session_launch rows of `relay audit --json` output that name one session.
@@ -3213,7 +3216,7 @@ async function cosStartCard(env) {
   if (!/haiku/i.test(model)) problems.push(`the card model is "${model}", not haiku`);
   const prompt = await field('prompt');
   if (!prompt.includes(marker)) problems.push(`the card prompt does not hold ${marker}: "${prompt.slice(0, 120)}"`);
-  const modelProblem = await cosModelProblem(seen);
+  const modelProblem = await cosModelProblem(seen, env);
   if (modelProblem) problems.push(modelProblem);
   const watching = (seen.status && seen.status.watching) | 0;
 
@@ -3861,7 +3864,7 @@ async function cosHostNoread(env) {
   env.step('wait for the reply post');
   const first = await cosWaitPost(seen, from, NOREAD_ANSWER_KINDS);
   if (!first) return result(id, FAIL, `no post within ${COS_TURN_WITHIN_MS / 1000}s of Return`);
-  const modelProblem = await cosModelProblem(seen);
+  const modelProblem = await cosModelProblem(seen, env);
   if (modelProblem) return result(id, FAIL, modelProblem);
   const problem = noreadReplyProblem(seen.posts.slice(from), projectName);
   if (problem) return result(id, FAIL, problem);
@@ -4022,7 +4025,7 @@ async function cosAgentRail(env) {
   if (!(await env.serviceLog.since(logMark)).includes(want)) problems.push(`eve-verify's log has no line "${want}"`);
   await poll(async () => seen.status && seen.status.model, { timeoutMs: 5000, intervalMs: 250 });
   const model = seen.status && seen.status.model;
-  if (model !== COS_MODEL_ID) problems.push(`the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`);
+  if (model !== claudeModelId(env)) problems.push(`the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${claudeModelId(env)}`);
   if (problems.length) return result(id, FAIL, `session ${sid}: ${problems.join('; ')}`);
 
   env.step('ask for a command that needs approval');
@@ -4272,7 +4275,7 @@ async function cosProjectFromRelay(env) {
     return result(id, FAIL, `the thread posted a notice instead of a reply: "${said}"`);
   }
   const problems = [];
-  const modelProblem = await cosModelProblem(seen);
+  const modelProblem = await cosModelProblem(seen, env);
   if (modelProblem) problems.push(modelProblem);
 
   env.step('read relay audit');
@@ -4287,7 +4290,7 @@ async function cosProjectFromRelay(env) {
   const want = cosConfigLine(projectId, COS_MODEL, COS_CALLS);
   if (!(await env.serviceLog.since(logMark)).includes(want)) problems.push(`eve-verify's log has no line "${want}"`);
   if (problems.length) return result(id, FAIL, problems.join('; '));
-  return result(id, PASS, `with ${COS_B_PROJECT} set in relay, the Chief of Staff replied on ${COS_MODEL_ID}; relay audit holds an ok `
+  return result(id, PASS, `with ${COS_B_PROJECT} set in relay, the Chief of Staff replied on ${claudeModelId(env)}; relay audit holds an ok `
     + `session_launch in ${COS_B_PROJECT} with read_only_projects, and eve-verify logged "${want}"`);
 }
 
@@ -4387,6 +4390,6 @@ const journeys = [
 ].map((j) => withTranscriptSweep(j, RUN_STARTED_MS));
 
 module.exports = {
-  journeys, scratchFolder, commitOneFile, endOfFile, sessionStates, openEveSocket, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
+  journeys, claudeModelId, scratchFolder, commitOneFile, endOfFile, sessionStates, openEveSocket, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
   launchRowsFromJsonl, hostLaunchProblem, noreadReplyProblem,
 };

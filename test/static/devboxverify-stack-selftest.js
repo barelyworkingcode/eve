@@ -63,9 +63,22 @@ function stackCases() {
   usage(() => from({ ...GOOD, outside_spool: '/x/spool/' }), /must not end with a slash/, 'trailing slash spool');
   assert.strictEqual(from(GOOD).outsideSpool, null, 'absent outside_spool reads as null');
   assert.strictEqual(from({ ...GOOD, relay_checkout: '/x/relay', outside_spool: '/x/spool' }).outsideSpool, '/x/spool');
+  assert.strictEqual(from(GOOD).claudeModel, null, 'absent claude_model reads as null');
+  assert.strictEqual(from({ ...GOOD, claude_model: 'Local-Model-1' }).claudeModel, 'Local-Model-1', 'claude_model is read as given');
+  for (const bad of ['', '  ', 5, null, ['x'], {}]) {
+    usage(() => from({ ...GOOD, claude_model: bad }), /claude_model is not a non-empty string/, `claude_model ${JSON.stringify(bad)}`);
+  }
   usage(() => from('{nope'), /not readable JSON/, 'bad JSON');
   usage(() => from('[]'), /not a JSON object/, 'not an object');
   usage(() => readStack('/nonexistent/devboxverify/stack.json'), /no such file/, 'absent file');
+}
+
+function modelCases() {
+  const { claudeModelId } = require(path.join(EVE, 'devboxverify/journeys'));
+  assert.strictEqual(claudeModelId({ stack: null }), 'claude-haiku-5-5', 'a run without --stack asserts the Haiku id');
+  assert.strictEqual(claudeModelId({ stack: { claudeModel: null } }), 'claude-haiku-5-5', 'a stack without claude_model asserts the Haiku id');
+  assert.strictEqual(claudeModelId({ stack: from(GOOD) }), 'claude-haiku-5-5', 'a read stack without claude_model asserts the Haiku id');
+  assert.strictEqual(claudeModelId({ stack: from({ ...GOOD, claude_model: 'Local-Model-1' }) }), 'Local-Model-1', 'claude_model is the asserted id');
 }
 
 function pathCases() {
@@ -78,6 +91,7 @@ function pathCases() {
 }
 
 argCases();
+modelCases();
 stackCases();
 pathCases();
 console.log('devboxverify-stack-selftest: ok');

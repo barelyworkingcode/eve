@@ -21,7 +21,6 @@ const HOST_CONNECTED_WITHIN_MS = 30000;
 const FILE_OP_WITHIN_MS = 15000;
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
 // Every live model in a journey is Haiku; system/init names the model that ran.
-const INIT_MODEL = 'claude-haiku-5-5';
 
 // Null when `text` holds `line` as a whole line; else why the journey is BLOCKED.
 function agentEditProblem(text, line, file) {
@@ -102,7 +101,7 @@ async function askAgentToAppend(env, id, { project, states, model, rel, line, li
   if (!ended) return { problem: result(id, FAIL, `session ${sid}: turn did not end within ${TURN_WITHIN_MS / 1000}s`) };
   if (ended.state !== 'idle') return { problem: result(id, FAIL, `session ${sid}: the turn ended ${ended.state}, not idle`) };
   const ran = initModel(sock.frames);
-  if (ran !== INIT_MODEL) return { problem: result(id, BLOCKED, `session ${sid}: system/init reported model ${ran || 'none'}, not ${INIT_MODEL}`) };
+  if (ran !== kit().claudeModelId(env)) return { problem: result(id, BLOCKED, `session ${sid}: system/init reported model ${ran || 'none'}, not ${kit().claudeModelId(env)}`) };
   return { problem: null };
 }
 

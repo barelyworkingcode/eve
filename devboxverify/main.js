@@ -146,7 +146,11 @@ function readStack(file, { readFile = fs.readFileSync } = {}) {
   if (typeof doc.outside_spool === 'string' && doc.outside_spool.length > 1 && doc.outside_spool.endsWith('/')) {
     throw usageError(`--stack ${file}: outside_spool must not end with a slash`);
   }
+  if (doc.claude_model !== undefined && (typeof doc.claude_model !== 'string' || !doc.claude_model.trim())) {
+    throw usageError(`--stack ${file}: claude_model is not a non-empty string`);
+  }
   return {
+    claudeModel: doc.claude_model === undefined ? null : doc.claude_model,
     relayCheckout: doc.relay_checkout ? path.normalize(doc.relay_checkout) : null,
     outsideSpool: doc.outside_spool ? path.normalize(doc.outside_spool) : null,
     file, slot: doc.slot, configDir: path.normalize(doc.config_dir), relayBin: doc.relay_bin, marker: doc.marker,
@@ -1059,7 +1063,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, stack = null, world,
     api, shared: {}, session: null, cosSetupProblem: cosSetup.problem, relayBin, service: opts.service, dataDir,
     relayConfigDir: stack ? stack.configDir : null,
     stack: stack ? {
-      relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool,
+      claudeModel: stack.claudeModel, relayCheckout: stack.relayCheckout, outsideSpool: stack.outsideSpool,
       scratchDir: runRecordDir(process.env, home, stack),
     } : null,
     serviceLog: eveLog,

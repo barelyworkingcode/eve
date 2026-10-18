@@ -1376,6 +1376,13 @@ What a stack run does not do:
   `<config_dir>/outside-reports`) is passed to the outside Claude as
   `RELAY_OUTSIDE_SPOOL` with `tmux new-session -e`. `agent-drop-in` moves
   Claude's folder-trust prompt to "Yes, I trust this folder" before it confirms.
+- **Claude model.** `claude_model` (optional) names the model the stack serves
+  to Claude Code. The Chief of Staff, `agent-drop-in`, `changes-agent-edit` and
+  the outside-session journeys assert that name in `system/init` and in the
+  Chief of Staff status, and their lines print it. Absent, they assert
+  `claude-haiku-5-5`, as does a run without `--stack`. A value that is not a
+  non-empty string exits 2. The `haiku` alias checks (the Start card's model)
+  are unchanged.
 
 The preflight order is otherwise the same: `machine`, `pin`, `fixtures`,
 `lock`, `head`, `tree`, `service` (the stack's `relay service list`), `eve`,

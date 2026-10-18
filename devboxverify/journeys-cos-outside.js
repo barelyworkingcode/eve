@@ -19,7 +19,6 @@ const { PASS, FAIL, BLOCKED, result, firstLine, need, poll, openEve, eveJson } =
 const exec = promisify(execFile);
 
 const CLAUDE_MODEL = 'haiku';
-const COS_MODEL_ID = 'claude-haiku-5-5';
 const INVENTORY_WITHIN_MS = 40000; // two probe intervals of 15 s, plus the first snapshot
 const TRUST_WITHIN_MS = 30000;
 const TRUST_MAX_DOWNS = 4;
@@ -232,10 +231,10 @@ async function inventoryProblem(seen) {
   return machine ? null : `relay serves no outside inventory: no machine in the Chief of Staff snapshot within ${INVENTORY_WITHIN_MS / 1000}s (relay without outside sessions answers 404)`;
 }
 
-async function modelProblem(seen) {
+async function modelProblem(seen, env) {
   await poll(async () => seen.status && seen.status.model, { timeoutMs: 5000, intervalMs: 250 });
   const model = seen.status && seen.status.model;
-  return model === COS_MODEL_ID ? null : `the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${COS_MODEL_ID}`;
+  return model === kit().claudeModelId(env) ? null : `the Chief of Staff model is ${model ? `"${model}"` : 'not reported'}, not ${kit().claudeModelId(env)}`;
 }
 
 
@@ -370,7 +369,7 @@ async function cosOutsideSimple(env) {
   if (post.kind !== 'reply') problems.push(`the question posted "${post.kind}", want reply: "${said.slice(0, 160)}"`);
   else if (!said.includes(consoleMarker)) problems.push(`the reply does not carry ${consoleMarker}: "${said.slice(0, 200)}"`);
   else if (said.includes(hostMarker)) problems.push(`the reply about the console session carries the hosted marker ${hostMarker}`);
-  const modelIssue = await modelProblem(seen);
+  const modelIssue = await modelProblem(seen, env);
   if (modelIssue) problems.push(modelIssue);
 
   // A hookless state change. relay's probe reads a pending tool call as asking, so
