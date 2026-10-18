@@ -9,6 +9,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const EVE = path.resolve(__dirname, '..', '..');
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-selftest-'));
@@ -143,6 +144,31 @@ const cases = {
     put(RUN_FOLDER, uuid(18), `x ${TOKEN}`);
     await logged(() => T.reap({ ids: [uuid(19)], nonce: NONCE, marks: MARKS, sinceMs: 0, everyMs: 5, forMs: 20, ps: async () => '' }));
     assert.ok(exists(RUN_FOLDER, `${uuid(18)}.jsonl`), 'an unlisted session is not swept by the reaper');
+  },
+  async 'the detached reaper process deletes the handed file and writes its line to its log file'() {
+    reset();
+    const file = put('-srv-runs-s1-verify-cos', uuid(20), `x ${TOKEN}`);
+    const logFile = path.join(home, 'record', 'transcript-reaper.log');
+    const args = { ids: [uuid(20)], nonce: NONCE, marks: MARKS, sinceMs: 0, logFile };
+    const child = spawn(process.execPath, [path.join(EVE, 'devboxverify/claude-transcripts.js'), '--reap', JSON.stringify(args)], { stdio: 'ignore', env: process.env });
+    const code = await new Promise((resolve, reject) => { child.on('exit', resolve); child.on('error', reject); });
+    assert.strictEqual(code, 0);
+    assert.ok(!fs.existsSync(file), 'file deleted');
+    assert.ok(!exists('-srv-runs-s1-verify-cos'), 'folder removed');
+    assert.match(fs.readFileSync(logFile, 'utf8'), new RegExp(`transcript after-run: ${uuid(20)} deleted 1\\n`));
+  },
+  async 'a folder is removed with rmdir, so a file written into it later is never lost'() {
+    reset();
+    const dir = path.join(ROOT, RUN_FOLDER);
+    put(RUN_FOLDER, uuid(21), `x ${TOKEN}`);
+    const realRmdir = fs.promises.rmdir;
+    // The file lands between the emptiness check and the removal of the folder.
+    fs.promises.rmdir = async (d, ...rest) => {
+      if (d === dir) fs.writeFileSync(path.join(dir, 'late.jsonl'), 'late');
+      return realRmdir.call(fs.promises, d, ...rest);
+    };
+    try { await logged(() => removeOne(uuid(21))); } finally { fs.promises.rmdir = realRmdir; }
+    assert.ok(exists(RUN_FOLDER, 'late.jsonl'), 'the late file survives');
   },
   async 'a failing ps keeps every file'() {
     reset();

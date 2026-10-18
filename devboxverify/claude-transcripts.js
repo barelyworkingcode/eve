@@ -68,13 +68,16 @@ function runFolder(name, marks) {
   return !!marks.slotPrefix && name.startsWith(marks.slotPrefix);
 }
 
-// True when dir holds no file at all, however deep: Claude leaves an empty
-// memory/ folder behind, which does not count. A symlink counts as a file.
-async function holdsNoFile(dir) {
+// Removes dir and the folders under it, bottom-up with rmdir, when none holds a
+// file: Claude leaves an empty memory/ folder behind, which does not count. A
+// symlink counts as a file. Deliberate: rmdir, not a recursive remove, so a
+// file written between the check and the removal makes rmdir fail and stays.
+async function removeEmptyTree(dir) {
   for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) return false;
-    if (!(await holdsNoFile(path.join(dir, entry.name)))) return false;
+    if (!(await removeEmptyTree(path.join(dir, entry.name)))) return false;
   }
+  await fs.promises.rmdir(dir);
   return true;
 }
 
@@ -85,8 +88,7 @@ async function removeEmptyRunFolders(root, names, marks) {
     if (!runFolder(name, marks)) continue;
     const dir = path.join(root, name);
     try {
-      if (!(await fs.promises.lstat(dir)).isDirectory() || !(await holdsNoFile(dir))) continue;
-      await fs.promises.rm(dir, { recursive: true });
+      if ((await fs.promises.lstat(dir)).isDirectory()) await removeEmptyTree(dir);
     } catch { /* stays */ }
   }
 }
@@ -246,8 +248,25 @@ function reapAfterRun(ids, args) {
   } catch { return false; }
 }
 
+// Where the detached reaper writes its lines, since it has no stdio: the run
+// record folder of a stack run, else the nightly's run folder.
+function reaperLog(env) {
+  const dir = env && env.stack && env.stack.scratchDir
+    ? env.stack.scratchDir
+    : path.join(process.env.NIGHTLY_LOG_DIR || path.join(os.homedir(), 'Library', 'Logs', 'devboxverify'), 'runs');
+  return path.join(dir, 'transcript-reaper.log');
+}
+
 if (require.main === module && process.argv[2] === '--reap') {
-  reap(JSON.parse(process.argv[3])).then(() => process.exit(0), () => process.exit(1));
+  const args = JSON.parse(process.argv[3]);
+  if (args.logFile) {
+    const write = (text) => { try { fs.mkdirSync(path.dirname(args.logFile), { recursive: true }); fs.appendFileSync(args.logFile, text); } catch { /* best effort */ } };
+    process.stderr.write = (text) => { write(String(text)); return true; };
+  }
+  reap(args).then((left) => {
+    if (left) process.stderr.write(`transcript after-run: ${left} kept: process still running when the reaper gave up\n`);
+    process.exit(0);
+  }, () => process.exit(1));
 }
 
 // Wraps a journey so that, after the journey's own cleanups (this one is
@@ -262,7 +281,7 @@ function withTranscriptSweep(journey, startedAtMs) {
         return await journey.run(env);
       } finally {
         env.cleanup(`${journey.id}: sweep the run's Claude session files`, async () => {
-          const args = { nonce: env.nonce, marks: runMarks(env), sinceMs: startedAtMs };
+          const args = { nonce: env.nonce, marks: runMarks(env), sinceMs: startedAtMs, logFile: reaperLog(env) };
           reapAfterRun(await sweepTranscripts({ journey: journey.id, ...args }), args);
         }, TRANSCRIPT_CLEANUP_MS);
       }

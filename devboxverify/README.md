@@ -1601,10 +1601,16 @@ a `claude` process carries its id.
   stays and is logged once. The Chief of Staff's Claude lives until the stack
   goes down, after the last journey, so the sweep hands those ids to a detached
   process (no stdio, so no caller waits on it) that checks every 2 s and
-  deletes only those files once the Claude is gone. It gives up after 30 min, so a
-  non-stack run, whose Chief of Staff outlives it, can still leave that file.
+  deletes only those files once the Claude is gone. Its lines (`transcript
+  after-run: <id> deleted 1` | `kept: <why>`) go to `transcript-reaper.log` in
+  the run record folder (`eve-verify-runs/` on a stack run, else
+  `<NIGHTLY_LOG_DIR>/runs`), not to the run log, which has closed by then. It
+  gives up after 30 min and logs `kept: process still running when the reaper
+  gave up`, so a non-stack run, whose Chief of Staff outlives it, can still
+  leave that file.
 - **Folders.** After either cleaner, a project folder is removed when it holds
-  no file at all (Claude's empty `memory/` does not count) and its name marks
+  no file at all (Claude's empty `memory/` does not count; it goes with
+  `rmdir`, bottom-up, so a file written in the gap stays) and its name marks
   it as the run's: it contains `verify-<nonce>-`, or, on a stack run, it starts
   with the encoded path of the stack's run directory. A pre-existing folder
   (`World-Acme-Corp`, `verify-cos`) is never removed.
