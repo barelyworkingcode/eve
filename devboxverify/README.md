@@ -1366,7 +1366,8 @@ What a stack run does not do:
 - **Little outside the run directory.** The run record and the outside-session
   journeys' scratch go to `eve-verify-runs/` beside `stack.json`, not
   `NIGHTLY_LOG_DIR` or the system temp dir. Claude's own transcripts still go
-  to `~/.claude/projects` and are removed by name at cleanup. Claude also
+  to `~/.claude/projects` and are removed at cleanup (see "Claude session
+  files"). Claude also
   records a folder-trust entry in `~/.claude.json` for the stack's world clone
   and the scratch folders it is started in.
 - **Outside sessions.** `relay_checkout` gives `cos-outside-hooks` relay's
@@ -1581,6 +1582,41 @@ both commits and the other PR (`set relay@<sha12> eve@<sha12>; with
 relay comment, eve comment, relay status, eve status. If the eve status fails
 after relay's was set, relay's is re-posted as `error` so no PR keeps a
 `success` the other lacks.
+
+## Claude session files
+
+A run leaves no Claude Code session file (`~/.claude/projects/*/<id>.jsonl`)
+and no project folder it made. Two cleaners in `claude-transcripts.js` share
+one rule: a file is deleted only when it holds the run token, and never while
+a `claude` process carries its id.
+
+- **By id.** The journeys that start a Claude themselves (`agent-drop-in`, the
+  tmux Claudes of `cos-outside-simple`, `outside-thread`, `cos-outside-hooks`)
+  know its id and delete that file once the process is gone.
+- **Sweep.** Every journey except a fixture is wrapped (`withTranscriptSweep`,
+  applied where `journeys.js` builds the table). Its last cleanup deletes every
+  file changed since the run began that holds `verify-<nonce>`, whichever
+  journey or probe wrote it: relay agent and task sessions, the Chief of Staff
+  readiness probe, the changes-agent journeys. A file whose Claude still runs
+  stays and is logged once. The Chief of Staff's Claude lives until the stack
+  goes down, after the last journey, so the sweep hands those ids to a detached
+  process (no stdio, so no caller waits on it) that checks every 2 s and
+  deletes only those files once the Claude is gone. Its lines (`transcript
+  after-run: <id> deleted 1` | `kept: <why>`) go to `transcript-reaper.log` in
+  the run record folder (`eve-verify-runs/` on a stack run, else
+  `<NIGHTLY_LOG_DIR>/runs`), not to the run log, which has closed by then. It
+  gives up after 30 min and logs `kept: process still running when the reaper
+  gave up`, so a non-stack run, whose Chief of Staff outlives it, can still
+  leave that file.
+- **Folders.** After either cleaner, a project folder is removed when it holds
+  no file at all (Claude's empty `memory/` does not count; it goes with
+  `rmdir`, bottom-up, so a file written in the gap stays) and its name marks
+  it as the run's: it contains `verify-<nonce>-`, or, on a stack run, it starts
+  with the encoded path of the stack's run directory. A pre-existing folder
+  (`World-Acme-Corp`, `verify-cos`) is never removed.
+- **Log.** One stderr line per session, never a path:
+  `transcript <journey>: <id> deleted <n>` | `absent` | `kept: <why>`. None of
+  it changes a journey result: the cleanups never throw.
 
 ## Traps
 
