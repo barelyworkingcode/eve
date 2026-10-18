@@ -295,6 +295,12 @@
 }
 .cos-delegation-bar[hidden] { display: none; }
 
+/* Delegation digest post (eve#509). */
+.cos-digest__line { color: var(--text-secondary); font-size: var(--text-subhead); }
+.cos-digest__group h4 { margin: 0 0 var(--sp-2); font-size: var(--text-subhead); }
+.cos-digest__group ul { margin: 0 0 var(--sp-4); padding-left: 18px; }
+.cos-digest__group li { white-space: pre-line; }
+
 .session-origin-chip {
   display: inline-block;
   padding: 1px 8px;

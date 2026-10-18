@@ -180,11 +180,88 @@ function continueText(delegation) {
   return lines.join('\n');
 }
 
+// The last non-empty line, trimmed, is exactly the ready line.
+function isReadyReport(excerpt) {
+  const lines = String(excerpt == null ? '' : excerpt).split(/\r?\n/u).map((l) => l.trim()).filter(Boolean);
+  return lines.length > 0 && lines[lines.length - 1] === READY_LINE;
+}
+
+function keepGoingRule(d) {
+  const rules = Array.isArray(d.rules) ? d.rules : [];
+  const index = rules.findIndex((r) => r && r.kind === 'continue');
+  return index < 0 ? null : { index, rule: rules[index] };
+}
+
+// One turn end of a listed session -> what eve does. Pure. Order: ready line, the
+// session's cap, the first reply rule that fits (a rule with a `when` waits for the
+// model match), the keep-going rule, nothing. `rule` is the 0-based rule index.
+function decideTurnEnd(delegation, { sessionId, excerpt, question } = {}) {
+  const d = delegation || {};
+  const entry = d.sessions && d.sessions[sessionId];
+  if (!entry) return { action: 'none', why: 'unlisted' };
+  if (isReadyReport(excerpt)) return { action: 'ready' };
+  if ((entry.actions | 0) >= d.maxActions) return { action: 'none', why: 'cap' };
+  const rules = Array.isArray(d.rules) ? d.rules : [];
+  const on = question ? 'question' : 'finished';
+  const reply = rules.findIndex((r) => r && r.kind === 'reply' && r.sessionId === sessionId && r.on === on && r.when === null);
+  if (reply >= 0) return { action: 'send', rule: reply, text: rules[reply].text };
+  const keep = keepGoingRule(d);
+  if (keep && (keep.rule.sessions || []).some((s) => s.sessionId === sessionId)) {
+    return { action: 'send', rule: keep.index, text: continueText(d) };
+  }
+  return { action: 'none', why: 'no_rule' };
+}
+
+// The digest post's body, from eve's own records. `roster` (optional) is a Map of
+// session id to a row with `label` or `name`; labels fixed on the card win.
+function buildDigest(delegation, { endReason, now, roster } = {}) {
+  const d = delegation || {};
+  const names = new Map();
+  for (const r of Array.isArray(d.rules) ? d.rules : []) {
+    for (const s of r.kind === 'continue' ? r.sessions || [] : [r]) {
+      if (s && s.sessionId && !names.has(s.sessionId)) names.set(s.sessionId, { label: s.label || '', project: s.project || '' });
+    }
+  }
+  const who = (id) => {
+    const fixed = names.get(id) || {};
+    const row = (roster && roster.get && roster.get(id)) || {};
+    return { label: fixed.label || row.label || row.name || `Session ${String(id).slice(0, 8)}`, project: fixed.project || row.project || '' };
+  };
+  const keep = keepGoingRule(d);
+  const keepIds = new Set(keep ? (keep.rule.sessions || []).map((s) => s.sessionId) : []);
+  const waiting = [];
+  const ready = [];
+  for (const [id, e] of Object.entries(d.sessions || {})) {
+    const { label, project } = who(id);
+    if (e.ready) {
+      ready.push({ sessionId: id, label, project, report: String(e.report || '').slice(-500) });
+    } else if (e.waiting) {
+      waiting.push({ sessionId: id, label, project, reason: String(e.waiting), detail: String(e.detail || '') });
+    } else if ((e.actions | 0) >= d.maxActions) {
+      waiting.push({ sessionId: id, label, project, reason: 'cap', detail: '' });
+    } else if (keepIds.has(id)) {
+      waiting.push({ sessionId: id, label, project, reason: 'not_ready', detail: '' });
+    }
+  }
+  return {
+    delegationId: d.delegationId,
+    from: d.approvedAt,
+    to: new Date(now == null ? Date.now() : now).toISOString(),
+    endReason,
+    sent: d.actions | 0,
+    actions: (Array.isArray(d.log) ? d.log : []).map((l) => ({
+      at: l.at, sessionId: l.sessionId, label: l.label, rule: l.rule, text: l.text,
+    })),
+    waiting,
+    ready,
+  };
+}
+
 function newDelegationId() {
   return `d_${crypto.randomBytes(4).toString('hex')}`;
 }
 
 module.exports = {
   DELEGATION_DEFAULTS, LIMITS, ISSUE_REF_RE, READY_LINE, END_REASONS,
-  validateProposal, continueText, newDelegationId,
+  validateProposal, continueText, newDelegationId, isReadyReport, decideTurnEnd, buildDigest,
 };
