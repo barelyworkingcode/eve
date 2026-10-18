@@ -88,7 +88,7 @@ async function say(page, seen, text) {
   await input.fill(text, { timeout: 5000 });
   const from = seen.posts.length;
   await input.press('Enter');
-  return from;
+  return kit().afterOwnPost(seen, from, text);
 }
 
 const waitPost = (seen, from, kinds) => poll(

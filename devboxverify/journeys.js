@@ -2871,6 +2871,63 @@ function cosFrames(page) {
   return seen;
 }
 
+// The newest Chief of Staff `busy` flag in a socket's frames (a cos_snapshot's
+// or cos_status's status.busy; chief-of-staff.js getStatus), or null when none came.
+function latestCosBusy(frames) {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const m = frames[i];
+    if ((m.type === 'cos_snapshot' || m.type === 'cos_status') && m.status && typeof m.status.busy === 'boolean') return m.status.busy;
+  }
+  return null;
+}
+
+const COS_IDLE_WITHIN_MS = 120000;
+
+// Waits until no Chief of Staff turn is running, on the status `busy` flag and
+// never a duration (the cap only bounds a turn that never ends). Subscribes on a
+// socket of its own, so the first frame is a snapshot of now. Throws a message
+// that names the journey and what it waited for. `open` is injectable for the selftest.
+async function waitCosIdle(env, journey, when, { open = openEveSocket, withinMs = COS_IDLE_WITHIN_MS, intervalMs = 250 } = {}) {
+  const sock = await open(env);
+  try {
+    sock.send({ type: 'cos_subscribe' });
+    const idle = await poll(async () => (latestCosBusy(sock.frames) === false) || null, { timeoutMs: withinMs, intervalMs });
+    if (!idle) {
+      const state = latestCosBusy(sock.frames);
+      throw new Error(`${journey}: the Chief of Staff turn had not ended within ${withinMs / 1000}s ${when} `
+        + `(waited for cos_status busy:false; last status ${state === null ? 'not reported' : 'busy:true'})`);
+    }
+  } finally {
+    sock.close();
+  }
+}
+
+// Wraps a Chief of Staff journey so none starts while a turn from an earlier
+// journey runs, and none ends before its own turn ended: a trailing reply would
+// otherwise be taken as the next journey's answer. A journey that already
+// failed keeps its verdict; the next journey's start check still holds.
+// The declared timeoutMs is frozen (test/static/frozen.json), so the waits spend it.
+function withCosTurnGate(journey, { open } = {}) {
+  if (!journey.areas || !journey.areas.includes('chief-of-staff')) return journey;
+  return {
+    ...journey,
+    run: async (env) => {
+      try {
+        await waitCosIdle(env, journey.id, 'before the journey started (an earlier journey\'s turn was still running)', { open });
+      } catch (err) {
+        return result(journey.id, FAIL, err.message);
+      }
+      const verdict = await journey.run(env);
+      try {
+        await waitCosIdle(env, journey.id, 'after the journey\'s last step', { open });
+      } catch (err) {
+        if (verdict && verdict.state === PASS) return result(journey.id, FAIL, err.message);
+      }
+      return verdict;
+    },
+  };
+}
+
 // A listed Claude Haiku session in the project, in default permission mode,
 // made over a socket of eve's own so it can carry a name. A cleanup registered
 // before the wait deletes every session the call added, whatever the verdict.
@@ -3091,7 +3148,19 @@ async function cosSay(page, seen, text) {
   await input.fill(text, { timeout: 5000 });
   const from = seen.posts.length;
   await input.press('Enter');
-  return from;
+  return afterOwnPost(seen, from, text);
+}
+
+// Where the new posts begin: just after the person post holding `text`, so a
+// reply to an earlier request that lands later is not taken as this answer.
+// Falls back to `from` when that post is not seen within 5 s.
+async function afterOwnPost(seen, from, text) {
+  const want = text.trim();
+  const at = await poll(async () => {
+    const i = seen.posts.findIndex((p, n) => n >= from && p.kind === 'person' && p.text === want);
+    return i >= 0 ? i + 1 : null;
+  }, { timeoutMs: 5000, intervalMs: 100 });
+  return at || from;
 }
 
 // The first post from `from` on whose kind is one of `kinds`; null at the bound.
@@ -4387,9 +4456,9 @@ const journeys = [
   cosOutside.cosOutsideHooks,
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,
-].map((j) => withTranscriptSweep(j, RUN_STARTED_MS));
+].map((j) => withTranscriptSweep(withCosTurnGate(j), RUN_STARTED_MS));
 
 module.exports = {
-  journeys, claudeModelId, scratchFolder, commitOneFile, endOfFile, sessionStates, openEveSocket, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
+  journeys, withCosTurnGate, waitCosIdle, latestCosBusy, afterOwnPost, claudeModelId, scratchFolder, commitOneFile, endOfFile, sessionStates, openEveSocket, cosProjectBSetup, parseMintOutput, frontendSocketIn, frontendRequest, cosLaunchRows, cosLaunchProblem, cosConfigLine,
   launchRowsFromJsonl, hostLaunchProblem, noreadReplyProblem,
 };

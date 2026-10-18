@@ -680,6 +680,8 @@ PASS needs all of these.
   Acme Corp terminal and deletes the new Acme Corp session. SSH-host
   drop-in: needs a test-machine pass.
 
+Every journey in the `chief-of-staff` area waits, before it starts and after its last step, for `cos_status` `busy:false` (cap 120 s, FAIL naming the journey), so a late reply from one journey is never the next one's answer.
+
 **cos-asking-post.** The Chief of Staff thread posts when an agent needs
 you (G6). A Claude Haiku session (`claude-haiku-5-5`) is created in
 Acme Corp over a socket of eve's own, named `verify-<nonce> asker`, in default
