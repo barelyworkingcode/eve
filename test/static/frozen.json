@@ -99,6 +99,7 @@
     {"id":"cos-start-card","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":330000},
     {"id":"cos-errand-finished","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":330000},
     {"id":"cos-agent-rail","needs":["project:acme"],"areas":["chief-of-staff","home"],"timeoutMs":300000},
+    {"id":"cos-delegation","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":420000},
     {"id":"settings-sheet","needs":[],"areas":["settings"],"timeoutMs":45000},
     {"id":"project-admin-in-relay","needs":["project:acme"],"areas":["projects"],"timeoutMs":45000},
     {"id":"mode-presets","needs":["project:acme"],"areas":["home","projects","settings"],"timeoutMs":90000},
