@@ -192,10 +192,36 @@ function keepGoingRule(d) {
   return index < 0 ? null : { index, rule: rules[index] };
 }
 
+// Reply rules of this session that fit the turn's trigger and carry a condition in the
+// owner's words: the ones only the model can match. `rule` is the card's rule index.
+function conditionalCandidates(delegation, { sessionId, question } = {}) {
+  const rules = Array.isArray((delegation || {}).rules) ? delegation.rules : [];
+  const on = question ? 'question' : 'finished';
+  const out = [];
+  rules.forEach((r, rule) => {
+    if (r && r.kind === 'reply' && r.sessionId === sessionId && r.on === on && typeof r.when === 'string' && r.when) {
+      out.push({ rule, sessionId, on, when: r.when });
+    }
+  });
+  return out;
+}
+
+// The model's pick, checked: a reply rule of that session, that trigger, with a condition.
+function acceptMatch(delegation, turnEnd, ruleIndex) {
+  if (!Number.isInteger(ruleIndex)) return null;
+  const hit = conditionalCandidates(delegation, turnEnd).find((c) => c.rule === ruleIndex);
+  return hit ? { rule: hit.rule, text: delegation.rules[hit.rule].text } : null;
+}
+
 // One turn end of a listed session -> what eve does. Pure. Order: ready line, the
-// session's cap, the first reply rule that fits (a rule with a `when` waits for the
-// model match), the keep-going rule, nothing. `rule` is the 0-based rule index.
-function decideTurnEnd(delegation, { sessionId, excerpt, question } = {}) {
+// session's cap, the first reply rule without a condition that fits, a rule with a
+// condition (only if `match`, the model's pick `{rule}`, is accepted), the keep-going rule,
+// nothing. With conditional candidates and no accepted match the keep-going rule still
+// applies, else `{action: 'none', why: 'unmatched'}`. `rule` is the 0-based rule index.
+// `match` may sit in the turn object or come as the third argument.
+function decideTurnEnd(delegation, turnEnd = {}, matchArg) {
+  const { sessionId, excerpt, question } = turnEnd;
+  const match = matchArg !== undefined ? matchArg : turnEnd.match;
   const d = delegation || {};
   const entry = d.sessions && d.sessions[sessionId];
   if (!entry) return { action: 'none', why: 'unlisted' };
@@ -205,11 +231,16 @@ function decideTurnEnd(delegation, { sessionId, excerpt, question } = {}) {
   const on = question ? 'question' : 'finished';
   const reply = rules.findIndex((r) => r && r.kind === 'reply' && r.sessionId === sessionId && r.on === on && r.when === null);
   if (reply >= 0) return { action: 'send', rule: reply, text: rules[reply].text };
+  const candidates = conditionalCandidates(d, { sessionId, question });
+  if (candidates.length > 0) {
+    const accepted = match ? acceptMatch(d, { sessionId, question }, match.rule) : null;
+    if (accepted) return { action: 'send', rule: accepted.rule, text: accepted.text };
+  }
   const keep = keepGoingRule(d);
   if (keep && (keep.rule.sessions || []).some((s) => s.sessionId === sessionId)) {
     return { action: 'send', rule: keep.index, text: continueText(d) };
   }
-  return { action: 'none', why: 'no_rule' };
+  return candidates.length > 0 ? { action: 'none', why: 'unmatched' } : { action: 'none', why: 'no_rule' };
 }
 
 // The digest post's body, from eve's own records. `roster` (optional) is a Map of
@@ -264,4 +295,5 @@ function newDelegationId() {
 module.exports = {
   DELEGATION_DEFAULTS, LIMITS, ISSUE_REF_RE, READY_LINE, END_REASONS,
   validateProposal, continueText, newDelegationId, isReadyReport, decideTurnEnd, buildDigest,
+  conditionalCandidates, acceptMatch,
 };
