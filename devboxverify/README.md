@@ -1343,6 +1343,7 @@ What comes from the file, and nothing else:
 | `marker` | the machine marker (in place of `DEVBOXWORLD_MARKER`), whose `world_root` is the stack's clone of the world's folders |
 | `head.eve` | `PREFLIGHT head` fails unless the checkout's HEAD is this commit |
 | `slot` | must be present |
+| `claude_base_url`, `claude_token_file` | optional, together, with `claude_model`. The model broker's loopback URL and the path of a mode-0600 file holding its bearer (never the bearer itself). The outside `claude` processes (`cos-outside`, `outside-hooks`, `outside-thread`) get `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` (read at start) and `ANTHROPIC_DEFAULT_HAIKU_MODEL=<claude_model>`, plus a `.claude/settings.local.json` in their folder, so they never use the host's Claude login. Absent: they use it as before |
 
 A missing or unreadable file, a relative path, an `eve_url` off loopback or
 an `eve` head that is not 40 hex characters is a usage error (exit 2). Other

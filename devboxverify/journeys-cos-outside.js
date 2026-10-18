@@ -107,7 +107,7 @@ async function eveJsonSlow(env, method, urlPath, body) {
 
 // — tmux and the outside claude ---------------------------------------------
 
-const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+const { cleanEnv, outsideClaudeEnv, shellPrefix, writeOutsideSettings } = require('./outside-claude');
 
 function onPath(name) {
   for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
@@ -149,7 +149,9 @@ async function startClaude(env, tools, { name, dir, prompt, settings }) {
   // spool goes in with -e. The spool defaults to a folder in the stack's relay config dir.
   const spool = env.stack ? (env.stack.outsideSpool || path.join(env.relayConfigDir, 'outside-reports')) : null;
   const spoolEnv = spool ? ['-e', `RELAY_OUTSIDE_SPOOL=${spool}`] : [];
-  await exec(tools.tmux, ['new-session', '-d', ...spoolEnv, '-s', name, '-x', '200', '-y', '50', '-c', dir, `${quote(tools.claude)} ${args.map(quote).join(' ')}`],
+  // A stack run's broker wiring goes in through the shell command, which reads the token file itself.
+  await writeOutsideSettings(env, dir);
+  await exec(tools.tmux, ['new-session', '-d', ...spoolEnv, '-s', name, '-x', '200', '-y', '50', '-c', dir, `${shellPrefix(env)}exec ${quote(tools.claude)} ${args.map(quote).join(' ')}`],
     { env: cleanEnv(), timeout: 20000 });
   tools.sessions.push(name);
   let trusted = false;
@@ -591,8 +593,9 @@ async function outsideThread(env) {
   // Detached into its own process group; the Bash tool's shell leads its own group, which endProcessTree ends too. One Bash call is allowed.
   // The harness runs with a trimmed environment; claude fails to sign in without USER, and then
   // exits at once, so the row never comes.
+  await writeOutsideSettings(env, dir);
   const child = spawn(claude, ['-p', '--model', CLAUDE_MODEL, '--permission-mode', 'default', '--setting-sources', 'project,local', '--allowedTools', 'Bash(tail -f keepalive.log)', '--', prompt],
-    { cwd: dir, env: { ...cleanEnv(), USER: process.env.USER || os.userInfo().username }, detached: true, stdio: 'ignore' });
+    { cwd: dir, env: { ...outsideClaudeEnv(env), USER: process.env.USER || os.userInfo().username }, detached: true, stdio: 'ignore' });
   held.child = child;
   held.exited = new Promise((resolve) => { child.once('exit', () => { held.done = true; resolve(); }); child.once('error', () => { held.done = true; resolve(); }); });
   child.unref();
