@@ -62,8 +62,27 @@ function runMarks(env) {
   return { nonce: env && env.nonce ? String(env.nonce) : '', slotPrefix: slotDir ? `${folderName(slotDir)}-` : '' };
 }
 
+// The project folders a stack run's own slot directory owns, as encoded names.
+// Claude names a folder by turning every non-alphanumeric character of its cwd
+// into "-", so the run directory of slot x1 is a prefix of the one of slot x1-b.
+// The rule that keeps them apart: a folder belongs to the slot only when it is
+// the encoded slot directory, "-", and the encoded name of a directory that
+// exists in the slot (verify-cos, world, ...), then the name ends or goes on
+// after a "-". Slot x1 has no directory "b", so x1-b's folders never match.
+function slotOwnedPrefixes(slotDir) {
+  if (!slotDir) return [];
+  let kids;
+  try { kids = fs.readdirSync(slotDir, { withFileTypes: true }); } catch { return []; }
+  return kids.filter((k) => k.isDirectory()).map((k) => `${folderName(slotDir)}-${folderName(k.name)}`);
+}
+
+function slotOwned(name, prefixes) {
+  return !!prefixes && prefixes.some((p) => name === p || name.startsWith(`${p}-`));
+}
+
 function runFolder(name, marks) {
   if (!marks) return false;
+  if (slotOwned(name, marks.slotOwn)) return true;
   if (marks.nonce && TOKEN.test(marks.nonce) && name.includes(`verify-${marks.nonce}-`)) return true;
   return !!marks.slotPrefix && name.startsWith(marks.slotPrefix);
 }
@@ -214,6 +233,52 @@ async function sweepTranscripts({ journey, nonce, marks, sinceMs, only = null, p
   return waiting;
 }
 
+// Deletes every session file in the project folders the slot owns (marks.slotOwn),
+// whatever it holds: those folders sit under the run's own directory, so the
+// Chief of Staff's bootstrap prompt, which carries no run token, belongs to the
+// run. A file whose Claude still runs stays and is returned as waiting. Then
+// removes the folders this left empty. `only` limits it to those ids. Never throws.
+async function sweepSlotSessions({ journey, marks, only = null, ps = psOut }) {
+  const waiting = [];
+  const line = (id, rest) => {
+    if (logged.get(id) === rest) return;
+    logged.set(id, rest);
+    try { process.stderr.write(`transcript ${journey}: ${id} ${rest}\n`); } catch { /* the log is best effort */ }
+  };
+  try {
+    const own = marks && marks.slotOwn;
+    if (!own || !own.length) return waiting;
+    const root = projectsRoot();
+    let dirs;
+    try { dirs = (await fs.promises.readdir(root)).filter((d) => slotOwned(d, own)); } catch { return waiting; }
+    const found = [];
+    for (const dir of dirs) {
+      let names;
+      try { names = await fs.promises.readdir(path.join(root, dir)); } catch { continue; }
+      for (const name of names) {
+        const id = name.endsWith('.jsonl') ? name.slice(0, -'.jsonl'.length) : '';
+        if (UUID.test(id) && (!only || only.includes(id))) found.push({ id, file: path.join(root, dir, name) });
+      }
+    }
+    let live = new Set();
+    let psFailed = '';
+    if (found.length) {
+      try { live = runningIds(await ps(), found.map((f) => f.id)); } catch (err) { psFailed = `ps failed: ${why(err)}`; }
+    }
+    for (const { id, file } of found) {
+      if (psFailed) { line(id, `kept: ${psFailed}`); continue; }
+      if (live.has(id)) { waiting.push(id); line(id, 'kept: process still running'); continue; }
+      try { await fs.promises.unlink(file); line(id, 'deleted 1'); } catch (err) {
+        if (err && err.code !== 'ENOENT') line(id, `kept: ${why(err)}`);
+      }
+    }
+    await removeEmptyRunFolders(root, dirs, { slotOwn: own });
+  } catch (err) {
+    try { process.stderr.write(`transcript ${journey}: slot sweep kept: ${why(err)}\n`); } catch { /* best effort */ }
+  }
+  return waiting;
+}
+
 const REAP_EVERY_MS = 2000;
 const REAP_FOR_MS = 30 * 60 * 1000;
 
@@ -221,10 +286,12 @@ const REAP_FOR_MS = 30 * 60 * 1000;
 // had to leave, until none waits on a living Claude or the bound passes. Other
 // files are not its business: a Claude without --session-id in its argv would
 // look gone while a journey still reads its file. Returns how many still wait.
-async function reap({ ids, nonce, marks, sinceMs, everyMs = REAP_EVERY_MS, forMs = REAP_FOR_MS, ps = psOut }) {
+async function reap({ ids, nonce, marks, sinceMs, slot = false, everyMs = REAP_EVERY_MS, forMs = REAP_FOR_MS, ps = psOut }) {
   const until = Date.now() + forMs;
   for (;;) {
-    const waiting = await sweepTranscripts({ journey: 'after-run', nonce, marks, sinceMs, only: ids, ps });
+    const waiting = slot
+      ? await sweepSlotSessions({ journey: 'after-run', marks, only: ids, ps })
+      : await sweepTranscripts({ journey: 'after-run', nonce, marks, sinceMs, only: ids, ps });
     if (!waiting.length || Date.now() >= until) return waiting.length;
     await new Promise((resolve) => setTimeout(resolve, everyMs));
   }
@@ -246,6 +313,18 @@ function reapAfterRun(ids, args) {
     fresh.forEach((id) => handedOver.add(id));
     return true;
   } catch { return false; }
+}
+
+// The end of a stack run: sweeps the slot's own project folders (see
+// sweepSlotSessions) and hands any session whose Claude still runs, the Chief
+// of Staff's, to the detached reaper, which deletes it once that Claude exits.
+// A solo --only run needs this: no journey of it puts the run token in that file.
+async function sweepSlotAtRunEnd(env) {
+  if (!env || !env.stack || !env.stack.scratchDir) return;
+  const slotDir = path.dirname(env.stack.scratchDir);
+  const marks = { ...runMarks(env), slotOwn: slotOwnedPrefixes(slotDir) };
+  const waiting = await sweepSlotSessions({ journey: 'end-of-run', marks });
+  reapAfterRun(waiting, { nonce: env.nonce, marks, sinceMs: 0, slot: true, logFile: reaperLog(env) });
 }
 
 // Where the detached reaper writes its lines, since it has no stdio: the run
@@ -289,4 +368,4 @@ function withTranscriptSweep(journey, startedAtMs) {
   };
 }
 
-module.exports = { claudeRunning, removeTranscript, sweepTranscripts, reap, withTranscriptSweep, runMarks, runningIds, TRANSCRIPT_CLEANUP_MS };
+module.exports = { claudeRunning, removeTranscript, sweepTranscripts, sweepSlotSessions, sweepSlotAtRunEnd, slotOwnedPrefixes, slotOwned, reap, withTranscriptSweep, runMarks, runningIds, TRANSCRIPT_CLEANUP_MS };

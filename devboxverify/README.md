@@ -1609,6 +1609,15 @@ a `claude` process carries its id.
   gives up after 30 min and logs `kept: process still running when the reaper
   gave up`, so a non-stack run, whose Chief of Staff outlives it, can still
   leave that file.
+- **Slot sessions.** The Chief of Staff's bootstrap prompt carries no run
+  token, so a solo `--only` run left its session behind (a full run
+  happens to put the token in that file). At the end of every stack run
+  (`main.js`, after the cleanups) every session file in the slot's own
+  project folders goes, token or not. A folder is the slot's when its name is the encoded run directory, `-`, and
+  the encoded name of a directory that exists in the run directory
+  (`verify-cos`, `world`), then ends or goes on after `-`. Slot `x1` has no
+  directory `b`, so the folders of slot `x1-b` stay. A Claude that still runs
+  is handed to the detached process above, which waits on its exit.
 - **Folders.** After either cleaner, a project folder is removed when it holds
   no file at all (Claude's empty `memory/` does not count; it goes with
   `rmdir`, bottom-up, so a file written in the gap stays) and its name marks

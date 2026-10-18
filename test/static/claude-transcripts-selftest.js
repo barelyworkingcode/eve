@@ -184,6 +184,45 @@ const cases = {
     assert.deepStrictEqual(m, { nonce: NONCE, slotPrefix: '-Users-a--local-state-dv-runs-s9-' });
     assert.deepStrictEqual(T.runMarks({ nonce: NONCE, stack: null }), { nonce: NONCE, slotPrefix: '' });
   },
+  async 'the end-of-run sweep removes the slot own folders, token or not, and keeps others'() {
+    reset();
+    const slotDir = path.join(home, 'runs', 'x1');
+    fs.mkdirSync(path.join(slotDir, 'verify-cos'), { recursive: true });
+    fs.mkdirSync(path.join(slotDir, 'world'), { recursive: true });
+    const enc = (p) => p.replace(/[^A-Za-z0-9]/g, '-');
+    const own = enc(path.join(slotDir, 'verify-cos'));
+    const ownWorld = enc(path.join(slotDir, 'world', 'Acme-Corp'));
+    const other = `${enc(path.join(home, 'runs', 'x1-b'))}-verify-cos`;
+    put(own, uuid(30), 'Chief of Staff bootstrap, Reply with the single word: ready');
+    put(ownWorld, uuid(31), 'no run token here either');
+    put(other, uuid(32), 'another slot, prefix-extending name');
+    put('-Users-x-World-Acme-Corp', uuid(33), 'unrelated');
+    const env = { nonce: NONCE, stack: { scratchDir: path.join(slotDir, 'eve-verify-runs') } };
+    const marks = { ...T.runMarks(env), slotOwn: T.slotOwnedPrefixes(slotDir) };
+    assert.ok(T.slotOwned(own, marks.slotOwn) && !T.slotOwned(other, marks.slotOwn));
+    const out = await logged(() => T.sweepSlotSessions({ journey: 'end-of-run', marks, ps: async () => '' }));
+    assert.ok(!exists(own), "the slot's own folder and its session are removed");
+    assert.ok(!exists(ownWorld), "the slot's world folder is removed");
+    assert.ok(exists(other, `${uuid(32)}.jsonl`), 'a slot with a prefix-extending name stays');
+    assert.ok(exists('-Users-x-World-Acme-Corp', `${uuid(33)}.jsonl`), 'an unrelated folder stays');
+    assert.match(out, new RegExp(`transcript end-of-run: ${uuid(30)} deleted 1\\n`));
+  },
+  async 'the end-of-run sweep leaves a session whose Claude runs; the reaper deletes it on exit'() {
+    reset();
+    const slotDir = path.join(home, 'runs', 'x2');
+    fs.mkdirSync(path.join(slotDir, 'verify-cos'), { recursive: true });
+    const own = path.join(slotDir, 'verify-cos').replace(/[^A-Za-z0-9]/g, '-');
+    put(own, uuid(34), 'bootstrap');
+    const marks = { nonce: NONCE, slotOwn: T.slotOwnedPrefixes(slotDir) };
+    let polls = 0;
+    const ps = async () => (polls++ < 1 ? `  10     1 /bin/claude --session-id ${uuid(34)}\n` : '');
+    await logged(async () => {
+      assert.deepStrictEqual(await T.sweepSlotSessions({ journey: 'j', marks, ps }), [uuid(34)]);
+      assert.ok(exists(own, `${uuid(34)}.jsonl`), 'kept while the Claude runs');
+      assert.strictEqual(await T.reap({ ids: [uuid(34)], nonce: NONCE, marks, sinceMs: 0, slot: true, everyMs: 5, forMs: 5000, ps }), 0);
+    });
+    assert.ok(!exists(own), 'gone once the Claude exited');
+  },
   async 'a wrapped journey registers its sweep last, even when it throws; fixtures are left alone'() {
     reset();
     const fixture = { id: 'f', fixture: true, run: async () => 1 };
