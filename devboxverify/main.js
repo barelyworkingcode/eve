@@ -1055,7 +1055,7 @@ async function runLocked({ home, emit, log, toolRoot, opts, stack = null, world,
   const { createScreen } = require('./screen');
   const browser = await chromium.launch({ args: CHROMIUM_ARGS });
   const env = {
-    url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Chat',
+    url: opts.url, nonce: crypto.randomBytes(4).toString('hex'), model: process.env.EVE_VERIFY_MODEL || 'Europa-Fast',
     api, shared: {}, session: null, cosSetupProblem: cosSetup.problem, relayBin, service: opts.service, dataDir,
     relayConfigDir: stack ? stack.configDir : null,
     stack: stack ? {
