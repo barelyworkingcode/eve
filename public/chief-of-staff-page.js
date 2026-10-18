@@ -398,7 +398,9 @@ class ChiefOfStaffPage {
       p.append('.');
       body.appendChild(p);
       if (post.text) body.appendChild(this._text('p', post.text, 'cos-post__sent-text'));
-      const chip = this._text('span', 'Sent by Chief of Staff · in audit log', 'cos-sent-chip');
+      const chip = this._text('span', post.delegation
+        ? `Sent for you · rule ${(Number(post.delegation.rule) | 0) + 1}`
+        : 'Sent by Chief of Staff · in audit log', 'cos-sent-chip');
       chip.dataset.testid = 'cos-sent-chip';
       body.appendChild(chip);
     } else if (post.kind === 'send_failed') {
@@ -409,6 +411,8 @@ class ChiefOfStaffPage {
       if (post.card) body.appendChild(this._agentCard(post));
     } else if (post.kind === 'delegation_card') {
       if (post.card) body.appendChild(this._delegationCard(post));
+    } else if (post.kind === 'delegation_digest') {
+      if (post.digest) body.appendChild(this._digestBody(post.digest));
     } else if (post.kind === 'started') {
       body.appendChild(this._startedBody(post));
     } else if (post.kind === 'start_failed') {
@@ -772,6 +776,42 @@ class ChiefOfStaffPage {
     mk('approve', 'Approve', 'cos-btn--primary', 'approve');
     mk('cancel', 'Cancel', '', 'cancel');
     el.appendChild(acts);
+    return el;
+  }
+
+  static WAIT_REASON = {
+    tool_approval: 'asked for a tool approval', errored: 'hit an error', stalled: 'stalled',
+    unmatched: 'no rule matched', send_failed: "the message didn't go through", ended: 'ended',
+    not_ready: 'not ready yet', cap: 'message limit reached',
+  };
+
+  // The digest post: the line, then what was done, what waits and what is ready.
+  // Labels, texts and reports come from agents and rules, so they go in as text only.
+  _digestBody(digest) {
+    const el = this._div('cos-digest', 'cos-digest');
+    el.appendChild(this._text('h3', 'While you were away'));
+    const actions = Array.isArray(digest.actions) ? digest.actions : [];
+    const reason = ChiefOfStaffPage.END_REASON[digest.endReason] || digest.endReason || '';
+    const line = this._text('p',
+      `${this._clock(digest.from)} to ${this._clock(digest.to)} · ${actions.length} sent · ended: ${reason}`,
+      'cos-digest__line');
+    line.dataset.testid = 'cos-digest-line';
+    el.appendChild(line);
+    const group = (title, items) => {
+      if (!items.length) return;
+      const box = this._div('cos-digest__group');
+      box.appendChild(this._text('h4', title));
+      const ul = document.createElement('ul');
+      for (const text of items) ul.appendChild(this._text('li', text));
+      box.appendChild(ul);
+      el.appendChild(box);
+    };
+    group('Done for you', actions.map((a) => `${a.label}: ${a.text}`));
+    group('Waits for you', (digest.waiting || []).map((w) => {
+      if (w.reason === 'send_failed' && w.detail) return `${w.label}: ${w.detail}`;
+      return `${w.label}: ${ChiefOfStaffPage.WAIT_REASON[w.reason] || w.reason}`;
+    }));
+    group('Ready', (digest.ready || []).map((r) => (r.report ? `${r.label}: ${r.report}` : r.label)));
     return el;
   }
 
