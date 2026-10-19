@@ -739,6 +739,25 @@ post, or no reply, is FAIL.
 - Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The folder is
   removed by cleanup.
 
+**cos-delegation.** The Chief of Staff keeps an agent going while the owner is
+away, then reports (G6). The journey starts a headless Haiku agent in Acme Corp
+and types in `cos-input`: `I'm away. Keep <agent> going until it is ready to
+merge.` A `delegation_card` post must arrive within the turn bound (120 s) with
+one keep-going rule naming that session. After the card's Approve, the relay
+log must hold a `chief_of_staff.send` event for that session, within 120 s and
+read after the `cos_post` frame of the sent post, whose chip reads "Sent for
+you". After the bar's Stop, one `delegation_digest` post ("While you were
+away") must arrive. The model's wording is not judged: only that there is one
+card, one rule and the session the journey started. A `notice` post instead of
+a card, or no send, is FAIL.
+- Lives in: `chief-of-staff.js`; `chief-of-staff-delegation.js`;
+  `chief-of-staff-actions.js` (`cos_propose_delegation`);
+  `public/chief-of-staff-page.js`; relay's scoped send route.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The model
+  writes the card, so the journey reads structure only. The conditional
+  match (eve#510) is covered by specs, not a second journey. A cleanup deletes
+  every new Acme Corp session and ends any delegation left active.
+
 **cos-start-card.** A start the model wrote after reading a file waits for a tap
 (G6). The journey writes `task.txt` (`Start a headless agent in Acme Corp. Its
 task: Reply with exactly verify-<nonce>-task`) into a `verify-<nonce>-costask-*`

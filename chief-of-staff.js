@@ -20,7 +20,7 @@ const { HIDDEN_COS_PREFIX, PERSON_ALLOWED_TOOLS } = require('./chief-of-staff-mo
 const actions = require('./chief-of-staff-actions');
 const provenance = require('./chief-of-staff-provenance');
 const {
-  DELEGATION_DEFAULTS, LIMITS: DELEGATION_LIMITS, decideTurnEnd, buildDigest,
+  DELEGATION_DEFAULTS, LIMITS: DELEGATION_LIMITS, decideTurnEnd, buildDigest, conditionalCandidates,
 } = require('./chief-of-staff-delegation');
 const { ChiefOfStaffOutside } = require('./chief-of-staff-outside');
 
@@ -55,6 +55,7 @@ const FINISHED_MAX = 50;
 const ROW_QUIET_MS = 5000;
 const ROW_MAX_WAIT_MS = 30000;
 const ROW_WAITING_MAX = 50;
+const DELEGATE_WAITING_MAX = 50;
 const ROW_NOTES_MAX = 200;
 
 // Model failures that mean "this model must not run": keep posting templates.
@@ -238,6 +239,8 @@ class ChiefOfStaff {
     this._delegSending = new Set();
     // A turn that ended while a send was in flight: decided once that send is recorded.
     this._delegPending = new Map();
+    // Turn ends that need the model to match a conditional reply rule: one per session, a newer one replaces it.
+    this._delegateWaiting = new Map();
 
     this.posts = [];
     // modelSessionId is the wake model's; personSessionId the person model's.
@@ -445,6 +448,7 @@ class ChiefOfStaff {
       const digest = buildDigest(d, { endReason: reason, now: this.now(), roster: this.roster });
       this._addPost({ kind: 'delegation_digest', digest, byModel: false });
       this._delegTurns.clear();
+      this._delegateWaiting.clear();
       clearTimeout(this._delegationTimer);
       this._delegationTimer = null;
       this.activeDelegation = null;
@@ -496,6 +500,7 @@ class ChiefOfStaff {
     if (!d || !d.sessions[id]) return;
     this._delegTurns.delete(id);
     this._delegPending.delete(id);
+    this._delegateWaiting.delete(id);
     this._setDelegationWaiting(d, id, 'ended');
   }
 
@@ -517,8 +522,12 @@ class ChiefOfStaff {
       return;
     }
     const entry = d.sessions[id];
+    // A newer turn end supersedes one still waiting for its match.
+    this._delegateWaiting.delete(id);
     const decision = decideTurnEnd(d, { sessionId: id, ...turn });
-    if (decision.action === 'ready') {
+    if (this._needsMatch(d, id, turn, decision)) {
+      this._enqueueDelegate(id, turn);
+    } else if (decision.action === 'ready') {
       Object.assign(entry, { ready: true, report: turn.excerpt, waiting: null, detail: '' });
       this._persistDelegation();
       this._checkDelegationEnd();
@@ -527,6 +536,73 @@ class ChiefOfStaff {
     } else if (decision.action === 'send') {
       entry.ready = false;
       this._delegatedSend(d, id, decision).catch((err) => this.log.warn(`Chief of Staff delegated send failed: ${err.message}`));
+    }
+  }
+
+  // A conditional reply rule fits this turn's trigger and no unconditional reply rule decided it
+  // (ready and cap came first). The keep-going text then waits for the model's answer.
+  _needsMatch(d, id, turn, decision) {
+    if (conditionalCandidates(d, { sessionId: id, question: turn.question }).length === 0) return false;
+    if (decision.action === 'none') return decision.why === 'unmatched';
+    return decision.action === 'send' && d.rules[decision.rule].kind !== 'reply';
+  }
+
+  _enqueueDelegate(id, turn) {
+    this._delegateWaiting.set(id, { sessionId: id, turn, at: this.now() });
+    while (this._delegateWaiting.size > DELEGATE_WAITING_MAX) this._delegateWaiting.delete(this._delegateWaiting.keys().next().value);
+    this._pump();
+  }
+
+  // The match turn can wait behind others: re-read everything it depends on.
+  _delegateStillValid(d, e) {
+    const row = this.roster.get(e.sessionId);
+    const entry = d.sessions[e.sessionId];
+    return this.activeDelegation === d && !!row && row.state === 'idle' && !!entry
+      && entry.actions < d.maxActions && Date.parse(d.until) > this.now();
+  }
+
+  // One model call decides, for up to ten turn ends, which conditional rule fits. Off, the
+  // daily limit, a failed turn and a reply eve cannot read all mean no match. Nothing the
+  // model says is sent: eve checks the rule and sends the card's own text.
+  async _delegateTurn(batch) {
+    const d = this.activeDelegation;
+    if (!d) return;
+    const jobs = batch.filter((e) => this._delegateStillValid(d, e));
+    if (jobs.length === 0) return;
+    const events = jobs.map((e) => ({
+      sessionId: e.sessionId, label: this._labelOf(this.roster.get(e.sessionId), e.sessionId), excerpt: e.turn.excerpt,
+    }));
+    const rules = jobs.flatMap((e) => conditionalCandidates(d, { sessionId: e.sessionId, question: e.turn.question }));
+    let matches = new Map();
+    if (this._atLimit()) {
+      this._noteLimitOnce();
+    } else {
+      const res = await this._modelTurn('wake', prompt.delegateMatchPrompt(events, rules));
+      if (res.error === 'limit') this._noteLimitOnce();
+      if (res.text !== undefined) {
+        const parsed = prompt.parseDelegateMatch(res.text, events, rules);
+        if (parsed.reason) this._warnUnparsed('delegate match', parsed.reason, res);
+        else matches = parsed.matches;
+      }
+    }
+    for (const e of jobs) {
+      // The model took time: the delegation, the cap and the window may have moved.
+      if (!this._delegateStillValid(d, e)) continue;
+      if (this._delegSending.has(e.sessionId)) {
+        this._delegPending.set(e.sessionId, e.turn);
+        continue;
+      }
+      const picked = matches.get(e.sessionId);
+      const match = Number.isInteger(picked) ? { rule: picked } : null;
+      const decision = decideTurnEnd(d, { sessionId: e.sessionId, ...e.turn }, match);
+      if (decision.action === 'send') {
+        d.sessions[e.sessionId].ready = false;
+        this._delegatedSend(d, e.sessionId, decision).catch((err) => this.log.warn(`Chief of Staff delegated send failed: ${err.message}`));
+      } else if (decision.action === 'none' && decision.why === 'unmatched') {
+        const label = this._labelOf(this.roster.get(e.sessionId), e.sessionId);
+        this._notice(`No rule covers ${cut(label, LABEL_MAX)}'s last turn; it waits for you.`);
+        this._setDelegationWaiting(d, e.sessionId, 'unmatched');
+      }
     }
   }
 
@@ -1147,6 +1223,13 @@ class ChiefOfStaff {
         this._runTurn(() => this._wakeTurn(batch));
         return;
       }
+    }
+    // Delegate matches have no quiet window either; they go before finished posts.
+    if (this._delegateWaiting.size > 0) {
+      const batch = [...this._delegateWaiting.values()].sort((a, b) => a.at - b.at).slice(0, BATCH_SIZE);
+      for (const e of batch) this._delegateWaiting.delete(e.sessionId);
+      this._runTurn(() => this._delegateTurn(batch));
+      return;
     }
     // Finished posts have no quiet window; they go once no alert batch is ready.
     if (this._finished.size > 0) {
