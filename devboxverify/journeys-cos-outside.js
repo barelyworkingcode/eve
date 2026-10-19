@@ -668,13 +668,13 @@ module.exports = {
   metaProblems,
   journeys: {
     cosOutsideSimple: {
-      id: 'cos-outside-simple', timeoutMs: 600000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true, run: cosOutsideSimple,
+      id: 'cos-outside-simple', claude: true, timeoutMs: 600000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true, run: cosOutsideSimple,
     },
     outsideThread: {
-      id: 'outside-thread', timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideThread,
+      id: 'outside-thread', claude: true, timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideThread,
     },
     cosOutsideHooks: {
-      id: 'cos-outside-hooks', timeoutMs: 360000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosOutsideHooks,
+      id: 'cos-outside-hooks', claude: true, timeoutMs: 360000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosOutsideHooks,
     },
   },
 };

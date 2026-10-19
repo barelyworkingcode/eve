@@ -1,7 +1,7 @@
 // The devbox journeys. Each drives eve's real UI as a person would and
 // judges a user-visible outcome. Test ids are only click targets and anchors;
 // verdicts rest on visible text or visibility. See docs/design-devboxverify.md.
-/** @typedef {{ id: string, timeoutMs: number, areas: string[], needs: string[], fixture?: true, screen?: true, knownBug?: string, run(env): Promise<object> }} Journey */
+/** @typedef {{ id: string, timeoutMs: number, areas: string[], needs: string[], fixture?: true, screen?: true, claude?: true, knownBug?: string, run(env): Promise<object> }} Journey */
 const { execFile } = require('child_process');
 const http = require('http');
 const crypto = require('crypto');
@@ -4411,38 +4411,38 @@ const journeys = [
   { id: 'today-phone', timeoutMs: 75000, areas: ['home', 'shell', 'chat'], needs: ['project:acme'], run: todayPhone },
   { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
   { id: 'ask-pasted-url', timeoutMs: 90000, areas: ['home', 'chat'], needs: ['project:acme'], run: askPastedUrl },
-  { id: 'agent-board-states', timeoutMs: 150000, areas: ['home', 'chat'], needs: ['project:acme'], run: agentBoardStates },
-  { id: 'agent-drop-in', timeoutMs: 150000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropIn },
-  { id: 'cos-asking-post', timeoutMs: 120000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosAskingPost },
-  { id: 'cos-tell-sends-marked', timeoutMs: 150000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosTellSendsMarked },
-  { id: 'cos-reads-project', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosReadsProject },
-  { id: 'cos-start-card', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosStartCard },
-  { id: 'cos-errand-finished', timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosErrandFinished },
-  { id: 'cos-agent-rail', timeoutMs: 300000, areas: ['chief-of-staff', 'home'], needs: ['project:acme'], run: cosAgentRail },
+  { id: 'agent-board-states', claude: true, timeoutMs: 150000, areas: ['home', 'chat'], needs: ['project:acme'], run: agentBoardStates },
+  { id: 'agent-drop-in', claude: true, timeoutMs: 150000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropIn },
+  { id: 'cos-asking-post', claude: true, timeoutMs: 120000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosAskingPost },
+  { id: 'cos-tell-sends-marked', claude: true, timeoutMs: 150000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosTellSendsMarked },
+  { id: 'cos-reads-project', claude: true, timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosReadsProject },
+  { id: 'cos-start-card', claude: true, timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosStartCard },
+  { id: 'cos-errand-finished', claude: true, timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosErrandFinished },
+  { id: 'cos-agent-rail', claude: true, timeoutMs: 300000, areas: ['chief-of-staff', 'home'], needs: ['project:acme'], run: cosAgentRail },
   cosDelegation.cosDelegation,
   cosClear.cosClear,
   {
-    id: 'cos-add-agent', timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    id: 'cos-add-agent', claude: true, timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosAddAgent,
   },
   {
-    id: 'cos-start-entry', timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    id: 'cos-start-entry', claude: true, timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosStartEntry,
   },
   {
-    id: 'cos-add-chat', timeoutMs: 540000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    id: 'cos-add-chat', claude: true, timeoutMs: 540000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosAddChat,
   },
   {
-    id: 'cos-host-agent', timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    id: 'cos-host-agent', claude: true, timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosHostAgent,
   },
   {
-    id: 'cos-host-noread', timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    id: 'cos-host-noread', claude: true, timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosHostNoread,
   },
   {
-    id: 'cos-project-from-relay', timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
+    id: 'cos-project-from-relay', claude: true, timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosProjectFromRelay,
   },
   { id: 'settings-sheet', timeoutMs: 45000, areas: ['settings'], needs: [], run: settingsSheet },

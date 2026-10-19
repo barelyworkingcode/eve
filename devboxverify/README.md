@@ -34,7 +34,8 @@ equals it or ends in `/<it>`), `DEVBOXPRESENCE_BIN` (default
 `~/.local/share/devboxverify/bin/devboxpresence`; only `--screen` uses it,
 for relay's presence helper), `DEVBOXWORLD_MARKER` (default
 `~/.config/devboxWorld/machine.json`; the machine marker, see below),
-`NIGHTLY_LOG_DIR` (default `~/Library/Logs/devboxverify`; the run record goes
+`DEVBOXVERIFY_CLAUDE_TOKEN_FILE` (default `~/.config/claude-ltt/token`; the
+Claude login token the `claude` preflight probes), `NIGHTLY_LOG_DIR` (default `~/Library/Logs/devboxverify`; the run record goes
 in `<log dir>/runs/`, see "Run record").
 There is no `--world` flag, and the tool never reads, sets or clears
 `DEVBOXWORLD_ROOT`; the world scripts inherit the environment unchanged.
@@ -102,7 +103,7 @@ are skipped, and the exit code, stdout and post are unchanged.
 
 Preflight runs in order and stops at the first FAIL: `machine`, `pin`,
 `fixtures`, `lock`, `head`, `tree`, `main` (only with `--epic`), `service`, `eve`, `live`, `pr`
-(only with `--post`), `browser`, `audio`, `bootstrap`, `world`, `owner`. Then the run
+(only with `--post`), `browser`, `audio`, `claude`, `bootstrap`, `world`, `owner`. Then the run
 signs in and carries on:
 
 1. The fixture journeys `passkey-first-enrol` and `passkey-sign-in` run the
@@ -162,6 +163,15 @@ What each BLOCKED prefix blames:
 - `BLOCKED fixture:` the test data. The world on this machine is the wrong
   version, its data is malformed, or a fixture a journey needs isn't
   published.
+- `BLOCKED login:` the host's Claude login. The `claude` preflight makes one
+  Haiku `claude -p` call with the token from `DEVBOXVERIFY_CLAUDE_TOKEN_FILE`
+  (or `~/.config/claude-ltt/token`), handed over on fd 3 in a scratch Claude
+  config dir. A 401 or 403, or an authentication error, ends the run with exit 2
+  before any reset: run `claude setup-token` and save the new token there. A
+  missing or empty token file blocks too. A timeout, a missing `claude` or any
+  other API error prints `unchecked: <reason>` as OK and the run goes on. A good
+  login adds about 2 s. The probe is skipped when no selected journey has
+  `claude: true`. No flag turns it off.
 - `BLOCKED environment:` the world scripts. `repair.sh` (run from the
   marker's world checkout) found bootstrap incomplete, a world it could not
   repair, or a person needed; run `bootstrap.sh`, or `reset.sh`, and look at
@@ -1366,6 +1376,7 @@ judged.
 "Stacks", is the spec). Two stack runs on different slots run at the same
 time and neither changes the other's result. Without `--stack` nothing below
 applies and the tool behaves as described everywhere else in this file.
+A stack with `claude_base_url` (a model broker) skips the `claude` login probe: its Claudes do not use the host login.
 
 What comes from the file, and nothing else:
 
@@ -1424,7 +1435,7 @@ What a stack run does not do:
 
 The preflight order is otherwise the same: `machine`, `pin`, `fixtures`,
 `lock`, `head`, `tree`, `service` (the stack's `relay service list`), `eve`,
-`live`, `browser`, `audio`, `owner`.
+`live`, `browser`, `audio`, `claude`, `owner`.
 
 ## Verifying a PR
 
