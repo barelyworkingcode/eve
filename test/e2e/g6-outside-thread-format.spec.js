@@ -168,25 +168,27 @@ test.describe('long lines', () => {
     await expect(thread).toContainText('c'.repeat(300));
     await expect(thread).toContainText('r'.repeat(300));
 
-    // Seen on screen: the log sits inside the window, and each long item sits inside the log.
-    const log = await thread.boundingBox();
-    const viewport = page.viewportSize();
-    expect(log).not.toBeNull();
-    expect(log.x).toBeGreaterThanOrEqual(0);
-    expect(log.x + log.width).toBeLessThanOrEqual(viewport.width);
-    for (const text of ['W'.repeat(2000), 'r'.repeat(300)]) {
-      const item = await thread.getByText(text).boundingBox();
-      expect(item).not.toBeNull();
-      expect(item.x).toBeGreaterThanOrEqual(log.x);
-      expect(item.x + item.width).toBeLessThanOrEqual(log.x + log.width);
-    }
-    // A code line scrolls inside its own block, so its text box is wider than the block by design and
-    // the screen cannot show the block's clip. It starts inside the log; the log staying inside the
-    // window (above) is what shows the code did not widen the page.
-    const code = await thread.getByText('c'.repeat(300)).boundingBox();
-    expect(code).not.toBeNull();
-    expect(code.x).toBeGreaterThanOrEqual(log.x);
-    expect(code.x).toBeLessThan(log.x + log.width);
+    // No sideways scroll: a horizontal wheel over the thread, then over the page outside it, must not
+    // move a fixed anchor. A box measure is blind here (a block's box is clamped to its container), but a
+    // log or document that overflows sideways scrolls and carries the anchor with it. The wheel has no
+    // completion signal, so each wheel is followed by a web-first check that settles a render round trip.
+    // Confirmed: with the outside-thread overflow rules removed, the anchor moves and this test fails.
+    const anchor = thread.getByText('Show me the long things');
+    await expect(anchor).toBeVisible();
+    const before = await anchor.boundingBox();
+    expect(before).not.toBeNull();
+
+    await anchor.hover();
+    await page.mouse.wheel(600, 0);
+    await expect(thread).toContainText('r'.repeat(300));
+    const afterLog = await anchor.boundingBox();
+    expect(afterLog.x).toBe(before.x);
+
+    await page.mouse.move(2, 2);
+    await page.mouse.wheel(600, 0);
+    await expect(thread).toContainText('r'.repeat(300));
+    const afterPage = await anchor.boundingBox();
+    expect(afterPage.x).toBe(before.x);
   });
 });
 
