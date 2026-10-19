@@ -368,9 +368,9 @@ async function filesOnHost(env) {
 }
 
 const journeys = {
-  changesAgentEdit: { id: 'changes-agent-edit', timeoutMs: 150000, areas: ['git', 'chat'], needs: ['project:acme'], run: changesAgentEdit },
+  changesAgentEdit: { id: 'changes-agent-edit', claude: true, timeoutMs: 150000, areas: ['git', 'chat'], needs: ['project:acme'], run: changesAgentEdit },
   filesOnHost: {
-    id: 'files-on-host', timeoutMs: 240000, areas: ['hosts', 'files', 'git'], needs: [], screen: true, run: filesOnHost,
+    id: 'files-on-host', claude: true, timeoutMs: 240000, areas: ['hosts', 'files', 'git'], needs: [], screen: true, run: filesOnHost,
   },
 };
 
