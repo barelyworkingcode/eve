@@ -199,7 +199,7 @@ async function cosDelegation(env) {
 module.exports = {
   journeys: {
     cosDelegation: {
-      id: 'cos-delegation', timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosDelegation,
+      id: 'cos-delegation', claude: true, timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosDelegation,
     },
   },
 };

@@ -8,6 +8,7 @@ const { EveApi, added, onlyOutside } = require('./eve-api');
 const { acquire } = require('../scripts/browser-lock');
 const areas = require('./areas');
 const { sweepSlotAtRunEnd } = require('./claude-transcripts');
+const { claudeLoginCheck } = require('./claude-login');
 const {
   WORLD_VERSION, markerPath, readMarker, loadWorld, scoped, missingFixtures,
 } = require('./world');
@@ -1002,6 +1003,16 @@ async function runLocked({ home, emit, log, toolRoot, opts, stack = null, world,
       try { problem = await audioProblem(browser); } finally { await browser.close().catch(() => {}); }
       if (problem) throw new Error(problem);
       return 'AudioContext running';
+    }],
+    // Before bootstrap and owner, so a lapsed Claude login stops the run before any reset.
+    ['claude', async () => {
+      const { state, detail } = await claudeLoginCheck({
+        stack,
+        journeys: orderJourneys(journeys, opts).run.filter((j) => !j.knownBug),
+        scratchRoot: stack ? runRecordDir(process.env, home, stack) : os.tmpdir(),
+      });
+      if (state === 'FAIL') throw new Error(detail);
+      return detail;
     }],
     // One repair.sh call serves both checks: it verifies, and on a red world
     // resets once and verifies again (devboxWorld#13).
