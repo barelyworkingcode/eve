@@ -265,6 +265,8 @@ const test = base.test.extend({
         await page.reload({ waitUntil: 'domcontentloaded' });
       },
       setOffline: (offline) => context.setOffline(offline),
+      dataFile: (name) => stack.dataFile(name),
+      readOnlyDataFile: (name) => stack.readOnlyDataFile(name),
       // A second page in a new browser context with this test's context options (profile, locale,
       // permissions), so storage is separate. Returns once the app is ready; closed at teardown.
       async openAnother(urlPath = '/') {
