@@ -521,6 +521,7 @@
   font-size: 12px;
   cursor: pointer;
 }
+.outside-thread__md { padding: 0; box-shadow: none; border-radius: 0; background: none; }
 .outside-thread__more[hidden], .outside-thread__error[hidden], .outside-thread__empty[hidden] { display: none; }
 .outside-thread__more:disabled { color: var(--text-secondary); cursor: progress; }
 .outside-thread__more:focus-visible, .outside-thread__list:focus-visible { outline: none; box-shadow: var(--focus-ring); }

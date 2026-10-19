@@ -378,7 +378,7 @@ class OutsideThreadPage {
     }
     const body = this._el('pre', 'outside-thread__tool-body');
     body.textContent = shape.text;
-    const lines = shape.text.split('\n');
+    const lines = shape.text.replace(/\n$/, '').split('\n');
     if (shape.text.length <= OutsideThreadPage.RESULT_FOLD_CHARS && lines.length <= OutsideThreadPage.RESULT_FOLD_LINES) {
       wrap.appendChild(body);
       return wrap;

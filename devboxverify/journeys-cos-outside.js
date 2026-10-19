@@ -633,7 +633,12 @@ async function outsideThread(env) {
   if (!tool) problems.push(`the thread shows no Tool entry within ${REPLY_WITHIN_MS / 1000}s (model output, or the Bash call was refused)`);
   else {
     // A tool step reads as a closed details or a short pre, never a raw block.
-    const folded = await entryOf(page, 'Tool').first().evaluate((el) => !!el.querySelector('details:not([open])') || !!el.querySelector('pre'));
+    const folded = await entryOf(page, 'Tool').first().evaluate((el) => {
+      if (el.querySelector('details:not([open])')) return true;
+      // A short pre sits outside any details: at most 400 chars and 8 lines.
+      return [...el.querySelectorAll('pre')].some((p) => !p.closest('details')
+        && p.textContent.length <= 400 && p.textContent.replace(/\n$/, '').split('\n').length <= 8);
+    });
     if (!folded) problems.push('the Tool entry holds neither a closed details nor a short pre');
   }
 
