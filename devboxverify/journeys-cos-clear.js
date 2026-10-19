@@ -150,7 +150,7 @@ async function cosClear(env) {
 module.exports = {
   journeys: {
     cosClear: {
-      id: 'cos-clear', timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosClear,
+      id: 'cos-clear', timeoutMs: 300000, areas: ['chief-of-staff'], claude: true, needs: ['project:acme'], run: cosClear,
     },
   },
 };
