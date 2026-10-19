@@ -15,8 +15,8 @@ const REFUSED = "A delegation is active, so I didn't clear the thread. Stop it o
 const NOT_ARCHIVED = "I couldn't archive the thread, so I didn't clear it. Try again.";
 const LIMIT = "I've reached today's limit, so I can't send until tomorrow.";
 
-const MODEL_ID = '__cos:aaaaaaaaaaaa';
-const PERSON_ID = '__cos:bbbbbbbbbbbb';
+const MODEL_ID = 's_cos_model';
+const PERSON_ID = 's_cos_person';
 
 function cosWorld({ calls = 20, modelSessions = false } = {}) {
   const w = worlds.base();
@@ -32,7 +32,7 @@ function cosWorld({ calls = 20, modelSessions = false } = {}) {
   ];
   if (modelSessions) {
     for (const id of [MODEL_ID, PERSON_ID]) {
-      w.sessions.push({ id, project_id: 'p_acme', name: id, model: 'haiku', state: 'idle', messages: [] });
+      w.sessions.push({ id, project_id: 'p_acme', name: `__cos:${id}`, model: 'haiku', state: 'idle', messages: [] });
     }
   }
   return w;
