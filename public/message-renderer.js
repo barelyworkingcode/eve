@@ -1046,8 +1046,14 @@ class MessageRenderer {
   }
 
   formatText(text) {
+    return MessageRenderer.markdownToHtml(text, { streaming: this.isStreaming });
+  }
+
+  // The shared Markdown path. rawHtml:false keeps raw HTML in the source as
+  // literal text (agent output that is not the main chat's own model).
+  static markdownToHtml(text, { streaming = false, rawHtml = true } = {}) {
     if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
-      let safe = this.escapeHtml(text);
+      let safe = MessageRenderer.escapeHtml(text);
       safe = safe.replace(/\n/g, '<br>');
       return safe;
     }
@@ -1067,7 +1073,7 @@ class MessageRenderer {
         if (!trimmed) return '';
         const idx = thinkBlocks.length;
         thinkBlocks.push(
-          `<details class="think-block"><summary>Thinking</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
+          `<details class="think-block"><summary>Thinking</summary><div class="think-content">${MessageRenderer.escapeHtml(trimmed)}</div></details>`
         );
         return `\n%%THINK_${idx}%%\n`;
       }
@@ -1079,9 +1085,9 @@ class MessageRenderer {
         const trimmed = content.trim();
         if (!trimmed) return '';
         const idx = thinkBlocks.length;
-        const label = this.isStreaming ? 'Thinking...' : 'Thinking';
+        const label = streaming ? 'Thinking...' : 'Thinking';
         thinkBlocks.push(
-          `<details class="think-block"><summary>${label}</summary><div class="think-content">${this.escapeHtml(trimmed)}</div></details>`
+          `<details class="think-block"><summary>${label}</summary><div class="think-content">${MessageRenderer.escapeHtml(trimmed)}</div></details>`
         );
         return `\n%%THINK_${idx}%%\n`;
       }
@@ -1100,7 +1106,8 @@ class MessageRenderer {
 
     // Only allow images from our own generated-image endpoint — models
     // sometimes hallucinate external URLs that aren't real.
-    let html = marked.parse(processed, { breaks: true, gfm: true });
+    const parser = rawHtml ? marked : MessageRenderer._literalHtmlMarked();
+    let html = parser.parse(processed, { breaks: true, gfm: true });
     html = DOMPurify.sanitize(html, {
       ADD_TAGS: ['img'],
       ADD_ATTR: ['src', 'alt', 'loading'],
@@ -1129,17 +1136,35 @@ class MessageRenderer {
     return html;
   }
 
-  _prettyJson(value) {
+  // marked instance whose html renderer escapes instead of passing markup through.
+  static _literalHtmlMarked() {
+    if (!MessageRenderer._literalMarked) {
+      MessageRenderer._literalMarked = new marked.Marked({
+        renderer: { html(token) { return MessageRenderer.escapeHtml(token.text ?? token.raw ?? String(token)); } },
+      });
+    }
+    return MessageRenderer._literalMarked;
+  }
+
+  static prettyJson(value) {
     if (typeof value === 'string') {
       try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
     }
     try { return JSON.stringify(value, null, 2); } catch { return String(value); }
   }
 
-  escapeHtml(text) {
+  static escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  _prettyJson(value) {
+    return MessageRenderer.prettyJson(value);
+  }
+
+  escapeHtml(text) {
+    return MessageRenderer.escapeHtml(text);
   }
 
   // force re-engages stickiness for user-initiated jumps (send, load session);

@@ -1,7 +1,8 @@
 // Read-only thread of an outside session (docs/design-chief-of-staff.md,
 // "Outside work"): one main-area tab per session. Entry text is agent output
-// and therefore hostile: it reaches the DOM through textContent only, never as
-// markup, Markdown or links. The page holds no input and sends nothing.
+// and therefore hostile: You and tool text reach the DOM through textContent
+// only. Claude text goes through the shared Markdown renderer with raw HTML kept
+// literal (rawHtml:false). The page holds no input and sends nothing.
 // Collaborators are reached through the container at call time.
 class OutsideThreadPage {
   static PAGE = 50;
@@ -11,6 +12,10 @@ class OutsideThreadPage {
   static MIN_INTERVAL_MS = 5000;
   static MAX_INTERVAL_MS = 60000;
   static LABELS = { user: 'You', assistant: 'Claude', tool: 'Tool' };
+  static SUMMARY_CHARS = 80;
+  static RESULT_FOLD_CHARS = 400;
+  static RESULT_FOLD_LINES = 8;
+  static SUMMARY_KEYS = ['description', 'command', 'file_path', 'path', 'pattern', 'query', 'url', 'prompt'];
   static ERROR_LINE = 'Could not read this thread. Eve tries again at the next check.';
 
   constructor(container) {
@@ -334,10 +339,85 @@ class OutsideThreadPage {
       time.textContent = when;
       meta.appendChild(time);
     }
-    const text = this._el('div', 'outside-thread__text');
-    text.textContent = typeof e.text === 'string' ? e.text : '';
-    row.append(meta, text);
+    const raw = typeof e.text === 'string' ? e.text : '';
+    row.appendChild(meta);
+    if (e.role === 'tool') {
+      row.appendChild(this._toolEl(raw));
+    } else if (e.role === 'assistant') {
+      const text = this._el('div', 'outside-thread__text message-content outside-thread__md');
+      text.innerHTML = MessageRenderer.markdownToHtml(raw, { rawHtml: false });
+      row.appendChild(text);
+    } else {
+      const text = this._el('div', 'outside-thread__text');
+      text.textContent = raw;
+      row.appendChild(text);
+    }
     return row;
+  }
+
+  // Relay gives no field that tells a tool call from a result: classify by shape.
+  // Every string reaches the DOM through textContent.
+  _toolEl(raw) {
+    const shape = OutsideThreadPage.toolShape(raw);
+    const wrap = this._el('div', 'outside-thread__text outside-thread__toolwrap');
+    if (shape.kind === 'call') {
+      const d = this._el('details', 'outside-thread__tool');
+      d.dataset.kind = 'call';
+      const sum = this._el('summary');
+      const name = this._el('span', 'outside-thread__tool-name');
+      name.textContent = shape.name;
+      sum.appendChild(name);
+      const brief = this._el('span', 'outside-thread__tool-summary');
+      brief.textContent = shape.summary;
+      sum.appendChild(brief);
+      const body = this._el('pre', 'outside-thread__tool-body');
+      body.textContent = MessageRenderer.prettyJson(shape.input);
+      d.append(sum, body);
+      wrap.appendChild(d);
+      return wrap;
+    }
+    const body = this._el('pre', 'outside-thread__tool-body');
+    body.textContent = shape.text;
+    const lines = shape.text.replace(/\n$/, '').split('\n');
+    if (shape.text.length <= OutsideThreadPage.RESULT_FOLD_CHARS && lines.length <= OutsideThreadPage.RESULT_FOLD_LINES) {
+      wrap.appendChild(body);
+      return wrap;
+    }
+    const d = this._el('details', 'outside-thread__tool');
+    d.dataset.kind = 'result';
+    const sum = this._el('summary');
+    const first = lines.find(l => l.trim()) || '';
+    const head = this._el('span', 'outside-thread__tool-summary');
+    head.textContent = `${OutsideThreadPage.cut(first)} \u00b7 ${lines.length} lines`;
+    sum.appendChild(head);
+    d.append(sum, body);
+    wrap.appendChild(d);
+    return wrap;
+  }
+
+  static cut(text) {
+    const flat = String(text).replace(/\s+/g, ' ').trim();
+    const n = OutsideThreadPage.SUMMARY_CHARS;
+    return flat.length > n ? flat.slice(0, n) + '\u2026' : flat;
+  }
+
+  static toolShape(text) {
+    const raw = typeof text === 'string' ? text : '';
+    const m = /^([A-Za-z_][\w.:-]{0,127}) (\{[\s\S]*)$/.exec(raw);
+    if (!m) return { kind: 'result', text: raw };
+    const input = m[2];
+    let summary = '';
+    try {
+      const obj = JSON.parse(input);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        const key = OutsideThreadPage.SUMMARY_KEYS.find(k => typeof obj[k] === 'string')
+          || Object.keys(obj).find(k => typeof obj[k] === 'string');
+        if (key) summary = OutsideThreadPage.cut(obj[key]);
+      }
+    } catch {
+      summary = OutsideThreadPage.cut(input);
+    }
+    return { kind: 'call', name: m[1], input, summary };
   }
 
   static timeOf(at) {

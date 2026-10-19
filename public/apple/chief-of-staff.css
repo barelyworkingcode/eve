@@ -484,7 +484,7 @@
   .cos-need-you { min-width: var(--hit); }
 }
 
-/* ---- Outside session thread: read-only, plain text ---- */
+/* ---- Outside session thread: read-only; Claude text as Markdown, tool steps folded ---- */
 .outside-thread-pane { height: 100%; }
 .outside-thread {
   display: flex;
@@ -521,6 +521,7 @@
   font-size: 12px;
   cursor: pointer;
 }
+.outside-thread__md { padding: 0; box-shadow: none; border-radius: 0; background: none; }
 .outside-thread__more[hidden], .outside-thread__error[hidden], .outside-thread__empty[hidden] { display: none; }
 .outside-thread__more:disabled { color: var(--text-secondary); cursor: progress; }
 .outside-thread__more:focus-visible, .outside-thread__list:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -539,3 +540,41 @@
 .outside-thread__who { font-weight: var(--weight-semibold); color: var(--text-secondary); }
 .outside-thread__text { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .outside-thread__entry[data-role="tool"] .outside-thread__text { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.85em; }
+
+.outside-thread__list > *, .outside-thread__entry, .outside-thread__text { min-width: 0; }
+.outside-thread__entry { max-width: 100%; }
+.outside-thread__md { white-space: normal; }
+.outside-thread__md pre, .outside-thread__md table { display: block; max-width: 100%; overflow-x: auto; }
+.outside-thread__toolwrap { white-space: normal; font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.85em; }
+.outside-thread__tool-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+  font: inherit;
+}
+.outside-thread__tool {
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--separator);
+  overflow: hidden;
+}
+.outside-thread__tool > summary {
+  padding: 5px 10px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.outside-thread__tool > summary::-webkit-details-marker { display: none; }
+.outside-thread__tool > summary::before { content: '\25B6'; font-size: 9px; flex-shrink: 0; }
+.outside-thread__tool[open] > summary::before { content: '\25BC'; }
+.outside-thread__tool > summary:hover { background: var(--bg-hover); }
+.outside-thread__tool-name { color: var(--accent); font-weight: var(--weight-semibold); flex-shrink: 0; }
+.outside-thread__tool-summary { overflow-wrap: anywhere; min-width: 0; }
+.outside-thread__tool[open] > .outside-thread__tool-body { padding: 6px 10px; border-top: 0.5px solid var(--separator); }

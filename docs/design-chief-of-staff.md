@@ -256,8 +256,11 @@ and managed browser opening, even after inventory removal.
 The thread is browser-only. The Chief of Staff gets no transcript tool and no new
 prompt text: `mcp/cos.js`, `chief-of-staff-outside.js` and
 `chief-of-staff-prompt.js` are unchanged, so the model still reads only the latest
-turn. The thread's text is rendered with `textContent`, never as markup, Markdown
-or links.
+turn. Claude text in the thread goes through the shared Markdown renderer
+(`MessageRenderer.markdownToHtml`, `rawHtml: false`): raw HTML in the text stays
+literal, and links and images stay sanitised as in the main chat. You and tool
+text stay `textContent`: a tool call shows its name and a short summary with its
+input folded, and a tool result past 400 characters or 8 lines is folded.
 
 Relay independently probes healthy machines every 15 seconds, drains optional
 native hook reports within two seconds, and emits full changed snapshots.
