@@ -273,6 +273,34 @@
 .cos-card[data-state="failed"] .cos-card__status { color: var(--danger); }
 .cos-btn:disabled { opacity: 0.5; cursor: default; }
 
+/* Delegation card and bar (eve#508). */
+.cos-card--delegation .cos-card__title h3 { margin: 0; font-size: inherit; font-weight: inherit; }
+.cos-delegation-rules { margin: 0; padding-left: 18px; }
+.cos-card__bounds, .cos-card__never {
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--separator);
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+}
+.cos-card--delegation[data-state="active"] { border-color: var(--accent); }
+.cos-delegation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--accent);
+  background: var(--bg-secondary);
+}
+.cos-delegation-bar[hidden] { display: none; }
+
+/* Delegation digest post (eve#509). */
+.cos-digest__line { color: var(--text-secondary); font-size: var(--text-subhead); }
+.cos-digest__group h4 { margin: 0 0 var(--sp-2); font-size: var(--text-subhead); }
+.cos-digest__group ul { margin: 0 0 var(--sp-4); padding-left: 18px; }
+.cos-digest__group li { white-space: pre-line; }
+
 .session-origin-chip {
   display: inline-block;
   padding: 1px 8px;

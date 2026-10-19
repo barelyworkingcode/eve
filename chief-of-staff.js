@@ -19,14 +19,21 @@ const { HIDDEN_SEARCH_PREFIX } = require('./search-summarizer');
 const { HIDDEN_COS_PREFIX, PERSON_ALLOWED_TOOLS } = require('./chief-of-staff-model');
 const actions = require('./chief-of-staff-actions');
 const provenance = require('./chief-of-staff-provenance');
+const {
+  DELEGATION_DEFAULTS, LIMITS: DELEGATION_LIMITS, decideTurnEnd, buildDigest, conditionalCandidates,
+} = require('./chief-of-staff-delegation');
 const { ChiefOfStaffOutside } = require('./chief-of-staff-outside');
 
 const SCOPE = 'chief-of-staff';
 const POSTS_FILE = 'chief-of-staff.jsonl';
 const STATE_FILE = 'chief-of-staff-state.json';
+const DELEGATION_FILE = 'chief-of-staff-delegation.json';
+const DELEGATION_LOG_MAX = 100;
+// A session state that stops a delegated send, and the reason the digest gives.
+const DELEGATION_WAIT_STATES = { asking: 'tool_approval', errored: 'errored', stalled: 'stalled' };
 const MAX_POSTS = 200;
 
-const DEFAULTS = Object.freeze({ enabled: true, model: 'sonnet', summaryModel: 'haiku', projectId: null, dailyModelCalls: 100 });
+const DEFAULTS = Object.freeze({ enabled: true, model: 'sonnet', summaryModel: 'haiku', projectId: null, dailyModelCalls: 100, delegation: DELEGATION_DEFAULTS });
 
 const TRIGGER_STATES = new Set(['asking', 'errored', 'stalled']);
 const NEED_YOU_STATES = TRIGGER_STATES;
@@ -48,6 +55,7 @@ const FINISHED_MAX = 50;
 const ROW_QUIET_MS = 5000;
 const ROW_MAX_WAIT_MS = 30000;
 const ROW_WAITING_MAX = 50;
+const DELEGATE_WAITING_MAX = 50;
 const ROW_NOTES_MAX = 200;
 
 // Model failures that mean "this model must not run": keep posting templates.
@@ -124,6 +132,23 @@ function parseChiefOfStaffSettings(raw, log, source = 'settings.json') {
     const n = raw.dailyModelCalls;
     if (Number.isInteger(n) && n >= 1 && n <= 10000) out.dailyModelCalls = n; else warn('dailyModelCalls', 'must be an integer from 1 to 10000');
   }
+  if (raw.delegation !== undefined) out.delegation = parseDelegationSettings(raw.delegation, log, source);
+  return out;
+}
+
+// chiefOfStaff.delegation: the bounds a new card gets when the instruction names none.
+function parseDelegationSettings(raw, log, source) {
+  const out = { ...DELEGATION_DEFAULTS };
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    log?.warn?.(`${source}: chiefOfStaff.delegation must be an object; using defaults`);
+    return out;
+  }
+  for (const key of Object.keys(DELEGATION_DEFAULTS)) {
+    if (raw[key] === undefined) continue;
+    const { min, max } = DELEGATION_LIMITS[key];
+    if (Number.isInteger(raw[key]) && raw[key] >= min && raw[key] <= max) out[key] = raw[key];
+    else log?.warn?.(`${source}: chiefOfStaff.delegation.${key} must be an integer from ${min} to ${max}; using ${DELEGATION_DEFAULTS[key]}`);
+  }
   return out;
 }
 
@@ -191,6 +216,7 @@ class ChiefOfStaff {
     this.resolveProject = resolveProject || (() => null);
     this.listProjects = listProjects || (() => []);
     this.settings = { ...DEFAULTS, ...(settings || {}) };
+    this.settings.delegation = { ...DELEGATION_DEFAULTS, ...(this.settings.delegation || {}) };
     this._fileSettings = this.settings;
     this._fileSource = fileSource || 'defaults';
     this._readRelayConfig = readRelayConfig || null;
@@ -203,6 +229,18 @@ class ChiefOfStaff {
     this.now = now;
     this.postsFile = path.join(dataDir, POSTS_FILE);
     this.stateFile = path.join(dataDir, STATE_FILE);
+    this.delegationFile = path.join(dataDir, DELEGATION_FILE);
+    // The active delegation (the state file's object) or null; one at a time.
+    this.activeDelegation = null;
+    this._delegationTimer = null;
+    // Per session, not persisted: the turn that ended and awaits its idle frame, and the
+    // sessions with a delegated send in flight (one at a time, so the cap holds).
+    this._delegTurns = new Map();
+    this._delegSending = new Set();
+    // A turn that ended while a send was in flight: decided once that send is recorded.
+    this._delegPending = new Map();
+    // Turn ends that need the model to match a conditional reply rule: one per session, a newer one replaces it.
+    this._delegateWaiting = new Map();
 
     this.posts = [];
     // modelSessionId is the wake model's; personSessionId the person model's.
@@ -266,6 +304,7 @@ class ChiefOfStaff {
     if (this._started) return;
     this._started = true;
     this._loadFiles();
+    this._resumeDelegation();
     this.outside.start();
     if (!this.settings.enabled) {
       this.off = { reason: 'disabled', detail: '' };
@@ -299,8 +338,8 @@ class ChiefOfStaff {
   stop() {
     this._stopped = true;
     this.outside.stop();
-    for (const t of [this._reconnectTimer, this._batchTimer, this._refreshTimer]) clearTimeout(t);
-    this._reconnectTimer = this._batchTimer = this._refreshTimer = null;
+    for (const t of [this._reconnectTimer, this._batchTimer, this._refreshTimer, this._delegationTimer]) clearTimeout(t);
+    this._reconnectTimer = this._batchTimer = this._refreshTimer = this._delegationTimer = null;
     const ws = this._ws;
     this._ws = null;
     if (ws) { try { ws.close(); } catch { /* closing */ } }
@@ -335,7 +374,301 @@ class ChiefOfStaff {
     } catch (err) {
       if (err.code !== 'ENOENT') this.log.warn(`Chief of Staff state not read: ${err.message}`);
     }
+    try {
+      const d = JSON.parse(fs.readFileSync(this.delegationFile, 'utf8'));
+      if (d && d.v === 1 && typeof d.postId === 'string' && Number.isFinite(Date.parse(d.until))) this.activeDelegation = d;
+    } catch (err) {
+      if (err.code !== 'ENOENT') this.log.warn(`Chief of Staff delegation not read: ${err.message}`);
+    }
     this._rollDay();
+  }
+
+  // ---- delegation (docs/design-chief-of-staff.md, "Acting while you're away") ----
+
+  _persistDelegation() {
+    const d = this.activeDelegation;
+    if (!d) {
+      this._queueWrite(() => fs.promises.rm(this.delegationFile, { force: true }), 'delegation');
+      return;
+    }
+    const text = `${JSON.stringify(d)}\n`;
+    this._queueWrite(() => writeAtomic(this.delegationFile, text), 'delegation');
+  }
+
+  // At start: a window that ended while eve was down ends now; else the timer re-arms.
+  _resumeDelegation() {
+    const d = this.activeDelegation;
+    if (!d) return;
+    if (Date.parse(d.until) <= this.now()) this._endDelegation('window');
+    else this._armDelegationTimer();
+  }
+
+  _armDelegationTimer() {
+    clearTimeout(this._delegationTimer);
+    const wait = Math.max(0, Date.parse(this.activeDelegation.until) - this.now());
+    this._delegationTimer = setTimeout(() => this._endDelegation('window'), wait);
+    this._delegationTimer.unref?.();
+  }
+
+  // The owner approved `post` (a pending delegation_card). One delegation is active
+  // at a time: a new approval ends the old one.
+  _activateDelegation(post) {
+    if (this.activeDelegation) this._endDelegation('replaced');
+    const card = post.card;
+    const now = this.now();
+    const sessions = {};
+    for (const rule of card.rules) {
+      for (const s of rule.kind === 'continue' ? rule.sessions : [rule]) {
+        sessions[s.sessionId] = { ready: false, report: '', waiting: null, actions: 0 };
+      }
+    }
+    card.state = 'active';
+    card.approvedAt = new Date(now).toISOString();
+    card.until = new Date(now + card.windowHours * 3600000).toISOString();
+    card.actions = 0;
+    this.activeDelegation = {
+      v: 1, delegationId: card.delegationId, postId: post.id, instruction: card.instruction,
+      approvedAt: card.approvedAt, until: card.until, maxActions: card.maxActions, verifyRuns: card.verifyRuns,
+      rules: card.rules, actions: 0, sessions, log: [],
+    };
+    this._persistDelegation();
+    this._armDelegationTimer();
+    this._updatePost(post);
+    this._emitStatus();
+  }
+
+  // Ends the active delegation (or, given `post`, a card left active without one).
+  // Reasons: window, cap, done, stopped, replaced.
+  _endDelegation(reason, post = null) {
+    const active = this.activeDelegation;
+    const d = active && (!post || post.id === active.postId) ? active : null;
+    const target = post || (d && this.posts.find((p) => p.id === d.postId)) || null;
+    if (d) {
+      // One digest per delegation, whatever the reason, before the state file goes.
+      const digest = buildDigest(d, { endReason: reason, now: this.now(), roster: this.roster });
+      this._addPost({ kind: 'delegation_digest', digest, byModel: false });
+      this._delegTurns.clear();
+      this._delegateWaiting.clear();
+      clearTimeout(this._delegationTimer);
+      this._delegationTimer = null;
+      this.activeDelegation = null;
+      this._persistDelegation();
+    }
+    if (target?.card) {
+      target.card.state = 'ended';
+      target.card.endedAt = new Date(this.now()).toISOString();
+      target.card.endReason = reason;
+      if (d) target.card.actions = d.actions;
+      this._updatePost(target);
+    }
+    this._emitStatus();
+  }
+
+  // ---- acting under the card ----
+
+  // A listed session's turn ends with `turn_done` and then `idle`; the turn is held
+  // here until the idle frame, and evaluated once.
+  _delegationTurnEnd(row, excerpt) {
+    const d = this.activeDelegation;
+    if (!d || !d.sessions[row.id]) return;
+    this._delegTurns.set(row.id, { excerpt: excerpt.slice(-EXCERPT_MAX), question: prompt.isQuestion(excerpt) });
+  }
+
+  _delegationState(row, state) {
+    const d = this.activeDelegation;
+    const entry = d && d.sessions[row.id];
+    if (!entry) return;
+    const turn = this._delegTurns.get(row.id);
+    this._delegTurns.delete(row.id);
+    if (state === 'idle') {
+      if (turn) this._decideDelegatedTurn(d, row.id, turn);
+      return;
+    }
+    const reason = DELEGATION_WAIT_STATES[state];
+    if (reason) {
+      this._setDelegationWaiting(d, row.id, reason);
+    } else if (Object.values(DELEGATION_WAIT_STATES).includes(entry.waiting)) {
+      // The session moved on (the owner answered it): nothing waits any more.
+      entry.waiting = null;
+      entry.detail = '';
+      this._persistDelegation();
+    }
+  }
+
+  _delegationSessionEnded(id) {
+    const d = this.activeDelegation;
+    if (!d || !d.sessions[id]) return;
+    this._delegTurns.delete(id);
+    this._delegPending.delete(id);
+    this._delegateWaiting.delete(id);
+    this._setDelegationWaiting(d, id, 'ended');
+  }
+
+  // The latest reason wins. A ready report stands when the session then ends.
+  _setDelegationWaiting(d, id, reason, detail = '') {
+    const entry = d.sessions[id];
+    entry.waiting = reason;
+    entry.detail = detail;
+    if (reason !== 'ended') entry.ready = false;
+    this._persistDelegation();
+    this._checkDelegationEnd();
+  }
+
+  _decideDelegatedTurn(d, id, turn) {
+    // The next turn can end before relay's answer to the send in flight reaches us. Keep the
+    // latest such turn; the send's result is recorded first, so the cap sees the true count.
+    if (this._delegSending.has(id)) {
+      this._delegPending.set(id, turn);
+      return;
+    }
+    const entry = d.sessions[id];
+    // A newer turn end supersedes one still waiting for its match.
+    this._delegateWaiting.delete(id);
+    const decision = decideTurnEnd(d, { sessionId: id, ...turn });
+    if (this._needsMatch(d, id, turn, decision)) {
+      this._enqueueDelegate(id, turn);
+    } else if (decision.action === 'ready') {
+      Object.assign(entry, { ready: true, report: turn.excerpt, waiting: null, detail: '' });
+      this._persistDelegation();
+      this._checkDelegationEnd();
+    } else if (decision.action === 'none' && decision.why === 'cap') {
+      this._setDelegationWaiting(d, id, 'cap');
+    } else if (decision.action === 'send') {
+      entry.ready = false;
+      this._delegatedSend(d, id, decision).catch((err) => this.log.warn(`Chief of Staff delegated send failed: ${err.message}`));
+    }
+  }
+
+  // A conditional reply rule fits this turn's trigger and no unconditional reply rule decided it
+  // (ready and cap came first). The keep-going text then waits for the model's answer.
+  _needsMatch(d, id, turn, decision) {
+    if (conditionalCandidates(d, { sessionId: id, question: turn.question }).length === 0) return false;
+    if (decision.action === 'none') return decision.why === 'unmatched';
+    return decision.action === 'send' && d.rules[decision.rule].kind !== 'reply';
+  }
+
+  _enqueueDelegate(id, turn) {
+    this._delegateWaiting.set(id, { sessionId: id, turn, at: this.now() });
+    while (this._delegateWaiting.size > DELEGATE_WAITING_MAX) this._delegateWaiting.delete(this._delegateWaiting.keys().next().value);
+    this._pump();
+  }
+
+  // The match turn can wait behind others: re-read everything it depends on.
+  _delegateStillValid(d, e) {
+    const row = this.roster.get(e.sessionId);
+    const entry = d.sessions[e.sessionId];
+    return this.activeDelegation === d && !!row && row.state === 'idle' && !!entry
+      && entry.actions < d.maxActions && Date.parse(d.until) > this.now();
+  }
+
+  // One model call decides, for up to ten turn ends, which conditional rule fits. Off, the
+  // daily limit, a failed turn and a reply eve cannot read all mean no match. Nothing the
+  // model says is sent: eve checks the rule and sends the card's own text.
+  async _delegateTurn(batch) {
+    const d = this.activeDelegation;
+    if (!d) return;
+    const jobs = batch.filter((e) => this._delegateStillValid(d, e));
+    if (jobs.length === 0) return;
+    const events = jobs.map((e) => ({
+      sessionId: e.sessionId, label: this._labelOf(this.roster.get(e.sessionId), e.sessionId), excerpt: e.turn.excerpt,
+    }));
+    const rules = jobs.flatMap((e) => conditionalCandidates(d, { sessionId: e.sessionId, question: e.turn.question }));
+    let matches = new Map();
+    if (this._atLimit()) {
+      this._noteLimitOnce();
+    } else {
+      const res = await this._modelTurn('wake', prompt.delegateMatchPrompt(events, rules));
+      if (res.error === 'limit') this._noteLimitOnce();
+      if (res.text !== undefined) {
+        const parsed = prompt.parseDelegateMatch(res.text, events, rules);
+        if (parsed.reason) this._warnUnparsed('delegate match', parsed.reason, res);
+        else matches = parsed.matches;
+      }
+    }
+    for (const e of jobs) {
+      // The model took time: the delegation, the cap and the window may have moved.
+      if (!this._delegateStillValid(d, e)) continue;
+      if (this._delegSending.has(e.sessionId)) {
+        this._delegPending.set(e.sessionId, e.turn);
+        continue;
+      }
+      const picked = matches.get(e.sessionId);
+      const match = Number.isInteger(picked) ? { rule: picked } : null;
+      const decision = decideTurnEnd(d, { sessionId: e.sessionId, ...e.turn }, match);
+      if (decision.action === 'send') {
+        d.sessions[e.sessionId].ready = false;
+        this._delegatedSend(d, e.sessionId, decision).catch((err) => this.log.warn(`Chief of Staff delegated send failed: ${err.message}`));
+      } else if (decision.action === 'none' && decision.why === 'unmatched') {
+        const label = this._labelOf(this.roster.get(e.sessionId), e.sessionId);
+        this._notice(`No rule covers ${cut(label, LABEL_MAX)}'s last turn; it waits for you.`);
+        this._setDelegationWaiting(d, e.sessionId, 'unmatched');
+      }
+    }
+  }
+
+  // Everything a delegated send needs, read at the moment of sending.
+  _mayDelegate(d, id) {
+    const entry = d.sessions[id];
+    return this.activeDelegation === d && !!entry && entry.actions < d.maxActions
+      && Date.parse(d.until) > this.now() && this.roster.has(id) && !this._delegSending.has(id);
+  }
+
+  async _delegatedSend(d, id, decision) {
+    try {
+      await this._delegatedSendOnce(d, id, decision);
+    } finally {
+      const pending = this._delegPending.get(id);
+      this._delegPending.delete(id);
+      if (pending && this.activeDelegation === d) this._decideDelegatedTurn(d, id, pending);
+    }
+  }
+
+  async _delegatedSendOnce(d, id, decision) {
+    if (!this._mayDelegate(d, id)) return;
+    this._delegSending.add(id);
+    let res;
+    try {
+      res = await this._send(id, decision.text, { delegation: { delegationId: d.delegationId, rule: decision.rule } });
+    } finally {
+      this._delegSending.delete(id);
+    }
+    // The delegation may have ended while relay answered; then there is nothing to record.
+    if (this.activeDelegation !== d) return;
+    const entry = d.sessions[id];
+    if (!res.ok) {
+      this._setDelegationWaiting(d, id, 'send_failed', res.message || '');
+      return;
+    }
+    entry.actions += 1;
+    d.actions += 1;
+    entry.waiting = entry.actions >= d.maxActions ? 'cap' : null;
+    entry.detail = '';
+    d.log.push({
+      at: new Date(this.now()).toISOString(), rule: decision.rule, sessionId: id,
+      label: this._labelOf(this.roster.get(id), id), text: decision.text,
+    });
+    if (d.log.length > DELEGATION_LOG_MAX) d.log.splice(0, d.log.length - DELEGATION_LOG_MAX);
+    this._persistDelegation();
+    this._emitStatus();
+    this._checkDelegationEnd();
+  }
+
+  // After any change to a session's ready, ended or cap state. With a keep-going rule:
+  // ends when each of its sessions is ready, ended or at its cap (`cap` if any is at its
+  // cap, else `done`). Without one: `cap` when every listed session is at its cap or ended.
+  _checkDelegationEnd() {
+    const d = this.activeDelegation;
+    if (!d) return;
+    const atCap = (id) => d.sessions[id].actions >= d.maxActions;
+    const keep = d.rules.find((r) => r && r.kind === 'continue');
+    if (keep) {
+      const ids = keep.sessions.map((s) => s.sessionId).filter((id) => d.sessions[id]);
+      if (!ids.every((id) => d.sessions[id].ready || d.sessions[id].waiting === 'ended' || atCap(id))) return;
+      this._endDelegation(ids.some(atCap) ? 'cap' : 'done');
+      return;
+    }
+    const ids = Object.keys(d.sessions);
+    if (ids.length && ids.every((id) => d.sessions[id].waiting === 'ended' || atCap(id))) this._endDelegation('cap');
   }
 
   // ---- daily call counter ------------------------------------------------
@@ -447,6 +780,11 @@ class ChiefOfStaff {
       model: this.modelId,
       calls: { used: this.state.calls, max: this.settings.dailyModelCalls },
       off: this.off,
+      delegation: this.activeDelegation ? {
+        delegationId: this.activeDelegation.delegationId, postId: this.activeDelegation.postId,
+        until: this.activeDelegation.until, actions: this.activeDelegation.actions,
+        maxActions: this.activeDelegation.maxActions,
+      } : null,
     };
   }
 
@@ -680,6 +1018,7 @@ class ChiefOfStaff {
     if (this._isOwnId(id)) return;
 
     if (frame.type === 'session_ended') {
+      this._delegationSessionEnded(id);
       this.roster.delete(id);
       this._waiting.delete(id);
       this._errands.delete(id);
@@ -703,6 +1042,7 @@ class ChiefOfStaff {
     row.since = typeof frame.since === 'string' ? frame.since : row.since;
     this._settleErrand(row, next);
     this._settleRowTurn(row, next);
+    this._delegationState(row, next);
     if (TRIGGER_STATES.has(next) && next !== prev) {
       this._enqueue(row.id, { kind: 'state', state: next, since: row.since, excerpt: next === 'errored' ? prompt.exitLine(frame.exit) : '' });
     } else {
@@ -716,6 +1056,7 @@ class ChiefOfStaff {
   _applyTurnDone(row, frame) {
     const excerpt = typeof frame.excerpt === 'string' ? frame.excerpt : '';
     row.lastExcerpt = cut(excerpt, EXCERPT_MAX);
+    this._delegationTurnEnd(row, excerpt);
     const errand = this._errands.get(row.id);
     if (errand) {
       // A question gets the alert and no finished post; otherwise wait for idle.
@@ -882,6 +1223,13 @@ class ChiefOfStaff {
         this._runTurn(() => this._wakeTurn(batch));
         return;
       }
+    }
+    // Delegate matches have no quiet window either; they go before finished posts.
+    if (this._delegateWaiting.size > 0) {
+      const batch = [...this._delegateWaiting.values()].sort((a, b) => a.at - b.at).slice(0, BATCH_SIZE);
+      for (const e of batch) this._delegateWaiting.delete(e.sessionId);
+      this._runTurn(() => this._delegateTurn(batch));
+      return;
     }
     // Finished posts have no quiet window; they go once no alert batch is ready.
     if (this._finished.size > 0) {
@@ -1382,7 +1730,7 @@ class ChiefOfStaff {
 
   // Scoped POST; relay stamps the origin, so the body never carries one.
   // Posts `sent` or `send_failed` and returns {ok:true} or {ok:false, code, message}.
-  async _send(sessionId, text) {
+  async _send(sessionId, text, { delegation = null } = {}) {
     if (sessionId?.startsWith('outside:')) return { ok: false, code: 'outside_session_read_only', message: 'Outside sessions are read-only.' };
     const row = this.roster.get(sessionId);
     const label = this._labelOf(row, sessionId);
@@ -1399,6 +1747,12 @@ class ChiefOfStaff {
       return { ok: false, code: 'unreachable', message };
     }
     if (status === 202) {
+      // A delegated send is the card's own text: no model wrote it, and no errand
+      // follows it (the digest covers the turn).
+      if (delegation) {
+        this._addPost({ kind: 'sent', text, sessionId, label, origin: SCOPE, delegation, byModel: false });
+        return { ok: true };
+      }
       this._armErrand(sessionId, 'send', label, row && row.projectId);
       this._addPost({ kind: 'sent', text, sessionId, label, origin: SCOPE, byModel: true });
       return { ok: true };
