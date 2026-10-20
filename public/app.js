@@ -1581,7 +1581,15 @@ class EveWorkspaceClient {
       this.messageRenderer.renderHistory(history);
     }
 
-    if (focus) this.elements.userInput.focus();
+    if (focus && !this._keyboardOnTabStrip()) this.elements.userInput.focus();
+  }
+
+  // A tab closed or switched from the keyboard leaves focus on the tab strip; the history that
+  // arrives later must not pull it into the composer. A mouse click is not :focus-visible.
+  _keyboardOnTabStrip() {
+    const el = document.activeElement;
+    const bar = this.tabManager?.tabBar;
+    return !!(el && bar && bar.contains(el) && el.matches(':focus-visible'));
   }
 
   updateDirectoryInputRequirement() {
