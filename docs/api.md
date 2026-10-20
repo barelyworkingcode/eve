@@ -412,8 +412,8 @@ match `^outside:[A-Za-z0-9_-]{1,128}$`; `before`, when present, `^[A-Za-z0-9._-]
 defaults to 50). Anything else answers 400 `{error:'invalid_request'}` with no relay
 call. Eve forwards only `before` and `limit` through `RelayTransport`, with no
 scope, and passes relay's status and JSON through: 200
-`{entries:[{id,role:'user'|'assistant'|'tool',text,at}],cursor:string|null,hasMore}`
-(entries oldest first within a page, `id` and `cursor` opaque), 400
+`{entries:[{id,role:'user'|'assistant'|'tool',text,at,kind?,name?}],cursor:string|null,hasMore}`
+(entries oldest first within a page, `id` and `cursor` opaque; a `tool` entry has `kind` `call` (with `name`) or `result`, and the browser falls back to the text shape when `kind` is absent), 400
 `invalid_request`/`invalid_limit`/`invalid_cursor`, 404 `outside_session_not_found`,
 502 `outside_status_unavailable`. A transport failure is 502
 `{error:'Service unavailable'}`. No WebSocket frame carries transcript text; the

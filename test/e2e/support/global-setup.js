@@ -12,6 +12,7 @@ module.exports = async function globalSetup() {
   const fakes = await buildFakes();
   process.env.EVE_E2E_FAKERELAY = fakes.fakerelay;
   process.env.EVE_E2E_RELAYSCHEDULER = fakes.relayscheduler;
+  process.env.EVE_E2E_LOG_SCHEMA = fakes.logSchema;
 
   // CI runners are not shared, so there is nothing to serialise against.
   let release = null;

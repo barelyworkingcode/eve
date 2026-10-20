@@ -342,7 +342,7 @@ class OutsideThreadPage {
     const raw = typeof e.text === 'string' ? e.text : '';
     row.appendChild(meta);
     if (e.role === 'tool') {
-      row.appendChild(this._toolEl(raw));
+      row.appendChild(this._toolEl(raw, e.kind, e.name));
     } else if (e.role === 'assistant') {
       const text = this._el('div', 'outside-thread__text message-content outside-thread__md');
       text.innerHTML = MessageRenderer.markdownToHtml(raw, { rawHtml: false });
@@ -355,18 +355,18 @@ class OutsideThreadPage {
     return row;
   }
 
-  // Relay gives no field that tells a tool call from a result: classify by shape.
+  // Relay tags a tool entry with kind and name; the shape guess remains for an older relay.
   // Every string reaches the DOM through textContent.
-  _toolEl(raw) {
-    const shape = OutsideThreadPage.toolShape(raw);
+  _toolEl(raw, kind, name) {
+    const shape = OutsideThreadPage.toolShape(raw, kind, name);
     const wrap = this._el('div', 'outside-thread__text outside-thread__toolwrap');
     if (shape.kind === 'call') {
       const d = this._el('details', 'outside-thread__tool');
       d.dataset.kind = 'call';
       const sum = this._el('summary');
-      const name = this._el('span', 'outside-thread__tool-name');
-      name.textContent = shape.name;
-      sum.appendChild(name);
+      const nameEl = this._el('span', 'outside-thread__tool-name');
+      nameEl.textContent = shape.name;
+      sum.appendChild(nameEl);
       const brief = this._el('span', 'outside-thread__tool-summary');
       brief.textContent = shape.summary;
       sum.appendChild(brief);
@@ -401,11 +401,20 @@ class OutsideThreadPage {
     return flat.length > n ? flat.slice(0, n) + '\u2026' : flat;
   }
 
-  static toolShape(text) {
+  static toolShape(text, kind, name) {
     const raw = typeof text === 'string' ? text : '';
+    if (kind === 'result') return { kind: 'result', text: raw };
+    if (kind === 'call' && typeof name === 'string') {
+      const prefix = name + ' ';
+      const input = raw.startsWith(prefix) ? raw.slice(prefix.length) : (raw === name ? '' : raw);
+      return { kind: 'call', name, input, summary: OutsideThreadPage.callSummary(input) };
+    }
     const m = /^([A-Za-z_][\w.:-]{0,127}) (\{[\s\S]*)$/.exec(raw);
     if (!m) return { kind: 'result', text: raw };
-    const input = m[2];
+    return { kind: 'call', name: m[1], input: m[2], summary: OutsideThreadPage.callSummary(m[2]) };
+  }
+
+  static callSummary(input) {
     let summary = '';
     try {
       const obj = JSON.parse(input);
@@ -417,7 +426,7 @@ class OutsideThreadPage {
     } catch {
       summary = OutsideThreadPage.cut(input);
     }
-    return { kind: 'call', name: m[1], input, summary };
+    return summary;
   }
 
   static timeOf(at) {

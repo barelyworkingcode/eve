@@ -270,7 +270,7 @@ turn. Claude text in the thread goes through the shared Markdown renderer
 (`MessageRenderer.markdownToHtml`, `rawHtml: false`): raw HTML in the text stays
 literal, and links and images stay sanitised as in the main chat. You and tool
 text stay `textContent`: a tool call shows its name and a short summary with its
-input folded, and a tool result past 400 characters or 8 lines is folded.
+input folded, and a tool result past 400 characters or 8 lines is folded. Eve folds by relay's `kind` and uses `name` as the label, and guesses by text shape only for an entry with no `kind`.
 
 Relay independently probes healthy machines every 15 seconds, drains optional
 native hook reports within two seconds, and emits full changed snapshots.
