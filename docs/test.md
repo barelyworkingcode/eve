@@ -34,9 +34,11 @@ Power doors: `EVE_FAKERELAY_BIN` and `EVE_RELAYSCHEDULER_BIN` replace the pinned
 
 ### Pin and build
 
-`test/e2e/relay-pin.json` names the two commits (full 40-hex SHAs): fakerelay, built from relay's `fakerelay/cmd/fakerelay`, and relayScheduler. A bump of the pin is a deliberate PR and the only edit that file takes. `node test/e2e/support/build-fakes.js` prints `fakerelay <path>` and `relayscheduler <path>` and exits 0, or exits 1 naming the cause (`go not found`, `git fetch ... failed`, `go build ... failed`).
+`test/e2e/relay-pin.json` names the two commits (full 40-hex SHAs): fakerelay, built from relay's `fakerelay/cmd/fakerelay`, and relayScheduler. A bump of the pin is a deliberate PR and the only edit that file takes. `node test/e2e/support/build-fakes.js` prints `fakerelay <path>`, `relayscheduler <path>` and `logschema <path>` and exits 0, or exits 1 naming the cause (`go not found`, `git fetch ... failed`, `go build ... failed`).
 
-A build is `git init` + `git fetch --depth 1 <repo> <commit>` in a temp directory, `go build`, then an atomic rename into the cache: `$EVE_E2E_CACHE`, else `$XDG_CACHE_HOME/eve-e2e`, else `~/.cache/eve-e2e`, at `<cache>/<name>-<commit>/<name>`. A hit skips the build. It needs Go 1.25+. Git runs with every `GIT_*` variable dropped, so a run inside a git hook never touches eve's own repository.
+A build is `git init` + `git fetch --depth 1 <repo> <commit>` in a temp directory, `go build`, then an atomic rename into the cache: `$EVE_E2E_CACHE`, else `$XDG_CACHE_HOME/eve-e2e`, else `~/.cache/eve-e2e`, at `<cache>/<name>-<commit>/<name>`. A hit skips the build. It needs Go 1.25+.
+
+The same fakerelay clone gives relay's logging schema: `docs/logging-schema.json` is copied (temp file plus rename) to `<cache>/fakerelay-<commit>/logging-schema.json`, and global setup puts that path in `EVE_E2E_LOG_SCHEMA`. A hit needs the binary and the schema; a cache dir built before the schema copy fetches the commit again, skips `go build` and adds the schema. The schema always comes from the pin, also when `EVE_FAKERELAY_BIN` is set. A pin whose relay commit has no schema fails the build: `relay <commit> has no docs/logging-schema.json; the e2e log check needs a pin that has it (relay 2113de5 or later)`. Git runs with every `GIT_*` variable dropped, so a run inside a git hook never touches eve's own repository.
 
 ### Config
 
@@ -253,6 +255,8 @@ Specs never touch `context.newCDPSession`, child processes or the file system; t
 Under one temp root (`<tmp>/ev-XXXXXX`): `r/` (fakerelay's config dir, with `world.json`, `ready.json`, `logs/`), `eve/` (`EVE_DATA_DIR`), `sched/` (relayScheduler's data), `home/` and `tmp/`. fakerelay starts with a scrubbed environment (`PATH`, `HOME`, `TMPDIR`, `TZ=UTC`) and launches relayScheduler and eve with the fd 3 launch secret, so eve's launch-identity path runs in every test. Eve binds `127.0.0.1` (`EVE_BIND_HOST`) on a free port. The fixture fails by name if a socket path would pass 103 bytes.
 
 Readiness is signalled, never slept on: fakerelay's ready line, `eve-ready.json`, and relayScheduler's `service.manifest.register` event, each raced against the service's failed state and fakerelay's exit. Teardown sends SIGTERM to fakerelay (it stops eve and relayScheduler) and waits for its exit event; a run still alive after 15 s is killed and the overrun attached.
+
+After fakerelay exits (so after eve has), teardown checks every line of `eve.log` against the pinned logging schema (`test/e2e/support/log-schema.js`, a hand-rolled checker that refuses a schema keyword it does not implement). A line that does not start with `{` passes, as the schema says. A line that breaks the schema fails the test: the error names `eve.log:<line>`, the broken rule and the line text, and the log files are attached.
 
 A failed test attaches `eve.log`, `fakerelay.log`, `relaysessions.log`, `relayscheduler.log` (when on) and `fakerelay.stderr`; the trace is kept (`retain-on-failure`). Worlds use neutral names only (Acme, testbox): CI uploads these as public artifacts.
 
