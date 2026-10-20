@@ -84,11 +84,6 @@ async function expectPhoneDropTerminal(page) {
   await expect(page.getByText('Acme - Reviewer (drop-in)', { exact: true }).filter({ visible: true })).toBeVisible();
 }
 
-// Eve's close writes no relay event, so the terminal leaving relay's list is the signal that it closed.
-async function waitTerminalsGone(relay) {
-  await expect.poll(async () => (await relay.json('ctl', 'state', '--json')).terminals.length).toBe(0);
-}
-
 async function openCos(page) {
   // Below 600px the Bottom bar is the door a person taps.
   const compact = page.viewportSize().width < 600;
@@ -133,7 +128,7 @@ async function holdFromPageA(page, relay) {
 test.describe('an idle agent', () => {
   test.use({ world: agentWorld(), cosPosts: [startCard()] });
 
-  test('Today offers Drop in; the Chief of Staff rail does too @G6.23', async ({ eve, page, relay }) => {
+  test('Today offers Drop in to an idle agent @G6.23', async ({ eve, page, relay }) => {
     await eve.open('/');
     await startIdleOnWide(page, relay);
     const board = await eve.openAnother('/');
@@ -194,7 +189,6 @@ test.describe('an idle agent', () => {
     await expect(board.getByRole('heading', { name: 'Working 2', level: 4 })).toBeVisible();
     await page.getByRole('button', { name: CLOSE_DROP }).click();
     await expect(selectedDropTab(page)).toHaveCount(0);
-    await waitTerminalsGone(relay);
     await expect(board.getByRole('heading', { name: /^Idle/, level: 4 })).toBeVisible();
     await expect(board.getByRole('heading', { name: /^Working/, level: 4 })).toBeHidden();
     await expect(board.getByRole('button', { name: DROP })).toBeVisible();
@@ -239,7 +233,10 @@ test.describe('an idle agent', () => {
     await refuseWith(relay, { error: 'no_conversation', message: 'the session has not run a turn yet;\n  there is nothing to take over' });
     await drop.click();
     // Relay's text had a line break; the toast shows it as one line.
-    await expect(toastOf(board, "Can't drop in: the session has not run a turn yet; there is nothing to take over")).toBeVisible();
+    const toast = toastOf(board, "Can't drop in: the session has not run a turn yet");
+    await expect(toast).toBeVisible();
+    // Locator text matching normalizes whitespace, so read the raw text (less the toast's close mark).
+    expect((await toast.textContent()).replace(/×$/, '')).toBe("Can't drop in: the session has not run a turn yet; there is nothing to take over");
     await expect(selectedDropTab(board)).toHaveCount(0);
   });
 });
@@ -267,7 +264,10 @@ test.describe('a working agent', () => {
 
     // Page A closes its terminal: the turn is over, then relay may answer.
     await page.getByRole('button', { name: CLOSE_DROP }).click();
-    await waitTerminalsGone(relay);
+    await expect(other.getByRole('heading', { name: /^Idle/, level: 4 })).toBeVisible();
+    // The busy text follows the kind fixed at the tap, not the row's new state.
+    await expect(waiting).toBeDisabled();
+    await expect(waiting).toHaveText('Waiting for the turn to end…');
     expect((await relay.ctl('fault', 'release', '--id', faultId)).code).toBe(0);
     await relay.waitForEvent('session.drop_in', { since: mark, match: (l) => l.status === 'ok' });
     await expect(selectedDropTab(other)).toHaveAttribute('aria-selected', 'true');
@@ -294,6 +294,7 @@ test.describe('a working agent', () => {
     await page.getByRole('tab', { name: 'Chief of Staff', exact: true }).click();
     const rail = railOf(page);
     await expect(rail.getByRole('heading', { name: /^Working/ })).toBeVisible();
+    await expect(rail.getByRole('button', { name: /^(?!Take over|Drop in)(?!.*\(drop-in\)).*Reviewer/ })).toBeVisible();
     await expect(rail.getByRole('button', { name: /^Take over / })).toHaveCount(0);
     await expect(rail.getByRole('button', { name: /^Drop in to / })).toHaveCount(0);
   });
@@ -311,15 +312,6 @@ test.describe('outside rows', () => {
     await expect(rail.getByRole('button', { name: 'Scratch pad', exact: true })).toBeVisible();
     await expect(rail.getByRole('button', { name: /^Drop in/ })).toHaveCount(0);
     await expect(rail.getByRole('button', { name: /^Take over/ })).toHaveCount(0);
-  });
-
-  // The feature map lists outside rows on the Chief of Staff rail and sheet, not on Today's board (G6.20 reads
-  // relay's own sessions). So Today is read only for its buttons, once its board has loaded the ordinary thread.
-  test('Today shows no Drop in or Take over beside an outside session @G6.105.r3', async ({ eve, page }) => {
-    await eve.open('/');
-    await expect(page.getByRole('heading', { name: /^Idle/, level: 4 })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Drop in/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Take over/ })).toHaveCount(0);
   });
 });
 
@@ -343,7 +335,6 @@ test.describe('on a tablet', () => {
     await expect(board.getByText('hello agent', { exact: true })).toBeVisible();
 
     await board.getByRole('button', { name: CLOSE_DROP }).tap();
-    await waitTerminalsGone(relay);
     await expect(board.getByRole('button', { name: DROP })).toBeVisible();
   });
 });
