@@ -1016,8 +1016,8 @@ clicks the host row, which must read `Read-only thread`; the thread opens (it
 waits on `data-fetches` and `aria-busy` false, G6.96) and must show a `You` entry
 with the host prompt and a `Claude` entry with the host marker (a bounded poll of
 up to 120 s: model output, and the thread refreshes every probe interval).
-It then kills both tmux sessions and
-every row for either folder, duplicates included, must leave the rail within 60 s. PASS needs all of these.
+It then kills both tmux sessions. Every live row for either folder, duplicates included (found by the test ids they had while live), must leave the rail within 60 s,
+and within 60 s each folder must show an Ended row under the Ended heading (`rail-agents-group-ended`). PASS needs all of these.
 - Lives in: `chief-of-staff-outside.js`; `public/agent-board.js`;
   `public/terminal-manager.js`; relay's outside-session probe.
 - Traps: BLOCKED setup V-COS, BLOCKED when tmux or claude is not on PATH, BLOCKED
@@ -1039,7 +1039,7 @@ every row for either folder, duplicates included, must leave the rail within 60 
   Both of its Claudes (console and host) are cleaned up the same way.
 
 **outside-thread.** An outside Claude with no tmux opens as a read-only thread
-(G6.96, simple path). Not a screen journey (420 s). Same BLOCKED rule for a relay
+(G6.96, simple path). Not a screen journey (600 s). Same BLOCKED rule for a relay
 with no outside inventory, and BLOCKED when claude is not on PATH. It makes a
 scratch git folder in Acme Corp with an empty `keepalive.log` and starts
 `claude -p --model haiku --permission-mode default --setting-sources project,local
@@ -1058,6 +1058,13 @@ up to 120 s: model output; BLOCKED when the reply never comes). The thread must 
 textbox and no Send or Stop button. The journey then ends the process group and
 waits for the child's `exit` event; the tab must close and the toast `<name> left
 the Agents list, so its thread closed.` must show within 60 s (relay's eviction).
+Then, back on the Chief of Staff: a `cos_outside_sessions` frame must list an ended row
+(`state: ended`) whose directory holds the folder, within 60 s. Its rail row sits in
+the Ended group (heading `Ended`), is a `div` with no button, and its line 2 ends with
+`Ended`. A frame must then give that row a `lastExcerpt` holding the marker (within
+60 s; eve reads it from relay once per ended row), and line 3 (`data-kind="last-turn"`)
+must show it. Last it asks the Chief of Staff `Summarize the outside session <name>.
+Quote its last reply.`; the `reply` post (up to 120 s) must carry the marker.
 - Lives in: `public/outside-thread.js`; `public/panes/outside-thread-pane.js`;
   `routes/index.js` (transcript route); relay's outside transcript route.
 - Traps: BLOCKED setup V-COS; BLOCKED when claude is not on PATH; no NOTRUN path.
