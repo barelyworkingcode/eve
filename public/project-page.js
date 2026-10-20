@@ -89,6 +89,14 @@ class ProjectPage {
     threads.head.appendChild(newFolder);
     this._threadsList = this._div('project-page__list');
     threads.section.appendChild(this._threadsList);
+    this._threadsRoving?.destroy();
+    this._threadsRoving = new RovingFocus(this._threadsList, {
+      items: '.project-tree__session-item, .project-tree__folder-name',
+      orientation: 'vertical',
+      row: '.project-tree__session-swipe, .project-tree__folder-header',
+      rowButtons: '.project-tree__session-delete, .project-tree__folder-menu-btn',
+      onEmpty: () => this._header?.querySelector(`[data-testid="project-new-thread-${id}"]`)?.focus(),
+    });
     page.appendChild(threads.section);
 
     const tasks = this._section('Routines', 'tasks', 'project-tasks-count');
@@ -217,7 +225,20 @@ class ProjectPage {
 
   _renderThreads(project) {
     const container = this._threadsList;
+    const snap = this._threadsRoving.capture();
     container.textContent = '';
+    this._buildThreads(container, project);
+    if (container.querySelector('.project-tree__session-swipe, .project-tree__folder-header')) {
+      container.setAttribute('role', 'list');
+      container.setAttribute('aria-label', 'Threads');
+    } else {
+      container.removeAttribute('role');
+      container.removeAttribute('aria-label');
+    }
+    this._threadsRoving.refresh(snap);
+  }
+
+  _buildThreads(container, project) {
     const sessions = this.state.getSessionsForProject(this.projectId)
       .filter(s => !this.state.isTaskRun(s.id));
     this._threadsCount.textContent = String(sessions.length);
@@ -271,6 +292,7 @@ class ProjectPage {
     const header = document.createElement('div');
     header.className = `project-tree__folder-header${collapsed ? ' project-tree__folder-header--collapsed' : ''}`;
     header.dataset.testid = `project-folder-${this.projectId}-${isUngrouped ? '__ungrouped__' : name}`;
+    header.setAttribute('role', 'listitem');
 
     const caret = document.createElement('span');
     caret.className = 'project-tree__folder-caret';
@@ -281,6 +303,7 @@ class ProjectPage {
     nameEl.className = 'project-tree__folder-name';
     nameEl.setAttribute('role', 'button');
     nameEl.setAttribute('aria-expanded', String(!collapsed));
+    nameEl.dataset.rovingKey = `folder:${name}`;
     nameEl.textContent = isUngrouped ? 'Ungrouped' : name;
     header.appendChild(nameEl);
 
@@ -297,7 +320,13 @@ class ProjectPage {
       menuBtn.innerHTML = UI_ICONS.more(14);
       menuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._showFolderMenu(e.clientX, e.clientY, name);
+        // detail 0 is a keyboard press: the menu opens under the button and takes focus.
+        if (e.detail === 0) {
+          const r = menuBtn.getBoundingClientRect();
+          this._showFolderMenu(r.left, r.bottom, name, { anchor: menuBtn });
+        } else {
+          this._showFolderMenu(e.clientX, e.clientY, name);
+        }
       });
       header.appendChild(menuBtn);
       header.addEventListener('contextmenu', (e) => {
@@ -316,6 +345,7 @@ class ProjectPage {
   _renderSessionRow(container, session, project) {
     const wrapper = document.createElement('div');
     wrapper.className = 'project-tree__session-swipe';
+    wrapper.setAttribute('role', 'listitem');
 
     const deleteAction = document.createElement('div');
     deleteAction.className = 'project-tree__session-delete';
@@ -332,6 +362,7 @@ class ProjectPage {
     item.className = `project-tree__session-item${isActive ? ' project-tree__session-item--active' : ''}`;
     item.dataset.testid = `project-thread-${session.id}`;
     item.setAttribute('role', 'button');
+    item.dataset.rovingKey = `thread:${session.id}`;
     item.setAttribute('aria-label', sessionDisplayName(session, project) || session.id);
 
     const nameEl = document.createElement('span');
@@ -433,12 +464,12 @@ class ProjectPage {
     showContextMenu(x, y, items);
   }
 
-  _showFolderMenu(x, y, name) {
+  _showFolderMenu(x, y, name, opts) {
     const app = this.container.get('app');
     showContextMenu(x, y, [
       { label: 'Rename Folder', action: () => app.renameSessionFolder(this.projectId, name) },
       { label: 'Delete Folder', danger: true, action: () => app.deleteSessionFolder(this.projectId, name) },
-    ]);
+    ], opts);
   }
 
   _collapsedFolders() {
