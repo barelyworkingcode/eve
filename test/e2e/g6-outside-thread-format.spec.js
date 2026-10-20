@@ -192,6 +192,71 @@ test.describe('long lines', () => {
   });
 });
 
+// Relay tags each transcript entry with a kind ('call' or 'result') and a call's tool name (#583).
+// A person sees the same thread either way; the tag decides how an entry folds, not its text shape.
+function tagged(role, kind, name, text, i) {
+  const e = entry(role, text, i);
+  e.kind = kind;
+  if (name !== undefined) e.name = name;
+  return e;
+}
+
+test.describe('a tagged tool call', () => {
+  test.use({
+    world: outsideWorld([
+      entry('assistant', 'Looking up the totals.', 0),
+      tagged('tool', 'call', 'Lookup', '{"query":"ledger totals","description":"Find the totals"}', 1),
+    ]),
+  });
+
+  test('G6.96 a call tagged kind call shows its name and summary, with the input folded @G6.96', async ({ eve, page }) => {
+    const thread = await openThread(eve, page);
+    await expect(thread.getByText('Lookup').first()).toBeVisible();
+    const summary = thread.getByText('Find the totals').first();
+    await expect(summary).toBeVisible();
+    await expect(thread.getByText('"query"')).toBeHidden();
+    await expect(thread).not.toContainText('{"query"');
+
+    await summary.click();
+    await expect(thread.getByText('"query"')).toBeVisible();
+    await expect(thread.getByText('ledger totals')).toBeVisible();
+  });
+});
+
+test.describe('a tagged result that looks like a call', () => {
+  test.use({
+    world: outsideWorld([
+      entry('assistant', 'Running it.', 0),
+      tagged('tool', 'result', undefined, 'Bash {"command":"echo hi","description":"Say hi"}', 1),
+    ]),
+  });
+
+  test('G6.96 an entry tagged kind result reads as a result, whatever its text looks like @G6.96', async ({ eve, page }) => {
+    const thread = await openThread(eve, page);
+    // The whole text is on screen as plain result text: a call would have folded the input away.
+    await expect(thread).toContainText('Bash {"command":"echo hi","description":"Say hi"}');
+    await expect(thread.getByRole('group')).toHaveCount(0);
+  });
+});
+
+test.describe('an untagged entry from an older relay', () => {
+  test.use({
+    world: outsideWorld([
+      entry('assistant', 'Listing the ledger.', 0),
+      entry('tool', 'Bash {"command":"ls -la ledger","description":"List the ledger"}', 1),
+      entry('tool', 'ok 3 rows', 2),
+    ]),
+  });
+
+  test('G6.96 an entry with no kind still folds by the shape of its text @G6.96', async ({ eve, page }) => {
+    const thread = await openThread(eve, page);
+    await expect(thread.getByText('Bash').first()).toBeVisible();
+    await expect(thread.getByText('List the ledger').first()).toBeVisible();
+    await expect(thread.getByText('"command"')).toBeHidden();
+    await expect(thread.getByText('ok 3 rows')).toBeVisible();
+  });
+});
+
 test.describe('markup in a tool result', () => {
   test.use({
     world: outsideWorld([
