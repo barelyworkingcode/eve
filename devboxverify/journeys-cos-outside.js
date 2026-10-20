@@ -686,7 +686,7 @@ async function outsideThread(env) {
   const endedMeta = (await metaOf(endedRow.first())).split(' · ').pop();
   if (endedMeta !== 'Ended') problems.push(`the ended row's line 2 ends with "${endedMeta}", not Ended`);
   // G6.106: the row is no button, and the only button beside it is Resume.
-  const besideEnded = group.locator('.agent-row-wrap').filter({ has: endedRow.first() }).getByRole('button');
+  const besideEnded = group.locator('.agent-row-wrap').filter({ has: page.locator('[data-state="ended"]').filter({ hasText: base }) }).getByRole('button');
   if ((await endedRow.first().evaluate((el) => el.tagName)) !== 'DIV' || (await endedRow.first().locator('button').count()) > 0
     || (await besideEnded.count()) !== 1 || !/^Resume .+ in a terminal$/.test((await besideEnded.first().getAttribute('aria-label')) || '')) problems.push('the ended row is a button, or the only button beside it is not Resume');
 
@@ -713,6 +713,7 @@ async function outsideThread(env) {
   env.cleanup('close the resumed terminal', async () => { if (resumedId) await env.api.closeTerminal(resumedId).catch(() => {}); });
   const answered = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes(`/api/outside-sessions/${encodeURIComponent(endedFrame.id)}/resume`), { timeout: GONE_WITHIN_MS })
     .then((r) => r.json()).catch(() => null);
+  if ((await besideEnded.count()) !== 1) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}no single Resume button beside the ended row for ${base}, so Resume was not tapped`);
   const clickedAt = Date.now();
   await besideEnded.first().click({ timeout: 5000 });
   const answer = await answered;
