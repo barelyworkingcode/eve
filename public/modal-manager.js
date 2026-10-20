@@ -105,6 +105,7 @@ class ModalManager {
   }
 
   showConfirmModal(message, callback) {
+    this._confirmReturnFocus = document.activeElement;
     this.app.elements.confirmMessage.textContent = message;
     this.confirmCallback = callback;
     this.app.elements.confirmModal.classList.remove('hidden');
@@ -114,6 +115,9 @@ class ModalManager {
   hideConfirmModal() {
     this.app.elements.confirmModal.classList.add('hidden');
     this.confirmCallback = null;
+    const back = this._confirmReturnFocus;
+    this._confirmReturnFocus = null;
+    if (back && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
   }
 
   handleConfirm() {

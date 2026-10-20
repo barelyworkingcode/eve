@@ -64,7 +64,7 @@ function escapeHtml(str) {
 let _activeContextMenu = null;
 let _activeContextMenuCloseHandler = null;
 
-function showContextMenu(x, y, items) {
+function showContextMenu(x, y, items, opts = {}) {
   closeContextMenu();
 
   const menu = document.createElement('div');
@@ -101,6 +101,38 @@ function showContextMenu(x, y, items) {
 
   _activeContextMenuCloseHandler = () => closeContextMenu();
   setTimeout(() => document.addEventListener('click', _activeContextMenuCloseHandler), 0);
+
+  if (opts.anchor) _openMenuFromKeyboard(menu, opts.anchor);
+}
+
+// A menu opened by a keyboard press sits under its button and is driven by
+// keys; the mouse and long-press paths never pass an anchor.
+function _openMenuFromKeyboard(menu, anchor) {
+  const ar = anchor.getBoundingClientRect();
+  menu.style.left = `${ar.left}px`;
+  menu.style.top = `${ar.bottom}px`;
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 8}px`;
+  if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 8}px`;
+
+  const entries = [...menu.querySelectorAll('[role="menuitem"]')];
+  const close = (refocus) => {
+    closeContextMenu();
+    if (refocus && anchor.isConnected) anchor.focus();
+  };
+  menu.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const at = entries.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') entries[(at + 1) % entries.length].focus();
+    else if (e.key === 'ArrowUp') entries[(at - 1 + entries.length) % entries.length].focus();
+    else if (e.key === 'Home') entries[0].focus();
+    else if (e.key === 'End') entries[entries.length - 1].focus();
+    else if (e.key === 'Escape') close(true);
+    else if (e.key === 'Tab') close(true);
+    else return;
+    if (e.key !== 'Tab') e.preventDefault();
+  });
+  entries[0]?.focus();
 }
 
 function closeContextMenu() {

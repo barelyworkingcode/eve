@@ -505,7 +505,8 @@ class TerminalManager {
 
     requestAnimationFrame(() => {
       terminal.fitAddon.fit();
-      terminal.term.focus();
+      // A tab closed or switched from the keyboard keeps focus on the tab strip.
+      if (!this.app.tabManager?.keyboardOnStrip()) terminal.term.focus();
 
       this._resumeRenderer(terminal.term);
 

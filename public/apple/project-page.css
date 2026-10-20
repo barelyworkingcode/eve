@@ -132,3 +132,28 @@
 .project-page .project-tree__task-actions { opacity: 1; }
 .project-page .project-tree__section-empty { padding-left: 12px; }
 .project-page__local { flex-shrink: 0; white-space: nowrap; }
+
+/* Row buttons have tabindex -1 and are reached with the arrow keys, so they
+   show while they hold focus. The delete div comes first in its row, so the
+   row slides left to uncover it. */
+.project-page .project-tree__folder-header:has(:focus-visible) .project-tree__folder-menu-btn {
+  opacity: 1;
+}
+.project-page .project-tree__session-delete:focus + .project-tree__session-item {
+  transform: translateX(-64px);
+}
+
+/* The list clips its rows (overflow: hidden), so the shared outer focus ring
+   shows only at the corners. Draw the ring inside the row instead. */
+.project-page .project-tree__session-item:focus-visible,
+.project-page .project-tree__folder-name:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* The Delete button is solid red: a white inset ring reads against it. */
+.project-page .project-tree__session-delete:focus-visible {
+  box-shadow: none;
+  outline: 2px solid #ffffff;
+  outline-offset: -3px;
+}

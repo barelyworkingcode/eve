@@ -1581,7 +1581,7 @@ class EveWorkspaceClient {
       this.messageRenderer.renderHistory(history);
     }
 
-    if (focus) this.elements.userInput.focus();
+    if (focus && !this.tabManager?.keyboardOnStrip()) this.elements.userInput.focus();
   }
 
   updateDirectoryInputRequirement() {
