@@ -10,6 +10,10 @@ class FileTreeNode {
     this.dirCache = new Map();
     this.expandedPaths = new Map();
     this.dragState = null;
+    // Per .file-tree container: its RovingFocus and the project it shows now.
+    this._roving = new WeakMap();
+    // Last focused path per project, so Tab returns to it after a re-render.
+    this._lastFocusedPath = new Map();
     this._lastShowHidden = this.settings.get('showHiddenFiles');
   }
 
@@ -129,6 +133,61 @@ class FileTreeNode {
   }
 
   renderTree(projectId, containerEl) {
+    const rf = this._rovingFor(projectId, containerEl);
+    const snap = rf?.capture();
+    this._renderTreeBody(projectId, containerEl);
+    rf?.refresh(snap);
+  }
+
+  // One Tab stop for the tree, arrows inside (core/roving-focus.js).
+  _rovingFor(projectId, containerEl) {
+    if (typeof RovingFocus === 'undefined') return null;
+    let entry = this._roving.get(containerEl);
+    if (!entry) {
+      entry = { projectId };
+      entry.rf = new RovingFocus(containerEl, {
+        items: '.file-tree__item',
+        orientation: 'vertical',
+        preferredKey: () => this._lastFocusedPath.get(entry.projectId) ?? null,
+        onKey: (e, el) => this._onTreeKey(entry.rf, e, el),
+      });
+      containerEl.addEventListener('focusin', (e) => {
+        const item = e.target.closest?.('.file-tree__item');
+        if (item) this._lastFocusedPath.set(entry.projectId, item.dataset.rovingKey);
+      });
+      this._roving.set(containerEl, entry);
+    }
+    entry.projectId = projectId;
+    return entry.rf;
+  }
+
+  // Right opens a closed folder, else steps to its first child; Left closes an
+  // open folder, else steps to the parent. Enter/Space click the item.
+  _onTreeKey(rf, e, el) {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return false;
+    const expanded = el.getAttribute('aria-expanded');
+    const items = [...el.parentElement.querySelectorAll('.file-tree__item')];
+    const at = items.indexOf(el);
+    const level = Number(el.getAttribute('aria-level'));
+    if (e.key === 'ArrowRight') {
+      if (expanded === 'false') el.click();
+      else if (expanded === 'true') {
+        const child = items[at + 1];
+        if (child && Number(child.getAttribute('aria-level')) === level + 1) rf.focusItem(child);
+      }
+      return true;
+    }
+    if (expanded === 'true') {
+      el.click();
+    } else {
+      for (let i = at - 1; i >= 0; i--) {
+        if (Number(items[i].getAttribute('aria-level')) === level - 1) { rf.focusItem(items[i]); break; }
+      }
+    }
+    return true;
+  }
+
+  _renderTreeBody(projectId, containerEl) {
     containerEl.innerHTML = '';
     containerEl.setAttribute('role', 'tree');
     containerEl.setAttribute('aria-label', 'Files');
@@ -169,6 +228,7 @@ class FileTreeNode {
       item.draggable = !IS_TOUCH;
       item.dataset.testid = `file-tree-item-${entryPath}`;
       item.setAttribute('role', 'treeitem');
+      item.dataset.rovingKey = entryPath;
       item.setAttribute('aria-label', entry.name);
       item.setAttribute('aria-level', String(depth + 1));
       if (isDir) item.setAttribute('aria-expanded', String(isExpanded));

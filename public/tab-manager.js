@@ -696,6 +696,22 @@ class TabManager {
   }
 
   render() {
+    // One Tab stop for the strip, arrows inside (core/roving-focus.js).
+    if (!this._roving && typeof RovingFocus !== 'undefined') {
+      this._roving = new RovingFocus(this.tabBar, {
+        items: '.tab-label',
+        orientation: 'horizontal',
+        wrap: true,
+        preferredKey: () => this.activeTabId,
+        // Delete or Backspace presses the focused tab's close button, which is not a Tab stop.
+        onKey: (e, el) => {
+          if (e.key !== 'Delete' && e.key !== 'Backspace') return false;
+          el.closest('.tab')?.querySelector('.tab-close')?.click();
+          return true;
+        },
+      });
+    }
+    const rovingSnap = this._roving ? this._roving.capture() : null;
     this.tabBar.innerHTML = '';
     this.tabBar.setAttribute('role', 'tablist');
     this.tabBar.setAttribute('aria-label', 'Open tabs');
@@ -722,6 +738,7 @@ class TabManager {
       const labelEl = document.createElement('span');
       labelEl.className = 'tab-label';
       labelEl.setAttribute('role', 'tab');
+      labelEl.dataset.rovingKey = tab.id;
       labelEl.setAttribute('aria-label', tab.label);
       labelEl.setAttribute('aria-selected', String(tab.id === this.activeTabId));
       labelEl.textContent = tab.label;
@@ -735,6 +752,7 @@ class TabManager {
 
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
+      closeBtn.setAttribute('tabindex', '-1');
       closeBtn.setAttribute('aria-label', `Close ${tab.label}`);
       closeBtn.dataset.testid = `tab-close-${tab.id}`;
       closeBtn.textContent = '×';
@@ -769,6 +787,7 @@ class TabManager {
       tabEl.appendChild(closeBtn);
       this.tabBar.appendChild(tabEl);
     }
+    if (this._roving) this._roving.refresh(rovingSnap);
   }
 
   _saveToStorage(key, id, value) {
