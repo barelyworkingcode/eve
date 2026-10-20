@@ -68,8 +68,6 @@
   backdrop-filter: var(--blur);
   border-top: 0.5px solid var(--separator);
   z-index: 5;
-  /* Translated up via VisualViewport API to ride above soft keyboard. */
-  will-change: transform;
 }
 
 .terminal-keybar__keys {

@@ -221,7 +221,7 @@ class TerminalKeybar {
     const update = () => {
       raf = 0;
       const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      this._bar.style.transform = `translateY(${-overlap}px)`;
+      this._bar.parentElement.style.paddingBottom = overlap > 0 ? `${overlap}px` : '';
       this.tm.fitActive();
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
