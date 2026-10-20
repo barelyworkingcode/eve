@@ -1666,7 +1666,7 @@ class ChiefOfStaff {
     }
     // Plain text, all of the turn's text blocks. Whatever the model did with
     // its tools already reached the thread through the eve-cos calls.
-    const reply = prompt.clean(res.text, prompt.CAPS.reply);
+    const reply = prompt.capReply(res.text);
     if (reply) {
       this._addPost({ kind: 'reply', body: reply, byModel: true });
       return;
