@@ -212,7 +212,8 @@ class TerminalKeybar {
   /**
    * Ride just above the soft keyboard. The VisualViewport shrinks when the
    * keyboard opens; the gap between the layout viewport bottom and the visual
-   * viewport bottom is the keyboard height, so we translate the bar up by it.
+   * viewport bottom is the keyboard height. Padding the pane by it shrinks the
+   * terminal rows to what is visible and leaves the bar just above the keyboard.
    */
   _initViewportTracking() {
     const vv = window.visualViewport;
@@ -221,7 +222,7 @@ class TerminalKeybar {
     const update = () => {
       raf = 0;
       const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      this._bar.style.transform = `translateY(${-overlap}px)`;
+      this._bar.parentElement.style.paddingBottom = overlap > 0 ? `${overlap}px` : '';
       this.tm.fitActive();
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
