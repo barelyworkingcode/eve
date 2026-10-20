@@ -189,7 +189,7 @@ test.describe('an idle agent', () => {
     await expect(board.getByRole('heading', { name: 'Working 2', level: 4 })).toBeVisible();
     await page.getByRole('button', { name: CLOSE_DROP }).click();
     await expect(selectedDropTab(page)).toHaveCount(0);
-    await expect(board.getByRole('heading', { name: /^Idle/, level: 4 })).toBeVisible();
+    await expect(board.getByRole('heading', { name: 'Idle 2', level: 4 })).toBeVisible();
     await expect(board.getByRole('heading', { name: /^Working/, level: 4 })).toBeHidden();
     await expect(board.getByRole('button', { name: DROP })).toBeVisible();
   });
@@ -264,7 +264,8 @@ test.describe('a working agent', () => {
 
     // Page A closes its terminal: the turn is over, then relay may answer.
     await page.getByRole('button', { name: CLOSE_DROP }).click();
-    await expect(other.getByRole('heading', { name: /^Idle/, level: 4 })).toBeVisible();
+    // Ledger already sits under Idle, so the Working group emptying is the hand-back signal.
+    await expect(other.getByRole('heading', { name: /^Working/, level: 4 })).toBeHidden();
     // The busy text follows the kind fixed at the tap, not the row's new state.
     await expect(waiting).toBeDisabled();
     await expect(waiting).toHaveText('Waiting for the turn to end…');
