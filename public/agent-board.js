@@ -365,7 +365,7 @@ class AgentBoard {
     const endedMs = (r) => { const t = Date.parse(r.since); return Number.isNaN(t) ? -Infinity : t; };
     rows.sort((a, b) => order(a) - order(b)
       || (a.group === 'ended' && b.group === 'ended' && endedMs(b) !== endedMs(a) ? (endedMs(b) > endedMs(a) ? 1 : -1) : 0)
-      || String(a.label).localeCompare(String(b.label)) || String(a.id).localeCompare(String(b.id)));
+      || (a.group === 'ended' ? 0 : String(a.label).localeCompare(String(b.label))) || String(a.id).localeCompare(String(b.id)));
     return rows;
   }
 

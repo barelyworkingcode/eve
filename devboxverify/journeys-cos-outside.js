@@ -680,7 +680,8 @@ async function outsideThread(env) {
   const endedRow = group.locator('[data-state="ended"]').filter({ hasText: base });
   const endedThere = await poll(async () => (await endedRow.count()) > 0 || null, { timeoutMs: 10000, intervalMs: 250 });
   if (!endedThere) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}the frame listed an ended row for ${base} but the Ended group shows none`);
-  const endedHead = (await group.getByRole('heading').first().innerText({ timeout: 2000 }).catch(() => '')).trim();
+  // The heading is uppercased by CSS, which innerText returns; textContent of the title span is the source text.
+  const endedHead = (await group.getByRole('heading').first().locator('span').first().textContent({ timeout: 2000 }).catch(() => '')).trim();
   if (!/^Ended\b/.test(endedHead)) problems.push(`the group holding the ended row is headed "${endedHead}", not Ended`);
   const endedMeta = (await metaOf(endedRow.first())).split(' · ').pop();
   if (endedMeta !== 'Ended') problems.push(`the ended row's line 2 ends with "${endedMeta}", not Ended`);
