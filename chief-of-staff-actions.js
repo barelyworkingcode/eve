@@ -332,7 +332,8 @@ function sessionRow(cos, row) {
 function outsideRow(cos, row) {
   return { ...sessionRow(cos, { ...row, origin: 'outside', headless: false }), label: row.name,
     outside: true, readOnly: true, machine: row.machine, directory: row.directory,
-    branch: row.branch, viewable: row.viewable, viewReason: row.viewReason };
+    branch: row.branch, viewable: row.viewable, viewReason: row.viewReason,
+    ...(row.endedAt ? { endedAt: row.endedAt } : {}) };
 }
 
 // ---- /internal/cos ---------------------------------------------------------

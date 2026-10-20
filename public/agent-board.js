@@ -110,6 +110,8 @@ class AgentBoard {
     { key: 'working', title: 'Working', states: ['running', 'starting'] },
     { key: 'idle', title: 'Idle', states: ['idle'] },
     { key: 'done', title: 'Done', states: ['ended'] },
+    // Ended outside sessions only; collect() assigns the group, no state maps here.
+    { key: 'ended', title: 'Ended', states: [] },
   ];
   static STATE_WORDS = {
     asking: 'Waiting on you', errored: 'Stopped with an error', stalled: 'Gone quiet',
@@ -242,7 +244,7 @@ class AgentBoard {
     el.dataset.state = kind;
     this.onCount?.(rows.length);
     if (this.onCounts) {
-      const counts = { needs: 0, working: 0, idle: 0, done: 0 };
+      const counts = { needs: 0, working: 0, idle: 0, done: 0, ended: 0 };
       for (const r of rows) counts[r.group] += 1;
       this.onCounts(kind === 'ready' || kind === 'empty' ? counts : null);
     }
@@ -337,8 +339,8 @@ class AgentBoard {
     const state = container.get('state');
     const mgr = AgentBoard._termMgr(container);
     const rows = [];
-    const add = (kind, item, id, st, label, project, since = '', exit = null) => {
-      if (filter(item, project)) rows.push({ kind, id, state: st, group: AgentBoard.groupOf(st), label, project, since, exit, item });
+    const add = (kind, item, id, st, label, project, since = '', exit = null, group = AgentBoard.groupOf(st)) => {
+      if (filter(item, project)) rows.push({ kind, id, state: st, group, label, project, since, exit, item });
     };
     for (const t of mgr ? mgr.allTerminals.values() : []) {
       if (state.isTaskRun(t.id) || t.outside === true) continue;
@@ -355,11 +357,15 @@ class AgentBoard {
     for (const item of outsideRows) {
       if (!item?.id?.startsWith('outside:')) continue;
       const project = state.projects.get(item.projectId) || null;
-      add('outside', item, item.id, item.state, item.name, project, item.since);
+      if (item.state === 'ended') add('outside', item, item.id, 'ended', item.name, project, item.endedAt || '', null, 'ended');
+      else add('outside', item, item.id, item.state, item.name, project, item.since);
     }
     const order = (r) => AgentBoard.GROUPS.findIndex(g => g.key === r.group);
+    // Ended: newest endedAt first; an unparseable time sorts last.
+    const endedMs = (r) => { const t = Date.parse(r.since); return Number.isNaN(t) ? -Infinity : t; };
     rows.sort((a, b) => order(a) - order(b)
-      || String(a.label).localeCompare(String(b.label)) || String(a.id).localeCompare(String(b.id)));
+      || (a.group === 'ended' && b.group === 'ended' && endedMs(b) !== endedMs(a) ? (endedMs(b) > endedMs(a) ? 1 : -1) : 0)
+      || (a.group === 'ended' ? 0 : String(a.label).localeCompare(String(b.label))) || String(a.id).localeCompare(String(b.id)));
     return rows;
   }
 
@@ -397,7 +403,50 @@ class AgentBoard {
     return () => { for (const off of offs) off(); badge.remove(); button.removeAttribute('aria-describedby'); };
   }
 
+  // An ended outside row: read-only text in a div. No handler, no tab stop, no sibling button.
+  _endedRow(r) {
+    const { id, label, item: t } = r;
+    const row = document.createElement('div');
+    row.className = 'agent-row agent-row--rail';
+    row.dataset.testid = `${this.prefix}-agent-${id}`;
+    row.dataset.kind = 'outside';
+    row.dataset.state = 'ended';
+    const head = document.createElement('span');
+    head.className = 'agent-row__head';
+    const dot = document.createElement('span');
+    dot.className = 'agent-row__dot';
+    dot.dataset.state = 'ended';
+    dot.setAttribute('role', 'img');
+    dot.setAttribute('aria-label', 'Ended');
+    const title = document.createElement('span');
+    title.className = 'agent-row__title';
+    title.textContent = label;
+    head.append(dot, title);
+    const age = AgentBoard.ago(t.endedAt);
+    if (age) {
+      const a = document.createElement('span');
+      a.className = 'agent-row__age';
+      a.dataset.testid = `${this.prefix}-agent-age-${id}`;
+      a.textContent = age;
+      head.appendChild(a);
+    }
+    const meta = document.createElement('span');
+    meta.className = 'agent-row__meta agent-row__outside';
+    meta.textContent = ['Outside', t.machine, t.directory, t.branch, 'Ended'].filter(Boolean).join(' \u00b7 ');
+    row.append(head, meta);
+    if (typeof t.lastExcerpt === 'string' && t.lastExcerpt) {
+      const line = document.createElement('span');
+      line.className = 'agent-row__line';
+      line.dataset.testid = `${this.prefix}-agent-line-${id}`;
+      line.dataset.kind = 'last-turn';
+      line.textContent = t.lastExcerpt;
+      row.appendChild(line);
+    }
+    return row;
+  }
+
   _row(r, held) {
+    if (r.group === 'ended' && r.kind === 'outside') return this._endedRow(r);
     const { kind, id, state, label, project, item: t } = r;
     const row = document.createElement('button');
     row.type = 'button';

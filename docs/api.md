@@ -367,7 +367,8 @@ Relay owns discovery, process identity, reports, and transcript reads. Eve uses
 Relay snapshots are `{type:'outside_sessions',revision,probeIntervalMs:15000,
 sessions:OutsideSession[],machines:MachineStatus[]}`. Each row has `id`, `name`,
 `projectId`, `hostId`, `machine`, `directory`, `branch`, `state` (running, asking,
-idle), `since`, `updatedAt`, `source` (hook or probe), `outside:true`,
+idle, or ended), `since`, `updatedAt`, `endedAt` (ended rows only, RFC 3339 UTC),
+`source` (hook or probe), `outside:true`,
 `readOnly:true`, `tmuxSession`, `viewable`, `viewReason`. IDs have the reserved
 `outside:` prefix; nullable project/host/tmux values remain nullable. Machine
 status has `hostId`, `machine`, `status`, `lastProbeAt`, `error`.
@@ -384,14 +385,19 @@ a delegation is active, or when the archive cannot be written, the answer is a
 Browser `cos_snapshot` additionally includes `outsideSessions` and
 `outsideMachines`; subsequent full replacements use
 `{type:'cos_outside_sessions',revision,probeIntervalMs,sessions,machines}`.
-These contain metadata only, never latest-turn text. The CoS status counts
-outside asking rows once in `needYou`. Outside identities enter neither the
+These contain metadata only, with one exception: a row with `state:'ended'`
+whose last turn eve has read also carries `lastExcerpt` (a string of at most 500
+characters, possibly empty), read once per `endedAt` through relay's detail
+route. A row whose read failed has no `lastExcerpt` key until a later snapshot
+retries it. Live rows never carry it, and `cos_list_sessions` never does. The CoS
+status counts outside asking rows once in `needYou`; ended rows add to neither
+`watching` nor `needYou`. Outside identities enter neither the
 managed roster nor browser StateStore nor errands.
 
 `cos_list_sessions` adds outside rows with `sessionId`, `label`, `project`,
 `projectId`, `state`, `since`, `headless:false`, `origin:'outside'`, `outside:true`,
-`readOnly:true`, `machine`, `directory`, `branch`, `viewable`, `viewReason`.
-`cos_session_status` reads a fresh scoped detail response at request time:
+`readOnly:true`, `machine`, `directory`, `branch`, `viewable`, `viewReason`,
+and `endedAt` on an ended row. `cos_session_status` reads a fresh scoped detail response at request time:
 `{session,lastTurn:{text,at,complete},lastExcerpt}`. Latest assistant turn text
 is bounded to its last 8192 characters; excerpt is its last 500. Expired IDs
 return `outside_session_not_found`; failed reads return

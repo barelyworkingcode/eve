@@ -110,7 +110,7 @@
     {"id":"research-citations","needs":[],"areas":["chat"],"timeoutMs":180000},
     {"id":"chat-pasted-url-source","needs":[],"areas":["chat"],"timeoutMs":180000},
     {"id":"chat-tool-search","needs":[],"areas":["chat"],"timeoutMs":240000},
-    {"id":"outside-thread","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":420000},
+    {"id":"outside-thread","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":600000},
     {"id":"cos-outside-hooks","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":360000},
     {"id":"cos-add-agent","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":300000,"screen":true},
     {"id":"cos-start-entry","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":480000,"screen":true},

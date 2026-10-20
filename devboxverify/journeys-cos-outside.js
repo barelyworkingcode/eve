@@ -428,18 +428,30 @@ async function cosOutsideSimple(env) {
   if (!(await entryWith(page, 'You', ask(hostMarker)))) problems.push('the host thread shows no You entry with the host prompt');
 
   env.step('end both outside sessions');
+  // Ended rows carry the folder too, so the live rows are told apart by the test ids they had while live.
+  const idsOf = (rows) => rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')));
+  const liveIds = { console: await idsOf(consoleRow), host: await idsOf(hostRows) };
   await endClaude(tools, consoleName);
   await endClaude(tools, hostName);
-  const gone = async (row) => poll(async () => (await row.count()) === 0 || null, { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
-  if (!(await gone(consoleRow))) problems.push(`the console row is still on the rail ${GONE_WITHIN_MS / 1000}s after its claude ended`);
-  if (!(await gone(hostRows))) problems.push(`the host row is still on the rail ${GONE_WITHIN_MS / 1000}s after its claude ended`);
+  const gone = (ids) => poll(async () => {
+    const counts = await Promise.all(ids.map((tid) => page.getByTestId(tid).count()));
+    return counts.every((n) => n === 0) || null;
+  }, { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
+  if (!(await gone(liveIds.console))) problems.push(`the console row is still on the rail ${GONE_WITHIN_MS / 1000}s after its claude ended`);
+  if (!(await gone(liveIds.host))) problems.push(`the host row is still on the rail ${GONE_WITHIN_MS / 1000}s after its claude ended`);
+  // The same two folders now show an Ended row each, under the Ended heading.
+  const endedRows = (base) => page.getByTestId('rail-agents-group-ended').locator('[data-state="ended"]').filter({ hasText: base });
+  for (const [label, base] of [['console', consoleBase], ['host', hostBase]]) {
+    const shown = await poll(async () => (await endedRows(base).count()) > 0 || null, { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
+    if (!shown) problems.push(`no Ended row for the ${label} folder ${base} under the Ended heading ${GONE_WITHIN_MS / 1000}s after its claude ended`);
+  }
 
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `the rail showed two Outside rows (console ${consoleBase} on ${consoleBranch}, host ${hostBase} on ${hostBranch}) with machine, folder, branch and a state; `
     + `the Chief of Staff's reply carried ${consoleMarker}; with no hooks the row showed ${probeGap}; `
     + `the host row read Read-only thread and its thread showed the prompt and ${hostMarker}; `
     + `the View read-only button showed the Read-only badge, and typing up to Close sent no terminal_input or terminal_resize and never reached the pane; `
-    + `both rows were gone within ${GONE_WITHIN_MS / 1000}s of their claude ending`);
+    + `both live rows left the rail and an Ended row showed for each folder within ${GONE_WITHIN_MS / 1000}s of their claude ending`);
 }
 
 // — cos-outside-hooks --------------------------------------------------------
@@ -659,9 +671,44 @@ async function outsideThread(env) {
   const told = await toast;
   if (!told) problems.push(`no notice "${notice}"`);
 
+  env.step('find the Ended row');
+  await openChiefOfStaff(page, env);
+  const endedFrame = await poll(async () => seen.sessions.find((s) => s.state === 'ended' && String(s.directory || '').includes(base)) || null,
+    { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
+  if (!endedFrame) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}no cos_outside_sessions frame listed an ended row for ${base} within ${GONE_WITHIN_MS / 1000}s of the claude ending`);
+  const group = page.getByTestId('rail-agents-group-ended');
+  const endedRow = group.locator('[data-state="ended"]').filter({ hasText: base });
+  const endedThere = await poll(async () => (await endedRow.count()) > 0 || null, { timeoutMs: 10000, intervalMs: 250 });
+  if (!endedThere) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}the frame listed an ended row for ${base} but the Ended group shows none`);
+  // The heading is uppercased by CSS, which innerText returns; textContent of the title span is the source text.
+  const endedHead = (await group.getByRole('heading').first().locator('span').first().textContent({ timeout: 2000 }).catch(() => '')).trim();
+  if (!/^Ended\b/.test(endedHead)) problems.push(`the group holding the ended row is headed "${endedHead}", not Ended`);
+  const endedMeta = (await metaOf(endedRow.first())).split(' · ').pop();
+  if (endedMeta !== 'Ended') problems.push(`the ended row's line 2 ends with "${endedMeta}", not Ended`);
+  if ((await endedRow.first().evaluate((el) => el.tagName)) !== 'DIV' || (await endedRow.first().locator('button').count()) > 0
+    || (await group.locator('.agent-row-wrap').filter({ has: endedRow.first() }).getByRole('button').count()) > 0) problems.push('the ended row is a button or has a button beside it');
+
+  env.step('read the last turn on the Ended row');
+  const withTurn = await poll(async () => seen.sessions.find((s) => s.id === endedFrame.id && typeof s.lastExcerpt === 'string' && s.lastExcerpt.includes(marker)) || null,
+    { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
+  if (!withTurn) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}no cos_outside_sessions frame gave the ended row for ${base} a lastExcerpt holding ${marker} within ${GONE_WITHIN_MS / 1000}s`);
+  const turnLine = endedRow.first().locator('[data-kind="last-turn"]');
+  const turnShown = await expect(turnLine).toContainText(marker, { timeout: 10000 }).then(() => true, () => false);
+  if (!turnShown) problems.push(`line 3 of the ended row does not show ${marker}`);
+
+  env.step('ask the Chief of Staff to summarize the ended session');
+  const endedName = String(withTurn.name || name || base);
+  const from = await say(page, seen, `Summarize the outside session ${endedName}. Quote its last reply.`);
+  const post = await waitPost(seen, from, ['reply', 'notice', 'start_card', 'started']);
+  if (!post) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}no post within ${COS_TURN_WITHIN_MS / 1000}s of Return on the summary question`);
+  const summary = String(post.body || post.text || post.error || '').replace(/\s+/g, ' ').trim();
+  if (post.kind !== 'reply') problems.push(`the summary question posted "${post.kind}", want reply: "${summary.slice(0, 160)}"`);
+  else if (!summary.includes(marker)) problems.push(`the summary reply does not carry ${marker}: "${summary.slice(0, 200)}"`);
+
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `the row for ${base} read Read-only thread; its thread showed a You entry with the prompt, a Claude entry carrying ${marker} with no script, iframe, img or on* attribute ("${sample}") and a Tool entry shown as a closed details or a short pre, with no textbox, Send or Stop; `
-    + `once the claude ended the tab closed with "${notice}" within ${GONE_WITHIN_MS / 1000}s`);
+    + `once the claude ended the tab closed with "${notice}" within ${GONE_WITHIN_MS / 1000}s; `
+    + `an ended row for ${base} sat under Ended with Ended in line 2 and no button, line 3 showed ${marker}, and the Chief of Staff's summary quoted it`);
 }
 
 module.exports = {
@@ -671,7 +718,7 @@ module.exports = {
       id: 'cos-outside-simple', claude: true, timeoutMs: 600000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true, run: cosOutsideSimple,
     },
     outsideThread: {
-      id: 'outside-thread', claude: true, timeoutMs: 420000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideThread,
+      id: 'outside-thread', claude: true, timeoutMs: 600000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideThread,
     },
     cosOutsideHooks: {
       id: 'cos-outside-hooks', claude: true, timeoutMs: 360000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosOutsideHooks,
