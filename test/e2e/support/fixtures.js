@@ -12,6 +12,7 @@ const { devices } = base;
 const { Stack } = require('./stack');
 const worlds = require('./worlds');
 const { micWav } = require('./mic-audio');
+const { loadSchema, checkLogFile } = require('./log-schema');
 
 // `defaultBrowserType` can't be set inside a describe, and the one project is Chromium anyway.
 function profile(name) {
@@ -216,8 +217,8 @@ const test = base.test.extend({
     });
     let setupError = null;
     try {
-      if (!stack.bins.fakerelay || !stack.bins.relayscheduler) {
-        throw new Error('EVE_E2E_FAKERELAY / EVE_E2E_RELAYSCHEDULER are not set; run through `npx playwright test` (global setup builds them)');
+      if (!stack.bins.fakerelay || !stack.bins.relayscheduler || !process.env.EVE_E2E_LOG_SCHEMA) {
+        throw new Error('EVE_E2E_FAKERELAY / EVE_E2E_RELAYSCHEDULER / EVE_E2E_LOG_SCHEMA are not set; run through `npx playwright test` (global setup builds them)');
       }
       await stack.start();
       await use(stack);
@@ -225,9 +226,18 @@ const test = base.test.extend({
       setupError = err;
       throw err;
     } finally {
+      let logError = null;
       try {
         await stack.stop();
-        if (setupError || testInfo.status !== testInfo.expectedStatus) {
+        // fakerelay exits only after eve has, so eve.log is complete here.
+        if (!setupError) {
+          try {
+            checkLogFile(path.join(stack.relayDir, 'logs', 'eve.log'), loadSchema(process.env.EVE_E2E_LOG_SCHEMA), { name: 'eve.log' });
+          } catch (err) {
+            logError = err;
+          }
+        }
+        if (setupError || logError || testInfo.status !== testInfo.expectedStatus) {
           for (const [name, file] of stack.logFiles()) await testInfo.attach(name, { path: file });
           if (stack.overrun) await testInfo.attach('teardown-overrun', { body: stack.overrun });
         }
@@ -237,6 +247,7 @@ const test = base.test.extend({
           if (path.basename(dir).startsWith('ev-cmd-') && path.dirname(dir) === os.tmpdir()) fs.rmSync(dir, { recursive: true, force: true });
         }
       }
+      if (logError) throw logError;
     }
   },
 

@@ -2,7 +2,8 @@
 'use strict';
 
 // Builds the two Go programs the e2e suite runs eve against, from the commits
-// in test/e2e/relay-pin.json: fakerelay (relay's repo) and relayScheduler.
+// in test/e2e/relay-pin.json: fakerelay (relay's repo) and relayScheduler, and
+// copies relay's logging schema out of the fakerelay clone.
 // Both are built one way: fetch the exact commit, `go build`, cache by commit.
 // Nothing here runs at require time, so `playwright test --list` stays cheap.
 
@@ -69,10 +70,32 @@ function readPin() {
   return pin;
 }
 
-async function buildOne(name, entry, cache, env) {
+const SCHEMA_NAME = 'logging-schema.json';
+
+// Copies relay's logging schema out of a checkout into destDir by temp file plus
+// rename. The caller adds the commit to the missing-schema message.
+function extractLoggingSchema(srcDir, destDir) {
+  const from = path.join(srcDir, 'docs', SCHEMA_NAME);
+  if (!fs.existsSync(from)) {
+    throw new BuildError(`relay has no docs/${SCHEMA_NAME}; the e2e log check needs a pin that has it (relay 2113de5 or later)`);
+  }
+  const dest = path.join(destDir, SCHEMA_NAME);
+  const tmp = path.join(destDir, `.${SCHEMA_NAME}.${process.pid}.tmp`);
+  fs.copyFileSync(from, tmp);
+  fs.renameSync(tmp, dest);
+  return dest;
+}
+
+// wantBin: build (or reuse) the binary. wantSchema: also keep relay's logging
+// schema next to it. A cache dir holds whatever has been asked for so far; a
+// hit needs everything asked for now.
+async function buildOne(name, entry, cache, env, { wantBin = true, wantSchema = false } = {}) {
   const finalDir = path.join(cache, `${name}-${entry.commit}`);
   const finalBin = path.join(finalDir, name);
-  if (fs.existsSync(finalBin)) return finalBin;
+  const finalSchema = path.join(finalDir, SCHEMA_NAME);
+  const haveBin = !wantBin || fs.existsSync(finalBin);
+  const haveSchema = !wantSchema || fs.existsSync(finalSchema);
+  if (haveBin && haveSchema) return { bin: finalBin, schema: finalSchema };
 
   fs.mkdirSync(cache, { recursive: true });
   const work = fs.mkdtempSync(path.join(cache, `.build-${name}-`));
@@ -92,23 +115,30 @@ async function buildOne(name, entry, cache, env) {
       throw new BuildError(`git fetch ${entry.repo} ${entry.commit} failed: checkout: ${tail(res.err || res.out)}`);
     }
 
-    const staged = path.join(work, 'out');
-    fs.mkdirSync(staged);
-    // -buildvcs=false: the throwaway checkout has no history to stamp.
-    res = await run('go', ['build', '-C', path.join(src, entry.dir), '-buildvcs=false', '-o', path.join(staged, name), entry.pkg],
-      { env: gitEnv });
-    if (res.spawnError && res.spawnError.code === 'ENOENT') {
-      throw new BuildError('go not found (Go 1.25+ builds fakerelay from test/e2e/relay-pin.json; or set EVE_FAKERELAY_BIN)');
+    fs.mkdirSync(finalDir, { recursive: true });
+    if (!haveSchema) {
+      try {
+        extractLoggingSchema(src, finalDir);
+      } catch (err) {
+        if (err instanceof BuildError) throw new BuildError(err.message.replace(/^relay /, `relay ${entry.commit} `));
+        throw err;
+      }
     }
-    if (res.code !== 0) throw new BuildError(`go build ${name} failed: ${tail(res.err || res.out)}`);
 
-    try {
-      fs.renameSync(staged, finalDir);
-    } catch (err) {
-      // A parallel run won the rename; its binary is the same commit.
-      if (!fs.existsSync(finalBin)) throw err;
+    if (!haveBin) {
+      const staged = path.join(work, 'out');
+      fs.mkdirSync(staged);
+      // -buildvcs=false: the throwaway checkout has no history to stamp.
+      res = await run('go', ['build', '-C', path.join(src, entry.dir), '-buildvcs=false', '-o', path.join(staged, name), entry.pkg],
+        { env: gitEnv });
+      if (res.spawnError && res.spawnError.code === 'ENOENT') {
+        throw new BuildError('go not found (Go 1.25+ builds fakerelay from test/e2e/relay-pin.json; or set EVE_FAKERELAY_BIN)');
+      }
+      if (res.code !== 0) throw new BuildError(`go build ${name} failed: ${tail(res.err || res.out)}`);
+      // A parallel run's binary is the same commit; the rename replaces it atomically.
+      fs.renameSync(path.join(staged, name), finalBin);
     }
-    return finalBin;
+    return { bin: finalBin, schema: finalSchema };
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
@@ -136,7 +166,13 @@ async function buildFakes(env = process.env) {
   ];
   for (const [key, pinKey, envName] of targets) {
     const own = override(envName, env);
-    result[key] = own || await buildOne(key, need()[pinKey], cache, env);
+    // The schema always comes from the pinned relay commit, also when a binary is overridden.
+    const wantSchema = key === 'fakerelay';
+    const built = own && !wantSchema
+      ? null
+      : await buildOne(key, need()[pinKey], cache, env, { wantBin: !own, wantSchema });
+    result[key] = own || built.bin;
+    if (wantSchema) result.logSchema = built.schema;
   }
   announced = true;
   return result;
@@ -145,7 +181,7 @@ async function buildFakes(env = process.env) {
 async function cli() {
   try {
     const bins = await buildFakes();
-    process.stdout.write(`fakerelay ${bins.fakerelay}\nrelayscheduler ${bins.relayscheduler}\n`);
+    process.stdout.write(`fakerelay ${bins.fakerelay}\nrelayscheduler ${bins.relayscheduler}\nlogschema ${bins.logSchema}\n`);
     return 0;
   } catch (err) {
     if (!(err instanceof BuildError)) throw err;
@@ -156,4 +192,4 @@ async function cli() {
 
 if (require.main === module) cli().then((code) => process.exit(code));
 
-module.exports = { buildFakes, BuildError };
+module.exports = { buildFakes, extractLoggingSchema, BuildError };
