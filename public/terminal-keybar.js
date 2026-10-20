@@ -212,7 +212,8 @@ class TerminalKeybar {
   /**
    * Ride just above the soft keyboard. The VisualViewport shrinks when the
    * keyboard opens; the gap between the layout viewport bottom and the visual
-   * viewport bottom is the keyboard height, so we translate the bar up by it.
+   * viewport bottom is the keyboard height. Padding the pane by it shrinks the
+   * terminal rows to what is visible and leaves the bar just above the keyboard.
    */
   _initViewportTracking() {
     const vv = window.visualViewport;
