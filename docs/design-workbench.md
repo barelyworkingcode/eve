@@ -245,3 +245,11 @@ The board becomes the shared component for a third mount, the Chief of Staff rai
   - `onOpen(row)`: called after a row tap or Drop in.
 - **Rail headers.** In the rail layout each group header has `tabindex="-1"` and the test id `{p}-agents-group-{key}-head`, so "N need you" can scroll to it and focus it.
 - **Touch.** Rail rows and the Done toggle are at least 44px high under `(pointer: coarse)`.
+
+## Amended by eve#592
+
+- **Rule.** `AgentBoard.showsDropIn(r)`: a headless Claude session row (never an outside row) shows the button in Needs you and Idle, and in Working unless this page's own drop-in terminal holds it. Done and Ended never show it.
+- **Labels.** Needs you and Idle: `Drop in` (`{p}-drop-in-{id}`, busy `Dropping in…`). Working: `Take over after this turn` (`{p}-take-over-{id}`, accessible name `Take over {label} after this turn`, busy `Waiting for the turn to end…`). It is the same POST; relay waits for the turn. The busy text follows the kind fixed at the tap.
+- **`held`.** `AgentBoard.held` maps a session id to the terminal a drop-in on this page opened. `collect()` drops an entry once that terminal is gone or stopped. Another page or device still shows Take over and gets relay's `dropped_in` refusal.
+- **`onOpen` timing.** A row's Drop in or Take over calls `onOpen(row)` when relay answers (terminal or refusal), not at the tap, so the phone sheet stays open on the waiting text. A row tap is unchanged.
+- **Refusal.** The existing error toast, text collapsed to one line.
