@@ -100,11 +100,13 @@ class ChiefOfStaffPage {
 
   _openOutsideThread(row) {
     const current = this.outsideRows.get(row?.id);
+    if (current?.state === 'ended') return;
     if (current) this.container.get('outsideThread').open(current);
   }
 
   async _openOutside(row) {
     const current = this.outsideRows.get(row.id);
+    if (current?.state === 'ended') return;
     if (!current?.viewable || !current.tmuxSession) return;
     try {
       const descriptor = await this.container.get('api').viewOutsideSession(current);

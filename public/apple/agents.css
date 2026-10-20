@@ -62,6 +62,12 @@
   .agent-row__action { min-height: 44px; min-width: 44px; }
 }
 .agent-row:hover { background: var(--bg-hover); }
+/* An ended outside row is text, not a control. */
+.agent-row[data-state="ended"][data-kind="outside"], .agent-row[data-state="ended"][data-kind="outside"]:hover { background: none; cursor: default; }
+.agent-row[data-state="ended"][data-kind="outside"] .agent-row__line {
+  white-space: normal; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3; line-clamp: 3; overflow-wrap: anywhere;
+}
 .agent-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
 
 .agent-row__head {
