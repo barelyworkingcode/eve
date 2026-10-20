@@ -322,8 +322,7 @@ class ProjectPage {
         e.stopPropagation();
         // detail 0 is a keyboard press: the menu opens under the button and takes focus.
         if (e.detail === 0) {
-          const r = menuBtn.getBoundingClientRect();
-          this._showFolderMenu(r.left, r.bottom, name, { anchor: menuBtn });
+          this._showFolderMenu(0, 0, name, { anchor: menuBtn });
         } else {
           this._showFolderMenu(e.clientX, e.clientY, name);
         }

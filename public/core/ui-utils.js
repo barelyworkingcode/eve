@@ -128,7 +128,7 @@ function _openMenuFromKeyboard(menu, anchor) {
     else if (e.key === 'Home') entries[0].focus();
     else if (e.key === 'End') entries[entries.length - 1].focus();
     else if (e.key === 'Escape') close(true);
-    else if (e.key === 'Tab') close(false);
+    else if (e.key === 'Tab') close(true);
     else return;
     if (e.key !== 'Tab') e.preventDefault();
   });

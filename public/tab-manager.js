@@ -695,6 +695,13 @@ class TabManager {
     return panes.type('image').ownedBy(tab, identity);
   }
 
+  // True while keyboard focus sits on the tab strip. Focus that arrives later (history,
+  // a terminal's first paint) must not steal it. A mouse click is not :focus-visible.
+  keyboardOnStrip() {
+    const el = document.activeElement;
+    return !!(el && this.tabBar.contains(el) && el.matches(':focus-visible'));
+  }
+
   render() {
     // One Tab stop for the strip, arrows inside (core/roving-focus.js).
     if (!this._roving && typeof RovingFocus !== 'undefined') {
@@ -706,6 +713,8 @@ class TabManager {
         // Delete or Backspace presses the focused tab's close button, which is not a Tab stop.
         onKey: (e, el) => {
           if (e.key !== 'Delete' && e.key !== 'Backspace') return false;
+          // A mouse user who clicked a tab and presses Backspace must not close it.
+          if (!el.matches(':focus-visible')) return false;
           el.closest('.tab')?.querySelector('.tab-close')?.click();
           return true;
         },

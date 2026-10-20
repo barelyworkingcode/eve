@@ -136,7 +136,7 @@
 /* Row buttons have tabindex -1 and are reached with the arrow keys, so they
    show while they hold focus. The delete div comes first in its row, so the
    row slides left to uncover it. */
-.project-page .project-tree__folder-header:focus-within .project-tree__folder-menu-btn {
+.project-page .project-tree__folder-header:has(:focus-visible) .project-tree__folder-menu-btn {
   opacity: 1;
 }
 .project-page .project-tree__session-delete:focus + .project-tree__session-item {
