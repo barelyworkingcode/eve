@@ -148,6 +148,18 @@ const answer = (status, data) => () => Promise.resolve({ status, data });
     assert.strictEqual(f.posts().length, 1);
     release({ status: 201, data: { terminalId: 't9' } });
     assert.strictEqual((await first).status, 201);
+    // The bad-id check (5) comes before the busy check (6): a resume in flight, then a snapshot
+    // where the same row has no usable id, answers unavailable and not busy.
+    f.post = () => new Promise(res => { release = res; });
+    const held = f.outside.resume('outside:1', SIZE);
+    f.rows = [ended(1, { claudeSessionId: 'not-a-uuid' })];
+    await f.refresh();
+    assert.deepStrictEqual(await f.outside.resume('outside:1', SIZE),
+      { status: 409, body: { error: 'outside_resume_unavailable', message: "Relay gave no conversation id, so it can't be resumed." } });
+    release({ status: 201, data: { terminalId: 't11' } });
+    await held;
+    f.rows = [ended(1)];
+    await f.refresh();
     // Released: a later resume is accepted again.
     f.post = answer(201, { terminalId: 't10' });
     assert.strictEqual((await f.outside.resume('outside:1', SIZE)).status, 201);
@@ -179,10 +191,12 @@ const answer = (status, data) => () => Promise.resolve({ status, data });
     f.rows = [ended(1)];
     await f.refresh();
     assert.strictEqual((await f.outside.resume('outside:2', SIZE)).status, 404);
-    // A row that turns live loses its id with the next snapshot.
+    // A row that turns live is refused as live, not as a missing id.
     f.rows = [{ ...ended(1), state: 'working', claudeSessionId: undefined }];
     await f.refresh();
-    assert.strictEqual((await f.outside.resume('outside:1', SIZE)).status, 409);
+    const live = await f.outside.resume('outside:1', SIZE);
+    assert.strictEqual(live.status, 409);
+    assert.strictEqual(live.body.error, 'outside_session_live');
     // The id in an older snapshot is replaced, not kept: a new id is the one sent.
     f.rows = [ended(1, { claudeSessionId: UUID2 })];
     await f.refresh();

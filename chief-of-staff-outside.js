@@ -1,5 +1,7 @@
 'use strict';
 
+const { NullLogger } = require('./logger');
+
 // Independent, listen-only inventory. No outside text enters the managed ledger.
 const SCOPE = { scope: 'chief-of-staff' };
 const ROOT = '/api/chief-of-staff/outside-sessions';
@@ -9,7 +11,8 @@ const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 const pick = (row, fields) => Object.fromEntries(fields.filter(k => row[k] !== undefined).map(k => [k, row[k]]));
 
 class ChiefOfStaffOutside {
-  constructor({ relayTransport, onSnapshot, resolveProject }) {
+  constructor({ relayTransport, onSnapshot, resolveProject, log }) {
+    this.log = log || new NullLogger();
     this.transport = relayTransport;
     this.resolveProject = resolveProject || (() => null);
     // Row id -> Claude session id, ended rows only. Server-only: pick() keeps it out of every row,
@@ -125,7 +128,18 @@ class ChiefOfStaffOutside {
 
   // Resume an ended row in a new managed terminal on the same conversation. Never throws.
   // The browser sends only the row id; the conversation id is eve's own, and it becomes a CLI argument.
-  async resume(id, { cols, rows }) {
+  async resume(id, size) {
+    const result = await this._resume(id, size);
+    // One line per outcome: the row id and the result. Never the Claude session id.
+    const { status, body } = result;
+    const attrs = { op: 'outside.resume', id, http_status: status };
+    if (status === 201) attrs.terminal_id = body.terminal.terminalId;
+    else attrs.error = body.error;
+    this.log[status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info']('Outside resume', attrs);
+    return result;
+  }
+
+  async _resume(id, { cols, rows }) {
     const refuse = (status, error, message) => ({ status, body: { error, message } });
     const unavailable = (message) => refuse(409, 'outside_resume_unavailable', message);
     const row = this.snapshot.sessions.find(r => r.id === id);
