@@ -163,6 +163,10 @@ class AgentBoard {
   // sessionId -> terminalId of a drop-in this page opened. While that terminal lives, this
   // page does not offer Take over: relay reads the held session as running and would refuse.
   static held = new Map();
+  // Ended outside rows: ids with a Resume request open, and id -> terminalId of a resume this
+  // page opened. Shared by every board, like `dropping`.
+  static resuming = new Set();
+  static resumed = new Map();
 
   // Rail and sheet options (eve#274): `maxRows` (Infinity: no cap), `layout` ('board' or
   // 'rail'), `collapseDone`, `note(sessionId)` for a row's third line, `onCounts` (group
@@ -242,7 +246,10 @@ class AgentBoard {
     if (relayDown) kind = 'offline';
     else if (!mgr || !mgr.listLoaded) kind = 'loading';
     else {
-      rows = AgentBoard.collect(this.container, this.filter, this.outsideRows?.() || []);
+      const outside = this.outsideRows?.() || [];
+      rows = AgentBoard.collect(this.container, this.filter, outside);
+      // A row that left the Ended list (or went live) forgets its Resumed state.
+      if (this.outsideRows) for (const oid of AgentBoard.resumed.keys()) if (!outside.some(o => o?.id === oid && o.state === 'ended')) AgentBoard.resumed.delete(oid);
       if (rows.length === 0) kind = 'empty';
     }
     el.dataset.state = kind;
@@ -321,6 +328,45 @@ class AgentBoard {
     }
   }
 
+  // The one place the Resume rule lives: an ended outside row in a console project.
+  static showsResume(r) {
+    return r.kind === 'outside' && r.group === 'ended' && r.item.state === 'ended'
+      && !!r.project && !r.item.hostId && !r.project.hostId;
+  }
+
+  // The line for an ended outside row that has no Resume button.
+  static resumeReason(r) {
+    if (r.kind !== 'outside' || r.group !== 'ended' || r.item.state !== 'ended' || AgentBoard.showsResume(r)) return '';
+    return r.project ? "On a host, so it can't be resumed here." : "Not in a project, so it can't be resumed.";
+  }
+
+  // Never rejects. No client timeout: relay bounds the wait, and giving up sooner
+  // would orphan a terminal it already launched.
+  static async resumeOutside(container, id) {
+    if (!id?.startsWith('outside:') || AgentBoard.resuming.has(id)) return;
+    AgentBoard.resuming.add(id);
+    const renderAll = () => { for (const b of AgentBoard.live) b.render(); };
+    const toast = (message) => container.get('bus').emit(EVT.TOAST_SHOW, {
+      id: `resume-${id}`, message: `Can't resume: ${String(message).replace(/\s+/g, ' ').trim()}`, type: 'error', duration: 8000,
+    });
+    renderAll();
+    try {
+      const body = await container.get('api').resumeOutside(id, AgentBoard.DROP_IN_SIZE);
+      const terminal = body?.terminal;
+      if (terminal?.terminalId) {
+        AgentBoard.resumed.set(id, terminal.terminalId);
+        AgentBoard._termMgr(container)?.openDropIn(terminal);
+      } else {
+        toast('relay did not return a terminal.');
+      }
+    } catch (err) {
+      toast(err?.body?.message || err?.body?.error || "relay isn't reachable");
+    } finally {
+      AgentBoard.resuming.delete(id);
+      renderAll();
+    }
+  }
+
   static groupOf(state) {
     return AgentBoard.GROUPS.find(g => g.states.includes(state))?.key || 'working';
   }
@@ -361,6 +407,10 @@ class AgentBoard {
     for (const [sid, tid] of AgentBoard.held) {
       const t = mgr?.allTerminals.get(tid);
       if (!t || t.state === 'stopped') AgentBoard.held.delete(sid);
+    }
+    for (const [oid, tid] of AgentBoard.resumed) {
+      const t = mgr?.allTerminals.get(tid);
+      if (!t || t.state === 'stopped') AgentBoard.resumed.delete(oid);
     }
     for (const t of mgr ? mgr.allTerminals.values() : []) {
       if (state.isTaskRun(t.id) || t.outside === true) continue;
@@ -423,7 +473,8 @@ class AgentBoard {
     return () => { for (const off of offs) off(); badge.remove(); button.removeAttribute('aria-describedby'); };
   }
 
-  // An ended outside row: read-only text in a div. No handler, no tab stop, no sibling button.
+  // An ended outside row: read-only text in a div. No handler, no tab stop. Its one sibling
+  // button is Resume (a new managed terminal; the outside process is never touched).
   _endedRow(r) {
     const { id, label, item: t } = r;
     const row = document.createElement('div');
@@ -454,6 +505,15 @@ class AgentBoard {
     meta.className = 'agent-row__meta agent-row__outside';
     meta.textContent = ['Outside', t.machine, t.directory, t.branch, 'Ended'].filter(Boolean).join(' \u00b7 ');
     row.append(head, meta);
+    const reason = AgentBoard.resumeReason(r);
+    if (reason) {
+      const why = document.createElement('span');
+      why.className = 'agent-row__line';
+      why.dataset.testid = `${this.prefix}-resume-reason-${id}`;
+      why.dataset.kind = 'resume-reason';
+      why.textContent = reason;
+      row.appendChild(why);
+    }
     if (typeof t.lastExcerpt === 'string' && t.lastExcerpt) {
       const line = document.createElement('span');
       line.className = 'agent-row__line';
@@ -462,7 +522,35 @@ class AgentBoard {
       line.textContent = t.lastExcerpt;
       row.appendChild(line);
     }
-    return row;
+    return this._withResume(row, r);
+  }
+
+  _withResume(row, r) {
+    if (!AgentBoard.showsResume(r)) return row;
+    const { id, label } = r;
+    const wrap = document.createElement('div');
+    wrap.className = 'agent-row-wrap';
+    const act = document.createElement('button');
+    act.type = 'button';
+    act.className = 'agent-row__action';
+    act.dataset.testid = `${this.prefix}-resume-${id}`;
+    act.setAttribute('aria-label', `Resume ${label} in a terminal`);
+    if (AgentBoard.resuming.has(id)) {
+      act.disabled = true;
+      act.setAttribute('aria-busy', 'true');
+      act.textContent = 'Resuming\u2026';
+    } else if (AgentBoard.resumed.has(id)) {
+      act.disabled = true;
+      act.textContent = 'Resumed';
+    } else {
+      act.textContent = 'Resume';
+      act.addEventListener('click', () => {
+        this.onOpen?.(r);
+        AgentBoard.resumeOutside(this.container, id);
+      });
+    }
+    wrap.append(row, act);
+    return wrap;
   }
 
   _row(r, held) {

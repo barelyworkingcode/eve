@@ -257,7 +257,7 @@ class ChiefOfStaff {
     this.state = { day: localDay(new Date(now())), calls: 0, rowCalls: 0, modelSessionId: null, personSessionId: null, limitNoticeDay: null };
     this._writeChain = Promise.resolve();
 
-    this.outside = new ChiefOfStaffOutside({ relayTransport, onSnapshot: (snapshot) => {
+    this.outside = new ChiefOfStaffOutside({ relayTransport, resolveProject: (id) => this.resolveProject(id), onSnapshot: (snapshot) => {
       this._fanOut({ type: 'cos_outside_sessions', ...snapshot });
       this._emitStatus();
     } });

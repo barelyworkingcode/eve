@@ -685,8 +685,10 @@ async function outsideThread(env) {
   if (!/^Ended\b/.test(endedHead)) problems.push(`the group holding the ended row is headed "${endedHead}", not Ended`);
   const endedMeta = (await metaOf(endedRow.first())).split(' · ').pop();
   if (endedMeta !== 'Ended') problems.push(`the ended row's line 2 ends with "${endedMeta}", not Ended`);
+  // G6.106: the row is no button, and the only button beside it is Resume.
+  const besideEnded = group.locator('.agent-row-wrap').filter({ has: endedRow.first() }).getByRole('button');
   if ((await endedRow.first().evaluate((el) => el.tagName)) !== 'DIV' || (await endedRow.first().locator('button').count()) > 0
-    || (await group.locator('.agent-row-wrap').filter({ has: endedRow.first() }).getByRole('button').count()) > 0) problems.push('the ended row is a button or has a button beside it');
+    || (await besideEnded.count()) !== 1 || !/^Resume .+ in a terminal$/.test((await besideEnded.first().getAttribute('aria-label')) || '')) problems.push('the ended row is a button, or the only button beside it is not Resume');
 
   env.step('read the last turn on the Ended row');
   const withTurn = await poll(async () => seen.sessions.find((s) => s.id === endedFrame.id && typeof s.lastExcerpt === 'string' && s.lastExcerpt.includes(marker)) || null,
@@ -705,10 +707,54 @@ async function outsideThread(env) {
   if (post.kind !== 'reply') problems.push(`the summary question posted "${post.kind}", want reply: "${summary.slice(0, 160)}"`);
   else if (!summary.includes(marker)) problems.push(`the summary reply does not carry ${marker}: "${summary.slice(0, 200)}"`);
 
+  env.step('tap Resume on the Ended row');
+  // Registered before the tap: whatever terminal the answer names is closed, even on a failure path.
+  let resumedId = '';
+  env.cleanup('close the resumed terminal', async () => { if (resumedId) await env.api.closeTerminal(resumedId).catch(() => {}); });
+  const answered = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes(`/api/outside-sessions/${encodeURIComponent(endedFrame.id)}/resume`), { timeout: GONE_WITHIN_MS })
+    .then((r) => r.json()).catch(() => null);
+  const clickedAt = Date.now();
+  await besideEnded.first().click({ timeout: 5000 });
+  const answer = await answered;
+  resumedId = answer?.terminal?.terminalId || '';
+  if (!resumedId) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}Resume on ${base} opened no terminal (answer: ${JSON.stringify(answer || null).slice(0, 160)})`);
+  const tabOpen = await poll(async () => (await page.locator('.tab.active').and(page.locator(`[data-tab-id="${resumedId}"]`)).count()) > 0 || null, { timeoutMs: TRUST_WITHIN_MS, intervalMs: 250 });
+  if (!tabOpen) return result(id, FAIL, `${problems.join('; ')}${problems.length ? '; ' : ''}no active terminal tab for the resumed ${base} within ${TRUST_WITHIN_MS / 1000}s of Resume`);
+
+  env.step('wait for the conversation in the terminal');
+  const termPane = page.locator('#terminal');
+  let trustAnswered = false;
+  const history = await poll(async () => {
+    // xterm wraps rows even mid-word: compare with whitespace gone, over the rows and the scrollback.
+    const visible = await termPane.innerText({ timeout: 2000 }).catch(() => '');
+    const buffered = await page.evaluate(() => {
+      const b = window.client?.terminalManager?.activeTerm?.()?.buffer?.active;
+      if (!b) return '';
+      let out = '';
+      for (let i = 0; i < b.length; i++) out += (b.getLine(i)?.translateToString(true) || '') + '\n';
+      return out;
+    }).catch(() => '');
+    const flat = `${visible}${buffered}`.replace(/\s+/g, '');
+    if (flat.includes(marker)) return true;
+    if (!trustAnswered && /trust/i.test(flat)) {
+      trustAnswered = true;
+      await termPane.locator('.xterm-screen').filter({ visible: true }).last().click({ timeout: 5000 });
+      await page.keyboard.press('Enter');
+    }
+    return null;
+  }, { timeoutMs: Math.max(1, clickedAt + REPLY_WITHIN_MS - Date.now()), intervalMs: 500 });
+  if (!history) problems.push(`"${marker}" is not in the resumed terminal within ${REPLY_WITHIN_MS / 1000}s of Resume${trustAnswered ? ' (a trust prompt was answered)' : ''}`);
+
+  env.step('close the resumed terminal');
+  await page.locator('.tab.active .tab-close').click({ timeout: 5000 });
+  const gone = await expect(page.locator(`[data-tab-id="${resumedId}"]`)).toHaveCount(0, { timeout: GONE_WITHIN_MS }).then(() => true, () => false);
+  if (!gone) problems.push(`the tab for terminal ${resumedId} is still open ${GONE_WITHIN_MS / 1000}s after Close`);
+
   if (problems.length) return result(id, FAIL, problems.join('; '));
   return result(id, PASS, `the row for ${base} read Read-only thread; its thread showed a You entry with the prompt, a Claude entry carrying ${marker} with no script, iframe, img or on* attribute ("${sample}") and a Tool entry shown as a closed details or a short pre, with no textbox, Send or Stop; `
     + `once the claude ended the tab closed with "${notice}" within ${GONE_WITHIN_MS / 1000}s; `
-    + `an ended row for ${base} sat under Ended with Ended in line 2 and no button, line 3 showed ${marker}, and the Chief of Staff's summary quoted it`);
+    + `an ended row for ${base} sat under Ended with Ended in line 2 and Resume as its only button, line 3 showed ${marker}, and the Chief of Staff's summary quoted it; `
+    + `Resume opened a terminal tab that held ${marker} from the ended conversation, and closing it closed the tab`);
 }
 
 module.exports = {
@@ -718,7 +764,7 @@ module.exports = {
       id: 'cos-outside-simple', claude: true, timeoutMs: 600000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true, run: cosOutsideSimple,
     },
     outsideThread: {
-      id: 'outside-thread', claude: true, timeoutMs: 600000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideThread,
+      id: 'outside-thread', claude: true, timeoutMs: 720000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideThread,
     },
     cosOutsideHooks: {
       id: 'cos-outside-hooks', claude: true, timeoutMs: 360000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosOutsideHooks,
