@@ -364,9 +364,9 @@ class OutsideThreadPage {
       const d = this._el('details', 'outside-thread__tool');
       d.dataset.kind = 'call';
       const sum = this._el('summary');
-      const name = this._el('span', 'outside-thread__tool-name');
-      name.textContent = shape.name;
-      sum.appendChild(name);
+      const nameEl = this._el('span', 'outside-thread__tool-name');
+      nameEl.textContent = shape.name;
+      sum.appendChild(nameEl);
       const brief = this._el('span', 'outside-thread__tool-summary');
       brief.textContent = shape.summary;
       sum.appendChild(brief);

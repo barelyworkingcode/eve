@@ -42,4 +42,21 @@ assert.strictEqual(s.kind, 'call');
 assert.strictEqual(s.name, 'Bash');
 assert.strictEqual(s.input, '{"command":"ls"}');
 
+// Relay's wire: a call's text is "<name> <input>", or the name alone for no input.
+s = shape('TodoRead', 'call', 'TodoRead');
+assert.deepStrictEqual({ kind: s.kind, name: s.name, input: s.input }, { kind: 'call', name: 'TodoRead', input: '' });
+s = shape('my tool {"a":1}', 'call', 'my tool');
+assert.strictEqual(s.kind, 'call');
+assert.strictEqual(s.input, '{"a":1}');
+// Name and text capped alike: nothing follows the name.
+const capped = 'x'.repeat(8191) + '\u2026';
+s = shape(capped, 'call', capped);
+assert.strictEqual(s.kind, 'call');
+assert.strictEqual(s.input, '');
+// Empty name: the input follows the separating space.
+s = shape(' {"a":1}', 'call', '');
+assert.strictEqual(s.kind, 'call');
+assert.strictEqual(s.name, '');
+assert.strictEqual(s.input, '{"a":1}');
+
 console.log('outside-thread-tool-kind-selftest: ok');

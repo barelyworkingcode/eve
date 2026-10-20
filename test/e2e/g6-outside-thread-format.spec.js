@@ -223,6 +223,25 @@ test.describe('a tagged tool call', () => {
   });
 });
 
+test.describe('a tagged call with empty input', () => {
+  test.use({
+    world: outsideWorld([
+      entry('assistant', 'Checking the todo list.', 0),
+      // Relay's wire for a call with no input: the text is the name alone.
+      tagged('tool', 'call', 'TodoRead', 'TodoRead', 1),
+    ]),
+  });
+
+  test('G6.96 a call with empty input shows one closed group named for the tool @G6.96', async ({ eve, page }) => {
+    const thread = await openThread(eve, page);
+    // The group has no accessible name of its own; its label is the summary text inside it.
+    const group = thread.getByRole('group');
+    await expect(group).toHaveCount(1);
+    await expect(group.getByText('TodoRead', { exact: true })).toBeVisible();
+    await expect(group).toHaveJSProperty('open', false);
+  });
+});
+
 test.describe('a tagged result that looks like a call', () => {
   test.use({
     world: outsideWorld([
