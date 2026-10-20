@@ -54,6 +54,9 @@
   font-family: var(--font-ui);
   font-size: 12px;
   cursor: pointer;
+  max-width: calc(100% - 28px);
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 .agent-row__action:hover:not(:disabled) { background: var(--bg-hover); }
 .agent-row__action:focus-visible { outline: none; box-shadow: var(--focus-ring); }

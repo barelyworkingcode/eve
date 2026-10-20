@@ -157,12 +157,16 @@ class AgentBoard {
   // relay's deriveSessionKind: these models are Claude sessions.
   static CLAUDE_MODELS = ['haiku', 'sonnet', 'opus'];
   static DROP_IN_SIZE = { cols: 80, rows: 24 };
-  // Session ids with a drop-in in flight, shared by every board.
-  static dropping = new Set();
+  // sessionId -> 'drop' | 'wait': a drop-in in flight, shared by every board. The kind is
+  // fixed at the tap, so the busy text does not change when the row changes group.
+  static dropping = new Map();
+  // sessionId -> terminalId of a drop-in this page opened. While that terminal lives, this
+  // page does not offer Take over: relay reads the held session as running and would refuse.
+  static held = new Map();
 
   // Rail and sheet options (eve#274): `maxRows` (Infinity: no cap), `layout` ('board' or
   // 'rail'), `collapseDone`, `note(sessionId)` for a row's third line, `onCounts` (group
-  // counts, or null while offline or loading) and `onOpen(row)` after a tap or Drop in.
+  // counts, or null while offline or loading) and `onOpen(row)` after a tap, or when relay answers a Drop in or Take over.
   constructor({
     container, testidPrefix, showProject, filter, onCount,
     maxRows = AgentBoard.MAX_ROWS, layout = 'board', collapseDone = false,
@@ -276,28 +280,40 @@ class AgentBoard {
     return AgentBoard.CLAUDE_MODELS.includes(session?.model);
   }
 
-  // The one place the Drop in rule lives: a headless Claude session that needs me.
+  // The one place the Drop in rule lives: a headless Claude session that needs me or is
+  // idle, or a working one (Take over after the turn) that this page does not already hold.
   static showsDropIn(r) {
-    return r.kind === 'session' && AgentBoard.isClaude(r.item) && r.item.headless === true
-      && (r.group === 'needs' || AgentBoard.dropping.has(r.id));
+    if (r.kind !== 'session' || !AgentBoard.isClaude(r.item) || r.item.headless !== true) return false;
+    return AgentBoard.dropping.has(r.id) || r.group === 'needs' || r.group === 'idle'
+      || (r.group === 'working' && !AgentBoard.held.has(r.id));
   }
 
   // Never rejects. No client timeout: relay bounds the wait, and giving up sooner
   // would orphan a terminal it already launched.
-  static async dropIn(container, sessionId) {
+  // `wait` marks "Take over after this turn": the same POST, relay waits for the turn.
+  // `onAnswer` runs when relay answers (terminal or refusal), before the terminal opens.
+  static async dropIn(container, sessionId, { wait = false, onAnswer = null } = {}) {
     if (sessionId?.startsWith('outside:')) return;
     if (AgentBoard.dropping.has(sessionId)) return;
-    AgentBoard.dropping.add(sessionId);
+    AgentBoard.dropping.set(sessionId, wait ? 'wait' : 'drop');
     const renderAll = () => { for (const b of AgentBoard.live) b.render(); };
     const toast = (message) => container.get('bus').emit(EVT.TOAST_SHOW, {
-      id: `drop-in-${sessionId}`, message, type: 'error', duration: 8000,
+      id: `drop-in-${sessionId}`, message: message.replace(/\s+/g, ' ').trim(), type: 'error', duration: 8000,
     });
     renderAll();
     try {
       const body = await container.get('api').dropIn(sessionId, AgentBoard.DROP_IN_SIZE);
-      if (body?.terminal?.terminalId) AgentBoard._termMgr(container)?.openDropIn(body.terminal);
-      else toast("Can't drop in: relay did not return a terminal.");
+      const terminal = body?.terminal;
+      if (terminal?.terminalId) {
+        AgentBoard.held.set(sessionId, terminal.terminalId);
+        onAnswer?.();
+        AgentBoard._termMgr(container)?.openDropIn(terminal);
+      } else {
+        onAnswer?.();
+        toast("Can't drop in: relay did not return a terminal.");
+      }
     } catch (err) {
+      onAnswer?.();
       toast(`Can't drop in: ${err?.body?.message || err?.body?.error || "relay isn't reachable"}`);
     } finally {
       AgentBoard.dropping.delete(sessionId);
@@ -342,6 +358,10 @@ class AgentBoard {
     const add = (kind, item, id, st, label, project, since = '', exit = null, group = AgentBoard.groupOf(st)) => {
       if (filter(item, project)) rows.push({ kind, id, state: st, group, label, project, since, exit, item });
     };
+    for (const [sid, tid] of AgentBoard.held) {
+      const t = mgr?.allTerminals.get(tid);
+      if (!t || t.state === 'stopped') AgentBoard.held.delete(sid);
+    }
     for (const t of mgr ? mgr.allTerminals.values() : []) {
       if (state.isTaskRun(t.id) || t.outside === true) continue;
       const project = AgentBoard._projectOf(state, t);
@@ -618,17 +638,19 @@ class AgentBoard {
     const act = document.createElement('button');
     act.type = 'button';
     act.className = 'agent-row__action';
-    act.dataset.testid = `${this.prefix}-drop-in-${id}`;
-    act.setAttribute('aria-label', `Drop in to ${label}`);
-    if (AgentBoard.dropping.has(id)) {
+    const kind = AgentBoard.dropping.get(id);
+    const wait = kind ? kind === 'wait' : r.group === 'working';
+    act.dataset.testid = `${this.prefix}-${wait ? 'take-over' : 'drop-in'}-${id}`;
+    act.setAttribute('aria-label', wait ? `Take over ${label} after this turn` : `Drop in to ${label}`);
+    if (kind) {
       act.disabled = true;
       act.setAttribute('aria-busy', 'true');
-      act.textContent = 'Dropping in…';
+      act.textContent = wait ? 'Waiting for the turn to end…' : 'Dropping in…';
     } else {
-      act.textContent = 'Drop in';
+      act.textContent = wait ? 'Take over after this turn' : 'Drop in';
+      // onOpen fires when relay answers, so a sheet stays open on the waiting text.
       act.addEventListener('click', () => {
-        this.onOpen?.(r);
-        AgentBoard.dropIn(this.container, id);
+        AgentBoard.dropIn(this.container, id, { wait, onAnswer: () => this.onOpen?.(r) });
       });
     }
     wrap.append(row, act);
