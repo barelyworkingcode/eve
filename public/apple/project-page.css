@@ -142,3 +142,18 @@
 .project-page .project-tree__session-delete:focus + .project-tree__session-item {
   transform: translateX(-64px);
 }
+
+/* The list clips its rows (overflow: hidden), so the shared outer focus ring
+   shows only at the corners. Draw the ring inside the row instead. */
+.project-page .project-tree__session-item:focus-visible,
+.project-page .project-tree__folder-name:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* The Delete button is solid red: a white inset ring reads against it. */
+.project-page .project-tree__session-delete:focus-visible {
+  box-shadow: none;
+  outline: 2px solid #ffffff;
+  outline-offset: -3px;
+}
