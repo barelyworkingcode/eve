@@ -66,8 +66,9 @@ test.describe('ended outside sessions', () => {
   test.use({
     world: outsideWorld([
       outsideRow({ id: 'outside:live', name: 'Live asker', state: 'asking', latest_turn: { text: 'Which file should I touch?', at: LIVE_AT, complete: true } }),
-      endedRow('outside:e1', 'Older review', 5),
-      endedRow('outside:e2', 'Newer review', 2),
+      endedRow('outside:e1', 'Alpha review', 5),
+      // This row says it is viewable in tmux; an ended row still offers no action.
+      endedRow('outside:e2', 'Zed review', 2, { tmux_session: 'zed-1', viewable: true, view_reason: '' }),
     ]),
   });
 
@@ -78,8 +79,8 @@ test.describe('ended outside sessions', () => {
     await expect(rail.getByRole('button', { name: 'Live asker', exact: true })).toBeVisible();
     await expect(endedHeading(rail)).toBeVisible();
 
-    const newer = rail.getByText('Newer review', { exact: true });
-    const older = rail.getByText('Older review', { exact: true });
+    const newer = rail.getByText('Zed review', { exact: true });
+    const older = rail.getByText('Alpha review', { exact: true });
     await expect(newer).toBeVisible();
     await expect(older).toBeVisible();
     const newerBox = await newer.boundingBox();
@@ -96,11 +97,11 @@ test.describe('ended outside sessions', () => {
     const rail = railOf(page);
     await expect(endedHeading(rail)).toBeVisible();
     await expect(rail.getByText('Outside · acme-console · /work/acme · Ended').first()).toBeVisible();
-    await expect(rail.getByText('Newer review', { exact: true })).toBeVisible();
-    await expect(rail.getByText('Newer review final answer')).toBeVisible();
+    await expect(rail.getByText('Zed review', { exact: true })).toBeVisible();
+    await expect(rail.getByText('Zed review final answer')).toBeVisible();
     // Age: this row ended two hours ago.
     await expect(rail.getByText(/\b2\s?(h|hr|hrs|hours?)\b/).first()).toBeVisible();
-    await expect(rail.getByText('Older review final answer')).toBeVisible();
+    await expect(rail.getByText('Alpha review final answer')).toBeVisible();
     await expect(rail.getByText(/\b5\s?(h|hr|hrs|hours?)\b/).first()).toBeVisible();
   });
 
@@ -119,31 +120,31 @@ test.describe('ended outside sessions', () => {
     await eve.open('/');
     await openCos(page);
     const rail = railOf(page);
-    await expect(rail.getByText('Newer review', { exact: true })).toBeVisible();
+    await expect(rail.getByText('Zed review', { exact: true })).toBeVisible();
     // Not a button, and no viewer.
-    await expect(rail.getByRole('button', { name: 'Newer review', exact: true })).toHaveCount(0);
-    await expect(rail.getByRole('button', { name: 'Older review', exact: true })).toHaveCount(0);
+    await expect(rail.getByRole('button', { name: 'Zed review', exact: true })).toHaveCount(0);
+    await expect(rail.getByRole('button', { name: 'Alpha review', exact: true })).toHaveCount(0);
     await expect(rail.getByRole('button', { name: /read-only/i })).toHaveCount(0);
     await expect(rail.getByText('View read-only')).toHaveCount(0);
     // Clicking the row opens no thread tab.
-    await rail.getByText('Newer review', { exact: true }).click();
-    await expect(rail.getByText('Newer review', { exact: true })).toBeVisible();
-    await expect(page.getByRole('tab', { name: /Newer review/ })).toHaveCount(0);
+    await rail.getByText('Zed review', { exact: true }).click();
+    await expect(rail.getByText('Zed review', { exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Zed review/ })).toHaveCount(0);
   });
 
   test('a new snapshot adds a newly ended session at the top of Ended @G6.104', async ({ eve, page, relay }) => {
     await eve.open('/');
     await openCos(page);
     const rail = railOf(page);
-    await expect(rail.getByText('Newer review', { exact: true })).toBeVisible();
+    await expect(rail.getByText('Zed review', { exact: true })).toBeVisible();
     await worlds.outside.replace(relay.dir, [
-      endedRow('outside:e3', 'Latest review', 0.5),
-      endedRow('outside:e1', 'Older review', 5),
+      endedRow('outside:e3', 'Zulu review', 0.5),
+      endedRow('outside:e1', 'Alpha review', 5),
     ]);
-    const latest = rail.getByText('Latest review', { exact: true });
+    const latest = rail.getByText('Zulu review', { exact: true });
     await expect(latest).toBeVisible();
-    await expect(rail.getByText('Newer review', { exact: true })).toHaveCount(0);
-    const older = rail.getByText('Older review', { exact: true });
+    await expect(rail.getByText('Zed review', { exact: true })).toHaveCount(0);
+    const older = rail.getByText('Alpha review', { exact: true });
     expect((await latest.boundingBox()).y).toBeLessThan((await older.boundingBox()).y);
   });
 });
@@ -153,8 +154,8 @@ test.describe('ended outside sessions on a phone', () => {
     ...profiles.phone,
     world: outsideWorld([
       outsideRow({ id: 'outside:live', name: 'Live runner' }),
-      endedRow('outside:e1', 'Older review', 5),
-      endedRow('outside:e2', 'Newer review', 2),
+      endedRow('outside:e1', 'Alpha review', 5),
+      endedRow('outside:e2', 'Zed review', 2),
     ]),
   });
 
@@ -166,12 +167,12 @@ test.describe('ended outside sessions on a phone', () => {
     await expect(sheet).toBeVisible();
     await expect(sheet.getByRole('button', { name: 'Live runner', exact: true })).toBeVisible();
     await expect(endedHeading(sheet)).toBeVisible();
-    const newer = sheet.getByText('Newer review', { exact: true });
-    const older = sheet.getByText('Older review', { exact: true });
+    const newer = sheet.getByText('Zed review', { exact: true });
+    const older = sheet.getByText('Alpha review', { exact: true });
     await expect(newer).toBeVisible();
     await expect(older).toBeVisible();
     expect((await newer.boundingBox()).y).toBeLessThan((await older.boundingBox()).y);
-    await expect(sheet.getByRole('button', { name: 'Newer review', exact: true })).toHaveCount(0);
+    await expect(sheet.getByRole('button', { name: 'Zed review', exact: true })).toHaveCount(0);
   });
 });
 
