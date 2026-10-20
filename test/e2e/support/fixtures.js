@@ -6,6 +6,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const base = require('@playwright/test');
 const { devices } = base;
 const { Stack } = require('./stack');
@@ -127,6 +128,17 @@ function passkeyFor(page, context) {
     async credentials() {
       const res = await need().send('WebAuthn.getCredentials', { authenticatorId });
       return res.credentials.map((c) => ({ credentialId: c.credentialId, rpId: c.rpId }));
+    },
+    // Swaps every stored credential for one with the same id, rpId and user handle but a new
+    // private key. The next sign-in sends a well-formed assertion whose signature eve cannot verify.
+    async forgeKey() {
+      const res = await need().send('WebAuthn.getCredentials', { authenticatorId });
+      for (const c of res.credentials) {
+        const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+        const forged = { ...c, privateKey: privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64') };
+        await need().send('WebAuthn.removeCredential', { authenticatorId, credentialId: c.credentialId });
+        await need().send('WebAuthn.addCredential', { authenticatorId, credential: forged });
+      }
     },
     // false: the next ceremony gets neither presence nor user verification.
     async setPresence(ok) {
