@@ -780,6 +780,7 @@ class ChiefOfStaff {
       if (NEED_YOU_STATES.has(row.state)) needYou += 1;
     }
     for (const row of this.outside.getSnapshot().sessions) {
+      if (row.state === 'ended') continue;
       watching += 1;
       if (row.state === 'asking') needYou += 1;
     }
@@ -799,7 +800,7 @@ class ChiefOfStaff {
   }
 
   getSnapshot() {
-    const outside = this.outside.getSnapshot();
+    const outside = this.outside.browserSnapshot();
     return { posts: this.posts.slice(), status: this.getStatus(), rowNotes: this.getRowNotes(),
       outsideSessions: outside.sessions, outsideMachines: outside.machines };
   }

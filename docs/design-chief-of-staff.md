@@ -208,6 +208,16 @@ An older Relay with no inventory route contributes no outside tool rows. Any
 other outside read failure returns the managed rows with `outsideUnavailable:
 true`, never an error for the whole list.
 
+Relay also lists sessions that ended in its window (`state:"ended"`, `endedAt`;
+relay `settings.json` `outside_sessions.ended_window_days`, 0 turns them off).
+Eve keeps their last turn for the browser only: after each accepted snapshot one
+sequential pass reads relay's detail for each ended row not yet cached for its
+`endedAt` and stores `lastExcerpt` (500 characters). `getSnapshot()` and `list()`
+stay metadata only, so the model's `cos_list_sessions` never sees it; the
+browser frames use `browserSnapshot()`. A failed read stores nothing and the next
+snapshot retries. Ended rows count in neither `watching` nor `needYou`. The model
+reads an ended session by finding its row and calling `cos_session_status`.
+
 ChiefOfStaffPage keeps a private outside Map and passes it only to its rail
 and phone-sheet boards. Today, projects, managed attention, StateStore, errands
 and wake summaries retain their existing membership. Viewer terminals are

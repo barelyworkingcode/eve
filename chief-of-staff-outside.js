@@ -3,7 +3,7 @@
 // Independent, listen-only inventory. No outside text enters the managed ledger.
 const SCOPE = { scope: 'chief-of-staff' };
 const ROOT = '/api/chief-of-staff/outside-sessions';
-const ROW_FIELDS = ['id', 'name', 'projectId', 'hostId', 'machine', 'directory', 'branch', 'state', 'since', 'updatedAt', 'source', 'outside', 'readOnly', 'tmuxSession', 'viewable', 'viewReason'];
+const ROW_FIELDS = ['id', 'name', 'projectId', 'hostId', 'machine', 'directory', 'branch', 'state', 'since', 'updatedAt', 'source', 'outside', 'readOnly', 'tmuxSession', 'viewable', 'viewReason', 'endedAt'];
 const MACHINE_FIELDS = ['hostId', 'machine', 'status', 'lastProbeAt', 'error'];
 const pick = (row, fields) => Object.fromEntries(fields.filter(k => row[k] !== undefined).map(k => [k, row[k]]));
 
@@ -15,6 +15,49 @@ class ChiefOfStaffOutside {
     this.stopped = true;
     this.delay = 2000;
     this.generation = 0;
+    // Last turn of each ended row, read once per endedAt. Browser frames only; list() never carries it.
+    this.turns = new Map();
+    this.filling = false;
+    this.fillQueued = false;
+  }
+
+  browserSnapshot() {
+    const snap = this.getSnapshot();
+    snap.sessions = snap.sessions.map(r => {
+      const turn = r.state === 'ended' ? this.turns.get(r.id) : undefined;
+      return turn && turn.endedAt === r.endedAt ? { ...r, lastExcerpt: turn.text } : r;
+    });
+    return snap;
+  }
+
+  // One pass at a time; a snapshot that lands mid-pass queues one more. Reads run sequentially.
+  async _fillTurns() {
+    if (this.filling) { this.fillQueued = true; return; }
+    this.filling = true;
+    const generation = this.generation;
+    let stored = false;
+    try {
+      do {
+        this.fillQueued = false;
+        const ended = this.snapshot.sessions.filter(r => r.state === 'ended');
+        const ids = new Set(ended.map(r => r.id));
+        for (const id of [...this.turns.keys()]) if (!ids.has(id)) this.turns.delete(id);
+        for (const row of ended) {
+          const have = this.turns.get(row.id);
+          if (have && have.endedAt === row.endedAt) continue;
+          let text;
+          try { text = (await this.detail(row.id)).lastExcerpt; } catch { continue; }
+          if (this.stopped || generation !== this.generation) return;
+          this.turns.set(row.id, { endedAt: row.endedAt, text });
+          stored = true;
+        }
+      } while (this.fillQueued);
+    } finally {
+      this.filling = false;
+      // An abandoned pass (stop) must not swallow a pass queued by a restarted reader.
+      if (this.fillQueued && !this.stopped && generation !== this.generation) { this.fillQueued = false; this._fillTurns(); }
+    }
+    if (stored && !this.stopped && generation === this.generation) this.onSnapshot?.(this.browserSnapshot());
   }
 
   getSnapshot() {
@@ -36,7 +79,8 @@ class ChiefOfStaffOutside {
     const snapshot = this._snapshotOf(data);
     if (!snapshot || (!reseed && snapshot.revision <= this.snapshot.revision)) return false;
     this.snapshot = snapshot;
-    this.onSnapshot?.(this.getSnapshot());
+    this.onSnapshot?.(this.browserSnapshot());
+    if (snapshot.sessions.some(r => r.state === 'ended') || this.turns.size) this._fillTurns();
     return true;
   }
 
@@ -106,6 +150,7 @@ class ChiefOfStaffOutside {
   stop() {
     this.stopped = true;
     ++this.generation;
+    this.turns.clear();
     clearTimeout(this.timer);
     this.timer = null;
     const ws = this.ws;
