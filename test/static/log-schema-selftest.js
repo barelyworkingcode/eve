@@ -99,6 +99,23 @@ ok('allOf then is ignored when if does not match', () => {
   assert.deepStrictEqual(lineErrors(gated, '{"event":"e","status":"ok"}'), []);
 });
 
+ok('if/then applies at the root', () => {
+  const s = inline({ type: 'object', if: { required: ['a'] }, then: { required: ['b'] } });
+  assert.deepStrictEqual(lineErrors(s, '{"a":1}'), ['$.b: missing']);
+  assert.deepStrictEqual(lineErrors(s, '{}'), []);
+});
+ok('if/then applies under properties', () => {
+  const s = inline({ type: 'object', properties: { x: { type: 'object', if: { required: ['a'] }, then: { required: ['b'] } } } });
+  assert.deepStrictEqual(lineErrors(s, '{"x":{"a":1}}'), ['$.x.b: missing']);
+  assert.deepStrictEqual(lineErrors(s, '{"x":{}}'), []);
+});
+ok('key checks ignore Object.prototype keys', () => {
+  const s = inline({ properties: { a: {} }, additionalProperties: false });
+  assert.deepStrictEqual(lineErrors(s, '{"a":1,"constructor":2}'), ['$.constructor: not allowed']);
+  const r = inline({ required: ['constructor'] });
+  assert.deepStrictEqual(lineErrors(r, '{}'), ['$.constructor: missing']);
+});
+
 const unsupported = [
   ['format', { properties: { a: { type: 'string', format: 'date' } } }, 'format'],
   ['nested oneOf', { properties: { a: { oneOf: [{ type: 'string' }] } } }, 'oneOf'],

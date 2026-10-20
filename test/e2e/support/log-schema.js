@@ -94,29 +94,26 @@ function check(schema, value, at, errors) {
   if (typeof value === 'number' && 'minimum' in schema && value < schema.minimum) errors.push(`${at}: below ${schema.minimum}`);
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     for (const key of schema.required || []) {
-      if (!(key in value)) errors.push(`${at}.${key}: missing`);
+      if (!Object.hasOwn(value, key)) errors.push(`${at}.${key}: missing`);
     }
     const props = schema.properties || {};
     for (const [key, sub] of Object.entries(props)) {
-      if (key in value) check(sub, value[key], `${at}.${key}`, errors);
+      if (Object.hasOwn(value, key)) check(sub, value[key], `${at}.${key}`, errors);
     }
     if (schema.additionalProperties === false) {
       for (const key of Object.keys(value)) {
-        if (!(key in props)) errors.push(`${at}.${key}: not allowed`);
+        if (!Object.hasOwn(props, key)) errors.push(`${at}.${key}: not allowed`);
       }
     }
   }
+  if ('if' in schema) {
+    const probe = [];
+    check(schema.if, value, at, probe);
+    if (probe.length === 0 && 'then' in schema) check(schema.then, value, at, errors);
+  }
   (schema.allOf || []).forEach((entry, i) => {
     const inner = [];
-    if ('if' in entry) {
-      const probe = [];
-      check(entry.if, value, at, probe);
-      if (probe.length === 0 && 'then' in entry) check(entry.then, value, at, inner);
-      const { if: _if, then: _then, ...rest } = entry;
-      check(rest, value, at, inner);
-    } else {
-      check(entry, value, at, inner);
-    }
+    check(entry, value, at, inner);
     const label = entry.description ? `allOf[${i}] "${entry.description}": ` : `allOf[${i}]: `;
     for (const e of inner) errors.push(label + e);
   });
