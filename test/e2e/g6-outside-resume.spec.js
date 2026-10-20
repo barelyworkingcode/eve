@@ -12,7 +12,6 @@ const LIVE_AT = ago(0.1);
 // The id is a marker the browser must never see. A distinctive value, so a leak is found by plain search.
 const SID = '3f2b8c1e-9d4a-4e6b-8a57-1c2d3e4f5a6b';
 
-const DIR = '/tmp/eve-e2e-resume-acme';
 const RESUME ='Resume Ledger notes in a terminal';
 const TAB = /Ledger notes \(resumed\)$/;
 const CLOSE = /^Close .*\(resumed\)$/;
@@ -20,14 +19,14 @@ const NO_PROJECT = "Not in a project, so it can't be resumed.";
 const ON_HOST = "On a host, so it can't be resumed here.";
 const ROUTE = 'POST /api/terminals';
 
-function liveRow(over = {}) {
+function liveRow(dir, over = {}) {
   return {
     id: 'outside:live',
     name: 'Live runner',
     project_id: 'p_acme',
     host_id: null,
     machine: 'acme-console',
-    directory: DIR,
+    directory: dir,
     branch: 'main',
     state: 'running',
     since: LIVE_AT,
@@ -43,8 +42,8 @@ function liveRow(over = {}) {
   };
 }
 
-function endedRow(over = {}) {
-  return liveRow({
+function endedRow(dir, over = {}) {
+  return liveRow(dir, {
     id: 'outside:e1',
     name: 'Ledger notes',
     state: 'ended',
@@ -58,7 +57,7 @@ function endedRow(over = {}) {
   });
 }
 
-function resumeWorld(rows) {
+function resumeWorld() {
   const w = worlds.base();
   w.chief_of_staff = { project_id: 'p_acme', model: 'haiku', daily_model_calls: 20 };
   w.terminal_templates = [{ id: 'claude-code', name: 'Claude Code', command: '/bin/sh', description: 'Claude Code terminal' }];
@@ -70,10 +69,8 @@ function resumeWorld(rows) {
     tmux_path: '/usr/bin/tmux',
     agent: 'connected',
   }];
-  // The ended row's folder is the project's folder, as relay reports it. fakerelay creates a project's folder.
-  w.projects[0].path = DIR;
   w.projects.push({ id: 'p_box', name: 'Orchard', host_id: 'h_box', path: '/home/acme/orchard', mode: 'work', files: { 'todo.txt': 'one\n' } });
-  w.outside_sessions = rows;
+  w.outside_sessions = [];
   return w;
 }
 
@@ -92,15 +89,25 @@ async function openCos(page) {
   await expect(page.getByRole('textbox', { name: 'Tell an agent' })).toBeVisible();
 }
 
+// The ended row's folder is the project's folder, as relay reports it: fakerelay's own per-instance folder,
+// read from its state. The rows go in through the control socket before the page opens.
+async function seed(relay, build) {
+  const state = await relay.json('ctl', 'state', '--json');
+  const dir = state.projects.find((p) => p.id === 'p_acme').path;
+  await worlds.outside.replace(relay.dir, build(dir));
+  return dir;
+}
+
 const resumeLaunch = (l) => l.kind === 'terminal' && Array.isArray(l.extra_args) && l.extra_args[0] === '--resume';
 
 // The rows of the standard world: one live, one ended in a console project.
-const consoleRows = () => [liveRow(), endedRow()];
+const consoleRows = (dir) => [liveRow(dir), endedRow(dir)];
 
 test.describe('an ended row in a console project', () => {
-  test.use({ world: resumeWorld(consoleRows()) });
+  test.use({ world: resumeWorld() });
 
   test('a tap opens a read-write claude-code terminal resumed on the same conversation @G6.106', async ({ eve, page, relay }) => {
+    const dir = await seed(relay, consoleRows);
     await eve.open('/');
     await openCos(page);
     const rail = railOf(page);
@@ -115,7 +122,7 @@ test.describe('an ended row in a console project', () => {
     await resume.click();
     const launch = await relay.waitForEvent('session.launch', { match: resumeLaunch });
     expect(launch.template_id).toBe('claude-code');
-    expect(launch.directory).toBe(DIR);
+    expect(launch.directory).toBe(dir);
     expect(launch.extra_args).toEqual(['--resume', SID]);
 
     await expect(resumedTab(page)).toHaveAttribute('aria-selected', 'true');
@@ -126,6 +133,7 @@ test.describe('an ended row in a console project', () => {
   });
 
   test('the button reads Resuming until relay answers, then Resumed @G6.106', async ({ eve, page, relay }) => {
+    await seed(relay, consoleRows);
     await eve.open('/');
     await openCos(page);
     const rail = railOf(page);
@@ -154,6 +162,7 @@ test.describe('an ended row in a console project', () => {
   });
 
   test('closing the resumed terminal brings the Resume button back @G6.106', async ({ eve, page, relay }) => {
+    await seed(relay, consoleRows);
     await eve.open('/');
     await openCos(page);
     await resumeButton(railOf(page)).click();
@@ -170,6 +179,7 @@ test.describe('an ended row in a console project', () => {
   });
 
   test('relay refuses: the toast gives its reason and the button is back @G6.106.r3', async ({ eve, page, relay }) => {
+    await seed(relay, consoleRows);
     await eve.open('/');
     await openCos(page);
     const resume = resumeButton(railOf(page));
@@ -186,9 +196,10 @@ test.describe('an ended row in a console project', () => {
 });
 
 test.describe('the browser never sees the Claude session id', () => {
-  test.use({ world: resumeWorld(consoleRows()) });
+  test.use({ world: resumeWorld() });
 
   test('no frame, response or page text carries the id @G6.106', async ({ eve, page, relay }) => {
+    await seed(relay, consoleRows);
     const frames = [];
     const bodies = [];
     page.on('websocket', (ws) => {
@@ -216,9 +227,10 @@ test.describe('the browser never sees the Claude session id', () => {
 });
 
 test.describe('an ended row with no project', () => {
-  test.use({ world: resumeWorld([endedRow(), endedRow({ id: 'outside:e2', name: 'Orphan notes', project_id: null, directory: '/elsewhere' })]) });
+  test.use({ world: resumeWorld() });
 
-  test('no button, one line says why @G6.106.r1', async ({ eve, page }) => {
+  test('no button, one line says why @G6.106.r1', async ({ eve, page, relay }) => {
+    await seed(relay, (dir) => [endedRow(dir), endedRow(dir, { id: 'outside:e2', name: 'Orphan notes', project_id: null, directory: '/elsewhere' })]);
     await eve.open('/');
     await openCos(page);
     const rail = railOf(page);
@@ -232,14 +244,13 @@ test.describe('an ended row with no project', () => {
 });
 
 test.describe('an ended row on a host', () => {
-  test.use({
-    world: resumeWorld([
-      endedRow(),
-      endedRow({ id: 'outside:e3', name: 'Orchard review', project_id: 'p_box', host_id: 'h_box', machine: 'testbox', directory: '/home/acme/orchard' }),
-    ]),
-  });
+  test.use({ world: resumeWorld() });
 
-  test('no button, one line says why @G6.106.r2', async ({ eve, page }) => {
+  test('no button, one line says why @G6.106.r2', async ({ eve, page, relay }) => {
+    await seed(relay, (dir) => [
+      endedRow(dir),
+      endedRow(dir, { id: 'outside:e3', name: 'Orchard review', project_id: 'p_box', host_id: 'h_box', machine: 'testbox', directory: '/home/acme/orchard' }),
+    ]);
     await eve.open('/');
     await openCos(page);
     const rail = railOf(page);
@@ -249,12 +260,28 @@ test.describe('an ended row on a host', () => {
     await expect(resumeButton(rail, 'Resume Orchard review in a terminal')).toHaveCount(0);
     await expect(anyResume(rail)).toHaveCount(1);
   });
+
+  test('a row with no host in a project on a host: no button, the same line @G6.106.r2', async ({ eve, page, relay }) => {
+    await seed(relay, (dir) => [
+      endedRow(dir),
+      endedRow(dir, { id: 'outside:e4', name: 'Orchard notes', project_id: 'p_box', host_id: null, directory: '/home/acme/orchard' }),
+    ]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    await expect(resumeButton(rail)).toBeVisible();
+    await expect(rail.getByText('Orchard notes', { exact: true })).toBeVisible();
+    await expect(rail.getByText(ON_HOST)).toBeVisible();
+    await expect(resumeButton(rail, 'Resume Orchard notes in a terminal')).toHaveCount(0);
+    await expect(anyResume(rail)).toHaveCount(1);
+  });
 });
 
 test.describe('a live row', () => {
-  test.use({ world: resumeWorld([endedRow(), liveRow({ id: 'outside:live', name: 'Live runner' })]) });
+  test.use({ world: resumeWorld() });
 
   test('never shows Resume or a reason, and a row that goes live loses its button @G6.106', async ({ eve, page, relay }) => {
+    const dir = await seed(relay, (d) => [endedRow(d), liveRow(d, { id: 'outside:live', name: 'Live runner' })]);
     await eve.open('/');
     await openCos(page);
     const rail = railOf(page);
@@ -266,8 +293,8 @@ test.describe('a live row', () => {
 
     // The same conversation runs again: relay lists it live, with no Claude session id.
     await worlds.outside.replace(relay.dir, [
-      liveRow({ id: 'outside:e1', name: 'Ledger notes', state: 'running' }),
-      liveRow({ id: 'outside:live', name: 'Live runner' }),
+      liveRow(dir, { id: 'outside:e1', name: 'Ledger notes', state: 'running' }),
+      liveRow(dir, { id: 'outside:live', name: 'Live runner' }),
     ]);
     const nowLive = rail.getByRole('button', { name: 'Ledger notes', exact: true });
     await expect(nowLive).toBeVisible();
@@ -278,7 +305,7 @@ test.describe('a live row', () => {
 });
 
 test.describe('the resume route refuses bad requests', () => {
-  test.use({ world: resumeWorld(consoleRows()) });
+  test.use({ world: resumeWorld() });
 
   // The button always sends a good request, so a call to the route is the only door to these refusals.
   async function resumeCall(eve, id, body) {
@@ -291,6 +318,7 @@ test.describe('the resume route refuses bad requests', () => {
   }
 
   test('a bad session id answers 400 and calls no relay @G6.106', async ({ eve, relay }) => {
+    await seed(relay, consoleRows);
     const mark = await relay.mark();
     for (const id of ['nope', 'outside:', 'outside:a b', 'inside:e1']) {
       const answer = await resumeCall(eve, id, { cols: 80, rows: 24 });
@@ -301,6 +329,7 @@ test.describe('the resume route refuses bad requests', () => {
   });
 
   test('cols or rows that are not whole numbers from 1 to 500 answer 400 and call no relay @G6.106', async ({ eve, relay }) => {
+    await seed(relay, consoleRows);
     const mark = await relay.mark();
     const bad = [
       { cols: 0, rows: 24 }, { cols: 80, rows: 0 }, { cols: 501, rows: 24 }, { cols: 80, rows: 501 },
@@ -317,9 +346,10 @@ test.describe('the resume route refuses bad requests', () => {
 });
 
 test.describe('on a tablet', () => {
-  test.use({ ...profiles.tablet, world: resumeWorld(consoleRows()) });
+  test.use({ ...profiles.tablet, world: resumeWorld() });
 
   test('tap Resume, type into the terminal @G6.106', async ({ eve, page, relay }) => {
+    await seed(relay, consoleRows);
     await eve.open('/');
     // The Chief of Staff door sits in the Rail, which is closed at tablet width: open it from a wide window,
     // then use the Agents strip and sheet at tablet width.
@@ -344,9 +374,10 @@ test.describe('on a tablet', () => {
 });
 
 test.describe('on a phone', () => {
-  test.use({ ...profiles.phone, world: resumeWorld(consoleRows()) });
+  test.use({ ...profiles.phone, world: resumeWorld() });
 
   test('tap Resume in the agents sheet @G6.106', async ({ eve, page, relay }) => {
+    const dir = await seed(relay, consoleRows);
     await eve.open('/');
     await openCos(page);
     await stripOf(page).tap();
@@ -357,7 +388,7 @@ test.describe('on a phone', () => {
     await resume.tap();
     const launch = await relay.waitForEvent('session.launch', { match: resumeLaunch });
     expect(launch.template_id).toBe('claude-code');
-    expect(launch.directory).toBe(DIR);
+    expect(launch.directory).toBe(dir);
     expect(launch.extra_args).toEqual(['--resume', SID]);
     await expect(sheet).toBeHidden();
     // A phone has no tab bar: the open terminal is the whole screen, titled with its name.
