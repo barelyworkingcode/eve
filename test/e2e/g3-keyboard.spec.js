@@ -83,8 +83,9 @@ test.describe('Threads list keyboard', () => {
     await openProjectPageWithFolder(eve, page);
     await reachList(page);
     await page.keyboard.press('Tab');
-    for (const name of ['Ideas', 'Alpha notes', 'Beta notes', 'Ungrouped', 'Gamma notes']) {
-      await expect(entry(page, name)).not.toBeFocused();
+    // Focus is outside list "Threads": no button in it (rows, Folder actions, Delete) has it.
+    for (const el of await list(page).getByRole('button').all()) {
+      await expect(el).not.toBeFocused();
     }
   });
 
@@ -174,7 +175,9 @@ test.describe('Threads list keyboard', () => {
     await expect(confirm(page)).toBeHidden();
     await expect(deleteButton(page, 'Alpha notes')).toBeFocused();
     await expect(entry(page, 'Alpha notes')).toBeVisible();
+    // Read after the focus signal above: relay still lists the thread and logged no delete.
     expect(await sessionNames(relay)).toContain('Alpha notes');
+    expect(await relay.logs({ event: 'session.delete' })).toHaveLength(0);
   });
 
   test('Right on a folder name opens the Folder actions menu from the keyboard @G2.57', async ({ eve, page }) => {

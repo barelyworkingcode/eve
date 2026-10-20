@@ -54,9 +54,13 @@ async function tabTo(page, target) {
 
 const tab = (page, name) => page.getByRole('tablist', { name: 'Open tabs' }).getByRole('tab', { name, exact: true });
 
-async function expectNoTabFocused(page) {
-  for (const name of ['Acme', 'Ledger', 'Roadmap']) {
-    await expect(tab(page, name)).not.toBeFocused();
+// Focus is outside the tab bar: no tab and no button (a tab's Close) inside tablist "Open tabs" has it.
+async function expectFocusOutsideTabBar(page) {
+  const bar = page.getByRole('tablist', { name: 'Open tabs' });
+  for (const role of ['tab', 'button']) {
+    for (const el of await bar.getByRole(role).all()) {
+      await expect(el).not.toBeFocused();
+    }
   }
 }
 
@@ -68,7 +72,7 @@ test.describe('tab bar keyboard', () => {
     await rail(page).getByRole('button', { name: 'Acme' }).focus();
     await tabTo(page, tab(page, 'Roadmap'));
     await page.keyboard.press('Tab');
-    await expectNoTabFocused(page);
+    await expectFocusOutsideTabBar(page);
     await page.keyboard.press('Shift+Tab');
     await expect(tab(page, 'Roadmap')).toBeFocused();
   });
@@ -137,5 +141,53 @@ test.describe('tab bar keyboard', () => {
     await expect(tab(page, 'Ledger')).toHaveCount(0);
     await expect(tab(page, 'Roadmap')).toHaveAttribute('aria-selected', 'true');
     await expect(tab(page, 'Roadmap')).toBeFocused();
+  });
+
+  test('Backspace after a mouse click on a tab label leaves the tab open @G14.46', async ({ eve, page }) => {
+    await openThreeTabs(eve, page);
+    // The Project page tab's pane leaves focus on the clicked label, so Backspace reaches the label.
+    await tab(page, 'Acme').click();
+    await expect(tab(page, 'Acme')).toHaveAttribute('aria-selected', 'true');
+    await expect(tab(page, 'Acme')).toBeFocused();
+    await page.keyboard.press('Backspace');
+    // The label had focus when Backspace went down (asserted above); a keyboard close would have removed it.
+    await expect(tab(page, 'Acme')).toBeVisible();
+    await expect(tab(page, 'Acme')).toHaveCount(1);
+    await expect(tab(page, 'Ledger')).toHaveCount(1);
+    await expect(tab(page, 'Roadmap')).toHaveCount(1);
+    await expect(tab(page, 'Acme')).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+function terminalWorld() {
+  const w = tabsWorld();
+  w.terminal_templates = [{ id: 'shell', name: 'Shell', command: '/bin/sh', description: 'A plain shell' }];
+  return w;
+}
+
+test.describe('tab bar keyboard with a terminal tab', () => {
+  test.use({ world: terminalWorld() });
+
+  test('Delete on the selected thread tab selects the terminal tab and focuses the tab, not the terminal input @G14.46', async ({ eve, page }) => {
+    await eve.open('/');
+    await rail(page).getByRole('button', { name: 'Acme' }).click();
+    await page.getByRole('button', { name: 'Project page' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Acme' })).toBeVisible();
+    await page.getByRole('button', { name: 'Ledger', exact: true }).first().click();
+    await expect(tab(page, 'Ledger')).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('button', { name: 'New Session' }).click();
+    const launcher = page.getByRole('dialog', { name: 'Shell Launcher' });
+    await expect(launcher).toBeVisible();
+    await launcher.getByRole('button', { name: 'Shell' }).click();
+    await expect(tab(page, 'Acme - Shell')).toHaveAttribute('aria-selected', 'true');
+    await tab(page, 'Ledger').click();
+    await expect(tab(page, 'Ledger')).toHaveAttribute('aria-selected', 'true');
+    await rail(page).getByRole('button', { name: 'Acme' }).focus();
+    await tabTo(page, tab(page, 'Ledger'));
+    await page.keyboard.press('Delete');
+    await expect(tab(page, 'Ledger')).toHaveCount(0);
+    await expect(tab(page, 'Acme - Shell')).toHaveAttribute('aria-selected', 'true');
+    await expect(tab(page, 'Acme - Shell')).toBeFocused();
+    await expect(page.getByRole('textbox', { name: 'Terminal input' })).not.toBeFocused();
   });
 });
