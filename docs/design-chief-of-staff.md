@@ -218,6 +218,8 @@ browser frames use `browserSnapshot()`. A failed read stores nothing and the nex
 snapshot retries. Ended rows count in neither `watching` nor `needYou`. The model
 reads an ended session by finding its row and calling `cos_session_status`.
 
+Outside rows stay read-only: eve never writes to, signals or takes over the original process. An ended row in a console project offers Resume, which starts a new managed `claude-code` terminal in the row's folder with `--resume <conversation id>` (`ChiefOfStaffOutside#resume`, `POST /api/outside-sessions/:id/resume`). Relay serves that id (`claudeSessionId`) on ended rows only; eve keeps it in a private map, strips it from every row, frame and tool result, and the browser sends only the row id. Eve checks the row (in the list, ended, in a console project, a UUID id, not already in flight) and makes one `POST /api/terminals` through the same door as `terminal_create`, so relay's sandbox and project rules apply unchanged.
+
 ChiefOfStaffPage keeps a private outside Map and passes it only to its rail
 and phone-sheet boards. Today, projects, managed attention, StateStore, errands
 and wake summaries retain their existing membership. Viewer terminals are

@@ -7,7 +7,7 @@ const { projectAudit } = require('../project-audit');
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileServiceFor, files, refreshHostCache, removeFromHostCache, ttsService, sttService, voiceSettings, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, resumeOutside, fileServiceFor, files, refreshHostCache, removeFromHostCache, ttsService, sttService, voiceSettings, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
@@ -327,6 +327,19 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     if (limit !== undefined) qs.set('limit', limit);
     const query = qs.toString();
     proxy(req, res, 'GET', `/api/outside-sessions/${encodeURIComponent(req.params.id)}/transcript${query ? `?${query}` : ''}`);
+  });
+
+  // Resume an ended outside session in a new managed terminal. The browser sends only the
+  // row id and a size; eve holds the conversation id (chief-of-staff-outside.js) and checks the row.
+  app.post('/api/outside-sessions/:id/resume', requireAuth, async (req, res) => {
+    const whole = (n) => Number.isInteger(n) && n >= 1 && n <= 500;
+    const { cols, rows } = req.body || {};
+    if (!OUTSIDE_ID.test(req.params.id)) return res.status(400).json({ error: 'invalid_request' });
+    if (!whole(cols) || !whole(rows)) {
+      return res.status(400).json({ error: 'cols and rows must be whole numbers from 1 to 500' });
+    }
+    const { status, body } = await resumeOutside(req.params.id, { cols, rows });
+    res.status(status).json(body);
   });
 
   // The id is forwarded without shape validation here: relayLLM rejects ids it

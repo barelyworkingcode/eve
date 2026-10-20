@@ -468,6 +468,7 @@ registerRoutes(app, {
   refreshProjectCache,
   removeFromProjectCache: (id) => projectCache.delete(id),
   resolveProject,
+  resumeOutside: (id, size) => chiefOfStaff.outside.resume(id, size),
   fileServiceFor: (project) => fileHandlers.fileServiceFor(project),
   files: relayFileClient,
   refreshHostCache,
