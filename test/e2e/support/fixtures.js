@@ -400,6 +400,34 @@ const test = base.test.extend({
     });
   },
 
+  // A fake window.visualViewport, installed before any page script. A real soft keyboard
+  // shrinks the visual viewport, not the layout viewport; this models just that.
+  softKeyboard: async ({ page }, use) => {
+    await page.addInitScript(() => {
+      let keyboard = 0;
+      const vv = new EventTarget();
+      Object.defineProperties(vv, {
+        width: { get: () => window.innerWidth },
+        height: { get: () => window.innerHeight - keyboard },
+        offsetTop: { get: () => 0 },
+        offsetLeft: { get: () => 0 },
+        scale: { get: () => 1 },
+      });
+      Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => vv });
+      window.__e2eSetKeyboard = (px) => {
+        keyboard = px;
+        vv.dispatchEvent(new Event('resize'));
+      };
+    });
+    const set = (px) => page.evaluate((n) => window.__e2eSetKeyboard(n), px);
+    await use({
+      // Raise the keyboard px tall and fire resize. Resolves after the dispatch.
+      open: (px) => set(px),
+      // Lower the keyboard and fire resize. Resolves after the dispatch.
+      close: () => set(0),
+    });
+  },
+
   voice: async ({ stack, _audioStops }, use) => {
     await use(Object.assign(Object.create(stack.voice), { mic: _audioStops.mic, speech: _audioStops.speech }));
   },
