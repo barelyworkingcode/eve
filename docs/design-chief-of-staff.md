@@ -291,6 +291,21 @@ The delegation ends when each keep-going session is ready, ended or at its cap: 
 
 Off, the daily limit, a failed turn and a reply eve cannot parse are all "no match". With no accepted match, `decideTurnEnd` falls to the keep-going rule when the session is on it. Otherwise nothing is sent: eve posts the notice "No rule covers <label>'s last turn; it waits for you." and records waiting `unmatched`, which the digest shows as "no rule matched". A session at its cap gets no match turn and costs no call.
 
+## Clearing the thread (eve#512)
+
+Typing `/clear` (trimmed, case-insensitive, nothing else) in the thread resets it. Any other text, `/clear now` included, is an ordinary message. The command rides the existing `cos_message` frame; eve handles it in `submitPerson`, queues a clear job in the person queue so it runs between turns, and sends every subscriber a fresh `cos_snapshot` once it is done. The client already replaces its thread on that frame.
+
+The job, in order: refuse while a delegation is active; split the posts into kept cards and the rest; append the rest to the archive; `reset()` both model sessions (DELETE on relay); write the kept posts; send the snapshot. It makes no model call and sends nothing to an agent. It leaves the day's call count, row notes, roster, errands and the wake, finished, row and delegate queues alone, so work queued before the clear posts into the new thread on a fresh wake session. It adds no person post and no confirmation post.
+
+Decisions made for the owner:
+
+1. The archive is `data/chief-of-staff-archive.jsonl`: append only, mode 0600, one line per post, `{"v":1,"clearedAt":ISO,"post":<as stored>}`. Eve never reads, rewrites or rotates it, and it has no screen door. Each clear adds at most 200 lines.
+2. If the archive write fails, the clear stops with a notice and the thread and sessions stay. A clear never loses posts.
+3. Kept cards are `pending`, `approving`, `starting`, `sending` and `adding`, so a tap's result lands on a visible card. Alerts are archived; the rail still shows who needs you.
+4. No confirmation post: the empty-thread line confirms. Prompt recall (Up) loses the archived prompts.
+5. `/clear` works while the model is off or at its daily limit, because it needs no model.
+6. A failed DELETE is logged and not retried; eve never uses that session again.
+
 ## Decisions made for the owner
 
 Outside inventory remains available when model calls are off. Legacy Relay

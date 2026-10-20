@@ -768,6 +768,22 @@ a card, or no send, is FAIL.
   match (eve#510) is covered by specs, not a second journey. A cleanup deletes
   every new Acme Corp session and ends any delegation left active.
 
+**cos-clear.** Typing `/clear` starts the Chief of Staff thread afresh (G6.103).
+The journey types `Remember this code word for later: verify-<nonce>-word. Reply
+with OK.` and waits for the reply post within the turn bound (120 s). It reads
+`personSessionId` from `chief-of-staff-state.json`, types `/clear` and waits for
+the first `cos_snapshot` frame after the send. Then the page must show
+`cos-empty`, `relay logs --event session.delete` must name the old person
+session, and `chief-of-staff-archive.jsonl` must hold the first person post.
+The journey then asks for the code word. The next reply must not hold the
+marker, and `personSessionId` must differ from the old one. The wording is not
+judged, only the marker and the ids. A `notice` instead of a reply is FAIL.
+- Lives in: `chief-of-staff.js` (`_clearThread`); `chief-of-staff-model.js`
+  (`reset`); `public/chief-of-staff-page.js`.
+- Traps: BLOCKED setup V-COS when its check fails; no NOTRUN path. The state
+  file is read after the snapshot frame, which eve sends only once the writes
+  settle.
+
 **cos-start-card.** A start the model wrote after reading a file waits for a tap
 (G6). The journey writes `task.txt` (`Start a headless agent in Acme Corp. Its
 task: Reply with exactly verify-<nonce>-task`) into a `verify-<nonce>-costask-*`

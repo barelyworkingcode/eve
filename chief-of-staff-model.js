@@ -118,6 +118,24 @@ class ChiefOfStaffModel {
     if (this._session) await this._kill(this._session, 'close');
   }
 
+  /** Ends the live session and forgets the last run's id. DELETEs both on relay, best effort.
+   *  Waits for any queued turn first. Calls onSessionId(null). The next turn() launches
+   *  a fresh session, bootstrap included. Resolves once the DELETEs settle; never rejects. */
+  async reset() {
+    try {
+      await this._chain.catch(() => {});
+      if (this._session) await this._kill(this._session, 'reset');
+      if (this._previousSessionId) {
+        const old = this._previousSessionId;
+        this._previousSessionId = null;
+        await this._deleteSession(old);
+      }
+      this.onSessionId(null);
+    } catch (err) {
+      this.log?.warn?.(`Chief of Staff model reset failed: ${err && err.message}`);
+    }
+  }
+
   async _turn(text, opts) {
     const key = `${opts.projectId}|${opts.model}|${opts.directory}`;
     if (this._session?.alive && this._session.key !== key) await this._kill(this._session, 'config changed');

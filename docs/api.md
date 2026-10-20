@@ -223,7 +223,7 @@ Each row lists the fields Eve reads. `projectId` is a relay project id. A reply 
 | `transcribe_audio` | `{audio, language?, trace_id?, partial?, utteranceId?}` (`audio` base64) | Expensive. `transcription_result`, or `transcription_error`. `partial: true` marks a live-words request for audio still being recorded; the browser sends at most one at a time, each carrying the whole recording so far, and tags them with one `utteranceId` per recording. |
 | `device_log` | `{lines: [...]}` or `{line}` | Appended to a server-side log with timestamp and source IP. No reply frame. |
 | `cos_subscribe` | no fields | Chief of Staff (server-wide thread, all projects; authenticated sockets only). Answered with `cos_snapshot`; the socket then receives `cos_post` and `cos_status`. `error` `Chief of Staff is not available` when it is off. |
-| `cos_message` | `{text}` (1 to 2000 characters after trim) | Expensive. No reply on success; the post arrives as `cos_post`. Otherwise `error` `Message must be 1 to 2000 characters`. |
+| `cos_message` | `{text}` (1 to 2000 characters after trim) | Expensive. No reply on success; the post arrives as `cos_post`. Otherwise `error` `Message must be 1 to 2000 characters`. The text `/clear` (trimmed, any case) is a command, not a message: it resets the thread and the answer is a fresh `cos_snapshot` (see the `cos_snapshot` paragraph); `/clear now` is an ordinary message. |
 | `cos_card_action` | `{postId, action, edits?}` (`action` is `'start'`, `'add'`, `'cancel'`, `'approve'` or `'stop'`) | Only a `pending` card accepts it: a start or send card takes `start` and `cancel`, an add card (an `agent_card` or a `chat_card`) takes `add` and `cancel`. An add card (agent or chat) takes no edits. A delegation card takes `approve` and `cancel` while pending and `stop` while active, and takes no edits; `stop` also works after the card has aged out of the history. Start-card `edits` are `{prompt?, folder?, model?, mode?}`, send-card `edits` are `{text?}`, validated like the tool arguments; one action per card at a time. The result arrives as `cos_post_update`. Failures answer `error`: `A card action needs a postId and an action`, `Unknown card action`, `That card is gone`, `This card is <state>`, the field error from validation, `An add card takes no edits`, `A delegation card takes no edits`, or `The card action failed`. |
 
 ### Server → Client
@@ -372,6 +372,14 @@ idle), `since`, `updatedAt`, `source` (hook or probe), `outside:true`,
 `outside:` prefix; nullable project/host/tmux values remain nullable. Machine
 status has `hostId`, `machine`, `status`, `lastProbeAt`, `error`.
 Full snapshots replace membership; a new WS reseeds revision after reconnect.
+
+After a `/clear` (eve#512) eve sends every subscriber one `cos_snapshot` whose
+`posts` holds only the cards still waiting on a tap. It is sent after the
+sessions' DELETEs settle and the archive, posts and state writes are on disk.
+The cleared posts are appended to the data file `chief-of-staff-archive.jsonl`
+(mode 0600, one `{v:1, clearedAt, post}` line per post, never read back). While
+a delegation is active, or when the archive cannot be written, the answer is a
+`cos_post` notice instead and nothing changes.
 
 Browser `cos_snapshot` additionally includes `outsideSessions` and
 `outsideMachines`; subsequent full replacements use

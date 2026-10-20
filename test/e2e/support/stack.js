@@ -59,6 +59,23 @@ class Stack {
   // Where fakerelay writes the plan files of `plan` replies.
   get plansDir() { return path.join(this.relayDir, 'home', '.claude', 'plans'); }
 
+  // Text of a file in eve's data dir, or null when it is absent.
+  async dataFile(name) {
+    if (name.includes('/') || name.includes('..')) throw new Error(`dataFile names a file, not a path: ${name}`);
+    try { return await fs.promises.readFile(path.join(this.root, 'eve', name), 'utf8'); } catch (err) {
+      if (err.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  // Fault injection: makes a data-dir file read-only (created empty when missing), so eve's next append fails.
+  async readOnlyDataFile(name) {
+    if (name.includes('/') || name.includes('..')) throw new Error(`readOnlyDataFile names a file, not a path: ${name}`);
+    const file = path.join(this.root, 'eve', name);
+    if (!fs.existsSync(file)) await fs.promises.writeFile(file, '');
+    await fs.promises.chmod(file, 0o400);
+  }
+
   // Fault injection: deletes every *.md in the plans dir. Resolves after the unlinks, with the count.
   async removePlanFiles() {
     let names;

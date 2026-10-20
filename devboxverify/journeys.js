@@ -4375,6 +4375,7 @@ const toolSearch = require('./journeys-tool-search').journeys;
 const files = require('./journeys-files').journeys;
 const cosOutside = require('./journeys-cos-outside').journeys;
 const cosDelegation = require('./journeys-cos-delegation').journeys;
+const cosClear = require('./journeys-cos-clear').journeys;
 
 // The table order is the run order. agent-enrol-refused runs before anything
 // that could open relay's one enrolment window; add-browser-in-window runs
@@ -4426,6 +4427,7 @@ const journeys = [
   { id: 'cos-errand-finished', claude: true, timeoutMs: 330000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosErrandFinished },
   { id: 'cos-agent-rail', claude: true, timeoutMs: 300000, areas: ['chief-of-staff', 'home'], needs: ['project:acme'], run: cosAgentRail },
   cosDelegation.cosDelegation,
+  cosClear.cosClear,
   {
     id: 'cos-add-agent', claude: true, timeoutMs: 300000, areas: ['chief-of-staff'], needs: ['project:acme'], screen: true,
     run: cosAddAgent,

@@ -27,11 +27,20 @@ const { ChiefOfStaffOutside } = require('./chief-of-staff-outside');
 const SCOPE = 'chief-of-staff';
 const POSTS_FILE = 'chief-of-staff.jsonl';
 const STATE_FILE = 'chief-of-staff-state.json';
+const ARCHIVE_FILE = 'chief-of-staff-archive.jsonl';
 const DELEGATION_FILE = 'chief-of-staff-delegation.json';
 const DELEGATION_LOG_MAX = 100;
 // A session state that stops a delegated send, and the reason the digest gives.
 const DELEGATION_WAIT_STATES = { asking: 'tool_approval', errored: 'errored', stalled: 'stalled' };
 const MAX_POSTS = 200;
+// A card in one of these states still waits on, or is finishing, a tap; /clear keeps it.
+const LIVE_CARD_STATES = new Set(['pending', 'approving', 'starting', 'sending', 'adding']);
+const CLEAR_REFUSED_NOTICE = "A delegation is active, so I didn't clear the thread. Stop it on the bar first, then type /clear again.";
+const CLEAR_ARCHIVE_NOTICE = "I couldn't archive the thread, so I didn't clear it. Try again.";
+
+function isClearCommand(text) {
+  return typeof text === 'string' && text.trim().toLowerCase() === '/clear';
+}
 
 const DEFAULTS = Object.freeze({ enabled: true, model: 'sonnet', summaryModel: 'haiku', projectId: null, dailyModelCalls: 100, delegation: DELEGATION_DEFAULTS });
 
@@ -229,6 +238,7 @@ class ChiefOfStaff {
     this.now = now;
     this.postsFile = path.join(dataDir, POSTS_FILE);
     this.stateFile = path.join(dataDir, STATE_FILE);
+    this.archiveFile = path.join(dataDir, ARCHIVE_FILE);
     this.delegationFile = path.join(dataDir, DELEGATION_FILE);
     // The active delegation (the state file's object) or null; one at a time.
     this.activeDelegation = null;
@@ -1211,7 +1221,7 @@ class ChiefOfStaff {
     this._batchTimer = null;
     if (this._people.length > 0) {
       const job = this._people.shift();
-      this._runTurn(() => this._personTurn(job));
+      this._runTurn(job.kind === 'clear' ? () => this._clearThread() : () => this._personTurn(job));
       return;
     }
     let wait = null;
@@ -1253,6 +1263,38 @@ class ChiefOfStaff {
       this._batchTimer.unref?.();
     }
     this._emitStatus();
+  }
+
+  // /clear, run between turns. Archives the old posts, ends both model sessions,
+  // keeps cards that still wait on a tap, then sends every browser the new thread.
+  // Leaves the day's call count, row notes, roster, errands and queues alone.
+  async _clearThread() {
+    if (this.activeDelegation) { this._notice(CLEAR_REFUSED_NOTICE); return; }
+    const kept = this.posts.filter((p) => p.card && LIVE_CARD_STATES.has(p.card.state));
+    const keptIds = new Set(kept.map((p) => p.id));
+    const archived = this.posts.filter((p) => !keptIds.has(p.id));
+    if (archived.length > 0) {
+      const clearedAt = new Date(this.now()).toISOString();
+      const text = archived.map((post) => `${JSON.stringify({ v: 1, clearedAt, post })}\n`).join('');
+      let failure = null;
+      this._writeChain = this._writeChain.then(
+        () => fs.promises.appendFile(this.archiveFile, text, { mode: 0o600 }),
+      ).catch((err) => { failure = err; });
+      await this._writeChain;
+      if (failure) {
+        this.log.warn(`Chief of Staff clear: archive not written: ${failure.message}`);
+        this._notice(CLEAR_ARCHIVE_NOTICE);
+        return;
+      }
+    }
+    for (const m of new Set([this.model, this.personModel])) {
+      if (m && typeof m.reset === 'function') await m.reset();
+    }
+    this.posts = kept;
+    this._persistPosts();
+    await this._writeChain;
+    this.log.info(`Chief of Staff thread cleared: ${archived.length} posts archived, ${kept.length} cards kept`);
+    this._fanOut({ type: 'cos_snapshot', ...this.getSnapshot() });
   }
 
   _runTurn(fn) {
@@ -1557,6 +1599,15 @@ class ChiefOfStaff {
   // A message typed in the thread. Returns once it is queued; the reply and
   // any send arrive as posts.
   submitPerson(rawText) {
+    if (isClearCommand(rawText)) {
+      if (this._stopped) {
+        this._clearThread().catch((err) => this.log.error(`Chief of Staff clear failed: ${err && err.message}`));
+      } else {
+        this._people.push({ kind: 'clear' });
+        this._pump();
+      }
+      return;
+    }
     const text = typeof rawText === 'string' ? rawText.trim() : '';
     if (text.length < 1 || text.length > PERSON_MAX) {
       throw new Error(`Message must be 1 to ${PERSON_MAX} characters`);
@@ -1773,4 +1824,5 @@ module.exports = {
   DEFAULTS,
   POSTS_FILE,
   STATE_FILE,
+  ARCHIVE_FILE,
 };
