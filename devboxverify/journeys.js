@@ -2769,8 +2769,15 @@ async function agentDropIn(env) {
   env.step('wait for the drop-in terminal tab');
   // A refusal toast ends the wait early and goes into the FAIL detail.
   const toastText = async () => (await desktop.locator('.toast__message').allInnerTexts().catch(() => [])).map((t) => t.trim()).filter(Boolean).join(' | ');
+  // The tab is found by its terminal id: Claude retitles the tab within ~200 ms of the first
+  // label, so the label is not a stable thing to wait on.
+  let answerBody;
+  dropAnswerStarted.then((b) => { answerBody = b; });
   const tabShown = await poll(async () => {
-    if (await desktop.locator('.tab.active .tab-label').filter({ hasText: label }).count()) return 'tab';
+    if (answerBody === undefined) return (await toastText()) ? 'toast' : null;
+    const terminalId = answerBody?.terminal?.terminalId;
+    if (typeof terminalId !== 'string' || !terminalId) return 'none';
+    if (await desktop.locator('.tab.active').and(desktop.locator(`[data-tab-id="${terminalId}"]`)).count()) return 'tab';
     return (await toastText()) ? 'toast' : null;
   }, { timeoutMs: DROP_IN_TAB_WITHIN_MS, intervalMs: 250 });
   if (tabShown !== 'tab') {
