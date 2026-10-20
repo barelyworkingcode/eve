@@ -10,6 +10,20 @@
  */
 class RovingFocus {
   /**
+   * Last input type on the page, shared by every instance. :focus-visible cannot answer
+   * "did focus come from the keyboard": a script refocus after a click re-render is
+   * marked focus-visible by Chromium once the clicked element was removed.
+   */
+  static _modalityTracked = false;
+  static _lastInputKeyboard = false;
+  static _trackModality() {
+    if (RovingFocus._modalityTracked || typeof document === 'undefined') return;
+    RovingFocus._modalityTracked = true;
+    document.addEventListener('keydown', () => { RovingFocus._lastInputKeyboard = true; }, true);
+    document.addEventListener('pointerdown', () => { RovingFocus._lastInputKeyboard = false; }, true);
+  }
+
+  /**
    * @param {HTMLElement} root container; persists across renders.
    * @param {object} opts
    * @param {string} opts.items selector of the stops, in DOM order; each carries data-roving-key.
@@ -25,10 +39,18 @@ class RovingFocus {
     this.root = root;
     this.opts = { orientation: 'vertical', wrap: false, ...opts };
     this._lastKey = null;
+    this._focusByKeyboard = false;
+    RovingFocus._trackModality();
     this._onKeydown = (e) => this._handleKeydown(e);
     this._onFocusin = (e) => this._handleFocusin(e);
     root.addEventListener('keydown', this._onKeydown);
     root.addEventListener('focusin', this._onFocusin);
+  }
+
+  /** True when focus is inside the root and arrived by a key, not a click (or a refocus after one). */
+  focusIsFromKeyboard() {
+    const el = document.activeElement;
+    return !!(el && this.root.contains(el) && this._focusByKeyboard);
   }
 
   _stops() {
@@ -109,6 +131,7 @@ class RovingFocus {
   }
 
   _handleFocusin(e) {
+    this._focusByKeyboard = RovingFocus._lastInputKeyboard;
     const stop = this._stopOf(e.target);
     if (!stop) return;
     this._lastKey = stop.dataset.rovingKey ?? null;
