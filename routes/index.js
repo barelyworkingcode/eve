@@ -7,7 +7,7 @@ const { projectAudit } = require('../project-audit');
 
 const { NullLogger } = require('../logger');
 
-function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, fileServiceFor, files, refreshHostCache, removeFromHostCache, ttsService, sttService, voiceSettings, log: parentLog }) {
+function registerRoutes(app, { authService, trustedNetwork, relayTransport, enrollmentWindow, passkeySync, refreshProjectCache, removeFromProjectCache, resolveProject, resumeOutside, fileServiceFor, files, refreshHostCache, removeFromHostCache, ttsService, sttService, voiceSettings, log: parentLog }) {
   const routeLog = parentLog?.child('Routes') || new NullLogger();
   function requireAuth(req, res, next) {
     if (!authService.isEnrolled() || process.env.EVE_NO_AUTH === '1' || trustedNetwork.isTrusted(req)) {
@@ -327,6 +327,47 @@ function registerRoutes(app, { authService, trustedNetwork, relayTransport, enro
     if (limit !== undefined) qs.set('limit', limit);
     const query = qs.toString();
     proxy(req, res, 'GET', `/api/outside-sessions/${encodeURIComponent(req.params.id)}/transcript${query ? `?${query}` : ''}`);
+  });
+
+  // Resume an ended outside session in a new managed terminal. The browser sends only the
+  // row id and a size; eve holds the conversation id (chief-of-staff-outside.js) and checks the row.
+  app.post('/api/outside-sessions/:id/resume', requireAuth, async (req, res) => {
+    const whole = (n) => Number.isInteger(n) && n >= 1 && n <= 500;
+    const { cols, rows } = req.body || {};
+    if (!OUTSIDE_ID.test(req.params.id)) return res.status(400).json({ error: 'invalid_request' });
+    if (!whole(cols) || !whole(rows)) {
+      return res.status(400).json({ error: 'cols and rows must be whole numbers from 1 to 500' });
+    }
+    const { status, body } = await resumeOutside(req.params.id, { cols, rows });
+    res.status(status).json(body);
+  });
+
+  // Adopt an idle outside session. The browser sends the row id and `interrupt` only. This is
+  // eve's own call (no chief-of-staff scope: relay refuses that scope at this door), and the
+  // conversation id relay returns is dropped here.
+  app.post('/api/outside-sessions/:id/adopt', requireAuth, async (req, res) => {
+    const id = req.params.id;
+    if (!/^outside:[0-9a-f]{32}$/.test(id)) return res.status(400).json({ error: 'invalid_request' });
+    const interrupt = req.body?.interrupt;
+    if (interrupt !== true && interrupt !== false) return res.status(400).json({ error: 'interrupt must be true or false' });
+    const relayPath = '/api/sessions/adopt';
+    const startedAt = Date.now();
+    try {
+      const { status, data } = await relayTransport.fetch('POST', relayPath, { outsideId: id, interrupt }, { traceId: req.traceId });
+      let answer;
+      if (status >= 200 && status < 300) {
+        answer = typeof data?.sessionId === 'string' && data.sessionId
+          ? [201, { sessionId: data.sessionId, interrupted: data.interrupted === true, recoverySent: data.recoverySent === true }]
+          : [502, { error: 'adopt_failed', message: 'Relay did not return a session.' }];
+      } else {
+        answer = [status, { error: data?.error || 'adopt_failed', message: data?.message || `Relay answered ${status}.` }];
+      }
+      res.status(answer[0]).json(answer[1]);
+      logProxyCall(req, { op: 'session.adopt', method: 'POST', relayPath, startedAt, httpStatus: answer[0] });
+    } catch (err) {
+      res.status(502).json({ error: 'Service unavailable' });
+      logProxyCall(req, { op: 'session.adopt', method: 'POST', relayPath, startedAt, err });
+    }
   });
 
   // The id is forwarded without shape validation here: relayLLM rejects ids it

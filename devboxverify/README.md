@@ -1039,7 +1039,7 @@ and within 60 s each folder must show an Ended row under the Ended heading (`rai
   Both of its Claudes (console and host) are cleaned up the same way.
 
 **outside-thread.** An outside Claude with no tmux opens as a read-only thread
-(G6.96, simple path). Not a screen journey (600 s). Same BLOCKED rule for a relay
+(G6.96, simple path). Not a screen journey (720 s). Same BLOCKED rule for a relay
 with no outside inventory, and BLOCKED when claude is not on PATH. It makes a
 scratch git folder in Acme Corp with an empty `keepalive.log` and starts
 `claude -p --model haiku --permission-mode default --setting-sources project,local
@@ -1065,12 +1065,37 @@ the Ended group (heading `Ended`), is a `div` with no button, and its line 2 end
 60 s; eve reads it from relay once per ended row), and line 3 (`data-kind="last-turn"`)
 must show it. Last it asks the Chief of Staff `Summarize the outside session <name>.
 Quote its last reply.`; the `reply` post (up to 120 s) must carry the marker.
+The only button beside the ended row is `Resume <name> in a terminal` (G6.106). The
+journey taps it; eve's `POST /api/outside-sessions/:id/resume` must answer with a
+terminal, its tab must become active, and the terminal (xterm rows plus scrollback,
+whitespace removed) must show the marker from the ended conversation within 120 s. A
+folder-trust prompt is answered once. The journey then closes the tab and the tab must
+leave. A cleanup closes the resumed terminal on any path.
 - Lives in: `public/outside-thread.js`; `public/panes/outside-thread-pane.js`;
-  `routes/index.js` (transcript route); relay's outside transcript route.
+  `routes/index.js` (transcript and resume routes); `chief-of-staff-outside.js` (`resume`); relay's outside transcript route.
 - Traps: BLOCKED setup V-COS; BLOCKED when claude is not on PATH; no NOTRUN path.
   One cleanup, which also runs on FAIL and on timeout, ends the process group
   and then removes the scratch folder. Run it alone:
   `node devboxverify/main.js --only outside-thread`.
+
+**outside-adopt.** An idle outside Claude is adopted from the rail (G6.107, simple
+path). Not a screen journey (480 s). Same BLOCKED rule for a relay with no outside
+inventory, and BLOCKED when tmux or claude is not on PATH. It makes a scratch git folder
+in Acme Corp and starts `claude --model haiku --permission-mode default "Reply with exactly
+verify-<nonce>-adopt and nothing else."` in a detached tmux session, with the stack's
+broker wiring (BLOCKED when the reply never comes). A `cos_outside_sessions` frame must
+list the folder as `idle`, and the rail row must show `Adopt <name>` (a row with
+`adoptable` false or absent fails, naming relay's reason). The journey taps it;
+eve's `POST /api/outside-sessions/:id/adopt` must answer 201 with a `sessionId` and no
+`claudeSessionId`. Then the Outside row must leave the rail, `Drop in to <name>` must
+show under Idle, the tmux session must end (the pane's claude exited), and
+`relay audit --event session_adopt` must hold an `ok` row since the tap. A model id that is
+not a `claude-*` id makes relay answer `model_unknown`, and the journey FAILs with that text.
+A cleanup deletes the adopted session; the usual one ends tmux and removes the folder and the
+transcript.
+- Lives in: `public/agent-board.js`; `routes/index.js` (adopt route); `chief-of-staff-outside.js` (`adoptable`, `adoptReason`); relay's `POST /api/sessions/adopt`.
+- Traps: BLOCKED setup V-COS; no NOTRUN path. Run it alone:
+  `node devboxverify/main.js --only outside-adopt`.
 
 **cos-outside-hooks.** An outside Claude's hook report moves its row at once
 (G6.93, power path). Not a screen journey (360 s). Same BLOCKED

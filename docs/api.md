@@ -63,6 +63,8 @@ WebAuthn enrollment/login. The four POST routes are rate-limited per client addr
 | GET | `/api/models` | List models. Relay's status and body pass through; 401 and 502 as in Pages, gates and shared answers. |
 | GET | `/api/sessions` | List sessions. relay answers `{ sessions: [...] }` (object-wrapped); eve unwraps it and returns a bare, filtered array to the browser: `__search:` ephemeral sessions are filtered out here, not by relay. A non-2xx relay answer, or a body that is neither shape, passes through unchanged; 502 when relay is unreachable. A live Claude or pi row can carry `attention: {state, since, exit?}` (same values, time format and `exit` as `session_state`); the field is absent otherwise, and eve passes it through unchanged. |
 | POST | `/api/sessions/:id/drop-in` | Drop in to a headless Claude session. Body `{cols, rows}`, each a whole number from 1 to 500, else `400 {"error":"cols and rows must be whole numbers from 1 to 500"}` and relay is not called. eve forwards to relay (`session.drop_in`) and returns relay's status and body unchanged: `201 {sessionId, claudeSessionId, host?, terminal}` (`terminal` has the shape of `POST /api/terminals`; the browser opens it with `terminal_created` handling plus `join_terminal`), or a refusal `{error, message}` (`message` is shown to the person), with relay's status. 502 `{"error":"Service unavailable"}` if relay is unreachable. No timeout: relay bounds the wait. Closing the terminal is the ordinary `terminal_close`. |
+| POST | `/api/outside-sessions/:id/resume` | Resume an ended outside session in a new terminal. Body `{cols, rows}`, each a whole number from 1 to 500. `:id` must match `^outside:[A-Za-z0-9_-]{1,128}$`. A bad id answers `400 {"error":"invalid_request"}`, bad `cols` or `rows` answers `400 {"error":"cols and rows must be whole numbers from 1 to 500"}`, and relay is not called. Eve checks the row in its own outside snapshot, in order: gone `404 outside_session_not_found`; not ended `409 outside_session_live`; not in a project, on a host, or no usable conversation id `409 outside_resume_unavailable`; already in flight `409 outside_resume_busy`. Each refusal is `{error, message}`. Then it makes one `POST /api/terminals` (template `claude-code`, the row's folder and project, `extraArgs: ["--resume", <id>]`). `201 {terminal}` (the shape of `POST /api/terminals`; the browser opens it as for drop-in), relay's refusal with relay's status and `{error, message}`, `502 {"error":"resume_failed",...}` when relay returns no terminal, or `502 {"error":"Service unavailable"}` if relay is unreachable. |
+| POST | `/api/outside-sessions/:id/adopt` | Adopt a live outside session under relay. Body `{interrupt}`, exactly `true` or `false`; other keys are ignored and never forwarded. `:id` must match `^outside:[0-9a-f]{32}$`. A bad id answers `400 {"error":"invalid_request"}`, a non-boolean `interrupt` answers `400 {"error":"interrupt must be true or false"}`, and relay is not called. Eve makes one `POST /api/sessions/adopt` with `{outsideId, interrupt}` as itself (no chief-of-staff scope: relay refuses that scope at this door; `session.adopt` is logged, never the body). `201 {sessionId, interrupted, recoverySent}` (relay's `claudeSessionId` is dropped); relay's refusal with relay's status and `{error, message}` (`message` is shown to the person); `502 {"error":"adopt_failed","message":...}` when relay returns no session; `502 {"error":"Service unavailable"}` if relay is unreachable. No timeout: relay bounds the ladder. The managed session reaches the browser through the session list. With `interrupt:true`, relay may add one user message with origin `relay-recovery`. |
 | POST | `/api/sessions/:id/resume` | Not an eve route: it is the relay route eve calls, and no browser sends it. Resume a dormant session. Called automatically by eve, at most once per user turn, when relay answers a `send_message` with the `resume_required` error below, never host-driven (SH-6). |
 
 Session creation is HTTP (`POST /api/sessions`, triggered by the WS `create_session` frame, see below); messages and the rest of the session lifecycle stay on WebSocket.
@@ -369,7 +371,7 @@ sessions:OutsideSession[],machines:MachineStatus[]}`. Each row has `id`, `name`,
 `projectId`, `hostId`, `machine`, `directory`, `branch`, `state` (running, asking,
 idle, or ended), `since`, `updatedAt`, `endedAt` (ended rows only, RFC 3339 UTC),
 `source` (hook or probe), `outside:true`,
-`readOnly:true`, `tmuxSession`, `viewable`, `viewReason`. IDs have the reserved
+`readOnly:true`, `tmuxSession`, `viewable`, `viewReason`, `adoptable`, `adoptReason`. IDs have the reserved
 `outside:` prefix; nullable project/host/tmux values remain nullable. Machine
 status has `hostId`, `machine`, `status`, `lastProbeAt`, `error`.
 Full snapshots replace membership; a new WS reseeds revision after reconnect.
@@ -397,6 +399,7 @@ managed roster nor browser StateStore nor errands.
 `cos_list_sessions` adds outside rows with `sessionId`, `label`, `project`,
 `projectId`, `state`, `since`, `headless:false`, `origin:'outside'`, `outside:true`,
 `readOnly:true`, `machine`, `directory`, `branch`, `viewable`, `viewReason`,
+`adoptable` and `adoptReason` (relay's judgement; `adoptReason` is a code, present when `adoptable` is false),
 and `endedAt` on an ended row. `cos_session_status` reads a fresh scoped detail response at request time:
 `{session,lastTurn:{text,at,complete},lastExcerpt}`. Latest assistant turn text
 is bounded to its last 8192 characters; excerpt is its last 500. Expired IDs
@@ -404,6 +407,7 @@ return `outside_session_not_found`; failed reads return
 `outside_status_unavailable`, never successful cached text. Existing tool-call
 claims and provenance remain mandatory. Outside sends/cards/actions refuse
 `outside_session_read_only` with `Outside sessions are read-only.`
+The Claude conversation id (`claudeSessionId`), which relay serves on outside rows, stays on eve's server: no row, frame, list or tool result carries it, and the browser sends only the row id to resume or adopt.
 
 `GET /api/outside-sessions/:id/transcript` (browser, `requireAuth`) returns one
 page of an outside session's transcript for the read-only thread tab. `:id` must

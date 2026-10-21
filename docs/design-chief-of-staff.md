@@ -218,6 +218,8 @@ browser frames use `browserSnapshot()`. A failed read stores nothing and the nex
 snapshot retries. Ended rows count in neither `watching` nor `needYou`. The model
 reads an ended session by finding its row and calling `cos_session_status`.
 
+Outside rows stay read-only: eve never writes to, signals or takes over the original process. An ended row in a console project offers Resume, which starts a new managed `claude-code` terminal in the row's folder with `--resume <conversation id>` (`ChiefOfStaffOutside#resume`, `POST /api/outside-sessions/:id/resume`). Relay serves that id (`claudeSessionId`) on ended rows only; eve keeps it in a private map, strips it from every row, frame and tool result, and the browser sends only the row id. Eve checks the row (in the list, ended, in a console project, a UUID id, not already in flight) and makes one `POST /api/terminals` through the same door as `terminal_create`, so relay's sandbox and project rules apply unchanged.
+
 ChiefOfStaffPage keeps a private outside Map and passes it only to its rail
 and phone-sheet boards. Today, projects, managed attention, StateStore, errands
 and wake summaries retain their existing membership. Viewer terminals are
@@ -271,6 +273,8 @@ turn. Claude text in the thread goes through the shared Markdown renderer
 literal, and links and images stay sanitised as in the main chat. You and tool
 text stay `textContent`: a tool call shows its name and a short summary with its
 input folded, and a tool result past 400 characters or 8 lines is folded. Eve folds by relay's `kind` and uses `name` as the label, and guesses by text shape only for an entry with no `kind`.
+
+**Adopt (eve#597).** A live outside row relay marks `adoptable` and not on a host offers a button on the Agents board: `Adopt` when idle, `Interrupt and adopt` when working. The browser sends only the row id and `interrupt` to `POST /api/outside-sessions/:id/adopt`. Eve makes one call to relay's `POST /api/sessions/adopt` as itself, with no chief-of-staff scope: relay refuses that scope at this door, and the Chief of Staff gets no adopt action or tool (its outside actions still refuse `outside_session_read_only`). Relay judges the row, the project, idleness and the launch; eve adds no filter and shows the button only on `adoptable === true`. A row relay marks not adoptable shows relay's reason as one line. The conversation id relay returns is dropped at the route. After adopt, relay lists a managed headless session and the board shows it with Drop in. Interrupt and adopt makes relay send one message with origin `relay-recovery`, shown with the chip `Sent by relay after it took over`.
 
 Relay independently probes healthy machines every 15 seconds, drains optional
 native hook reports within two seconds, and emits full changed snapshots.

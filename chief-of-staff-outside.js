@@ -1,15 +1,24 @@
 'use strict';
 
+const { NullLogger } = require('./logger');
+
 // Independent, listen-only inventory. No outside text enters the managed ledger.
 const SCOPE = { scope: 'chief-of-staff' };
 const ROOT = '/api/chief-of-staff/outside-sessions';
-const ROW_FIELDS = ['id', 'name', 'projectId', 'hostId', 'machine', 'directory', 'branch', 'state', 'since', 'updatedAt', 'source', 'outside', 'readOnly', 'tmuxSession', 'viewable', 'viewReason', 'endedAt'];
+const ROW_FIELDS = ['id', 'name', 'projectId', 'hostId', 'machine', 'directory', 'branch', 'state', 'since', 'updatedAt', 'source', 'outside', 'readOnly', 'tmuxSession', 'viewable', 'viewReason', 'endedAt', 'adoptable', 'adoptReason'];
 const MACHINE_FIELDS = ['hostId', 'machine', 'status', 'lastProbeAt', 'error'];
+const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pick = (row, fields) => Object.fromEntries(fields.filter(k => row[k] !== undefined).map(k => [k, row[k]]));
 
 class ChiefOfStaffOutside {
-  constructor({ relayTransport, onSnapshot }) {
+  constructor({ relayTransport, onSnapshot, resolveProject, log }) {
+    this.log = log || new NullLogger();
     this.transport = relayTransport;
+    this.resolveProject = resolveProject || (() => null);
+    // Row id -> Claude session id, ended rows only. Server-only: pick() keeps it out of every row,
+    // so no snapshot, frame, list(), detail() or tool result carries it. Replaced with each accepted snapshot.
+    this.claudeIds = new Map();
+    this.resuming = new Set();
     this.onSnapshot = onSnapshot;
     this.snapshot = { revision: -1, probeIntervalMs: 15000, sessions: [], machines: [] };
     this.stopped = true;
@@ -75,10 +84,19 @@ class ChiefOfStaffOutside {
       sessions: [...sessions.values()], machines: data.machines.filter(r => r && typeof r === 'object').map(r => pick(r, MACHINE_FIELDS)) };
   }
 
+  _claudeIdsOf(data) {
+    const ids = new Map();
+    for (const row of data.sessions) {
+      if (row?.state === 'ended' && typeof row.id === 'string' && typeof row.claudeSessionId === 'string') ids.set(row.id, row.claudeSessionId);
+    }
+    return ids;
+  }
+
   _replace(data, reseed = false) {
     const snapshot = this._snapshotOf(data);
     if (!snapshot || (!reseed && snapshot.revision <= this.snapshot.revision)) return false;
     this.snapshot = snapshot;
+    this.claudeIds = this._claudeIdsOf(data);
     this.onSnapshot?.(this.browserSnapshot());
     if (snapshot.sessions.some(r => r.state === 'ended') || this.turns.size) this._fillTurns();
     return true;
@@ -106,6 +124,51 @@ class ChiefOfStaffOutside {
     return { session: pick(data.session, ROW_FIELDS), lastTurn: {
       text: String(data.lastTurn?.text || '').slice(-8192), at: String(data.lastTurn?.at || ''), complete: data.lastTurn?.complete === true,
     }, lastExcerpt: String(data.lastExcerpt || '').slice(-500) };
+  }
+
+  // Resume an ended row in a new managed terminal on the same conversation. Never throws.
+  // The browser sends only the row id; the conversation id is eve's own, and it becomes a CLI argument.
+  async resume(id, size) {
+    const result = await this._resume(id, size);
+    // One line per outcome: the row id and the result. Never the Claude session id.
+    const { status, body } = result;
+    const attrs = { op: 'outside.resume', id, http_status: status };
+    if (status === 201) attrs.terminal_id = body.terminal.terminalId;
+    else attrs.error = body.error;
+    this.log[status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info']('Outside resume', attrs);
+    return result;
+  }
+
+  async _resume(id, { cols, rows }) {
+    const refuse = (status, error, message) => ({ status, body: { error, message } });
+    const unavailable = (message) => refuse(409, 'outside_resume_unavailable', message);
+    const row = this.snapshot.sessions.find(r => r.id === id);
+    if (!row) return refuse(404, 'outside_session_not_found', 'That session is no longer in the list.');
+    if (row.state !== 'ended') return refuse(409, 'outside_session_live', 'This session is still running. Only an ended session can be resumed.');
+    const project = row.projectId ? this.resolveProject(row.projectId) : null;
+    if (!project) return unavailable("Not in a project, so it can't be resumed.");
+    if (row.hostId || project.hostId) return unavailable("On a host, so it can't be resumed here.");
+    const claudeSessionId = this.claudeIds.get(id);
+    if (typeof claudeSessionId !== 'string' || !CLAUDE_SESSION_ID.test(claudeSessionId)) {
+      return unavailable("Relay gave no conversation id, so it can't be resumed.");
+    }
+    if (this.resuming.has(id)) return refuse(409, 'outside_resume_busy', 'This session is already being resumed.');
+    this.resuming.add(id);
+    try {
+      const { status, data } = await this.transport.fetch('POST', '/api/terminals', {
+        templateId: 'claude-code', name: `${row.name} (resumed)`, directory: row.directory,
+        projectId: row.projectId, cols, rows, extraArgs: ['--resume', claudeSessionId],
+      });
+      if (status >= 200 && status < 300) {
+        return data?.terminalId ? { status: 201, body: { terminal: data } }
+          : refuse(502, 'resume_failed', 'Relay did not return a terminal.');
+      }
+      return refuse(status, data?.code || 'resume_failed', data?.error || `Relay answered ${status}.`);
+    } catch {
+      return { status: 502, body: { error: 'Service unavailable' } };
+    } finally {
+      this.resuming.delete(id);
+    }
   }
 
   start() {
