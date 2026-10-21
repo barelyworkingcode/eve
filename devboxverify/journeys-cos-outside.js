@@ -22,6 +22,7 @@ const CLAUDE_MODEL = 'haiku';
 const INVENTORY_WITHIN_MS = 40000; // two probe intervals of 15 s, plus the first snapshot
 const TRUST_WITHIN_MS = 30000;
 const TRUST_MAX_DOWNS = 4;
+const READY_WITHIN_MS = 30000; // the input box, after start-up and the MCP servers
 const ROW_WITHIN_MS = 60000; // a probe interval of 15 s, claude start-up, and an ssh probe
 const REPLY_WITHIN_MS = 120000;
 const COS_TURN_WITHIN_MS = 120000;
@@ -142,7 +143,9 @@ async function startClaude(env, tools, { name, dir, prompt, settings, asPerson =
   const sessionId = crypto.randomUUID();
   tools.claudeIds.push({ id: sessionId, journey: tools.journey });
   args.push('--session-id', sessionId);
-  args.push(prompt);
+  // asPerson: no prompt argument. A person types into the ready prompt, after the MCP servers are up; an argv prompt is
+  // answered within a second, and relay vetoes an adopt for a child that started after the first reply.
+  if (!asPerson) args.push(prompt);
   const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
   env.step(`start ${name}`);
   // asPerson: a person's terminal has neither variable; the tmux server inherits them from an agent session, and relay refuses an "sdk-cli" entrypoint.
@@ -172,8 +175,14 @@ async function startClaude(env, tools, { name, dir, prompt, settings, asPerson =
       }
       return null;
     }
+    if (asPerson) return !TRUST_PROMPT.test(text) && /\? for shortcuts/.test(text) ? true : null;
     return text.includes(prompt.slice(-24)) ? true : null;
-  }, { timeoutMs: TRUST_WITHIN_MS, intervalMs: 500 });
+  }, { timeoutMs: asPerson ? TRUST_WITHIN_MS + READY_WITHIN_MS : TRUST_WITHIN_MS, intervalMs: 500 });
+  if (asPerson) {
+    // Waits: none possible: a terminal UI has no signal. The poll above is a bounded pane capture for the input box.
+    await exec(tools.tmux, ['send-keys', '-t', name, '-l', prompt], { timeout: 10000 });
+    await exec(tools.tmux, ['send-keys', '-t', name, 'Enter'], { timeout: 10000 });
+  }
   return { trusted };
 }
 
