@@ -132,7 +132,7 @@ async function pane(tmux, name) {
 // Starts `claude --model haiku <prompt>` in a detached tmux session and answers
 // the folder-trust prompt if it comes. Returns { trusted } once the prompt text
 // is on the pane or the trust bound passes.
-async function startClaude(env, tools, { name, dir, prompt, settings }) {
+async function startClaude(env, tools, { name, dir, prompt, settings, asPerson = false }) {
   // Default permission mode: the machine's own mode (auto, say) may never show a permission prompt.
   const args = ['--model', CLAUDE_MODEL, '--permission-mode', 'default'];
   if (settings) args.push('--settings', settings);
@@ -145,13 +145,14 @@ async function startClaude(env, tools, { name, dir, prompt, settings }) {
   args.push(prompt);
   const quote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
   env.step(`start ${name}`);
+  // asPerson: a person's terminal has neither variable; the tmux server inherits them from an agent session, and relay refuses an "sdk-cli" entrypoint.
   // A running tmux server does not inherit the client's environment, so a stack's
   // spool goes in with -e. The spool defaults to a folder in the stack's relay config dir.
   const spool = env.stack ? (env.stack.outsideSpool || path.join(env.relayConfigDir, 'outside-reports')) : null;
   const spoolEnv = spool ? ['-e', `RELAY_OUTSIDE_SPOOL=${spool}`] : [];
   // A stack run's broker wiring goes in through the shell command, which reads the token file itself.
   await writeOutsideSettings(env, dir);
-  await exec(tools.tmux, ['new-session', '-d', ...spoolEnv, '-s', name, '-x', '200', '-y', '50', '-c', dir, `${shellPrefix(env)}exec ${quote(tools.claude)} ${args.map(quote).join(' ')}`],
+  await exec(tools.tmux, ['new-session', '-d', ...spoolEnv, '-s', name, '-x', '200', '-y', '50', '-c', dir, `${shellPrefix(env)}exec ${asPerson ? 'env -u CLAUDE_CODE_ENTRYPOINT -u CLAUDECODE ' : ''}${quote(tools.claude)} ${args.map(quote).join(' ')}`],
     { env: cleanEnv(), timeout: 20000 });
   tools.sessions.push(name);
   let trusted = false;
@@ -789,7 +790,7 @@ async function outsideAdopt(env) {
   const dir = await kit().scratchFolder(env, 'outside-adopt');
   await gitFolder(dir, branch);
   const base = path.basename(dir);
-  const started = await startClaude(env, tools, { name: tmuxName, dir, prompt: `Reply with exactly ${marker} and nothing else.` });
+  const started = await startClaude(env, tools, { name: tmuxName, dir, prompt: `Reply with exactly ${marker} and nothing else.`, asPerson: true });
 
   env.step('wait for the outside reply');
   // The pane holds the marker twice once the model answered: once in the prompt, once in the reply.
