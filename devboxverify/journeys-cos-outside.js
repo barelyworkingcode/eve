@@ -758,6 +758,100 @@ async function outsideThread(env) {
     + `Resume opened a terminal tab that held ${marker} from the ended conversation, and closing it closed the tab`);
 }
 
+// G6.107, the simple path: an idle interactive Claude started in tmux under Acme shows Adopt on the
+// rail. One tap and relay takes it over: the outside row goes, the process in the pane exits, and the
+// agent shows under Idle with Drop in. Waits: the outside row's state from the captured frames, the
+// button and the managed row by locator, the eve route's answer by waitForResponse, the pane's exit by
+// the tmux session's end, relay audit by CLI exit. Claude's first reply and its folder-trust prompt
+// have no hook, so they are bounded polls, as outside-thread uses.
+async function outsideAdopt(env) {
+  const id = 'outside-adopt';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const tools = newTools(env, id);
+  if (tools.problem) return result(id, BLOCKED, tools.problem);
+  if (!env.relayBin) return result(id, BLOCKED, 'no relay binary to read the audit with');
+
+  const marker = `verify-${env.nonce}-adopt`;
+  const branch = `verify-${env.nonce}-adopt`;
+  const tmuxName = `verify-${env.nonce}-outside-adopt`;
+  const held = { sessionId: '' };
+  // Registered before the tap: the managed session relay makes is deleted even on a failure path.
+  env.cleanup('delete the adopted session', async () => { if (held.sessionId) await require('./journey-kit').deleteSession(env, held.sessionId); });
+
+  const page = await env.newPage();
+  const seen = frames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const blocked = await inventoryProblem(seen);
+  if (blocked) return result(id, BLOCKED, blocked);
+
+  env.step('create the folder');
+  const dir = await kit().scratchFolder(env, 'outside-adopt');
+  await gitFolder(dir, branch);
+  const base = path.basename(dir);
+  const started = await startClaude(env, tools, { name: tmuxName, dir, prompt: `Reply with exactly ${marker} and nothing else.` });
+
+  env.step('wait for the outside reply');
+  // The pane holds the marker twice once the model answered: once in the prompt, once in the reply.
+  const replied = await poll(async () => ((await pane(tools.tmux, tmuxName)).split(marker).length - 1 >= 2) || null, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
+  if (!replied) return result(id, BLOCKED, `the outside claude did not reply ${marker} within ${REPLY_WITHIN_MS / 1000}s (model output${started.trusted ? '; a trust prompt was answered' : ''})`);
+
+  env.step('wait for the idle row');
+  const listed = await poll(async () => seen.sessions.find((s) => s.state === 'idle' && String(s.directory || '').includes(base)) || null,
+    { timeoutMs: ROW_WITHIN_MS + IDLE_WITHIN_MS, intervalMs: 500 });
+  if (!listed) return result(id, FAIL, `no cos_outside_sessions frame listed an idle claude in ${base} within ${(ROW_WITHIN_MS + IDLE_WITHIN_MS) / 1000}s of its reply`);
+  const adoptButton = page.getByTestId(`rail-adopt-${listed.id}`);
+  const shown = await expect(adoptButton).toBeVisible({ timeout: ROW_WITHIN_MS }).then(() => true, () => false);
+  if (!shown) {
+    const why = await page.getByTestId(`rail-adopt-reason-${listed.id}`).textContent({ timeout: 1000 }).catch(() => '');
+    return result(id, FAIL, `the idle row for ${base} shows no Adopt button${why ? ` (its line: "${why.trim()}")` : ''} (adoptable: ${JSON.stringify(listed.adoptable)}, reason: ${JSON.stringify(listed.adoptReason)})`);
+  }
+  const label = (await adoptButton.getAttribute('aria-label')) || '';
+  const name = label.replace(/^Adopt /, '');
+
+  env.step('tap Adopt');
+  const sentAt = Date.now();
+  const answered = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes(`/api/outside-sessions/${encodeURIComponent(listed.id)}/adopt`), { timeout: 90000 })
+    .then(async (r) => ({ status: r.status(), body: await r.json().catch(() => null) })).catch(() => null);
+  await adoptButton.click({ timeout: 5000 });
+  const answer = await answered;
+  held.sessionId = (answer && answer.body && answer.body.sessionId) || '';
+  const problems = [];
+  if (!answer || answer.status !== 201 || !held.sessionId) {
+    return result(id, FAIL, `POST /api/outside-sessions/<id>/adopt answered ${answer ? answer.status : 'nothing'} (${JSON.stringify(answer && answer.body || null).slice(0, 200)})`);
+  }
+  if (answer.body && 'claudeSessionId' in answer.body) problems.push('the 201 carried claudeSessionId');
+
+  env.step('wait for the managed row');
+  const dropIn = page.getByTestId('rail-agents-group-idle').getByRole('button', { name: `Drop in to ${name}`, exact: true });
+  const managed = await expect(dropIn).toBeVisible({ timeout: ROW_WITHIN_MS }).then(() => true, () => false);
+  if (!managed) problems.push(`no "Drop in to ${name}" button under Idle within ${ROW_WITHIN_MS / 1000}s of the 201`);
+  const gone = await expect(outsideRows(page, base)).toHaveCount(0, { timeout: GONE_WITHIN_MS }).then(() => true, () => false);
+  if (!gone) problems.push(`the Outside row for ${base} is still on the rail ${GONE_WITHIN_MS / 1000}s after the 201`);
+
+  env.step('wait for the pane to exit');
+  const exited = await poll(async () => {
+    try { await exec(tools.tmux, ['has-session', '-t', `=${tmuxName}`], { timeout: 10000 }); return null; } catch { return true; }
+  }, { timeoutMs: GONE_WITHIN_MS, intervalMs: 500 });
+  if (!exited) problems.push(`the outside claude in tmux ${tmuxName} is still running ${GONE_WITHIN_MS / 1000}s after the 201`);
+
+  env.step('read relay audit');
+  const audited = await poll(async () => {
+    const { stdout } = await exec(env.relayBin, ['audit', '--event', 'session_adopt', '--json', '--tail', '200'], { timeout: 10000, maxBuffer: 32 << 20 });
+    for (const line of stdout.split('\n')) {
+      let o;
+      try { o = JSON.parse(line); } catch { continue; }
+      if (o && o.event === 'session_adopt' && o.outcome === 'ok' && Date.parse(o.ts) >= sentAt - 1000) return true;
+    }
+    return null;
+  }, { timeoutMs: HOOK_STATE_WITHIN_MS * 2, intervalMs: 1000 });
+  if (!audited) problems.push('relay audit holds no session_adopt row with outcome ok since the tap');
+
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `the idle row for ${base} showed Adopt ${name}; one tap answered 201 with a session and no claudeSessionId, the Outside row left the rail, "Drop in to ${name}" showed under Idle, `
+    + `the claude in the tmux pane exited, and relay audit holds a session_adopt row with outcome ok`);
+}
+
 module.exports = {
   metaProblems,
   journeys: {
@@ -766,6 +860,9 @@ module.exports = {
     },
     outsideThread: {
       id: 'outside-thread', claude: true, timeoutMs: 720000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideThread,
+    },
+    outsideAdopt: {
+      id: 'outside-adopt', claude: true, timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdopt,
     },
     cosOutsideHooks: {
       id: 'cos-outside-hooks', claude: true, timeoutMs: 360000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosOutsideHooks,

@@ -167,6 +167,10 @@ class AgentBoard {
   // page opened. Shared by every board, like `dropping`.
   static resuming = new Set();
   static resumed = new Map();
+  // Live outside rows: id -> 'adopt' | 'interrupt' for an Adopt request open (the kind is fixed at
+  // the tap), and id -> managed sessionId of an adopt this page made. Shared by every board.
+  static adopting = new Map();
+  static adopted = new Map();
 
   // Rail and sheet options (eve#274): `maxRows` (Infinity: no cap), `layout` ('board' or
   // 'rail'), `collapseDone`, `note(sessionId)` for a row's third line, `onCounts` (group
@@ -250,6 +254,8 @@ class AgentBoard {
       rows = AgentBoard.collect(this.container, this.filter, outside);
       // A row that left the Ended list (or went live) forgets its Resumed state.
       if (this.outsideRows) for (const oid of AgentBoard.resumed.keys()) if (!outside.some(o => o?.id === oid && o.state === 'ended')) AgentBoard.resumed.delete(oid);
+      // An adopted row that left the outside list forgets its Adopted state.
+      if (this.outsideRows) for (const oid of AgentBoard.adopted.keys()) if (!outside.some(o => o?.id === oid)) AgentBoard.adopted.delete(oid);
       if (rows.length === 0) kind = 'empty';
     }
     el.dataset.state = kind;
@@ -363,6 +369,59 @@ class AgentBoard {
       toast(err?.body?.message || err?.body?.error || "relay isn't reachable");
     } finally {
       AgentBoard.resuming.delete(id);
+      renderAll();
+    }
+  }
+
+  // The one place the Adopt rule lives: a live outside row relay marked adoptable, not on a
+  // host. An absent `adoptable` gives no button (fail closed).
+  static showsAdopt(r) {
+    return r.kind === 'outside' && r.group !== 'ended'
+      && ['idle', 'running', 'asking'].includes(r.item.state)
+      && r.item.adoptable === true && !r.item.hostId;
+  }
+
+  static ADOPT_REASONS = {
+    host_unsupported: "On a host, so it can't be adopted here.",
+    no_project: "Not in a project, so it can't be adopted.",
+    not_registered: "Claude keeps no session record for it, so it can't be adopted.",
+    invalid_id: "Its conversation id is not valid, so it can't be adopted.",
+    start_mismatch: "Its process changed, so it can't be adopted.",
+    not_interactive: "Not an interactive session, so it can't be adopted.",
+    not_command_line: "Not started from the command line, so it can't be adopted.",
+    ambiguous: "Two processes hold this conversation, so it can't be adopted.",
+  };
+
+  // The line for a live outside row that has no Adopt button; '' when none applies.
+  static adoptReason(r) {
+    if (r.kind !== 'outside' || r.group === 'ended' || r.item.adoptable !== false || typeof r.item.adoptReason !== 'string') return '';
+    return AgentBoard.ADOPT_REASONS[r.item.adoptReason] || "Relay can't adopt this session.";
+  }
+
+  // Never rejects. No client timeout: relay bounds the ladder, and giving up sooner would
+  // orphan a session it already launched. `onRefuse` runs before the toast on a refusal.
+  static async adoptOutside(container, id, { interrupt, onRefuse = null } = {}) {
+    if (!id?.startsWith('outside:') || AgentBoard.adopting.has(id)) return;
+    AgentBoard.adopting.set(id, interrupt ? 'interrupt' : 'adopt');
+    const renderAll = () => { for (const b of AgentBoard.live) b.render(); };
+    const toast = (message) => container.get('bus').emit(EVT.TOAST_SHOW, {
+      id: `adopt-${id}`, message: `Can't adopt: ${String(message).replace(/\s+/g, ' ').trim()}`, type: 'error', duration: 8000,
+    });
+    renderAll();
+    try {
+      const body = await container.get('api').adoptOutside(id, { interrupt: interrupt === true });
+      if (body?.sessionId) {
+        AgentBoard.adopted.set(id, body.sessionId);
+        await container.get('app').loadSessions();
+      } else {
+        onRefuse?.();
+        toast('relay did not return a session.');
+      }
+    } catch (err) {
+      onRefuse?.();
+      toast(err?.body?.message || err?.body?.error || "relay isn't reachable");
+    } finally {
+      AgentBoard.adopting.delete(id);
       renderAll();
     }
   }
@@ -507,12 +566,7 @@ class AgentBoard {
     row.append(head, meta);
     const reason = AgentBoard.resumeReason(r);
     if (reason) {
-      const why = document.createElement('span');
-      why.className = 'agent-row__line';
-      why.dataset.testid = `${this.prefix}-resume-reason-${id}`;
-      why.dataset.kind = 'resume-reason';
-      why.textContent = reason;
-      row.appendChild(why);
+      row.appendChild(this._reasonLine(`${this.prefix}-resume-reason-${id}`, 'resume-reason', reason));
     }
     if (typeof t.lastExcerpt === 'string' && t.lastExcerpt) {
       const line = document.createElement('span');
@@ -525,32 +579,60 @@ class AgentBoard {
     return this._withResume(row, r);
   }
 
-  _withResume(row, r) {
-    if (!AgentBoard.showsResume(r)) return row;
-    const { id, label } = r;
-    const wrap = document.createElement('div');
-    wrap.className = 'agent-row-wrap';
+  // The one builder for a row's sibling action button. `busy` and `done` disable it; only `busy` sets aria-busy.
+  _actionButton({ testid, name, text, busyText, busy = false, done = false, onClick }) {
     const act = document.createElement('button');
     act.type = 'button';
     act.className = 'agent-row__action';
-    act.dataset.testid = `${this.prefix}-resume-${id}`;
-    act.setAttribute('aria-label', `Resume ${label} in a terminal`);
-    if (AgentBoard.resuming.has(id)) {
+    act.dataset.testid = testid;
+    act.setAttribute('aria-label', name);
+    if (busy) {
       act.disabled = true;
       act.setAttribute('aria-busy', 'true');
-      act.textContent = 'Resuming\u2026';
-    } else if (AgentBoard.resumed.has(id)) {
+      act.textContent = busyText;
+    } else if (done) {
       act.disabled = true;
-      act.textContent = 'Resumed';
+      act.textContent = text;
     } else {
-      act.textContent = 'Resume';
-      act.addEventListener('click', () => {
+      act.textContent = text;
+      act.addEventListener('click', onClick);
+    }
+    return act;
+  }
+
+  // A one-line reason inside a row that offers no action.
+  _reasonLine(testid, kind, text) {
+    const why = document.createElement('span');
+    why.className = 'agent-row__line';
+    why.dataset.testid = testid;
+    why.dataset.kind = kind;
+    why.textContent = text;
+    return why;
+  }
+
+  // The action is a sibling of the row: a button cannot hold a button.
+  _wrapActions(row, ...buttons) {
+    const wrap = document.createElement('div');
+    wrap.className = 'agent-row-wrap';
+    wrap.append(row, ...buttons);
+    return wrap;
+  }
+
+  _withResume(row, r) {
+    if (!AgentBoard.showsResume(r)) return row;
+    const { id, label } = r;
+    return this._wrapActions(row, this._actionButton({
+      testid: `${this.prefix}-resume-${id}`,
+      name: `Resume ${label} in a terminal`,
+      text: AgentBoard.resumed.has(id) ? 'Resumed' : 'Resume',
+      busyText: 'Resuming\u2026',
+      busy: AgentBoard.resuming.has(id),
+      done: AgentBoard.resumed.has(id),
+      onClick: () => {
         this.onOpen?.(r);
         AgentBoard.resumeOutside(this.container, id);
-      });
-    }
-    wrap.append(row, act);
-    return wrap;
+      },
+    }));
   }
 
   _row(r, held) {
@@ -649,6 +731,8 @@ class AgentBoard {
       action.className = 'agent-row__line';
       action.textContent = t.machineStatus === 'unreachable' ? 'Thread unavailable: Host is unreachable' : 'Read-only thread';
       row.append(meta, action);
+      const why = AgentBoard.adoptReason(r);
+      if (why) row.appendChild(this._reasonLine(`${this.prefix}-adopt-reason-${id}`, 'adopt-reason', why));
       return;
     }
     const words = kind === 'session' ? AgentBoard.STATE_WORDS[state] || state
@@ -692,57 +776,60 @@ class AgentBoard {
     row.appendChild(line);
   }
 
-  // The sibling button a row offers, if any: Drop in or, on an outside row in tmux, View read-only.
+  // The sibling buttons a row offers, if any: Drop in or, on an outside row, View read-only
+  // (in tmux) and Adopt.
   _withActions(row, r) {
-    return r.kind === 'outside' ? this._withView(row, r) : this._withDropIn(row, r);
+    return r.kind === 'outside' ? this._withOutsideActions(row, r) : this._withDropIn(row, r);
   }
 
-  // The tmux viewer (G6.95) keeps a door of its own beside the row's thread.
-  _withView(row, r) {
-    const { id, label, item } = r;
-    if (!item.viewable) return row;
-    const wrap = document.createElement('div');
-    wrap.className = 'agent-row-wrap';
-    const act = document.createElement('button');
-    act.type = 'button';
-    act.className = 'agent-row__action';
-    act.dataset.testid = `${this.prefix}-view-${id}`;
-    act.setAttribute('aria-label', `View ${label} read-only`);
-    act.textContent = 'View read-only';
-    act.addEventListener('click', () => {
-      this.onOpen?.(r);
-      this.openOutside?.(item);
+  _withOutsideActions(row, r) {
+    const buttons = [];
+    // The tmux viewer (G6.95) keeps a door of its own beside the row's thread.
+    if (r.item.viewable) {
+      buttons.push(this._actionButton({
+        testid: `${this.prefix}-view-${r.id}`,
+        name: `View ${r.label} read-only`,
+        text: 'View read-only',
+        onClick: () => {
+          this.onOpen?.(r);
+          this.openOutside?.(r.item);
+        },
+      }));
+    }
+    if (AgentBoard.showsAdopt(r)) buttons.push(this._adoptButton(r));
+    return buttons.length ? this._wrapActions(row, ...buttons) : row;
+  }
+
+  _adoptButton(r) {
+    const { id, label } = r;
+    const kind = AgentBoard.adopting.get(id);
+    const interrupt = kind ? kind === 'interrupt' : r.item.state !== 'idle';
+    return this._actionButton({
+      testid: `${this.prefix}-${interrupt ? 'interrupt-adopt' : 'adopt'}-${id}`,
+      name: interrupt ? `Interrupt and adopt ${label}` : `Adopt ${label}`,
+      text: AgentBoard.adopted.has(id) ? 'Adopted' : interrupt ? 'Interrupt and adopt' : 'Adopt',
+      busyText: interrupt ? 'Interrupting\u2026' : 'Adopting\u2026',
+      busy: !!kind,
+      done: AgentBoard.adopted.has(id),
+      // A refusal closes a phone sheet so the toast shows; a success leaves it open on the result.
+      onClick: () => AgentBoard.adoptOutside(this.container, id, { interrupt, onRefuse: () => this.onOpen?.(r) }),
     });
-    wrap.append(row, act);
-    return wrap;
   }
 
   _withDropIn(row, r) {
     const { id, label } = r;
     if (!AgentBoard.showsDropIn(r)) return row;
-    // The action is a sibling of the row button: a button cannot hold a button.
-    const wrap = document.createElement('div');
-    wrap.className = 'agent-row-wrap';
-    const act = document.createElement('button');
-    act.type = 'button';
-    act.className = 'agent-row__action';
     const kind = AgentBoard.dropping.get(id);
     const wait = kind ? kind === 'wait' : r.group === 'working';
-    act.dataset.testid = `${this.prefix}-${wait ? 'take-over' : 'drop-in'}-${id}`;
-    act.setAttribute('aria-label', wait ? `Take over ${label} after this turn` : `Drop in to ${label}`);
-    if (kind) {
-      act.disabled = true;
-      act.setAttribute('aria-busy', 'true');
-      act.textContent = wait ? 'Waiting for the turn to end…' : 'Dropping in…';
-    } else {
-      act.textContent = wait ? 'Take over after this turn' : 'Drop in';
+    return this._wrapActions(row, this._actionButton({
+      testid: `${this.prefix}-${wait ? 'take-over' : 'drop-in'}-${id}`,
+      name: wait ? `Take over ${label} after this turn` : `Drop in to ${label}`,
+      text: wait ? 'Take over after this turn' : 'Drop in',
+      busyText: wait ? 'Waiting for the turn to end…' : 'Dropping in…',
+      busy: !!kind,
       // onOpen fires when relay answers, so a sheet stays open on the waiting text.
-      act.addEventListener('click', () => {
-        AgentBoard.dropIn(this.container, id, { wait, onAnswer: () => this.onOpen?.(r) });
-      });
-    }
-    wrap.append(row, act);
-    return wrap;
+      onClick: () => AgentBoard.dropIn(this.container, id, { wait, onAnswer: () => this.onOpen?.(r) }),
+    }));
   }
 
   _group(key, rows, shown, mgr, fetch) {
