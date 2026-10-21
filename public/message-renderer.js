@@ -453,11 +453,11 @@ class MessageRenderer {
       content.appendChild(mark);
     }
     // Only relay's marker, set by the server for a send the Chief of Staff made.
-    if (origin === 'chief-of-staff') {
+    if (origin === 'chief-of-staff' || origin === 'relay-recovery') {
       const chip = document.createElement('span');
       chip.className = 'message-origin-chip';
       chip.dataset.testid = 'message-origin-chip';
-      chip.textContent = 'Sent by Chief of Staff';
+      chip.textContent = origin === 'chief-of-staff' ? 'Sent by Chief of Staff' : 'Sent by relay after it took over';
       content.appendChild(chip);
     }
     if (shownFiles.length > 0 || shownUrls.length > 0) {

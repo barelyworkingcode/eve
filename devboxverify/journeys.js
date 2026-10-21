@@ -4464,6 +4464,7 @@ const journeys = [
   files.filesOnHost,
   cosOutside.cosOutsideSimple,
   cosOutside.outsideThread,
+  cosOutside.outsideAdopt,
   cosOutside.cosOutsideHooks,
   { id: 'project-mode-new', timeoutMs: 90000, areas: ['projects', 'home'], needs: [], screen: true, run: projectModeNew },
   auth.addBrowserInWindow,

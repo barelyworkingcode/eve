@@ -274,6 +274,8 @@ literal, and links and images stay sanitised as in the main chat. You and tool
 text stay `textContent`: a tool call shows its name and a short summary with its
 input folded, and a tool result past 400 characters or 8 lines is folded. Eve folds by relay's `kind` and uses `name` as the label, and guesses by text shape only for an entry with no `kind`.
 
+**Adopt (eve#597).** A live outside row relay marks `adoptable` and not on a host offers a button on the Agents board: `Adopt` when idle, `Interrupt and adopt` when working. The browser sends only the row id and `interrupt` to `POST /api/outside-sessions/:id/adopt`. Eve makes one call to relay's `POST /api/sessions/adopt` as itself, with no chief-of-staff scope: relay refuses that scope at this door, and the Chief of Staff gets no adopt action or tool (its outside actions still refuse `outside_session_read_only`). Relay judges the row, the project, idleness and the launch; eve adds no filter and shows the button only on `adoptable === true`. A row relay marks not adoptable shows relay's reason as one line. The conversation id relay returns is dropped at the route. After adopt, relay lists a managed headless session and the board shows it with Drop in. Interrupt and adopt makes relay send one message with origin `relay-recovery`, shown with the chip `Sent by relay after it took over`.
+
 Relay independently probes healthy machines every 15 seconds, drains optional
 native hook reports within two seconds, and emits full changed snapshots.
 Eve immediately fans them out: end-to-end promises remain hook state <=5s,

@@ -5,7 +5,7 @@ const { NullLogger } = require('./logger');
 // Independent, listen-only inventory. No outside text enters the managed ledger.
 const SCOPE = { scope: 'chief-of-staff' };
 const ROOT = '/api/chief-of-staff/outside-sessions';
-const ROW_FIELDS = ['id', 'name', 'projectId', 'hostId', 'machine', 'directory', 'branch', 'state', 'since', 'updatedAt', 'source', 'outside', 'readOnly', 'tmuxSession', 'viewable', 'viewReason', 'endedAt'];
+const ROW_FIELDS = ['id', 'name', 'projectId', 'hostId', 'machine', 'directory', 'branch', 'state', 'since', 'updatedAt', 'source', 'outside', 'readOnly', 'tmuxSession', 'viewable', 'viewReason', 'endedAt', 'adoptable', 'adoptReason'];
 const MACHINE_FIELDS = ['hostId', 'machine', 'status', 'lastProbeAt', 'error'];
 const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pick = (row, fields) => Object.fromEntries(fields.filter(k => row[k] !== undefined).map(k => [k, row[k]]));

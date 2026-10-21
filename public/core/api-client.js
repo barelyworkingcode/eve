@@ -47,6 +47,12 @@ class ApiClient {
     return this._request('POST', `/api/outside-sessions/${encodeURIComponent(id)}/resume`, size);
   }
 
+  // Adopt an idle (or, with interrupt, working) outside session. A refusal arrives as err.body = {error, message}.
+  adoptOutside(id, { interrupt }) {
+    if (typeof id !== 'string' || !id.startsWith('outside:')) return Promise.reject(new Error('Outside adopt unavailable'));
+    return this._request('POST', `/api/outside-sessions/${encodeURIComponent(id)}/adopt`, { interrupt: interrupt === true });
+  }
+
   dropIn(sessionId, size) {
     if (sessionId?.startsWith('outside:')) return Promise.reject(new Error('Outside sessions are read-only.'));
     return this._request('POST', `/api/sessions/${encodeURIComponent(sessionId)}/drop-in`, size);
