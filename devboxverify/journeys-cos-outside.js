@@ -768,6 +768,29 @@ async function outsideThread(env) {
     + `Resume opened a terminal tab that held ${marker} from the ended conversation, and closing it closed the tab`);
 }
 
+// The assistant records of one conversation's transcript (~/.claude/projects/*/<id>.jsonl). `real` is true when a
+// record from a model holds the marker; `synthetic` lists the text of records Claude wrote itself (model "<synthetic>").
+async function assistantReplies(claudeId, marker) {
+  const root = path.join(os.homedir(), '.claude', 'projects');
+  const out = { real: false, synthetic: [] };
+  let dirs;
+  try { dirs = await fs.promises.readdir(root); } catch { return out; }
+  for (const dir of dirs) {
+    let text;
+    try { text = await fs.promises.readFile(path.join(root, dir, `${claudeId}.jsonl`), 'utf8'); } catch { continue; }
+    for (const line of text.split('\n')) {
+      let rec;
+      try { rec = JSON.parse(line); } catch { continue; }
+      if (!rec || rec.type !== 'assistant' || !rec.message) continue;
+      const content = rec.message.content;
+      const said = Array.isArray(content) ? content.filter((c) => c && c.type === 'text').map((c) => c.text).join('\n') : String(content || '');
+      if (rec.message.model === '<synthetic>') out.synthetic.push(said.trim());
+      else if (said.includes(marker)) out.real = true;
+    }
+  }
+  return out;
+}
+
 // G6.107, the simple path: an idle interactive Claude started in tmux under Acme shows Adopt on the
 // rail. One tap and relay takes it over: the outside row goes, the process in the pane exits, and the
 // agent shows under Idle with Drop in. Waits: the outside row's state from the captured frames, the
@@ -802,9 +825,16 @@ async function outsideAdopt(env) {
   const started = await startClaude(env, tools, { name: tmuxName, dir, prompt: `Reply with exactly ${marker} and nothing else.`, asPerson: true });
 
   env.step('wait for the outside reply');
-  // The pane holds the marker twice once the model answered: once in the prompt, once in the reply.
-  const replied = await poll(async () => ((await pane(tools.tmux, tmuxName)).split(marker).length - 1 >= 2) || null, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
+  // Waits: none possible for model output; a bounded read of the conversation's transcript. The prompt sits in the
+  // transcript and on the pane too, so only an assistant record counts, and a <synthetic> one (a login or API
+  // error Claude writes itself) is no model answer.
+  const claudeId = tools.claudeIds[tools.claudeIds.length - 1].id;
+  const replied = await poll(async () => {
+    const got = await assistantReplies(claudeId, marker);
+    return got.real || got.synthetic.length ? got : null;
+  }, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
   if (!replied) return result(id, BLOCKED, `the outside claude did not reply ${marker} within ${REPLY_WITHIN_MS / 1000}s (model output${started.trusted ? '; a trust prompt was answered' : ''})`);
+  if (!replied.real) return result(id, BLOCKED, `the outside claude answered "<synthetic>": ${replied.synthetic[0]}`);
 
   env.step('wait for the idle row');
   const listed = await poll(async () => seen.sessions.find((s) => s.state === 'idle' && String(s.directory || '').includes(base)) || null,
