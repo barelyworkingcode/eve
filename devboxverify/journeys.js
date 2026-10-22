@@ -2970,7 +2970,10 @@ async function agentDropInPi(env) {
   if (second.problem) return result(id, FAIL, second.problem);
   const replied = sock.frames.some((f) => f.type === 'llm_event' && f.sessionId === sid && f.at >= second.at
     && f.event && f.event.type !== 'user' && f.event.type !== 'system' && JSON.stringify(f.event).includes(`${marker}-2`));
-  if (!replied) return result(id, FAIL, `session ${sid}: the reply to turn 2 does not hold ${marker}-2`);
+  if (!replied) {
+    const seenAfter = sock.frames.filter((f) => f.type === 'llm_event' && f.sessionId === sid && f.at >= second.at).map((f) => JSON.stringify(f.event)).join(' | ').slice(0, 600);
+    return result(id, FAIL, `session ${sid}: the reply to turn 2 does not hold ${marker}-2 (events since: ${seenAfter || 'none'})`);
+  }
 
   return result(id, PASS, `model ${model}: after turn 1 Drop in showed under Idle; the answer named agent pi with template pi and relay logged session.drop_in; `
     + `closing the tab logged session.hand_back and Drop in showed under Idle again; turn 2 replied with ${marker}-2`);
