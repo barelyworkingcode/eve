@@ -23,7 +23,6 @@ const OK_WORLD = { model_family: 'haiku' };
 // A row that is still working: relay finds the registry entry busy until the interrupt clears it.
 const BUSY_WORLD = { busy: 'registry_busy', model_family: 'haiku' };
 
-const NO_PROJECT = "Not in a project, so it can't be adopted.";
 const ON_HOST = "On a host, so it can't be adopted here.";
 const NOT_REGISTERED = "Claude keeps no session record for it, so it can't be adopted.";
 const NOT_INTERACTIVE = "Not an interactive session, so it can't be adopted.";
@@ -273,11 +272,10 @@ test.describe('a row relay says is not adoptable', () => {
 
   const refused = (dir) => [
     liveRow(dir),
-    liveRow(dir, { id: oid(11), name: 'Orphan notes', project_id: null, directory: '/elsewhere', adoptable: false, adopt_reason: 'no_project' }),
+    liveRow(dir, { id: oid(11), name: 'Orphan notes', project_id: null, directory: '/elsewhere', adoptable: false, adopt_reason: 'not_registered', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(12), name: 'Orchard review', project_id: 'p_box', host_id: 'h_box', machine: 'testbox', directory: '/home/acme/orchard', adoptable: false, adopt_reason: 'host_unsupported' }),
     liveRow(dir, { id: oid(13), name: 'Piped run', adoptable: false, adopt_reason: 'not_interactive', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(14), name: 'Editor run', state: 'running', adoptable: false, adopt_reason: 'not_command_line', claude_session_id: OTHER_SID }),
-    liveRow(dir, { id: oid(15), name: 'Unfiled run', adoptable: false, adopt_reason: 'not_registered', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(16), name: 'Moved run', adoptable: false, adopt_reason: 'start_mismatch', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(17), name: 'Odd id run', adoptable: false, adopt_reason: 'invalid_id', claude_session_id: OTHER_SID }),
     liveRow(dir, { id: oid(18), name: 'Twin run', adoptable: false, adopt_reason: 'ambiguous', claude_session_id: OTHER_SID }),
@@ -288,7 +286,6 @@ test.describe('a row relay says is not adoptable', () => {
     await expect(adoptButton(scope)).toBeVisible();
     await expect(scope.getByRole('button', { name: 'Orphan notes', exact: true })).toBeVisible();
     await expect(scope.getByRole('button', { name: 'Twin run', exact: true })).toBeVisible();
-    await expect(scope.getByText(NO_PROJECT)).toBeVisible();
     await expect(scope.getByText(ON_HOST)).toBeVisible();
     await expect(scope.getByText(NOT_INTERACTIVE)).toBeVisible();
     await expect(scope.getByText(NOT_COMMAND_LINE)).toBeVisible();
@@ -296,7 +293,7 @@ test.describe('a row relay says is not adoptable', () => {
     await expect(scope.getByText(START_MISMATCH)).toBeVisible();
     await expect(scope.getByText(INVALID_ID)).toBeVisible();
     await expect(scope.getByText(AMBIGUOUS)).toBeVisible();
-    for (const name of ['Orphan notes', 'Orchard review', 'Piped run', 'Editor run', 'Unfiled run', 'Moved run', 'Odd id run', 'Twin run']) {
+    for (const name of ['Orphan notes', 'Orchard review', 'Piped run', 'Editor run', 'Moved run', 'Odd id run', 'Twin run']) {
       await expect(adoptButton(scope, name)).toHaveCount(0);
       await expect(interruptButton(scope, name)).toHaveCount(0);
     }
@@ -577,7 +574,7 @@ test.describe('on a phone, rows relay says are not adoptable', () => {
   test('the sheet shows each line and no button @G6.107.r1', async ({ eve, page, relay }) => {
     await seed(relay, (dir) => [
       liveRow(dir),
-      liveRow(dir, { id: oid(11), name: 'Orphan notes', project_id: null, directory: '/elsewhere', adoptable: false, adopt_reason: 'no_project' }),
+      liveRow(dir, { id: oid(11), name: 'Orphan notes', project_id: null, directory: '/elsewhere', adoptable: false, adopt_reason: 'not_registered', claude_session_id: OTHER_SID }),
       liveRow(dir, { id: oid(13), name: 'Piped run', adoptable: false, adopt_reason: 'not_interactive', claude_session_id: OTHER_SID }),
     ]);
     await eve.open('/');
@@ -585,7 +582,7 @@ test.describe('on a phone, rows relay says are not adoptable', () => {
     await stripOf(page).tap();
     const sheet = page.getByRole('dialog', { name: 'Agents' });
     await expect(adoptButton(sheet)).toBeVisible();
-    await expect(sheet.getByText(NO_PROJECT)).toBeVisible();
+    await expect(sheet.getByText(NOT_REGISTERED)).toBeVisible();
     await expect(sheet.getByText(NOT_INTERACTIVE)).toBeVisible();
     await expect(adoptButton(sheet, 'Orphan notes')).toHaveCount(0);
     await expect(adoptButton(sheet, 'Piped run')).toHaveCount(0);
@@ -610,5 +607,180 @@ test.describe('on a phone, when relay refuses', () => {
     await expect(sheet).toBeHidden();
     await stripOf(page).tap();
     await expect(adoptButton(page.getByRole('dialog', { name: 'Agents' }))).toBeEnabled();
+  });
+});
+
+// A Claude in no project: relay marks it adoptable like any other, runs it with no sandbox and no project
+// policy, and lists the managed session and its drop-in terminal with `unsandboxed: true`. fakerelay sets the
+// mark only through that adopt, so every chip below is reached by tapping Adopt.
+const LOOSE_DIR = '/elsewhere/loose-notes';
+const CHIP_TEXT = 'Unsandboxed';
+const CHIP_WHY = 'Runs with no sandbox and no project policy.';
+const DROP_TAB = /\(drop-in\)$/;
+const CLOSE_DROP = /^Close .*\(drop-in\)$/;
+
+const looseRow = (over = {}) => liveRow(null, {
+  id: oid(3),
+  name: 'Loose notes',
+  project_id: null,
+  directory: LOOSE_DIR,
+  claude_session_id: OTHER_SID,
+  ...over,
+});
+const chipsOf = (scope) => scope.getByRole('img', { name: CHIP_TEXT, exact: true });
+// A row is a button named for the agent; the drop-in terminal's row adds "(drop-in)".
+const rowOf = (scope, name) => scope.getByRole('button', { name, exact: true });
+const bothRows = (dir) => [liveRow(dir), looseRow()];
+
+test.describe('an idle Claude row in no project', () => {
+  test.use({ world: adoptWorld() });
+
+  test('offers Adopt, and the tap sends only the interrupt flag with no confirm step @G6.107', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    const adopt = adoptButton(rail, 'Loose notes');
+    await expect(adopt).toBeVisible();
+    await expect(adopt).toHaveText('Adopt');
+    await expect(adopt).toBeEnabled();
+    await expect(interruptButton(rail, 'Loose notes')).toHaveCount(0);
+    await expect(rail.getByText(/can't be adopted/)).toHaveCount(0);
+    const request = await tapAndCapture(page, adopt);
+    expect(decodeURIComponent(request.url())).toContain(`/api/outside-sessions/${oid(3)}/adopt`);
+    expect(request.postData()).toBe('{"interrupt":false}');
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+});
+
+test.describe('a working Claude row in no project', () => {
+  test.use({ world: adoptWorld() });
+
+  test('offers Interrupt and adopt, and the tap sends interrupt true with no confirm step @G6.108', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow({ state: 'running', adopt: BUSY_WORLD })]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    const interrupt = interruptButton(rail, 'Loose notes');
+    await expect(interrupt).toBeVisible();
+    await expect(interrupt).toHaveText('Interrupt and adopt');
+    await expect(adoptButton(rail, 'Loose notes')).toHaveCount(0);
+    const request = await tapAndCapture(page, interrupt);
+    expect(request.postData()).toBe('{"interrupt":true}');
+    const done = await relay.waitForEvent('session.adopt', { match: adoptOk });
+    expect(done.interrupted).toBe(true);
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+});
+
+test.describe('adopting a Claude in no project', () => {
+  test.use({ world: adoptWorld() });
+
+  test('the outside row goes and the managed row shows the chip and Drop in @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    await expect(rail.getByText(/Outside · /)).toBeVisible();
+    await expect(chipsOf(rail)).toHaveCount(0);
+    await adoptButton(rail, 'Loose notes').click();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(rail.getByText(/Outside · /)).toHaveCount(0);
+    await expect(anyAdopt(rail)).toHaveCount(0);
+    await expect(chipsOf(rail)).toHaveCount(1);
+  });
+});
+
+test.describe('on a phone, adopting a Claude in no project', () => {
+  test.use({ ...profiles.phone, world: adoptWorld() });
+
+  test('on a phone the Agents dialog shows the chip @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    await stripOf(page).tap();
+    const sheet = page.getByRole('dialog', { name: 'Agents' });
+    await adoptButton(sheet, 'Loose notes').tap();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(sheet, 'Loose notes')).toBeVisible();
+    await expect(chipsOf(sheet)).toHaveCount(1);
+  });
+});
+
+test.describe('a session relay marks unsandboxed', () => {
+  test.use({ world: adoptWorld() });
+
+  test('shows the chip with its name and description; an unmarked session beside it shows none @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, bothRows);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    // The project row first: its managed session carries no mark, so no chip.
+    await adoptButton(rail).click();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(rail)).toBeVisible();
+    await expect(chipsOf(rail)).toHaveCount(0);
+    await adoptButton(rail, 'Loose notes').click();
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    const chip = chipsOf(rail);
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAccessibleName(CHIP_TEXT);
+    await expect(chip).toHaveAccessibleDescription(CHIP_WHY);
+    // Not a control: nothing to tap or tab to.
+    await expect(rail.getByRole('button', { name: CHIP_TEXT })).toHaveCount(0);
+    // The chip is on the loose row, and the project row beside it has none.
+    await expect(chipsOf(rowOf(rail, 'Loose notes'))).toHaveCount(1);
+    await expect(rowOf(rail, 'Ledger notes')).toBeVisible();
+    await expect(chipsOf(rowOf(rail, 'Ledger notes'))).toHaveCount(0);
+  });
+
+  test('the chip stays after a reload @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    await adoptButton(railOf(page), 'Loose notes').click();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(chipsOf(railOf(page))).toHaveCount(1);
+    await eve.reload();
+    await openCos(page);
+    const rail = railOf(page);
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(chipsOf(rail)).toHaveCount(1);
+    await expect(chipsOf(rail)).toHaveAccessibleDescription(CHIP_WHY);
+  });
+
+  test('the chip stays through drop in and hand back, and shows on the drop-in terminal row @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    await adoptButton(rail, 'Loose notes').click();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(chipsOf(rail)).toHaveCount(1);
+
+    await dropIn(rail, 'Loose notes').click();
+    await relay.waitForEvent('session.drop_in', { match: (l) => l.status === 'ok' });
+    await expect(page.getByRole('tab', { name: DROP_TAB })).toHaveAttribute('aria-selected', 'true');
+    // The drop-in tab hides the Chief of Staff pane, as for every drop-in: go back to it, as a person does.
+    await page.getByRole('tab', { name: 'Chief of Staff' }).click();
+    await expect(page.getByRole('tab', { name: 'Chief of Staff' })).toHaveAttribute('aria-selected', 'true');
+    // The held session row and the drop-in terminal row each carry the chip.
+    await expect(chipsOf(rowOf(rail, 'Loose notes'))).toHaveCount(1);
+    await expect(chipsOf(rowOf(rail, 'Loose notes (drop-in)'))).toHaveCount(1);
+    await expect(chipsOf(rail)).toHaveCount(2);
+
+    await page.getByRole('button', { name: CLOSE_DROP }).click();
+    await expect(page.getByRole('tab', { name: DROP_TAB })).toHaveCount(0);
+    // Hand back: the session is Idle again with its Drop in, and the terminal row is gone.
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(rail.getByRole('heading', { name: /^Idle/ })).toBeVisible();
+    await expect(rowOf(rail, 'Loose notes (drop-in)')).toHaveCount(0);
+    await expect(chipsOf(rowOf(rail, 'Loose notes'))).toHaveCount(1);
+    await expect(chipsOf(rail)).toHaveCount(1);
   });
 });

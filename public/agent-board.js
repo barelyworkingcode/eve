@@ -328,7 +328,11 @@ class AgentBoard {
       if (terminal?.terminalId) {
         AgentBoard.held.set(sessionId, terminal.terminalId);
         onAnswer?.();
-        AgentBoard._termMgr(container)?.openDropIn(terminal);
+        // Relay's drop-in answer carries no mark; its terminal inherits the session's, and the tab
+        // must know it before the next terminal list.
+        const session = container.get('state').getSession(sessionId);
+        const marked = AgentBoard.isUnsandboxed({ kind: 'session', item: session });
+        AgentBoard._termMgr(container)?.openDropIn(marked ? { ...terminal, unsandboxed: true } : terminal);
       } else {
         onAnswer?.();
         toast("Can't drop in: relay did not return a terminal.");
@@ -340,6 +344,24 @@ class AgentBoard {
       AgentBoard.dropping.delete(sessionId);
       renderAll();
     }
+  }
+
+  // The one place the Unsandboxed rule lives: relay marks a session it runs with no project, and its
+  // drop-in terminal, with `unsandboxed: true`. Absent or anything but true is unmarked.
+  static isUnsandboxed(r) {
+    return (r.kind === 'session' || r.kind === 'terminal') && r.item?.unsandboxed === true;
+  }
+
+  _unsandboxedChip(r) {
+    const chip = document.createElement('span');
+    chip.className = 'agent-row__chip agent-row__chip--unsandboxed';
+    chip.dataset.testid = `${this.prefix}-agent-unsandboxed-${r.id}`;
+    chip.id = `${this.prefix}-agent-unsandboxed-name-${r.id}`;
+    chip.setAttribute('role', 'img');
+    chip.setAttribute('aria-label', 'Unsandboxed');
+    chip.setAttribute('aria-description', 'Runs with no sandbox and no project policy.');
+    chip.textContent = 'Unsandboxed';
+    return chip;
   }
 
   // The one place the Resume rule lives: an ended outside row in a console project.
@@ -669,6 +691,11 @@ class AgentBoard {
     title.className = 'agent-row__title';
     title.textContent = label;
     head.appendChild(title);
+    if (AgentBoard.isUnsandboxed(r)) {
+      const chip = this._unsandboxedChip(r);
+      head.appendChild(chip);
+      row.setAttribute('aria-describedby', `${dot.id} ${chip.id}`);
+    }
     if (this.layout === 'rail') {
       const age = r.kind !== 'terminal' ? AgentBoard.ago(r.since) : '';
       if (age) {
