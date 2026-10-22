@@ -692,8 +692,7 @@ PASS needs all of these.
 
 **agent-drop-in-pi.** A person drops in to an idle headless Pi agent from
 the board (eve#610). Over the harness's own eve socket the journey sends
-`create_session` for Acme Corp: a `pi/relay-router/<model>` id (or the first
-`pi/relay-router/` id offered), name `verify-<nonce>-dropin-pi`, settings
+`create_session` for Acme Corp: the stack's `pi/relay-router/<model>` id, name `verify-<nonce>-dropin-pi`, settings
 `{headless: true, agent: true}`. Turn 1 is `Reply with exactly:
 verify-<nonce>-done`; the `idle` frame ends it. `today-drop-in-<id>` must show
 in `today-agents-group-idle`. A click must answer 201 with `agent: "pi"` and
@@ -704,7 +703,8 @@ exactly: verify-<nonce>-done-2`; it must end `idle` with a reply that holds
 the marker. PASS needs all of these.
 - Lives in: `public/agent-board.js` (`AgentBoard.takesDropIn`); relay's
   drop-in for Pi (relay#578).
-- Traps: BLOCKED when Acme Corp offers no `pi/relay-router/` model, when its
+- Traps: The model is named from the stack (`pi/relay-router/<EVE_VERIFY_MODEL>`),
+  not read from the catalogue. BLOCKED when its
   terminal templates list no `pi`, or when relay's launch authorisation refuses
   the create (an error naming `template "`). The TUI has no ready signal, so
   the journey checks the terminal's template and relay's events, not the Pi

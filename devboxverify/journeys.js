@@ -2943,7 +2943,7 @@ async function agentDropInPi(env) {
   if (!answer) return result(id, FAIL, `session ${sid}: no drop-in answer within ${DROP_IN_TAB_WITHIN_MS / 1000}s of Drop in`);
   if (answer.status !== 201) return result(id, FAIL, `session ${sid}: drop-in answered ${answer.status}: ${JSON.stringify(answer.body)}`);
   const terminal = answer.body && answer.body.terminal;
-  if (answer.body.agent !== 'pi') return result(id, FAIL, `session ${sid}: the drop-in answer names agent ${answer.body.agent}, not pi`);
+  if (!answer.body || answer.body.agent !== 'pi') return result(id, FAIL, `session ${sid}: the drop-in answer names agent ${answer.body && answer.body.agent}, not pi`);
   if (!terminal || terminal.templateId !== 'pi') return result(id, FAIL, `session ${sid}: the drop-in terminal uses template ${terminal && terminal.templateId}, not pi`);
 
   env.step('wait for the drop-in terminal tab');
