@@ -6,6 +6,7 @@
 // sessions relay starts already do. Without a broker in the stack file, nothing changes.
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 // Claude Code reads this file from the session folder; relay's CLAUDE_CODE_* scrub does not
@@ -64,4 +65,23 @@ async function writeOutsideSettings(env, dir) {
   return file;
 }
 
-module.exports = { cleanEnv, outsideClaudeEnv, shellPrefix, piShellPrefix, writeOutsideSettings, SETTINGS_LOCAL };
+// A `verify-<nonce>-<kind>-XXXXXX` folder outside every project of the run, for an outside Claude that relay lists in no
+// project. A stack run keeps it beside its record (stack.scratchDir), any other run in the system temp dir. The path is
+// resolved, so it matches the text relay reads from the process. Removed by cleanup whatever the verdict.
+async function outsideScratchFolder(env, kind) {
+  const root = env.stack ? env.stack.scratchDir : os.tmpdir();
+  await fs.promises.mkdir(root, { recursive: true });
+  const realRoot = await fs.promises.realpath(root);
+  const prefix = `verify-${env.nonce}-${kind}-`;
+  const dir = await fs.promises.realpath(await fs.promises.mkdtemp(path.join(realRoot, prefix)));
+  const projects = Object.values((env.world && env.world.projects) || {}).filter((p) => p && p.path).map((p) => path.resolve(p.path));
+  const holder = projects.find((p) => dir === p || dir.startsWith(p + path.sep));
+  env.cleanup(`remove ${kind} folder`, async () => {
+    if (path.dirname(dir) !== realRoot || !path.basename(dir).startsWith(prefix)) throw new Error(`refusing to remove "${dir}": not a ${kind} scratch folder`);
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+  if (holder) throw new Error(`the scratch folder ${dir} lies inside the project folder ${holder}`);
+  return dir;
+}
+
+module.exports = { outsideScratchFolder, cleanEnv, outsideClaudeEnv, shellPrefix, piShellPrefix, writeOutsideSettings, SETTINGS_LOCAL };

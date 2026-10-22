@@ -609,3 +609,164 @@ test.describe('on a phone, when relay refuses', () => {
     await expect(adoptButton(page.getByRole('dialog', { name: 'Agents' }))).toBeEnabled();
   });
 });
+
+// A Claude in no project: relay marks it adoptable like any other, runs it with no sandbox and no project
+// policy, and lists the managed session and its drop-in terminal with `unsandboxed: true`. fakerelay sets the
+// mark only through that adopt, so every chip below is reached by tapping Adopt.
+const LOOSE_DIR = '/elsewhere/loose-notes';
+const CHIP_TEXT = 'Unsandboxed';
+const CHIP_WHY = 'Runs with no sandbox and no project policy.';
+const DROP_TAB = /\(drop-in\)$/;
+const CLOSE_DROP = /^Close .*\(drop-in\)$/;
+
+const looseRow = (over = {}) => liveRow(null, {
+  id: oid(3),
+  name: 'Loose notes',
+  project_id: null,
+  directory: LOOSE_DIR,
+  claude_session_id: OTHER_SID,
+  ...over,
+});
+const chipsOf = (scope) => scope.getByText(CHIP_TEXT, { exact: true });
+const bothRows = (dir) => [liveRow(dir), looseRow()];
+
+test.describe('an idle Claude row in no project', () => {
+  test.use({ world: adoptWorld() });
+
+  test('offers Adopt, and the tap sends only the interrupt flag with no confirm step @G6.107', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    const adopt = adoptButton(rail, 'Loose notes');
+    await expect(adopt).toBeVisible();
+    await expect(adopt).toHaveText('Adopt');
+    await expect(adopt).toBeEnabled();
+    await expect(interruptButton(rail, 'Loose notes')).toHaveCount(0);
+    await expect(rail.getByText(/can't be adopted/)).toHaveCount(0);
+    const request = await tapAndCapture(page, adopt);
+    expect(decodeURIComponent(request.url())).toContain(`/api/outside-sessions/${oid(3)}/adopt`);
+    expect(request.postData()).toBe('{"interrupt":false}');
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+});
+
+test.describe('a working Claude row in no project', () => {
+  test.use({ world: adoptWorld() });
+
+  test('offers Interrupt and adopt, and the tap sends interrupt true with no confirm step @G6.108', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow({ state: 'running', adopt: BUSY_WORLD })]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    const interrupt = interruptButton(rail, 'Loose notes');
+    await expect(interrupt).toBeVisible();
+    await expect(interrupt).toHaveText('Interrupt and adopt');
+    await expect(adoptButton(rail, 'Loose notes')).toHaveCount(0);
+    const request = await tapAndCapture(page, interrupt);
+    expect(request.postData()).toBe('{"interrupt":true}');
+    const done = await relay.waitForEvent('session.adopt', { match: adoptOk });
+    expect(done.interrupted).toBe(true);
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+});
+
+test.describe('adopting a Claude in no project', () => {
+  test.use({ world: adoptWorld() });
+
+  test('the outside row goes and the managed row shows the chip and Drop in @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    await expect(rail.getByText(/Outside · /)).toBeVisible();
+    await expect(chipsOf(rail)).toHaveCount(0);
+    await adoptButton(rail, 'Loose notes').click();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(rail.getByText(/Outside · /)).toHaveCount(0);
+    await expect(anyAdopt(rail)).toHaveCount(0);
+    await expect(chipsOf(rail)).toHaveCount(1);
+  });
+});
+
+test.describe('on a phone, adopting a Claude in no project', () => {
+  test.use({ ...profiles.phone, world: adoptWorld() });
+
+  test('on a phone the Agents dialog shows the chip @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    await stripOf(page).tap();
+    const sheet = page.getByRole('dialog', { name: 'Agents' });
+    await adoptButton(sheet, 'Loose notes').tap();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(sheet, 'Loose notes')).toBeVisible();
+    await expect(chipsOf(sheet)).toHaveCount(1);
+  });
+});
+
+test.describe('a session relay marks unsandboxed', () => {
+  test.use({ world: adoptWorld() });
+
+  test('shows the chip with its name and description; an unmarked session beside it shows none @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, bothRows);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    // The project row first: its managed session carries no mark, so no chip.
+    await adoptButton(rail).click();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(dropIn(rail)).toBeVisible();
+    await expect(chipsOf(rail)).toHaveCount(0);
+    await adoptButton(rail, 'Loose notes').click();
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    const chip = chipsOf(rail);
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAccessibleDescription(CHIP_WHY);
+    // Not a control: nothing to tap or tab to.
+    await expect(rail.getByRole('button', { name: CHIP_TEXT })).toHaveCount(0);
+  });
+
+  test('the chip stays after a reload @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    await adoptButton(railOf(page), 'Loose notes').click();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(chipsOf(railOf(page))).toHaveCount(1);
+    await eve.reload();
+    await openCos(page);
+    const rail = railOf(page);
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(chipsOf(rail)).toHaveCount(1);
+    await expect(chipsOf(rail)).toHaveAccessibleDescription(CHIP_WHY);
+  });
+
+  test('the chip stays through drop in and hand back, and shows on the drop-in terminal row @G6.109', async ({ eve, page, relay }) => {
+    await seed(relay, () => [looseRow()]);
+    await eve.open('/');
+    await openCos(page);
+    const rail = railOf(page);
+    await adoptButton(rail, 'Loose notes').click();
+    await relay.waitForEvent('session.adopt', { match: adoptOk });
+    await expect(chipsOf(rail)).toHaveCount(1);
+
+    await dropIn(rail, 'Loose notes').click();
+    await relay.waitForEvent('session.drop_in', { match: (l) => l.status === 'ok' });
+    await expect(page.getByRole('tab', { name: DROP_TAB })).toHaveAttribute('aria-selected', 'true');
+    // The held session row and the drop-in terminal row each carry the chip.
+    await expect(chipsOf(rail)).toHaveCount(2);
+
+    await page.getByRole('button', { name: CLOSE_DROP }).click();
+    await expect(page.getByRole('tab', { name: DROP_TAB })).toHaveCount(0);
+    // Hand back: the session is Idle again with its Drop in, and the terminal row is gone.
+    await expect(dropIn(rail, 'Loose notes')).toBeVisible();
+    await expect(rail.getByRole('heading', { name: /^Idle/ })).toBeVisible();
+    await expect(chipsOf(rail)).toHaveCount(1);
+  });
+});

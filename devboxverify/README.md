@@ -1136,6 +1136,24 @@ transcript.
 - Traps: BLOCKED setup V-COS; no NOTRUN path. Run it alone:
   `node devboxverify/main.js --only outside-adopt`.
 
+**outside-adopt-unsandboxed.** A Claude started outside every project is adopted from the
+rail and shows the "Unsandboxed" chip (G6.109, simple path). Not a screen journey (480 s),
+and it needs no console, so it runs on a `--stack` run. Same BLOCKED rules as
+outside-adopt. It makes a scratch git folder in the run's own scratch dir (the stack's
+`scratch_dir`, else the system temp dir), which is outside every project, and starts the
+same `claude --model haiku` in tmux with the stack's broker wiring (BLOCKED when the reply
+never comes). The idle row must show `Adopt <name>`; one tap must answer 201 with a
+`sessionId`. Then `Drop in to <name>` must show under Idle with the chip "Unsandboxed" on
+its row, the Outside row must leave, and `relay audit --event session_adopt` must hold an
+`ok` completion with `no_project: true`. Drop in must open a tab for the terminal relay
+returns, and the rail must then show two chips (the session row and the terminal row).
+Closing the terminal's tab must bring back `Drop in to <name>` under Idle with one chip, on
+the session row. A cleanup closes the terminal and deletes the adopted session; the usual
+one ends tmux and removes the folder and the transcript.
+- Lives in: `public/agent-board.js`; `routes/index.js` (adopt route); relay's `POST /api/sessions/adopt`; `devboxverify/outside-claude.js` (`outsideScratchFolder`).
+- Traps: BLOCKED setup V-COS; no NOTRUN path. Run it alone:
+  `node devboxverify/main.js --only outside-adopt-unsandboxed`.
+
 **outside-adopt-pi.** An idle outside Pi is adopted from the rail (G6.107, simple
 path). Not a screen journey (480 s). BLOCKED for a relay with no outside inventory, for
 no relay binary, when tmux or `pi` is not on PATH, when Acme Corp's terminal templates

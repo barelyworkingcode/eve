@@ -108,7 +108,7 @@ async function eveJsonSlow(env, method, urlPath, body) {
 
 // — tmux and the outside claude ---------------------------------------------
 
-const { cleanEnv, outsideClaudeEnv, shellPrefix, piShellPrefix, writeOutsideSettings } = require('./outside-claude');
+const { cleanEnv, outsideClaudeEnv, shellPrefix, piShellPrefix, writeOutsideSettings, outsideScratchFolder } = require('./outside-claude');
 
 function onPath(name) {
   for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
@@ -901,6 +901,117 @@ async function outsideAdopt(env) {
     + `the claude in the tmux pane exited, and relay audit holds a session_adopt row with outcome ok`);
 }
 
+// G6.109, the simple path: a Claude started in tmux in a folder outside every project is adopted from the rail. Relay
+// runs it with no sandbox and no project policy, so the managed row shows the "Unsandboxed" chip. Drop in puts the chip on
+// the drop-in terminal's row too; closing the terminal hands the agent back and the chip is still on its row. A stack run
+// is the door: the scratch folder lives in the stack's own scratch dir, and nothing needs the console.
+// Waits: the outside row from the captured frames, the button and the rows by locator, the adopt and drop-in answers by
+// waitForResponse, the tab by its terminal id, relay audit by CLI exit. Claude's reply and trust prompt have no hook, so
+// bounded polls, as outside-adopt uses.
+async function outsideAdoptUnsandboxed(env) {
+  const id = 'outside-adopt-unsandboxed';
+  if (env.cosSetupProblem) return result(id, BLOCKED, env.cosSetupProblem);
+  const tools = newTools(env, id);
+  if (tools.problem) return result(id, BLOCKED, tools.problem);
+  if (!env.relayBin) return result(id, BLOCKED, 'no relay binary to read the audit with');
+
+  const marker = `verify-${env.nonce}-unsandboxed`;
+  const tmuxName = `verify-${env.nonce}-outside-adopt-unsandboxed`;
+  const held = { sessionId: '', terminalId: '' };
+  env.cleanup('delete the adopted session', async () => { if (held.sessionId) await require('./journey-kit').deleteSession(env, held.sessionId); });
+  // Registered after the session's, so the terminal closes first. A terminal the journey already closed is no failure.
+  env.cleanup('close the drop-in terminal', async () => { if (held.terminalId) await env.api.closeTerminal(held.terminalId).catch(() => {}); });
+
+  const page = await env.newPage();
+  const seen = frames(page);
+  await openEve(page, env);
+  await openChiefOfStaff(page, env);
+  const blocked = await inventoryProblem(seen);
+  if (blocked) return result(id, BLOCKED, blocked);
+
+  env.step('create the folder outside every project');
+  const dir = await outsideScratchFolder(env, 'unsandboxed');
+  await gitFolder(dir, `verify-${env.nonce}-unsandboxed`);
+  const base = path.basename(dir);
+  const started = await startClaude(env, tools, { name: tmuxName, dir, prompt: `Reply with exactly ${marker} and nothing else.`, asPerson: true });
+
+  env.step('wait for the outside reply');
+  // Waits: none possible for model output; a bounded read of the conversation's transcript, an assistant record only.
+  const claudeId = tools.claudeIds[tools.claudeIds.length - 1].id;
+  const replied = await poll(async () => {
+    const got = await assistantReplies(claudeId, marker);
+    return got.real || got.synthetic.length ? got : null;
+  }, { timeoutMs: REPLY_WITHIN_MS, intervalMs: 1000 });
+  if (!replied) return result(id, BLOCKED, `the outside claude did not reply ${marker} within ${REPLY_WITHIN_MS / 1000}s (model output${started.trusted ? '; a trust prompt was answered' : ''})`);
+  if (!replied.real) return result(id, BLOCKED, `the outside claude answered "<synthetic>": ${replied.synthetic[0]}`);
+
+  env.step('tap Adopt');
+  const adopted = await adoptRow(page, seen, base);
+  if (adopted.verdict) return result(id, adopted.verdict, adopted.detail);
+  const { name, sentAt, answer } = adopted;
+  held.sessionId = (answer.body && answer.body.sessionId) || '';
+  if (answer.status !== 201 || !held.sessionId) {
+    return result(id, FAIL, `POST /api/outside-sessions/<id>/adopt answered ${answer.status} (${JSON.stringify(answer.body || null).slice(0, 200)})`);
+  }
+
+  const problems = [];
+  const rail = page.getByTestId('rail-agents-group-idle');
+  const chipOf = (rowId) => page.getByTestId(`rail-agent-unsandboxed-${rowId}`);
+  const anyChip = page.locator('[data-testid^="rail-agent-unsandboxed-"]');
+  const dropIn = rail.getByRole('button', { name: `Drop in to ${name}`, exact: true });
+  env.step('wait for the managed row and its chip');
+  if (!await expect(dropIn).toBeVisible({ timeout: ROW_WITHIN_MS }).then(() => true, () => false)) {
+    return result(id, FAIL, `no "Drop in to ${name}" button under Idle within ${ROW_WITHIN_MS / 1000}s of the 201`);
+  }
+  if (!await expect(chipOf(held.sessionId)).toHaveText('Unsandboxed', { timeout: 10000 }).then(() => true, () => false)) {
+    problems.push(`the managed row for ${name} shows no "Unsandboxed" chip after the adopt`);
+  }
+  if (!await expect(outsideRows(page, base)).toHaveCount(0, { timeout: GONE_WITHIN_MS }).then(() => true, () => false)) {
+    problems.push(`the Outside row for ${base} is still on the rail ${GONE_WITHIN_MS / 1000}s after the 201`);
+  }
+
+  env.step('read relay audit');
+  const audit = await adoptAudit(env, sentAt, 'claude');
+  if (!audit.ok || audit.args.no_project !== true) problems.push(`relay audit holds no ok session_adopt completion with no_project true since the tap (args ${JSON.stringify(audit.args)})`);
+
+  env.step('click Drop in');
+  const dropAnswered = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes(`/api/sessions/${encodeURIComponent(held.sessionId)}/drop-in`), { timeout: 60000 })
+    .then((r) => r.json()).catch(() => null);
+  await dropIn.click({ timeout: 5000 });
+  const dropBody = await dropAnswered;
+  held.terminalId = (dropBody && dropBody.terminal && dropBody.terminal.terminalId) || '';
+  if (!held.terminalId) return result(id, FAIL, `Drop in to ${name} answered no terminal (${JSON.stringify(dropBody || null).slice(0, 200)})`);
+  const tab = page.locator(`.tab[data-tab-id="${held.terminalId}"]`);
+  env.step('wait for the drop-in terminal tab');
+  if (!await expect(tab).toBeVisible({ timeout: 30000 }).then(() => true, () => false)) {
+    return result(id, FAIL, `no tab for the drop-in terminal ${held.terminalId} within 30s of Drop in (the terminal opened with no tab)`);
+  }
+
+  env.step('look for the chip on both rows');
+  await page.getByTestId('sidebar-chief-of-staff').click({ timeout: 10000 });
+  if (!await expect(anyChip).toHaveCount(2, { timeout: 20000 }).then(() => true, () => false)) {
+    problems.push(`while the terminal holds ${name} the rail shows ${await anyChip.count()} Unsandboxed chips, not 2 (the session row and the terminal row)`);
+  }
+
+  env.step('close the terminal');
+  await tab.click({ timeout: 5000 });
+  await page.locator('.tab.active .tab-close').click({ timeout: 5000 });
+  await page.getByTestId('sidebar-chief-of-staff').click({ timeout: 10000 });
+  env.step('wait for the hand back');
+  if (!await expect(dropIn).toBeVisible({ timeout: IDLE_WITHIN_MS }).then(() => true, () => false)) {
+    problems.push(`no "Drop in to ${name}" under Idle within ${IDLE_WITHIN_MS / 1000}s of closing the terminal`);
+  }
+  if (!await expect(anyChip).toHaveCount(1, { timeout: 20000 }).then(() => true, () => false)) {
+    problems.push(`after the hand back the rail shows ${await anyChip.count()} Unsandboxed chips, not 1`);
+  } else if (!await expect(chipOf(held.sessionId)).toBeVisible({ timeout: 5000 }).then(() => true, () => false)) {
+    problems.push(`after the hand back the chip is not on the row of ${name}`);
+  }
+
+  if (problems.length) return result(id, FAIL, problems.join('; '));
+  return result(id, PASS, `the claude in ${base}, outside every project, was adopted with one tap (201); the managed row showed "Unsandboxed", the Outside row left, `
+    + `audit holds session_adopt ok with no_project; Drop in put the chip on the session row and the terminal row, and after closing the terminal the chip was still on the row`);
+}
+
 // — adopt a Pi or a Codex (G6.107) -------------------------------------------------
 
 // Pi keeps a conversation under <home>/.pi/agent/sessions/--<real dir, separators as "-">--. The one rule for reads and cleanup.
@@ -1192,6 +1303,9 @@ module.exports = {
     },
     outsideAdopt: {
       id: 'outside-adopt', claude: true, timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdopt,
+    },
+    outsideAdoptUnsandboxed: {
+      id: 'outside-adopt-unsandboxed', claude: true, timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdoptUnsandboxed,
     },
     outsideAdoptPi: {
       id: 'outside-adopt-pi', timeoutMs: 480000, areas: ['chief-of-staff'], needs: ['project:acme'], run: outsideAdoptPi,
