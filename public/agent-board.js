@@ -403,16 +403,16 @@ class AgentBoard {
     }
   }
 
-  // The one place the Adopt rule lives: a live outside row relay marked adoptable, not on a
-  // host. An absent `adoptable` gives no button (fail closed).
+  // The one place the Adopt rule lives: a live outside row relay marked adoptable, host or not.
+  // An absent `adoptable` gives no button (fail closed).
   static showsAdopt(r) {
     return r.kind === 'outside' && r.group !== 'ended'
       && ['idle', 'running', 'asking'].includes(r.item.state)
-      && r.item.adoptable === true && !r.item.hostId;
+      && r.item.adoptable === true;
   }
 
   static ADOPT_REASONS = {
-    host_unsupported: "On a host, so it can't be adopted here.",
+    host_unsupported: "Relay can't adopt sessions on this host.",
     no_project: "Not in a project, so it can't be adopted.",
     not_registered: "Claude keeps no session record for it, so it can't be adopted.",
     invalid_id: "Its conversation id is not valid, so it can't be adopted.",
