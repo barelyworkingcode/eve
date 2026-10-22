@@ -759,6 +759,9 @@ test.describe('a session relay marks unsandboxed', () => {
     await dropIn(rail, 'Loose notes').click();
     await relay.waitForEvent('session.drop_in', { match: (l) => l.status === 'ok' });
     await expect(page.getByRole('tab', { name: DROP_TAB })).toHaveAttribute('aria-selected', 'true');
+    // The drop-in tab hides the Chief of Staff pane, as for every drop-in: go back to it, as a person does.
+    await page.getByRole('tab', { name: 'Chief of Staff' }).click();
+    await expect(page.getByRole('tab', { name: 'Chief of Staff' })).toHaveAttribute('aria-selected', 'true');
     // The held session row and the drop-in terminal row each carry the chip.
     await expect(chipsOf(rail)).toHaveCount(2);
 
