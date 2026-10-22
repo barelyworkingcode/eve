@@ -1,5 +1,7 @@
 # S5a · Project workbench
 
+> **Unregistered by eve#615:** Today no longer shows the agent board (`AgentsPart`). The board stays on the project page (`project-agent-*`) and the phone badge (`AgentBoard.mountBadge`, eve#617). `today-agent-*` ids are not rendered.
+
 Slice S5a of Epic #34 (T5). Intent: `design/homework/index.html`, mockup 09. Builds on S1 ([design-today-s1.md](design-today-s1.md)) and S2 ([design-today-s2.md](design-today-s2.md)).
 
 ## User story

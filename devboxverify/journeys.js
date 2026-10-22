@@ -383,17 +383,19 @@ async function terminalOnRequest(env) {
   if (reopened) return result(id, FAIL, 'a terminal opened by itself after a reload');
   await need('Home is not showing after a reload', expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 10000 }));
 
-  env.step('find the probe on Today\'s agent board');
-  const row = page.getByTestId('today-part-agents').getByTestId(`today-agent-${probe.terminalId}`);
-  await need('the live terminal is not on Today\'s agent board within 15s of a reload',
+  // Today no longer lists agents (eve#615): the same board is on acme's project page.
+  const onProjectPage = await openProjectPage(page, env, acme);
+  env.step('find the probe in the project page\'s Agents');
+  const row = onProjectPage.getByTestId(`project-agent-${probe.terminalId}`);
+  await need('the live terminal is not in the project page\'s Agents within 15s of opening the project page after a reload',
     expect(row).toBeVisible({ timeout: 15000 }));
   const lastLine = row.locator('.agent-row__last');
-  await need('the probe\'s row on Today shows no last line within 15s',
+  await need('the probe\'s row on the project page shows no last line within 15s',
     expect(lastLine).toHaveText(/\S/, { timeout: 15000 }));
   const line = (await lastLine.innerText({ timeout: 5000 })).trim();
   if (await pane.isVisible()) return result(id, FAIL, 'a terminal pane opened while the board only listed it');
 
-  // Deliberate: a fresh context, so the first stays on Today for the tap.
+  // Deliberate: a fresh context, so the first stays on the project page for the tap.
   const other = await env.newPage();
   await openEve(other, env);
   const projectPage = await openProjectPage(other, env, acme);
@@ -401,10 +403,10 @@ async function terminalOnRequest(env) {
   await need('the live terminal is not in the project page\'s Agents within 15s',
     expect(projectPage.getByTestId(`project-agent-${probe.terminalId}`)).toBeVisible({ timeout: 15000 }));
 
-  env.step('open the probe from Today');
+  env.step('open the probe from the project page');
   await row.click({ timeout: 5000 });
   await need('the terminal pane did not open on a tap within 15s', expect(pane).toBeVisible({ timeout: 15000 }));
-  await need('EVE_OK is not in the terminal 15s after opening it from Today',
+  await need('EVE_OK is not in the terminal 15s after opening it from the project page',
     expect(pane).toContainText('EVE_OK', { timeout: 15000 }));
   await probe.typeLine("printf '%s_%s\\n' EVE AGAIN");
   await need('EVE_AGAIN did not show within 10s of typing after a reload',
@@ -412,7 +414,7 @@ async function terminalOnRequest(env) {
 
   const added = addedIds(before, await acmeIds(env, 'terminals'));
   if (added.length !== 1) return result(id, FAIL, `${added.length} new ${acme.name} terminals, expected 1`);
-  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload no terminal opened by itself, Today's agent board `
+  return result(id, PASS, `EVE_OK in ${tookOk}s; after a reload no terminal opened by itself, the project page's Agents `
     + `listed it with the last line "${line.slice(0, 60)}" and no pane, the project page listed it, and a tap opened it and answered EVE_AGAIN`);
 }
 
@@ -1048,6 +1050,43 @@ async function todayIpadPortrait(env) {
   return result(id, PASS, `full-width main, ${Math.round(column.width)}px centred Today, wordmark in Today, no overflow or small targets; the menu and scrim open and close the slide-over`);
 }
 
+// eve#615: Today lists only parts that work. Every part is a `today-part-<id>` section
+// the host mounts when registered, even when it has nothing to show, so the removed
+// four are asserted absent (count 0) and the kept six present in the DOM (count 1);
+// the greeting and the Ask box are also checked as visible text.
+const TODAY_ABSENT = ['brief', 'needs-you', 'running', 'agents'];
+const TODAY_PRESENT = ['summary', 'ask', 'start', 'continue', 'routines', 'projects'];
+
+async function todayTrimmed(env) {
+  const id = 'today-trimmed';
+  const page = await env.newPage();
+  await openEve(page, env);
+  env.step('wait for the greeting');
+  const home = page.getByTestId('home-screen');
+  await need('no greeting within 20s', expect(home.getByText(GREETING)).toBeVisible({ timeout: 20000 }));
+
+  const check = async (mode) => {
+    env.step(`check the parts in ${mode}`);
+    await need(`the Ask box is not showing in ${mode}`, expect(page.getByTestId('today-ask-input')).toBeVisible({ timeout: 10000 }));
+    for (const part of TODAY_PRESENT) {
+      await need(`today-part-${part} is not on Today in ${mode}`,
+        expect(page.getByTestId(`today-part-${part}`)).toHaveCount(1, { timeout: 10000 }));
+    }
+    for (const part of TODAY_ABSENT) {
+      await need(`today-part-${part} is on Today in ${mode}; eve#615 removed it`,
+        expect(page.getByTestId(`today-part-${part}`)).toHaveCount(0, { timeout: 2000 }));
+    }
+  };
+  await check('Work');
+  await switchMode(page, env, 'home');
+  try {
+    await check('Home');
+  } finally {
+    await switchMode(page, env, 'work').catch(() => {});
+  }
+  return result(id, PASS, `Today in Work and Home holds ${TODAY_PRESENT.join(', ')} and none of ${TODAY_ABSENT.join(', ')}`);
+}
+
 async function todayPhone(env) {
   const id = 'today-phone';
   const acme = env.world.projects.acme;
@@ -1485,7 +1524,6 @@ async function projectModeNew(env) {
 const BRIEF_RUN_MS = 300000;
 const PROBE_WAIT_MS = 15000;
 const RUN_ENDED = ['success', 'error', 'timeout'];
-const BRIEF_SECTIONS = ['events', 'reminders', 'reply', 'weather', 'notes'];
 const shellWord = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 
 async function relayCallRows(env, project, sinceMs, untilMs = Infinity) {
@@ -1494,9 +1532,9 @@ async function relayCallRows(env, project, sinceMs, untilMs = Infinity) {
   return callToolRows(stdout, { projectId: project.id, sinceMs }).filter((r) => r.ts <= untilMs);
 }
 
-// The brief's run, then relay's gate with the injection's own targets, then
-// Today in Home. The security half (S3a-A1) is judged before Today is opened,
-// so its result is in every detail.
+// The brief's run, then relay's gate with the injection's own targets. The
+// Today half (what the brief part shows) went with eve#615, which took the
+// brief off Today; the security half (S3a-A1) is the whole journey.
 async function briefInjectionRefused(env) {
   const id = 'brief-injection-refused';
   const home = env.world.projects.home;
@@ -1569,31 +1607,8 @@ async function briefInjectionRefused(env) {
   const held = `${run.detail}; ${gate.detail}`;
   if (gate.state !== PASS) return result(id, gate.state, held);
 
-  // S3a-A4, Today half: on main there is no brief part, so this is red there.
-  const today = await env.newPage();
-  try {
-    await openEve(today, env);
-    await switchMode(today, env, 'home');
-    env.step('read the brief on Today');
-    const part = today.getByTestId('today-part-brief');
-    const when = part.getByTestId('today-brief-when');
-    const unreadable = part.getByTestId('today-brief-unreadable');
-    const shown = await expect(when.or(unreadable)).toBeVisible({ timeout: 20000 }).then(() => true, () => false);
-    if (!shown) return result(id, FAIL, `Today in ${home.name} shows no brief and no unreadable line; ${held}`);
-    const sections = [];
-    for (const s of BRIEF_SECTIONS) if (await part.getByTestId(`today-brief-${s}`).isVisible()) sections.push(s);
-    const isUnreadable = await unreadable.isVisible();
-    if (!isUnreadable && !sections.length) return result(id, FAIL, `the brief on Today shows no section; ${held}`);
-    const markup = await part.locator('a, img, iframe, script').count();
-    if (markup) return result(id, FAIL, `the brief part holds ${markup} a, img, iframe or script elements; ${held}`);
-    if ((await part.innerText({ timeout: 5000 })).includes('```')) return result(id, FAIL, `the brief part shows a code fence; ${held}`);
-    const listed = sections.includes('reply')
-      && (await part.getByTestId('today-brief-reply').innerText({ timeout: 5000 })).includes(inj.subject);
-    return result(id, PASS, `${held}; Today: ${isUnreadable ? 'the unreadable line' : `sections ${sections.join(', ')}`}, `
-      + `no markup; the injection mail ${listed ? 'is' : 'is not'} under Needs a reply`);
-  } finally {
-    await switchMode(today, env, 'work').catch(() => {});
-  }
+  // The Today half (S3a-A4) went with eve#615: Today no longer shows the brief.
+  return result(id, PASS, held);
 }
 
 // eve#117: a terminal routine with an output file is a card on Today. Setup and
@@ -2414,11 +2429,11 @@ async function listenOnTouch(env) {
 // — Agent board states (G6) ----------------------------------------------------
 
 const BOARD_WITHIN_MS = 2000;
-const GROUP_WORKING = 'today-agents-group-working';
-const GROUP_DONE = 'today-agents-group-done';
+const GROUP_WORKING = 'project-agents-group-working';
+const GROUP_DONE = 'project-agents-group-done';
 
 // Every session_state frame the page's socket receives, with its arrival time.
-// relay sends them to browsers that never joined, so a Today page sees them all.
+// relay sends them to browsers that never joined, so any open page sees them all.
 function sessionStates(page) {
   const seen = [];
   const take = (m) => {
@@ -2437,7 +2452,7 @@ function sessionStates(page) {
 // What the board shows for one session: its group, row and dot state, and
 // whether the dot (or its ring) is running an animation. Null when no row.
 async function boardRow(page, sessionId) {
-  return page.getByTestId(`today-agent-${sessionId}`).evaluate((row) => {
+  return page.getByTestId(`project-agent-${sessionId}`).evaluate((row) => {
     const dot = row.querySelector('.agent-row__dot');
     const animating = (cs) => cs.animationName !== 'none' && parseFloat(cs.animationDuration) > 0;
     return {
@@ -2476,6 +2491,11 @@ async function agentBoardStates(env) {
   await waitForModels(phone, env);
   env.step('wait for Today on the phone');
   await need('no greeting on the phone within 20s', expect(phone.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 20000 }));
+  // Today no longer lists agents (eve#615): the phone watches acme's project page, opened
+  // the way a phone user does (Projects, the project, its page) before any state changes.
+  env.step('open acme\'s project page on the phone');
+  await phone.getByTestId('nav-projects').click({ timeout: 5000 });
+  await openProjectPage(phone, env, acme);
 
   await openEve(desktop, env);
   await waitForModels(desktop, env);
@@ -2556,7 +2576,9 @@ async function agentBoardStates(env) {
 
   env.step('compare the badge with Needs you');
   const badge = phone.getByTestId('nav-today-badge');
-  const needsRows = phone.locator('[data-testid="today-agents-group-needs"] [data-testid^="today-agent-"]');
+  // acme is the stack world's only project with agents, so the project page's Needs you
+  // rows and the badge (which counts every project) agree.
+  const needsRows = phone.locator('[data-testid="project-agents-group-needs"] [data-testid^="project-agent-"]');
   let counted = '';
   const agree = await poll(async () => {
     const n = await needsRows.count();
@@ -2568,7 +2590,7 @@ async function agentBoardStates(env) {
   if (!agree) problems.push(`step 7: ${counted || 'no badge on the phone Today button'}`);
 
   env.step('tap the row');
-  const tapped = await phone.getByTestId(`today-agent-${sid}`).tap({ timeout: 5000 }).then(() => true, () => false);
+  const tapped = await phone.getByTestId(`project-agent-${sid}`).tap({ timeout: 5000 }).then(() => true, () => false);
   if (!tapped) problems.push('step 8: the row could not be tapped');
   else {
     const hash = `#session/${sid}`;
@@ -2581,7 +2603,7 @@ async function agentBoardStates(env) {
 
   if (problems.length) return result(id, FAIL, `${problems.join('; ')} (model ${model})`);
   return result(id, PASS, `model ${model}: running row in Working with its ring within ${BOARD_WITHIN_MS / 1000}s; after Stop the row in Done with no animation; `
-    + `badge matched Needs you (${agree.n}); a tap opened the thread with the question`);
+    + `badge matched Needs you on the project page (${agree.n}); a tap opened the thread with the question`);
 }
 
 // — Agent drop-in (relay#239) --------------------------------------------------
@@ -2662,6 +2684,8 @@ async function agentDropIn(env) {
   await waitForModels(desktop, env);
   env.step('wait for Today');
   await need('no greeting within 20s', expect(desktop.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 20000 }));
+  // Today no longer lists agents (eve#615): the board is read on acme's project page, opened before the session exists.
+  const projectPage = await openProjectPage(desktop, env, acme);
 
   const offered = await desktop.evaluate((pid) => (window.client.state.modelsForProject(pid) || []).map((m) => m.value), acme.id);
   // Exact id on purpose: relay takes over only Claude sessions, and only the
@@ -2753,7 +2777,7 @@ async function agentDropIn(env) {
   }
 
   env.step('look for Drop in under Needs you');
-  const drop = desktop.locator('[data-testid="today-agents-group-needs"]').getByTestId(`today-drop-in-${sid}`);
+  const drop = projectPage.locator('[data-testid="project-agents-group-needs"]').getByTestId(`project-drop-in-${sid}`);
   await need(`${DROP_IN_ROW_WITHIN_MS / 1000}s after the errored frame no Drop in showed under Needs you for session ${sid}`,
     expect(drop).toBeVisible({ timeout: Math.max(200, errored.at + DROP_IN_ROW_WITHIN_MS - Date.now()) }));
   env.step('click Drop in');
@@ -2875,6 +2899,8 @@ async function agentDropInPi(env) {
   await waitForModels(desktop, env);
   env.step('wait for Today');
   await need('no greeting within 20s', expect(desktop.getByTestId('home-screen').getByText(GREETING)).toBeVisible({ timeout: 20000 }));
+  // Today no longer lists agents (eve#615): the board is read on acme's project page, opened before the session exists.
+  const projectPage = await openProjectPage(desktop, env, acme);
 
   // The catalogue lists what the user's own Pi config offers, not the stack's, so the model is named from the stack: relay's broker serves pi/relay-router/<id> for the stack's Pi config.
   const model = `${PI_PREFIX}${env.model}`;
@@ -2931,7 +2957,7 @@ async function agentDropInPi(env) {
   if (first.problem) return result(id, FAIL, first.problem);
 
   env.step('look for Drop in under Idle');
-  const drop = desktop.locator('[data-testid="today-agents-group-idle"]').getByTestId(`today-drop-in-${sid}`);
+  const drop = projectPage.locator('[data-testid="project-agents-group-idle"]').getByTestId(`project-drop-in-${sid}`);
   await need(`no Drop in showed under Idle for Pi session ${sid}`, expect(drop).toBeVisible({ timeout: 15000 }));
   env.step('click Drop in');
   const answerStarted = desktop.waitForResponse(
@@ -2962,8 +2988,10 @@ async function agentDropInPi(env) {
     return result(id, FAIL, `session ${sid}: relay logs hold no ok session.hand_back within ${DROP_IN_IDLE_WITHIN_MS / 1000}s of closing the tab`);
   }
   env.step('look for Drop in under Idle again');
+  // Closing the terminal tab may land on another tab; a user goes back to the project page's tab, so the journey does too.
+  if (!await projectPage.isVisible()) await openProjectPage(desktop, env, acme);
   await need(`Drop in did not show under Idle again for Pi session ${sid} after the tab closed`,
-    expect(desktop.locator('[data-testid="today-agents-group-idle"]').getByTestId(`today-drop-in-${sid}`)).toBeVisible({ timeout: DROP_IN_IDLE_WITHIN_MS }));
+    expect(projectPage.locator('[data-testid="project-agents-group-idle"]').getByTestId(`project-drop-in-${sid}`)).toBeVisible({ timeout: DROP_IN_IDLE_WITHIN_MS }));
 
   env.step('send turn 2');
   const second = await turn(`Reply with exactly: ${marker}-2`, 'turn 2');
@@ -4538,7 +4566,7 @@ const journeys = [
   { id: 'open-existing-thread', timeoutMs: 75000, areas: ['chat', 'home'], needs: ['project:acme'], run: openExistingThread },
   { id: 'listen', timeoutMs: 60000, areas: ['chat', 'voice'], needs: ['project:acme'], run: listenOnTouch },
   {
-    id: 'terminal-on-request', timeoutMs: 75000, areas: ['terminal'],
+    id: 'terminal-on-request', timeoutMs: 75000, areas: ['terminal', 'projects'],
     needs: ['project:acme', 'project:globex', 'project:home'], run: terminalOnRequest,
   },
   { id: 'task-created-listed', timeoutMs: 120000, areas: ['tasks'], needs: ['project:acme'], run: taskCreatedListed },
@@ -4557,12 +4585,13 @@ const journeys = [
   // not on it. add-browser-in-window is a screen journey, so orderJourneys
   // runs it after them whatever the table order.
   { id: 'today-ipad-portrait', timeoutMs: 45000, areas: ['home', 'shell'], needs: ['project:acme'], run: todayIpadPortrait },
+  { id: 'today-trimmed', timeoutMs: 45000, areas: ['home'], needs: ['project:acme'], run: todayTrimmed },
   { id: 'today-phone', timeoutMs: 75000, areas: ['home', 'shell', 'chat'], needs: ['project:acme'], run: todayPhone },
   { id: 'ask-about-file', timeoutMs: 90000, areas: ['home', 'chat', 'files'], needs: ['project:acme'], run: askAboutFile },
   { id: 'ask-pasted-url', timeoutMs: 90000, areas: ['home', 'chat'], needs: ['project:acme'], run: askPastedUrl },
-  { id: 'agent-board-states', claude: true, timeoutMs: 150000, areas: ['home', 'chat'], needs: ['project:acme'], run: agentBoardStates },
-  { id: 'agent-drop-in', claude: true, timeoutMs: 150000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropIn },
-  { id: 'agent-drop-in-pi', timeoutMs: 240000, areas: ['home', 'terminal'], needs: ['project:acme'], run: agentDropInPi },
+  { id: 'agent-board-states', claude: true, timeoutMs: 150000, areas: ['home', 'chat', 'projects'], needs: ['project:acme'], run: agentBoardStates },
+  { id: 'agent-drop-in', claude: true, timeoutMs: 150000, areas: ['home', 'terminal', 'projects'], needs: ['project:acme'], run: agentDropIn },
+  { id: 'agent-drop-in-pi', timeoutMs: 240000, areas: ['home', 'terminal', 'projects'], needs: ['project:acme'], run: agentDropInPi },
   { id: 'cos-asking-post', claude: true, timeoutMs: 120000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosAskingPost },
   { id: 'cos-tell-sends-marked', claude: true, timeoutMs: 150000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosTellSendsMarked },
   { id: 'cos-reads-project', claude: true, timeoutMs: 180000, areas: ['chief-of-staff'], needs: ['project:acme'], run: cosReadsProject },

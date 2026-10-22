@@ -21,6 +21,17 @@ function row(page, name, state) {
   return page.getByRole('button', { name, exact: true }).filter({ hasText: state });
 }
 
+// The board is the Agents section of the Acme Project page (Today has not listed the agents
+// since eve#615). A second page opened on it, or this page's own after the Project page opens.
+function openBoard(eve) {
+  return eve.openAnother('/#project/p_acme');
+}
+
+async function openProjectPage(page) {
+  await page.getByRole('button', { name: 'Project page', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Acme' })).toBeVisible();
+}
+
 // Opens Hold from Today and sends it a message. It then waits on a prompt, and
 // the modal covers this page, so the board is read from another browser.
 async function holdThread(page) {
@@ -38,7 +49,7 @@ test.describe('agents on the board', () => {
   test('see each agent in the group for its state @G6.20', async ({ eve, page, relay }) => {
     await eve.open('/');
     await holdThread(page);
-    const other = await eve.openAnother('/');
+    const other = await openBoard(eve);
     await expect(other.getByRole('heading', { name: 'Needs you 1', level: 4 })).toBeVisible();
     await expect(row(other, 'Hold', 'asking')).toBeVisible();
     await expect(other.getByRole('heading', { name: 'Idle 1', level: 4 })).toBeVisible();
@@ -58,26 +69,27 @@ test.describe('agents on the board', () => {
     await eve.open('/');
     await page.getByRole('button', { name: 'Shell', exact: true }).first().click();
     await expect(page.getByRole('tab', { name: 'Acme - Shell' })).toBeVisible();
-    const running = await eve.openAnother('/');
+    const running = await openBoard(eve);
     await expect(running.getByRole('heading', { name: 'Working 1', level: 4 })).toBeVisible();
     const input = page.getByRole('textbox', { name: 'Terminal input' });
     await input.focus();
     await page.keyboard.type('exit');
     await page.keyboard.press('Enter');
-    const finished = await eve.openAnother('/');
+    const finished = await openBoard(eve);
     await expect(finished.getByRole('heading', { name: 'Done 1', level: 4 })).toBeVisible();
     await expect(finished.getByRole('heading', { name: 'Working 1', level: 4 })).toBeHidden();
   });
 
   test('open an agent from the board @G6.21', async ({ eve, page }) => {
     await eve.open('/');
+    await openProjectPage(page);
     await row(page, 'Ledger', 'idle').click();
     await expect(page.getByRole('tab', { name: /Ledger/ })).toBeVisible();
     await expect(page.getByText('first answer')).toBeVisible();
   });
 
   test('an agent moves group while the board is open @G6.22', async ({ eve, page }) => {
-    const other = await eve.openAnother('/');
+    const other = await openBoard(eve);
     await eve.open('/');
     await expect(row(other, 'Hold', 'idle')).toBeVisible();
     await holdThread(page);
@@ -88,14 +100,18 @@ test.describe('agents on the board', () => {
 });
 
 test('relay is down for the board @G6.20.r1', async ({ eve, page, relay }) => {
-  const added = await relay.ctl('fault', 'add', '--route', 'GET /api/sessions', '--mode', 'down');
-  expect(added.code).toBe(0);
   await eve.open('/');
-  await expect(page.getByText("Can't reach relay.").first()).toBeVisible();
+  await openProjectPage(page);
+  await expect(page.getByText('No agents running')).toBeVisible();
+  // The Project page's board follows relay's socket, so the socket route is the one that goes down.
+  const added = await relay.ctl('fault', 'add', '--route', 'GET /ws', '--mode', 'down');
+  expect(added.code).toBe(0);
+  await expect(page.getByRole('paragraph').filter({ hasText: "Can't reach relay." })).toBeVisible();
 });
 
 test('no agents are running @G6.20.r2', async ({ eve, page }) => {
   await eve.open('/');
+  await openProjectPage(page);
   await expect(page.getByText('No agents running')).toBeVisible();
 });
 
@@ -133,7 +149,10 @@ async function runRoutine(page, relay) {
   await expect(page.getByRole('tab', { name: /Testbox sweep/ })).toHaveCount(0);
 }
 
+const SKIPPED = 'not shown on Today since eve#615; returns with its own journey';
+
 test.describe('a routine that is running', () => {
+  test.skip(true, SKIPPED);
   test.use({ world: routineWorld() });
 
   test('see it under Running @G6.26', async ({ eve, page, relay }) => {
@@ -147,9 +166,13 @@ test.describe('a routine that is running', () => {
   });
 });
 
-test('nothing is running @G6.26.r1', async ({ eve, page }) => {
-  await eve.open('/');
-  await expect(page.getByText('Nothing running.')).toBeVisible();
+test.describe('nothing is running', () => {
+  test.skip(true, SKIPPED);
+
+  test('nothing is running @G6.26.r1', async ({ eve, page }) => {
+    await eve.open('/');
+    await expect(page.getByText('Nothing running.')).toBeVisible();
+  });
 });
 
 test.describe('on a phone', () => {
@@ -158,14 +181,22 @@ test.describe('on a phone', () => {
   test('see how many agents need me on the Today button @G6.25', async ({ eve, page }) => {
     await eve.open('/');
     await holdThread(page);
+    // The agent that needs me is read on the Project page; the badge is on Today's Bottom bar.
+    const board = await openBoard(eve);
+    await expect(board.getByRole('heading', { name: 'Needs you 1', level: 4 })).toBeVisible();
     const other = await eve.openAnother('/');
-    await expect(other.getByRole('heading', { name: 'Needs you 1', level: 4 })).toBeVisible();
     await expect(other.getByRole('navigation', { name: 'Navigation' }).getByText('1 need you')).toBeVisible();
   });
 
   test('no count when no agent needs me @G6.25.r1', async ({ eve, page }) => {
-    await eve.open('/');
+    // "Idle 2" on this page proves its agent list has loaded; Today's Bottom bar then has no count.
+    await eve.open('/#project/p_acme');
     await expect(page.getByRole('heading', { name: 'Idle 2', level: 4 })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Navigation' }).getByText(/\d+ need you/)).toBeHidden();
+    // On a phone the Project page has no Bottom bar; Back returns to Today.
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    const bar = page.getByRole('navigation', { name: 'Navigation' });
+    await expect(page.getByRole('heading', { level: 1, name: /^(Good morning|Good afternoon|Good evening|Working late)\.$/ })).toBeVisible();
+    await expect(bar.getByRole('button', { name: /^Today/ })).toBeVisible();
+    await expect(bar.getByText(/\d+ need you/)).toBeHidden();
   });
 });

@@ -31,7 +31,10 @@ async function startRoutine(page) {
   await page.getByRole('button', { name: 'Run Now', exact: true }).click();
 }
 
+const SKIPPED = 'not shown on Today since eve#615; returns with its own journey';
+
 test.describe('a run that is held', () => {
+  test.skip(true, SKIPPED);
   test.use({ world: holdWorld() });
 
   test('open a routine that is running from Running @G1.21', async ({ eve, page, relay }) => {
@@ -70,6 +73,7 @@ test.describe('a run that is held', () => {
 });
 
 test.describe('scheduler down', () => {
+  test.skip(true, SKIPPED);
   test.use({ scheduler: false });
 
   test('Needs you says the scheduler is out of reach @G1.19.r1', async ({ eve, page }) => {

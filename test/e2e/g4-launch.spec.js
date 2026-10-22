@@ -80,8 +80,8 @@ test.describe('terminal templates', () => {
     await page.keyboard.type('exit 3');
     await page.keyboard.press('Enter');
     await relay.waitForEvent('session.exited');
-    // A second page's board shows the ended terminal with its code.
-    const board = await eve.openAnother('/');
+    // A second page's board (the Agents section of the Project page) shows the ended terminal with its code.
+    const board = await eve.openAnother('/#project/p_acme');
     await expect(board.getByRole('button').filter({ hasText: 'exited 3' })).toBeVisible();
   });
 

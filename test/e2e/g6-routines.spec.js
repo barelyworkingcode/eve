@@ -76,7 +76,10 @@ async function openSheet(page, name) {
   return sheet;
 }
 
+const SKIPPED = 'not shown on Today since eve#615; returns with its own journey';
+
 test.describe('Needs you', () => {
+  test.skip(true, SKIPPED);
   test.use({ world: modelWorld() });
 
   test('see a failed routine in Needs you @G6.1', async ({ eve, page, relay }) => {
@@ -114,6 +117,7 @@ test.describe('Needs you', () => {
 });
 
 test.describe('a run that is held', () => {
+  test.skip(true, SKIPPED);
   test.use({ world: holdWorld() });
 
   test('open the thread of a failed routine from Needs you @G6.2', async ({ eve, page, relay }) => {
@@ -157,9 +161,14 @@ test.describe('finished routines on Today', () => {
 
   test('no routine finished hides the section @G6.3.r1', async ({ eve, page }) => {
     await eve.open('/');
+    // The Routines page reads the same scheduler task list; its empty line is the signal
+    // that the list has loaded and holds no routine.
+    await openRoutinesPage(page);
+    await expect(page.getByText('Nothing scheduled in Work.')).toBeVisible();
+    await page.getByRole('button', { name: 'Close Routines', exact: true }).click();
     await expectToday(page);
-    await expect(page.getByText('Nothing needs you.')).toBeVisible();
-    await expect(page.getByText('Routines', { exact: true })).toBeHidden();
+    // The Routines page and the palette stay in the page, hidden; only a shown title counts.
+    await expect(page.getByText('Routines', { exact: true }).filter({ visible: true })).toBeHidden();
   });
 
   test('open a finished routine run from Today @G6.4', async ({ eve, page }) => {

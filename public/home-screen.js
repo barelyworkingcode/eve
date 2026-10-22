@@ -20,11 +20,12 @@ class HomeScreen {
     this.el = document.getElementById('homeContent');
     if (!this.el) return;
 
-    for (const Part of [SummaryPart, ContinuePart, NeedsYouPart, StartPart, RunningPart, RoutinesPart, AgentsPart, ProjectsPart]) {
+    // eve#615: NeedsYouPart, RunningPart, AgentsPart and BriefPart are not registered
+    // (their files and script tags stay); add one back here to show it on Today again.
+    for (const Part of [SummaryPart, ContinuePart, StartPart, RoutinesPart, ProjectsPart]) {
       this.registry.register(new Part());
     }
     this.registry.register(new AskPart());
-    this.registry.register(new BriefPart());
     this.container.register('todayParts', this.registry);
 
     const sources = this.container.get('todaySources');
