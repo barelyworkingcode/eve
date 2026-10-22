@@ -881,7 +881,8 @@ class TerminalManager {
     });
     this.allTerminals.set(terminalId, {
       id: terminalId, templateId, name, directory, host: host || null,
-      state: exited ? 'stopped' : 'running'
+      state: exited ? 'stopped' : 'running',
+      ...(metadata?.unsandboxed === true ? { unsandboxed: true } : {}),
     });
 
     this._applyViewerMetadata(terminalId, metadata);

@@ -342,6 +342,21 @@ class AgentBoard {
     }
   }
 
+  // The one place the Unsandboxed rule lives: relay marks a session it runs with no project, and its
+  // drop-in terminal, with `unsandboxed: true`. Absent or anything but true is unmarked.
+  static isUnsandboxed(r) {
+    return (r.kind === 'session' || r.kind === 'terminal') && r.item?.unsandboxed === true;
+  }
+
+  _unsandboxedChip(r) {
+    const chip = document.createElement('span');
+    chip.className = 'agent-row__chip agent-row__chip--unsandboxed';
+    chip.dataset.testid = `${this.prefix}-agent-unsandboxed-${r.id}`;
+    chip.setAttribute('aria-description', 'Runs with no sandbox and no project policy.');
+    chip.textContent = 'Unsandboxed';
+    return chip;
+  }
+
   // The one place the Resume rule lives: an ended outside row in a console project.
   static showsResume(r) {
     return r.kind === 'outside' && r.group === 'ended' && r.item.state === 'ended'
@@ -669,6 +684,7 @@ class AgentBoard {
     title.className = 'agent-row__title';
     title.textContent = label;
     head.appendChild(title);
+    if (AgentBoard.isUnsandboxed(r)) head.appendChild(this._unsandboxedChip(r));
     if (this.layout === 'rail') {
       const age = r.kind !== 'terminal' ? AgentBoard.ago(r.since) : '';
       if (age) {
