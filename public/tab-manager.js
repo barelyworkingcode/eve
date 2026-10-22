@@ -728,9 +728,11 @@ class TabManager {
       if (tab._nestedIn) continue;
 
       const tabProjectId = this._tabProjectId(tab);
-      // An outside viewer in no project shows in every project, so it can always be closed.
+      // An outside viewer, or the drop-in terminal of a session relay runs unsandboxed, in no project
+      // shows in every project, so it can always be reached and closed.
+      const unsandboxed = AgentBoard.isUnsandboxed({ kind: 'terminal', item: this.app.terminalManager?.allTerminals?.get(tab.id) });
       if (this._activeProjectId && !panes.type(tab.type)?.global && tabProjectId !== this._activeProjectId
-        && !(tab.outside && !tabProjectId)) {
+        && !((tab.outside || unsandboxed) && !tabProjectId)) {
         continue;
       }
 
