@@ -93,6 +93,7 @@
     {"id":"ask-pasted-url","needs":["project:acme"],"areas":["chat","home"],"timeoutMs":90000},
     {"id":"agent-board-states","needs":["project:acme"],"areas":["chat","home"],"timeoutMs":150000},
     {"id":"agent-drop-in","needs":["project:acme"],"areas":["home","terminal"],"timeoutMs":150000},
+    {"id":"agent-drop-in-pi","needs":["project:acme"],"areas":["home","terminal"],"timeoutMs":240000},
     {"id":"cos-asking-post","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":120000},
     {"id":"cos-tell-sends-marked","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":150000},
     {"id":"cos-reads-project","needs":["project:acme"],"areas":["chief-of-staff"],"timeoutMs":180000},

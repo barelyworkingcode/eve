@@ -690,6 +690,29 @@ PASS needs all of these.
   Acme Corp terminal and deletes the new Acme Corp session. SSH-host
   drop-in: needs a test-machine pass.
 
+**agent-drop-in-pi.** A person drops in to an idle headless Pi agent from
+the board (eve#610). Over the harness's own eve socket the journey sends
+`create_session` for Acme Corp: a `pi/relay-router/<model>` id (or the first
+`pi/relay-router/` id offered), name `verify-<nonce>-dropin-pi`, settings
+`{headless: true, agent: true}`. Turn 1 is `Reply with exactly:
+verify-<nonce>-done`; the `idle` frame ends it. `today-drop-in-<id>` must show
+in `today-agents-group-idle`. A click must answer 201 with `agent: "pi"` and
+`terminal.templateId: "pi"`, select that terminal's tab, and leave an ok
+`session.drop_in` in `relay logs`. Closing the tab must leave an ok
+`session.hand_back` and show Drop in under Idle again. Turn 2 is `Reply with
+exactly: verify-<nonce>-done-2`; it must end `idle` with a reply that holds
+the marker. PASS needs all of these.
+- Lives in: `public/agent-board.js` (`AgentBoard.takesDropIn`); relay's
+  drop-in for Pi (relay#578).
+- Traps: BLOCKED when Acme Corp offers no `pi/relay-router/` model, when its
+  terminal templates list no `pi`, or when relay's launch authorisation refuses
+  the create (an error naming `template "`). The TUI has no ready signal, so
+  the journey checks the terminal's template and relay's events, not the Pi
+  screen. Codex is not driven here: a Codex session on a stack spends the
+  box's codex account. A cleanup closes the new Acme Corp terminal and
+  deletes the new session; the Pi session file lives in the stack's config
+  dir, which `stack-down` removes.
+
 Every journey in the `chief-of-staff` area waits, before it starts and after its last step, for `cos_status` `busy:false` (cap 120 s, FAIL naming the journey), so a late reply from one journey is never the next one's answer.
 
 **cos-asking-post.** The Chief of Staff thread posts when an agent needs

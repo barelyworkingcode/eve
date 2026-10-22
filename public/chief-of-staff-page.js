@@ -909,11 +909,11 @@ class ChiefOfStaffPage {
     setTimeout(focus, 400);
   }
 
-  // The board's Drop in, for the sessions it offers it to (headless Claude);
+  // The board's Drop in, for the sessions it offers it to (headless Claude, Pi or Codex);
   // any other session is opened instead.
   _dropIn(card) {
     if (card.sessionId?.startsWith('outside:')) return;
-    if (card.headless === true && AgentBoard.isClaude({ model: card.model })) {
+    if (card.headless === true && AgentBoard.takesDropIn({ model: card.model, host: card.host })) {
       AgentBoard.dropIn(this.container, card.sessionId);
       return;
     }
